@@ -1,0 +1,419 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 1aafef3..45c2e70 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -21,11 +21,11 @@ namespace Memoria.Netsync
+     //                                       playable name (vivi, dagger, ...); empty = their own model.
+     //   FollowHost  = 0                     VISITOR MODE (guest side): 1 = auto-warp my game to the
+     //                                       field the peer is on (debounced; registered fields only),
+-    //                                       and my own random encounters pause while following.
+-    //   Diorama     = 1                     B3 (guest side, needs FollowHost): 1 = when the host enters
+-    //                                       battle, boot their fight as a live render-only diorama on
+-    //                                       my screen (leave when it ends). 0 = stay on the field with
+-    //                                       the old spectate panel only.
++    //                                       my own random encounters pause while following, and the
++    //                                       host's battles boot as a live render-only diorama on my
++    //                                       screen (B3; F6 "Leave diorama" opts out per fight).
++    //   (Diorama    = REMOVED s42           the old on/off knob is gone -- always-on for a follower;
++    //                                       a stray line in an old Memoria.ini is silently ignored.)
+     //
+     // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
+     // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
+@@ -55,7 +55,15 @@ namespace Memoria.Netsync
+ 
+         private static Boolean _configLoaded;
+         private static DateTime _iniStamp;               // Memoria.ini mtime at the last read (hot-reload gate)
+-        private static String _cfgSig = "";              // parsed-value signature (our own code-persist != a change)
++        // THE CONFIG-SIGNATURE SPLIT (s42, 2026-07-19): one signature per CONSEQUENCE class. A TRANSPORT
++        // key (who/how we dial) changing needs the full teardown+redial; a BEHAVIOR key (play style) must
++        // apply live WITHOUT it -- the old single signature made flipping ANY [Netsync] knob mid-session
++        // drop the transport, force SuppressEncounters off for the whole reconnect, and exit-ramp a
++        // mirroring guest to their own autosave (the "Diorama=0 weirdness" of the 2026-07-18 two-machine
++        // run: the toggle itself silently ended the session and the guest's next fight was a REAL local
++        // battle on their own party).
++        private static String _cfgTransportSig = "";     // enabled|role|peer|port|relay|code|tls (our own code-persist != a change)
++        private static String _cfgBehaviorSig = "";      // targetField|guestSlots|guestWait|ghostAs|followHost|selfTestOffset|dioramaSwirl
+         private static Boolean _enabled;
+         private static String _role = "selftest";       // selftest | host | client
+         private static String _peer = "127.0.0.1";
+@@ -64,7 +72,6 @@ namespace Memoria.Netsync
+         private static Int32 _guestSlots;                // battle co-op: party slots the peer commands (class comment)
+         private static String _ghostAs = "";             // visitor mode: dress the peer's ghost (class comment)
+         private static Boolean _followHost;              // visitor mode: auto-warp to the peer's field (class comment)
+-        private static Boolean _diorama = true;          // B3: auto-boot the host's battle as a diorama (class comment)
+         private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
+         private static String _sessionCode = "";
+         private static Boolean _insecureTls;
+@@ -116,6 +123,20 @@ namespace Memoria.Netsync
+         private Int32 _followCandidate = -1;             // the peer field currently being debounced
+         private Int32 _followCandidateSince;
+         private Int32 _followWarpedTo = -1;              // don't re-warp to the same id until the peer moves on
++        // THE SAME-FIELD PAIRING GAP (s42): the story mirror arms ONLY at a field-load boundary
++        // (HonoluluFieldMain -> ApplyStoryBeforeEvents), and FollowHostTick treats "peer already on my
++        // field" as a no-op -- so a guest co-located with the host at link-up NEVER armed the mirror
++        // (2026-07-18 two-machine finding: the next host battle then booted a diorama seated with the
++        // GUEST'S OWN party). Fix: ONE forced same-field reload per session start, through the proven
++        // deferred-fade warp, so the mirror arms via the exact load boundary it already trusts. Own
++        // flag, NOT _followCandidate/_followWarpedTo (those encode "chasing a DIFFERENT field").
++        // The kick re-arms when its load SKIPPED the mirror-arm (a state-lane hiccup in the fade
++        // window would otherwise spend the one-shot) -- CAPPED at SameFieldKickMaxTries per session:
++        // a flapping lane near the 2s staleness edge could otherwise fade/reload indefinitely
++        // (verify find; the diorama watcher's throttle+skip-nonce is the same file's same pattern).
++        private Boolean _sameFieldKickDone;              // this follow-session already had its first-arrival kick
++        private Int32 _sameFieldKickTries;               // reloads spent this session (cap + one give-up log)
++        private const Int32 SameFieldKickMaxTries = 3;
+ 
+         // B3: the diorama watcher. _dioramaWireNonce >= 0 marks a diorama THIS watcher booted (from the
+         // wire); an F6 manual diorama stays -1 and is never auto-managed. _dioramaActionTick rate-limits
+@@ -153,7 +174,7 @@ namespace Memoria.Netsync
+         // applies a live config edit to an already-running client.
+         public static void Ensure()
+         {
+-            Boolean changed = LoadConfigIfChanged();
++            Int32 changed = LoadConfigIfChanged();
+             if (_instance == null)
+             {
+                 if (!_enabled)
+@@ -162,10 +183,14 @@ namespace Memoria.Netsync
+                 UnityEngine.Object.DontDestroyOnLoad(go);
+                 _instance = go.AddComponent<NetSyncClient>();
+             }
+-            else if (changed)
++            else if (changed == 2)
+             {
+                 _instance.ApplyConfigChange();
+             }
++            else if (changed == 1)
++            {
++                _instance.ApplyBehaviorChange();
++            }
+         }
+ 
+         // FIELD-LOAD HOOK (called from HonoluluFieldMain right before ee.StartEvents -- i.e. before the
+@@ -194,6 +219,10 @@ namespace Memoria.Netsync
+                 if (realGuest)
+                     Log.Message("[NetSync] state-mirror skipped at this field load: transport "
+                                 + (_socket == null ? "not created yet" : "not connected"));
++                RearmSameFieldKick();   // s42 verify find: a load that SKIPPED its mirror-arm re-arms
++                                        // the same-field kick (it latches BEFORE its reload lands, so
++                                        // a transient hiccup would otherwise spend it for the whole
++                                        // session) -- capped, see the helper
+                 return;
+             }
+             Byte[] host = _socket.GetRemoteState();
+@@ -201,6 +230,9 @@ namespace Memoria.Netsync
+             {
+                 if (realGuest)
+                     Log.Message("[NetSync] state-mirror skipped at this field load: no host snapshot on the wire (yet)");
++                RearmSameFieldKick();   // same re-arm; the kick's own snapshot gate keeps a retry from
++                                        // firing until the lane recovers, and the cap bounds a
++                                        // FLAPPING lane to SameFieldKickMaxTries reloads
+                 return;     // no host snapshot yet: the guest is still living in its OWN story
+             }
+             if (NetSyncState.ApplyStory(host))
+@@ -208,11 +240,28 @@ namespace Memoria.Netsync
+                 if (!_storyMirroring)
+                     Log.Message("[NetSync] state-mirror ARMED -- this guest's fields now stage the HOST's story");
+                 _storyMirroring = true;    // disk stays safe via the save gates; the exit ramp ends it
++                _sameFieldKickTries = 0;   // armed -- the kick's retry budget resets for the session
+             }
+             else if (realGuest)
+                 Log.Message("[NetSync] state-mirror apply FAILED at this field load (payload " + host.Length + " B)");
+         }
+ 
++        // The capped re-arm (s42): a field load that skipped its mirror-arm hands the same-field kick
++        // another try -- until the session's budget is spent, then ONE clear give-up line (never a
++        // silent decline; the mirror still arms at the next NATURAL field change if the lane recovers).
++        private void RearmSameFieldKick()
++        {
++            if (_sameFieldKickTries < SameFieldKickMaxTries)
++                _sameFieldKickDone = false;
++            else if (_sameFieldKickTries == SameFieldKickMaxTries)
++            {
++                _sameFieldKickTries++;     // bump past the cap so this logs exactly once per session
++                Log.Message("[NetSync] the state mirror could not arm after " + SameFieldKickMaxTries
++                            + " same-field reloads -- giving up for this session (it arms at your next "
++                            + "natural field change once the link steadies)");
++            }
++        }
++
+         // True while a following guest's live gEventGlobal holds the HOST's story (not the guest's own).
+         // SAVING must be blocked in this window or the guest's save would persist the host's progress
+         // (SaveLoadUI gates on this). Stays true after the link ends until the exit ramp fires -- the
+@@ -257,15 +306,16 @@ namespace Memoria.Netsync
+ 
+         // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
+         // parsed values are signature-compared so our own session-code persist never counts as an edit).
+-        // Returns true when the EFFECTIVE config changed on a reload (never on the first load). Lets the
+-        // coop CLI / Workspace / a hand edit reconfigure a RUNNING game -- no relaunch.
+-        private static Boolean LoadConfigIfChanged()
++        // Returns the change KIND on a reload (never on the first load): 0 = no effective change,
++        // 1 = BEHAVIOR keys only (apply live, keep the session), 2 = a TRANSPORT key (full reconfigure).
++        // Lets the coop CLI / Workspace / a hand edit reconfigure a RUNNING game -- no relaunch.
++        private static Int32 LoadConfigIfChanged()
+         {
+             DateTime stamp;
+             try { stamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
+-            catch { return false; }               // unreadable right now -> keep the current config
++            catch { return 0; }                   // unreadable right now -> keep the current config
+             if (_configLoaded && stamp == _iniStamp)
+-                return false;
++                return 0;
+             _iniStamp = stamp;
+             try
+             {
+@@ -286,7 +336,11 @@ namespace Memoria.Netsync
+                     guestWait = n;
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+                 Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
+-                Boolean diorama = ini.GetSetting("Netsync", "Diorama", "1").Trim() != "0";   // default ON
++                // [Netsync] Diorama REMOVED (s42): the diorama is always-on for a follower. The knob's
++                // only realized effect was this round's defect class (its toggle fired the full-teardown
++                // path); both real needs it claimed to serve are covered elsewhere -- the spectate panel
++                // auto-falls-back whenever a diorama can't boot, and F6 "Leave diorama" opts out per
++                // fight. A stray Diorama= line in an old Memoria.ini is silently ignored.
+                 String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
+                 String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
+                 Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
+@@ -331,20 +385,27 @@ namespace Memoria.Netsync
+                                     "(shown in the host's Memoria.ini after their first launch)");
+                     }
+                 }
+-                String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
+-                             "|" + guestSlots + "|" + guestWait + "|" + ghostAs + "|" + (followHost ? "1" : "0") +
+-                             "|" + (diorama ? "1" : "0") + "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0") +
+-                             "|" + stDx + "," + stDz + "|" + (dioramaSwirl ? "1" : "0");   // B3.6: un-sigged keys
+-                                                                                           // are invisible to hot-reload
++                // The split (see the field comments): a TRANSPORT key changing = who/how we dial -> the
++                // session cannot survive it; everything else is a BEHAVIOR key and applies live. Un-sigged
++                // keys are invisible to hot-reload. TargetField is BEHAVIOR: it scopes broadcast/ghosts
++                // (read per frame), the dialed connection is unaffected.
++                String tsig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port +
++                              "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
++                String bsig = field + "|" + guestSlots + "|" + guestWait + "|" + ghostAs +
++                              "|" + (followHost ? "1" : "0") + "|" + stDx + "," + stDz +
++                              "|" + (dioramaSwirl ? "1" : "0");
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+-                if (sig == _cfgSig)
+-                    return false;                 // e.g. an edit to some OTHER Memoria.ini section
++                Boolean tChanged = tsig != _cfgTransportSig;
++                Boolean bChanged = bsig != _cfgBehaviorSig;
++                if (!tChanged && !bChanged)
++                    return 0;                     // e.g. an edit to some OTHER Memoria.ini section
+                 _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
+-                _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = followHost; _diorama = diorama;
++                _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = followHost;
+                 _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure;
+-                _selfTestDx = stDx; _selfTestDz = stDz;                             // B3.6: committed before _cfgSig
+-                _cfgSig = sig;
++                _selfTestDx = stDx; _selfTestDz = stDz;                             // B3.6: committed before the sigs
++                _cfgTransportSig = tsig;
++                _cfgBehaviorSig = bsig;
+                 NetSyncBattle.Enabled = _enabled;                                   // the battle lane's config mirror
+                 NetSyncBattle.GuestSlots = _guestSlots;
+                 NetSyncBattle.GuestWaitMs = guestWait;
+@@ -357,19 +418,22 @@ namespace Memoria.Netsync
+                             (_guestSlots != 0 ? " guestSlots=" + _guestSlots : "") +
+                             (_ghostAs.Length > 0 ? " ghostAs=" + _ghostAs : "") +
+                             (_followHost ? " followHost=1" : "") +
+-                            (!_diorama ? " diorama=0" : "") +
+                             (!dioramaSwirl ? " dioramaSwirl=0" : "") +
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+-                return !first;
++                if (first)
++                    return 0;
++                return tChanged ? 2 : 1;
+             }
+-            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); return false; }
++            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); return 0; }
+         }
+ 
+-        // A config edit landed while the game runs: drop the transport (Update lazily redials with the
+-        // new settings on the target field), clear the ghost + overlay so nothing carries stale state.
+-        // Main thread only (HonoAwake / Update).
++        // A TRANSPORT config edit landed while the game runs (who/how we dial changed): drop the
++        // transport (Update lazily redials with the new settings), clear the ghost + overlay so nothing
++        // carries stale state. Main thread only (HonoAwake / Update). s42: BEHAVIOR keys no longer come
++        // through here -- ApplyBehaviorChange applies them live with the session intact (the old
++        // any-key-fires-this design silently ended a mirrored session on a play-style tweak).
+         private void ApplyConfigChange()
+         {
+             Log.Message("[NetSync] config change applied live" +
+@@ -384,9 +448,16 @@ namespace Memoria.Netsync
+             NetSyncBattle.Reset();
+             NetSyncVisitor.SuppressEncounters = false;
+             WriteCoopCells(0, Vector3.zero);   // incl. the enabled->disabled edge: leave no stale presence
+-            _followWarpPending = -1;
++            // s42 verify find: NEVER abandon an in-flight warp (_followWarpPending stays) -- by the
++            // time a warp is pending the screen is already faded OUT with control OFF, and the only
++            // thing that fades back in is the destination field's own load. The old clear here left a
++            // permanently black screen if a config edit landed inside the ~0.9s fade window (likeliest
++            // exactly at session start, when the same-field kick fires). ServiceFollowWarp finishes it;
++            // the new transport dials after the load.
+             _followCandidate = -1;
+             _followWarpedTo = -1;
++            _sameFieldKickDone = false;    // a NEW session starts on redial -- its first arrival kicks again
++            _sameFieldKickTries = 0;       // with a fresh reload budget
+             if (_storyMirroring)
+                 _exitRampPending = true;   // deliberate config change ends the session NOW: ramp to the
+                                            // guest's own autosave at the next safe tick (no debounce);
+@@ -396,6 +467,26 @@ namespace Memoria.Netsync
+             _ovlText = null;
+         }
+ 
++        // A BEHAVIOR config edit landed while the game runs (play-style keys only: TargetField,
++        // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl): every consumer
++        // reads the committed statics per frame (dress/scope/slots pick the new value up on the next
++        // tick), so the transport and the mirrored session stay INTACT -- no teardown, no reconnect
++        // window with SuppressEncounters forced off, no exit ramp on a mere play-style tweak. The two
++        // session-semantic edges are handled explicitly.
++        private void ApplyBehaviorChange()
++        {
++            Log.Message("[NetSync] play-style config applied live (session kept)");
++            _sameFieldKickDone = false;    // FollowHost may have just risen: a co-located guest still
++                                           // needs its one same-field kick (harmless otherwise -- the
++                                           // kick self-gates on !_storyMirroring + a host snapshot)
++            _sameFieldKickTries = 0;       // a deliberate config action re-funds the reload budget
++            if (!_followHost && _storyMirroring)
++                _exitRampPending = true;   // stopped FOLLOWING mid-mirror: that IS a session end for the
++                                           // mirror -- ramp to the guest's own autosave (same contract
++                                           // as ApplyConfigChange; _storyMirroring stays true so the
++                                           // save-block stays armed through the gap)
++        }
++
+         // THE COOP CELLS (see the class comment): peer presence + walkmesh X/Z into gEventGlobal
+         // bytes 2032-2039, where kit-compiled [[coop]] gates read them as ordinary GLOB vars. The
+         // Int16 LE byte layout matches EBin.GetVariableValueInternal's byte-offset read exactly.
+@@ -491,8 +582,11 @@ namespace Memoria.Netsync
+             if (Environment.TickCount - _lastPoll > 2000)
+             {
+                 _lastPoll = Environment.TickCount;
+-                if (LoadConfigIfChanged())
++                Int32 cfgKind = LoadConfigIfChanged();
++                if (cfgKind == 2)
+                     ApplyConfigChange();
++                else if (cfgKind == 1)
++                    ApplyBehaviorChange();
+             }
+ 
+             // SESSION EXIT RAMP: a mirrored session that ended must not leave the guest playing the
+@@ -515,15 +609,22 @@ namespace Memoria.Netsync
+                     _exitRampPending = false;
+                     _exitRampSince = 0;
+                     _storyMirroring = false;
++                    _sameFieldKickDone = false;    // the autoload may land the guest ON the host's field
++                                                   // (both saves at the same place) -- the next live
++                                                   // session must still get its same-field kick
++                    _sameFieldKickTries = 0;       // a session boundary re-funds the reload budget
+                     NetSyncParty.Clear();          // the read wraps revert to the guest's own state
+                     NetSyncState.ExitMirrorToOwnSave();
+                 }
+             }
++            // s42 verify find: a follow-warp in flight ALWAYS finishes -- BEFORE the enabled gate.
++            // The fade is already out + control is off; if co-op was disabled (or reconfigured) inside
++            // the fade window, returning early here would strand a black screen forever (the recovery
++            // is the destination field's own load, which only SetNextMap can start).
++            ServiceFollowWarp();
+             if (!_enabled)
+                 return;
+ 
+-            ServiceFollowWarp();   // a follow-warp in flight finishes regardless of what else this frame does
+-
+             // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
+             // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
+             // players share; > 0 = the original single-hangout-field mode. Any failure reading the
+@@ -852,14 +953,13 @@ namespace Memoria.Netsync
+                 // mid-fade) self-resolve and stay quiet. Client-only: on a HOST whose guest is
+                 // fighting, "FollowHost=0" would be true but describe nothing wrong.
+                 _dioramaSeenNonce = nonce;
+-                if (!_followHost || !_diorama)
+-                    Log.Message("[NetSync] the host is fighting (scene " + mapNo + ") but the diorama is off: "
+-                                + (!_followHost ? "FollowHost=0" : "Diorama=0"));
++                if (!_followHost)
++                    Log.Message("[NetSync] the host is fighting (scene " + mapNo + ") but the diorama is off: FollowHost=0");
+                 else if (!NetSyncParty.MirrorActive)
+                     Log.Message("[NetSync] diorama note: the party mirror hasn't armed yet -- the diorama "
+                                 + "stages YOUR party for now (it syncs at your next field load)");
+             }
+-            if (!_followHost || !_diorama)
++            if (!_followHost)
+                 return;                                  // hosts and non-followers never auto-boot
+ 
+             if (NetSyncDiorama.Booted)
+@@ -926,6 +1026,12 @@ namespace Memoria.Netsync
+             }
+             if (!onField)
+                 return;   // free-standing on a field only -- never from my own battle/menu/transition
++            if (_followWarpPending >= 0)
++                return;   // s42 verify find: a warp fade is in flight (chase or the same-field kick) --
++                          // onField/FieldHUD both stay true through a fade, so without this gate a Boot
++                          // Replace races the warp's own Replace (two scene transitions inside ~1s).
++                          // Transient + quiet: the watcher retries after the load, when the party
++                          // mirror has also just armed -- the diorama then seats the RIGHT party.
+             try
+             {
+                 if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
+@@ -977,6 +1083,7 @@ namespace Memoria.Netsync
+             {
+                 _followCandidate = -1;
+                 _followWarpedTo = -1;      // arrived; a future move re-arms the follow
++                SameFieldKickTick(myField, onField);   // s42: co-located at link-up still needs ONE load boundary
+                 return;
+             }
+             if (rs.Field == _followWarpedTo)
+@@ -1010,6 +1117,43 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // THE SAME-FIELD KICK (s42, see the _sameFieldKickDone comment): a guest that pairs while
++        // ALREADY standing on the host's field never crosses a field-load boundary, so the story
++        // mirror never arms -- and every mirror-gated behavior silently stays off (the worst symptom:
++        // the next host battle boots a diorama seated with the guest's OWN party). Fire ONE forced
++        // reload of the current field through the proven deferred-fade warp; HonoluluFieldMain's
++        // ApplyStoryBeforeEvents then arms the mirror through the exact path it already trusts.
++        // ONE-SHOT per session (reset on transport reconfigure / behavior change / exit ramp), and
++        // it WAITS until a host snapshot is actually on the wire -- a reload that would arm nothing
++        // is a reload wasted. Reached only via FollowHostTick's same-field branch, so rs is Valid
++        // and _followHost is set; _followWarpPending was checked at that gate too.
++        private void SameFieldKickTick(Int32 myField, Boolean onField)
++        {
++            if (_sameFieldKickDone || _storyMirroring || _exitRampPending || _role != "client")
++                return;
++            if (!onField)
++                return;                    // mid-battle/menu/transition -- retry while co-located
++            try
++            {
++                if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++                    return;                // a dialog/menu is up -- the reload can wait a frame
++                if (_socket == null || _socket.GetRemoteState() == null)
++                    return;                // no host snapshot on the wire yet (~150ms publish cadence)
++                _sameFieldKickDone = true;
++                _sameFieldKickTries++;     // one unit of the session's capped reload budget
++                PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
++                SceneDirector.FF9Wipe_FadeOutEx(FollowFadeFrames);
++                _followWarpPending = myField;   // same-field SetNextMap = a clean reload (the F6 recipe)
++                _followWarpTimer = FollowFadeWait;
++                Log.Message("[NetSync] paired on the host's field (" + myField
++                            + ") -- reloading it once so the state mirror arms");
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] same-field mirror kick failed");
++            }
++        }
++
+         // The F6 warp's deferred second half: fire the map change once the fade has run.
+         private void ServiceFollowWarp()
+         {
+@@ -1053,7 +1197,7 @@ namespace Memoria.Netsync
+             {
+                 case OvlElsewhere:
+                     _ovlText = "FF9 co-op is ON (" + (_role == "host" ? "hosting, code " + code : "joining " + code) +
+-                               ")\nmeet your friend:  F6 > Warp to field > " + _targetField;
++                               ")\nmeet your friend:  ~ menu > Warp to field > " + _targetField;
+                     break;
+                 case OvlNoCode:
+                     _ovlText = "FF9 co-op: SessionCode is EMPTY -- nothing to join.\n" +
