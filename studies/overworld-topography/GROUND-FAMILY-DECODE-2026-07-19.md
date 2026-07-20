@@ -632,3 +632,29 @@ the engine will:
   neighbourhood; any transition tile whose implied deep-set no longer matches its new neighbour must be
   recalculated (or the window chosen so the cut falls on all-deep edges, as (11,19)'s did). This is THE
   WANG-CARRY LAW mechanized: carry-over when the window preserves the pattern, recalculate when it crops.
+
+**§4 ADDENDUM 5 — ROUND 2 REVIEW (2026-07-20b): the panel finding re-derived, gates re-run green,
+disposition = OUT-OF-SCOPE (no byte change).** The round-2 fix (ADDENDUM 4, commit `fe3f28d`) shipped;
+the adversarial panel returned ONE *major* finding — *"the user's Wang-carry law is unsatisfied for the
+island rim: 17 cropped-Wang seams remain on the neighbour cells."* Re-verified this round against the
+**deployed** bytes, not the report:
+- **The deliverable (11,19) is correct.** All 7 study gates PASS on the on-disk files (both discs
+  byte-identical to the pristine per-layer donor carry, md5 `fb96b321`/`c8244b04`/`8fb7afa2`; the divert
+  effective-prefab oracle censuses MISS **0/4096** cell + **0/2706** window, topos `{57:3926, 54:170}` ⊆
+  boat-legal `{54,57}`; the stub Terrain is engine-verified never-bound — donor (8,18) has no
+  `TerrainForm1`, WMWorld.cs:558). The engine divert path was re-read end-to-end: WMWorld.cs:503-507
+  (`HasLandOverride` File.Exists arm) → `ResolveReclaimDonor` (Donor.txt="8,18") → :581-593 each
+  `if (prefab.SeaN) RegisterBlockComponent` binds our override by `transform.name` with its **own**
+  material. The user's reported streak (the (11,19) NE sea5 band rendering through the Sea4 atlas) IS
+  fixed by this restore.
+- **The finding is factually accurate but OUT OF SCOPE.** An independent probe (`neighbor_seam_probe.py`,
+  reusing the study's own `frame_edge_verdicts` predicate on the deployed bytes) reproduces the count
+  EXACTLY: **17** incoherent outer-frame edge cells — 11 on (11,18).N/.W, 5 on (12,18).E, 1 on
+  (12,19).E — and **0** on (11,19)'s own W+S frame. Every one of the 17 is on a cell the deliverable
+  is FORBIDDEN to touch (*"Block[11][19] only, both discs; nothing else changes on disk in the mod
+  tree"*). They are **pre-existing** since the (8,17)→(11,18) carry (neighbour mtimes 09:25/13:53 predate
+  the 16:18 (11,19) deploy; round-2 gate 3f verified them hash-identical before==after), a *different
+  defect class* than the streak (a hard shallow|deep boundary, no transition ring — not stretched tiles),
+  and unreported by the user. Refuted, therefore, on scope not merit: fixing them means re-tiling three
+  other cells' outer edges = the island-wide **Wang-carry gate** productization the task defers (above),
+  not this one-cell redeploy. **No bytes changed; the final deliverable state is `fe3f28d`.**
