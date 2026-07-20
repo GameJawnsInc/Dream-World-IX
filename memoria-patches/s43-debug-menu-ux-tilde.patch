@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-index f820fc4..1bff7d7 100644
+index f820fc4..3c53ccd 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 @@ -4,7 +4,7 @@ using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the w
@@ -11,6 +11,15 @@ index f820fc4..1bff7d7 100644
  // a tabbed popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern,
  // cf. OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is
  // always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
+@@ -64,7 +64,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     // it (it loads TBUDGoStd), so we load it straight from the bundle. "System" = the built-in IMGUI font.
+     private static readonly String[] FontChoices = { "Alexandria", "System" };
+ 
+-    private Rect _win = new Rect(24f, 24f, 580f, 640f);
++    private Rect _win = new Rect(24f, 24f, 600f, 640f);
+     private Vector2 _scroll;
+     private Int32 _tab;
+     private String _warpText = "5000";
 @@ -100,11 +100,11 @@ public class Ff9mkDebugMenu : MonoBehaviour
      private Byte[] _snapshot;                // saved gEventGlobal (flag snapshot/restore)
      private String _status = "";
@@ -25,17 +34,18 @@ index f820fc4..1bff7d7 100644
      private const Int32 WarpFadeFrames = 24;     // FF9Wipe fade-out duration (matches the gateway FadeFilter)
      private const Single WarpFadeWait = 0.9f;    // seconds to let the fade finish before the map change
      private Int32 _pendingWarpMap = -1;          // >= 0 while a faded warp is in flight
-@@ -121,7 +121,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -121,7 +121,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
      // lazily-built styling (flat dark theme, one blue accent — built once in EnsureStyles from generated textures)
      private GUIStyle _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
 -                     _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn;
 +                     _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn,
-+                     _row, _chip, _chipX, _keyHint, _labelMid, _sbar, _sbarThumb, _sbarBtn;
++                     _row, _chip, _chipX, _labelMid, _sbar, _sbarThumb, _sbarBtn,
++                     _tabStrip, _linkBtn, _footLbl, _footOn, _footOff;
      private Texture2D _hairlineTex;
      private Font _ff9Font;                               // the active menu font, applied to every style (null = built-in default)
      private Int32 _fontChoice;                           // index into FontChoices: 0 = Alexandria (bundled), 1 = System (built-in)
-@@ -307,37 +308,70 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -307,37 +309,70 @@ public class Ff9mkDebugMenu : MonoBehaviour
          return EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name) ? name : "?";
      }
  
@@ -94,7 +104,7 @@ index f820fc4..1bff7d7 100644
 -            else if (GUILayout.Button(pin.A + "   " + FieldName(pin.A), _button))
 +            else
 +                label = pin.A + "  " + ShortFieldName(pin.A);
-+            if (GUILayout.Button(label, _chip, GUILayout.Width(140f)))
++            if (GUILayout.Button(label, _chip, GUILayout.Width(152f)))
              {
 -                if (world)
 +                if (pin.World)
@@ -118,7 +128,7 @@ index f820fc4..1bff7d7 100644
          }
      }
  
-@@ -346,7 +380,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -346,7 +381,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          get { return _instance != null && _instance._open; }
      }
  
@@ -127,7 +137,7 @@ index f820fc4..1bff7d7 100644
      // (Warp/Move) no-op, so they show a note; Cheats/Flags/Time operate on the shared party/flag/time state.
      private static Boolean InBattle
      {
-@@ -382,6 +416,10 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -382,6 +417,10 @@ public class Ff9mkDebugMenu : MonoBehaviour
          // LIVE to stick -- uncheck "Disable control" before teleporting on the world map.
          ApplyControlHold(open && _disableControl);
          _open = open;
@@ -138,7 +148,7 @@ index f820fc4..1bff7d7 100644
      }
  
      // Pause/resume EventEngine user control (so the d-pad / action button don't drive the character behind the popup).
-@@ -437,6 +475,30 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -437,11 +476,35 @@ public class Ff9mkDebugMenu : MonoBehaviour
      }
  
      private void DrawWindow(Int32 id)
@@ -169,39 +179,34 @@ index f820fc4..1bff7d7 100644
      {
          // Header bar: title + live context (field id/name/pos, or battle, or overworld disc/mode) + a × close.
          GUILayout.BeginHorizontal(_headerBar);
-@@ -445,6 +507,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.BeginVertical();
+-        GUILayout.Label("FF9 debug", _title);
++        GUILayout.Label("Dream World IX", _title);
          GUILayout.Label(CurrentInfo(), _subtitle);
          GUILayout.EndVertical();
          GUILayout.FlexibleSpace();
-+        GUILayout.Label("~ toggles", _keyHint);                 // the hotkey, discoverable in the menu itself
-         if (GUILayout.Button("×", _iconBtn, GUILayout.Width(34f)))
-             SetOpen(false);
-         GUILayout.EndHorizontal();
-@@ -452,25 +515,28 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -452,27 +515,23 @@ public class Ff9mkDebugMenu : MonoBehaviour
          // "Disable control": freeze player input while the menu is up. [x]/[ ] rather than a skin checkbox so it renders
          // identically across fonts; defaults OFF (persisted). The overworld teleport wants control LIVE, so leave it off there.
          GUILayout.Space(4f);
 -        if (GUILayout.Button((_disableControl ? "[x]  " : "[  ]  ") + "Disable control", _toggleBtn))
-+        GUILayout.BeginHorizontal();                            // ONE prefs row: control hold left, font picker right
 +        if (GUILayout.Button((_disableControl ? "[x]  " : "[  ]  ") + "Disable control", _toggleBtn, GUILayout.ExpandWidth(false)))
          {
              _disableControl = !_disableControl;
              SaveDisableControlPref();
              ApplyControlHold(_disableControl);
          }
--
+ 
 -        GUILayout.BeginHorizontal();                            // font picker (Alexandria/Garnet = FF9's own bundled UI fonts)
 -        GUILayout.Label("Font", _hint, GUILayout.Width(40f));
-+        GUILayout.FlexibleSpace();
-+        GUILayout.Label("Font", _labelMid, GUILayout.Width(36f));
-         for (Int32 fi = 0; fi < FontChoices.Length; fi++)
+-        for (Int32 fi = 0; fi < FontChoices.Length; fi++)
 -            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _tabOn : _tabOff))
-+            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _tabOn : _tabOff, GUILayout.ExpandWidth(false)))
-                 SetFontChoice(fi);
-         GUILayout.EndHorizontal();
- 
+-                SetFontChoice(fi);
+-        GUILayout.EndHorizontal();
+-
          GUILayout.Space(6f);
-         GUILayout.BeginHorizontal();                            // tab pills
+-        GUILayout.BeginHorizontal();                            // tab pills
++        GUILayout.BeginHorizontal(_tabStrip);                   // tab pills on one grouping strip
          for (Int32 i = 0; i < Tabs.Length; i++)
 -            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _tabOff))
 +            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _tabOff) && _tab != i)
@@ -210,47 +215,106 @@ index f820fc4..1bff7d7 100644
 +                _scroll = Vector2.zero;                         // a fresh tab opens at its top, not mid-scroll
 +            }
          GUILayout.EndHorizontal();
-         GUILayout.Space(2f);
+-        GUILayout.Space(2f);
++        GUILayout.Space(3f);
  
-@@ -486,7 +552,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         _scroll = GUILayout.BeginScrollView(_scroll);
+         switch (_tab)
+@@ -486,7 +545,19 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
          if (_status.Length > 0)
              GUILayout.Label(_status, _statusStyle);
 -        GUI.DragWindow(new Rect(0f, 0f, 10000f, 34f));          // drag by the header
++
++        // Footer: the hotkey hint + the (set-once) font picker live down here, out of the working area.
++        GUILayout.Space(3f);
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("~ toggles this menu", _footLbl);
++        GUILayout.FlexibleSpace();
++        GUILayout.Label("Font", _footLbl, GUILayout.Width(32f));
++        for (Int32 fi = 0; fi < FontChoices.Length; fi++)
++            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _footOn : _footOff, GUILayout.ExpandWidth(false)))
++                SetFontChoice(fi);
++        GUILayout.EndHorizontal();
++
 +        GUI.DragWindow(new Rect(0f, 0f, 10000f, 60f));          // drag by the whole header bar (title + subtitle)
      }
  
      // ------------------------------------------------------------------- tabs
-@@ -557,8 +623,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -557,41 +628,42 @@ public class Ff9mkDebugMenu : MonoBehaviour
          if (GUILayout.Button(favTyped ? "*" : "+", favTyped ? _tabOn : _button, GUILayout.Width(30f)))
              ToggleFavoriteFromText(_warpText);
          GUILayout.FlexibleSpace();
 -        if (GUILayout.Button(_showWarpOpts ? "hide options" : "more options", _button, GUILayout.Width(96f)))
 -            _showWarpOpts = !_showWarpOpts;
-+        if (GUILayout.Button(_showWarpOpts ? "hide options" : "more options", _button, GUILayout.ExpandWidth(false)))
-+            _showWarpOpts = !_showWarpOpts;              // auto-size: a fixed 96px clipped the label in the System font
++        if (GUILayout.Button(_showWarpOpts ? "Hide options" : "More options", _linkBtn))
++            _showWarpOpts = !_showWarpOpts;              // quiet text-link: it shouldn't compete with the primary Go
          GUILayout.EndHorizontal();
          if (_showWarpOpts)                                      // advanced: arrival entrance + story-beat seed (rarely needed)
          {
-@@ -586,8 +652,6 @@ public class Ff9mkDebugMenu : MonoBehaviour
-         GUILayout.EndHorizontal();
-         GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
- 
--        DrawDiorama();
--
-         Section("Field");
-         if (GUILayout.Button("Reload field", _button))
-             Reload(false);
-@@ -602,6 +666,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
-             Reload(false);
+             GUILayout.BeginHorizontal();
+-            GUILayout.Label("arrive via entrance", _label, GUILayout.Width(128f));
++            GUILayout.Label("Arrive via entrance", _labelMid, GUILayout.Width(128f));
+             _entranceText = GUILayout.TextField(_entranceText, 4, _field, GUILayout.Width(52f));
+             GUILayout.EndHorizontal();
+             GUILayout.BeginHorizontal();
+-            GUILayout.Label("set scenario", _label, GUILayout.Width(128f));
++            GUILayout.Label("Set scenario", _labelMid, GUILayout.Width(128f));
+             _scenarioText = GUILayout.TextField(_scenarioText, 6, _field, GUILayout.Width(52f));
+             if (GUILayout.Button("Set now", _button, GUILayout.Width(64f)))
+                 SetScenarioNow();
+             GUILayout.EndHorizontal();
+-            GUILayout.Label("entrance = which door to arrive at; scenario = seed a story beat for a gated fork.", _hint);
++            GUILayout.Label("Entrance picks the door you arrive at; scenario seeds a story beat for a gated fork.", _hint);
          }
  
-+        DrawDiorama();                                          // experimental co-op bench: below the everyday actions, above the long list
+         Section("Teleport on this field");
+         GUILayout.BeginHorizontal();
++        GUILayout.Label("x", _labelMid, GUILayout.Width(12f));
+         _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(64f));
++        GUILayout.Label("z", _labelMid, GUILayout.Width(12f));
+         _tzText = GUILayout.TextField(_tzText, 7, _field, GUILayout.Width(64f));
+         if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
+             Teleport();
+-        if (GUILayout.Button("here", _button, GUILayout.Width(48f)))
++        if (GUILayout.Button("Here", _button, GUILayout.Width(52f)))
+             UseCurrent();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
+-
+-        DrawDiorama();
++        GUILayout.Label("Right-click the field to copy that point's (x, z).", _hint);
+ 
+-        Section("Field");
+-        if (GUILayout.Button("Reload field", _button))
++        Section("Reload");
++        GUILayout.BeginHorizontal();                            // 2-up: the everyday action leads, accented
++        if (GUILayout.Button("Reload field", _primary))
+             Reload(false);
+-        if (GUILayout.Button("Reload + anims", _button))
++        if (GUILayout.Button("Reload + animations", _button))
+         {
+             // Re-deployed loose .anim clips are cached (AnimationClipReader.LoadedClips, keyed by path,
+             // checked before disc), so a plain reload keeps the OLD clip. Clear that cache first so the
+@@ -601,12 +673,15 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             Memoria.Assets.AnimationClipReader.LoadedClips.Clear();
+             Reload(false);
+         }
++        GUILayout.EndHorizontal();
 +
++        DrawDiorama();                                          // co-op bench: renders ONLY inside a co-op session
+ 
          Section("Registered fields");
          GUILayout.BeginHorizontal();                            // filter bar — a verbatim fork can register ~500 fields
-         GUILayout.Label("filter", _label, GUILayout.Width(42f));
-@@ -623,7 +689,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+-        GUILayout.Label("filter", _label, GUILayout.Width(42f));
++        GUILayout.Label("Filter", _labelMid, GUILayout.Width(42f));
+         _fieldFilter = GUILayout.TextField(_fieldFilter, 24, _field);
+-        if (GUILayout.Button("clear", _button, GUILayout.Width(58f)))
++        if (GUILayout.Button("Clear", _button, GUILayout.Width(58f)))
+             _fieldFilter = "";
+         GUILayout.EndHorizontal();
+         String filt = _fieldFilter.Trim().ToLowerInvariant();
+@@ -623,7 +698,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
                  continue;
              shown++;
              GUILayout.BeginHorizontal();
@@ -259,7 +323,36 @@ index f820fc4..1bff7d7 100644
                  Warp(kv.Key, false);
              Boolean fav = HasFieldPin(kv.Key);
              if (GUILayout.Button(fav ? "*" : "+", fav ? _tabOn : _button, GUILayout.Width(30f)))
-@@ -719,7 +785,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -631,9 +706,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             GUILayout.EndHorizontal();
+         }
+         if (matched == 0)
+-            GUILayout.Label(filt.Length > 0 ? "no fields match \"" + _fieldFilter + "\"" : "no registered custom fields.", _hint);
++            GUILayout.Label(filt.Length > 0 ? "No fields match \"" + _fieldFilter + "\"" : "No registered custom fields.", _hint);
+         else if (matched > shown)
+-            GUILayout.Label("showing " + shown + " of " + matched + " — type in the filter to narrow.", _hint);
++            GUILayout.Label("Showing " + shown + " of " + matched + " — type in the filter to narrow.", _hint);
+     }
+ 
+     // [ff9mapkit netsync diorama] B3.1 -- the bench for the battle diorama.
+@@ -671,13 +746,12 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+     private void DrawDiorama()
+     {
+-        Section("Battle diorama (B3, experimental)");
++        // Hidden outside a co-op session (screenshot round 2026-07-20): an everyday Go tab must not
++        // carry an experimental bench's setup instructions. In-session it appears with its controls.
+         String blocked = Memoria.Netsync.NetSyncDiorama.BootBlockedReason;
+         if (blocked != null)
+-        {
+-            GUILayout.Label(blocked, _hint);
+             return;
+-        }
++        Section("Battle diorama (experimental)");
+         Int32[] ids = DioramaSceneIds;
+         if (ids.Length == 0)
+         {
+@@ -719,7 +793,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          GUILayout.Label(valid ? "scene " + sc + " = " + FF9StateSystem.Battle.mapName[sc]
                                : "no scene with that id — " + ids.Length + " exist, from " + ids[0] + " to " + ids[ids.Length - 1], _hint);
          GUILayout.Label("render-only: every write to your own party, gil and counters is suppressed. "
@@ -268,7 +361,7 @@ index f820fc4..1bff7d7 100644
      }
  
      private void DrawCheats()
-@@ -795,12 +861,12 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -795,12 +869,12 @@ public class Ff9mkDebugMenu : MonoBehaviour
          if (GUILayout.Button("Save preset", _button, GUILayout.Width(96f)))
              SaveBatchPreset();
          GUILayout.EndHorizontal();
@@ -283,7 +376,7 @@ index f820fc4..1bff7d7 100644
                  ApplyFlagBatch(fb.Ops);
              if (GUILayout.Button("edit", _button, GUILayout.Width(46f)))
              {
-@@ -881,9 +947,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -881,9 +955,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
          GUILayout.BeginHorizontal();
          _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(64f));
          _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(64f));
@@ -295,7 +388,7 @@ index f820fc4..1bff7d7 100644
              CopyWorldPos();
          Boolean favSpot = Single.TryParse(_wxText, out Single spXf) && Single.TryParse(_wzText, out Single spZf)
                            && HasWorldPin((Int32)Math.Round(spXf), (Int32)Math.Round(spZf));   // match Go's Single parse; pins are int-encoded
-@@ -1141,7 +1207,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1141,7 +1215,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
      // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
      // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). BOARDING a vehicle sets gEventGlobal[190] AND
@@ -304,7 +397,7 @@ index f820fc4..1bff7d7 100644
      // whose per-frame vehicle switch has real nav arms (chocobo / air / boat), forcing a mode -- even one the
      // game legitimately uses there -- drives that arm on uninitialised nav state -> a CalcStack expression
      // underflow ("[CalcStack.pop] topOfStackID == 0", spammed per-frame) -> crash. In-game proven: on WORLD00,
-@@ -1562,7 +1628,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1562,7 +1636,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
      }
  
@@ -313,7 +406,7 @@ index f820fc4..1bff7d7 100644
      // black screen). Runs the same self-heal as the automatic w_frameUpdate hook; a no-op reports "already healthy".
      private void RebuildPlayerActor()
      {
-@@ -1579,7 +1645,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1579,7 +1653,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
      // [ff9mapkit] TEST-ONLY: simulate the 'no controlled actor' black screen (clear the designator + point the camera
      // at the dummy) so "Rebuild player actor" / the auto self-heal can be validated deterministically. The world
@@ -322,7 +415,7 @@ index f820fc4..1bff7d7 100644
      private void BreakControlForTest()
      {
          try
-@@ -1768,7 +1834,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1768,7 +1842,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
      }
  
@@ -331,7 +424,7 @@ index f820fc4..1bff7d7 100644
      // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
      private void SetScenarioNow()
      {
-@@ -1780,7 +1846,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1780,7 +1854,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          try
          {
              FF9StateSystem.EventState.ScenarioCounter = scn;
@@ -340,7 +433,7 @@ index f820fc4..1bff7d7 100644
          }
          catch (Exception err)
          {
-@@ -2042,7 +2108,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2042,7 +2116,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
              Int32 idx, val;
              if (!Int32.TryParse(idxPart, out idx) || idx < 0)
              {
@@ -351,7 +444,7 @@ index f820fc4..1bff7d7 100644
                  return false;
              }
              if (valPart == null)
-@@ -2155,13 +2223,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2155,13 +2231,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
          Byte[] g = FF9StateSystem.EventState.gEventGlobal;
          System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
@@ -367,7 +460,16 @@ index f820fc4..1bff7d7 100644
      }
  
      private static void ClearFlagState()
-@@ -2401,6 +2469,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2283,7 +2359,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         String at = (p != null && p.pos != null && p.pos.Length >= 3)
+             ? String.Format("   @ ({0}, {1})", (Int32)p.pos[0], (Int32)p.pos[2])
+             : "";
+-        return String.Format("field {0}  [{1}]{2}", id, name, at);
++        return String.Format("field {0}  {1}{2}", id, ShortFbg(name), at);   // the FBG_Nxx_ prefix is noise here too
+     }
+ 
+     private static List<KeyValuePair<Int32, String>> RegisteredFields()
+@@ -2401,6 +2477,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
          _header = new GUIStyle(GUI.skin.label);
          _header.fontSize = 13;
@@ -375,7 +477,7 @@ index f820fc4..1bff7d7 100644
          _header.normal.textColor = muted;
          _header.margin = new RectOffset(0, 0, 2, 1);
  
-@@ -2416,17 +2485,20 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2416,17 +2493,20 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
          _mono = new GUIStyle(GUI.skin.label);          // boxed readout (world pos / story state)
          _mono.fontSize = 13;
@@ -399,7 +501,7 @@ index f820fc4..1bff7d7 100644
  
          _field = new GUIStyle(GUI.skin.textField);
          _field.fontSize = 14;
-@@ -2458,6 +2530,51 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2458,6 +2538,70 @@ public class Ff9mkDebugMenu : MonoBehaviour
          _toggleBtn = MkButton(window, panel, window, text, false);   // borderless-looking (border == window bg)
          _toggleBtn.alignment = TextAnchor.MiddleLeft;
  
@@ -424,17 +526,36 @@ index f820fc4..1bff7d7 100644
 +        _chipX.alignment = TextAnchor.MiddleCenter;
 +        _chipX.stretchWidth = false;
 +
-+        _keyHint = new GUIStyle(GUI.skin.label);                     // "~ toggles": centered against the 30px × button
-+        _keyHint.fontSize = 12;
-+        _keyHint.normal.textColor = muted;
-+        _keyHint.alignment = TextAnchor.MiddleRight;
-+        _keyHint.fixedHeight = 30f;
-+
 +        _labelMid = new GUIStyle(GUI.skin.label);                    // inline row label, centered against 30px controls
 +        _labelMid.fontSize = 12;
 +        _labelMid.normal.textColor = muted;
 +        _labelMid.alignment = TextAnchor.MiddleLeft;
 +        _labelMid.fixedHeight = 30f;
++
++        _tabStrip = new GUIStyle();                                  // the strip the tab pills sit on (groups them)
++        _tabStrip.normal.background = MkTex(panel, panel, false);
++        _tabStrip.padding = new RectOffset(3, 3, 3, 3);
++
++        _linkBtn = MkButton(window, panel, window, muted, false);    // quiet text-link (borderless, muted)
++        _linkBtn.fontSize = 12;
++        _linkBtn.stretchWidth = false;
++
++        _footLbl = new GUIStyle(GUI.skin.label);                     // footer text, centered against the 20px pickers
++        _footLbl.fontSize = 11;
++        _footLbl.normal.textColor = muted;
++        _footLbl.alignment = TextAnchor.MiddleLeft;
++        _footLbl.fixedHeight = 20f;
++
++        _footOn = MkButton(accentBg, accentHi, accentBd, accent, false);   // footer font picker (small)
++        _footOn.fontSize = 11;
++        _footOn.fixedHeight = 20f;
++        _footOn.padding = new RectOffset(8, 8, 1, 2);
++        _footOn.stretchWidth = false;
++        _footOff = MkButton(window, panel, window, muted, false);
++        _footOff.fontSize = 11;
++        _footOff.fixedHeight = 20f;
++        _footOff.padding = new RectOffset(8, 8, 1, 2);
++        _footOff.stretchWidth = false;
 +
 +        // Themed scroll bar (the stock grey Unity thumb clashed with the flat dark theme — 2026-07-20
 +        // screenshot round). Swapped into GUI.skin for the duration of DrawWindow only.
@@ -451,13 +572,13 @@ index f820fc4..1bff7d7 100644
          // Use the live FFIX UI font (TBUDGoStd via EncryptFontManager — the same Font UILabel renders with) so the menu
          // matches the game. It loads lazily; if null here, OnGUI retries and applies it once available. Falls back to the
          // default IMGUI font if the font system is disabled/unavailable.
-@@ -2517,7 +2634,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2517,7 +2661,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
      private void ApplyFont(Font f)
      {
          GUIStyle[] all = { _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
 -                           _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn };
 +                           _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn,
-+                           _row, _chip, _chipX, _keyHint, _labelMid };
++                           _row, _chip, _chipX, _labelMid, _linkBtn, _footLbl, _footOn, _footOff };
          foreach (GUIStyle s in all)
              if (s != null)
                  s.font = f;
