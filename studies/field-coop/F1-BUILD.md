@@ -238,6 +238,30 @@ the exotic tainted-buffer-across-role-switch edge (4 deliberate reconfigure step
 the auto-transition let-through · an origin-drop (off-mesh snap) landing inside a gateway quad ·
 L3 == JoystickButton8 on the live pad.
 
+## ★ SOLO BENCH 2026-07-20 — 6/6 PASS + the accepted hole surfaced and CLOSED same session
+
+All six recipes passed first run (gates · gateway bounce · toggle-off vanilla · F11 snap · auto-TP
+(user: "seems good", more on the laptop) · snapshot refuse). The ONE finding: **a Phoenix Down
+ground pickup on field 206 was lootable** — the Decision-4 accepted hole (stock loot/chests = tag-2
+tread bodies polling Confirm INSIDE the script, invisible to the Check*Input funnel) surfaced on the
+first playtest, which is exactly the trigger Decision 4 named for building the closure.
+
+**THE KEYON MASK (built + deployed same session, DLL `7F3E17BAF6EC0401`):**
+`NetSyncField.FilterScriptButtons` strips `Confirm|Special` (0x20000|0x80000) from the script-visible
+button reads — `B_KEYON` (pressed, EBin.cs:1081) and `B_KEY` (held, :1107) — **only while
+`SpectatorField && GetUserControl()`**. The census that shaped it (8,358 `IsButton` reads across the
+817 real fields): 2,010 are BLOCKING `while` waits, and **271 of those block on Confirm/Special** —
+so a blanket strip (or an always-on strip) would hang real cutscene "press Confirm" beats a mirrored
+guest must advance. The discriminator is control state: every blocking wait runs with user control
+SEIZED by its scene (control OFF → pass through), while the loot/chest/dig idiom polls during free
+walk (control ON → masked). Latched decline: `script button-poll (pickup/loot)`, once per field, and
+only when the bits were actually pressed. Residuals (documented, unmasked): `B_KEYOFF` (release
+completes, cannot initiate) and the `B_KEYON2/B_KEY2/B_KEYOFF2` arg-variants (shared generic handler,
+no census hits — revisit only if a playtest surfaces one). EBin.cs joined the pre-round snapshot set
+(it carries an s37 hunk).
+**Retest:** field 206, bench ON → the Phoenix Down prompt does nothing + one decline line; bench
+OFF → lootable as vanilla.
+
 **Re-verify round (3 focused skeptics, `wf_7c682de1`) — final fixes:**
 1. The growth gate now holds **without disarming** — the first cut's disarm re-stamped the baseline
    next frame, measuring growth frame-to-frame (<100u always), so the steering override could never
