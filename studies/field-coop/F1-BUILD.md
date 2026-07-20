@@ -197,3 +197,59 @@ is needs-in-game) · gateway redirect + follow-allowance on the real link · man
 host · snapshot leak end-to-end (Snapshot while mirroring → ramp → Restore refused → manual save
 writes OWN story) · the standing s41/s42 leftovers (tick numbers · Plant Brain · Feather Boots ·
 host-silent bench · a Workspace-tab session).
+
+## Verify-round outcomes (2026-07-20 — 7 skeptics `wf_e66632e8`, repairs re-verified `wf_7c682de1`)
+
+**Verified sound (the trail):** the redirect's transition mode — the opcode path's `return 4` reaches
+`HonoluluFieldMain.FF9FieldMapMain` case 4 which supplies `nextMode=1`/`attr|=8u` itself, so the
+bounce is byte-identical to a vanilla gateway transition and equivalent to the ~-Reload/s42 kick
+(the C# callers set those manually only because they bypass ServiceEvents). MENU `return 0` and both
+EventCollision early-returns leave no half-set state. `LastHostField` is re-derived every real-coop
+tick — staleness refuted.
+
+**Repairs landed after the round (spec deltas, code is authoritative):**
+1. **The BOUNCE BUDGET** (`NetSyncClient.RedirectGuestFieldJump`, the redirect decision moved out of
+   the opcode): a field whose script auto-calls `Field()` (auto-transition corridors) would have
+   bounce-looped forever when the host was elsewhere/unreachable. Three consecutive bounces on one
+   field inside 20s → the jump is let THROUGH once (logged; vanilla self-navigation, follow-warp
+   corrects it later). A user re-treading a door at human pace never accumulates.
+2. **Auto-TP regains DESIGN's "gap keeps GROWING" qualifier**: steering past the hard cap only loses
+   to recovery when sep has widened ≥100u since the dwell armed (`_autoTpArmSep`) — a guest simply
+   exploring a big scrolling field is never yanked. A steering-read failure now HOLDS instead of
+   firing (positive containment). `SnapToHost` returns `SetPosition`'s real verdict; an off-mesh
+   host position logs honestly ("landed at the default spawn") and stamps the cooldown.
+3. **The teleport intercept is SESSION-GATED** before the key read — a vanilla install never reads
+   or consumes F11/L3 (the short-circuit keeps the L3 accumulator dormant outside sessions).
+4. **Snapshot stamp**: `IsMirroringStory || OwnSaveReloadInFlight || (IsSelfTestRole && BenchGates)`.
+   `OwnSaveReloadInFlight` (new static) closes the exit ramp's ASYNC window (mirroring already false
+   while the array still holds host story until the autoload lands; set at the ramp, cleared at any
+   field load + OnDestroy). The BenchGates qualifier un-taints plain selftest flag work (a shipping
+   dev workflow). The refuse deliberately does not exempt the in-flight window.
+5. **DeclineOnce gate-class strings as shipped**: `chest/quad interaction` · `npc talk` ·
+   `script menu` · `gateway (bounced to a reload)`.
+
+**Accepted + documented (no code):** the redirect intercepts ALL self-navigation including mirrored
+cutscene `Field()` advances (bounce → follow-warp; watch for a visible hitch) · gate decay after link
+death runs ~5s (staleness + ramp debounce), not ~2s — correct, the world still holds host story ·
+auto-TP is dormant on single-screen fields (sep can't reach 640) — it exists for scrolling fields ·
+the exotic tainted-buffer-across-role-switch edge (4 deliberate reconfigure steps) — accepted.
+
+**Playtest watch list:** spawn-inside-gateway refire after a bounce · mid-cutscene bounce hitch ·
+the auto-transition let-through · an origin-drop (off-mesh snap) landing inside a gateway quad ·
+L3 == JoystickButton8 on the live pad.
+
+**Re-verify round (3 focused skeptics, `wf_7c682de1`) — final fixes:**
+1. The growth gate now holds **without disarming** — the first cut's disarm re-stamped the baseline
+   next frame, measuring growth frame-to-frame (<100u always), so the steering override could never
+   fire. With a persistent `_autoTpArmSep`, stable-sep steering holds forever (exploring) and genuine
+   walking-away crosses the margin and recovers.
+2. `OwnSaveReloadInFlight` now clears in the autoload **callback** (`NetSyncState.ExitMirrorToOwnSave`)
+   — an autosave resuming to the OVERWORLD or the title never runs the field-load clear, so the flag
+   stuck true and falsely tainted own-story snapshots for the rest of that session.
+3. `NetSyncField.ResetTeleportKey()` at session boundaries (OnDestroy + transport reconfigure) — the
+   L3 accumulator only self-resets while polled, and the session gate stops polling at session end.
+Accepted (self-correcting, watch in playtest): the bounce window is SLIDING, so ~4 re-treads of one
+door inside 20s spends the budget → a brief excursion the follow-warp yanks back · an unreachable-host
+auto-transition corridor becomes a slow multi-field reload ping-pong (strictly better than the
+pre-budget infinite reload) · an off-mesh auto-TP drop onto a gateway quad reload-cycles at ~10s
+until the host moves (bounded by the cooldown, never lets the jump through).
