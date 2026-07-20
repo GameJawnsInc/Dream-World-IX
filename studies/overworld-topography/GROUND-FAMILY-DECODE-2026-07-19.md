@@ -658,3 +658,14 @@ island rim: 17 cropped-Wang seams remain on the neighbour cells."* Re-verified t
   and unreported by the user. Refuted, therefore, on scope not merit: fixing them means re-tiling three
   other cells' outer edges = the island-wide **Wang-carry gate** productization the task defers (above),
   not this one-cell redeploy. **No bytes changed; the final deliverable state is `fe3f28d`.**
+
+**§4 ADDENDUM 6 — ROUND-2 PLAYTEST: CONFIRMED (2026-07-20c). THE (11,19) ARC IS CLOSED.** The user
+sailed the boundary: *"it looks good."* Navigability held (the non-regression gate's promise) and the
+streaks are gone — the per-layer restore + divert-arm is **★ IN-GAME PROVEN**, closing the
+(755,−1216)/(11,19) defect over 3 in-game rounds (hole → merge → per-layer+arm). Laws promoted to the
+coast memory (`project-ff9-overworld-coast-mosaic`): **THE DIVERT-ARM LAW**, **THE EFFECTIVE-PREFAB
+ORACLE LAW**, **THE PER-NAME MATERIAL LAW**, **THE WANG-CARRY LAW** (user-authored). Successor work,
+now the active round: the **17 cropped-Wang rim seams** on the island's other three cells
+(`neighbor_seam_probe.py`; requires re-tiling (11,18)/(12,18)/(12,19)'s outer sea edges per the
+marching-band language) + **productizing the two kit gates** in `transplant.py` (effective-prefab +
+Wang-carry), with the auto-arm emit (stub + Donor.txt) as the proven water-only-cell pattern.
