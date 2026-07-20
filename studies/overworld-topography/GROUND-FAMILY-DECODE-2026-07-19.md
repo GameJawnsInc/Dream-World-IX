@@ -472,3 +472,67 @@ both stemming from the same "no-Terrain water-only cell" carry). Worth checking 
 Not fixed this session — recorded for continuity across the account switch. The rest of the (8,17)
 carry stays fully closed and in-game proven (cave inert, the (12,18) sea holes patched and
 confirmed navigable, no z-fight).
+
+**§4 ADDENDUM 3 — ROOT-CAUSED + FIXED (2026-07-20): the s34 `HasLandOverride` divert gate, not a
+Terrain-registration requirement.** The live evidence ADDENDUM 2 asked for turned up in
+`GAME/Memoria.log` (boot 02:18) — the smoking gun is line 55 next to its siblings:
+
+```
+55  [WorldMeshOverride] loaded '.../r19/Block[11][19] Sea4' ...            <- ONLY Sea4
+35-38 [WorldMeshOverride] loaded '.../r18/Block[11][18] Terrain/Sea3/Sea4/Sea5'   <- all 4 (divert donor 8,17)
+56-61 [WorldMeshOverride] loaded '.../r19/Block[12][19] Terrain/Beach1/Sea2/Sea3/Sea4/Sea5'  <- all (donor 9,18)
+```
+
+Block[11][19] loaded ONLY `Sea4`; its deployed `Sea3.ff9mesh` (956 B) and `Sea5.ff9mesh` (5012 B) sat
+unread. Every working sibling ships a `Terrain.ff9mesh` and loaded ALL its parts.
+
+**Confirmed mechanism (s34 source — `memoria-patches/s34-worldmap-mesh-override.patch`,
+`Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs`).** A sea cell diverts to a reclaim DONOR prefab only
+`if (LandDonorPrefab != null && WorldMeshOverride.HasLandOverride(disc,x,y))`, and `HasLandOverride`
+returns true **iff a `Block[x][y] Terrain.ff9mesh` override FILE exists** (patch :286-289). Block[11][19]
+has no Terrain override (donor (8,18) is water-only, so the transplant emitted none) ⇒ `HasLandOverride`
+= false ⇒ **the divert never fires** ⇒ the cell loads the generic **`SeaBlockPrefab`**, whose single
+child transform is `Sea4`. `LoadBlock`→`RegisterBlockComponent` looks up an override **per
+prefab-transform NAME** (`TryLoad("...Block[11][19] " + transform.name)`), so only `Block[11][19] Sea4`
+binds; `Sea3`/`Sea5` have no matching transform and are silently skipped, and the `Donor.txt="8,18"`
+sidecar is **DEAD** (read only inside the un-armed divert — the ADDENDUM-2 leading hypothesis named the
+right symptom but the wrong prefab: the effective prefab is SeaBlockPrefab, never donor (8,18)). The
+carried donor-(8,18) `Sea4` is a **PARTIAL 474-tri** interior band whose holes the (now-unloaded)
+Sea3/Sea5 layers were meant to fill; carried here with only Sea4 binding, those holes are real
+ground-query misses = an invisible VEHICLE WALL + a pale/void render (placement rule 2). Both symptoms,
+one mechanism.
+
+**THE ORACLE GAP, closed.** The prior census fed all three deployed files into `placement.census`; the
+engine binds only the transforms the *effective prefab* exposes. The fix models it: an
+`effective_meshlist` gate — no `Terrain.ff9mesh` ⇒ SeaBlockPrefab ⇒ keep only `{Sea4}`, drop
+Sea3/Sea5. With that gate the oracle **finally reproduces the live defect offline**: pristine-Sea4-only
+= **304/4096** cell misses (hole bbox world x[716,763] z[-1231,-1216], containing the reported point;
+432/2706 in the 40×40u window at (755,-1216)); the merged Sea4 = **0**.
+
+**THE FIX (Route 2 / option c — the convergent engine-source + oracle-gap recommendation; the
+STOCK-PREFAB dissent was a concurrent-write race artifact: it measured the already-merged 512-tri file
+at the exact point, which of course covers it, and read "coverage complete").** Merge the Sea3+Sea5
+triangles into the single bindable `Sea4` part (512 tris; per-tri `tangent.x` topograph carried verbatim
+⇒ boat-legality byte-preserved; the FLAT-MESH INVARIANT held via `merge_local_mesh`), then DELETE the
+now-inert `Sea3`/`Sea5` and the dead `Donor.txt` so the on-disk state equals what the engine loads (a
+Terrain-less water cell = exactly ONE file, the complete Sea4). Mirrored to Disc4 by **explicit
+byte-copy** — NOT `discmirror.auto_mirror`, whose FREE-RIDE PIN (`discmirror.py:241-265`) would read the
+inert `Donor.txt`, subtract the overridden `{Sea4}` from donor (8,18)'s `{sea3,sea4,sea5}`, and
+**resurrect `Block[11][19] Sea3/Sea5` on Disc4** with donor bytes — re-creating the orphans and a
+Disc1/Disc4 asymmetry (a real gotcha for any water-only cleanup near an inert sidecar).
+
+Gates all green (`studies/overworld-topography/waterfix_1119.py`, idempotent, reads pristine from
+`backups/waterfix-1119.20260720/`): (a) byte-diff — the merge only APPENDS Sea3+Sea5, the 474-tri Sea4
+base is verbatim; (b) FLAT-MESH `vcount==idx` (1536), topos {57:489, 54:23} ⊆ {54,57}; (c) free-ride
+audit — SeaBlockPrefab exposes only {Sea4}, nothing foreign rides in; (d) the money gate above; (e)
+two-tree — Disc1 Sea4 == Disc4 Sea4 byte-identical (79892 B, md5 d0f1eabd…), (11,19) now one file per
+disc. Neighbours (11,18)/(12,18)/(12,19) untouched. Deployed to both discs; awaiting the sail/fly
+playtest at (755,-1216).
+
+**Productization (deferred to post-playtest, per the one-change rule) — a real shipped gap.** The
+`transplant`/`GroundRetile` path silently emits a water-only cell with >1 sea layer + no Terrain, which
+the effective prefab can never bind. The gate belongs in `transplant.transplant_region` /
+`GroundRetile.for_donor`: compute the effective prefab exactly as the engine will, and for any
+data-bearing cell REFUSE (or auto-collapse to Sea4) any part the effective prefab cannot bind. The
+cleaner long-term fix is engine-side (make override files authoritative regardless of the effective
+prefab's transform set — a DANGEROUS DLL round, out of scope here).
