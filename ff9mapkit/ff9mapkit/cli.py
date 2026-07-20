@@ -2584,7 +2584,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(f"ground retile {gt.src} -> {gt.dst}: sand anchors "
                   f"{[f'{s:.4f}->{d:.4f}' for (s, d) in gt.sand_anchors] or 'none'}; "
                   f"recover cells {sorted(gt.recover_cells) or 'none'} "
-                  f"(budget {gt.recover_budget} tris)")
+                  f"(budget {gt.recover_budget} tris); degenerate-sand guard "
+                  f"{gt.expected.get('sand_degenerate_recovered', 0)} tris")
             tweaks = list(tweaks) + [gt]
         if args.in_place:
             if (bx, by) != (dx, dy):

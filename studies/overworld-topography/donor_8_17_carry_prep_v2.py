@@ -27,6 +27,18 @@ not merely asserted blind.
 Offline only -- no deploys, no mint, no install writes (every actual filesystem write call is
 intercepted; the only files this script itself creates are under ``out/``). Run from the repo
 root: py studies/overworld-topography/donor_8_17_carry_prep_v2.py
+
+2026-07-20 UPDATE: the degenerate-sand guard is FOLDED into the shipped ``GroundRetile``
+(``strip_aware_retile`` is now a delegate shim), so this prep re-runs through the shipped code
+path -- the bare CLI command printed at the end is no longer bugged. Stage 0's virgin-site scan
+gained the shipped MOD-OVERWRITE GATE's own re-deploy exemption (a target cell whose Donor.txt
+names this carry's own donor is OURS, not foreign) -- without it the scan could never re-run
+once the deploy it green-lit had landed. A post-fold re-run was byte-compared IDENTICAL to the
+deployed (11,18) files (all 24: 20 meshes + 4 Donor.txt). The fold also CORRECTED this round's
+census: the shipped trigger (strict distinct-uv reduction) counts 1 diverted tri, not 3 -- only
+the donor-(9,17) tri under the reported hatch pixels is a real mapping-collapsed triangle; the
+other 2 were zero-area W-strip clip residues at the x=504 clip plane (source-degenerate,
+census-only, never in written output -- the deployed bytes are identical under either count).
 """
 import json
 import sys
@@ -63,12 +75,22 @@ print("== stage 0: site selection (exhaustive scan) ==")
 GP = Path(_cfg.find_game_path(None))
 
 
-def block_free_of_mod(bx, by, disc):
+def block_free_of_mod(bx, by, disc, own_donor=None):
+    """No mod overrides at the block -- OR (post-deploy re-runs, 2026-07-20) the block's
+    overrides are THIS carry's own: its Donor.txt names exactly ``own_donor`` (the shipped
+    MOD-OVERWRITE GATE's re-deploy exemption; without it stage 0 can never re-run once the
+    deploy it green-lit has landed)."""
     rdir = GP / MOD_FOLDER / "FF9_Data" / "WorldMap" / f"Disc{disc}" / "0_1" / f"r{by}"
     if not rdir.is_dir():
         return True
     prefix = f"Block[{bx}][{by}] "
-    return not any(p.name.startswith(prefix) for p in rdir.iterdir())
+    if not any(p.name.startswith(prefix) for p in rdir.iterdir()):
+        return True
+    if own_donor is not None:
+        dp = rdir / f"Block[{bx}][{by}] Donor.txt"
+        if dp.is_file() and dp.read_text(encoding="utf-8").strip() == f"{own_donor[0]},{own_donor[1]}":
+            return True
+    return False
 
 
 def clearance_ok(bx, by, min_gap=1):
@@ -97,11 +119,16 @@ DONOR_CELLS = {(DONOR[0] + i, DONOR[1] + j) for i in range(DONOR_SIZE[0]) for j 
 def scan_anchor(ax, ay):
     """The 6 checks, for the 2x2 anchored at (ax,ay). Returns (passed: bool, checks: dict)."""
     cells = [(ax + i, ay + j) for j in range(TSIZE[1]) for i in range(TSIZE[0])]
+    # per-cell "our own re-deploy" donor (the same offset mapping the carry itself uses)
+    own = {(ax + i, ay + j): (DONOR[0] + i, DONOR[1] + j)
+           for j in range(TSIZE[1]) for i in range(TSIZE[0])}
     checks = {}
     checks["in_band"] = all((c[0] in BAND_BX and c[1] in BAND_BY) for c in cells)
     checks["all_true_open_ocean_stock"] = all(not grid.get(c, True) for c in cells)
-    checks["free_of_mod_overrides_disc1"] = all(block_free_of_mod(*c, disc=1) for c in cells)
-    checks["free_of_mod_overrides_disc4"] = all(block_free_of_mod(*c, disc=4) for c in cells)
+    checks["free_of_mod_overrides_disc1"] = all(
+        block_free_of_mod(*c, disc=1, own_donor=own[c]) for c in cells)
+    checks["free_of_mod_overrides_disc4"] = all(
+        block_free_of_mod(*c, disc=4, own_donor=own[c]) for c in cells)
     checks["clearance_from_live_mod_sites"] = all(clearance_ok(*c) for c in cells)
     checks["not_overlapping_donor_rect"] = not any(c in DONOR_CELLS for c in cells)
     return all(checks.values()), checks
@@ -270,11 +297,8 @@ outp.write_text(json.dumps(out, indent=1, default=str))
 print(f"\n-> {outp}")
 
 deploy_cmd = "py studies/overworld-topography/deploy_donor_8_17_desert.py"
-print(f"\nDEPLOY COMMAND (verbatim -- NOT the bare CLI: ff9mapkit world-transplant --ground "
-      f"desert has no hook for the degenerate-sand guard and would REINTRODUCE the hatch bug; "
-      f"this wrapper carries the SAME donor/target/strips/shift/land-margin the bare CLI command "
-      f"would use, plus the fix):\n  {deploy_cmd}\n"
-      f"  (bare-CLI equivalent, BUGGED until --ground gets a tweak-override hook or the guard "
-      f"is folded into GroundRetile itself: py -m ff9mapkit world-transplant "
+print(f"\nDEPLOY COMMAND (the deployed carry's exact record):\n  {deploy_cmd}\n"
+      f"  (bare-CLI EQUIVALENT since the 2026-07-20 fold -- the degenerate-sand guard now ships "
+      f"inside GroundRetile itself: py -m ff9mapkit world-transplant "
       f"--mod-folder {MOD_FOLDER} --cell {TARGET[0]},{TARGET[1]} --donor {DONOR[0]},{DONOR[1]} "
       f"--size 2x2 --ground desert --strips auto --shift 0,0 --land-margin 0)")

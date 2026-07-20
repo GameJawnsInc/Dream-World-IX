@@ -1822,6 +1822,68 @@ def test_ground_retile_sand_pins_exact_and_conforming_lerp():
     assert gt.n["sand"] == 1
 
 
+def test_ground_retile_degenerate_sand_guard_diverts_to_mains():
+    """THE DEGENERATE-SAND GUARD (the (8,17)->desert carry, in-game 2026-07-20): a sand
+    tri whose verts straddle two SOURCE sub-variant pins that both collapse onto the
+    target's single row would emit a ~0-area UV (in-game: bold diagonal texel banding) --
+    it diverts to position-evaluated target mains (the PATH-STRIP RECOVER treatment)."""
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.extract import decode_id, encode_id
+    # two grass cap_land sub-variants -> desert's ONE cap_land row (the real collapse)
+    gt = _retile(sand_anchors=((0.5977, 0.56641), (0.6123, 0.56641), (0.625, 0.59668)))
+    idall = float(encode_id(topograph=31))
+    tri = [_v(0.5, 0, -0.5, (0.30, 0.5977), idall),
+           _v(3.5, 0, -0.5, (0.30, 0.6123), idall),      # same u, collapsing pin pair
+           _v(0.5, 0, -3.5, (0.32, 0.5977), idall)]
+    out = gt.apply("terrain", tri)
+    assert gt.n["sand_degenerate_recovered"] == 1 and gt.n["sand"] == 0
+    lo_u, lo_v, hi_u, hi_v = G.ground_main_region("desert")
+    for (_, _, uv, tan) in out:
+        assert lo_u <= uv[0] <= hi_u and lo_v <= uv[1] <= hi_v
+        assert decode_id(int(round(tan[0])))["topograph"] == 17
+    assert len({(round(u, 6), round(v, 6)) for (_, _, (u, v), _) in out}) == 3
+    # a second degenerate tri in the SAME 4u cell shares the cached mains assignment
+    tri2 = [_v(1.0, 0, -1.0, (0.30, 0.5977), idall),
+            _v(3.0, 0, -1.0, (0.30, 0.6123), idall),
+            _v(1.0, 0, -3.0, (0.33, 0.5977), idall)]
+    gt.apply("terrain", tri2)
+    assert gt.n["sand_degenerate_recovered"] == 2 and len(gt._degenerate_cache) == 1
+    # a straddling tri whose mapped triple stays DISTINCT is normal sand, not diverted
+    ok = [_v(8.5, 0, -0.5, (0.30, 0.5977), idall),
+          _v(11.5, 0, -0.5, (0.30, 0.625), idall),       # cap_seam: a different target row
+          _v(8.5, 0, -3.5, (0.32, 0.5977), idall)]
+    gt.apply("terrain", ok)
+    assert gt.n["sand"] == 1 and gt.n["sand_degenerate_recovered"] == 2
+    # a triple ALREADY degenerate at the source (a zero-area strip-clip residue, the
+    # (10,17) donor's W-strip beach fragments) is not the artifact: the remap reduces
+    # nothing, so it stays verbatim sand -- diverting it would drift deployed bytes
+    frag = [_v(16.5, 0, -0.5, (0.30, 0.5977), idall),
+            _v(16.5, 0, -0.5, (0.30, 0.5977), idall),    # coincident vert pair
+            _v(16.5, 0, -3.5, (0.32, 0.6123), idall)]
+    gt.apply("terrain", frag)
+    assert gt.n["sand"] == 2 and gt.n["sand_degenerate_recovered"] == 2
+    assert not gt.unclassified
+
+
+def test_ground_retile_degenerate_sand_prefers_recover_cell_assignment():
+    """A degenerate sand tri inside a prescanned recover cell reuses THAT cell's mains
+    assignment (recover_cells first, the local cache only as fallback) -- so a cell
+    hosting both an unmeasured path tri and a degenerate sand tri paints coherently."""
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.extract import encode_id
+    quad, ori = (0, 1), 90
+    gt = _retile(sand_anchors=((0.5977, 0.56641), (0.6123, 0.56641)),
+                 recover_cells={(0, -1): (quad, ori)}, recover_budget=1)
+    idall = float(encode_id(topograph=31))
+    tri = [_v(0.5, 0, -3.5, (0.30, 0.5977), idall),
+           _v(3.5, 0, -3.5, (0.30, 0.6123), idall),
+           _v(0.5, 0, -0.5, (0.32, 0.5977), idall)]     # centroid z < 0 -> cell (0, -1)
+    out = gt.apply("terrain", tri)
+    assert gt.n["sand_degenerate_recovered"] == 1 and not gt._degenerate_cache
+    for (p, _, uv, _) in out:
+        assert uv == tuple(G.ground_uv(p[0], p[2], (0, -1), quad, ori, "desert"))
+
+
 def test_ground_retile_water_and_sea_parts_untouched():
     from ff9mapkit.world.extract import encode_id
     gt = _retile()
@@ -1877,7 +1939,8 @@ def test_ground_retile_for_donor_717_desert_census():
     assert gt.sand_anchors == _ANCHORS
     assert gt.recover_budget == 16
     assert {(123, -280), (124, -280)} <= set(gt.recover_cells)   # the beach path cells
-    assert gt.expected == {"mains": 75, "wall": 57, "sand": 16, "foam": 14, "recovered": 16}
+    assert gt.expected == {"mains": 75, "wall": 57, "sand": 16, "foam": 14, "recovered": 16,
+                           "sand_degenerate_recovered": 0}
     s = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), tweaks=[gt], dry_run=True)
     assert s["clean"] is True, s["gates"]
     rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
@@ -1892,7 +1955,8 @@ def test_ground_retile_for_donor_region_10_17_desert():
     only), zero recover cells -- and the full region dry-run passes every gate."""
     gt = TR.GroundRetile.for_donor((10, 17), "desert", size=(2, 2))
     assert gt.src == "grass" and gt.dst == "desert"
-    assert gt.expected == {"mains": 30, "wall": 45, "sand": 2, "foam": 4, "recovered": 0}
+    assert gt.expected == {"mains": 30, "wall": 45, "sand": 2, "foam": 4, "recovered": 0,
+                           "sand_degenerate_recovered": 0}
     assert gt.recover_budget == 0 and not gt.recover_cells
     assert len(gt.sand_anchors) == 2                       # the strip window has cap pins only
     s = TR.transplant_region("UNUSED", cell=(22, 18), donor=(10, 17), size=(2, 2),
@@ -1900,6 +1964,31 @@ def test_ground_retile_for_donor_region_10_17_desert():
     assert s["clean"] is True, s["gates"]
     rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
     assert rg["ok"] and rg["unclassified"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_817_desert_degenerate_sand_census():
+    """THE (8,17)+2x2 -> desert carry regression (deployed at (11,18)+2x2, in-game
+    2026-07-20): one donor-(9,17) sand tri straddles two grass cap_land sub-variant
+    pins that BOTH collapse onto desert's single cap_land row -- pre-guard it emitted
+    a ~0-area UV (the in-game hatched-banding artifact; the exact tri under the
+    reported pixels). The factory prescan freezes it into ``sand_degenerate_recovered``
+    and the deployed-config region dry-run passes every gate. (The study's original
+    count of 3 included two zero-area W-strip clip residues at the x=504 clip plane --
+    source-degenerate, census-only, never in written output; the shipped strict-
+    reduction trigger correctly leaves them verbatim sand, and a re-run stays
+    byte-identical to the deployed files either way -- donor_8_17_carry_prep_v2.py.)"""
+    gt = TR.GroundRetile.for_donor((8, 17), "desert", size=(2, 2))
+    assert gt.src == "grass" and gt.dst == "desert"
+    assert gt.expected == {"mains": 152, "wall": 141, "sand": 22, "foam": 29,
+                           "recovered": 58, "sand_degenerate_recovered": 1}
+    s = TR.transplant_region("UNUSED", cell=(11, 18), donor=(8, 17), size=(2, 2),
+                             rot=0, shift=(0.0, 0.0), strips="auto", extra=8.0,
+                             land_margin=0.0, census_samples=24, tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
+    assert rg["sand"] == 22 and rg["sand_degenerate_recovered"] == 1
+    assert rg["unclassified"] == 0 and rg["ok"]
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
@@ -1912,7 +2001,8 @@ def test_ground_retile_for_donor_strips_none_snow():
     with pytest.raises(ValueError, match="no measured sand family"):
         TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2))
     gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
-    assert gt.expected == {"mains": 25, "wall": 38, "sand": 0, "foam": 0, "recovered": 0}
+    assert gt.expected == {"mains": 25, "wall": 38, "sand": 0, "foam": 0, "recovered": 0,
+                           "sand_degenerate_recovered": 0}
     assert gt.sand_anchors == ()
     s = TR.transplant_region("UNUSED", cell=(17, 18), donor=(10, 17), size=(2, 2),
                              strips="none", tweaks=[gt], dry_run=True)

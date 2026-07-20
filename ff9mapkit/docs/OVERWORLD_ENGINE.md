@@ -731,7 +731,7 @@ whole-landmass fills whose coast reads native — **caveat (2026-07-18 map-wide 
 cls-island for TRANSLATION only; its wall is `wall_coastal=False` (0 open-sea canyon walls map-wide,
 1 borderline face wholly below datum = an interior gorge, per `family_wall_envelope.py`), so a coastal
 canyon ISLAND is refused by the shipped guard (`build_landmass` island.py:249, `GroundRetile.for_donor`
-transplant.py:493) — a canyon fill is island-class in the atlas only, not at the coast. The others are
+transplant.py:537) — a canyon fill is island-class in the atlas only, not at the coast. The others are
 stock vocabularies with a narrower role,
 and a filled island of them reads off-language (the CLI notes this and mints anyway): **scrub** is a
 *transition* set — stock lays it only as narrow seam strips between solid grass and dirt fields, with

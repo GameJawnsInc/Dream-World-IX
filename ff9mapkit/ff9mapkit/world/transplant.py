@@ -254,6 +254,18 @@ class GroundRetile:
       u + the family du, v remapped over the donor's own OBSERVED pins onto the
       target's pins (classified verts land EXACTLY on the target pin; conforming
       verts lerp within their tier)  [offline-proven on all 15 real desert blocks]
+    * THE DEGENERATE-SAND GUARD (the (8,17)->desert carry, in-game 2026-07-20): a
+      sand tri whose verts straddle two SOURCE sub-variant pins (``SAND_V_CAP_LAND``
+      alone lists 6) that collapse onto the target's ONE discrete row keeps real
+      world-space area but a ~0-area mapped UV -- the renderer stretches one atlas
+      texel-row across it (bold diagonal banding). Not a mapping to fix: an
+      unmeasurable-for-this-triangle granularity mismatch, diverted to the SAME
+      PATH-STRIP RECOVER treatment below (position-evaluated target mains) and
+      counted separately (``sand_degenerate_recovered``, frozen by the prescan).
+      Fires ONLY when the remap strictly reduces the distinct-uv count -- a triple
+      already degenerate at the source (a zero-area strip-clip residue, e.g. the
+      (10,17) donor's W-strip beach fragments) is not an artifact and stays
+      verbatim sand.
     * beach1 FOAM -> topo relabel only (30 <-> 34; the foam texture is universal
       per the beach translation law)
     * water topos and the sea parts -> byte-verbatim.
@@ -301,6 +313,7 @@ class GroundRetile:
         self.foam_dst = IB.FOAM_TOPO.get(dst)
         self.recover_cells = dict(recover_cells or {})
         self.recover_budget = int(recover_budget)
+        self._degenerate_cache: dict = {}                    # degenerate-sand per-cell mains
         self.expected = dict(expected or {})
         self.n = collections.Counter()
         self.unclassified: list = []
@@ -359,6 +372,32 @@ class GroundRetile:
             if not self.sand_anchors or self.sand_du is None:
                 self._refuse(part, topo, poly, None)         # sand with no readable pins
                 return poly
+            # THE DEGENERATE-SAND GUARD (see the class docstring): fires only when the
+            # remap STRICTLY REDUCES the distinct (u,v) count -- i.e. the mapping itself
+            # collapsed source-distinct verts onto one target point (the ~0-area-UV
+            # banding artifact). A triple already degenerate at the SOURCE (a zero-area
+            # clip residue, e.g. the (10,17) W-strip beach fragments) stays verbatim
+            # sand: it renders as nothing and diverting it would drift deployed bytes.
+            # Diverted tris take the PATH-STRIP RECOVER treatment, keyed per-4u-cell so
+            # neighbours share one mains assignment (recover_cells first, then the cache).
+            src_pts = {(round(uvv[0], 6), round(uvv[1], 6)) for (_, _, uvv, _) in poly}
+            pts = {(round(uvv[0] + self.sand_du, 6), round(self._sand_v(uvv[1]), 6))
+                   for (_, _, uvv, _) in poly}
+            if len(pts) < len(src_pts):
+                from . import grassland as G
+                cx = sum(v[0][0] for v in poly) / len(poly)
+                cz = sum(v[0][2] for v in poly) / len(poly)
+                cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+                qo = self.recover_cells.get(cell) or self._degenerate_cache.get(cell)
+                if qo is None:
+                    cq, co = G.assign_mains({cell}, seed=0xF93)
+                    qo = (cq[cell], co[cell])
+                    self._degenerate_cache[cell] = qo
+                (quad, ori) = qo
+                self.n["sand_degenerate_recovered"] += 1
+                return [(p, nr, tuple(G.ground_uv(p[0], p[2], cell, quad, ori, self.dst)),
+                         self._retag(tan, self.dst_topo))
+                        for (p, nr, uvv, tan) in poly]
             self.n["sand"] += 1
             return [(p, nr, (uvv[0] + self.sand_du, self._sand_v(uvv[1])),
                      self._retag(tan, self.sand_dst["topo"]))
@@ -397,7 +436,8 @@ class GroundRetile:
               and self.n["recovered"] <= self.recover_budget
               and all(self.n[k] == v for k, v in self.expected.items()))
         return {"gate": f"retile[{self.src}->{self.dst}]",
-                **{k: self.n[k] for k in ("mains", "wall", "sand", "foam", "recovered")},
+                **{k: self.n[k] for k in ("mains", "wall", "sand", "foam", "recovered",
+                                          "sand_degenerate_recovered")},
                 "budget": self.recover_budget,
                 "unclassified": det if det else 0, "ok": ok}
 
@@ -503,7 +543,8 @@ class GroundRetile:
                       if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
         cq, co = G.assign_mains(set(rec), seed=0xF93)
         budget = sum(1 for u in pre.unclassified if u["cell"] in set(rec))
-        expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam")}
+        expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam",
+                                          "sand_degenerate_recovered")}
         expected["recovered"] = budget
         return cls(dst=dst, src=src, sand_anchors=anchors,
                    recover_cells={c: (cq[c], co[c]) for c in rec},

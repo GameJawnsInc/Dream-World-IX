@@ -1,17 +1,15 @@
 """THE REAL DEPLOY -- (8,17)+2x2 -> desert @ (11,18)+2x2, degenerate-sand-guard fix in effect.
 
-NOT run by this session (hard rule: no deploys, no install writes). This is the verbatim
+NOT run by the build session (hard rule: no deploys, no install writes). This is the verbatim
 command the human runs to actually deploy what ``donor_8_17_carry_prep_v2.py`` proved clean.
 
-WHY THIS WRAPPER EXISTS INSTEAD OF THE BARE CLI: ``ff9mapkit world-transplant --ground desert``
-builds its retile via a plain ``TR.GroundRetile.for_donor(...)`` call (``ff9mapkit/cli.py``,
-``_cmd_world_transplant``) -- it has no hook to substitute a different tweak class. The
-degenerate-sand-guard fix (``strip_aware_retile.DegenerateSandGuardRetile``) is a study-local
-SUBCLASS composed on top of the shipped ``GroundRetile`` precisely so no shipped file needed
-editing -- but that also means the bare CLI command cannot reach it. Running the bare CLI command
-today would REINTRODUCE the hatched-artifact bug this round fixed. Making ``--ground`` pluggable
-(or folding the guard into ``GroundRetile`` itself) is a small, clearly-scoped shipped-code
-follow-up -- flagged, not made, per this session's hard constraint.
+2026-07-20 UPDATE -- THE WRAPPER'S RAISON D'ETRE IS RETIRED: the degenerate-sand guard is now
+FOLDED into the shipped ``GroundRetile`` itself (``ff9mapkit.world.transplant``), so the bare CLI
+``ff9mapkit world-transplant --mod-folder FF9CustomMap-world --cell 11,18 --donor 8,17 --size 2x2
+--ground desert --strips auto --shift 0,0 --land-margin 0`` now carries the fix and is EQUIVALENT
+to this wrapper (``strip_aware_retile.build`` delegates to ``GroundRetile.for_donor``; a re-run
+was byte-compared identical to the deployed files at fold time). Kept as the deployed carry's
+exact re-deploy record.
 
 Run for real: py studies/overworld-topography/deploy_donor_8_17_desert.py
 """
