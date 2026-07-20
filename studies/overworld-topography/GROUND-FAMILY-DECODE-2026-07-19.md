@@ -409,3 +409,66 @@ all gates clean, MISS=0, auto-mirrored, Disc1==Disc4 byte-identical). The scrub-
 is **CLOSED BY REMOVAL**: the lawful mixed-biome unit is the full interlocked ensemble
 (ground + shrub + slope + rock) on a bigger bench — the ensemble-carry rung, unchanged in
 the LATER tier.
+
+**§4 ADDENDUM 2 — a CONFIRMED live-only defect at (755,−1216): the census oracle's first miss
+(2026-07-20).** After the flat-mesh fix, the user reported a NEW class of tile near (755,−1216):
+pale, flat-textured, and **genuinely unnavigable — boat and airship both blocked**. This is the
+first defect all session where the offline census oracle (`placement.place()`-reconstructed from
+the deployed bytes) DISAGREED with the live engine: a 40×40u window at 0.1u around the exact point,
+straddling the block-frame boundary on both sides, reports **zero misses**, every probe grounding
+on Sea4/Sea5 at topo 57/54 — both in `BOAT_TOPO`. The geometry, per the offline reconstruction, is
+complete and legal. The live engine blocks it anyway.
+
+**Location, precisely:** (755,−1216) sits exactly on the frame between block (11,18) [donor (8,17),
+overridden parts `Terrain, Sea3, Sea4, Sea5`] and block (11,19) [donor (8,18), overridden parts
+**`Sea3, Sea4, Sea5` only — NO Terrain override**]. Donor (8,18) carries no land (confirmed in the
+original round-4 donor detail: "(8,18) carries no data"), so cell (11,19) is a **water-only carry**:
+Sea mesh laid onto a cell whose stock prefab was — like all four target cells — genuinely blank
+(zero parts, off the data grid; verified for all of (11,18)/(12,18)/(12,19)/(11,19) alike, so
+blankness alone doesn't distinguish it).
+
+**Two concrete hypotheses TESTED and REFUTED:**
+1. *Sea1/Sea2 coast-tile free-ride mismatch* (stock coast-only shades bleeding into open water,
+   per `water.py`'s own documented "misplaced river tile" look) — checked both the donor (8,18) and
+   the pre-carry stock prefab at (11,19) directly via `transplant.world_tris`: **neither carries any
+   Sea1/Sea2 geometry at all.** Refuted.
+2. *A bad/non-boat topo carried in* — dumped the full topograph histogram of every tri in the
+   deployed Block[11][19] Sea3/Sea4/Sea5: **100% topo ∈ {54, 57}**, both boat-legal. Refuted.
+
+**The leading hypothesis (UNCONFIRMED, needs live access to close):** block (11,19) is architecturally
+unique among every cell this arc has deployed — it is the FIRST per-block override this session
+(possibly ever, in this kit) that carries water parts with **NO Terrain override at all**. Every
+other successful carry (this island's own other 3 cells included) always ships at least a Terrain
+component, even where it's a thin sliver. This matches the session's own established LOAD-BEARING
+RULE correction (registration ≠ raycast — a render-only/bare override can exist geometrically and
+still never enter `WMBlock.ActiveWalkMeshes`): the s34 divert / `WMWorld.LoadBlock` registration
+path may specifically require a Terrain component to be present for a block to register its OTHER
+parts (SeaX) as active walkmeshes at all. A Terrain-less water-only override may simply be an
+untested, possibly-unsupported configuration.
+
+**Secondary lead (the user's own hypothesis, worth checking in parallel, not yet confirmed or
+refuted):** "a series of uncarried sea tiles that no longer make a coherent Wang puzzle" — the
+`water.py` Wang-tile transition language (`DEEPSET2TILE`) assumes neighbour-consistent depth-edge
+sampling; a carry that doesn't re-derive that language at the new site (this carry positions the
+donor's UVs verbatim, it does not re-run the Wang assignment) could produce texture/tile
+discontinuities. The topo dump above shows the COLLISION data is clean, so a pure Wang-UV mismatch
+would explain the PALE/flat visual on its own but not obviously the navigability block by itself —
+unless the two are separate, co-located symptoms (a texture defect AND a registration defect,
+both stemming from the same "no-Terrain water-only cell" carry). Worth checking independently.
+
+**NEXT SESSION, in order:**
+1. Live forensics FIRST, not more offline census — sail/fly to (755,−1216) and grab `Memoria.log` /
+   `output_log.txt` from that moment (the same technique that found the flat-mesh IndexOutOfRange).
+   The offline oracle has now been shown NOT sufficient for this failure class.
+2. Test the Terrain-registration hypothesis directly: deploy a degenerate/inert flat Terrain
+   override at block (11,19) (zero visual/gameplay change, purely to test registration) and see if
+   the water there becomes texturally correct + navigable.
+3. If confirmed, this is a NEW GATE for `transplant.py`/`world-transplant`: a target cell whose
+   donor carries water but no land must synthesize a minimal Terrain component (or the tool should
+   refuse/flag such cells) — a real gap in the shipped machinery, not just this one carry.
+4. Check whether any EXISTING stock or previously-carried water-only cell elsewhere already proves
+   or disproves the Terrain-required theory (a fast falsification if one is found).
+
+Not fixed this session — recorded for continuity across the account switch. The rest of the (8,17)
+carry stays fully closed and in-game proven (cave inert, the (12,18) sea holes patched and
+confirmed navigable, no z-fight).
