@@ -622,24 +622,51 @@ def sea_patch_for_block(bx, by, keep_cells, *, disc=DISC):
 
 def merge_local_mesh(base_bm, patch_bm):
     """Append ``patch_bm``'s (LOCAL-frame) triangles onto ``base_bm`` (also local-frame, as read from
-    an already-deployed ``.ff9mesh``) -- a plain concatenation, no de-dup (the whole point is the
-    patch occupies cells ``base_bm`` had NO tri in)."""
+    an already-deployed ``.ff9mesh``) -- then FLATTEN. **THE FLAT-MESH INVARIANT (learned in-game
+    2026-07-20, the hard way):** every real ``.ff9mesh`` is strictly flat/unindexed -- vertex count ==
+    index count, each tri owning its own 3 verts -- and the engine's s34 loader ASSUMES it:
+    a merged mesh carrying orphan verts (the v3 clip's polygon corner pool left 30) made
+    ``WMWorld.RegisterBlockComponent`` throw IndexOutOfRange, aborting ``LoadBlocks`` mid-world --
+    every block after ours loaded unregistered (pale unnavigable sea map-wide + the arrival fix-up
+    relocating the player). The flatten below re-expands every channel per-tri from ``flat_index``
+    (orphans dropped by construction) and the caller-facing invariant is asserted."""
     from ff9mapkit.world.extract import CH_POS, CH_NRM, CH_UV, CH_TAN, BlockMesh
     if base_bm is None:
-        return patch_bm
-    ca_b, ca_p = base_bm.chan_arrays, patch_bm.chan_arrays
-    n0 = len(ca_b[CH_POS])
-    pos = list(ca_b[CH_POS]) + list(ca_p[CH_POS])
-    nrm = list(ca_b[CH_NRM]) + list(ca_p[CH_NRM])
-    uv = list(ca_b[CH_UV]) + list(ca_p[CH_UV])
-    tan = list(ca_b[CH_TAN]) + list(ca_p[CH_TAN])
-    flat = list(base_bm.flat_index) + [i + n0 for i in patch_bm.flat_index]
-    tris = list(base_bm.tris) + [[i + n0 for i in t] for t in patch_bm.tris]
-    return BlockMesh(name=base_bm.name, disc=base_bm.disc, x=base_bm.x, y=base_bm.y, lod=base_bm.lod,
-                     vcount=len(pos), stride=48,
-                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
-                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
-                     flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+        merged = patch_bm
+    else:
+        ca_b, ca_p = base_bm.chan_arrays, patch_bm.chan_arrays
+        n0 = len(ca_b[CH_POS])
+        pos = list(ca_b[CH_POS]) + list(ca_p[CH_POS])
+        nrm = list(ca_b[CH_NRM]) + list(ca_p[CH_NRM])
+        uv = list(ca_b[CH_UV]) + list(ca_p[CH_UV])
+        tan = list(ca_b[CH_TAN]) + list(ca_p[CH_TAN])
+        flat = list(base_bm.flat_index) + [i + n0 for i in patch_bm.flat_index]
+        tris = list(base_bm.tris) + [[i + n0 for i in t] for t in patch_bm.tris]
+        merged = BlockMesh(name=base_bm.name, disc=base_bm.disc, x=base_bm.x, y=base_bm.y,
+                           lod=base_bm.lod, vcount=len(pos), stride=48,
+                           channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                           chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                           flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                           submeshes=[])
+    # FLATTEN: per-tri vertex expansion in flat_index order; index buffer becomes 0..3N-1.
+    ca = merged.chan_arrays
+    idx = list(merged.flat_index)
+    pos = [ca[CH_POS][j] for j in idx]
+    nrm = [ca[CH_NRM][j] for j in idx]
+    uv = [ca[CH_UV][j] for j in idx]
+    tan = [ca[CH_TAN][j] for j in idx]
+    flat = list(range(len(idx)))
+    tris = [[3 * t, 3 * t + 1, 3 * t + 2] for t in range(len(idx) // 3)]
+    out = BlockMesh(name=merged.name, disc=merged.disc, x=merged.x, y=merged.y, lod=merged.lod,
+                    vcount=len(pos), stride=48,
+                    channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                    chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                    flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    assert len(out.chan_arrays[CH_POS]) == len(out.flat_index) == 3 * (len(out.flat_index) // 3), \
+        "FLAT-MESH INVARIANT violated"
+    print(f"  FLAT-MESH INVARIANT: verts={len(pos)} == idx={len(flat)} "
+          f"({len(flat)//3} tris, orphans dropped: {len(ca[CH_POS]) - len(set(idx))} unreferenced) -> ok")
+    return out
 
 
 # --------------------------------------------------------------------------- bonus: event/area audit
@@ -1374,6 +1401,15 @@ def main():
             print(f"   {part}: tris={s['tris']} Y=[{s['y_min']:.4f},{s['y_max']:.4f}] "
                   f"mean={s['y_mean']:.4f} top_y={s['top_y']}")
         entry = {"y_stats": ystats, "v1_patch_tris": len(v1_tris), "v1_strip_verified": verified}
+        if not v1_tris and blk == (12, 18):
+            # THE FROM-SCRATCH PATH (the flat-invariant incident's reset, 2026-07-20): after
+            # sea_patch_reset.py strips a bad deploy back to the pristine carried Sea4, there is no
+            # v1 delta to replace -- but the block's REAL stock holes still exist and the rebuild
+            # machinery handles an empty strip (it censuses the whole block). Keep the known patched
+            # block rebuild-eligible so the flat v3 can be built from the clean baseline.
+            print("   no deployed patch delta, but this is the known holed block -- "
+                  "rebuild-eligible from scratch")
+            patched_blocks.append(blk)
         if v1_tris:
             patched_blocks.append(blk)
             macro_cells = {(math.floor(sum(p[0] for p in tri) / 3.0 / GRID),
