@@ -1,0 +1,786 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 5b2b237..7518262 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1386,6 +1386,7 @@
+     <Compile Include="Memoria\Netsync\NetSyncState.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncParty.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncDiorama.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncField.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
+diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
+index 79e76cf..95bc300 100644
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
+@@ -1078,7 +1078,9 @@ public class EBin
+             case op_binary.B_KEYON: // B_KEYON = 79
+             {
+                 VoicePlayer.scriptRequestedButtonPress = true;
+-                _v0 = (Mathf.Abs(EvaluateValueExpression() & ETb.KeyOn(Localization.CurrentSymbol == "JP")) <= 0) ? 0 : 1;
++                // [ff9mapkit netsync F1] a spectator guest's free-walk Confirm/Special never reaches
++                // a script poll (stock loot/chest bodies); control-off reads pass (cutscene waits).
++                _v0 = (Mathf.Abs(EvaluateValueExpression() & Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.KeyOn(Localization.CurrentSymbol == "JP"))) <= 0) ? 0 : 1;
+                 expr_Push_v0_Int24();
+                 break;
+             }
+@@ -1104,7 +1106,9 @@ public class EBin
+             }
+             case op_binary.B_KEY:
+             {
+-                _v0 = (Mathf.Abs(EvaluateValueExpression() & ETb.GetInputs(Localization.CurrentSymbol == "JP")) <= 0) ? 0 : 1;
++                // [ff9mapkit netsync F1] same spectator mask as B_KEYON -- the held-state variant
++                // (loot idioms use either; the mask covers both, B_KEYOFF stays vanilla).
++                _v0 = (Mathf.Abs(EvaluateValueExpression() & Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.GetInputs(Localization.CurrentSymbol == "JP"))) <= 0) ? 0 : 1;
+                 expr_Push_v0_Int24();
+                 break;
+             }
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
+index e96f3d5..f134b74 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
+@@ -1007,7 +1007,22 @@ public partial class EventEngine
+             }
+             case EBin.event_code_binary.MAPJUMP: // 0x2B, "Field", "Change the field scene",
+             {
+-                this.SetNextMap(this.getv2()); //arg1: field scene destination
++                Int32 mapJumpDest = this.getv2(); //arg1: field scene destination (consumed FIRST -- gArgUsed)
++                // [ff9mapkit netsync F1] THE GATEWAY REDIRECT: a FOLLOWING guest never self-navigates.
++                // Do NOT suppress-and-continue (`return 0`) -- post-Field() bytes are UNREACHABLE in
++                // normal play (return 4 halts the VM via adFin) and the 817-field census found 4400+
++                // live-code followers incl. two `while(1)` softlocks. Instead keep the instruction
++                // flow byte-for-byte vanilla and change only the VALUE: bounce into a same-field
++                // reload (the proven ~-menu Reload / s42-kick primitive -- wipes the gateway's MOVQ
++                // flag residue and re-arms the story mirror at the load boundary; the script's own
++                // fade flows into the reload's fade-in, so recovery is built in). The decision --
++                // follow allowance (dest == the host's field passes untouched), the auto-transition
++                // BOUNCE BUDGET (a field whose script auto-Fields would otherwise reload forever),
++                // and the latched log -- lives in NetSyncClient.RedirectGuestFieldJump. Fail-safe
++                // vanilla: SpectatorField is false on every stock install and after link death.
++                if (Memoria.Netsync.NetSyncField.SpectatorField)
++                    Memoria.Netsync.NetSyncClient.RedirectGuestFieldJump(ref mapJumpDest);
++                this.SetNextMap(mapJumpDest);
+                 return 4;
+             }
+             case EBin.event_code_binary.CC: // 0x2C, "DefinePlayerCharacter", "Apply the player's control over the entry's object"
+@@ -2298,6 +2313,17 @@ public partial class EventEngine
+             {
+                 UInt32 menuId = Convert.ToUInt32(this.getv1()); // arg1: menu type
+                 UInt32 subId = Convert.ToUInt32(this.getv1()); // arg2: depends on the menu type. Naming Menu: character to name | Shop Menu: shop ID
++                // [ff9mapkit netsync F1] a FOLLOWING guest never gets a script-opened menu (save,
++                // shop, name entry, chocograph) -- the s38 UIKeyTrigger gates cover only KEY-press
++                // menu opens, this opcode was the hole (a guest talking through a mirrored script
++                // got the full moogle UI). Both getv1() are consumed above (gArgUsed trap); return 0
++                // continues the script inline -- the shipping DisableNameChoice branch below is the
++                // in-opcode precedent for exactly that shape.
++                if (Memoria.Netsync.NetSyncField.SpectatorField)
++                {
++                    Memoria.Netsync.NetSyncField.DeclineOnce("script menu");
++                    return 0;
++                }
+                 if (Configuration.Hacks.DisableNameChoice && menuId == 1)
+                 {
+                     CharacterId charId = this.chr2slot((Int32)subId);
+diff --git a/Assembly-CSharp/Global/Event/EventCollision.cs b/Assembly-CSharp/Global/Event/EventCollision.cs
+index 970219c..a56d24d 100644
+--- a/Assembly-CSharp/Global/Event/EventCollision.cs
++++ b/Assembly-CSharp/Global/Event/EventCollision.cs
+@@ -66,6 +66,16 @@ public class EventCollision
+             Obj obj = instance.TreadQuad(po, 4);
+             if (obj != null && EventCollision.IsQuadTalkable(po, obj))
+             {
++                // [ff9mapkit netsync F1] a FOLLOWING guest is a field spectator: it never STARTS a
++                // quad interaction (kit chests, shops, savepoint moogles, card challenges). Deep
++                // placement = the decline logs only on a genuine attempt; tag-2 push/tread below
++                // stays untouched by construction ([[coop]] plates, gateways). An already-open
++                // window still advances (that path never reaches here). Fail-safe vanilla.
++                if (Memoria.Netsync.NetSyncField.SpectatorField)
++                {
++                    Memoria.Netsync.NetSyncField.DeclineOnce("chest/quad interaction");
++                    return false;
++                }
+                 if (interactInput == EventInput.Special && instance.Request(obj, 1, 8, false))
+                 {
+                     EventCollision.ClearPathFinding(po);
+@@ -95,6 +105,13 @@ public class EventCollision
+                 EventCollision.sSysAngle = EventCollision.CollisionAngle(po, obj);
+                 if (EventCollision.sSysAngle > -1024 && EventCollision.sSysAngle < 1024)
+                 {
++                    // [ff9mapkit netsync F1] spectator guest: never START an NPC talk (all tag-3 --
++                    // NPCs, Mognet moogles, verbatim-fork cast). See CheckQuadInput's twin gate.
++                    if (Memoria.Netsync.NetSyncField.SpectatorField)
++                    {
++                        Memoria.Netsync.NetSyncField.DeclineOnce("npc talk");
++                        return false;
++                    }
+                     ((Actor)po).listener = obj.uid;
+                     if (interactInput == EventInput.Special)
+                     {
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index 8791529..f04d5ae 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -98,6 +98,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     private String _itemCountText = "1";
+     private String _gilText = "10000";
+     private Byte[] _snapshot;                // saved gEventGlobal (flag snapshot/restore)
++    private Boolean _snapshotMirrored;       // [netsync F1] co-op taint: captured while living in the HOST's
++                                             // mirrored story (or a selftest bench) -- must not be restorable
++                                             // after the exit ramp, or a manual save writes host story to disk
+     private String _status = "";
+ 
+     // Deferred FADED warp: a bare debug-menu Field() warp transitions with the source field still drawn, so the
+@@ -724,6 +727,24 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         DrawDiorama();                                          // co-op bench: renders ONLY inside a co-op session
+ 
++        // [ff9mapkit netsync F1] the FIELD-GATE BENCH lever: arms every F1 spectator gate
++        // (chest/NPC/gateway/script-menu suppression + auto-teleport) in a Role=selftest session --
++        // the ONLY solo path, since IsLiveFollowedSession needs role=client and IsMirroringStory
++        // needs a socket. Rendered only under IsSelfTestRole (positive containment: invisible to
++        // ordinary players AND to real host/client sessions); default OFF so plain selftest ghost
++        // work stays vanilla. A dev lever, not a [Netsync] knob (the Diorama-knob verdict).
++        if (Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++        {
++            Section("Field-gate bench (selftest)");
++            Boolean bg = Memoria.Netsync.NetSyncField.BenchGates;
++            if (GUILayout.Button(bg ? "Spectator gates: ON (bench)" : "Spectator gates: off", bg ? _tabOn : _button))
++            {
++                Memoria.Netsync.NetSyncField.BenchGates = !bg;
++                Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF"));
++            }
++            GUILayout.Label("ON = this solo session obeys following-guest rules: no chests, talks, gateways or script menus.", _hint);
++        }
++
+         Section("Registered fields");
+         GUILayout.BeginHorizontal();                            // filter bar — a verbatim fork can register ~500 fields
+         GUILayout.Label("Filter", _labelMid, GUILayout.Width(48f));
+@@ -2250,6 +2271,16 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         Byte[] g = FF9StateSystem.EventState.gEventGlobal;
+         _snapshot = new Byte[g.Length];
+         System.Array.Copy(g, _snapshot, g.Length);
++        // [netsync F1] taint-stamp: while story-mirroring the array holds the HOST's story (ApplyStory
++        // is its sole writer and the same call site arms the flag, so the stamp cannot miss).
++        // OwnSaveReloadInFlight covers the exit ramp's ASYNC window (verify find: _storyMirroring is
++        // already false there while the array STILL holds host story until the autoload lands). The
++        // selftest arm requires the FIELD-GATE BENCH toggled on -- a plain selftest flag snapshot is
++        // ordinary dev work and stays restorable (verify find: the bare IsSelfTestRole stamp
++        // regressed a shipping dev workflow).
++        _snapshotMirrored = Memoria.Netsync.NetSyncClient.IsMirroringStory
++                         || Memoria.Netsync.NetSyncClient.OwnSaveReloadInFlight
++                         || (Memoria.Netsync.NetSyncClient.IsSelfTestRole && Memoria.Netsync.NetSyncField.BenchGates);
+         _status = "flag state saved (" + g.Length + " bytes)";
+     }
+ 
+@@ -2260,6 +2291,24 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             _status = "no snapshot saved";
+             return;
+         }
++        // [netsync F1] THE SNAPSHOT LEAK fix: Snapshot-while-mirroring -> session ends (exit ramp
++        // autoloads the guest's OWN save, the save block lifts) -> Restore -> manual save would write
++        // HOST story into the guest's PERMANENT save. A tainted buffer restored once the session is
++        // over is DISCARDED with a visible reason (nulling it also greys the button to "Restore
++        // (none)"). Restore-while-still-mirroring proceeds (harmless: saving is blocked and the next
++        // field load re-mirrors); an own-story snapshot (stamp false) restores exactly as before.
++        // (OwnSaveReloadInFlight deliberately does NOT exempt: the ramp's async window is when the
++        // leak is live, so a tainted restore there refuses exactly like the post-session case.)
++        if (_snapshotMirrored && !Memoria.Netsync.NetSyncClient.IsMirroringStory
++                              && !Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++        {
++            _snapshot = null;
++            _snapshotMirrored = false;
++            _status = "snapshot discarded: it was captured during a co-op session or its bench (restoring" +
++                      " it here could overwrite your own story with the HOST's)";
++            Memoria.Prime.Log.Message("[NetSync] flag-snapshot restore refused: co-op-tainted buffer discarded post-session");
++            return;
++        }
+         Byte[] g = FF9StateSystem.EventState.gEventGlobal;
+         System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
+         _status = "flag state restored (Reload field to apply)";
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+index 5b87384..e74a468 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -172,6 +172,22 @@ public class UIKeyTrigger : MonoBehaviour
+                 Ff9mkDebugMenu.Toggle();
+                 return;
+             }
++            // [ff9mapkit netsync F1] TELEPORT-TO-HOST (F11 tap / held L3): a co-op recovery key.
++            // SESSION-GATED FIRST (verify find): on a stock install -- or with the link dead -- the
++            // short-circuit keeps TeleportKeyPressed() unread, so F11/L3 stay fully vanilla (no
++            // swallowed frames, no dormant accumulator; a rebound F11 keeps working). Inside a live
++            // followed session / selftest the key is claimed and evaluated every frame (the L3 hold
++            // accumulator advances only then, which is the only time it means anything). The
++            // FieldHUD check lives INSIDE the fired branch so a hold crossing a transient menu is
++            // consumed, not misdelivered.
++            if ((Memoria.Netsync.NetSyncClient.IsLiveFollowedSession
++                 || Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++                && Memoria.Netsync.NetSyncField.TeleportKeyPressed())
++            {
++                if (st == UIManager.UIState.FieldHUD)
++                    Memoria.Netsync.NetSyncClient.RequestTeleportToHost();
++                return;
++            }
+             // [ff9mapkit s37] while the co-op assist panel awaits a battle command, the digit keys
+             // belong to IT -- swallow them here (the F6 pattern, before every game handler) so a
+             // digit bound to a game control (Alpha1 = the default help/Select binding) doesn't ALSO
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 45c2e70..8d32cfd 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -123,6 +123,83 @@ namespace Memoria.Netsync
+         private Int32 _followCandidate = -1;             // the peer field currently being debounced
+         private Int32 _followCandidateSince;
+         private Int32 _followWarpedTo = -1;              // don't re-warp to the same id until the peer moves on
++        // F1 (2026-07-20): the peer's last known field id, cached for the GATEWAY REDIRECT's follow
++        // allowance (DoEventCode MAPJUMP: a guest gateway whose destination IS the host's field is a
++        // natural follow and passes untouched; anything else bounces into a same-field reload). -1
++        // whenever the lane is stale/absent (selftest, disconnected, teardown) -- the redirect then
++        // always bounces. Static on purpose: the opcode handler has no instance in hand.
++        internal static Int32 LastHostField = -1;
++        // F1 THE BOUNCE BUDGET (verify find): a field whose SCRIPT auto-calls Field() with no user
++        // input (auto-transition corridors, cutscene advances) would otherwise bounce -> reload ->
++        // auto-Field again -> reload FOREVER when the host is elsewhere/unreachable. Consecutive
++        // bounces on the SAME field inside a short window spend a budget; exhausted = the jump is
++        // let THROUGH (vanilla self-navigation -- follow-warp corrects it later when it can). A
++        // window is SLIDING (each bounce re-stamps it), so a determined re-tread of one door ~4
++        // times inside 20s DOES spend the budget -- the let-through excursion self-corrects (the
++        // follow-warp yanks the guest back), so that is accepted, not prevented. Set-then-compare
++        // tick pattern (compared only after a same-field set).
++        private const Int32 MaxBounceStreak = 3;
++        private const Int32 BounceStreakWindowMs = 20000;
++        private static Int32 _lastBounceField = -1;
++        private static Int32 _bounceStreak;
++        private static Int32 _lastBounceTick = Environment.TickCount;
++        // F1 (snapshot-taint verify find): TRUE from the exit ramp's fire until the autoload's own
++        // field load lands -- in that async window _storyMirroring is already false while the live
++        // gEventGlobal STILL holds the host's story, so taint decisions must consult this too.
++        internal static Boolean OwnSaveReloadInFlight;
++
++        // The redirect decision for a spectator guest's MAPJUMP (called from the opcode handler
++        // with SpectatorField already true). Returns true when dest was rewritten to a same-field
++        // bounce; false = the jump proceeds untouched (follow allowance, same-field scripted
++        // reload, or an exhausted bounce budget).
++        internal static Boolean RedirectGuestFieldJump(ref Int32 dest)
++        {
++            try
++            {
++                Int32 myField = FF9StateSystem.Common.FF9.fldMapNo;
++                if (dest == myField || dest == LastHostField)
++                    return false;              // scripted same-field reload / the follow allowance
++                Int32 now = Environment.TickCount;
++                if (_lastBounceField == myField && now - _lastBounceTick <= BounceStreakWindowMs)
++                {
++                    if (_bounceStreak >= MaxBounceStreak)
++                    {
++                        // budget spent: an auto-transition field is driving this -- let it through
++                        // ONCE (and log ONCE per spend: the streak reset below re-arms the budget).
++                        Log.Message("[NetSync] field " + myField + " keeps jumping to " + dest
++                                    + " on its own -- letting it through (auto-transition field)");
++                        _lastBounceField = -1;
++                        _bounceStreak = 0;
++                        return false;
++                    }
++                    _bounceStreak++;
++                }
++                else
++                {
++                    _lastBounceField = myField;
++                    _bounceStreak = 1;
++                }
++                _lastBounceTick = now;
++                NetSyncField.DeclineOnce("gateway (bounced to a reload)");
++                dest = myField;
++                return true;
++            }
++            catch { return false; }            // any read failure -> vanilla jump (fail-safe)
++        }
++        // F1 AUTO-TELEPORT (a RECOVERY, not a leash -- DESIGN.md/F1-BUILD.md): recover a separated
++        // guest to the host only on REAL sustained separation; never interrupt ordinary nearby
++        // walking. All four thresholds are playtest seeds, not laws.
++        private const Single AutoTpDistanceFloor = 640f;   // ~2 PSX field widths, 1:1 walkmesh units
++        private const Single AutoTpHardCap = 1200f;        // past this gap, softlock recovery beats input courtesy
++        private const Int32 AutoTpDwellMs = 4500;          // sustained-separation dwell before a fire
++        private const Int32 AutoTpCooldownMs = 10000;      // post-fire cooldown
++        private const Single AutoTpGrowthMargin = 100f;    // the "gap keeps GROWING" test for the steering override
++        private Int32 _autoTpLastFireTick = Environment.TickCount - 100000;  // pre-expired = ready (tick-baseline law)
++        private Boolean _autoTpSeparated;                  // guards _autoTpSeparatedSince/_autoTpArmSep (never read un-armed)
++        private Int32 _autoTpSeparatedSince = Environment.TickCount;
++        private Single _autoTpArmSep;                      // sep when the dwell armed (the growth baseline)
++        private Boolean _autoTpHoldLogged;                 // latched "held: steering" decline line
++        private String _tpDeclineReason = "";              // manual teleport: latched decline (a held key must not spam)
+         // THE SAME-FIELD PAIRING GAP (s42): the story mirror arms ONLY at a field-load boundary
+         // (HonoluluFieldMain -> ApplyStoryBeforeEvents), and FollowHostTick treats "peer already on my
+         // field" as a no-op -- so a guest co-located with the host at link-up NEVER armed the mirror
+@@ -200,6 +277,9 @@ namespace Memoria.Netsync
+         // No-op unless enabled + following + linked; selftest has no socket, so it never mirrors.
+         public static void ApplyStoryBeforeEvents()
+         {
++            OwnSaveReloadInFlight = false;   // F1: any field load ends the ramp's async window -- the
++                                             // autoload's own load runs through here, and a load that
++                                             // beat it to the boundary makes the flag moot either way
+             if (_instance != null)
+                 _instance.ApplyStoryImpl();
+         }
+@@ -458,6 +538,8 @@ namespace Memoria.Netsync
+             _followWarpedTo = -1;
+             _sameFieldKickDone = false;    // a NEW session starts on redial -- its first arrival kicks again
+             _sameFieldKickTries = 0;       // with a fresh reload budget
++            LastHostField = -1;            // F1: no stale host field may survive a reconfigure
++            NetSyncField.ResetTeleportKey();
+             if (_storyMirroring)
+                 _exitRampPending = true;   // deliberate config change ends the session NOW: ramp to the
+                                            // guest's own autosave at the next safe tick (no debounce);
+@@ -614,6 +696,8 @@ namespace Memoria.Netsync
+                                                    // session must still get its same-field kick
+                     _sameFieldKickTries = 0;       // a session boundary re-funds the reload budget
+                     NetSyncParty.Clear();          // the read wraps revert to the guest's own state
++                    OwnSaveReloadInFlight = true;  // F1: gEventGlobal still holds HOST story until the
++                                                   // autoload's own load lands -- taint checks read this
+                     NetSyncState.ExitMirrorToOwnSave();
+                 }
+             }
+@@ -710,6 +794,8 @@ namespace Memoria.Netsync
+                             ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
++                    LastHostField = -1;                       // no wire in selftest -- the gateway redirect always bounces
++                    AutoTeleportTick(me, stMirror, true);     // F1 bench arm (self-gates on BenchGates inside)
+                     return;
+                 }
+ 
+@@ -765,6 +851,7 @@ namespace Memoria.Netsync
+                 NetSyncVisitor.SuppressEncounters = _followHost && _socket.IsConnected;
+ 
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
++                LastHostField = rs.Valid ? rs.Field : -1;                // F1: the gateway redirect's follow allowance
+                 FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
+@@ -788,6 +875,7 @@ namespace Memoria.Netsync
+                             ApplyGhostMask(LocalMeshMask(local));
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
++                    AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
+                 }
+                 else
+                 {
+@@ -846,6 +934,9 @@ namespace Memoria.Netsync
+             _exitRampPending = false;
+             NetSyncParty.Clear();
+             NetSyncVisitor.SuppressEncounters = false;
++            LastHostField = -1;            // F1: the statics must not outlive the session either
++            OwnSaveReloadInFlight = false;
++            NetSyncField.ResetTeleportKey();
+         }
+ 
+         // ---------------------------------------------------------------- THE DIORAMA WATCHER (B3.3)
+@@ -1178,6 +1269,244 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // ===== F1 TELEPORT-TO-HOST (manual F11/held-L3 + the auto recovery) =========================
++        // The manual entry point is a STATIC forwarder because the UIKeyTrigger intercept has no
++        // instance -- and it MUST null-guard _instance itself: IsSelfTestRole (unlike
++        // IsLiveFollowedSession) says nothing about _instance existing (lazy AddComponent).
++        public static void RequestTeleportToHost()
++        {
++            NetSyncClient i = _instance;
++            if (i == null)
++                return;
++            i.TeleportToHostImpl();
++        }
++
++        // One latched decline line per REASON -- a held key repeats the request every frame and the
++        // log must not (every-gate-logs, latched). Reset on success so the next distinct refusal
++        // speaks again.
++        private void TpDecline(String reason)
++        {
++            if (_tpDeclineReason == reason)
++                return;
++            _tpDeclineReason = reason;
++            Log.Message("[NetSync] teleport-to-host declined: " + reason);
++        }
++
++        private void TeleportToHostImpl()
++        {
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (_followWarpPending >= 0)
++                {
++                    TpDecline("a warp is already in flight");
++                    return;
++                }
++                if (!ee.GetUserControl())
++                {
++                    TpDecline("user control is off (dialogue/event/transition)");
++                    return;
++                }
++                Actor me = ee.GetControlChar() as Actor;
++                if (me == null || me.fieldMapActor == null)
++                {
++                    TpDecline("no controlled field actor");
++                    return;
++                }
++                if (IsSelfTestRole)
++                {
++                    // The solo bench: snap onto the selftest mirror (player + SelfTestOffset). On a
++                    // narrow field the offset may resolve off-mesh -- SetPosition then falls back to
++                    // the walkmesh origin; the bench criterion is "relocated + refloored", not
++                    // "landed on the ghost". NEVER read _socket here (null in selftest).
++                    Vector3 target = me.fieldMapActor.transform.localPosition
++                                   + new Vector3(_selfTestDx, 0f, _selfTestDz);
++                    if (SnapToHost(ee, target))
++                    {
++                        _tpDeclineReason = "";
++                        Log.Message("[NetSync] teleport-to-host: snapped onto the selftest mirror");
++                    }
++                    else
++                        TpDecline("the mirror offset is off this walkmesh (landed at the default spawn)");
++                    return;
++                }
++                if (!IsLiveFollowedSession)
++                {
++                    TpDecline("no live followed session");
++                    return;
++                }
++                RemoteState rs = _socket.GetRemote();
++                if (!rs.Valid)
++                {
++                    TpDecline("the peer's position lane is stale");
++                    return;
++                }
++                Int32 myField = FF9StateSystem.Common.FF9.fldMapNo;
++                if (rs.Field == myField)
++                {
++                    if (SnapToHost(ee, rs.Pos))
++                    {
++                        _tpDeclineReason = "";
++                        Log.Message("[NetSync] teleport-to-host: snapped to the host on field " + myField);
++                    }
++                    else
++                        TpDecline("the host's position is off this walkmesh (landed at the default spawn)");
++                    return;
++                }
++                if (!EventEngineUtils.eventIDToFBGID.ContainsKey(rs.Field))
++                {
++                    // FollowHostTick's own registration decline is SILENT (the overlay explains) --
++                    // a deliberate keypress deserves a spoken reason.
++                    TpDecline("the host's field (" + rs.Field + ") is not on this install");
++                    return;
++                }
++                // Cross-field: re-arm the follow so the NEXT FollowHostTick fires the proven
++                // fade+warp immediately (clear the already-warped latch, pre-age the debounce).
++                // Never duplicate the warp logic here.
++                _followWarpedTo = -1;
++                _followCandidate = rs.Field;
++                _followCandidateSince = Environment.TickCount - FollowStableMs;
++                _tpDeclineReason = "";
++                Log.Message("[NetSync] teleport-to-host: following the peer to field " + rs.Field);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] teleport-to-host failed");
++            }
++        }
++
++        // The snap primitive: through ee.fieldmap.playerController -- populated on EVERY player
++        // spawn path (actor.fieldMapActorController is null on the AddPlayer path, so do NOT use
++        // it). SetPosition(pos, true, true) re-triangulates onto the NEAREST-Y floor (multi-floor
++        // correct) and rebinds activeFloor/activeTri; keep it SetPosition-ONLY -- HonoLateUpdate
++        // writes curPos back to pos[] next frame and TreadQuad reads the live transform, so poking
++        // pos[]/lastx here would only fight the controller (verified non-issue). Returns
++        // SetPosition's OWN verdict (verify find): false = the target was off this walkmesh and the
++        // engine dumped the player at the default spawn instead -- callers must not report success.
++        // No logging here: the manual and auto callers own their distinct latched lines.
++        private Boolean SnapToHost(EventEngine ee, Vector3 target)
++        {
++            FieldMapActorController pc = ee.fieldmap != null ? ee.fieldmap.playerController : null;
++            if (pc == null)
++                return false;
++            return pc.SetPosition(target, true, true);
++        }
++
++        // F1 AUTO-TELEPORT -- a RECOVERY, not a leash: fires only on real sustained separation and
++        // never interrupts ordinary nearby walking. Called from BOTH position sources (the selftest
++        // branch returns before the real-coop block, so a single call site would be structurally
++        // un-benchable -- the recon-verify's find): real clients pass rs.Pos, the selftest bench
++        // passes the mirror. Own try/catch: this runs UPSTREAM of the battle lane's Pump in Update,
++        // and an unguarded throw here would starve the diorama via the Update-level catch.
++        private void AutoTeleportTick(Actor local, Vector3 hostPos, Boolean benchArm)
++        {
++            try
++            {
++                Boolean scoped = benchArm ? (IsSelfTestRole && NetSyncField.BenchGates)
++                                          : IsLiveFollowedSession;
++                if (!scoped || local == null || local.fieldMapActor == null || _followWarpPending >= 0)
++                {
++                    _autoTpSeparated = false;
++                    return;
++                }
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                Vector3 gp = local.fieldMapActor.transform.localPosition;
++                Single sep = Vector3.Distance(hostPos, gp);
++                if (sep <= AutoTpDistanceFloor)
++                {
++                    _autoTpSeparated = false;
++                    _autoTpHoldLogged = false;
++                    return;
++                }
++                // busy: dialogue/menu/event/transition -- never yank the player mid-anything
++                Boolean busy = !ee.GetUserControl();
++                if (!busy)
++                {
++                    UIManager ui = PersistenSingleton<UIManager>.Instance;
++                    busy = ui == null || ui.State != UIManager.UIState.FieldHUD
++                        || (ui.Dialogs != null && ui.Dialogs.Visible);
++                }
++                if (busy)
++                {
++                    _autoTpSeparated = false;
++                    return;
++                }
++                // steering: the engine's own component-wise stick thresholds + the digital keys
++                // (FieldMapActorController's movingUp/Down/Left/Right form -- NOT .magnitude).
++                // An UNREADABLE input subsystem must fail toward HOLD, never toward the yank
++                // (verify find: a swallowed throw here used to leave steering=false and fire).
++                Boolean steering = false;
++                try
++                {
++                    Vector2 ax = PersistenSingleton<HonoInputManager>.Instance.GetAxis();
++                    Single th = Configuration.AnalogControl.StickThreshold;
++                    steering = UIManager.Input.GetKey(Control.Up) || UIManager.Input.GetKey(Control.Down)
++                            || UIManager.Input.GetKey(Control.Left) || UIManager.Input.GetKey(Control.Right)
++                            || ax.x > th || ax.x < -th || ax.y > th || ax.y < -th;
++                }
++                catch
++                {
++                    _autoTpSeparated = false;  // can't tell if they're steering -> hold this frame
++                    return;
++                }
++                if (steering && sep <= AutoTpHardCap)
++                {
++                    // held by active input -- say so once, keep waiting (past the cap, softlock
++                    // recovery MAY beat input courtesy, but only if the gap keeps GROWING -- below)
++                    if (!_autoTpHoldLogged)
++                    {
++                        _autoTpHoldLogged = true;
++                        Log.Message("[NetSync] auto-teleport held: you're steering (sep " + (Int32)sep + ")");
++                    }
++                    _autoTpSeparated = false;
++                    return;
++                }
++                _autoTpHoldLogged = false;
++                if (!_autoTpSeparated)
++                {
++                    _autoTpSeparated = true;
++                    _autoTpSeparatedSince = Environment.TickCount;
++                    _autoTpArmSep = sep;       // the growth baseline for the steering override
++                    return;
++                }
++                // THE RATIFIED "KEEPS GROWING" QUALIFIER (verify find restored it; re-verify fixed
++                // it AGAIN): a guest who is STEERING past the hard cap is only overridden when the
++                // gap has WIDENED >= the margin since the dwell FIRST armed. Hold WITHOUT disarming
++                // -- a disarm here re-stamped the baseline next frame, so growth was measured
++                // frame-to-frame (< 100u always) and the override could never fire. With the
++                // baseline persistent: stable/shrinking sep while steering = held indefinitely
++                // (exploring, correct); genuinely walking away crosses armSep+margin and recovers.
++                // (This hold is silent by design -- the below-cap hold already logged the episode.)
++                if (steering && sep < _autoTpArmSep + AutoTpGrowthMargin)
++                    return;
++                if (Environment.TickCount - _autoTpSeparatedSince < AutoTpDwellMs)
++                    return;
++                if (Environment.TickCount - _autoTpLastFireTick < AutoTpCooldownMs)
++                    return;
++                if (SnapToHost(ee, hostPos))
++                {
++                    _autoTpLastFireTick = Environment.TickCount;
++                    Log.Message("[NetSync] auto-teleport: recovered to the host (sep was " + (Int32)sep + ")");
++                }
++                else
++                {
++                    // honest telemetry (EVERY-GATE-LOGS): the target was off this walkmesh -- the
++                    // engine dumped us at the default spawn, NOT on the host. Stamp the cooldown
++                    // anyway so a persistently off-mesh host position retries at ~10s, not 4.5s
++                    // (each attempt moves the player; unbounded retries would thrash).
++                    _autoTpLastFireTick = Environment.TickCount;
++                    Log.Message("[NetSync] auto-teleport: the host's spot is off this walkmesh -- landed at"
++                                + " the default spawn instead (will retry after the cooldown)");
++                }
++                _autoTpSeparated = false;      // fired (or missed): re-arm from scratch either way
++            }
++            catch (Exception err)
++            {
++                _autoTpSeparated = false;
++                Log.Error(err, "[NetSync] auto-teleport tick failed");
++            }
++        }
++
+         // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
+         private void SetOverlay(Int32 state)
+         {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+new file mode 100644
+index 0000000..3aa0a29
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+@@ -0,0 +1,140 @@
++using System;
++using System.Collections.Generic;
++using Memoria.Prime;
++using UnityEngine;
++
++namespace Memoria.Netsync
++{
++    // F1 FIELD CO-OP (2026-07-20): the spectator-field gate frame. A FOLLOWING guest is a combat
++    // participant and a field SPECTATOR -- interaction authority is the HOST's alone (the paradigm,
++    // studies/field-coop/DESIGN.md; build spec F1-BUILD.md). This class holds the shared gate
++    // predicate, the solo-bench lever, the latched decline telemetry, and the teleport hotkey
++    // reader. The gates themselves are surgical edits at the engine seams (EventCollision's
++    // Check*Input, DoEventCode MAPJUMP/MENU, UIKeyTrigger); the state-touching teleport logic
++    // lives on NetSyncClient (it needs the follow-warp privates). [ff9mapkit netsync field-coop]
++    public static class NetSyncField
++    {
++        // THE BENCH LEVER: substitutes for a live followed session in Role=selftest so every F1
++        // gate is solo-provable (IsLiveFollowedSession needs role=client; IsMirroringStory needs a
++        // socket -- BOTH are structurally unreachable in selftest). Set ONLY from the ~ debug menu
++        // (the toggle renders only under IsSelfTestRole); default false so an ordinary selftest
++        // ghost session stays fully vanilla. Deliberately NOT a [Netsync] ini knob (the
++        // Diorama-knob verdict: no per-feature knobs, dev levers only where a bench needs one).
++        public static Boolean BenchGates;
++
++        // THE F1 SUPPRESSION PREDICATE -- one predicate for every field gate. The union closes
++        // both windows the single predicates leave open: IsLiveFollowedSession is true from
++        // PAIRING (before the mirror's first field-load arm), and IsMirroringStory stays true
++        // after link death until the exit ramp (the guest's world still holds HOST story in that
++        // gap, so spectator rules must too). Every conjunct defaults false on a vanilla install =
++        // fail-safe vanilla / positive containment. The s38-era gates (ENCOUNT, the UIKeyTrigger
++        // menu keys, the achievement funnel, the save block) stay on bare IsMirroringStory --
++        // proven two-machine, not retouched by F1.
++        public static Boolean SpectatorField
++        {
++            get
++            {
++                try
++                {
++                    return NetSyncClient.IsLiveFollowedSession || NetSyncClient.IsMirroringStory
++                        || (NetSyncClient.IsSelfTestRole && BenchGates);
++                }
++                catch { return false; }
++            }
++        }
++
++        // EVERY-GATE-LOGS, latched: one line per gate-class per FIELD -- never per-frame spam,
++        // never a silent decline. Keyed (gate-class -> fldMapNo); a new field or a different
++        // gate-class speaks again. No TickCount anywhere (the tick-baseline law is out of reach
++        // by construction).
++        private static readonly Dictionary<String, Int32> _lastDeclineField = new Dictionary<String, Int32>();
++
++        public static void DeclineOnce(String what)
++        {
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                Int32 last;
++                if (_lastDeclineField.TryGetValue(what, out last) && last == fld)
++                    return;
++                _lastDeclineField[what] = fld;
++                Log.Message("[NetSync] " + what + " suppressed (following guest) on field " + fld);
++            }
++            catch { }
++        }
++
++        // THE KEYON MASK (the Decision-4 closure, built when the FIRST playtest surfaced the hole:
++        // a Phoenix Down ground pickup on field 206 was lootable through the interaction gates --
++        // stock loot/chests are tag-2 tread bodies polling Confirm INSIDE the script, invisible to
++        // the Check*Input funnel). Called from EBin's B_KEYON (pressed) and B_KEY (held) script
++        // reads: while a spectator guest HAS user control, the Confirm/Special bits vanish from
++        // script-visible input -- so pickup/chest/dig polls read nothing. CONTROL-OFF READS PASS
++        // UNTOUCHED: the 817-field census found 2,010 blocking `while(IsButton(...))` waits, 271 of
++        // them on these very bits -- those are cutscene "press Confirm" beats a mirrored guest MUST
++        // still be able to advance, and every blocking wait runs with user control seized by the
++        // scene. The control state is the discriminator: control ON = free-walk poll idiom (mask),
++        // control OFF = a scene owns input (pass). B_KEYOFF (release) is deliberately unmasked --
++        // a release completes gestures, it cannot initiate one.
++        public static UInt32 FilterScriptButtons(UInt32 keys)
++        {
++            try
++            {
++                if (!SpectatorField)
++                    return keys;
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || !ee.GetUserControl())
++                    return keys;
++                if ((keys & (EventInput.Confirm | EventInput.Special)) != 0)
++                    DeclineOnce("script button-poll (pickup/loot)");
++                return keys & ~(EventInput.Confirm | EventInput.Special);
++            }
++            catch { return keys; }
++        }
++
++        // TELEPORT-TO-HOST hotkey: F11 tap OR held L3 (~0.7s). Evaluated every UIKeyTrigger.Update
++        // pass -- the L3 hold accumulator only advances while this is called each frame, so the
++        // call itself must be unconditional at the intercept (the FieldHUD/session checks live
++        // INSIDE the fired branch, never around the call). Time.deltaTime, not Environment
++        // .TickCount, so the tick-baseline law is sidestepped entirely. L3 = KeyCode
++        // .JoystickButton8, UNBOUND in the default (non-iOS) input profile; which PHYSICAL button
++        // that is on the live pad is a needs-in-game confirm -- F11 is the always-available
++        // keyboard fallback.
++        private const Single HoldSeconds = 0.7f;
++        private static Single _l3Hold;
++        private static Boolean _l3Fired;
++
++        // Session-boundary hygiene (re-verify find): the accumulator only self-resets while the key
++        // is being polled, and the session gate stops polling the moment a session ends -- a hold
++        // in flight at that instant would otherwise carry stale state into the NEXT session.
++        public static void ResetTeleportKey()
++        {
++            _l3Hold = 0f;
++            _l3Fired = false;
++        }
++
++        public static Boolean TeleportKeyPressed()
++        {
++            try
++            {
++                if (UnityXInput.Input.GetKeyDown(KeyCode.F11))
++                    return true;
++                if (UnityXInput.Input.GetKey(KeyCode.JoystickButton8))
++                {
++                    _l3Hold += Time.deltaTime;
++                    if (_l3Hold >= HoldSeconds && !_l3Fired)
++                    {
++                        _l3Fired = true;
++                        return true;
++                    }
++                }
++                else
++                {
++                    _l3Hold = 0f;
++                    _l3Fired = false;
++                }
++            }
++            catch { }
++            return false;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+index d31b0dc..30b6eb0 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+@@ -128,6 +128,12 @@ namespace Memoria.Netsync
+         {
+             FF9StateSystem.Serializer.Autoload(null, delegate (DataSerializerErrorCode errNo, Boolean success)
+             {
++                // [F1] the ramp's async taint window ends HERE -- the loaded save owns gEventGlobal
++                // now on EVERY outcome (own story on success, a fresh title state on failure). The
++                // field-load clear in ApplyStoryBeforeEvents cannot cover an autosave that resumes
++                // to the OVERWORLD or the title (re-verify find: the flag stuck true there and
++                // falsely tainted own-story debug snapshots for the rest of the session).
++                NetSyncClient.OwnSaveReloadInFlight = false;
+                 if (success && errNo == DataSerializerErrorCode.Success)
+                 {
+                     Memoria.Prime.Log.Message("[NetSync] session ended -> reloading own autosave (Continue)");
