@@ -136,6 +136,89 @@ FROZEN_TARGET_PMF = {
 }
 FROZEN_DELTA_P = {0: 0.09774436090225563, 1: 0.5263157894736842, 2: 0.2932330827067669, 3: 0.08270676691729323}
 
+# ============================================================================================
+# v4 NEW -- THE FROZEN BOUNDARY-COMPOSITION CONSTANTS (dunes_boundary_composition.py, this round,
+# re-derived live every run -- see _live_reverify_boundary_composition() below, LAW 5). v3 assumed
+# 100%% ring coverage on both the footprint's own boundary (dune-side) and its outward 1-cell dilation
+# (desert-side) -- the offline eye read that as a desert/dunes CHECKER QUILT (a 12-cell solid core
+# inside a 43-cell transition band, 61%% boundary vs the real 32-45%%). These constants are the measured
+# fix: stock's own dune-side/desert-side strip COVERAGE (pooled over both real components, walk-ordered
+# boundary cells: 100/164 and 92/171), the side-conditional ROW histograms (dunes-side skews HIGH --
+# rows {1,2,3}, mean 1.96; desert-side skews LOW -- rows {0,1,3}, mean 1.08 -- row 2 never once observed
+# on the desert side, row 0 never once observed on the dunes side, both n>=92), and the walk-order
+# STRIP/PLAIN run-length histograms (both sides are clumped, not scattered: dune-side strip runs mean
+# 3.12 incl. two real runs of 15; desert-side strip runs mean 2.36 but with 20 of 39 runs length-1).
+# ============================================================================================
+MEASURED_DUNE_ROW_HIST = {1: 28, 2: 48, 3: 24}                              # n=100, pooled both components
+MEASURED_DESERT_ROW_HIST = {0: 39, 1: 30, 3: 23}                            # n=92, pooled both components
+MEASURED_DUNE_STRIP_N, MEASURED_DUNE_BOUNDARY_N = 100, 164                  # coverage = 100/164 = 61.0%
+MEASURED_DESERT_STRIP_N, MEASURED_DESERT_OUTER_N = 92, 171                  # coverage = 92/171 = 53.8%
+MEASURED_DUNE_COVERAGE = MEASURED_DUNE_STRIP_N / MEASURED_DUNE_BOUNDARY_N
+MEASURED_DESERT_COVERAGE = MEASURED_DESERT_STRIP_N / MEASURED_DESERT_OUTER_N
+MEASURED_DUNE_STRIP_RUN_HIST = {1: 7, 2: 15, 3: 2, 4: 3, 5: 3, 15: 2}
+MEASURED_DUNE_PLAIN_RUN_HIST = {1: 16, 2: 7, 3: 5, 4: 2, 5: 1, 6: 1}
+MEASURED_DESERT_STRIP_RUN_HIST = {1: 20, 2: 7, 3: 4, 5: 5, 6: 1, 7: 1, 8: 1}
+MEASURED_DESERT_PLAIN_RUN_HIST = {1: 18, 2: 10, 3: 4, 4: 5, 5: 1, 7: 1}
+
+
+def _pmf_from_hist(hist: dict, n_rows: int = 4, alpha: float = 0.5) -> dict:
+    """Laplace-smoothed empirical pmf over rows 0..n_rows-1 -- the SAME +0.5/(n+2.0) convention
+    dunes_strip_emitter.py's own TARGET_PMF used (round 3), applied here to the SIDE-conditional
+    histograms instead of the touch-category ones."""
+    n = sum(hist.values())
+    return {r: (hist.get(r, 0) + alpha) / (n + alpha * n_rows) for r in range(n_rows)}
+
+
+MEASURED_DUNE_ROW_PMF = _pmf_from_hist(MEASURED_DUNE_ROW_HIST)
+MEASURED_DESERT_ROW_PMF = _pmf_from_hist(MEASURED_DESERT_ROW_HIST)
+
+
+def _live_reverify_boundary_composition():
+    """Re-run dunes_boundary_composition.py IN FULL (own 260-block census, ~4-5s once the process's
+    UnityPy asset cache is warm -- same exec-and-cut technique _live_reverify_template() already
+    uses) and assert the FROZEN pooled constants above still match byte-for-byte. Returns the live
+    namespace -- reused below both for the assertion and as the TRANSPLANT variant's source data
+    (comp[0]'s own real ordered boundary-walk arrangement, read directly off the live run rather
+    than hand-transcribed as a second frozen literal -- LAW 5 for a ~250-entry sequence would be an
+    unreviewable wall of numbers; the live run + a provenance assertion is the trustworthy version)."""
+    src_path = HERE / "dunes_boundary_composition.py"
+    src = src_path.read_text(encoding="utf-8")
+    ns = {"__name__": "_dunes_boundary_composition_full", "__file__": str(src_path)}
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(src, "dunes_boundary_composition.py(full)", "exec"), ns)
+    live_dune_hist = {int(k): v for k, v in ns["dune_row_hist"].items()}
+    live_desert_hist = {int(k): v for k, v in ns["desert_row_hist"].items()}
+    live_dune_strip_run = {int(k): v for k, v in ns["dune_run_hist"].items()}
+    live_dune_plain_run = {int(k): v for k, v in ns["dune_plain_run_hist"].items()}
+    live_desert_strip_run = {int(k): v for k, v in ns["desert_run_hist"].items()}
+    live_desert_plain_run = {int(k): v for k, v in ns["desert_plain_run_hist"].items()}
+    gate("frozen MEASURED_DUNE_ROW_HIST matches live re-derivation (dunes_boundary_composition.py, full)",
+         live_dune_hist == MEASURED_DUNE_ROW_HIST, f"live={live_dune_hist}")
+    gate("frozen MEASURED_DESERT_ROW_HIST matches live re-derivation",
+         live_desert_hist == MEASURED_DESERT_ROW_HIST, f"live={live_desert_hist}")
+    gate("frozen MEASURED_DUNE_STRIP_RUN_HIST matches live re-derivation",
+         live_dune_strip_run == MEASURED_DUNE_STRIP_RUN_HIST, f"live={live_dune_strip_run}")
+    gate("frozen MEASURED_DUNE_PLAIN_RUN_HIST matches live re-derivation",
+         live_dune_plain_run == MEASURED_DUNE_PLAIN_RUN_HIST, f"live={live_dune_plain_run}")
+    gate("frozen MEASURED_DESERT_STRIP_RUN_HIST matches live re-derivation",
+         live_desert_strip_run == MEASURED_DESERT_STRIP_RUN_HIST, f"live={live_desert_strip_run}")
+    gate("frozen MEASURED_DESERT_PLAIN_RUN_HIST matches live re-derivation",
+         live_desert_plain_run == MEASURED_DESERT_PLAIN_RUN_HIST, f"live={live_desert_plain_run}")
+    live_dune_cov = ns["pooled_dune_cov"]
+    live_desert_cov = ns["pooled_desert_cov"]
+    gate("frozen MEASURED_DUNE_COVERAGE matches live re-derivation",
+         abs(live_dune_cov - MEASURED_DUNE_COVERAGE) < 1e-9, f"live={live_dune_cov} frozen={MEASURED_DUNE_COVERAGE}")
+    gate("frozen MEASURED_DESERT_COVERAGE matches live re-derivation",
+         abs(live_desert_cov - MEASURED_DESERT_COVERAGE) < 1e-9, f"live={live_desert_cov} frozen={MEASURED_DESERT_COVERAGE}")
+    comp0 = ns["component_reports"][0]
+    gate("TRANSPLANT source = the size-273 component (same real donor dunes_blob_shapes.py's chosen "
+         "template lobe was cut from -- _template_provenance()'s source_component_size)",
+         comp0["size"] == 273, f"comp0 size={comp0['size']}")
+    return ns, comp0
+
 
 def emit_strip_rows_v1_unconstrained(cells, touch_of_local, target_pmf, delta_p, seed=0):
     """VERBATIM copy of dunes_strip_emitter.py's emitter (round 3) -- pure deterministic code, not
@@ -792,6 +875,121 @@ def analyze_shape_local(cellset):
 
 
 # ============================================================================================
+# v4 NEW -- ORDERED BOUNDARY WALKS on the PLACED footprint (not the template's unordered
+# boundary_cell_offsets/dilation SETS -- those stay exactly as v3 used them, for the structural
+# RING COMPLETENESS gates below). A verbatim re-derivation (LAW 5) of
+# dunes_boundary_composition.py's own boundary_trace_ext()/dedup_walk(), extended from v3's
+# _boundary_trace() to also carry the exterior (non-footprint) neighbour per edge -- gives a
+# geometrically-ordered, deduped cyclic walk of (a) the footprint's own boundary cells (dune-side)
+# and (b) their aligned exterior ring neighbours (desert-side). Used ONLY by the dressing variants
+# below; every structural gate (verts/ring/shape-fidelity/census/save-brick) is untouched by this.
+# ============================================================================================
+
+def _boundary_trace_ext(cellset):
+    directed = {}
+    for (i, j) in cellset:
+        bl, br, tr, tl = (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)
+        sides = [(bl, br, (i, j - 1)), (br, tr, (i + 1, j)),
+                 (tr, tl, (i, j + 1)), (tl, bl, (i - 1, j))]
+        for (a, b, nb) in sides:
+            if nb in cellset:
+                continue
+            directed[(a, b)] = ((i, j), nb)
+    out_from = defaultdict(list)
+    for (a, b), (cell, nb) in directed.items():
+        out_from[a].append((b, cell, nb))
+
+    def turn_priority(prev_dir, cand_dir):
+        cross = prev_dir[0] * cand_dir[1] - prev_dir[1] * cand_dir[0]
+        dot = prev_dir[0] * cand_dir[0] + prev_dir[1] * cand_dir[1]
+        return -math.atan2(cross, dot)
+
+    remaining = dict(directed)
+    loops = []
+    while remaining:
+        (a0, b0) = next(iter(remaining))
+        loop = []
+        a, b = a0, b0
+        cell0, nb0 = remaining.pop((a0, b0))
+        loop.append((a, b, cell0, nb0))
+        cur = b
+        prev_dir = (b[0] - a[0], b[1] - a[1])
+        guard = 0
+        while cur != a0 and guard < 100000:
+            guard += 1
+            cands = [(end, cell, nb) for (end, cell, nb) in out_from[cur] if (cur, end) in remaining]
+            if not cands:
+                break
+            if len(cands) == 1:
+                end, cell, nb = cands[0]
+            else:
+                end, cell, nb = min(cands, key=lambda ecn: turn_priority(prev_dir, (ecn[0][0] - cur[0], ecn[0][1] - cur[1])))
+            remaining.pop((cur, end))
+            loop.append((cur, end, cell, nb))
+            prev_dir = (end[0] - cur[0], end[1] - cur[1])
+            cur = end
+        loops.append(loop)
+    return loops
+
+
+def _dedup_walk(seq):
+    out = []
+    for x in seq:
+        if not out or out[-1] != x:
+            out.append(x)
+    return out
+
+
+def compute_ordered_walks(footprint):
+    """Returns (dune_walk, ext_walk): the placed footprint's own boundary cells in geometric walk
+    order, and the aligned sequence of exterior (ring) neighbours along that same walk."""
+    loops = _boundary_trace_ext(footprint)
+    outer_loops = [lp for lp in loops if sum(p[0] * q[1] - q[0] * p[1] for (p, q, _c, _n) in lp) / 2.0 > 0]
+    outer = max(outer_loops, key=lambda lp: abs(sum(p[0] * q[1] - q[0] * p[1] for (p, q, _c, _n) in lp)))\
+        if outer_loops else (max(loops, key=len) if loops else [])
+    dune_walk = _dedup_walk([cell for (_p, _q, cell, _nb) in outer])
+    ext_walk = _dedup_walk([nb for (_p, _q, _cell, nb) in outer])
+    return dune_walk, ext_walk
+
+
+def gen_alternating_runs(total_n, strip_hist, plain_hist, coverage, rng):
+    """Alternating strip/plain segments, each length drawn (weighted-by-observed-count, i.e. sampling
+    uniformly from the flattened multiset) from the MEASURED run-length histograms, until a cyclic
+    walk of length ``total_n`` is fully covered (the final segment truncated to fit exactly). This is
+    the CONTIGUITY mechanism Part 1 measured directly -- not a per-cell Bernoulli(coverage) draw,
+    which would scatter singletons and miss the real clumping (dune-side strip runs mean 3.12, incl.
+    two real runs of 15 cells)."""
+    if total_n <= 0:
+        return []
+    strip_pool = [ln for ln, c in strip_hist.items() for _ in range(c)]
+    plain_pool = [ln for ln, c in plain_hist.items() for _ in range(c)]
+    segs = []
+    covered = 0
+    is_strip = rng.random() < coverage
+    while covered < total_n:
+        pool = strip_pool if is_strip else plain_pool
+        ln = min(rng.choice(pool), total_n - covered)
+        segs.append((is_strip, ln))
+        covered += ln
+        is_strip = not is_strip
+    return segs
+
+
+def select_strip_subset_by_walk(walk_cells, strip_hist, plain_hist, coverage, rng):
+    """Apply gen_alternating_runs() over an ordered cell walk -> the set of cells landing in a
+    STRIP segment. Cells not selected stay full mains (the MEASURED/SOLID variants' "unselected
+    boundary cells stay FULL dunes/desert mains" rule)."""
+    segs = gen_alternating_runs(len(walk_cells), strip_hist, plain_hist, coverage, rng)
+    selected = set()
+    i = 0
+    for is_strip, ln in segs:
+        if is_strip:
+            selected.update(walk_cells[i:i + ln])
+        i += ln
+    return selected
+
+
+# ============================================================================================
 # STEP C -- the retile plan (CORE/INNER/OUTER generalized from v1/v2's concentric squares to an
 # arbitrary stamped footprint's own interior/boundary/outward-ring split)
 # ============================================================================================
@@ -849,10 +1047,22 @@ def plan_cells(geom, placement, template_cells_original, template_boundary_origi
     fz0, fz1 = min(c[1] for c in footprint), max(c[1] for c in footprint)
     footprint_center_world = (CELL_U * (fx0 + fx1 + 1) / 2.0, CELL_U * (fz0 + fz1 + 1) / 2.0)
 
+    # -- v4 NEW: the ORDERED boundary walks on the placed footprint (dressing use only, see the
+    # block above STEP C) --------------------------------------------------------------------
+    inner_walk, outer_walk = compute_ordered_walks(footprint)
+    gate("ordered boundary walk (dune-side) covers every INNER cell exactly (set-equal to the "
+         "footprint's own boundary, just now geometrically ORDERED for the dressing variants)",
+         set(inner_walk) == INNER, f"walk={len(inner_walk)} INNER={len(INNER)}")
+    gate("ordered boundary walk (desert-side) covers every OUTER cell (the walk's exterior-neighbour "
+         "sequence, deduped -- may omit nothing, per-cell duplicates are harmless/deduped by set use)",
+         OUTER <= set(outer_walk), f"walk cells={len(set(outer_walk))} OUTER={len(OUTER)} "
+         f"missing={sorted(OUTER - set(outer_walk))}")
+
     return dict(CORE=CORE, INNER=INNER, OUTER=OUTER, touch_of=touch_of, footprint=footprint,
                 footprint_center_world=footprint_center_world, dihedral=placement["k"],
                 origin=(placement["oi"], placement["oj"]), n_candidates=placement["n_candidates"],
                 template_shape=tmpl_shape, placed_shape=placed_shape,
+                inner_walk=inner_walk, outer_walk=outer_walk,
                 world_pos=geom["world_pos"], tris_idx=geom["tris_idx"], mains_cells=mains_cells)
 
 
@@ -868,35 +1078,134 @@ def cross_shell_pairs(INNER, OUTER):
     return pairs
 
 
-def apply_retile(bm, plan):
-    world_pos, tris_idx, mains_cells = plan["world_pos"], plan["tris_idx"], plan["mains_cells"]
-    CORE, INNER, OUTER, touch_of = plan["CORE"], plan["INNER"], plan["OUTER"], plan["touch_of"]
-    RING = INNER | OUTER
-    shell_of = {c: "inner" for c in INNER}
-    shell_of.update({c: "outer" for c in OUTER})
-    rows = emit_strip_rows(sorted(RING), touch_of, FROZEN_TARGET_PMF, FROZEN_DELTA_P, seed=MINT_SEED,
-                            shell_of=shell_of)
+def build_dressing(plan, variant, rng, comp0=None):
+    """v4 NEW -- the THREE dressing variants (orchestrator brief Part 2). Returns (rows, tallies)
+    where ``rows`` maps ONLY the cells that actually wear a strip UV to their row (0-3); every
+    other footprint/ring cell stays full mains (dunes for the footprint, untouched-original desert
+    for the ring -- see build_dressing()'s caller, apply_retile()).
 
-    # -- CROSS-BOUNDARY SMOOTHNESS gate (v2's cause 2/DENSITY CLIFFS fix, generalized) ------------
-    xpairs = cross_shell_pairs(INNER, OUTER)
+    - "solid":     0%% footprint-boundary strip (the WHOLE 31-cell footprint is plain dunes mains);
+                   the outer ring alone wears strip, at the measured desert-side coverage/rows/runs.
+    - "measured":  footprint-boundary cells wear strip at the measured dune-side coverage, drawn in
+                   MEASURED contiguous runs, rows from the measured dune-side pmf; the outer ring
+                   independently at the measured desert-side coverage/runs/rows. Cross-boundary
+                   |drow|<=1 (dunes-ward-rising) is enforced ONLY between cells that are BOTH
+                   selected strip (emit_strip_rows already skips absent cells -- restricting its
+                   input cellset to the selected subset is the whole mechanism).
+    - "transplant": zero synthesis -- comp[0]'s OWN real ordered boundary-walk arrangement (from
+                   dunes_boundary_composition.py's live re-derivation) is read off a seeded random
+                   starting offset and laid down verbatim on OUR walk, wrapping as needed. 100%%
+                   genuine stock arrangement on synthetic geometry; no cross-boundary constraint is
+                   applied (it is real data, not a synthesis -- if it violates the |drow|<=1 law
+                   inherited from round 3, that IS what stock does at that exact spot)."""
+    INNER, OUTER = plan["INNER"], plan["OUTER"]
+    inner_walk, outer_walk = plan["inner_walk"], plan["outer_walk"]
+
+    if variant == "solid":
+        rows = {}
+        selected_outer = select_strip_subset_by_walk(outer_walk, MEASURED_DESERT_STRIP_RUN_HIST,
+                                                       MEASURED_DESERT_PLAIN_RUN_HIST, MEASURED_DESERT_COVERAGE, rng)
+        outer_rows = emit_strip_rows(sorted(selected_outer), {c: "desert_side" for c in selected_outer},
+                                      {"desert_side": MEASURED_DESERT_ROW_PMF}, FROZEN_DELTA_P, seed=MINT_SEED,
+                                      shell_of={c: "outer" for c in selected_outer})
+        rows.update(outer_rows)
+        note = f"footprint 100%% plain dunes mains (0 strip); outer ring dressed at measured coverage only"
+    elif variant == "measured":
+        selected_inner = select_strip_subset_by_walk(inner_walk, MEASURED_DUNE_STRIP_RUN_HIST,
+                                                       MEASURED_DUNE_PLAIN_RUN_HIST, MEASURED_DUNE_COVERAGE, rng)
+        selected_outer = select_strip_subset_by_walk(outer_walk, MEASURED_DESERT_STRIP_RUN_HIST,
+                                                       MEASURED_DESERT_PLAIN_RUN_HIST, MEASURED_DESERT_COVERAGE, rng)
+        touch_of = {c: "dune_side" for c in selected_inner}
+        touch_of.update({c: "desert_side" for c in selected_outer})
+        shell_of = {c: "inner" for c in selected_inner}
+        shell_of.update({c: "outer" for c in selected_outer})
+        rows = emit_strip_rows(sorted(selected_inner | selected_outer), touch_of,
+                                {"dune_side": MEASURED_DUNE_ROW_PMF, "desert_side": MEASURED_DESERT_ROW_PMF},
+                                FROZEN_DELTA_P, seed=MINT_SEED, shell_of=shell_of)
+        note = (f"boundary dressed at measured dune-side coverage {MEASURED_DUNE_COVERAGE:.1%} "
+                f"({len(selected_inner)}/{len(inner_walk)}); ring at desert-side coverage "
+                f"{MEASURED_DESERT_COVERAGE:.1%} ({len(selected_outer)}/{len(outer_walk)})")
+    elif variant == "transplant":
+        if comp0 is None:
+            raise SystemExit("transplant variant requires comp0 (dunes_boundary_composition.py's live "
+                              "component_reports[0]) -- pass it through from _live_reverify_boundary_composition()")
+        real_dune_seq = comp0["dune_walk_strip_row"]
+        real_ext_seq = comp0["ext_walk_strip_row"]
+        off_i = rng.randrange(len(real_dune_seq))
+        off_o = rng.randrange(len(real_ext_seq))
+        rows = {}
+        for k, c in enumerate(inner_walk):
+            is_strip, row = real_dune_seq[(off_i + k) % len(real_dune_seq)]
+            if is_strip:
+                rows[c] = row
+        for k, c in enumerate(outer_walk):
+            is_strip, row = real_ext_seq[(off_o + k) % len(real_ext_seq)]
+            if is_strip and row >= 0:                              # row==-2 = off-census/non-desert exterior cell
+                rows[c] = row
+        note = (f"comp[0]'s real dune-walk (len={len(real_dune_seq)}, offset={off_i}) + real ext-walk "
+                f"(len={len(real_ext_seq)}, offset={off_o}) laid down verbatim on our walk "
+                f"(len {len(inner_walk)}/{len(outer_walk)}); ZERO synthesis")
+    else:
+        raise SystemExit(f"unknown variant {variant!r} -- expected measured|transplant|solid")
+
+    strip_selected_inner = {c for c in INNER if c in rows}
+    strip_selected_outer = {c for c in OUTER if c in rows}
+    print(f"  [{variant}] {note}")
+    return rows, strip_selected_inner, strip_selected_outer
+
+
+def cross_shell_pairs(INNER, OUTER):
+    """Every RING adjacency where the two cells sit on different sides of the footprint boundary
+    (inner touching outer)."""
+    pairs = []
+    for c in INNER:
+        for (di, dj) in NEI4:
+            n = (c[0] + di, c[1] + dj)
+            if n in OUTER:
+                pairs.append((c, n))
+    return pairs
+
+
+def apply_retile(bm, plan, variant, rng, comp0=None):
+    world_pos, tris_idx, mains_cells = plan["world_pos"], plan["tris_idx"], plan["mains_cells"]
+    CORE, INNER, OUTER = plan["CORE"], plan["INNER"], plan["OUTER"]
+
+    rows, strip_selected_inner, strip_selected_outer = build_dressing(plan, variant, rng, comp0)
+
+    # -- CROSS-BOUNDARY SMOOTHNESS gate (v2's cause 2/DENSITY CLIFFS fix, generalized) -- v4: now
+    # scoped to pairs where BOTH cells are ACTUALLY selected strip (brief: "kept where both cells
+    # are strip"). For "solid" this is vacuous (0 inner-strip cells -> 0 pairs). For "transplant"
+    # this is a genuine measurement of stock's own data, not an enforced constraint -- a FAIL here
+    # is not a defect, it is what comp[0] actually does at that spot. --------------------------
+    xpairs = cross_shell_pairs(strip_selected_inner, strip_selected_outer)
     offenders = []
     for (inr, outr) in xpairs:
         dr = rows[inr] - rows[outr]
         if abs(dr) > 1 or dr < 0:                                  # |drow|<=1 AND inner>=outer (rising to dunes)
             offenders.append((inr, outr, rows[inr], rows[outr], dr))
     max_abs_dr = max((abs(rows[i] - rows[o]) for i, o in xpairs), default=0)
-    gate("CROSS-BOUNDARY SMOOTHNESS -- every inner|outer-adjacent pair (footprint boundary vs the "
-         "1-cell ring outside it) has |drow|<=1 and inner>=outer (dunes-ward rise, zero density "
-         "cliffs)", not offenders,
+    gate(f"[{variant}] CROSS-BOUNDARY SMOOTHNESS -- every strip|strip inner|outer-adjacent pair has "
+         "|drow|<=1 and inner>=outer (dunes-ward rise, zero density cliffs) -- ENFORCED by "
+         "construction for measured/solid, MEASURED ONLY (informational) for transplant",
+         not offenders or variant == "transplant",
          f"max|drow|={max_abs_dr} n_pairs={len(xpairs)} offenders={offenders}" if offenders else
          f"max|drow|={max_abs_dr} n_pairs={len(xpairs)}")
 
-    core_quad, core_ori = G.assign_mains(CORE, seed=MAINS_SEED)
+    # -- dunes-mains cellset now covers CORE *and* every unselected (non-strip) INNER boundary
+    # cell -- v1-v3 only ever retiled CORE; a footprint-boundary cell that isn't wearing a strip
+    # this round still needs to read as WALKABLE DUNES (topo 41) with a proper dunes-family quad/
+    # ori, not left as the host's original desert mains it was minted with. Unselected OUTER ring
+    # cells need NO write at all: they are desert-family cells that were ALREADY correct desert
+    # mains texture from island.build_landmass's own initial fill (same MAINS_SEED/assign_mains
+    # algorithm) -- untouched is byte-identical to a re-write, so v4 skips the write entirely. ---
+    dunes_mains_cells = CORE | (INNER - strip_selected_inner)
+    untouched_outer = OUTER - strip_selected_outer
+    core_quad, core_ori = G.assign_mains(dunes_mains_cells, seed=MAINS_SEED)
     idall_dunes = float(X.encode_id(topograph=41))
     idall_desert = float(X.encode_id(topograph=17))
-    n_core = n_inner = n_outer = 0
+    n_dunes_mains = n_inner_strip = n_outer_strip = n_outer_untouched = 0
     for cell, tri_list in mains_cells.items():
-        if cell in CORE:
+        if cell in dunes_mains_cells:
             quad, ori = core_quad[cell], core_ori[cell]
             for ti in tri_list:
                 for j in tris_idx[ti]:
@@ -904,8 +1213,8 @@ def apply_retile(bm, plan):
                     u, v = G.ground_uv(wx, wz, cell, quad, ori, "dunes")
                     bm.uvs[j][0], bm.uvs[j][1] = u, v
                     bm.tangents[j][0] = idall_dunes
-                n_core += 1
-        elif cell in INNER:
+                n_dunes_mains += 1
+        elif cell in strip_selected_inner:
             row = rows[cell]
             for ti in tri_list:
                 for j in tris_idx[ti]:
@@ -913,8 +1222,8 @@ def apply_retile(bm, plan):
                     u, v = strip_uv(wx, wz, cell, row)
                     bm.uvs[j][0], bm.uvs[j][1] = u, v
                     bm.tangents[j][0] = idall_dunes
-                n_inner += 1
-        elif cell in OUTER:
+                n_inner_strip += 1
+        elif cell in strip_selected_outer:
             row = rows[cell]
             for ti in tri_list:
                 for j in tris_idx[ti]:
@@ -922,10 +1231,33 @@ def apply_retile(bm, plan):
                     u, v = strip_uv(wx, wz, cell, row)
                     bm.uvs[j][0], bm.uvs[j][1] = u, v
                     bm.tangents[j][0] = idall_desert
-                n_outer += 1
-    print(f"retiled: {n_core} core tris (dunes mains), {n_inner} inner-ring tris (topo41+strip), "
-          f"{n_outer} outer-ring tris (topo17+strip)")
-    return rows
+                n_outer_strip += 1
+        elif cell in untouched_outer:
+            n_outer_untouched += len(tri_list)                    # explicitly untouched -- counted, not written
+
+    gate(f"[{variant}] every touched cell fell into exactly one dressing bucket (dunes-mains / "
+         "inner-strip / outer-strip / untouched-outer)",
+         set(mains_cells) >= (dunes_mains_cells | strip_selected_inner | strip_selected_outer | untouched_outer)
+         and len(dunes_mains_cells) + len(strip_selected_inner) + len(strip_selected_outer) + len(untouched_outer)
+         == len(CORE) + len(INNER) + len(OUTER),
+         f"dunes_mains={len(dunes_mains_cells)} inner_strip={len(strip_selected_inner)} "
+         f"outer_strip={len(strip_selected_outer)} outer_untouched={len(untouched_outer)} "
+         f"expect_total={len(CORE)+len(INNER)+len(OUTER)}")
+
+    print(f"  [{variant}] retiled: {n_dunes_mains} dunes-mains tris (topo41, incl. unselected "
+          f"boundary), {n_inner_strip} inner-strip tris (topo41+strip), {n_outer_strip} outer-strip "
+          f"tris (topo17+strip), {n_outer_untouched} outer tris left UNTOUCHED (already-correct "
+          "desert mains from the host build)")
+    dressing = dict(variant=variant, n_dunes_mains_tris=n_dunes_mains, n_inner_strip_tris=n_inner_strip,
+                     n_outer_strip_tris=n_outer_strip, n_outer_untouched_tris=n_outer_untouched,
+                     n_inner_strip_cells=len(strip_selected_inner), n_inner_total_cells=len(INNER),
+                     n_outer_strip_cells=len(strip_selected_outer), n_outer_total_cells=len(OUTER),
+                     inner_coverage=round(len(strip_selected_inner) / len(INNER), 4) if INNER else 0.0,
+                     outer_coverage=round(len(strip_selected_outer) / len(OUTER), 4) if OUTER else 0.0,
+                     row_hist_inner=dict(sorted(Counter(rows[c] for c in strip_selected_inner).items())),
+                     row_hist_outer=dict(sorted(Counter(rows[c] for c in strip_selected_outer).items())),
+                     cross_boundary_offenders=len(offenders), cross_boundary_n_pairs=len(xpairs))
+    return rows, dressing
 
 
 # ============================================================================================
@@ -1178,15 +1510,16 @@ def row_mean_luminance(atlas_wh, atlas_px):
     return out
 
 
-def offline_eye(built, CELL, plan, rows, live_ns):
+def measure_jumpiness(plan, rows, variant):
+    """v4: split off the offline-eye's NUMERIC jumpiness measurement from rendering (rendering is
+    now a single COMBINED sheet across all 3 variants, see render_variant_comparison() below).
+    RING is now ``set(rows.keys())`` -- the cells that actually wear a strip -- NOT plan['INNER']|
+    plan['OUTER'] (v1-v3's 100%%-coverage assumption); a variant with 0 or few strip cells (e.g.
+    "solid"'s 0-strip footprint) legitimately produces 0 or few adjacent-strip pairs."""
     atlas, atlas_wh, atlas_px = _atlas()
-    bm = built["blocks"][CELL]
-    synth = synth_tris(bm, CELL)
-
-    # ---- jumpiness, calibrated against the transplant-null band (3.83-5.85) ------------------
     lum = row_mean_luminance(atlas_wh, atlas_px)
     INNER, OUTER = plan["INNER"], plan["OUTER"]
-    RING = INNER | OUTER
+    RING = set(rows.keys())
     diffs, lateral_diffs, cross_diffs = [], [], []
     for c in RING:
         for (di, dj) in ((1, 0), (0, 1)):
@@ -1198,62 +1531,73 @@ def offline_eye(built, CELL, plan, rows, live_ns):
                 (lateral_diffs if same_shell else cross_diffs).append(d)
     jump = (sum(diffs) / len(diffs)) if diffs else 0.0
     lat_jump = (sum(lateral_diffs) / len(lateral_diffs)) if lateral_diffs else 0.0
-    band_ok = 3.83 <= jump <= 5.85
-    lat_band_ok = 3.83 <= lat_jump <= 5.85
-    gate("offline-eye jumpiness, AGGREGATE all-ring-pairs (informational, STALE calibration post-fix "
-         "-- see lateral-only split below; expected to read low, not a defect)", band_ok,
+    band_ok = (not diffs) or (3.83 <= jump <= 5.85)
+    lat_band_ok = (not lateral_diffs) or (3.83 <= lat_jump <= 5.85)
+    gate(f"[{variant}] offline-eye jumpiness, AGGREGATE all-strip-adjacent-pairs (informational, "
+         "STALE calibration post-fix -- see lateral-only split below; expected to read low, not a "
+         "defect; n=0 pairs vacuously passes)", band_ok,
          f"jumpiness={jump:.3f} n_pairs={len(diffs)} row_luminance={ {k: round(v,1) for k,v in lum.items()} }")
-    gate("offline-eye jumpiness, LATERAL-ONLY pairs (the like-for-like comparison to the "
-         "transplant-null band -- same-boundary-side dither is deliberately left unconstrained)", lat_band_ok,
+    gate(f"[{variant}] offline-eye jumpiness, LATERAL-ONLY pairs (the like-for-like comparison to "
+         "the transplant-null band; n=0 pairs vacuously passes)", lat_band_ok,
          f"jumpiness={lat_jump:.3f} n_pairs={len(lateral_diffs)} "
-         f"(cross-boundary n_pairs={len(cross_diffs)}, mean={((sum(cross_diffs)/len(cross_diffs)) if cross_diffs else 0.0):.3f}, capped by construction)")
-
-    # ---- render: fixed-window (24x24u tight / 48x48u medium -- v2's own calibrated windows, kept
-    # unchanged for apples-to-apples with the stock reference panels, which also only ever show a
-    # LOCAL window of a much bigger real component) zoom on the minted seam + 2 real stock windows --
-    px, pz = plan["footprint_center_world"]
-    STOCK_A, STOCK_B = (18, 3), (13, 12)
-    cellinfo = live_ns["cellinfo"]
-    strip_cells = live_ns["strip_cells"]
-
-    def stock_centre(bxby):
-        cs = [c for c in strip_cells if cellinfo[c]["block"] == bxby]
-        if not cs:
-            return (bxby[0] * 64 + 32, -(bxby[1] * 64 + 32))
-        return ((sum(c[0] for c in cs) / len(cs) + 0.5) * 4.0, (sum(c[1] for c in cs) / len(cs) + 0.5) * 4.0)
-
-    acx, acz = stock_centre(STOCK_A)
-    bcx, bcz = stock_centre(STOCK_B)
-    a_tris = stock_tris(*STOCK_A) + stock_tris(STOCK_A[0] - 1, STOCK_A[1]) + stock_tris(STOCK_A[0] + 1, STOCK_A[1]) \
-        + stock_tris(STOCK_A[0], STOCK_A[1] - 1) + stock_tris(STOCK_A[0], STOCK_A[1] + 1)
-    b_tris = stock_tris(*STOCK_B) + stock_tris(STOCK_B[0] - 1, STOCK_B[1]) + stock_tris(STOCK_B[0] + 1, STOCK_B[1]) \
-        + stock_tris(STOCK_B[0], STOCK_B[1] - 1) + stock_tris(STOCK_B[0], STOCK_B[1] + 1)
-
-    tight_panels = []
-    for label, tris, cx, cz in (("SYNTH minted seam (v3 stamped footprint)", synth, px, pz),
-                                 (f"STOCK {STOCK_A} (smooth-organic ref)", a_tris, acx, acz),
-                                 (f"STOCK {STOCK_B} (boxy ref)", b_tris, bcx, bcz)):
-        tex, com = paint(tris, cx, cz, 24, 24, 32, atlas_wh=atlas_wh, atlas_px=atlas_px)
-        _, rowim = paint(tris, cx, cz, 24, 24, 32, atlas_wh=atlas_wh, atlas_px=atlas_px, rowmap=True)
-        tight_panels.append((f"{label} -- UNSHADED", tex))
-        tight_panels.append((f"{label} -- ROW MAP", rowim))
-    sheet(tight_panels, cols=2, cell_w=640, cell_h=640, path=OUTD / "dunes_patch_mint_tight.png",
-          title="TIGHT ZOOM (24x24u, sc=32) -- SYNTH minted seam vs 2 REAL stock desert|dunes windows (calibration)")
-
-    medium_panels = []
-    for label, tris, cx, cz, win in (("SYNTH whole patch", synth, px, pz, 48),
-                                      (f"STOCK {STOCK_A}", a_tris, acx, acz, 48),
-                                      (f"STOCK {STOCK_B}", b_tris, bcx, bcz, 48)):
-        tex, com = paint(tris, cx, cz, win, win, 10, atlas_wh=atlas_wh, atlas_px=atlas_px)
-        medium_panels.append((f"{label} -- TEXTURE", tex))
-        medium_panels.append((f"{label} -- SHADED (gameplay-scale)", com))
-    sheet(medium_panels, cols=2, cell_w=560, cell_h=560, path=OUTD / "dunes_patch_mint_medium.png",
-          title="MEDIUM/GAMEPLAY-SCALE (48x48u, sc=10) -- SYNTH whole patch vs 2 REAL stock windows")
-
+         f"(cross-boundary n_pairs={len(cross_diffs)}, mean={((sum(cross_diffs)/len(cross_diffs)) if cross_diffs else 0.0):.3f})")
     return dict(jumpiness=jump, jumpiness_in_band=band_ok, row_luminance=lum,
                 lateral_jumpiness=lat_jump, lateral_jumpiness_in_band=lat_band_ok,
                 cross_jumpiness=((sum(cross_diffs) / len(cross_diffs)) if cross_diffs else 0.0),
-                n_lateral_pairs=len(lateral_diffs), n_cross_pairs=len(cross_diffs))
+                n_lateral_pairs=len(lateral_diffs), n_cross_pairs=len(cross_diffs), n_ring_strip_cells=len(RING))
+
+
+STOCK_A, STOCK_B = (18, 3), (13, 12)
+
+
+def _stock_centre(bxby, live_ns):
+    cellinfo = live_ns["cellinfo"]
+    strip_cells = live_ns["strip_cells"]
+    cs = [c for c in strip_cells if cellinfo[c]["block"] == bxby]
+    if not cs:
+        return (bxby[0] * 64 + 32, -(bxby[1] * 64 + 32))
+    return ((sum(c[0] for c in cs) / len(cs) + 0.5) * 4.0, (sum(c[1] for c in cs) / len(cs) + 0.5) * 4.0)
+
+
+def _stock_window_tris(bxby):
+    return stock_tris(*bxby) + stock_tris(bxby[0] - 1, bxby[1]) + stock_tris(bxby[0] + 1, bxby[1]) \
+        + stock_tris(bxby[0], bxby[1] - 1) + stock_tris(bxby[0], bxby[1] + 1)
+
+
+def render_variant_comparison(variant_tris, live_ns):
+    """v4 NEW -- requirement 3: ONE calibrated sheet per zoom (medium + tight), all THREE synth
+    variants + STOCK (18,3) + STOCK (13,12), labeled -- structural geometry (footprint/ring/host)
+    is IDENTICAL across variants (shared build), so this reuses one atlas load + one pair of stock
+    reference windows for all 3. ``variant_tris``: ordered list of (label, tris, cx, cz)."""
+    atlas, atlas_wh, atlas_px = _atlas()
+    acx, acz = _stock_centre(STOCK_A, live_ns)
+    bcx, bcz = _stock_centre(STOCK_B, live_ns)
+    a_tris, b_tris = _stock_window_tris(STOCK_A), _stock_window_tris(STOCK_B)
+    entries = list(variant_tris) + [(f"STOCK {STOCK_A} (smooth-organic ref)", a_tris, acx, acz),
+                                     (f"STOCK {STOCK_B} (boxy ref)", b_tris, bcx, bcz)]
+    n = len(entries)
+
+    tight_unshaded, tight_rowmap = [], []
+    for label, tris, cx, cz in entries:
+        tex, _com = paint(tris, cx, cz, 24, 24, 32, atlas_wh=atlas_wh, atlas_px=atlas_px)
+        _, rowim = paint(tris, cx, cz, 24, 24, 32, atlas_wh=atlas_wh, atlas_px=atlas_px, rowmap=True)
+        tight_unshaded.append((f"{label} -- UNSHADED", tex))
+        tight_rowmap.append((f"{label} -- ROW MAP", rowim))
+    sheet(tight_unshaded + tight_rowmap, cols=n, cell_w=420, cell_h=420,
+          path=OUTD / "dunes_patch_mint_tight.png",
+          title="TIGHT ZOOM (24x24u, sc=32) -- v4's 3 dressing variants (measured/transplant/solid) "
+                "vs 2 REAL stock desert|dunes windows (calibration) -- top row UNSHADED, bottom ROW MAP")
+
+    medium_texture, medium_shaded = [], []
+    for label, tris, cx, cz in entries:
+        tex, com = paint(tris, cx, cz, 48, 48, 10, atlas_wh=atlas_wh, atlas_px=atlas_px)
+        medium_texture.append((f"{label} -- TEXTURE", tex))
+        medium_shaded.append((f"{label} -- SHADED (gameplay-scale)", com))
+    sheet(medium_texture + medium_shaded, cols=n, cell_w=420, cell_h=420,
+          path=OUTD / "dunes_patch_mint_medium.png",
+          title="MEDIUM/GAMEPLAY-SCALE (48x48u, sc=10) -- v4's 3 dressing variants vs 2 REAL stock "
+                "windows -- top row TEXTURE, bottom SHADED")
+    return dict(outputs=[str(OUTD / "dunes_patch_mint_tight.png"), str(OUTD / "dunes_patch_mint_medium.png")])
 
 
 # ============================================================================================
@@ -1319,11 +1663,47 @@ def cli_smoke_test(center, radius, seed):
 # main
 # ============================================================================================
 
-def main():
-    print(f"=== dunes_patch_mint.py v3 -- MOD={MOD} PRIMARY_CENTER={CENTER} PRIMARY_RADIUS={RADIUS} "
-          f"PRIMARY_SEED={SEED} GROUND={GROUND} TEMPLATE={TEMPLATE_NAME} MINT_SEED(row emitter)={MINT_SEED} ===\n")
+VARIANT_SEED_OFFSET = {"measured": 0, "transplant": 1, "solid": 2}
 
-    print("--- frozen-constant live re-verification (row emitter) ---")
+
+def _variant_arg():
+    for i, a in enumerate(sys.argv):
+        if a == "--variant" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+
+def run_one_variant(plan, pristine_bm, CELL, built_template, plane, before_snapshot, variant, comp0):
+    """Runs ONE dressing variant on its OWN independent copy of the pristine (pre-retile) mesh --
+    dataclasses.replace()+deepcopy(chan_arrays) is the SAME technique before_snapshot['bm_plain']
+    already used (chan_arrays is where verts/normals/uvs/tangents actually live; this decouples the
+    copy from the pristine bm and from every OTHER variant's copy). Structural gates (verts/ring/
+    shape-fidelity/census/save-brick) run per-copy so a real per-variant regression would still be
+    caught, even though geometry is shared and they are expected to read IDENTICAL across variants."""
+    gate_start = len(GATES)
+    bm_variant = dataclasses.replace(pristine_bm, chan_arrays={k: copy.deepcopy(v) for k, v in pristine_bm.chan_arrays.items()})
+    rng = random.Random(MINT_SEED * 97 + VARIANT_SEED_OFFSET[variant])
+    rows, dressing = apply_retile(bm_variant, plan, variant, rng, comp0=comp0)
+    built_variant = dict(built_template)
+    built_variant["blocks"] = dict(built_template["blocks"])
+    built_variant["blocks"][CELL] = bm_variant
+    gate_summary = run_gates(built_variant, CELL, plane, plan, before_snapshot)
+    eye = measure_jumpiness(plan, rows, variant)
+    variant_gates = GATES[gate_start:]
+    n_fail = sum(1 for _, ok, _ in variant_gates if not ok)
+    print(f"  [{variant}] {len(variant_gates)} gates this variant, {n_fail} failed")
+    return dict(variant=variant, bm=bm_variant, rows=rows, dressing=dressing, gate_summary=gate_summary,
+                offline_eye=eye, n_gates=len(variant_gates), n_failed=n_fail,
+                gates=[{"name": n, "ok": ok, "detail": d} for n, ok, d in variant_gates])
+
+
+def main():
+    variants_to_run = [_variant_arg()] if _variant_arg() else ["measured", "transplant", "solid"]
+    print(f"=== dunes_patch_mint.py v4 -- MOD={MOD} PRIMARY_CENTER={CENTER} PRIMARY_RADIUS={RADIUS} "
+          f"PRIMARY_SEED={SEED} GROUND={GROUND} TEMPLATE={TEMPLATE_NAME} MINT_SEED(row emitter)={MINT_SEED} "
+          f"VARIANTS={variants_to_run} ===\n")
+
+    print("--- frozen-constant live re-verification (row emitter, round 3) ---")
     live_ns = _live_reverify()
 
     print("\n--- template live re-verification (dunes_blob_shapes.py, full re-run) ---")
@@ -1336,7 +1716,11 @@ def main():
           f"boundary_cells={len(template_boundary)} fits_80_cell_host_with_ring="
           f"{template['fits_80_cell_host_with_ring']}")
     print("NOTE: dunes_blob_shapes.py's own census found ZERO 1-2-cell freckle components anywhere "
-          "on the map (falsifying the brief's 'freckle satellite' premise) -- v3 mints none.")
+          "on the map (falsifying the brief's 'freckle satellite' premise) -- v4 mints none.")
+
+    print("\n--- v4 NEW: boundary-composition live re-verification (dunes_boundary_composition.py, "
+          "full re-run -- coverage/side-rows/contiguity/interior-solidity + the transplant source) ---")
+    boundary_ns, comp0 = _live_reverify_boundary_composition()
 
     print("\n--- STEP B: resolve site + placement (fallback ladder) ---")
     site, geom, placement, tier_info = resolve_site_and_placement(template_cells, template_boundary)
@@ -1350,29 +1734,62 @@ def main():
     CELL = site["cell"]
     built = site["built"]
 
-    print("\n--- STEP C: plan the footprint/core/inner/outer cell-set ---")
+    print("\n--- STEP C: plan the footprint/core/inner/outer cell-set (shared by every variant -- "
+          "dressing is the ONLY thing that varies) ---")
     plan = plan_cells(geom, placement, template_cells, template_boundary)
     cut_boundary_placed = apply_placement(template_cut_boundary, placement) if template_cut_boundary else set()
     plan["cut_boundary_placed"] = cut_boundary_placed
 
-    # snapshot BEFORE the retile (position-only + a plain copy for the census/edge regressions)
-    bm = built["blocks"][CELL]
+    # snapshot BEFORE any retile (position-only + a plain copy for the census/edge regressions) --
+    # taken ONCE off the pristine host; every variant retiles its OWN independent copy, so this
+    # snapshot is valid for all of them without re-deriving it 3 times.
+    pristine_bm = built["blocks"][CELL]
     before_snapshot = dict(
-        verts=copy.deepcopy(bm.verts), normals=copy.deepcopy(bm.normals),
-        once_edges=once_edges_from_bm(bm, CELL),
-        bm_plain=dataclasses.replace(bm, chan_arrays={k: copy.deepcopy(v) for k, v in bm.chan_arrays.items()}),
+        verts=copy.deepcopy(pristine_bm.verts), normals=copy.deepcopy(pristine_bm.normals),
+        once_edges=once_edges_from_bm(pristine_bm, CELL),
+        bm_plain=dataclasses.replace(pristine_bm, chan_arrays={k: copy.deepcopy(v) for k, v in pristine_bm.chan_arrays.items()}),
     )
 
-    print("\n--- STEP D: apply the retile (uv + tangent.x only) ---")
-    rows = apply_retile(bm, plan)
+    print(f"\n--- STEP D: apply the retile per variant ({variants_to_run}) ---")
+    results = {}
+    for variant in variants_to_run:
+        print(f"\n  === variant '{variant}' ===")
+        results[variant] = run_one_variant(plan, pristine_bm, CELL, built, plane, before_snapshot, variant, comp0)
 
-    print("\n--- STEP E: the gate list ---")
-    gate_summary = run_gates(built, CELL, plane, plan, before_snapshot)
+    # -- v4 NEW: THE VARIANT-INVARIANCE CHECK (brief requirement 3: "gates should be variant-
+    # invariant except the dressing tallies -- assert that") -- structural gate COUNT + PASS/FAIL
+    # pattern must be identical across variants (same geometry, same gate list shape); the dressing
+    # TALLIES (coverage/row histograms) must NOT be identical (each variant is a genuinely different
+    # dressing rule) --------------------------------------------------------------------------------
+    if len(results) > 1:
+        names = list(results)
+        # every DRESSING-dependent gate this file emits is deliberately named "[variant] ..." (see
+        # apply_retile()'s CROSS-BOUNDARY SMOOTHNESS / dressing-bucket gate and measure_jumpiness()'s
+        # two jumpiness gates) -- everything else in a variant's own gate slice comes from run_gates()
+        # (verts/ring/census/save-brick), which is pure geometry and takes no variant argument at all.
+        gate_shapes = {v: [(g["name"], g["ok"]) for g in results[v]["gates"] if not g["name"].startswith("[")]
+                       for v in names}
+        base = gate_shapes[names[0]]
+        struct_invariant = all(gate_shapes[v] == base for v in names[1:])
+        gate("VARIANT-INVARIANCE -- the structural gate list (verts/ring/shape-fidelity/census/"
+             "save-brick; dressing-dependent gate names excluded) is IDENTICAL pass/fail pattern "
+             "across every variant run (shared geometry)", struct_invariant,
+             {v: gate_shapes[v] for v in names} if not struct_invariant else f"{len(base)} structural gates, all match")
+        dressings = {v: (results[v]["dressing"]["inner_coverage"], results[v]["dressing"]["outer_coverage"],
+                          results[v]["dressing"]["row_hist_inner"], results[v]["dressing"]["row_hist_outer"])
+                     for v in names}
+        dressing_differs = len({str(d) for d in dressings.values()}) > 1
+        gate("VARIANT-INVARIANCE -- the DRESSING tallies (inner/outer coverage + row histograms) "
+             "DIFFER across variants (proof the --variant flag actually changes the mint, not just "
+             "the label)", dressing_differs, dressings)
 
-    print("\n--- STEP F: the offline eye (calibrated) ---")
-    eye = offline_eye(built, CELL, plan, rows, live_ns)
+    print("\n--- STEP F: combined offline-eye render (ONE sheet per zoom, all variants + 2 stock refs) ---")
+    variant_tris = [(f"SYNTH [{v}]", synth_tris(results[v]["bm"], CELL), *plan["footprint_center_world"])
+                     for v in results]
+    render_out = render_variant_comparison(variant_tris, live_ns)
 
-    print("\n--- STEP G: the --deploy path (dry mode only -- would-write list) ---")
+    print("\n--- STEP G: the --deploy path (dry mode only -- would-write list, host-level, "
+          "variant-independent) ---")
     disc1, disc4 = would_write_list(CELL)
     print("would write (Disc1):")
     for p in disc1:
@@ -1381,11 +1798,11 @@ def main():
     for p in disc4:
         print(f"   {p}")
 
-    print("\n--- STEP H: CLI smoke test (winning site's own reproduction command) ---")
+    print("\n--- STEP H: CLI smoke test (winning site's own reproduction command, host-level) ---")
     cli_result = cli_smoke_test(tier_info["center"], tier_info["radius"], tier_info["seed"])
 
     n_fail = sum(1 for _, ok, _ in GATES if not ok)
-    print(f"\n=== {len(GATES)} gates run, {n_fail} FAILED ===")
+    print(f"\n=== {len(GATES)} gates run TOTAL across {len(results)} variant(s), {n_fail} FAILED ===")
 
     out = dict(
         mod_folder=MOD, template_name=TEMPLATE_NAME, template_provenance=provenance,
@@ -1397,14 +1814,24 @@ def main():
         inner_ring_cells=[list(c) for c in sorted(plan["INNER"])],
         outer_ring_cells=[list(c) for c in sorted(plan["OUTER"])],
         cut_boundary_cells_placed=[list(c) for c in sorted(plan["cut_boundary_placed"])],
-        touch_of={f"{c[0]},{c[1]}": v for c, v in plan["touch_of"].items()},
-        row_assignment={f"{c[0]},{c[1]}": r for c, r in rows.items()},
         template_shape=plan["template_shape"], placed_shape=plan["placed_shape"],
-        gates=[{"name": n, "ok": ok, "detail": d} for n, ok, d in GATES],
+        measured_constants=dict(
+            dune_coverage=round(MEASURED_DUNE_COVERAGE, 4), desert_coverage=round(MEASURED_DESERT_COVERAGE, 4),
+            dune_row_hist=MEASURED_DUNE_ROW_HIST, desert_row_hist=MEASURED_DESERT_ROW_HIST,
+            dune_strip_run_hist=MEASURED_DUNE_STRIP_RUN_HIST, dune_plain_run_hist=MEASURED_DUNE_PLAIN_RUN_HIST,
+            desert_strip_run_hist=MEASURED_DESERT_STRIP_RUN_HIST, desert_plain_run_hist=MEASURED_DESERT_PLAIN_RUN_HIST,
+        ),
+        variants={v: dict(
+            row_assignment={f"{c[0]},{c[1]}": r for c, r in results[v]["rows"].items()},
+            dressing=results[v]["dressing"], gate_summary=results[v]["gate_summary"],
+            offline_eye={k: v2 for k, v2 in results[v]["offline_eye"].items() if k != "row_luminance"},
+            n_gates=results[v]["n_gates"], n_failed=results[v]["n_failed"],
+            gates=results[v]["gates"],
+        ) for v in results},
         n_gates=len(GATES), n_failed=n_fail,
-        gate_summary=gate_summary, offline_eye=eye,
         would_write_disc1=disc1, would_write_disc4=disc4,
         cli_smoke=dict(returncode=cli_result.get("returncode"), ok="all gates CLEAN" in cli_result.get("stdout", "")),
+        render_outputs=render_out["outputs"],
         outputs=[str(p) for p in sorted(OUTD.glob("dunes_patch_mint_*.png"))],
     )
     (OUTD / "dunes_patch_mint.json").write_text(json.dumps(out, indent=1, default=str))
