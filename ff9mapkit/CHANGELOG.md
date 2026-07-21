@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — overworld grid-bounds gate (the 24×20 block grid)
+- **`world-island` / `build_landmass` and the loose-mesh deploy layer now refuse an OFF-GRID target.**
+  The engine's world is a fixed **24×20** block grid (`WMWorld.BuildBlockArray = new WMBlock[24, 20]`;
+  cols 0..23, rows 0..19; world x 0..1535, z 0..−1279). A landmass whose footprint spills off it streams
+  nothing — the overrides are dead files — and the OPEN-OCEAN TARGET check was **vacuously satisfied off
+  the map edge** (no mesh assets because there is no map), so nothing caught a dunes-field mint that landed
+  on rows 20–22 until the user's debug-menu teleport bounced. New single source of truth
+  `mesh.GRID_COLS/GRID_ROWS = 24, 20` + `mesh.block_in_grid` / `mesh.require_block_in_grid` (cited to
+  `WMWorld.cs:1675` and the debug-menu bounds `Ff9mkDebugMenu.cs:1595`); `terrain.py`/`water.py`/
+  `transplant.py` re-export `GRID_X/GRID_Y` from it. `build_landmass` refuses before building a `BlockMesh`
+  (naming every off-grid block); `mesh.deploy_override` / `deploy_donor_sidecar` refuse before touching the
+  filesystem (belt-and-braces for any direct-deploy path). Tests: `tests/test_world_grid_bounds.py`.
+
 ### Added — overworld sea-carry gates (`world-transplant` / `transplant_region`)
 - **The effective-prefab gate + auto-arm** — the s34 sea→land divert binds a cell's sub-mesh overrides
   only for the transforms its *effective* prefab exposes, looked up by `transform.name`: an un-armed

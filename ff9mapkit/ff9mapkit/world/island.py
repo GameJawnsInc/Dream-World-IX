@@ -532,6 +532,21 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
 
     by_block = _split_at_borders(parent)
 
+    # THE GRID-BOUNDS GATE (2026-07-21, the dunes off-grid incident): the engine's world is a
+    # FIXED 24x20 block grid (mesh.GRID_COLS/ROWS <- WMWorld.BuildBlockArray new WMBlock[24,20]);
+    # a landmass whose footprint spills off the map streams NOTHING there, so those per-block
+    # overrides are dead files -- and the OPEN-OCEAN TARGET check in landmass() is VACUOUSLY TRUE
+    # off the edge (no mesh assets, because there is no map), so it can't catch this. Refuse here,
+    # before building a single BlockMesh, naming every off-grid block.
+    off_grid = sorted(blk for blk in by_block if not M.block_in_grid(blk[0], blk[1]))
+    if off_grid:
+        raise ValueError(
+            f"landmass footprint {sorted(by_block)} spills OFF the {M.GRID_COLS}x{M.GRID_ROWS} "
+            f"overworld block grid at {off_grid} (cols 0..{M.GRID_COLS - 1}, rows 0..{M.GRID_ROWS - 1}; "
+            f"world x 0..{M.GRID_WORLD_X_MAX}, z 0..{M.GRID_WORLD_Z_MIN}). The engine never streams "
+            f"off-grid cells. Shift center=({cx:.0f},{cz:.0f}) / base_radius={base_radius} so every "
+            f"touched block is on the map.")
+
     # per-block BlockMesh in block-LOCAL coordinates, with globally-smoothed welded normals
     gpos, gtris, gmeta = [], [], []                      # the split soup, still in world coords
     for blk, items in sorted(by_block.items()):

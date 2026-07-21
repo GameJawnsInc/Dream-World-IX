@@ -22,6 +22,40 @@ from .. import config
 MAGIC = b"F9WM"
 VERSION = 1
 
+# THE AUTHORITATIVE OVERWORLD BLOCK GRID (single source of truth for the whole kit).
+# The engine's world is a FIXED 24x20 array of 64u blocks: WMWorld.BuildBlockArray mints
+# ``new WMBlock[24, 20]`` (Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs:1675) and the debug
+# menu's overworld teleport refuses anything off it with ``bx >= 24 || bz >= 20`` -> "outside
+# the 24x20 grid (x 0..1535, z 0..-1279)" (Global/UI/UIKey/Ff9mkDebugMenu.cs:1595). Rows/cols
+# outside the array are NEVER streamed, so a mesh override written there is a dead file on disk.
+# terrain.py / water.py re-export GRID_X/GRID_Y from here to keep ONE literal in the codebase.
+GRID_COLS, GRID_ROWS = 24, 20                            # block cols 0..23 (X), rows 0..19 (Y)
+GRID_WORLD_X_MAX = GRID_COLS * 64 - 1                    # world x spans [0, 1535]  (24 * 64 = 1536)
+GRID_WORLD_Z_MIN = -(GRID_ROWS * 64 - 1)                 # world z spans [-1279, 0] (20 * 64 = 1280)
+
+
+def block_in_grid(x: int, y: int) -> bool:
+    """True iff block ``(x, y)`` is inside the engine's fixed 24x20 overworld grid (cols 0..23,
+    rows 0..19). The single predicate every grid-bounds gate in the kit is built on."""
+    return 0 <= x < GRID_COLS and 0 <= y < GRID_ROWS
+
+
+def require_block_in_grid(x: int, y: int, *, context: str = "") -> None:
+    """Raise ``ValueError`` if block ``(x, y)`` is off the engine's fixed 24x20 overworld grid.
+    The belt-and-braces gate at the lowest write layer (:func:`deploy_override` /
+    :func:`deploy_donor_sidecar`): the engine never streams off-grid rows/cols, so writing an
+    override there produces DEAD FILES (and any open-ocean/real-block census run off the map edge
+    is VACUOUSLY clean -- there are no mesh assets because there is no map -- which is exactly how
+    the 2026-07-21 dunes mint spilled onto rows 20-22 unnoticed)."""
+    if not block_in_grid(x, y):
+        where = f" ({context})" if context else ""
+        raise ValueError(
+            f"Block[{x}][{y}]{where} is OFF the {GRID_COLS}x{GRID_ROWS} overworld block grid "
+            f"(cols 0..{GRID_COLS - 1}, rows 0..{GRID_ROWS - 1}; world x 0..{GRID_WORLD_X_MAX}, "
+            f"z 0..{GRID_WORLD_Z_MIN}). The engine (WMWorld.BuildBlockArray = new "
+            f"WMBlock[{GRID_COLS},{GRID_ROWS}]) never streams off-grid cells -- an override there "
+            f"is a dead file. Shift the target so every touched block is on the map.")
+
 
 def write_ff9mesh(bm, path) -> Path:
     """Serialize a :class:`~ff9mapkit.world.extract.BlockMesh` to the ``.ff9mesh`` format the engine reads."""
@@ -119,6 +153,7 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
     """Write the per-cell donor sidecar for reclaimed cell ``(x, y)``: a one-line ``"dx,dy"`` naming the real coastal
     donor block whose beach/sea/foam sub-meshes the engine should render on this cell. Deployed next to the cell's
     ``Terrain.ff9mesh`` override; the engine's ``TryReadDonorPath`` searches the stacked ``FolderNames`` for it."""
+    require_block_in_grid(x, y, context="deploy_donor_sidecar")
     dest = config.find_game_path(game) / mod_folder / donor_sidecar_relpath(disc, x, y, lod)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(f"{donor_x},{donor_y}", encoding="utf-8")
@@ -130,6 +165,7 @@ def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: s
     custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,
     or ``"Object"`` for the building mesh). The mod_folder must be a stacked ``FolderNames`` entry (e.g.
     ``FF9CustomMap``). Returns the written path."""
+    require_block_in_grid(bm.x, bm.y, context=f"deploy_override {part}")
     dest = config.find_game_path(game) / mod_folder / override_relpath(bm.disc, bm.x, bm.y, lod, part)
     return write_ff9mesh(bm, dest)
 

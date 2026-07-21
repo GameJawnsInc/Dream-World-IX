@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 
 BLOCK = 64
-GRID_X, GRID_Y = 24, 20                                  # the fixed overworld block grid
+from .mesh import GRID_COLS as GRID_X, GRID_ROWS as GRID_Y  # noqa: E402  the authoritative 24x20 grid
 
 
 def _block_index_range(minx: float, maxx: float, minz: float, maxz: float):

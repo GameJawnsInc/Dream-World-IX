@@ -43,7 +43,7 @@ import math
 import random
 
 BLOCK = 64                                              # a 64x64 Unity-unit overworld block (extract.BLOCK_SIZE)
-GRID_X, GRID_Y = 24, 20                                 # the fixed overworld block grid
+from .mesh import GRID_COLS as GRID_X, GRID_ROWS as GRID_Y  # noqa: E402  the authoritative 24x20 grid
 G = 16                                                  # 16x16 sub-tiles per block
 CELL = BLOCK / G                                        # 4.0u per sub-tile
 
