@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
-index 026b2e8..af27751 100644
+index 026b2e8..0e93b75 100644
 --- a/Assembly-CSharp/Global/FolkloreUI.cs
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
 @@ -39,6 +39,10 @@ using UnityEngine;
@@ -63,7 +63,7 @@ index 026b2e8..af27751 100644
              return;
          }
          FolkloreRegistry.Entry e = this.entries[this.currentIndex];
-@@ -314,14 +343,318 @@ public class FolkloreUI : UIScene
+@@ -314,14 +343,324 @@ public class FolkloreUI : UIScene
              if (String.IsNullOrEmpty(lore))
                  lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
              this.detailBodyLabel.rawText = lore;
@@ -134,12 +134,12 @@ index 026b2e8..af27751 100644
 +            model.transform.parent = stage.transform;
 +            model.transform.localPosition = Vector3.zero;
 +            model.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);        // ModelViewerScene.cs:106
-+            model.transform.localRotation = Quaternion.Euler(20f, 180f, 0f);   // static pose -- the
++            model.transform.localRotation = Quaternion.Euler(20f, 0f, 0f);   // static pose -- the
 +            // viewer's OWN yaw lives on a SEPARATE wrapper transform driven by drag input
 +            // (ModelViewerScene.cs:607-609,617); rung 1 has no interactive rotation to replicate, so a
 +            // single composed Euler on the model's own transform is a deliberate simplification, not a
-+            // copy of the viewer's mechanism. 180 is an aesthetic guess (face the camera) pending the
-+            // first in-game snap -- adjust freely, it is not load-bearing.
++            // copy of the viewer's mechanism. Yaw 0 = the viewer's own default AND playtest-proven to
++            // face the camera (round 1 shipped a 180 guess -- the user saw the creature's back).
 +            foreach (Collider col in model.GetComponentsInChildren<Collider>(true))
 +                UnityEngine.Object.Destroy(col);                // leak defense: strip colliders at spawn
 +                                                                 // (CreateModel attaches none today, so
@@ -160,8 +160,17 @@ index 026b2e8..af27751 100644
 +                                                                 // (Battle 0xFFFFFFFF, FieldMap 0xFFFFFBDF)
 +            cam.depth = -4096f;                                 // leak defense: parking convention, MBG.cs:44
 +            cam.clearFlags = CameraClearFlags.SolidColor;
-+            cam.backgroundColor = Color.black;                  // OPAQUE -- rung 1 default (transparent
-+                                                                 // alpha compositing is untested, rung 5)
++            cam.backgroundColor = new Color(0f, 0f, 0f, 0f);    // TRANSPARENT -- the rung-5 probe pulled
++                                                                 // forward by the round-1 playtest ("a
++                                                                 // hard-edged black border"): the field
++                                                                 // look's Unlit/Transparent Cutout writes
++                                                                 // clean 0/1 alpha (no PSX battle shader
++                                                                 // in this path), and UITexture's default
++                                                                 // Unlit/Transparent Colored alpha-blends
++                                                                 // -- the creature composites straight
++                                                                 // onto the pane sheet. RETREAT LEVER:
++                                                                 // Color.black restores the opaque box if
++                                                                 // this ever halos on a future asset.
 +            cam.fieldOfView = 40f;
 +            cam.nearClipPlane = 0.1f;
 +            cam.farClipPlane = 10000f;
@@ -199,18 +208,15 @@ index 026b2e8..af27751 100644
 +            // readable" by draw order, not by shrinking the text's box. NEVER call MakePixelPerfect (it
 +            // would snap this rect to the RT's raw 640x720 and blow past the pane).
 +
-+            // depth = one below whichever text label is lowest, MINUS an extra safety margin --
-+            // guarantees the portrait draws BEHIND both labels regardless of the frame Body sheet's own
-+            // (unmeasured-from-source) baked depth: a stock window must already draw its own
-+            // caption/label above its own sheet (or the caption would never be visible), so "below the
-+            // labels" is, by that same necessity, still above the sheet. -2 (not -1) avoids an exact
-+            // tie with the sheet if its real baked depth happened to equal textDepth-1 -- ties fall
-+            // through to an unstable secondary UIWidget.PanelCompareFunc comparison. Read the
-+            // DumpDetailPaneOnce log (captured BEFORE this widget ever existed) to confirm this margin
-+            // against real numbers on the first playtest; widen it further if the log shows the sheet
-+            // closer than 2 below the labels.
++            // depth: the round-1 census MEASURED the pane's landscape (Shadow 3 / Body sheet 4 /
++            // body label 6 / Border 8 / frame Caption 9) -- the unique free slot between the sheet
++            // and the lowest label is textDepth-1 (= 5). Round 1 shipped textDepth-2 as a "safety
++            // margin" and thereby CREATED the exact tie it feared (portrait 4 == Body sheet 4; ties
++            // fall through to an unstable secondary UIWidget.PanelCompareFunc comparison -- it only
++            // happened to resolve in our favor that launch). Derived, not hardcoded, so a future
++            // label re-depth keeps the portrait tracking one below the text.
 +            Int32 textDepth = Math.Min(this.detailNameLabel.depth, this.detailBodyLabel.depth);
-+            portrait.depth = textDepth - 2;
++            portrait.depth = textDepth - 1;
 +
 +            this.folkloreRigFailed = false;
 +            Log.Message($"[FolkloreUI] rig mint took {rigWatch.ElapsedMilliseconds}ms");   // always log
@@ -382,7 +388,7 @@ index 026b2e8..af27751 100644
      // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
      // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
      // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
-@@ -641,6 +974,22 @@ public class FolkloreUI : UIScene
+@@ -641,6 +980,22 @@ public class FolkloreUI : UIScene
      [NonSerialized]
      private Int32 muteSettleDepth;
  

@@ -1,6 +1,26 @@
 # s46 — THE RENDER RIG (the Folklore display window)
 
-> **Status: RUNG 1 ★ BUILT + DEPLOYED 2026-07-21 — PLAYTEST PENDING.** Captured as
+> **ROUND 1 PLAYTEST (2026-07-21): THE MECHANISM IS ★ PROVEN — all four §2 checks passed** (creature
+> visible + framed in the pane · clean open/close + L1/R1 + owned↔locked · the field-walk + battle leak
+> snaps clean · world-map codex opens). "Not bad, needs some polish" + two findings, both shipped as
+> **ROUND 2** (built + deployed same day, ★ playtest pending):
+> 1. **Facing** — the yaw-180 guess showed the creature's BACK; round 2 ships yaw **0** (the viewer's
+>    own default).
+> 2. **The hard-edged black box under the text** — the rung-1 opaque default; round 2 pulls the rung-5
+>    TRANSPARENCY probe forward: `backgroundColor (0,0,0,0)` — the field look's Unlit/Transparent
+>    Cutout writes clean 0/1 alpha (no PSX battle shader in this path) and UITexture's default
+>    Unlit/Transparent Colored alpha-blends, so the creature should composite straight onto the pane
+>    sheet. RETREAT LEVER: `Color.black` restores the opaque box.
+> 3. **The census log CAUGHT A REAL LATENT BUG** — measured pane depths: Shadow 3 / **Body sheet 4** /
+>    body label 6 / Border 8 / frame Caption 9. Round 1's `textDepth−2` "safety margin" = **4, an
+>    EXACT TIE with the Body sheet** (the precise instability the skeptic feared; it only happened to
+>    resolve in our favor). Round 2 ships `textDepth−1` (= 5, the unique free slot). **LAW: a safety
+>    margin chosen without the measurement can BE the collision.**
+> Ledger stayed clean: awake 4ms · rig mint **7ms** · first frames 21/3/15 — the rig adds nothing to
+> the s45 hang budget.
+>
+> **Status: RUNG 1 ★ MECHANISM PROVEN; round 2 (yaw 0 + transparent + depth 5) DEPLOYED 2026-07-21 —
+> awaiting its look-check.** Captured as
 > `memoria-patches/s46-folklore-render-rig.patch` (ONE file, `FolkloreUI.cs` only — no csproj change; both
 > gates green: reverse `-F0` clean on live, forward `--binary -F0` onto `backups/preS46-snapshots.20260721`
 > == live bytes; the deployed DLL carries the new method names, both arches MD5-match Output). Build shape:
