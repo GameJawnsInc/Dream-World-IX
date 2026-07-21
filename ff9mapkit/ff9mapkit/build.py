@@ -7413,6 +7413,10 @@ def _emit_folklore(projects, layout) -> list:
     convention for non-localized custom content). Written UTF-8 no-BOM (the engine reads these via
     ``File.ReadAllText`` = UTF-8 -- NOT cp1252, which would garble curly quotes / accents).
 
+    Also emits the ``FolklorePatch.txt`` registry sidecar (categories + an optional third ``display``
+    token per entry, resolved via :func:`ff9mapkit.content.folklore.resolve_display` -- an unresolvable
+    ``display`` warns and drops ONLY that token, never the entry).
+
     Build does NOT run ``validate()`` -> warn-and-skip a bad block, never crash (the recurring lesson);
     ``lint`` reports the precise error via ``_validate_folklore``. Returns warnings."""
     from .content import folklore as _folklore
@@ -7439,7 +7443,8 @@ def _emit_folklore(projects, layout) -> list:
                 continue
             if iid in seen:
                 warnings.append(f"[[folklore]] id {iid} is defined twice ({seen[iid]} and "
-                                f"{_field_name(p)}) -- the later one wins")
+                                f"{_field_name(p)}) -- the later one wins (the earlier block's display, "
+                                "if any, drops with it)")
                 blocks = [x for x in blocks if int(x["id"]) != iid]
             seen[iid] = _field_name(p)
             # over-budget text still RENDERS (just clips) -> warn-and-ship here; lint ERRORS precisely
@@ -7452,6 +7457,17 @@ def _emit_folklore(projects, layout) -> list:
             if isinstance(b.get("help"), str) and len(b["help"]) > _folklore.HELP_MAX_CHARS:
                 warnings.append(f"[[folklore]] id {iid} help is {len(b['help'])} chars and may clip "
                                 f"(vanilla max {_folklore.HELP_MAX_CHARS})")
+            # THE displayRef LANE (s46 rung 4): resolve now so a bad ref never reaches render_patch_lines
+            # -- warn and drop the display ONLY. The entry itself is NEVER skipped for a bad portrait (it
+            # still ships its two-token line + full text) -- one notch finer than the warn-and-skip above.
+            if b.get("display") is not None:
+                try:
+                    _folklore.resolve_display(b["display"])
+                except (TypeError, ValueError) as e:
+                    warnings.append(f"[[folklore]] id {iid} display {b['display']!r} on "
+                                    f"{_field_name(p)}: {e} -- shipped without a portrait (text-only pane)")
+                    b = dict(b)
+                    b.pop("display", None)
             blocks.append(b)
     if not blocks:
         return warnings
