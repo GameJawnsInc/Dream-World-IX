@@ -1,14 +1,20 @@
 # s46 — THE RENDER RIG (the Folklore display window)
 
-> **Status: GROUNDED PLAN — rungs 1-5 defined, awaiting the rung-1 green light.** Produced 2026-07-21 by a
-> 4-lane grounding workflow over the engine source (model spawn / RT precedent / anim+layers+lighting /
-> kit grammar; 5 agents, every mechanism claim cited file:line) + synthesis. The headline: the rig is a
-> COMPOSITION OF TWO SHIPPING ENGINE PIECES — Memoria's Model Viewer (spawn any GEO over live NGUI) and
-> the Libra photo (camera -> RenderTexture -> menu) — displayed through stock NGUI UITexture. The genuinely
-> novel pieces (a persistent-targetTexture camera, the runtime UITexture call site, offstage-leak
-> discipline) are each isolated on their own rung. Open questions for the user at the bottom.
+> **Status: RUNG 1 GREEN-LIT (user, 2026-07-21) — to be built in a fresh session.** Rung 1 needs NO user
+> decisions (viewer defaults: opaque background, field look, one static render); the open questions at the
+> bottom gate later rungs only. Plan produced 2026-07-21 by a 4-lane grounding workflow over the engine
+> source (model spawn / RT precedent / anim+layers+lighting / kit grammar; 5 agents, every mechanism claim
+> cited file:line) + synthesis. The headline: the rig is a COMPOSITION OF TWO SHIPPING ENGINE PIECES —
+> Memoria's Model Viewer (spawn any GEO over live NGUI) and the Libra photo (camera -> RenderTexture ->
+> menu) — displayed through stock NGUI UITexture. The genuinely novel pieces (a persistent-targetTexture
+> camera, the runtime UITexture call site, offstage-leak discipline) are each isolated on their own rung.
+>
+> **For the building session:** the engine stack on master already includes the 2026-07-21 9-row/title-plate
+> s45 recapture (a sibling session; the live `C:\gd\FFIX\Memoria` tree carries it). Build rung 1 as a NEW
+> patch **s46** on top of the current stack; captures follow the PRE-MARKER CR RULE
+> (`memoria-patches/README.md` §s45 — forward `--binary` is now truly byte-exact) and the reverse gate runs
+> on the live tree. Read the `project-ff9-ngui-menu-construction` memory before touching FolkloreUI.
 
-#
 > **Goal.** A codex bestiary entry displays its creature as a live 3D render inside the existing 780x880 detail pane (`FolkloreUI.cs:410`, `BuildFramedPane` 333-370). The rig is the composition of two proven engine halves — Memoria's **Model Viewer** (spawn any GEO over live NGUI, `ModelViewerScene.cs:1725`) and the **Libra photo** (camera → RenderTexture → menu, `BattleHUD.Public.cs:213-235`) — plus the stock **UITexture** display seat (`Global\UI\UITexture.cs:7-41`). Almost every primitive is cited stock; the NOVEL pieces are flagged and each gets its own rung so a playtest isolates it.
 
 ---
