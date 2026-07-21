@@ -1067,3 +1067,85 @@ check answers "is this a real world block?" — off the map that question is mea
 `dunes_host_probe.py` (re-sited), `dunes_field_mint.py` (parameterized centre/radius/seed, defensive
 `build_host`, in-grid ladder), `ff9mapkit/world/mesh.py` (+ `terrain.py`/`water.py`/`island.py`),
 `tests/test_world_grid_bounds.py`.
+
+## Round 5 (forensics + eye upgrade, 2026-07-21) — THE CASTELLATION VERDICT + THE GRAZING MESH EYE ★ INSTRUMENT FROZEN (Phase 1; no carry built yet)
+
+**The verdict (user, in-game A/B).** The re-sited whole-stamp mint at centre **(1248,−1184)** (blocks
+(18–20,17–19), r56 host, commit `0b0e768`) is **REJECTED**: the dune/desert ecotone reads as an
+**unaligned castellated grid of tiles**; stock comp[1] in situ *"reads great"* — smooth and organic.
+A grazing-angle A/B render (same camera both) separates them the same way the eye did (below).
+
+**ROOT CAUSE — two factors, one root: the label-stamp pipeline painted ROW LABELS onto a synthetic
+plain island instead of carrying the donor MESH.** Read-only byte A/B of the DEPLOYED `.ff9mesh`
+overrides vs stock comp[1] (`byte_compare.py`/`dunes_ab.py`), 143/143 dune cells paired under the k=0
+translation **T=(87,−101)**:
+
+- **Factor 1 (dominant) — zero sub-cell vertex motion.** The mint enforced zero vertex motion, so its
+  dune|desert boundary is **100 % on the 4u grid** (`frac_on_grid 1.0`, `mean_offcell 0.0`, n=136 seam
+  endpoints). Stock comp[1] has **14.6 % off-grid conforming seam verts** (`mean_offcell 0.0219`,
+  `p90 0.103`, n=260). A staircase *by construction*.
+- **Factor 2 — every ecotone tile at orientation 0, and the UVs regenerated not carried.** Stock
+  distributes the pale→red ramp tiles across all four **{0,90,180,270}** boundary-awarely; the mint is
+  monolithically ori-0. Paired same-orientation **15.8 %**, class-agreement **60 %**, and the mint's
+  per-corner UVs **byte-derive from the donor for only 2.1 % of cells** — proof they were
+  *regenerated*, not *copied*.
+- The interior mains are generative (uncorrelated with stock), and the 14-cell **topo-59 butte hole
+  was filled FLAT** (mint footprint 144 = 130 comp1 + 14 filled), losing the butte stock renders behind
+  the seam.
+
+**Why the old eye passed it (the blind axis).** `dunes_mint_eye.py` judged ROW LABELS at a top-down
+zoom. On the DEPLOYED bytes its **M1 jumpiness = 5.076 and M2 same-row = 0.3636 are IN-BAND —
+byte-identical to stock's own self-test** — because the pipeline *nailed the row-label axis it was
+optimizing*. The row eye caught only the shape defects (M3 convexity 0.835 + the hole-fill); the
+**castellation is invisible to it**. *A row-label eye cannot see mesh geometry.*
+
+**THE FIX (build phase, NOT this round): a TRUE MESH CARRY** — rigidly relocate stock comp[1]'s ACTUAL
+Terrain content (verts incl. the sub-cell conforms + the butte relief, per-corner UVs incl.
+orientations, tangents/topo) onto the deployed desert host, THE CARRY LAW applying (carried content
+rigid; conform goes to the host ground at the ring). Deferred to Phase 2.
+
+**THIS ROUND (Phase 1) — THE GRAZING MESH EYE, `dunes_grazing_eye.py`, promoted from the forensics +
+FROZEN.** A mesh-level judge with three new numeric gates, each **calibrated on stock first** (comp[1]
+must clear every gate before any mint is judged) and each with a **donor-derived band**:
+
+| gate | what it measures | donor (stock comp[1]) | band | deployed mint | verdict |
+|---|---|---|---|---|---|
+| **A** sub-cell boundary-conformance | off-4u-grid seam-vert fraction + mean off-cell | 0.146 / 0.0219 (n=260) | off_grid ≥ **0.0731** AND mean ≥ **0.01096** (½ donor) | **0.0 / 0.0** | **FAIL** |
+| **B** orientation fidelity + byte-derivation | paired same-ori vs donor; carried-UV byte match | 1.0 / 1.0 (identity, n=95) | both ≥ **0.90** | **0.158 / 0.021** | **FAIL** |
+| **C** boundary-framed render | grazing render (painter-sorted, per-corner UV, 2 pitches) framing-ASSERTED to contain the boundary, then frontier-profile organicity (slope reversals /100col) | 46.7 / 56.25 | min-pitch ≥ **23.33** (½ donor worst) | **1.354 / 3.125** | **FAIL** |
+
+- **GATE A** is the direct sub-cell measure; a rigid carry reproduces the donor exactly (pass), a
+  grid-locked stamp is 0.0 (hard fail). **Zero vertex motion on a real-geometry donor is a RED FLAG,
+  not a pass.**
+- **GATE B** brute-forces each tile's identity over all four orientations (so the recovered ori is
+  real), and the **byte-derivation assert** demands the carried cells' UVs *equal the donor's bytes*
+  — a carry copies verbatim (1.0), a regenerate does not (0.021).
+- **GATE C** is the render the arc never had: a low-pitch GAME-CAMERA perspective through the real
+  atlas, **painter-sorted**, per-corner UV. Its framing is **asserted programmatically** to contain
+  the dune|desert boundary — *the TIGHT top-down mis-framing was a real miss* — and an interior-zoom
+  camera is **correctly blocked** (0 desert px, "cannot judge"). The organicity metric is the
+  render-space read of Factor 1: stock's off-grid verts make the rendered frontier WIGGLE (~46–56
+  reversals/100col); the grid-locked mint is a monotone staircase (~1–3). A ~25× separation, measured
+  on both before freezing (the gradient-peakedness and tortuosity candidates were tried and **do not
+  separate** — discarded).
+
+**INSTRUMENT INVARIANTS (all hold; the eye is frozen).** SELF-TEST: stock comp[1] vs itself **PASSES
+all three**. ANTI-TEST: the deployed bytes **FAIL all three** (the perfect anti-fixture). MIS-FRAMING
+guard blocks an interior zoom. Re-runs are byte-deterministic (stock bytes + deployed bytes). The
+calibration witness `out/dunes_grazing_eye_calib_pitch{22,34}.png` shows stock smooth / mint
+castellated in the same frame.
+
+**INTEGRATION.** `dunes_mint_eye.judge(mesh=…)` now delegates the three mesh gates to
+`dunes_grazing_eye.judge_mesh` and requires them for the overall verdict (non-breaking — `mesh=None`
+preserves the frozen row self-test byte-for-byte). The combined self-test PASSES; the combined
+anti-test on the deployed bytes FAILS with **3/3 mesh gates failing** while M1/M2 stay in-band —
+*the row flow now spends the mesh axis it was blind to.*
+
+**THE LAW (extended).** *Calibrate the instrument on stock before you judge with it* now covers the
+RENDER axis: stock must render smooth through the grazing eye before any mint is judged, and every
+band is the donor's own value with a stated margin. And: **a row-label eye is blind to mesh geometry —
+judge the BYTES the engine renders, not the design intent.** Artifacts (all committed): the instrument
+`dunes_grazing_eye.py` + `out/dunes_grazing_eye.json` + `out/dunes_grazing_eye_calib_pitch{22,34}.png`
++ `out/dunes_grazing_eye_judge_*.png`; the forensic provenance `dunes_grazing_forensics.py` (the raw
+A/B render) and `dunes_byte_ab.py` (the per-tile byte A/B that recovered the orientation histogram);
+integration in `dunes_mint_eye.py` (`judge(mesh=…)` + the direct-run demo).

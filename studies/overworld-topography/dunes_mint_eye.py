@@ -682,12 +682,23 @@ for k, v in CRITERIA.items():
     print(f"   {k:38s} = {v}")
 
 
-def judge(ring_rows, footprint_cells, *, boundary_cells=None, label="MINT"):
+def judge(ring_rows, footprint_cells, *, boundary_cells=None, label="MINT", mesh=None):
     """The frozen instrument. Call on the BUILT mint before deploy.
 
     ring_rows       : {(i,j): row 0-3}  the strip-dressed ring cells of the mint (desert|dunes UV)
     footprint_cells : set of (i,j)      the full dune footprint (mains core + ring), for the silhouette
     boundary_cells  : optional set      the footprint's boundary cells (recomputed if None)
+    mesh            : optional dict     when given, the THREE MESH GATES from `dunes_grazing_eye`
+                                        are also run and merged in (keys `mesh_A/B/C_*`), and ALL
+                                        must pass for the overall verdict. This is the axis the ROW
+                                        gates below are BLIND to -- the label-stamp mint passes M1-M4
+                                        but its mesh is castellated (off-grid seam verts, ori=0
+                                        tiles, UVs that do not byte-derive from the donor). Pass a
+                                        dict with the keys `judge_mesh` takes: cand_tris, cand_cmap,
+                                        cand_fp_centroid, cand_fp41, donor_cmap, donor_fp41, T,
+                                        criteria (+ optional cand_fam, render, render_tag). Default
+                                        None preserves this instrument's frozen row-only behaviour
+                                        byte-for-byte (the self-test/anti-test below pass mesh=None).
 
     Returns {gate: (value, pass_bool)}. ALL gates must pass. Bands are frozen above; this
     function reads no live state except the atlas-derived row_lum table (also frozen at import).
@@ -714,6 +725,16 @@ def judge(ring_rows, footprint_cells, *, boundary_cells=None, label="MINT"):
         "boundary_coverage(report)": (round(bcov, 3), True),
         "lag1(report)": (lag1_autocorr(ring_rows, path_cell_seqs), True),
     }
+    if mesh is not None:
+        import dunes_grazing_eye as _GE
+        _m = _GE.judge_mesh(
+            mesh["cand_tris"], mesh["cand_cmap"], mesh["cand_fp_centroid"], mesh["cand_fp41"],
+            mesh["donor_cmap"], mesh["donor_fp41"], mesh["T"], mesh["criteria"],
+            cand_fam=mesh.get("cand_fam"), cand_azimuth=mesh.get("cand_azimuth"),
+            label=mesh.get("label", label), render=mesh.get("render", True),
+            render_tag=mesh.get("render_tag"))
+        for _g, (_v, _p) in _m["gates"].items():
+            res["mesh_" + _g] = (_v, _p)
     allpass = all(p for _v, p in res.values())
     print(f"\n[judge {label}] {'>>> PASS <<<' if allpass else '>>> FAIL <<<'}")
     for g, (v, p) in res.items():
@@ -771,3 +792,59 @@ print(f"\n-> {OUTD / 'dunes_mint_eye.json'}")
 print("\nINSTRUMENT FROZEN. The builder imports judge() and calls it on the built mint's ring-rows +")
 print("footprint; the WIDE/MEDIUM/TIGHT stock panels are the reference the mint's renders sit beside.")
 print("DONE.")
+
+
+# ============================================================================================
+# THE MESH-GATE INTEGRATION DEMO (direct-run only; imports never trigger this heavy pass)
+# --------------------------------------------------------------------------------------------
+# Proves the `mesh=` hook wires `dunes_grazing_eye`'s three mesh gates into THIS judge flow:
+#   - COMBINED SELF  (stock comp[1], row + mesh) must PASS.
+#   - COMBINED ANTI  (the DEPLOYED label-stamp mint, row + mesh) must FAIL, and the deployed bytes
+#     must fail on ALL THREE mesh axes -- the axis the row gates M1-M4 are blind to. (The row
+#     axis alone caught only the hole-fill; the castellation is invisible to it.)
+# ============================================================================================
+if __name__ == "__main__":
+    print("\n" + "=" * 96)
+    print("MESH-GATE INTEGRATION DEMO -- judge(mesh=...) merges dunes_grazing_eye's 3 mesh gates")
+    print("=" * 96)
+    import dunes_grazing_eye as _GE
+
+    _crit = _GE.load_criteria()
+    _stock = _GE.load_stock()
+    _sfam = _GE.cell_family(_stock)
+    _scmap = _GE.cells_map(_stock)
+    _sfp = _GE.dunes_footprint(_sfam)
+    _sfp41 = _GE.topo41_footprint(_scmap)
+
+    _self_mesh = dict(cand_tris=_stock, cand_cmap=_scmap, cand_fp_centroid=_sfp, cand_fp41=_sfp41,
+                      donor_cmap=_scmap, donor_fp41=_sfp41, T=(0, 0), criteria=_crit,
+                      cand_fam=_sfam, render=True, render_tag="integ_self",
+                      label="stock comp[1] mesh (combined self)")
+    print("\n-- COMBINED SELF-TEST: stock comp[1] on the ROW axis AND the MESH axis --")
+    _combined_self = judge(region_rows(COMP1), COMP1, mesh=_self_mesh, label="COMBINED SELF (stock)")
+
+    _mint = _GE.load_mod(_GE.MINT_BLOCKS)
+    _mfam = _GE.cell_family(_mint)
+    _mcmap = _GE.cells_map(_mint)
+    _mfp = _GE.dunes_footprint(_mfam)
+    _mfp41 = _GE.topo41_footprint(_mcmap)
+    _T = _GE.translation(_sfp41, _mfp41)
+    _mrows = _GE.strip_rowmap(_mcmap, _mfp)
+    _anti_mesh = dict(cand_tris=_mint, cand_cmap=_mcmap, cand_fp_centroid=_mfp, cand_fp41=_mfp41,
+                      donor_cmap=_scmap, donor_fp41=_sfp41, T=_T, criteria=_crit,
+                      cand_fam=_mfam, render=True, render_tag="integ_anti",
+                      label="deployed mint mesh (combined anti)")
+    print("\n-- COMBINED ANTI-TEST: the DEPLOYED label-stamp mint on the ROW axis AND the MESH axis --")
+    _combined_anti = judge(_mrows, _mfp, mesh=_anti_mesh, label="COMBINED ANTI (deployed mint)")
+
+    _mesh_fails = [g for g, (v, p) in _combined_anti["gates"].items()
+                   if g.startswith("mesh_") and not p]
+    print("\n" + "=" * 96)
+    print(f"INTEGRATION: combined-self PASS={_combined_self['passed']}  "
+          f"combined-anti FAIL={not _combined_anti['passed']}  "
+          f"mesh gates failed on the deployed mint = {len(_mesh_fails)}/3 {_mesh_fails}")
+    print("=" * 96)
+    assert _combined_self["passed"], "combined self-test (stock, row+mesh) must PASS"
+    assert not _combined_anti["passed"], "combined anti-test (deployed mint) must FAIL"
+    assert len(_mesh_fails) == 3, "the deployed mint must fail ALL THREE mesh gates"
+    print("MESH-GATE INTEGRATION VERIFIED: the row judge flow now spends the mesh axis it was blind to.")
