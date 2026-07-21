@@ -345,6 +345,41 @@ for _lang in LANGS:
     shutil.copyfile(_src_an, _live_an)
     csv_reverts.append((f"aa_name-{_lang}", str(_live_an), _had))
     print(f"  + text/{_lang}/ability/aa_name.mes (ability name)")
+# [[folklore]] codex entries -> the three per-lang KeyItem text overlays (FF9_Data/embeddedasset/text/<lang>/
+# keyitem/). Same reversible backup/restore pattern as com_name/aa_name. KeyItem text is imported ONCE at engine
+# startup (KeyItemImporter.LoadInternal) -- there is NO hot-reload for it, so the first deploy AND every text
+# edit need a RELAUNCH (the ~ reload re-reads only the field's .eb/.mes/scene/walkmesh).
+_folk_deployed = False
+for _lang in LANGS:
+    for _chan, _path_fn in (("imp_name", "keyitem_name_mes"), ("imp_help", "keyitem_help_mes"),
+                            ("imp_skin", "keyitem_skin_mes")):
+        _src_fk = getattr(tl, _path_fn)(_lang)
+        if not _src_fk.exists():
+            continue
+        _live_fk = getattr(live, _path_fn)(_lang)
+        _live_fk.parent.mkdir(parents=True, exist_ok=True)
+        _had = _live_fk.exists()
+        if _had:
+            shutil.copyfile(_live_fk, BK / f"{_chan}-{_lang}.mes.preDEPLOY.{STAMP}")
+        shutil.copyfile(_src_fk, _live_fk)
+        csv_reverts.append((f"{_chan}-{_lang}", str(_live_fk), _had))
+        _folk_deployed = True
+if _folk_deployed:
+    print("  + text/<lang>/keyitem/{imp_name,imp_help,imp_skin}.mes (Folklore codex) -> RELAUNCH to apply "
+          "(KeyItem text loads at engine startup, not the ~ reload)")
+    # The one config hazard: [Import] Enabled=1 makes TextImporter run the EXTERNAL combined-KeyItems.strings
+    # path and skip the cumulative .mes import entirely -> the codex text would silently never load.
+    _ini = Path(GAME) / "Memoria.ini"
+    if _ini.exists():
+        _in_import = False
+        for _ln in _ini.read_text(encoding="utf-8", errors="replace").splitlines():
+            _s = _ln.strip()
+            if _s.startswith("["):
+                _in_import = _s.lower() == "[import]"
+            elif _in_import and _s.lower().replace(" ", "").startswith("enabled=1"):
+                print("  !! Memoria.ini [Import] Enabled=1 -- Folklore text will NOT load (the external "
+                      "text-import path skips the cumulative KeyItem .mes). Set [Import] Enabled=0.")
+                break
 # [playable.abilities] SCRIPTED custom ability (`script = {template/body}`) -> the minted battle-FORMULA DLL
 # (Memoria.Scripts.<MOD>.dll) the engine Assembly.LoadFile's IN ADDITION to its base (project-ff9-scripts-dll).
 # The DLL is the load-bearing artifact -> ship it reversibly (backup/restore/delete, like the CSVs; it joins

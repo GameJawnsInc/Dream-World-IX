@@ -104,9 +104,15 @@ texture cache (`LoadFromDisc` caches nothing — per-repaint reload would leak).
 
 ## 4. Phased plan (each phase = one change, one in-game gate)
 
-- **P0 — data spine (DLL-free).** Mint a small band in 80–254; new `.mes` emitter for the three
-  KeyItem files; grant 2–3 entries via event script. **Gate:** rows render with name/help/lore, the
-  "New!" badge clears on read, survives save → quit → load. Shippable as a text codex by itself.
+- **P0 — data spine (DLL-free). ★ BUILT + offline-proven 2026-07-20, PLAYTEST PENDING.**
+  `content/folklore.py` ([[folklore]] blocks, band 80–254 strict, the three-channel overlay emitter) +
+  `give_folklore` on [[event]] (both emit paths) + `_emit_folklore` in build_mod + the deploy_field
+  KeyItem tree loop (+ a `[Import] Enabled=1` hazard warning). 28 tests; suite 4091 green (byte-level
+  incl.); the built demo's overlays byte-verified + `AddItem(336/337/338,1)` confirmed in the
+  disassembled `.eb`; 3-lens adversarial review → 3 confirmed findings fixed (non-string text
+  coercion, float-id flooring, raw-traceback build error). Demo field: `p0-demo/FOLKP0` (id 30020).
+  **Gate (human):** rows render with name/help/lore, the "New!" badge clears on read, survives
+  save → quit → load. Shippable as a text codex by itself.
 - **P1 — 2D display window (minimal s45).** `FolklorePatch.txt` + ini gate + a `UITexture` in the
   skin popup fed by loose PNG. Locations first (pure `export-art`), then monster portraits.
   **Gate:** stock look, skin tween intact, no texture leak.

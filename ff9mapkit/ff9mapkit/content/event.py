@@ -18,6 +18,7 @@ import struct
 
 from .. import items as _items
 from ..eb import EbScript, edit, opcodes
+from . import folklore as _folklore
 from . import region as _region
 
 # 'once' flags live in the SAVE-PERSISTENT Global bool (region.GLOB_BOOL) so a looted chest / one-time
@@ -37,6 +38,17 @@ def give_item(item_id, count: int = 1) -> bytes:
     resolved via :mod:`ff9mapkit.items` so authors don't have to memorize ids. Works for ANY item,
     including weapons/armor ("Excalibur") -- the engine renders the name in the "Received X" box."""
     return opcodes.add_item(_items.resolve(item_id), count)
+
+
+def give_folklore(folklore_id, blocks=None) -> bytes:
+    """Body part: grant a Folklore codex entry -- AddItem with the POOL-ENCODED key-item id
+    (``256 + the 80-254 important id``; the engine's ``FF9Item_Add_Generic`` routes it to
+    ``rare_item_obtained``). SILENT by design (0x48 shows no window/SFX/flag) and idempotent in-engine
+    (the ownership set is a HashSet) -- pair with a ``message`` for a visible cue. ``folklore_id`` may
+    be the entry's numeric id or its ``[[folklore]] name`` (resolved against ``blocks``, the field's
+    own folklore list). Deliberately NOT routed through :mod:`ff9mapkit.items` (its resolver caps at
+    regular ids 0-255 and would reject the pool encoding)."""
+    return opcodes.add_item(_folklore.pool_id(_folklore.resolve(folklore_id, blocks)), 1)
 
 
 def take_item(item_id, count: int = 1) -> bytes:

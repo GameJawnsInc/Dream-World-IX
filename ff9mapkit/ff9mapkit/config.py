@@ -341,6 +341,22 @@ class ModLayout:
         text across langs (a custom command name isn't localized)."""
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "command" / "com_name.mes"
 
+    def keyitem_name_mes(self, lang: str) -> Path:
+        """``<root>/FF9_Data/embeddedasset/text/<lang>/keyitem/imp_name.mes`` -- the KEY-ITEM NAME overlay
+        (the [[folklore]] codex's list-row names; same cumulative ``[TXID=<id>]<text>[ENDN]`` importer
+        family as :meth:`ability_name_mes`/:meth:`command_name_mes`, discovered by path -- no
+        DictionaryPatch registration). Carries ONLY the minted folklore ids (80-254)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "keyitem" / "imp_name.mes"
+
+    def keyitem_help_mes(self, lang: str) -> Path:
+        """``.../keyitem/imp_help.mes`` -- the key-item short HELP line (the [[folklore]] help channel)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "keyitem" / "imp_help.mes"
+
+    def keyitem_skin_mes(self, lang: str) -> Path:
+        """``.../keyitem/imp_skin.mes`` -- the key-item long LORE popup text (the [[folklore]] lore
+        channel; the engine's "skin" description shown by the Key Items detail popup)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "keyitem" / "imp_skin.mes"
+
     # --- dialogue text (.mes), one folder per language ---
     def text_field_dir(self, lang: str) -> Path:
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "field"

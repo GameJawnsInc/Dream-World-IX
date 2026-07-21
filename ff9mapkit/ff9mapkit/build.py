@@ -1077,6 +1077,13 @@ def _validate_savepoint_mognet(project, sp) -> list:
     return out
 
 
+def _validate_folklore(project: FieldProject, problems: list) -> None:
+    """[[folklore]] codex entries: id in the 80-254 key-item band, unique, named, structurally clean
+    text (the precise counterpart of _emit_folklore's warn-and-skip -- build does NOT run validate)."""
+    from .content import folklore as _folklore
+    problems += _folklore.validate_blocks(project.raw.get("folklore", []))
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -1086,6 +1093,7 @@ def validate(project: FieldProject) -> list[str]:
     _validate_sps_edits(project, problems)
     _validate_sps_blocks(project, problems)
     _validate_music(project, problems)
+    _validate_folklore(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -1268,15 +1276,22 @@ def validate(project: FieldProject) -> list[str]:
         if len(z) not in (4, 5):
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         _validate_gate_exclusive(ev, "[[event]]", problems)
-        if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag")):
+        if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag",
+                                     "give_folklore")):
             problems.append("[[event]] needs at least one action "
-                            "(message / give_item / remove_item / gil / set_flag)")
+                            "(message / give_item / remove_item / gil / set_flag / give_folklore)")
         for k in ("give_item", "remove_item"):
             if k in ev:
                 try:
                     _items.resolve(ev[k][0])
                 except (ValueError, IndexError, TypeError) as e:
                     problems.append(f"[[event]] {k}: {e}")
+        if "give_folklore" in ev:
+            from .content import folklore as _folklore
+            try:
+                _folklore.resolve(ev["give_folklore"], project.raw.get("folklore", []))
+            except (ValueError, TypeError) as e:
+                problems.append(f"[[event]] give_folklore: {e}")
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
@@ -4298,6 +4313,11 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
         if "give_item" in ev:
             gi = ev["give_item"]
             parts.append(_event.give_item(item_id, int(gi[1]) if len(gi) > 1 else 1))
+        if "give_folklore" in ev:                         # a Folklore codex discovery (silent key-item grant)
+            try:
+                parts.append(_event.give_folklore(ev["give_folklore"], project.raw.get("folklore", [])))
+            except (ValueError, TypeError) as e:          # build doesn't run validate -> a clean BuildError,
+                raise BuildError(f"field {project.name}: [[event]] give_folklore: {e}")   # not a traceback
         if "remove_item" in ev:
             ri = ev["remove_item"]
             parts.append(_event.take_item(ri[0], int(ri[1]) if len(ri) > 1 else 1))
@@ -4880,6 +4900,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if "give_item" in ev:
                 gi = ev["give_item"]
                 parts.append(_event.give_item(item_id, int(gi[1]) if len(gi) > 1 else 1))
+            if "give_folklore" in ev:                     # a Folklore codex discovery (silent key-item grant)
+                try:
+                    parts.append(_event.give_folklore(ev["give_folklore"], project.raw.get("folklore", [])))
+                except (ValueError, TypeError) as e:      # build doesn't run validate -> a clean BuildError
+                    raise BuildError(f"field {project.name}: [[event]] give_folklore: {e}")
             if "remove_item" in ev:                       # the symmetric take-item lever (a trade / consume)
                 ri = ev["remove_item"]
                 parts.append(_event.take_item(ri[0], int(ri[1]) if len(ri) > 1 else 1))
@@ -7380,6 +7405,60 @@ def _emit_item_data(projects, layout) -> tuple:
     return warnings, directives
 
 
+def _emit_folklore(projects, layout) -> list:
+    """Emit the mod-GLOBAL Folklore codex text -- the three cumulative KeyItem ``.mes`` overlays
+    (``FF9_Data/embeddedasset/text/<lang>/keyitem/{imp_name,imp_help,imp_skin}.mes``) from every built
+    field's ``[[folklore]]`` blocks. Discovery is by PATH (the engine's cumulative importer probes each
+    mod folder) -- no DictionaryPatch registration. Same text across all 7 languages (the kit's
+    convention for non-localized custom content). Written UTF-8 no-BOM (the engine reads these via
+    ``File.ReadAllText`` = UTF-8 -- NOT cp1252, which would garble curly quotes / accents).
+
+    Build does NOT run ``validate()`` -> warn-and-skip a bad block, never crash (the recurring lesson);
+    ``lint`` reports the precise error via ``_validate_folklore``. Returns warnings."""
+    from .content import folklore as _folklore
+    warnings: list = []
+    blocks: list = []
+    seen: dict = {}                                        # id -> field name (dup = later wins + warn)
+    for p in projects:
+        for b in p.raw.get("folklore", []):
+            if not isinstance(b, dict) or "id" not in b:
+                warnings.append(f"[[folklore]] on {_field_name(p)} has no id -- skipped "
+                                f"(run `ff9mapkit lint` for the precise error)")
+                continue
+            try:
+                iid = _folklore.resolve(b["id"])           # STRICT on the raw value: band 80-254, and a
+                #   bool/float/string id REPORTS instead of flooring (the review's silent-truncation find)
+                _folklore.render_overlays([b])             # per-block dry-run: name/help/lore must be REAL
+                #   strings (never str()-coerced into shipped text) + the [ENDN]/[TXID= structural walls
+            except (TypeError, ValueError) as e:
+                warnings.append(f"[[folklore]] on {_field_name(p)}: {e} -- skipped")
+                continue
+            if not isinstance(b.get("name"), str) or not b["name"].strip():
+                warnings.append(f"[[folklore]] id {iid} on {_field_name(p)} has no name -- skipped "
+                                "(a nameless entry renders a BLANK Key Items row)")
+                continue
+            if iid in seen:
+                warnings.append(f"[[folklore]] id {iid} is defined twice ({seen[iid]} and "
+                                f"{_field_name(p)}) -- the later one wins")
+                blocks = [x for x in blocks if int(x["id"]) != iid]
+            seen[iid] = _field_name(p)
+            blocks.append(b)
+    if not blocks:
+        return warnings
+    overlays = _folklore.render_overlays(blocks)
+    from .config import LANGS as _LANGS
+    path_fns = {"imp_name": layout.keyitem_name_mes, "imp_help": layout.keyitem_help_mes,
+                "imp_skin": layout.keyitem_skin_mes}
+    for stem, body in overlays.items():
+        if not body:                                       # no entry supplies this channel -> no file
+            continue
+        for lang in _LANGS:
+            path = path_fns[stem](lang)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body, encoding="utf-8", newline="\n")
+    return warnings
+
+
 def _emit_item_text(projects) -> tuple:
     """Aggregate every built field's ``[[item_text]]`` blocks -> (text_patch_lines, warnings). Item text is a
     mod-GLOBAL ``TextPatch.txt`` (``>DATABASE`` find/replace), so it aggregates across ALL built fields -- the
@@ -7710,6 +7789,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_synthesis(projects, layout)
+    start_warnings += _emit_folklore(projects, layout)
     item_warns, weapon_mint_lines = _emit_item_data(projects, layout)
     start_warnings += item_warns
     start_warnings += _emit_battle_data(projects, layout)
