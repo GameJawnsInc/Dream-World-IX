@@ -5,7 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `doctor` now explains the engine situation in plain language
+### Added — battle locations: `encounters` verb + `battle.locate` (scene↔place census, monster names)
+- **`ff9mapkit encounters`** answers "what battles are in Evil Forest" and "where does a Goblin appear"
+  — the join FF9 never ships: each field's own `.eb` names its battle scenes (`SetRandomBattles` /
+  `Battle`/`BattleEx`, decoded by the existing `eventscan`), joined to `region_catalog.toml`'s 73
+  story-visit arcs and to each scene's real enemy display names. No args = a per-place summary +
+  coverage totals; a query auto-detects a place, monster, or `BSC_` scene name/id (`--monster`/`--place`
+  force an axis, `--scene` prints one scene's places + monster/attack names, `--unresolved` prints the
+  honest gap report, `--lang` picks the name language). Distinct from `scenes` (bare id/name catalog)
+  and `world-encounters` (overworld terrain table only).
+- **`ff9mapkit.battle.locate`** — the read-live engine underneath: an ~6s census over all 818 real
+  fields (zero computed operands in the whole corpus; scene id 0 is a real scene), honest per-scene
+  classification (`placed` 284 / `model-bucket` 176 / `overworld` 274 / `unplaced` 122 of 856), and a
+  bulk monster-name extractor that resolves battle text through `mainData`'s ResourceManager container
+  path (battle and field `.mes` share bare numeric names inside `resources.assets` — name-matching
+  returns the wrong text) in ONE pass instead of per-scene 590MB reloads. Cached under the gitignored
+  `provision.cache_dir()/battlemap/` (cold ~9s, warm ~0.006s; `--force` rebuilds); extracted content is
+  never committed as repo data.
+- **`battle-scene <donor>`** now prints each enemy type's real display name and a "found in:
+  <place> (field N, kind)" line. **InfoHub** scene entries show BSC name, classification, enemies, and
+  place; the Workspace detail pane wires it lazily via a new `scene_usage_fn` hook (separate from the
+  model `usage_fn` — the two id spaces collide numerically).
 - A new `engine` block reports whether Memoria is installed, whether the Dream World IX patches were
   applied (detected via the `dwix-engine-backups/` dirs our installer leaves), and — when they weren't —
   which pillars already work unmodified (novel fields, models, battle, audio, playable characters) versus

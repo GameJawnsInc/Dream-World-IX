@@ -1,9 +1,14 @@
 # Battle Locations — cross-referencing encounters to the map
 
-> **Status: RESEARCH DONE, build not started.** Opened 2026-07-21 from a 4-agent parallel recon workflow
-> over the kit source + the read-only Memoria engine clone (`C:\gd\FFIX\Memoria\Assembly-CSharp`). This is
-> single-pass recon, not adversarially re-verified like the custom-summons/folklore-codex studies — treat
-> file:line citations as agent-reported and spot-check before relying on them for a byte-level edit.
+> **Status: ★ BUILT + OFFLINE-PROVEN 2026-07-21** (same day as the research). A 4-agent verification
+> workflow re-proved/corrected this plan (see §10 — several §3 claims below are REFUTED there), then a
+> build workflow shipped rungs 1–8: `battle/locate.py` + the `encounters` CLI verb + `battle-scene`
+> enrichment + the InfoHub/Workspace wiring, 54 new tests, all anchors proven against the live install
+> (scene 67 → Evil Forest field 250, names `['Goblin','Fang']`). §§1–9 are kept as the original research
+> record; read §10 first for what actually shipped and which claims died.
+>
+> *(Original status: RESEARCH DONE — opened 2026-07-21 from a 4-agent parallel recon workflow over the
+> kit source + the read-only Memoria engine clone; single-pass recon, citations spot-checked in §10.)*
 
 ## 1. The question
 
@@ -283,3 +288,78 @@ you all the way to "Goblin."
   exports), `reference/field-manifest.tsv` (in this repo).
 - Memory: `project-ff9-encounters.md`, `project-ff9-battle-tuning.md`, `project-ff9-item-text.md`.
 - Workflow artifact: run `wf_36e95174-9b7` (4-agent parallel recon, session scratchpad journal).
+
+## 10. BUILD OUTCOME (2026-07-21 — the verification + build workflows)
+
+### 10.1 Verification pass: corrections to §§2–8 (4 Sonnet agents, primary-evidence)
+
+- **Rung 4 was already answered by existing kit code.** `battle/extract.py::_read_battle_text`
+  (extract.py:286-322, backing the live `battle-scene` verb) already reads per-scene battle text
+  collision-safely. The pools are PACKED in **`<game>\x64\FF9_Data\resources.assets`** (590MB, a plain
+  Unity SerializedFile), addressed via the sibling `mainData`'s `ResourceManager.m_Container`
+  (`embeddedasset/text/<lang>/battle/<id>.mes` → PPtr) — **NOT in any `p0data*.bin`** (those hold only the
+  `EVT_BATTLE_*.eb` event scripts) and NOT loose. 562/856 scene ids have a US pool; ids 220/238 are
+  engine-skipped `// Junk?`.
+- **§3.4's "unbuilt" framing was wrong**: the extraction *mechanism* was already built and the anchor test
+  passed with ZERO new code (scene 67 → TypCount=2, `['Goblin','Fang']`, attacks
+  `['Knife','None','Goblin Punch','Rush','None','Fang']`). What was missing was only a **bulk cached
+  driver** — the existing readers do a fresh `UnityPy.load` of the 590MB file per call.
+- **`StreamingAssets\Text\US\Battle.strings` is a red herring** (REFUTED as a data source): its `0944`
+  header is an ENTRY COUNT not a scene id (the section's content doesn't even match scene 944's real
+  pool), it's a whole-game deduped translation dictionary, and this install's `[Import] Enabled = 0`
+  means it is never consulted at runtime.
+- **§6's cp1252 risk is REFUTED for this asset class**: UnityPy's typetree read returns clean decoded
+  `str` (U+2019 verified); the cp1252 lesson was specific to loose `Data/Battle/*.csv`.
+- **Path corrections**: every `battle/catalog.py` cite in §3 means the top-level
+  `ff9mapkit/ff9mapkit/catalog.py` (no such battle/ file exists); `EventEngine.DoEventCode.cs:962` is
+  line-stale in the patched local clone (the mask code is now ~973-974; semantics confirmed exact).
+- **Integration corrections**: `infohub.detail()`'s scene branch RETURNED before the `usage_fn` call
+  (the hook was unreachable for scenes), and NO production call site passed `usage_fn` at all — there was
+  no working example to copy, contra §3.5's phrasing. No field→arc reverse helper existed anywhere; the
+  73 arcs cover 817/818 field ids (**field 70 is the only unmapped one**). `refarc.load_region_catalog()`
+  returns `.members` already parsed to `list[int]`.
+- **Census pre-flight (measured, full corpus)**: 818/818 fields readable via `extract.EventBundle`
+  (~6s), **0 computed operands anywhere** (stronger than §3.3's sample), 284/856 scenes reached (33.2% —
+  the ~⅓ estimate exact), 0 reached ids outside `_scenedb`, 0 overlap with B3/WM/CAM (the prefix
+  exclusion and the reachability data agree from two directions). Scene id 0 is REAL (`BSC_UV_E052`,
+  Oeilvert). Exactly 4 scenes are BOTH random and scripted: 6, 893, 897, 901. `scan_encounter`'s `None`
+  is ambiguous (no-SRB vs computed) — the driver disambiguates via an opcode walk.
+
+### 10.2 What shipped (commits `21f3200` feat + `f65c0f3` fix)
+
+- **`ff9mapkit/ff9mapkit/battle/locate.py`** (rungs 1–3 + 5): field census + zone join + honest
+  classification (`placed` 284 / `model-bucket` 176 / `overworld` 274 / `unplaced` 122) + the bulk
+  monster/attack-name extractor (ONE `mainData`+`resources.assets` pass, container-PATH keyed — battle
+  and field `.mes` share bare `<id>.mes` names; ONE `p0data2` raw16 pass for TypCount). Disk JSON cache
+  under `provision.cache_dir()/battlemap/` (gitignored, version-gated, `force=` rebuild; cold ~9s, warm
+  ~0.006s) + in-process memo + `cached_map()` (reuse-if-warm probe, never builds). Public surface:
+  `build_map / cached_map / scene_sites / scene_places / scene_label / field_battles / monster_names /
+  attack_names / find_monster / classify / unresolved_report`.
+- **`encounters` CLI verb** (rung 7): place/monster/scene axes auto-detected (`--monster`/`--place`
+  force one), `--scene ID|NAME`, `--unresolved` honest-gap report, `--lang`, `--no-names` (reuses a warm
+  map; cold falls back to census-only helpers), `--force`. Help text differentiates vs `scenes` and
+  `world-encounters`. **`battle-scene`** (rung 8) now prints real enemy names per type and a "found in"
+  line — purely additive, best-effort guarded.
+- **InfoHub/Workspace** (rung 6): the scene branch enriches facts (BSC name install-free;
+  classification/enemies/place install-backed) and populates `d.locations` via a NEW `scene_usage_fn`
+  hook — deliberately separate from the model `usage_fn` (the id spaces collide numerically).
+  `workspace/forms_qt.py` wires a lazy, memoized, exception-swallowed `_scene_usage` hook into the
+  Info Hub detail pane; nothing fires at startup, and the generic "Appears in" renderer needed no change.
+- **Tests**: 54 new (23 `test_battle_locate.py` + 22 `test_cli_encounters.py` + 9
+  `test_infohub_scene_locations.py`) in two lanes — offline synthetic (memo injection /
+  `FF9MAPKIT_DATA` tmp isolation) + game-gated anchors (standard `_game_ready()` skip idiom). Full
+  suite green post-build (3206 passed / 246 skipped / 0 failed pre-fix; re-run post-fix).
+- **The review's 2 reproduced defects, both fixed** (`f65c0f3`): `--no-names` re-paid the ~6-9s census
+  every run (~500× slower than the warm path it claimed to beat) → now cache-first via `cached_map()`
+  (measured 9s → 0.62s); `--unresolved --force` was a silent no-op (`unresolved_report` had no `force`
+  param) → threaded through (measured 9.74s = real rebuild).
+
+### 10.3 Left open (deliberate)
+
+- The disk cache is ONE slot, not keyed by `game` (matches `extract.cache_field` precedent; documented
+  in `build_map`'s docstring — pass `force=True` when switching installs).
+- The ~8-id classification residue inside `unplaced` (non-CAM/dev/WM ids never reached) is recorded by
+  `unresolved_report`, not investigated further.
+- A future `[[battle_text]]` authoring surface (the loose-override write path
+  `FF9_Data\EmbeddedAsset\Text\<LANG>\Battle\<id>.mes`, engine-verified in §10.1's recipe) is out of
+  scope here — `battle/build.py:456` already uses it for minted scenes.
