@@ -339,6 +339,17 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    Sequence.seq` as the donor's copy (`LoadSFX: SFX=Bahamut__Full` by NAME). Proof: plays
    identically under id N while stock Bahamut is untouched → the global-namespace collision is
    dead, and the fresh-folder mechanism itself is proven (half of rung 6 early).
+   **[BUILT + DEPLOYED 2026-07-21 → `rung3-fresh-id/`, id N=84 (the recon censused ALL 24 absent
+   folder ids 0-510 — they map 1:1 to SpecialEffect.cs's own `Unused_N` aliases; 84 = the mildest
+   documented legacy fallback). Key recon law: the folder id is consulted EXACTLY ONCE per rework
+   cast, as a path string — everything downstream (SFX.Play, playParam, LoadSfxSoundData,
+   FixedCameraEffects) keys on the .seq's NAME-resolved 227, and the copy's own Sequence.seq is
+   never even read on the player path (the nested LoadSFX reads the DONOR's ef227/Sequence.seq) —
+   §8's LoadSfxSoundData fresh-id question is thereby ANSWERED BY CONSTRUCTION for donor-borrowing
+   rungs. Deployed: ef084 verbatim pair + the bench toml redeployed on 30300 (row 194 now
+   `84;405`, verified live). TWO-CAST PLAN: cast A (after relaunch — which also ARMS the rung-2
+   chime) = identity proof; then `build_rung3.py --with-chime` + cast B (mere recast) = the
+   minted-audio-in-.seq proof. CASTS PENDING.]**
 4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
    at the new beat.
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
