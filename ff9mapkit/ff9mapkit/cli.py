@@ -24,6 +24,7 @@ Subcommands are wired up incrementally as the library lands:
     battle-actions- list the shared PLAYER abilities (Actions.csv) + the scriptId formula catalog
     battle-telemetry - log every battle calc to a JSONL (Overload hook) + summarize it (--report)
     battle-scene  - inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)
+    encounters    - browse battle LOCATIONS: what's in a real place, and where a monster appears
     dialogue  - view a field.toml's authored dialogue + how each line wraps on screen
     dialogue-import - read a REAL FF9 field's dialogue (or a built mod's) -- 'NPC -> text'
     fork-report - preview, offline, what a fork of a REAL field will/won't reproduce (fidelity report)
@@ -3797,8 +3798,10 @@ def _cmd_battle_scene(args: argparse.Namespace) -> int:
     print(f"scene {args.donor} (id {assets['donor_id']}): {scene.pat_count} pattern(s), "
           f"{scene.typ_count} enemy type(s), {scene.atk_count} attack(s)"
           + (f"  [{', '.join(flags)}]" if flags else ""))
+    names = _best_effort_monster_names(assets["donor_id"], args.game)   # rung 8: real display names, best-effort
     for t, m in enumerate(scene.monsters):
-        print(f"\n  enemy type {t}:  HP {m.hp}  MP {m.mp}  Lv {m.level}  "
+        label = names[t] if names and t < len(names) and names[t] else None
+        print(f"\n  enemy type {t}{f' -- {label}' if label else ''}:  HP {m.hp}  MP {m.mp}  Lv {m.level}  "
               f"(Spd {m.speed} Str {m.strength} Mag {m.magic} Spr {m.spirit})")
         print(f"    defence: phys {m.phys_def}/{m.phys_evade}  mag {m.mag_def}/{m.mag_evade}  hit {m.hit_rate}")
         aff = [f"{lab} {'/'.join(B.decode_elements(mask))}"
@@ -3822,10 +3825,264 @@ def _cmd_battle_scene(args: argparse.Namespace) -> int:
             print(f"    [{i}] {B.script_name(a.script_id)}  pow {a.power}{extra}")
     aps = sorted({p.ap for p in scene.patterns})
     print(f"\n  AP reward (per formation): {', '.join(str(a) for a in aps)}")
+    _print_found_in_line(assets["donor_id"], args.game)                 # rung 8: where this scene is fought
     print()
     print(scenelint.format_findings(scenelint.lint_scene(scene)))
     print(f"\n  Fork + tune:  ff9mapkit battle-import --fork-scene {args.donor} ...  "
           "then [scene]/[[scene.enemy]] in battle.toml")
+    return 0
+
+
+def _best_effort_monster_names(scene_id: int, game) -> "list | None":
+    """``battle-scene``'s real-name enrichment (rung 8, ``battle.locate``) -- a census/locate/install hiccup
+    must never break the (already-working) stat printout above it, so any failure here just falls back to
+    the bare ``enemy type N`` label."""
+    try:
+        from .battle import locate as LOC
+        return LOC.monster_names(scene_id, game=game)
+    except Exception:                                        # noqa: BLE001 -- purely additive, never fatal here
+        return None
+
+
+def _print_found_in_line(scene_id: int, game) -> None:
+    """``battle-scene``'s "found in" enrichment (rung 8): the real place(s) that fight this scene (via
+    ``battle.locate``), or its honest classification bucket when the census never reached it. Best-effort,
+    same non-fatal contract as :func:`_best_effort_monster_names`."""
+    try:
+        from .battle import locate as LOC
+        places = LOC.scene_places(scene_id, game=game)
+        if places:
+            descs = []
+            for g in places:
+                loc_name = g["arc_name"] or "an unmapped field"
+                fids = g["fields"]
+                fdesc = f"field {fids[0]}" if len(fids) == 1 else f"fields {', '.join(str(f) for f in fids)}"
+                descs.append(f"{loc_name} ({fdesc}, {'/'.join(g['kinds'])})")
+            print(f"\n  found in: {'; '.join(descs)}")
+        else:
+            print(f"\n  found in: not reached by any real field's census [{LOC.classify(scene_id, game=game)}]")
+    except Exception:                                        # noqa: BLE001 -- purely additive, never fatal here
+        pass
+
+
+# ------------------------------------------------------------------------------- `encounters` (rungs 7+8) ---
+def _resolve_scene_ref(ref, *, strict: bool = True) -> "int | None":
+    """Resolve an ``encounters`` scene reference -- a raw id, a full ``BSC_...`` name, or the short
+    donor-style name the other ``battle-*`` verbs take (e.g. ``EF_R007``, no ``BSC_`` prefix) -- to a scene
+    id. ``strict=False`` (auto-detecting a bare positional query) returns None instead of raising when
+    nothing matches, so the caller can fall through to a place/monster search; ``strict=True`` (an explicit
+    ``--scene``) re-raises :func:`catalog.resolve_scene`'s own ``ValueError`` (with its did-you-mean hints)
+    for the caller's standard ``(RuntimeError, FileNotFoundError, ValueError)`` handler to report."""
+    from . import catalog as C
+    s = str(ref).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return int(s)
+    candidates = [s] if s.upper().startswith("BSC_") else [s, f"BSC_{s}"]
+    last_err: "ValueError | None" = None
+    for cand in candidates:
+        try:
+            return C.resolve_scene(cand)
+        except ValueError as e:
+            last_err = e
+    if strict:
+        raise last_err
+    return None
+
+
+def _match_arc_keys(query: str, arcs: dict) -> list:
+    """Arc keys whose key/name/zone contains ``query`` (case-insensitive substring) -- the PLACE axis of
+    ``encounters``'s query matching."""
+    q = query.strip().lower()
+    if not q:
+        return []
+    return sorted(ak for ak, meta in arcs.items()
+                  if q in ak.lower() or q in (meta.get("name") or "").lower()
+                  or q in (meta.get("zone") or "").lower())
+
+
+def _rows_for_arcs(census: dict, field_arc: dict, arc_keys) -> list:
+    """Every ``(scene_id, field_id, kind)`` triplet touched by a field in one of ``arc_keys`` -- the forward
+    (place -> battles) direction, read straight off the census (no reverse index needed)."""
+    arc_set = set(arc_keys)
+    rows = []
+    for fid, rec in census.items():
+        if field_arc.get(fid) not in arc_set:
+            continue
+        for sid in rec["random"]:
+            rows.append((sid, fid, "random"))
+        for sid in rec["scripted"]:
+            rows.append((sid, fid, "scripted"))
+    return rows
+
+
+def _place_label(field_arc: dict, arcs: dict, field_id: int) -> str:
+    ak = field_arc.get(field_id)
+    return (arcs.get(ak, {}).get("name") if ak else None) or "(unmapped field)"
+
+
+def _print_encounters_summary(census: dict, field_arc: dict, arcs: dict, classification: dict) -> int:
+    """``encounters`` with no args -- one row per PLACE with any battle content (random/scripted scene
+    counts), plus the honest scene-classification totals (``--unresolved`` gives the full gap detail)."""
+    from collections import Counter
+    by_arc: dict = {}
+    for fid, rec in census.items():
+        g = by_arc.setdefault(field_arc.get(fid), {"fields": set(), "random": set(), "scripted": set()})
+        g["fields"].add(fid)
+        g["random"].update(rec["random"])
+        g["scripted"].update(rec["scripted"])
+    rows = sorted(((arcs.get(ak, {}).get("name") if ak else None) or "(unmapped field)", g)
+                  for ak, g in by_arc.items())
+    print(f"{len(rows)} place(s) with battle content ({len(census)} field(s) total, {len(arcs)} places known):\n")
+    print(f"  {'place':<34} {'fields':>6} {'random':>7} {'scripted':>9}")
+    for name, g in rows:
+        print(f"  {name:<34} {len(g['fields']):>6} {len(g['random']):>7} {len(g['scripted']):>9}")
+    tot = Counter(classification.values())
+    print(f"\n  scene coverage: {tot.get('placed', 0)} placed, {tot.get('model-bucket', 0)} model-bucket, "
+          f"{tot.get('overworld', 0)} overworld, {tot.get('unplaced', 0)} unplaced  "
+          "(`--unresolved` for the honest gap detail)")
+    print("\n  ff9mapkit encounters <place|monster|scene>   -- narrow to one place, monster, or scene")
+    return 0
+
+
+def _print_scene_detail(sid: int, field_arc: dict, arcs: dict, classification: dict, scene_sites: dict,
+                         args: argparse.Namespace, names_ok: bool) -> int:
+    """``--scene``/auto-detected-scene detail: places (or the honest classification if unplaced) + monster/
+    attack names (skipped when ``names_ok`` is False, i.e. ``--no-names``)."""
+    from . import catalog as C
+    name = C.scene_name(sid) or f"scene {sid}"
+    cls = classification.get(sid, "unplaced")
+    print(f"scene {sid}  ({name})  [{cls}]")
+    sites = scene_sites.get(sid, [])
+    if not sites:
+        print("  not reached by any real field's census (see `--unresolved` for the honest gap buckets)")
+    else:
+        groups: dict = {}
+        for fid, kind in sites:
+            g = groups.setdefault(field_arc.get(fid), {"fields": set(), "kinds": set()})
+            g["fields"].add(fid)
+            g["kinds"].add(kind)
+        for ak, g in sorted(groups.items(),
+                             key=lambda kv: (arcs.get(kv[0], {}).get("name") if kv[0] else None) or "~"):
+            loc_name = (arcs.get(ak, {}).get("name") if ak else None) or "(unmapped field)"
+            fids = ", ".join(str(f) for f in sorted(g["fields"]))
+            print(f"  {loc_name:<28} field(s) {fids}  ({'/'.join(sorted(g['kinds']))})")
+    if names_ok:
+        from .battle import locate as LOC
+        names = LOC.monster_names(sid, lang=args.lang, game=args.game)
+        atks = LOC.attack_names(sid, lang=args.lang, game=args.game)
+        print("  monsters: " + (", ".join(n or "?" for n in names) if names
+                                 else "(no resolvable text pool for this scene)"))
+        if atks:
+            print("  attacks:  " + ", ".join(a or "?" for a in atks))
+    print("\n  Full enemy data:  ff9mapkit battle-scene <donor-name>  (see `scenes` to find the short name)")
+    return 0
+
+
+def _print_encounter_matches(rows, field_arc: dict, arcs: dict, lang: str, game, names_ok: bool) -> None:
+    """One line per unique ``(scene_id, field_id, kind)`` battle -- the shared printer for both
+    ``encounters`` query axes (a place match and a monster match land here identically)."""
+    from . import catalog as C
+    from .battle import locate as LOC
+    cache: dict = {}
+    for sid, fid, kind in sorted(set(rows)):
+        name = C.scene_name(sid) or f"scene {sid}"
+        place = _place_label(field_arc, arcs, fid)
+        line = f"  scene {sid:<4} {name:<18} {kind:<9} {place} (field {fid})"
+        if names_ok:
+            if sid not in cache:
+                cache[sid] = LOC.monster_names(sid, lang=lang, game=game)
+            if cache[sid]:
+                line += "  -- " + ", ".join(n or "?" for n in cache[sid])
+        print(line)
+
+
+def _print_encounters_unresolved(rep: dict) -> int:
+    """``--unresolved`` -- the honest coverage report :func:`locate.unresolved_report` already assembles."""
+    print(f"battle-location coverage (cache v{rep['cache_version']}, {rep['scene_count']} scene id(s), "
+          f"{rep['field_count']} field(s) with battle content):\n")
+    tot = rep["classification_totals"]
+    for k in ("placed", "model-bucket", "overworld", "unplaced"):
+        print(f"  {k:<14} {tot.get(k, 0)}")
+    if rep["computed_operand_fields"]:
+        print(f"\n  computed-operand SetRandomBattles (operand not statically readable): "
+              f"field(s) {rep['computed_operand_fields']}")
+    if rep["junk_scene_ids"]:
+        print(f"  engine-skipped 'Junk?' scene id(s): {rep['junk_scene_ids']}")
+    if rep["name_gaps"]:
+        extra = f"  (+{len(rep['name_gaps']) - 20} more)" if len(rep["name_gaps"]) > 20 else ""
+        print(f"  scene id(s) with no resolvable name data ({len(rep['name_gaps'])}): "
+              f"{rep['name_gaps'][:20]}{extra}")
+    if rep["fields_without_arc"]:
+        print(f"  real field id(s) never placed in a place: {rep['fields_without_arc']}")
+    return 0
+
+
+def _cmd_encounters(args: argparse.Namespace) -> int:
+    """Browse battle LOCATIONS: what real place(s) trigger a battle scene, and where a monster appears.
+    No args -> a per-place summary. A query auto-detects a place name/zone token, a monster name, or a
+    ``BSC_`` scene name/id (force one axis with ``--monster``/``--place``). Differs from ``scenes`` (a bare
+    ``BSC_`` name/id catalog list, no place or monster join) and ``world-encounters`` (the OVERWORLD terrain
+    encounter TABLE only -- this covers field-scoped town/dungeon/boss battles)."""
+    _safe_console()
+    if args.monster and args.no_names:
+        print("--monster needs monster-name data; drop --no-names", file=sys.stderr)
+        return 2
+    from .battle import locate as LOC
+    try:
+        if args.unresolved:
+            return _print_encounters_unresolved(LOC.unresolved_report(game=args.game))
+        if args.no_names:
+            census, _computed = LOC._census(game=args.game)
+            field_arc, arcs = LOC._zone_join()
+            classification, _junk = LOC._classify_scenes(census)
+            scene_sites = LOC._scene_site_index(census)
+            names_ok = False
+        else:
+            bm = LOC.build_map(game=args.game, force=args.force)
+            census, field_arc, arcs = bm.census, bm.field_arc, bm.arcs
+            classification, scene_sites = bm.classification, bm.scene_sites
+            names_ok = True
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    try:
+        if args.scene:
+            sid = _resolve_scene_ref(args.scene)
+            return _print_scene_detail(sid, field_arc, arcs, classification, scene_sites, args, names_ok)
+
+        if not args.query:
+            return _print_encounters_summary(census, field_arc, arcs, classification)
+
+        rows: list = []
+        axes: list = []
+        sid = None if args.monster else _resolve_scene_ref(args.query, strict=False)
+        if sid is not None and not args.place:
+            return _print_scene_detail(sid, field_arc, arcs, classification, scene_sites, args, names_ok)
+        if not args.monster:
+            arc_hits = _match_arc_keys(args.query, arcs)
+            if arc_hits:
+                rows += _rows_for_arcs(census, field_arc, arc_hits)
+                axes.append("place")
+        if not args.place and names_ok:
+            mon_hits = LOC.find_monster(args.query, lang=args.lang, game=args.game)
+            if mon_hits:
+                for msid in sorted({s for s, _ in mon_hits}):
+                    rows += [(msid, fid, kind) for fid, kind in scene_sites.get(msid, [])]
+                axes.append("monster")
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    if not rows:
+        skip_note = " (monster search needs names -- drop --no-names)" if not names_ok and not args.place else ""
+        print(f"no place, monster, or scene matches {args.query!r}{skip_note}. Try `ff9mapkit scenes "
+              f"{args.query}` or `ff9mapkit encounters --unresolved`.", file=sys.stderr)
+        return 1
+    print(f"{len(set(rows))} battle(s) match {args.query!r}  [{'/'.join(axes)}]:\n")
+    _print_encounter_matches(rows, field_arc, arcs, args.lang, args.game, names_ok)
     return 0
 
 
@@ -6400,6 +6657,34 @@ def build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("scenes", help="list FF9 battle-scene (encounter) ids by name")
     sc.add_argument("pattern", nargs="?", default=None, help="name substring (e.g. alex, evil, b3)")
     sc.set_defaults(func=_cmd_scenes)
+
+    enc = sub.add_parser("encounters",
+                         help="browse battle LOCATIONS: what battles are in a real place, and where a monster "
+                              "appears (joins the .eb field census + region_catalog + monster names). Unlike "
+                              "`scenes` (a bare BSC_ id/name catalog list, no place or monster join) and "
+                              "`world-encounters` (the OVERWORLD terrain encounter TABLE only), this covers "
+                              "field-scoped town/dungeon/boss battles. No args = summary browse.")
+    enc.add_argument("query", nargs="?", default=None,
+                     help="a place name/zone token (e.g. 'Evil Forest'), a monster name (e.g. 'Goblin'), or a "
+                          "BSC_ scene name/id -- auto-detected (force one axis with --monster/--place)")
+    _enc_axis = enc.add_mutually_exclusive_group()
+    _enc_axis.add_argument("--monster", action="store_true", help="force `query` to be read as a monster name")
+    _enc_axis.add_argument("--place", action="store_true",
+                           help="force `query` to be read as a place name/zone token")
+    enc.add_argument("--scene", metavar="ID|NAME", default=None,
+                     help="one scene's full detail (places it's fought + monster/attack names): a raw id, a "
+                          "full BSC_ name, or the short donor-style name `battle-scene` takes (e.g. EF_R007)")
+    enc.add_argument("--unresolved", action="store_true",
+                     help="list the honest coverage gaps instead: scene classification totals, "
+                          "computed-operand fields, junk scene ids, name gaps, and fields never placed")
+    enc.add_argument("--lang", default="us", choices=["us", "uk", "fr", "gr", "it", "es", "jp"],
+                     help="language for monster/attack names (default us)")
+    enc.add_argument("--no-names", action="store_true", dest="no_names",
+                     help="census + place data only -- skip the raw16/text-pool name scan (faster; no "
+                          "monster names, and disables --monster)")
+    enc.add_argument("--force", action="store_true",
+                     help="rebuild the cached battle-location map from the install instead of reusing it")
+    enc.set_defaults(func=_cmd_encounters)
 
     sp = sub.add_parser("sps", help="list/decode/preview a field's SPS particle effects (fire/smoke/magic); needs UnityPy")
     sp.add_argument("field", nargs="?", default=None, help="a field id or FBG/mapid token (see `ff9mapkit list-fields`)")

@@ -503,12 +503,23 @@ def _field_detail(entry: Entry, plan) -> Detail:
     return d
 
 
-def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=None, sps_context=None) -> Detail:
+def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=None, sps_context=None,
+           scene_usage_fn: Optional[Callable] = None) -> Detail:
     """Resolve an :class:`Entry` to its full :class:`Detail`. ``usage_fn(model_id) -> [(field_id, name),
     ...]`` is an optional hook a frontend passes to add 'where it appears in real FF9' (the spine stays
     install-free -- field-usage needs the game); errors from it degrade to ``locations = None``. When the
     entry is a campaign member (kind='field') and ``campaign_context`` (a CampaignPlan) is given, the
-    detail is the member's place in the chain (doors/seams/reachability)."""
+    detail is the member's place in the chain (doors/seams/reachability).
+
+    ``scene_usage_fn(scene_id) -> {"classification": str, "enemies": [str, ...], "places": [str, ...],
+    "locations": [(field_id, name), ...]} | None`` is the ``kind='scene'`` sibling of ``usage_fn`` -- a
+    battle-scene id and a model id are both plain ints from two unrelated tables (nothing cross-checks
+    which table a given int came from), so one id-keyed hook can't safely serve both kinds; this is the
+    scene-only hook and its return also supplies the facts a scene detail can't get from the baked
+    ``_scenedb`` table alone (whether the scene is ever actually fought by a real field, and by which
+    monsters -- both decoded from the user's install, same as ``usage_fn``). Any missing key is simply
+    skipped; any exception from the hook -- or passing ``scene_usage_fn=None`` -- degrades to the bare
+    kind/id facts and ``locations = None``, identical in shape to the model branch's ``usage_fn`` degrade."""
     e = entry
     if e.kind == "sps_template":                       # a creator preset (decode + preview the donor)
         return _sps_template_detail(e)
@@ -554,6 +565,26 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         return d
     if e.kind == "scene":
         d.facts = [("kind", "battle scene"), ("id", str(e.ident))]
+        bsc = _cat.scene_name(e.ident)          # baked _scenedb lookup -- install-free, always safe
+        if bsc:
+            d.facts.append(("bsc name", bsc))
+        if scene_usage_fn is not None:
+            try:
+                info = scene_usage_fn(e.ident)
+            except Exception:                   # noqa: BLE001 -- no install / cold-cache hiccup, degrade
+                info = None
+            if info:
+                cls = info.get("classification")
+                if cls:
+                    d.facts.append(("classification", cls))
+                enemies = [n for n in (info.get("enemies") or []) if n]
+                if enemies:
+                    d.facts.append(("enemies", ", ".join(enemies)))
+                for place in info.get("places") or []:
+                    d.facts.append(("place", place))
+                locs = info.get("locations")
+                if locs is not None:
+                    d.locations = list(locs)
         return d
     # archetype / creature / prop / model -- everything model-backed
     m = _cat.model(e.ident) if e.ident is not None else (_cat.model(e.model) if e.model else None)
