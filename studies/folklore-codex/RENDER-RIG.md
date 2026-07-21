@@ -106,10 +106,33 @@
 >   blob hash differs from the rung-1 capture — `--no-index` context, advisory-only; the byte gates
 >   are the authority.)
 >
+> **RUNGS 2+3 PLAYTEST ROUND 1 (2026-07-21): rows 2/3 ★ WORK (creature + living idle both proven on
+> 118/085) — row 1 "flashes a red circle then blanks."** Diagnosis, closed offline the same hour:
+> **`GEO_MON_B3_187` IS a flat red RING** — a battle PROP living in the MON_B3 table, not a creature
+> (`ff9mapkit model-preview` confirmed it in both stand and rest pose; token 000 is likewise a red
+> TRIANGLE — the MON_B3 space is sprinkled with prop models). The rig behaved CORRECTLY end-to-end:
+> resolved the token, mounted the ring, auto-framed its bind pose (the round-1 flash = that one inline
+> render), then the living idle started `ANH_MON_B3_187_000` — whose later frames move the ring out of
+> the camera fit → every subsequent pump render is empty → "blank." No index-0 mechanism exists in the
+> code (`OnItemSelect` → `RefreshDetail` is row-symmetric), and the report's "every page's first item"
+> generalization dissolves: Places' first item (81) and Lore's (82) are the DELIBERATE token-less and
+> garbage-token fail-safe demos. **LAW MINTED: a GEO table row is not a creature — verify every
+> display pick with `model-preview` (the offline eye) BEFORE it ships in a registry.** ROUND 2 (the
+> diagnostic arrangement, registry re-wired same day — registry loads ONCE per process (`_loaded`
+> one-shot), so a token edit needs a RELAUNCH but NO DLL change): the PROVEN 118 moved onto the
+> suspect row 1 (if it still blanks there, a real first-row bug exists; expected: it works and 187 was
+> the whole story), the NEW small pick **009 — FF9's floating ghost, wraith-appropriate,
+> preview-verified, `_000`-first clip order** — proves itself in the known-good row-2 slot, 085 stays
+> the large control.
+>
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST RUNGS 2+3** (checklist above): the DLL is DEPLOYED — RELAUNCH → codex at field 30020
->   (~ → Warp; the FOLKP0 demo save has 80-84 granted after the discovery walks).
+> - **PLAYTEST RUNGS 2+3 ROUND 2** (the diagnostic arrangement above): RELAUNCH → codex → Bestiary:
+>   row 1 should show the 118 crab-beast idling, row 2 the ghost, row 3 the large beast; then the
+>   rest of the 12-point checklist (locked rows, garbage/no-token entries, reselect, leak snaps,
+>   world-map open, open/close cycles). After the mechanism is confirmed: a FLAVOR pass on the demo
+>   tokens (009 belongs on "Mist Wraith"; a winged pick for "Gale Sprite" — the contact-sheet method
+>   makes this cheap).
 > - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
 >   lights, idleClip, battle-look flip).
 > - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's

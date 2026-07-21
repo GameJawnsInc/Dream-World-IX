@@ -48,7 +48,10 @@ spawn = [0, -837]
 id = 80
 category = "bestiary"
 name = "Mist Wraith"
-display = "GEO_MON_B3_187"    # s46 rung 3: small creature -- the auto-framing spread's low end
+display = "GEO_MON_B3_118"    # s46 rung 3 round 2: the PROVEN model on the suspect first row (187
+                              # turned out to be a red-ring battle PROP whose idle exits the frame --
+                              # the round-1 "first item flashes then blanks" report; model-preview is
+                              # the offline eye that catches this class before a playtest)
 help = "A restless shape glimpsed where the Mist pools thickest."
 lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
 
@@ -73,7 +76,8 @@ lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Sch
 id = 83
 category = "bestiary"
 name = "Marsh Croaker"
-display = "GEO_MON_B3_118"    # s46 rung 3: the rung-1-proven medium GEO (the known-good baseline)
+display = "GEO_MON_B3_009"    # s46 rung 3 round 2: the new small pick (FF9's floating ghost --
+                              # wraith-appropriate) proving itself in a known-good slot
 help = "A fat frog whose croak carries a storm's worth of warning."
 lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pilot keeps three in a cage by the tiller. “Cheaper than a weather-mage,” he says, “and twice as honest.”"
 
