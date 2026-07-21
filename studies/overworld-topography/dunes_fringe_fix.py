@@ -55,24 +55,40 @@ OUTD = HERE / "out"
 OUTD.mkdir(exist_ok=True)
 MOD = TC.MOD
 BACKUP_DIR = HERE.parents[1] / "backups" / "dunes-fringe-fix.20260721"
+# the green-shard follow-up (2026-07-21) replaces the rung-7 (commit d1e7cdc) deployed bytes; this
+# subdir captures THOSE exact bytes so the green fix is precisely revertible (the top-level backup
+# dir already preserves the older rung-6 pre-fringe bytes, kept for the full-story witness PRE).
+GREENSHARD_BACKUP_DIR = BACKUP_DIR / "pre-greenshard"
 
-# the frozen defect set this fix must drive to zero (dunes_fringe_census.py, 2026-07-21)
+# the rung-7 defect set the ORIGINAL fix drove to zero (steps/holes/stumps); the currently-deployed
+# bytes (commit d1e7cdc) already carry those at 0. The GREEN-SHARD follow-up (2026-07-21) targets a
+# NEW defect the topo-0 count never saw: the 10 relocated desert-STRIP tiles that render grass-green.
 KNOWN_STEPS, KNOWN_HOLES, KNOWN_STUMPS = 2, 2, 7
+KNOWN_GREEN = 12                                     # deployed flat-ground green shards (the new defect;
+#                                                      measured at GREEN_AREA_MIN=0.05 -- 10 at 0.08)
 
 
 # ============================================================================================
-# deployed fringe state (the anti-test read: the current bytes, cross-block seams + green stumps)
+# deployed fringe state (the anti-test read: the current bytes -- cross-block seams + orphan-grass
+# stumps + the GREEN-SHARD ground count)
 # ============================================================================================
 def deployed_fringe_state():
     _recs, tot = FC.run_crack_census(FC.deployed_world_tris, FC.MINT_BLOCKS, "DEPLOYED mint region")
     shard = FC.green_shard_census()
-    return dict(steps=tot["steps"], holes=tot["holes"], stumps=shard["n_stump"])
+    n_green_ground, _cells = FC.deployed_green_ground_count()
+    return dict(steps=tot["steps"], holes=tot["holes"], stumps=shard["n_stump"],
+                green=n_green_ground)
 
 
 def _classify(state):
-    if (state["steps"], state["holes"], state["stumps"]) == (0, 0, 0):
+    tup = (state["steps"], state["holes"], state["stumps"], state["green"])
+    if tup == (0, 0, 0, 0):
         return "CLEAN"
-    if (state["steps"], state["holes"], state["stumps"]) == (KNOWN_STEPS, KNOWN_HOLES, KNOWN_STUMPS):
+    # the currently-deployed bytes: rung-7 seams/stumps already fixed (0/0/0), 10 green shards remain
+    if tup == (0, 0, 0, KNOWN_GREEN):
+        return "GREEN-DEFECT"
+    # the pre-rung-7 bytes (a fresh install / a full re-mint): all four defects present
+    if tup == (KNOWN_STEPS, KNOWN_HOLES, KNOWN_STUMPS, KNOWN_GREEN):
         return "KNOWN-DEFECTS"
     return "UNEXPECTED"
 
@@ -80,9 +96,11 @@ def _classify(state):
 # ============================================================================================
 # backup (preserve the PRE-FIX bytes; never overwrite an existing backup on a re-run)
 # ============================================================================================
-def backup_predeploy(blocks):
+def _backup_into(dst_dir, blocks, *, preserve_existing):
+    """Copy the CURRENT deployed Terrain bytes (both discs) into dst_dir. preserve_existing keeps a
+    prior backup (skip if the file is already there); else overwrite (a fresh snapshot)."""
     game_root = Path(_cfg.find_game_path(None))
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    dst_dir.mkdir(parents=True, exist_ok=True)
     n_new = n_skip = 0
     for (bx, by) in sorted(blocks):
         for disc in (1, 4):
@@ -90,14 +108,26 @@ def backup_predeploy(blocks):
             src = game_root / MOD / rel
             if not src.exists():
                 continue
-            dst = BACKUP_DIR / rel
-            if dst.exists():                                  # keep the FIRST (pre-fix) backup
+            dst = dst_dir / rel
+            if preserve_existing and dst.exists():
                 n_skip += 1
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             n_new += 1
-    print(f"  backup -> {BACKUP_DIR}: {n_new} new, {n_skip} preserved (pre-fix bytes kept)")
+    return n_new, n_skip
+
+
+def backup_predeploy(blocks):
+    # (1) the older rung-6 pre-fringe backup (preserved; the full-story witness PRE reads it)
+    n_new, n_skip = _backup_into(BACKUP_DIR, blocks, preserve_existing=True)
+    print(f"  backup -> {BACKUP_DIR}: {n_new} new, {n_skip} preserved (older pre-fringe bytes kept)")
+    # (2) the CURRENT deployed bytes = this round's precise revert point. PRESERVE-FIRST: the FIRST
+    #     run captures the pre-greenshard (d1e7cdc) bytes; a re-run must NOT clobber that revert point
+    #     with the already-fixed bytes (idempotency safety).
+    g_new, g_skip = _backup_into(GREENSHARD_BACKUP_DIR, blocks, preserve_existing=True)
+    print(f"  backup -> {GREENSHARD_BACKUP_DIR}: {g_new} new, {g_skip} preserved (pre-greenshard "
+          f"revert point kept)")
     return n_new, n_skip
 
 
@@ -113,38 +143,41 @@ def main():
     print("THE FRINGE FIX -- rung 7: deploy the two-defect fringe fix + the ANTI-TEST harness")
     print("=" * 96)
 
-    # ---- 1) ANTI-TEST 'before': the CURRENT deployed bytes must FAIL the new cross-block gates ----
+    # ---- 1) ANTI-TEST 'before': the CURRENT deployed bytes must FAIL the GREEN-SHARD gate ----
     print("\n--- ANTI-TEST (the current DEPLOYED bytes, before the fix) ---")
     before = deployed_fringe_state()
     before_cls = _classify(before)
     print(f"  deployed fringe state: steps={before['steps']} holes={before['holes']} "
-          f"stumps={before['stumps']}  -> {before_cls}")
-    if before_cls == "KNOWN-DEFECTS":
-        print(f"  ANTI-TEST CONFIRMED: the current deploy FAILS the new gates with the frozen defect "
-              f"set ({KNOWN_STEPS} steps + {KNOWN_HOLES} holes + {KNOWN_STUMPS} stumps).")
+          f"stumps={before['stumps']} green_ground={before['green']}  -> {before_cls}")
+    FAIL_STATES = ("GREEN-DEFECT", "KNOWN-DEFECTS")
+    if before_cls in FAIL_STATES:
+        print(f"  ANTI-TEST CONFIRMED: the current deploy FAILS the green-shard gate "
+              f"({before['green']} flat-ground green shards remain; seams/stumps={before['steps']}/"
+              f"{before['holes']}/{before['stumps']}).")
     elif before_cls == "CLEAN":
         print("  (already clean -- the fix is deployed; this run is idempotent.)")
     else:
-        print(f"  WARN: UNEXPECTED deployed state (neither the frozen 4-defect set nor clean). "
+        print(f"  WARN: UNEXPECTED deployed state {before} (neither a known defect set nor clean). "
               f"Investigate before deploying.")
 
     # ---- 2) BUILD + GATE (the corrected carry re-asserts ALL gates + the frozen eye) ----
-    print("\n--- BUILD + GATE (the corrected carry: 10 carry gates + eye A/B/C + rung-7 fringe gates) ---")
+    print("\n--- BUILD + GATE (the corrected carry: carry gates + eye A/B/C + rung-7 fringe + green-shard) ---")
     res = TC.build_and_gate(render=True)
     built_bms, n_fail = res["built_bms"], res["n_fail"]
     fringe = res["fringe_info"]
     rebuilt_ok = (fringe["built"]["steps"] == 0 and fringe["built"]["holes"] == 0
-                  and fringe["n_green"] == 0 and fringe["eye_preserved"])
+                  and fringe["n_green"] == 0 and fringe.get("n_green_ground", -1) == 0
+                  and fringe["eye_preserved"])
     print(f"\n  REBUILT fringe state: steps={fringe['built']['steps']} holes={fringe['built']['holes']} "
-          f"stumps(topo-0)={fringe['n_green']} eye_preserved={fringe['eye_preserved']}  "
-          f"-> {'PASS' if rebuilt_ok else 'FAIL'}")
+          f"stumps(topo-0)={fringe['n_green']} green_ground={fringe.get('n_green_ground')} "
+          f"eye_preserved={fringe['eye_preserved']}  -> {'PASS' if rebuilt_ok else 'FAIL'}")
 
     # ---- 3) the ANTI-TEST verdict: current deployed FAILS (or already clean) AND rebuilt PASSES ----
-    anti_ok = rebuilt_ok and n_fail == 0 and before_cls in ("KNOWN-DEFECTS", "CLEAN")
+    anti_ok = rebuilt_ok and n_fail == 0 and before_cls in ("GREEN-DEFECT", "KNOWN-DEFECTS", "CLEAN")
     print("\n--- ANTI-TEST VERDICT ---")
-    print(f"  current deployed FAILS the new gates: {before_cls in ('KNOWN-DEFECTS',)} "
+    print(f"  current deployed FAILS the green-shard gate: {before_cls in FAIL_STATES} "
           f"(state={before_cls})")
-    print(f"  the REBUILT fix PASSES the new gates : {rebuilt_ok} (all {res['out']['n_gates']} gates, "
+    print(f"  the REBUILT fix PASSES every gate : {rebuilt_ok} (all {res['out']['n_gates']} gates, "
           f"{n_fail} failed)")
 
     deployed = False
@@ -159,26 +192,29 @@ def main():
         deployed = True
         print(f"  deployed {len(written)} Disc1 Terrain files (+ Disc4 mirror); blocks {sorted(built_bms)}")
 
-        # ---- 6) VERIFY: re-census the DEPLOYED bytes -> 0 steps / 0 holes / 0 stumps ----
+        # ---- 6) VERIFY: re-census the DEPLOYED bytes -> 0 steps / 0 holes / 0 stumps / 0 green ----
         print("\n--- VERIFY (re-census the DEPLOYED bytes after the fix) ---")
         after = deployed_fringe_state()
         after_cls = _classify(after)
         print(f"  deployed fringe state AFTER: steps={after['steps']} holes={after['holes']} "
-              f"stumps={after['stumps']}  -> {after_cls}")
+              f"stumps={after['stumps']} green_ground={after['green']}  -> {after_cls}")
         if after_cls != "CLEAN":
-            sys.exit(f"POST-DEPLOY VERIFY FAILED: deployed still shows {after} (expected 0/0/0)")
-        print("  VERIFIED: the deployed carry ring censuses 0 steps / 0 holes / 0 orphan-grass stumps.")
+            sys.exit(f"POST-DEPLOY VERIFY FAILED: deployed still shows {after} (expected 0/0/0/0)")
+        print("  VERIFIED: the deployed carry ring censuses 0 steps / 0 holes / 0 orphan-grass stumps "
+              "/ 0 green ground shards.")
 
     out = dict(
         before=before, before_class=before_cls,
         rebuilt=dict(steps=fringe["built"]["steps"], holes=fringe["built"]["holes"],
-                     stumps=fringe["n_green"], eye_preserved=fringe["eye_preserved"],
+                     stumps=fringe["n_green"], green_ground=fringe.get("n_green_ground"),
+                     eye_preserved=fringe["eye_preserved"],
                      n_gates=res["out"]["n_gates"], n_failed=n_fail),
-        anti_test=dict(current_fails=before_cls == "KNOWN-DEFECTS", rebuilt_passes=rebuilt_ok,
-                       ok=anti_ok),
+        anti_test=dict(current_fails=before_cls in ("GREEN-DEFECT", "KNOWN-DEFECTS"),
+                       rebuilt_passes=rebuilt_ok, ok=anti_ok),
         touched_blocks=res["out"]["touched_blocks"],
         deployed=deployed, after=after, after_class=(_classify(after) if after else None),
         min_dist_core=fringe.get("min_dist_core"), min_dist_topo41=fringe.get("min_dist_topo41"),
+        redress=dict(grass=res["diag"].get("n_redress_grass"), green=res["diag"].get("n_redress_green")),
         renders=res["out"].get("fringe_renders", []),
     )
     (OUTD / "dunes_fringe_fix.json").write_text(json.dumps(out, indent=1, default=str))

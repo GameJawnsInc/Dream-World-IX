@@ -397,6 +397,36 @@ def _atlas_bilinear(u, v):
     return aa, (acc[0], acc[1], acc[2])
 
 
+def is_grass_green(rgb):
+    """The STRICT grass-green texel test (calibrated against the per-pixel render ground truth):
+    clearly green-dominant + saturated, so warm khaki DESERT texels (which lean faintly green in the
+    G-(R+B)/2 sense) are excluded. Used by the rung-7-cont GREEN-SHARD de-green + its gate."""
+    r, g, b = rgb[0], rgb[1], rgb[2]
+    return g > r + 12 and g > b + 30 and g > 95
+
+
+def tri_green_frac(uv3, nsub=8):
+    """Fraction of a tri's UV area that samples strict grass-green in the real atlas -- the
+    render-faithful measure of 'does this tri read as a green shard' (a whole-tri UV AVERAGE washes
+    sub-tri green out; the per-pixel render is the ground truth, and this barycentric-grid fraction
+    tracks it). Brown desert tiles score ~0.0; the relocated ecotone-strip shards score >=0.08."""
+    _load_atlas()
+    ngreen = cnt = 0
+    for i in range(nsub + 1):
+        for j in range(nsub + 1 - i):
+            a, b = i / nsub, j / nsub
+            c = 1.0 - a - b
+            u = a * uv3[0][0] + b * uv3[1][0] + c * uv3[2][0]
+            v = a * uv3[0][1] + b * uv3[1][1] + c * uv3[2][1]
+            al, rgb = _atlas_bilinear(u, v)
+            if al < 24:
+                continue
+            cnt += 1
+            if is_grass_green(rgb):
+                ngreen += 1
+    return (ngreen / cnt) if cnt else 0.0
+
+
 _FAM_ID = {"dunes": 1, "desert": 2, "grass": 3, "scrub": 3, "brush": 3, "rock": 4, "hole": 4}
 
 

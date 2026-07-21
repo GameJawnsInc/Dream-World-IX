@@ -89,6 +89,22 @@ FIXH_TAU = 1.0                                                # FIX-H: pre-quant
 #                                                              phase-shifted block border ONTO it (grid corners land
 #                                                              exactly on a border or >=4u away, so 1.0 catches only
 #                                                              off-grid conform NOTCH verts)
+# --- rung-7 CONT. the GREEN-SHARD de-green (2026-07-21, the review follow-up). The rung-7 FIX-G
+#     re-dressed only topo-0 grass DECALS, but the review + a per-pixel render ground-truth proved
+#     the real source of the user's "hard-edged grass ecotone tiles" is BROADER: carried desert-
+#     family ECOTONE-STRIP tiles (topo 16/17/19/20, UV u~0.92-0.98) whose verbatim strip UV -- brown
+#     on the desert side, GREEN on the grass side in stock comp[1] -- lands on a green atlas texel
+#     once the ensemble is relocated onto the all-desert island. They render as isolated grass-green
+#     triangles in the brown margin. Ground truth (strict grass-green pixels attributed by topo):
+#     the visible SHARDS are 10 FLAT topo-16 strip tiles; topo-41 dunes render ZERO green (the
+#     approved ecotone is untouched) and the 62 topo-49 mesa murals carry only faint sub-tri rock
+#     speckle (no tri >=8%% green area, ~10px total map-wide) -- kept as faithful rock. So FIX-G is
+#     generalized to re-dress FLAT desert-family GROUND tiles that ACTUALLY render green.
+REDRESS_GROUND_TOPOS = frozenset({0, 16, 17, 19, 20})        # grass(0) + desert family -- flat ground only
+GREEN_AREA_MIN = 0.05                                         # re-dress a ground tile if >= this frac of its UV area
+#                                                              samples strict grass-green (the 10 shards are >=0.08;
+#                                                              brown desert ~0.0 -> 0.05 is a safe separator)
+GREEN_NY_MIN = 0.7                                            # FLAT ground only (never a rock/wall face: mean|ny|)
 
 GATES: list = []
 
@@ -214,21 +230,39 @@ def tri_cell(tri):
     return (math.floor(cx / CELL), math.floor(cz / CELL))
 
 
-def redress_grass_tri(tri):
-    """FIX-G (the orphan-grass-stump re-dress; forensics rung 7). A carried topo-0 tri is NOT a
-    grass-mains tile -- it is a desert|grass ECOTONE decal (its UV sits in the desert-edge band
-    u~0.92-0.98, paired with a topo-16 desert tri in the same cell) whose GRASS side was amputated
-    by the carry (our island is all-desert), so it renders as a lone green shard against red desert
-    (THE ENSEMBLE LAW's amputation-stump class). Re-dress it to plain desert exactly as stock's own
-    86-desert dune-ensemble margin wears it: topo-17 + a position-generated desert-MAINS UV (the
-    shipped GroundRetile 'recovered' path). VERTEX POSITIONS + NORMALS ARE VERBATIM -- only the UV
-    and the IDALL topograph change, so the fix moves ZERO geometry (it cannot disturb any seam/weld
-    or the frozen eye's GATE A). Input/output = a donor-frame tri [(pos,nrm,uv,tan) x3].
+def redress_green_tri(tri):
+    """FIX-G (generalized; rung-7 + the green-shard cont.). Re-dress a carried FLAT GROUND tile that
+    reads as a lone grass-green shard on the all-desert island back to plain desert -- the same
+    remedy stock's own 86-desert dune-ensemble margin wears: topo-17 + a position-generated desert-
+    MAINS UV (the shipped GroundRetile 'recovered' path). VERTEX POSITIONS + NORMALS ARE VERBATIM --
+    only the UV and the IDALL topograph change, so the fix moves ZERO geometry (it cannot disturb any
+    seam/weld or the frozen eye's GATE A/B/C). Two triggers, both FLAT ground only (never a rock/wall
+    face), input/output = a donor-frame tri [(pos,nrm,uv,tan) x3]:
 
-    Returns (tri, redressed_bool). Only topo-0 tris are re-dressed; everything else (incl. the 62
-    topo-49 brown mesa murals, which are faithful ensemble content) passes through untouched."""
-    if X.decode_id(int(round(tri[0][3][0])))["topograph"] != 0:
-        return tri, False
+      (1) topo-0 grass ECOTONE DECAL -- an amputation stump (its UV in the desert-edge band
+          u~0.92-0.98, its grass side removed by the all-desert carry). Re-dressed UNCONDITIONALLY
+          (the rung-7 orphan-grass gate; these always render green).
+      (2) topo 16/17/19/20 desert ECOTONE-STRIP tile whose verbatim strip UV lands on a green atlas
+          texel (>= GREEN_AREA_MIN of its area strict grass-green) -- the true source of the user's
+          "hard-edged grass ecotone tiles" (10 flat tiles, per-pixel render ground truth). MEASURED,
+          so the many brown desert strip/mains tiles (the APPROVED ecotone) are left byte-identical.
+
+    Dunes (topo-41 -- the approved ecotone + the eye's GATE A/B set) and the mesa rock (topo-49/58)
+    are NEVER re-dressed: topo-41 renders zero green, and the rock's faint sub-tri lichen speckle is
+    faithful stock ensemble content, not a shard. Returns (tri, kind) with kind in
+    ("", "grass", "green-desert")."""
+    topo = X.decode_id(int(round(tri[0][3][0])))["topograph"]
+    if topo not in REDRESS_GROUND_TOPOS:
+        return tri, ""
+    if topo == 0:
+        kind = "grass"
+    else:
+        ny = sum(abs(v[1][1]) for v in tri) / 3.0            # mean |normal.y|: 1 flat ground, 0 vertical wall
+        if ny < GREEN_NY_MIN:
+            return tri, ""
+        if GE.tri_green_frac([v[2] for v in tri]) < GREEN_AREA_MIN:
+            return tri, ""                                   # a brown desert tile -- the approved ecotone; leave it
+        kind = "green-desert"
     cx = sum(v[0][0] for v in tri) / 3.0
     cz = sum(v[0][2] for v in tri) / 3.0
     cell = (math.floor(cx / CELL), math.floor(cz / CELL))
@@ -240,7 +274,7 @@ def redress_grass_tri(tri):
         new_idall = float(X.encode_id(d["event"], d["area"], GL.GROUNDS["desert"]["topo"], d["flags"]))
         out.append((p, n, tuple(GL.ground_uv(p[0], p[2], cell, quad, ori, "desert")),
                     (new_idall,) + tuple(tan[1:])))
-    return out, True
+    return out, kind
 
 
 # ============================================================================================
@@ -456,20 +490,24 @@ def carry(donor, R, T, host_bms, land_height):
             new_kept.append(nt)
         out[blk] = new_kept + carried_by_block.get(blk, [])
 
-    # FIX-G (a FINAL pass over the assembled output, so it catches a topo-0 orphan-grass-stump
-    # whether it rode in on a carried DONOR tri OR survived in a KEPT HOST cell -- both render as a
-    # lone green shard against the all-desert island). Re-dress every remaining topo-0 tri to plain
-    # desert (UV + IDALL topograph only; VERTEX POSITIONS ARE VERBATIM -> zero geometry moved, so
-    # this can never disturb a seam/weld/the frozen eye's GATE A). The 62 topo-49 mesa murals are
-    # NOT topo-0, so they pass through untouched (KEPT -- faithful dunes-ensemble content).
-    n_redress = 0
+    # FIX-G (a FINAL pass over the assembled output, so it catches a green ground shard whether it
+    # rode in on a carried DONOR tri OR survived in a KEPT HOST cell). Re-dress two classes to plain
+    # desert (UV + IDALL topograph only; VERTEX POSITIONS + NORMALS VERBATIM -> zero geometry moved,
+    # so this can never disturb a seam/weld/the frozen eye's GATE A/B/C): (1) every topo-0 orphan-
+    # grass DECAL (the rung-7 stump), and (2) every FLAT desert-family ecotone-STRIP tile that
+    # actually renders grass-green (the review follow-up: the true source of the visible shards).
+    # topo-41 dunes + the topo-49 mesa murals pass through untouched (approved ecotone / faithful
+    # rock -- see redress_green_tri).
+    n_redress = n_redress_grass = n_redress_green = 0
     redress_positions = []
     for blk in out:
         redressed_tris = []
         for tri in out[blk]:
-            rt, ok = redress_grass_tri(tri)
-            if ok:
+            rt, kind = redress_green_tri(tri)
+            if kind:
                 n_redress += 1
+                n_redress_grass += (kind == "grass")
+                n_redress_green += (kind == "green-desert")
                 redress_positions += [(v[0][0], v[0][2]) for v in rt]
             redressed_tris.append(rt)
         out[blk] = redressed_tris
@@ -484,7 +522,8 @@ def carry(donor, R, T, host_bms, land_height):
                 donor_weld_med=donor_weld_med, n_bcorners=len(bcorners),
                 n_carried_boundary=len(carried_boundary), boundary_spread=boundary_spread,
                 max_poke=max_poke, dropped_area2=dropped_area2, conform_snaps=conform_snaps,
-                n_redress=n_redress, n_fixh=len(fixh_positions), n_fixs_mirrors=fixs_mirrors,
+                n_redress=n_redress, n_redress_grass=n_redress_grass, n_redress_green=n_redress_green,
+                n_fixh=len(fixh_positions), n_fixs_mirrors=fixs_mirrors,
                 n_fixs_lifts=len(fixs_snap_positions), fix_touch_xz=fix_touch_xz,
                 n_redress_positions=len(redress_positions), touched_blocks=touched)
     return out, placed_R, diag
@@ -607,10 +646,39 @@ def run_fringe_gates(built_bms, donor, T, diag, eye_verdict):
     rebuilt_world = {blk: world_by_block[blk] for blk in built_bms if blk in world_by_block}
     n_green = FC.green_shard_count(rebuilt_world)
     n_green_region = FC.green_shard_count(world_by_block)
-    gate("no orphan grass shard (0 topo-0 tris in the rebuilt carry; the 62 topo-49 mesa murals "
-         "are KEPT)", n_green == 0,
+    gate("no orphan grass shard (0 topo-0 tris in the rebuilt carry)", n_green == 0,
          f"topo-0 in rebuilt blocks={n_green} (full mint region incl. un-rebuilt neighbours="
          f"{n_green_region})")
+
+    # (3b) THE GREEN-SHARD gate (review follow-up): 0 carried FLAT desert/grass GROUND tiles RENDER
+    #      grass-green in the rebuilt carry -- the render-faithful measure of the user's "hard-edged
+    #      grass ecotone tiles" (a topo-0 count alone missed the 10 desert-strip shards). Measures
+    #      what actually rasterizes (UV -> atlas), so it catches ANY green ground tile regardless of
+    #      topo, and stays 0 once FIX-G's generalized de-green has run.
+    n_green_ground, green_cells = FC.green_ground_count_built(built_bms)
+    gate("no green ground SHARD (0 flat desert/grass ground tris render grass-green in the rebuilt "
+         "carry; topo-41 dunes + topo-49 mesa rock excluded -- approved ecotone / faithful rock)",
+         n_green_ground == 0,
+         f"green flat-ground tris={n_green_ground}"
+         + (f" at cells {sorted(green_cells)[:8]}" if green_cells else ""))
+
+    # (3c) HONEST RESIDUAL (info, not a gate): the mesa rock (topo-49/58) is carried VERBATIM and
+    #      KEPT. A per-pixel render + this per-tri measure agree it holds only faint sub-tri lichen
+    #      speckle -- NOT a shard: every rock tri that samples any green is < the 20%%-area shard bar
+    #      (peak ~4.4%%), ~14px map-wide, matching the same tinge stock comp[1] wears. Re-dressing a
+    #      near-vertical rock face to flat desert would look wrong, so it is left faithful. This
+    #      corrects the prior report's optimistic 'topo-49 renders brown': it renders olive-brown
+    #      with occasional lichen speckle, and the visible SHARDS the user saw were the topo-16
+    #      strip tiles (now re-dressed), not these.
+    rock_fracs = [GE.tri_green_frac(uv3)
+                  for bm in built_bms.values()
+                  for (_p3, uv3, _n3, topo, _f) in GE._tris_of(bm, 0, 0) if topo in (49, 58)]
+    rock_any = sum(1 for f in rock_fracs if f > 0.0)
+    rock_shard = sum(1 for f in rock_fracs if f >= 0.20)
+    rock_peak = max(rock_fracs) if rock_fracs else 0.0
+    print(f"  [info] residual mesa-rock (topo-49/58) green: {rock_any} tris sample any green, "
+          f"{rock_shard} are >=20%% area (shard), peak green frac {rock_peak:.3f} -> faint lichen "
+          f"speckle, KEPT as faithful rock.")
 
     # (4) THE EYE-PRESERVED gate -- the DIRECT proof (stronger than a distance proxy): the frozen
     #     eye's GATE A (sub-cell boundary conformance) + GATE B (orientation fidelity + byte-
@@ -659,7 +727,8 @@ def run_fringe_gates(built_bms, donor, T, diag, eye_verdict):
           f"distance but by the GATE A/B BYTE-IDENTITY above (the binding proof): the dune|desert "
           f"boundary the eye judges is untouched to the decimal.")
 
-    return dict(null=null_tot, built=tot, n_green=n_green, eye_preserved=bool(a_same and b_same),
+    return dict(null=null_tot, built=tot, n_green=n_green, n_green_ground=n_green_ground,
+                green_ground_cells=sorted(green_cells), eye_preserved=bool(a_same and b_same),
                 min_dist_core=(round(d_core[0], 3) if d_core else None),
                 min_dist_topo41=(round(d_41[0], 3) if d_41 else None),
                 seam_defects=[r for r in recs if r["n_steps"] or r["n_holes"]])

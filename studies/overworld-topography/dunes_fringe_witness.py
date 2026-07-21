@@ -46,10 +46,11 @@ for view in TC._fringe_cameras():
     sheet = Image.new("RGB", (W * 2 + pad * 3, H + lh + pad * 2 + 24), (16, 16, 16))
     dr = ImageDraw.Draw(sheet)
     dr.text((pad, 6), f"FRINGE WITNESS -- {view['cap']}. LEFT pre-fix (backup) / RIGHT deployed fix. "
-                      f"Sky-blue through the terrain = a HOLE; bright green = an orphan-grass shard.",
+                      f"Sky-blue through the terrain = a HOLE; bright green = a grass-ecotone shard "
+                      f"(grass decal OR relocated desert-strip tile).",
             fill=(255, 230, 140))
     dr.text((pad, 24 + pad), "PRE -- pre-fix bytes (blue slivers + green shards)", fill=(220, 220, 220))
-    dr.text((pad + W + pad, 24 + pad), "POST -- the deployed fix (seams closed, shards re-dressed)", fill=(220, 220, 220))
+    dr.text((pad + W + pad, 24 + pad), "POST -- the deployed fix (seams closed, all green shards re-dressed)", fill=(220, 220, 220))
     sheet.paste(pre_img, (pad, 24 + pad + lh))
     sheet.paste(post_img, (pad + W + pad, 24 + pad + lh))
     p = OUTD / f"dunes_fringe_witness_{view['tag']}.png"

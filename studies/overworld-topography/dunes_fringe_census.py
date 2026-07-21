@@ -29,6 +29,14 @@ WHAT IT DOES
     deployed blocks; for each, its donor context (what surrounded it in stock) and its deployed
     neighbours; classify genuine dunes-ensemble content vs orphaned grass-context stump. Check what
     stock comp[1] does at its OWN desert margin where no grass is nearby = the fix vocabulary.
+  PART 2b -- THE GREEN-SHARD instrument (review follow-up, 2026-07-21). The topo-0 count MISSED the
+    true source of defect #2: per-pixel render attribution proved the visible "hard-edged grass
+    ecotone tiles" are 12 carried FLAT desert ECOTONE-STRIP tiles (topo 16/17/19/20, UV u~0.92-0.98)
+    whose verbatim strip UV -- brown on the desert side, GREEN on the grass side in stock comp[1] --
+    lands on green atlas texels once relocated onto the all-desert island. :func:`green_ground_count_
+    from_bm` samples each ground tri's UV against the atlas (the render-faithful measure). topo-41
+    dunes render ZERO green (the approved ecotone is untouched); the 62 topo-49 mesa murals hold only
+    faint sub-tri lichen speckle (peak ~4.4%% of a tri, olive-brown) and are KEPT as faithful rock.
 
 Run OFFLINE (reads deployed + stock, writes only out/):
   py studies/overworld-topography/dunes_fringe_census.py
@@ -132,10 +140,70 @@ def census_built_blocks(world_by_block):
 
 
 def green_shard_count(world_by_block):
-    """The orphan-grass gate over IN-MEMORY built blocks: count topo-0 tris (the census proved the
-    only green-positive topo; the 62 topo-49 murals are brown mesa faces, kept). A faithful fringe
-    fix drives this to 0."""
+    """The orphan-grass gate over IN-MEMORY built blocks: count topo-0 tris (the rung-7 stump). A
+    faithful fix drives this to 0. NOTE: this is NOT the full green-shard measure -- the review
+    follow-up proved carried FLAT desert-STRIP tiles (topo 16/17/19/20) also render green; that is
+    counted by :func:`green_ground_count_from_bm` (which needs UVs, dropped by the world-tri
+    loaders)."""
     return sum(1 for tris in world_by_block.values() for (_p3, topo, _f) in tris if topo == 0)
+
+
+# rung-7 CONT. (2026-07-21): the GREEN-SHARD instrument. Unlike the topo-0 count, this measures what
+# actually RENDERS green -- a carried FLAT desert/grass GROUND tile whose verbatim UV lands on green
+# atlas texels (the relocated ecotone-strip shards). Needs UVs, so it reads the BlockMesh directly
+# (deployed OR freshly-built); rock/wall faces + non-ground topos are excluded (the mesa's faint
+# lichen speckle is faithful, not a shard).
+GREEN_GROUND_TOPOS = frozenset({0, 16, 17, 19, 20})
+
+
+def green_ground_count_from_bm(bm, bx, by, frac_min=0.05, ny_min=0.7):
+    """Count FLAT desert/grass GROUND tris in one block whose UV renders strict grass-green
+    (>= frac_min of the tri's UV area). Returns (n, cells)."""
+    V, N, U, TAN = bm.verts, bm.normals, bm.uvs, bm.tangents
+    n = 0
+    cells = []
+    for tri in np.asarray(bm.flat_index, dtype=np.int64).reshape(-1, 3):
+        topo = X.decode_id(int(round(TAN[tri[0]][0])))["topograph"]
+        if topo not in GREEN_GROUND_TOPOS:
+            continue
+        ny = sum(abs(float(N[j][1])) for j in tri) / 3.0
+        if ny < ny_min:
+            continue
+        uv3 = [(float(U[j][0]), float(U[j][1])) for j in tri]
+        if GE.tri_green_frac(uv3) >= frac_min:
+            n += 1
+            cx = sum(float(V[j][0]) for j in tri) / 3.0 + BLOCK * bx
+            cz = sum(float(V[j][2]) for j in tri) / 3.0 - BLOCK * by
+            cells.append((math.floor(cx / CELL), math.floor(cz / CELL)))
+    return n, cells
+
+
+def deployed_green_ground_count(blocks=None):
+    """The GREEN-SHARD instrument over the DEPLOYED override bytes (the anti-test 'before' read)."""
+    if blocks is None:
+        blocks = CARRIED
+    tot = 0
+    allcells = []
+    for (bx, by) in blocks:
+        p = GP / MOD / MESH.override_relpath(1, bx, by, part="Terrain")
+        if not p.exists():
+            continue
+        bm = MESH.blockmesh_from_ff9mesh(p, disc=1, x=bx, y=by, part="terrain")
+        n, cells = green_ground_count_from_bm(bm, bx, by)
+        tot += n
+        allcells += cells
+    return tot, allcells
+
+
+def green_ground_count_built(built_bms):
+    """The GREEN-SHARD instrument over freshly-built (pre-deploy) BlockMeshes (the in-memory gate)."""
+    tot = 0
+    allcells = []
+    for (bx, by), bm in built_bms.items():
+        n, cells = green_ground_count_from_bm(bm, bx, by)
+        tot += n
+        allcells += cells
+    return tot, allcells
 
 
 # ============================================================================================
@@ -485,8 +553,20 @@ def permanent_gates(null_tot, dep_tot, shard):
     # GATE 3 -- no orphan green shard (topo-0 grass with no grass anywhere in its deployed 8-nbhd)
     g("no orphan grass shard (topo-0 tile with an all-desert deployed neighbourhood)",
       shard["n_stump"] == 0,
-      f"orphan grass stumps = {shard['n_stump']} (target 0; the 62 topo-49 murals are brown butte "
-      f"faces, in-ensemble, KEPT)")
+      f"orphan grass stumps = {shard['n_stump']} (target 0)")
+
+    # GATE 4 -- (review follow-up 2026-07-21) no green ground SHARD in the deployed bytes: 0 carried
+    # FLAT desert/grass ground tiles RENDER grass-green. The topo-0 count (GATE 3) missed the real
+    # source of the user's "hard-edged grass ecotone tiles" -- 12 relocated desert-STRIP tiles whose
+    # verbatim UV lands on green atlas texels. This is the render-faithful measure (UV -> atlas). The
+    # 62 topo-49 mesa murals are NOT ground tiles and are excluded (they carry only faint sub-tri
+    # lichen speckle -- olive-brown, KEPT as faithful rock).
+    n_green_ground, gcells = deployed_green_ground_count()
+    g("no green ground shard (0 flat desert/grass ground tiles render grass-green -- the deployed "
+      "state after the green-shard fix)",
+      n_green_ground == 0,
+      f"green flat-ground tiles = {n_green_ground} (target 0"
+      + (f"; still green at cells {sorted(gcells)[:8]}" if gcells else "") + ")")
     return gates
 
 
@@ -611,6 +691,9 @@ def main():
     drill_site(1248.0, -1216.0)    # z-border [19][18]|[19][19]
 
     shard = green_shard_census()
+    n_green_ground, gcells = deployed_green_ground_count()
+    print(f"\n  GREEN-SHARD instrument (deployed flat-ground): {n_green_ground} tiles render "
+          f"grass-green" + (f" at {sorted(gcells)[:8]}" if gcells else " -- CLEAN"))
 
     gates = permanent_gates(null_tot, dep_tot, shard)
     fixval = simulate_fix()
@@ -618,7 +701,7 @@ def main():
     out = dict(
         null=dict(totals=null_tot, borders=null_recs),
         deployed=dict(totals=dep_tot, borders=dep_recs),
-        green_shards=shard,
+        green_shards=shard, green_ground=dict(n=n_green_ground, cells=[list(c) for c in gcells]),
         gates=[{"name": n, "ok": ok, "detail": d} for (n, ok, d) in gates],
         fix_validation=fixval,
     )
@@ -627,6 +710,7 @@ def main():
     print(f"\nSUMMARY: NULL(stock) steps={null_tot['steps']} holes={null_tot['holes']}"
           f"  |  DEPLOYED steps={dep_tot['steps']} holes={dep_tot['holes']}"
           f"  |  green stumps={shard['n_stump']}/{len(shard['records'])}"
+          f"  |  green ground tiles={n_green_ground}"
           f"  |  fix mechanism {'PROVEN' if fixval['ok'] else 'INCOMPLETE'}")
 
 

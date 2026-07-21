@@ -1373,3 +1373,59 @@ Every multi-block carry (Uaho / crag / horseshoe / comp20, the coast ladders) sh
 and the fringe fix's FIX-H/FIX-S are the general remedy (pre-quantize near-border verts + register the
 weld-snap target in both border blocks). Artifacts: `dunes_true_carry.py` (carry + gates), `dunes_fringe_fix.py`
 (deploy + anti-test), `dunes_fringe_witness.py`, `out/dunes_fringe_fix.json`.
+
+## Round 7 (green-shard follow-up, 2026-07-21) — DEFECT #2 WAS ONLY HALF-CLOSED ★ FIXED + RE-DEPLOYED both discs (16/16 gates + frozen eye byte-identical; deployed census 0/0/0/0)
+
+A code review of the fringe fix landed a **MAJOR** finding, and it was **RIGHT**: the fringe fix re-dressed only
+the 7 topo-0 grass decals, but **the visible green shards did not go away** — both POST witness renders and the
+eye A/B still showed bright-green triangular patches. The prior addendum's claim *"0 green-rendering tris /
+the 62 topo-49 murals render brown"* was **over-optimistic and self-contradicted by its own renders.** This
+round closes defect #2 for real. **THE CALIBRATE-THE-INSTRUMENT LAW struck again:** the earlier "greenness"
+number that read the topo-0 fix as complete used a **whole-tri UV AVERAGE**, which washes sub-tri green out; the
+render is per-PIXEL, so a tile that is 30% green atlas texels reads as a green shard while its average reads
+brown.
+
+**THE GROUND TRUTH (per-pixel render attribution).** Render the carry with a per-pixel TOPO buffer, detect
+strict grass-green pixels (`g>r+12 ∧ g>b+30 ∧ g>95` — excludes warm khaki desert), tally by topo:
+- **topo-16 (desert): ~309–318 green px** — the real shards. **12 FLAT tiles**, all ecotone-STRIP UVs
+  (u≈0.92–0.98), all at dist 1–2 cells from the dune (the desert margin, NOT the approved seam). In stock
+  comp[1] the strip's grass side blends green; relocated onto the all-desert island it reads as isolated green
+  triangles. Re-dress→desert-mains fixes **12/12** (measured green frac → 0.0).
+- **topo-41 (dunes): 0 green px** — the approved dune|desert ecotone renders **zero** green; it is never
+  touched (and the eye's GATE A/B measure exactly this set).
+- **topo-49 (mesa rock): ~9–14 green px** — **faint sub-tri lichen speckle**, NOT shards: of 16 rock tris that
+  sample any green, **0 reach the 20%-area shard bar** (peak ≈4.4%), matching the same tinge stock comp[1]
+  wears. Re-dressing a near-vertical rock face to flat desert would look wrong, so it is **KEPT as faithful
+  rock**. This is the honest correction of "topo-49 renders brown": it renders **olive-brown with occasional
+  lichen speckle**, and it was never the source of the shards.
+
+**THE FIX (generalized FIX-G, `dunes_true_carry.redress_green_tri`, always-on).** The final assembly pass now
+re-dresses two classes of FLAT ground tile (UV + IDALL topograph only — VERTICES + NORMALS VERBATIM, zero
+geometry moved): (1) every topo-0 grass decal (unconditional, the rung-7 stump), and (2) every desert-family
+ground tile (topo 16/17/19/20) whose verbatim UV **actually renders grass-green** (`GE.tri_green_frac ≥ 0.05`,
+`|ny| ≥ 0.7`). MEASURED, so the many brown desert strip/mains tiles — the APPROVED ecotone — are left
+byte-identical. `n_redress_green = 12` (matches the deployed defect count exactly).
+
+**EYE PRESERVED (the binding proof, unchanged).** GATE A (`off_grid_frac=0.14615, mean_offcell=0.02191, n=260`)
+and GATE B (`paired_same_ori=1.0, byte_derivation=1.0, n=95`) equal the stock donor calibration **byte-for-byte**
+after the fix — the de-green touches only UVs of margin/decal tiles, never a dune-boundary vertex, and topo-16
+stays desert-family so GATE C's family buffer is unchanged.
+
+**THE NEW GATE (render-faithful).** `green_ground_count_from_bm` (in `dunes_fringe_census.py`) samples each
+flat desert/grass ground tri's UV against the atlas and counts grass-green renders; the fringe suite asserts
+**0** in the rebuilt carry, and the standalone census + the `dunes_fringe_fix.py` anti-test assert the DEPLOYED
+count (a topo-0 count alone could not — it read 0 while 12 strip tiles rendered green). **Anti-test proven:**
+the pre-fix deployed bytes (commit `d1e7cdc`) FAIL the green gate with **12** flat-ground shards; rebuilt +
+re-deployed PASS with **0**. The rock residual is reported as a non-gating INFO line (0 shards, peak ≈4.4%).
+Total suite = **16 gates, 0 failed**; deployed census = **0 steps / 0 holes / 0 stumps / 0 green**; Disc1==Disc4;
+idempotent. Backups: the older rung-6 bytes at `backups/dunes-fringe-fix.20260721/` (the full-story witness PRE)
++ the precise `d1e7cdc` revert point at `.../pre-greenshard/`.
+
+**THE METHOD LESSON (added to the arc):** *a per-topo colour AVERAGE is not a render.* Judge "does it read
+green" by the per-pixel render (or a per-tri green-AREA fraction that tracks it), never a whole-tile mean —
+the mean of a half-green tile is brown, and the eye sees the half. The green-shard de-green is a
+kit-productization candidate alongside the seam audit: any ensemble carry that relocates grass-embedded content
+onto a non-grass target (`world-transplant --ground desert`, the Uaho/crag/horseshoe/comp20 carries) can drag
+green-on-grass strip tiles onto the new ground, and the measured-green re-dress is the general remedy.
+Witness: `out/dunes_fringe_witness_z1152_holes.png` (PRE: 2 holes + big green shards / POST: clean, only faint
+rock speckle) + `out/dunes_true_carry_ab_pitch22.png` (carry side now shard-free).
