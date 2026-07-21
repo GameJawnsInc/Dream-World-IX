@@ -857,3 +857,66 @@ carry time — **LANDED same day (`c666ba8`)**: additive `incoherent_deep`+`inco
 verdicts byte-identical, the pre-ladder backup reports exactly the 2 sand-spit tiles, and a fresh
 (8,17)+2×2 region carry warns deep==12 + shallow==5 at carry time. **The water-carry arc has NO open
 items.**
+
+---
+
+## Round 5 (2026-07-21) — THE CALIBRATED EYE for the ≥130-cell WHOLE-STAMP dunes mint (built + FROZEN, no build judged yet)
+
+THE DUNES SIZE-CLASS LAW (§Round 4) left exactly one lawful path open: a **≥~130-cell
+multi-block dunes field that STAMPS A REAL COMPONENT WHOLE** — comp[1] (130 cells, one enclosed
+topo-59 hole) on a DESERT host. Per the arc's own hardest law — **CALIBRATE THE INSTRUMENT
+BEFORE YOU JUDGE WITH IT** — the eye that will judge that build is built and frozen HERE, against
+100% stock, *before any synthesis exists*. Deliverable: `dunes_mint_eye.py` (idempotent,
+byte-deterministic — the `out/` renders + JSON regenerate identically; the frozen bands live in
+the script's `CRITERIA` dict and `judge()`).
+
+**The three frozen zooms** (this arc's own): WIDE 200×160u sc=6 (frames a whole component +
+margin, texture+shaded) · MEDIUM 56×56u sc=16 shaded (play-scale) · TIGHT 24×24u sc=32 UNSHADED
+(the row/Rorschach zoom — the only scale where row choice is legible). Stock NULLS rendered side
+by side: **both real components in situ** (comp[0] 273-cell @ world (1224,−264); comp[1] 130-cell
+@ (902,−780) — THE MINT TWIN), 4 desert|dunes seam windows spanning the known variance
+(smooth-organic (18,3) → boxy (13,12)), a pure-desert control, a pure-dunes-interior control.
+
+**THE CRITICAL CALIBRATION LESSON, caught by the instrument's own self-test.** A first cut set the
+same-row band from the **map-wide** stock rate (9.8%). The self-test — *judging stock comp[1]
+itself, which a faithful whole-stamp equals byte-for-byte* — then **FAILED M2** (comp[1]'s own ring
+same-row is **36.4%**, comp[0]'s **15.0%** — both far above the pooled 9.8%). The map-wide pool is
+the WRONG null: the judge measures over the mint's ~30-cell ring, not 195 pooled cells, and a small
+clustered ring runs much higher same-row. **Gating on the map-wide figure would false-reject a
+verbatim comp[1] stamp** — the exact "an uncalibrated instrument is not evidence" failure this arc
+keeps re-learning. FIX: the M1/M2 nulls are re-derived at the **mint's own ring scale** — lay
+comp[0]'s genuine rows over comp[1]'s real ring geometry at every phase (v2's cross-cluster
+transplant method) + comp[1]'s verbatim anchor. The self-test now PASSES; an anti-test (v2-square
+footprint + all-row-0 ring) FAILS on M1/M2/M3, as it must.
+
+**THE FROZEN BANDS + PASS/FAIL (calibrated once, then frozen for the round):**
+
+| gate | metric | stock band (ring scale) | wrong-control (out) | stock-vs-stock (not separated) |
+|---|---|---|---|---|
+| **M1** | luminance jumpiness over the ring | **1.62 .. 7.71** (verbatim comp[1] 5.08) | all-row-0 = 0.00 | comp[0]-rows-on-comp[1]-ring + verbatim all in-band |
+| **M2** | same-row adjacency % over the ring | **0.0 .. 0.686** (verbatim 36.4%) | all-row-0 = 100% | comp[0] ring 15.0% / comp[1] 36.4% both in |
+| **M3** | silhouette convexity | **0.45 .. 0.78** | v2-square 0.9024 | comp[0] 0.464 / comp[1] 0.754 both in |
+| **M3** | max boundary run | **≥ 4** | v2-square = 3 | comp[0] 4 / comp[1] 5 |
+| **M3** | enclosed hole present | **required** (comp[1] has one) | v2-square = 0 holes | both real comps have their real holes |
+| **M4** | interior-strip-coverage | **≤ 0.02** (both comps ~0.0%) | quilt control 64.5% | both interiors ~all plain mains |
+
+Non-gating diagnostic (reported, never a gate — the arc's explicit ruling): lag-1 row
+autocorrelation, STOCK −0.423 vs the BFS emitter's +0.073 (it under-alternates); the jumpiness
+metric cannot see this, so it is documented, not enforced. Boundary-strip coverage is a DESIGN
+TARGET for the ring (comp[0] 58.5% / comp[1] 52.7%), reported not hard-gated.
+
+**Two honest limits, stated up front.** (1) M2's ring-scale band is WIDE (0–0.686): at ~30 cells
+its only real discriminating power is against the DEGENERATE all-one-row — which is precisely the
+arc's own conclusion that the blocker shrunk to *"any non-degenerate placement."* (2) The
+strongest structural gate is not any single number but **an outline byte-match of the placed
+footprint to the comp[1] template** (the v3 shape-fidelity gate): a faithful whole-stamp makes M3
+pass by construction, and the eye's real job then reduces to the WIDE-panel twin comparison — the
+mint's comp[1]-stamp beside stock comp[1]-in-situ must be indistinguishable. The renders confirm
+this is a fair test: comp[1] in situ genuinely carries a **boxy, quilt-like east ecotone** (real
+stock), so a calibrated eye must NOT fault the mint for reproducing it — the very false-reject the
+uncalibrated rounds 1–3 kept making.
+
+**Status: instrument FROZEN, zero builds judged. `judge(ring_rows, footprint_cells)` is the entry
+point the builder calls before deploy; ALL gates must pass, then the WIDE/MEDIUM/TIGHT stock panels
+are the reference its renders sit beside. Consistent with the arc's record: 4 dunes rounds spent
+zero playtests — this one spends zero too, the eye gates first.**
