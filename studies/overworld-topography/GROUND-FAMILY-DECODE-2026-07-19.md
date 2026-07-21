@@ -920,3 +920,83 @@ uncalibrated rounds 1–3 kept making.
 point the builder calls before deploy; ALL gates must pass, then the WIDE/MEDIUM/TIGHT stock panels
 are the reference its renders sit beside. Consistent with the arc's record: 4 dunes rounds spent
 zero playtests — this one spends zero too, the eye gates first.**
+
+---
+
+## Round 5 (cont., 2026-07-21) — THE REAL-SCALE comp[1] WHOLE-STAMP DUNES MINT ★ BUILT + DEPLOYED (18/18 gates + frozen eye PASS; awaits playtest)
+
+THE DUNES SIZE-CLASS LAW's one prescribed unit — **a ≥130-cell multi-block dunes field that STAMPS
+A REAL COMPONENT WHOLE** — is built and deployed. `dunes_field_mint.py` stamps **comp[1]** (130
+dunes cells + its 14-cell topo-59 enclosed hole) **VERBATIM** (bijective rigid transform, **k=0
+IDENTITY** — comp[1] exactly *relocated*) onto a fresh multi-block `--ground desert` host, the
+ecotone rows CARRIED verbatim. Deployed to `FF9CustomMap-world`, both discs (72/72 mesh parts
+byte-identical Disc1↔Disc4), MOD-OVERWRITE clear.
+
+**The two design reports RECONCILED empirically** (`dunes_host_probe.py`). The host census owned
+SITING (its own centre **(608,−1376)**, the coherent little desert archipelago south of the (8,19)
+islet); the stamp design owned the RECIPE — the strict `footprint+ring+2-cell-margin =
+dilate3(footprint) ⊆ regular`, which the census's bbox proxy had missed (**r48 FAILS the margin,
+exactly as the stamp design found**; the census's int2=270 < the 288-cell dilate3). The winner
+satisfies BOTH: **census centre (608,−1376), radius 56, seed 2, dihedral k=0** — 9 blocks
+(8–10, 20–22), 490 regular cells, 17 candidate placements. r56 = the stamp design's own
+identity-headroom radius; it yields the k=0 identity placement AND the census's desired desert
+apron. **A hairline-crack scan drove the seed**: `island.build_landmass`'s big-mint edge refinement
+leaves `mesh.weld_audit` near-miss vertex pairs for SOME seeds (the census's own s11 has 9, though
+`verify_landmass`'s coarser once-edge/crack gates pass) — the verbatim stamp is seed-independent,
+so a **zero-weld seed (s2)** was chosen. (`weld_audit` reads a block's LOCAL-frame verts — audit
+PER BLOCK, never the concatenated multi-block list, which would mix 9 local frames.)
+
+**THE STAMP UNLOCKED A ZERO-SYNTHESIS DRESSING** (the stamp design's core insight, realized): at
+full-component scale the entire boundary is real comp[1] boundary, so the bijective k=0 transform
+CARRIES the ecotone rows verbatim — the dune-side strip (**30 cells**) and desert-side strip (**26
+cells**) wear comp[1]'s OWN measured rows. The round-3 BFS emitter is retained only as a residual
+fallback — **never invoked** (every ring cell has a verbatim source). The judge therefore lands
+**BYTE-IDENTICAL to the eye's self-test**: M1 jumpiness **5.076**, M2 same-row **0.3636**, M3
+convexity **0.7536** / max-run **5** / hole present, M4 interior-coverage **0.0** — ALL PASS, exactly
+comp[1]'s own values (the verbatim guarantee: k=0 is a pure translation, so adjacency + silhouette
+are invariant).
+
+**THE ONE DELIBERATE DEVIATION** — the 14-cell topo-59 enclosed hole (undecoded, non-walkable) is
+FILLED with plain dunes mains: the only in-vocabulary faithful option (leaving it desert would
+demand a dunes|rock inner ring stock does not paint), it is fully interior (invisible to
+silhouette/ecotone), and it makes the interior seamless *walkable* dunes.
+
+**Retile** — 114 dunes-mains + 30 dune-side-strip + 26 desert-side-strip cells; 20 outer-ring cells
+untouched (already-correct desert mains). Geometry byte-identical to the plain host (uv + tangent.x
+only; zero vertex motion proven).
+
+**GATES — 18/18 PASS**: comp[1]-template match (LAW 5, 130 cells byte-normalized vs the committed
+`real_component_1_verbatim`), baseline `verify_landmass` clean, OPEN-OCEAN TARGET, zero vertex
+motion (verts + normals), zero-residual classification (mains 268 / strip 112 / **other 0**),
+boundary invariance, weld audit **0** (per-block), frame bounds, IDALL_SKIP structurally impossible
+(area 0 everywhere), MISS census regression + **MISS==0** every touched block, save-brick probes
+(core dunes topo-41, filled-hole topo-41, inner/outer ring walkable), **SHAPE-FIDELITY** (placed
+silhouette byte-identical to comp[1]'s template — convexity 0.7536 / max_run 5 / 1 hole), ROW-0
+GUARD (rows {0,1,2,3}), and **THE FROZEN EYE** (`dunes_mint_eye.judge`, all M1–M4). effective-prefab
+/ wang-carry are N/A by construction (an island mint writes a full `Terrain` override — the s34
+divert is armed — + a full-cell `Sea4` + blanked hidden sea parts; there are no cropped-Wang seams).
+
+**THE ONE HONEST LIMIT (measured precisely, flagged for the playtest).** comp[1]'s 279 dune terrain
+tiles = **209 mains-rect + 60 strip + 10 OFF-rect "dune-crest" tiles** (a DISTINCT atlas region
+u≈0.14–0.20, v≈0.83–0.87 — the elongated ridge streaks visible in the MEDIUM render's stock panel).
+The mint reproduces **269/279 (96.4%)** — all mains + all strip verbatim — but NOT the 10 crest
+tiles (**3.6%**): the generic grass-derived `assign_mains` only samples the mains rect. This is the
+CONCRETE instance of the design's explicitly-DEFERRED dunes-interior-detail gap ("reuse
+`assign_mains` unchanged — the same gap every shipped `--ground` family mint carries; none has read
+as wrong in-game"). It is **not a frozen-eye axis** (it does not touch silhouette, ecotone, or
+quilt), which is why the eye passes. **Follow-up rung, now precisely scoped**: carry the interior
+verbatim INCLUDING the crest tiles (k=0 makes it a per-cell-corner UV copy of comp[1]'s exact tiles)
+OR decode + place them — either needs the zero-residual classifier extended to admit the crest
+atlas region.
+
+**Site / renders** — centre (608,−1376) ≈ block (9,21); the dunes footprint centres near world cell
+(152,−344). `out/dunes_field_mint_{wide,medium,tight}.png` place the mint beside comp[1]-in-situ at
+the eye's three frozen zooms (WIDE = whole blob, MEDIUM/TIGHT = the ecotone). The WIDE twin reads as
+comp[1] relocated; the ecotone-centred MEDIUM shows the verbatim strip mottling matching stock.
+
+**THE PLACEMENT BLOCKER IS CONSUMED.** The arc's remaining blocker (lifted at "any non-degenerate
+placement") is *spent*: the verbatim carry needs no synthesized placement at all. **THE DUNES
+SIZE-CLASS LAW is satisfied** — a ≥130-cell dunes field that does NOT quilt, reading as comp[1]
+relocated. Zero playtests spent to here (the eye gated first, per the arc's record — 5 dunes rounds,
+zero playtests). Artifacts: `dunes_field_mint.py`, `dunes_host_probe.py`,
+`out/dunes_field_mint.json`.

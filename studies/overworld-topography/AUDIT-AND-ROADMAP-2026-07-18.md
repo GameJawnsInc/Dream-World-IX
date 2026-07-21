@@ -236,8 +236,18 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   with NO visible blend ribbon (placement likely cosmetically free) while **desert|dunes shows a genuine soft
   halo (placement matters)**, which narrows all remaining work to desert|dunes; correction from review: the
   decal's "~47% mainstream" conflated block-INCIDENCE with AREA share (~13% of desert tris) — incidence ≠ extent.
-- [ ] **The ecotone strip PLACEMENT policy (desert|dunes)** — **THE ARC'S ACTUAL REMAINING BLOCKER on the dunes
-  patch carry**, and all that stands between it and a mint. Depth-alone determinism is FALSIFIED (0.5–3.1%
+- [x] **The ecotone strip PLACEMENT policy (desert|dunes)** — **★ BLOCKER CONSUMED 2026-07-21 by the real-scale
+  mint** (`dunes_field_mint.py`, deployed). THE DUNES SIZE-CLASS LAW's whole-stamp unit dissolved the placement
+  question: at ≥130-cell scale the entire boundary is real comp[1] boundary, so a bijective **k=0 identity**
+  transform CARRIES the ecotone rows VERBATIM — no synthesized placement is spent at all (the round-3 BFS emitter
+  is retained as a never-invoked residual fallback). The frozen eye (`dunes_mint_eye.judge`) lands byte-identical
+  to comp[1]'s self-test (M1 5.076 / M2 0.3636 / M3 0.7536·5·hole / M4 0.0), 18/18 gates, deployed both discs at
+  census centre (608,−1376) r56 s2, 9 blocks. THE SIZE-CLASS LAW is SATISFIED. The two design reports were
+  reconciled empirically (census owns siting, stamp design owns the strict dilate3 margin — r48 fails it, r56 k=0
+  clears it). One honest deferred limit: 10/279 dune-crest tiles (off-rect atlas region) not reproduced by the
+  generic `assign_mains` interior — the design's flagged dunes-2×2 gap. Full record: `GROUND-FAMILY-DECODE-2026-07-19.md`
+  §Round 5 (cont.). Awaits the single playtest. — *original blocker history below, kept:*
+- [ ] ~~(historical)~~ Depth-alone determinism is FALSIFIED (0.5–3.1%
   purity); the real structure is a locally-alternating small-step **dither** (|Δrow|=1 dominant, negative lag-1
   autocorrelation, adjacent-same-row 9.8% vs a 25.2% shuffled baseline) riding a soft family-relative bias — but
   the recipe is speculative: unimplemented, unrendered, untested. Unexplained: grass|desert's row marginals
