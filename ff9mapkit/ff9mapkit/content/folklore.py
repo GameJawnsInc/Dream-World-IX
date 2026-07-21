@@ -19,8 +19,51 @@ The engine facts this module encodes (all source-verified -- studies/folklore-co
 - Grant: ``AddItem`` (0x48) with item id ``256 + important_id`` routes through the engine's pool
   decode (``FF9Item_Add_Generic``: id%1000 in [256,512) -> important) -- silent, no dialog/SFX/flag/
   achievement side effects, count>0 grants exactly one.
+
+THE displayRef GRAMMAR (s46 rung 4, the render-rig kit lane -- studies/folklore-codex/RENDER-RIG.md
+section 3): an optional ``display = "<ref>"`` key on ``[[folklore]]`` puts a live 3D creature/model
+portrait behind an entry, wired through ``FolklorePatch.txt``'s THIRD column (the engine already
+parses + stores it as ``Entry.Display``, s45 patch:925-930,986 -- the engine whitespace-splits, so the
+wire token is ONE space-free string). The kit's canonical wire form is ``model:GEO_NAME`` (GEO names
+are ``[A-Z0-9_]+`` by construction, so the emitted token always matches ``^model:GEO_[A-Z0-9_]+$``).
+:func:`resolve_display` resolves an author's ``<ref>`` in order:
+
+  1. a friendly archetype/creature name (``"moogle"``, ``"bandersnatch"``) -- the SAME curated tables
+     ``[[npc]] archetype =`` resolves against (:mod:`ff9mapkit.archetypes`, the playable-character
+     presets + ``ARCHETYPES`` + ``CREATURES``; lookup pattern mirrors ``infohub._model_of_archetype``);
+  2. an exact GEO model name (case-insensitive) or a numeric GEO id, via :mod:`ff9mapkit.catalog`
+     (``catalog.model`` / ``catalog.resolve_model`` -- an unknown name/id raises ``catalog``'s own
+     ``ValueError`` with difflib near-miss hints, propagated VERBATIM, never rephrased);
+  3. an explicit ``model:`` scheme prefix is accepted (and stripped first) but never required --
+     ``display = "model:GEO_MON_B3_118"`` and ``display = "GEO_MON_B3_118"`` resolve identically.
+
+No raw enemy display names (``"Bomb"``): no such catalog exists in the kit and building one is a
+separate provenance-sensitive project. Display is NOT gated on ``category`` (a ``places`` entry
+showing a landmark model is legitimate).
+
+**Canonicalization law:** friendly names die at the kit boundary -- the engine has no archetype
+table, so the emitted token always names the REQUESTED GEO model, never a post-alias donor (the
+engine's own loader replays the alias chain at load time; :func:`ff9mapkit.models.extract.resolve_prefab`
+documents the chain). ``resolve_display("GEO_MAIN_B0_000")`` stays ``"model:GEO_MAIN_B0_000"`` even
+though that id's shipping geometry is actually Zidane's field body (``GEO_MAIN_F0_ZDN``) -- lint
+(:func:`validate_blocks`) surfaces that substitution as an INFO note so a playtest isn't a surprise;
+the build (``build._emit_folklore``) never bakes the donor in either.
+
+**The build-vs-lint split** (the recurring pattern, both routing through :func:`resolve_display`):
+``validate_blocks`` (lint, offline, no install) resolves + additionally runs
+:func:`ff9mapkit.models.extract.resolve_prefab` per entry -- ``pgid == -1`` is an ERROR (the id has NO
+shipping geometry at all), a donor mismatch is an INFO (named, not blocking). ``build._emit_folklore``
+resolves the SAME way but never blocks an entry on a bad display: a resolution failure WARNS and drops
+the display token ONLY -- the entry still ships its two-token ``<id> <category>`` line (the kit's
+standing fail-safe philosophy, one notch finer-grained than the whole-entry warn-and-skip above).
 """
 from __future__ import annotations
+
+import re
+
+from .. import archetypes as _archetypes
+from .. import catalog as _catalog
+from .npc import PRESETS as _CHAR_PRESETS   # vivi/zidane -- the SAME curated presets `archetypes.py` uses
 
 FIRST_FOLKLORE_ID = 80     # 0-79 = real key items (all 7 languages censused empty above 79)
 LAST_FOLKLORE_ID = 254     # 255 = FF9FITEM_RARE_NONE (the Key Items screen's empty-list sentinel)
@@ -39,15 +82,22 @@ DEFAULT_CATEGORY = "lore"
 
 
 def render_patch_lines(blocks) -> list:
-    """The field/mod's ``[[folklore]]`` blocks -> ``FolklorePatch.txt`` lines (``<id> <category>``,
-    ascending by id). Assumes sanitized blocks (the build warns-and-skips; validate reports)."""
+    """The field/mod's ``[[folklore]]`` blocks -> ``FolklorePatch.txt`` lines (``<id> <category>
+    [displayRef]``, ascending by id). A block's ``display`` key (when present) is resolved via
+    :func:`resolve_display` and appended as the third token; a block with no ``display`` (or ``None``)
+    emits the plain two-token line. Assumes sanitized blocks (the build warns-and-skips -- including
+    dropping an unresolvable ``display`` before it ever reaches here; ``validate_blocks`` reports)."""
     lines = []
     for b in sorted(blocks or [], key=lambda x: _check_band(x.get("id") if isinstance(x, dict) else x)):
         cat = str(b.get("category", DEFAULT_CATEGORY)).strip().lower()
         if cat not in CATEGORIES:
             raise FolkloreError(f"[[folklore]] id {b['id']}: unknown category {b.get('category')!r} "
                                 f"(one of {', '.join(CATEGORIES)})")
-        lines.append(f"{_check_band(b['id'])} {cat}")
+        line = f"{_check_band(b['id'])} {cat}"
+        disp = b.get("display")
+        if disp is not None:
+            line += f" {resolve_display(disp)}"
+        lines.append(line)
     return lines
 
 # THE SKIN BUDGET (playtest 2026-07-20: over-long lore CLIPS -- the parchment popup is a FIXED panel,
@@ -115,6 +165,70 @@ def resolve(name_or_id, blocks=None) -> int:
 def pool_id(important_id: int) -> int:
     """The important id -> the AddItem operand (the engine's pool encoding). 80 -> 336, 254 -> 510."""
     return POOL_BASE + _check_band(important_id)
+
+
+# ---- displayRef (s46 rung 4: the render-rig kit lane -- see the module docstring for the grammar) ----
+_DISPLAY_TOKEN_RE = re.compile(r"^model:GEO_[A-Z0-9_]+$")
+
+
+def _friendly_geo(name: str):
+    """A friendly archetype/creature NAME -> its GEO model name, or ``None`` if ``name`` isn't one (not
+    an error yet -- callers fall through to the exact-name/numeric-id path). A local copy of
+    ``infohub._model_of_archetype``'s cheap direct-lookup pattern (the SAME two curated tables
+    ``[[npc]] archetype =`` resolves against) rather than importing :mod:`infohub` itself, which would
+    drag in the prop catalog + the description-comment scraper for one dict lookup; and rather than
+    calling :func:`ff9mapkit.archetypes.resolve`, which RAISES on an unknown key (wrong here -- a miss
+    must fall through to the next resolution step) and does needless animation-table work on a hit."""
+    key = name.strip().lower()
+    if key in _CHAR_PRESETS:
+        model = _CHAR_PRESETS[key][0]           # vivi=8 / zidane=None (keeps the cloned player's model)
+    else:
+        spec = _archetypes.ARCHETYPES.get(key) or _archetypes.CREATURES.get(key)
+        model = spec["model"] if spec else None
+    if model is None:
+        return None
+    m = _catalog.model(model)
+    return m.name if m else None
+
+
+def resolve_display(ref) -> str:
+    """A ``[[folklore]] display = "<ref>"`` value -> the canonical wire token ``"model:GEO_..."`` (the
+    ``FolklorePatch.txt`` third column, ``Entry.Display``). See the module docstring for the full
+    3-step grammar. Raises :class:`FolkloreError` for a structurally bad ``ref`` (not a string/int,
+    empty, embedded whitespace, or a bare ``model:`` with nothing after it) and propagates
+    :mod:`ff9mapkit.catalog`'s own ``ValueError`` VERBATIM for an unknown model name/id (difflib
+    near-miss hints, ``catalog.resolve_model``) -- never rephrased, so the hint text reaches the
+    author unchanged."""
+    if isinstance(ref, bool):
+        raise FolkloreError(f"display must be a string or an integer GEO id, got {ref!r}")
+    if isinstance(ref, int):
+        body = str(ref)
+    elif isinstance(ref, str):
+        s = ref.strip()
+        if not s:
+            raise FolkloreError("display is empty")
+        if any(c.isspace() for c in s):
+            raise FolkloreError(f"display {ref!r} must be a single whitespace-free token (a friendly "
+                                "name, a GEO_ name, a numeric id, or 'model:GEO_...')")
+        body = s[6:].strip() if s[:6].lower() == "model:" else s
+        if not body:
+            raise FolkloreError(f"display {ref!r} names no model after its 'model:' prefix")
+    else:
+        raise FolkloreError(f"display must be a string or an integer GEO id, got {ref!r}")
+
+    geo = _friendly_geo(body)
+    if geo is None:
+        mid = _catalog.resolve_model(body)      # unknown -> ValueError w/ difflib hints, propagated verbatim
+        m = _catalog.model(mid)
+        geo = m.name if m else None
+    if geo is None:                             # pragma: no cover -- defensive: resolve_model already raised
+        raise FolkloreError(f"display {ref!r} did not resolve to a model")
+
+    token = f"model:{geo}"
+    if not _DISPLAY_TOKEN_RE.fullmatch(token):  # pragma: no cover -- defensive: MODELS names are GEO_[A-Z0-9_]+
+        raise FolkloreError(f"internal: resolved display token {token!r} doesn't match "
+                            "^model:GEO_[A-Z0-9_]+$ -- the catalog has a non-canonical GEO name")
+    return token
 
 
 def _check_text(text, where: str) -> str:
@@ -213,4 +327,29 @@ def validate_blocks(blocks) -> list:
                 problems.append(
                     f"{where} (id {iid}) help is {len(v)} chars -- the vanilla maximum is "
                     f"{HELP_MAX_CHARS} (the help bar clips beyond it). Trim it.")
+        disp = b.get("display")
+        if disp is not None:
+            try:
+                token = resolve_display(disp)
+            except (TypeError, ValueError) as e:               # the catalog near-miss error, verbatim
+                problems.append(f"{where} (id {iid}) display {disp!r}: {e}")
+            else:
+                geo = token[len("model:"):]
+                from ..models.extract import resolve_prefab as _resolve_prefab   # offline, baked tables only
+                try:
+                    resolved_name, pgid, _ptint = _resolve_prefab(geo)
+                except (TypeError, ValueError) as e:
+                    problems.append(f"{where} (id {iid}) display {disp!r}: {e}")
+                else:
+                    if pgid == -1:
+                        problems.append(
+                            f"{where} (id {iid}) display {disp!r} ({geo}): ERROR -- no shipping "
+                            "geometry (the id exists in the model table but no prefab ships for it; "
+                            "the codex portrait would render nothing, degrading to the text-only pane)")
+                    elif resolved_name != geo:
+                        problems.append(
+                            f"{where} (id {iid}) display {disp!r} ({geo}): INFO -- an alias-only id "
+                            f"with no prefab of its own; the engine renders {resolved_name}'s shipping "
+                            "geometry instead (automatic substitution, named here so it doesn't "
+                            "surprise anyone at playtest)")
     return problems

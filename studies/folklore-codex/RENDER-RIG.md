@@ -45,20 +45,71 @@
 > the split. The patch is `memoria-patches/s46-folklore-render-rig.patch` (1 file, 9 hunks, both
 > gates green); merged to master with rung 1 proven.
 >
+> **RUNGS 2+3 — BUILT + CAPTURED 2026-07-21 (★ playtest pending — the DLL is compiled but NOT
+> deployed; FF9 was running, so every compile ran `/p:DWIXNoDeploy=true`; deploy build + RELAUNCH
+> needed).** One same-day round, built by a 12-agent Sonnet workflow (`wf_746aa256`: 4 ground lanes →
+> design → implement+compile → 3 adversarial skeptics → repair; the kit lane ran as an independent
+> parallel chain). What shipped, all in `FolkloreUI.cs` (still the one file, no csproj change):
+>
+> - **RUNG 2 — THE LIVING IDLE.** Clip discovery re-implements the viewer's GEO-suffix filter against
+>   a bare GEO name (`GetAnimationsOfModel` is PRIVATE on the viewer's ModelObject wrapper — not
+>   callable); `AddAnimWithAnimatioName` each, first clip plays via the guarded re-Play loop. THREE
+>   grounding catches shaped it: (1) **the culling trap was REAL** — the tree has ZERO
+>   `Animation.cullingType` precedent and the netsync ghost's huge-bounds hack exists precisely
+>   because renderer-level culling lies for offstage models; the rig sets
+>   `AnimationCullingType.AlwaysAnimate` + `updateWhenOffscreen=true` (nothing else animates a model
+>   no enabled camera ever sees). (2) **The pump is `LateUpdate`, not Update** — legacy Animation
+>   samples after Update and before LateUpdate, so a LateUpdate `Render()` captures the CURRENT
+>   frame's pose (MovieMaterialProcessor is the in-tree post-sample-pump precedent). (3) **The
+>   viewer's own re-Play block is un-gated** — copied verbatim it would spam `Play("")` warnings
+>   per-frame on a zero-clip model; ours guards the empty list (static bind pose, still displayed).
+> - **RUNG 3 — THE REGISTRY WIRE + AUTO-FRAMING.** `Entry.Display` finally read:
+>   `ResolveFolkloreDisplay` (scheme `model:` or colon-less shorthand; all-digits →
+>   `FF9BattleDB.GEO.TryGetValue` ONLY — the indexer THROWS on a miss; else `GetGEOID != -1`;
+>   `GEO_SUB_W0` refused — needs lights, rung 5). The monolithic mint split at the seam the plan
+>   named: per-VISIT rig (stage/camera/RT/portrait, unchanged lifecycle) vs per-ENTRY
+>   `EnsureFolkloreModel`/`DestroyFolkloreModel` (HonoBehavior dispose loop + UNCONDITIONAL Destroy,
+>   fields cleared in finally). **Per-entry failure isolation:** a bad token degrades THAT entry to
+>   text-only (warn naming entry+token) and the rig survives; `folkloreRigFailed` stays
+>   rig-infrastructure-only. **Auto-framing** replaces the test-GEO-tuned knobs: 8-corner
+>   `sharedMesh.bounds` aggregation (bind-pose, synchronous, render-independent) transformed into
+>   stage space, skipping DISABLED renderers (isBattle:false disables the battle_model renderer
+>   COMPONENTS, not their GameObjects — a naive walk would pollute the fit), margin 1.2, degenerate
+>   cases fall back to the round-3 proven pose (`CamDist −700`/`AimY −80`, re-roled as fallback).
+>   Retreat lever: `FolkloreRigLiveIdle=false` = rung-1 static behavior including the fallback pose.
+> - **THE SKEPTIC ROUND (7 findings, 3 folded pre-capture):** BLOCKER — `ResolveFolkloreDisplay` ran
+>   outside every try/catch, and `GetGEOID` → `Path.GetFileNameWithoutExtension` THROWS on
+>   `"`/`<`/`>`/`|` in a hand-edited token (the exact malformed-token case the checklist tests);
+>   now whole-body guarded. HIGH — **the fade-window race**: `UIScene.Hide` only `SetActive(false)`s
+>   after the fade elapses, so the one-frame-defer coroutine could resurrect a full animated rig
+>   AFTER `TeardownFolkloreRig` ran → the `folkloreClosing` flag (set first line of Hide, cleared in
+>   Show, checked after every yield). HIGH — the retreat lever didn't gate auto-framing (its comment
+>   overclaimed); now gated with an explicit fallback-pose else-branch. Skipped-with-refutation
+>   MEDIUM: re-running the fit after Play changes nothing — `sharedMesh.bounds` is the STATIC asset
+>   bind-pose, animation never moves it; the 1.2 margin is the absorber (watch on playtest).
+> - **RUNG 4 — THE KIT LANE (offline ★ DONE same session):** `display =` on `[[folklore]]`
+>   (§3 grammar verbatim): `resolve_display` (friendly → exact GEO/numeric id → `model:` prefix),
+>   third-token emission, `validate_blocks` display checks (near-miss hints, `resolve_prefab` alias
+>   INFO), build warn-and-drop-display-only. 63 folklore tests; full suite 3444 passed / 0 failed.
+>   The p0-demo toml now carries `display =` on 80/83/84 and lints clean — the in-game end-to-end
+>   confirmation rides the next demo redeploy.
+> - **Playtest wiring (live `FF9CustomMap/FolklorePatch.txt`, hand-edited):** 80 =
+>   `model:GEO_MON_B3_187` (small) · 83 = `model:GEO_MON_B3_118` (the rung-1-proven baseline) · 84 =
+>   `model:GEO_MON_B3_085` (large) · 81 token-less (text-only path) · 82 = `model:NOT_A_REAL_GEO`
+>   (deliberate garbage — the fail-safe warn). The 12-point checklist is in the workflow record; the
+>   short form: baseline 83 first, then idle motion (two snaps seconds apart), then 80/84 framing,
+>   rapid paging + locked rows, garbage/no-token entries then RESELECT 83 (proves per-entry
+>   isolation), the rung-1 leak snaps, world-map open, 5-10 open/close cycles.
+> - Gates: reverse `-F0` TEXT clean on live; forward `-F0 --binary` onto
+>   `backups/preS46-snapshots.20260721` == live bytes IDENTICAL; 9 hunks. (The recapture's index-line
+>   blob hash differs from the rung-1 capture — `--no-index` context, advisory-only; the byte gates
+>   are the authority.)
+>
 > ## NEXT SESSION — where to pick up
 >
-> - **Rung 2 — THE LIVING IDLE** (§2 below): clip discovery + `Play(animList[0])` + the manual
->   `Render()` moving into `Update` while the pane shows. The rig's skeleton is ready for it: the
->   camera/RT/portrait live in fields, `RenderFolkloreEntry` is the single render funnel, and the
->   HonoBehavior-safe teardown already handles the animated case (the dispose loop is live code the
->   moment clips attach).
-> - **Rung 3 — THE REGISTRY WIRE** (§2): swap the hardcoded `FolkloreRigTestGeo` for `Entry.Display`
->   (already parsed + stored). NOTE for the wire: the FRAMING KNOBS (`FolkloreRigCamDist=-700`,
->   `FolkloreRigAimY=-80`) were tuned on GEO_MON_B3_118 — arbitrary models will frame differently
->   (the model pivot sits low; big/small creatures will over/underfill). Rung 3 likely wants
->   auto-framing (renderer-bounds fit) or per-entry knob tokens; decide there, don't pre-build.
-> - **Rung 4 — THE KIT LANE** (§3, unchanged): `display =` on `[[folklore]]`, `resolve_display`,
->   third-token emission, lint. All offline-provable.
+> - **PLAYTEST RUNGS 2+3** (checklist above): close FF9 → deploy build (msbuild WITHOUT DWIXNoDeploy)
+>   → relaunch → codex at field 30020 (~ → Warp; the FOLKP0 demo save has 80-84 granted after the
+>   discovery walks).
 > - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
 >   lights, idleClip, battle-look flip).
 > - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's

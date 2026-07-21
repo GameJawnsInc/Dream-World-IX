@@ -48,6 +48,7 @@ spawn = [0, -837]
 id = 80
 category = "bestiary"
 name = "Mist Wraith"
+display = "GEO_MON_B3_187"    # s46 rung 3: small creature -- the auto-framing spread's low end
 help = "A restless shape glimpsed where the Mist pools thickest."
 lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
 
@@ -72,6 +73,7 @@ lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Sch
 id = 83
 category = "bestiary"
 name = "Marsh Croaker"
+display = "GEO_MON_B3_118"    # s46 rung 3: the rung-1-proven medium GEO (the known-good baseline)
 help = "A fat frog whose croak carries a storm's worth of warning."
 lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pilot keeps three in a cage by the tiller. “Cheaper than a weather-mage,” he says, “and twice as honest.”"
 
@@ -79,6 +81,7 @@ lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pil
 id = 84
 category = "bestiary"
 name = "Gale Sprite"
+display = "GEO_MON_B3_085"    # s46 rung 3: large creature -- the auto-framing spread's high end
 help = "A flicker of wings seen only when the wind changes."
 lore = "No net has ever held one. Hunters who follow the flicker uphill find only flattened grass and their own hats gone missing. The wind, laughing, gives nothing back."
 
