@@ -160,8 +160,9 @@
 > 118** (THE test case: the clipped crab must now center) · **84 = 085** (large control) · 81/82
 > unchanged fail-safe demos.
 >
-> **THE BODY-BLEND ZOOM (built + captured 2026-07-21; ★ deploy + playtest pending — FF9 was up at
-> capture time).** The flavor-pass playtest ("good") surfaced it: the Dragon Fly rendered as a
+> **THE BODY-BLEND ZOOM (built + captured + DEPLOYED 2026-07-21, DLL `06E6F1719A4990A7` both arches
+> — the deploy fired automatically off a process-exit watch the moment the playtest session closed;
+> ★ playtest pending after a relaunch).** The flavor-pass playtest ("good") surfaced it: the Dragon Fly rendered as a
 > speck. Measured root cause from the settle log: envelope (646.6, 758.2, 530.3) vs the creature's
 > body 449h/426r model units — **the live fit frames the MOTION VOLUME, and a hover-bob makes a
 > flyer's volume ~3.4× its body**; grounded creatures never hit it (envelope ≈ body). The fix
@@ -179,10 +180,9 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **DEPLOY + PLAYTEST THE BODY-BLEND ZOOM**: close FF9 → deploy build → relaunch → Gale Sprite
->   should render ~1.7× larger, wandering within frame; toad/ghost unchanged. The
->   `FolkloreFitExcursionWeight` knob (0.4) is the one-constant tuning lever if the user wants
->   tighter or looser.
+> - **PLAYTEST THE BODY-BLEND ZOOM** (deployed): RELAUNCH → Gale Sprite should render ~1.7× larger,
+>   wandering within frame; toad/ghost unchanged. The `FolkloreFitExcursionWeight` knob (0.4) is
+>   the one-constant tuning lever if the user wants tighter or looser.
 > - ~~**The flavor pass**~~ **DONE 2026-07-21** (registry + demo toml, ★ look-check on the next
 >   relaunch): 80 = 009 the floating ghost (Mist Wraith) · 83 = **026 the Gigan Toad** ("a fat
 >   frog", literally) · 84 = **020 the Dragon Fly** ("a flicker of wings" — shimmer-wings,
