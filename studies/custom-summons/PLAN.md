@@ -1,6 +1,9 @@
 # Custom Summons — feasibility study
 
-> **Status: RESEARCH DONE, build not started.** Opened 2026-07-21 from a 20-agent ultracode workflow
+> **Status: RESEARCH DONE; rung 1 BUILT + DEPLOYED 2026-07-21, playtest pending.** The bench lives at
+> `rung1-borrowed-cinematic/` (deployed to field **30300**, minted ability **"Bahamut Cinema" id 194**
+> on Iviv's Spark command; deploy re-verified byte-exact in the live install; kit work item #4 — the
+> vfx≥511 playParam WARN — landed the same day). Research opened 2026-07-21 from a 20-agent ultracode workflow
 > (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
 > load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
 > + a completeness critic). All file:line citations below were re-derived by skeptic agents against
@@ -309,7 +312,12 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    Proof: the full vanilla Bahamut plays from a non-Garnet/Eiko command. Also proves the command
    is selectable/targetable through the real battle HUD (the critic's input-side gap) — the
    [[playable]] minted-command menu wiring is already in-game proven, this composes it with a
-   summon-scale effect.
+   summon-scale effect. **[BUILT + DEPLOYED 2026-07-21 → `rung1-borrowed-cinematic/`, field 30300,
+   "Bahamut Cinema" minted at id 194 on Iviv's Spark (clone of stock row 62; targets=AllEnemy
+   pinned — the ManyAny disjunct at btl_vfx.cs:99 is the ONLY other Vfx2 trigger, so full-227 is
+   structurally unconditional; Iviv boots 80/80 MP ≥ the faithful 56 cost; auto-learned at AP 0).
+   Offline emission probe verified the live Actions.csv row byte-exact. PLAYTEST PENDING — procedure
+   in the bench README.]**
 2. **Hot-loop probe** — mod-folder-override the donor's own `ef227/PlayerSequence.seq` with one
    retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
    edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
@@ -393,7 +401,12 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    487 stock folders (donor browsing; FixedCameraEffects flags; the missing SpecialEffect catalog).
 3. `battlepatch.py`: `sequence_file` in ATTACK_FIELDS + a String `encode_field` branch (the
    enemy-side lever; also unlocks retuning stock attack VFX — `vfx2` is `[PatchableField]` too).
-4. `actiondelta.py`: tighten vfx1/vfx2 warning at ≥511 (playParam bound).
+4. `actiondelta.py`: tighten vfx1/vfx2 warning at ≥511 (playParam bound). **★ DONE 2026-07-21**
+   (WARN not error — the bound gates SFX.Play/LoadSFX targets, not the folder lookup; both encoder
+   branches + the animation1/2 aliases covered, boundary-tested 510/511. The SFXRework=0 deploy-warn
+   is DEFERRED to the first .seq-emitting rung: rung 1 is rework-independent by construction — ef227
+   is real content under BOTH engines — and the deploy tooling has no "fresh id vs donor reuse"
+   signal yet; gate it like deploy_field's Folklore `[Import]` check when it lands.)
 5. `.sfxmodel` emitter — Sprite first (5 shipping references), FBX manifest second (reuse the
    model pillar's FBX output).
 6. Deploy: the ef-folder tree rides the normal mod-folder copy; no DictionaryPatch registration
