@@ -364,9 +364,20 @@ for _lang in LANGS:
         shutil.copyfile(_src_fk, _live_fk)
         csv_reverts.append((f"{_chan}-{_lang}", str(_live_fk), _had))
         _folk_deployed = True
+# the codex registry sidecar (categories + the s45 screen's entry set + the Key-Items filter)
+_src_fp = tl.folklore_patch
+if _src_fp.exists():
+    _live_fp = live.folklore_patch
+    _had = _live_fp.exists()
+    if _had:
+        shutil.copyfile(_live_fp, BK / f"FolklorePatch.txt.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_fp, _live_fp)
+    csv_reverts.append(("FolklorePatch", str(_live_fp), _had))
+    _folk_deployed = True
+    print("  + FolklorePatch.txt (Folklore codex registry)")
 if _folk_deployed:
     print("  + text/<lang>/keyitem/{imp_name,imp_help,imp_skin}.mes (Folklore codex) -> RELAUNCH to apply "
-          "(KeyItem text loads at engine startup, not the ~ reload)")
+          "(KeyItem text + the FolklorePatch registry load once per process, not the ~ reload)")
     # The one config hazard: [Import] Enabled=1 makes TextImporter run the EXTERNAL combined-KeyItems.strings
     # path and skip the cumulative .mes import entirely -> the codex text would silently never load.
     _ini = Path(GAME) / "Memoria.ini"
