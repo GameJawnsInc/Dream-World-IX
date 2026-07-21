@@ -244,6 +244,17 @@ def test_action_vfx1_is_signed_range_checked(base):
         AD.build_actions_delta([{"action": "Fire", "vfx1": 40000}])         # > Int16 max
 
 
+def test_vfx_playparam_bound_warns(base):
+    text, w = AD.build_actions_delta([{"action": "Fire", "vfx1": 511}])
+    assert any("playParam" in x and "vfx1=511" in x for x in w)
+    cols, rows = _reparse(base, text)
+    assert rows[25][cols["animationid1"]] == "511"                          # the row still emits, this is a WARN
+    _t2, w2 = AD.build_actions_delta([{"action": "Fire", "vfx2": 900}])
+    assert any("playParam" in x and "vfx2=900" in x for x in w2)
+    _t3, w3 = AD.build_actions_delta([{"action": "Fire", "vfx1": 510}])
+    assert not any("playParam" in x for x in w3)                            # just under the bound -- no warning
+
+
 def test_status_clear_and_immunity_lists(base):
     text, _w = AD.build_status_delta([{
         "status": "Poison", "clear_on_apply": ["Defend", "Poison"], "immunity_provided": "Poison"}])
