@@ -1,0 +1,485 @@
+diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
+index 026b2e8..2ac686d 100644
+--- a/Assembly-CSharp/Global/FolkloreUI.cs
++++ b/Assembly-CSharp/Global/FolkloreUI.cs
+@@ -39,6 +39,18 @@ using UnityEngine;
+ public class FolkloreUI : UIScene
+ {
+     private const String ListGroupButton = "Folklore.List";
++    private const String FolkloreRigTestGeo = "GEO_MON_B3_118";   // s46 rung 1: hardcoded test creature
++                                                                    // (the Model Viewer's own test class,
++                                                                    // ModelViewerScene.cs:1725). Registry
++                                                                    // Entry.Display stays unread until rung 3.
++    // s46 round 3 -- FRAMING KNOBS (aesthetic, playtest-tuned; neither is load-bearing). The round-2
++    // snap showed the creature sitting in the UPPER portion of the view (the model pivot is low) with
++    // its legs clipping the old narrow 640x720 aspect. The landscape 680x400 RT widens the horizontal
++    // FOV (no more leg clip); the shorter camera distance grows the creature in the fixed 40-degree
++    // vertical FOV; the aim offset (stage-local, PSX y-down so NEGATIVE = screen-up) re-centers the
++    // low-pivot model vertically.
++    private const Single FolkloreRigCamDist = -700f;   // was -1000 (the viewer's own bench distance)
++    private const Single FolkloreRigAimY = -80f;       // aim above the pivot, toward the body's center
+ 
+     public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
+     {
+@@ -91,6 +103,10 @@ public class FolkloreUI : UIScene
+ 
+     public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
+     {
++        // s46 rung 1: full rig teardown FIRST, unconditionally -- idempotent + exception-safe (see
++        // TeardownFolkloreRig below). Must run even if everything else in Hide later changes -- the
++        // fail-safe ladder's standing law: a dead/half-built rig must never leak past this screen.
++        this.TeardownFolkloreRig();
+         // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
+         // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
+         this.muteSettleDepth = 0;
+@@ -102,6 +118,21 @@ public class FolkloreUI : UIScene
+         PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
+     }
+ 
++    // s46 rung 1 REPAIR: Hide()'s explicit TeardownFolkloreRig() call above is NOT the only
++    // deactivation path -- UIManager.OnLevelWasLoaded (UIManager.cs:244-245, re-verified live)
++    // does `this.FolkloreScene.gameObject.SetActive(false);` directly on EVERY level load, entirely
++    // bypassing this Hide() override. Unity calls OnDisable whenever a GameObject becomes inactive
++    // -- whether via its own SetActive(false) (this codepath) or an ancestor's -- for EITHER
++    // deactivation path, so this makes teardown unconditional IN FACT, not just in a comment.
++    // TeardownFolkloreRig is fully idempotent (every step null-checked, fields cleared in `finally`),
++    // so the double call this produces on the ordinary Hide() flow (explicit call above, then this
++    // OnDisable firing right behind base.Hide's own eventual SetActive(false), sync or fade-deferred
++    // per UIScene.Hide/AfterHide) is a safe no-op.
++    private void OnDisable()
++    {
++        this.TeardownFolkloreRig();
++    }
++
+     public override Boolean OnKeyCancel(GameObject go)
+     {
+         if (base.OnKeyCancel(go))
+@@ -300,10 +331,16 @@ public class FolkloreUI : UIScene
+     {
+         if (this.detailNameLabel == null)
+             return;
++        // s46 rung 1 REPAIR: the pane census runs HERE -- unconditionally, on the very first
++        // RefreshDetail call regardless of whether that first entry is owned or locked -- BEFORE any
++        // portrait is ever minted. This is the only way to read the frame Body sheet's real baked
++        // depth landscape uncontaminated by the new widget.
++        this.DumpDetailPaneOnce();
+         if (this.entries == null || this.entries.Count == 0 || this.currentIndex >= this.entries.Count)
+         {
+             this.detailNameLabel.rawText = String.Empty;
+             this.detailBodyLabel.rawText = String.Empty;
++            this.HideFolkloreRig();                            // no stale creature behind an empty pane
+             return;
+         }
+         FolkloreRegistry.Entry e = this.entries[this.currentIndex];
+@@ -314,14 +351,338 @@ public class FolkloreUI : UIScene
+             if (String.IsNullOrEmpty(lore))
+                 lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
+             this.detailBodyLabel.rawText = lore;
++            this.RenderFolkloreEntryLazily();                  // s46 rung 1: the hardcoded portrait --
++                                                                 // OWNED entries only (the spoiler-safe
++                                                                 // convention this branch already follows:
++                                                                 // the LOCKED branch below surfaces zero
++                                                                 // per-entry data of any kind, on purpose)
+         }
+         else
+         {
+             this.detailNameLabel.rawText = Localization.GetWithDefault("FolkloreLocked");
+             this.detailBodyLabel.rawText = Localization.GetWithDefault("FolkloreLockedHint");
++            this.HideFolkloreRig();                            // LOCKED entries show zero per-entry data
++                                                                 // anywhere in this file -- a rendered
++                                                                 // creature is exactly that kind of leak
+         }
+     }
+ 
++    // s46 rung 1: the one-shot pane census (the file's own dumpedCellOnce/dressing-dump idiom) -- the
++    // only way to know the frame Body sheet's REAL baked depth without guessing. Called from
++    // RefreshDetail's very first invocation, UNCONDITIONALLY and BEFORE any portrait is ever minted,
++    // so the dump reads the pane's true pre-existing depth landscape uncontaminated by the new widget.
++    private void DumpDetailPaneOnce()
++    {
++        if (this.dumpedDetailPaneOnce || this.detailPanel == null)
++            return;
++        this.dumpedDetailPaneOnce = true;
++        foreach (UIWidget w in this.detailPanel.GetComponentsInChildren<UIWidget>(true))
++            Log.Message($"[FolkloreUI] detail pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
++        if (this.portraitPanel != null)
++            foreach (UIWidget w in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                Log.Message($"[FolkloreUI] portrait pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
++    }
++
++    // s46 rung 1 -- lazy mint (never Awake/Show, per the s45 first-open-hang budget), cached for the
++    // screen visit. Returns false (and leaves the pane text-only) on ANY failure -- the codex's
++    // standing law: a rig glitch must never brick the menu (mirrors the try/catch already at
++    // RefreshCategoryList).
++    //
++    // Every this.folklore* field is assigned IMMEDIATELY after the object it backs is constructed,
++    // not batched at the end: a mid-mint exception (the explicit throw below fires on any install
++    // where the test GEO fails to resolve) must leave the catch's TeardownFolkloreRig() able to see
++    // and destroy whatever was actually built -- base.transform lives in UIManager's
++    // DontDestroyOnLoad tree, so an unreachable half-built rig would leak for the whole process.
++    private Boolean EnsureFolkloreRenderRig()
++    {
++        if (this.folklorePortrait != null)
++            return true;                                       // already minted this screen-visit
++        if (this.folkloreRigFailed)
++            return false;                                      // do not retry every selection
++        System.Diagnostics.Stopwatch rigWatch = System.Diagnostics.Stopwatch.StartNew();
++        try
++        {
++            // the stage: far offstage + layer 10 (leak defenses), parented under THIS scene's own
++            // transform -- base.transform already lives inside UIManager's DontDestroyOnLoad tree (the
++            // file's own ROUND-2 LAW), so this satisfies both "outlives nothing it shouldn't" and "dies
++            // with the scene as a backstop" simultaneously; every other clone in this file parents here.
++            GameObject stage = new GameObject("Folklore Render Stage");
++            stage.transform.parent = base.transform;
++            stage.transform.localScale = Vector3.one;
++            stage.transform.localPosition = new Vector3(0f, -10000f, -10000f);
++            this.folkloreStage = stage;                          // commit IMMEDIATELY: any later throw
++                                                                  // in this try must still let the
++                                                                  // catch's TeardownFolkloreRig() reach
++                                                                  // this object (the mid-mint-leak fix)
++
++            GameObject model = ModelFactory.CreateModel(FolkloreRigTestGeo, false, true, Configuration.Graphics.ElementsSmoothTexture);
++            if (model == null)
++                throw new Exception($"ModelFactory.CreateModel returned null for '{FolkloreRigTestGeo}'");
++            model.transform.parent = stage.transform;
++            model.transform.localPosition = Vector3.zero;
++            model.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);        // ModelViewerScene.cs:106
++            model.transform.localRotation = Quaternion.Euler(20f, 0f, 0f);   // static pose -- the
++            // viewer's OWN yaw lives on a SEPARATE wrapper transform driven by drag input
++            // (ModelViewerScene.cs:607-609,617); rung 1 has no interactive rotation to replicate, so a
++            // single composed Euler on the model's own transform is a deliberate simplification, not a
++            // copy of the viewer's mechanism. Yaw 0 = the viewer's own default AND playtest-proven to
++            // face the camera (round 1 shipped a 180 guess -- the user saw the creature's back).
++            foreach (Collider col in model.GetComponentsInChildren<Collider>(true))
++                UnityEngine.Object.Destroy(col);                // leak defense: strip colliders at spawn
++                                                                 // (CreateModel attaches none today, so
++                                                                 // this is moot right now -- cheap
++                                                                 // insurance against a future asset)
++
++            GameObject camGo = new GameObject("Folklore Render Camera");
++            camGo.transform.parent = stage.transform;
++            camGo.transform.localScale = Vector3.one;
++            camGo.transform.localPosition = new Vector3(0f, 0f, FolkloreRigCamDist);   // the viewer's
++                                                                 // -1000 bench (ModelViewerScene.cs:296)
++                                                                 // pulled in -- see the framing knobs
++            Camera cam = camGo.AddComponent<Camera>();
++            this.folkloreCamera = cam;                           // commit IMMEDIATELY (same reason)
++            cam.enabled = false;                                // leak defense: never joins the render
++                                                                 // loop; Camera.Render() still works
++                                                                 // regardless of .enabled
++            cam.cullingMask = 1 << 10;                          // leak defense: layer 10, the one slab
++                                                                 // no stock camera already covers
++                                                                 // (Battle 0xFFFFFFFF, FieldMap 0xFFFFFBDF)
++            cam.depth = -4096f;                                 // leak defense: parking convention, MBG.cs:44
++            cam.clearFlags = CameraClearFlags.SolidColor;
++            cam.backgroundColor = new Color(0f, 0f, 0f, 0f);    // TRANSPARENT -- the rung-5 probe pulled
++                                                                 // forward by the round-1 playtest ("a
++                                                                 // hard-edged black border"): the field
++                                                                 // look's Unlit/Transparent Cutout writes
++                                                                 // clean 0/1 alpha (no PSX battle shader
++                                                                 // in this path), and UITexture's default
++                                                                 // Unlit/Transparent Colored alpha-blends
++                                                                 // -- the creature composites straight
++                                                                 // onto the pane sheet. RETREAT LEVER:
++                                                                 // Color.black restores the opaque box if
++                                                                 // this ever halos on a future asset.
++            cam.fieldOfView = 40f;
++            cam.nearClipPlane = 0.1f;
++            cam.farClipPlane = 10000f;
++            camGo.transform.LookAt(stage.transform.TransformPoint(0f, FolkloreRigAimY, 0f), Vector3.down);
++            // ^ PSX y-down up-vector; the aim point rides the framing knob (stage-local, so ancestor
++            //   scale is honored via TransformPoint) instead of the low model pivot
++
++            // leak defense: stamp layer 10 recursively AFTER model parenting, so the model's own
++            // renderers land on layer 10 too -- NGUITools' layer-INHERIT law only fires through
++            // NGUITools.AddChild, not a plain transform.parent assignment, so this must be an explicit stamp
++            FolkloreUI.SetLayerRecursive(stage, 10);
++
++            RenderTexture rt = new RenderTexture(680, 400, 24);   // 24-bit depth mandatory for 3D --
++                                                                   // the tree's only nonzero-depth RT
++                                                                   // precedent is GEOTEXHEADER.cs:126;
++                                                                   // dims == the portrait seat exactly
++                                                                   // (round 3), so nothing stretches
++            rt.name = "Folklore Rig RT";
++            rt.filterMode = ModelFactory.GetFilterMode(Configuration.Graphics.ElementsSmoothTexture, 0);
++            rt.wrapMode = TextureWrapMode.Clamp;
++            rt.Create();
++            this.folkloreRT = rt;                                // commit IMMEDIATELY (same reason)
++            cam.targetTexture = rt;                              // PERSISTENT -- the one genuinely novel
++                                                                 // composition (Libra's own camera keeps
++                                                                 // this only for one Render() call)
++
++            UITexture portrait = NGUITools.AddWidget<UITexture>(this.portraitPanel, 0);   // depth fixed below
++            this.folklorePortrait = portrait;                    // commit IMMEDIATELY (same reason)
++            portrait.mainTexture = rt;
++            portrait.SetAnchor((GameObject)null);               // the file's own ROUND-2 LAW: anchors
++            portrait.pivot = UIWidget.Pivot.Center;              // re-assert every frame -- SetAnchor(null)
++                                                                  // THEN pivot THEN SetRawRect
++            portrait.SetRawRect(0f, -20f, 680f, 400f);           // round 3: centered in the TOP window
++            // (its own 780x500 pane), nudged 20 down so the caption rail keeps clear air: top edge
++            // +180 vs the window's +250, bottom -220 vs -250. The text lives in the BOTTOM window now
++            // -- no overlap anywhere, the round-2 complaint's actual fix. Seat == RT dims (680x400),
++            // so the render maps 1:1. NEVER call MakePixelPerfect (harmless now that seat == RT, but
++            // the ban stands -- a future RT resize would silently blow the seat).
++
++            // depth: one above the TOP window's OWN Body sheet -- scoped to the portrait's own pane
++            // (the round-3 skeptic: the old min-of-both-labels derivation coupled the bottom
++            // window's label into a decision local to this one). Measured bake per frame clone:
++            // Shadow 3 / Body 4 / Border 8 / Caption 9 -> the portrait lands at 5, above the sheet,
++            // below the border ring and the caption. The runtime read (fallback 4 = the measured
++            // bake) tracks a future re-bake instead of hardcoding. Round-1 history: a blind
++            // textDepth-2 "safety margin" was an EXACT tie with the sheet -- the census log is the
++            // instrument, margins chosen without it can BE the collision.
++            Int32 sheetDepth = 4;
++            foreach (UIWidget fw in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                if (fw.name == "Body")
++                {
++                    sheetDepth = fw.depth;
++                    break;
++                }
++            portrait.depth = sheetDepth + 1;
++
++            this.folkloreRigFailed = false;
++            Log.Message($"[FolkloreUI] rig mint took {rigWatch.ElapsedMilliseconds}ms");   // always log
++                                                                 // the first mint -- cheap, and it
++                                                                 // directly attributes/exonerates the
++                                                                 // s45 first-open-hang investigation
++                                                                 // (measured one frame AFTER Show(),
++                                                                 // not inside it -- see
++                                                                 // RenderFolkloreEntryLazily below)
++            return true;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);                                     // a rig glitch must never brick the menu
++            this.TeardownFolkloreRig();                         // half-built pieces must not leak either
++                                                                 // -- REACHABLE: every field above was
++                                                                 // committed as-you-go, so whatever was
++                                                                 // actually built before the throw is
++                                                                 // visible to (and destroyed by) this call
++            this.folkloreRigFailed = true;                      // never retry every frame/selection
++                                                                 // (TeardownFolkloreRig's own finally
++                                                                 // resets this to false -- this line
++                                                                 // runs AFTER it, so it wins)
++            return false;
++        }
++    }
++
++    // s46 rung 1: the very FIRST render (the rig's own mint) must not execute inside Show()'s own
++    // call frame. Show() unconditionally calls RefreshCategoryList(true), which unconditionally ends
++    // in RefreshDetail() -- so for any save where the default category's row-0 entry is OWNED (the
++    // common case), the owned branch's render would run SYNCHRONOUSLY inside Show(), bundling the
++    // whole rig mint with the exact burst RENDER-RIG.md's build line says to keep clear of. Defer
++    // EXACTLY that one case -- the rig not yet minted -- by a single frame; every later selection
++    // (rig already minted) renders immediately. This is a ONE-SHOT single-frame defer, not a
++    // per-frame drive (mirrors the file's own UnmuteAfterSettle/LogFirstFrames idiom).
++    private void RenderFolkloreEntryLazily()
++    {
++        if (!base.gameObject.activeInHierarchy)
++            return;                                              // StartCoroutine throws on an inactive
++                                                                   // object; unreachable today (UIRoot
++                                                                   // .Broadcast only hits active trees)
++                                                                   // but one line closes the class
++        if (this.folklorePortrait == null && !this.folkloreRigFailed)
++            base.StartCoroutine(this.RenderFolkloreEntryNextFrame(this.currentIndex));
++        else
++            this.RenderFolkloreEntry();                          // rig already built (or known-dead) --
++                                                                   // this call is already off Show()'s
++                                                                   // own call frame (OnItemSelect/
++                                                                   // OnLocalize/StepCategory's settle)
++    }
++
++    private System.Collections.IEnumerator RenderFolkloreEntryNextFrame(Int32 forIndex)
++    {
++        yield return null;                                       // let Show()'s own call frame finish
++                                                                   // first -- the mint happens here, one
++                                                                   // frame later, never inline with Show
++        if (this.currentIndex == forIndex)                        // still the same selection -- render it
++            this.RenderFolkloreEntry();                           // (else: a newer selection already
++                                                                   // re-entered RefreshDetail and will
++                                                                   // handle its own render)
++    }
++
++    // one manual Render() per entry-show (rung 1: no animation, no per-frame drive, no registry parse)
++    private void RenderFolkloreEntry()
++    {
++        if (!this.EnsureFolkloreRenderRig())
++            return;                                              // degrade silently -- text-only pane stands
++        try
++        {
++            this.folklorePortrait.gameObject.SetActive(true);
++            this.folkloreCamera.Render();
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            this.HideFolkloreRig();                               // degrade to text-only, never throw
++        }
++    }
++
++    // hide (not tear down) -- for the locked/empty RefreshDetail branches, so a previously-rendered
++    // creature never shows behind "???" or an empty pane. Safe to call on an unbuilt rig.
++    private void HideFolkloreRig()
++    {
++        if (this.folklorePortrait != null)
++            this.folklorePortrait.gameObject.SetActive(false);
++    }
++
++    // full teardown -- called from Hide AND OnDisable (both idempotent-safe), exception-safe: every
++    // step is null-checked, the catch swallows so neither caller can ever throw out of this method,
++    // and the finally always clears every ref (a second/third call is a cheap no-op).
++    private void TeardownFolkloreRig()
++    {
++        try
++        {
++            if (this.folklorePortrait != null)
++            {
++                this.folklorePortrait.mainTexture = null;
++                this.folklorePortrait.gameObject.SetActive(false);   // same-frame belt-and-brace before
++                                                                      // the deferred Destroy below runs
++                // detailPanel is built ONCE in Awake and lives the whole process (FolkloreUI's
++                // GameObject sits in UIManager's DontDestroyOnLoad tree), so a merely-deactivated
++                // portrait would never be reclaimed -- and the next codex visit mints a BRAND-NEW one
++                // (EnsureFolkloreRenderRig only checks this.folklorePortrait == null, which the
++                // finally below always resets). Destroy it or every ordinary Cancel-out-of-codex
++                // cycle leaks one permanent GameObject+UIWidget under detailPanel.
++                UnityEngine.Object.Destroy(this.folklorePortrait.gameObject);
++            }
++            if (this.folkloreCamera != null)
++                this.folkloreCamera.targetTexture = null;
++            if (this.folkloreRT != null)
++            {
++                this.folkloreRT.Release();
++                // Release() alone drops the native surface but leaves the managed RenderTexture
++                // wrapper referenced by nothing but this about-to-be-nulled field -- Destroy it too
++                // rather than relying on eventual GC/finalizer.
++                UnityEngine.Object.Destroy(this.folkloreRT);
++            }
++            if (this.folkloreStage != null)
++            {
++                this.folkloreStage.SetActive(false);            // SetActive(false) BEFORE any deferred
++                                                                  // Destroy -- Destroy is end-of-frame, a
++                                                                  // stray render could otherwise catch one
++                                                                  // live frame (a NEW discipline -- no
++                                                                  // in-tree precedent exists for this
++                                                                  // exact step)
++                // UnregisterHonoBehavior(dispose:true) disposes h.gameObject -- the HonoBehavior
++                // COMPONENT'S OWN GameObject -- never an ANCESTOR (HonoBehaviorSystem.cs:264-291:
++                // RemoveBehavior's dispose branch passes h.gameObject specifically). In this rig any
++                // future HonoBehavior would sit on `model`, a CHILD of folkloreStage -- so the dispose
++                // call is an EXTRA step (lets HonoBehaviorSystem retire each behavior's own hooks
++                // first), never a substitute for the unconditional ancestor Destroy below.
++                HonoBehavior[] hbs = this.folkloreStage.GetComponentsInChildren<HonoBehavior>(true);
++                if (hbs != null)
++                    foreach (HonoBehavior hb in hbs)
++                        if (hb != null)
++                            hb.UnregisterHonoBehavior(dispose: true);   // the s36 law
++                                                                         // (NetSyncClient.cs:1821-1848)
++                // ALWAYS destroy the ancestor -- takes stage+camera+model with it regardless of
++                // whether the loop above found anything. GEO_MON_B3_118/isBattle:false attaches zero
++                // HonoBehaviors today (ModelFactory.cs has no AddComponent call at all), so `hbs` is
++                // always empty right now -- but the code ships correct for the future rung the
++                // dispose loop was written for.
++                UnityEngine.Object.Destroy(this.folkloreStage);
++            }
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);                                      // teardown itself must never throw
++        }
++        finally
++        {
++            this.folklorePortrait = null;
++            this.folkloreCamera = null;
++            this.folkloreRT = null;
++            this.folkloreStage = null;
++            this.folkloreRigFailed = false;                      // a fresh screen-visit deserves a fresh
++                                                                   // attempt (the "never retry" ladder
++                                                                   // item guards WITHIN one visit only)
++        }
++    }
++
++    private static void SetLayerRecursive(GameObject go, Int32 layer)
++    {
++        go.layer = layer;
++        foreach (Transform child in go.transform)
++            FolkloreUI.SetLayerRecursive(child.gameObject, layer);
++    }
++
+     // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
+     // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
+     // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
+@@ -403,14 +764,25 @@ public class FolkloreUI : UIScene
+         fadeGo.transform.localScale = Vector3.one;
+         base.FadingComponent = fadeGo.GetComponent<HonoFading>();
+ 
+-        // RIGHT pane: the detail WINDOW (bordered -- the stock skin-popup style); caption = entry name.
++        // RIGHT column: THE EQUIP-SENTENCE SPLIT (s46 round 3, user-directed -- "look at Equip: top
++        // and bottom split on its right panels"): TWO stacked bordered windows, the stock Equip
++        // screen's right-column shape (EQUIPMENT over ABILITY) recomposed as PORTRAIT over LORE.
++        // Both are the SAME proven GenericInfoPanel recipe the old single pane used -- nothing new
++        // is synthesized, the primitives are stock. Column footprint unchanged (780 wide at x=410,
++        // spanning the old pane's +400..-480 band): TOP 780x500 @ (410,+150) = the portrait window,
++        // caption = entry name (same label binding, RefreshDetail untouched); a 20-unit gap; BOTTOM
++        // 780x360 @ (410,-300) = the lore window, caption blank (a localization row can name it
++        // later without a DLL change).
+         // (The LEFT side is NOT a built pane: the list donor carries its own AUTHENTIC dressing --
+         // sheet + capped rails + header caption -- resurrected below; the round-9 borderless-frame
+         // approximation had no edges and an inset body.)
+-        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -40f, 780f, 880f, true, out this.detailNameLabel);
++        this.portraitPanel = this.BuildFramedPane(menu, "Folklore Portrait Pane", 410f, 150f, 780f, 500f, true, out this.detailNameLabel);
+         this.detailNameLabel.rawText = String.Empty;
++        UILabel loreCaption;
++        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -300f, 780f, 360f, true, out loreCaption);
++        loreCaption.rawText = String.Empty;
+ 
+-        // the lore body label inside the right pane
++        // the lore body label inside the BOTTOM window (top margin clears the caption rail)
+         GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
+         bodyGo.name = "Folklore Detail Body";
+         bodyGo.transform.parent = this.detailPanel.transform;
+@@ -418,8 +790,8 @@ public class FolkloreUI : UIScene
+         bodyGo.SetActive(true);
+         this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
+         this.detailBodyLabel.SetAnchor((GameObject)null);
+-        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the pane
+-        this.detailBodyLabel.SetRawRect(0f, 330f, 600f, 640f);
++        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the window
++        this.detailBodyLabel.SetRawRect(0f, 140f, 680f, 280f);
+         this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
+         this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
+         this.detailBodyLabel.multiLine = true;
+@@ -623,6 +995,9 @@ public class FolkloreUI : UIScene
+     [NonSerialized]
+     private GameObject detailPanel;
+     [NonSerialized]
++    private GameObject portraitPanel;                      // s46 round 3: the TOP window of the
++                                                            // Equip-sentence split (portrait over lore)
++    [NonSerialized]
+     private UILabel detailNameLabel;
+     [NonSerialized]
+     private UILabel detailBodyLabel;
+@@ -641,6 +1016,22 @@ public class FolkloreUI : UIScene
+     [NonSerialized]
+     private Int32 muteSettleDepth;
+ 
++    // s46 rung 1 -- THE RENDER RIG (studies/folklore-codex/RENDER-RIG.md). Minted lazily on the FIRST
++    // owned-entry selection (never Awake/Show, and deferred one frame past Show() itself -- see
++    // RenderFolkloreEntryLazily), cached for the screen visit, torn down whole in Hide AND OnDisable.
++    [NonSerialized]
++    private GameObject folkloreStage;
++    [NonSerialized]
++    private Camera folkloreCamera;
++    [NonSerialized]
++    private RenderTexture folkloreRT;
++    [NonSerialized]
++    private UITexture folklorePortrait;
++    [NonSerialized]
++    private Boolean folkloreRigFailed;         // a dead rig must never retry every frame/selection
++    [NonSerialized]
++    private Boolean dumpedDetailPaneOnce;
++
+     private class FolkloreListData : ListDataTypeBase
+     {
+         public FolkloreRegistry.Entry Entry;

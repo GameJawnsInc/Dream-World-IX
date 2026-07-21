@@ -1,19 +1,106 @@
 # s46 — THE RENDER RIG (the Folklore display window)
 
-> **Status: RUNG 1 GREEN-LIT (user, 2026-07-21) — to be built in a fresh session.** Rung 1 needs NO user
-> decisions (viewer defaults: opaque background, field look, one static render); the open questions at the
-> bottom gate later rungs only. Plan produced 2026-07-21 by a 4-lane grounding workflow over the engine
-> source (model spawn / RT precedent / anim+layers+lighting / kit grammar; 5 agents, every mechanism claim
-> cited file:line) + synthesis. The headline: the rig is a COMPOSITION OF TWO SHIPPING ENGINE PIECES —
-> Memoria's Model Viewer (spawn any GEO over live NGUI) and the Libra photo (camera -> RenderTexture ->
-> menu) — displayed through stock NGUI UITexture. The genuinely novel pieces (a persistent-targetTexture
-> camera, the runtime UITexture call site, offstage-leak discipline) are each isolated on their own rung.
+> **ROUND 1 PLAYTEST (2026-07-21): THE MECHANISM IS ★ PROVEN — all four §2 checks passed** (creature
+> visible + framed in the pane · clean open/close + L1/R1 + owned↔locked · the field-walk + battle leak
+> snaps clean · world-map codex opens). "Not bad, needs some polish" + two findings, both shipped as
+> **ROUND 2** (built + deployed same day, ★ playtest pending):
+> 1. **Facing** — the yaw-180 guess showed the creature's BACK; round 2 ships yaw **0** (the viewer's
+>    own default).
+> 2. **The hard-edged black box under the text** — the rung-1 opaque default; round 2 pulls the rung-5
+>    TRANSPARENCY probe forward: `backgroundColor (0,0,0,0)` — the field look's Unlit/Transparent
+>    Cutout writes clean 0/1 alpha (no PSX battle shader in this path) and UITexture's default
+>    Unlit/Transparent Colored alpha-blends, so the creature should composite straight onto the pane
+>    sheet. RETREAT LEVER: `Color.black` restores the opaque box.
+> 3. **The census log CAUGHT A REAL LATENT BUG** — measured pane depths: Shadow 3 / **Body sheet 4** /
+>    body label 6 / Border 8 / frame Caption 9. Round 1's `textDepth−2` "safety margin" = **4, an
+>    EXACT TIE with the Body sheet** (the precise instability the skeptic feared; it only happened to
+>    resolve in our favor). Round 2 ships `textDepth−1` (= 5, the unique free slot). **LAW: a safety
+>    margin chosen without the measurement can BE the collision.**
+> Ledger stayed clean: awake 4ms · rig mint **7ms** · first frames 21/3/15 — the rig adds nothing to
+> the s45 hang budget.
 >
-> **For the building session:** the engine stack on master already includes the 2026-07-21 9-row/title-plate
-> s45 recapture (a sibling session; the live `C:\gd\FFIX\Memoria` tree carries it). Build rung 1 as a NEW
-> patch **s46** on top of the current stack; captures follow the PRE-MARKER CR RULE
-> (`memoria-patches/README.md` §s45 — forward `--binary` is now truly byte-exact) and the reverse gate runs
-> on the live tree. Read the `project-ff9-ngui-menu-construction` memory before touching FolkloreUI.
+> **ROUND 2 PLAYTEST (2026-07-21): transparency ★ WORKS (creature composites onto the pane sheet, no
+> box, faces the camera) — but "not really what I had in mind": superimposed text over the model reads
+> badly no matter what. User direction: split the right column like the EQUIP screen's right side
+> (EQUIPMENT over ABILITY) — "can't use the exact same setup... but it proves the primitives."
+>
+> **ROUND 3 — THE EQUIP-SENTENCE SPLIT (built + deployed same day, ★ look-check pending):** two
+> stacked bordered windows via the file's own `BuildFramedPane` (the ControlPanel/GenericInfoPanel
+> recipe — NOT synthy, both windows are the stock skin): TOP 780×500 @ (410,+150) = the PORTRAIT
+> window (caption = entry name, same label binding), 20-unit gap, BOTTOM 780×360 @ (410,−300) = the
+> LORE window (caption blank; body label re-seated 680×280). Column footprint byte-preserved
+> (+400..−480). Portrait re-seated 680×400 centered in the top window; RT resized to 680×400 (seat ==
+> RT, 1:1); NEW FRAMING KNOBS `FolkloreRigCamDist=−700` (was the viewer's −1000) +
+> `FolkloreRigAimY=−80` (stage-local aim-up — the round-2 snap showed the low-pivot model sitting
+> high with legs clipping the narrow aspect). Depth now derives from the TOP pane's OWN Body sheet
+> (+1 → 5) — the round-3 skeptic caught the old min-of-both-labels derivation coupling the bottom
+> window's label into a decision local to the top (plus: a blind margin chosen without the census
+> WAS the round-1 collision — the instrument law again). Skeptic also RECORDED (not fixed — 16
+> approved rounds ship these numbers): the column's right edge (800) exceeds the file's own ±771
+> pillarbox-safe comment by 29 units — check once in 4:3/pillarboxed mode someday.
+>
+> **ROUND 3 PLAYTEST (2026-07-21): ★ "looks good" — RUNG 1 IS CLOSED.** The Equip-sentence split is
+> the shipped layout: portrait window (entry name caption, creature filling the frame on the stock
+> sheet) over the lore window. Three rounds total, all same-day: mechanism → transparency/facing →
+> the split. The patch is `memoria-patches/s46-folklore-render-rig.patch` (1 file, 9 hunks, both
+> gates green); merged to master with rung 1 proven.
+>
+> ## NEXT SESSION — where to pick up
+>
+> - **Rung 2 — THE LIVING IDLE** (§2 below): clip discovery + `Play(animList[0])` + the manual
+>   `Render()` moving into `Update` while the pane shows. The rig's skeleton is ready for it: the
+>   camera/RT/portrait live in fields, `RenderFolkloreEntry` is the single render funnel, and the
+>   HonoBehavior-safe teardown already handles the animated case (the dispose loop is live code the
+>   moment clips attach).
+> - **Rung 3 — THE REGISTRY WIRE** (§2): swap the hardcoded `FolkloreRigTestGeo` for `Entry.Display`
+>   (already parsed + stored). NOTE for the wire: the FRAMING KNOBS (`FolkloreRigCamDist=-700`,
+>   `FolkloreRigAimY=-80`) were tuned on GEO_MON_B3_118 — arbitrary models will frame differently
+>   (the model pivot sits low; big/small creatures will over/underfill). Rung 3 likely wants
+>   auto-framing (renderer-bounds fit) or per-entry knob tokens; decide there, don't pre-build.
+> - **Rung 4 — THE KIT LANE** (§3, unchanged): `display =` on `[[folklore]]`, `resolve_display`,
+>   third-token emission, lint. All offline-provable.
+> - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
+>   lights, idleClip, battle-look flip).
+> - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
+>   right edge 800 vs the ±771 pillarbox comment (one 4:3 look someday); the bottom lore window's
+>   caption is blank — a `FolkloreLoreCaption` localization row can name it with zero DLL work. Captured as
+> `memoria-patches/s46-folklore-render-rig.patch` (ONE file, `FolkloreUI.cs` only — no csproj change; both
+> gates green: reverse `-F0` clean on live, forward `--binary -F0` onto `backups/preS46-snapshots.20260721`
+> == live bytes; the deployed DLL carries the new method names, both arches MD5-match Output). Build shape:
+> a 9-agent ground→design→3-skeptic→repair workflow (Sonnet fleet, `wf_e2b1478a`); the skeptics caught 2
+> BLOCKERs + 2 HIGHs pre-compile, all folded in — the shipped rung 1 therefore DEVIATES from the plan below
+> in five load-bearing ways:
+> 1. **`OnDisable()` teardown backstop** — `UIManager.OnLevelWasLoaded` SetActive(false)'s the scene
+>    directly on every level load, bypassing `Hide()`; OnDisable fires for either path.
+> 2. **The first mint is deferred ONE frame past `Show()`** (`RenderFolkloreEntryLazily` +
+>    a one-shot coroutine) — `Show()` synchronously reaches `RefreshDetail()`, so "lazy on first
+>    selection" was otherwise the first-open burst by another name. Later selections render inline.
+> 3. **As-you-go field commits in the mint** — every `this.folklore*` field is assigned the moment its
+>    object exists, so the catch's `TeardownFolkloreRig()` can destroy a half-built rig (batched-at-end
+>    commits made the catch a no-op → a permanent leak under the DontDestroyOnLoad tree).
+> 4. **Teardown DESTROYS the portrait GameObject + the RT** (not deactivate/Release-only — one leaked
+>    widget per codex visit otherwise) and **`Destroy(stage)` is UNCONDITIONAL** — the HonoBehavior
+>    dispose loop is an extra step, never a substitute (dispose kills the component's OWN gameObject,
+>    a child, not the ancestor).
+> 5. **Portrait depth = `min(labelDepths) − 2`** (tie-avoidance vs the unmeasured sheet depth) + a
+>    one-shot pane depth census (`DumpDetailPaneOnce`) that runs BEFORE any portrait exists — read it
+>    in the log on the first playtest to confirm the margin.
+> Grounding drift kept honest: the viewer's pose is `Euler(20,0,0)` + yaw on a SEPARATE drag wrapper —
+> the rig's composed `Euler(20,180,0)` is a declared simplification (yaw = aesthetic, adjust freely);
+> `SetActive(false)`-before-Destroy has NO in-tree precedent (new discipline, labeled so in-code); the
+> rig parents under `base.transform` (the scene's own DontDestroyOnLoad seat, the file's ROUND-2 LAW) —
+> teardown-on-Hide/OnDisable is the cleanup, not scene death. **Playtest = §2 rung 1's four checks; a
+> DLL change needs a full RELAUNCH.** Rungs 2+ below remain unbuilt; the open questions at the bottom
+> still gate them only.
+>
+> *(Original pre-build note, kept for the record:)* Rung 1 needs NO user decisions (viewer defaults:
+> opaque background, field look, one static render). Plan produced 2026-07-21 by a 4-lane grounding
+> workflow over the engine source (model spawn / RT precedent / anim+layers+lighting / kit grammar;
+> 5 agents, every mechanism claim cited file:line) + synthesis. The headline: the rig is a COMPOSITION
+> OF TWO SHIPPING ENGINE PIECES — Memoria's Model Viewer (spawn any GEO over live NGUI) and the Libra
+> photo (camera -> RenderTexture -> menu) — displayed through stock NGUI UITexture. Captures follow the
+> PRE-MARKER CR RULE (`memoria-patches/README.md` §s45); the `project-ff9-ngui-menu-construction`
+> memory is required reading before touching FolkloreUI.
 
 > **Goal.** A codex bestiary entry displays its creature as a live 3D render inside the existing 780x880 detail pane (`FolkloreUI.cs:410`, `BuildFramedPane` 333-370). The rig is the composition of two proven engine halves — Memoria's **Model Viewer** (spawn any GEO over live NGUI, `ModelViewerScene.cs:1725`) and the **Libra photo** (camera → RenderTexture → menu, `BattleHUD.Public.cs:213-235`) — plus the stock **UITexture** display seat (`Global\UI\UITexture.cs:7-41`). Almost every primitive is cited stock; the NOVEL pieces are flagged and each gets its own rung so a playtest isolates it.
 
