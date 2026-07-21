@@ -390,4 +390,22 @@ One build round + one sound fix, spec at `REDESIGN.md`:
   Hide (deactivation kills coroutines — a mid-window cancel would mute the beep game-wide).
 - Playtests: "the layout is great", "first open is instant", "sounds right now"; survives title→load
   and relaunch. Gate quirk: the reverse patch gate must run TEXT mode (`--binary` mis-parses the
-  csproj's no-newline marker into a phantom fuzz-1).
+  csproj's no-newline marker into a phantom fuzz-1). (Since superseded: the marker was a real byte
+  mismatch — the pre-marker CR rule, minted by the 2026-07-21 9-row round, makes forward `--binary`
+  truly exact; see memoria-patches/README.md §s45.)
+
+## The 2026-07-21 main-menu round (9 rows + the title plate) — ★ DONE, one TODO
+
+The `[Hacks] AllCharactersAvailable` + `[Folklore]` combo (9 command rows) overflowed the command
+window and then exposed the title-plate collapse mechanics; all fixed over 5 build rounds (count-
+derived row pitch · row-children anchor seat · the collapse identity `9 + bakedItemRowY − rowY` ·
+BAKED 74/104 plate minima kept · instant `ResetToMinimum()` on the Party/Folklore descends whose
+Show kills the tween coroutine — the stock Form Party freeze). Laws + census method →
+`~/.claude` memory `project-ff9-ngui-menu-construction`.
+
+**TODO (cosmetic, user-flagged 2026-07-21): sharp corners on the custom screens' inner cards** —
+the Folklore list rows / detail-window body (and the Form Party info cards) show square inner
+corners where stock screens read slightly rounded. Likely the cloned sprites' sliced-corner
+rendering vs the stock atlas variants (`dialog_bg` vs the rounded `card_` sprites) or a
+DisplayWindowBackground atlas swap landing on a square-cornered sprite name. Compare the baked
+Item-screen body sprites' spriteName/type in the level2 dump vs our clones' before styling anything.
