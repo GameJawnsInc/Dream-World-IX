@@ -376,6 +376,21 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    a LIT window if the numbers should read.]**
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
    a bespoke Sprite .sfxmodel). Proof: our particle renders inside the donor cinematic.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung5-particles/` (stage A live, casts pending). HEADLINE
+   RECON FIND: `CreateVisualEffect` has ZERO stock usages across all 487 ef folders — our line is
+   the FIRST-EVER use of the op in any .seq; syntax derived from source, not examples. THE OP LAWS:
+   the `SFXModel=` key alone selects the mode; `Char=Caster` is REQUIRED in practice (absent Char →
+   a 0 bitmask → silent render-on-nobody); the path must be FULL Data/-rooted (no auto-prefix at
+   this call site — `Data/SpecialEffects/...`); `Time/Size/Speed` are PARSED BUT INERT for
+   SFXModel mode (all timing/scale lives in the JSON); the effect is fire-and-forget
+   (self-terminates past its own lastFrame; 0-tick op). Baseline: the bare `Channel` op for minted
+   cmd_no=46 falls to the SPELL case (pale gray-blue-white) — so stage A's added ChannelSummon
+   aura (green/burnt-orange) is visually distinct. The FIGURE-VISIBILITY law does NOT apply here
+   (particle draws ride a different path than the Type=Figure UI — source-read). Stage A (live) =
+   the stock ChannelSummon aura layered into the chant window of the PRIVATE ef084 copy; stage B
+   (built, deploy-tested once, waiting) = `rung5_sprite.sfxmodel` — a bespoke kit-owned no-texture
+   16-tri octagonal RISING RING, magenta (no stock aura uses it), fade-in/expand/rise/fade over
+   ~2.4s. Cast A then cast B, both recast-only.]**
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
    graceful play (chars animate, sound, damage) with no native content at all → Tier 3 is viable;
    also observes what a camera-ownerless effect looks like.
