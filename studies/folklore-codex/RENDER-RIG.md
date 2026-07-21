@@ -162,9 +162,12 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **The flavor pass**: a winged pick for "Gale Sprite" — the contact-sheet method
->   (`model-preview` batch → grid, `sheet_000_023.png` proved it) makes this cheap. One registry +
->   demo-toml edit, one relaunch.
+> - ~~**The flavor pass**~~ **DONE 2026-07-21** (registry + demo toml, ★ look-check on the next
+>   relaunch): 80 = 009 the floating ghost (Mist Wraith) · 83 = **026 the Gigan Toad** ("a fat
+>   frog", literally) · 84 = **020 the Dragon Fly** ("a flicker of wings" — shimmer-wings,
+>   playful-elusive; the bird 004 read raptor and lost). Every pick model-preview-verified with
+>   `_000`-first clip order (the offline-eye law); contact sheets `sheet_000_023.png` /
+>   `sheet_024_047.png` were the method — ~50 previews rendered, zero playtests spent picking.
 > - **Deferred checklist residue** (nothing blocking, verify opportunistically): the 81/82 fail-safe
 >   reselect dance, the field+battle leak snaps, world-map open, 5-10 open/close cycles — the core
 >   paths all rode the three playtest rounds.
