@@ -203,7 +203,7 @@
 > == live).
 >
 > **THE idleClip TOKEN (rung-5; built + captured + DEPLOYED 2026-07-21, DLL `E6556ACEB3D2463C`
-> both arches; ★ playtest pending after a relaunch).** The registry grammar grows a 4th token:
+> both arches; ★ PLAYTEST PASSED same day — "good", the suffix-form proof token then reverted).** The registry grammar grows a 4th token:
 > `<keyItemId> <category> [displayRef] [idleRef]`, idleRef = `idle:<clipName-or-suffix>` — a
 > per-entry override of WHICH clip plays as the idle (the 187-class lesson: discovery-first `_000`
 > isn't always the best look). Engine (4-agent workflow `wf_b9ef9d00`, both lanes SKEPTIC-CLEAN on
@@ -223,9 +223,10 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST THE idleClip TOKEN**: RELAUNCH → codex → the Gigan Toad should now loop its attack
->   lunge instead of its normal idle (unmistakable); ghost/dragonfly unchanged. Then revert 83's
->   `idle:020` (or keep/re-tune to taste — `_ILLUST` showcase poses are candidates worth trying).
+> - ~~**PLAYTEST THE idleClip TOKEN**~~ **★ PASSED 2026-07-21** ("good" — the toad looped its
+>   attack lunge via the suffix-form `idle:020`); the proof token is REVERTED, all demo entries
+>   back on their default idles. The token is now shipping grammar for authors (`_ILLUST` showcase
+>   poses remain candidates worth trying per-entry someday).
 > - ~~**PLAYTEST THE TURNTABLE**~~ **★ PASSED 2026-07-21** ("good"); knobs remain
 >   `FolkloreTurntableDegPerSec` (25) / `FolkloreRigTurntable` (kill).
 > - ~~**PLAYTEST THE BODY-BLEND ZOOM**~~ **★ PASSED 2026-07-21** ("way bigger");
