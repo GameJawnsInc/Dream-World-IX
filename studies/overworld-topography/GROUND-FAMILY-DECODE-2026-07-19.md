@@ -768,3 +768,15 @@ census.**
   game-gated tests lock it in: the shipping invariant (0 sea3-abuts-deep in the (7,17) neighbourhood) and
   the real (7,17) carry (warns→ok by default, refuses under enforce, waived under allow). 362 world tests
   green; the deployed island still censuses 0 (no false-warn), enforced-OK, effective-prefab idempotent.
+
+**§4 ADDENDUM 9 — RIM-RETILE PLAYTEST: CONFIRMED; the user names the SIBLING CLASS (2026-07-20e).**
+The user sailed the re-tiled shore: *"good"* — the 17-seam rim re-tile is **★ IN-GAME PROVEN** (the
+Sea3/Sea5→Sea4 shore termination reads clean). The screenshot's remaining hiccup, in the user's own
+analysis (verbatim intent): *there are 3 levels of deepness and 2 transition tile types; the round handled
+the 2nd-deepest→deepest transition (Sea3/4/5); where the 3rd-deepest [the shallowest coastal water,
+sea1/sea2] meets the deepest in the implant, a HARD EDGE forms — expected, since no transition tiles exist
+between these two types. **Don't force it: assess the options, or accept for now.*** This is the crop's
+sibling class the retile deliberately did not touch (sea1/sea2/beach1 rode verbatim). Assessment round
+launched (no build): the deployed-site adjacency census (crop-created vs donor-verbatim, incl. whether
+stock EVER shows sea1/sea2-abuts-sea4) + the lawful-options study (accept / {sea1,sea5} mediation ring /
+full ring-ladder termination / shelf extension) — disposition is the user's call on its results.
