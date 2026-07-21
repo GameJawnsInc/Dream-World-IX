@@ -135,7 +135,9 @@
 > User direction: "ideally they would be centered in the frame."
 >
 > **ROUND 3 — THE LIVE-SILHOUETTE FIT (built + captured + DEPLOYED 2026-07-21, DLL
-> `3000418F860C843B` both arches; ★ playtest pending after a relaunch).** A 4-agent Sonnet workflow
+> `3000418F860C843B` both arches; ★ PLAYTEST PASSED same day — "good". THE RUNGS 2+3 ARC IS
+> CLOSED: wire, swap, living idle, and animated-pose framing all in-game proven over 3 same-day
+> rounds).** A 4-agent Sonnet workflow
 > (`wf_35b1f0c0`: implement-with-grounding → 2 skeptics → repair). The mechanism: at mount every
 > SkinnedMeshRenderer gets `updateWhenOffscreen = true` (the DELIBERATE OPPOSITE of the netsync
 > ghost's false+huge-bounds — the ghost wants never-culled-CHEAP, the rig wants per-pose ACCURATE
@@ -160,14 +162,17 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST ROUND 3** (live fit): RELAUNCH → codex → Bestiary. Row 2's crab (118) is the verdict:
->   centered + filling the frame = the round is proven. Watch for a subtle one-time settle as the
->   camera adopts the live silhouette (by design, first ~1 idle loop); jitter or drift = a defect.
->   Row 1 ghost + row 3 large beast should also be centered. Then the remaining checklist items
->   (locked rows, 81/82 fail-safes, reselect-after-garbage, leak snaps, world-map open, open/close
->   cycles).
-> - **The flavor pass** (after the fit is proven): a winged pick for "Gale Sprite" — the
->   contact-sheet method (`model-preview` batch → grid) makes this cheap.
+> - **The flavor pass**: a winged pick for "Gale Sprite" — the contact-sheet method
+>   (`model-preview` batch → grid, `sheet_000_023.png` proved it) makes this cheap. One registry +
+>   demo-toml edit, one relaunch.
+> - **Deferred checklist residue** (nothing blocking, verify opportunistically): the 81/82 fail-safe
+>   reselect dance, the field+battle leak snaps, world-map open, 5-10 open/close cycles — the core
+>   paths all rode the three playtest rounds.
+> - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
+>   lights, idleClip token, battle-look flip).
+> - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
+>   right edge 800 vs the ±771 pillarbox comment; the blank lore-window caption
+>   (`FolkloreLoreCaption` localization row, zero DLL).
 > - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
 >   lights, idleClip, battle-look flip).
 > - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
