@@ -325,6 +325,17 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
    edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
    the SHARED folder — vanilla Bahamut changes too. Rung 3 fixes that.)
+   **[BUILT + DEPLOYED 2026-07-21 → `rung2-seq-hot-edit/` (verifier READY; build→revert→build
+   idempotency proven; stock-sha drift guard). The LIVE override at FF9CustomMap/StreamingAssets/
+   Data/SpecialEffects/ef227/PlayerSequence.seq carries exactly 2 edits: `PlaySound: Sound=103`
+   (stock Menu-Select blip) as the new first line + `SetBackgroundIntensity Time=12→45` (the
+   pre-summon blackout fade ~0.8s→3s — the unmistakable retimed beat). TWO-TRACK SOUND DESIGN:
+   the stock-id blip proves DSL injection on a mere recast (SoundMetaData's id table loads ONCE at
+   process start, so a fresh minted id cannot go live on a running game); Track B — minted sfx id
+   100000, a synthetic 880Hz chime (zero SE bytes) — is deployed to the manifest + Sounds tree but
+   INERT until the next relaunch, after which `PlaySound: Sound=100000` closes §8's minted-id
+   question. ⚠ the override is ACTIVE: stock Garnet/Eiko Bahamut is altered too until
+   `revert_rung2.py`. PLAYTEST: no relaunch, no redeploy — re-enter a battle on 30300, recast.]**
 3. **Fresh-id private copy** — mint an unused id <511; ship `ef{N}/PlayerSequence.seq +
    Sequence.seq` as the donor's copy (`LoadSFX: SFX=Bahamut__Full` by NAME). Proof: plays
    identically under id N while stock Bahamut is untouched → the global-namespace collision is
@@ -393,12 +404,29 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
 - Diorama-path freeze ceiling (see §7). → before shipping.
 - `PlaySound` with minted ids ≥100000 inside a .seq — expected to work (same SoundLib), unproven.
   → rung 2.
-- **THE CRUNCHY-AUDIO QUESTION (from the rung-1 proof playtest, 2026-07-21):** the borrowed Bahamut's
-  sound was "a little crunchy at times." Since the bench plays effect id 227 AS itself (same playback
-  path as a stock Garnet cast — only the command/ability id upstream differs), the crunch is almost
-  certainly engine-playback territory, not our binding — but that needs characterizing: rework-audio
-  vs legacy, known #917-class reports, install audio config, and a cheap A/B the user can run.
-  → the audio investigation.
+- **THE CRUNCHY-AUDIO QUESTION — INVESTIGATED 2026-07-21 (3-lens workflow, engine + web + install):**
+  the crunch is NOT our binding (the bench plays ef227 as itself; the pitch-table switch keys purely
+  on the effect id, so a stock Garnet cast runs identical low-level audio code). Findings:
+  (a) **the legacy SFX.cs summon-sound layer (AdjustSoundIndex/SoundPlay pitch tables, StreamPlay's
+  1.3× volume) does NOT run live under rework** — it was export-tooling whose output got BAKED into
+  the shipped .seq PlaySound lines; live audio = .seq `PlaySound` → SoundEffectPlayer → SaXAudio;
+  (b) **structural: NO limiter/compressor anywhere in the SaXAudio chain** (AudioEffectManager =
+  Reverb/Eq/Echo/Volume only) — any voice stack on BusSoundEffect hard-clips; the stock Summon
+  channel fires 3 simultaneous full-volume sounds on one frame at every summon charge-up, RunThread
+  overlap triggers a force-stop/restart dedup (0.1s fade), and Speed=5 simultaneous ATB multiplies
+  stacking; (c) **community: the vanilla PC-port summon SFX assets are known-poor** ("squeaky,
+  pitchy" Silicon Studios re-creations of lost-source audio; Bahamut singled out even post-Moguri)
+  — an asset-quality ceiling fixed only by sound-replacement mods (FFIX Sounds Fix v2.2 / Moguri
+  "PlayStation Sounds"); #193 = abrupt StopSound clicks on Bahamut__Short specifically; a SaXAudio
+  OnBufferEnd race was fixed on Memoria canary 2026-07-19 (PR #1453, crash-class, post our pin);
+  (d) **install: Backend=1 (recommended — the Soloud-48kHz candidate ruled out), Moguri ships ZERO
+  audio (ruled out), PriorityToOGG is a no-op here (no loose .ogg exists for this content), and
+  `[Cheats] SpeedMode=1` (default ON) multiplies pitch by the F1 fast-forward factor if engaged.**
+  **THE 2-STEP A/B (user):** 1) recast with F1 fast-forward certainly OFF ($0, same session);
+  2) flip `[Audio] Backend` 1→2 + relaunch + recast — clean under Soloud ⇒ SaXAudio resampler
+  artifact (run Backend=2); same crunch ⇒ the shared pitch-table/asset territory ⇒ the fix is an
+  audio-replacement mod, not the kit. Optional decisive third: `[Hacks] AllCharactersAvailable=1`
+  → a real Garnet Bahamut on the same install (predicted identical — full binding exoneration).
 
 ## 9. Kit work items (when the build starts)
 
