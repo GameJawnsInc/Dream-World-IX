@@ -20,11 +20,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   a carry that emits a layer the armed donor prefab cannot bind.
 - **The Wang-carry gate** — a post-carry, land-aware marching-band edge census of the carried cells' outer
   frame: a shallow/transition tile abutting the open-ocean deep ring with no transition ring is a cropped-
-  Wang seam (the 17 rim seams the (8,17)+2×2 island carry introduced). **Report-only by default** (it does
-  not yet subtract the donor-site baseline, so it cannot auto-separate a carry-introduced seam from a real
-  beach island's own verbatim donor shelf — enforcing by default would false-positive proven carries like
-  (7,17)); `--enforce-wang-carry` hard-fails on any incoherent frame edge (for a fresh mint onto known-deep
-  open ocean, where every frame edge *is* a crop) and `--allow-wang-seams` waives even then. Both gates are
+  Wang seam (the 17 rim seams the (8,17)+2×2 island carry introduced). The predicate is **sound** — a
+  map-wide census of shipping FF9 finds **zero** sea3-directly-abuts-sea4 edges across any block border
+  (all 194 shallow→deep transitions are sea5-mediated; `studies/overworld-topography/wang_seam_census.py`),
+  so a flagged edge is a real seam. **Report-only by default, but now WARNS visibly** — `world-transplant`
+  prints a `!! WARNING wang-carry: N cropped-Wang frame seam(s)…` line (no longer a bare `-> ok`) pointing
+  to the re-tile / `--enforce-wang-carry` / `--allow-wang-seams`. It does *not* refuse by default because
+  carrying **any** coastal island standalone necessarily crops the neighbour blocks that hosted its sea5
+  transition rings, so a real coastal donor (e.g. (7,17) alone → 16 flagged edges) legitimately produces
+  frame seams, fixed by a human-reviewed post-carry re-tile (the shallow-rim look at the exact carry is the
+  user's visual call, Hard-Constraint S2). A **donor-baseline subtraction does not enable a safe hard-fail
+  default**: with zero pre-existing sea3-abuts-deep edges anywhere, there is nothing to subtract — every
+  flagged sea3 frame edge is crop-introduced, so the subtraction collapses to the raw count and would
+  refuse every coastal carry (empirically the donor-outward-deep baseline calls 15/16 of the proven (7,17)
+  carry "introduced"). `--enforce-wang-carry` hard-fails on any incoherent frame edge (a fresh mint onto
+  known-deep open ocean, or a post-retile CI check); `--allow-wang-seams` waives even then. Both gates are
   byte-neutral over every already-deployed lawful carry.
 
 ### Changed — the in-game debug menu: functionality round

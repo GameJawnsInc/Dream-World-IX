@@ -2650,8 +2650,13 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     if summary.get("blanked"):
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
     for g in summary["gates"]:
-        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
+        if g.get("warn"):
+            print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
+                  f"the carried rim -- shipping FF9 has NO sea3-abuts-deep borders, so review these "
+                  f"in-game and re-tile the rim, or pass --enforce-wang-carry to refuse "
+                  f"(--allow-wang-seams to silence).")
     if not summary["clean"]:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2

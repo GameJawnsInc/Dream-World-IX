@@ -2159,10 +2159,12 @@ def test_wang_carry_gate_flags_cropped_shallow_frame_when_enforced():
     (a hard shallow|deep seam).  Report-only by default (ok True); enforce -> fails; allow -> waived."""
     sea = {(0, 0): {"sea3": _sea_cell_quad("sea3", 0, 5),        # (0,5) is on the W frame (i=0)
                     "sea4": _sea_cell_quad("sea4", 8, 8)}}
-    assert TR.wang_carry_gate(sea, {(0, 0)})["ok"] is True                          # report-only default
+    g_def = TR.wang_carry_gate(sea, {(0, 0)})
+    assert g_def["ok"] is True and g_def["warn"] is True         # report-only default -> WARNS (visible)
     g_enf = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
-    assert g_enf["incoherent"] >= 1 and g_enf["ok"] is False
-    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True, allow=True)["ok"] is True
+    assert g_enf["incoherent"] >= 1 and g_enf["ok"] is False and g_enf["warn"] is False   # fails, not warns
+    g_allow = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True, allow=True)
+    assert g_allow["ok"] is True and g_allow["warn"] is False    # explicitly waived -> no warning
 
 
 def test_wang_carry_gate_coherent_deep_frame_is_zero():
@@ -2204,5 +2206,66 @@ def test_transplant_wang_carry_report_only_by_default(monkeypatch):
     s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8)
     wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
     assert wc["enforced"] is False and wc["ok"] is True
+    assert wc["incoherent"] == 0 and wc["warn"] is False        # a full-deep island carry is seam-free
     ep = next(g for g in s["gates"] if g["gate"].startswith("effective-prefab"))
     assert ep["ok"] is True
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_shipping_invariant_no_sea3_abuts_deep():
+    """THE DECISIVE CENSUS behind the report-only default: shipping FF9 NEVER abuts a sea3 (shallow) tile
+    to a sea4 (deep) tile across a block border -- every shallow->deep step is sea5-mediated.  So the
+    wang-carry predicate is SOUND (a flagged sea3-abuts-deep frame edge is a real seam, not a false
+    positive on legitimate coast).  Scoped to the (7,17) beach-island neighbourhood (the full map-wide
+    run lives in studies/overworld-topography/wang_seam_census.py)."""
+    G = 16
+
+    def shade(bx, by):
+        g = [["none"] * G for _ in range(G)]
+        for part in ("sea3", "sea4", "sea5"):
+            for tri in TR.world_tris(bx, by, part, disc=1, lod="0_1", game=None):
+                i = int((sum(v[0][0] for v in tri) / 3 - 64.0 * bx) // 4)
+                j = int((-(sum(v[0][2] for v in tri) / 3) - 64.0 * by) // 4)
+                if 0 <= i < G and 0 <= j < G:
+                    g[i][j] = part
+        return g
+    region = [(6, 16), (7, 16), (8, 16), (6, 17), (7, 17), (8, 17), (6, 18), (7, 18), (8, 18)]
+    S = {c: shade(*c) for c in region}
+    step = {"E": (1, 0), "W": (-1, 0), "N": (0, -1), "S": (0, 1)}
+    seam = 0
+    for (bx, by), g in S.items():
+        for i in range(G):
+            for j in range(G):
+                if g[i][j] != "sea3":
+                    continue
+                for (di, dj) in step.values():
+                    if not (i + di < 0 or i + di > 15 or j + dj < 0 or j + dj > 15):
+                        continue                                # cross-block-border only
+                    ni, nj, nbx, nby = i + di, j + dj, bx, by
+                    if ni < 0: nbx, ni = bx - 1, 15
+                    elif ni > 15: nbx, ni = bx + 1, 0
+                    if nj < 0: nby, nj = by - 1, 15
+                    elif nj > 15: nby, nj = by + 1, 0
+                    ng = S.get((nbx, nby)) or shade(nbx, nby)
+                    if ng[ni][nj] == "sea4":
+                        seam += 1
+    assert seam == 0, f"shipping FF9 sea3-abuts-deep border found ({seam}) -- predicate premise broken"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_real_coastal_carry_warns_but_does_not_refuse():
+    """A REAL beach-island carry (donor (7,17)) crops the neighbour blocks that hosted its sea5 transition
+    rings, so it legitimately produces frame seams (16).  The gate WARNS by default (visible, ok stays
+    True -- the build is not refused: re-tile or accept is the human's call), and REFUSES only when
+    enforced.  This is the (7,17) evidence the report-only default is built on -- carrying any coastal
+    island standalone is expected to warn, never silently or fatally."""
+    s = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True)
+    wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
+    assert wc["incoherent"] == 16 and wc["enforced"] is False and wc["ok"] is True and wc["warn"] is True
+    e = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True, enforce_wang_carry=True)
+    ew = next(g for g in e["gates"] if g["gate"] == "wang-carry")
+    assert ew["ok"] is False and ew["warn"] is False and e["clean"] is False        # enforce -> refuse
+    a = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True,
+                      enforce_wang_carry=True, allow_wang_seams=True)
+    aw = next(g for g in a["gates"] if g["gate"] == "wang-carry")
+    assert aw["ok"] is True and aw["warn"] is False                                  # allow -> waived

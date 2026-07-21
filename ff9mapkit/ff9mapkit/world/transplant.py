@@ -2263,16 +2263,25 @@ def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
     over-flags real coastlines).  A ``sea3``/mis-oriented-``sea5`` tile on a frame edge (facing the
     open-ocean deep ring) is ``incoherent`` and surfaced in ``incoherent``/``detail``.
 
-    ``enforce`` controls whether an incoherent frame edge FAILS the build.  It defaults **OFF** (report-
-    only, ``ok`` always True) because the raw frame census cannot yet distinguish a carry-INTRODUCED seam
-    (the crop severed a shelf continuation) from a PRE-EXISTING donor coast tile (a real beach island's
-    own shallow shelf already faces its ocean at the donor site -- e.g. the proven (7,17) carry shows 16
-    such frame edges, all its verbatim donor shelf, none carry-introduced; the site-prep's "the donor-
-    site baseline is 4, not 0").  Separating the two needs the DONOR-BASELINE subtraction (census the
-    donor cells against their REAL neighbourhood and subtract), which the rim-retile round implements end-
-    to-end (frame-vs-generic-deep -> 0 with introduced==0); until it lands here, enforcement is opt-in.
-    ``enforce=True`` hard-fails on any incoherent frame edge (for a fresh mint onto known-deep open ocean,
-    where every frame edge IS a crop); ``allow`` waives even then.
+    ``enforce`` controls whether an incoherent frame edge FAILS the build.  It defaults **OFF** -- report-
+    only with a ``warn`` flag, ``ok`` stays True -- and this is NOT because the predicate is unreliable.
+    The opposite: a map-wide census of shipping FF9 finds **ZERO** sea3-directly-abuts-sea4 edges across
+    ANY block border (all 194 shallow->deep transitions are sea5-mediated;
+    ``studies/overworld-topography/wang_seam_census.py``), so a flagged sea3-abuts-deep frame edge IS a
+    real seam.  The default does not REFUSE because carrying ANY coastal island standalone necessarily
+    crops the neighbour blocks that hosted its sea5 transition rings -- so a real coastal donor (e.g.
+    (7,17) alone shows 16 flagged frame edges) legitimately PRODUCES frame seams, fixed by a post-carry
+    RE-TILE (the ``studies/overworld-topography/wang_rim_retile.py`` pattern), a human-reviewed step (the
+    shallow-rim look at the exact carry is the user's visual call, Hard-Constraint S2).  So the gate WARNS
+    by default and refuses only on demand.
+
+    NOTE (why there is no safe hard-fail-by-default): a DONOR-BASELINE subtraction (census the donor's own
+    frame and subtract the "pre-existing" seams) does not help -- since shipping FF9 has no sea3-abuts-deep
+    edge ANYWHERE, there is no pre-existing such edge to subtract; every flagged sea3 frame edge is
+    crop-introduced, so the subtraction collapses to the raw count and would refuse every coastal carry
+    (empirically the donor-outward-deep baseline calls 15/16 of the proven (7,17) carry "introduced").
+    ``enforce=True`` hard-fails on any incoherent frame edge (a fresh mint onto known-deep open ocean, or
+    a post-retile CI check); ``allow`` waives even then.
 
     ``sea_by_cell`` = ``{(bx,by): {lower_part: BlockMesh}}`` for the carried WATER cells; ``region_cells``
     = the set of ``(bx,by)`` in the carried region (an edge to a NON-region block faces the deep ring)."""
@@ -2307,8 +2316,12 @@ def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
                                                f"sea5 deepset {sorted(ds) if ds else None} !point {d}"))
     detail = "; ".join(f"({bxy[0]},{bxy[1]})@{ij}.{d}" for (bxy, ij, d, _r) in incoherent[:6])
     ok = allow or (not enforce) or not incoherent
+    # WARN by default (report-only, ok True) when the carry produced real cropped-Wang frame seams --
+    # the count is surfaced but the build is not refused (a coastal carry is expected to be re-tiled or
+    # accepted by the human).  Suppressed once enforced (then it FAILS) or explicitly allowed.
+    warn = bool(incoherent) and not enforce and not allow
     return {"gate": "wang-carry", "incoherent": len(incoherent), "enforced": bool(enforce),
-            "detail": detail or 0, "ok": ok}
+            "warn": warn, "detail": detail or 0, "ok": ok}
 
 
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):

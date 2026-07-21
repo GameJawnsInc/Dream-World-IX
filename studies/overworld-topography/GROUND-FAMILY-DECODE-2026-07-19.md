@@ -733,3 +733,38 @@ geometry == the stock disc1 donor Object but != the disc4 donor Object (the stoc
 disc trees), so `discmirror` pins the disc1-source bytes as a Disc4 override to force cross-disc parity of
 the free-riding scenery. Verified preserved byte-identical (4076B/64e2abdc) — the re-tile touched only
 Sea3/4/5, never the Object.
+
+**§4 ADDENDUM 8 — THE WANG-CARRY DEFAULT REVIEW: the finding CONFIRMED, its remedy REFUTED-with-evidence,
+the gate made VISIBLE (2026-07-20e).** A review flagged (major): "the wang-carry gate is report-only by
+DEFAULT — the money protection only exists behind `--enforce-wang-carry`; a normal `world-transplant` run
+reports `-> ok` on the original broken (8,17) carry." The FACT is confirmed (the default does not refuse).
+Its recommended REMEDY — "productize the donor-baseline subtraction so it can safely hard-fail by default"
+(ADDENDUM 7's Target-2 rationale, and the gate/CHANGELOG's own words) — is **refuted by a decisive
+census.**
+
+- **THE DECISIVE CENSUS (`wang_seam_census.py`, whole stock map):** across EVERY block border in shipping
+  FF9, a sea3 (shallow) tile's cross-border neighbour is **NEVER** sea4 (deep) — **0** map-wide. Every
+  shallow→deep transition is sea5-mediated (194) or stays shallow→shallow (~1300+). So the gate's predicate
+  ("sea3 abuts deep ring = incoherent") encodes a REAL shipping invariant — it does NOT over-flag
+  legitimate coast.
+- **∴ THE FINDING'S PREMISE IS FALSE.** ADDENDUM 7 (and the finding) asserted the proven (7,17) carry's 16
+  frame edges are "all verbatim donor shelf, NONE carry-introduced" — a legitimate pre-existing coast the
+  baseline would exempt. But real FF9 has ZERO sea3-abuts-deep: (7,17)'s shelf never faces bare deep in the
+  real map (its sea5 transition rings live on the NEIGHBOUR blocks (6,17)/(7,16)/…). Carrying (7,17)
+  standalone CROPS those neighbours → its 16 frame edges are all crop-introduced seams, not pre-existing
+  coast. (7,17) was proven for walk/render, its shallow RIM never scrutinized at this level.
+- **∴ A DONOR-BASELINE SUBTRACTION CANNOT ENABLE A SAFE HARD-FAIL DEFAULT.** With zero pre-existing
+  sea3-abuts-deep edges anywhere, there is nothing to subtract — every flagged sea3 frame edge is
+  crop-introduced. The subtraction collapses to the raw count and would refuse EVERY coastal-island carry
+  (empirically the donor-outward-deep baseline calls **15/16** of the proven (7,17) carry "introduced").
+  Flipping the default to hard-fail would therefore refuse the whole coastal-carry workflow — a regression;
+  and the shallow-rim look at the exact carry is the human's visual call (Hard-Constraint S2: carry →
+  review → re-tile-or-accept). The prior round's report-only default is CORRECT, not a gap.
+- **THE FIX SHIPPED (this round, code+docs+tests, no mod-tree change):** the gate now sets a `warn` flag by
+  default and `world-transplant` prints a loud **`!! WARNING wang-carry: N cropped-Wang frame seam(s) …`**
+  line (was a bare `-> ok`) pointing to the re-tile / `--enforce-wang-carry` / `--allow-wang-seams` — the
+  protection is VISIBLE and actionable without refusing. The unsound "false-positives (7,17)" /
+  "baseline-subtraction next round" rationale is corrected in the gate docstring, CHANGELOG, and skill. Two
+  game-gated tests lock it in: the shipping invariant (0 sea3-abuts-deep in the (7,17) neighbourhood) and
+  the real (7,17) carry (warns→ok by default, refuses under enforce, waived under allow). 362 world tests
+  green; the deployed island still censuses 0 (no false-warn), enforced-OK, effective-prefab idempotent.
