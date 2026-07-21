@@ -103,6 +103,41 @@ def _world_tris_from_bm(bm, bx, by):
     return out
 
 
+def bm_world_tris(bm, bx, by):
+    """A freshly-built (pre-deploy) BlockMesh -> world tris [(p3,topo,fam)] -- the in-memory
+    equivalent of :func:`deployed_world_tris`, so the carry's own gate suite can census the
+    REBUILT blocks before a single byte reaches the game (the fix must be proven in-memory)."""
+    return _world_tris_from_bm(bm, bx, by)
+
+
+def census_built_blocks(world_by_block):
+    """Cross-block seam census over an IN-MEMORY ``{(bx,by): [(p3,topo,fam),...]}`` (freshly-built,
+    pre-deploy) -- the same instrument as :func:`run_crack_census` without touching disk. Returns
+    ``(recs, totals)``; ``totals`` = dict(steps, holes). The calibration NULL still lives on the
+    stock donor region (:func:`run_crack_census`), so a caller gates the built totals only after
+    the NULL has proven the instrument raises 0 phantom seams on shipping data."""
+    recs = []
+    for (A, B, axis, plane) in adjacency_pairs(list(world_by_block)):
+        if world_by_block.get(A) is None or world_by_block.get(B) is None:
+            continue
+        rec = census_border(f"[{A[0]}][{A[1]}]", world_by_block[A],
+                            f"[{B[0]}][{B[1]}]", world_by_block[B], axis, plane)
+        rec["carriedA"] = A in CARRIED
+        rec["carriedB"] = B in CARRIED
+        recs.append(rec)
+    tot = dict(steps=sum(r["n_steps"] for r in recs),
+               tjunc=sum(r["n_tjunc"] for r in recs),
+               holes=sum(r["n_holes"] for r in recs))
+    return recs, tot
+
+
+def green_shard_count(world_by_block):
+    """The orphan-grass gate over IN-MEMORY built blocks: count topo-0 tris (the census proved the
+    only green-positive topo; the 62 topo-49 murals are brown mesa faces, kept). A faithful fringe
+    fix drives this to 0."""
+    return sum(1 for tris in world_by_block.values() for (_p3, topo, _f) in tris if topo == 0)
+
+
 # ============================================================================================
 # PART 1 -- cross-block border census
 # ============================================================================================
@@ -436,13 +471,16 @@ def permanent_gates(null_tot, dep_tot, shard):
       null_tot["steps"] == 0 and null_tot["holes"] == 0,
       f"stock steps={null_tot['steps']} holes={null_tot['holes']}")
 
-    # GATE 2 -- the deployed cross-block seam integrity (target after fix = 0). FROZEN at the known
-    # defect set so a regression that ADDS seams is caught even before the fix lands.
-    KNOWN = 4        # 2 steps + 2 holes, all carried|carried, characterized this round
+    # GATE 2 -- the deployed cross-block seam integrity. The fix (dunes_fringe_fix.py, 2026-07-21)
+    # is DEPLOYED, so 0 is the FROZEN POST-FIX state: this gate now stands guard so a regression
+    # that RE-INTRODUCES a cross-block seam (a future carry re-deploy without the FIX-H/FIX-S carry
+    # law) is caught. The rung-7 defect set it drove to zero was KNOWN = 2 steps + 2 holes.
+    KNOWN_PREFIX = 4
     seam = dep_tot["steps"] + dep_tot["holes"]
-    g("deployed cross-block seam integrity == 0 (the fix target)", seam == 0,
-      f"deployed steps={dep_tot['steps']} holes={dep_tot['holes']} (known defect set = {KNOWN}; "
-      f"{'MATCHES the frozen census -- fix not yet built' if seam == KNOWN else 'CHANGED from the frozen 4'})")
+    g("deployed cross-block seam integrity == 0 (frozen post-fix state)", seam == 0,
+      f"deployed steps={dep_tot['steps']} holes={dep_tot['holes']} "
+      f"({'CLEAN -- the rung-7 fix is deployed' if seam == 0 else f'REGRESSION: {seam} seam(s) re-introduced'}; "
+      f"the pre-fix defect set was {KNOWN_PREFIX})")
 
     # GATE 3 -- no orphan green shard (topo-0 grass with no grass anywhere in its deployed 8-nbhd)
     g("no orphan grass shard (topo-0 tile with an all-desert deployed neighbourhood)",

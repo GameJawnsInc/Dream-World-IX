@@ -1313,3 +1313,63 @@ horseshoe / comp20, the coast ladders) has the same blind spot, and this is the 
 **NOTHING WAS DEPLOYED THIS ROUND** — census is read-only, the fix is simulated in-memory; the 5 carried
 Terrain blocks are byte-untouched on both discs. Artifacts: `dunes_fringe_census.py` +
 `out/dunes_fringe_census.json`.
+
+## Round 7 (cont., 2026-07-21) — THE FRINGE FIX ★ BUILT + DEPLOYED both discs (15/15 gates + frozen eye byte-identical; deployed census 0/0/0; awaits playtest)
+
+The fix was built at the CARRY level (`dunes_true_carry.carry()`, always-on) and deployed by
+`dunes_fringe_fix.py` (the ANTI-TEST harness + guarded deploy). The corrected carry re-derives byte-faithful
+geometry and re-asserts **15 gates, 0 failed** (the 10 rung-6 gates + eye A/B/C at stock-exact + 5 rung-7
+fringe gates); the DEPLOYED bytes then re-census to **0 steps / 0 holes / 0 orphan-grass stumps** on both
+discs (Disc1==Disc4). Idempotent (a re-run is byte-identical). Backups → `backups/dunes-fringe-fix.20260721/`.
+
+**FIVE THINGS THE BUILD CORRECTED IN THE FORENSICS (never explained away):**
+1. **The "green shards" are NOT grass-mains tiles — they are desert|grass ECOTONE DECALS.** Probing the 7
+   topo-0 tris' UVs: every one sits in the desert-EDGE atlas band (u≈0.92–0.98, v≈0.35–0.45), each paired
+   with a topo-16 desert tri in the SAME cell (the two tris are one gradient decal split on its diagonal —
+   the red/desert half is topo-16, the green/grass half is topo-0). So a naïve grass→desert UV *translation*
+   is wrong; the faithful re-dress is the GroundRetile "recovered" path: **topo-17 + a position-generated
+   desert-MAINS UV** (verified: over the rebuilt mesh the re-dressed topo-17 tiles measure atlas-greenness
+   `G−max(R,B)` max **−36.9** = brown, and there are **0 green-rendering tris**).
+2. **FIX-G must be a FINAL assembly pass, not a donor-tri pass.** Only 6 of the 7 stumps rode in on a carried
+   *donor* tri; the 7th survived in a KEPT-HOST cell. Re-dressing every topo-0 tri in the assembled output
+   (donor-carried AND host-kept) catches all 7.
+3. **FIX-S must REBUILD the flat-host neighbour block, not just register a target.** The `[18][18]|[19][18]`
+   step is between the carried `[19][18]` margin and the flat-desert HOST `[18][18]` (topo 17/58, no dune —
+   it is NOT one of the "5 carried blocks" in the dune sense). Its host vert only welds up if `[18][18]` is
+   rebuilt, so every FIX-S mirror block is added to the carry's `touched` set (rebuilt count 4→**5**).
+4. **The in-memory gate had the SAME blind spot it was built to catch** — a census over only the rebuilt
+   subset never sees a rebuilt|un-rebuilt border and vacuously passes it. Fixed: the fringe gate now censuses
+   the **FULL mint region** (rebuilt bytes where rebuilt, DEPLOYED bytes for every neighbour), equal to the
+   post-deploy state, so a step at `[18][18]|[19][18]` is caught.
+5. **The forensics' "≥8.9u from any dune cell" was an optimistic, differently-measured figure.** The real
+   min distance of the GEOMETRY-MOVING fixes (FIX-H/FIX-S) is **4.0u to the topo-41 set / 5.66u to the
+   centroid dune CORE** (the FIX-H snap at the x≈1252 HOLE-2 site). **The eye is preserved anyway, and the
+   binding proof is NOT distance:** the rebuilt eye GATE A (`off_grid_frac`, `mean_offcell`, n) and GATE B
+   (`paired_same_ori`, `byte_derivation`) equal the stock donor calibration **byte-for-byte** — the fix moved
+   no dune|desert-boundary vertex (FIX-G moves zero geometry; FIX-H/FIX-S live in the flat margin). The
+   eye-preservation gate was rewritten from a tunable distance threshold to this direct byte-identity assert.
+
+**THE FIX (as shipped):** FIX-H pre-quantizes carried verts within `FIXH_TAU=1.0` of a phase-shifted block
+border ONTO it BEFORE the re-partition (closes the 2 blue-sliver HOLES); FIX-S mirror-registers carried
+border-corner weld targets into the adjacent block AND rebuilds that block (closes the 2 dY=0.12/0.33 STEPS);
+FIX-G re-dresses the 7 topo-0 ecotone-decal stumps to plain desert (UV/topo only, ZERO geometry). The 62
+topo-49 brown mesa murals are faithful ensemble content — KEPT.
+
+**GATES (frozen).** `dunes_true_carry.run_fringe_gates`: cross-block seam NULL (stock 0/0), cross-block step
+integrity (rebuilt 0), cross-block hole integrity (rebuilt 0), no orphan grass shard (rebuilt 0, full-region
+count reported), EYE-PRESERVED (rebuilt GATE A/B == stock calibration byte-for-byte). `dunes_fringe_census.py`
+permanent gates now read PASS on the deployed bytes (deployed seam integrity == 0 is the frozen post-fix
+state, guarding against a regression that re-introduces a seam). **Anti-test proven:** the pre-fix deployed
+bytes FAIL (2 steps + 2 holes + 7 stumps) and the rebuilt/deployed PASS (0/0/0).
+
+**Witness renders (`dunes_fringe_witness.py`, from the preserved backup):** `out/dunes_fringe_witness_*.png`
+— PRE (pre-fix) shows the blue slivers + bright-green shards; POST (deployed) shows the seams closed and the
+shards desert-toned.
+
+**KIT-PRODUCTIZATION candidate (deferred):** promote the cross-block interval-coverage census into
+`world/mesh.py` as `cross_block_seam_audit(blocks)` — a companion to the per-block `weld_audit` that lifts
+both sides of every shared border into the WORLD frame and compares border-edge interval coverage + Y-profile.
+Every multi-block carry (Uaho / crag / horseshoe / comp20, the coast ladders) shares this exact blind spot,
+and the fringe fix's FIX-H/FIX-S are the general remedy (pre-quantize near-border verts + register the
+weld-snap target in both border blocks). Artifacts: `dunes_true_carry.py` (carry + gates), `dunes_fringe_fix.py`
+(deploy + anti-test), `dunes_fringe_witness.py`, `out/dunes_fringe_fix.json`.

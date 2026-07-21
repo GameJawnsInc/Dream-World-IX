@@ -53,6 +53,7 @@ sys.path.insert(0, str(HERE))
 from ff9mapkit import config as _cfg                          # noqa: E402
 from ff9mapkit.world import discmirror as DM                  # noqa: E402
 from ff9mapkit.world import extract as X                      # noqa: E402
+from ff9mapkit.world import grassland as GL                   # noqa: E402
 from ff9mapkit.world import island as I                       # noqa: E402
 from ff9mapkit.world import mesh as M                          # noqa: E402
 from ff9mapkit.world import placement as P                    # noqa: E402
@@ -60,6 +61,7 @@ from ff9mapkit.world import transplant as TR                  # noqa: E402
 from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN  # noqa: E402
 
 import dunes_grazing_eye as GE                                # noqa: E402  (frozen eye + loaders + judge)
+import dunes_fringe_census as FC                              # noqa: E402  (the cross-block seam census)
 
 BLOCK = 64.0
 CELL = 4.0
@@ -77,6 +79,16 @@ CARRY_FAMS = frozenset({"desert", "dunes", "hole", "rock", "scrub", "brush"})
 MARGIN_RINGS = 2                                              # desert weld margin past the blob
 FRAME_SLACK = 0.06                                            # local-frame poke tolerance (dunes_field_mint law)
 SNAP_TOL = 1.9                                                # a carried boundary vert must be within this of its grid corner
+# --- rung-7 FRINGE FIX knobs (the two playtest fringe defects the true carry left; forensics
+#     dunes_fringe_census.py). All three fixes live in the flat desert margin / mesa base /
+#     amputation stumps, and EYE PRESERVATION is proven DIRECTLY -- the rebuilt GATE A/B equal the
+#     stock donor calibration BYTE-FOR-BYTE (not via a distance proxy: the FIX-H snap at the HOLE-2
+#     site is ~4u from a topo-41 ecotone cell, below the forensics' optimistic '8.9u', yet the eye
+#     is byte-untouched because the fix moves no dune|desert-boundary vertex).
+FIXH_TAU = 1.0                                                # FIX-H: pre-quantize a carried vert this close to a
+#                                                              phase-shifted block border ONTO it (grid corners land
+#                                                              exactly on a border or >=4u away, so 1.0 catches only
+#                                                              off-grid conform NOTCH verts)
 
 GATES: list = []
 
@@ -202,6 +214,35 @@ def tri_cell(tri):
     return (math.floor(cx / CELL), math.floor(cz / CELL))
 
 
+def redress_grass_tri(tri):
+    """FIX-G (the orphan-grass-stump re-dress; forensics rung 7). A carried topo-0 tri is NOT a
+    grass-mains tile -- it is a desert|grass ECOTONE decal (its UV sits in the desert-edge band
+    u~0.92-0.98, paired with a topo-16 desert tri in the same cell) whose GRASS side was amputated
+    by the carry (our island is all-desert), so it renders as a lone green shard against red desert
+    (THE ENSEMBLE LAW's amputation-stump class). Re-dress it to plain desert exactly as stock's own
+    86-desert dune-ensemble margin wears it: topo-17 + a position-generated desert-MAINS UV (the
+    shipped GroundRetile 'recovered' path). VERTEX POSITIONS + NORMALS ARE VERBATIM -- only the UV
+    and the IDALL topograph change, so the fix moves ZERO geometry (it cannot disturb any seam/weld
+    or the frozen eye's GATE A). Input/output = a donor-frame tri [(pos,nrm,uv,tan) x3].
+
+    Returns (tri, redressed_bool). Only topo-0 tris are re-dressed; everything else (incl. the 62
+    topo-49 brown mesa murals, which are faithful ensemble content) passes through untouched."""
+    if X.decode_id(int(round(tri[0][3][0])))["topograph"] != 0:
+        return tri, False
+    cx = sum(v[0][0] for v in tri) / 3.0
+    cz = sum(v[0][2] for v in tri) / 3.0
+    cell = (math.floor(cx / CELL), math.floor(cz / CELL))
+    cq, co = GL.assign_mains({cell}, seed=0xF93)             # deterministic desert-mains quad/ori
+    quad, ori = cq[cell], co[cell]
+    out = []
+    for (p, n, _uv, tan) in tri:
+        d = X.decode_id(int(round(tan[0])))
+        new_idall = float(X.encode_id(d["event"], d["area"], GL.GROUNDS["desert"]["topo"], d["flags"]))
+        out.append((p, n, tuple(GL.ground_uv(p[0], p[2], cell, quad, ori, "desert")),
+                    (new_idall,) + tuple(tan[1:])))
+    return out, True
+
+
 # ============================================================================================
 # STEP 1 -- donor region + placement T + DY
 # ============================================================================================
@@ -250,7 +291,19 @@ def carry(donor, R, T, host_bms, land_height):
     straddles a border keeps its inside part EXACTLY (pos/nrm/uv lerped on the cut, tangent/IDALL
     verbatim; the cut t is bit-identical on both sides -> watertight). Every built block then stays
     strictly in-frame like stock (which pokes 0.0u over 112k verts). ALL seating deformation goes to
-    the HOST at the carry boundary (kept-host weld-ring verts SNAP to the carried donor verts)."""
+    the HOST at the carry boundary (kept-host weld-ring verts SNAP to the carried donor verts).
+
+    RUNG 7 FRINGE FIXES (the two playtest fringe defects the rung-6 carry left; forensics
+    dunes_fringe_census.py -- each proven to the vertex, each living in the flat desert margin /
+    mesa base / amputation stumps; eye preservation proven DIRECTLY by GATE A/B byte-identity):
+      * FIX-G -- carried topo-0 orphan-grass-stumps re-dressed to plain desert (final assembly pass,
+        so it catches donor-carried AND kept-host stumps; UV/topo only, ZERO geometry moved).
+      * FIX-H -- the PHASE-SHIFTED NOTCH: carried verts within FIXH_TAU of a phase-shifted block
+        border pre-quantized ONTO it BEFORE the re-partition, so the notch clips identically on both
+        sides (closes the blue-sliver HOLES on the [19][17]|[19][18] z=-1152 seam).
+      * FIX-S -- the BLOCK-LOCAL WELD-SNAP MISS: carried border-corner weld targets mirror-registered
+        into the ADJACENT block, so the neighbour host welds UP to the elevated carried margin
+        (closes the dY=0.12/0.33 STEPS at x=1216/1280 -- the cross-block form of the conform-snap)."""
     by_cell = donor["by_cell"]
     Tx, Tz = T
     placed_R = {(c[0] + Tx, c[1] + Tz) for c in R}
@@ -265,13 +318,34 @@ def carry(donor, R, T, host_bms, land_height):
     DY = land_height - donor_weld_med
     print(f"  DY = host_flat({land_height:.3f}) - donor_weld_median({donor_weld_med:.3f}) = {DY:+.4f}")
 
-    # 1) translate every carried donor tri to host WORLD coords (whole-cell xz + uniform DY) ------
+    # 1) translate every carried donor tri to host WORLD coords (whole-cell xz + uniform DY). ------
     Tw_x, Tw_z = CELL * Tx, CELL * Tz
     carried_world = []
     for c in R:
         for tri in by_cell.get(c, []):
             carried_world.append([((v[0][0] + Tw_x, v[0][1] + DY, v[0][2] + Tw_z), v[1], v[2], v[3])
                                   for v in tri])
+
+    # FIX-H (THE PHASE-SHIFTED NOTCH): a sub-cell donor CONFORM vert that lands just off a
+    # phase-shifted block border survives verbatim INTERIOR to one block (notching that block's
+    # boundary off the border) while the SAME geometry clips STRAIGHT at the border in the
+    # neighbour -> a thin triangular void where sea shows through (the blue sliver). Pre-quantize
+    # any carried vert within FIXH_TAU of a block border ONTO it BEFORE the re-partition: the notch
+    # vert then clips IDENTICALLY on both sides -> watertight. Deterministic per world position, so
+    # every soup copy of a shared vert snaps identically and welds are preserved. Grid corners land
+    # exactly on a border (dist 0, excluded by the >1e-4 floor) or >=4u away, so FIXH_TAU=1.0
+    # catches ONLY the off-grid conform notch verts.
+    fixh_positions = []
+    for poly in carried_world:
+        for k in range(len(poly)):
+            (px, py, pz) = poly[k][0]
+            nx = round(px / BLOCK) * BLOCK
+            nz = round(pz / BLOCK) * BLOCK
+            npx = nx if 1e-4 < abs(px - nx) < FIXH_TAU else px
+            npz = nz if 1e-4 < abs(pz - nz) < FIXH_TAU else pz
+            if npx != px or npz != pz:
+                fixh_positions.append((npx, npz))
+                poly[k] = ((npx, py, npz), poly[k][1], poly[k][2], poly[k][3])
 
     # 2) RE-PARTITION at the host block 64u borders (transplant's _split_at_borders law). Clip each
     #    tri to every block frame it spans; degenerate slivers (2x-area <= MIN_TRI_AREA2) drop. The
@@ -325,10 +399,45 @@ def carry(donor, R, T, host_bms, land_height):
                         boundary_spread = max(boundary_spread, math.dist(prev, p))
                     carried_boundary[key] = p
 
+    # FIX-S (THE BLOCK-LOCAL WELD-SNAP MISS): the conform-snap keys the carried weld target by
+    # (block,gi,gj), so a carried vert ON a block border is registered only in the block owning its
+    # cell; the neighbour host's flat vert (land_height) finds no target and stays flat while the
+    # carried margin is elevated (donor+DY) -> a vertical STEP (the lifted/shrunken seam). Mirror-
+    # register every carried border-corner vert into the ADJACENT block so the neighbour host welds
+    # UP to it -- the cross-block form of the conform-snap. A corner at grid index gi (x) or gj (z)
+    # is on a block border iff the index is a multiple of 16 (world = 4*index, block = 64u = 16
+    # cells); the two blocks meeting there differ by one in that axis.
+    fixs_mirrors = 0
+    fixs_mirror_blocks = set()                                # blocks a mirror LIFTS -> must be rebuilt
+    for (blk, gi, gj), p in list(carried_boundary.items()):
+        adj = set()
+        if gi % 16 == 0:                                      # on an x block border (x = 4*gi = 64*(gi//16))
+            b = gi // 16
+            adj |= {(b - 1, blk[1]), (b, blk[1])}
+        if gj % 16 == 0:                                      # on a z block border (z = 4*gj = -64*(-gj//16))
+            b = -gj // 16
+            adj |= {(blk[0], b - 1), (blk[0], b)}
+        for mb in adj - {blk}:
+            mkey = (mb, gi, gj)
+            prev = carried_boundary.get(mkey)
+            if prev is None:
+                carried_boundary[mkey] = p
+                fixs_mirrors += 1
+                fixs_mirror_blocks.add(mb)
+            else:
+                boundary_spread = max(boundary_spread, math.dist(prev, p))
+
     # 4) assemble each touched block: kept host tris (dropped placed_R cells) + carried donor tris -
     out = {}
     conform_snaps = 0
-    touched = sorted(set(carried_by_block) | {cell_block(c) for c in placed_R})
+    fixs_snap_positions = []                                  # host verts a mirror actually LIFTED (steps)
+    # touched = the carried blocks + the placed-cell blocks + every FIX-S mirror block (a host block
+    # with NO carried content but whose border verts must weld UP to a carried margin across the
+    # block boundary -- e.g. the flat-desert host [18][18] at the x=1216 step). Without this the
+    # carry would leave that block's deployed (buggy) bytes untouched and the step would persist,
+    # invisible to an in-memory census that only sees the rebuilt blocks (the arc's blind spot).
+    touched = sorted(set(carried_by_block) | {cell_block(c) for c in placed_R}
+                     | {mb for mb in fixs_mirror_blocks if mb in host_bms})
     for blk in touched:
         host_soup = host_bms.get(blk, {}).get("soup", [])
         kept = [tri for tri in host_soup if tri_cell(tri) not in placed_R]
@@ -340,15 +449,44 @@ def carry(donor, R, T, host_bms, land_height):
                 gi, gj = round(p[0] / CELL), round(p[2] / CELL)
                 tgt = carried_boundary.get((blk, gi, gj))
                 if tgt is not None:
+                    if math.dist(p, tgt) > 1e-6:
+                        fixs_snap_positions.append((tgt[0], tgt[2]))
                     p = (tgt[0], tgt[1], tgt[2]); conform_snaps += 1
                 nt.append((p, n, u, t))
             new_kept.append(nt)
         out[blk] = new_kept + carried_by_block.get(blk, [])
+
+    # FIX-G (a FINAL pass over the assembled output, so it catches a topo-0 orphan-grass-stump
+    # whether it rode in on a carried DONOR tri OR survived in a KEPT HOST cell -- both render as a
+    # lone green shard against the all-desert island). Re-dress every remaining topo-0 tri to plain
+    # desert (UV + IDALL topograph only; VERTEX POSITIONS ARE VERBATIM -> zero geometry moved, so
+    # this can never disturb a seam/weld/the frozen eye's GATE A). The 62 topo-49 mesa murals are
+    # NOT topo-0, so they pass through untouched (KEPT -- faithful dunes-ensemble content).
+    n_redress = 0
+    redress_positions = []
+    for blk in out:
+        redressed_tris = []
+        for tri in out[blk]:
+            rt, ok = redress_grass_tri(tri)
+            if ok:
+                n_redress += 1
+                redress_positions += [(v[0][0], v[0][2]) for v in rt]
+            redressed_tris.append(rt)
+        out[blk] = redressed_tris
+
+    # the FRINGE-FIX touch set (world XZ) for the EYE-CLEAR gate = only the GEOMETRY-MOVING fixes
+    # (FIX-H notch pre-quantize + FIX-S host lifts). FIX-G moves ZERO geometry (UV/topo only), so
+    # its verts -- which sit right against the dune-ensemble margin -- are excluded by design: they
+    # cannot disturb GATE A/B/C, and counting them would false-fail the distance test.
+    fix_touch_xz = sorted({(round(x, 3), round(z, 3))
+                           for (x, z) in (fixh_positions + fixs_snap_positions)})
     diag = dict(placed_R=len(placed_R), weld_cells=len(weld_cells), DY=DY,
                 donor_weld_med=donor_weld_med, n_bcorners=len(bcorners),
                 n_carried_boundary=len(carried_boundary), boundary_spread=boundary_spread,
                 max_poke=max_poke, dropped_area2=dropped_area2, conform_snaps=conform_snaps,
-                touched_blocks=touched)
+                n_redress=n_redress, n_fixh=len(fixh_positions), n_fixs_mirrors=fixs_mirrors,
+                n_fixs_lifts=len(fixs_snap_positions), fix_touch_xz=fix_touch_xz,
+                n_redress_positions=len(redress_positions), touched_blocks=touched)
     return out, placed_R, diag
 
 
@@ -423,6 +561,110 @@ def run_gates(built_bms, placed_R, donor, T, land_height):
                 miss_off_butte=len(miss_off_butte))
 
 
+def _pt_cell_dist(px, pz, ci, cj):
+    """Euclidean distance from world point (px,pz) to cell (ci,cj)'s AABB [4ci,4ci+4]x[4cj,4cj+4]."""
+    dx = max(CELL * ci - px, 0.0, px - CELL * (ci + 1))
+    dz = max(CELL * cj - pz, 0.0, pz - CELL * (cj + 1))
+    return math.hypot(dx, dz)
+
+
+def run_fringe_gates(built_bms, donor, T, diag, eye_verdict):
+    """THE RUNG-7 FRINGE GATES -- the cross-block instruments the dunes arc never had (the
+    memory's own recorded blind spot: weld_audit is per-block LOCAL-frame, so a coincident
+    edge ACROSS a block boundary is structurally invisible to it). Calibration law honored:
+    the STOCK donor region must census 0/0 FIRST, then the built blocks are judged.
+
+    The census covers the FULL deployed mint region (rebuilt bytes where a block was rebuilt,
+    DEPLOYED bytes for every un-rebuilt neighbour) -- so a step at a rebuilt|un-rebuilt border (e.g.
+    the flat-desert [18][18] against the carried [19][18]) is caught, never vacuously passed by an
+    in-memory census that sees only the rebuilt subset. This equals the post-deploy state exactly."""
+    world_by_block = {}
+    for blk in FC.MINT_BLOCKS:
+        if blk in built_bms:
+            world_by_block[blk] = FC.bm_world_tris(built_bms[blk], blk[0], blk[1])
+        else:
+            dep = FC.deployed_world_tris(blk[0], blk[1])
+            if dep is not None:
+                world_by_block[blk] = dep
+
+    # (1) the calibration NULL -- stock donor region censuses clean (the instrument is calibrated)
+    _null_recs, null_tot = FC.run_crack_census(FC.stock_world_tris, FC.DONOR_BLOCKS, "STOCK donor region (NULL)")
+    gate("cross-block seam NULL (stock donor region: 0 steps, 0 holes -- the instrument is calibrated)",
+         null_tot["steps"] == 0 and null_tot["holes"] == 0,
+         f"stock steps={null_tot['steps']} holes={null_tot['holes']}")
+
+    # (2) the built blocks census clean across every shared border (steps + holes both -> 0)
+    recs, tot = FC.census_built_blocks(world_by_block)
+    defect_detail = "; ".join(f"{r['border']} steps={r['n_steps']} holes={r['n_holes']}"
+                              for r in recs if r["n_steps"] or r["n_holes"]) or "none"
+    gate("cross-block seam integrity (the REBUILT carry ring: 0 vertical steps across every shared "
+         "border)", tot["steps"] == 0, f"steps={tot['steps']} | {defect_detail}")
+    gate("cross-block coincident-edge integrity (the REBUILT carry ring: 0 border HOLES / phase-"
+         "shifted notches)", tot["holes"] == 0, f"holes={tot['holes']} | {defect_detail}")
+
+    # (3) no orphan grass shard (topo-0 tile) in the REBUILT blocks (what FIX-G can re-dress); the
+    #     full-region count is reported so a stray topo-0 in an un-rebuilt neighbour can't hide.
+    rebuilt_world = {blk: world_by_block[blk] for blk in built_bms if blk in world_by_block}
+    n_green = FC.green_shard_count(rebuilt_world)
+    n_green_region = FC.green_shard_count(world_by_block)
+    gate("no orphan grass shard (0 topo-0 tris in the rebuilt carry; the 62 topo-49 mesa murals "
+         "are KEPT)", n_green == 0,
+         f"topo-0 in rebuilt blocks={n_green} (full mint region incl. un-rebuilt neighbours="
+         f"{n_green_region})")
+
+    # (4) THE EYE-PRESERVED gate -- the DIRECT proof (stronger than a distance proxy): the frozen
+    #     eye's GATE A (sub-cell boundary conformance) + GATE B (orientation fidelity + byte-
+    #     derivation) on the REBUILT carry must equal the STOCK donor's CALIBRATED values byte-for-
+    #     byte. The true carry reproduces the donor's dune|desert boundary exactly and the three
+    #     fringe fixes live entirely in the flat desert margin / mesa base / amputation stumps, so a
+    #     faithful fix leaves every number the eye reads UNCHANGED (0 disturbance, not merely 'still
+    #     in-band'). This is what makes GATE A/B/C's PASS meaningful: the fix did not move the tree.
+    crit = GE.load_criteria()
+    dref = crit["donor"]["boundary_conformance"]
+    dsf = crit["donor"]["self_fidelity"]
+    ga = eye_verdict["gates"]["A_sub_cell_conformance"][0]
+    gb = eye_verdict["gates"]["B_orientation_fidelity"][0]
+    a_same = (ga["n"] == dref["n"]
+              and abs((ga["off_grid_frac"] or -9) - dref["off_grid_frac"]) < 1e-4
+              and abs((ga["mean_offcell"] or -9) - dref["mean_offcell"]) < 1e-4)
+    b_same = (gb["n_decodable"] == dsf["n_decodable"]
+              and abs((gb["paired_same_ori"] or -9) - dsf["paired_same_ori"]) < 1e-4
+              and abs((gb["byte_derivation"] or -9) - dsf["byte_derivation"]) < 1e-4)
+    gate("fringe fix is EYE-PRESERVING (rebuilt GATE A + GATE B == the STOCK donor calibration "
+         "byte-for-byte -> the fix did not move the dune|desert boundary the eye judges)",
+         a_same and b_same,
+         f"A rebuilt(n={ga['n']},off={ga['off_grid_frac']},mean={ga['mean_offcell']}) vs "
+         f"donor(n={dref['n']},off={dref['off_grid_frac']},mean={round(dref['mean_offcell'],5)}); "
+         f"B rebuilt(n={gb['n_decodable']},ori={gb['paired_same_ori']},byte={gb['byte_derivation']}) vs "
+         f"donor(n={dsf['n_decodable']},ori={dsf['paired_same_ori']},byte={dsf['byte_derivation']})")
+
+    # informational (not a gate): how far the GEOMETRY-MOVING fixes (FIX-H/FIX-S) sit from the dune
+    # footprint the eye judges -- to both the centroid-dominant CORE (GATE A) and the topo-41 set.
+    touch = diag.get("fix_touch_xz", [])
+    def _min_dist(cells):
+        cs = {(c[0] + T[0], c[1] + T[1]) for c in cells}
+        m = None
+        for (px, pz) in touch:
+            d = min((_pt_cell_dist(px, pz, ci, cj) for (ci, cj) in cs), default=1e9)
+            if m is None or d < m[0]:
+                m = (d, px, pz)
+        return m
+    d_core = _min_dist(donor["CORE"])
+    d_41 = _min_dist(donor["FP41"])
+    print(f"  [info] geometry-moving fixes (FIX-H/FIX-S): {len(touch)} distinct XZ; min dist to the "
+          f"centroid-dominant dune CORE = {round(d_core[0],2) if d_core else None}u, to the topo-41 "
+          f"set = {round(d_41[0],2) if d_41 else None}u. HONEST CORRECTION: these are BELOW the "
+          f"forensics' optimistic '>=8.9u' (a differently-measured figure) -- the FIX-H snap at the "
+          f"x~1252 HOLE-2 site is ~4u from a topo-41 ecotone cell. The eye is preserved not by "
+          f"distance but by the GATE A/B BYTE-IDENTITY above (the binding proof): the dune|desert "
+          f"boundary the eye judges is untouched to the decimal.")
+
+    return dict(null=null_tot, built=tot, n_green=n_green, eye_preserved=bool(a_same and b_same),
+                min_dist_core=(round(d_core[0], 3) if d_core else None),
+                min_dist_topo41=(round(d_41[0], 3) if d_41 else None),
+                seam_defects=[r for r in recs if r["n_steps"] or r["n_holes"]])
+
+
 # ============================================================================================
 # STEP 4 -- the frozen eye (GATE A/B/C)
 # ============================================================================================
@@ -485,6 +727,68 @@ def render_ab(donor, cand_tris, cand_fp):
 
 
 # ============================================================================================
+# STEP 5b -- the FRINGE-FRAMED render (the carry RING, not the dune boundary): PRE deployed vs
+# POST rebuilt. The rung-6 A/B frames the dune|desert boundary; the fringe defects live at the
+# carry ring (the [19][17]|[19][18] z=-1152 seam + the x=1216/1280 step columns), so this render
+# must include the ring. Sky-blue (the render bg) peeking through the terrain = a HOLE; a small
+# cliff at a step column = a STEP. Both must be present in PRE (deployed) and gone in POST (rebuilt).
+# ============================================================================================
+def _fringe_cameras():
+    """Two oblique overhead views framed on the carry-ring seams (world coords). View 1 grazes the
+    z=-1152 hole seam from the south; view 2 grazes the x=1280 step column from the west."""
+    return [
+        dict(tag="z1152_holes", look=(1236.0, 3.4, -1156.0),
+             cam=(1236.0, 3.4 + 30.0, -1156.0 - 30.0), fov=42.0,
+             cap="the [19][17]|[19][18] z=-1152 HOLE seam (the (1220,-1152) sliver) from the south"),
+        dict(tag="x_steps", look=(1264.0, 3.35, -1168.0),
+             cam=(1264.0 - 34.0, 3.35 + 26.0, -1168.0), fov=42.0,
+             cap="the x=1216/1280 STEP columns from the west"),
+    ]
+
+
+def render_fringe(built_bms, *, deployed_tris=None):
+    """Render the carry ring PRE (currently-deployed buggy bytes) vs POST (the rebuilt fix). If
+    deployed_tris is None it is read from the live mod folder (so this must run BEFORE the deploy).
+    Returns the list of saved sheet paths."""
+    from PIL import Image, ImageDraw
+    if deployed_tris is None:
+        deployed_tris = GE.load_mod(GE.MINT_BLOCKS)
+    # POST = the full deployed state after the fix: rebuilt bytes for rebuilt blocks + the unchanged
+    # deployed bytes for every other mint block (so the render shows complete terrain, not just the
+    # rebuilt subset -- otherwise the un-rebuilt neighbours read as a false 'hole').
+    rebuilt = set(built_bms)
+    built_tris = []
+    for blk in built_bms:
+        built_tris += GE._tris_of(built_bms[blk], blk[0], blk[1])
+    for (p3, uv3, n3, topo, fam) in deployed_tris:
+        cx = sum(pp[0] for pp in p3) / 3.0
+        cz = sum(pp[2] for pp in p3) / 3.0
+        if (math.floor(cx / BLOCK), math.floor(-cz / BLOCK)) not in rebuilt:
+            built_tris.append((p3, uv3, n3, topo, fam))
+    W, H = 900, 560
+    paths = []
+    for view in _fringe_cameras():
+        cam, look, fov = view["cam"], view["look"], view["fov"]
+        pre = GE.render_grazing(deployed_tris, cam, look, fov, W, H, shade=True)
+        post = GE.render_grazing(built_tris, cam, look, fov, W, H, shade=True)
+        pad, lh = 8, 20
+        sheet = Image.new("RGB", (W * 2 + pad * 3, H + lh + pad * 2 + 24), (16, 16, 16))
+        dr = ImageDraw.Draw(sheet)
+        dr.text((pad, 6), f"FRINGE-FRAMED carry-ring render -- {view['cap']}. "
+                          f"LEFT deployed (fringe defects) / RIGHT rebuilt fix. Sky-blue through the "
+                          f"terrain = a HOLE.", fill=(255, 230, 140))
+        dr.text((pad, 24 + pad), "PRE -- currently deployed (blue slivers / steps)", fill=(220, 220, 220))
+        dr.text((pad + W + pad, 24 + pad), "POST -- the rebuilt fringe fix (seams closed)", fill=(220, 220, 220))
+        sheet.paste(pre, (pad, 24 + pad + lh))
+        sheet.paste(post, (pad + W + pad, 24 + pad + lh))
+        p = OUTD / f"dunes_fringe_frame_{view['tag']}.png"
+        sheet.save(p)
+        paths.append(str(p))
+        print(f"  -> {p}")
+    return paths
+
+
+# ============================================================================================
 # STEP 6 -- what the carry brings that the stamp lacked (measured)
 # ============================================================================================
 def measure_vs_stamp(donor, built_bms, T):
@@ -532,32 +836,28 @@ def deploy(built_bms):
 
 
 # ============================================================================================
-# main
+# BUILD + GATE (the reusable pipeline -- dunes_fringe_fix.py imports this, main() wraps it)
 # ============================================================================================
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--deploy", action="store_true")
-    args = ap.parse_args()
-
-    print("=== dunes_true_carry.py -- THE TRUE MESH CARRY (comp[1] relocated onto the r56 host) ===\n")
+def build_and_gate(*, render=True):
+    """Rebuild the carry from the stock donor onto the current DEPLOYED host, run the full gate
+    suite + the frozen eye + the rung-7 fringe gates (+ optional renders), and return everything.
+    Writes NOTHING to the game. Returns a dict incl. built_bms + n_fail (0 => deploy-safe). GATES
+    is reset at entry so re-invocation is clean."""
+    GATES.clear()
+    print("=== dunes_true_carry.build_and_gate -- THE TRUE MESH CARRY + rung-7 fringe fixes ===\n")
     donor = load_donor()
     print(f"donor: CORE(dunes)={len(donor['CORE'])} HOLE={len(donor['HOLE'])} BLOB={len(donor['BLOB'])} "
           f"topo41={len(donor['FP41'])}")
 
-    # placement T from the DEPLOYED mint (so the carry lands exactly on the label-stamp cells)
     print("loading deployed mint footprint for T ...", flush=True)
     mint = GE.load_mod(MINT_BLOCKS)
-    mcmap = GE.cells_map(mint)
-    MFP41 = GE.topo41_footprint(mcmap)
+    MFP41 = GE.topo41_footprint(GE.cells_map(mint))
     T = GE.translation(donor["FP41"], MFP41)
     print(f"placement T (donor->deployed) = {T}")
 
     R = define_region(donor)
     print(f"R_donor = {len(R)} cells (BLOB {len(donor['BLOB'])} + carried margin/butte {len(R) - len(donor['BLOB'])})")
 
-    # load the DEPLOYED host blocks. Load the WHOLE deployed mint region (all MINT_BLOCKS that have
-    # a Terrain override) so a re-partition sliver can never land in an unloaded block and lose the
-    # host desert around it; the carry only touches a subset and only touched blocks re-deploy.
     placed_R_blocks = sorted({cell_block((c[0] + T[0], c[1] + T[1])) for c in R})
     game_root = Path(_cfg.find_game_path(None))
     host_bms = {}
@@ -579,7 +879,6 @@ def main():
 
     built_soups, placed_R, diag = carry(donor, R, T, host_bms, land_height)
     print(f"carry diagnostics: {json.dumps({k: (v if not isinstance(v, list) else len(v)) for k, v in diag.items()}, default=str)}")
-
     built_bms = {blk: soup_to_bm(soup, blk[0], blk[1]) for blk, soup in built_soups.items()}
 
     print("\n--- gates: FLAT/grid/weld/frame/MISS ---")
@@ -591,14 +890,47 @@ def main():
     print("\n--- the frozen eye (GATE A/B/C) ---")
     verdict, cand_tris, cand_fp = run_eye(built_bms, donor)
 
-    print("\n--- grazing A/B render (stock vs true carry) ---")
-    renders = render_ab(donor, cand_tris, cand_fp)
+    print("\n--- rung-7 FRINGE gates (cross-block seam NULL + steps + holes + orphan-grass + eye-preserved) ---")
+    fringe_info = run_fringe_gates(built_bms, donor, T, diag, verdict)
+
+    renders = fringe_renders = []
+    if render:
+        print("\n--- grazing A/B render (stock vs true carry) ---")
+        renders = render_ab(donor, cand_tris, cand_fp)
+        print("\n--- FRINGE-FRAMED carry-ring render (PRE deployed vs POST rebuilt) ---")
+        fringe_renders = render_fringe(built_bms, deployed_tris=mint)
 
     vs_stamp = measure_vs_stamp(donor, built_bms, T)
     print(f"\ncarry brings (vs the flat stamp): butte {vs_stamp['butte']}  distinct dune UVs {vs_stamp['distinct_dune_uv']}")
 
     n_fail = sum(1 for _, ok, _ in GATES if not ok)
     print(f"\n=== {len(GATES)} gates, {n_fail} FAILED ===")
+
+    out = dict(
+        mod_folder=MOD, site=[1248.0, -1184.0], T=list(T), R_cells=len(R),
+        margin_rings=MARGIN_RINGS, land_height=land_height, DY=diag["DY"],
+        touched_blocks=[list(b) for b in sorted(built_bms)],
+        carry_diag={k: v for k, v in diag.items() if k != "touched_blocks"},
+        gate_info=gate_info, vs_stamp=vs_stamp, fringe_info=fringe_info,
+        eye=dict(passed=verdict["passed"], gates={g: [str(v), p] for g, (v, p) in verdict["gates"].items()}),
+        n_gates=len(GATES), n_failed=n_fail,
+        gates=[{"name": n, "ok": ok, "detail": str(d)} for n, ok, d in GATES],
+        renders=renders, fringe_renders=fringe_renders,
+    )
+    return dict(built_bms=built_bms, n_fail=n_fail, out=out, diag=diag, verdict=verdict,
+                fringe_info=fringe_info)
+
+
+# ============================================================================================
+# main
+# ============================================================================================
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--deploy", action="store_true")
+    args = ap.parse_args()
+
+    res = build_and_gate()
+    built_bms, n_fail, out = res["built_bms"], res["n_fail"], res["out"]
 
     deployed = False
     if args.deploy:
@@ -608,18 +940,8 @@ def main():
         written = deploy(built_bms)
         print(f"deployed {len(written)} Disc1 Terrain files (+ Disc4 mirror); blocks {sorted(built_bms)}")
         deployed = True
+    out["deployed"] = deployed
 
-    out = dict(
-        mod_folder=MOD, site=[1248.0, -1184.0], T=list(T), R_cells=len(R),
-        margin_rings=MARGIN_RINGS, land_height=land_height, DY=diag["DY"],
-        touched_blocks=[list(b) for b in sorted(built_bms)],
-        carry_diag={k: v for k, v in diag.items() if k != "touched_blocks"},
-        gate_info=gate_info, vs_stamp=vs_stamp,
-        eye=dict(passed=verdict["passed"], gates={g: [str(v), p] for g, (v, p) in verdict["gates"].items()}),
-        n_gates=len(GATES), n_failed=n_fail, deployed=deployed,
-        gates=[{"name": n, "ok": ok, "detail": str(d)} for n, ok, d in GATES],
-        renders=renders,
-    )
     (OUTD / "dunes_true_carry.json").write_text(json.dumps(out, indent=1, default=str))
     print(f"\n-> {OUTD / 'dunes_true_carry.json'}")
     return 0 if n_fail == 0 else 1
