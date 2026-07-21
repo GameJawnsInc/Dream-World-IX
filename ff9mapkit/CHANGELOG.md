@@ -36,6 +36,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   carry "introduced"). `--enforce-wang-carry` hard-fails on any incoherent frame edge (a fresh mint onto
   known-deep open ocean, or a post-retile CI check); `--allow-wang-seams` waives even then. Both gates are
   byte-neutral over every already-deployed lawful carry.
+- **The Wang-carry gate learns the coastal shades (Sea1/Sea2).** The gate's shade grid binned only the
+  *deep* Sea3/4/5 alphabet, so a **Sea1/Sea2** frame tile read as deep and was never flagged — the exact
+  class the `{sea1,sea5}` ladder had to close by hand on the deployed island (2 sea1|sea4 sand-spit corner
+  tiles at (12,18)). The gate now bins the coastal shades too (`_sea_shallow_grid`) and flags a Sea1/Sea2
+  frame tile facing the deep ring, because stock authors `sea1|sea4` and `sea2|sea4` **zero** times map-wide
+  (`studies/overworld-topography/s12_stock_map_census_opus.py`, land-aware, interior + cross-block): a sea1
+  tile's *deepest* lawful neighbour is sea5, a sea2 tile's is sea3 (the ring ladder
+  `sea4>sea5>sea3>sea1>sea2>beach1>land`), so neither ever faces the deep ring. The lawful set is
+  byte-derived, never invented — `transplant.SEA_ADJ_LAWFUL` / `sea_adjacent_lawful()`, with the measured
+  stock counts cited per pair (sea1|sea3 588, sea2|sea1 517/488, sea1|sea5 78, sea2|sea3 9, shore contacts
+  sea1|beach1 78 / sea2|beach1 465; off-language sea1|sea4 0, sea2|sea4 0, sea2|sea5 0). The report gains
+  **additive** keys — `incoherent_deep` (sea3/mis-sea5, byte-identical to the old count) + `incoherent_shallow`
+  (sea1/sea2) — and the two systems are mutually exclusive per edge, so the deep verdicts never reclassify.
+  The lone interior donor-verbatim `sea2|sea4` tile at (12,19) is an interior edge the frame census never
+  sees, so it never false-positives. Public behaviour is unchanged: warn-by-default, `--enforce-wang-carry`
+  refuses, `--allow-wang-seams` waives. A fresh `world-transplant --size 2 --donor 8,17` now warns about
+  **both** crop classes at carry time (12 deep + 5 shallow), so the sand-spit corner is caught before deploy
+  instead of after a playtest.
 
 ### Changed — the in-game debug menu: functionality round
 - **Three tabs** (Go / Cheats / Flags): Time merged into Cheats as a "Time scale" section. The Go tab's

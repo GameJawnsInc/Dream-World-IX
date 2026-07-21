@@ -2142,6 +2142,39 @@ def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
 # Wang'd ocean breaks the puzzle at the cut edges -- both invisible to the coverage census.
 _CELL, _G = 4.0, 16
 
+#: THE LAWFUL SEA-SHADE ADJACENCY TABLE (byte-derived from STOCK 2026-07-20, the coastal-shade extension
+#: of THE WANG-CARRY LAW; census: ``studies/overworld-topography/s12_stock_map_census_opus.py`` +
+#: ``wang_seam_census.py``).  The ocean's DEPTH RING, shallow -> deep:
+#:   land < beach1 < sea2 < sea1 < sea3 < sea5 < sea4
+#: A carry that crops a Wang region can leave a tile facing a DEEPER ring than any it lawfully abuts.  Which
+#: pairs are LAWFUL is NOT the ladder's adjacent rungs -- it is what stock AUTHORS, measured directed-edge,
+#: land-aware, interior + cross-block, over the whole shipping map (counts cited per pair below).  The
+#: OFF-LANGUAGE pairs each have ZERO systematic stock instances (a lone donor-verbatim interior tile is not
+#: a coastline): ``sea1|sea4`` 0, ``sea2|sea4`` 0, ``sea2|sea5`` 0 -- so a sea1 tile's DEEPEST lawful
+#: neighbour is sea5 and a sea2 tile's is sea3; NEITHER ever faces the deep sea4 ring directly (the deep
+#: system's own invariant, ``sea3|sea4`` 0, is enforced separately by the sea5-orientation logic).  Encoded
+#: as the UNORDERED lawful set; same-shade is always lawful and implicit (:func:`sea_adjacent_lawful`).
+SEA_ADJ_LAWFUL = frozenset({
+    frozenset({"sea2", "sea1"}),      # 488/517 -- the shallowest pair
+    frozenset({"sea1", "sea3"}),      # 588
+    frozenset({"sea1", "sea5"}),      #  78 -- sea1's DEEPEST lawful neighbour (the {sea1,sea5} ladder)
+    frozenset({"sea2", "sea3"}),      #   9 -- sea2's DEEPEST lawful neighbour
+    frozenset({"sea1", "beach1"}),    #  78 -- shore contact
+    frozenset({"sea2", "beach1"}),    # 465 -- shore contact
+    frozenset({"sea1", "land"}),      # 121 -- shore contact (terrain-shaded coast cell)
+    frozenset({"sea2", "land"}),      # 238 -- shore contact
+})
+
+
+def sea_adjacent_lawful(a: str, b: str) -> bool:
+    """Does stock FF9 author sea-shade ``a`` directly abutting ``b`` (either order)?  Same-shade is always
+    lawful; every other lawful COASTAL pair is in :data:`SEA_ADJ_LAWFUL` (byte-derived, never invented).
+    The off-language pairs a CROP can introduce -- ``sea1|sea4``, ``sea2|sea4``, ``sea2|sea5`` (and the deep
+    system's ``sea3|sea4``) -- return False: each has 0 systematic stock instances.  (The sea5 transition
+    tip terminates INTO the deep ring lawfully, but that is ORIENTATION-gated, not pairwise -- handled by
+    the gate's sea5 deep-set logic, not this table.)"""
+    return a == b or frozenset({a, b}) in SEA_ADJ_LAWFUL
+
 
 def effective_prefab_arm(meshes, *, cell, sidecar_parts, disc: int = 1, lod: str = "0_1"):
     """THE EFFECTIVE-PREFAB GATE + AUTO-ARM (the (11,19) water-only-cell fix; THE DIVERT-ARM /
@@ -2219,6 +2252,24 @@ def _sea_water_grid(sea_by_name):
     return hw
 
 
+def _sea_shallow_grid(sea_by_name):
+    """16x16 COASTAL-shade grid ('sea1'/'sea2'/None) -- the shallow-alphabet counterpart of
+    :func:`_sea_shade_grid`, which bins only the DEEP sea3/4/5 alphabet (so a Sea1/Sea2 frame tile read as
+    deep and was never flagged -- the (12,18) sand-spit corner the {sea1,sea5} ladder had to fix by hand).
+    Shallowest wins per THE RING LADDER (sea2 is shallower than sea1); a cell with neither reads None."""
+    seen = [[None] * _G for _ in range(_G)]
+    for part in ("sea1", "sea2"):                       # sea2 iterated last -> shallowest wins the label
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                seen[i][j] = part
+    return seen
+
+
 def _sea5_deepsets(sea5_bm):
     """{(i,j): deepset} for a Sea5 BlockMesh, fitting cells with >=3 corner UVs (so a 1-triangle shore
     sliver classifies too), via :func:`ff9mapkit.world.water._fit_tile` + the DEEPSET2TILE inverse."""
@@ -2260,8 +2311,23 @@ def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
 
     This gate CENSUSES the carried cells' OUTER-FRAME sea tiles (land-aware: an edge whose region-
     neighbour carries no water triangle is a coast, not deep, and is skipped -- without this the census
-    over-flags real coastlines).  A ``sea3``/mis-oriented-``sea5`` tile on a frame edge (facing the
-    open-ocean deep ring) is ``incoherent`` and surfaced in ``incoherent``/``detail``.
+    over-flags real coastlines).  It runs TWO parallel systems whose counts are reported separately:
+
+    * THE DEEP SYSTEM (unchanged): a ``sea3`` / mis-oriented-``sea5`` frame tile facing the open-ocean deep
+      ring is ``incoherent`` (surfaced in ``incoherent_deep``).
+    * THE COASTAL SYSTEM (the shade-alphabet extension, 2026-07-20): :func:`_sea_shade_grid` bins only the
+      DEEP sea3/4/5 alphabet, so a **Sea1/Sea2** frame tile read as deep and was NEVER flagged -- the exact
+      class the {sea1,sea5} ladder had to close by hand on the deployed island (2 sea1|sea4 sand-spit corner
+      tiles).  A sea1/sea2 frame tile is now binned by :func:`_sea_shallow_grid` and flagged
+      (``incoherent_shallow``) because stock authors ``sea1|sea4`` and ``sea2|sea4`` ZERO times map-wide
+      (``s12_stock_map_census_opus.py`` -- land-aware, interior + cross-block): a sea1 tile's DEEPEST lawful
+      neighbour is sea5, a sea2 tile's is sea3, so neither ever faces the deep ring (:data:`SEA_ADJ_LAWFUL`).
+      The interior donor-verbatim ``sea2|sea4`` tile at (12,19) is an INTERIOR edge the frame census never
+      sees, so it never false-positives.
+
+    ``incoherent`` = ``incoherent_deep + incoherent_shallow``; the two systems are mutually exclusive per
+    edge (a deep-flagged cell is not re-counted as coastal), so the DEEP count is byte-identical to the
+    pre-extension gate -- the coastal count is purely ADDITIVE.  Every flagged edge is in ``detail``.
 
     ``enforce`` controls whether an incoherent frame edge FAILS the build.  It defaults **OFF** -- report-
     only with a ``warn`` flag, ``ok`` stays True -- and this is NOT because the predicate is unreliable.
@@ -2283,19 +2349,22 @@ def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
     ``enforce=True`` hard-fails on any incoherent frame edge (a fresh mint onto known-deep open ocean, or
     a post-retile CI check); ``allow`` waives even then.
 
-    ``sea_by_cell`` = ``{(bx,by): {lower_part: BlockMesh}}`` for the carried WATER cells; ``region_cells``
-    = the set of ``(bx,by)`` in the carried region (an edge to a NON-region block faces the deep ring)."""
+    ``sea_by_cell`` = ``{(bx,by): {lower_part: BlockMesh}}`` for the carried WATER cells (sea1/sea2 keys are
+    now consumed by the coastal system; the deep grids ignore them, so passing them is byte-neutral there);
+    ``region_cells`` = the set of ``(bx,by)`` in the carried region (an edge to a NON-region block faces the
+    deep ring)."""
     dirs = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
     region = {tuple(c) for c in region_cells}
     shade = {c: _sea_shade_grid(p) for c, p in sea_by_cell.items()}
     water = {c: _sea_water_grid(p) for c, p in sea_by_cell.items()}
+    shallow = {c: _sea_shallow_grid(p) for c, p in sea_by_cell.items()}
     ds5 = {c: _sea5_deepsets(p.get("sea5")) for c, p in sea_by_cell.items()}
-    incoherent = []
+    deep_bad, shallow_bad = [], []
     for (bx, by), _p in sea_by_cell.items():
-        g, w, d5 = shade[(bx, by)], water[(bx, by)], ds5[(bx, by)]
+        g, w, sg, d5 = shade[(bx, by)], water[(bx, by)], shallow[(bx, by)], ds5[(bx, by)]
         for i in range(_G):
             for j in range(_G):
-                if not w[i][j]:
+                if not (w[i][j] or sg[i][j] is not None):     # deep water OR a coastal (sea1/sea2) tile
                     continue
                 for d in "NESW":
                     di, dj = dirs[d]
@@ -2304,24 +2373,36 @@ def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
                                 by + (1 if j + dj >= _G else -1 if j + dj < 0 else 0))
                     if not (off and to_block not in region):   # only OUTER-FRAME edges (facing the deep ring)
                         continue
-                    sh = g[i][j]
-                    if sh == "sea4":
-                        continue                              # deep meets deep
-                    if sh == "sea3":
-                        incoherent.append(((bx, by), (i, j), d, "sea3 abuts deep, no transition ring"))
-                    else:                                     # sea5
-                        ds = d5.get((i, j))
-                        if ds is None or d not in ds:
-                            incoherent.append(((bx, by), (i, j), d,
-                                               f"sea5 deepset {sorted(ds) if ds else None} !point {d}"))
+                    # DEEP system -- byte-identical verdicts to the pre-extension gate; runs only where the
+                    # deep sea3/4/5 alphabet is binned.  A deep-flagged edge is NOT re-counted as coastal.
+                    if w[i][j]:
+                        sh = g[i][j]
+                        if sh == "sea3":
+                            deep_bad.append(((bx, by), (i, j), d, "sea3 abuts deep, no transition ring"))
+                            continue
+                        if sh != "sea4":                       # sea5: coherent iff its tip points OUT
+                            ds = d5.get((i, j))
+                            if ds is None or d not in ds:
+                                deep_bad.append(((bx, by), (i, j), d,
+                                                 f"sea5 deepset {sorted(ds) if ds else None} !point {d}"))
+                            continue                           # sea5 resolved (coherent or flagged)
+                        # sh == "sea4": deep meets deep -> coherent; fall through in case a Sea1/Sea2 tile
+                        # ALSO occupies this cell (a mixed shallow+deep cell still faces the deep ring shallow)
+                    # COASTAL system (the shade-alphabet extension): a Sea1/Sea2 frame tile facing the deep
+                    # ring is off-language -- stock authors sea1|sea4 / sea2|sea4 ZERO times (SEA_ADJ_LAWFUL).
+                    ssh = sg[i][j]
+                    if ssh is not None and not sea_adjacent_lawful(ssh, "sea4"):
+                        shallow_bad.append(((bx, by), (i, j), d, f"{ssh} abuts deep, no ladder ring"))
+    incoherent = deep_bad + shallow_bad
     detail = "; ".join(f"({bxy[0]},{bxy[1]})@{ij}.{d}" for (bxy, ij, d, _r) in incoherent[:6])
     ok = allow or (not enforce) or not incoherent
     # WARN by default (report-only, ok True) when the carry produced real cropped-Wang frame seams --
     # the count is surfaced but the build is not refused (a coastal carry is expected to be re-tiled or
     # accepted by the human).  Suppressed once enforced (then it FAILS) or explicitly allowed.
     warn = bool(incoherent) and not enforce and not allow
-    return {"gate": "wang-carry", "incoherent": len(incoherent), "enforced": bool(enforce),
-            "warn": warn, "detail": detail or 0, "ok": ok}
+    return {"gate": "wang-carry", "incoherent": len(incoherent),
+            "incoherent_deep": len(deep_bad), "incoherent_shallow": len(shallow_bad),
+            "enforced": bool(enforce), "warn": warn, "detail": detail or 0, "ok": ok}
 
 
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
@@ -2593,7 +2674,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     gates = []
     gates.append(effective_gate)
     gates.append(wang_carry_gate(
-        {(bx, by): {pn.lower(): bm for pn, bm in meshes if pn.lower() in ("sea3", "sea4", "sea5")}},
+        {(bx, by): {pn.lower(): bm for pn, bm in meshes
+                    if pn.lower() in ("sea1", "sea2", "sea3", "sea4", "sea5")}},
         {(bx, by)}, enforce=enforce_wang_carry, allow=allow_wang_seams))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
@@ -3109,7 +3191,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if arm is not None:
             arm_meshes[(i, j)] = arm
     gates.append(wang_carry_gate(
-        {(bx + i, by + j): {pn.lower(): bm for pn, bm in mlist if pn.lower() in ("sea3", "sea4", "sea5")}
+        {(bx + i, by + j): {pn.lower(): bm for pn, bm in mlist
+                            if pn.lower() in ("sea1", "sea2", "sea3", "sea4", "sea5")}
          for (i, j), mlist in deploy_meshes.items()},
         {tuple(cell_meta[(i, j)]["cell"]) for (i, j) in deploy_meshes},
         enforce=enforce_wang_carry, allow=allow_wang_seams))

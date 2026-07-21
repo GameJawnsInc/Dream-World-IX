@@ -2653,10 +2653,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
         if g.get("warn"):
+            dn, sn = g.get("incoherent_deep", 0), g.get("incoherent_shallow", 0)
             print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
-                  f"the carried rim -- shipping FF9 has NO sea3-abuts-deep borders, so review these "
-                  f"in-game and re-tile the rim, or pass --enforce-wang-carry to refuse "
-                  f"(--allow-wang-seams to silence).")
+                  f"the carried rim ({dn} deep sea3/sea5, {sn} shallow sea1/sea2) -- shipping FF9 abuts "
+                  f"neither mid nor shallow water to the deep ring, so review these in-game and re-tile "
+                  f"the rim (wang_rim_retile for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
+                  f"pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).")
     if not summary["clean"]:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2
@@ -5694,10 +5696,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "replaced (the dunes-islet incident, 2026-07-15).")
     wtp.add_argument("--enforce-wang-carry", action="store_true", dest="enforce_wang_carry",
                      help="ENFORCE THE WANG-CARRY GATE (default report-only): FAIL the build when the "
-                          "carried region's outer frame has a shallow (Sea3) or mis-oriented Sea5 tile "
-                          "facing the open-ocean deep ring (a cropped-Wang hard shallow|deep seam, no "
-                          "transition ring). Use for a fresh mint onto known-deep ocean (every frame "
-                          "edge is a crop); a coastal donor's own pre-existing shelf would false-"
+                          "carried region's outer frame has a mid (Sea3) / mis-oriented Sea5 tile OR a "
+                          "shallow (Sea1/Sea2) tile facing the open-ocean deep ring (a cropped-Wang hard "
+                          "shallow|deep seam, no transition ring; stock abuts neither mid nor shallow "
+                          "water to the deep ring). Use for a fresh mint onto known-deep ocean (every "
+                          "frame edge is a crop); a coastal donor's own pre-existing shelf would false-"
                           "positive, so it stays opt-in until the donor-baseline subtraction lands.")
     wtp.add_argument("--allow-wang-seams", action="store_true", dest="allow_wang_seams",
                      help="waive THE WANG-CARRY GATE even when enforced (--enforce-wang-carry).")
