@@ -41,23 +41,26 @@ spawn = [0, -837]
 # All text is ORIGINAL kit-authored flavor (provenance-clean). The curly quotes exercise the UTF-8
 # encoding decision in-game (cp1252 would garble them).
 
+# Lore rides THE SKIN BUDGET (playtest-minted law): the parchment popup is a fixed ~6-line panel,
+# no scroll -- vanilla's longest lore is 210 chars hand-wrapped; the kit lints ~6 auto-wrapped lines.
+
 [[folklore]]
 id = 80
 name = "Mist Wraith"
 help = "A restless shape glimpsed where the Mist pools thickest."
-lore = "Travellers tell of a pale figure that drifts at the edge of lantern-light, never nearer, never further. Millers say it is only Mist curling in the evening wind. The travellers answer: “then why does it stop when we stop?”"
+lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
 
 [[folklore]]
 id = 81
 name = "Village of Dali"
 help = "A quiet village of windmills and underground works."
-lore = "By day the village turns its sails and tends its fields, and nothing could be plainer. Yet the cellar doors are always locked, and the children say the ground hums at night — “like a kettle,” one of them insists, “a kettle big as a barn.”"
+lore = "By day the village turns its sails and tends its fields. Yet the cellars stay locked, and children say the ground hums at night — “like a kettle big as a barn.”"
 
 [[folklore]]
 id = 82
 name = "The Eidolon Wall"
 help = "Weathered carvings said to name the guardian spirits."
-lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Scholars copy the figures and argue over every line; the summoners who once lived beneath it never wrote a word. Perhaps they did not need reminding."
+lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Scholars argue over every figure; the summoners beneath it never wrote a word. They needed no reminding."
 
 # ---- the discovery spots (walk-in events; once each, silent grant + an acknowledgement line) -----
 

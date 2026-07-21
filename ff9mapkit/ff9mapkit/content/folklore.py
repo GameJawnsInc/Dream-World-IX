@@ -31,6 +31,23 @@ CHANNELS = (("name", "imp_name"),   # the Key Items list-row name (required -- a
             ("help", "imp_help"),   # the short help line under the list (optional)
             ("lore", "imp_skin"))   # the long "skin" popup lore text (optional)
 
+# THE SKIN BUDGET (playtest 2026-07-20: over-long lore CLIPS -- the parchment popup is a FIXED panel,
+# no scroll). Vanilla ground truth, measured across all 7 languages' real imp_skin.mes/imp_help.mes
+# (extracted from resources.assets): the longest vanilla lore = 210 visible chars, HAND-wrapped into
+# at most 7 lines of ~28 chars; the longest help = 135 chars. Kit lore relies on the engine's
+# AUTO-wrap (~32 chars/line at the menu font, ~6 lines shown before the clip in the playtest), so the
+# kit budgets 6 estimated lines -- conservative by design. Explicit newlines each consume a line.
+LORE_MAX_LINES = 6
+LORE_CHARS_PER_LINE = 32
+HELP_MAX_CHARS = 135
+
+
+def lore_lines_estimate(text: str) -> int:
+    """Estimated wrapped line count of a lore text in the skin popup (auto-wrap ~32 chars/line;
+    an explicit newline starts a new line)."""
+    return sum(max(1, -(-len(seg) // LORE_CHARS_PER_LINE))       # ceil-div
+               for seg in str(text).split("\n"))
+
 
 class FolkloreError(ValueError):
     """A [[folklore]] block or reference the kit can't honour."""
@@ -161,4 +178,16 @@ def validate_blocks(blocks) -> list:
                 _check_text(v, f"{where} (id {iid}) {chan}")
             except FolkloreError as e:
                 problems.append(str(e))
+                continue
+            if chan == "lore":
+                est = lore_lines_estimate(v)
+                if est > LORE_MAX_LINES:
+                    problems.append(
+                        f"{where} (id {iid}) lore is ~{est} wrapped lines -- the skin popup fits only "
+                        f"~{LORE_MAX_LINES} (a fixed parchment panel, NO scroll; playtest-proven clip). "
+                        f"Trim to <= ~{LORE_MAX_LINES * LORE_CHARS_PER_LINE} chars or split entries.")
+            elif chan == "help" and len(v) > HELP_MAX_CHARS:
+                problems.append(
+                    f"{where} (id {iid}) help is {len(v)} chars -- the vanilla maximum is "
+                    f"{HELP_MAX_CHARS} (the help bar clips beyond it). Trim it.")
     return problems

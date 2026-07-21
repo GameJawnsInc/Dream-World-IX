@@ -104,7 +104,14 @@ texture cache (`LoadFromDisc` caches nothing — per-repaint reload would leak).
 
 ## 4. Phased plan (each phase = one change, one in-game gate)
 
-- **P0 — data spine (DLL-free). ★ BUILT + offline-proven 2026-07-20, PLAYTEST PENDING.**
+- **P0 — data spine (DLL-free). ★★ PLAYTEST PASSED 2026-07-20** — all three entries rendered
+  (name + help + the parchment lore popup, UTF-8 curly quotes/em-dash correct in-game), New Game
+  showed them ABSENT (clean isolation), loading the save brought them BACK (persistence proven).
+  The one finding minted **THE SKIN BUDGET law**: the lore popup is a FIXED parchment panel, no
+  scroll — vanilla's longest lore is 210 chars HAND-wrapped ≤7×~28 lines (measured from
+  resources.assets across all 7 languages); kit lore auto-wraps ~32 chars/line with ~6 lines shown →
+  `folklore.LORE_MAX_LINES=6`/`LORE_CHARS_PER_LINE=32`/`HELP_MAX_CHARS=135`, lint ERRORS over-budget,
+  build warns-and-ships. Build details below.
   `content/folklore.py` ([[folklore]] blocks, band 80–254 strict, the three-channel overlay emitter) +
   `give_folklore` on [[event]] (both emit paths) + `_emit_folklore` in build_mod + the deploy_field
   KeyItem tree loop (+ a `[Import] Enabled=1` hazard warning). 28 tests; suite 4091 green (byte-level

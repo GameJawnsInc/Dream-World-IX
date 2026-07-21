@@ -165,6 +165,31 @@ def test_validate_blocks_errors():
     assert "must be a string" in text
 
 
+# ---- THE SKIN BUDGET (playtest-minted: the parchment popup is a fixed ~6-line panel, no scroll) --
+def test_lore_lines_estimate():
+    assert FK.lore_lines_estimate("") == 1                 # empty seg still occupies a line
+    assert FK.lore_lines_estimate("x" * 32) == 1
+    assert FK.lore_lines_estimate("x" * 33) == 2
+    assert FK.lore_lines_estimate("a\nb") == 2             # explicit newlines each consume a line
+    assert FK.lore_lines_estimate(("x" * 40 + "\n") * 3 + "y") == 7
+
+
+def test_validate_overlong_lore_errors():
+    probs = FK.validate_blocks([{"id": 80, "name": "X", "lore": "x" * 260}])
+    assert any("wrapped lines" in p and "popup" in p for p in probs)
+
+
+def test_validate_overlong_help_errors():
+    probs = FK.validate_blocks([{"id": 80, "name": "X", "help": "x" * 140}])
+    assert any("help" in p and "135" in p for p in probs)
+
+
+def test_validate_budget_boundaries_clean():
+    assert FK.validate_blocks([{"id": 80, "name": "X",
+                                "lore": "x" * (FK.LORE_MAX_LINES * FK.LORE_CHARS_PER_LINE),
+                                "help": "x" * FK.HELP_MAX_CHARS}]) == []
+
+
 BASE = """
 [field]
 id = 4003
@@ -285,6 +310,15 @@ def test_build_bad_folklore_ref_is_clean_builderror(tmp_path):
         assert False, "expected BuildError"
     except BuildError as e:
         assert "give_folklore" in str(e)
+
+
+def test_emit_overlong_lore_warns_and_ships(tmp_path):
+    # over-budget lore still RENDERS (just clips) -> build warns but SHIPS it; lint is the hard gate
+    proj = _proj(BASE + '\n[[folklore]]\nid = 95\nname = "Long"\nlore = "' + "x" * 260 + '"\n', tmp_path)
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_folklore([proj], layout)
+    assert any("WILL CLIP" in w for w in warns)
+    assert "[TXID=95]" in layout.keyitem_skin_mes("us").read_text(encoding="utf-8")
 
 
 def test_emit_dup_id_later_wins(tmp_path):

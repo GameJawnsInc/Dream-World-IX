@@ -7442,6 +7442,16 @@ def _emit_folklore(projects, layout) -> list:
                                 f"{_field_name(p)}) -- the later one wins")
                 blocks = [x for x in blocks if int(x["id"]) != iid]
             seen[iid] = _field_name(p)
+            # over-budget text still RENDERS (just clips) -> warn-and-ship here; lint ERRORS precisely
+            if isinstance(b.get("lore"), str):
+                est = _folklore.lore_lines_estimate(b["lore"])
+                if est > _folklore.LORE_MAX_LINES:
+                    warnings.append(f"[[folklore]] id {iid} lore is ~{est} wrapped lines and WILL CLIP "
+                                    f"in-game (the skin popup fits ~{_folklore.LORE_MAX_LINES}; trim to "
+                                    f"<= ~{_folklore.LORE_MAX_LINES * _folklore.LORE_CHARS_PER_LINE} chars)")
+            if isinstance(b.get("help"), str) and len(b["help"]) > _folklore.HELP_MAX_CHARS:
+                warnings.append(f"[[folklore]] id {iid} help is {len(b['help'])} chars and may clip "
+                                f"(vanilla max {_folklore.HELP_MAX_CHARS})")
             blocks.append(b)
     if not blocks:
         return warnings
