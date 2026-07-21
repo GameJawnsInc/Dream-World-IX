@@ -79,9 +79,12 @@ The Key Items page itself has ZERO image precedent — its detail + skin panels 
    camera → `targetTexture` RenderTexture → `Render()` → `ReadPixels` → `Texture2D`
    (`BattleHUD.Public.cs:213-246`) → runtime `UISpriteData` injected into a live atlas → normal
    `UISprite` inside the stock tutorial window (`TutorialUI.cs:317-337`). The static-snapshot path is
-   therefore fully precedented. A LIVE/rotating RenderTexture bound to a `UITexture` is unbuilt
-   anywhere in the tree (every shipped `UITexture` consumer assigns a static `Texture2D`) — feasible
-   but first-of-its-kind; sequence it last.
+   therefore fully precedented. **⚠ CORRECTED by the SUBMENU round: Libra is the PATTERN precedent,
+   not liftable code — its path is battle-locked (re-aims `Camera.main`/"Battle Camera" at a live
+   `pBtl` unit; NREs off-battle). The build uses a self-contained Camera+RT+model mini-rig instead
+   (→ SUBMENU.md §2).** A LIVE/rotating RenderTexture bound to a `UITexture` is unbuilt anywhere in
+   the tree (every shipped `UITexture` consumer assigns a static `Texture2D`) — feasible but
+   first-of-its-kind; sequence it last.
 3. **Model load — `ModelFactory.CreateModel` + `AnimationFactory`**: standalone, NOT battle-gated
    (proven by `ModelViewerScene`, which loads battle-only MON forms outside battle). **Do NOT lift
    `ModelViewerScene` wholesale** — it hijacks the fullscreen FieldMap camera + main loop; lift only
@@ -122,14 +125,14 @@ texture cache (`LoadFromDisc` caches nothing — per-repaint reload would leak).
 5. Model instantiate cost/memory in-menu.
 6. Offline-render quality (`model-preview` is thumbnail-grade — flat lambert, NEAREST texels).
 
-## 6. OPEN — the dedicated "Folklore" submenu (the hard tier, being explored)
+## 6. THE DEDICATED "Folklore" SUBMENU — ★ DESIGN COMPLETE → [SUBMENU.md](SUBMENU.md)
 
 The owner's chosen direction 2026-07-20: build the hard parts — a first-class Folklore entry in the
-main menu rather than (or in addition to) squatting inside Item → Key Items. This means some subset
-of: a new `MainMenuUI.SubMenu` value (`MainMenuUI.cs:813-824`), a new `UIManager.UIState` + scene
-registration, a new stock-NGUI two-pane screen (list + detail + display window) built ControlPanel-
-style from cloned stock pieces, main-menu row insertion + navigation/cursor plumbing, localization of
-the label, and filtering the folklore band OUT of the Key Items tab so entries don't double-appear.
-A dedicated multi-agent exploration of exactly this is in flight; its findings land as
-`SUBMENU.md` beside this file. Layers 1–2 above are unchanged by its outcome — the submenu replaces
-only the *entry surface*, not the data spine or the display machinery.
+main menu. The dedicated 31-agent exploration is DONE; the build-ready plan lives in **SUBMENU.md**
+beside this file. Decision summary: a genuine new `UIManager.UIState.Folklore` (APPENDED at ordinal 28
++ a widened `IsUIStateMenu`) served by a code-built `FolkloreUI : UIScene`, entered from a
+runtime-cloned main-menu row (the shipping Party-row precedent, MainMenuUI.cs:680-716); the
+MenuUIControlPanel overlay route was REFUTED as a screen host (mouse-only, no input capture, no
+cancel); packaging = s45 (text codex) + s46 (render rig). §§2-3 above remain the data spine and the
+display-machinery evidence; SUBMENU.md §7 carries the merged phase ladder (P0 → A/B/C/D) and
+supersedes §4's P1-P3 sequencing where they differ.
