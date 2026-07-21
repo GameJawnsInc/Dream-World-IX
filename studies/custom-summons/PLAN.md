@@ -390,7 +390,12 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    the stock ChannelSummon aura layered into the chant window of the PRIVATE ef084 copy; stage B
    (built, deploy-tested once, waiting) = `rung5_sprite.sfxmodel` — a bespoke kit-owned no-texture
    16-tri octagonal RISING RING, magenta (no stock aura uses it), fade-in/expand/rise/fade over
-   ~2.4s. Cast A then cast B, both recast-only.]**
+   ~2.4s. ★★ FULLY PROVEN 2026-07-21, BOTH CASTS: cast A "I can see both auras during the chant"
+   (the op's first-ever exercise — additive layering confirmed, the stock ChannelSummon aura over
+   the Spell-case baseline); cast B "the magenta ring appeared during the chant" — **THE FIRST
+   GENUINELY NEW VISUAL CONTENT EVER RENDERED INSIDE AN FF9 SUMMON** (a hand-authored no-texture
+   Sprite .sfxmodel, zero SE bytes). The ef084 copy restored verbatim post-proof. Tier-3's
+   Sprite-particle half is now in-game proven; only the FBX half (rung 7) remains unexercised.]**
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
    graceful play (chars animate, sound, damage) with no native content at all → Tier 3 is viable;
    also observes what a camera-ownerless effect looks like.
