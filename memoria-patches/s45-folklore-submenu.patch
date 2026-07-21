@@ -842,7 +842,7 @@ index fec55217..55aea8c5 100644
              _keyItemIdList.Add(FF9FITEM_RARE_NONE);
          List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
 diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
-index 0b138cde..ea61e6fa 100644
+index 0b138cde..8bc4dac9 100644
 --- a/Assembly-CSharp/Global/MainMenuUI.cs
 +++ b/Assembly-CSharp/Global/MainMenuUI.cs
 @@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
@@ -998,20 +998,24 @@ index 0b138cde..ea61e6fa 100644
      protected void Awake()
      {
          base.FadingComponent = this.ScreenFadeGameObject.GetComponent<HonoFading>();
-@@ -677,6 +728,12 @@ public class MainMenuUI : UIScene
+@@ -677,6 +728,16 @@ public class MainMenuUI : UIScene
          this.OrderSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(4);
          this.CardSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(5);
          this.ConfigSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(6);
 +        // ff9mapkit s45 -- capture the collapse bake BEFORE any row relay (see CollapseSubmenuTo):
 +        // the tween minima (74/104), the baked row height (90), and row 0's baked seat (-45).
-+        this.bakedCollapseClipY = this.submenuTransition.TweenClipTo.y;
-+        this.bakedCollapseSpriteY = this.submenuTransition.TweenSpriteTo.y;
++        // NOTE: this.submenuTransition is only assigned at the END of Awake -- read the component
++        // off the serialized GameObject ref, which is valid from the first line (an NRE here
++        // aborts Awake and wrecks the whole menu; found in playtest 2026-07-21).
++        HonoTweenClipping collapseBake = this.SubMenuTransitionGameObject.GetComponent<HonoTweenClipping>();
++        this.bakedCollapseClipY = collapseBake.TweenClipTo.y;
++        this.bakedCollapseSpriteY = collapseBake.TweenSpriteTo.y;
 +        this.bakedRowHeight = this.ItemSubMenu.GetComponent<UIWidget>().height;
 +        this.bakedItemRowY = this.ItemSubMenu.transform.localPosition.y;
          if (this.PartySubMenu == null && (Configuration.Hacks.AllCharactersAvailable > 0 || Configuration.Battle.IsMenuEnabledInBattle(SubMenu.Party)))
          {
              UITable table = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
-@@ -697,14 +754,64 @@ public class MainMenuUI : UIScene
+@@ -697,14 +758,64 @@ public class MainMenuUI : UIScene
              Int32 h = 79;
              foreach (GameObject go in new GameObject[] { this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu, this.OrderSubMenu, this.CardSubMenu, this.PartySubMenu, this.ConfigSubMenu })
              {
@@ -1078,7 +1082,7 @@ index 0b138cde..ea61e6fa 100644
          UIEventListener.Get(this.ItemSubMenu).Click += onClick;
          UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
          UIEventListener.Get(this.EquipSubMenu).Click += onClick;
-@@ -714,6 +821,8 @@ public class MainMenuUI : UIScene
+@@ -714,6 +825,8 @@ public class MainMenuUI : UIScene
          UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
          if (this.PartySubMenu != null)
              UIEventListener.Get(this.PartySubMenu).Click += onClick;
@@ -1087,7 +1091,7 @@ index 0b138cde..ea61e6fa 100644
  
          foreach (Transform tr in this.CharacterListPanel.transform)
          {
-@@ -783,7 +892,13 @@ public class MainMenuUI : UIScene
+@@ -783,7 +896,13 @@ public class MainMenuUI : UIScene
      private GameObject ConfigSubMenu;
      [NonSerialized]
      private GameObject PartySubMenu;
@@ -1101,7 +1105,7 @@ index 0b138cde..ea61e6fa 100644
      private GOMenuBackground Background;
  
      private UILabel gilLabel;
-@@ -820,6 +935,7 @@ public class MainMenuUI : UIScene
+@@ -820,6 +939,7 @@ public class MainMenuUI : UIScene
          Card,
          Config,
          Party,
