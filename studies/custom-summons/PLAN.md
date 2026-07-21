@@ -1,11 +1,13 @@
 # Custom Summons — feasibility study
 
-> **Status: RUNG 1 ★ IN-GAME PROVEN 2026-07-21** — "it worked, bahamut played in full" from Iviv's
-> minted Spark command (bench `rung1-borrowed-cinematic/`, field **30300**, minted ability
-> **"Bahamut Cinema" id 194**; kit work item #4 — the vfx≥511 playParam WARN — landed the same day).
-> ONE observation from the proof playtest: **the audio was "a little crunchy at times"** — matches
-> the known Memoria polish territory (#917's playback-glitch class; SpecialEffect.cs's own Ark
-> comment "the sounds are a mess") → the open audio question below. Research opened 2026-07-21 from a 20-agent ultracode workflow
+> **Status: RUNGS 1+2 ★ IN-GAME PROVEN 2026-07-21** — rung 1: "it worked, bahamut played in full"
+> from Iviv's minted Spark command (bench `rung1-borrowed-cinematic/`, field **30300**, minted
+> ability **"Bahamut Cinema" id 194**); rung 2: "both worked, the blip played and the fade was
+> slower" — the .seq edit→recast HOT LOOP is real (no relaunch; `rung2-seq-hot-edit/`, since
+> reverted; the minted chime stays staged for rung 3). Kit work item #4 (the vfx≥511 playParam
+> WARN) landed the same day; the rung-1 "crunchy audio" observation is INVESTIGATED (§8 — not our
+> binding; no-limiter clipping + known-poor vanilla assets; 2-step user A/B). NEXT = rung 3, the
+> fresh-id private donor copy. Research opened 2026-07-21 from a 20-agent ultracode workflow
 > (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
 > load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
 > + a completeness critic). All file:line citations below were re-derived by skeptic agents against
@@ -325,17 +327,14 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
    edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
    the SHARED folder — vanilla Bahamut changes too. Rung 3 fixes that.)
-   **[BUILT + DEPLOYED 2026-07-21 → `rung2-seq-hot-edit/` (verifier READY; build→revert→build
-   idempotency proven; stock-sha drift guard). The LIVE override at FF9CustomMap/StreamingAssets/
-   Data/SpecialEffects/ef227/PlayerSequence.seq carries exactly 2 edits: `PlaySound: Sound=103`
-   (stock Menu-Select blip) as the new first line + `SetBackgroundIntensity Time=12→45` (the
-   pre-summon blackout fade ~0.8s→3s — the unmistakable retimed beat). TWO-TRACK SOUND DESIGN:
-   the stock-id blip proves DSL injection on a mere recast (SoundMetaData's id table loads ONCE at
-   process start, so a fresh minted id cannot go live on a running game); Track B — minted sfx id
-   100000, a synthetic 880Hz chime (zero SE bytes) — is deployed to the manifest + Sounds tree but
-   INERT until the next relaunch, after which `PlaySound: Sound=100000` closes §8's minted-id
-   question. ⚠ the override is ACTIVE: stock Garnet/Eiko Bahamut is altered too until
-   `revert_rung2.py`. PLAYTEST: no relaunch, no redeploy — re-enter a battle on 30300, recast.]**
+   **[★ IN-GAME PROVEN 2026-07-21 — "both worked, the blip played and the fade was slower." One
+   recast, no relaunch: mod-folder .seq shadowing + the per-cast re-parse + DSL injection all
+   proven in one shot (`rung2-seq-hot-edit/`; the override carried exactly 2 edits: `PlaySound:
+   Sound=103` first line + blackout fade Time 12→45). The ef227 override is REVERTED (stock
+   Bahamut pristine; selective revert — `remove_seq_override` only). Track B — minted sfx id
+   100000, the synthetic 880Hz chime (zero SE bytes) — REMAINS STAGED in the manifest + Sounds
+   tree (SoundMetaData loads once at process start), arming on the next relaunch: rung 3's cycle
+   closes §8's minted-id question with a hot-added `PlaySound: Sound=100000` recast.]**
 3. **Fresh-id private copy** — mint an unused id <511; ship `ef{N}/PlayerSequence.seq +
    Sequence.seq` as the donor's copy (`LoadSFX: SFX=Bahamut__Full` by NAME). Proof: plays
    identically under id N while stock Bahamut is untouched → the global-namespace collision is
