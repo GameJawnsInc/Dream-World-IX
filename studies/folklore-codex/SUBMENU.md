@@ -391,3 +391,9 @@ One build round + one sound fix, spec at `REDESIGN.md`:
 - Playtests: "the layout is great", "first open is instant", "sounds right now"; survives title→load
   and relaunch. Gate quirk: the reverse patch gate must run TEXT mode (`--binary` mis-parses the
   csproj's no-newline marker into a phantom fuzz-1).
+
+**KNOWN ISSUE (filed, deferred — confirmed in-game 2026-07-21):** with `[Hacks]
+AllCharactersAvailable = 1` (Memoria's Form Party row) AND the Folklore row = 9 command rows, Config
+is pushed outside the command window — invisible, arrow-nav-only (no mouse hover). The row squeeze
+(`shiftFactor = 7/(7+extras)`, Config `588+98·extras`) handles extras=1, not extras=2; generalize the
+pitch compression and recapture s45. → the session task ledger / the spawn chip.
