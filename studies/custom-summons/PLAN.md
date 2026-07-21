@@ -347,13 +347,14 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    never even read on the player path (the nested LoadSFX reads the DONOR's ef227/Sequence.seq) —
    §8's LoadSfxSoundData fresh-id question is thereby ANSWERED BY CONSTRUCTION for donor-borrowing
    rungs. Deployed: ef084 verbatim pair + the bench toml redeployed on 30300 (row 194 now
-   `84;405`, verified live). CAST A ★ PROVEN 2026-07-21 — "worked, looked identical to before":
-   the fresh-id private copy is indistinguishable, stock ef227 untouched. BONUS OBSERVATION:
-   "less audio crunch" than rung 1's cast (user hedged, more A/B wanted) — consistent with the
-   engine lens's cold-cache candidate (the AKB/OGG decode is disk-cached after first-ever play;
-   rung 1's cast paid the one-time cost) → folded into the §8 A/B. CAST B PENDING: the chime line
-   is FLIPPED ON (`--with-chime` run post-cast-A; `PlaySound: Sound=100000` is the deployed copy's
-   first executable line) — a mere recast proves minted-audio-in-.seq.]**
+   `84;405`, verified live). ★★ FULLY PROVEN 2026-07-21, BOTH CASTS: cast A "worked, looked
+   identical to before" (the fresh-id private copy is indistinguishable, stock ef227 untouched —
+   the global-namespace collision is DEAD); cast B "the chime played at the start" (the
+   `--with-chime` recast — THE FIRST CUSTOM-MINTED AUDIO EVER PLAYED INSIDE A SUMMON SEQUENCE;
+   §8's minted-PlaySound question CLOSED; the ef084 copy since restored verbatim). CRUNCH NOTE:
+   "crunch still reduced" across both casts vs rung 1 — two consistent data points for the
+   cold-cache candidate (the AKB/OGG decode disk-caches after first-ever play), still not
+   conclusive per the user; the §8 A/B stands for a proper pin-down.]**
 4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
    at the new beat.
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
@@ -416,8 +417,11 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
 - Can one `.sfxmodel` compose multiple FBX entries (circle prop + creature + impact)? → rung 7-8.
 - Do arena camera slots 3-8 give usable framing, per-arena? → rung 9 groundwork.
 - Diorama-path freeze ceiling (see §7). → before shipping.
-- `PlaySound` with minted ids ≥100000 inside a .seq — expected to work (same SoundLib), unproven.
-  → rung 2.
+- `PlaySound` with minted ids ≥100000 inside a .seq — **★ CLOSED 2026-07-21 (rung 3 cast B):** the
+  minted sfx id 100000 (manifest-registered loose Ogg, zero SE bytes) played from a hand-authored
+  `PlaySound` line inside the private summon copy — "the chime played at the start." Custom audio
+  in a summon sequence is PROVEN. (Reminder law: SoundMetaData's id table loads once at process
+  start — a fresh minted id always needs one relaunch to arm before its first use.)
 - **THE CRUNCHY-AUDIO QUESTION — INVESTIGATED 2026-07-21 (3-lens workflow, engine + web + install):**
   the crunch is NOT our binding (the bench plays ef227 as itself; the pitch-table switch keys purely
   on the effect id, so a stock Garnet cast runs identical low-level audio code). Findings:
