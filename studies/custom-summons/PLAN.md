@@ -1,9 +1,11 @@
 # Custom Summons — feasibility study
 
-> **Status: RESEARCH DONE; rung 1 BUILT + DEPLOYED 2026-07-21, playtest pending.** The bench lives at
-> `rung1-borrowed-cinematic/` (deployed to field **30300**, minted ability **"Bahamut Cinema" id 194**
-> on Iviv's Spark command; deploy re-verified byte-exact in the live install; kit work item #4 — the
-> vfx≥511 playParam WARN — landed the same day). Research opened 2026-07-21 from a 20-agent ultracode workflow
+> **Status: RUNG 1 ★ IN-GAME PROVEN 2026-07-21** — "it worked, bahamut played in full" from Iviv's
+> minted Spark command (bench `rung1-borrowed-cinematic/`, field **30300**, minted ability
+> **"Bahamut Cinema" id 194**; kit work item #4 — the vfx≥511 playParam WARN — landed the same day).
+> ONE observation from the proof playtest: **the audio was "a little crunchy at times"** — matches
+> the known Memoria polish territory (#917's playback-glitch class; SpecialEffect.cs's own Ark
+> comment "the sounds are a mess") → the open audio question below. Research opened 2026-07-21 from a 20-agent ultracode workflow
 > (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
 > load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
 > + a completeness critic). All file:line citations below were re-derived by skeptic agents against
@@ -312,12 +314,13 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    Proof: the full vanilla Bahamut plays from a non-Garnet/Eiko command. Also proves the command
    is selectable/targetable through the real battle HUD (the critic's input-side gap) — the
    [[playable]] minted-command menu wiring is already in-game proven, this composes it with a
-   summon-scale effect. **[BUILT + DEPLOYED 2026-07-21 → `rung1-borrowed-cinematic/`, field 30300,
-   "Bahamut Cinema" minted at id 194 on Iviv's Spark (clone of stock row 62; targets=AllEnemy
-   pinned — the ManyAny disjunct at btl_vfx.cs:99 is the ONLY other Vfx2 trigger, so full-227 is
-   structurally unconditional; Iviv boots 80/80 MP ≥ the faithful 56 cost; auto-learned at AP 0).
-   Offline emission probe verified the live Actions.csv row byte-exact. PLAYTEST PENDING — procedure
-   in the bench README.]**
+   summon-scale effect. **[★ IN-GAME PROVEN 2026-07-21 — "it worked, bahamut played in full."
+   Bench `rung1-borrowed-cinematic/`, field 30300, "Bahamut Cinema" minted at id 194 on Iviv's
+   Spark (clone of stock row 62; targets=AllEnemy pinned — the ManyAny disjunct at btl_vfx.cs:99
+   is the ONLY other Vfx2 trigger, so full-227 is structurally unconditional; Iviv boots 80/80 MP
+   ≥ the faithful 56 cost; auto-learned at AP 0). Offline emission probe had verified the live
+   Actions.csv row byte-exact pre-playtest. Playtest residue: audio "a little crunchy at times"
+   → the open audio question (§8).]**
 2. **Hot-loop probe** — mod-folder-override the donor's own `ef227/PlayerSequence.seq` with one
    retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
    edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
@@ -390,6 +393,12 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
 - Diorama-path freeze ceiling (see §7). → before shipping.
 - `PlaySound` with minted ids ≥100000 inside a .seq — expected to work (same SoundLib), unproven.
   → rung 2.
+- **THE CRUNCHY-AUDIO QUESTION (from the rung-1 proof playtest, 2026-07-21):** the borrowed Bahamut's
+  sound was "a little crunchy at times." Since the bench plays effect id 227 AS itself (same playback
+  path as a stock Garnet cast — only the command/ability id upstream differs), the crunch is almost
+  certainly engine-playback territory, not our binding — but that needs characterizing: rework-audio
+  vs legacy, known #917-class reports, install audio config, and a cheap A/B the user can run.
+  → the audio investigation.
 
 ## 9. Kit work items (when the build starts)
 
