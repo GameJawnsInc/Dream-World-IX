@@ -181,7 +181,7 @@
 > — numbers bit-identical. Gates green (9 hunks, forward `--binary` == live).
 >
 > **THE TURNTABLE YAW (rung-5 garnish; built + captured + DEPLOYED 2026-07-21, DLL
-> `BA5DE4A838DE4AB9` both arches; ★ playtest pending after a relaunch).** The creature rotates at
+> `BA5DE4A838DE4AB9` both arches; ★ PLAYTEST PASSED same day — "good").** The creature rotates at
 > `FolkloreTurntableDegPerSec = 25` (one revolution ≈ 14s) from the proven camera-facing start;
 > retreat lever `FolkloreRigTurntable = false` restores the static facing + fit exactly, and the
 > turntable is dead behind `FolkloreRigLiveIdle = false` (no per-frame render = no rotation). The
@@ -204,10 +204,8 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST THE TURNTABLE**: RELAUNCH → each creature should rotate slowly (≈14s/revolution),
->   starting camera-facing, never clipping the frame at any angle; expect them slightly smaller
->   than before (the diagonal trade). Knobs: `FolkloreTurntableDegPerSec` (speed),
->   `FolkloreRigTurntable` (kill).
+> - ~~**PLAYTEST THE TURNTABLE**~~ **★ PASSED 2026-07-21** ("good"); knobs remain
+>   `FolkloreTurntableDegPerSec` (25) / `FolkloreRigTurntable` (kill).
 > - ~~**PLAYTEST THE BODY-BLEND ZOOM**~~ **★ PASSED 2026-07-21** ("way bigger");
 >   `FolkloreFitExcursionWeight` (0.4) remains the one-constant tuning lever if a future creature
 >   wants tighter or looser framing.
