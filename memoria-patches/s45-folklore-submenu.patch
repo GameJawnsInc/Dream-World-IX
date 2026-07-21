@@ -258,10 +258,10 @@ index c0c537ca..8c1ce87a 100644
 \ No newline at end of file
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
 new file mode 100644
-index 00000000..23d488af
+index 00000000..1111111
 --- /dev/null
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
-@@ -0,0 +1,700 @@
+@@ -0,0 +1,796 @@
 +using Assets.Sources.Scripts.UI.Common;
 +using Memoria;
 +using Memoria.Assets;
@@ -306,6 +306,9 @@ index 00000000..23d488af
 +
 +    public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
 +    {
++        // REDESIGN instrumentation: the ~3s first-open hang must NAME itself (Awake fires inside
++        // the first Show's activation, so this timer brackets the whole burst)
++        System.Diagnostics.Stopwatch showWatch = System.Diagnostics.Stopwatch.StartNew();
 +        UIScene.SceneVoidDelegate afterShowAction = delegate
 +        {
 +            // the ItemUI Show idiom: scroll + pointer plumbing per group, then arm the list
@@ -314,7 +317,9 @@ index 00000000..23d488af
 +                ButtonGroupState.SetScrollButtonToGroup(this.listPopulator.ScrollButton, ListGroupButton);
 +                ButtonGroupState.SetPointerLimitRectToGroup(this.listClipWidget, this.listPopulator.cellHeight, ListGroupButton);
 +                ButtonGroupState.SetPointerOffsetToGroup(new Vector2(54f, 0f), ListGroupButton);   // the ItemUI key-item offset
-+                ButtonGroupState.SetPointerDepthToGroup(this.listPopulator.panel.depth + 1, ListGroupButton);
++                ButtonGroupState.SetPointerDepthToGroup(this.listPopulator.panel.depth + 2, ListGroupButton);
++                // ^ +2, not +1: the caption rail's panel sits at list+1, and equal panel depths
++                //   sort arbitrarily in NGUI -- the finger must deterministically top the stack
 +                // ^ the finger renders in a POOLED panel at per-group depth (DEFAULT 5 -- under our
 +                //   rows at 6, which is why it vanished the moment the panes arrived; Dialog.cs idiom)
 +                ButtonGroupState.ActiveGroup = ListGroupButton;
@@ -324,10 +329,36 @@ index 00000000..23d488af
 +        };
 +        base.Show(afterShowAction);
 +        this.RefreshCategoryList(true);
++        if (showWatch.ElapsedMilliseconds > 50)
++            Log.Message($"[FolkloreUI] Show took {showWatch.ElapsedMilliseconds}ms");
++        if (!this.firstFramesLogged)
++        {
++            // the synchronous stopwatches CANNOT see the likeliest hang homes -- RepositionList is
++            // Invoke-deferred and NGUI's geometry/drawcall fill runs in LateUpdate after Show
++            // returns (review find) -- so bracket the first rendered frames too
++            this.firstFramesLogged = true;
++            base.StartCoroutine(this.LogFirstFrames());
++        }
++    }
++
++    private System.Collections.IEnumerator LogFirstFrames()
++    {
++        Single t0 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t1 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t2 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t3 = Time.realtimeSinceStartup;
++        Log.Message($"[FolkloreUI] first frames ms: {(t1 - t0) * 1000f:F0} / {(t2 - t1) * 1000f:F0} / {(t3 - t2) * 1000f:F0}");
 +    }
 +
 +    public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
 +    {
++        // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
++        // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
++        this.muteSettleDepth = 0;
++        ButtonGroupState.MuteActiveSound = false;
 +        base.Hide(afterFinished);
 +        // THE ItemUI IDIOM (ItemUI.cs Hide override): re-tween the main menu's row COLUMN back in
 +        // while this scene fades out -- StartSubmenuTweenIn is the ONLY thing that reopens the
@@ -414,9 +445,30 @@ index 00000000..23d488af
 +        Int32 next = cats[((at < 0 ? 0 : at) + dir + cats.Length) % cats.Length];
 +        if (next == this.currentCategory)
 +            return;
-+        FF9Sfx.FF9SFX_Play(103);
++        FF9Sfx.FF9SFX_Play(1047);                          // the universal page-flip id (Status/Card
++                                                           // bumper paging -- VOCABULARY SS4)
 +        this.currentCategory = next;
++        // the rebuild destroys the row pool and re-seats the cursor on the new rows, and
++        // ActiveButtonChanged fires the cursor-move beep on the new button (ButtonGroupState.cs:557)
++        // ON TOP of the page flip -- stock bumper-paging never trips this because it pages with the
++        // SUB-MENU group active, not a live list. MuteActiveSound is the stock counter-instrument
++        // (AbilityUI.cs:1480-1482); held across frames because part of the settle is
++        // Invoke-deferred (RepositionList) -- the SaveLoadUI cross-window idiom (SaveLoadUI.cs:565-576).
++        ButtonGroupState.MuteActiveSound = true;
++        this.muteSettleDepth++;
 +        this.RefreshCategoryList(true);
++        base.StartCoroutine(this.UnmuteAfterSettle());
++    }
++
++    private System.Collections.IEnumerator UnmuteAfterSettle()
++    {
++        yield return null;                                 // the Invoke(0) pump runs RepositionList
++        yield return null;                                 // the select settle
++        if (--this.muteSettleDepth <= 0)
++        {
++            this.muteSettleDepth = 0;
++            ButtonGroupState.MuteActiveSound = false;
++        }
 +    }
 +
 +    // rebuild the list for the current category (cursor to row 0 when `reset`), then the detail pane
@@ -441,6 +493,7 @@ index 00000000..23d488af
 +            data.Add(new FolkloreListData { Entry = e });
 +        if (reset)
 +            this.currentIndex = 0;
++        System.Diagnostics.Stopwatch listWatch = System.Diagnostics.Stopwatch.StartNew();
 +        try
 +        {
 +            if (data.Count > 0)
@@ -464,6 +517,8 @@ index 00000000..23d488af
 +        {
 +            Log.Error(err);                                // a codex glitch must never brick the whole
 +        }                                                  // menu until restart (the round-1 failure)
++        if (listWatch.ElapsedMilliseconds > 50)
++            Log.Message($"[FolkloreUI] list populate took {listWatch.ElapsedMilliseconds}ms (rows={data.Count})");
 +        this.RefreshDetail();
 +    }
 +
@@ -584,6 +639,9 @@ index 00000000..23d488af
 +        // Awake runs on the first Show (the GameObject is created inactive by UIManager.Start).
 +        // UI space: center origin, +y up, 1080 tall (1920 wide at 16:9); panes stay inside the
 +        // pillarbox-safe +-771 band so non-widescreen keeps the whole screen.
++        // REDESIGN (Option B, studies/folklore-codex/REDESIGN.md): per-stage timings, so the
++        // first-open burst is attributed before anything gets optimized.
++        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
 +        MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
 +
 +        // the stock full-screen menu backdrop (MainMenuUI child 4, already GOMenuBackground-sized
@@ -599,6 +657,7 @@ index 00000000..23d488af
 +        if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
 +            bgSprite.spriteName = "item_bg";               // the stock SUBMENU backdrop flavor
 +        bgGo.SetActive(true);
++        Int64 tBg = watch.ElapsedMilliseconds;
 +
 +        // the stock cross-fade (HonoFading re-derives its sprite from the CLONE's own object)
 +        GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
@@ -629,6 +688,7 @@ index 00000000..23d488af
 +        this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
 +        this.detailBodyLabel.multiLine = true;
 +        this.detailBodyLabel.rawText = String.Empty;
++        Int64 tPane = watch.ElapsedMilliseconds;
 +
 +        // the scrollable entry list -- THE KEY ITEMS LIST donor (ItemUI.KeyItemListPanel): name-only
 +        // fixed-size window-bar rows, the codex's exact shape (ROUND-4 LAW: the donor cell is a
@@ -642,6 +702,21 @@ index 00000000..23d488af
 +        listRoot.transform.localScale = Vector3.one;
 +        GameObject listPanelGo = listRoot.GetChild(1);
 +        this.listPopulator = listPanelGo.GetComponent<RecycleListPopulator>();
++        // THE PRESERVE-THE-BAKE CAPTURE (the REDESIGN law): snapshot the donor's solved geometry
++        // BEFORE any mutation -- the panel seat, the baked clip rect (center + height; the height
++        // IS the dressing's rail-to-rail content box), the dressing seat. Every vertical number
++        // downstream COPIES this bake; nothing vertical is re-derived (the Phase-B formula refit
++        // is exactly how row 1 ended up under the top rail).
++        Vector3 bakedPanelPos = listPanelGo.transform.localPosition;
++        Vector4 bakedClip = this.listPopulator.panel.baseClipRegion;   // (cx, cy, width, height)
++        Vector2 bakedClipOffset = this.listPopulator.panel.clipOffset; // the OTHER half of the NGUI
++        // scroll state: the donor is the LIVE ItemScene panel, and every scroll moves localPosition
++        // and clipOffset in exact opposition (UIScrollView.MoveRelative) -- P+O is the
++        // scroll-INVARIANT window anchor, P alone is contaminated by any leftover Key-Items scroll
++        // (the redesign review's blocker: dressing seated n rows off after the player scrolls
++        // Key Items then first-opens Folklore).
++        Vector3 bakedDressingPos = listRoot.GetChild(2).transform.localPosition;
++        Log.Message($"[FolkloreUI] bake: panelPos={bakedPanelPos} clip={bakedClip} clipOffset={bakedClipOffset} dressingPos={bakedDressingPos} cellH={this.listPopulator.cellHeight}");
 +        this.listPopulator.table.transform.DestroyChildren();   // the donor's parked pool cells rode the clone
 +        // the cell template: OUR clone (GroupName edits never touch the donor's shared prefab),
 +        // parented INSIDE THE TABLE like vanilla's own template, inactive. TWO laws meet here:
@@ -671,7 +746,14 @@ index 00000000..23d488af
 +        GOScrollablePanel folkPanel = new GOScrollablePanel(listRoot);
 +        Single rowH = this.listPopulator.cellHeight;       // honor the widescreen-interface scale
 +        const Single colW = 745f;                          // the stock key-item column (1490 / 2)
-+        folkPanel.SubPanel.ChangeDims(1, 8, colW, rowH);
++        // THE STOCK INVARIANT, INVERTED: every stock list derives rowH = round(bakedPanelHeight /
++        // rows) so rows*rowH lands back on the bake (VOCABULARY SS2.7/SS6.2). The codex keeps the
++        // donor's rowH and derives the ROW COUNT from the baked clip height instead -- same
++        // invariant, and it absorbs the pre/post-widescreen clone-time variance (donor cellHeight
++        // 98 baked vs ini-scaled): both states derive the box the DONOR is actually displaying.
++        Int32 rowCount = Math.Max(1, Mathf.RoundToInt(bakedClip.w / rowH));
++        Single listH = rowCount * rowH;
++        folkPanel.SubPanel.ChangeDims(1, rowCount, colW, rowH);
 +        cellTemplate.localScale = Vector3.one;
 +        cellTemplate.localPosition = new Vector3(          // seat the template AT the row-0 slot
 +            this.listPopulator.table.padding.x + colW / 2f,    // (RepositionList's own posX/posY
@@ -692,11 +774,15 @@ index 00000000..23d488af
 +        // a FIXPOINT, so the settle recomputes to itself and nothing can drift.
 +        listPanelGo.transform.localPosition = Vector3.zero;
 +        this.listPopulator.panel.clipOffset = Vector2.zero;
-+        this.listPopulator.panel.baseClipRegion = new Vector4(0f, 0f, colW, 8f * rowH);
++        // ChangeDims already wrote baseClipRegion = (bakedCx, bakedCy, colW, listH): the BAKED clip
++        // center STANDS (Phase B overwrote it to zero, shearing the window off the dressing by
++        // exactly the baked offset -- the rows-over-the-rail mechanism). The round-15 fixpoint
++        // algebra generalizes: content top-left == window top-left, wherever the baked center sits.
 +        this.listPopulator.table.transform.localPosition = new Vector3(
-+            -colW / 2f - this.listPopulator.table.padding.x,   // content top-left == window top-left
-+            4f * rowH + this.listPopulator.table.padding.y, 0f);
-+        listRoot.transform.localPosition = new Vector3(-415f, -40f, 0f);   // window center -> the left half
++            bakedClip.x - colW / 2f - this.listPopulator.table.padding.x,
++            bakedClip.y + listH / 2f + this.listPopulator.table.padding.y, 0f);
++        listRoot.transform.localPosition = new Vector3(-415f - bakedClip.x, -40f - bakedClip.y, 0f);
++        // ^ the VISIBLE column center (root + baked clip center) lands on the proven (-415, -40) seat
 +        // THE POINTER RECT: SetPointerLimitRectToGroup reads widget.transform.LOCALPOSITION +- size/2,
 +        // and vanilla list panels are DIRECT children of their scene root, so that position is
 +        // SCREEN-space. A pane-local widget (localPosition ~0) hands the clamp a rect around screen
@@ -710,62 +796,61 @@ index 00000000..23d488af
 +        this.listClipWidget = pointerRectGo.AddComponent<UIWidget>();
 +        this.listClipWidget.pivot = UIWidget.Pivot.Center;
 +        this.listClipWidget.width = (Int32)colW;
-+        this.listClipWidget.height = (Int32)(8f * rowH);
-+        // THE AUTHENTIC DRESSING (round-10): the donor's own CaptionBackground (child 2 -- the
-+        // GOScrollablePanel structure: 0=TopBorder capped line / 1=Border / 2=Body sheet /
-+        // [3=Shadow] / last=CaptionPanel with the "ITEM"/"NUM" header labels). Round 6 deactivated
-+        // it as "stray rectangles"; it was just sized for the donor's two-column layout. Refit it
-+        // to the codex clip; the category name takes the header label's seat on the rail.
++        this.listClipWidget.height = (Int32)listH;
++        Int64 tList = watch.ElapsedMilliseconds;
++        // THE PRESERVE-THE-BAKE DRESSING (REDESIGN SS3, replacing the round-10 formula refit): the
++        // donor's CaptionBackground (child 2: TopBorder capped rail / Border / Body sheet /
++        // [Shadow] / CaptionPanel) carries the bake's own VERTICAL solution -- header label above
++        // the rail above row 1, rail thickness, sheet extent, shadow. COPY it: every sprite child
++        // keeps its baked y/height/pivot/active state; only the HORIZONTAL axis changes (the donor
++        // is a 1490-wide two-column panel, the codex is one 745 column), width-refit + re-centered
++        // on the clip column. The formula refit seated the thin rails ON the content edges -- the
++        // top rail's lower half is exactly what row 1 was drawn over.
 +        Single dressW = colW + 4f;                         // the column + a 2-unit sheet lip per side
-+        Single dressH = 8f * rowH;
 +        GameObject dressingGo = listRoot.GetChild(2);
 +        dressingGo.SetActive(true);
 +        dressingGo.transform.localScale = Vector3.one;
 +        UIWidget dressingRoot = dressingGo.GetComponent<UIWidget>();
 +        if (dressingRoot != null)
 +            dressingRoot.SetAnchor((GameObject)null);
-+        dressingGo.transform.localPosition = Vector3.zero;
-+        // ^ the window is AT the listRoot origin in the canonical frame -- the dressing centers on
-+        //   it by construction
-+        foreach (UIWidget w in dressingGo.GetComponentsInChildren<UIWidget>(true))
-+            Log.Message($"[FolkloreUI] dressing '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} anchored={w.isAnchored}");
-+        UIWidget topRail = dressingGo.GetChild(0).GetComponent<UIWidget>();
-+        UIWidget lowRail = dressingGo.GetChild(1).GetComponent<UIWidget>();
-+        UIWidget sheet = dressingGo.GetChild(2).GetComponent<UIWidget>();
-+        sheet.SetAnchor((GameObject)null);
-+        sheet.pivot = UIWidget.Pivot.Center;
-+        sheet.SetRawRect(0f, 0f, dressW, dressH);
-+        topRail.SetAnchor((GameObject)null);
-+        topRail.pivot = UIWidget.Pivot.Center;
-+        if (topRail.height > 40)                           // measured-thin rails keep their baked
-+            topRail.SetRawRect(0f, 0f, dressW, dressH);    // thickness; a thick sprite is really a
-+        else                                               // 9-slice perimeter -> size it AS one
-+            topRail.SetRawRect(0f, dressH / 2f, dressW, topRail.height);
-+        lowRail.SetAnchor((GameObject)null);
-+        lowRail.pivot = UIWidget.Pivot.Center;
-+        if (lowRail.height > 40)
-+            lowRail.SetRawRect(0f, 0f, dressW, dressH);
-+        else
-+            lowRail.SetRawRect(0f, -dressH / 2f, dressW, lowRail.height);
++        Vector3 dressSeat = bakedDressingPos - bakedPanelPos    // the panel moved to origin; the
++            - new Vector3(bakedClipOffset.x, bakedClipOffset.y, 0f);   // dressing rides the same
++        dressingGo.transform.localPosition = dressSeat;         // delta, scroll-state cancelled
++        // ^ subtracting BOTH halves (P and O) makes the seat scroll-invariant: window-in-listRoot
++        //   = P + clip.xy + O, and the donor's dressing-to-window offset must be what we preserve
++        Single clipCX = bakedClip.x - dressSeat.x;         // the clip column center, dressing-local
++        foreach (UIWidget dw in dressingGo.GetComponentsInChildren<UIWidget>(true))
++            Log.Message($"[FolkloreUI] dressing '{dw.name}' baked local={dw.transform.localPosition} size={dw.width}x{dw.height} pivot={dw.pivot} active={dw.gameObject.activeSelf} anchored={dw.isAnchored}");
 +        Int32 capIdx = -1;
-+        if (dressingGo.transform.childCount > 3)
++        for (Int32 i = 0; i < dressingGo.transform.childCount; i++)
 +        {
-+            if (dressingGo.GetChild(3).GetComponent<UISprite>() != null)
++            GameObject childGo = dressingGo.GetChild(i);
++            if (childGo.GetComponent<UIPanel>() != null)   // the CaptionPanel: handled whole, below
 +            {
-+                dressingGo.GetChild(3).SetActive(false);   // the Shadow variant: soft dupe, drop it
-+                capIdx = dressingGo.transform.childCount > 4 ? 4 : -1;
++                capIdx = i;
++                continue;
 +            }
-+            else
-+                capIdx = 3;
++            UIWidget w = childGo.GetComponent<UIWidget>();
++            if (w == null)
++                continue;
++            w.SetAnchor((GameObject)null);
++            Vector3 lp = w.transform.localPosition;        // width-only refit: baked y/height/pivot
++            w.transform.localPosition = new Vector3(       // stand; x re-centers on the column
++                clipCX + (w.pivotOffset.x - 0.5f) * dressW, lp.y, lp.z);
++            w.width = (Int32)dressW;
 +        }
 +        if (capIdx >= 0)
 +        {
++            // the header rail's caption panel: keep its BAKED seat + label Y (the stock header
++            // line); the category name takes the first label's slot, x re-inset for one column
 +            GameObject capPanelGo = dressingGo.GetChild(capIdx);
 +            capPanelGo.SetActive(true);
-+            capPanelGo.transform.localPosition = Vector3.zero;
 +            UIPanel capPanel = capPanelGo.GetComponent<UIPanel>();
 +            if (capPanel != null)
++            {
++                capPanel.SetAnchor((GameObject)null);      // anchors re-assert every frame
 +                capPanel.depth = this.listPopulator.panel.depth + 1;   // the caption rides ABOVE rows
++            }
 +            for (Int32 i = 1; i < capPanelGo.transform.childCount; i++)
 +                capPanelGo.transform.GetChild(i).gameObject.SetActive(false);   // NUM etc: no columns here
 +            GameObject capNameGo = capPanelGo.GetChild(0);
@@ -775,10 +860,17 @@ index 00000000..23d488af
 +                capLoc.key = String.Empty;                 // the header label is OURS to write
 +            this.categoryLabel = capNameGo.GetComponent<UILabel>();
 +            this.categoryLabel.SetAnchor((GameObject)null);
-+            this.categoryLabel.pivot = UIWidget.Pivot.Left;
-+            this.categoryLabel.transform.localPosition = new Vector3(-dressW / 2f + 40f, dressH / 2f, 0f);
++            this.categoryLabel.pivot = UIWidget.Pivot.Left;    // pivot FIRST: the setter re-seats the
++            Vector3 capLp = this.categoryLabel.transform.localPosition;   // transform to keep the rect
++            // in place, so the POST-pivot y IS the baked header line whatever the baked pivot was
++            // (review find); and clipCX is DRESSING-local while the label lives in the CaptionPanel's
++            // frame -- re-express through the panel's own baked seat (review find)
++            this.categoryLabel.transform.localPosition = new Vector3(
++                clipCX - capPanelGo.transform.localPosition.x - dressW / 2f + 40f, capLp.y, capLp.z);
 +        }
 +        listRoot.SetActive(true);
++        Int64 total = watch.ElapsedMilliseconds;
++        Log.Message($"[FolkloreUI] awake ms: bg+fade={tBg} panes={tPane - tBg} list={tList - tPane} dressing={total - tList} total={total} (rows={rowCount} rowH={rowH})");
 +    }
 +
 +    public void OnLocalize()
@@ -808,6 +900,10 @@ index 00000000..23d488af
 +    private Int32 currentIndex;
 +    [NonSerialized]
 +    private Boolean dumpedCellOnce;
++    [NonSerialized]
++    private Boolean firstFramesLogged;
++    [NonSerialized]
++    private Int32 muteSettleDepth;
 +
 +    private class FolkloreListData : ListDataTypeBase
 +    {

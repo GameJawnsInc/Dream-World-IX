@@ -1,9 +1,12 @@
 # The Folklore Codex Screen — Option B Redesign Spec ("the Chocograph sentence")
 
-> **Status: SPEC — awaiting user look-over before the engine round.** Chosen 2026-07-21 (user: "B sounds
-> tailor fit"). Written in the vocabulary of `studies/menu-shape-language/VOCABULARY.md`; mechanics per
-> the NGUI laws (`project-ff9-ngui-menu-construction`). Build = a recapture of **s45** (top of the
-> memoria-patches stack), replacing FolkloreUI's Phase-B layout.
+> **Status: ★ BUILT + IN-GAME PROVEN 2026-07-21 — both open defects CLOSED, s45 recaptured (both gates
+> green).** Chosen same day (user: "B sounds tailor fit"). Written in the vocabulary of
+> `studies/menu-shape-language/VOCABULARY.md`; mechanics per the NGUI laws
+> (`project-ff9-ngui-menu-construction`). The build round's record → `SUBMENU.md` §"The Option B
+> redesign round" (the preserve-the-bake execution, THE SCROLL-SUM INVARIANT blocker the 3-lens review
+> caught pre-playtest, the hang measured gone at 4ms, the MuteActiveSound sound fix). Playtests: "the
+> layout is great" / "first open is instant" / "sounds right now".
 
 ## 0. The user's wariness, resolved
 
