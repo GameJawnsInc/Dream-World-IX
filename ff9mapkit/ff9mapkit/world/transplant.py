@@ -2134,6 +2134,277 @@ def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
             "existing": "; ".join(hits) if hits else 0, "ok": allow or not hits}
 
 
+# --------------------------------------------------------------------------------------------------
+# THE EFFECTIVE-PREFAB GATE + AUTO-ARM, and THE WANG-CARRY GATE -- the two productized water-carry
+# gates (from the (11,19) water-only-cell arc + THE WANG-CARRY LAW; coast memory
+# ``project-ff9-overworld-coast-mosaic``).  The engine binds a cell's overrides PER the effective
+# prefab's transform set (armed divert donor vs the generic SeaBlockPrefab), and a carry that crops a
+# Wang'd ocean breaks the puzzle at the cut edges -- both invisible to the coverage census.
+_CELL, _G = 4.0, 16
+
+#: THE LAWFUL SEA-SHADE ADJACENCY TABLE (byte-derived from STOCK 2026-07-20, the coastal-shade extension
+#: of THE WANG-CARRY LAW; census: ``studies/overworld-topography/s12_stock_map_census_opus.py`` +
+#: ``wang_seam_census.py``).  The ocean's DEPTH RING, shallow -> deep:
+#:   land < beach1 < sea2 < sea1 < sea3 < sea5 < sea4
+#: A carry that crops a Wang region can leave a tile facing a DEEPER ring than any it lawfully abuts.  Which
+#: pairs are LAWFUL is NOT the ladder's adjacent rungs -- it is what stock AUTHORS, measured directed-edge,
+#: land-aware, interior + cross-block, over the whole shipping map (counts cited per pair below).  The
+#: OFF-LANGUAGE pairs each have ZERO systematic stock instances (a lone donor-verbatim interior tile is not
+#: a coastline): ``sea1|sea4`` 0, ``sea2|sea4`` 0, ``sea2|sea5`` 0 -- so a sea1 tile's DEEPEST lawful
+#: neighbour is sea5 and a sea2 tile's is sea3; NEITHER ever faces the deep sea4 ring directly (the deep
+#: system's own invariant, ``sea3|sea4`` 0, is enforced separately by the sea5-orientation logic).  Encoded
+#: as the UNORDERED lawful set; same-shade is always lawful and implicit (:func:`sea_adjacent_lawful`).
+SEA_ADJ_LAWFUL = frozenset({
+    frozenset({"sea2", "sea1"}),      # 488/517 -- the shallowest pair
+    frozenset({"sea1", "sea3"}),      # 588
+    frozenset({"sea1", "sea5"}),      #  78 -- sea1's DEEPEST lawful neighbour (the {sea1,sea5} ladder)
+    frozenset({"sea2", "sea3"}),      #   9 -- sea2's DEEPEST lawful neighbour
+    frozenset({"sea1", "beach1"}),    #  78 -- shore contact
+    frozenset({"sea2", "beach1"}),    # 465 -- shore contact
+    frozenset({"sea1", "land"}),      # 121 -- shore contact (terrain-shaded coast cell)
+    frozenset({"sea2", "land"}),      # 238 -- shore contact
+})
+
+
+def sea_adjacent_lawful(a: str, b: str) -> bool:
+    """Does stock FF9 author sea-shade ``a`` directly abutting ``b`` (either order)?  Same-shade is always
+    lawful; every other lawful COASTAL pair is in :data:`SEA_ADJ_LAWFUL` (byte-derived, never invented).
+    The off-language pairs a CROP can introduce -- ``sea1|sea4``, ``sea2|sea4``, ``sea2|sea5`` (and the deep
+    system's ``sea3|sea4``) -- return False: each has 0 systematic stock instances.  (The sea5 transition
+    tip terminates INTO the deep ring lawfully, but that is ORIENTATION-gated, not pairwise -- handled by
+    the gate's sea5 deep-set logic, not this table.)"""
+    return a == b or frozenset({a, b}) in SEA_ADJ_LAWFUL
+
+
+def effective_prefab_arm(meshes, *, cell, sidecar_parts, disc: int = 1, lod: str = "0_1"):
+    """THE EFFECTIVE-PREFAB GATE + AUTO-ARM (the (11,19) water-only-cell fix; THE DIVERT-ARM /
+    EFFECTIVE-PREFAB laws, in-game proven 2026-07-20).
+
+    The engine binds a cell's sub-mesh overrides ONLY for the transforms its EFFECTIVE prefab exposes,
+    looked up by ``transform.name``:
+      * a cell WITH a ``Terrain.ff9mesh`` override (real, blanked, or a stub) has ``HasLandOverride`` =
+        true -> the s34 divert fires -> the effective prefab is the ``Donor.txt`` DONOR prefab, whose
+        transform set = ``sidecar_parts``;
+      * a cell WITHOUT any Terrain override loads the generic ``SeaBlockPrefab``, whose ONLY transform is
+        ``Sea4`` -> every OTHER emitted sea layer (Sea3/Sea5/Beach1/...) is SILENTLY DROPPED (holes +
+        a pale/black void -- the (11,19) bug).
+
+    So a WATER-ONLY carry (donor + sidecar both Terrain-less) that emits >1 sea layer must AUTO-ARM: emit
+    a degenerate :func:`ff9mapkit.world.mesh.stub_terrain_mesh` (never bound as geometry -- a water-only
+    donor prefab has no ``TerrainForm1``) so the divert loads the sidecar prefab and each layer binds its
+    OWN material.  ``meshes`` = the ``(part_name, BlockMesh)`` list about to deploy for ``cell``;
+    ``sidecar_parts`` = the lowercase part names the cell's ``Donor.txt`` prefab exposes.  Returns
+    ``(arm_mesh_or_None, gate_dict)``; the arm mesh (if any) is deploy-only (excluded from the weld/
+    coverage census -- it is skip-flagged and below the world).  IDEMPOTENT: a cell that already ships a
+    Terrain override needs no arm -> ``arm_mesh`` is ``None`` and the bytes are unchanged."""
+    from . import mesh as M
+    names = {pn for pn, _ in meshes}
+    (bx, by) = cell
+    has_terrain = "Terrain" in names
+    non_sea4 = {pn for pn in names if pn not in ("Terrain", "Sea4")}
+    arm = None
+    armed = False
+    if not has_terrain and non_sea4:                          # SeaBlockPrefab would bind ONLY Sea4
+        arm = M.stub_terrain_mesh(disc=disc, x=bx, y=by, lod=lod)
+        armed = True
+        has_terrain = True
+    if has_terrain:
+        bound = {p.lower() for p in (sidecar_parts if sidecar_parts is not None
+                                     else {pn.lower() for pn in names})}
+    else:
+        bound = {"sea4"}                                       # generic SeaBlockPrefab
+    emitted = {pn.lower() for pn in names}
+    unbindable = sorted(p for p in emitted if p != "terrain" and p not in bound)
+    gate = {"gate": f"effective-prefab[{bx},{by}]", "armed": armed, "bound": sorted(bound),
+            "unbindable": unbindable, "ok": not unbindable}
+    return arm, gate
+
+
+def _sea_shade_grid(sea_by_name):
+    """16x16 shade grid ('sea3'/'sea4'/'sea5', empty->'sea4') from a ``{lower_part: BlockMesh}`` map --
+    the deployed-byte counterpart of :func:`ff9mapkit.world.water.read_shade_grid`."""
+    seen = [[None] * _G for _ in range(_G)]
+    for part in ("sea3", "sea4", "sea5"):
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                seen[i][j] = part
+    return [[seen[i][j] or "sea4" for j in range(_G)] for i in range(_G)]
+
+
+def _sea_water_grid(sea_by_name):
+    """16x16 has-water bool grid (any Sea3/Sea4/Sea5 triangle binned to the cell) -- for LAND-AWARENESS
+    (a 'sea4' shade with NO water triangle is a coast/land cell, not deep water)."""
+    hw = [[False] * _G for _ in range(_G)]
+    for part in ("sea3", "sea4", "sea5"):
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                hw[i][j] = True
+    return hw
+
+
+def _sea_shallow_grid(sea_by_name):
+    """16x16 COASTAL-shade grid ('sea1'/'sea2'/None) -- the shallow-alphabet counterpart of
+    :func:`_sea_shade_grid`, which bins only the DEEP sea3/4/5 alphabet (so a Sea1/Sea2 frame tile read as
+    deep and was never flagged -- the (12,18) sand-spit corner the {sea1,sea5} ladder had to fix by hand).
+    Shallowest wins per THE RING LADDER (sea2 is shallower than sea1); a cell with neither reads None."""
+    seen = [[None] * _G for _ in range(_G)]
+    for part in ("sea1", "sea2"):                       # sea2 iterated last -> shallowest wins the label
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                seen[i][j] = part
+    return seen
+
+
+def _sea5_deepsets(sea5_bm):
+    """{(i,j): deepset} for a Sea5 BlockMesh, fitting cells with >=3 corner UVs (so a 1-triangle shore
+    sliver classifies too), via :func:`ff9mapkit.world.water._fit_tile` + the DEEPSET2TILE inverse."""
+    from . import water as W
+    if sea5_bm is None:
+        return {}
+    inv = {sr: ds for ds, variants in W.DEEPSET2TILE.items() for sr in variants}
+    corners = collections.defaultdict(dict)
+    for tri in sea5_bm.tris:
+        i = int((sum(sea5_bm.verts[q][0] for q in tri) / 3) // _CELL)
+        j = int((-sum(sea5_bm.verts[q][2] for q in tri) / 3) // _CELL)
+        for k in tri:
+            v = sea5_bm.verts[k]
+            corners[(i, j)][(round((v[0] - i * _CELL) / _CELL), round((-v[2] - j * _CELL) / _CELL))] = sea5_bm.uvs[k]
+    out = {}
+    for (i, j), d in corners.items():
+        if len(d) >= 3:
+            us = [uv[0] for uv in d.values()]
+            vs = [uv[1] for uv in d.values()]
+            if max(us) - min(us) > 1e-6 and max(vs) - min(vs) > 1e-6:
+                fit = W._fit_tile(d)
+                if fit is not None:
+                    ds = inv.get((W._strip_of(fit[2]), fit[4]))
+                    if ds is not None:
+                        out[(i, j)] = ds
+    return out
+
+
+def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
+    """THE WANG-CARRY GATE (THE WANG-CARRY LAW, user-authored 2026-07-20; productizes the (11,19)
+    study's land-aware ``frame_edge_verdicts`` census).
+
+    Water tiles are a cross-block WANG puzzle: neighbouring cells agree by construction (a Sea3 shallow
+    never abuts a Sea4 deep without a Sea5 transition bridge), and that holds ACROSS block seams too.  A
+    carry that CROPS a Wang region breaks the puzzle at the CUT edges -- the carried region's OUTER FRAME,
+    where a tile that was interior (facing more island water) now faces the open-ocean deep with no
+    transition ring = a hard shallow|deep seam (the 17 cropped-Wang rim seams on the (8,17)+2x2 island,
+    fixed by ``studies/overworld-topography/wang_rim_retile.py``).
+
+    This gate CENSUSES the carried cells' OUTER-FRAME sea tiles (land-aware: an edge whose region-
+    neighbour carries no water triangle is a coast, not deep, and is skipped -- without this the census
+    over-flags real coastlines).  It runs TWO parallel systems whose counts are reported separately:
+
+    * THE DEEP SYSTEM (unchanged): a ``sea3`` / mis-oriented-``sea5`` frame tile facing the open-ocean deep
+      ring is ``incoherent`` (surfaced in ``incoherent_deep``).
+    * THE COASTAL SYSTEM (the shade-alphabet extension, 2026-07-20): :func:`_sea_shade_grid` bins only the
+      DEEP sea3/4/5 alphabet, so a **Sea1/Sea2** frame tile read as deep and was NEVER flagged -- the exact
+      class the {sea1,sea5} ladder had to close by hand on the deployed island (2 sea1|sea4 sand-spit corner
+      tiles).  A sea1/sea2 frame tile is now binned by :func:`_sea_shallow_grid` and flagged
+      (``incoherent_shallow``) because stock authors ``sea1|sea4`` and ``sea2|sea4`` ZERO times map-wide
+      (``s12_stock_map_census_opus.py`` -- land-aware, interior + cross-block): a sea1 tile's DEEPEST lawful
+      neighbour is sea5, a sea2 tile's is sea3, so neither ever faces the deep ring (:data:`SEA_ADJ_LAWFUL`).
+      The interior donor-verbatim ``sea2|sea4`` tile at (12,19) is an INTERIOR edge the frame census never
+      sees, so it never false-positives.
+
+    ``incoherent`` = ``incoherent_deep + incoherent_shallow``; the two systems are mutually exclusive per
+    edge (a deep-flagged cell is not re-counted as coastal), so the DEEP count is byte-identical to the
+    pre-extension gate -- the coastal count is purely ADDITIVE.  Every flagged edge is in ``detail``.
+
+    ``enforce`` controls whether an incoherent frame edge FAILS the build.  It defaults **OFF** -- report-
+    only with a ``warn`` flag, ``ok`` stays True -- and this is NOT because the predicate is unreliable.
+    The opposite: a map-wide census of shipping FF9 finds **ZERO** sea3-directly-abuts-sea4 edges across
+    ANY block border (all 194 shallow->deep transitions are sea5-mediated;
+    ``studies/overworld-topography/wang_seam_census.py``), so a flagged sea3-abuts-deep frame edge IS a
+    real seam.  The default does not REFUSE because carrying ANY coastal island standalone necessarily
+    crops the neighbour blocks that hosted its sea5 transition rings -- so a real coastal donor (e.g.
+    (7,17) alone shows 16 flagged frame edges) legitimately PRODUCES frame seams, fixed by a post-carry
+    RE-TILE (the ``studies/overworld-topography/wang_rim_retile.py`` pattern), a human-reviewed step (the
+    shallow-rim look at the exact carry is the user's visual call, Hard-Constraint S2).  So the gate WARNS
+    by default and refuses only on demand.
+
+    NOTE (why there is no safe hard-fail-by-default): a DONOR-BASELINE subtraction (census the donor's own
+    frame and subtract the "pre-existing" seams) does not help -- since shipping FF9 has no sea3-abuts-deep
+    edge ANYWHERE, there is no pre-existing such edge to subtract; every flagged sea3 frame edge is
+    crop-introduced, so the subtraction collapses to the raw count and would refuse every coastal carry
+    (empirically the donor-outward-deep baseline calls 15/16 of the proven (7,17) carry "introduced").
+    ``enforce=True`` hard-fails on any incoherent frame edge (a fresh mint onto known-deep open ocean, or
+    a post-retile CI check); ``allow`` waives even then.
+
+    ``sea_by_cell`` = ``{(bx,by): {lower_part: BlockMesh}}`` for the carried WATER cells (sea1/sea2 keys are
+    now consumed by the coastal system; the deep grids ignore them, so passing them is byte-neutral there);
+    ``region_cells`` = the set of ``(bx,by)`` in the carried region (an edge to a NON-region block faces the
+    deep ring)."""
+    dirs = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
+    region = {tuple(c) for c in region_cells}
+    shade = {c: _sea_shade_grid(p) for c, p in sea_by_cell.items()}
+    water = {c: _sea_water_grid(p) for c, p in sea_by_cell.items()}
+    shallow = {c: _sea_shallow_grid(p) for c, p in sea_by_cell.items()}
+    ds5 = {c: _sea5_deepsets(p.get("sea5")) for c, p in sea_by_cell.items()}
+    deep_bad, shallow_bad = [], []
+    for (bx, by), _p in sea_by_cell.items():
+        g, w, sg, d5 = shade[(bx, by)], water[(bx, by)], shallow[(bx, by)], ds5[(bx, by)]
+        for i in range(_G):
+            for j in range(_G):
+                if not (w[i][j] or sg[i][j] is not None):     # deep water OR a coastal (sea1/sea2) tile
+                    continue
+                for d in "NESW":
+                    di, dj = dirs[d]
+                    off = not (0 <= i + di < _G and 0 <= j + dj < _G)
+                    to_block = (bx + (1 if i + di >= _G else -1 if i + di < 0 else 0),
+                                by + (1 if j + dj >= _G else -1 if j + dj < 0 else 0))
+                    if not (off and to_block not in region):   # only OUTER-FRAME edges (facing the deep ring)
+                        continue
+                    # DEEP system -- byte-identical verdicts to the pre-extension gate; runs only where the
+                    # deep sea3/4/5 alphabet is binned.  A deep-flagged edge is NOT re-counted as coastal.
+                    if w[i][j]:
+                        sh = g[i][j]
+                        if sh == "sea3":
+                            deep_bad.append(((bx, by), (i, j), d, "sea3 abuts deep, no transition ring"))
+                            continue
+                        if sh != "sea4":                       # sea5: coherent iff its tip points OUT
+                            ds = d5.get((i, j))
+                            if ds is None or d not in ds:
+                                deep_bad.append(((bx, by), (i, j), d,
+                                                 f"sea5 deepset {sorted(ds) if ds else None} !point {d}"))
+                            continue                           # sea5 resolved (coherent or flagged)
+                        # sh == "sea4": deep meets deep -> coherent; fall through in case a Sea1/Sea2 tile
+                        # ALSO occupies this cell (a mixed shallow+deep cell still faces the deep ring shallow)
+                    # COASTAL system (the shade-alphabet extension): a Sea1/Sea2 frame tile facing the deep
+                    # ring is off-language -- stock authors sea1|sea4 / sea2|sea4 ZERO times (SEA_ADJ_LAWFUL).
+                    ssh = sg[i][j]
+                    if ssh is not None and not sea_adjacent_lawful(ssh, "sea4"):
+                        shallow_bad.append(((bx, by), (i, j), d, f"{ssh} abuts deep, no ladder ring"))
+    incoherent = deep_bad + shallow_bad
+    detail = "; ".join(f"({bxy[0]},{bxy[1]})@{ij}.{d}" for (bxy, ij, d, _r) in incoherent[:6])
+    ok = allow or (not enforce) or not incoherent
+    # WARN by default (report-only, ok True) when the carry produced real cropped-Wang frame seams --
+    # the count is surfaced but the build is not refused (a coastal carry is expected to be re-tiled or
+    # accepted by the human).  Suppressed once enforced (then it FAILS) or explicitly allowed.
+    warn = bool(incoherent) and not enforce and not allow
+    return {"gate": "wang-carry", "incoherent": len(incoherent),
+            "incoherent_deep": len(deep_bad), "incoherent_shallow": len(shallow_bad),
+            "enforced": bool(enforce), "warn": warn, "detail": detail or 0, "ok": ok}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
@@ -2167,7 +2438,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               allow_mod_overwrite: bool = False, dry_run: bool = False,
+               allow_mod_overwrite: bool = False, allow_wang_seams: bool = False,
+               enforce_wang_carry: bool = False, dry_run: bool = False,
                skip_mirror: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
@@ -2392,8 +2664,19 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
             continue
         meshes.append((part_name(p), bm))
 
+    # THE EFFECTIVE-PREFAB GATE + AUTO-ARM: a water-only carry (no Terrain override) would load the
+    # generic SeaBlockPrefab and bind ONLY Sea4 -- so arm the divert with a stub Terrain (deploy-only;
+    # excluded from the weld/coverage census below since it is skip-flagged + below the world).
+    arm_mesh, effective_gate = effective_prefab_arm(
+        meshes, cell=(bx, by), sidecar_parts={p for p in parts if donor_has_part[p]}, disc=disc, lod=lod)
+
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
+    gates.append(effective_gate)
+    gates.append(wang_carry_gate(
+        {(bx, by): {pn.lower(): bm for pn, bm in meshes
+                    if pn.lower() in ("sea1", "sea2", "sea3", "sea4", "sea5")}},
+        {(bx, by)}, enforce=enforce_wang_carry, allow=allow_wang_seams))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -2476,6 +2759,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     for (pn, bm) in meshes:
         summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder, game=game,
                                                          lod=lod, part=pn)))
+    if arm_mesh is not None:                                   # the divert-arm stub Terrain (water-only cell)
+        summary["deployed"].append(str(M.deploy_override(arm_mesh, mod_folder=mod_folder, game=game,
+                                                         lod=lod, part="Terrain")))
     summary["deployed"].append(str(M.deploy_donor_sidecar(dbx, dby, mod_folder=mod_folder,
                                                           disc=disc, x=bx, y=by, lod=lod,
                                                           game=game)))
@@ -2582,6 +2868,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
                       allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
+                      allow_wang_seams: bool = False, enforce_wang_carry: bool = False,
                       dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
@@ -2835,6 +3122,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     cell_meta: dict = {}
     prefab_bad: list = []
     deploy_meshes: dict = {}                  # (i, j) -> [(part_name, block-local BlockMesh)]
+    cell_sidecar: dict = {}                   # (i, j) -> the cell's Donor.txt prefab part set (bind set)
     audit_meshes: list = []                   # region-frame soups, all cells (the weld gate's)
     census_meshes: dict = {}                  # (i, j) -> [(part_name, region-frame BlockMesh)]
     for (i, j) in tcells:
@@ -2884,12 +3172,30 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             audit_meshes.append((part_name(p), reg))
             census_meshes.setdefault((i, j), []).append((part_name(p), reg))
         deploy_meshes[(i, j)] = meshes
+        cell_sidecar[(i, j)] = set(pick_parts)
         cell_meta[(i, j)] = {"cell": [bx + i, by + j], "donor": [pick[0], pick[1]],
                              "carried": {p: len(cell_tris[(i, j)][p]) for p in need},
                              "blanked": blanked}
 
+    # THE EFFECTIVE-PREFAB GATE + AUTO-ARM (per cell): a water-only cell whose sidecar prefab is also
+    # Terrain-less binds ONLY Sea4 -- arm the divert with a stub Terrain so each carried sea layer binds
+    # (deploy-only; excluded from weld/census).  See effective_prefab_arm.
+    arm_meshes: dict = {}
+
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
+    for (i, j), mlist in deploy_meshes.items():
+        arm, epg = effective_prefab_arm(mlist, cell=(bx + i, by + j), sidecar_parts=cell_sidecar[(i, j)],
+                                        disc=disc, lod=lod)
+        gates.append(epg)
+        if arm is not None:
+            arm_meshes[(i, j)] = arm
+    gates.append(wang_carry_gate(
+        {(bx + i, by + j): {pn.lower(): bm for pn, bm in mlist
+                            if pn.lower() in ("sea1", "sea2", "sea3", "sea4", "sea5")}
+         for (i, j), mlist in deploy_meshes.items()},
+        {tuple(cell_meta[(i, j)]["cell"]) for (i, j) in deploy_meshes},
+        enforce=enforce_wang_carry, allow=allow_wang_seams))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -3090,6 +3396,9 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         for (pn, bm) in deploy_meshes[(i, j)]:
             summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
                                                              game=game, lod=lod, part=pn)))
+        if (i, j) in arm_meshes:                              # the divert-arm stub Terrain (water-only cell)
+            summary["deployed"].append(str(M.deploy_override(arm_meshes[(i, j)], mod_folder=mod_folder,
+                                                             game=game, lod=lod, part="Terrain")))
         (sdx, sdy) = cell_meta[(i, j)]["donor"]
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
                                                               disc=disc, x=bx + i, y=by + j,

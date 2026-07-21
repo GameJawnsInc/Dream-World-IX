@@ -2083,3 +2083,338 @@ def test_mod_overwrite_gate_live_folder():
     assert s2["clean"] is False
     bad = [x["gate"] for x in s2["gates"] if not x["ok"]]
     assert bad == ["mod-overwrite"]
+
+
+# ---------------------------------------------------------------- THE EFFECTIVE-PREFAB + WANG-CARRY gates
+# (the (11,19) water-only-cell arc + THE WANG-CARRY LAW, productized 2026-07-20)
+
+def _sea_cell_quad(part, i, j, *, uv_by_corner=None, name=None):
+    """One Sea BlockMesh with a single 4u quad at cell (i,j) (2 up-wound tris).  ``uv_by_corner`` maps
+    corner (fx,fz) -> (u,v) (default (0.5,0.5))."""
+    x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -(j + 1) * 4.0, -j * 4.0
+    uvc = uv_by_corner or {c: (0.5, 0.5) for c in ((0, 0), (1, 0), (1, 1), (0, 1))}
+    corner = {(0, 0): (x0, z1), (1, 0): (x1, z1), (1, 1): (x1, z0), (0, 1): (x0, z0)}
+    tris = []
+    for (a, b, c) in (((0, 0), (1, 1), (0, 1)), ((0, 0), (1, 0), (1, 1))):
+        tris.append([_v(corner[k][0], 0.0, corner[k][1], uvc[k]) for k in (a, b, c)])
+    return _soup(tris, name=name or f"Block[0][0] {part.capitalize()}")
+
+
+def test_stub_terrain_mesh_is_skip_flagged_and_matches_the_proven_1119_stub(tmp_path):
+    """mesh.stub_terrain_mesh = a degenerate zero-area divert-arm: verts==idx==3, tangent.x=4078
+    (placement.IDALL_SKIP -> never hit), and BYTE-IDENTICAL to the in-game-proven (11,19) study stub."""
+    import importlib.util
+    from pathlib import Path
+    from ff9mapkit.world import placement as P
+    st = M.stub_terrain_mesh(disc=1, x=11, y=19)
+    assert st.vcount == len(st.flat_index) == 3
+    assert int(round(st.tangents[0][0])) == 4078 and 4078 in P.IDALL_SKIP
+    assert P.place([("Terrain", st)], 32.0, -32.0, sky=True)[1] == "MISS"      # skip-flagged: never grounds
+    study = (Path(__file__).resolve().parents[2] / "studies" / "overworld-topography"
+             / "waterfix_1119_r2.py")
+    if study.is_file():                                                        # byte-identity vs the proven stub
+        spec = importlib.util.spec_from_file_location("wf1119", study)
+        wf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wf)
+        a = M.write_ff9mesh(M.stub_terrain_mesh(disc=1, x=11, y=19), tmp_path / "a").read_bytes()
+        b = M.write_ff9mesh(wf.build_stub_terrain(1), tmp_path / "b").read_bytes()
+        assert a == b
+
+
+def test_effective_prefab_arm_water_only_cell_auto_arms():
+    """A WATER-ONLY carry (Sea3/Sea4/Sea5, no Terrain) whose sidecar donor is also Terrain-less:
+    SeaBlockPrefab would bind ONLY Sea4 -> the gate AUTO-ARMS with a stub Terrain so all three layers
+    bind (the (11,19) fix); the returned arm mesh is the stub."""
+    meshes = [("Sea3", _sea_cell_quad("sea3", 0, 0)), ("Sea4", _sea_cell_quad("sea4", 1, 0)),
+              ("Sea5", _sea_cell_quad("sea5", 2, 0))]
+    arm, gate = TR.effective_prefab_arm(meshes, cell=(11, 19), sidecar_parts={"sea3", "sea4", "sea5"})
+    assert arm is not None and int(round(arm.tangents[0][0])) == 4078
+    assert gate["armed"] is True and gate["ok"] is True and gate["unbindable"] == []
+
+
+def test_effective_prefab_gate_land_cell_needs_no_arm():
+    """A cell already emitting a Terrain override (land donor, or a blanked Terrain) is already armed ->
+    arm is None (idempotent, byte-unchanged) and every emitted part binds."""
+    meshes = [("Terrain", _sea_cell_quad("terrain", 0, 0)), ("Sea4", _sea_cell_quad("sea4", 1, 0))]
+    arm, gate = TR.effective_prefab_arm(meshes, cell=(5, 5), sidecar_parts={"terrain", "sea4"})
+    assert arm is None and gate["armed"] is False and gate["ok"] is True
+
+
+def test_effective_prefab_gate_pure_deep_sea4_ok_no_arm():
+    """A pure open-ocean cell emitting ONLY Sea4 needs no Terrain: SeaBlockPrefab binds Sea4 -> ok, no arm."""
+    arm, gate = TR.effective_prefab_arm([("Sea4", _sea_cell_quad("sea4", 0, 0))], cell=(0, 0),
+                                        sidecar_parts={"sea4"})
+    assert arm is None and gate["armed"] is False and gate["ok"] is True
+
+
+def test_effective_prefab_gate_fails_when_sidecar_cannot_bind():
+    """Even after arming, an emitted layer the sidecar prefab does NOT expose can't bind -> ok=False."""
+    _arm, gate = TR.effective_prefab_arm([("Sea3", _sea_cell_quad("sea3", 0, 0))], cell=(0, 0),
+                                         sidecar_parts={"sea4"})               # sidecar lacks Sea3
+    assert gate["ok"] is False and "sea3" in gate["unbindable"]
+
+
+def test_wang_carry_gate_flags_cropped_shallow_frame_when_enforced():
+    """A Sea3 shallow tile on the region's OUTER FRAME (facing the open-ocean deep ring) is incoherent
+    (a hard shallow|deep seam).  Report-only by default (ok True); enforce -> fails; allow -> waived."""
+    sea = {(0, 0): {"sea3": _sea_cell_quad("sea3", 0, 5),        # (0,5) is on the W frame (i=0)
+                    "sea4": _sea_cell_quad("sea4", 8, 8)}}
+    g_def = TR.wang_carry_gate(sea, {(0, 0)})
+    assert g_def["ok"] is True and g_def["warn"] is True         # report-only default -> WARNS (visible)
+    g_enf = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g_enf["incoherent"] >= 1 and g_enf["ok"] is False and g_enf["warn"] is False   # fails, not warns
+    g_allow = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True, allow=True)
+    assert g_allow["ok"] is True and g_allow["warn"] is False    # explicitly waived -> no warning
+
+
+def test_wang_carry_gate_coherent_deep_frame_is_zero():
+    """A frame cell that is deep (Sea4) meets the deep ring coherently -> 0 incoherent even enforced."""
+    sea = {(0, 0): {"sea4": _sea_cell_quad("sea4", 0, 5)}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent"] == 0 and g["ok"] is True
+
+
+def _sea5_tile_uv(deepset_str):
+    from ff9mapkit.world import water as W
+    strip, rot = W.DEEPSET2TILE[frozenset(deepset_str)][0]
+    u0, u1 = W.UFULL
+    v0, v1 = W.VSTRIP[strip]
+    m = W.OMAPS[rot]
+    return {c: [u0 + m(*c)[0] * (u1 - u0), v0 + m(*c)[1] * (v1 - v0)] for c in ((0, 0), (1, 0), (1, 1), (0, 1))}
+
+
+def test_wang_carry_gate_sea5_wtip_terminates_coherently():
+    """A Sea5 W-tip on the W frame (deep-set {W} points OUT into the deep) is COHERENT: the land-aware
+    census fits its tip UVs -> 0 incoherent."""
+    sea = {(0, 0): {"sea5": _sea_cell_quad("sea5", 0, 5, uv_by_corner=_sea5_tile_uv("W"))}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent"] == 0 and g["ok"] is True
+
+
+def test_wang_carry_gate_sea5_mis_oriented_flags_when_enforced():
+    """A Sea5 tip pointing the WRONG way (an E tip on the W frame) does NOT terminate into the deep ->
+    incoherent when enforced."""
+    sea = {(0, 0): {"sea5": _sea_cell_quad("sea5", 0, 5, uv_by_corner=_sea5_tile_uv("E"))}}
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)["ok"] is False
+
+
+def test_transplant_wang_carry_report_only_by_default(monkeypatch):
+    """A single-cell carry surfaces the wang-carry census but does NOT fail the build by default
+    (report-only), so a proven carry is never false-positived on its own pre-existing donor coast; the
+    effective-prefab gate is enforced and the land island is already armed (has Terrain)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8)
+    wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
+    assert wc["enforced"] is False and wc["ok"] is True
+    assert wc["incoherent"] == 0 and wc["warn"] is False        # a full-deep island carry is seam-free
+    assert wc["incoherent_deep"] == 0 and wc["incoherent_shallow"] == 0   # no sea1/sea2 to crop either
+    ep = next(g for g in s["gates"] if g["gate"].startswith("effective-prefab"))
+    assert ep["ok"] is True
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_shipping_invariant_no_sea3_abuts_deep():
+    """THE DECISIVE CENSUS behind the report-only default: shipping FF9 NEVER abuts a sea3 (shallow) tile
+    to a sea4 (deep) tile across a block border -- every shallow->deep step is sea5-mediated.  So the
+    wang-carry predicate is SOUND (a flagged sea3-abuts-deep frame edge is a real seam, not a false
+    positive on legitimate coast).  Scoped to the (7,17) beach-island neighbourhood (the full map-wide
+    run lives in studies/overworld-topography/wang_seam_census.py)."""
+    G = 16
+
+    def shade(bx, by):
+        g = [["none"] * G for _ in range(G)]
+        for part in ("sea3", "sea4", "sea5"):
+            for tri in TR.world_tris(bx, by, part, disc=1, lod="0_1", game=None):
+                i = int((sum(v[0][0] for v in tri) / 3 - 64.0 * bx) // 4)
+                j = int((-(sum(v[0][2] for v in tri) / 3) - 64.0 * by) // 4)
+                if 0 <= i < G and 0 <= j < G:
+                    g[i][j] = part
+        return g
+    region = [(6, 16), (7, 16), (8, 16), (6, 17), (7, 17), (8, 17), (6, 18), (7, 18), (8, 18)]
+    S = {c: shade(*c) for c in region}
+    step = {"E": (1, 0), "W": (-1, 0), "N": (0, -1), "S": (0, 1)}
+    seam = 0
+    for (bx, by), g in S.items():
+        for i in range(G):
+            for j in range(G):
+                if g[i][j] != "sea3":
+                    continue
+                for (di, dj) in step.values():
+                    if not (i + di < 0 or i + di > 15 or j + dj < 0 or j + dj > 15):
+                        continue                                # cross-block-border only
+                    ni, nj, nbx, nby = i + di, j + dj, bx, by
+                    if ni < 0: nbx, ni = bx - 1, 15
+                    elif ni > 15: nbx, ni = bx + 1, 0
+                    if nj < 0: nby, nj = by - 1, 15
+                    elif nj > 15: nby, nj = by + 1, 0
+                    ng = S.get((nbx, nby)) or shade(nbx, nby)
+                    if ng[ni][nj] == "sea4":
+                        seam += 1
+    assert seam == 0, f"shipping FF9 sea3-abuts-deep border found ({seam}) -- predicate premise broken"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_real_coastal_carry_warns_but_does_not_refuse():
+    """A REAL beach-island carry (donor (7,17)) crops the neighbour blocks that hosted its sea5 transition
+    rings, so it legitimately produces frame seams (16).  The gate WARNS by default (visible, ok stays
+    True -- the build is not refused: re-tile or accept is the human's call), and REFUSES only when
+    enforced.  This is the (7,17) evidence the report-only default is built on -- carrying any coastal
+    island standalone is expected to warn, never silently or fatally.
+
+    The count is now SPLIT into the deep (sea3/mis-sea5) and coastal (sea1/sea2) systems (the shade-alphabet
+    extension, 2026-07-20).  For THIS carry the split is 16 deep + 0 shallow: donor (7,17) DOES carry sea1
+    (36 tris) + sea2 (23 tris), but its beach/shallow water faces the ISLAND INTERIOR, not the cropped cell
+    frame -- so a SINGLE-cell (7,17) carry crops only the deep sea3/sea5 rim and the total is UNCHANGED at
+    16.  (The coastal system's teeth show on the (8,17)+2x2 island's sand-spit corner instead --
+    test_wang_carry_gate_shallow_*.)  Deep and shallow are pinned separately for regression clarity."""
+    s = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True)
+    wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
+    assert wc["incoherent"] == 16 and wc["enforced"] is False and wc["ok"] is True and wc["warn"] is True
+    assert wc["incoherent_deep"] == 16 and wc["incoherent_shallow"] == 0   # measured: (7,17)'s shallow is interior
+    e = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True, enforce_wang_carry=True)
+    ew = next(g for g in e["gates"] if g["gate"] == "wang-carry")
+    assert ew["ok"] is False and ew["warn"] is False and e["clean"] is False        # enforce -> refuse
+    a = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), rot=90, dry_run=True,
+                      enforce_wang_carry=True, allow_wang_seams=True)
+    aw = next(g for g in a["gates"] if g["gate"] == "wang-carry")
+    assert aw["ok"] is True and aw["warn"] is False                                  # allow -> waived
+
+
+# ---------------------------------------------------------------- THE COASTAL-SHADE (sea1/sea2) extension
+# (THE SHALLOW-LADDER REMEDY productized 2026-07-20: the gate learns the coastal shades so the sand-spit
+# corner class the {sea1,sea5} ladder fixed by hand WARNS at carry time.  Adjacency table byte-derived from
+# stock via studies/overworld-topography/s12_stock_map_census_opus.py -- counts cited below.)
+
+def test_sea_adjacent_lawful_table_is_byte_derived_from_stock():
+    """THE LAWFUL SEA-SHADE ADJACENCY TABLE encodes what STOCK authors (s12_stock_map_census_opus.py,
+    land-aware, interior + cross-block, whole map -- the directed sea1/sea2 neighbour histogram):
+    sea1|sea3 588, sea2|sea1 517/488, sea1|sea5 78, sea2|sea3 9, sea1|beach1 78, sea2|beach1 465,
+    sea1|land 121, sea2|land 238.  The OFF-LANGUAGE pairs have ZERO systematic instances: sea1|sea4 0,
+    sea2|sea4 0, sea2|sea5 0.  So sea1's deepest lawful neighbour is sea5, sea2's is sea3; neither faces
+    the deep sea4 ring.  Same-shade is always lawful."""
+    for a, b in [("sea2", "sea1"), ("sea1", "sea3"), ("sea1", "sea5"), ("sea2", "sea3"),
+                 ("sea1", "beach1"), ("sea2", "beach1"), ("sea1", "land"), ("sea2", "land")]:
+        assert TR.sea_adjacent_lawful(a, b) and TR.sea_adjacent_lawful(b, a)     # unordered
+    for s in ("sea1", "sea2", "sea3", "sea4", "sea5"):
+        assert TR.sea_adjacent_lawful(s, s)                                      # same-shade
+    for a, b in [("sea1", "sea4"), ("sea2", "sea4"), ("sea2", "sea5")]:          # off-language (0 in stock)
+        assert not TR.sea_adjacent_lawful(a, b) and not TR.sea_adjacent_lawful(b, a)
+    # a sea1 tile's DEEPEST lawful neighbour is sea5, NOT the deep ring
+    assert TR.sea_adjacent_lawful("sea1", "sea5") and not TR.sea_adjacent_lawful("sea1", "sea4")
+    # a sea2 tile's DEEPEST lawful neighbour is sea3
+    assert TR.sea_adjacent_lawful("sea2", "sea3") and not TR.sea_adjacent_lawful("sea2", "sea5")
+
+
+def test_wang_carry_gate_flags_cropped_shallow_sea1_frame():
+    """A Sea1 tile on the region's OUTER FRAME (facing the open-ocean deep ring) is off-language -- stock
+    NEVER abuts sea1 to sea4.  Report-only by default (ok True, warn True); enforce -> fails; allow ->
+    waived.  The count lands in the ADDITIVE incoherent_shallow key, deep stays 0."""
+    sea = {(0, 0): {"sea1": _sea_cell_quad("sea1", 0, 5)}}       # (0,5) on the W frame (i=0)
+    g = TR.wang_carry_gate(sea, {(0, 0)})
+    assert g["incoherent"] == 1 and g["incoherent_shallow"] == 1 and g["incoherent_deep"] == 0
+    assert g["ok"] is True and g["warn"] is True                 # report-only default -> WARNS (visible)
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)["ok"] is False            # enforce -> fails
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True, allow=True)["ok"] is True  # allow -> waived
+    # sea2 on the frame is equally off-language
+    assert TR.wang_carry_gate({(0, 0): {"sea2": _sea_cell_quad("sea2", 0, 5)}},
+                              {(0, 0)})["incoherent_shallow"] == 1
+
+
+def test_wang_carry_gate_shallow_interior_tile_not_flagged():
+    """The frame census only sees OUTER-FRAME edges, so an INTERIOR sea2 tile (the (12,19) donor-verbatim
+    sea2|sea4 tile analog -- the ONLY sea2|sea4 edge in the whole stock map, lawful-by-precedent) never
+    false-positives: a sea2 quad well inside the cell has no edge facing the deep ring."""
+    sea = {(0, 0): {"sea2": _sea_cell_quad("sea2", 8, 8)}}       # (8,8) is interior -- no frame edge
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)["incoherent_shallow"] == 0
+
+
+def test_wang_carry_gate_shallow_flags_even_when_cell_also_has_deep():
+    """A frame cell that is deep (Sea4, coherent 'deep meets deep') but ALSO carries a Sea1 tile still
+    flags the shallow seam (the sea1 water faces the deep ring): deep stays coherent (0), shallow = 1.
+    The two systems are mutually exclusive per edge, never double-counted."""
+    sea = {(0, 0): {"sea4": _sea_cell_quad("sea4", 0, 5), "sea1": _sea_cell_quad("sea1", 0, 5)}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent_deep"] == 0 and g["incoherent_shallow"] == 1 and g["incoherent"] == 1
+
+
+def test_wang_carry_gate_shallow_does_not_double_count_deep_flagged_cell():
+    """A frame cell already DEEP-flagged (sea3 abuts deep) that ALSO has a sea1 tile is counted ONCE (deep),
+    so the deep count is byte-identical to the pre-extension gate -- the coastal count is purely additive."""
+    sea = {(0, 0): {"sea3": _sea_cell_quad("sea3", 0, 5), "sea1": _sea_cell_quad("sea1", 0, 5)}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent_deep"] == 1 and g["incoherent_shallow"] == 0 and g["incoherent"] == 1
+
+
+# -- game-gated: the deployed (8,17)+2x2 island's sand-spit corner (the class the {sea1,sea5} ladder fixed)
+_ISLAND_CELLS = [(11, 18), (12, 18), (11, 19), (12, 19)]
+_ISLAND_DONORS = {(11, 18): "8,17", (12, 18): "9,17", (11, 19): "8,18", (12, 19): "9,18"}
+
+
+def _deployed_island_present() -> bool:
+    """True iff the live FF9CustomMap-world carries the proven (8,17)+2x2 desert-beach island (a fresh or
+    wiped install skips instead of asserting a mod-folder state it never had)."""
+    return all(_live_donor(c) == d for c, d in _ISLAND_DONORS.items())
+
+
+def _load_deployed_island_sea(overrides=None):
+    """Read the deployed island's SEA sub-meshes into ``{(bx,by): {lower_part: BlockMesh}}`` (read-only:
+    the live FF9CustomMap-world is an acceptance FIXTURE, never written).  ``overrides`` maps
+    ``(cell, part)`` -> a Path to swap in (the pre-ladder backup)."""
+    from ff9mapkit import config
+    root = config.find_game_path(None) / "FF9CustomMap-world"
+    overrides = overrides or {}
+    out = {}
+    for (bx, by) in _ISLAND_CELLS:
+        rdir = root / f"FF9_Data/WorldMap/Disc1/0_1/r{by}"
+        d = {}
+        for part in ("sea1", "sea2", "sea3", "sea4", "sea5"):
+            p = overrides.get(((bx, by), part)) or (rdir / f"Block[{bx}][{by}] {part.capitalize()}.ff9mesh")
+            if p.is_file():
+                d[part] = M.blockmesh_from_ff9mesh(str(p), disc=1, x=bx, y=by, part=part)
+        out[(bx, by)] = d
+    return out
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_carry_gate_shallow_deployed_island_is_clean():
+    """ACCEPTANCE (b): over the DEPLOYED (8,17)+2x2 island the coastal system reports 0 (the {sea1,sea5}
+    ladder + the rim re-tile fixed every shallow AND deep frame seam), and the DEEP verdicts are UNCHANGED
+    vs the pre-extension gate (0 stays 0 -- no reclassification).  ok even ENFORCED (the deployed island's
+    water is fully in-language)."""
+    if not _deployed_island_present():
+        pytest.skip("live FF9CustomMap-world doesn't carry the proven (8,17)+2x2 island (fresh/wiped install)")
+    g = TR.wang_carry_gate(_load_deployed_island_sea(), set(_ISLAND_CELLS), enforce=True)
+    assert g["incoherent_deep"] == 0 and g["incoherent_shallow"] == 0 and g["incoherent"] == 0
+    assert g["ok"] is True and g["warn"] is False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_carry_gate_shallow_pre_ladder_backup_catches_sand_spit():
+    """ACCEPTANCE (a): swap (12,18)'s Sea1/Sea2/Sea5 back to the PRE-ladder backup (a TEMP in-memory cell
+    set -- never the live tree) and the extended gate reports the 2 sea1|sea4 sand-spit corner seams the
+    {sea1,sea5} ladder had to fix by hand -- i.e. the gate WOULD have caught the shallow class at carry
+    time.  The DEEP count stays 0 (the rim re-tile is already in the backup); enforce -> refuses."""
+    if not _deployed_island_present():
+        pytest.skip("live FF9CustomMap-world doesn't carry the proven (8,17)+2x2 island (fresh/wiped install)")
+    from pathlib import Path
+    bk = Path(__file__).resolve().parents[2] / "backups" / "sea1-ladder.20260720"
+    if not (bk / "Disc1__Block[12][18] Sea1.ff9mesh").is_file():
+        pytest.skip("the sea1-ladder pre-ladder backup fixture is absent")
+    ov = {((12, 18), p): bk / f"Disc1__Block[12][18] {p.capitalize()}.ff9mesh" for p in ("sea1", "sea2", "sea5")}
+    g = TR.wang_carry_gate(_load_deployed_island_sea(overrides=ov), set(_ISLAND_CELLS), enforce=True)
+    assert g["incoherent_shallow"] == 2 and g["incoherent_deep"] == 0        # exactly the 2 corner tiles
+    assert "(12,18)@(15, 14).E" in g["detail"] and "(12,18)@(15, 15).E" in g["detail"]
+    assert g["ok"] is False                                                  # enforce -> refuse
+    assert TR.wang_carry_gate(_load_deployed_island_sea(overrides=ov), set(_ISLAND_CELLS))["warn"] is True
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_wang_carry_gate_shallow_fresh_region_carry_warns_at_carry_time():
+    """The productization's whole point: a FRESH region carry of the raw donor (8,17)+2x2 (the exact
+    world-transplant path, NOT hand-fixed bytes) now WARNS about BOTH crop classes at carry time -- the deep
+    sea3/sea5 rim (12) AND the coastal sea1/sea2 seams (5, incl. the (12,18) sand-spit corner).  Report-only
+    by default (ok True); the human re-tiles (the wang_rim_retile + sea1_ladder pattern) or accepts."""
+    s = TR.transplant_region("UNUSED", cell=(11, 18), donor=(8, 17), size=(2, 2), dry_run=True)
+    wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
+    assert wc["incoherent_deep"] == 12 and wc["incoherent_shallow"] == 5 and wc["incoherent"] == 17
+    assert wc["warn"] is True and wc["ok"] is True                           # report-only default

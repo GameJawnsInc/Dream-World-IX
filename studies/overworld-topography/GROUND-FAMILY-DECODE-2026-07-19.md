@@ -473,7 +473,7 @@ Not fixed this session — recorded for continuity across the account switch. Th
 carry stays fully closed and in-game proven (cave inert, the (12,18) sea holes patched and
 confirmed navigable, no z-fight).
 
-**§4 ADDENDUM 3 — the Disc4-only `Block[12][18] Object.ff9mesh` is CORRECT BY DESIGN, not a mirror
+**§4 ADDENDUM 2b — the Disc4-only `Block[12][18] Object.ff9mesh` is CORRECT BY DESIGN, not a mirror
 gap (byte-verified 2026-07-20).** It is `world-mirror`'s FREE-RIDE PIN: donor (9,17)'s prefab Object
 part free-rides at (12,18) on Disc1 (the carry deliberately ships no Object override — "obj rides
 grass-clad"), but (9,17)'s Object genuinely DIFFERS between the two disc trees (terrain differs too,
@@ -481,3 +481,388 @@ but terrain IS explicitly overridden on both), so the mirror pins the disc-1 byt
 Disc4 override (`discmirror.mirror()`'s `extras` path). Re-running that exact code path regenerates
 the deployed 4076 B file BYTE-IDENTICALLY. A Disc1/Disc4 file-set asymmetry on a `Donor.txt` sidecar
 cell is the pin's SIGNATURE — a future byte-sweep should not re-flag it.
+
+**§4 ADDENDUM 3 — ROOT-CAUSED + FIXED (2026-07-20): the s34 `HasLandOverride` divert gate, not a
+Terrain-registration requirement.** The live evidence ADDENDUM 2 asked for turned up in
+`GAME/Memoria.log` (boot 02:18) — the smoking gun is line 55 next to its siblings:
+
+```
+55  [WorldMeshOverride] loaded '.../r19/Block[11][19] Sea4' ...            <- ONLY Sea4
+35-38 [WorldMeshOverride] loaded '.../r18/Block[11][18] Terrain/Sea3/Sea4/Sea5'   <- all 4 (divert donor 8,17)
+56-61 [WorldMeshOverride] loaded '.../r19/Block[12][19] Terrain/Beach1/Sea2/Sea3/Sea4/Sea5'  <- all (donor 9,18)
+```
+
+Block[11][19] loaded ONLY `Sea4`; its deployed `Sea3.ff9mesh` (956 B) and `Sea5.ff9mesh` (5012 B) sat
+unread. Every working sibling ships a `Terrain.ff9mesh` and loaded ALL its parts.
+
+**Confirmed mechanism (s34 source — `memoria-patches/s34-worldmap-mesh-override.patch`,
+`Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs`).** A sea cell diverts to a reclaim DONOR prefab only
+`if (LandDonorPrefab != null && WorldMeshOverride.HasLandOverride(disc,x,y))`, and `HasLandOverride`
+returns true **iff a `Block[x][y] Terrain.ff9mesh` override FILE exists** (patch :286-289). Block[11][19]
+has no Terrain override (donor (8,18) is water-only, so the transplant emitted none) ⇒ `HasLandOverride`
+= false ⇒ **the divert never fires** ⇒ the cell loads the generic **`SeaBlockPrefab`**, whose single
+child transform is `Sea4`. `LoadBlock`→`RegisterBlockComponent` looks up an override **per
+prefab-transform NAME** (`TryLoad("...Block[11][19] " + transform.name)`), so only `Block[11][19] Sea4`
+binds; `Sea3`/`Sea5` have no matching transform and are silently skipped, and the `Donor.txt="8,18"`
+sidecar is **DEAD** (read only inside the un-armed divert — the ADDENDUM-2 leading hypothesis named the
+right symptom but the wrong prefab: the effective prefab is SeaBlockPrefab, never donor (8,18)). The
+carried donor-(8,18) `Sea4` is a **PARTIAL 474-tri** interior band whose holes the (now-unloaded)
+Sea3/Sea5 layers were meant to fill; carried here with only Sea4 binding, those holes are real
+ground-query misses = an invisible VEHICLE WALL + a pale/void render (placement rule 2). Both symptoms,
+one mechanism.
+
+**THE ORACLE GAP, closed.** The prior census fed all three deployed files into `placement.census`; the
+engine binds only the transforms the *effective prefab* exposes. The fix models it: an
+`effective_meshlist` gate — no `Terrain.ff9mesh` ⇒ SeaBlockPrefab ⇒ keep only `{Sea4}`, drop
+Sea3/Sea5. With that gate the oracle **finally reproduces the live defect offline**: pristine-Sea4-only
+= **304/4096** cell misses (hole bbox world x[716,763] z[-1231,-1216], containing the reported point;
+432/2706 in the 40×40u window at (755,-1216)); the merged Sea4 = **0**.
+
+**THE FIX (Route 2 / option c — the convergent engine-source + oracle-gap recommendation; the
+STOCK-PREFAB dissent was a concurrent-write race artifact: it measured the already-merged 512-tri file
+at the exact point, which of course covers it, and read "coverage complete").** Merge the Sea3+Sea5
+triangles into the single bindable `Sea4` part (512 tris; per-tri `tangent.x` topograph carried verbatim
+⇒ boat-legality byte-preserved; the FLAT-MESH INVARIANT held via `merge_local_mesh`), then DELETE the
+now-inert `Sea3`/`Sea5` and the dead `Donor.txt` so the on-disk state equals what the engine loads (a
+Terrain-less water cell = exactly ONE file, the complete Sea4). Mirrored to Disc4 by **explicit
+byte-copy** — NOT `discmirror.auto_mirror`, whose FREE-RIDE PIN (`discmirror.py:241-265`) would read the
+inert `Donor.txt`, subtract the overridden `{Sea4}` from donor (8,18)'s `{sea3,sea4,sea5}`, and
+**resurrect `Block[11][19] Sea3/Sea5` on Disc4** with donor bytes — re-creating the orphans and a
+Disc1/Disc4 asymmetry (a real gotcha for any water-only cleanup near an inert sidecar).
+
+Gates all green (`studies/overworld-topography/waterfix_1119.py`, idempotent, reads pristine from
+`backups/waterfix-1119.20260720/`): (a) byte-diff — the merge only APPENDS Sea3+Sea5, the 474-tri Sea4
+base is verbatim; (b) FLAT-MESH `vcount==idx` (1536), topos {57:489, 54:23} ⊆ {54,57}; (c) free-ride
+audit — SeaBlockPrefab exposes only {Sea4}, nothing foreign rides in; (d) the money gate above; (e)
+two-tree — Disc1 Sea4 == Disc4 Sea4 byte-identical (79892 B, md5 d0f1eabd…), (11,19) now one file per
+disc. Neighbours (11,18)/(12,18)/(12,19) untouched. Deployed to both discs; awaiting the sail/fly
+playtest at (755,-1216).
+
+**Productization (deferred to post-playtest, per the one-change rule) — a real shipped gap.** The
+`transplant`/`GroundRetile` path silently emits a water-only cell with >1 sea layer + no Terrain, which
+the effective prefab can never bind. The gate belongs in `transplant.transplant_region` /
+`GroundRetile.for_donor`: compute the effective prefab exactly as the engine will, and for any
+data-bearing cell REFUSE (or auto-collapse to Sea4) any part the effective prefab cannot bind. The
+cleaner long-term fix is engine-side (make override files authoritative regardless of the effective
+prefab's transform set — a DANGEROUS DLL round, out of scope here).
+
+**§4 ADDENDUM 4 — ROUND 2 (2026-07-20): the merge fixed navigability but STREAKED the render; the
+faithful fix is RESTORE PER-LAYER + ARM THE DIVERT, and it mints THE WANG-CARRY LAW.**
+
+**Playtest verdict (user, with screenshot).** ADDENDUM 3's merge WORKED for navigability — *"able to
+sail now and no more empty tiles"* — but introduced a VISUAL defect: at the light-blue/dark-blue ocean
+boundary near the boat (world 755,−1216) a patch of **streaky, wrong-scale transition tiles** — *"the
+old stretched/random transition tiles we had when first discovering wang tiles."*
+
+**THE USER'S LAW, verbatim:** *"when we try to arbitrarily drop 2 water tiles next to each other, we need
+to make sure any Wang patterns that extended outside the block we pulled from are either carried over or
+recalculated."*
+
+Minted as **THE WANG-CARRY LAW:** *water tiles are a cross-block Wang puzzle; a carry must carry over or
+recalculate any pattern that extended outside the pulled window.* (The seam-coherence predicate that
+makes a Wang region coherent — from `water.py`'s marching band: neighbours agree by construction because
+both cells sampling a shared world-edge midpoint compute `deep(E) = depth(mid(E)) > threshold`
+identically, so `deep_C(E) == deep_C′(E)` across cell AND block seams; a Sea3 never abuts a Sea4 without a
+Sea5 bridge. A carry that crops a Wang region breaks this only at the cut edges.)
+
+**Mechanism of the streaks — engine-source verified this round (`WMBlockPrefab.cs`, `WMWorld.cs`
+LoadBlock, `WMBlock.cs`, `WMRenderTextureBank.cs`; offline `water_tile_eye_r2.py`).** A sea sub-mesh's
+MATERIAL is bound **per GameObject/transform NAME**, and each `SeaN` name maps to a DIFFERENT caustic
+texture: `Sea3`→`10_128_64` (light/shallow), `Sea4`→`10_128_128` (deep), `Sea5`→`11_64_0` (the
+directional transition gradient, a 128×512 = four stacked quarter-v tongues). (`Sea1..Sea6` are commented
+OUT of `WMBlock.ObjectNameToPaths`, so the material is NOT set by `SetupPreloadedMaterials`; it travels
+with the INSTANTIATED donor transform and is scrolled by `WMRenderTextureBank` — the round-1 report's
+"SetupPreloadedMaterials by name" premise was wrong on that detail, right on the conclusion.) Round-1's
+merge put all 512 tris in ONE GameObject named `Sea4`, so the 32 former-`Sea5` tris (UVs = full-u ×
+QUARTER-v strips, measured ~3.9:1 aspect) and 6 former-`Sea3` tris are sampled through the `Sea4` 256×256
+atlas instead of their own → a 2-tile-wide, ¼-tall slab smeared across a 4u quad = the reported streaks.
+The offline eye proves it: the merged Sea4 rendered all-through-Sea4 reproduces the exact streaky north
+band; each pristine part through its own texture is coherent AND **pixel-identical (mean diff 0.000) to
+the stock donor (8,18)**. So ADDENDUM 3's own productization prescription — *"auto-collapse to Sea4"* —
+is exactly what streaks the render; **collapse-to-one-part is a navigability fix that DESTROYS the
+per-part material namespace.**
+
+**THE FIX — RESTORE PER-LAYER + ARM THE DIVERT** (the convergent recommendation of the site-vs-donor
+audit AND the engine divert trace; the WANG-language report's pure-UV-reassign is inferior — it would
+flatten the real shallow band to uniform deep and discard the faithful per-part structure). Three loose
+files per disc, plus two:
+1. **RESTORE** the pristine per-layer `Sea3`(6)/`Sea4`(474)/`Sea5`(32) `.ff9mesh` — byte-verbatim from
+   donor (8,18) (`backups/waterfix-1119.20260720/`) — overwriting the merged 512-tri `Sea4`.
+2. **RE-ADD** `Donor.txt` = `"8,18"`.
+3. **ADD** `Terrain.ff9mesh` as a **SAFE DEGENERATE STUB** — one zero-area triangle (3 identical verts),
+   `tangent.x = 4078` (`placement.IDALL_SKIP` → skipped before intersection), `flags=7`, `verts==idx==3`
+   — whose ONLY job is to make `HasLandOverride` (a bare `File.Exists`) true and **arm the s34 divert.**
+
+Now the divert loads the (8,18) donor prefab, whose part set is **EXACTLY {Sea3, Sea4, Sea5}** (measured,
+both discs) — LoadBlock registers each as a Form-1 walkmesh (`if (prefab.SeaN) RegisterBlockComponent(…,
+true, false)`), each `TryLoad`ing our per-layer override **with its own material** → Sea3 light / Sea4
+deep / Sea5 gradient, exactly like the in-game-proven sibling cells (11,18)/(12,18)/(12,19). The streaks
+are gone; the walkmesh UNION is the identical 512 tris round 1 proved MISS=0. Crucially, donor (8,18) has
+**no `TerrainForm1`**, so LoadBlock's `if (prefab.TerrainForm1)` branch is false → **the stub Terrain is
+NEVER bound as geometry** (never rendered, never walkmeshed); it is read only by `HasLandOverride`'s
+`File.Exists`. That is why the stub is chosen over a flat submerged plane: it is provably harmless whether
+or not it ever binds, so a future Donor.txt repoint to a block WITH a Terrain can't turn it into a phantom
+sea-level floor.
+
+**Wang-carry finding: (11,19) needs ZERO recalculation.** The audit proved — and the deployed-byte gate
+re-proves — that every edge touching (11,19) is coherent by pure verbatim carry: the frame **W/S** edges
+face all-deep generic ocean (donor (8,18).W/.S = 16/16 Sea4), and the internal **N→(11,18) / E→(12,19)**
+edges reproduce stock adjacency. The island's genuinely cropped-Wang seams (the real instance of THE
+WANG-CARRY LAW) live on the **top-row** cells — (11,18).N/.W, (12,18).E, (12,19).E — where the 2×2 window
+cut the shallow coast against deep ocean with no transition ring; those are **pre-existing since the
+(8,17) carry, away from the boat, and OUT OF SCOPE** for this one-cell redeploy (a marching-band re-run
+against a deep exterior cascades, so it can't be a single-cell edit).
+
+**Gates all green** (`waterfix_1119_r2.py`, idempotent; pristine from the round-1 backup, merged-Sea4
+fallback preserved in `backups/waterfix-1119-r2.20260720/`): (3a) NON-REGRESSION via the DIVERT
+effective-prefab oracle (all three sea overrides bind) — PRE (Sea4-only, un-armed) = 304/4096 misses,
+POST (divert, 3 layers) = **0/4096** cell + 0 window, topos {57:3926, 54:170} ⊆ {54,57} boat-legal; the
+stub-only census = 4096/4096 MISS (zero hittable area); (3b) FLAT-MESH `verts==idx` on all four written
+meshes + ReadMesh range; (3c) free-ride — donor exposes exactly {Sea3,Sea4,Sea5}, all ours, Terrain not
+exposed; (3d) **WANG EDGE-COHERENCE** — all four (11,19) edges CLEAN, 0 incoherent; (3e) byte-diff — the
+restored parts are byte-identical to the pristine carry (0 quads recalculated); (3f) Disc1==Disc4 for all
+5 files, neighbours (11,18)/(12,18)/(12,19) byte-untouched (41 files hashed pre==post); (3g) the offline
+eye. En route it caught its OWN gate defect and fixed it: `pathlib.glob("Block[11][19] *")` reads `[11]`
+as a **glob CHARACTER CLASS** → matches nothing → the neighbour-untouched and leftover-file checks ran
+VACUOUSLY (0 files); replaced with a literal-prefix `iterdir` filter (`_cell_files`) and re-verified
+genuinely (41 files). **A GLOB WITH `[` IN THE LITERAL IS A VACUOUS GATE.**
+
+**Productization (paper only, per the one-change rule) — supersedes ADDENDUM 3's "collapse to Sea4".**
+Any sea carry/transplant that relocates `Sea` sub-meshes must satisfy TWO gates, both computed exactly as
+the engine will:
+- **The effective-prefab gate.** A Terrain-less target binds ONLY the transforms its effective prefab
+  exposes (SeaBlockPrefab = {Sea4}; a divert donor = the donor prefab's set). For a data-bearing water
+  cell with >1 sea layer, DO NOT collapse to Sea4 (that streaks) — instead **arm the divert**: emit a
+  degenerate `Terrain.ff9mesh` stub + a live `Donor.txt` naming a donor prefab whose transform set ⊇ the
+  layers you ship, so each layer binds its own material. Belongs in `transplant.transplant_region` /
+  `GroundRetile.for_donor` (with the disc-4 mirror pinning the stub + sidecar verbatim, NOT free-riding
+  the donor's own Sea parts back in).
+- **The Wang-carry gate.** Re-run `water.build_arrangement` over the destination's NEW world-space
+  neighbourhood; any transition tile whose implied deep-set no longer matches its new neighbour must be
+  recalculated (or the window chosen so the cut falls on all-deep edges, as (11,19)'s did). This is THE
+  WANG-CARRY LAW mechanized: carry-over when the window preserves the pattern, recalculate when it crops.
+
+**§4 ADDENDUM 5 — ROUND 2 REVIEW (2026-07-20b): the panel finding re-derived, gates re-run green,
+disposition = OUT-OF-SCOPE (no byte change).** The round-2 fix (ADDENDUM 4, commit `fe3f28d`) shipped;
+the adversarial panel returned ONE *major* finding — *"the user's Wang-carry law is unsatisfied for the
+island rim: 17 cropped-Wang seams remain on the neighbour cells."* Re-verified this round against the
+**deployed** bytes, not the report:
+- **The deliverable (11,19) is correct.** All 7 study gates PASS on the on-disk files (both discs
+  byte-identical to the pristine per-layer donor carry, md5 `fb96b321`/`c8244b04`/`8fb7afa2`; the divert
+  effective-prefab oracle censuses MISS **0/4096** cell + **0/2706** window, topos `{57:3926, 54:170}` ⊆
+  boat-legal `{54,57}`; the stub Terrain is engine-verified never-bound — donor (8,18) has no
+  `TerrainForm1`, WMWorld.cs:558). The engine divert path was re-read end-to-end: WMWorld.cs:503-507
+  (`HasLandOverride` File.Exists arm) → `ResolveReclaimDonor` (Donor.txt="8,18") → :581-593 each
+  `if (prefab.SeaN) RegisterBlockComponent` binds our override by `transform.name` with its **own**
+  material. The user's reported streak (the (11,19) NE sea5 band rendering through the Sea4 atlas) IS
+  fixed by this restore.
+- **The finding is factually accurate but OUT OF SCOPE.** An independent probe (`neighbor_seam_probe.py`,
+  reusing the study's own `frame_edge_verdicts` predicate on the deployed bytes) reproduces the count
+  EXACTLY: **17** incoherent outer-frame edge cells — 11 on (11,18).N/.W, 5 on (12,18).E, 1 on
+  (12,19).E — and **0** on (11,19)'s own W+S frame. Every one of the 17 is on a cell the deliverable
+  is FORBIDDEN to touch (*"Block[11][19] only, both discs; nothing else changes on disk in the mod
+  tree"*). They are **pre-existing** since the (8,17)→(11,18) carry (neighbour mtimes 09:25/13:53 predate
+  the 16:18 (11,19) deploy; round-2 gate 3f verified them hash-identical before==after), a *different
+  defect class* than the streak (a hard shallow|deep boundary, no transition ring — not stretched tiles),
+  and unreported by the user. Refuted, therefore, on scope not merit: fixing them means re-tiling three
+  other cells' outer edges = the island-wide **Wang-carry gate** productization the task defers (above),
+  not this one-cell redeploy. **No bytes changed; the final deliverable state is `fe3f28d`.**
+
+**§4 ADDENDUM 6 — ROUND-2 PLAYTEST: CONFIRMED (2026-07-20c). THE (11,19) ARC IS CLOSED.** The user
+sailed the boundary: *"it looks good."* Navigability held (the non-regression gate's promise) and the
+streaks are gone — the per-layer restore + divert-arm is **★ IN-GAME PROVEN**, closing the
+(755,−1216)/(11,19) defect over 3 in-game rounds (hole → merge → per-layer+arm). Laws promoted to the
+coast memory (`project-ff9-overworld-coast-mosaic`): **THE DIVERT-ARM LAW**, **THE EFFECTIVE-PREFAB
+ORACLE LAW**, **THE PER-NAME MATERIAL LAW**, **THE WANG-CARRY LAW** (user-authored). Successor work,
+now the active round: the **17 cropped-Wang rim seams** on the island's other three cells
+(`neighbor_seam_probe.py`; requires re-tiling (11,18)/(12,18)/(12,19)'s outer sea edges per the
+marching-band language) + **productizing the two kit gates** in `transplant.py` (effective-prefab +
+Wang-carry), with the auto-arm emit (stub + Donor.txt) as the proven water-only-cell pattern.
+
+**§4 ADDENDUM 7 — THE 17 CROPPED-WANG RIM SEAMS RE-TILED + BOTH KIT GATES PRODUCTIZED (2026-07-20d).**
+The successor round above, built and DEPLOYED (both discs); awaits the sail-around playtest.
+
+**Target 1 — the rim re-tile (`wang_rim_retile.py`, idempotent, deployed both discs).** The 17 seams
+reproduce EXACTLY (`neighbor_seam_probe.py`): 11 on (11,18).N/.W, 5 on (12,18).E, 1 on (12,19).E;
+(11,19)'s own frame clean (0), byte-identical, untouched. The fix is a SURGICAL per-quad re-tile: for
+each flagged rim quad, a LAND-AWARE marching-band re-derivation of the tile's deep-set (a frame edge
+faces the generic deep ring; an interior edge is deep iff its neighbour is sea4-WITH-WATER — a
+sea4-shaded cell with NO water triangle is LAND/coast, not deep) gives 17 assignments: **12 sea3→sea5**
+(a shallow rim cell → an outward-pointing transition tip), **4 sea5→sea5** (a mis-oriented tile
+re-derived), **1 sea5→sea4** ((2,0), deep-surrounded, the lone shallow poke absorbed). The derivation
+reproduces the design's plan bit-for-bit (cross-check gate). Each moved quad keeps its EXACT verts (Y=0)
++ normals + `tangent.x` TOPO — only the UV rect and the containing Sea file change (THE PER-NAME MATERIAL
+LAW). So the {Sea3,Sea4,Sea5} triangle union is a pure REPARTITION (geometry+topo IDENTICAL) → the
+walkmesh raycast/coverage/boat-legality is byte-for-byte preserved (non-regression airtight by
+construction). **VERBATIM-FIRST (THE FORM LESSON):** the new sea5 UVs are HARVESTED byte-exact from the
+donor island's OWN real sea5 termination tiles (donors (8,17)/(9,17)/(8,18)/(9,18) via
+`water.read_sea5_tiles` + `_fit_tile` — every needed deep-set variant present, intra-variant UV spread
+**0.0**; the donor's real contiguous v-bands 0.244/0.496/0.748 differ from the synthesized
+`water.VSTRIP`, so a harvest — not `VSTRIP` synthesis — is the faithful source); the one sea4 tile copies
+a deep neighbour's own mains UV. Gates (all green): (a) NON-REGRESSION — the (verts+topo) triangle
+multiset is IDENTICAL before==after per cell, sea-union MISS unchanged, moved-quad topos ⊆ boat-legal
+{54,55,57} (the whole topo distribution — incl. pre-existing carried-donor topo-56 deep tiles — is
+unchanged); (b) FLAT-MESH + SEA-LAYER (union vertex-Y set unchanged, ~0.07u donor micro-relief carried
+verbatim); (c) SEAM CENSUS (land-aware) — frame-vs-generic-deep **17 → 0** on all four cells, island-wide
+water-aware directed edges **96 → 79 (removed 17, INTRODUCED 0)**, (11,19) clean before AND after,
+interior water|water residual **79 pre-existing, delta 0** (the real donor beach-island's own near-shore
+lagoon water — sea3 abutting sea4 in complex coast geometry — on interior cells the deliverable is
+FORBIDDEN to touch; NOT the fix's fault and NOT a Wang-cropped rim seam); (d) BYTE-DIFF SCOPED — only the
+12 declared files changed ((11,18) Sea3/Sea4/Sea5, (12,18) Sea3/Sea5, (12,19) Sea5, both discs);
+Terrain/Object/Beach1/Sea1/Sea2/Donor + (11,19) + all other cells byte-identical; (e) DISC PARITY
+Disc1==Disc4; POST render `wang_rim_post.png` — 0 red at the real-neighbour level (was 17). **TRANSPARENCY
+(never explained away):** the STRICT 4-corner `frame_edge_verdicts` reports ONE residual = the (0,9)
+**1-TRIANGLE shore sliver**, which carries the verbatim W-tip gradient UVs (proven byte-exact) but a
+4-corner-only fit can't classify a 3-corner tile — a predicate limitation, NOT a seam; the land-aware
+lenient census (the calibrated instrument, per the site-prep) = 0. Idempotent: re-deploy is
+BYTE-IDENTICAL (0 files changed). Backups → `backups/wang-rim-retile.20260720/`.
+
+**Target 2 — the two kit gates SHIPPED in `transplant.py` (+ `mesh.stub_terrain_mesh`, 10 new tests,
+195 world tests green).** (a) **THE EFFECTIVE-PREFAB GATE + AUTO-ARM** (`effective_prefab_arm`, wired into
+`transplant()` + `transplant_region()`, ENFORCED): the engine binds a cell's overrides only for the
+transforms its EFFECTIVE prefab exposes — armed (a Terrain override present → the s34 divert loads the
+`Donor.txt` prefab) binds the sidecar's set; unarmed loads `SeaBlockPrefab`={Sea4} and SILENTLY DROPS
+every other sea layer (the (11,19) black-screen class). A water-only carry (donor + sidecar both
+Terrain-less) that emits >1 sea layer now AUTO-ARMS with a degenerate `mesh.stub_terrain_mesh`
+(tangent.x=4078 skip-sentinel, never bound as geometry — BYTE-IDENTICAL to the proven (11,19) study
+stub) so each layer binds its own material. Byte-identity-safe: a cell that already ships a Terrain
+override → arm None, unchanged. (b) **THE WANG-CARRY GATE** (`wang_carry_gate`, land-aware frame census
+productizing the study predicate, REPORT-ONLY by default): surfaces a carried region's OUTER-FRAME sea3 /
+mis-oriented-sea5 tiles facing the open-ocean deep ring. Enforcement is OPT-IN (`enforce_wang_carry`)
+because the raw frame census cannot yet separate a carry-INTRODUCED seam from a PRE-EXISTING donor coast
+tile without the DONOR-BASELINE subtraction (the proven (7,17) carry shows 16 frame-incoherent edges —
+all its verbatim beach-island shelf, NONE carry-introduced; "the donor-site baseline is 4, not 0"); the
+rim-retile round IS the end-to-end baseline-aware application. So a cropping carry is VISIBLE
+(report-only) without false-positiving proven carries; full hard-enforcement lands once the donor
+baseline does.
+
+**Target 3 — the Disc4-only `Block[12][18] Object.ff9mesh` (4076B) = BY DESIGN, load-bearing, no fix.**
+The TWO-TREE mirror FREE-RIDE PIN of donor (9,17)'s Object (which free-rides un-overridden on Disc1): its
+geometry == the stock disc1 donor Object but != the disc4 donor Object (the stock Object differs across
+disc trees), so `discmirror` pins the disc1-source bytes as a Disc4 override to force cross-disc parity of
+the free-riding scenery. Verified preserved byte-identical (4076B/64e2abdc) — the re-tile touched only
+Sea3/4/5, never the Object.
+
+**§4 ADDENDUM 8 — THE WANG-CARRY DEFAULT REVIEW: the finding CONFIRMED, its remedy REFUTED-with-evidence,
+the gate made VISIBLE (2026-07-20e).** A review flagged (major): "the wang-carry gate is report-only by
+DEFAULT — the money protection only exists behind `--enforce-wang-carry`; a normal `world-transplant` run
+reports `-> ok` on the original broken (8,17) carry." The FACT is confirmed (the default does not refuse).
+Its recommended REMEDY — "productize the donor-baseline subtraction so it can safely hard-fail by default"
+(ADDENDUM 7's Target-2 rationale, and the gate/CHANGELOG's own words) — is **refuted by a decisive
+census.**
+
+- **THE DECISIVE CENSUS (`wang_seam_census.py`, whole stock map):** across EVERY block border in shipping
+  FF9, a sea3 (shallow) tile's cross-border neighbour is **NEVER** sea4 (deep) — **0** map-wide. Every
+  shallow→deep transition is sea5-mediated (194) or stays shallow→shallow (~1300+). So the gate's predicate
+  ("sea3 abuts deep ring = incoherent") encodes a REAL shipping invariant — it does NOT over-flag
+  legitimate coast.
+- **∴ THE FINDING'S PREMISE IS FALSE.** ADDENDUM 7 (and the finding) asserted the proven (7,17) carry's 16
+  frame edges are "all verbatim donor shelf, NONE carry-introduced" — a legitimate pre-existing coast the
+  baseline would exempt. But real FF9 has ZERO sea3-abuts-deep: (7,17)'s shelf never faces bare deep in the
+  real map (its sea5 transition rings live on the NEIGHBOUR blocks (6,17)/(7,16)/…). Carrying (7,17)
+  standalone CROPS those neighbours → its 16 frame edges are all crop-introduced seams, not pre-existing
+  coast. (7,17) was proven for walk/render, its shallow RIM never scrutinized at this level.
+- **∴ A DONOR-BASELINE SUBTRACTION CANNOT ENABLE A SAFE HARD-FAIL DEFAULT.** With zero pre-existing
+  sea3-abuts-deep edges anywhere, there is nothing to subtract — every flagged sea3 frame edge is
+  crop-introduced. The subtraction collapses to the raw count and would refuse EVERY coastal-island carry
+  (empirically the donor-outward-deep baseline calls **15/16** of the proven (7,17) carry "introduced").
+  Flipping the default to hard-fail would therefore refuse the whole coastal-carry workflow — a regression;
+  and the shallow-rim look at the exact carry is the human's visual call (Hard-Constraint S2: carry →
+  review → re-tile-or-accept). The prior round's report-only default is CORRECT, not a gap.
+- **THE FIX SHIPPED (this round, code+docs+tests, no mod-tree change):** the gate now sets a `warn` flag by
+  default and `world-transplant` prints a loud **`!! WARNING wang-carry: N cropped-Wang frame seam(s) …`**
+  line (was a bare `-> ok`) pointing to the re-tile / `--enforce-wang-carry` / `--allow-wang-seams` — the
+  protection is VISIBLE and actionable without refusing. The unsound "false-positives (7,17)" /
+  "baseline-subtraction next round" rationale is corrected in the gate docstring, CHANGELOG, and skill. Two
+  game-gated tests lock it in: the shipping invariant (0 sea3-abuts-deep in the (7,17) neighbourhood) and
+  the real (7,17) carry (warns→ok by default, refuses under enforce, waived under allow). 362 world tests
+  green; the deployed island still censuses 0 (no false-warn), enforced-OK, effective-prefab idempotent.
+
+**§4 ADDENDUM 9 — RIM-RETILE PLAYTEST: CONFIRMED; the user names the SIBLING CLASS (2026-07-20e).**
+The user sailed the re-tiled shore: *"good"* — the 17-seam rim re-tile is **★ IN-GAME PROVEN** (the
+Sea3/Sea5→Sea4 shore termination reads clean). The screenshot's remaining hiccup, in the user's own
+analysis (verbatim intent): *there are 3 levels of deepness and 2 transition tile types; the round handled
+the 2nd-deepest→deepest transition (Sea3/4/5); where the 3rd-deepest [the shallowest coastal water,
+sea1/sea2] meets the deepest in the implant, a HARD EDGE forms — expected, since no transition tiles exist
+between these two types. **Don't force it: assess the options, or accept for now.*** This is the crop's
+sibling class the retile deliberately did not touch (sea1/sea2/beach1 rode verbatim). Assessment round
+launched (no build): the deployed-site adjacency census (crop-created vs donor-verbatim, incl. whether
+stock EVER shows sea1/sea2-abuts-sea4) + the lawful-options study (accept / {sea1,sea5} mediation ring /
+full ring-ladder termination / shelf extension) — disposition is the user's call on its results.
+
+**§4 ADDENDUM 10 — THE {sea1,sea5} LADDER AT THE SAND-SPIT CORNER: OPTION B BUILT + DEPLOYED
+(2026-07-20f).** The user chose **option B** (the {sea1,sea5} mediation ladder) from the assessment
+round's options. Built as `studies/overworld-topography/sea1_ladder_corner.py` (idempotent, both discs;
+backups `backups/sea1-ladder.20260720/`), a **~4-quad PURE REPARTITION inside cell (12,18) ONLY**.
+
+**The quad plan (verified against the deployed bytes — NO delta from the options sketch):** convert the
+two crop-created hard tiles `(15,14)`/`(15,15)` **Sea1 → Sea5** (an E-pointing tip, deepset {E} → deep
+to the E), and the two inboard `(14,14)`/`(14,15)` **Sea2 → Sea1** (so the row reads sea2 → sea1 → sea5
+→ deep, every adjacency lawful: {sea2,sea1} 499, {sea1,sea5} 79, {sea5,deep} the transition's job — and
+NOT the off-language {sea2,sea5}=1). The S-neighbour (12,19) j0 is i14=sea2 / i15=sea5, so both cross-block
+edges are lawful with NO 3rd inboard quad. Both E-tip UVs are **harvested byte-exact from the donor
+island's OWN real Sea5 and Sea1 strip0/r0 tiles** (donors (8,17)/(9,17)/(8,18)/(9,18); the Sea5 tip is the
+SAME UV the rim-retile's (15,9..13) E-tips already use, so the i15 column now reads as one continuous Sea5
+E-wall (j8..15); the Sea1 tip is the donor's own (11,10) sea1) — verbatim-first, not `water.VSTRIP`.
+
+**The GEOMETRY delta from the sketch (declared, not a plan change).** The options study assumed clean
+flat sea quads; the bytes show the four SE-corner cells are **irregular shore geometry** — 2-3 tris each,
+**mixed topos within a cell** (53/54/55), vertices **spilling past the cell** (local z 4.66/5.887, one
+tile spans the j14/j15 boundary), and **non-zero beach Y** (0.20–0.39u, the shore relief — NOT flat
+Y=0). This is still a pure repartition: every vertex position + `tangent.x` topo is carried **byte-exact**;
+only UVs + Sea-file membership move (the walkmesh raycast/coverage/boat-legality is byte-preserved by
+construction). Two re-UV methods are used, by DST part: **Sea5 = corner-snap** (rounds each vertex to its
+nearest cell corner → a clean strip0/r0 rect that `water._fit_tile` classifies as deepset {E}, REQUIRED
+so the new tiles pass the Wang frame gate; both Sea5 target cells have all 4 distinct corners = no
+degenerate tri), **Sea1 = bilinear-from-local** (position-accurate, so the boundary-spanning shore sliver
+`(14,15)` tri0 — whose two x=0 verts would collapse under corner-snap — keeps distinct UVs). The Sea1
+tiles are never Wang-classified by any gate, so bilinear is free there.
+
+**Gates (all green; `sea1_ladder_corner.py --deploy`):** (a) LAWFUL-ADJACENCY — all 16 changed-quad
+edges lawful ladder pairs; sea1→sea4 direct island edges **2 → 0**; sea2 introduces **0** forbidden
+(sea3/sea5/sea4/deep) edges; the s12 shallow census (12,18)+E+S neighbourhood **2 → 0, INTRODUCED 0**
+(incl. N/S of the changed quads); independently re-confirmed by `s12_deep_census_opus.py` on the DEPLOYED
+bytes (HARD EDGES 2 → 0). En route the gate caught + resolved a real discrepancy (never explained away):
+a bare water-only shade grid mislabels shore LAND cells as deep sea4 → a spurious `sea2(9,10)|sea3` flag;
+the fix is to include **terrain** (priority `land`) exactly as s12 does, so `(9,9)` (terrain+sea3) reads as
+the coast it is. (b) SEA3/4/5 UNHARMED — `transplant.wang_carry_gate(enforce)` frame incoherent **0**,
+`wang_rim_retile.census` FRAME **0** (the rim-retile arc's 17→0 stays 0; the new Sea5 E-tips are coherent
+frame edges). (c) PURE REPARTITION — the (verts+`tangent.x`) triangle multiset over all 6 water parts is
+**IDENTICAL** before==after (687 tris); FLAT-MESH `vcount==idx` per written file; union vertex-Y unchanged
+(max|Y|=0.391u shore relief, carried verbatim — honestly NOT Y=0, and NOT flattened). (d) BYTE-DIFF SCOPED
+— only (12,18) Sea1/Sea2/Sea5 change (sizes +156/−780/+624 B = +1/−5/+4 tris, arithmetic checks). (e) DISC
+PARITY — Disc1==Disc4 by explicit byte-copy; a 2nd `--deploy` is byte-identical (idempotent); 45
+out-of-scope files (the other 3 cells + (12,18) Terrain/Beach1/Sea3/Sea4/Object/Donor, both discs) hashed
+byte-unchanged. (f) OFFLINE EYE — `whole_island_eye.py` (`sea1_ladder_{pre,post}.png`), the REAL-ATLAS
+corner zoom (`sea1_ladder_zoom_{pre,post}.png`), and the FLAT SHADE-PLAN PRE|POST
+(`sea1_ladder_shadeplan.png`, adapts `s12_zoom_render_opus.py`): the shade plan shows **only the 4
+red-boxed cells change colour, the rest pixel-identical**; the atlas zoom shows the corner grades
+sea2→sea1→sea5→deep with **no hard shallow|deep cut** — and, as the options study predicted (sea1's deep
+shade == sea5's shallow shade), the change is **cosmetically near-invisible** at play scale (the material
+diff localises to world x 824–832 = the i14/i15 columns; the faint background elsewhere is draw-order edge
+noise from the file rebuild, content byte-proven unchanged by gate c/d).
+
+**LEFT ALONE (as the task mandated):** the interior sea2|sea4 tile at `(12,19)` cell `(14,0).S` — byte-
+verbatim donor (9,18) geometry and the ONLY sea2|sea4 edge in the entire stock map (lawful-by-precedent).
+(12,19)/(11,18)/(11,19) are byte-untouched.
+
+**LOGGED-LATER (unchanged this round):** the shipped `wang_carry_gate` / `_sea_shade_grid` bin only
+Sea3/4/5, so a Sea1/Sea2 frame tile reads as deep and is never flagged — the gate could not have SEEN
+this corner. Extending the gate alphabet to the coastal shades is the productization gap; deferred (the
+one-change rule), NOT this round's job.
+
+**Status: deployed both discs, AWAITING the sail-around playtest** at the SE cove (world ~832,−1212). If
+the user confirms, the island's last off-language shore edge is closed and the (8,17)+2×2 desert-beach
+carry's water is fully in-language (rim Sea3/5 rung + this shallow Sea1/2 rung both done).
+
+**★ PLAYTEST CONFIRMED (2026-07-20f): "that looks correct now, the transition is clean."** The corner
+ladder is IN-GAME PROVEN; the island's water is **FULLY IN-LANGUAGE** — all three defect classes of the
+(8,17)+2×2 carry's water are closed in-game (the (11,19) water-only cell over 3 rounds, the 17 Sea3/5
+rim seams, and this shallow Sea1/2 corner). THE SHALLOW-LADDER REMEDY is minted to the coast memory:
+when a crop leaves shallowest-abuts-deep, the lawful fix is the {sea1,sea5} ladder repartition — never
+an invented transition tile (stock authored none; THE SEA5-MEDIATION census). The one open successor:
+extend `wang_carry_gate`'s shade alphabet to the coastal shades (sea1/sea2) so this class warns at
+carry time — **LANDED same day (`c666ba8`)**: additive `incoherent_deep`+`incoherent_shallow`, deep
+verdicts byte-identical, the pre-ladder backup reports exactly the 2 sand-spit tiles, and a fresh
+(8,17)+2×2 region carry warns deep==12 + shallow==5 at carry time. **The water-carry arc has NO open
+items.**

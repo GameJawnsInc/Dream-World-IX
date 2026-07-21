@@ -2635,7 +2635,9 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                       game=args.game, census_samples=args.samples,
-                      allow_mod_overwrite=args.allow_mod_overwrite, dry_run=args.dry_run,
+                      allow_mod_overwrite=args.allow_mod_overwrite,
+                      allow_wang_seams=args.allow_wang_seams,
+                      enforce_wang_carry=args.enforce_wang_carry, dry_run=args.dry_run,
                       skip_mirror=args.skip_mirror)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
@@ -2683,8 +2685,15 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     if summary.get("blanked"):
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
     for g in summary["gates"]:
-        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
+        if g.get("warn"):
+            dn, sn = g.get("incoherent_deep", 0), g.get("incoherent_shallow", 0)
+            print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
+                  f"the carried rim ({dn} deep sea3/sea5, {sn} shallow sea1/sea2) -- shipping FF9 abuts "
+                  f"neither mid nor shallow water to the deep ring, so review these in-game and re-tile "
+                  f"the rim (wang_rim_retile for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
+                  f"pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).")
     if not summary["clean"]:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2
@@ -5720,6 +5729,16 @@ def build_parser() -> argparse.ArgumentParser:
                           "same transplant). The stock real-target gate cannot see mod content "
                           "-- this one keeps a prior islet/transplant from being silently "
                           "replaced (the dunes-islet incident, 2026-07-15).")
+    wtp.add_argument("--enforce-wang-carry", action="store_true", dest="enforce_wang_carry",
+                     help="ENFORCE THE WANG-CARRY GATE (default report-only): FAIL the build when the "
+                          "carried region's outer frame has a mid (Sea3) / mis-oriented Sea5 tile OR a "
+                          "shallow (Sea1/Sea2) tile facing the open-ocean deep ring (a cropped-Wang hard "
+                          "shallow|deep seam, no transition ring; stock abuts neither mid nor shallow "
+                          "water to the deep ring). Use for a fresh mint onto known-deep ocean (every "
+                          "frame edge is a crop); a coastal donor's own pre-existing shelf would false-"
+                          "positive, so it stays opt-in until the donor-baseline subtraction lands.")
+    wtp.add_argument("--allow-wang-seams", action="store_true", dest="allow_wang_seams",
+                     help="waive THE WANG-CARRY GATE even when enforced (--enforce-wang-carry).")
     wtp.add_argument("--ground", default=None, metavar="FAMILY",
                      help="RETILE the carried block to another ground family by the byte-measured "
                           "TRANSLATION LAWS (grassland.GROUNDS + coastmorph.SAND_BANDS): ground "

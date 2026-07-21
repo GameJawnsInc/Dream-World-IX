@@ -15,6 +15,56 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   adds a note that the prebuilt bundle may not be a clean match and to build from `memoria-patches/`
   instead. Advisory only — nothing here affects `doctor`'s exit code.
 
+### Added — overworld sea-carry gates (`world-transplant` / `transplant_region`)
+- **The effective-prefab gate + auto-arm** — the s34 sea→land divert binds a cell's sub-mesh overrides
+  only for the transforms its *effective* prefab exposes, looked up by `transform.name`: an un-armed
+  ocean cell loads the generic `SeaBlockPrefab` whose only transform is **`Sea4`**, so every other emitted
+  layer (Sea3/Sea5/Beach1…) is silently dropped (holes + a pale/black void — the (11,19) bug). A
+  water-only carry that emits more than one sea layer now **auto-arms** the divert with a degenerate,
+  never-bound `Terrain` stub (`mesh.stub_terrain_mesh`: one zero-area tri, `tangent.x = 4078` = the
+  placement IDALL-skip, byte-identical to the in-game-proven (11,19) fix) plus the `Donor.txt` sidecar, so
+  each layer binds its own material. The stub is provably harmless — a water-only donor prefab has no
+  `TerrainForm1`, so `LoadBlock`'s `if (prefab.TerrainForm1)` branch never binds it — and idempotent (a
+  cell already shipping a Terrain override is left byte-unchanged). `auto_mirror` needs no change: because
+  `terrain` joins the overridden set, the Disc4 free-ride pin computes no extras. The gate still **fails**
+  a carry that emits a layer the armed donor prefab cannot bind.
+- **The Wang-carry gate** — a post-carry, land-aware marching-band edge census of the carried cells' outer
+  frame: a shallow/transition tile abutting the open-ocean deep ring with no transition ring is a cropped-
+  Wang seam (the 17 rim seams the (8,17)+2×2 island carry introduced). The predicate is **sound** — a
+  map-wide census of shipping FF9 finds **zero** sea3-directly-abuts-sea4 edges across any block border
+  (all 194 shallow→deep transitions are sea5-mediated; `studies/overworld-topography/wang_seam_census.py`),
+  so a flagged edge is a real seam. **Report-only by default, but now WARNS visibly** — `world-transplant`
+  prints a `!! WARNING wang-carry: N cropped-Wang frame seam(s)…` line (no longer a bare `-> ok`) pointing
+  to the re-tile / `--enforce-wang-carry` / `--allow-wang-seams`. It does *not* refuse by default because
+  carrying **any** coastal island standalone necessarily crops the neighbour blocks that hosted its sea5
+  transition rings, so a real coastal donor (e.g. (7,17) alone → 16 flagged edges) legitimately produces
+  frame seams, fixed by a human-reviewed post-carry re-tile (the shallow-rim look at the exact carry is the
+  user's visual call, Hard-Constraint S2). A **donor-baseline subtraction does not enable a safe hard-fail
+  default**: with zero pre-existing sea3-abuts-deep edges anywhere, there is nothing to subtract — every
+  flagged sea3 frame edge is crop-introduced, so the subtraction collapses to the raw count and would
+  refuse every coastal carry (empirically the donor-outward-deep baseline calls 15/16 of the proven (7,17)
+  carry "introduced"). `--enforce-wang-carry` hard-fails on any incoherent frame edge (a fresh mint onto
+  known-deep open ocean, or a post-retile CI check); `--allow-wang-seams` waives even then. Both gates are
+  byte-neutral over every already-deployed lawful carry.
+- **The Wang-carry gate learns the coastal shades (Sea1/Sea2).** The gate's shade grid binned only the
+  *deep* Sea3/4/5 alphabet, so a **Sea1/Sea2** frame tile read as deep and was never flagged — the exact
+  class the `{sea1,sea5}` ladder had to close by hand on the deployed island (2 sea1|sea4 sand-spit corner
+  tiles at (12,18)). The gate now bins the coastal shades too (`_sea_shallow_grid`) and flags a Sea1/Sea2
+  frame tile facing the deep ring, because stock authors `sea1|sea4` and `sea2|sea4` **zero** times map-wide
+  (`studies/overworld-topography/s12_stock_map_census_opus.py`, land-aware, interior + cross-block): a sea1
+  tile's *deepest* lawful neighbour is sea5, a sea2 tile's is sea3 (the ring ladder
+  `sea4>sea5>sea3>sea1>sea2>beach1>land`), so neither ever faces the deep ring. The lawful set is
+  byte-derived, never invented — `transplant.SEA_ADJ_LAWFUL` / `sea_adjacent_lawful()`, with the measured
+  stock counts cited per pair (sea1|sea3 588, sea2|sea1 517/488, sea1|sea5 78, sea2|sea3 9, shore contacts
+  sea1|beach1 78 / sea2|beach1 465; off-language sea1|sea4 0, sea2|sea4 0, sea2|sea5 0). The report gains
+  **additive** keys — `incoherent_deep` (sea3/mis-sea5, byte-identical to the old count) + `incoherent_shallow`
+  (sea1/sea2) — and the two systems are mutually exclusive per edge, so the deep verdicts never reclassify.
+  The lone interior donor-verbatim `sea2|sea4` tile at (12,19) is an interior edge the frame census never
+  sees, so it never false-positives. Public behaviour is unchanged: warn-by-default, `--enforce-wang-carry`
+  refuses, `--allow-wang-seams` waives. A fresh `world-transplant --size 2 --donor 8,17` now warns about
+  **both** crop classes at carry time (12 deep + 5 shallow), so the sand-spit corner is caught before deploy
+  instead of after a playtest.
+
 ### Changed — the in-game debug menu: functionality round
 - **Three tabs** (Go / Cheats / Flags): Time merged into Cheats as a "Time scale" section. The Go tab's
   "More options" hide-toggle is gone — the entrance/scenario fields are one always-visible row. New

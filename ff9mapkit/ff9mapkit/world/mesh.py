@@ -666,6 +666,32 @@ def tri_soup_block_mesh(triangles, *, name, disc: int = 1, x: int = 0, y: int = 
                      raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
+def stub_terrain_mesh(*, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1"):
+    """A provably-harmless DIVERT-ARM Terrain stub -- ONE zero-area triangle (3 identical verts),
+    ``tangent.x = 4078`` (:data:`ff9mapkit.world.placement.IDALL_SKIP`, so the engine's triangle filter
+    skips it before intersection), ``flags = 7`` (verts==idx==3, tangents present so WMPhysics can never
+    IndexOutOfRange even if it WERE walkmeshed).
+
+    THE DIVERT-ARM (the (11,19) water-only-cell fix, in-game proven 2026-07-20 -- coast memory
+    ``project-ff9-overworld-coast-mosaic`` THE DIVERT-ARM LAW): the s34 sea->land divert fires only when
+    ``WorldMeshOverride.HasLandOverride`` (a bare ``File.Exists`` on ``Block[x][y] Terrain.ff9mesh``) is
+    true.  A WATER-ONLY carry (a donor with no Terrain transform) emits no Terrain override, so the divert
+    never arms, the cell loads the generic ``SeaBlockPrefab`` (whose only transform is ``Sea4``), and any
+    OTHER sea layer (Sea3/Sea5) is silently dropped = holes + a black/pale void.  This stub's ONLY job is
+    to make ``HasLandOverride`` true and arm the divert, so the donor prefab's OWN Sea3/Sea4/Sea5
+    transforms each bind their override with their own material.  It is NEVER bound as geometry: a
+    water-only donor prefab has no ``TerrainForm1``, so ``LoadBlock``'s ``if (prefab.TerrainForm1)`` branch
+    is false and ``TryLoad(...Terrain)`` is never called -- it is read only by ``HasLandOverride``'s
+    ``File.Exists``.  Pair it with a ``Donor.txt`` naming the water-only donor block."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    v = [32.0, -100.0, -32.0]                                 # cell centre, deep Y (never hit anyway)
+    return BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=3, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: [list(v), list(v), list(v)], CH_NRM: [[0.0, 1.0, 0.0]] * 3,
+                                  CH_UV: [[0.0, 0.0]] * 3, CH_TAN: [[4078.0, 0.0, 0.0, 1.0]] * 3},
+                     flat_index=[0, 1, 2], tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def hidden_block_mesh(*, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1", y_depth: float = -80.0,
                       normal=(0.0, 1.0, 0.0)):
     """A single degenerate (near-zero-area) triangle far below the world at ``y_depth`` -- deploys as a sub-mesh override
