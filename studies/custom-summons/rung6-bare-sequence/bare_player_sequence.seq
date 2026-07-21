@@ -9,7 +9,7 @@ PlayAnimation: Char=Caster ; Anim=MP_IDLE_TO_CHANT
 WaitAnimation: Char=Caster
 PlayAnimation: Char=Caster ; Anim=MP_CHANT ; Loop=True
 Channel
-SetBackgroundIntensity: Intensity=0.5 ; Time=12
+SetBackgroundIntensity: Intensity=0 ; Time=12
 PlaySound: Sound=100000
 CreateVisualEffect: Char=Caster ; SFXModel=Data/SpecialEffects/ef084/RisingRing.sfxmodel
 Wait: Time=90
