@@ -366,9 +366,14 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    of Bahamut's 73-line Sequence.seq (t=0 blackout … t=434 Mega-Flare ramp … stock EffectPoint at
    t=486/498, ~32.4s in; every HoldDuration self-consistent). The move: the EffectPoint pair
    (12-tick gap preserved) relocated to immediately after the opening blackout (~1.2s in) —
-   anchor-block matched, DriftError-guarded, idempotent. EXPECTED: damage numbers over a black
-   screen ~1.2s in (deliberately jarring — not a bug), the rest of the cinematic unchanged; also
-   probes the early-kill/battle-end interaction the source alone can't answer.]**
+   anchor-block matched, DriftError-guarded, idempotent. ★ PROVEN 2026-07-21 — "it worked, damage
+   numbers popped up right after the blackout": the hit landed at the new beat (hit SFX + HP
+   damage confirmed) AND the number was ABSENT from its usual mid-flare spot — double evidence the
+   beat moved. The override is since REVERTED (stock resolution restored). MINTED EN ROUTE — **THE
+   FIGURE-VISIBILITY LAW**: the damage-number popup renders occluded/washed out under the
+   fullscreen SetBackgroundIntensity overlay (the user saw the hit only via SFX; the number hid
+   "behind the whiteout") — a composed summon (rung 8) must schedule `EffectPoint Type=Figure` in
+   a LIT window if the numbers should read.]**
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
    a bespoke Sprite .sfxmodel). Proof: our particle renders inside the donor cinematic.
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
