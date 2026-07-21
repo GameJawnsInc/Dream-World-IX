@@ -853,4 +853,7 @@ rim seams, and this shallow Sea1/2 corner). THE SHALLOW-LADDER REMEDY is minted 
 when a crop leaves shallowest-abuts-deep, the lawful fix is the {sea1,sea5} ladder repartition — never
 an invented transition tile (stock authored none; THE SEA5-MEDIATION census). The one open successor:
 extend `wang_carry_gate`'s shade alphabet to the coastal shades (sea1/sea2) so this class warns at
-carry time — the active kit round.
+carry time — **LANDED same day (`c666ba8`)**: additive `incoherent_deep`+`incoherent_shallow`, deep
+verdicts byte-identical, the pre-ladder backup reports exactly the 2 sand-spit tiles, and a fresh
+(8,17)+2×2 region carry warns deep==12 + shallow==5 at carry time. **The water-carry arc has NO open
+items.**
