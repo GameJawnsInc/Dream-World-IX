@@ -360,3 +360,9 @@ seats rows below the header rail).
 study** first (how stock FF9 menus compose: sheets vs bordered windows, rails/caps, header captions,
 row grammars, margins, depth stacks), THEN redesign the codex screen from that vocabulary.
 "The way we're going about it now isn't good for discoverability."
+
+**THE STUDY RAN same day** → `studies/menu-shape-language/VOCABULARY.md` (10-screen + 3-machinery census,
+claims skeptic-verified). Headline for the redesign: **Chocograph is the stock codex** — browse list +
+persistent hover-populated detail pane + silhouette undiscovered slots, no modality; the recommended
+composition ("Option B") writes our screen in that sentence with the Key-Item cell and a recycling
+SubPanel. Both open defects are solved in vocabulary terms there (§6).
