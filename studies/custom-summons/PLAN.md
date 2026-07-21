@@ -36,14 +36,20 @@ Three ceilings, in order of hardness:
    exact same loose-FBX loader our proven custom-model pillar already uses** (SFXDataMesh.cs:744).
    0 of the 487 shipped ef folders use it; no community mod found that ever has. Code-complete,
    battle-untested. This is the pillar's central bet.
-3. **A continuous custom camera dolly is the one genuinely hard gap.** The data-driven camera
-   loader is a literal `// TODO return null` stub (SFXDataCamera.cs:205-209). Camera-owning
-   effects re-invoke the native plugin live every frame. BUT: this is not a blank frontier — our
-   own `battle/camera_codec.py` already authors multi-segment camera sweeps into the raw17 bytes
-   **the native plugin itself reads** (in-game proven for battle-opening cameras, indices 0-2);
-   the natural extension is the attack-sequence camera slots (indices 3-8) that `PlayCamera`
-   selects. Until then: camera CUTS (`PlayCamera`) + `ShiftWorld` + borrowing a donor's native
-   camera by loading its SFX are all available data-only.
+3. **A continuous custom camera dolly is the one genuinely hard gap — but it's a managed wiring
+   job, not native RE.** The data-driven camera loader is a literal `// TODO return null` stub
+   (SFXDataCamera.cs:205-209). Camera-owning effects re-invoke the native plugin live every frame.
+   BUT: this is not a blank frontier — our own `battle/camera_codec.py` already authors
+   multi-segment camera sweeps into the raw17 bytes **the native plugin itself reads** (in-game
+   proven for battle-opening cameras, indices 0-2); the natural extension is the attack-sequence
+   camera slots (indices 3-8) that `PlayCamera` selects. And per §3A, the binary camera format is
+   already fully solved in the open source, so finishing the stub is a local managed patch. Until
+   then: camera CUTS (`PlayCamera`) + `ShiftWorld` + borrowing a donor's native camera by loading
+   its SFX are all available data-only.
+
+> **Is the native plugin itself an insurmountable wall? No — see §3A.** A follow-up investigation
+> (workflow `wf_61f380d8-dc4`) inspected the actual binary and found it's a soft target, and more
+> importantly that for custom summons **nothing needs cracking at all.**
 
 Nobody in the FF9 community has ever shipped a genuinely new summon (community lens; the Memoria
 maintainer's own SFX tracking issue #917 calls deep SFX work "might require a breakthrough").
@@ -211,6 +217,80 @@ hardcodes null. So:
 - **Player-cast**: needs either the fresh-id folder route (data-only, preferred) or a one-line
   runtime write to `FF9BattleDB.CharacterActions[id].Info.SequenceFile` from our per-mod
   **Scripts-DLL** (public statics; the Overload-hub pattern — NOT an engine rebuild). Unproven.
+
+## 3A. Can we crack FF9SpecialEffectPlugin.dll? (workflow `wf_61f380d8-dc4`, 2026-07-21)
+
+Follow-up to "opaque closed-source" — inspected the actual binary + re-read the open source +
+web/provenance. Verdict: **the DLL is a soft target, but "crack the DLL" is the wrong frame — for
+custom summons nothing needs cracking.** 6/8 load-bearing claims CONFIRMED, 2 PARTIAL (scoping).
+
+### The binary is not a wall
+- **435 KB x64 / 348 KB x86**, native C++ (no CLR header), MSVC/VS2013 (linker 12.0, MSVCR120),
+  linked 2016-10-19. **Unpacked, unobfuscated, no anti-RE** (normal `/GS` cookies, `.text`
+  entropy ~6.5). x64 `.pdata` gives an exact **646 functions**.
+- **Leftover debug symbols name the original C++ sources**: `SpecialEffectCode\psx\source\
+  psx_compatibility.cpp`, `SpecialEffectCode\sonoda\Geo\{geo,geomorph,geosfxrender,geoslice}.cpp`,
+  `sonoda\PsxEmulator.cpp`; PDB path rooted at `…\Honolulu_master\…`. This is **literal ported
+  PS1-era Square geometry code** (a "Geo" transform module + an explicit PSX-emulation shim), not a
+  novel modern engine.
+- **The DLL does not render and does not touch disk**: its import table is only CRT math/alloc +
+  9 KERNEL32 timing calls — **zero graphics-API (d3d/gl/dxgi) and zero file-I/O imports**. It's a
+  pure CPU-side geometry/animation kernel. It's *fed* a raw `ef###.bytes` buffer via `SFX_Play`
+  and *queried* per primitive via `SFX_GetPrim`; Unity does the actual drawing.
+
+### The ABI and the output are already fully decoded in the OPEN source
+- **13 exports, 1:1 match** to the `[DllImport("FF9SpecialEffectPlugin")]` block (SFX.cs:716-753)
+  — no hidden surface. (SFX_BeginRender, SFX_GetPrim, SFX_InitBattle/System, SFX_LateUpdate,
+  SFX_MoveFreeCamera, SFX_Play, SFX_Send{Float,Int}Data, SFX_SkipCameraAnimation,
+  SFX_StartPlungeCamera, SFX_Update, SFX_UpdateCamera.)
+- **`SFX_GetPrim`'s output is a classic PSX GPU primitive-tag stream** (POLY_F3/FT3/F4/FT4/G3/GT3/
+  G4/GT4, LINE, TILE/SPRT, DR_TPAGE/…) walked via an ordering table — and Memoria's own C# already
+  interprets it verbatim (SFXRender.cs:79, dispatch :208-315; `PSX_LIBGPU.cs`, `PSX_OT*.cs`). The
+  **rendering protocol is not a mystery.**
+
+### The one genuine native-RE gap (which we don't need)
+- The `ef###.bytes` **container/opcode/camera sub-formats are ~60% decoded in the open**
+  (`SFXBinaryFile.cs` parses the chunk table + SequenceCode stream; `SFXDataCamera.cs`'s
+  Load/UpdateBSC round-trips the camera format — the same bytes our `camera_codec.py` writes). BUT
+  `SFXBinaryFile.cs` is **dead code, zero live callers** (never validated against a real file), and
+  the actual **creature mesh/bone/animation payload is decoded nowhere**. It lives in a bounded
+  ~12-function internal `Hi_Summon*` subsystem (Hi_RegisterSummonModel / Hi_SetSummonMotion /
+  Hi_GetSummonBoneMatrix / Hi_DrawSummonModel / …) inside the DLL — the ONLY piece genuinely
+  inaccessible without disassembly. Small (~2% of 646 fns), but un-tooled, no community prior art,
+  and its only prize is **extracting stock Eidolon geometry — which trips the provenance gate.**
+- The one tool that touches mesh (`SFXDataMeshConverter`) works by **capturing the DLL's rendered
+  output at runtime**, self-describes as "mostly fails" (:9-10), and does not decode the source
+  bytes.
+
+### Route ranking (for the custom-summons goal)
+| Route | Buys | Effort | Provenance | Needed? |
+|---|---|---|---|---|
+| **A. Managed bypass** (FileList.txt Model → our FBX pipeline) | the whole new-creature pillar | **low (already built)** | clean | **YES** |
+| **B. Managed camera fix** (implement `LoadFromJSON` + the SFX_DATA_CAMERA branch; format already solved) | continuous per-effect camera dolly | low-med, local patch | clean | optional |
+| **C. Finish ef###.bytes mesh decoder** | extract/re-encode a *stock* Eidolon's geometry | med-high, no prior art | **risky (SE content)** | no |
+| **D. Native disasm of the DLL** (Ghidra/IDA on the ~12 `Hi_Summon*` fns) | the internal creature codec | high vs narrow payoff | RE-to-understand ok; extracted content / patched DLL not | no |
+
+- **Route A never calls the native DLL**: with a `FileList.txt` Model line, `SFXData.LoadSFX` sets
+  `mesh` and **returns before `loadingQueue.Enqueue` / `SFX_Play`** (SFXData.cs:156-181, verified).
+  For an all-new summon the plugin is simply not in the loop.
+- **Provenance line** (PROVENANCE.md): a functional **parser** for the format is committable
+  (code); **decoded/extracted stock bytes are not** (SE content → gitignored/local, the
+  battle-import precedent). Reading the DLL for understanding is fine; shipping a patched/
+  redistributed DLL is not (also the never-PR-upstream rule → any managed fix stays on
+  `memoria-patches/`).
+
+### Corrections folded in
+- GitHub issue #917 is about camera/timing **polish glitches in working playback** (14/16 subs
+  closed), NOT evidence about format-decode difficulty — don't cite it for that. The real
+  community confirmation of hardness is discussion #1002 (Tirlititi) + tasior2's "Rəverse FF9"
+  (reads static PSX geometry off `.IMG` only — never animation, never the PC `ef###.bytes`).
+- The 487 stock effect folders span ef000-ef510 **non-contiguously** (24 absent ids, 25 with only
+  a PlayerSequence.seq) — the choreography layer is loose text regardless (no DLL involved in
+  reading it: `UnifiedBattleSequencer` via `AssetManager.LoadString`).
+
+**Bottom line for the pillar:** ignore the DLL. Route A (managed bypass) is the whole thing and is
+already code-complete + provenance-clean; Route B (managed camera patch) is the only worthwhile
+follow-on, and it's wiring an already-solved format, not reverse engineering.
 
 ## 4. Architecture tiers (post-verification)
 
