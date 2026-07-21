@@ -399,6 +399,18 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
    graceful play (chars animate, sound, damage) with no native content at all → Tier 3 is viable;
    also observes what a camera-ownerless effect looks like.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung6-bare-sequence/` (recast pending; the fresh-id half was
+   proven by rung 3, so this swaps ef084's content — recast-only). THE CAST-PROTOCOL GRAMMAR
+   DECODED (3 simple stock spells = one 67-line template + the donor): `cmd_status` = a pure
+   target-cursor visibility bitfield (bit 2), NOT load-bearing; the reflect triple is required
+   only for category-bit-0x1 abilities (Bahamut's 22 clears it — inert, kept for convention);
+   **THE ANIM=IDLE RELEASE LAW** — the literal string "Idle" is engine-recognized as
+   releaseCmdIdle (`btl_mot.EndCommandMotion` + `SetDefaultIdle`), THE canonical command-motion
+   release, and a looping clip is broken only by a SUBSEQUENT PlayAnimation call (no StopAnimation
+   op exists); a Loop=True WaitAnimation resolves at loop-wrap (never hangs). The deployed 25-op
+   bare sequence: banner → chant → half-dim (0.5, Figure-law compliant) → chime + magenta ring →
+   MP_MAGIC gesture → re-light → EffectPoint pair LIT → Anim=Idle close-out. Zero native content;
+   ef084/Sequence.seq present but unreachable (no LoadSFX to nest-load it).]**
 7. **THE creature rung** — `FileList.txt` + `Model our.sfxmodel` + `FBX` → a placeholder mesh from
    our model pipeline renders mid-cast. Highest-risk, highest-value; zero precedent anywhere.
    (Fallback if it fails: spawn the creature as a battle-actor model instead — our skinmint band —
