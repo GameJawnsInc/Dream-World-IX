@@ -293,10 +293,16 @@ untouched (display-only filter — ids stay in `rare_item_obtained`).
 **Phased build order (one change → one gate; interleaves with PLAN.md P0-P3):**
 - **P0 (existing, DLL-free).** Data spine; NO submenu, NO filter; entries appear in vanilla Key Items.
   *Gate:* obtain → visible with name+description; persists across reload.
-- **Phase A (s45, change 1 — row + empty shell).** UIState append + `IsUIStateMenu` + field/case +
-  Start construction + sweep + the row + a MINIMAL FolkloreUI (stock-framed empty two-pane,
-  cancel-back). *Gate:* see the row, enter, see the frame, cancel back with cursor restored; every other
-  submenu still works.
+- **Phase A (s45, change 1 — row + empty shell). ★ GATE PASSED 2026-07-20**
+  (`memoria-patches/s45-folklore-submenu.patch`): row placed correctly, help line reads, shell frame +
+  caption render, cancel returns with the cursor on Folklore, all other submenus clean. Shell geometry
+  deliberately rough (Phase B replaces the panel wholesale). The 4-lens adversarial review caught 4
+  real pre-deploy defects, all fixed: the missing `StartSubmenuTweenIn()` on return (HIGH — the row
+  column would have stayed collapsed all session; ItemUI calls it in its Hide OVERRIDE — that is the
+  idiom), the scene root on Unity layer 0 (culled by the UI camera — a fresh GameObject needs the UI
+  layer), the frame-stripping child loop (GenericInfoPanel's root is a bare container; child 2 IS the
+  window frame), and a HelpEnabled preference clobber. Parity-when-off verified bit-identical
+  (IEEE-float level). Unchecked: the 9-row case (`[Hacks] AllCharactersAvailable = 1` + Folklore).
 - **Phase B (s45, change 2 — list + detail text + categories).** Populate from `FolkloreRegistry`;
   `OnItemSelect` detail refresh; L1/R1 paging; flip ON the Key-Items filter. *Gate:* scroll Bestiary,
   page categories, folklore absent from Key Items. *(= PLAN.md P1 realized inside the dedicated screen.)*
