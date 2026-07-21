@@ -410,7 +410,15 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    op exists); a Loop=True WaitAnimation resolves at loop-wrap (never hangs). The deployed 25-op
    bare sequence: banner → chant → half-dim (0.5, Figure-law compliant) → chime + magenta ring →
    MP_MAGIC gesture → re-light → EffectPoint pair LIT → Anim=Idle close-out. Zero native content;
-   ef084/Sequence.seq present but unreachable (no LoadSFX to nest-load it).]**
+   ef084/Sequence.seq present but unreachable (no LoadSFX to nest-load it).
+   ★ SUBSTANTIVELY PROVEN 2026-07-21 (one cast): the chant played, THE CHIME AND RING PLAYED, the
+   ~3000 damage landed with VISIBLE numbers (Figure-law window worked), and the battle ended
+   normally — the completion chain held with zero native content: TIER 3 IS VIABLE. ONE ANOMALY:
+   both `SetBackgroundIntensity` lines were visibly INERT (no dim, no re-light) — yet rung 2
+   proved the same op works inside an SFX-owning cast. The no-SFX gate is under engine trace
+   (suspected: the intensity apply path is armed only while a native SFX is loaded); pending its
+   verdict, the working law is "a bare cast controls light through its own content, not the bbg
+   intensity."]**
 7. **THE creature rung** — `FileList.txt` + `Model our.sfxmodel` + `FBX` → a placeholder mesh from
    our model pipeline renders mid-cast. Highest-risk, highest-value; zero precedent anywhere.
    (Fallback if it fails: spawn the creature as a battle-actor model instead — our skinmint band —
