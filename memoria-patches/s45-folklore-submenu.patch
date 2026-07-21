@@ -842,7 +842,7 @@ index fec55217..55aea8c5 100644
              _keyItemIdList.Add(FF9FITEM_RARE_NONE);
          List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
 diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
-index 0b138cde..17684b4f 100644
+index 0b138cde..ff1eba3a 100644
 --- a/Assembly-CSharp/Global/MainMenuUI.cs
 +++ b/Assembly-CSharp/Global/MainMenuUI.cs
 @@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
@@ -912,7 +912,40 @@ index 0b138cde..17684b4f 100644
          return MainMenuUI.SubMenu.None;
      }
  
-@@ -705,6 +726,58 @@ public class MainMenuUI : UIScene
+@@ -667,6 +688,23 @@ public class MainMenuUI : UIScene
+     {
+     }
+ 
++    // ff9mapkit s45 -- one command-row seat: widget + collider + the children's anchor pass.
++    // Memoria's original squeeze resized only the ROW widget and left Label/Spliter/Highlight to
++    // the deferred OnEnable anchor pass -- which never lands on a runtime CLONE (the Party and
++    // Folklore rows kept their 402x90 donor-state selection plate forever; even the baked rows
++    // flash donor-size for the first frames of each open). SetAnchor(row) keeps each child's
++    // BAKED relative/absolute anchor values (do NOT use the value-resetting overload -- the
++    // Spliter's asymmetric anchors must survive), re-caches the target, and runs OnAnchor NOW
++    // against the squeezed rect -- the exact solve the baked rows demonstrably settle to.
++    private static void LayoutSubMenuRow(GameObject row, Int32 y, Int32 h)
++    {
++        row.GetComponent<UIWidget>().SetRawRect(201, y, 402, h);
++        row.GetComponent<BoxCollider>().size = new Vector3(402, h);
++        foreach (UIRect childRect in row.GetComponentsInChildren<UIRect>(true))
++            if (childRect.transform != row.transform)
++                childRect.SetAnchor(row.transform);
++    }
++
+     protected void Awake()
+     {
+         base.FadingComponent = this.ScreenFadeGameObject.GetComponent<HonoFading>();
+@@ -697,14 +735,64 @@ public class MainMenuUI : UIScene
+             Int32 h = 79;
+             foreach (GameObject go in new GameObject[] { this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu, this.OrderSubMenu, this.CardSubMenu, this.PartySubMenu, this.ConfigSubMenu })
+             {
+-                go.GetComponent<UIWidget>().SetRawRect(201, y, 402, h);
+-                go.GetComponent<BoxCollider>().size = new Vector3(402, h);
++                LayoutSubMenuRow(go, y, h);            // ff9mapkit s45 -- was bare SetRawRect+collider
+                 y -= h + 8;
+                 h = h == 79 ? 78 : 79;
+             }
              table.enabled = false;
          }
  
@@ -960,8 +993,7 @@ index 0b138cde..17684b4f 100644
 +            Int32 folkloreH = rowTall;
 +            foreach (GameObject go in orderedRows)
 +            {
-+                go.GetComponent<UIWidget>().SetRawRect(201, folkloreY, 402, folkloreH);
-+                go.GetComponent<BoxCollider>().size = new Vector3(402, folkloreH);
++                LayoutSubMenuRow(go, folkloreY, folkloreH);
 +                folkloreY -= folkloreH + rowGap;
 +                folkloreH = folkloreH == rowTall ? rowShort : rowTall;
 +            }
@@ -971,7 +1003,7 @@ index 0b138cde..17684b4f 100644
          UIEventListener.Get(this.ItemSubMenu).Click += onClick;
          UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
          UIEventListener.Get(this.EquipSubMenu).Click += onClick;
-@@ -714,6 +787,8 @@ public class MainMenuUI : UIScene
+@@ -714,6 +802,8 @@ public class MainMenuUI : UIScene
          UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
          if (this.PartySubMenu != null)
              UIEventListener.Get(this.PartySubMenu).Click += onClick;
@@ -980,7 +1012,7 @@ index 0b138cde..17684b4f 100644
  
          foreach (Transform tr in this.CharacterListPanel.transform)
          {
-@@ -784,6 +859,8 @@ public class MainMenuUI : UIScene
+@@ -784,6 +874,8 @@ public class MainMenuUI : UIScene
      [NonSerialized]
      private GameObject PartySubMenu;
      [NonSerialized]
@@ -989,7 +1021,7 @@ index 0b138cde..17684b4f 100644
      private GOMenuBackground Background;
  
      private UILabel gilLabel;
-@@ -820,6 +897,7 @@ public class MainMenuUI : UIScene
+@@ -820,6 +912,7 @@ public class MainMenuUI : UIScene
          Card,
          Config,
          Party,
