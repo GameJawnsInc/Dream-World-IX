@@ -1,19 +1,43 @@
 # s46 — THE RENDER RIG (the Folklore display window)
 
-> **Status: RUNG 1 GREEN-LIT (user, 2026-07-21) — to be built in a fresh session.** Rung 1 needs NO user
-> decisions (viewer defaults: opaque background, field look, one static render); the open questions at the
-> bottom gate later rungs only. Plan produced 2026-07-21 by a 4-lane grounding workflow over the engine
-> source (model spawn / RT precedent / anim+layers+lighting / kit grammar; 5 agents, every mechanism claim
-> cited file:line) + synthesis. The headline: the rig is a COMPOSITION OF TWO SHIPPING ENGINE PIECES —
-> Memoria's Model Viewer (spawn any GEO over live NGUI) and the Libra photo (camera -> RenderTexture ->
-> menu) — displayed through stock NGUI UITexture. The genuinely novel pieces (a persistent-targetTexture
-> camera, the runtime UITexture call site, offstage-leak discipline) are each isolated on their own rung.
+> **Status: RUNG 1 ★ BUILT + DEPLOYED 2026-07-21 — PLAYTEST PENDING.** Captured as
+> `memoria-patches/s46-folklore-render-rig.patch` (ONE file, `FolkloreUI.cs` only — no csproj change; both
+> gates green: reverse `-F0` clean on live, forward `--binary -F0` onto `backups/preS46-snapshots.20260721`
+> == live bytes; the deployed DLL carries the new method names, both arches MD5-match Output). Build shape:
+> a 9-agent ground→design→3-skeptic→repair workflow (Sonnet fleet, `wf_e2b1478a`); the skeptics caught 2
+> BLOCKERs + 2 HIGHs pre-compile, all folded in — the shipped rung 1 therefore DEVIATES from the plan below
+> in five load-bearing ways:
+> 1. **`OnDisable()` teardown backstop** — `UIManager.OnLevelWasLoaded` SetActive(false)'s the scene
+>    directly on every level load, bypassing `Hide()`; OnDisable fires for either path.
+> 2. **The first mint is deferred ONE frame past `Show()`** (`RenderFolkloreEntryLazily` +
+>    a one-shot coroutine) — `Show()` synchronously reaches `RefreshDetail()`, so "lazy on first
+>    selection" was otherwise the first-open burst by another name. Later selections render inline.
+> 3. **As-you-go field commits in the mint** — every `this.folklore*` field is assigned the moment its
+>    object exists, so the catch's `TeardownFolkloreRig()` can destroy a half-built rig (batched-at-end
+>    commits made the catch a no-op → a permanent leak under the DontDestroyOnLoad tree).
+> 4. **Teardown DESTROYS the portrait GameObject + the RT** (not deactivate/Release-only — one leaked
+>    widget per codex visit otherwise) and **`Destroy(stage)` is UNCONDITIONAL** — the HonoBehavior
+>    dispose loop is an extra step, never a substitute (dispose kills the component's OWN gameObject,
+>    a child, not the ancestor).
+> 5. **Portrait depth = `min(labelDepths) − 2`** (tie-avoidance vs the unmeasured sheet depth) + a
+>    one-shot pane depth census (`DumpDetailPaneOnce`) that runs BEFORE any portrait exists — read it
+>    in the log on the first playtest to confirm the margin.
+> Grounding drift kept honest: the viewer's pose is `Euler(20,0,0)` + yaw on a SEPARATE drag wrapper —
+> the rig's composed `Euler(20,180,0)` is a declared simplification (yaw = aesthetic, adjust freely);
+> `SetActive(false)`-before-Destroy has NO in-tree precedent (new discipline, labeled so in-code); the
+> rig parents under `base.transform` (the scene's own DontDestroyOnLoad seat, the file's ROUND-2 LAW) —
+> teardown-on-Hide/OnDisable is the cleanup, not scene death. **Playtest = §2 rung 1's four checks; a
+> DLL change needs a full RELAUNCH.** Rungs 2+ below remain unbuilt; the open questions at the bottom
+> still gate them only.
 >
-> **For the building session:** the engine stack on master already includes the 2026-07-21 9-row/title-plate
-> s45 recapture (a sibling session; the live `C:\gd\FFIX\Memoria` tree carries it). Build rung 1 as a NEW
-> patch **s46** on top of the current stack; captures follow the PRE-MARKER CR RULE
-> (`memoria-patches/README.md` §s45 — forward `--binary` is now truly byte-exact) and the reverse gate runs
-> on the live tree. Read the `project-ff9-ngui-menu-construction` memory before touching FolkloreUI.
+> *(Original pre-build note, kept for the record:)* Rung 1 needs NO user decisions (viewer defaults:
+> opaque background, field look, one static render). Plan produced 2026-07-21 by a 4-lane grounding
+> workflow over the engine source (model spawn / RT precedent / anim+layers+lighting / kit grammar;
+> 5 agents, every mechanism claim cited file:line) + synthesis. The headline: the rig is a COMPOSITION
+> OF TWO SHIPPING ENGINE PIECES — Memoria's Model Viewer (spawn any GEO over live NGUI) and the Libra
+> photo (camera -> RenderTexture -> menu) — displayed through stock NGUI UITexture. Captures follow the
+> PRE-MARKER CR RULE (`memoria-patches/README.md` §s45); the `project-ff9-ngui-menu-construction`
+> memory is required reading before touching FolkloreUI.
 
 > **Goal.** A codex bestiary entry displays its creature as a live 3D render inside the existing 780x880 detail pane (`FolkloreUI.cs:410`, `BuildFramedPane` 333-370). The rig is the composition of two proven engine halves — Memoria's **Model Viewer** (spawn any GEO over live NGUI, `ModelViewerScene.cs:1725`) and the **Libra photo** (camera → RenderTexture → menu, `BattleHUD.Public.cs:213-235`) — plus the stock **UITexture** display seat (`Global\UI\UITexture.cs:7-41`). Almost every primitive is cited stock; the NOVEL pieces are flagged and each gets its own rung so a playtest isolates it.
 
