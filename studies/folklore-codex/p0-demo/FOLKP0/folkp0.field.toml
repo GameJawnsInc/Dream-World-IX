@@ -48,10 +48,10 @@ spawn = [0, -837]
 id = 80
 category = "bestiary"
 name = "Mist Wraith"
-display = "GEO_MON_B3_118"    # s46 rung 3 round 2: the PROVEN model on the suspect first row (187
-                              # turned out to be a red-ring battle PROP whose idle exits the frame --
-                              # the round-1 "first item flashes then blanks" report; model-preview is
-                              # the offline eye that catches this class before a playtest)
+display = "GEO_MON_B3_009"    # FF9's floating ghost -- wraith-fit, framing-proven in round 2.
+                              # (History: round 1 shipped 187 here, which model-preview then exposed
+                              # as a red-ring battle PROP whose idle exits the frame -- the law: a GEO
+                              # table row is not a creature, preview every pick offline first.)
 help = "A restless shape glimpsed where the Mist pools thickest."
 lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
 
@@ -76,8 +76,9 @@ lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Sch
 id = 83
 category = "bestiary"
 name = "Marsh Croaker"
-display = "GEO_MON_B3_009"    # s46 rung 3 round 2: the new small pick (FF9's floating ghost --
-                              # wraith-appropriate) proving itself in a known-good slot
+display = "GEO_MON_B3_118"    # the round-3 live-fit test case: this crab rendered high/clipped/far
+                              # under the bind-pose-only fit; the live-silhouette envelope must
+                              # center it
 help = "A fat frog whose croak carries a storm's worth of warning."
 lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pilot keeps three in a cage by the tiller. “Cheaper than a weather-mage,” he says, “and twice as honest.”"
 

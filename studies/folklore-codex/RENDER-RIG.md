@@ -125,14 +125,49 @@
 > preview-verified, `_000`-first clip order** — proves itself in the known-good row-2 slot, 085 stays
 > the large control.
 >
+> **ROUND 2 PLAYTEST (2026-07-21): ★ THE MECHANISM IS PROVEN — "looks good".** Row 1 with the proven
+> 118 works (the first-row theory is DEAD; 187 was the whole story), the new 009 ghost renders + idles
+> in the proven slot ("the marsh croaker came out well"), and rungs 2+3 are functionally closed:
+> registry wire, per-entry swap, and living idle all live on the user's machine. ONE finding, exactly
+> the gap the build round's skeptic flagged and shipped-with-margin: **118 renders high, clipped at
+> the window top, and too far back** — the fit is computed from STATIC BIND-POSE bounds while the idle
+> clip holds the body elsewhere (009 looked perfect only because its idle stays near its bind pose).
+> User direction: "ideally they would be centered in the frame."
+>
+> **ROUND 3 — THE LIVE-SILHOUETTE FIT (built + captured + DEPLOYED 2026-07-21, DLL
+> `3000418F860C843B` both arches; ★ playtest pending after a relaunch).** A 4-agent Sonnet workflow
+> (`wf_35b1f0c0`: implement-with-grounding → 2 skeptics → repair). The mechanism: at mount every
+> SkinnedMeshRenderer gets `updateWhenOffscreen = true` (the DELIBERATE OPPOSITE of the netsync
+> ghost's false+huge-bounds — the ghost wants never-culled-CHEAP, the rig wants per-pose ACCURATE
+> world bounds); the static bind-pose fit still drives frame 1; then for one idle-loop's worth of
+> WALL-CLOCK seconds the LateUpdate pump gathers the live renderer-bounds union and maintains a fit
+> envelope, frozen at window end with a one-shot log. The skeptic round was the round's real value —
+> 3 HIGHs, one refuting the ORCHESTRATOR'S OWN baked design: (1) **an expand-only envelope SEEDED
+> from the bind pose can never pull the camera closer** — "too far back" was structurally unfixable
+> as designed; the fix: the FIRST live sample REPLACES the seed outright (and always refits — it is
+> the sample that zooms IN), only later samples union-grow. (2) The envelope commit was unguarded
+> against an off-origin-center renderer (normal extents, wild center) — one bad frame would poison
+> the monotone union for the whole window while still logging "settled"; candidates are now
+> NaN/Inf/MaxExtent-validated BEFORE commit, a bad frame rejected like a degenerate gather. (3) The
+> frame-count window assumed 60fps but Memoria defaults VSync ON (the display's refresh rate wins —
+> FPSManager.cs:41-45), so a 144Hz panel would close the window in 0.4× the clip; the window now
+> counts `Time.deltaTime` seconds. + the MEDIUM: a flat 2-unit grow epsilon is noise-level at real
+> creature scale (118 itself: height 775 / radius 1205 per FF9BattleDBHeightAndRadius) → epsilon is
+> now `max(2, 1% of envelope)`. Gates re-run green (9 hunks, forward --binary == live). Registry
+> round 3 wired (relaunch reads it): **80 = 009** (ghost — flavor-right, framing-proven) · **83 =
+> 118** (THE test case: the clipped crab must now center) · **84 = 085** (large control) · 81/82
+> unchanged fail-safe demos.
+>
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST RUNGS 2+3 ROUND 2** (the diagnostic arrangement above): RELAUNCH → codex → Bestiary:
->   row 1 should show the 118 crab-beast idling, row 2 the ghost, row 3 the large beast; then the
->   rest of the 12-point checklist (locked rows, garbage/no-token entries, reselect, leak snaps,
->   world-map open, open/close cycles). After the mechanism is confirmed: a FLAVOR pass on the demo
->   tokens (009 belongs on "Mist Wraith"; a winged pick for "Gale Sprite" — the contact-sheet method
->   makes this cheap).
+> - **PLAYTEST ROUND 3** (live fit): RELAUNCH → codex → Bestiary. Row 2's crab (118) is the verdict:
+>   centered + filling the frame = the round is proven. Watch for a subtle one-time settle as the
+>   camera adopts the live silhouette (by design, first ~1 idle loop); jitter or drift = a defect.
+>   Row 1 ghost + row 3 large beast should also be centered. Then the remaining checklist items
+>   (locked rows, 81/82 fail-safes, reselect-after-garbage, leak snaps, world-map open, open/close
+>   cycles).
+> - **The flavor pass** (after the fit is proven): a winged pick for "Gale Sprite" — the
+>   contact-sheet method (`model-preview` batch → grid) makes this cheap.
 > - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
 >   lights, idleClip, battle-look flip).
 > - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
