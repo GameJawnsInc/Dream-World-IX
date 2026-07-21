@@ -279,7 +279,7 @@ StatusUI.cs:384-393). MainMenu, Config, SaveLoad have none.
 | Baked panel heights (rows·rowH exactly) | 784, 552, 450, 430, 490 | ItemUI.cs:139; AbilityUI.cs:166; EquipUI.cs:84; ChocographUI.cs:56; ShopUI.cs:82 |
 | Memoria row-count knobs (defaults) | Item 12, Ability 9, Equip 7, Chocograph 7 | InterfaceSection.cs:68-71; Memoria.ini:327-330 |
 | Cell font / shadow | **36** / **4**, × scale = rowH/originalRowH | ItemUI.cs:168-173 |
-| MainMenu command pitch | baked **98** + **9** top inset (`ShiftContentClip = 9 + 98·row`); hand-relaid to 87/86 (h 79/78, gap 8, y from −39) when a row is inserted, UITable disabled | MainMenuUI.cs:143, 154-269, 717-726 |
+| MainMenu command pitch | baked **98** + **9** top inset (`ShiftContentClip = 9 + 98·row`); hand-relaid to 87/86 (h 79/78, gap 8, y from −39) when a row is inserted, UITable disabled *(the s45 Folklore loop generalizes this by row count: 8 rows = the exact 79/78 walk, 9 rows = 69/68 @ −34, always inside the 684-unit span)* | MainMenuUI.cs:143, 154-269, 717-726 |
 | Pointer size / default depth | (114, 62) / depth **5**; help = depth−1 | PointerManager.cs:177, 185; ButtonGroupState.cs:542, 649 |
 | Pointer limit-rect trims | bottom −14+rowH/2, top −20−rowH/2 off the panel widget rect | ButtonGroupState.cs:206-218 |
 | Pointer finger offsets observed | (54,0) Item lists, (50,0) Shop lists, (48,0) SaveLoad, (52,0) Config, (40,0) Ability grids, (30,0) Chocograph, (10,0) Equip inventory | ItemUI.cs:101; ShopUI.cs:32-34; SaveLoadUI.cs:66; ConfigUI.cs:613; AbilityUI.cs:119; ChocographUI.cs:16; EquipUI.cs:59 |

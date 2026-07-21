@@ -1,244 +1,8 @@
-diff --git a/Assembly-CSharp/Global/UI/UIManager.cs b/Assembly-CSharp/Global/UI/UIManager.cs
-index 2180c8f2..82cf804a 100644
---- a/Assembly-CSharp/Global/UI/UIManager.cs
-+++ b/Assembly-CSharp/Global/UI/UIManager.cs
-@@ -154,6 +154,8 @@ public class UIManager : PersistenSingleton<UIManager>
-                     return "PreEnding";
-                 case UIManager.UIState.Ending:
-                     return "Ending";
-+                case UIManager.UIState.Folklore:
-+                    return "Folklore";
-             }
-             return String.Empty;
-         }
-@@ -195,6 +197,22 @@ public class UIManager : PersistenSingleton<UIManager>
-         OverlayCanvas instance = PersistenSingleton<OverlayCanvas>.Instance;
-         this.fastTrophy = GameObject.Find("UI Root/Submenu Container/Fast Trophy");
-         SceneDirector.GetDefaultFadeInTransition();
-+        // ff9mapkit s45 -- construct the Folklore codex scene at runtime (created INACTIVE so its
-+        // Awake defers to the first Show, when the clone-source menu widgets all exist).
-+        if (FolkloreConfig.Enabled && this.FolkloreScene == null && this.MainMenuScene != null)
-+        {
-+            GameObject folkloreGo = new GameObject("Folklore UI");
-+            folkloreGo.layer = this.MainMenuScene.gameObject.layer;   // the UI layer -- a fresh
-+            // GameObject lands on layer 0, which every UI camera CULLS (NGUI drawcalls take the
-+            // PANEL GameObject's layer; the s45 review's invisible-shell find)
-+            folkloreGo.transform.parent = this.MainMenuScene.transform.parent;
-+            folkloreGo.transform.localPosition = Vector3.zero;
-+            folkloreGo.transform.localScale = Vector3.one;
-+            folkloreGo.SetActive(false);
-+            UIPanel folklorePanel = folkloreGo.AddComponent<UIPanel>();
-+            folklorePanel.depth = 5;
-+            this.FolkloreScene = folkloreGo.AddComponent<FolkloreUI>();
-+        }
-     }
- 
-     public void OnLevelWasLoaded(Int32 sceneNo)
-@@ -223,7 +241,9 @@ public class UIManager : PersistenSingleton<UIManager>
-         this.ChocographScene.gameObject.SetActive(false);
-         this.EndingScene.gameObject.SetActive(false);
-         this.EndGameScene.gameObject.SetActive(false);
--        this.MainMenuScene.SubMenuPanel.SetActive(false);
-+        if (this.FolkloreScene != null)                    // ff9mapkit s45 -- MANDATORY: the sweep is
-+            this.FolkloreScene.gameObject.SetActive(false); // hand-maintained; omit = the codex renders
-+        this.MainMenuScene.SubMenuPanel.SetActive(false);  // over field/battle/world after a load
-         ButtonGroupState.DisableAllGroup(true);
-         ButtonGroupState.HelpEnabled = false;
-         if (this.Dialogs != null)
-@@ -387,6 +407,8 @@ public class UIManager : PersistenSingleton<UIManager>
-                 return this.EndingScene;
-             case UIManager.UIState.EndGame:
-                 return this.EndGameScene;
-+            case UIManager.UIState.Folklore:               // ff9mapkit s45 (null while [Folklore] is off)
-+                return this.FolkloreScene;
-         }
-         if (this.QuitScene.isShowQuitUI)
-             return this.NoneScene;
-@@ -623,7 +645,7 @@ public class UIManager : PersistenSingleton<UIManager>
- 
-     public static Boolean IsUIStateMenu(UIManager.UIState state)
-     {
--        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph;
-+        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph || state == UIState.Folklore;
-     }
- 
-     public static Vector2 UIContentSize = GetUIContentSize();
-@@ -701,6 +723,12 @@ public class UIManager : PersistenSingleton<UIManager>
-     public EndingUI EndingScene;
-     public EndGameHUD EndGameScene;
-     public NoneUI NoneScene;
-+    // ff9mapkit s45 -- the Folklore codex scene, BUILT AT RUNTIME in Start() (a C# patch cannot add
-+    // a serialized scene reference to the baked prefab). [NonSerialized] is LOAD-BEARING: UIManager
-+    // is a baked MonoBehaviour, and a new serialized field shifts its serialization layout -> the
-+    // WMWorld blackscreen law (memoria-patches lore, 2026-07-02).
-+    [NonSerialized]
-+    public FolkloreUI FolkloreScene;
- 
-     [Header("ETC")]
-     public DialogManager Dialogs;
-@@ -735,7 +763,10 @@ public class UIManager : PersistenSingleton<UIManager>
-         Chocograph,
-         PreEnding,
-         Ending,
--        EndGame
-+        EndGame,
-+        Folklore    // ff9mapkit s45 -- APPENDED (state/prevState are serialized: a mid-enum insert
-+                    // would shift the baked ordinals in the scene asset). IsUIStateMenu is widened
-+                    // to include it (28 falls outside the MainMenu..Tutorial range test).
-     }
- 
-     public enum Scene
-diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
-index c52c3d5d..3648adee 100644
---- a/Assembly-CSharp/Global/MainMenuUI.cs
-+++ b/Assembly-CSharp/Global/MainMenuUI.cs
-@@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
-         this.ConfigSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Config) ? FF9TextTool.White : FF9TextTool.Gray;
-         if (this.PartySubMenu != null)
-             this.PartySubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Party) ? FF9TextTool.White : FF9TextTool.Gray;
-+        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
-+            this.FolkloreSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Folklore) ? FF9TextTool.White : FF9TextTool.Gray;
-         if (!UIManager.IsUIStateMenu(PersistenSingleton<UIManager>.Instance.PreviousState))
-             ImpactfulActionCount = 0;
-     }
-@@ -135,7 +137,10 @@ public class MainMenuUI : UIScene
-     {
-         if (base.OnKeyConfirm(go))
-         {
--            Single shiftFactor = this.PartySubMenu == null ? 1f : 7f / 8f;
-+            // ff9mapkit s45 -- shiftFactor generalized to the true row count (7 vanilla rows + the
-+            // optional Party + the optional Folklore); identical to the vanilla expression when
-+            // Folklore is absent (7/7 or 7/8).
-+            Single shiftFactor = 7f / (7f + (this.PartySubMenu != null ? 1f : 0f) + (this.FolkloreSubMenu != null ? 1f : 0f));
-             if (ButtonGroupState.ActiveGroup == MainMenuUI.SubMenuGroupButton)
-             {
-                 if (IsSubMenuEnabled(this.GetSubMenuFromGameObject(go)))
-@@ -186,7 +191,9 @@ public class MainMenuUI : UIScene
-                             break;
-                         case MainMenuUI.SubMenu.Config:
-                             this.NeedTweenAndHideSubMenu = false;
--                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (this.PartySubMenu == null ? 588f : 686f));
-+                            // ff9mapkit s45 -- Config's shift = 98 per row above it (588 vanilla, +98
-+                            // per optional Party/Folklore row); identical when Folklore is absent.
-+                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f) + (this.FolkloreSubMenu != null ? 98f : 0f)));
-                             this.ConfigSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
-                             this.Hide(delegate
-                             {
-@@ -194,6 +201,16 @@ public class MainMenuUI : UIScene
-                                 base.Loading = true;
-                             });
-                             break;
-+                        case MainMenuUI.SubMenu.Folklore:  // ff9mapkit s45 -- sits below Card (+Party)
-+                            this.NeedTweenAndHideSubMenu = false;
-+                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f)));
-+                            this.FolkloreSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
-+                            this.Hide(delegate
-+                            {
-+                                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.Folklore);
-+                                base.Loading = true;
-+                            });
-+                            break;
-                         case MainMenuUI.SubMenu.Party:
-                             this.NeedTweenAndHideSubMenu = false;
-                             this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 588f);
-@@ -563,6 +580,8 @@ public class MainMenuUI : UIScene
-                 return this.ConfigSubMenu;
-             case MainMenuUI.SubMenu.Party:
-                 return this.PartySubMenu;
-+            case MainMenuUI.SubMenu.Folklore:              // ff9mapkit s45
-+                return this.FolkloreSubMenu;
-             default:
-                 return this.ItemSubMenu;
-         }
-@@ -586,6 +605,8 @@ public class MainMenuUI : UIScene
-             return MainMenuUI.SubMenu.Order;
-         if (go == this.PartySubMenu)
-             return MainMenuUI.SubMenu.Party;
-+        if (this.FolkloreSubMenu != null && go == this.FolkloreSubMenu)    // ff9mapkit s45
-+            return MainMenuUI.SubMenu.Folklore;
-         return MainMenuUI.SubMenu.None;
-     }
- 
-@@ -705,6 +726,48 @@ public class MainMenuUI : UIScene
-             table.enabled = false;
-         }
- 
-+        // ff9mapkit s45 -- THE FOLKLORE ROW: the Party-precedent runtime clone (Card -> [Party] ->
-+        // Folklore -> Config). Gated on Memoria.ini [Folklore] Enabled; absent = vanilla bytes-for-
-+        // bytes behavior. The generalized manual layout loop replaces the Party block's hardcoded
-+        // 8-row walk whenever Folklore is present (the UITable is disabled; there is NO auto-reflow).
-+        if (this.FolkloreSubMenu == null && FolkloreConfig.Enabled)
-+        {
-+            UITable folkloreTable = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
-+            this.FolkloreSubMenu = UnityEngine.Object.Instantiate(this.CardSubMenu);
-+            UILocalize folkloreLocalize = this.FolkloreSubMenu.GetChild(0).GetComponent<UILocalize>();
-+            ButtonGroupState.HelpDetail folkloreHelp = this.FolkloreSubMenu.GetComponent<ButtonGroupState>().Help;
-+            folkloreLocalize.key = "Folklore";
-+            folkloreHelp.TextKey = "FolkloreHelp";
-+            this.ConfigSubMenu.transform.parent = null;    // the Party reparent dance: Config stays last
-+            this.FolkloreSubMenu.transform.parent = folkloreTable.transform;
-+            this.ConfigSubMenu.transform.parent = folkloreTable.transform;
-+            GameObject rowAbove = this.PartySubMenu != null ? this.PartySubMenu : this.CardSubMenu;
-+            rowAbove.GetComponent<UIKeyNavigation>().onDown = this.FolkloreSubMenu;
-+            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onDown = this.ConfigSubMenu;
-+            this.ConfigSubMenu.GetComponent<UIKeyNavigation>().onUp = this.FolkloreSubMenu;
-+            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onUp = rowAbove;
-+            this.FolkloreSubMenu.transform.localScale = Vector3.one;
-+            System.Collections.Generic.List<GameObject> orderedRows = new System.Collections.Generic.List<GameObject>
-+            {
-+                this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu,
-+                this.OrderSubMenu, this.CardSubMenu
-+            };
-+            if (this.PartySubMenu != null)
-+                orderedRows.Add(this.PartySubMenu);
-+            orderedRows.Add(this.FolkloreSubMenu);
-+            orderedRows.Add(this.ConfigSubMenu);
-+            Int32 folkloreY = -39;
-+            Int32 folkloreH = 79;
-+            foreach (GameObject go in orderedRows)
-+            {
-+                go.GetComponent<UIWidget>().SetRawRect(201, folkloreY, 402, folkloreH);
-+                go.GetComponent<BoxCollider>().size = new Vector3(402, folkloreH);
-+                folkloreY -= folkloreH + 8;
-+                folkloreH = folkloreH == 79 ? 78 : 79;
-+            }
-+            folkloreTable.enabled = false;
-+        }
-+
-         UIEventListener.Get(this.ItemSubMenu).Click += onClick;
-         UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
-         UIEventListener.Get(this.EquipSubMenu).Click += onClick;
-@@ -714,6 +777,8 @@ public class MainMenuUI : UIScene
-         UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
-         if (this.PartySubMenu != null)
-             UIEventListener.Get(this.PartySubMenu).Click += onClick;
-+        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
-+            UIEventListener.Get(this.FolkloreSubMenu).Click += onClick;
- 
-         foreach (Transform tr in this.CharacterListPanel.transform)
-         {
-@@ -784,6 +849,8 @@ public class MainMenuUI : UIScene
-     [NonSerialized]
-     private GameObject PartySubMenu;
-     [NonSerialized]
-+    private GameObject FolkloreSubMenu;                    // ff9mapkit s45 (NonSerialized: the baked-
-+    [NonSerialized]                                        // MonoBehaviour serialization-layout law)
-     private GOMenuBackground Background;
- 
-     private UILabel gilLabel;
-@@ -820,6 +887,7 @@ public class MainMenuUI : UIScene
-         Card,
-         Config,
-         Party,
-+        Folklore,   // ff9mapkit s45 -- appended before None (existing ordinals stay stable)
-         None
-     }
- }
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index c0c537ca..8c1ce87a 100644
+index c7fe3628..8c1ce87a 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
-@@ -1106,6 +1107,7 @@
+@@ -1107,6 +1107,7 @@
      <Compile Include="Global\UI\UITweener.cs" />
      <Compile Include="Global\UI\UIViewport.cs" />
      <Compile Include="Global\UI\UIWidget\UIWidget.cs" />
@@ -246,7 +10,7 @@ index c0c537ca..8c1ce87a 100644
      <Compile Include="Global\UI\UIWidget\UIWidgetContainer.cs" />
      <Compile Include="Global\UI\UIWrapContent.cs" />
      <Compile Include="Global\vib.cs" />
-@@ -1483,7 +1495,7 @@
+@@ -1494,7 +1495,7 @@
      <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
    </ItemGroup>
    <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
@@ -258,7 +22,7 @@ index c0c537ca..8c1ce87a 100644
 \ No newline at end of file
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
 new file mode 100644
-index 00000000..1111111
+index 00000000..911282a9
 --- /dev/null
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
 @@ -0,0 +1,796 @@
@@ -1077,3 +841,249 @@ index fec55217..55aea8c5 100644
          if (_keyItemIdList.Count == 0)
              _keyItemIdList.Add(FF9FITEM_RARE_NONE);
          List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
+diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
+index 0b138cde..17684b4f 100644
+--- a/Assembly-CSharp/Global/MainMenuUI.cs
++++ b/Assembly-CSharp/Global/MainMenuUI.cs
+@@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
+         this.ConfigSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Config) ? FF9TextTool.White : FF9TextTool.Gray;
+         if (this.PartySubMenu != null)
+             this.PartySubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Party) ? FF9TextTool.White : FF9TextTool.Gray;
++        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
++            this.FolkloreSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Folklore) ? FF9TextTool.White : FF9TextTool.Gray;
+         if (!UIManager.IsUIStateMenu(PersistenSingleton<UIManager>.Instance.PreviousState))
+             ImpactfulActionCount = 0;
+     }
+@@ -135,7 +137,10 @@ public class MainMenuUI : UIScene
+     {
+         if (base.OnKeyConfirm(go))
+         {
+-            Single shiftFactor = this.PartySubMenu == null ? 1f : 7f / 8f;
++            // ff9mapkit s45 -- shiftFactor generalized to the true row count (7 vanilla rows + the
++            // optional Party + the optional Folklore); identical to the vanilla expression when
++            // Folklore is absent (7/7 or 7/8).
++            Single shiftFactor = 7f / (7f + (this.PartySubMenu != null ? 1f : 0f) + (this.FolkloreSubMenu != null ? 1f : 0f));
+             if (ButtonGroupState.ActiveGroup == MainMenuUI.SubMenuGroupButton)
+             {
+                 if (IsSubMenuEnabled(this.GetSubMenuFromGameObject(go)))
+@@ -186,7 +191,9 @@ public class MainMenuUI : UIScene
+                             break;
+                         case MainMenuUI.SubMenu.Config:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (this.PartySubMenu == null ? 588f : 686f));
++                            // ff9mapkit s45 -- Config's shift = 98 per row above it (588 vanilla, +98
++                            // per optional Party/Folklore row); identical when Folklore is absent.
++                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f) + (this.FolkloreSubMenu != null ? 98f : 0f)));
+                             this.ConfigSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -194,6 +201,16 @@ public class MainMenuUI : UIScene
+                                 base.Loading = true;
+                             });
+                             break;
++                        case MainMenuUI.SubMenu.Folklore:  // ff9mapkit s45 -- sits below Card (+Party)
++                            this.NeedTweenAndHideSubMenu = false;
++                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f)));
++                            this.FolkloreSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
++                            this.Hide(delegate
++                            {
++                                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.Folklore);
++                                base.Loading = true;
++                            });
++                            break;
+                         case MainMenuUI.SubMenu.Party:
+                             this.NeedTweenAndHideSubMenu = false;
+                             this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 588f);
+@@ -563,6 +580,8 @@ public class MainMenuUI : UIScene
+                 return this.ConfigSubMenu;
+             case MainMenuUI.SubMenu.Party:
+                 return this.PartySubMenu;
++            case MainMenuUI.SubMenu.Folklore:              // ff9mapkit s45
++                return this.FolkloreSubMenu;
+             default:
+                 return this.ItemSubMenu;
+         }
+@@ -586,6 +605,8 @@ public class MainMenuUI : UIScene
+             return MainMenuUI.SubMenu.Order;
+         if (go == this.PartySubMenu)
+             return MainMenuUI.SubMenu.Party;
++        if (this.FolkloreSubMenu != null && go == this.FolkloreSubMenu)    // ff9mapkit s45
++            return MainMenuUI.SubMenu.Folklore;
+         return MainMenuUI.SubMenu.None;
+     }
+ 
+@@ -705,6 +726,58 @@ public class MainMenuUI : UIScene
+             table.enabled = false;
+         }
+ 
++        // ff9mapkit s45 -- THE FOLKLORE ROW: the Party-precedent runtime clone (Card -> [Party] ->
++        // Folklore -> Config). Gated on Memoria.ini [Folklore] Enabled; absent = vanilla bytes-for-
++        // bytes behavior. The generalized manual layout loop replaces the Party block's hardcoded
++        // 8-row walk whenever Folklore is present (the UITable is disabled; there is NO auto-reflow).
++        if (this.FolkloreSubMenu == null && FolkloreConfig.Enabled)
++        {
++            UITable folkloreTable = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
++            this.FolkloreSubMenu = UnityEngine.Object.Instantiate(this.CardSubMenu);
++            UILocalize folkloreLocalize = this.FolkloreSubMenu.GetChild(0).GetComponent<UILocalize>();
++            ButtonGroupState.HelpDetail folkloreHelp = this.FolkloreSubMenu.GetComponent<ButtonGroupState>().Help;
++            folkloreLocalize.key = "Folklore";
++            folkloreHelp.TextKey = "FolkloreHelp";
++            this.ConfigSubMenu.transform.parent = null;    // the Party reparent dance: Config stays last
++            this.FolkloreSubMenu.transform.parent = folkloreTable.transform;
++            this.ConfigSubMenu.transform.parent = folkloreTable.transform;
++            GameObject rowAbove = this.PartySubMenu != null ? this.PartySubMenu : this.CardSubMenu;
++            rowAbove.GetComponent<UIKeyNavigation>().onDown = this.FolkloreSubMenu;
++            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onDown = this.ConfigSubMenu;
++            this.ConfigSubMenu.GetComponent<UIKeyNavigation>().onUp = this.FolkloreSubMenu;
++            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onUp = rowAbove;
++            this.FolkloreSubMenu.transform.localScale = Vector3.one;
++            System.Collections.Generic.List<GameObject> orderedRows = new System.Collections.Generic.List<GameObject>
++            {
++                this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu,
++                this.OrderSubMenu, this.CardSubMenu
++            };
++            if (this.PartySubMenu != null)
++                orderedRows.Add(this.PartySubMenu);
++            orderedRows.Add(this.FolkloreSubMenu);
++            orderedRows.Add(this.ConfigSubMenu);
++            // The pitch derives from the row count so the walk always fits the command window's
++            // baked ~684-unit span (the Party squeeze's proven 8-row walk: 4*79 + 4*78 heights
++            // + 7*8 gaps = 684). 8 rows reproduce Memoria's exact 79/78 @ -39 walk; 9 rows
++            // (Party + Folklore) compress one notch further to 69/68 @ -34 so Config stays
++            // inside the clip with a mouse-reachable collider.
++            Int32 rowCount = orderedRows.Count;
++            Int32 rowGap = 8;
++            Int32 heightBudget = 684 - rowGap * (rowCount - 1);
++            Int32 rowTall = (heightBudget + rowCount - 1) / rowCount;
++            Int32 rowShort = heightBudget / rowCount;
++            Int32 folkloreY = -(rowTall - 1) / 2;
++            Int32 folkloreH = rowTall;
++            foreach (GameObject go in orderedRows)
++            {
++                go.GetComponent<UIWidget>().SetRawRect(201, folkloreY, 402, folkloreH);
++                go.GetComponent<BoxCollider>().size = new Vector3(402, folkloreH);
++                folkloreY -= folkloreH + rowGap;
++                folkloreH = folkloreH == rowTall ? rowShort : rowTall;
++            }
++            folkloreTable.enabled = false;
++        }
++
+         UIEventListener.Get(this.ItemSubMenu).Click += onClick;
+         UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
+         UIEventListener.Get(this.EquipSubMenu).Click += onClick;
+@@ -714,6 +787,8 @@ public class MainMenuUI : UIScene
+         UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
+         if (this.PartySubMenu != null)
+             UIEventListener.Get(this.PartySubMenu).Click += onClick;
++        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
++            UIEventListener.Get(this.FolkloreSubMenu).Click += onClick;
+ 
+         foreach (Transform tr in this.CharacterListPanel.transform)
+         {
+@@ -784,6 +859,8 @@ public class MainMenuUI : UIScene
+     [NonSerialized]
+     private GameObject PartySubMenu;
+     [NonSerialized]
++    private GameObject FolkloreSubMenu;                    // ff9mapkit s45 (NonSerialized: the baked-
++    [NonSerialized]                                        // MonoBehaviour serialization-layout law)
+     private GOMenuBackground Background;
+ 
+     private UILabel gilLabel;
+@@ -820,6 +897,7 @@ public class MainMenuUI : UIScene
+         Card,
+         Config,
+         Party,
++        Folklore,   // ff9mapkit s45 -- appended before None (existing ordinals stay stable)
+         None
+     }
+ }
+diff --git a/Assembly-CSharp/Global/UI/UIManager.cs b/Assembly-CSharp/Global/UI/UIManager.cs
+index 62ff7210..82cf804a 100644
+--- a/Assembly-CSharp/Global/UI/UIManager.cs
++++ b/Assembly-CSharp/Global/UI/UIManager.cs
+@@ -154,6 +154,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                     return "PreEnding";
+                 case UIManager.UIState.Ending:
+                     return "Ending";
++                case UIManager.UIState.Folklore:
++                    return "Folklore";
+             }
+             return String.Empty;
+         }
+@@ -195,6 +197,22 @@ public class UIManager : PersistenSingleton<UIManager>
+         OverlayCanvas instance = PersistenSingleton<OverlayCanvas>.Instance;
+         this.fastTrophy = GameObject.Find("UI Root/Submenu Container/Fast Trophy");
+         SceneDirector.GetDefaultFadeInTransition();
++        // ff9mapkit s45 -- construct the Folklore codex scene at runtime (created INACTIVE so its
++        // Awake defers to the first Show, when the clone-source menu widgets all exist).
++        if (FolkloreConfig.Enabled && this.FolkloreScene == null && this.MainMenuScene != null)
++        {
++            GameObject folkloreGo = new GameObject("Folklore UI");
++            folkloreGo.layer = this.MainMenuScene.gameObject.layer;   // the UI layer -- a fresh
++            // GameObject lands on layer 0, which every UI camera CULLS (NGUI drawcalls take the
++            // PANEL GameObject's layer; the s45 review's invisible-shell find)
++            folkloreGo.transform.parent = this.MainMenuScene.transform.parent;
++            folkloreGo.transform.localPosition = Vector3.zero;
++            folkloreGo.transform.localScale = Vector3.one;
++            folkloreGo.SetActive(false);
++            UIPanel folklorePanel = folkloreGo.AddComponent<UIPanel>();
++            folklorePanel.depth = 5;
++            this.FolkloreScene = folkloreGo.AddComponent<FolkloreUI>();
++        }
+     }
+ 
+     public void OnLevelWasLoaded(Int32 sceneNo)
+@@ -223,7 +241,9 @@ public class UIManager : PersistenSingleton<UIManager>
+         this.ChocographScene.gameObject.SetActive(false);
+         this.EndingScene.gameObject.SetActive(false);
+         this.EndGameScene.gameObject.SetActive(false);
+-        this.MainMenuScene.SubMenuPanel.SetActive(false);
++        if (this.FolkloreScene != null)                    // ff9mapkit s45 -- MANDATORY: the sweep is
++            this.FolkloreScene.gameObject.SetActive(false); // hand-maintained; omit = the codex renders
++        this.MainMenuScene.SubMenuPanel.SetActive(false);  // over field/battle/world after a load
+         ButtonGroupState.DisableAllGroup(true);
+         ButtonGroupState.HelpEnabled = false;
+         if (this.Dialogs != null)
+@@ -387,6 +407,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                 return this.EndingScene;
+             case UIManager.UIState.EndGame:
+                 return this.EndGameScene;
++            case UIManager.UIState.Folklore:               // ff9mapkit s45 (null while [Folklore] is off)
++                return this.FolkloreScene;
+         }
+         if (this.QuitScene.isShowQuitUI)
+             return this.NoneScene;
+@@ -623,7 +645,7 @@ public class UIManager : PersistenSingleton<UIManager>
+ 
+     public static Boolean IsUIStateMenu(UIManager.UIState state)
+     {
+-        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph;
++        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph || state == UIState.Folklore;
+     }
+ 
+     public static Vector2 UIContentSize = GetUIContentSize();
+@@ -701,6 +723,12 @@ public class UIManager : PersistenSingleton<UIManager>
+     public EndingUI EndingScene;
+     public EndGameHUD EndGameScene;
+     public NoneUI NoneScene;
++    // ff9mapkit s45 -- the Folklore codex scene, BUILT AT RUNTIME in Start() (a C# patch cannot add
++    // a serialized scene reference to the baked prefab). [NonSerialized] is LOAD-BEARING: UIManager
++    // is a baked MonoBehaviour, and a new serialized field shifts its serialization layout -> the
++    // WMWorld blackscreen law (memoria-patches lore, 2026-07-02).
++    [NonSerialized]
++    public FolkloreUI FolkloreScene;
+ 
+     [Header("ETC")]
+     public DialogManager Dialogs;
+@@ -735,7 +763,10 @@ public class UIManager : PersistenSingleton<UIManager>
+         Chocograph,
+         PreEnding,
+         Ending,
+-        EndGame
++        EndGame,
++        Folklore    // ff9mapkit s45 -- APPENDED (state/prevState are serialized: a mid-enum insert
++                    // would shift the baked ordinals in the scene asset). IsUIStateMenu is widened
++                    // to include it (28 falls outside the MainMenu..Tutorial range test).
+     }
+ 
+     public enum Scene
