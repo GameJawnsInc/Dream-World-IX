@@ -780,3 +780,68 @@ sibling class the retile deliberately did not touch (sea1/sea2/beach1 rode verba
 launched (no build): the deployed-site adjacency census (crop-created vs donor-verbatim, incl. whether
 stock EVER shows sea1/sea2-abuts-sea4) + the lawful-options study (accept / {sea1,sea5} mediation ring /
 full ring-ladder termination / shelf extension) — disposition is the user's call on its results.
+
+**§4 ADDENDUM 10 — THE {sea1,sea5} LADDER AT THE SAND-SPIT CORNER: OPTION B BUILT + DEPLOYED
+(2026-07-20f).** The user chose **option B** (the {sea1,sea5} mediation ladder) from the assessment
+round's options. Built as `studies/overworld-topography/sea1_ladder_corner.py` (idempotent, both discs;
+backups `backups/sea1-ladder.20260720/`), a **~4-quad PURE REPARTITION inside cell (12,18) ONLY**.
+
+**The quad plan (verified against the deployed bytes — NO delta from the options sketch):** convert the
+two crop-created hard tiles `(15,14)`/`(15,15)` **Sea1 → Sea5** (an E-pointing tip, deepset {E} → deep
+to the E), and the two inboard `(14,14)`/`(14,15)` **Sea2 → Sea1** (so the row reads sea2 → sea1 → sea5
+→ deep, every adjacency lawful: {sea2,sea1} 499, {sea1,sea5} 79, {sea5,deep} the transition's job — and
+NOT the off-language {sea2,sea5}=1). The S-neighbour (12,19) j0 is i14=sea2 / i15=sea5, so both cross-block
+edges are lawful with NO 3rd inboard quad. Both E-tip UVs are **harvested byte-exact from the donor
+island's OWN real Sea5 and Sea1 strip0/r0 tiles** (donors (8,17)/(9,17)/(8,18)/(9,18); the Sea5 tip is the
+SAME UV the rim-retile's (15,9..13) E-tips already use, so the i15 column now reads as one continuous Sea5
+E-wall (j8..15); the Sea1 tip is the donor's own (11,10) sea1) — verbatim-first, not `water.VSTRIP`.
+
+**The GEOMETRY delta from the sketch (declared, not a plan change).** The options study assumed clean
+flat sea quads; the bytes show the four SE-corner cells are **irregular shore geometry** — 2-3 tris each,
+**mixed topos within a cell** (53/54/55), vertices **spilling past the cell** (local z 4.66/5.887, one
+tile spans the j14/j15 boundary), and **non-zero beach Y** (0.20–0.39u, the shore relief — NOT flat
+Y=0). This is still a pure repartition: every vertex position + `tangent.x` topo is carried **byte-exact**;
+only UVs + Sea-file membership move (the walkmesh raycast/coverage/boat-legality is byte-preserved by
+construction). Two re-UV methods are used, by DST part: **Sea5 = corner-snap** (rounds each vertex to its
+nearest cell corner → a clean strip0/r0 rect that `water._fit_tile` classifies as deepset {E}, REQUIRED
+so the new tiles pass the Wang frame gate; both Sea5 target cells have all 4 distinct corners = no
+degenerate tri), **Sea1 = bilinear-from-local** (position-accurate, so the boundary-spanning shore sliver
+`(14,15)` tri0 — whose two x=0 verts would collapse under corner-snap — keeps distinct UVs). The Sea1
+tiles are never Wang-classified by any gate, so bilinear is free there.
+
+**Gates (all green; `sea1_ladder_corner.py --deploy`):** (a) LAWFUL-ADJACENCY — all 16 changed-quad
+edges lawful ladder pairs; sea1→sea4 direct island edges **2 → 0**; sea2 introduces **0** forbidden
+(sea3/sea5/sea4/deep) edges; the s12 shallow census (12,18)+E+S neighbourhood **2 → 0, INTRODUCED 0**
+(incl. N/S of the changed quads); independently re-confirmed by `s12_deep_census_opus.py` on the DEPLOYED
+bytes (HARD EDGES 2 → 0). En route the gate caught + resolved a real discrepancy (never explained away):
+a bare water-only shade grid mislabels shore LAND cells as deep sea4 → a spurious `sea2(9,10)|sea3` flag;
+the fix is to include **terrain** (priority `land`) exactly as s12 does, so `(9,9)` (terrain+sea3) reads as
+the coast it is. (b) SEA3/4/5 UNHARMED — `transplant.wang_carry_gate(enforce)` frame incoherent **0**,
+`wang_rim_retile.census` FRAME **0** (the rim-retile arc's 17→0 stays 0; the new Sea5 E-tips are coherent
+frame edges). (c) PURE REPARTITION — the (verts+`tangent.x`) triangle multiset over all 6 water parts is
+**IDENTICAL** before==after (687 tris); FLAT-MESH `vcount==idx` per written file; union vertex-Y unchanged
+(max|Y|=0.391u shore relief, carried verbatim — honestly NOT Y=0, and NOT flattened). (d) BYTE-DIFF SCOPED
+— only (12,18) Sea1/Sea2/Sea5 change (sizes +156/−780/+624 B = +1/−5/+4 tris, arithmetic checks). (e) DISC
+PARITY — Disc1==Disc4 by explicit byte-copy; a 2nd `--deploy` is byte-identical (idempotent); 45
+out-of-scope files (the other 3 cells + (12,18) Terrain/Beach1/Sea3/Sea4/Object/Donor, both discs) hashed
+byte-unchanged. (f) OFFLINE EYE — `whole_island_eye.py` (`sea1_ladder_{pre,post}.png`), the REAL-ATLAS
+corner zoom (`sea1_ladder_zoom_{pre,post}.png`), and the FLAT SHADE-PLAN PRE|POST
+(`sea1_ladder_shadeplan.png`, adapts `s12_zoom_render_opus.py`): the shade plan shows **only the 4
+red-boxed cells change colour, the rest pixel-identical**; the atlas zoom shows the corner grades
+sea2→sea1→sea5→deep with **no hard shallow|deep cut** — and, as the options study predicted (sea1's deep
+shade == sea5's shallow shade), the change is **cosmetically near-invisible** at play scale (the material
+diff localises to world x 824–832 = the i14/i15 columns; the faint background elsewhere is draw-order edge
+noise from the file rebuild, content byte-proven unchanged by gate c/d).
+
+**LEFT ALONE (as the task mandated):** the interior sea2|sea4 tile at `(12,19)` cell `(14,0).S` — byte-
+verbatim donor (9,18) geometry and the ONLY sea2|sea4 edge in the entire stock map (lawful-by-precedent).
+(12,19)/(11,18)/(11,19) are byte-untouched.
+
+**LOGGED-LATER (unchanged this round):** the shipped `wang_carry_gate` / `_sea_shade_grid` bin only
+Sea3/4/5, so a Sea1/Sea2 frame tile reads as deep and is never flagged — the gate could not have SEEN
+this corner. Extending the gate alphabet to the coastal shades is the productization gap; deferred (the
+one-change rule), NOT this round's job.
+
+**Status: deployed both discs, AWAITING the sail-around playtest** at the SE cove (world ~832,−1212). If
+the user confirms, the island's last off-language shore edge is closed and the (8,17)+2×2 desert-beach
+carry's water is fully in-language (rim Sea3/5 rung + this shallow Sea1/2 rung both done).
