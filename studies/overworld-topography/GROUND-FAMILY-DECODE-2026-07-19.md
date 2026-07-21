@@ -1149,3 +1149,76 @@ judge the BYTES the engine renders, not the design intent.** Artifacts (all comm
 + `out/dunes_grazing_eye_judge_*.png`; the forensic provenance `dunes_grazing_forensics.py` (the raw
 A/B render) and `dunes_byte_ab.py` (the per-tile byte A/B that recovered the orientation histogram);
 integration in `dunes_mint_eye.py` (`judge(mesh=…)` + the direct-run demo).
+
+## Round 6 (2026-07-21) — THE TRUE MESH CARRY ★ BUILT + DEPLOYED (10/10 gates + the frozen eye PASS to the donor values; awaits playtest)
+
+**The correction of Round 5's LABEL-STAMP FALLACY, built and deployed.** `dunes_true_carry.py` rigidly
+relocates stock comp[1]'s **actual Terrain mesh** — verts (incl. the 14.6 % sub-cell conform seam
+verts + the topo-59 butte relief), per-corner UVs (orientations, crest tiles, real interior mains),
+tangents/topo/normals — onto the deployed r56 desert host at centre **(1248,−1184)**, *replacing* the
+label-stamp cells. It passes the frozen grazing eye **to the donor's own values by construction**, which
+is the acceptance target a faithful carry must hit.
+
+**THE CARRY (measured).** Placement **T=(87,−101)** (donor→deployed, topo-41 bbox-min; lands exactly on
+the label-stamp cells). Carried region **R = 225 cells** = dunes **119** + desert ecotone/weld margin
+(2 rings) **81** + topo-59 butte-hole **17** + enclosed topo-49 **8** — comp[1]'s content verbatim,
+**zero grass carried** (the green patches in the render are comp[1]'s own carried topo-49 tiles through
+the atlas, present in stock too). Donor is **RIGID**: a whole-cell xz shift (`Tw = CELL·T`) preserves
+every vert's fractional-in-cell coord → the UV decode is **byte-identical** (that is *why* GATE B is
+1.0), plus a uniform **DY = +0.4656** seats the desert weld ring at the host's flat Y (3.20). All
+seating deformation goes to the HOST: 193 kept-host weld-ring verts **snap** to the carried donor verts
+(0 near-miss pairs). Touched blocks: **(18,18),(19,17),(19,18),(19,19),(20,18)** — 5 of the 9 mint
+blocks; the other 4 (and all coast/sea/apron) are left exactly as deployed.
+
+**THE GATES (all 10 PASS).** Containment (no built block escapes the deployed footprint) · FLAT-MESH
+(vcount==idx) · grid bounds · **weld audit 0** · **frame bounds clean** · **MISS census 0** (full ground
+coverage; the butte grounds as topo-59 — a raised mesa with mesh, non-walkable by the engine's topo
+mask exactly as stock, not by absent ground) · no IDALL_SKIP · and the frozen eye to the donor values:
+**GATE A 0.146 / 0.0219** (= stock, n=260, vs the stamp's 0.0/0.0) · **GATE B paired-ori 1.0 /
+byte-derivation 1.0** (identity, vs the stamp's 0.158/0.021) · **GATE C organicity 54.1/55.6** (band ≥
+23.3, vs the stamp's 1.35/3.13). The grazing A/B `out/dunes_true_carry_ab_pitch{22,34}.png` shows the
+carry reading as comp[1] relocated — the organic red ecotone ramp, the tan dunes, and the carried rock
+butte all faithful; the desert host + ocean beyond correctly replace stock's grass continent.
+
+**What the carry brings that the stamp lacked (measured).** The **topo-59 BUTTE** — 38 cells of real
+relief, Y **1.37 → 8.20** (median 4.91) — where the stamp filled it FLAT; **79 distinct dune per-corner
+UVs** carried verbatim where the stamp regenerated ori-0 tiles; and the **sub-cell conform seam verts**
+that make the boundary read organic. Deployed Disc1 `Block[19][18] Terrain` grew **81452 → 95804 bytes**
+(butte relief + conform verts + border splits) — the mesh the flat stamp never had.
+
+**TWO MECHANICAL LAWS minted by the build (a rigid cell-translation carry is not a per-block copy).**
+
+1. **THE PHASE-SHIFTED PARTITION law.** A cell translation with **T mod 16 ≠ 0** (here (7,11)) puts the
+   HOST block boundaries at *different* 4u lines than the donor's. Stock terrain keeps **every one of
+   112 170 verts strictly inside its block frame** (0 pokes, measured) — a per-block partition — so a
+   whole-tri carry whose sub-cell conform verts land just past a phase-shifted border is **new geometry
+   the engine has never been shown**. The fix is the kit's own multi-block law: **re-partition every
+   carried tri at the host block borders** (`transplant.clip_poly`, the `_split_at_borders` cut — pos/
+   nrm/uv lerped on the cut, tangent/IDALL kept verbatim, the cut `t` bit-identical on both sides →
+   watertight; a tri fully inside a block passes byte-identical, so GATE B stays 1.0). Every built block
+   is then strictly in-frame like stock (`max_poke 0.0`).
+2. **THE BLOCK-LOCAL WELD-SNAP law.** A weld-ring corner **on** a host block border is shared by two
+   blocks; the carried conform vert is in-frame in ONE of them (a sub-cell wiggle interior to it) and
+   appears as the exact `z=border` cut vert in the other. Snapping a kept-host vert to a *single* world
+   value pokes it (a vert in-frame for (19,17) pokes +0.57 when applied to (19,18)'s copy). Key the snap
+   **(blk,gi,gj)** — snap every host vert to the carried donor vert of ITS OWN block → exact in-block
+   weld, strictly in-frame.
+
+**THE LABEL-STAMP FALLACY (the law).** *A verbatim stamp must carry the MESH — verts + per-corner UVs +
+tangents — not row LABELS through a synthetic frame.* Round 5's pipeline built a flat synthetic island
+and stamped a `{cell: row}` map onto it, **regenerating** every ecotone UV at ori-0; the result was
+byte-faithful on the row axis it optimized and **castellated everywhere the mesh actually lives** (the
+boundary 100 % on-grid, 2.1 % of UVs byte-deriving, the butte filled flat). This is **THE FORM LESSON's
+dunes-pipeline instance** — *real content (the row language) through a synthetic frame (a flat stamp) is
+still synthesis.* The only faithful path was the one the eye's self-test always pointed to: **carry the
+donor's bytes.** A true carry passes the eye because it *is* the donor, relocated.
+
+**Roadmap ledger.** The DUNES family's *"minimum size class / no small-blob mint"* blocker (§Round 4,
+THE DUNES SIZE-CLASS LAW) is now **closed the lawful way**: not a synthetic ≥130-cell island but a
+**verbatim mesh carry of stock's 130-cell comp[1] + its butte** onto our host — the first proven
+synthetic-site dunes ensemble. Deployed both discs (auto-mirror 45 files, Disc4 byte-identical), backups
+→ `backups/dunes-true-carry.20260721/` (10 Terrain files, both discs). **Awaits the in-game A/B playtest
+at the same site (1248,−1184)** vs stock comp[1] (902,−780). Artifacts: `dunes_true_carry.py` +
+`out/dunes_true_carry.json` + `out/dunes_true_carry_ab_pitch{22,34}.png`; the frozen eye
+`dunes_grazing_eye.py` was **not touched** (Phase-1 freeze honored). Revert: restore the 10 backed-up
+Terrain files (both discs).
