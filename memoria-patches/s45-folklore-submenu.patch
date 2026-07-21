@@ -842,7 +842,7 @@ index fec55217..55aea8c5 100644
              _keyItemIdList.Add(FF9FITEM_RARE_NONE);
          List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
 diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
-index 0b138cde..ff1eba3a 100644
+index 0b138cde..ea61e6fa 100644
 --- a/Assembly-CSharp/Global/MainMenuUI.cs
 +++ b/Assembly-CSharp/Global/MainMenuUI.cs
 @@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
@@ -854,36 +854,48 @@ index 0b138cde..ff1eba3a 100644
          if (!UIManager.IsUIStateMenu(PersistenSingleton<UIManager>.Instance.PreviousState))
              ImpactfulActionCount = 0;
      }
-@@ -135,7 +137,10 @@ public class MainMenuUI : UIScene
+@@ -135,7 +137,6 @@ public class MainMenuUI : UIScene
      {
          if (base.OnKeyConfirm(go))
          {
 -            Single shiftFactor = this.PartySubMenu == null ? 1f : 7f / 8f;
-+            // ff9mapkit s45 -- shiftFactor generalized to the true row count (7 vanilla rows + the
-+            // optional Party + the optional Folklore); identical to the vanilla expression when
-+            // Folklore is absent (7/7 or 7/8).
-+            Single shiftFactor = 7f / (7f + (this.PartySubMenu != null ? 1f : 0f) + (this.FolkloreSubMenu != null ? 1f : 0f));
              if (ButtonGroupState.ActiveGroup == MainMenuUI.SubMenuGroupButton)
              {
                  if (IsSubMenuEnabled(this.GetSubMenuFromGameObject(go)))
-@@ -186,7 +191,9 @@ public class MainMenuUI : UIScene
+@@ -146,7 +147,7 @@ public class MainMenuUI : UIScene
+                     {
+                         case MainMenuUI.SubMenu.Item:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f);
++                            this.CollapseSubmenuTo(this.ItemSubMenu);
+                             this.ItemSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -176,7 +177,7 @@ public class MainMenuUI : UIScene
+                             break;
+                         case MainMenuUI.SubMenu.Card:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 490f);
++                            this.CollapseSubmenuTo(this.CardSubMenu);
+                             this.CardSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -186,7 +187,7 @@ public class MainMenuUI : UIScene
                              break;
                          case MainMenuUI.SubMenu.Config:
                              this.NeedTweenAndHideSubMenu = false;
 -                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (this.PartySubMenu == null ? 588f : 686f));
-+                            // ff9mapkit s45 -- Config's shift = 98 per row above it (588 vanilla, +98
-+                            // per optional Party/Folklore row); identical when Folklore is absent.
-+                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f) + (this.FolkloreSubMenu != null ? 98f : 0f)));
++                            this.CollapseSubmenuTo(this.ConfigSubMenu);
                              this.ConfigSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
                              this.Hide(delegate
                              {
-@@ -194,6 +201,16 @@ public class MainMenuUI : UIScene
+@@ -194,9 +195,19 @@ public class MainMenuUI : UIScene
                                  base.Loading = true;
                              });
                              break;
 +                        case MainMenuUI.SubMenu.Folklore:  // ff9mapkit s45 -- sits below Card (+Party)
 +                            this.NeedTweenAndHideSubMenu = false;
-+                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (588f + (this.PartySubMenu != null ? 98f : 0f)));
++                            this.CollapseSubmenuTo(this.FolkloreSubMenu);
 +                            this.FolkloreSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
 +                            this.Hide(delegate
 +                            {
@@ -893,8 +905,39 @@ index 0b138cde..ff1eba3a 100644
 +                            break;
                          case MainMenuUI.SubMenu.Party:
                              this.NeedTweenAndHideSubMenu = false;
-                             this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 588f);
-@@ -563,6 +580,8 @@ public class MainMenuUI : UIScene
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 588f);
++                            this.CollapseSubmenuTo(this.PartySubMenu);
+                             this.PartySubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -227,7 +238,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Ability:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 98f);
++                                this.CollapseSubmenuTo(this.AbilitySubMenu);
+                                 this.AbilitySubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -238,7 +249,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Equip:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 196f);
++                                this.CollapseSubmenuTo(this.EquipSubMenu);
+                                 this.EquipSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -249,7 +260,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Status:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 294f);
++                                this.CollapseSubmenuTo(this.StatusSubMenu);
+                                 this.StatusSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -563,6 +574,8 @@ public class MainMenuUI : UIScene
                  return this.ConfigSubMenu;
              case MainMenuUI.SubMenu.Party:
                  return this.PartySubMenu;
@@ -903,7 +946,7 @@ index 0b138cde..ff1eba3a 100644
              default:
                  return this.ItemSubMenu;
          }
-@@ -586,6 +605,8 @@ public class MainMenuUI : UIScene
+@@ -586,6 +599,8 @@ public class MainMenuUI : UIScene
              return MainMenuUI.SubMenu.Order;
          if (go == this.PartySubMenu)
              return MainMenuUI.SubMenu.Party;
@@ -912,10 +955,29 @@ index 0b138cde..ff1eba3a 100644
          return MainMenuUI.SubMenu.None;
      }
  
-@@ -667,6 +688,23 @@ public class MainMenuUI : UIScene
+@@ -667,6 +682,42 @@ public class MainMenuUI : UIScene
      {
      }
  
++    // ff9mapkit s45 -- the EXACT hub->submenu collapse for a (possibly relaid) command list. The
++    // collapsed command window IS every sub-screen's TITLE PLATE (HideAfterClip=0 in the bake): a
++    // 74-tall clip inside a 104-tall frame sprite that vanilla aims at the chosen row via
++    // ShiftContentClip = 9 + 98*rowIndex. That identity is really shift = 9 + (bakedItemY - rowY)
++    // (the Table shifts up by the chosen row's distance below row 0), and the squeezed relays broke
++    // BOTH inputs: rows left the 98 pitch (the shiftFactor approximation framed relaid rows up to
++    // ~11px high) and a 69/79-tall row underfills minima sized to CROP a 90-tall bar (neighbor
++    // slivers inside the plate -- the "misaligned card" on the Form Party / Folklore screens).
++    // Land the row's CURRENT seat and scale the clip/sprite minima by its CURRENT height; on the
++    // untouched vanilla bake every value computes to the stock number exactly (9+98k / 74 / 104).
++    private void CollapseSubmenuTo(GameObject row)
++    {
++        Single rowH = row.GetComponent<UIWidget>().height;
++        Single clipY = Mathf.Round(this.bakedCollapseClipY * rowH / this.bakedRowHeight);
++        this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + this.bakedItemRowY - row.transform.localPosition.y);
++        this.submenuTransition.TweenClipTo = new Vector2(0f, clipY);
++        this.submenuTransition.TweenSpriteTo = new Vector2(0f, clipY + (this.bakedCollapseSpriteY - this.bakedCollapseClipY));
++    }
++
 +    // ff9mapkit s45 -- one command-row seat: widget + collider + the children's anchor pass.
 +    // Memoria's original squeeze resized only the ROW widget and left Label/Spliter/Highlight to
 +    // the deferred OnEnable anchor pass -- which never lands on a runtime CLONE (the Party and
@@ -936,7 +998,20 @@ index 0b138cde..ff1eba3a 100644
      protected void Awake()
      {
          base.FadingComponent = this.ScreenFadeGameObject.GetComponent<HonoFading>();
-@@ -697,14 +735,64 @@ public class MainMenuUI : UIScene
+@@ -677,6 +728,12 @@ public class MainMenuUI : UIScene
+         this.OrderSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(4);
+         this.CardSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(5);
+         this.ConfigSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(6);
++        // ff9mapkit s45 -- capture the collapse bake BEFORE any row relay (see CollapseSubmenuTo):
++        // the tween minima (74/104), the baked row height (90), and row 0's baked seat (-45).
++        this.bakedCollapseClipY = this.submenuTransition.TweenClipTo.y;
++        this.bakedCollapseSpriteY = this.submenuTransition.TweenSpriteTo.y;
++        this.bakedRowHeight = this.ItemSubMenu.GetComponent<UIWidget>().height;
++        this.bakedItemRowY = this.ItemSubMenu.transform.localPosition.y;
+         if (this.PartySubMenu == null && (Configuration.Hacks.AllCharactersAvailable > 0 || Configuration.Battle.IsMenuEnabledInBattle(SubMenu.Party)))
+         {
+             UITable table = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
+@@ -697,14 +754,64 @@ public class MainMenuUI : UIScene
              Int32 h = 79;
              foreach (GameObject go in new GameObject[] { this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu, this.OrderSubMenu, this.CardSubMenu, this.PartySubMenu, this.ConfigSubMenu })
              {
@@ -1003,7 +1078,7 @@ index 0b138cde..ff1eba3a 100644
          UIEventListener.Get(this.ItemSubMenu).Click += onClick;
          UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
          UIEventListener.Get(this.EquipSubMenu).Click += onClick;
-@@ -714,6 +802,8 @@ public class MainMenuUI : UIScene
+@@ -714,6 +821,8 @@ public class MainMenuUI : UIScene
          UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
          if (this.PartySubMenu != null)
              UIEventListener.Get(this.PartySubMenu).Click += onClick;
@@ -1012,16 +1087,21 @@ index 0b138cde..ff1eba3a 100644
  
          foreach (Transform tr in this.CharacterListPanel.transform)
          {
-@@ -784,6 +874,8 @@ public class MainMenuUI : UIScene
+@@ -783,7 +892,13 @@ public class MainMenuUI : UIScene
+     private GameObject ConfigSubMenu;
      [NonSerialized]
      private GameObject PartySubMenu;
++    [NonSerialized] private Single bakedCollapseClipY;    // ff9mapkit s45 -- the collapse bake
++    [NonSerialized] private Single bakedCollapseSpriteY;  // (captured in Awake pre-relay; see
++    [NonSerialized] private Single bakedRowHeight;        // CollapseSubmenuTo; NonSerialized =
++    [NonSerialized] private Single bakedItemRowY;         // the baked-MonoBehaviour layout law)
      [NonSerialized]
 +    private GameObject FolkloreSubMenu;                    // ff9mapkit s45 (NonSerialized: the baked-
 +    [NonSerialized]                                        // MonoBehaviour serialization-layout law)
      private GOMenuBackground Background;
  
      private UILabel gilLabel;
-@@ -820,6 +912,7 @@ public class MainMenuUI : UIScene
+@@ -820,6 +935,7 @@ public class MainMenuUI : UIScene
          Card,
          Config,
          Party,
