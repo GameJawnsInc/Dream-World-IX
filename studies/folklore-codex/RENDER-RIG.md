@@ -180,8 +180,34 @@
 > check ORs into the refit gate. Static-mount path refactored through a shared `ApplyFolkloreFitCore`
 > — numbers bit-identical. Gates green (9 hunks, forward `--binary` == live).
 >
+> **THE TURNTABLE YAW (rung-5 garnish; built + captured + DEPLOYED 2026-07-21, DLL
+> `BA5DE4A838DE4AB9` both arches; ★ playtest pending after a relaunch).** The creature rotates at
+> `FolkloreTurntableDegPerSec = 25` (one revolution ≈ 14s) from the proven camera-facing start;
+> retreat lever `FolkloreRigTurntable = false` restores the static facing + fit exactly, and the
+> turntable is dead behind `FolkloreRigLiveIdle = false` (no per-frame render = no rotation). The
+> design's core: **THE ROTATION-INVARIANT SWEEP FIT** — a naive turntable clips a long creature's
+> sides at yaws the settle window never observed (the window sees only 12-100° of arc before
+> freezing), so the fit computes the swept CYLINDER analytically: max horizontal corner distance
+> from the yaw axis becomes the horizontal half-extent, and the aim recenters onto the axis —
+> partial-arc observation extrapolates the full circle by construction. The skeptic round's HIGH
+> was the round's real value: the first cut swept the body-BLENDED (shrunk) box, which voids the
+> safety proof (only the raw envelope union is a provable superset at every yaw) — the fix sweeps
+> TWO radii (rEnv from the safe envelope, rBody ≤ it from the body box) and blends the RADII by
+> the excursion weight, so the blend can never exceed the proven-safe envelope radius. The MEDIUM
+> ("tilted axis → vertical bob") was mathematically WRONG — Unity's `Euler(20, yaw, 0)` already
+> composes `Ry(yaw)·Rx(20)` = a true vertical-axis spin — but the repair's rewrite into the
+> explicit `AngleAxis(yaw, up) * AngleAxis(20, right)` product is the SAME matrix, kept as
+> self-documenting insurance against exactly that Euler-order misreading (orchestrator-verified).
+> Honest trade, stated in-code: rotating creatures render somewhat smaller than the yaw-0-only fit
+> (a turntable must fit the diagonal — r ≈ √(ex²+ez²)). Gates green (9 hunks, forward `--binary`
+> == live).
+>
 > ## NEXT SESSION — where to pick up
 >
+> - **PLAYTEST THE TURNTABLE**: RELAUNCH → each creature should rotate slowly (≈14s/revolution),
+>   starting camera-facing, never clipping the frame at any angle; expect them slightly smaller
+>   than before (the diagonal trade). Knobs: `FolkloreTurntableDegPerSec` (speed),
+>   `FolkloreRigTurntable` (kill).
 > - ~~**PLAYTEST THE BODY-BLEND ZOOM**~~ **★ PASSED 2026-07-21** ("way bigger");
 >   `FolkloreFitExcursionWeight` (0.4) remains the one-constant tuning lever if a future creature
 >   wants tighter or looser framing.

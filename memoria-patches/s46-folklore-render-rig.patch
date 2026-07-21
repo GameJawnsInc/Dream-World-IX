@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
-index 911282a..2f4c86b 100644
+index 911282a..8ec522e 100644
 --- a/Assembly-CSharp/Global/FolkloreUI.cs
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
-@@ -40,8 +40,80 @@ public class FolkloreUI : UIScene
+@@ -40,8 +40,90 @@ public class FolkloreUI : UIScene
  {
      private const String ListGroupButton = "Folklore.List";
  
@@ -74,6 +74,16 @@ index 911282a..2f4c86b 100644
 +    // bob-peak edge contact -- see ApplyFolkloreLiveFit.
 +    private const Single FolkloreFitExcursionWeight = 0.4f;
 +
++    // s46 rung 5 -- THE TURNTABLE (RENDER-RIG.md's user-requested garnish): retreat lever. false
++    // restores the static yaw-0 facing AND the pre-turntable fit math EXACTLY (ApplyFolkloreLiveFit's
++    // sweep branch is skipped whole, the model's own transform.localRotation is never touched past
++    // EnsureFolkloreModel's Euler(20,0,0) mount pose) -- byte-identical to the round-3/rung-4/rung-5
++    // behavior this const did not exist to gate.
++    private const Boolean FolkloreRigTurntable = true;
++    // taste knob: degrees/second the portrait model yaws while displayed. 25 deg/s ~= one full
++    // revolution every 14.4s -- slow enough to read as ambient motion, not a spin.
++    private const Single FolkloreTurntableDegPerSec = 25f;
++
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
 +        // REPAIR (post-rung-3 review, HIGH): a fresh screen-visit is never "closing" -- this must be
@@ -83,7 +93,7 @@ index 911282a..2f4c86b 100644
          // REDESIGN instrumentation: the ~3s first-open hang must NAME itself (Awake fires inside
          // the first Show's activation, so this timer brackets the whole burst)
          System.Diagnostics.Stopwatch showWatch = System.Diagnostics.Stopwatch.StartNew();
-@@ -91,6 +163,21 @@ public class FolkloreUI : UIScene
+@@ -91,6 +173,21 @@ public class FolkloreUI : UIScene
  
      public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -105,7 +115,7 @@ index 911282a..2f4c86b 100644
          // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
          // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
          this.muteSettleDepth = 0;
-@@ -102,6 +189,21 @@ public class FolkloreUI : UIScene
+@@ -102,6 +199,21 @@ public class FolkloreUI : UIScene
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
@@ -127,7 +137,7 @@ index 911282a..2f4c86b 100644
      public override Boolean OnKeyCancel(GameObject go)
      {
          if (base.OnKeyCancel(go))
-@@ -300,10 +402,16 @@ public class FolkloreUI : UIScene
+@@ -300,10 +412,16 @@ public class FolkloreUI : UIScene
      {
          if (this.detailNameLabel == null)
              return;
@@ -144,7 +154,7 @@ index 911282a..2f4c86b 100644
              return;
          }
          FolkloreRegistry.Entry e = this.entries[this.currentIndex];
-@@ -314,14 +422,1000 @@ public class FolkloreUI : UIScene
+@@ -314,14 +432,1118 @@ public class FolkloreUI : UIScene
              if (String.IsNullOrEmpty(lore))
                  lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
              this.detailBodyLabel.rawText = lore;
@@ -402,6 +412,9 @@ index 911282a..2f4c86b 100644
 +            // s46 rung 5: the body box mirrors folkloreFitLiveSeeded's own reset coverage exactly -- a
 +            // new entry's body box must never inherit the previous entry's grown box.
 +            this.folkloreFitBodyMax = Vector3.zero;
++            // s46 rung 5 (turntable): mirrors folkloreFitBodyMax's own reset coverage exactly -- a new
++            // entry always starts facing the camera, never inheriting the previous entry's spin.
++            this.folkloreYaw = 0f;
 +
 +            if (FolkloreUI.FolkloreRigLiveIdle)
 +            {
@@ -469,6 +482,9 @@ index 911282a..2f4c86b 100644
 +                    // s46 rung 5: already zero from the reset above (mirrors folkloreFitLiveSeeded's
 +                    // own restate here) -- the first live sample seeds it fresh, same as the envelope.
 +                    this.folkloreFitBodyMax = Vector3.zero;
++                    // s46 rung 5 (turntable): already zero from the reset above -- restated here for
++                    // clarity, mirroring folkloreFitBodyMax's own restate on this exact branch.
++                    this.folkloreYaw = 0f;
 +                }
 +                else
 +                {
@@ -481,6 +497,8 @@ index 911282a..2f4c86b 100644
 +                    this.folkloreFitWindow = 0f;
 +                    // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
 +                    this.folkloreFitBodyMax = Vector3.zero;
++                    // s46 rung 5 (turntable): same restate-for-clarity as the other fit state here.
++                    this.folkloreYaw = 0f;
 +                }
 +            }
 +            else
@@ -492,6 +510,10 @@ index 911282a..2f4c86b 100644
 +                this.folkloreFitWindow = 0f;
 +                // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
 +                this.folkloreFitBodyMax = Vector3.zero;
++                // s46 rung 5 (turntable): same restate-for-clarity as the other fit state here -- this
++                // branch also covers FolkloreRigLiveIdle=false, where LateUpdate's rotation drive never
++                // fires anyway (gated on the same const), so this yaw stays 0 for the whole visit.
++                this.folkloreYaw = 0f;
 +            }
 +            return true;
 +        }
@@ -540,6 +562,7 @@ index 911282a..2f4c86b 100644
 +            this.folkloreFitLiveSeeded = false;
 +            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
 +                                                        // own reset coverage exactly
++            this.folkloreYaw = 0f;                     // s46 rung 5 (turntable): same reset coverage
 +        }
 +    }
 +
@@ -757,6 +780,50 @@ index 911282a..2f4c86b 100644
 +    // "grounded" creatures (envelope ~= body, the approximate claim this design was proven against in
 +    // rounds 1-3) keep a framing that is AT MOST marginally tighter than fitting the envelope directly,
 +    // never looser and never a regression class of its own.
++    //
++    // s46 rung 5 (turntable) -- THE ROTATION-INVARIANT SWEEP FIT, gated on FolkloreRigTurntable below:
++    // the live envelope this method receives is measured at whatever yaws the settle window happened
++    // to OBSERVE (a few seconds of a slowly-turning model), so fitting (center, effective) directly --
++    // exactly as the non-turntable branch still does -- clips a long/asymmetric creature's SIDES the
++    // moment it rotates past whatever angle the window sampled. Rather than observe every angle, the
++    // sweep is computed ANALYTICALLY: the yaw axis is the stage-vertical line through the model seat
++    // (stage-local x=0,z=0 -- the model sits at localPosition zero, EnsureFolkloreModel) -- TRULY
++    // vertical, not merely approximately (REPAIR, post-turntable skeptic review, MEDIUM: LateUpdate now
++    // composes the 20-degree pitch in the model's own LOCAL frame ahead of yaw, so yaw is a pure
++    // rotation about the fixed Y axis with nothing to absorb -- see LateUpdate's own comment). The live
++    // GATHER upstream (GatherFolkloreLiveBounds, called every LateUpdate while the model is already
++    // turning) keeps working in plain stage space -- the union just sees a sequence of ROTATED
++    // silhouettes over the window, which only enriches (never narrows) the envelope this method
++    // receives; the sweep math below then extrapolates the FULL circle from whatever partial arc the
++    // window actually observed, so no in-window angle -- let alone an angle the window never saw -- can
++    // clip the UNBLENDED envelope.
++    //
++    // REPAIR (post-turntable skeptic review, HIGH): the sweep MUST run on envHalf (the raw envelope --
++    // a monotonic union of every OBSERVED silhouette, so its corner-distance-from-axis is a true
++    // rotation-invariant superset), never on `effective` (the body-blended, deliberately SHRUNK box --
++    // FolkloreFitExcursionWeight < 1 makes it strictly smaller than envHalf whenever body < envHalf, so
++    // it is NOT a safe superset, and sweeping it directly would silently break this comment's own proof
++    // for exactly the elongated/asymmetric creature the sweep exists to protect -- clipping at any yaw
++    // outside the settle window's partial arc). Instead: sweep envHalf (safe, full-circle) AND body
++    // (this frame's own instantaneous silhouette, mirroring the Y-axis's existing body-blend) into two
++    // RADII, then blend the RADII by FolkloreFitExcursionWeight -- the same zoom knob, applied only
++    // where the safety proof still holds.
++    //
++    // HONEST REGRESSION (comment, not a defect): a grounded/stationary creature pays the turntable's
++    // universal price too -- centering the fit ON the rotation axis means the swept radius is the
++    // DIAGONAL of the (asymmetric) envelope/body boxes, r ~= sqrt(x^2 + z^2), not x/z alone, so every
++    // creature renders somewhat SMALLER once the turntable is on than the yaw-0-only fit this same
++    // method produced before. That is correct behavior for a model that rotates (a fixed camera framing
++    // a spinning long body must frame its widest sweep, not its narrowest silhouette), not a bug to
++    // chase. At FolkloreFitExcursionWeight=1.0 this radius blend reduces exactly to the raw envelope
++    // sweep (full protection); below 1.0 a creature CAN still crop at a widest-silhouette yaw the
++    // settle window never sampled, by construction -- the SAME accepted trade-off class the Y axis
++    // already pays at bob-peaks, not a new or worse one.
++    //
++    // The static-mount PRE-live fit (frame 1, via ApplyFolkloreFit -> this class's OTHER FitCore
++    // caller) stays UN-SWEPT on purpose: folkloreYaw is 0 on frame 1 by construction (every reset site
++    // above sets it), so the un-swept fit is already exact there -- the first LIVE refit (this method,
++    // within ~2 frames per the rung-4 window) is what applies the sweep.
 +    private Boolean ApplyFolkloreLiveFit(Vector3 candidateMin, Vector3 candidateMax)
 +    {
 +        Vector3 center = (candidateMin + candidateMax) * 0.5f;
@@ -767,7 +834,33 @@ index 911282a..2f4c86b 100644
 +        // the envelope itself) rather than assume it.
 +        Vector3 body = Vector3.Min(this.folkloreFitBodyMax, envHalf);
 +        Vector3 effective = body + (envHalf - body) * FolkloreFitExcursionWeight;
-+        return this.ApplyFolkloreFitCore(center, effective);
++        if (!FolkloreUI.FolkloreRigTurntable)
++            return this.ApplyFolkloreFitCore(center, effective);
++
++        // the sweep cylinder: max distance from the (stage x=0,z=0) yaw axis to any of a box's 4
++        // horizontal corners -- centering both the aim and the radius ON the axis makes the fit
++        // yaw-independent (a box off-centered from its own rotation axis would otherwise still clip at
++        // SOME angle even after this math). Run once on envHalf (the safe superset) and once on body
++        // (this frame's own silhouette), THEN blend the two RADII -- see the HIGH repair note above for
++        // why the box itself must never be blended before this loop.
++        Single rEnv = 0f;
++        Single rBody = 0f;
++        for (Int32 sx = -1; sx <= 1; sx += 2)
++            for (Int32 sz = -1; sz <= 1; sz += 2)
++            {
++                Single ex = center.x + sx * envHalf.x;
++                Single ez = center.z + sz * envHalf.z;
++                rEnv = Mathf.Max(rEnv, Mathf.Sqrt(ex * ex + ez * ez));
++                Single bx = center.x + sx * body.x;
++                Single bz = center.z + sz * body.z;
++                rBody = Mathf.Max(rBody, Mathf.Sqrt(bx * bx + bz * bz));
++            }
++        // body <= envHalf componentwise (the guard above) => rBody <= rEnv always, so this blend never
++        // exceeds the safe envelope radius.
++        Single r = rBody + (rEnv - rBody) * FolkloreFitExcursionWeight;
++        Vector3 sweptHalfExtents = new Vector3(r, effective.y, r);
++        Vector3 sweptCenter = new Vector3(0f, center.y, 0f);
++        return this.ApplyFolkloreFitCore(sweptCenter, sweptHalfExtents);
 +    }
 +
 +    // s46 rung 4 -- the live-fit window length: give the idle clip roughly its own play length to show
@@ -891,6 +984,39 @@ index 911282a..2f4c86b 100644
 +            return;
 +        if (this.folkloreCamera == null || this.folkloreModel == null)
 +            return;
++
++        // s46 rung 5 -- THE TURNTABLE. Gated on the SAME four conditions already checked above
++        // (FolkloreRigLiveIdle, portrait active, camera+model non-null) plus its own retreat lever --
++        // load-bearing: with FolkloreRigLiveIdle=false this whole method has already returned above,
++        // so the turntable is fully dead there too (a rotating model behind a live=false rig would
++        // freeze at whatever yaw the last frame happened to render, since nothing pumps a per-frame
++        // Render() in that configuration -- worse than the static yaw-0 it replaces). Drives the
++        // model's own transform directly (the viewer itself yaws on a SEPARATE drag wrapper transform;
++        // this file composes on the model's own transform instead, the same declared simplification
++        // EnsureFolkloreModel's own mount-pose comment already notes).
++        //
++        // REPAIR (post-turntable skeptic review, MEDIUM): composing `Quaternion.Euler(20f, yaw, 0f)`
++        // (the mount's OWN idiom, naively extended) does NOT rotate about a vertical axis as yaw
++        // varies. Unity's Euler(x,y,z) composes INTRINSICALLY z-then-x-then-y, which for x=20,z=0
++        // collapses to: yaw about the FIXED (unrotated) vertical Y axis first, THEN a fixed 20-degree
++        // tilt about the FIXED X axis applied to the whole already-yawed shape -- equivalent to
++        // rotating about an axis tilted 20 degrees off vertical. A point offset from that axis by its
++        // own horizontal radius r bobs in world-Y by up to r*sin(20 deg) (~0.34r) over a full turn --
++        // hundreds of units for a real GEO entry (radius up to 4887, FF9BattleDBHeightAndRadius.cs:
++        // 427) -- and ApplyFolkloreLiveFit's sweep deliberately leaves effective.y unswept, so this
++        // wobble is invisible to it past the settle window. Composing the OTHER order instead -- pitch
++        // FIRST in the model's OWN (local) frame, THEN yaw about the FIXED vertical Y axis -- makes yaw
++        // a genuine rotation about a truly vertical axis (rotation about Y never changes a point's Y
++        // coordinate), eliminating the wobble outright instead of trusting an unmeasured margin to
++        // absorb it (this also makes ApplyFolkloreLiveFit's rotation-invariance proof for the x/z sweep
++        // exact, not merely approximate). Identical to the mount's Euler(20,0,0) at yaw=0
++        // (AngleAxis(0,up) is identity), so frame 1 (EnsureFolkloreModel) is untouched.
++        if (FolkloreUI.FolkloreRigTurntable)
++        {
++            this.folkloreYaw = (this.folkloreYaw + FolkloreTurntableDegPerSec * Time.deltaTime) % 360f;
++            this.folkloreModel.transform.localRotation =
++                Quaternion.AngleAxis(this.folkloreYaw, Vector3.up) * Quaternion.AngleAxis(20f, Vector3.right);
++        }
 +
 +        // the viewer's own re-Play-if-not-playing loop IS the loop mechanism (ModelViewerScene.cs:
 +        // 1324-1329) -- but THAT code is not gated on an empty clip name because the viewer never calls
@@ -1132,6 +1258,8 @@ index 911282a..2f4c86b 100644
 +            this.folkloreFitLiveSeeded = false;
 +            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
 +                                                        // own reset coverage exactly
++            this.folkloreYaw = 0f;                     // s46 rung 5 (turntable): same reset coverage --
++                                                        // the OnDisable/exception backstop path
 +        }
 +    }
 +
@@ -1145,7 +1273,7 @@ index 911282a..2f4c86b 100644
      // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
      // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
      // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
-@@ -403,14 +1497,25 @@ public class FolkloreUI : UIScene
+@@ -403,14 +1625,25 @@ public class FolkloreUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -1174,7 +1302,7 @@ index 911282a..2f4c86b 100644
          GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
          bodyGo.name = "Folklore Detail Body";
          bodyGo.transform.parent = this.detailPanel.transform;
-@@ -418,8 +1523,8 @@ public class FolkloreUI : UIScene
+@@ -418,8 +1651,8 @@ public class FolkloreUI : UIScene
          bodyGo.SetActive(true);
          this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
          this.detailBodyLabel.SetAnchor((GameObject)null);
@@ -1185,7 +1313,7 @@ index 911282a..2f4c86b 100644
          this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
          this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
          this.detailBodyLabel.multiLine = true;
-@@ -623,6 +1728,9 @@ public class FolkloreUI : UIScene
+@@ -623,6 +1856,9 @@ public class FolkloreUI : UIScene
      [NonSerialized]
      private GameObject detailPanel;
      [NonSerialized]
@@ -1195,7 +1323,7 @@ index 911282a..2f4c86b 100644
      private UILabel detailNameLabel;
      [NonSerialized]
      private UILabel detailBodyLabel;
-@@ -640,6 +1748,82 @@ public class FolkloreUI : UIScene
+@@ -640,6 +1876,90 @@ public class FolkloreUI : UIScene
      private Boolean firstFramesLogged;
      [NonSerialized]
      private Int32 muteSettleDepth;
@@ -1275,6 +1403,14 @@ index 911282a..2f4c86b 100644
 +    // ApplyFolkloreLiveFit, reset at every site that resets folkloreFitLiveSeeded.
 +    [NonSerialized]
 +    private Vector3 folkloreFitBodyMax;
++
++    // s46 rung 5 -- THE TURNTABLE's own drive angle (degrees, [0,360)). Reset alongside
++    // folkloreFitBodyMax at every one of its own reset sites (swap-reset block, mount restate, the
++    // two fallback branches, DestroyFolkloreModel finally, TeardownFolkloreRig backstop) so every
++    // freshly-mounted creature starts at the proven camera-facing yaw 0, exactly like rung-1/3's own
++    // Euler(20,0,0) mount pose before this rung existed.
++    [NonSerialized]
++    private Single folkloreYaw;
  
      private class FolkloreListData : ListDataTypeBase
      {
