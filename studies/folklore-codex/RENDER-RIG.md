@@ -39,8 +39,31 @@
 > approved rounds ship these numbers): the column's right edge (800) exceeds the file's own ±771
 > pillarbox-safe comment by 29 units — check once in 4:3/pillarboxed mode someday.
 >
-> **Status: RUNG 1 ★ MECHANISM PROVEN; round 3 (the Equip-sentence split) DEPLOYED — awaiting its
-> look-check.** Captured as
+> **ROUND 3 PLAYTEST (2026-07-21): ★ "looks good" — RUNG 1 IS CLOSED.** The Equip-sentence split is
+> the shipped layout: portrait window (entry name caption, creature filling the frame on the stock
+> sheet) over the lore window. Three rounds total, all same-day: mechanism → transparency/facing →
+> the split. The patch is `memoria-patches/s46-folklore-render-rig.patch` (1 file, 9 hunks, both
+> gates green); merged to master with rung 1 proven.
+>
+> ## NEXT SESSION — where to pick up
+>
+> - **Rung 2 — THE LIVING IDLE** (§2 below): clip discovery + `Play(animList[0])` + the manual
+>   `Render()` moving into `Update` while the pane shows. The rig's skeleton is ready for it: the
+>   camera/RT/portrait live in fields, `RenderFolkloreEntry` is the single render funnel, and the
+>   HonoBehavior-safe teardown already handles the animated case (the dispose loop is live code the
+>   moment clips attach).
+> - **Rung 3 — THE REGISTRY WIRE** (§2): swap the hardcoded `FolkloreRigTestGeo` for `Entry.Display`
+>   (already parsed + stored). NOTE for the wire: the FRAMING KNOBS (`FolkloreRigCamDist=-700`,
+>   `FolkloreRigAimY=-80`) were tuned on GEO_MON_B3_118 — arbitrary models will frame differently
+>   (the model pivot sits low; big/small creatures will over/underfill). Rung 3 likely wants
+>   auto-framing (renderer-bounds fit) or per-entry knob tokens; decide there, don't pre-build.
+> - **Rung 4 — THE KIT LANE** (§3, unchanged): `display =` on `[[folklore]]`, `resolve_display`,
+>   third-token emission, lint. All offline-provable.
+> - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
+>   lights, idleClip, battle-look flip).
+> - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
+>   right edge 800 vs the ±771 pillarbox comment (one 4:3 look someday); the bottom lore window's
+>   caption is blank — a `FolkloreLoreCaption` localization row can name it with zero DLL work. Captured as
 > `memoria-patches/s46-folklore-render-rig.patch` (ONE file, `FolkloreUI.cs` only — no csproj change; both
 > gates green: reverse `-F0` clean on live, forward `--binary -F0` onto `backups/preS46-snapshots.20260721`
 > == live bytes; the deployed DLL carries the new method names, both arches MD5-match Output). Build shape:
