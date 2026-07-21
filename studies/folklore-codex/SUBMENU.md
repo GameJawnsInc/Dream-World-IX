@@ -366,3 +366,28 @@ claims skeptic-verified). Headline for the redesign: **Chocograph is the stock c
 persistent hover-populated detail pane + silhouette undiscovered slots, no modality; the recommended
 composition ("Option B") writes our screen in that sentence with the Key-Item cell and a recycling
 SubPanel. Both open defects are solved in vocabulary terms there (§6).
+
+## The Option B redesign round (★ IN-GAME PROVEN 2026-07-21 — both defects CLOSED)
+
+One build round + one sound fix, spec at `REDESIGN.md`:
+- **THE PRESERVE-THE-BAKE LAW executed:** capture the donor's solved geometry BEFORE mutation, copy it.
+  The scroll frame keeps the BAKED clip center (Phase B zeroed it — the rows-over-rail mechanism); the
+  dressing children keep baked y/height/pivot/active with a width-only refit; `rowCount` is DERIVED
+  (round(bakedClipH/rowH) — the stock invariant inverted, absorbing widescreen clone-time variance).
+- **THE SCROLL-SUM INVARIANT (the review's blocker, fixed pre-playtest):** the dressing seat must be
+  `D − P − clipOffset` — the live donor's values are individually wild (the bake log showed
+  panelPos (−721, 389), clip center (721, 1538), clipOffset (0, −1930): only the SUM is sane) and NGUI
+  scroll moves P and clipOffset in exact opposition, so only the sum is scroll-invariant. The 3-lens
+  adversarial review (algebra / lifecycle / regression) caught it plus two caption-label frame bugs
+  (dressing-local x written in CaptionPanel space; localPosition read before the pivot setter's
+  compensation) and the finger/caption depth tie.
+- **The hang: GONE, measured** — awake 4ms, first frames 8/14/18ms ("the first open is instant").
+  Instrumentation brackets the synchronous stages AND the Invoke-deferred/LateUpdate window.
+- **The double-sound fix:** category paging re-seats the cursor on the rebuilt rows and
+  ActiveButtonChanged fires 103 on top of the 1047 page flip (stock never trips it — it pages with the
+  SUB-MENU group active). Fix = `ButtonGroupState.MuteActiveSound` (the AbilityUI idiom) held across the
+  2-frame Invoke-deferred settle (the SaveLoadUI cross-window precedent) + strand-insurance unmute in
+  Hide (deactivation kills coroutines — a mid-window cancel would mute the beep game-wide).
+- Playtests: "the layout is great", "first open is instant", "sounds right now"; survives title→load
+  and relaunch. Gate quirk: the reverse patch gate must run TEXT mode (`--binary` mis-parses the
+  csproj's no-newline marker into a phantom fuzz-1).
