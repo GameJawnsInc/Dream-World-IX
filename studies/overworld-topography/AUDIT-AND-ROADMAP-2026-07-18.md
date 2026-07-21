@@ -242,7 +242,12 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   transform CARRIES the ecotone rows VERBATIM — no synthesized placement is spent at all (the round-3 BFS emitter
   is retained as a never-invoked residual fallback). The frozen eye (`dunes_mint_eye.judge`) lands byte-identical
   to comp[1]'s self-test (M1 5.076 / M2 0.3636 / M3 0.7536·5·hole / M4 0.0), 18/18 gates, deployed both discs at
-  census centre (608,−1376) r56 s2, 9 blocks. THE SIZE-CLASS LAW is SATISFIED. The two design reports were
+  ~~census centre (608,−1376) r56 s2~~ → **RE-SITED 2026-07-21 to the IN-GRID stamp site (1248,−1184) =
+  block (19,18), r56 s2, k=0, blocks (18–20,17–19)** — the census centre was block rows 20–22, OFF the engine's
+  24×20 grid (THE GRID-BOUNDS INCIDENT; the vacuous open-ocean check off the map edge, caught by the debug-menu
+  teleport bounds. Gate productized: `mesh.require_block_in_grid` at build_landmass + the deploy write funcs +
+  single-source `24,20`; `tests/test_world_grid_bounds.py`). The eye numbers are unchanged (verbatim k=0 =
+  site-independent). THE SIZE-CLASS LAW is SATISFIED. The two design reports were
   reconciled empirically (census owns siting, stamp design owns the strict dilate3 margin — r48 fails it, r56 k=0
   clears it). One honest deferred limit: 10/279 dune-crest tiles (off-rect atlas region) not reproduced by the
   generic `assign_mains` interior — the design's flagged dunes-2×2 gap. Full record: `GROUND-FAMILY-DECODE-2026-07-19.md`

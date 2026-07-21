@@ -68,22 +68,26 @@ BACKUP_DIR = HERE.parents[1] / "backups" / "dunes-mint.20260720"
 EXCLUDED_BLOCKS = {(6, 18), (7, 18), (6, 19), (7, 19), (8, 19), (9, 19),
                    (11, 18), (12, 18), (11, 19), (12, 19)}
 
-# candidate host ladder: census-siting-preferred (a coherent little desert archipelago at the
-# host census's own centre (608,-1376), near the (8,19) islet), at the stamp-design's radii. EACH
-# entry is a ZERO-WELD-PAIR seed (scanned: build_landmass's big-mint edge refinement leaves hairline
-# near-miss verts for SOME seeds -- e.g. the census's own s11 -- caught by mesh.weld_audit though
-# verify_landmass's coarser once-edge/crack gates pass; the verbatim stamp is seed-independent, so we
-# choose a crack-free host). resolve_host() REQUIRES per-block weld==0 AND a strict dilate3 placement,
-# and prefers identity (k=0). PRIMARY = r56 s2: zero-weld + k=0 + 17 placements (probe-confirmed).
+# candidate host ladder: RE-SITED 2026-07-21 after THE GRID-BOUNDS INCIDENT. The original PRIMARY,
+# the host census's centre (608,-1376), is block rows 20-22 -- OFF the engine's fixed 24x20 grid
+# (rows 0..19; world z 0..-1279), so it deployed 81 dead files/disc that the engine never streams;
+# the vacuous open-ocean check (no assets off the map edge) never caught it, the debug-menu teleport
+# did. ALL the census alternates are off-grid too. Re-sited to the STAMP DESIGN's IN-GRID site
+# (19,18)=(1248,-1184), gate-verified against the LIVE tree. EACH entry is a ZERO-WELD-PAIR seed
+# (build_landmass's big-mint edge refinement leaves hairline near-miss verts for SOME seeds, caught
+# by mesh.weld_audit though verify_landmass's coarser gates pass; the verbatim stamp is
+# seed-independent, so we choose a crack-free host). resolve_host() REQUIRES per-block weld==0 AND a
+# strict dilate3 placement, and prefers identity (k=0). PRIMARY = stamp r56 s2: on-grid + zero-weld +
+# k=0 identity + 490 regular cells + 17 placements, blocks (18-20,17-19) (dunes_host_probe.py 2026-07-21).
 HOST_LADDER = [
-    ("census (9,21) r56 s2", (608.0, -1376.0), 56.0, 2.0),      # zero-weld, k=0 identity, 17 placements
-    ("census (9,21) r56 s8", (608.0, -1376.0), 56.0, 8.0),      # zero-weld fallback
-    ("census (9,21) r56 s10", (608.0, -1376.0), 56.0, 10.0),    # zero-weld fallback
-    ("census (9,21) r52 s2", (608.0, -1376.0), 52.0, 2.0),      # zero-weld, r52 precedent
-    ("census (9,21) r52 s5", (608.0, -1376.0), 52.0, 5.0),      # zero-weld fallback
-    ("census (9,21) r52 s6", (608.0, -1376.0), 52.0, 6.0),      # zero-weld fallback
-    ("census (9,21) r52 s8", (608.0, -1376.0), 52.0, 8.0),      # zero-weld fallback
-    ("stamp (19,18) r56 s2", (1248.0, -1184.0), 56.0, 2.0),     # the stamp-design site, last resort
+    ("stamp (19,18) r56 s2", (1248.0, -1184.0), 56.0, 2.0),     # on-grid, zero-weld, k=0, 17 placements (WINNER)
+    ("stamp (19,18) r56 s8", (1248.0, -1184.0), 56.0, 8.0),     # zero-weld fallback (50 placements)
+    ("stamp (19,18) r56 s10", (1248.0, -1184.0), 56.0, 10.0),   # zero-weld fallback
+    ("stamp (19,18) r52 s5", (1248.0, -1184.0), 52.0, 5.0),     # zero-weld, r52 precedent
+    ("stamp (19,18) r52 s6", (1248.0, -1184.0), 52.0, 6.0),     # zero-weld fallback
+    ("stamp (19,18) r52 s8", (1248.0, -1184.0), 52.0, 8.0),     # zero-weld fallback (k=4)
+    ("alt (18,18) r56 s2", (1184.0, -1184.0), 56.0, 2.0),       # in-grid west alternate
+    ("alt (20,18) r56 s2", (1312.0, -1184.0), 56.0, 2.0),       # in-grid east alternate
 ]
 
 GATES: list = []
@@ -260,12 +264,18 @@ def build_comp1_painting():
 # STEP 2 -- the desert host + multi-block regular-cell gather + placement search
 # ============================================================================================
 def build_host(center, radius, seed):
-    built = I.build_landmass(center=center, base_radius=radius, seed=seed, ground=GROUND,
-                             stamps=None, disc=1)
+    # build_landmass now RAISES on an off-grid footprint (THE GRID-BOUNDS GATE) -- catch it so a
+    # bad ladder entry rejects gracefully instead of crashing resolve_host (the incident's lesson).
+    try:
+        built = I.build_landmass(center=center, base_radius=radius, seed=seed, ground=GROUND,
+                                 stamps=None, disc=1)
+    except ValueError as e:
+        return None, f"build refused: {str(e)[:80]}"
+    off = sorted(blk for blk in built["blocks"] if not M.block_in_grid(blk[0], blk[1]))
     occ = {blk: o for blk in built["blocks"] if (o := I._real_block_parts(blk, disc=1, game=None))}
     excl = {blk for blk in built["blocks"] if blk in EXCLUDED_BLOCKS}
-    if occ or excl:
-        return None, f"occupied={sorted(occ)} excluded={sorted(excl)}"
+    if off or occ or excl:
+        return None, f"off_grid={off} occupied={sorted(occ)} excluded={sorted(excl)}"
     geom_by_block, all_mains, regular = {}, {}, set()
     for blk, bm in built["blocks"].items():
         bx, by = blk
@@ -332,8 +342,8 @@ def search_placement(regular, footprint, host_center):
     return dict(k=k, ti0=ti0, tj0=tj0, oi=oi, oj=oj, bx0=bx0, bz0=bz0, n_candidates=n_cand)
 
 
-def resolve_host(paint):
-    for label, center, radius, seed in HOST_LADDER:
+def resolve_host(paint, ladder=None):
+    for label, center, radius, seed in (ladder or HOST_LADDER):
         host, err = build_host(center, radius, seed)
         if host is None:
             print(f"  host [{label}] REJECT -- {err}")
@@ -725,7 +735,21 @@ def deploy(host, plane):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--deploy", action="store_true")
+    # site overrides (all-or-nothing centre/radius/seed) -- if given, they REPLACE the ladder with a
+    # single entry. The placement dihedral k is not a free knob: search_placement derives it
+    # (identity k=0 preferred, then nearest-centre). Every value stays seeded + idempotent.
+    ap.add_argument("--center-x", type=float, help="host centre world X (with --center-z)")
+    ap.add_argument("--center-z", type=float, help="host centre world Z (with --center-x)")
+    ap.add_argument("--radius", type=float, default=56.0, help="host base_radius (default 56)")
+    ap.add_argument("--seed", type=float, default=2.0, help="host seed (default 2)")
     args = ap.parse_args()
+
+    ladder = None
+    if args.center_x is not None or args.center_z is not None:
+        if args.center_x is None or args.center_z is None:
+            sys.exit("--center-x and --center-z must be given together")
+        ladder = [(f"cli ({args.center_x:.0f},{args.center_z:.0f}) r{args.radius:.0f} s{args.seed:.0f}",
+                   (args.center_x, args.center_z), args.radius, args.seed)]
 
     print("=== dunes_field_mint.py -- real-scale comp[1] whole-stamp dunes mint ===\n")
     paint_data = build_comp1_painting()
@@ -734,8 +758,8 @@ def main():
           f"boundary={len(paint_data['BOUNDARY'])} outer={len(paint_data['OUTER'])} "
           f"dune-strip={len(paint_data['dune_rows'])} desert-strip={len(paint_data['desert_rows'])}")
 
-    print("\n--- resolve host (census-siting-first ladder, strict dilate3 margin) ---")
-    host, pl = resolve_host(paint_data)
+    print("\n--- resolve host (IN-GRID stamp-site ladder, strict dilate3 margin + zero-weld) ---")
+    host, pl = resolve_host(paint_data, ladder)
 
     # baseline verify on the plain host (pre-retile)
     plane = I._sea_plane(disc=1, game=None)

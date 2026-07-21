@@ -1,15 +1,19 @@
 """HOST-SITING PROBE for the real-scale comp[1] dunes stamp (rung 5).
 
-Resolves the siting tension between the two design reports EMPIRICALLY on real bytes:
- - HOST CENSUS recommends center (608,-1376) r48 seed 11 (near the (8,19) desert islet) via a
-   bbox-fit proxy (footprint 185 < int2 270).
- - STAMP DESIGN recommends center (1248,-1184) r52 seed 2 via the STRICTER footprint+ring+2-margin
-   (= dilate3(footprint) subset of regular) test, and found r44/48 FAIL that margin.
+RE-SITED 2026-07-21 after THE GRID-BOUNDS INCIDENT: the original PRIMARY, the HOST CENSUS's
+center (608,-1376), sits at world row -1376 = block rows 20-22 -- OFF the engine's fixed 24x20
+grid (block rows 0..19; world z 0..-1279). The engine never streams those rows, so the mint
+deployed there was 81 dead files/disc; the vacuous OPEN-OCEAN check (no mesh assets off the map
+edge = trivially "open ocean") never caught it, and the user's debug-menu teleport did. ALL the
+census's alternate sites ((10,22)/(13,21)/(15,20)/(8,22)/(16,20)) are off-grid too.
 
-This probe implements the strict test (dilate the footprint 3x, require it all land on clean 4u
-regular desert cells) across a candidate ladder, preferring the census's coherent-archipelago
-siting first, then the stamp site, at radii large enough to clear the 2-cell wall margin. It
-prints the winning (center,radius,seed,dihedral,origin) for the full mint to consume. No writes.
+So this probe now scans ONLY IN-GRID candidates, seeded with the STAMP DESIGN's independently
+verified site center (1248,-1184) = block (19,18), r52 (its strict footprint+ring+2-margin =
+dilate3(footprint) subset of regular test passed there). It re-verifies against the LIVE tree:
+grid bounds (mesh.block_in_grid), STOCK open ocean, the live-content clusters (EXCLUDED_BLOCKS:
+comp20 (6-7,18-19) + desert islet (8,19) + the (8,17)-beach island (11-12,18-19) + water-only
+(11,19)), and a strict 2-cell placement margin -- then prints the winning
+(center,radius,seed,dihedral,origin) for the full mint to consume. No writes.
 
 Run from repo root:  py studies/overworld-topography/dunes_host_probe.py
 """
@@ -35,6 +39,12 @@ BLOCK = 64.0
 CELL_U = 4.0
 NEI4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
 GROUND = "desert"
+
+# post-reset LIVE mod content (must not be overlapped/margin-violated): comp20 massif (6-7,18-19)
+# + plain desert islet (8,19) + the (8,17)+2x2 desert-beach water island (11-12,18-19) + its
+# water-only (11,19); (9,19) reserved-untouched. Same set the mint's build_host excludes.
+EXCLUDED_BLOCKS = {(6, 18), (7, 18), (6, 19), (7, 19), (8, 19), (9, 19),
+                   (11, 18), (12, 18), (11, 19), (12, 19)}
 
 
 def dilate(cells, exclude):
@@ -132,6 +142,9 @@ def build_regular(center, radius, seed):
     occ = {blk: o for blk in built["blocks"] if (o := I._real_block_parts(blk, disc=1, game=None))}
     if occ:
         return None, f"not open ocean: {sorted(occ)}"
+    excl = sorted(blk for blk in built["blocks"] if blk in EXCLUDED_BLOCKS)
+    if excl:
+        return None, f"overlaps LIVE mod content: {excl}"
     mains = {}
     regular = set()
     for blk, bm in built["blocks"].items():
@@ -207,39 +220,63 @@ def blk_center(bx, by):
     return (BLOCK * bx + BLOCK / 2.0, -(BLOCK * by + BLOCK / 2.0))
 
 
+from ff9mapkit.world import mesh as M  # noqa: E402  (grid gate + weld audit)
+
+# IN-GRID candidate ladder (all block rows <= 19). PRIMARY = the stamp-design's verified site
+# (19,18)=(1248,-1184); alternates walk the same east-ocean band (cols 17-21, rows 17-19, clear of
+# the live clusters at cols 6-12), plus seed sweeps for a zero-weld host like the original build.
 CANDIDATES = [
-    ("census (9,21) r52 s11", (608.0, -1376.0), 52.0, 11.0),
-    ("census (9,21) r56 s11", (608.0, -1376.0), 56.0, 11.0),
-    ("census (9,21) r52 s2", (608.0, -1376.0), 52.0, 2.0),
-    ("census (9,21) r56 s2", (608.0, -1376.0), 56.0, 2.0),
-    ("stamp (19,18) r52 s2", (1248.0, -1184.0), 52.0, 2.0),
     ("stamp (19,18) r56 s2", (1248.0, -1184.0), 56.0, 2.0),
-    ("census-alt (10,22) r52 s11", blk_center(10, 22), 52.0, 11.0),
-    ("census-alt (8,22) r52 s11", blk_center(8, 22), 52.0, 11.0),
-    ("census-alt (13,21) r52 s2", blk_center(13, 21), 52.0, 2.0),
-    ("census-alt (15,20) r52 s2", blk_center(15, 20), 52.0, 2.0),
+    ("stamp (19,18) r56 s8", (1248.0, -1184.0), 56.0, 8.0),
+    ("stamp (19,18) r56 s10", (1248.0, -1184.0), 56.0, 10.0),
+    ("stamp (19,18) r52 s2", (1248.0, -1184.0), 52.0, 2.0),
+    ("stamp (19,18) r52 s4", (1248.0, -1184.0), 52.0, 4.0),
+    ("stamp (19,18) r52 s5", (1248.0, -1184.0), 52.0, 5.0),
+    ("stamp (19,18) r52 s6", (1248.0, -1184.0), 52.0, 6.0),
+    ("stamp (19,18) r52 s8", (1248.0, -1184.0), 52.0, 8.0),
+    ("alt (18,18) r56 s2", blk_center(18, 18), 56.0, 2.0),
+    ("alt (20,18) r56 s2", blk_center(20, 18), 56.0, 2.0),
+    ("alt (19,17) r56 s2", blk_center(19, 17), 56.0, 2.0),
 ]
 
-print("\nCANDIDATE LADDER (strict: dilate3(footprint) subset of regular = footprint+ring+2-margin)\n")
+
+def weld_pairs(host):
+    """Total mesh.weld_audit near-miss pairs, audited PER BLOCK in each block's own local frame
+    (the proven usage). The mint REQUIRES 0 (a hairline near-miss the coarse once-edge/crack gates
+    miss); reported here so the probe picks a zero-weld host up front."""
+    total = 0
+    for blk, bm in host["built"]["blocks"].items():
+        total += len(M.weld_audit([bm]))
+    return total
+
+
+print("\nCANDIDATE LADDER (IN-GRID only; strict: dilate3(footprint) subset of regular + zero-weld)\n")
 winners = []
 for label, center, radius, seed in CANDIDATES:
     host, err = build_regular(center, radius, seed)
     if host is None:
         print(f"  [{label}] REJECT -- {err}")
         continue
+    if any(not M.block_in_grid(*blk) for blk in host["blocks"]):
+        print(f"  [{label}] REJECT -- off-grid blocks {[b for b in host['blocks'] if not M.block_in_grid(*b)]}")
+        continue
+    wp = weld_pairs(host)
     cand_strict = search(host["regular"], center, need_margin=True)
     cand_loose = search(host["regular"], center, need_margin=False)
     tag = ""
-    if cand_strict:
+    if cand_strict and wp == 0:
         d, k, oi, oj = cand_strict[0]
-        tag = f"STRICT OK k={k} origin=({oi},{oj}) d={d:.1f}u ({len(cand_strict)} placements)"
+        tag = f"STRICT+ZERO-WELD OK k={k} origin=({oi},{oj}) d={d:.1f}u ({len(cand_strict)} placements)"
         winners.append((label, center, radius, seed, k, oi, oj, len(host["regular"]), host["blocks"]))
+    elif cand_strict:
+        d, k, oi, oj = cand_strict[0]
+        tag = f"strict OK k={k} d={d:.1f}u but {wp} weld pair(s) -- REJECTED for weld"
     elif cand_loose:
         d, k, oi, oj = cand_loose[0]
-        tag = f"loose-only (footprint+ring, NO 2-margin) k={k} d={d:.1f}u -- 2-margin FAILS"
+        tag = f"loose-only (footprint+ring, NO 2-margin) k={k} d={d:.1f}u -- 2-margin FAILS (weld={wp})"
     else:
-        tag = "NO placement (footprint+ring doesn't fit)"
-    print(f"  [{label}] blocks={host['blocks']} regular={len(host['regular'])} -> {tag}")
+        tag = f"NO placement (footprint+ring doesn't fit) (weld={wp})"
+    print(f"  [{label}] blocks={host['blocks']} regular={len(host['regular'])} weld={wp} -> {tag}")
 
 print("\n" + "=" * 90)
 if winners:

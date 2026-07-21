@@ -925,6 +925,13 @@ zero playtests — this one spends zero too, the eye gates first.**
 
 ## Round 5 (cont., 2026-07-21) — THE REAL-SCALE comp[1] WHOLE-STAMP DUNES MINT ★ BUILT + DEPLOYED (18/18 gates + frozen eye PASS; awaits playtest)
 
+> **⚠ SITE CORRECTED 2026-07-21 — see §Round 5 (correction) below.** The site named in this section,
+> centre **(608,−1376) ≈ block (9,21)**, is **OFF the engine's 24x20 grid** (block rows 20–22 don't
+> exist; world z only reaches −1279). It deployed 81 dead files/disc the engine never streamed. The
+> mint was re-sited to the IN-GRID stamp site **(1248,−1184) = block (19,18), r56 s2, k=0, blocks
+> (18–20,17–19)**; the frozen-eye numbers below are UNCHANGED (a verbatim k=0 stamp is
+> site-independent). Read the recipe/gates here; read the *live* coordinates in the correction.
+
 THE DUNES SIZE-CLASS LAW's one prescribed unit — **a ≥130-cell multi-block dunes field that STAMPS
 A REAL COMPONENT WHOLE** — is built and deployed. `dunes_field_mint.py` stamps **comp[1]** (130
 dunes cells + its 14-cell topo-59 enclosed hole) **VERBATIM** (bijective rigid transform, **k=0
@@ -1000,3 +1007,63 @@ SIZE-CLASS LAW is satisfied** — a ≥130-cell dunes field that does NOT quilt,
 relocated. Zero playtests spent to here (the eye gated first, per the arc's record — 5 dunes rounds,
 zero playtests). Artifacts: `dunes_field_mint.py`, `dunes_host_probe.py`,
 `out/dunes_field_mint.json`.
+
+## Round 5 (correction, 2026-07-21) — THE GRID-BOUNDS INCIDENT: the vacuous open-ocean check off the map edge ★ GATE PRODUCTIZED + MINT RE-SITED
+
+**The catcher was the user's own debug menu.** The whole-stamp mint above deployed to centre
+**(608,−1376)** — the host census's own siting, "the coherent little desert archipelago south of
+the (8,19) islet." On the first playtest the debug-menu overworld teleport refused it:
+
+> `teleport: (608, -1376) is outside the 24x20 grid (x 0..1535, z 0..-1279)`
+
+**The engine's world is a FIXED 24×20 block grid.** `WMWorld.BuildBlockArray` mints `new
+WMBlock[24, 20]` (`Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs:1675`); block cols run 0..23, rows
+0..19; world x spans [0, 1535], z spans [−1279, 0]. Centre z = **−1376 is block row 21.5** — rows
+**20/21/22 do not exist**. The mint's 9 blocks (8–10, 20–22) were **all off-grid**: the engine never
+streams those cells, so the 81 files/disc were **dead on disk**. Every one of the census's alternate
+sites ((10,22)/(13,21)/(15,20)/(8,22)/(16,20)) is off-grid too.
+
+**ROOT CAUSE — the session's vacuous-gate class, now in a shipped path.** The one gate that should
+have caught it — `landmass()`'s **OPEN-OCEAN TARGET** check (`_real_block_parts` must be empty) — was
+**VACUOUSLY TRUE off the map edge**: there are no per-block mesh assets in rows 20–22 *because there
+is no map there*, so "empty ⇒ open ocean" passed. No chokepoint in `island.py` validated grid bounds
+(`transplant`/`transplant_region` already did, via `GRID_X/GRID_Y`; `build_landmass` never did), and
+the mint's own `deploy()` wrote through `mesh.deploy_override` with no bounds check. **A check that is
+trivially satisfied outside its own domain is not a gate.**
+
+**THE GATE, PRODUCTIZED (kit).** One authoritative constant, three chokepoints:
+- `mesh.GRID_COLS, GRID_ROWS = 24, 20` (+ `GRID_WORLD_X_MAX 1535`, `GRID_WORLD_Z_MIN −1279`),
+  `mesh.block_in_grid(x,y)` and `mesh.require_block_in_grid(x,y)` — cited to `WMWorld.cs:1675` and the
+  debug-menu bounds `Ff9mkDebugMenu.cs:1595`. `terrain.py`/`water.py` (and thus `transplant.py`)
+  **re-export** `GRID_X/GRID_Y` from here, so there is now **ONE literal `24, 20`** in the kit.
+- **`build_landmass`** (world-island) refuses off-grid *before building a single `BlockMesh`*, naming
+  every offending block and the centre/radius to shift.
+- **`deploy_override` / `deploy_donor_sidecar`** (the lowest write layer) refuse off-grid *before
+  touching the filesystem* — belt-and-braces catching any direct-deploy path, including the study's own.
+- Tests: `tests/test_world_grid_bounds.py` (18) — the exact (9,21) repro refused, corners/last-row-col
+  (23,19) accepted, col 24 / row 20 / negatives refused, single-source assertion, both write funcs.
+
+**THE MINT, RE-SITED (measured, not guessed).** `dunes_host_probe.py` re-ran restricted to IN-GRID
+candidates, seeded with the stamp design's verified (1248,−1184). The winner by measurement:
+
+| | centre | block | radius | seed | dihedral | blocks | regular | placements | weld |
+|---|---|---|---|---|---|---|---|---|---|
+| **winner** | **(1248,−1184)** | **(19,18)** | **56** | **2** | **k=0 identity** | **(18–20,17–19)** | 490 | 17 | **0** |
+
+On-grid, STOCK open ocean, clear of every live cluster (comp20 (6–7,18–19), desert islet (8,19), the
+(8,17)-beach island (11–12,18–19), water-only (11,19)), MOD-OVERWRITE clean, 2-cell placement margin
+satisfied (dilate3 = 288 ⊆ 490 regular). **k=0 = a pure translation, so the frozen eye is
+byte-identical to the off-grid build**: M1 5.076 · M2 0.3636 · M3 conv 0.7536 / max_run 5 / hole 1 ·
+M4 0.0 — the verbatim stamp is **site-independent** (all 18 gates + the eye re-passed at the new
+site). Deployed both discs (81 files/disc + Disc4 mirror, 0 free-ride pins). The 162 off-grid dead
+files (r20/r21/r22 × 2 discs) were backed up to `backups/dunes-mint-gridfix.20260721/` and deleted;
+the live tree now holds exactly the pre-existing content + the mint (r17 (18–20,17); r18/r19 = live
+cols 6–12 **+** mint cols 18–20; no r20–22).
+
+**THE LAW.** *A gate that is vacuously satisfied outside its domain is not a gate.* The open-ocean
+check answers "is this a real world block?" — off the map that question is meaningless, so it must be
+**preceded** by "is this a block the engine has at all?" The debug menu already knew the answer
+(`bx >= 24 || bz >= 20`); the authoring side now speaks the same 24×20 grid. Artifacts:
+`dunes_host_probe.py` (re-sited), `dunes_field_mint.py` (parameterized centre/radius/seed, defensive
+`build_host`, in-grid ladder), `ff9mapkit/world/mesh.py` (+ `terrain.py`/`water.py`/`island.py`),
+`tests/test_world_grid_bounds.py`.
