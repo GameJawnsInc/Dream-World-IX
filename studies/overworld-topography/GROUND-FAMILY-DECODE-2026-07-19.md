@@ -1429,3 +1429,86 @@ onto a non-grass target (`world-transplant --ground desert`, the Uaho/crag/horse
 green-on-grass strip tiles onto the new ground, and the measured-green re-dress is the general remedy.
 Witness: `out/dunes_fringe_witness_z1152_holes.png` (PRE: 2 holes + big green shards / POST: clean, only faint
 rock speckle) + `out/dunes_true_carry_ab_pitch22.png` (carry side now shard-free).
+
+## Round 8 (2026-07-21) — THE RESIDUAL CENSUS ★ zero-threshold, stock-calibrated, camera-anchored (READ-ONLY; verdict: 1 of 3 is a real defect)
+
+**The playtest verdict on the green-shard fix (commit `531c628`, "0 steps / 0 holes / 0 green at frac≥0.20"):**
+the user, standing at world **(1219,−1160)** looking SSE at low pitch, reported THREE residuals: (1) *"still some
+SMALL green shards,"* (2) *"detached hard-edged pale-dunes-material fragments isolated in the red apron"* (one
+*"~15–25u SE"*), (3) *"some of the dune↔desert ecotone is MISMATCHED / reads cut-off not gradient."* The
+STANDING SUSPICION (this arc's recurring failure mode): every "all clear" so far died on an instrument threshold
+or axis. So the census is **zero-threshold, stock-calibrated, and camera-anchored** — the band is derived from what
+authentic stock desert/mesa genuinely carries, never zero-by-fiat. Instrument: `dunes_residual_census.py`
+(read-only; writes only `out/`). **NOTHING WAS DEPLOYED — the 5 carried Terrain blocks are byte-untouched on both
+discs.** Snapshot for reference: `backups/dunes-residual.20260721/` (10 deployed Terrain files).
+
+**DEFECT #1 — GREEN SHARDS: NOT a defect. Faithful stock lichen, ZERO tris above the stock band.** Per-tri
+`green_frac` (render-faithful, sub-tri, nsub=12) over EVERY deployed tri, banded against authentic stock:
+- **STOCK NULL (generic desert, no grass nearby):** a flat desert ground tile carries green up to **0.132** (the
+  rarest authentic fleck; ubiquitous tinge ≈ 0.03). **STOCK's own topo-49 mesa mural carries green up to 0.615**
+  (703/2019 tris ≥ 0.05 — the olive/lichen rock face is *heavily* green in stock).
+- **DEPLOYED (5 carried blocks):** only 23 tris render any green. **topo-16 flat desert: max 0.022** (well under
+  0.132). **topo-49 mesa mural: max 0.099** (the carried butte — a verbatim SUBSET of the donor's murals — far
+  under stock's own 0.615). **topo-41 dunes + topo-17 mains: 0 green.** **Flat-ground tris above the authentic
+  band = 0. topo-49 tris above stock-49 = 0.** The A/B render proves it: the two mid-field lichen-rock outcrops +
+  the big butte are present **identically** in stock comp[1]. The "small green shards" ARE real (visible mesa
+  lichen) but **stock-faithful** — the arc already ruled topo-49 rock KEEP. *The old frac≥0.05 gate wasn't hiding
+  a defect; the residual green is authentic rock the eye correctly sees.*
+
+**DEFECT #2 — DETACHED PALE FRAGMENTS: NOT extra fragments. Every pale fleck is faithful; 0 orphans.** Two
+independent instruments agree:
+- **STRAY-DUNE analytic census:** **24** cells carry a stray topo-41 (pale dune) tri in a non-dune-dominant cell
+  (13 in desert-strip, 8 on the mesa mural, 3 on the butte). **ALL 24 have an EXACT donor twin** — stock comp[1]
+  has the same stray dune tri at the same relative cell. **0 orphan freckles** (stock has zero freckles per the
+  shape census, so an orphan would be a defect; there are none).
+- **RENDER-SPACE pale-fragment A/B (deployed vs stock comp[1] at the same pose), multi-threshold sweep** (the
+  +10 delta at the 12px noise floor is atlas speckle; a real orphan survives a bigger bar): min_area **30px →
+  −5**, **60px → −4**, **120px → −3**. **At every non-noise bar the DEPLOYED carry renders FEWER-or-equal pale
+  fragments than stock.** The largest deployed "fragments" are all `carried`, manhattan-distance **0–1** from the
+  dune blob (boundary flecks, not detached). The user's *"~15–25u SE"* fragment = a lichen-rock outcrop in the
+  pale dune butte-skirt (`out/resid_SE_{deployed,stock}.png` are visually identical). **The perceived detachment
+  is a CONTEXT effect, not extra flecks** → mechanism = Defect #3.
+
+**DEFECT #3 — THE ECOTONE IS CUT OFF: the ONE real defect. `MARGIN_RINGS=2` truncates the gradient stock
+continues to 3–5 rings.** `dunes_true_carry.define_region` carries `R = BLOB + MARGIN_RINGS(=2) desert rings`.
+Measured: of the **47** placed_R outer-boundary cells, **44** are desert-margin ring cells carrying a gradient
+strip (topo-16) that **abuts PLAIN host mains (topo-17)** with no continued fade. **STOCK comp[1]'s desert margin
+carries the topo-16 strip gradient outward to ring depth max 5 / p90 5 / mean 3.3 cells** beyond the dune
+footprint. So stock's dune→desert transition is a WIDE graded band; ours reproduces the dune + 2 strip rings and
+then jumps to a differently-UV-tiled flat host mains. **This is why the faithful outer flecks (Defect #2) read as
+"detached" and the boundary reads "cut-off":** stock embeds them in a continued 3–5-ring gradient; our carry
+strands them against plain mains 1–3 rings too early. (The amputated grass side compounds it visually but is
+INTENTIONAL — this is a desert island; the fix is the desert-side gradient, never re-adding grass.)
+
+**RECOMMENDATIONS (per defect).**
+- **#1 green:** DO NOTHING — faithful. Re-dressing the mesa lichen would DIVERGE from stock (the arc's own topo-49
+  KEEP rule). If the all-desert aesthetic makes the lichen unwanted, the only lawful lever is a **different donor
+  butte** with less lichen, or accept it.
+- **#2 fragments:** DO NOTHING per-fleck — removing faithful ecotone flecks makes the carry *less* like stock.
+  Fixed indirectly by #3.
+- **#3 ecotone (the fix):** **raise `MARGIN_RINGS` 2 → ~5** so the carry brings the donor's full desert-margin
+  gradient (the strip continues to its natural stock depth before meeting host mains), then re-run + re-gate
+  (`build_and_gate`). Guard: the extra rings must stay desert-family (`CARRY_FAMS`) and fit the host island — an
+  all-desert host makes carrying more DESERT margin byte-faithful and safe. **Fallback** if the wider `R` pulls
+  non-desert donor cells or overruns the host: synthesize an **outward strip-fade** — translate the
+  desert|dunes strip rows 2–3 host rings past placed_R (the `ecotone_strip`/`GroundRetile` translation
+  vocabulary) to blend the carried ring into host mains.
+
+**RECALIBRATED PERMANENT GATES (the fix this census gives the arc).**
+1. **GREEN (zero-threshold, stock-banded):** deployed flat-ground tris with `green_frac >` **authentic-desert tile
+   max (0.132)** → must be **0**; deployed topo-49 tris `>` **stock's carried-butte topo-49 max** → must be **0**.
+   *(Replaces the mis-banded frac≥0.05 gate, which flagged authentic desert as suspect and would have chased
+   faithful flecks.)* Current: **PASS** (0/0).
+2. **FRAGMENT (render A/B, multi-threshold):** deployed pale-fragment count ≤ stock-equivalent count at every
+   `min_area ∈ {30,60,120}` (12px noise floor excluded). A carry that ADDS an orphan fragment (delta > 0 at
+   ≥30px) FAILS. Current: **PASS** (delta −5/−4/−3).
+3. **STRAY-DUNE donor-twin:** every stray topo-41 tri in a non-dune cell has an exact donor twin (0 orphans).
+   Current: **PASS** (24/24).
+4. **ECOTONE-CONTINUITY (NEW — the gate that catches #3):** the placed_R desert-margin outward strip-ring depth
+   must be **≥ the donor's strip-ring depth − 1**. Current: **FAIL** (carry 2 vs donor 3–5) — this is the gate the
+   fix must turn green.
+
+Artifacts: `dunes_residual_census.py` + `out/dunes_residual_census.json` + `out/resid_ab_{deployed,stock,deployed_marked}.png`
++ `out/resid_SE_{deployed,stock}.png`. **KIT-PRODUCTIZATION candidate** (alongside the seam-audit + green-shard
+de-green): the ECOTONE-CONTINUITY gate + a `--margin-rings` knob on the interior carry — any ensemble carry that
+relocates a boundary-embedded feature onto a plainer host truncates the donor's surrounding gradient the same way.
