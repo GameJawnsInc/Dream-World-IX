@@ -357,6 +357,18 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    conclusive per the user; the §8 A/B stands for a proper pin-down.]**
 4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
    at the new beat.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung4-effectpoint/` (recast pending). DESIGN CORRECTION vs
+   the ladder's wording: EffectPoint lives in the DONOR's ef227/Sequence.seq, which the cast
+   nested-loads by RESOLVED id (the private ef084/Sequence.seq is never read) — so rung 4 rides
+   the rung-2-proven shared-override class, throwaway until `revert_rung4.py`. The recon confirmed
+   the nested load is the SAME mod-stacked zero-cache AssetManager.LoadString path (File.ReadAllText
+   per cast, fresh SFXData per LoadSFX op — recast-only, no relaunch) and produced THE FULL TICK MAP
+   of Bahamut's 73-line Sequence.seq (t=0 blackout … t=434 Mega-Flare ramp … stock EffectPoint at
+   t=486/498, ~32.4s in; every HoldDuration self-consistent). The move: the EffectPoint pair
+   (12-tick gap preserved) relocated to immediately after the opening blackout (~1.2s in) —
+   anchor-block matched, DriftError-guarded, idempotent. EXPECTED: damage numbers over a black
+   screen ~1.2s in (deliberately jarring — not a bug), the rest of the cinematic unchanged; also
+   probes the early-kill/battle-end interaction the source alone can't answer.]**
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
    a bespoke Sprite .sfxmodel). Proof: our particle renders inside the donor cinematic.
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
