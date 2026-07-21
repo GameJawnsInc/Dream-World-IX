@@ -1222,3 +1222,94 @@ at the same site (1248,−1184)** vs stock comp[1] (902,−780). Artifacts: `dun
 `out/dunes_true_carry.json` + `out/dunes_true_carry_ab_pitch{22,34}.png`; the frozen eye
 `dunes_grazing_eye.py` was **not touched** (Phase-1 freeze honored). Revert: restore the 10 backed-up
 Terrain files (both discs).
+
+## Round 7 (2026-07-21) — THE FRINGE CENSUS ★ the two playtest fringe defects decoded to the vertex (census + fix designed + gates frozen; NOT yet built)
+
+**The playtest verdict on the TRUE MESH CARRY (Round 6):** *"The ecotone is nice now"* — the dunes|desert
+seam LANDED. Two NEW fringe defects, with two ground-level screenshots: (1) *"lifted or shrunken seams in
+the ground"* — long thin BLUE SLIVERS (sea/void through the terrain), one *"around (1220,−1152)"*, exactly
+on the block border z=−1152; (2) *"hard-edged grass ecotone tiles"* — carried green fragments reading as
+triangular green shards with dead-straight edges against the red desert.
+
+**The instrument the arc never had — `dunes_fringe_census.py`, the CROSS-BLOCK coincident-edge test.** The
+recorded blind spot (coast memory): *"the adjacency test only sees WITHIN-block edges, never a coincident
+edge across a block boundary."* `weld_audit` is per-block LOCAL-frame — two verts on a shared border read
+z=0 (top of the by−1 block) vs z=−64 (bottom of the by block): same WORLD line, different local values, so
+a cross-block crack is **structurally invisible** to it (and to the MISS census, which samples per-cell
+coverage inside a block). The new census lifts BOTH sides of every shared border into the WORLD frame and
+compares the border cross-sections by **border-edge interval coverage + Y-profile** (a vertex-match test
+alone misses the notch — both endpoint verts can coincide while one side lacks the border edge between
+them). **Calibration law honored: the STOCK donor region (blocks 12–15,10–13) censuses 0 steps / 0 holes**
+across all 24 internal borders — the instrument raises zero phantom seams on shipping data.
+
+**THE CRACK/STEP CENSUS — 4 defects, ALL on carried|carried borders, ALL cross-block-reconciliation
+failures, mechanism proven to the vertex** (drilled the actual tris):
+
+| # | kind | border | site | measure | mechanism |
+|---|------|--------|------|---------|-----------|
+| 1 | HOLE | [19][17] and [19][18], z=−1152 | x in [1216,1220] w≈4u | void | phase-shifted NOTCH |
+| 2 | HOLE | [19][17] and [19][18], z=−1152 | x in [1248,1256] w≈7.7u | void | phase-shifted NOTCH |
+| 3 | STEP | [18][18] and [19][18], x=1216 | z in [−1171,−1165] | dY=0.12 | block-local WELD-SNAP miss |
+| 4 | STEP | [19][18] and [20][18], x=1280 | z in [−1172,−1165] | dY=0.33 | block-local WELD-SNAP miss |
+
+- **THE PHASE-SHIFTED NOTCH (holes).** A sub-cell CONFORM vertex from the donor lands just *off* a
+  phase-shifted block border (e.g. world z=−1151.43, 0.57u inside block [19][17]'s frame). In the block
+  where it is interior it survives verbatim, pulling that block's boundary into a notch off the border
+  line; in the neighbour the *same* donor geometry is clipped exactly at z=−1152 (straight). The two
+  boundaries no longer coincide → a thin triangular void where sea/void shows through = the BLUE SLIVER.
+  The user's *"(1220,−1152)"* sighting is the right edge of defect #1. **This is the Round-6 phase-shifted
+  partition's failure mode the `clip_poly` watertightness argument missed: the argument holds for a tri
+  the two blocks BOTH clip, but a conform vert interior to one block is never clipped there — only in the
+  neighbour — so the two boundaries diverge by the vert's off-border distance.**
+- **THE BLOCK-LOCAL WELD-SNAP MISS (steps).** Round 6's conform-snap (which seats the flat host up to the
+  carried donor margin) is keyed **(blk,gi,gj)** — deliberately, so a border-corner vert in-frame for one
+  block does not poke the neighbour. But a carried donor vert that lands ON a block border is registered
+  only in the block that owns the cell; the neighbour host block's flat vert (Y=3.20) finds no snap target
+  and stays flat while the carried side is elevated (donor+DY, 3.32/3.54) → a vertical step = the
+  *lifted/shrunken seam*. **The block-local key that fixed one poke opened the reciprocal gap: a border
+  corner needs the carried target registered in BOTH blocks.**
+
+**THE GREEN-SHARD CENSUS refutes the "62+7" grouping — only 7 tris render green.** Atlas-sampled greenness
+(G − max(R,B)) over the 5 deployed blocks: **topo-0 grass = +9.9 (the ONLY green-positive topo,** RGB
+97,107,57, olive**)**; topo-49 mural = −26.3 (RGB 139,113,78, **brown rock**, mean 8.9u from the topo-59
+butte). So the *"green shards"* are the **7 topo-0 grass tris only**; the **62 topo-49 murals are the
+mesa's brown mural faces — genuine dunes-ensemble content, KEEP.** Donor-context classification: the 7
+grass tris sit in desert-dominant cells that in stock comp[1] lay on the grass|desert ecotone with the
+grass continent behind; the carry amputated the grass side (our island is all-desert) leaving lone green
+tiles against red desert = **orphan-grass-stumps, THE ENSEMBLE LAW's amputation-stump class.** They rode
+along despite grass not in CARRY_FAMS because CARRY_FAMS only gates the *margin* cells — a dunes/desert
+dominant BLOB cell carries **all** its centroid tris, including a stray grass one. (The Round-6 note *"zero
+grass carried"* was true at the cell level, false at the tri level; the census caught it.) **The fix
+vocabulary** is stock's own dune-ensemble desert margin: **86 desert / 19 t49-mural / 24 hole-butte / 4
+grass** — i.e. re-dress the orphan grass to plain desert.
+
+**THE FIX (designed + mechanism PROVEN offline, NOT yet built).** `simulate_fix()` applies three fixes to
+in-memory world soups and re-censuses → **cross-block steps=0, holes=0, green=0** (all fringe defects
+closed):
+- **FIX-H (holes):** snap every carried vert within (1e-4, 1.0u) of a block-border plane ONTO it — the
+  notch vert stretches its tri down to the border, filling the gap; both sides become the same straight
+  border edge.
+- **FIX-S (steps):** the cross-block form of Round 6's conform-snap — register a carried border-corner
+  target in BOTH adjacent blocks (or, post-hoc, raise the matched-t border verts to the per-t MAX Y so the
+  flat-host side welds UP to the carried margin).
+- **FIX-G (green):** re-dress each of the 7 topo-0 grass tris to desert (topo-17 + desert-mains UV).
+- **EYE PRESERVED (empirically substantiated):** the fix touches **17 distinct world positions**, every one
+  **≥8.9u from any dune-footprint cell** (median 23.5u), topos {0,16,17,58} — **zero topo-41 dunes, zero
+  within 8u of the dune|desert boundary the frozen eye judges.** So GATE A/B/C stay at their stock-exact
+  values by construction (the fix lives entirely in the flat desert margin + mesa base + the amputation
+  stumps). **The best home for the fix is the CARRY level (`dunes_true_carry.py`): pre-quantize near-border
+  donor verts onto the phase-shifted borders before re-partition (closes holes) + register the weld-snap
+  target for both border blocks (closes steps) + strip/re-dress topo-0 tris inside carried cells (closes
+  shards) — then re-run, which re-asserts all 10 gates + the frozen eye, and the census on the rebuilt
+  blocks must read 0/0/0.**
+
+**PERMANENT GATES (frozen into `dunes_fringe_census.py`).** (1) *cross-block seam NULL* — stock donor
+region 0 steps/0 holes (calibration); (2) *deployed cross-block seam integrity == 0* — the fix target,
+frozen at the known 4-defect set so a regression that ADDS a seam is caught even before the fix lands;
+(3) *no orphan grass shard* — 0 topo-0 tiles with an all-desert deployed 8-neighbourhood. **KIT-PRODUCTIZATION
+candidate:** promote the cross-block interval-coverage census into `world/mesh.py` as a
+`cross_block_seam_audit(blocks)` companion to `weld_audit` — every multi-block carry (Uaho / crag /
+horseshoe / comp20, the coast ladders) has the same blind spot, and this is the general instrument for it.
+**NOTHING WAS DEPLOYED THIS ROUND** — census is read-only, the fix is simulated in-memory; the 5 carried
+Terrain blocks are byte-untouched on both discs. Artifacts: `dunes_fringe_census.py` +
+`out/dunes_fringe_census.json`.
