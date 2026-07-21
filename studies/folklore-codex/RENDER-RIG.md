@@ -19,8 +19,28 @@
 > Ledger stayed clean: awake 4ms · rig mint **7ms** · first frames 21/3/15 — the rig adds nothing to
 > the s45 hang budget.
 >
-> **Status: RUNG 1 ★ MECHANISM PROVEN; round 2 (yaw 0 + transparent + depth 5) DEPLOYED 2026-07-21 —
-> awaiting its look-check.** Captured as
+> **ROUND 2 PLAYTEST (2026-07-21): transparency ★ WORKS (creature composites onto the pane sheet, no
+> box, faces the camera) — but "not really what I had in mind": superimposed text over the model reads
+> badly no matter what. User direction: split the right column like the EQUIP screen's right side
+> (EQUIPMENT over ABILITY) — "can't use the exact same setup... but it proves the primitives."
+>
+> **ROUND 3 — THE EQUIP-SENTENCE SPLIT (built + deployed same day, ★ look-check pending):** two
+> stacked bordered windows via the file's own `BuildFramedPane` (the ControlPanel/GenericInfoPanel
+> recipe — NOT synthy, both windows are the stock skin): TOP 780×500 @ (410,+150) = the PORTRAIT
+> window (caption = entry name, same label binding), 20-unit gap, BOTTOM 780×360 @ (410,−300) = the
+> LORE window (caption blank; body label re-seated 680×280). Column footprint byte-preserved
+> (+400..−480). Portrait re-seated 680×400 centered in the top window; RT resized to 680×400 (seat ==
+> RT, 1:1); NEW FRAMING KNOBS `FolkloreRigCamDist=−700` (was the viewer's −1000) +
+> `FolkloreRigAimY=−80` (stage-local aim-up — the round-2 snap showed the low-pivot model sitting
+> high with legs clipping the narrow aspect). Depth now derives from the TOP pane's OWN Body sheet
+> (+1 → 5) — the round-3 skeptic caught the old min-of-both-labels derivation coupling the bottom
+> window's label into a decision local to the top (plus: a blind margin chosen without the census
+> WAS the round-1 collision — the instrument law again). Skeptic also RECORDED (not fixed — 16
+> approved rounds ship these numbers): the column's right edge (800) exceeds the file's own ±771
+> pillarbox-safe comment by 29 units — check once in 4:3/pillarboxed mode someday.
+>
+> **Status: RUNG 1 ★ MECHANISM PROVEN; round 3 (the Equip-sentence split) DEPLOYED — awaiting its
+> look-check.** Captured as
 > `memoria-patches/s46-folklore-render-rig.patch` (ONE file, `FolkloreUI.cs` only — no csproj change; both
 > gates green: reverse `-F0` clean on live, forward `--binary -F0` onto `backups/preS46-snapshots.20260721`
 > == live bytes; the deployed DLL carries the new method names, both arches MD5-match Output). Build shape:

@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
-index 026b2e8..0e93b75 100644
+index 026b2e8..2ac686d 100644
 --- a/Assembly-CSharp/Global/FolkloreUI.cs
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
-@@ -39,6 +39,10 @@ using UnityEngine;
+@@ -39,6 +39,18 @@ using UnityEngine;
  public class FolkloreUI : UIScene
  {
      private const String ListGroupButton = "Folklore.List";
@@ -10,10 +10,18 @@ index 026b2e8..0e93b75 100644
 +                                                                    // (the Model Viewer's own test class,
 +                                                                    // ModelViewerScene.cs:1725). Registry
 +                                                                    // Entry.Display stays unread until rung 3.
++    // s46 round 3 -- FRAMING KNOBS (aesthetic, playtest-tuned; neither is load-bearing). The round-2
++    // snap showed the creature sitting in the UPPER portion of the view (the model pivot is low) with
++    // its legs clipping the old narrow 640x720 aspect. The landscape 680x400 RT widens the horizontal
++    // FOV (no more leg clip); the shorter camera distance grows the creature in the fixed 40-degree
++    // vertical FOV; the aim offset (stage-local, PSX y-down so NEGATIVE = screen-up) re-centers the
++    // low-pivot model vertically.
++    private const Single FolkloreRigCamDist = -700f;   // was -1000 (the viewer's own bench distance)
++    private const Single FolkloreRigAimY = -80f;       // aim above the pivot, toward the body's center
  
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
-@@ -91,6 +95,10 @@ public class FolkloreUI : UIScene
+@@ -91,6 +103,10 @@ public class FolkloreUI : UIScene
  
      public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -24,7 +32,7 @@ index 026b2e8..0e93b75 100644
          // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
          // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
          this.muteSettleDepth = 0;
-@@ -102,6 +110,21 @@ public class FolkloreUI : UIScene
+@@ -102,6 +118,21 @@ public class FolkloreUI : UIScene
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
@@ -46,7 +54,7 @@ index 026b2e8..0e93b75 100644
      public override Boolean OnKeyCancel(GameObject go)
      {
          if (base.OnKeyCancel(go))
-@@ -300,10 +323,16 @@ public class FolkloreUI : UIScene
+@@ -300,10 +331,16 @@ public class FolkloreUI : UIScene
      {
          if (this.detailNameLabel == null)
              return;
@@ -63,7 +71,7 @@ index 026b2e8..0e93b75 100644
              return;
          }
          FolkloreRegistry.Entry e = this.entries[this.currentIndex];
-@@ -314,14 +343,324 @@ public class FolkloreUI : UIScene
+@@ -314,14 +351,338 @@ public class FolkloreUI : UIScene
              if (String.IsNullOrEmpty(lore))
                  lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
              this.detailBodyLabel.rawText = lore;
@@ -94,6 +102,9 @@ index 026b2e8..0e93b75 100644
 +        this.dumpedDetailPaneOnce = true;
 +        foreach (UIWidget w in this.detailPanel.GetComponentsInChildren<UIWidget>(true))
 +            Log.Message($"[FolkloreUI] detail pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
++        if (this.portraitPanel != null)
++            foreach (UIWidget w in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                Log.Message($"[FolkloreUI] portrait pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
 +    }
 +
 +    // s46 rung 1 -- lazy mint (never Awake/Show, per the s45 first-open-hang budget), cached for the
@@ -149,7 +160,9 @@ index 026b2e8..0e93b75 100644
 +            GameObject camGo = new GameObject("Folklore Render Camera");
 +            camGo.transform.parent = stage.transform;
 +            camGo.transform.localScale = Vector3.one;
-+            camGo.transform.localPosition = new Vector3(0f, 0f, -1000f);   // ModelViewerScene.cs:296
++            camGo.transform.localPosition = new Vector3(0f, 0f, FolkloreRigCamDist);   // the viewer's
++                                                                 // -1000 bench (ModelViewerScene.cs:296)
++                                                                 // pulled in -- see the framing knobs
 +            Camera cam = camGo.AddComponent<Camera>();
 +            this.folkloreCamera = cam;                           // commit IMMEDIATELY (same reason)
 +            cam.enabled = false;                                // leak defense: never joins the render
@@ -174,16 +187,20 @@ index 026b2e8..0e93b75 100644
 +            cam.fieldOfView = 40f;
 +            cam.nearClipPlane = 0.1f;
 +            cam.farClipPlane = 10000f;
-+            camGo.transform.LookAt(stage.transform.position, Vector3.down);   // PSX y-down up-vector
++            camGo.transform.LookAt(stage.transform.TransformPoint(0f, FolkloreRigAimY, 0f), Vector3.down);
++            // ^ PSX y-down up-vector; the aim point rides the framing knob (stage-local, so ancestor
++            //   scale is honored via TransformPoint) instead of the low model pivot
 +
 +            // leak defense: stamp layer 10 recursively AFTER model parenting, so the model's own
 +            // renderers land on layer 10 too -- NGUITools' layer-INHERIT law only fires through
 +            // NGUITools.AddChild, not a plain transform.parent assignment, so this must be an explicit stamp
 +            FolkloreUI.SetLayerRecursive(stage, 10);
 +
-+            RenderTexture rt = new RenderTexture(640, 720, 24);   // 24-bit depth mandatory for 3D --
++            RenderTexture rt = new RenderTexture(680, 400, 24);   // 24-bit depth mandatory for 3D --
 +                                                                   // the tree's only nonzero-depth RT
-+                                                                   // precedent is GEOTEXHEADER.cs:126
++                                                                   // precedent is GEOTEXHEADER.cs:126;
++                                                                   // dims == the portrait seat exactly
++                                                                   // (round 3), so nothing stretches
 +            rt.name = "Folklore Rig RT";
 +            rt.filterMode = ModelFactory.GetFilterMode(Configuration.Graphics.ElementsSmoothTexture, 0);
 +            rt.wrapMode = TextureWrapMode.Clamp;
@@ -193,30 +210,35 @@ index 026b2e8..0e93b75 100644
 +                                                                 // composition (Libra's own camera keeps
 +                                                                 // this only for one Render() call)
 +
-+            UITexture portrait = NGUITools.AddWidget<UITexture>(this.detailPanel, 0);   // depth fixed below
++            UITexture portrait = NGUITools.AddWidget<UITexture>(this.portraitPanel, 0);   // depth fixed below
 +            this.folklorePortrait = portrait;                    // commit IMMEDIATELY (same reason)
 +            portrait.mainTexture = rt;
 +            portrait.SetAnchor((GameObject)null);               // the file's own ROUND-2 LAW: anchors
-+            portrait.pivot = UIWidget.Pivot.Top;                 // re-assert every frame -- SetAnchor(null)
++            portrait.pivot = UIWidget.Pivot.Center;              // re-assert every frame -- SetAnchor(null)
 +                                                                  // THEN pivot THEN SetRawRect
-+            portrait.SetRawRect(0f, 330f, 600f, 700f);           // pane-local: same top seat the lore
-+            // label uses (Awake) -- a RESERVED-OVERLAP seat, not a carved region. The label's own
-+            // 600x640 box (330 down to -310) is left untouched (rung 1 must not re-litigate the
-+            // 16-round-proven pane layout); the portrait covers that box PLUS the ~130-unit dead margin
-+            // below it (down to -370) the pane has always had unused. Depth (below) puts the portrait
-+            // BEHIND the text, so glyphs paint over it wherever the two overlap -- "leave the lore text
-+            // readable" by draw order, not by shrinking the text's box. NEVER call MakePixelPerfect (it
-+            // would snap this rect to the RT's raw 640x720 and blow past the pane).
++            portrait.SetRawRect(0f, -20f, 680f, 400f);           // round 3: centered in the TOP window
++            // (its own 780x500 pane), nudged 20 down so the caption rail keeps clear air: top edge
++            // +180 vs the window's +250, bottom -220 vs -250. The text lives in the BOTTOM window now
++            // -- no overlap anywhere, the round-2 complaint's actual fix. Seat == RT dims (680x400),
++            // so the render maps 1:1. NEVER call MakePixelPerfect (harmless now that seat == RT, but
++            // the ban stands -- a future RT resize would silently blow the seat).
 +
-+            // depth: the round-1 census MEASURED the pane's landscape (Shadow 3 / Body sheet 4 /
-+            // body label 6 / Border 8 / frame Caption 9) -- the unique free slot between the sheet
-+            // and the lowest label is textDepth-1 (= 5). Round 1 shipped textDepth-2 as a "safety
-+            // margin" and thereby CREATED the exact tie it feared (portrait 4 == Body sheet 4; ties
-+            // fall through to an unstable secondary UIWidget.PanelCompareFunc comparison -- it only
-+            // happened to resolve in our favor that launch). Derived, not hardcoded, so a future
-+            // label re-depth keeps the portrait tracking one below the text.
-+            Int32 textDepth = Math.Min(this.detailNameLabel.depth, this.detailBodyLabel.depth);
-+            portrait.depth = textDepth - 1;
++            // depth: one above the TOP window's OWN Body sheet -- scoped to the portrait's own pane
++            // (the round-3 skeptic: the old min-of-both-labels derivation coupled the bottom
++            // window's label into a decision local to this one). Measured bake per frame clone:
++            // Shadow 3 / Body 4 / Border 8 / Caption 9 -> the portrait lands at 5, above the sheet,
++            // below the border ring and the caption. The runtime read (fallback 4 = the measured
++            // bake) tracks a future re-bake instead of hardcoding. Round-1 history: a blind
++            // textDepth-2 "safety margin" was an EXACT tie with the sheet -- the census log is the
++            // instrument, margins chosen without it can BE the collision.
++            Int32 sheetDepth = 4;
++            foreach (UIWidget fw in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                if (fw.name == "Body")
++                {
++                    sheetDepth = fw.depth;
++                    break;
++                }
++            portrait.depth = sheetDepth + 1;
 +
 +            this.folkloreRigFailed = false;
 +            Log.Message($"[FolkloreUI] rig mint took {rigWatch.ElapsedMilliseconds}ms");   // always log
@@ -388,7 +410,57 @@ index 026b2e8..0e93b75 100644
      // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
      // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
      // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
-@@ -641,6 +980,22 @@ public class FolkloreUI : UIScene
+@@ -403,14 +764,25 @@ public class FolkloreUI : UIScene
+         fadeGo.transform.localScale = Vector3.one;
+         base.FadingComponent = fadeGo.GetComponent<HonoFading>();
+ 
+-        // RIGHT pane: the detail WINDOW (bordered -- the stock skin-popup style); caption = entry name.
++        // RIGHT column: THE EQUIP-SENTENCE SPLIT (s46 round 3, user-directed -- "look at Equip: top
++        // and bottom split on its right panels"): TWO stacked bordered windows, the stock Equip
++        // screen's right-column shape (EQUIPMENT over ABILITY) recomposed as PORTRAIT over LORE.
++        // Both are the SAME proven GenericInfoPanel recipe the old single pane used -- nothing new
++        // is synthesized, the primitives are stock. Column footprint unchanged (780 wide at x=410,
++        // spanning the old pane's +400..-480 band): TOP 780x500 @ (410,+150) = the portrait window,
++        // caption = entry name (same label binding, RefreshDetail untouched); a 20-unit gap; BOTTOM
++        // 780x360 @ (410,-300) = the lore window, caption blank (a localization row can name it
++        // later without a DLL change).
+         // (The LEFT side is NOT a built pane: the list donor carries its own AUTHENTIC dressing --
+         // sheet + capped rails + header caption -- resurrected below; the round-9 borderless-frame
+         // approximation had no edges and an inset body.)
+-        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -40f, 780f, 880f, true, out this.detailNameLabel);
++        this.portraitPanel = this.BuildFramedPane(menu, "Folklore Portrait Pane", 410f, 150f, 780f, 500f, true, out this.detailNameLabel);
+         this.detailNameLabel.rawText = String.Empty;
++        UILabel loreCaption;
++        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -300f, 780f, 360f, true, out loreCaption);
++        loreCaption.rawText = String.Empty;
+ 
+-        // the lore body label inside the right pane
++        // the lore body label inside the BOTTOM window (top margin clears the caption rail)
+         GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
+         bodyGo.name = "Folklore Detail Body";
+         bodyGo.transform.parent = this.detailPanel.transform;
+@@ -418,8 +790,8 @@ public class FolkloreUI : UIScene
+         bodyGo.SetActive(true);
+         this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
+         this.detailBodyLabel.SetAnchor((GameObject)null);
+-        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the pane
+-        this.detailBodyLabel.SetRawRect(0f, 330f, 600f, 640f);
++        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the window
++        this.detailBodyLabel.SetRawRect(0f, 140f, 680f, 280f);
+         this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
+         this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
+         this.detailBodyLabel.multiLine = true;
+@@ -623,6 +995,9 @@ public class FolkloreUI : UIScene
+     [NonSerialized]
+     private GameObject detailPanel;
+     [NonSerialized]
++    private GameObject portraitPanel;                      // s46 round 3: the TOP window of the
++                                                            // Equip-sentence split (portrait over lore)
++    [NonSerialized]
+     private UILabel detailNameLabel;
+     [NonSerialized]
+     private UILabel detailBodyLabel;
+@@ -641,6 +1016,22 @@ public class FolkloreUI : UIScene
      [NonSerialized]
      private Int32 muteSettleDepth;
  
