@@ -22,6 +22,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, 
                            QPainter, QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import QFrame, QWidget
 
+from .. import __version__
 from ..editor import theme
 from . import anim, style
 
@@ -380,7 +381,7 @@ class HeroBand(QWidget):
         f = QFont("Segoe UI"); f.setPixelSize(overline_px); f.setWeight(QFont.Weight.DemiBold)
         f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0 * k)
         p.setFont(f); p.setPen(QColor(pal["text"]))
-        p.drawText(QPointF(x0, overline_y), "FF9 FIELD TOOLKIT \u00b7 1.0.0b15")
+        p.drawText(QPointF(x0, overline_y), f"FF9 FIELD TOOLKIT \u00b7 {__version__}")
 
         # 6. wordmark -- pal["text"], NEVER gold. A gold "Dream World IX" is a fan-logo; it is the
         #    most predictable move available and why every FF9 fan project looks the same.

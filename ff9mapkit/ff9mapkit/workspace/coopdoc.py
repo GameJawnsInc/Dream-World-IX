@@ -261,6 +261,8 @@ class CoopDoc(QWidget):
 
         apply_row = QHBoxLayout()
         self.btn_style = _pad(QPushButton("Apply play style"))
+        self.btn_style.setToolTip("Start co-op already applies these — Apply just updates Memoria.ini; "
+                                  "a running game picks it up in a couple of seconds.")
         self.btn_style.clicked.connect(self.apply_playstyle)
         apply_row.addWidget(self.btn_style)
         apply_row.addStretch(1)
@@ -280,9 +282,13 @@ class CoopDoc(QWidget):
         self.btn_start.setObjectName("accent")
         self.btn_start.clicked.connect(self.start_coop)
         self.btn_stop = _pad(QPushButton("Stop bridge"))
+        self.btn_stop.setToolTip("Stops the local relay — co-op stays configured in Memoria.ini; "
+                                 "press Start co-op to reconnect.")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_bridge)
         self.btn_off = _pad(QPushButton("Disable co-op"))
+        self.btn_off.setToolTip("Turns co-op off in Memoria.ini and stops the bridge — the game "
+                                "reverts to solo.")
         self.btn_off.setProperty("role", "quiet")      # the ladder's bottom rung -- see style.py
         self.btn_off.clicked.connect(self.disable_coop)
         btns.addWidget(self.btn_start)
@@ -304,13 +310,9 @@ class CoopDoc(QWidget):
         # A hint gets a hint's treatment (capped measure, the caption tier). As a bare QLabel it wrapped
         # at the full page column -- ~135 characters a line, the exact COLUMN defect the rest of the app
         # already fixed (widgets.caption caps at ~74ch).
+        from .. import coop
         hint = widgets.caption(
-            "Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
-            "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
-            "spot: ~ → Warp to field → 30003). The in-game overlay shows the code + pairing "
-            "state, tells you which field your friend is on, and disappears when their ghost "
-            "is up. A running game picks up session changes within a few seconds — no restart "
-            "needed.")
+            f"Start co-op, keep this app open, then launch FF9 and stand on the same screen as your friend — ghosts appear on any field you two share (guaranteed meeting spot: ~ → Warp to field → {coop.COOP_FIELD}). The in-game overlay shows the code, pairing state, and which field your friend is on.")
         v.addWidget(hint)
         v.addStretch(1)
         scroll.setWidget(inner)

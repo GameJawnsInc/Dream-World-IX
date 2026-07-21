@@ -102,8 +102,7 @@ class StoryStateDoc(QWidget):
         self.diff_txt = QPlainTextEdit()
         self.diff_txt.setReadOnly(True)
         self.diff_txt.setAccessibleName("Save comparison")
-        self.diff_txt.setPlaceholderText("Open a second save (B) above and Compare to see which story flags "
-                                         "and scenario beats changed between them.")
+        self.diff_txt.setPlaceholderText("Compare to see which story flags and scenario beats changed — between two slots of this save, or across a second save (B) opened above.")
         lay.addWidget(self.diff_txt, 1)
         return page
 
@@ -611,9 +610,7 @@ class ItemEquipDoc(QWidget):
             self.edit_target.setText("Editing disabled — this slot could not be decoded.")
             self.gil_var.setText("")
         elif extra is None:
-            self.edit_target.setText(f"Editing: {t['label']} (vanilla — main block). Gil, items, equipment, "
-                                     "stats, abilities, key items. Backed up first. (Some characters share one "
-                                     "equipment record in vanilla saves, so editing one can affect another.)")
+            self.edit_target.setText(f"Editing: {t['label']} (vanilla — main block). Backed up first. (Some characters share one equipment record in vanilla saves, so editing one can affect another.)")
             self.gil_var.setText(str(rep.gil) if rep.gil is not None else "")
         else:
             where = "the extra file" if container is None else "the main block + the extra mirror"

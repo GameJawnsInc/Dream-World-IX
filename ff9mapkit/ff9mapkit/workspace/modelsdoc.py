@@ -287,6 +287,7 @@ class ModelsDoc(QWidget):
         muted = f"color:{self.pal['muted']};"
         box = widgets.section("Custom playable's battle animset")
         v = box.content_layout
+        v.addWidget(widgets.caption("Works on a field.toml's [[playable]] block — not the model selected above."))
         frow = QHBoxLayout()
         _l_pa = QLabel("field.toml:")
         frow.addWidget(_l_pa)
@@ -342,7 +343,7 @@ class ModelsDoc(QWidget):
             return
         self._kit(["playable-anims", field, "--export", out], subject="Export donor .glb",
                   ok_next=f"Wrote {out} — Actions are named by battle motion (23_attack, …). Edit in "
-                          "Blender (active action only!), then Route edited .glb.")
+                          "Blender (active action only), then Route edited .glb.")
 
     def on_pa_edit(self):
         field = self._pa_field_arg()
@@ -643,7 +644,7 @@ class ModelsDoc(QWidget):
         mod = self._model_mod_arg()
         if mod is None:
             return
-        files, _ = QFileDialog.getOpenFileNames(self, "The edited {name}.png file(s)", "",
+        files, _ = QFileDialog.getOpenFileNames(self, "The edited reskin PNG(s)", "",
                                                 "PNG images (*.png)")
         if not files:
             return

@@ -130,12 +130,7 @@ class ImportDoc(QWidget):
         self.mode_verbatim.setChecked(True)
         mv.addWidget(self.mode_verbatim)
         mv.addWidget(self.mode_authorable)
-        mhint = widgets.caption("Verbatim ships the field's real event script + dialogue WHOLE — it runs the original "
-                                "logic, story gating, real doors and rotating cast (the proven faithful path), carrying "
-                                "every NPC/prop/line itself. A verbatim fork boots at scenario zero — use Preview fidelity "
-                                "for the suggested starting beat, then add a [startup] block in the editor. The scene + "
-                                "carry options appear only in Re-authorable mode (which drops the real logic for editable "
-                                "[[npc]]/content you re-author).")
+        mhint = widgets.caption("Ships the field's real script + dialogue whole — original logic, story gating, doors and rotating cast, every NPC and prop carried. It boots at scenario zero; use Preview fidelity for the starting beat, then add a [startup] block in the editor. (Scene and carry options live in Re-authorable mode.)")
         mv.addWidget(mhint)
         self.mode_verbatim.toggled.connect(self._sync_mode)
         v.addWidget(mode)
@@ -161,8 +156,12 @@ class ImportDoc(QWidget):
         self.save_moogle = QCheckBox("Save point — hidden Moogle + flourish (if the field has one)")
         self.carry_npcs.setChecked(True)
         self.carry_text.setChecked(True)
-        for c in (self.carry_npcs, self.carry_text, self.dialogue_stubs, self.save_moogle):
-            cv.addWidget(c)
+        cv.addWidget(self.carry_npcs)
+        cv.addWidget(self.save_moogle)
+        cv.addWidget(self.carry_text)
+        cv.addWidget(self.dialogue_stubs)
+        cv.addWidget(widgets.caption("These aren't alternatives — carry the real lines, drop in commented "
+                                     "[[npc]] stubs to re-author, or both."))
         v.addWidget(self.carry_box)
         # NB: the initial _sync_mode() is deferred to the END of this method -- it now reads swap_player +
         # writes mode_chip, neither of which exists yet here.
@@ -213,6 +212,7 @@ class ImportDoc(QWidget):
         self.mode_chip = QLabel("")             # live 'what will ACTUALLY run' -- the mode can be forced by Walk-as
         self.mode_chip.setWordWrap(True)
         v.addWidget(self.mode_chip)
+        v.addWidget(widgets.caption("The new fork's id and name — not the source field above."))
         ids = QHBoxLayout()
         _l_fid = QLabel("Field id:")
         ids.addWidget(_l_fid)
@@ -556,16 +556,14 @@ class ImportDoc(QWidget):
                                     "dali / trno …). Blank imports the whole game.")
         opts.addWidget(self.arc_pattern)
         self.arc_editable = QCheckBox("Full editable scenes (bigger + slower)")
-        self.arc_editable.setToolTip("Per-depth repaintable layers for art-modding a whole set at once "
-                                     "(~2–3 GB whole-game) instead of the lightweight default (~500 MB).")
+        self.arc_editable.setToolTip("Per-depth repaintable layers for art-modding a whole set at once — much larger than the lightweight default (whole-game is on the order of a few GB).")
         opts.addWidget(self.arc_editable)
         self.arc_btn = QPushButton("Build archive")
         self.arc_btn.clicked.connect(self.on_archive)
         opts.addWidget(self.arc_btn)
         opts.addStretch(1)
         v.addLayout(opts)
-        hint = widgets.caption("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
-                               "fields with no scene) are listed and skipped.")
+        hint = widgets.caption("Whole game: seconds for lightweight, several minutes and a few GB for editable (rough estimates). Sceneless world/special fields are listed and skipped.")
         v.addWidget(hint)
         return box
 

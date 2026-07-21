@@ -186,6 +186,15 @@ class BuildDoc(QWidget):
         # "Build only — to a folder:" keeps its sentence: it is a FIELD LABEL for the adjacent QLineEdit,
         # not prose. Cutting it orphans the input.
         gv.addLayout(of)
+        # The consequence caption its three siblings get from option(); option() can't run here because
+        # rb_other already lives in `of` (its radio is the line edit's field label), so mirror option's body.
+        _other_cap = "Compiles the field into a plain folder — nothing is deployed to the game."
+        oc = widgets.Prose(_other_cap, widgets.CAPTION_W, base="caption")
+        oc.setProperty("role", "caption")
+        oc.setContentsMargins(widgets.OPT_INDENT, 0, 0, 6)
+        gv.addWidget(oc)
+        self.rb_other.setAccessibleDescription(_other_cap)
+        self.rb_other.description_label = oc
         # WAS role="accent" -- a ~140-char sentence in accent blue, the loudest thing on the card and the
         # least important. style.py documents that role as "an actionable VALUE (e.g. a deploy target)", and
         # measured, accent-as-text is sub-AA in 6 of 7 palettes (NORD 2.44:1 on surface_2). It is now a
@@ -297,6 +306,11 @@ class BuildDoc(QWidget):
         bv = box.content_layout
         self.battle_dest = QLabel(f"Test mod folder: {self.mod_folder}")
         self.battle_dest.setProperty("role", "muted")
+        if not self.has_tools:                         # installed: deploy_battle needs a source checkout -> mark it, like rb_test
+            self.battle_dest.setText(self.battle_dest.text() + "   (dev repo only)")
+            self.battle_dest.setToolTip("Battle deploy shells out to tools/deploy_battle.py, which needs a "
+                                        "source checkout. Set the FF9_REPO environment variable to your Dream "
+                                        "World IX repo (or launch it from there), then reopen.")
         bv.addWidget(self.battle_dest)
         tf = QHBoxLayout()
         tf.addWidget(QLabel("Trigger field (optional):"))

@@ -63,7 +63,7 @@ class SetupHealthDialog(QDialog):
                                   "Non-destructive; safe to re-run.")
         self.setup_btn.clicked.connect(self.on_setup)
         self.engine_btn = QPushButton("Install engine patches…")
-        self.engine_btn.setToolTip("Install the dwix-custom-memoria DLL bundle (needed by FORKED fields). "
+        self.engine_btn.setToolTip("Install the dwix-custom-memoria engine bundle (needed by FORKED fields). "
                                    "Backs up the live DLLs first — reversible. Needs Memoria installed.")
         self.engine_btn.clicked.connect(self.on_engine)
         self.recheck_btn = QPushButton("Re-check")

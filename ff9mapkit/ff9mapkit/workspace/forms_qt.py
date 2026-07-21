@@ -98,7 +98,7 @@ def _concept_badge(term, palette):
     # which CALIBRE could not reach: a Python pin freezes the circle while the "?" inside it grows with
     # the text (audited: the glyph overflows a frozen 22px box at 150%), and any badge built before a live
     # scale change would keep the stale size. In QSS, one re-render moves the box and the glyph together.
-    btn.setToolTip(f"What's a {c.title.lower()}?")
+    btn.setToolTip(f"Open the {c.title} concept card")
     btn.setAccessibleName(f"What is {c.title}")
     btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
     return btn, card_html
@@ -391,6 +391,8 @@ class CatalogPicker(QDialog):
         bar.addWidget(cancel)
         bar.addStretch(1)
         lay.addLayout(bar)
+        if browse:                                     # Copy name copies + keeps browsing; nothing else signals that
+            lay.addWidget(widgets.caption("Copy name keeps this open — close when you're done."))
         self._refresh()
         # lines= carries the height when the initial search matched nothing (an empty list has no rows
         # to measure); list_rows rules when it did.

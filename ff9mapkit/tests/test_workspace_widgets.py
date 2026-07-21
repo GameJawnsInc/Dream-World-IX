@@ -435,7 +435,8 @@ def test_every_hint_is_built_by_the_factory_not_by_hand(app):
     # Keyed on the VARIABLE, not the line: this exemption first shipped as {("forms_qt.py", 100), (...101)}
     # and went red the moment an unrelated edit two functions above shifted the file down. A fence that
     # breaks when nothing it guards has changed trains people to re-number it without reading it.
-    ALLOWED = {("forms_qt.py", "note")}                          # the fixed-height wrap-preview note
+    ALLOWED = {("forms_qt.py", "note"),                          # the fixed-height wrap-preview note
+               ("builddoc.py", "oc")}                            # mirrors option()'s measured body (rb_other lives in `of`)
     offenders = []
     for py in sorted(ws.glob("*.py")):
         if py.name == "widgets.py":

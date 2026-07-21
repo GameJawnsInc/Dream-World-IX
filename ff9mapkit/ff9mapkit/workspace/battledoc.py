@@ -249,6 +249,8 @@ class BattleDoc(QWidget):
         self.save_btn.clicked.connect(self._save)
         self.save_btn.setEnabled(False)
         self.check_btn = QPushButton("Check")
+        self.check_btn.setToolTip("Check for problems without saving — results go to the Problems dock. "
+                                  "Save writes your changes to the battle.toml.")
         self.check_btn.clicked.connect(self._check)
         self.check_btn.setEnabled(False)
         btns.addWidget(self.save_btn)

@@ -421,7 +421,7 @@ class BreadcrumbBar(QWidget):
             if w:
                 w.deleteLater()
         if not crumbs:
-            ph = QLabel("No campaign open  —  Open a campaign.toml to navigate it.")
+            ph = QLabel("No project open  —  open a journey, campaign, or field to navigate it.")
             ph.setProperty("role", "muted")
             self._lay.addWidget(ph)
             self._lay.addStretch(1)
@@ -545,7 +545,7 @@ class Workspace(QMainWindow):
         self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
-        self.statusBar().showMessage("Open a campaign.toml to begin.")
+        self.statusBar().showMessage("Open a journey, campaign, or field to begin.")
         self._build_version_label()
         self._restore_layout()                     # window/splitters/console from last session (best-effort)
 
@@ -1089,8 +1089,7 @@ class Workspace(QMainWindow):
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
         self.act_close = QAction("Close", self)
-        self.act_close.setToolTip("Close the open project and return to the empty Workspace — the way OUT of any "
-                                  "journey / campaign / field, from any tab")
+        self.act_close.setToolTip("Close the open project and return to the empty Workspace (works from any tab).")
         self.act_close.triggered.connect(self._close_project)
         tb.addAction(self.act_close)
         tb.addSeparator()
@@ -1120,7 +1119,7 @@ class Workspace(QMainWindow):
         self.act_refresh.setToolTip("Re-read the Blender-owned scene.toml from disk (after a re-export) and "
                                     "rebuild the tree — updates the 'needs definition' nodes + counts and the "
                                     "Inspector WITHOUT re-opening the field. Your unsaved field.toml edits are "
-                                    "kept (only the scene side is re-read). (F5)")
+                                    "kept. (F5)")
         self.act_refresh.triggered.connect(self.on_refresh_scene)
         tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
         self.act_lint_cli = QAction("Lint", self)
@@ -2358,6 +2357,15 @@ class Workspace(QMainWindow):
                 lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             gv.addLayout(row)
+            if not forked and pf is None:              # no playbook command -> show the shape to run by hand
+                cmd = QLineEdit(f'py -m ff9mapkit import-chain <seed field id> --out "{self.manifest.root / f}"')
+                cmd.setReadOnly(True)
+                crow = QHBoxLayout()
+                crow.addWidget(cmd, 1)
+                cpy = QPushButton("Copy")
+                cpy.clicked.connect(lambda _=False, c=cmd: QApplication.clipboard().setText(c.text()))
+                crow.addWidget(cpy)
+                gv.addLayout(crow)
         if missing_cmds:
             allb = QPushButton(f"Fork all missing ({len(missing_cmds)})")
             allb.setObjectName("accent")
@@ -2498,7 +2506,9 @@ class Workspace(QMainWindow):
         form.addRow("Journey id", jid)
         form.addRow("Menu label", jname)
         form.addRow("Entry field id", entry)
+        form.addRow(widgets.caption("Custom band 4000–32767 (real ids are locked)."))
         form.addRow("Scenario", scenario)
+        form.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
                       "just points New Game at its field id.")
         note.setWordWrap(True)
@@ -2523,6 +2533,8 @@ class Workspace(QMainWindow):
             if sid in {j.id for j in self.manifest.journeys}:
                 raise ValueError(f"a journey id {sid!r} is already in this hub — pick another")
             ent = int(entry_text)
+            if not (4000 <= ent <= 32767):
+                raise ValueError(f"entry field id {ent} out of the custom band 4000–32767 (real ids are locked)")
             row = J.render_journey_row(sid, name or sid, ent,
                                        scenario=int(scenario_text) if str(scenario_text).strip() else None)
             text = Path(self.journey_root).read_text(encoding="utf-8").rstrip("\n") + "\n\n" + row
@@ -2554,6 +2566,7 @@ class Workspace(QMainWindow):
         scenario.setPlaceholderText("optional story beat (the seed scenario)")
         form.addRow("Base party", party)
         form.addRow("Start beat", scenario)
+        form.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         if j.is_bare:
             note = QLabel("⚠ This is a BARE single-field journey: the base PARTY won't apply (it's injected into "
                           "a MULTI-campaign entry's script at deploy). Set the party on the entry FIELD's [party] "
@@ -2902,7 +2915,7 @@ class Workspace(QMainWindow):
         name = _field_token(name)
         area = int(area)
         if area < 10:
-            raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen (CLAUDE.md §7)")
+            raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen the game")
         if field_id is not None and not (4000 <= int(field_id) <= 32767):
             raise ValueError(f"field id {field_id} out of the custom band 4000–32767 (real ids are locked)")
         proj_dir = Path(dest) / name
@@ -2932,6 +2945,8 @@ class Workspace(QMainWindow):
         form.addRow("Field id", fid)
         form.addRow("Area (≥10)", area)
         form.addRow("Camera pitch", pitch)
+        form.addRow(widgets.caption("Downward camera tilt in degrees (0 = level; ~48 is typical). "
+                                    "Leave as-is if unsure."))
         note = QLabel("A new walkable room with PLACEHOLDER art is created under "
                       "<dest>/<NAME>/ and opened. Repaint the layers + author it here.")
         note.setProperty("role", "muted")
@@ -2978,6 +2993,8 @@ class Workspace(QMainWindow):
         form.addRow("Name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose the campaign folder (campaign.toml goes here)"))
         form.addRow("Mod folder", mod)
+        mod.setToolTip("The Memoria mod folder this campaign deploys into — leave as FF9CustomMap unless "
+                       "you keep separate mod stacks.")
         form.addRow("First field id", idb)
         note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
                       "tree (or its root) to <b>Add field…</b>.")
@@ -3017,6 +3034,10 @@ class Workspace(QMainWindow):
         name = str(name).strip()
         if not name:
             raise ValueError("a hub / journey name is required")
+        if not (4000 <= int(hub_id) <= 32767):
+            raise ValueError(f"hub field id {hub_id} out of the custom band 4000–32767 (real ids are locked)")
+        if kind == "bare" and not (4000 <= int(entry) <= 32767):
+            raise ValueError(f"entry field id {entry} out of the custom band 4000–32767 (real ids are locked)")
         dest = Path(dest)
         jpath = dest / "journeys.toml"
         if jpath.exists():
@@ -3098,6 +3119,7 @@ class Workspace(QMainWindow):
         form.addRow("Hub name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose a folder for the journeys.toml"))
         form.addRow("Hub field id", hub_id)
+        form.addRow(widgets.caption("Custom band 4000–32767 (real ids are locked)."))
         form.addRow("Hub art (borrow a real field)", borrow)
         form.addRow("First journey id", jid)
         form.addRow("First journey name", jname)
@@ -3110,7 +3132,9 @@ class Workspace(QMainWindow):
         bl = QFormLayout(bare_panel)
         bl.setContentsMargins(0, 0, 0, 0)
         bl.addRow("Entry field id", entry)
+        bl.addRow(widgets.caption("Same custom band as above."))
         bl.addRow("Scenario", scenario)
+        bl.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         multi_panel = QWidget()
         ml = QFormLayout(multi_panel)
         ml.setContentsMargins(0, 0, 0, 0)
@@ -3697,7 +3721,7 @@ class Workspace(QMainWindow):
             return
         grp.setData(0, _DETAIL, [
             f"{len([x for x in lm.entries if x.role != 'empty'])} entries, {len(lm.nodes)} routines",
-            self._muted("a read-only view of the shipped .eb — edit it in place (Phase 2), not here"),
+            self._muted("a read-only view of the shipped .eb — edit it by opening a routine below, not here"),
             self._muted("'?' marks a target chosen at runtime (computed / dynamic-caller) — unresolvable offline")])
         from .. import logic_map as LM
         try:                                            # a Hot & Cold forest fork -> a high-level authoring node
@@ -4755,8 +4779,7 @@ class Workspace(QMainWindow):
         self._set_editor_tab(f"{sing}s")            # so the tab reflects the group, not the prior leaf's name
         n = len(self._doc(member).data.get(kind, []) or [])
         self._header(f"{member}  ·  {sing}s",
-                     f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
-                     "in the tree to edit it.")
+                     f"{n} {sing.lower()}(s) on this field — add one below.")
         btn = QPushButton(f"Add {sing}")
         btn.setObjectName("accent")
         btn.setIcon(icons.icon("plus", self.pal["accent_fg"], 15))
@@ -4992,8 +5015,10 @@ class Workspace(QMainWindow):
             ed = QPlainTextEdit(str(site.old))
             ed.setMinimumSize(QSize(380, 96))
             form.addRow("New line", ed)
+            msg = "This replaces the line in every language."
             if site.note:
-                form.addRow(self._muted_label(site.note + " — other languages are set to this line too."))
+                msg = site.note + " — " + msg
+            form.addRow(self._muted_label(msg))
             form.addRow(self._ok_cancel(dlg))
             return ed.toPlainText() if dlg.exec() == QDialog.DialogCode.Accepted else None
         prefill = self._logic_value_str(site, site.old) if site.value_kind == "item" else str(site.old)
@@ -5396,6 +5421,8 @@ class Workspace(QMainWindow):
         ed = QLineEdit(str(cur if cur is not None else vanilla))
         ed.setMinimumWidth(120)
         form.addRow("Seconds", ed)
+        form.addRow(self._muted_label("Difficulty is a runtime multiplier (≥1); the preview shows the "
+                                      "shortest time (difficulty 1)."))
         hint = self._muted_label("")
         form.addRow(hint)
 
@@ -5471,6 +5498,7 @@ class Workspace(QMainWindow):
         def on_change(*_):
             k = kind.currentIndex()
             ed.setEnabled(k in (0, 1))
+            ed.setPlaceholderText({0: "item name or id", 1: "gil amount"}.get(k, ""))
             if k == 2:
                 hint.setText("→ the dig finds nothing")
                 return
@@ -5908,8 +5936,8 @@ class Workspace(QMainWindow):
         form = QFormLayout()
         outer.addLayout(form)
         form.addRow(self._muted_label(
-            "Adds a NEW selectable row to an existing choice menu in this routine (a base-0 contiguous GetChoose "
-            "switch + a [CHOO] row list). Picking the row runs the effect below; the row appears last."))
+            "Adds a new selectable row to an existing choice menu in this routine. "
+            "Picking the row runs the effect below; the row appears last."))
 
         hint = self._menu_txid_hint(eb, entry, tag)
         txid_ed = QLineEdit("" if hint is None else str(hint))
@@ -6635,9 +6663,13 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Cutscene")
         _raw_cs = doc.data.get("cutscene")
         if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
-                          f"This form edits scene #1 — edit the others in the TOML.")
+            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes. "
+                          f"This form edits scene #1 — edit the rest in the TOML.")
             self.doc_host_lay.addWidget(note)
+            openb = QPushButton("Open the .toml")
+            openb.clicked.connect(lambda _=False, m=member: QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(self.member_paths[m]))))
+            self.doc_host_lay.addWidget(openb, 0, Qt.AlignmentFlag.AlignLeft)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
                                    on_change=lambda m=member: self._on_form_change(m))
@@ -7454,8 +7486,9 @@ class Workspace(QMainWindow):
             return [self._muted(f"in field: {member}")]
         head = [f"in field: {self._goto_link(member)}"]
         if key == "camera":                            # spatial -- Blender-only (mirror the editor's own note)
-            return head + [self._muted("camera / walkmesh / layers are SPATIAL — authored in Blender, "
-                                       "read-only here.")]
+            return head + [self._muted("camera / walkmesh / layers are SPATIAL — authored in Blender (the sibling scene.toml), "
+                                       "read-only here."),
+                           self._muted("ⓘ ") + self._link("concept:field-toml", "What's a scene.toml?")]
         if ":" in key:                                 # a list entity (npc:2, gateway:0, ...)
             section, idx = key.split(":")
             lst = doc.data.get(section, []) or []
