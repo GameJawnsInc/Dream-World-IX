@@ -1,0 +1,337 @@
+# Custom Summons — feasibility study
+
+> **Status: RESEARCH DONE, build not started.** Opened 2026-07-21 from a 20-agent ultracode workflow
+> (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
+> load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
+> + a completeness critic). All file:line citations below were re-derived by skeptic agents against
+> the live engine fork at `C:\gd\FFIX\Memoria\Assembly-CSharp`.
+
+## 1. The question
+
+Can the kit author **custom Summons** — new long, epic-scale in-battle cinematic animations
+(Bahamut/Ark class) — for custom abilities and custom playable characters?
+
+## 2. Headline verdict
+
+**Yes, almost entirely data-only — on an engine surface the kit has never touched.** Memoria's
+default battle-VFX engine (`SFXRework=1`, ON in our install and force-on at ATB Speed≥3) renders
+every spell and summon from **loose, human-readable text scripts**:
+`StreamingAssets/Data/SpecialEffects/ef{id:D3}/{PlayerSequence.seq, Sequence.seq}` — a ~35-opcode
+choreography DSL (officially documented at the Memoria wiki, "Battle-SFX-Sequence") executed by
+`UnifiedBattleSequencer`. These files resolve through the normal stacked-mod-folder AssetManager
+and are **re-parsed fresh every cast** (edit → recast, no relaunch — a faster dev loop than `~`).
+An ability's effect binding is a raw number (`Actions.csv` animationId1/animationId2 →
+VfxIndex/Vfx2), already exposed by our `[[battle_action]] vfx1/vfx2`, with **zero category gating**
+— any ability can point at any effect id.
+
+Three ceilings, in order of hardness:
+
+1. **The stock Eidolon creatures are unreachable as assets.** Their meshes/animations live inside
+   opaque native `ef###.bytes` binaries rendered by the closed-source **`FF9SpecialEffectPlugin.dll`**
+   (P/Invoke; not in the Assembly-CSharp tree our patch stack edits). You can *replay* them (by id),
+   *re-time/re-dress* them (.seq edits), but not extract or modify the creature itself.
+2. **A truly custom creature has exactly one engine hook, with zero precedent anywhere:** an
+   effect folder's `FileList.txt` `Model <path>.sfxmodel` line loads a JSON manifest whose `FBX`
+   entries go through `ModelFactory.CreateModel → ModelImporter.CreateCustomModelFromFbx` — **the
+   exact same loose-FBX loader our proven custom-model pillar already uses** (SFXDataMesh.cs:744).
+   0 of the 487 shipped ef folders use it; no community mod found that ever has. Code-complete,
+   battle-untested. This is the pillar's central bet.
+3. **A continuous custom camera dolly is the one genuinely hard gap.** The data-driven camera
+   loader is a literal `// TODO return null` stub (SFXDataCamera.cs:205-209). Camera-owning
+   effects re-invoke the native plugin live every frame. BUT: this is not a blank frontier — our
+   own `battle/camera_codec.py` already authors multi-segment camera sweeps into the raw17 bytes
+   **the native plugin itself reads** (in-game proven for battle-opening cameras, indices 0-2);
+   the natural extension is the attack-sequence camera slots (indices 3-8) that `PlayCamera`
+   selects. Until then: camera CUTS (`PlayCamera`) + `ShiftWorld` + borrowing a donor's native
+   camera by loading its SFX are all available data-only.
+
+Nobody in the FF9 community has ever shipped a genuinely new summon (community lens; the Memoria
+maintainer's own SFX tracking issue #917 calls deep SFX work "might require a breakthrough").
+Everything shipped is reuse/reassignment. **A composed original would be a first.**
+
+## 3. The mechanism map (all source-verified)
+
+### 3.1 Dispatch: ability → effect id → sequence
+
+- `Actions.csv` columns `animationId1`/`animationId2` parse as **raw Int16/UInt16** (deliberately
+  NOT `CsvParser.EnumValue` like neighboring columns) → `BattleCommandInfo.VfxIndex` / `AA_DATA.Vfx2`
+  (BattleActionEntry.cs:26-39). Bare-cast to the `SpecialEffect` enum with no validation
+  (BattleCommand.cs:113; btl_vfx.cs:99-100).
+- `btl_vfx.GetPlayerCommandSFX` picks: `cmd.PatchedVfx` (if set) → `Vfx2` when
+  `short_summon`/meteor-miss/etc → else `VfxIndex` (btl_vfx.cs:95-102).
+- `UnifiedBattleSequencer.BattleAction(EffectType.SpecialEffect, id)` builds
+  `Data/SpecialEffects/ef{id:D3}/PlayerSequence.seq` **purely from the number** — no
+  `Enum.IsDefined`, no category check; a missing file logs a warning and no-ops
+  (UnifiedBattleSequencer.cs:105-126).
+- **`PatchedVfx` = the dynamic per-ability override**: AbilityFeatures.txt `>AA <id>` +
+  `[code=SpecialEffect] {NCalc} [/code]` swaps the played effect at cast time — checked FIRST
+  (btl_vfx.cs:95-96). Shipped examples exist (Fenrir alternates Earth/Wind via
+  `GetAbilityUsageCount`). Our `[[ability_feature]]` module already authors this file.
+- Enemy attacks are separate: their sequences transpile at runtime from the scene's **raw17
+  btlseq** (`BattleActionThread.LoadFromBtlSeq`) — the surface our proven
+  `seqcodec/seqasm/seqauthor` stack already round-trips byte-exact (562/562 scenes).
+
+### 3.2 The two engines
+
+- **Legacy** (`SFXRework=0`): `AssetManager.LoadBytes("SpecialEffects/ef{id:D3}")` → the opaque
+  binary → native `SFX_Play`/`SFX_Update` (SFX.cs:1974-1985). Not our target.
+- **Rework** (default ON; forced at Speed≥3; our ini has `SFXRework=1`): the `.seq` text path.
+  All new work targets this. With `SFXRework=0` custom .seq content silently no-ops → the pillar
+  should lint/warn on that ini state.
+
+### 3.3 The .seq DSL (the authoring surface)
+
+Line format `Operation: key=val ; key=val`, `//` comments, threading via
+`StartThread/ElseThread/EndThread` (+Condition/Sync/LoopCount). Full vocabulary (~35 ops,
+BattleActionCode.cs:46-89, wiki-documented): `Wait`, `WaitAnimation/Move/Turn/Size`,
+`WaitSFXLoaded/Done`, `Channel/StopChannel`, `LoadSFX/PlaySFX` (+Monster variants),
+`CreateVisualEffect` (SPS/SHP/SFXModel), `Turn`, `PlayAnimation`, `PlayTextureAnimation`,
+`ToggleStandAnimation`, `MoveToTarget/MoveToPosition`, `ChangeSize`, `ShowMesh`, `ShowShadow`,
+`ChangeCharacterProperty`, `PlayCamera`, `ResetCamera`, `PlaySound`, `StopSound`, **`EffectPoint`**
+(= the damage-application trigger: → `btl_cmd.ExecVfxCommand` → `SBattleCalculator.CalcMain`;
+damage lands wherever the author puts this line), `Message`, `SetBackgroundIntensity` (0 =
+renderers literally disabled — the vanilla blackout), `ShiftWorld` (move-the-world-not-the-camera),
+`SetVariable`, `SetupReflect/ActivateReflect`. Unknown ops are **silently skipped**
+(BattleActionThread.cs:156-157) → our linter must catch typos offline.
+
+- **No length ceiling**: playback ends only when every thread is inactive and all tweens drain
+  (ExecuteLoop, UnifiedBattleSequencer.cs:1298-1344); `CheckCommandLoop` polls that and only then
+  `ReqFinishCommand`s. Stock proves scale: Ark holds 862 frames; Madeen's Sequence.seq is ~24KB.
+- **Hot reload**: no cache wraps the per-cast parse; `Common/Channel*.sfxmodel` reload every
+  battle entry (`SFX.StartBattle → SFXChannel.LoadAll`).
+- Stock summons range 1.8KB (Odin) → 24KB (Madeen) of this DSL + shared `Common/` channel auras.
+
+### 3.4 Custom visual content (the Tier-3 bet)
+
+- `FileList.txt` in the effect folder: `Model <path>.sfxmodel` / `Camera <path>.sfxcamera`
+  (SFXData.cs:244-279). The `.sfxmodel` JSON supports:
+  - **`Sprite`** — hand-authored triangle mesh, keyframed vertex colors/UVs/scale, NCalc movement
+    expressions (`CasterPositionY + Parameter1 * 800`), particle `Emission` schedules. **Shipping
+    today** in exactly 5 files (the 4 `Channel*` auras + `Reflect`) — the proven half.
+  - **`FBX`** — loose FBX path + Start/End + Movement/Rotation/Scaling curves + Animations list,
+    loaded via `ModelFactory.CreateModel` at SFXDataMesh.cs:744 (**the same loader as our
+    playable-character battle models** — corrected citation from verification). **Unexercised by
+    all 487 stock folders.** Actively patched as recently as Memoria's 2024-11-17 changelog
+    ("lightly hardened, not battle-tested").
+- `CreateVisualEffect: SFXModel=<path>` also takes an `.sfxmodel` directly from a .seq line, bone-
+  attachable to any battler (UnifiedBattleSequencer.cs:381-448) — custom particles without
+  FileList.txt.
+- **SPS is NOT independently authorable** (wiki, explicit): proprietary binary; retexture-only.
+  New particles go through `.sfxmodel` Sprite, not SPS.
+- **The stock creatures**: NOT in the p0data model bundles under any name (UnityPy sweep found
+  battle-stage geometry + status-SPS only). They live inside the native `ef###.bytes` blobs
+  (e.g. `Resources/specialeffects/ef094.bytes`, per Memoria discussion #1002 — opaque; the
+  built-in `SFXDataMeshConverter` self-describes as debug-only and "mostly fails"). A custom
+  creature therefore **must** come from our own FBX pipeline.
+
+### 3.5 Camera: the precise truth
+
+- Effects that own the camera run `CameraEngine.SFX_PLUGIN` — the native DLL is re-invoked
+  **live every render frame** (SFXDataMesh.Runtime; `battle.BattleMain → SFXDataCamera.UpdateCamera`
+  unconditionally each tick). `FixedCameraEffects` (SFXData.cs:1339-1369) hardcodes every stock
+  summon `__Full` (+ Meteor/Doomsday/Holy/…) to force `UseCamera=true` — so **a .seq that
+  `LoadSFX`es a stock summon id inherits that summon's REAL cinematic camera for free**.
+- The data-driven camera engine (`SFX_DATA_CAMERA`) is dead: `LoadFromJSON` returns null
+  (SFXDataCamera.cs:205-209), the update branch is a TODO that clears state (:548-553), and
+  `RunCamera` has zero callers. Unfixed in our fork (patch-stack grep: 0 hits).
+- A .seq's `PlayCamera` selects a numbered slot in the battle scene's **raw17 camera table**
+  (`seq_work_set.CameraNo`, UnifiedBattleSequencer.cs:825-854) — cuts, not dollies. Open question
+  whether slots 3-8 (the "attack sequence" cameras) give epic framing on an arbitrary arena.
+- **The kit precedent that softens this** (verification correction): `battle/camera_codec.py` +
+  `camera_data.py` already author multi-segment opening-camera sweeps into the raw17 BSC bytes the
+  native plugin reads — in-game proven (commit 8fc6f55), currently scoped to opening slots 0-2.
+  Extending it to slots 3-8 = a from-scratch mid-battle camera sweep **without touching the dead
+  C# path or the native DLL**. That is the realistic "epic camera" lever, not the JSON stub.
+
+### 3.6 Battle state during a long effect (all confirmed)
+
+While a command executes: **every other unit's ATB freezes** (`FF9BMenu_IsEnableAtb` false while a
+command is queued/executing → `ProcessActiveTime` skips), the command menu deactivates
+(`_commandEnable`/`AllMenuPanel`), the background can black out (`SetBackgroundIntensity=0`) and
+the world can shift under a fixed camera (`ShiftWorld`). Control returns purely when the sequence
+drains. Damage timing is wherever `EffectPoint` sits. An arbitrarily long summon = an arbitrarily
+long global freeze — see the netsync risk (§7).
+
+### 3.7 What "summon-ness" actually is (and isn't)
+
+- **There is no Summon category anywhere.** No CommandType.Summon, no category bit. Summon-ness =
+  three hardcoded `BattleCommandId` equality checks: SummonGarnet=16, Phantom=18, SummonEiko=20.
+- **Long vs short**: `DecideSummonType` (btl_cmd.cs:1583-1615) fires ONLY for those 3 command ids,
+  matches ONLY the 16 stock `BattleAbilityId`s, first-ever cast per Eidolon guaranteed long
+  (persistent `AchievementState.summon_*` flags, BattleAchievement.cs:91-168), then an MP-ratio
+  RNG roll (230/256 short if MP>2×cost, else 170/256). Short = damage ×2/3
+  (BattleCalculator.cs:515-516,545-546) + plays `Vfx2`. **A minted command NEVER enters this path
+  → always plays its full/long variant** — favorable for "epic," and reproducible in data anyway
+  via `[code=SpecialEffect]` + `GetAbilityUsageCount/GetRandom` if we ever want the first-cast-long
+  UX. (The generic `IsShortSummon` flag is also settable via a `>SA` Command-effect — the Boost
+  SA's own mechanism.)
+- **NOT gem-count-based** (the common belief is wrong): summon damage/length has no jewel-count
+  input. `summon_count` is a per-battle counter feeding only the off-by-default
+  `SummonPriorityCount` ATB feature. The real item-count hooks: **Odin's Sword SA** (data-driven
+  NCalc in AbilityFeatures.txt keyed to `ScriptId == 87` — a custom summon must avoid ScriptId 87
+  or it triggers Steiner's bonus) and **Phoenix's party-wipe revival** (hardcoded Eiko +
+  PhoenixPinion count, btl_sys.cs:105-123 — with an `IOverloadOnGameOverScript` escape hatch our
+  Overload hub pattern already knows).
+- **Trance**: Garnet-only `EidolonToPhantom` hardcoded switch maps 8 of 16 summons to auto-recast
+  abilities whose VfxIndex IS the base summon's Short id.
+- **Alexander is not a battle summon** — no BattleAbilityId; cutscene-only.
+- Playback-layer name-keyed special cases live in SFX.cs (Ark subOrder flips at frames 1004/1193,
+  per-summon sound-index/pitch tables in AdjustSoundIndex/StreamPlay/SoundPlay) — they key on the
+  **LoadSFX id**, so they ride along when a donor's SFX is borrowed and are irrelevant to
+  fully-custom content.
+
+### 3.8 The fresh-id question (the biggest design fork — now mostly resolved)
+
+The community wiki says VfxIndex "must be an existing SpecialEffect value"; the source says the
+folder lookup is gate-free. Both are right at different layers:
+
+- The **folder id** (VfxIndex → `ef{id:D3}/`) is un-gated. Any Int16 works; missing file = logged
+  no-op, not a crash (confirmed).
+- The **`SFX.playParam` bound** (fixed Int32[511], id≥511 silently substitutes `Fire__Multi`;
+  negative ≠ -1 throws — SFX.cs:1937-1946) applies to ids passed to `SFX.Play`, which on the
+  rework path is **the `LoadSFX`/`PlaySFX` target inside the .seq, not the folder id**. A fresh
+  folder whose .seq only uses `CreateVisualEffect`/`PlayAnimation`/etc never consults it.
+  Conservative rule anyway: **mint fresh effect ids only in unused holes < 511** (the enum is
+  sparse in −1..519). Our `actiondelta` vfx validator currently allows ≤32767 — tighten it.
+- Zero precedent for a fresh id + FileList.txt anywhere (0/487 stock, no community sighting) —
+  rung 6 settles it live before any Tier-3 investment.
+
+### 3.9 SequenceFile (the alternate binding — corrected by verification)
+
+`BattleCommandInfo.SequenceFile` (`[PatchableField] String`) loads an arbitrary custom .seq path,
+bypassing the numeric folder scheme. The READ side is generic — `SelectCommandVfx`'s check
+(btl_vfx.cs:114) is **not** player-gated (critic finding). But the WRITE side is **enemy-only
+through every data route**: BattlePatch's `[Attack]` selector writes only `scene.atk[]` (enemy
+attacks, eagerly loaded at BTL_SCENE ctor); the Actions.csv parser has no such column and
+hardcodes null. So:
+- **Enemy-cast custom summon**: SequenceFile is reachable TODAY via BattlePatch — our
+  `battlepatch.py` just needs a `sequence_file` key + a String branch in `encode_field`
+  (`SequenceFile: CustomSequences/X.seq`, resolved under the mod folder's FF9_Data). The
+  battle-tested proving ground.
+- **Player-cast**: needs either the fresh-id folder route (data-only, preferred) or a one-line
+  runtime write to `FF9BattleDB.CharacterActions[id].Info.SequenceFile` from our per-mod
+  **Scripts-DLL** (public statics; the Overload-hub pattern — NOT an engine rebuild). Unproven.
+
+## 4. Architecture tiers (post-verification)
+
+| Tier | What | DLL? | Fidelity | Status |
+|---|---|---|---|---|
+| **1. Borrowed cinematic** | Custom ability's `vfx1/vfx2` = a stock summon's ids (Bahamut 227/405, Ark 381/447…). Plays the donor verbatim — native creature, real camera, sounds. | no | vanilla-identical, zero novelty | Expressible with today's kit; unproven binding |
+| **2. Redressed donor** | Private **fresh-id folder** carrying an edited copy of the donor's .seq: retimed Waits, minted `PlaySound` ids (`sound.mint_song`, sfx≥100000), moved `EffectPoint`, `Message` text, extra `CreateVisualEffect` flourishes, `PlayCamera` choices. `LoadSFX: SFX=<donor>` keeps the native creature + its forced cinematic camera. No shared-folder collision (the text-block-shadow lesson, pre-applied). | no | donor creature, bespoke pacing/sound/beats | .seq format fully mapped; unproven |
+| **3. Composed original** | Fresh id + `FileList.txt Model` → `.sfxmodel` with `FBX` entries = **our own rigged/animated creature** via the proven model pipeline; Sprite-JSON particles; blackout + ShiftWorld + PlayCamera cuts; minted audio; authored EffectPoint. | no | fully novel creature + multi-phase choreography; camera = cuts/shift | The central bet; zero precedent |
+| **3.5 Epic camera** | Extend `camera_codec.py` from opening slots 0-2 to attack-sequence slots 3-8 (raw17 bytes the native plugin reads) → real multi-segment mid-battle sweeps for the custom summon. | no | continuous authored camera | New work on a proven substrate |
+| **4a. Cheap engine lever** | Generalize `DecideSummonType`/achievements to custom ids (pure managed C#, small sNN patch) — only if the short/long + first-cast-long UX is wanted natively. | local patch | UX parity with stock summons | Critic: wrongly bundled with 4b; actually small |
+| **4b. Deep engine lever** | Implement the SFX_DATA_CAMERA stub / touch the native plugin boundary. | local patch + maybe native RE | true dolly | Maintainer: "breakthrough" territory. Avoid; 3.5 covers the need |
+
+## 5. The rung ladder (verbatim-first; each rung = one in-game proof)
+
+1. **Borrowed cinematic** — point a minted/custom ability's `vfx1/vfx2` at 227/405 (Bahamut).
+   Proof: the full vanilla Bahamut plays from a non-Garnet/Eiko command. Also proves the command
+   is selectable/targetable through the real battle HUD (the critic's input-side gap) — the
+   [[playable]] minted-command menu wiring is already in-game proven, this composes it with a
+   summon-scale effect.
+2. **Hot-loop probe** — mod-folder-override the donor's own `ef227/PlayerSequence.seq` with one
+   retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
+   edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
+   the SHARED folder — vanilla Bahamut changes too. Rung 3 fixes that.)
+3. **Fresh-id private copy** — mint an unused id <511; ship `ef{N}/PlayerSequence.seq +
+   Sequence.seq` as the donor's copy (`LoadSFX: SFX=Bahamut__Full` by NAME). Proof: plays
+   identically under id N while stock Bahamut is untouched → the global-namespace collision is
+   dead, and the fresh-folder mechanism itself is proven (half of rung 6 early).
+4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
+   at the new beat.
+5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
+   a bespoke Sprite .sfxmodel). Proof: our particle renders inside the donor cinematic.
+6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
+   graceful play (chars animate, sound, damage) with no native content at all → Tier 3 is viable;
+   also observes what a camera-ownerless effect looks like.
+7. **THE creature rung** — `FileList.txt` + `Model our.sfxmodel` + `FBX` → a placeholder mesh from
+   our model pipeline renders mid-cast. Highest-risk, highest-value; zero precedent anywhere.
+   (Fallback if it fails: spawn the creature as a battle-actor model instead — our skinmint band —
+   choreographed via ShowMesh/PlayAnimation; or prove the mechanism enemy-side first via the
+   BattlePatch SequenceFile route, which is the more battle-tested load path.)
+8. **The composed epic** — full multi-phase original: buildup channel → blackout → creature reveal
+   → attack → EffectPoint → resolution, minted music sting, PlayCamera cuts. Proof: a bespoke
+   summon start-to-finish, zero DLL.
+9. **Epic camera** (stretch) — camera_codec extended to attack slots 3-8; a continuous authored
+   sweep during rung 8's summon.
+
+## 6. Verified-claims ledger
+
+| Claim | Verdict |
+|---|---|
+| Numeric folder lookup un-gated (any id resolves) | CONFIRMED |
+| VfxIndex/Vfx2 raw numbers, no validation | CONFIRMED |
+| FBX path = the proven ModelFactory loader | PARTIAL (mechanism confirmed; real site = SFXDataMesh.cs:744 `JSON.Begin()`, not ModelSequence) |
+| playParam[511] silent Fire__Multi fallback | CONFIRMED (+ negative ids throw; kit validator over-permissive) |
+| Summon gate = 3 command ids + 16 ability ids | CONFIRMED |
+| SequenceFile player-scope | PARTIAL → RESOLVED: enemy-only via data; read side un-gated; player = Scripts-DLL write or fresh-id folder |
+| SFX_DATA_CAMERA stub dead | PARTIAL (true; but camera_codec.py is a proven data-only dolly sibling, opening-scoped) |
+| Camera-owning effects = native plugin every frame | CONFIRMED |
+| SFXRework default-on (+ forced at Speed≥3) | CONFIRMED |
+| No sequence length ceiling | CONFIRMED |
+| Zero precedent for FileList.txt/fresh-id | PARTIAL (487 folders, 0 uses — confirmed; community universal-negative unverifiable) |
+| Minted-command band (46,35-40) ∩ {16,18,20} = ∅ | CONFIRMED |
+
+## 7. Risks
+
+- **First-of-its-kind**: the FBX-in-effect mechanism is code-proven, never run. Rungs 6-7 are
+  cheap kill-tests before creature investment.
+- **Netsync collision (critic)**: a long summon freezes global ATB for its whole runtime;
+  `NetSyncBattle.GuestWaitMs` default 30000ms is documented as the max continuous freeze on the
+  s37 B0/B1 path — a stock Ark already brushes tens of seconds. Whether the s40/s41 diorama path
+  shares that ceiling is UNRESOLVED — check before shipping an intentionally multi-minute summon.
+- **Per-language text (critic)**: the ability's name/flavor text must follow the kit's LANGS laws
+  (the VANILLA-SQUAT class of bug); verify the existing [[playable]] ability-text path covers it.
+- **ScriptId 87** collides with Odin's Sword SA; avoid for custom summons.
+- **Silent-skip DSL**: unknown .seq ops are dropped without error → the kit linter must own typo
+  detection offline.
+- **In-battle load hitch (critic)**: a fresh skinned FBX + long sequence loads mid-fight with no
+  fade to hide it; unmeasured. Watch on rung 7.
+- **`SFXRework=0`** users get silent no-ops → deploy-time warn.
+- **Save/achievement sizing** (critic, low-confidence): AchievementState fields are per-stock-
+  summon; customs never touch them (no DecideSummonType entry) — believed inert, unverified.
+
+## 8. Open questions (rung-mapped)
+
+- Fresh id: graceful in ALL paths incl. sounds (`SoundLib.LoadSfxSoundData(effNum)` on a fresh id)?
+  → rung 6.
+- Does `SequenceFile` (enemy route) cover both caster and target halves? → the enemy-side spike.
+- Can one `.sfxmodel` compose multiple FBX entries (circle prop + creature + impact)? → rung 7-8.
+- Do arena camera slots 3-8 give usable framing, per-arena? → rung 9 groundwork.
+- Diorama-path freeze ceiling (see §7). → before shipping.
+- `PlaySound` with minted ids ≥100000 inside a .seq — expected to work (same SoundLib), unproven.
+  → rung 2.
+
+## 9. Kit work items (when the build starts)
+
+1. `[[summon]]` (or extend `[[playable]]`/`[[battle_action]]`) — mint ability + fresh effect id
+   (<511 hole allocator with a committed used-id table) + emit the `ef{N}/` folder from a
+   declarative block or a `.seq` source file.
+2. **.seq codec/linter** — parse/emit the DSL, closed op+arg vocabulary from BattleActionCode.cs
+   (the silent-skip guard), thread/termination checks; a `summon-seq` disasm/catalog CLI over the
+   487 stock folders (donor browsing; FixedCameraEffects flags; the missing SpecialEffect catalog).
+3. `battlepatch.py`: `sequence_file` in ATTACK_FIELDS + a String `encode_field` branch (the
+   enemy-side lever; also unlocks retuning stock attack VFX — `vfx2` is `[PatchableField]` too).
+4. `actiondelta.py`: tighten vfx1/vfx2 warning at ≥511 (playParam bound).
+5. `.sfxmodel` emitter — Sprite first (5 shipping references), FBX manifest second (reuse the
+   model pillar's FBX output).
+6. Deploy: the ef-folder tree rides the normal mod-folder copy; no DictionaryPatch registration
+   needed (path-addressed, not id-registered) — verify on rung 2.
+7. Later: camera_codec attack-slot extension (rung 9); the 4a managed patch only if wanted.
+
+## 10. Sources
+
+- Engine: `C:\gd\FFIX\Memoria\Assembly-CSharp` — UnifiedBattleSequencer.cs, BattleActionCode.cs,
+  BattleActionThread.cs, SFXData.cs, SFXDataMesh.cs, SFXDataCamera.cs, SFXChannel.cs, SFX.cs,
+  btl_vfx.cs, btl_cmd.cs, BTL_SCENE.cs, BattleCommandInfo.cs, AA_DATA.cs, BattleActionEntry.cs,
+  SpecialEffect.cs, BattleCommandId.cs, BattleAchievement.cs, btl_sys.cs, TranceStatusScript.cs,
+  BattleHUD.Public.cs, HonoluluBattleMain.cs, battlebg.cs.
+- Install: `StreamingAssets/Data/SpecialEffects/` (487 ef + Common), Actions.csv,
+  AbilityFeatures.txt, Memoria.ini.
+- Kit: battle/{actiondelta,battlepatch,seqcodec,seqasm,seqauthor,camera_codec,camera_data,
+  characterdelta,skinmint,deathrules}.py, content/playable.py, sound.py.
+- Community: Memoria wiki Battle-SFX-Sequence / Battle-Patch / Active-ability-features /
+  SPS-and-SHP-Effects / Model-Viewer; issues #917, #193; discussion #1002.
+- Workflow artifacts: run `wf_820cd689-2a9` (recon/synthesis/verification JSON in the session
+  scratchpad).
