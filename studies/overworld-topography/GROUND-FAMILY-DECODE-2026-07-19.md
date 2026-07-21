@@ -845,3 +845,12 @@ one-change rule), NOT this round's job.
 **Status: deployed both discs, AWAITING the sail-around playtest** at the SE cove (world ~832,−1212). If
 the user confirms, the island's last off-language shore edge is closed and the (8,17)+2×2 desert-beach
 carry's water is fully in-language (rim Sea3/5 rung + this shallow Sea1/2 rung both done).
+
+**★ PLAYTEST CONFIRMED (2026-07-20f): "that looks correct now, the transition is clean."** The corner
+ladder is IN-GAME PROVEN; the island's water is **FULLY IN-LANGUAGE** — all three defect classes of the
+(8,17)+2×2 carry's water are closed in-game (the (11,19) water-only cell over 3 rounds, the 17 Sea3/5
+rim seams, and this shallow Sea1/2 corner). THE SHALLOW-LADDER REMEDY is minted to the coast memory:
+when a crop leaves shallowest-abuts-deep, the lawful fix is the {sea1,sea5} ladder repartition — never
+an invented transition tile (stock authored none; THE SEA5-MEDIATION census). The one open successor:
+extend `wang_carry_gate`'s shade alphabet to the coastal shades (sea1/sea2) so this class warns at
+carry time — the active kit round.
