@@ -7466,6 +7466,16 @@ def _emit_folklore(projects, layout) -> list:
             path = path_fns[stem](lang)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body, encoding="utf-8", newline="\n")
+    # the codex registry sidecar (categories + the Key-Items filter set for the s45 engine screen)
+    try:
+        patch_lines = _folklore.render_patch_lines(blocks)
+    except (TypeError, ValueError) as e:                   # a bad category on an otherwise-shipped block
+        warnings.append(f"FolklorePatch.txt skipped: {e}")
+        patch_lines = []
+    if patch_lines:
+        layout.folklore_patch.write_text(
+            "# ff9mapkit [[folklore]] codex registry -- <keyItemId> <category>\n"
+            + "\n".join(patch_lines) + "\n", encoding="utf-8", newline="\n")
     return warnings
 
 

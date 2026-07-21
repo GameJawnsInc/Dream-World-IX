@@ -46,21 +46,41 @@ spawn = [0, -837]
 
 [[folklore]]
 id = 80
+category = "bestiary"
 name = "Mist Wraith"
 help = "A restless shape glimpsed where the Mist pools thickest."
 lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
 
 [[folklore]]
 id = 81
+category = "places"
 name = "Village of Dali"
 help = "A quiet village of windmills and underground works."
 lore = "By day the village turns its sails and tends its fields. Yet the cellars stay locked, and children say the ground hums at night — “like a kettle big as a barn.”"
 
 [[folklore]]
 id = 82
+category = "lore"
 name = "The Eidolon Wall"
 help = "Weathered carvings said to name the guardian spirits."
 lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Scholars argue over every figure; the summoners beneath it never wrote a word. They needed no reminding."
+
+# Two more bestiary entries so the CODEX LIST proves multi-row + cursor movement (round 2's gap:
+# one entry per category could never show a second row).
+
+[[folklore]]
+id = 83
+category = "bestiary"
+name = "Marsh Croaker"
+help = "A fat frog whose croak carries a storm's worth of warning."
+lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pilot keeps three in a cage by the tiller. “Cheaper than a weather-mage,” he says, “and twice as honest.”"
+
+[[folklore]]
+id = 84
+category = "bestiary"
+name = "Gale Sprite"
+help = "A flicker of wings seen only when the wind changes."
+lore = "No net has ever held one. Hunters who follow the flicker uphill find only flattened grass and their own hats gone missing. The wind, laughing, gives nothing back."
 
 # ---- the discovery spots (walk-in events; once each, silent grant + an acknowledgement line) -----
 
@@ -78,6 +98,16 @@ message = "Scattered millstones and a windmill sketch... Dali, was it?\n(Folklor
 zone = [[-200, -1450], [200, -1450], [200, -1850], [-200, -1850]]
 give_folklore = "The Eidolon Wall"
 message = "A rubbing of ancient carvings lies here. The Eidolon Wall...\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[-950, -1450], [-550, -1450], [-550, -1850], [-950, -1850]]
+give_folklore = "Marsh Croaker"
+message = "A damp cage sits abandoned here. Something croaked at the sky...\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[550, -1450], [950, -1450], [950, -1850], [550, -1850]]
+give_folklore = "Gale Sprite"
+message = "The grass lies flat in a spiral. The wind snatches at your hat...\n(Folklore added to Key Items.)"
 
 # ---- the save Moogle (the save -> quit -> load half of the gate, self-contained) -----------------
 

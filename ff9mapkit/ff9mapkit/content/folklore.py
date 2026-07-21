@@ -31,6 +31,25 @@ CHANNELS = (("name", "imp_name"),   # the Key Items list-row name (required -- a
             ("help", "imp_help"),   # the short help line under the list (optional)
             ("lore", "imp_skin"))   # the long "skin" popup lore text (optional)
 
+# the codex categories (the s45 dedicated screen's L1/R1 pages). ``category`` in a [[folklore]] block;
+# shipped to the engine via the mod-root ``FolklorePatch.txt`` (line grammar ``<id> <category>``, read
+# by FolkloreRegistry low->high across mod folders -- the DictionaryPatch idiom, no registration).
+CATEGORIES = ("bestiary", "places", "lore")
+DEFAULT_CATEGORY = "lore"
+
+
+def render_patch_lines(blocks) -> list:
+    """The field/mod's ``[[folklore]]`` blocks -> ``FolklorePatch.txt`` lines (``<id> <category>``,
+    ascending by id). Assumes sanitized blocks (the build warns-and-skips; validate reports)."""
+    lines = []
+    for b in sorted(blocks or [], key=lambda x: _check_band(x.get("id") if isinstance(x, dict) else x)):
+        cat = str(b.get("category", DEFAULT_CATEGORY)).strip().lower()
+        if cat not in CATEGORIES:
+            raise FolkloreError(f"[[folklore]] id {b['id']}: unknown category {b.get('category')!r} "
+                                f"(one of {', '.join(CATEGORIES)})")
+        lines.append(f"{_check_band(b['id'])} {cat}")
+    return lines
+
 # THE SKIN BUDGET (playtest 2026-07-20: over-long lore CLIPS -- the parchment popup is a FIXED panel,
 # no scroll). Vanilla ground truth, measured across all 7 languages' real imp_skin.mes/imp_help.mes
 # (extracted from resources.assets): the longest vanilla lore = 210 visible chars, HAND-wrapped into
@@ -167,6 +186,10 @@ def validate_blocks(blocks) -> list:
         if not isinstance(nm, str) or not nm.strip():
             problems.append(f"{where} (id {iid}) needs a non-empty name = \"...\" "
                             "(a missing imp_name renders a BLANK Key Items row)")
+        cat = b.get("category", DEFAULT_CATEGORY)
+        if not isinstance(cat, str) or cat.strip().lower() not in CATEGORIES:
+            problems.append(f"{where} (id {iid}) category must be one of "
+                            f"{', '.join(CATEGORIES)} (got {cat!r})")
         for chan, _stem in CHANNELS:
             v = b.get(chan)
             if v is None:

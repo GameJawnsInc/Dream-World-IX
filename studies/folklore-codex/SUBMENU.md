@@ -328,3 +328,35 @@ untouched (display-only filter — ids stay in `rare_item_obtained`).
 - **M4 overlay route: REFUTED** — see §1.
 - **M5 Key-Items filter: PARTIAL** — sound; filter on the registered SET, config-gated (§5).
 - **M6 localization: CONFIRMED** — `LocalizationPatch.txt` CSV, low-to-high mod merge, all-7-column rows.
+
+## Phase B record (built + FUNCTIONAL ★ 2026-07-21 — 16 playtest rounds; styling → the menu study)
+
+**What shipped (s45, `FolkloreUI.cs` + the `ItemUI.cs` filter):** the two-pane codex — LEFT = the
+**KEY ITEMS LIST donor** (`ItemScene.KeyItemListPanel` clone — M3's ability-list pick was WRONG for
+faithfulness: its cells are icon+number bars that fight restyling; the key-items cell is the codex's
+exact name-only shape, populated vanilla-style with ZERO restyling) forced 1-column via the engine's
+own `GOSubPanel.ChangeDims`, wearing the donor's authentic `CaptionBackground` dressing (sheet +
+capped rails; the CATEGORY name sits on the header rail where stock puts "ITEM"); owned = white +
+the stock `New!` bang (Confirm clears it via `FF9Item_UseImportant`, save-persistent); locked =
+grey `???`. RIGHT = a bordered detail window (frame caption = entry name; lore body ShrinkContent).
+Stock `item_bg` backdrop; L1/R1 pages categories; `FolklorePatch.txt` registry (mod-root,
+`<keyItemId> <category> [displayRef]`, low→high override); the Key-Items tab filters the REGISTERED set.
+
+**The 16 rounds in one paragraph:** round 1's blank-after-field-load = the orphaned cell template
+(RefreshPool wipes-then-throws); rounds 2-3 = anchors re-assert every frame + panel-depth sorting +
+the window-color per-row sweep; rounds 4-6 = the donor swap + single column + dressing strip;
+rounds 7-8 = the pooled pointer's per-group DEPTH (default 5 = buried) + its SCENE-SPACE limit rect;
+rounds 9-10 = the borderless-frame dead end, reversed by resurrecting the donor's own dressing;
+rounds 11-13 = chasing constants that were snapshots of NGUI's coupled scroll state
+(panel transform + clipOffset); rounds 14-16 = the ChangeDims reshape, the template's row-0 seat
+(spawn-position bounds cache), and the SetDragAmount(0,0) FIXPOINT. Full law set →
+`~/.claude` memory `project-ff9-ngui-menu-construction` + the memoria-patches README s45 row.
+
+**Open defects (cosmetic, deliberately deferred):** (a) ~3s hang on the FIRST open (the Awake clone
+burst — profile before optimizing); (b) row 1 overlaps the top rail (content top = window top; stock
+seats rows below the header rail).
+
+**THE PIVOT (user call, 2026-07-21):** stop iterating the screen blind — run a **menu-shape-language
+study** first (how stock FF9 menus compose: sheets vs bordered windows, rails/caps, header captions,
+row grammars, margins, depth stacks), THEN redesign the codex screen from that vocabulary.
+"The way we're going about it now isn't good for discoverability."

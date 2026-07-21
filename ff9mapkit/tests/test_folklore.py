@@ -165,6 +165,33 @@ def test_validate_blocks_errors():
     assert "must be a string" in text
 
 
+# ---- render_patch_lines (the FolklorePatch.txt codex-registry sidecar) -------------------------
+def test_patch_lines_exact():
+    lines = FK.render_patch_lines([
+        {"id": 82, "name": "C", "category": "lore"},
+        {"id": 80, "name": "A", "category": "bestiary"},
+        {"id": 81, "name": "B", "category": "places"},
+    ])
+    assert lines == ["80 bestiary", "81 places", "82 lore"]   # ascending by id
+
+
+def test_patch_lines_default_category():
+    assert FK.render_patch_lines([{"id": 90, "name": "X"}]) == ["90 lore"]
+
+
+def test_patch_lines_bad_category_raises():
+    try:
+        FK.render_patch_lines([{"id": 90, "name": "X", "category": "monsters"}])
+        assert False
+    except FK.FolkloreError as e:
+        assert "category" in str(e)
+
+
+def test_validate_bad_category():
+    probs = FK.validate_blocks([{"id": 80, "name": "X", "category": "beasts"}])
+    assert any("category" in p for p in probs)
+
+
 # ---- THE SKIN BUDGET (playtest-minted: the parchment popup is a fixed ~6-line panel, no scroll) --
 def test_lore_lines_estimate():
     assert FK.lore_lines_estimate("") == 1                 # empty seg still occupies a line
@@ -246,6 +273,15 @@ def test_validate_event_folklore_counts_as_action(tmp_path):
 
 
 # ---- _emit_folklore (the mod-global emitter) ---------------------------------------------------
+def test_emit_writes_folklore_patch_sidecar(tmp_path):
+    proj = _proj(BASE + FOLK + '\n[[folklore]]\nid = 83\ncategory = "bestiary"\nname = "Mu"\n', tmp_path)
+    layout = ModLayout(tmp_path / "mod")
+    assert _emit_folklore([proj], layout) == []
+    body = layout.folklore_patch.read_text(encoding="utf-8")
+    assert "80 lore" in body and "83 bestiary" in body     # FOLK's entries default to lore
+    assert body.splitlines()[0].startswith("#")            # the comment header
+
+
 def test_emit_writes_all_langs_utf8(tmp_path):
     proj = _proj(BASE + FOLK, tmp_path)
     layout = ModLayout(tmp_path / "mod")
