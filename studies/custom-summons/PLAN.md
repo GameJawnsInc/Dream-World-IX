@@ -347,9 +347,13 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    never even read on the player path (the nested LoadSFX reads the DONOR's ef227/Sequence.seq) —
    §8's LoadSfxSoundData fresh-id question is thereby ANSWERED BY CONSTRUCTION for donor-borrowing
    rungs. Deployed: ef084 verbatim pair + the bench toml redeployed on 30300 (row 194 now
-   `84;405`, verified live). TWO-CAST PLAN: cast A (after relaunch — which also ARMS the rung-2
-   chime) = identity proof; then `build_rung3.py --with-chime` + cast B (mere recast) = the
-   minted-audio-in-.seq proof. CASTS PENDING.]**
+   `84;405`, verified live). CAST A ★ PROVEN 2026-07-21 — "worked, looked identical to before":
+   the fresh-id private copy is indistinguishable, stock ef227 untouched. BONUS OBSERVATION:
+   "less audio crunch" than rung 1's cast (user hedged, more A/B wanted) — consistent with the
+   engine lens's cold-cache candidate (the AKB/OGG decode is disk-cached after first-ever play;
+   rung 1's cast paid the one-time cost) → folded into the §8 A/B. CAST B PENDING: the chime line
+   is FLIPPED ON (`--with-chime` run post-cast-A; `PlaySound: Sound=100000` is the deployed copy's
+   first executable line) — a mere recast proves minted-audio-in-.seq.]**
 4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
    at the new beat.
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
