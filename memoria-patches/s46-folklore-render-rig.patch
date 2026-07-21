@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
-index 911282a..8ec522e 100644
+index 911282a..b773739 100644
 --- a/Assembly-CSharp/Global/FolkloreUI.cs
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
 @@ -40,8 +40,90 @@ public class FolkloreUI : UIScene
@@ -154,7 +154,7 @@ index 911282a..8ec522e 100644
              return;
          }
          FolkloreRegistry.Entry e = this.entries[this.currentIndex];
-@@ -314,14 +432,1118 @@ public class FolkloreUI : UIScene
+@@ -314,14 +432,1187 @@ public class FolkloreUI : UIScene
              if (String.IsNullOrEmpty(lore))
                  lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
              this.detailBodyLabel.rawText = lore;
@@ -431,8 +431,13 @@ index 911282a..8ec522e 100644
 +                    if (animList.Count > 0)
 +                    {
 +                        this.folkloreAnimation = anim;
-+                        this.folkloreAnimName = animList[0];      // heuristic (RENDER-RIG.md's own open
-+                    }                                             // item -- may be a non-idle pose)
++                        // s46 rung 5 -- entry.IdleClip is an OPTIONAL override of which discovered clip
++                        // plays as the idle (some creatures' animList[0] is a non-idle pose, RENDER-RIG.md's
++                        // own open item); ResolveFolkloreIdleClip only ever picks a name FROM animList
++                        // (see its own header comment for why) and always falls back to animList[0] on
++                        // any miss, so this call can never leave folkloreAnimName unset.
++                        this.folkloreAnimName = FolkloreUI.ResolveFolkloreIdleClip(entry.IdleClip, animList, animList[0], entry.Id);
++                    }
 +                }
 +
 +                // s46 rung 4 -- THE LIVE-BOUNDS LAW: force every SkinnedMeshRenderer under the model to
@@ -640,6 +645,70 @@ index 911282a..8ec522e 100644
 +            if (!String.IsNullOrEmpty(anim.Value) && anim.Value.Length > 4 && anim.Value.Substring(4).StartsWith(identifier))
 +                result.Add(anim.Value);
 +        return result;
++    }
++
++    // s46 rung 5 -- the idleClip token (RENDER-RIG.md's own open item): an OPTIONAL per-entry override
++    // of WHICH discovered clip plays as the idle, for creatures whose animList[0] (discovery order, not
++    // curated) isn't their best look. Parse shape mirrors ResolveFolkloreDisplay (split on the FIRST
++    // ':'; a colon-less token or any scheme other than "idle" is malformed). FAIL-SOFT LAW (deliberately
++    // DIFFERENT from Display's): a bad idleClip token never degrades the entry to text-only -- the model
++    // and its default idle are both already fine -- it only warns (naming entry+token+why) and falls
++    // back to defaultClip. Resolution is restricted to the DISCOVERED list ONLY: AnimationFactory has
++    // already attached every name in `discovered` to this exact model (EnsureFolkloreModel, just above
++    // the call site), so picking among them is safe, whereas loading an arbitrary clip name here would
++    // bind a clip that was never attached to this rig -- a cross-rig/garbage clip, not merely a wrong
++    // idle. Match order: (a) exact case-sensitive hit; (b) a suffix hit -- a discovered name ends with
++    // '_' + payload (so 'idle:002' finds 'ANH_MON_B3_009_002'); a suffix matching MORE THAN ONE
++    // discovered name is ambiguous and defaults rather than guessing.
++    private static String ResolveFolkloreIdleClip(String token, List<String> discovered, String defaultClip, Int32 entryId)
++    {
++        if (String.IsNullOrEmpty(token))
++            return defaultClip;                                 // no override requested -- today's
++                                                                  // behavior, unchanged, no warning
++        try
++        {
++            Int32 colon = token.IndexOf(':');
++            if (colon < 0)
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip token '{token}' missing the 'idle:' scheme, using default clip");
++                return defaultClip;
++            }
++            String scheme = token.Substring(0, colon);
++            String payload = token.Substring(colon + 1);
++            if (scheme != "idle")
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: unknown idle clip scheme in '{token}', using default clip");
++                return defaultClip;
++            }
++            if (String.IsNullOrEmpty(payload))
++            {
++                // the skeptic's diagnostics nit: an 'idle:' with nothing after it is NOT an unknown
++                // scheme -- name the real failure so the FolklorePatch.txt author fixes the right thing
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip token '{token}' has an empty payload, using default clip");
++                return defaultClip;
++            }
++            if (discovered.Contains(payload))                   // exact case-sensitive match first
++                return payload;
++            String suffix = "_" + payload;                       // else a SUFFIX match against the
++            List<String> candidates = new List<String>();         // discovered list only -- never an
++            foreach (String name in discovered)                   // arbitrary clip name (see header)
++                if (name.EndsWith(suffix, StringComparison.Ordinal))
++                    candidates.Add(name);
++            if (candidates.Count == 1)
++                return candidates[0];
++            if (candidates.Count > 1)
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip '{token}' is ambiguous among [{String.Join(", ", candidates.ToArray())}], using default clip");
++                return defaultClip;
++            }
++            Log.Warning($"[FolkloreUI] entry {entryId}: idle clip '{token}' matched no discovered animation, using default clip");
++            return defaultClip;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            return defaultClip;                                 // fail-soft law: never brick the mount
++        }
 +    }
 +
 +    // s46 rung 3 (split in rung 4 -- see ApplyFolkloreFit below): the STATIC bind-pose bounds gather
@@ -1273,7 +1342,7 @@ index 911282a..8ec522e 100644
      // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
      // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
      // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
-@@ -403,14 +1625,25 @@ public class FolkloreUI : UIScene
+@@ -403,14 +1694,25 @@ public class FolkloreUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -1302,7 +1371,7 @@ index 911282a..8ec522e 100644
          GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
          bodyGo.name = "Folklore Detail Body";
          bodyGo.transform.parent = this.detailPanel.transform;
-@@ -418,8 +1651,8 @@ public class FolkloreUI : UIScene
+@@ -418,8 +1720,8 @@ public class FolkloreUI : UIScene
          bodyGo.SetActive(true);
          this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
          this.detailBodyLabel.SetAnchor((GameObject)null);
@@ -1313,7 +1382,7 @@ index 911282a..8ec522e 100644
          this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
          this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
          this.detailBodyLabel.multiLine = true;
-@@ -623,6 +1856,9 @@ public class FolkloreUI : UIScene
+@@ -623,6 +1925,9 @@ public class FolkloreUI : UIScene
      [NonSerialized]
      private GameObject detailPanel;
      [NonSerialized]
@@ -1323,7 +1392,7 @@ index 911282a..8ec522e 100644
      private UILabel detailNameLabel;
      [NonSerialized]
      private UILabel detailBodyLabel;
-@@ -640,6 +1876,90 @@ public class FolkloreUI : UIScene
+@@ -640,6 +1945,90 @@ public class FolkloreUI : UIScene
      private Boolean firstFramesLogged;
      [NonSerialized]
      private Int32 muteSettleDepth;
@@ -1414,4 +1483,32 @@ index 911282a..8ec522e 100644
  
      private class FolkloreListData : ListDataTypeBase
      {
+@@ -663,6 +2052,10 @@ public static class FolkloreRegistry
+         public Int32 Id;
+         public Int32 Category;
+         public String Display;                             // reserved for the s46 render rig
++        public String IdleClip;                            // s46 rung 5: optional per-entry idle-clip
++                                                             // override ('idle:<clip-or-suffix>') -- the
++                                                             // same tok.Length-guarded 4th-token idiom as
++                                                             // Display's 3rd; extra tokens still ignored
+     }
+ 
+     private static readonly Dictionary<Int32, Entry> _entries = new Dictionary<Int32, Entry>();
+@@ -719,7 +2112,15 @@ public static class FolkloreRegistry
+                         Log.Warning($"[FolkloreRegistry] unknown category in {path}: '{raw}'");
+                         continue;
+                     }
+-                    _entries[id] = new Entry { Id = id, Category = cat, Display = tok.Length > 2 ? tok[2] : null };
++                    _entries[id] = new Entry
++                    {
++                        Id = id,
++                        Category = cat,
++                        Display = tok.Length > 2 ? tok[2] : null,
++                        IdleClip = tok.Length > 3 ? tok[3] : null,   // s46 rung 5 -- mirrors Display's
++                                                                      // own tok.Length idiom one token
++                                                                      // over; tokens beyond 4 stay ignored
++                    };
+                 }
+             }
+             catch (Exception err)
 

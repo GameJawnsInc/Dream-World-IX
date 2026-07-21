@@ -202,8 +202,30 @@
 > (a turntable must fit the diagonal — r ≈ √(ex²+ez²)). Gates green (9 hunks, forward `--binary`
 > == live).
 >
+> **THE idleClip TOKEN (rung-5; built + captured + DEPLOYED 2026-07-21, DLL `E6556ACEB3D2463C`
+> both arches; ★ playtest pending after a relaunch).** The registry grammar grows a 4th token:
+> `<keyItemId> <category> [displayRef] [idleRef]`, idleRef = `idle:<clipName-or-suffix>` — a
+> per-entry override of WHICH clip plays as the idle (the 187-class lesson: discovery-first `_000`
+> isn't always the best look). Engine (4-agent workflow `wf_b9ef9d00`, both lanes SKEPTIC-CLEAN on
+> the first pass — a session first): `Entry.IdleClip` (tok[3], extras still ignored),
+> `ResolveFolkloreIdleClip` — exact case-sensitive match against the model's DISCOVERED list first,
+> else a unique `_<suffix>` match (ambiguous → warn naming candidates + default; never loads an
+> arbitrary clip name onto the rig — cross-rig clips bind garbage); **the FAIL-SOFT law** (softer
+> than displayRef's): a bad idle token warns and plays the DEFAULT clip — never text-only, the
+> model itself is fine. The one skeptic LOW (empty-payload warning mislabeled "unknown scheme")
+> folded post-verify. Kit: `idle = "..."` on `[[folklore]]` (only beside `display`; lint ERROR
+> without it, build warn-and-drop-idle-only), resolved against the kit's own animation DB with
+> zero-pad-aware suffix matching + difflib hints, emitted as the canonical FULL clip name (so the
+> engine's exact-match always wins — no cross-parity ambiguity); 86 folklore tests (63+23), suite
+> 3467/0. Gates green (11 hunks, forward `--binary` == live). Proof wiring in the live registry:
+> entry 83 (Gigan Toad) carries `idle:020` — a repeated attack-lunge loop, unmistakable vs `_000`,
+> exercising the suffix path; revert/re-tune after confirmation.
+>
 > ## NEXT SESSION — where to pick up
 >
+> - **PLAYTEST THE idleClip TOKEN**: RELAUNCH → codex → the Gigan Toad should now loop its attack
+>   lunge instead of its normal idle (unmistakable); ghost/dragonfly unchanged. Then revert 83's
+>   `idle:020` (or keep/re-tune to taste — `_ILLUST` showcase poses are candidates worth trying).
 > - ~~**PLAYTEST THE TURNTABLE**~~ **★ PASSED 2026-07-21** ("good"); knobs remain
 >   `FolkloreTurntableDegPerSec` (25) / `FolkloreRigTurntable` (kill).
 > - ~~**PLAYTEST THE BODY-BLEND ZOOM**~~ **★ PASSED 2026-07-21** ("way bigger");

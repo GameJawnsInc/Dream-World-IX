@@ -597,3 +597,225 @@ def test_emit_dup_id_message_mentions_display_drop_too(tmp_path):
     body_lines = [ln for ln in layout.folklore_patch.read_text(encoding="utf-8").splitlines()
                   if not ln.startswith("#")]
     assert "92 lore" in body_lines
+
+
+# ---- idle (the render-rig kit lane's per-entry idle-clip override) -----------------------------
+# Fixed reference points, all real animdb rows (never monkeypatched unless noted):
+#   GEO_MON_B3_118 (id 350, self-prefab) clips incl. ..._000/_003/_010/_020.../_073/_B/_ILLUST/_P/_TEST
+#     -> '_003' is the ONLY clip whose numeric tail equals 3, so bare '3'/'003' resolve unambiguously.
+#   GEO_MON_F0_BAN (bandersnatch) clips incl. ANH_MON_F0_BAN_IDLE (unique '_IDLE' suffix)
+
+def test_resolve_idle_full_clip_name_case_insensitive():
+    assert FK.resolve_idle("GEO_MON_B3_118", "anh_mon_b3_118_003") == "ANH_MON_B3_118_003"
+    assert FK.resolve_idle("GEO_MON_B3_118", "ANH_MON_B3_118_003") == "ANH_MON_B3_118_003"
+
+
+def test_resolve_idle_bare_suffix_exact():
+    assert FK.resolve_idle("GEO_MON_B3_118", "003") == "ANH_MON_B3_118_003"
+
+
+def test_resolve_idle_bare_suffix_zero_pad_unambiguous():
+    # zero-pad-aware: '3' finds the clip suffixed '_003' -- no other GEO_MON_B3_118 clip's numeric
+    # tail equals 3, so it's unambiguous
+    assert FK.resolve_idle("GEO_MON_B3_118", "3") == "ANH_MON_B3_118_003"
+    assert FK.resolve_idle("GEO_MON_B3_118", 3) == "ANH_MON_B3_118_003"       # a bare int too
+
+
+def test_resolve_idle_literal_letter_suffix_case_insensitive():
+    assert FK.resolve_idle("GEO_MON_B3_118", "P") == "ANH_MON_B3_118_P"
+    assert FK.resolve_idle("GEO_MON_B3_118", "p") == "ANH_MON_B3_118_P"
+
+
+def test_resolve_idle_friendly_display_name():
+    # display resolves through the SAME friendly-name table [[folklore]] display already uses
+    assert FK.resolve_idle("bandersnatch", "IDLE") == "ANH_MON_F0_BAN_IDLE"
+    assert FK.resolve_idle("bandersnatch", "idle") == "ANH_MON_F0_BAN_IDLE"
+
+
+def test_resolve_idle_ambiguous_suffix_lists_candidates(monkeypatch):
+    # a synthetic dual-padding collision (no real GEO_MON_B3_118 clip pair collides this way):
+    # '_03' and '_003' both zero-pad-normalize to the value 3
+    monkeypatch.setattr(FK._catalog, "ANIMATIONS",
+                        {1: "ANH_MON_B3_118_03", 2: "ANH_MON_B3_118_003"})
+    try:
+        FK.resolve_idle("GEO_MON_B3_118", "3")
+        assert False
+    except FK.FolkloreError as e:
+        assert "ambiguous" in str(e)
+        assert "ANH_MON_B3_118_03" in str(e) and "ANH_MON_B3_118_003" in str(e)
+
+
+def test_resolve_idle_unknown_gives_near_miss_hint():
+    try:
+        FK.resolve_idle("bandersnatch", "ANH_MON_F0_BAN_IDLEX")           # a typo'd real clip name
+        assert False
+    except ValueError as e:
+        assert "unknown idle clip" in str(e)
+        assert "Did you mean" in str(e) and "ANH_MON_F0_BAN_IDLE" in str(e)
+
+
+def test_resolve_idle_unknown_no_close_match_lists_own_clips():
+    try:
+        FK.resolve_idle("GEO_MON_B3_118", "zzz_totally_not_a_clip_zzz")
+        assert False
+    except ValueError as e:
+        assert "unknown idle clip" in str(e)
+        assert "ANH_MON_B3_118_000" in str(e)          # falls back to naming the model's own clips
+
+
+def test_resolve_idle_propagates_bad_display_verbatim():
+    try:
+        FK.resolve_idle("zzz_totally_not_a_model_zzz", "003")
+        assert False
+    except ValueError as e:
+        assert "unknown model" in str(e)               # the catalog's own error, unchanged
+
+
+def test_resolve_idle_rejects_empty_and_whitespace():
+    for bad in ("", "   ", "\t"):
+        try:
+            FK.resolve_idle("GEO_MON_B3_118", bad)
+            assert False, f"{bad!r} should be rejected"
+        except FK.FolkloreError:
+            pass
+
+
+def test_resolve_idle_rejects_embedded_whitespace():
+    try:
+        FK.resolve_idle("GEO_MON_B3_118", "003 extra")
+        assert False
+    except FK.FolkloreError as e:
+        assert "whitespace" in str(e)
+
+
+def test_resolve_idle_rejects_garbage_types():
+    for bad in (None, True, False, 3.5, ["003"], {"idle": "x"}):
+        try:
+            FK.resolve_idle("GEO_MON_B3_118", bad)
+            assert False, f"{bad!r} should be rejected"
+        except FK.FolkloreError:
+            pass
+
+
+# ---- render_patch_lines: the 4th idle token -----------------------------------------------------
+def test_patch_lines_idle_fourth_token_emitted():
+    lines = FK.render_patch_lines([
+        {"id": 80, "name": "A", "category": "bestiary", "display": "GEO_MON_B3_118", "idle": "3"},
+    ])
+    assert lines == ["80 bestiary model:GEO_MON_B3_118 idle:ANH_MON_B3_118_003"]
+
+
+def test_patch_lines_idle_without_display_never_emitted():
+    # structural: an idle key with no display is silently dropped here (lint owns the hard error;
+    # build owns the warn-and-drop) -- render_patch_lines NEVER emits idle without display
+    lines = FK.render_patch_lines([{"id": 80, "name": "A", "category": "lore", "idle": "003"}])
+    assert lines == ["80 lore"]
+
+
+def test_patch_lines_no_idle_is_three_tokens_regression():
+    lines = FK.render_patch_lines([
+        {"id": 80, "name": "A", "category": "bestiary", "display": "GEO_MON_B3_118"},
+    ])
+    assert lines == ["80 bestiary model:GEO_MON_B3_118"]
+    assert len(lines[0].split()) == 3
+
+
+def test_patch_lines_bad_idle_raises():
+    try:
+        FK.render_patch_lines([
+            {"id": 80, "name": "A", "display": "GEO_MON_B3_118", "idle": "zzz_totally_not_a_clip_zzz"},
+        ])
+        assert False
+    except ValueError as e:
+        assert "unknown idle clip" in str(e)
+
+
+# ---- validate_blocks: the idle checks -------------------------------------------------------------
+def test_validate_idle_clean():
+    assert FK.validate_blocks([{"id": 80, "name": "X", "display": "GEO_MON_B3_118", "idle": "3"}]) == []
+    assert FK.validate_blocks([{"id": 80, "name": "X"}]) == []                # no idle: not a problem
+
+
+def test_validate_idle_without_display_errors():
+    probs = FK.validate_blocks([{"id": 80, "name": "X", "idle": "003"}])
+    assert len(probs) == 1
+    assert "idle" in probs[0] and "display" in probs[0]
+
+
+def test_validate_idle_unknown_reports_resolve_error_verbatim():
+    probs = FK.validate_blocks([
+        {"id": 80, "name": "X", "display": "GEO_MON_B3_118", "idle": "zzz_totally_not_a_clip_zzz"},
+    ])
+    assert len(probs) == 1
+    assert "unknown idle clip" in probs[0] and "zzz_totally_not_a_clip_zzz" in probs[0]
+
+
+def test_validate_idle_ambiguous_reports_candidates(monkeypatch):
+    monkeypatch.setattr(FK._catalog, "ANIMATIONS",
+                        {1: "ANH_MON_B3_118_03", 2: "ANH_MON_B3_118_003"})
+    probs = FK.validate_blocks([{"id": 80, "name": "X", "display": "GEO_MON_B3_118", "idle": "3"}])
+    assert len(probs) == 1
+    assert "ambiguous" in probs[0]
+
+
+# ---- build's _emit_folklore: warn-and-drop-idle-only (never skip the entry) -----------------------
+FOLK_IDLE = """
+[[folklore]]
+id = 84
+name = "Good Idle"
+display = "GEO_MON_B3_118"
+idle = "3"
+
+[[folklore]]
+id = 85
+name = "Bad Idle"
+display = "GEO_MON_B3_118"
+idle = "zzz_totally_not_a_clip_zzz"
+
+[[folklore]]
+id = 86
+name = "Orphan Idle"
+idle = "003"
+"""
+
+
+def test_emit_idle_fourth_token_and_drop_on_failure(tmp_path):
+    proj = _proj(BASE + FOLK_IDLE, tmp_path)
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_folklore([proj], layout)
+    assert any("idle" in w and "zzz_totally_not_a_clip_zzz" in w for w in warns)   # 85's bad idle
+    assert any("idle" in w and "no display" in w for w in warns)                  # 86's orphaned idle
+    body_lines = [ln for ln in layout.folklore_patch.read_text(encoding="utf-8").splitlines()
+                  if not ln.startswith("#")]
+    assert "84 lore model:GEO_MON_B3_118 idle:ANH_MON_B3_118_003" in body_lines   # good idle -> 4th token
+    assert "85 lore model:GEO_MON_B3_118" in body_lines            # bad idle drops, display/entry kept
+    assert "86 lore" in body_lines                                 # orphan idle drops, entry still ships
+    # none of the three entries were skipped for their idle problems
+    name_body = layout.keyitem_name_mes("us").read_text(encoding="utf-8")
+    assert "[TXID=84]Good Idle[ENDN]" in name_body
+    assert "[TXID=85]Bad Idle[ENDN]" in name_body
+    assert "[TXID=86]Orphan Idle[ENDN]" in name_body
+
+
+def test_emit_idle_absent_stays_display_only(tmp_path):
+    proj = _proj(BASE + '\n[[folklore]]\nid = 87\nname = "NoIdle"\ndisplay = "GEO_MON_B3_118"\n', tmp_path)
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_folklore([proj], layout)
+    assert not any("idle" in w for w in warns)
+    body = layout.folklore_patch.read_text(encoding="utf-8")
+    assert ("87 lore model:GEO_MON_B3_118\n" in body
+            or body.rstrip().endswith("87 lore model:GEO_MON_B3_118"))
+
+
+def test_emit_dup_id_message_mentions_idle_drop_too(tmp_path):
+    p1 = _proj(BASE + '\n[[folklore]]\nid = 92\nname = "First"\ndisplay = "GEO_MON_B3_118"\nidle = "3"\n',
+               tmp_path, "a")
+    p2 = _proj(BASE.replace("4003", "4004") + '\n[[folklore]]\nid = 92\nname = "Second"\n', tmp_path, "b")
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_folklore([p1, p2], layout)
+    dup = next(w for w in warns if "defined twice" in w)
+    assert "idle" in dup.lower()
+    # the later (idle-less) block really did win -- no stray idle token from the dropped first block
+    body_lines = [ln for ln in layout.folklore_patch.read_text(encoding="utf-8").splitlines()
+                  if not ln.startswith("#")]
+    assert "92 lore" in body_lines

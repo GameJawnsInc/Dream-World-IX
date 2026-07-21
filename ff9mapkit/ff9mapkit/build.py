@@ -7415,7 +7415,10 @@ def _emit_folklore(projects, layout) -> list:
 
     Also emits the ``FolklorePatch.txt`` registry sidecar (categories + an optional third ``display``
     token per entry, resolved via :func:`ff9mapkit.content.folklore.resolve_display` -- an unresolvable
-    ``display`` warns and drops ONLY that token, never the entry).
+    ``display`` warns and drops ONLY that token, never the entry -- and an optional 4th ``idle``
+    token, resolved via :func:`ff9mapkit.content.folklore.resolve_idle`, meaningful only alongside
+    ``display``: an unresolvable ``idle``, or an ``idle`` with no ``display``, warns and drops ONLY
+    the idle token).
 
     Build does NOT run ``validate()`` -> warn-and-skip a bad block, never crash (the recurring lesson);
     ``lint`` reports the precise error via ``_validate_folklore``. Returns warnings."""
@@ -7443,8 +7446,8 @@ def _emit_folklore(projects, layout) -> list:
                 continue
             if iid in seen:
                 warnings.append(f"[[folklore]] id {iid} is defined twice ({seen[iid]} and "
-                                f"{_field_name(p)}) -- the later one wins (the earlier block's display, "
-                                "if any, drops with it)")
+                                f"{_field_name(p)}) -- the later one wins (the earlier block's "
+                                "display/idle, if any, drop with it)")
                 blocks = [x for x in blocks if int(x["id"]) != iid]
             seen[iid] = _field_name(p)
             # over-budget text still RENDERS (just clips) -> warn-and-ship here; lint ERRORS precisely
@@ -7468,6 +7471,23 @@ def _emit_folklore(projects, layout) -> list:
                                     f"{_field_name(p)}: {e} -- shipped without a portrait (text-only pane)")
                     b = dict(b)
                     b.pop("display", None)
+            # THE idle LANE: meaningful only alongside display -- same fail-soft law, one notch finer
+            # (a bad/orphaned idle drops the IDLE TOKEN ONLY; the entry -- and its display, if any --
+            # ships regardless).
+            if b.get("idle") is not None:
+                if b.get("display") is None:
+                    warnings.append(f"[[folklore]] id {iid} idle {b['idle']!r} on {_field_name(p)} has "
+                                    "no display -- idle is meaningless without a portrait, dropped")
+                    b = dict(b)
+                    b.pop("idle", None)
+                else:
+                    try:
+                        _folklore.resolve_idle(b["display"], b["idle"])
+                    except (TypeError, ValueError) as e:
+                        warnings.append(f"[[folklore]] id {iid} idle {b['idle']!r} on "
+                                        f"{_field_name(p)}: {e} -- shipped with the default idle clip")
+                        b = dict(b)
+                        b.pop("idle", None)
             blocks.append(b)
     if not blocks:
         return warnings

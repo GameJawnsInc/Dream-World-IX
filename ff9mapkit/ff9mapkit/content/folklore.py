@@ -41,6 +41,30 @@ No raw enemy display names (``"Bomb"``): no such catalog exists in the kit and b
 separate provenance-sensitive project. Display is NOT gated on ``category`` (a ``places`` entry
 showing a landmark model is legitimate).
 
+THE idle GRAMMAR (the render-rig kit lane's per-entry idle-clip override): an optional ``idle =
+"<ref>"`` key on ``[[folklore]]`` is meaningful ONLY alongside ``display`` -- it names which of the
+portrait model's OWN animation clips plays as its living idle, instead of the engine's default
+(``animList[0]``). The engine already resolves an optional 4th ``FolklorePatch.txt`` token
+``idle:<clipName>`` against the model's own discovered clip list (exact match first, else a unique
+``_<suffix>`` match), fail-soft (a bad token falls back to the default clip, never text-only). The
+kit resolves the SAME way, offline, so a bad ref is caught at lint/build time instead of a silent
+in-game fallback:
+
+  1. a full clip name (``"ANH_MON_B3_118_003"``), any case -> canonicalized to the animation DB's
+     exact casing;
+  2. a bare suffix (``"003"`` or ``"3"``) -- zero-pad-aware: a clip matches when it ends with ``"_"``
+     + the literal form given, OR (for a digit ref) its own trailing ``"_"``-delimited token is
+     numeric and equal in VALUE (so ``"3"`` finds a clip suffixed ``"_003"``).
+
+Both forms resolve against ``ref``'s model's own clip list ONLY -- re-implementing the engine's
+GEO-suffix join (:func:`resolve_idle`'s ``identifier = geoName[4:]``, a clip matches when
+``clipName[4:]`` -- both prefixes stripped -- starts with it; the same (group, form-free, token) join
+:func:`ff9mapkit.catalog.animations_for_model` uses, but over the model's FULL clip list rather than
+just its named movement actions). An unknown ref raises with difflib near-miss hints (or the model's
+own clip list, when nothing is close); an ambiguous bare suffix raises naming every candidate.
+:func:`render_patch_lines` appends the resolved full clip name as a 4th, whitespace-free
+``idle:<clipName>`` token -- and, structurally, NEVER without a preceding ``display`` token.
+
 **Canonicalization law:** friendly names die at the kit boundary -- the engine has no archetype
 table, so the emitted token always names the REQUESTED GEO model, never a post-alias donor (the
 engine's own loader replays the alias chain at load time; :func:`ff9mapkit.models.extract.resolve_prefab`
@@ -59,6 +83,7 @@ standing fail-safe philosophy, one notch finer-grained than the whole-entry warn
 """
 from __future__ import annotations
 
+import difflib
 import re
 
 from .. import archetypes as _archetypes
@@ -83,10 +108,15 @@ DEFAULT_CATEGORY = "lore"
 
 def render_patch_lines(blocks) -> list:
     """The field/mod's ``[[folklore]]`` blocks -> ``FolklorePatch.txt`` lines (``<id> <category>
-    [displayRef]``, ascending by id). A block's ``display`` key (when present) is resolved via
-    :func:`resolve_display` and appended as the third token; a block with no ``display`` (or ``None``)
-    emits the plain two-token line. Assumes sanitized blocks (the build warns-and-skips -- including
-    dropping an unresolvable ``display`` before it ever reaches here; ``validate_blocks`` reports)."""
+    [displayRef] [idle:<clipName>]``, ascending by id). A block's ``display`` key (when present) is
+    resolved via :func:`resolve_display` and appended as the third token; a block with no ``display``
+    (or ``None``) emits the plain two-token line. A block's ``idle`` key is resolved via
+    :func:`resolve_idle` and appended as a 4th token ONLY when ``display`` is also present -- the
+    nesting is structural, so an ``idle`` alongside no ``display`` is silently never emitted here
+    (the lint-time hard error lives in :func:`validate_blocks`; the build's warn-and-drop lives in
+    ``build._emit_folklore``). Assumes sanitized blocks (the build warns-and-skips -- including
+    dropping an unresolvable ``display``/``idle`` before it ever reaches here; ``validate_blocks``
+    reports)."""
     lines = []
     for b in sorted(blocks or [], key=lambda x: _check_band(x.get("id") if isinstance(x, dict) else x)):
         cat = str(b.get("category", DEFAULT_CATEGORY)).strip().lower()
@@ -97,6 +127,9 @@ def render_patch_lines(blocks) -> list:
         disp = b.get("display")
         if disp is not None:
             line += f" {resolve_display(disp)}"
+            idle = b.get("idle")
+            if idle is not None:
+                line += f" idle:{resolve_idle(disp, idle)}"
         lines.append(line)
     return lines
 
@@ -231,6 +264,76 @@ def resolve_display(ref) -> str:
     return token
 
 
+def _idle_suffix_matches(clip_name: str, ref: str) -> bool:
+    """A bare idle suffix (``'002'`` / ``'2'``) matches ``clip_name`` when it ends with ``'_'`` + the
+    literal ``ref`` given (case-insensitive), OR -- zero-pad-aware, for a digit ``ref`` only -- when
+    the clip's own trailing ``'_'``-delimited token is itself numeric and equal to ``ref`` in VALUE
+    (so ``'2'`` finds a clip suffixed ``'_002'`` without needing to know the model's pad width)."""
+    if clip_name.upper().endswith("_" + ref.upper()):
+        return True
+    if ref.isdigit():
+        tail = clip_name.rsplit("_", 1)[-1]
+        return tail.isdigit() and int(tail) == int(ref)
+    return False
+
+
+def resolve_idle(display_ref, idle_ref) -> str:
+    """A ``[[folklore]] display = "<display_ref>"`` + ``idle = "<idle_ref>"`` pair -> the canonical
+    FULL clip name (the ``FolklorePatch.txt`` 4th column, ``idle:<clipName>``). See the module
+    docstring for the full grammar. ``display_ref`` is resolved first via :func:`resolve_display`
+    (its structural :class:`FolkloreError`\\ s and :mod:`ff9mapkit.catalog`'s own ``ValueError``
+    propagate VERBATIM -- ``idle`` is never even considered against a display that doesn't resolve).
+    Raises :class:`FolkloreError` for a structurally bad ``idle_ref`` (not a string/int, empty, or
+    embedded whitespace), for an unknown ref (difflib near-miss hints, or the model's own clip list
+    when nothing is close), and for an ambiguous bare suffix (every matching candidate named)."""
+    token = resolve_display(display_ref)        # propagates display errors verbatim; also the canonical geo
+    geo = token[len("model:"):]
+    identifier = geo[4:]                         # strip 'GEO_' -- the engine's own suffix-join rule
+
+    if isinstance(idle_ref, bool):
+        raise FolkloreError(f"idle must be a string or an integer suffix, got {idle_ref!r}")
+    if isinstance(idle_ref, int):
+        ref = str(idle_ref)
+    elif isinstance(idle_ref, str):
+        ref = idle_ref.strip()
+        if not ref:
+            raise FolkloreError("idle is empty")
+        if any(c.isspace() for c in ref):
+            raise FolkloreError(f"idle {idle_ref!r} must be a single whitespace-free token (a full "
+                                "clip name or a bare numeric/literal suffix)")
+    else:
+        raise FolkloreError(f"idle must be a string or an integer suffix, got {idle_ref!r}")
+
+    # the model's own clip list -- re-implements the engine's GEO-suffix filter (GetAnimationsOfModel)
+    # against the kit's own animation DB: identifier = geoName[4:] (strip 'GEO_'), a clip matches when
+    # clipName[4:] (strip 'ANH_') starts with it. Deliberately the FULL clip list, not just the named
+    # movement actions catalog.animations_for_model narrows to.
+    own = {aid: nm for aid, nm in _catalog.ANIMATIONS.items()
+           if nm.startswith("ANH_") and nm[4:].startswith(identifier)}
+    names = sorted(set(own.values()))
+    by_upper = {nm.upper(): nm for nm in names}
+
+    hit = by_upper.get(ref.upper())               # 1) a full clip name, any case
+    if hit is not None:
+        return hit
+
+    matches = sorted({nm for nm in names if _idle_suffix_matches(nm, ref)})   # 2) a bare suffix
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise FolkloreError(f"idle {idle_ref!r} is ambiguous for {geo} -- matches "
+                            f"{', '.join(matches)} (give the full clip name to disambiguate)")
+
+    hints = difflib.get_close_matches(ref.upper(), list(by_upper), n=6, cutoff=0.4)
+    if hints:
+        extra = f" Did you mean: {', '.join(by_upper[h] for h in hints)}?"
+    elif names:
+        extra = f" {geo}'s own clips: {', '.join(names)}."
+    else:
+        extra = f" {geo} has no clips of its own."
+    raise FolkloreError(f"unknown idle clip {idle_ref!r} for {geo}.{extra}")
+
+
 def _check_text(text, where: str) -> str:
     """Type + structural guard: folklore text must be a REAL string (a stray int/bool/list must report,
     not str()-coerce into shipped in-game text), and the overlay dialect delimits entries with the
@@ -328,6 +431,7 @@ def validate_blocks(blocks) -> list:
                     f"{where} (id {iid}) help is {len(v)} chars -- the vanilla maximum is "
                     f"{HELP_MAX_CHARS} (the help bar clips beyond it). Trim it.")
         disp = b.get("display")
+        idle = b.get("idle")
         if disp is not None:
             try:
                 token = resolve_display(disp)
@@ -352,4 +456,12 @@ def validate_blocks(blocks) -> list:
                             f"with no prefab of its own; the engine renders {resolved_name}'s shipping "
                             "geometry instead (automatic substitution, named here so it doesn't "
                             "surprise anyone at playtest)")
+                if idle is not None:
+                    try:
+                        resolve_idle(disp, idle)
+                    except (TypeError, ValueError) as e:        # the resolve_idle error, verbatim
+                        problems.append(f"{where} (id {iid}) idle {idle!r}: {e}")
+        elif idle is not None:
+            problems.append(f"{where} (id {iid}) idle {idle!r} needs a display = \"...\" -- idle is "
+                            "meaningless without a portrait (ERROR: fix by adding display or removing idle)")
     return problems
