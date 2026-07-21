@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
-index 911282a..13dce98 100644
+index 911282a..2f4c86b 100644
 --- a/Assembly-CSharp/Global/FolkloreUI.cs
 +++ b/Assembly-CSharp/Global/FolkloreUI.cs
-@@ -40,8 +40,72 @@ public class FolkloreUI : UIScene
+@@ -40,8 +40,80 @@ public class FolkloreUI : UIScene
  {
      private const String ListGroupButton = "Folklore.List";
  
@@ -65,6 +65,14 @@ index 911282a..13dce98 100644
 +    private const Single FolkloreFitWindowMinSeconds = 0.5f;  // clamp band for the idle-clip-length ->
 +    private const Single FolkloreFitWindowMaxSeconds = 4f;    // window-seconds conversion (FF9 idle
 +                                                                // clips run well inside this)
++    // s46 rung 5 -- THE BODY-BLEND FIT (RENDER-RIG.md's "zoom in on small creatures" round): a hovering/
++    // darting idle (GEO_MON_B3_020's Dragon Fly measured ~3.4x its own body vertically) makes the live
++    // envelope frame the whole MOTION VOLUME, not the creature -- the bug becomes a speck inside its
++    // own flight box. This is how much of the excursion (envelope minus body) stays in frame: 1.0 =
++    // today's whole-flight-volume behavior (unchanged), 0.0 = a pure body close-up (every excursion
++    // crops at the frame edge). 0.4 measured on the Dragon Fly gives ~1.7x zoom-in with only brief
++    // bob-peak edge contact -- see ApplyFolkloreLiveFit.
++    private const Single FolkloreFitExcursionWeight = 0.4f;
 +
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -75,7 +83,7 @@ index 911282a..13dce98 100644
          // REDESIGN instrumentation: the ~3s first-open hang must NAME itself (Awake fires inside
          // the first Show's activation, so this timer brackets the whole burst)
          System.Diagnostics.Stopwatch showWatch = System.Diagnostics.Stopwatch.StartNew();
-@@ -91,6 +155,21 @@ public class FolkloreUI : UIScene
+@@ -91,6 +163,21 @@ public class FolkloreUI : UIScene
  
      public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -97,7 +105,7 @@ index 911282a..13dce98 100644
          // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
          // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
          this.muteSettleDepth = 0;
-@@ -102,6 +181,21 @@ public class FolkloreUI : UIScene
+@@ -102,6 +189,21 @@ public class FolkloreUI : UIScene
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
@@ -119,7 +127,7 @@ index 911282a..13dce98 100644
      public override Boolean OnKeyCancel(GameObject go)
      {
          if (base.OnKeyCancel(go))
-@@ -300,10 +394,16 @@ public class FolkloreUI : UIScene
+@@ -300,10 +402,16 @@ public class FolkloreUI : UIScene
      {
          if (this.detailNameLabel == null)
              return;
@@ -136,7 +144,7 @@ index 911282a..13dce98 100644
              return;
          }
          FolkloreRegistry.Entry e = this.entries[this.currentIndex];
-@@ -314,14 +414,921 @@ public class FolkloreUI : UIScene
+@@ -314,14 +422,1000 @@ public class FolkloreUI : UIScene
              if (String.IsNullOrEmpty(lore))
                  lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
              this.detailBodyLabel.rawText = lore;
@@ -391,6 +399,9 @@ index 911282a..13dce98 100644
 +            // REPLACING (not unioning with) the static seed on the first live sample of each window --
 +            // see the fit block below.
 +            this.folkloreFitLiveSeeded = false;
++            // s46 rung 5: the body box mirrors folkloreFitLiveSeeded's own reset coverage exactly -- a
++            // new entry's body box must never inherit the previous entry's grown box.
++            this.folkloreFitBodyMax = Vector3.zero;
 +
 +            if (FolkloreUI.FolkloreRigLiveIdle)
 +            {
@@ -455,6 +466,9 @@ index 911282a..13dce98 100644
 +                    // rung 3 -- but the very first LateUpdate live sample REPLACES it (see below), not
 +                    // unions with it, so a tighter idle pose can pull the camera in.
 +                    this.folkloreFitLiveSeeded = false;
++                    // s46 rung 5: already zero from the reset above (mirrors folkloreFitLiveSeeded's
++                    // own restate here) -- the first live sample seeds it fresh, same as the envelope.
++                    this.folkloreFitBodyMax = Vector3.zero;
 +                }
 +                else
 +                {
@@ -465,6 +479,8 @@ index 911282a..13dce98 100644
 +                    // it explicitly here so this branch reads correct on its own.
 +                    this.folkloreFitFrozen = true;
 +                    this.folkloreFitWindow = 0f;
++                    // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
++                    this.folkloreFitBodyMax = Vector3.zero;
 +                }
 +            }
 +            else
@@ -474,6 +490,8 @@ index 911282a..13dce98 100644
 +                // frozen/zeroed by the reset above, restated for clarity at the call site that matters.
 +                this.folkloreFitFrozen = true;
 +                this.folkloreFitWindow = 0f;
++                // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
++                this.folkloreFitBodyMax = Vector3.zero;
 +            }
 +            return true;
 +        }
@@ -520,6 +538,8 @@ index 911282a..13dce98 100644
 +            this.folkloreFitFrozen = true;
 +            this.folkloreFitWindow = 0f;
 +            this.folkloreFitLiveSeeded = false;
++            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
++                                                        // own reset coverage exactly
 +        }
 +    }
 +
@@ -685,12 +705,23 @@ index 911282a..13dce98 100644
 +        return any;
 +    }
 +
-+    // s46 rung 3 (unchanged verbatim by the rung-4 split) -- the FOV-fit math + camera set. Shared by
-+    // the frame-1 static fit (EnsureFolkloreModel) and every EXPAND-ONLY live refit (LateUpdate).
++    // s46 rung 3 (the FOV-fit math itself unchanged verbatim by the rung-4 split; re-split again in
++    // rung 5 -- see ApplyFolkloreFitCore below) -- thin (min,max)->(center,halfExtents) wrapper. The
++    // static-mount path (EnsureFolkloreModel) and the round-3 fallback pose both still call this exact
++    // signature, so their numbers stay bit-identical to before the rung-5 split.
 +    private Boolean ApplyFolkloreFit(Vector3 min, Vector3 max)
 +    {
 +        Vector3 boundsCenter = (min + max) * 0.5f;
 +        Vector3 halfExtents = (max - min) * 0.5f;
++        return this.ApplyFolkloreFitCore(boundsCenter, halfExtents);
++    }
++
++    // s46 rung 5 -- THE BODY-BLEND FIT CORE: the FOV/distance math extracted verbatim out of
++    // ApplyFolkloreFit (above) into a (center, halfExtents) core so the live path (LateUpdate, via
++    // ApplyFolkloreLiveFit below) can fit a DIFFERENT box than the plain min/max envelope while the
++    // static-mount path keeps calling the (min,max) wrapper unchanged.
++    private Boolean ApplyFolkloreFitCore(Vector3 center, Vector3 halfExtents)
++    {
 +        if (halfExtents.x < FolkloreAutoFitMinExtent && halfExtents.y < FolkloreAutoFitMinExtent && halfExtents.z < FolkloreAutoFitMinExtent)
 +            return false;
 +        if (halfExtents.x > FolkloreAutoFitMaxExtent || halfExtents.y > FolkloreAutoFitMaxExtent || halfExtents.z > FolkloreAutoFitMaxExtent)
@@ -708,9 +739,35 @@ index 911282a..13dce98 100644
 +        if (Single.IsNaN(d) || Single.IsInfinity(d) || d < 1f)
 +            return false;
 +
-+        this.folkloreCamera.transform.localPosition = boundsCenter + new Vector3(0f, 0f, -d);
-+        this.folkloreCamera.transform.LookAt(this.folkloreStage.transform.TransformPoint(boundsCenter), Vector3.down);
++        this.folkloreCamera.transform.localPosition = center + new Vector3(0f, 0f, -d);
++        this.folkloreCamera.transform.LookAt(this.folkloreStage.transform.TransformPoint(center), Vector3.down);
 +        return true;
++    }
++
++    // s46 rung 5 -- THE BODY-BLEND FIT: blends the live envelope (candidateMin/candidateMax, the
++    // window's whole-flight-volume union the caller already tracks in folkloreFitMin/Max) toward the
++    // tighter folkloreFitBodyMax body box by FolkloreFitExcursionWeight -- see that const's own comment
++    // for the 0..1 semantics. GROUNDED-CREATURE REGRESSION SAFETY, stated precisely (REPAIR,
++    // post-rung-5 skeptic review, MEDIUM -- the prior wording overclaimed exact "componentwise EQUAL"):
++    // envHalf is a UNION of per-frame boxes across every sampled CENTER this window, while
++    // folkloreFitBodyMax is a MAX of per-frame OWN half-extents independent of center -- these coincide
++    // exactly only when the idle's center never drifts a single unit within the window. Any nonzero
++    // sway/weight-shift/breathing translation still makes envHalf strictly >= folkloreFitBodyMax (never
++    // <), so effective is always <= envHalf, with the gap proportional to positional drift -- i.e.
++    // "grounded" creatures (envelope ~= body, the approximate claim this design was proven against in
++    // rounds 1-3) keep a framing that is AT MOST marginally tighter than fitting the envelope directly,
++    // never looser and never a regression class of its own.
++    private Boolean ApplyFolkloreLiveFit(Vector3 candidateMin, Vector3 candidateMax)
++    {
++        Vector3 center = (candidateMin + candidateMax) * 0.5f;
++        Vector3 envHalf = (candidateMax - candidateMin) * 0.5f;
++        // the body box is a per-frame INSTANTANEOUS sample maxed across the window while envHalf comes
++        // from a UNION across the same window, so body <= envHalf already holds in the ordinary case --
++        // guard the degenerate case explicitly (the body box must never widen the effective fit past
++        // the envelope itself) rather than assume it.
++        Vector3 body = Vector3.Min(this.folkloreFitBodyMax, envHalf);
++        Vector3 effective = body + (envHalf - body) * FolkloreFitExcursionWeight;
++        return this.ApplyFolkloreFitCore(center, effective);
 +    }
 +
 +    // s46 rung 4 -- the live-fit window length: give the idle clip roughly its own play length to show
@@ -885,6 +942,13 @@ index 911282a..13dce98 100644
 +
 +                if (candidateValid)
 +                {
++                    // s46 rung 5 -- THE BODY BOX: this frame's OWN INSTANTANEOUS half-extents, straight
++                    // out of liveMin/liveMax (NOT the running candidateMin/candidateMax envelope, which
++                    // is a union of every position the idle has ever visited this window). A hovering/
++                    // darting idle's candidate envelope balloons with travel; this stays the creature's
++                    // own size.
++                    Vector3 frameHalfExtents = (liveMax - liveMin) * 0.5f;
++
 +                    if (!this.folkloreFitLiveSeeded)
 +                    {
 +                        // first real data for this window -- always attempt a refit (not epsilon-gated):
@@ -893,7 +957,10 @@ index 911282a..13dce98 100644
 +                        this.folkloreFitMin = candidateMin;
 +                        this.folkloreFitMax = candidateMax;
 +                        this.folkloreFitLiveSeeded = true;
-+                        this.ApplyFolkloreFit(candidateMin, candidateMax);
++                        // s46 rung 5: seed the body box from the SAME sample that replaces the envelope
++                        // seed above.
++                        this.folkloreFitBodyMax = frameHalfExtents;
++                        this.ApplyFolkloreLiveFit(candidateMin, candidateMax);
 +                    }
 +                    else
 +                    {
@@ -910,12 +977,28 @@ index 911282a..13dce98 100644
 +                        Single growEpsilon = Mathf.Max(FolkloreFitGrowEpsilon, FolkloreFitGrowEpsilonRelative * baseMaxAxis);
 +                        this.folkloreFitMin = candidateMin;
 +                        this.folkloreFitMax = candidateMax;
-+                        // EXPAND-ONLY refit from here: only re-run the FOV math when the union
-+                        // noticeably grew this frame, so the camera only ever pulls back/recenters from
-+                        // its live-seeded pose -- a subtle settle, never a per-frame jitter chasing
-+                        // every sub-pixel skeleton wobble.
-+                        if (growX > growEpsilon || growY > growEpsilon || growZ > growEpsilon)
-+                            this.ApplyFolkloreFit(candidateMin, candidateMax);
++                        // REPAIR (post-rung-5 skeptic review, HIGH): folkloreFitBodyMax grows every
++                        // valid frame, but until this fix the refit below fired ONLY on ENVELOPE growth
++                        // (growX/Y/Z, the position-union box) -- for a cyclic idle the envelope
++                        // stabilizes within the first loop, so a LATER frame's own bigger instantaneous
++                        // pose (wings spread wider, a tail flick) could keep growing folkloreFitBodyMax
++                        // with zero envelope growth to trigger on, leaving ApplyFolkloreLiveFit's
++                        // consumer (body blend, see ApplyFolkloreLiveFit above) stuck on a stale,
++                        // too-small body box -- the camera fit that value drove reads too tight for the
++                        // creature's later, larger poses. Capture the pre-update body box and OR its own
++                        // growth (same growEpsilon threshold) into the refit trigger so a body-only
++                        // growth event still re-fits with the fresh box.
++                        Vector3 prevBodyMax = this.folkloreFitBodyMax;
++                        this.folkloreFitBodyMax = Vector3.Max(this.folkloreFitBodyMax, frameHalfExtents);
++                        Boolean bodyGrew = (this.folkloreFitBodyMax.x - prevBodyMax.x) > growEpsilon
++                            || (this.folkloreFitBodyMax.y - prevBodyMax.y) > growEpsilon
++                            || (this.folkloreFitBodyMax.z - prevBodyMax.z) > growEpsilon;
++                        // EXPAND-ONLY refit from here: only re-run the FOV math when the envelope OR the
++                        // body box noticeably grew this frame, so the camera only ever pulls back/
++                        // recenters from its live-seeded pose -- a subtle settle, never a per-frame
++                        // jitter chasing every sub-pixel skeleton wobble.
++                        if (growX > growEpsilon || growY > growEpsilon || growZ > growEpsilon || bodyGrew)
++                            this.ApplyFolkloreLiveFit(candidateMin, candidateMax);
 +                    }
 +                }
 +                // else: the candidate is degenerate (a corrupted renderer this frame) -- reject it
@@ -927,7 +1010,9 @@ index 911282a..13dce98 100644
 +            if (this.folkloreFitWindow <= 0f)
 +            {
 +                this.folkloreFitFrozen = true;
-+                Log.Message($"[FolkloreUI] live-fit settled for entry {this.folkloreModelEntryId}, stage-local extents={this.folkloreFitMax - this.folkloreFitMin}");
++                // s46 rung 5: the settle log now names both boxes -- the envelope (whole-flight-volume,
++                // as before) and the body box the live-fit blend actually frames toward.
++                Log.Message($"[FolkloreUI] live-fit settled for entry {this.folkloreModelEntryId}, stage-local extents={this.folkloreFitMax - this.folkloreFitMin}, bodyHalfExtents={this.folkloreFitBodyMax}");
 +            }
 +        }
 +
@@ -1045,6 +1130,8 @@ index 911282a..13dce98 100644
 +            this.folkloreFitFrozen = true;
 +            this.folkloreFitWindow = 0f;
 +            this.folkloreFitLiveSeeded = false;
++            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
++                                                        // own reset coverage exactly
 +        }
 +    }
 +
@@ -1058,7 +1145,7 @@ index 911282a..13dce98 100644
      // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
      // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
      // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
-@@ -403,14 +1410,25 @@ public class FolkloreUI : UIScene
+@@ -403,14 +1497,25 @@ public class FolkloreUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -1087,7 +1174,7 @@ index 911282a..13dce98 100644
          GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
          bodyGo.name = "Folklore Detail Body";
          bodyGo.transform.parent = this.detailPanel.transform;
-@@ -418,8 +1436,8 @@ public class FolkloreUI : UIScene
+@@ -418,8 +1523,8 @@ public class FolkloreUI : UIScene
          bodyGo.SetActive(true);
          this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
          this.detailBodyLabel.SetAnchor((GameObject)null);
@@ -1098,7 +1185,7 @@ index 911282a..13dce98 100644
          this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
          this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
          this.detailBodyLabel.multiLine = true;
-@@ -623,6 +1641,9 @@ public class FolkloreUI : UIScene
+@@ -623,6 +1728,9 @@ public class FolkloreUI : UIScene
      [NonSerialized]
      private GameObject detailPanel;
      [NonSerialized]
@@ -1108,7 +1195,7 @@ index 911282a..13dce98 100644
      private UILabel detailNameLabel;
      [NonSerialized]
      private UILabel detailBodyLabel;
-@@ -640,6 +1661,71 @@ public class FolkloreUI : UIScene
+@@ -640,6 +1748,82 @@ public class FolkloreUI : UIScene
      private Boolean firstFramesLogged;
      [NonSerialized]
      private Int32 muteSettleDepth;
@@ -1177,6 +1264,17 @@ index 911282a..13dce98 100644
 +    // samples union-grow as before (still monotonic within the window -- no per-frame jitter).
 +    [NonSerialized]
 +    private Boolean folkloreFitLiveSeeded;
++    // s46 rung 5 -- THE BODY BOX (RENDER-RIG.md's zoom-in round): the componentwise MAX, over the same
++    // settle window as folkloreFitMin/Max, of each frame's OWN INSTANTANEOUS half-extents
++    // ((liveMax-liveMin)*0.5f straight out of GatherFolkloreLiveBounds) -- the creature's conservative
++    // body box, free of travel. folkloreFitMin/Max is a UNION across the whole window (it necessarily
++    // includes every position the idle ever visited); this field never unions positions across frames,
++    // only sizes, so a creature that hovers/darts around a wide area still measures a tight body here.
++    // Seeded from the first VALID live sample (the same sample that replaces the envelope seed in
++    // folkloreFitMin/Max), grown componentwise on every later valid sample. Consumed by
++    // ApplyFolkloreLiveFit, reset at every site that resets folkloreFitLiveSeeded.
++    [NonSerialized]
++    private Vector3 folkloreFitBodyMax;
  
      private class FolkloreListData : ListDataTypeBase
      {
