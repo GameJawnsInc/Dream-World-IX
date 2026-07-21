@@ -45,9 +45,10 @@
 > the split. The patch is `memoria-patches/s46-folklore-render-rig.patch` (1 file, 9 hunks, both
 > gates green); merged to master with rung 1 proven.
 >
-> **RUNGS 2+3 — BUILT + CAPTURED 2026-07-21 (★ playtest pending — the DLL is compiled but NOT
-> deployed; FF9 was running, so every compile ran `/p:DWIXNoDeploy=true`; deploy build + RELAUNCH
-> needed).** One same-day round, built by a 12-agent Sonnet workflow (`wf_746aa256`: 4 ground lanes →
+> **RUNGS 2+3 — BUILT + CAPTURED + DEPLOYED 2026-07-21 (★ playtest pending — RELAUNCH required; the
+> deployed DLL is `2136104F2E785DE5`, both arches MD5-match Output, new method names verified in the
+> metadata; every pre-deploy compile ran `/p:DWIXNoDeploy=true` while FF9 was up, the deploy build
+> ran after it closed).** One same-day round, built by a 12-agent Sonnet workflow (`wf_746aa256`: 4 ground lanes →
 > design → implement+compile → 3 adversarial skeptics → repair; the kit lane ran as an independent
 > parallel chain). What shipped, all in `FolkloreUI.cs` (still the one file, no csproj change):
 >
@@ -107,9 +108,8 @@
 >
 > ## NEXT SESSION — where to pick up
 >
-> - **PLAYTEST RUNGS 2+3** (checklist above): close FF9 → deploy build (msbuild WITHOUT DWIXNoDeploy)
->   → relaunch → codex at field 30020 (~ → Warp; the FOLKP0 demo save has 80-84 granted after the
->   discovery walks).
+> - **PLAYTEST RUNGS 2+3** (checklist above): the DLL is DEPLOYED — RELAUNCH → codex at field 30020
+>   (~ → Warp; the FOLKP0 demo save has 80-84 granted after the discovery walks).
 > - **Rung 5 garnish + open user calls**: unchanged at the bottom of this doc (turntable, W0
 >   lights, idleClip, battle-look flip).
 > - **Housekeeping still open**: the s45 sharp inner-card corners TODO (`SUBMENU.md`); the column's
