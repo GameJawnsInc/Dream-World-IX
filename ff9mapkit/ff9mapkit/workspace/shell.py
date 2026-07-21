@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
     QPixmap, QShortcut, QTextCharFormat, QTextCursor,
@@ -511,6 +511,7 @@ class Workspace(QMainWindow):
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._deployed_target = None               # the file path last deployed OK -> the spine's post-deploy hint
+        self._deployed_field_id = None             # the field id that last deploy targeted -> the spine's Copy-warp receipt
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
@@ -1284,7 +1285,22 @@ class Workspace(QMainWindow):
         for _ekey in (Qt.Key_Return, Qt.Key_Enter):                 # Enter = open (parity with double-click)
             esc = QShortcut(QKeySequence(_ekey), self.tree, activated=self._open_current_tree_item)
             esc.setContext(Qt.ShortcutContext.WidgetShortcut)
-        tv.addWidget(self.tree, 1)
+        # The empty stage has a voice: with no project the tree is a blank void, so a QStackedWidget swaps it
+        # for a teaching empty-state (a QTreeWidget can't host a child overlay cleanly). Toggled on the open/
+        # close path via the tree model's row signals -- any addTopLevelItem/clear re-evaluates the count.
+        self._nav_stack = QStackedWidget()
+        self._nav_stack.addWidget(self.tree)                        # index 0 = the populated tree
+        self._nav_empty = widgets.empty_state(
+            "◇", "Nothing open yet",
+            teach="Open a journey, campaign, or field from the toolbar — or start on Home.",
+            teach_width=(150, 240))                                 # a narrow measure -- the navigator column is
+        #                                                             ~300px; the wide default would inflate it
+        self._nav_stack.addWidget(self._nav_empty)                  # index 1 = the void's teaching state
+        tv.addWidget(self._nav_stack, 1)
+        _navmodel = self.tree.model()
+        for _navsig in (_navmodel.rowsInserted, _navmodel.rowsRemoved, _navmodel.modelReset):
+            _navsig.connect(self._sync_nav_stack)
+        self._sync_nav_stack()
         split.addWidget(tree_col)
 
         self.tabs = _RailTabs()
@@ -1327,7 +1343,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.models_doc, "Models")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
-        self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
+        self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems,
+                                     on_coop=lambda: self.tabs.setCurrentWidget(self.coop_doc))
         self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                       on_forked=self._import_forked,       # a clean fork auto-opens its project
@@ -1336,7 +1353,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.import_field, "Import")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
-        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup)
+        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup,
+                                on_build=lambda: self.tabs.setCurrentWidget(self.build_deploy))
         self.tabs.addTab(self.coop_doc, "Co-op")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -1490,6 +1508,24 @@ class Workspace(QMainWindow):
         self._busy_bar.setVisible(False)
         self._busy_bar.setAccessibleName("Working")
         hh.addWidget(self._busy_bar)
+        # a Stop control so a wedged job is escapable without killing the whole app (a silent UnityPy bundle
+        # read freezes both the bar and Output -- a slow import reads identically to a hang). Hidden except
+        # while a job runs; styled like the other console-head buttons.
+        self._stop_btn = QPushButton("Stop")
+        self._stop_btn.setObjectName("consoleHeadBtn")
+        self._stop_btn.setToolTip("Stop the running job (kills the subprocess; the verdict reads 'Stopped.')")
+        self._stop_btn.clicked.connect(self._stop_job)
+        self._stop_btn.setVisible(False)
+        hh.addWidget(self._stop_btn)
+        # the elapsed clock + stall detector: text, not motion (reduced-motion-safe). All fenced OFF whenever
+        # no job runs -- the timer is only active between _set_busy(True) and (False).
+        self._busy = False
+        self._stopped = False
+        self._elapsed = QElapsedTimer()
+        self._last_output_ms = 0
+        self._job_timer = QTimer(self)
+        self._job_timer.setInterval(1000)
+        self._job_timer.timeout.connect(self._tick_job)
         self._console_head = head
         panel_v.addWidget(head)
 
@@ -1580,8 +1616,20 @@ class Workspace(QMainWindow):
     def _console_head_h(self):
         return self._console_head.sizeHint().height()
 
+    def _elapsed_str(self):
+        """``m:ss`` of the running job, or ``""`` when nothing runs (the clock is fenced to the busy window)."""
+        if not (getattr(self, "_busy", False) and getattr(self, "_elapsed", None) is not None
+                and self._elapsed.isValid()):
+            return ""
+        s = self._elapsed.elapsed() // 1000
+        return f"{s // 60}:{s % 60:02d}"
+
     def _sync_console_btn(self):
-        self._console_btn.setText(("▾  " if self._console_open else "▸  ") + "Problems  ·  Output")
+        # while a job runs, the collapsed toggle carries the elapsed clock so the running state is legible
+        # even with the console collapsed (the always-visible chrome, mirrored -- see also _refresh_deploy_btn).
+        el = self._elapsed_str()
+        base = ("▾  " if self._console_open else "▸  ") + "Problems  ·  Output"
+        self._console_btn.setText(base + (f"  —  Working… {el}" if el else ""))
         self._console_btn.setToolTip("Collapse the console panel" if self._console_open
                                      else "Expand the console panel")
 
@@ -1754,6 +1802,9 @@ class Workspace(QMainWindow):
         v.addWidget(self._home_row("save", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
+        v.addWidget(self._home_row("pin", "Co-op", "play a live session with a friend — ghost sync on a "
+                                   "shared field, co-op battles (a play session, not shipping)",
+                                   [("Go to Co-op", lambda: self.tabs.setCurrentWidget(self.coop_doc), False)]))
         v.addStretch(1)
         hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <a href=\"conceptmap\">How it all fits</a> · "
                       "<b>Close</b> (toolbar) returns here.")
@@ -2499,14 +2550,12 @@ class Workspace(QMainWindow):
         jid.setPlaceholderText("dali   (a slug: A-Z, 0-9, _)")
         jname = QLineEdit()
         jname.setPlaceholderText("Dali")
-        entry = QLineEdit()
-        entry.setPlaceholderText("4100   (the installed field this row warps into)")
         scenario = QLineEdit()
         scenario.setPlaceholderText("optional story beat (set_scenario)")
         form.addRow("Journey id", jid)
         form.addRow("Menu label", jname)
-        form.addRow("Entry field id", entry)
-        form.addRow(widgets.caption("Custom band 4000–32767 (real ids are locked)."))
+        entry = widgets.id_field(form, "Entry field id",
+                                 placeholder="4100   (the installed field this row warps into)")
         form.addRow("Scenario", scenario)
         form.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
@@ -2532,9 +2581,8 @@ class Workspace(QMainWindow):
                 raise ValueError("a journey id is required")
             if sid in {j.id for j in self.manifest.journeys}:
                 raise ValueError(f"a journey id {sid!r} is already in this hub — pick another")
-            ent = int(entry_text)
-            if not (4000 <= ent <= 32767):
-                raise ValueError(f"entry field id {ent} out of the custom band 4000–32767 (real ids are locked)")
+            from .. import pack
+            ent = pack.check_custom_id(entry_text, what="entry field id")
             row = J.render_journey_row(sid, name or sid, ent,
                                        scenario=int(scenario_text) if str(scenario_text).strip() else None)
             text = Path(self.journey_root).read_text(encoding="utf-8").rstrip("\n") + "\n\n" + row
@@ -2692,18 +2740,7 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setProperty("role", "muted")
         lay.addWidget(intro)
-        lst = QListWidget()
-        for a in arcset.arcs:
-            tag = "   ✓ in arc" if a.key in existing else ""
-            it = QListWidgetItem(f"{a.name}   (seed {a.seed}){tag}")
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Unchecked)
-            it.setData(Qt.ItemDataRole.UserRole, a.key)
-            if a.note:                                  # the catalog note shows even on a disabled "✓ in arc" row
-                it.setToolTip(a.note + ("  (already in this arc)" if a.key in existing else ""))
-            if a.key in existing:                       # already chained -> not re-addable (append is idempotent)
-                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            lst.addItem(it)
+        lst = widgets.region_catalog_list(arcset, exclude=existing, show_counts=True)
         lay.addWidget(lst)
 
         def _set_all(checked):
@@ -2916,8 +2953,8 @@ class Workspace(QMainWindow):
         area = int(area)
         if area < 10:
             raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen the game")
-        if field_id is not None and not (4000 <= int(field_id) <= 32767):
-            raise ValueError(f"field id {field_id} out of the custom band 4000–32767 (real ids are locked)")
+        if field_id is not None:
+            field_id = pack.check_custom_id(field_id, what="field id")
         proj_dir = Path(dest) / name
         fpath = proj_dir / f"{name.lower()}.field.toml"
         if fpath.exists():
@@ -2936,13 +2973,11 @@ class Workspace(QMainWindow):
         name = QLineEdit()
         name.setPlaceholderText("MY_ROOM")
         dest = QLineEdit(self._default_new_dest())
-        fid = QLineEdit()
-        fid.setPlaceholderText("auto (suggested)")
         area = QLineEdit("11")
         pitch = QLineEdit("48")
         form.addRow("Name", name)
         form.addRow("Destination", self._dir_row(dest, "Choose where to scaffold the field"))
-        form.addRow("Field id", fid)
+        fid = widgets.id_field(form, "Field id")
         form.addRow("Area (≥10)", area)
         form.addRow("Camera pitch", pitch)
         form.addRow(widgets.caption("Downward camera tilt in degrees (0 = level; ~48 is typical). "
@@ -3034,10 +3069,10 @@ class Workspace(QMainWindow):
         name = str(name).strip()
         if not name:
             raise ValueError("a hub / journey name is required")
-        if not (4000 <= int(hub_id) <= 32767):
-            raise ValueError(f"hub field id {hub_id} out of the custom band 4000–32767 (real ids are locked)")
-        if kind == "bare" and not (4000 <= int(entry) <= 32767):
-            raise ValueError(f"entry field id {entry} out of the custom band 4000–32767 (real ids are locked)")
+        from .. import pack
+        pack.check_custom_id(hub_id, what="hub field id")
+        if kind == "bare":
+            pack.check_custom_id(entry, what="entry field id")
         dest = Path(dest)
         jpath = dest / "journeys.toml"
         if jpath.exists():
@@ -3112,18 +3147,15 @@ class Workspace(QMainWindow):
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
         dest = QLineEdit(self._default_new_dest())
-        hub_id = QLineEdit("4600")
         borrow = QLineEdit("N11_HUT")
         jid = QLineEdit("intro")
         jname = QLineEdit("Intro")
         form.addRow("Hub name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose a folder for the journeys.toml"))
-        form.addRow("Hub field id", hub_id)
-        form.addRow(widgets.caption("Custom band 4000–32767 (real ids are locked)."))
+        hub_id = widgets.id_field(form, "Hub field id", value="4600")
         form.addRow("Hub art (borrow a real field)", borrow)
         form.addRow("First journey id", jid)
         form.addRow("First journey name", jname)
-        entry = QLineEdit("4100")
         scenario = QLineEdit()
         scenario.setPlaceholderText("optional story beat")
         campaigns = QLineEdit()
@@ -3131,8 +3163,7 @@ class Workspace(QMainWindow):
         bare_panel, bl = QWidget(), None
         bl = QFormLayout(bare_panel)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.addRow("Entry field id", entry)
-        bl.addRow(widgets.caption("Same custom band as above."))
+        entry = widgets.id_field(bl, "Entry field id", value="4100")
         bl.addRow("Scenario", scenario)
         bl.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         multi_panel = QWidget()
@@ -7126,6 +7157,16 @@ class Workspace(QMainWindow):
         for i in range(self.tree.topLevelItemCount()):
             walk(self.tree.topLevelItem(i))
 
+    def _sync_nav_stack(self, *args):
+        """Swap the navigator between the tree and its empty-state on the open/close path. With no project the
+        tree renders as a blank void, so show the teaching empty-state instead; a filter box over that void is
+        misleading, so hide it too. Wired to the tree model's row-change signals -- every populate/clear fires it."""
+        if not hasattr(self, "_nav_stack"):
+            return
+        empty = self.tree.topLevelItemCount() == 0
+        self._nav_stack.setCurrentWidget(self._nav_empty if empty else self.tree)
+        self.tree_filter.setVisible(not empty)
+
     def _repair_central_split(self, sizes):
         """A SQUEEZE IS NOT A PREFERENCE. Return the saved sizes, or the default when they are the fossil
         of a too-narrow window rather than anything the user chose.
@@ -7217,6 +7258,17 @@ class Workspace(QMainWindow):
         close/tab change — cheap: one line-edit read + one stat)."""
         if getattr(self, "deploy_btn", None) is None:
             return
+        if getattr(self, "_busy", False):
+            # a job is running: the crumb button mirrors it (disabled + subject + muted hourglass) so the
+            # always-visible chrome shows the running state, not a live-looking button whose click no-ops.
+            subject = (getattr(self, "_job", None) or ("Working",))[0]
+            self.deploy_btn.setText(f"{subject}…")
+            self.deploy_btn.setEnabled(False)
+            self.deploy_btn.setIcon(icons.icon("hourglass", self.pal["muted"], 16))
+            self.deploy_btn.setToolTip("A job is running — its output streams in the console below.")
+            self._refresh_spine()
+            return
+        self.deploy_btn.setText("Deploy   F9")         # restore after a busy relabel
         t = self._deploy_target()
         self.deploy_btn.setEnabled(bool(t))
         # the rocket follows the button's foreground: accent_fg when live, muted when disabled/greyed
@@ -7243,7 +7295,12 @@ class Workspace(QMainWindow):
 
         What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
         tab, and Home's lede never shows it) and JUST-DEPLOYED (press ~ -> Reload field -- the only thing
-        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
+        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app;
+        it also carries a Copy-warp receipt for the deployed id so the field is reached without a hand-retype).
+
+        READY is restored for ONE audience only: a newcomer who has never deployed (``prefs.has_deployed()``
+        False) has never met the top-right Deploy chip, so the spine points at it once. The instant the first
+        deploy lands the marker sticks and this branch is silent forever after -- a veteran sees ("", []).
         """
         if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
             return ("", [])
@@ -7254,8 +7311,18 @@ class Workspace(QMainWindow):
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
         if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
-            return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", [])
-        return ("", [])                                 # READY -- the Deploy button is already right there
+            acts = []
+            fid = self._deployed_field_id
+            if fid is not None:                         # a one-click warp-id receipt: no hand-retype into ~ -> Warp
+                acts = [(f"Copy warp: {fid}", lambda f=fid: self._copy_warp(f), False)]
+            return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", acts)
+        if not prefs.has_deployed():                    # FIRST-RUN -- name the Deploy step for a newcomer once
+            # quiet, NOT accent: the always-visible crumb Deploy chip (top-right) is this surface's single
+            # accent, and it is enabled+accent in exactly this state -- a second gold Deploy one row below it
+            # would be two accents on one surface. The spine names the step; the chip carries the accent.
+            return ("Your fork is ready — press Deploy to put it in your game.",
+                    [("Deploy", self._deploy_now, False)])
+        return ("", [])                                 # READY (veteran) -- the Deploy button is already right there
 
     def _refresh_spine(self):
         """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
@@ -7292,6 +7359,13 @@ class Workspace(QMainWindow):
             return                                 # deploying the stale on-disk state would mislead
         self.statusBar().showMessage(f"Deploying {Path(t).name}…", 4000)
         self.build_deploy.on_go()
+
+    def _copy_warp(self, field_id):
+        """Put the bare deployed field id on the clipboard — paste straight into ~ → Warp to field (no
+        hand-retype, where a mistype warps to the wrong field: own-id / campaign ids vary)."""
+        QApplication.clipboard().setText(str(field_id))
+        self.statusBar().showMessage(
+            f"Copied field id {field_id} — in your game, ~ → Warp to field, then paste it.", 5000)
 
     def _open_setup(self):
         """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
@@ -7951,14 +8025,48 @@ class Workspace(QMainWindow):
 
     def _set_busy(self, on):
         """Toggle the console 'Working…' loading state (shown while a subprocess job runs). The text label
-        always shows; the animated indeterminate bar shows only when motion is on (reduced-motion-safe)."""
+        always shows (with an elapsed clock + stall note); the animated indeterminate bar shows only when
+        motion is on (reduced-motion-safe). The Stop button + clock are fenced OFF whenever no job runs."""
         if getattr(self, "_busy_label", None) is None:
             return
-        self._busy_label.setVisible(bool(on))
-        self._busy_bar.setVisible(bool(on) and anim.enabled())
+        on = bool(on)
+        self._busy = on
+        self._busy_label.setVisible(on)
+        self._busy_bar.setVisible(on and anim.enabled())
+        self._stop_btn.setVisible(on)
+        if on:
+            self._elapsed.start()
+            self._last_output_ms = 0
+            self._busy_label.setText("Working…")
+            self._job_timer.start()
+        else:
+            self._job_timer.stop()
+        self._sync_console_btn()                        # mirror the running state to the collapsed toggle
+        self._refresh_deploy_btn()                      # ... and to the always-visible crumb Deploy button
+
+    def _tick_job(self):
+        """Once a second while a job runs: refresh the elapsed clock and, after a stdout silence, say so.
+        Text only (reduced-motion-safe). Only ever active between _set_busy(True) and (False)."""
+        if not self._busy or getattr(self, "_busy_label", None) is None:
+            return
+        ms = self._elapsed.elapsed()
+        secs = ms // 1000
+        label = f"Working… {secs // 60}:{secs % 60:02d}"
+        silence = (ms - self._last_output_ms) // 1000
+        if silence >= 20:                               # a slow bundle read reads identically to a hang --
+            label += f" · no output for {silence}s (still running)"   # say it is alive rather than frozen
+        self._busy_label.setText(label)
+        self._sync_console_btn()
+
+    def _stop_job(self):
+        """Kill the running subprocess. _proc_done then posts the normal ERROR verdict with 'Stopped.'."""
+        p = getattr(self, "proc", None)
+        if p is not None and p.state() != QProcess.ProcessState.NotRunning:
+            self._stopped = True
+            p.kill()                                    # -> finished(non-zero) -> _proc_done
 
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
-                fail_hint="See the Output panel.", on_finished=None):
+                fail_hint="See the Output panel.", on_finished=None, field_id=None):
         """Run ONE streaming subprocess job (lint / build / deploy / import): stream its stdout into the
         Output panel, then post a returncode verdict to Problems. ``argv[0]`` is the program. Returns
         ``False`` (and starts nothing) if a job is already running, else ``True``; ``on_finished(code)``
@@ -7966,7 +8074,8 @@ class Workspace(QMainWindow):
         Import docs only build the argv (the Qt analogue of the tkinter apps' thread+queue)."""
         if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
             return False
-        self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
+        self._stopped = False                           # fresh job -> not a Stop until the button says so
+        self._job = (subject, ok_headline, ok_next, fail_hint, on_finished, field_id)
         # No clear(). The header is a SEPARATOR, and a separator with nothing above it separates nothing --
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
@@ -8043,18 +8152,26 @@ class Workspace(QMainWindow):
     def _drain_proc(self):
         text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
         if text:
+            self._last_output_ms = self._elapsed.elapsed()   # reset the stall clock: real output arrived
             self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
-        subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
-            self, "_job", ("Job", None, "", "See the Output panel.", None))
+        subject, ok_headline, ok_next, fail_hint, on_finished, field_id = getattr(
+            self, "_job", ("Job", None, "", "See the Output panel.", None, None))
+        if self._stopped:                               # a Stop kill -> the verdict names it plainly
+            fail_hint = "Stopped."
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
         self._show_problems(v, [])
-        if code == 0 and ("deploy" in subject.lower() or "install to game" in subject.lower()):
+        # a REAL deploy only: a dry-run subject ("Journey deploy playbook (dry-run)") contains "deploy" but
+        # writes nothing to the game, so it must not fake a just-deployed state nor latch the first-run marker.
+        if code == 0 and "dry-run" not in subject.lower() and (
+                "deploy" in subject.lower() or "install to game" in subject.lower()):
             self._deployed_target = self._deploy_target()   # -> the spine's 'now press ~ (tilde) in-game' hint
+            self._deployed_field_id = field_id              # -> the spine's Copy-warp receipt (None => no receipt)
+            prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
         if on_finished:
             on_finished(code)

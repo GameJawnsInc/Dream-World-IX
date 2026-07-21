@@ -112,6 +112,12 @@ def test_the_smoke_survives_a_hostile_prefs_file(tmp_path):
         # newcomer asserts read the dismissal live, so a machine whose owner clicked Hide went red.
         # The dismissal is now stubbed in-memory inside _smoke; this key keeps that pin honest.
         "getstarted_hidden": True,
+        # has_deployed: the sticky first-deploy marker. A veteran's machine reads True, which SILENCES the
+        # first-run READY spine -- so a fence whose thesis is "every value non-default" must set it, or the
+        # smoke measures a fresh install's spine on a veteran's box. deploy_dest: the remembered Build &
+        # Deploy destination -- 'own' is the veteran workflow the persistence exists for, and BuildDoc reads
+        # it at construction to restore the radio, so it belongs in "the machine that broke".
+        "has_deployed": True, "deploy_dest": "own",
         # `layout` WAS THE ONE KEY THIS FENCE SKIPPED -- and it is the exact key THE DOC PANE proved was
         # the defect ("the defect is entirely the PERSISTED layout"). A fence whose thesis is "every value
         # deliberately non-default" that omits the one key a sibling commit is about is not covering the

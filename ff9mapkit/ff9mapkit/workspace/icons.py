@@ -87,6 +87,9 @@ _ICONS: dict[str, str] = {
     "alert-warn": '<path d="M12 3.5l9 15.5H3z"/><path d="M12 9.5v4.5"/><path d="M12 17.2v.3"/>',
     "alert-ok": '<circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.6 2.6L16 9.2"/>',
     "alert-info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.8v.3"/>',
+    # a job is running (the busy crumb-Deploy button wears this, muted): an hourglass.
+    "hourglass": '<path d="M6 3h12"/><path d="M6 21h12"/>'
+                 '<path d="M8 3v3l4 6 4-6V3"/><path d="M8 21v-3l4-6 4 6v3"/>',
     "chevron-right": '<path d="M9 6l6 6-6 6"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
     "minus": '<path d="M5 12h14"/>',

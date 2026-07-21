@@ -600,6 +600,11 @@ _QSS = Template(
        Fenced by test_every_declared_weight_is_a_weight_segoe_can_draw. */
     QLabel[role="label"]   { font-weight: 600; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
+    /* An inline keyboard-reachable cross-link (builddoc/coopdoc header wayfinding). Its <a> makes it a Tab
+       stop (LinksAccessibleByKeyboard), so the a11y law says it MUST paint where the keyboard is. Reserve a
+       transparent 1px border at rest so :focus only RECOLOURS it -- no reflow between states. */
+    QLabel#headerXlink          { border: 1px solid transparent; border-radius: $radius_sm; padding: 1px 4px; }
+    QLabel#headerXlink:focus    { border: 1px solid $focus; }
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
     /* TEXT gets the derived *_text rung (AA 4.5 on the card fill); SHAPES below keep the canonical hue,
        where the 3.0 non-text floor is the right bar. Lifting the hues themselves was measured and

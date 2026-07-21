@@ -63,6 +63,67 @@ def test_empty_state_builds_glyph_title_teach_and_actions(app):
     assert fired == ["fork", "open"], "action callbacks are wired"
 
 
+def test_id_field_teaches_the_band_once(app):
+    """FieldIdField: one id input, one band lesson -- the shared half of the four-site dedupe.
+
+    The New pickers taught the custom band four different ways (placeholder / caption / nothing). id_field
+    stamps the SAME measured caption beneath every id box, so the lesson can never drift again -- and it
+    must be a real Prose caption (a measure), not a bare label or a placeholder that vanishes on focus.
+    """
+    from PySide6.QtWidgets import QFormLayout, QLineEdit, QWidget
+    host = QWidget()
+    form = QFormLayout(host)
+    edit = widgets.id_field(form, "Field id", value="4003")
+    assert isinstance(edit, QLineEdit) and edit.text() == "4003"
+    caps = [lb for lb in host.findChildren(widgets.Prose) if lb.property("role") == "caption"]
+    assert caps and caps[0].text() == widgets.BAND_HINT, "the band hint rides beneath the input"
+    assert isinstance(caps[0], widgets.Prose), "the hint is a measured caption, not a bare QLabel"
+    # an empty box falls back to the shared 'auto (suggested)' placeholder, not a forced value
+    e2 = widgets.id_field(form, "Hub id")
+    assert e2.text() == "" and e2.placeholderText() == "auto (suggested)"
+
+
+def test_region_catalog_list_serves_both_twins(app):
+    """RegionCatalogDialog: one builder, faithful to BOTH byte-twin pickers.
+
+    shell._pick_regions and importdoc.open_region_catalog drew the same checkable list and had drifted --
+    one showed a field count, the other disabled the arc's members. The shared builder must reproduce
+    each posture from its flags: defaults = the shell picker; show_counts = Import; exclude = the
+    'already chained, not re-addable' rule. Assert each behaviour a flag switches, not a row string.
+    """
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import Qt
+    arcs = [
+        SimpleNamespace(key="evil_forest", name="Evil Forest", seed=250, members=[250, 251, 252], note="disc 1"),
+        SimpleNamespace(key="ice_cavern", name="Ice Cavern", seed=300, members=None, note=""),
+    ]
+    arcset = SimpleNamespace(title="FF9 Disc 1", arcs=arcs)
+
+    # the shell picker's posture: no counts, nothing excluded, every row a checkable UserRole=key
+    lst = widgets.region_catalog_list(arcset)
+    assert lst.count() == 2
+    it0 = lst.item(0)
+    assert it0.data(Qt.ItemDataRole.UserRole) == "evil_forest"
+    assert it0.checkState() == Qt.CheckState.Unchecked
+    assert it0.flags() & Qt.ItemFlag.ItemIsUserCheckable
+    assert "fields" not in it0.text(), "no field count unless asked for it"
+    assert it0.toolTip() == "disc 1", "the catalog note is the tooltip"
+
+    # Import's posture: the member count rides inside the paren, and a member-less arc shows none
+    counted = widgets.region_catalog_list(arcset, show_counts=True)
+    assert "3 fields" in counted.item(0).text()
+    assert "fields" not in counted.item(1).text()
+
+    # exclude = already in the arc: disabled, tagged, and its tooltip annotated -- others untouched
+    scoped = widgets.region_catalog_list(arcset, exclude={"evil_forest"})
+    barred = scoped.item(0)
+    assert not (barred.flags() & Qt.ItemFlag.ItemIsEnabled), "a chained region is not re-addable"
+    assert "✓ in arc" in barred.text()
+    assert "already in this arc" in barred.toolTip()
+    assert scoped.item(1).flags() & Qt.ItemFlag.ItemIsEnabled, "an un-chained region stays enabled"
+
+
 def test_attach_shadow_sets_a_drop_shadow_effect(app):
     from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect
     f = widgets.attach_shadow(QFrame(), blur=20, dy=6)

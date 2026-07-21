@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QObject, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
-    QListWidget, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import anim, style
@@ -291,6 +291,30 @@ def caption(text="", *, parent=None, width=None):
     if text:
         p.setAccessibleName(text)
     return p
+
+
+# THE ONE BAND LESSON. A custom field id lives in [pack.CUSTOM_ID_MIN..pack.FIELD_ID_MAX]; the real ids
+# are locked. The New pickers taught this four different ways -- a placeholder here, a caption there, and
+# Import's fork-id box not at all -- so it is written once, as the caption `id_field` stamps beneath every
+# id input. (The numbers are pack's, spelled out rather than interpolated because the string is a design
+# choice reviewed in the strings pass, not a derived value.)
+BAND_HINT = "Custom band 4000–32767 (real ids are locked)."
+
+
+def id_field(form, label, *, value="", placeholder="auto (suggested)"):
+    """One field-id input plus the band lesson, taught the same way everywhere.
+
+    Adds two rows to ``form`` (a QFormLayout): a QLineEdit under ``label``, then the :data:`BAND_HINT`
+    caption beneath it. Returns the QLineEdit so the caller reads it and validates at OK-time via
+    :func:`ff9mapkit.pack.check_custom_id` -- the shared half of the same dedupe. ``value`` pre-fills the
+    box (a real default id); the default empty box shows the ``placeholder`` instead.
+    """
+    edit = QLineEdit(str(value))
+    if placeholder:
+        edit.setPlaceholderText(placeholder)
+    form.addRow(label, edit)
+    form.addRow(caption(BAND_HINT))
+    return edit
 
 
 class NameLabel(QLabel):
@@ -710,14 +734,17 @@ def status_chip(text, kind="info", *, parent=None):
     return lab
 
 
-def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pixmap=None):
+def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pixmap=None,
+                teach_width=(380, 460)):
     """A centered TEACHING empty-state -- the antidote to a black void / a bare "nothing loaded" panel:
     a large decorative icon/glyph, a one-line purpose, an optional teaching sentence, and optional
     primary-action button(s). ``actions`` is an iterable of ``(label, callback)`` (falsy entries are
     skipped, so a caller can gate one on availability); the first surviving action is accented as the
     primary. ``icon_pixmap`` (Phase 8) shows an SVG icon instead of the text ``glyph``; either way the
     mark is decorative (no accessible name) -- the purpose + teach lines carry the meaning for a screen
-    reader. Returns a QWidget ready to drop into any empty host layout."""
+    reader. ``teach_width`` (min, max) is the teach line's pinned measure: the default suits a wide document
+    pane, but a NARROW host (e.g. the ~300px project navigator) must pass a smaller floor or the fixed
+    minimum inflates the whole column's minimum width. Returns a QWidget ready to drop into any empty host."""
     w = QWidget(parent)
     v = QVBoxLayout(w)
     v.setContentsMargins(24, 24, 24, 24)
@@ -737,8 +764,8 @@ def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pix
         t = caption(teach)
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         t.setWordWrap(True)
-        t.setMinimumWidth(380)                          # a word-wrapped label between stretches collapses to
-        t.setMaximumWidth(460)                          # its hint width -- pin a readable measure (~2 lines)
+        t.setMinimumWidth(teach_width[0])               # a word-wrapped label between stretches collapses to
+        t.setMaximumWidth(teach_width[1])               # its hint width -- pin a readable measure (caller's)
         trow = QHBoxLayout()
         trow.addStretch(1)
         trow.addWidget(t)
@@ -759,6 +786,39 @@ def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pix
         v.addLayout(brow)
     v.addStretch(1)
     return w
+
+
+def region_catalog_list(arcset, *, exclude=frozenset(), show_counts=False):
+    """The FF9-region picker's checkable list, built once for both catalogs.
+
+    ``shell._pick_regions`` ('Add region to arc') and ``importdoc.open_region_catalog`` ('Fork FF9
+    regions') were byte-twins over ``refarc.load_region_catalog()`` that had drifted -- one annotated a
+    member-field count, the other disabled the arc's existing members -- so a format/tooltip fix had to
+    land twice. This owns the row shape; both callers keep their own QDialog + accept handler and read
+    the checked ``UserRole`` keys back.
+
+    Each row is ``NAME   (seed N[  ·  K fields])[   ✓ in arc]``, ``UserRole`` = the region key, the
+    catalog ``note`` as tooltip. ``exclude`` (region keys already chained into the target arc) disables
+    and tags those rows and appends '  (already in this arc)' to their tooltip -- append is idempotent, so
+    a chained region is not re-addable. ``show_counts`` appends the field count where the arc lists
+    members. With the defaults (no exclude, no counts) the list is the shell picker verbatim; with
+    ``show_counts=True`` it is Import's verbatim.
+    """
+    lst = QListWidget()
+    for a in arcset.arcs:
+        excluded = a.key in exclude
+        count = f"  ·  {len(a.members)} fields" if show_counts and a.members else ""
+        tag = "   ✓ in arc" if excluded else ""
+        it = QListWidgetItem(f"{a.name}   (seed {a.seed}{count}){tag}")
+        it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        it.setCheckState(Qt.CheckState.Unchecked)
+        it.setData(Qt.ItemDataRole.UserRole, a.key)
+        if a.note:                                       # the catalog note shows even on a disabled row
+            it.setToolTip(a.note + ("  (already in this arc)" if excluded else ""))
+        if excluded:                                     # already chained -> not re-addable (idempotent append)
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        lst.addItem(it)
+    return lst
 
 
 def attach_shadow(widget, *, blur=32, dy=8, alpha=110):

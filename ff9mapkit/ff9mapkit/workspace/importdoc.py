@@ -231,6 +231,7 @@ class ImportDoc(QWidget):
         self.import_btn.clicked.connect(self.on_import)
         ids.addWidget(self.import_btn)
         v.addLayout(ids)
+        v.addWidget(widgets.caption(widgets.BAND_HINT))    # the same band lesson the New pickers stamp
         hint = widgets.caption("→ then deploy what you made on the Build & Deploy tab.")
         v.addWidget(hint)
         self._sync_mode()       # now swap_player + mode_chip exist: set art/carry visibility + the resolved-mode chip
@@ -428,17 +429,23 @@ class ImportDoc(QWidget):
                                 "SEVERAL to compose their seeds into ONE campaign. 'Use selected' fills the Fork-a-region "
                                 "box (review id base / name prefix, then Dry-run or Fork).")
         lay.addWidget(intro)
-        lst = QListWidget()
-        for a in arcset.arcs:
-            count = f"  ·  {len(a.members)} fields" if a.members else ""
-            it = QListWidgetItem(f"{a.name}   (seed {a.seed}{count})")
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Unchecked)
-            it.setData(Qt.ItemDataRole.UserRole, a.key)
-            if a.note:
-                it.setToolTip(a.note)
-            lst.addItem(it)
+        lst = widgets.region_catalog_list(arcset, show_counts=True)
         lay.addWidget(lst)
+        def _set_all(checked):
+            state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+            for i in range(lst.count()):
+                it = lst.item(i)
+                if it.flags() & Qt.ItemFlag.ItemIsEnabled:
+                    it.setCheckState(state)
+        selrow = QHBoxLayout()
+        sel_all = QPushButton("Select all")
+        sel_all.clicked.connect(lambda: _set_all(True))
+        sel_none = QPushButton("Select none")
+        sel_none.clicked.connect(lambda: _set_all(False))
+        selrow.addWidget(sel_all)
+        selrow.addWidget(sel_none)
+        selrow.addStretch(1)
+        lay.addLayout(selrow)
         foot = widgets.caption("Each region forks just its OWN story-state visit (the revisits of a place are separate "
                                "regions). Check 'Whole zone' on the Fork box to fork all visits instead. A region's "
                                "starting beat isn't applied here — add a [startup] beat in the editor after forking.")
@@ -878,10 +885,11 @@ class ImportDoc(QWidget):
         out = self.out.text().strip()
         if not out:
             return self._warn("No output folder", "Pick a folder to write the imported field into.")
+        from .. import pack
         try:
-            fid = int(self.fid.text().strip())
-        except ValueError:
-            return self._warn("Bad field id", "Field id must be a number (e.g. 4003).")
+            fid = pack.check_custom_id(self.fid.text().strip())
+        except ValueError as e:
+            return self._warn("Bad field id", str(e))
         Path(out).mkdir(parents=True, exist_ok=True)
         swap = self.swap_player.currentText().strip()
         neutralize = self.neutralize.isChecked()

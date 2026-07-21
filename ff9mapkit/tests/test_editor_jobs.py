@@ -346,3 +346,60 @@ def test_resolve_dev_repo(tmp_path, monkeypatch):
     sub = repo / "a" / "b"; sub.mkdir(parents=True)
     monkeypatch.chdir(sub)
     assert jobs.resolve_dev_repo(venv).resolve() == repo.resolve()
+
+
+# --------------------------------------------------------------------------- deployed-here ledger scan
+def _dp(tmp_path, *fields):
+    """Write a DictionaryPatch with the given (id, name) FieldScene rows (+ noise the scanner must skip)."""
+    lines = ["3DModel 40 foo bar baz", "# a comment", "MessageFile 4003"]
+    for fid, name in fields:
+        lines.append(f"FieldScene {fid} 11 0 {name} extra")
+    p = tmp_path / "DictionaryPatch.txt"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_scan_pairs_each_registered_id_with_its_per_id_revert(tmp_path):
+    dp = _dp(tmp_path, ("4003", "TESTROOM"), ("4100", "MYFORK"))
+    scroll = tmp_path / "scroll_out"; scroll.mkdir()
+    (scroll / "revert_deploy_4100.py").write_text("# undo 4100\n", encoding="utf-8")   # only 4100 has a script
+    rows = jobs.scan_deployed_reverts(dp, scroll)
+    by_id = {r["id"]: r for r in rows if r["kind"] == "field"}
+    assert by_id["4003"]["script"] is None, "an id with no revert script must be read-only informational"
+    assert by_id["4100"]["script"] and by_id["4100"]["script"].endswith("revert_deploy_4100.py")
+    assert by_id["4100"]["mtime"] is not None and by_id["4003"]["mtime"] is None
+    assert by_id["4003"]["name"] == "TESTROOM"           # the FieldScene name is carried for the label
+
+
+def test_scan_field_rows_keep_dictionarypatch_order(tmp_path):
+    dp = _dp(tmp_path, ("4100", "B"), ("4003", "A"))     # order as written, NOT sorted
+    rows = jobs.scan_deployed_reverts(dp, tmp_path / "none")
+    assert [r["id"] for r in rows if r["kind"] == "field"] == ["4100", "4003"]
+
+
+def test_scan_appends_folderwide_reverts_newest_first(tmp_path):
+    import os, time
+    dp = _dp(tmp_path, ("4003", "TESTROOM"))
+    scroll = tmp_path / "scroll_out"; scroll.mkdir()
+    camp = scroll / "revert_campaign.py"; camp.write_text("x", encoding="utf-8")
+    ng = scroll / "revert_newgame_from_stock.py"; ng.write_text("x", encoding="utf-8")
+    # make the New-Game revert strictly newer than the campaign one, deterministically
+    t = time.time()
+    os.utime(camp, (t - 100, t - 100))
+    os.utime(ng, (t, t))
+    rows = jobs.scan_deployed_reverts(dp, scroll)
+    field = [r for r in rows if r["kind"] == "field"]
+    extra = [r for r in rows if r["kind"] != "field"]
+    assert [r["kind"] for r in rows][:len(field)] == ["field"], "field rows come first"
+    assert [r["name"] for r in extra] == ["New Game entry", "campaign deploy"], "folder-wide reverts newest first"
+    assert all(r["script"] for r in extra) and all(r["id"] is None for r in extra)
+
+
+def test_scan_is_inert_without_a_dictpatch_or_scroll_dir(tmp_path):
+    # no DictionaryPatch (no install found) -> no field rows; no scroll dir -> every script reads absent.
+    assert jobs.scan_deployed_reverts(None, None) == []
+    assert jobs.scan_deployed_reverts(tmp_path / "absent.txt", tmp_path / "absent") == []
+    # a DictPatch but no scroll dir: field rows present, all read-only (no undo script reachable)
+    dp = _dp(tmp_path, ("4003", "TESTROOM"))
+    rows = jobs.scan_deployed_reverts(dp, None)
+    assert rows and all(r["script"] is None for r in rows)

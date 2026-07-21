@@ -151,6 +151,62 @@ def detect_deployed_fields(mod_folder):
     return out
 
 
+def scan_deployed_reverts(dict_patch, scroll_dir):
+    """The 'Deployed here' ledger: every field registered in a mod folder's DictionaryPatch paired with
+    the per-id undo script ``deploy_field`` wrote for it (``revert_deploy_<id>.py``), plus the folder-wide
+    campaign / New-Game reverts -- so a user can see and undo ANY accumulated deploy, not just the latest
+    one the single Revert button reaches (the per-id scripts accumulate unlisted).
+
+    Pure and side-effect-free (reads two paths, writes nothing), so it is unit-testable against a scratch
+    tree. ``dict_patch`` = the mod folder's DictionaryPatch.txt (or ``None`` -> no field rows); ``scroll_dir``
+    = ``tools/scroll_out`` (the revert cache, or ``None`` on an installed copy -> every script reads absent).
+
+    Returns a list of row dicts -- field rows first (DictionaryPatch order), then the folder-wide reverts
+    newest-first by mtime::
+
+        {"kind": "field"|"campaign"|"newgame", "id": str|None, "name": str,
+         "script": str|None, "mtime": float|None}
+
+    A row whose ``script`` is ``None`` has no undo script on disk -- the GUI renders it read-only
+    informational (the registration is real; there is just nothing to run).
+    """
+    scroll = Path(scroll_dir) if scroll_dir else None
+
+    def _script(fname):
+        if scroll is None:
+            return None
+        p = scroll / fname
+        return p if p.is_file() else None
+
+    rows = []
+    if dict_patch is not None:
+        dp = Path(dict_patch)
+        try:
+            lines = dp.read_text(encoding="utf-8").splitlines() if dp.is_file() else []
+        except OSError:
+            lines = []
+        for ln in lines:
+            p = ln.split()
+            if p[:1] == ["FieldScene"] and len(p) >= 5:
+                fid, name = p[1], p[4]
+                s = _script(f"revert_deploy_{fid}.py")
+                rows.append({"kind": "field", "id": fid, "name": name,
+                             "script": str(s) if s else None,
+                             "mtime": s.stat().st_mtime if s else None})
+    # Folder-wide reverts (not per-id): the wholesale campaign deploy + the two New-Game wirings. Only the
+    # ones that exist on disk become rows, newest first (mirrors latest_newgame_revert's mtime pick).
+    extra = []
+    for kind, label, fname in (("campaign", "campaign deploy", "revert_campaign.py"),
+                               ("newgame", "New Game entry", "revert_newgame_from_stock.py"),
+                               ("newgame", "New Game retarget", "revert_newgame_retarget.py")):
+        s = _script(fname)
+        if s:
+            extra.append({"kind": kind, "id": None, "name": label,
+                          "script": str(s), "mtime": s.stat().st_mtime})
+    extra.sort(key=lambda r: r["mtime"], reverse=True)
+    return rows + extra
+
+
 def latest_battle_revert(repo_root):
     """The most recently written ``tools/scroll_out/revert_battle_*.py``, or ``None``."""
     scroll = Path(repo_root) / "tools" / "scroll_out"

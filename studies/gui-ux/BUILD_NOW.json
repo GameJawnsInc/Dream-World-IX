@@ -1,0 +1,123 @@
+[
+ {
+  "title": "First-run READY spine \u2014 point the newcomer at Deploy",
+  "sketch": "In _next_actions, before the empty READY return at shell.py:7258, add `if t and not prefs.has_deployed(): return (\"Your fork is ready \u2014 press Deploy to put it in your game.\", [(\"Deploy\", self._deploy_now, True)])`. State-gated to the pre-first-deploy window; silent forever after. The JUST-DEPLOYED branch (7256) already short-circuits ahead of it, so ordering is correct.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (_next_actions 7248-7258)",
+   "ff9mapkit/ff9mapkit/prefs.py (has_deployed)"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (40). Verified: READY returns (\"\",[]) on a veteran-correct 'Deploy is right there' assumption a newcomer can't use \u2014 they've never met F9 or the Deploy chip. Reaches them on the Import tab where the Home guide isn't visible; spine already renders action tuples as buttons (7272)."
+ },
+ {
+  "title": "One-click restore of the save-edit backup",
+  "sketch": "Both save docs already return res['backups'] written before every Apply (savedoc.py:371-72). Remember res['backups'][-1]; add an 'Undo last edit (restore backup)' button enabled only after an Apply this session, disabled once load() reads a different file; a guarded _save.restore_backup copies the .bak back behind a confirm, then reloads the slot. Mirror in ItemEquipDoc.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/savedoc.py",
+   "ff9mapkit/ff9mapkit/save.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (40). The prevention already exists (a timestamped .bak per Apply) but there is no restore button \u2014 recovering a fat-fingered scenario counter on the player's single irreplaceable save means hand-renaming a file. Closes the recovery loop on the most un-regenerable artifact the app touches."
+ },
+ {
+  "title": "Elapsed clock + stall detection + a Stop button on the busy indicator",
+  "sketch": "In run_job start a QElapsedTimer + 1s QTimer updating the muted 'Working\u2026 m:ss' label (text, not motion \u2014 reduced-motion safe); after >20s of stdout silence append ' \u00b7 no output for {n}s (still running)'. Add a flat Stop button in the console header calling self.proc.kill() \u2192 the normal ERROR verdict (fail_hint 'Stopped.'). All widgets hide on _set_busy(False).",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (run_job ~7960, _drain_proc 8043, _set_busy 7952)"
+  ],
+  "cost": "M",
+  "why": "Unanimous build (38). Verified: run_job starts a QProcess with no timer and no kill path (grep confirms zero terminate/kill), and _drain_proc goes silent during UnityPy bundle reads so both the bar and Output freeze \u2014 a user cannot distinguish a slow import from a hang and can only escape a wedge by killing the app."
+ },
+ {
+  "title": "Turn the post-deploy warp hint into a one-click Copy-warp receipt",
+  "sketch": "builddoc already composes the id into ok_headline (builddoc.py:758) and _proc_done special-cases deploy success (shell.py:8056) \u2014 stash the id there as self._deployed_field_id. In the JUST-DEPLOYED spine state (7256) append one ('Copy warp: <id>', copy_cb) tuple that puts the bare id on the clipboard via QApplication.clipboard(). The spine already self-dismisses on the next edit.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (_next_actions 7256, _proc_done 8056, _refresh_spine 7272)",
+   "ff9mapkit/ff9mapkit/workspace/builddoc.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (38). Verified _refresh_spine renders action tuples as QPushButtons (7272-77). Removes a hand-retype into the debug menu where a mistype warps to the wrong field (own-id/campaign ids vary). One extra tuple on a strip that already exists and self-dismisses."
+ },
+ {
+  "title": "Fold Co-op 'Play style' into a collapsed Advanced disclosure",
+  "sketch": "Wrap style_box in widgets.disclosure('Advanced \u2014 battle co-op & visitor options') where it is added today (coopdoc.py:275), route it into drawer.content_layout, collapsed by default. Auto-expand when _load_playstyle finds a non-default GuestSlots/GhostAs/FollowHost (comes-back rule). Nameplate 'in Play style below' \u2192 'in Advanced options below'.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/coopdoc.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (38). Verified style_box (4 slot checkboxes + spinner + ghost combo + follow + diorama + Apply) is added unconditionally at coopdoc.py:275, greyed but never hidden even when Status reads 'co-op off' \u2014 but a first-run user only needs Host/Join/Start to see ghosts. Textbook restraint-where-you-work; the single accent (Start co-op) untouched."
+ },
+ {
+  "title": "FieldIdField: one field-id input, one band lesson, one validator",
+  "sketch": "Add widgets.BAND_HINT + an id_field(form,label,*,value='',placeholder='auto (suggested)') helper (QLineEdit + band caption) and a single check_custom_id(text, what='field id') validator in pack.py. Rewire New Field, New Journey hub/entry, add-region-journey, and importdoc's fork id (importdoc.py:219, currently caption-less and unvalidated) to use them.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/widgets.py",
+   "ff9mapkit/ff9mapkit/workspace/shell.py",
+   "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+   "ff9mapkit/ff9mapkit/pack.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (37). Verified the custom-band error string is hand-copied at shell.py:2537/2920/3038/3040 and the caption is taught 4 different ways (placeholder / caption / nothing), while Import's fork-id box has neither caption nor OK-time band check. Targets the custom-id band, distinct from the safe-flag band the strings pass froze."
+ },
+ {
+  "title": "The empty stage has a voice \u2014 the blank navigator gets an empty-state",
+  "sketch": "Show a widgets.empty_state (glyph + 'Nothing open yet' + 'Open a journey, campaign, or field from the toolbar \u2014 or start on Home.') when the tree's topLevelItemCount()==0, hidden the instant a project loads; palette-only, no gold. Route tree vs empty_state through a QStackedWidget (a QTreeWidget can't host a child overlay cleanly) toggled on the existing open/close path.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (tree_col 1258-1288; open/close toggle)",
+   "ff9mapkit/ff9mapkit/workspace/widgets.py (empty_state 713, existing)"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (35). With no project the entire ~300px navigator is a blank void whose only guidance is a tiny status-bar line; widgets.empty_state (widgets.py:713) already exists and is used by the State/Item panels. Reuses the established grammar and voice; fills a void rather than decorating."
+ },
+ {
+  "title": "A 'Deployed here & how to undo it' ledger",
+  "sketch": "Add a 'Deployed here' section to Build & Deploy styled like modelsdoc._deployed_box (widgets.section + capped QListWidget + Refresh + confirm-first 'Revert selected\u2026'). A new jobs.scan_deployed_reverts pairs registered ids (from the mod folder's DictionaryPatch) with revert_deploy_<id>.py / revert_campaign.py / revert_newgame_retarget.py in tools/scroll_out by mtime; rows with no script are read-only informational. Refresh on tab-show.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/builddoc.py",
+   "ff9mapkit/ff9mapkit/editor/jobs.py"
+  ],
+  "cost": "M",
+  "why": "Unanimous build (35). Verified the GUI reverts only the latest/current-own-id (jobs.py:453) while deploy_field writes per-id revert scripts (jobs.py:305) that accumulate unlisted, and the sole Revert button scrolls below the fold. The exact read-side inventory already ships for models (modelsdoc.py:364) \u2014 extend that widget language."
+ },
+ {
+  "title": "Co-op cross-link \u2014 it's filed under Ship but it's a play-session feature",
+  "sketch": "Add a Home nav row for Co-op using the existing _home_row nav-lambda idiom (shell.py:1747-56, where Co-op is conspicuously absent) + reciprocal quiet-tier header cross-links on builddoc/coopdoc ('Playing with a friend? \u2192 Co-op' / 'Deploy the same mod \u2192 Build & Deploy'). Do NOT regroup the settled 5-group rail.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (Home _home_row)",
+   "ff9mapkit/ff9mapkit/workspace/builddoc.py",
+   "ff9mapkit/ff9mapkit/workspace/coopdoc.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (34). Ship = [Build & Deploy, Co-op] but Co-op is live netsync \u2014 a play session, not shipping \u2014 and Home already renders object entry-cards with nav lambdas that omit Co-op. Cheap, on-pattern, declines the L/risky rail regroup."
+ },
+ {
+  "title": "Mirror job state to the always-visible chrome",
+  "sketch": "While a job runs: relabel the crumb Deploy button ('{subject}\u2026', disabled, muted hourglass) via the existing _refresh_deploy_btn, and the collapsed console toggle ('\u25b8 Problems \u00b7 Output \u2014 Working\u2026 m:ss') via _sync_console_btn (shell.py:1583); both revert on _set_busy(False). The elapsed value comes from the timer in the clock item, but the relabel/disable stands alone.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/shell.py (_refresh_deploy_btn 7215, _sync_console_btn 1583, run_job, _set_busy)"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (34). All running-job signal lives inside the collapsible console (which starts collapsed), while the crumb Deploy button stays enabled+un-restyled and run_job silently no-ops a re-click (7967 returns False) \u2014 the click vanishes. Re-labels two existing controls, reverts on job end; depends on the clock timer but stands alone."
+ },
+ {
+  "title": "RegionCatalogDialog: dedupe the two byte-twin FF9-region pickers",
+  "sketch": "Extract one region_catalog_list(arcset,*,exclude=frozenset(),show_counts=False) -> QListWidget builder (owning the row format, UserRole=key, a.note tooltip, the 'in arc' disable and 'N fields' count) into widgets.py; both shell._pick_regions and importdoc.open_region_catalog keep their own QDialog shell and handler but call the shared builder. Import gains Select all/none; the shell picker gains the field-count annotation.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/workspace/widgets.py",
+   "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+   "ff9mapkit/ff9mapkit/workspace/shell.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (34). Verified twins: shell.py:2671 and importdoc.py:414 both build the same checkable QListWidget over RA.load_region_catalog() and have drifted (round-8 review already flagged them). One builder collapses future format/tooltip fixes to one place; zero new visual weight."
+ },
+ {
+  "title": "Remember the Build & Deploy destination choice across sessions",
+  "sketch": "Add prefs.deploy_dest()/set_deploy_dest(mode) storing 'test|own|game|other' (In-place excluded \u2014 donor-driven, auto-selects). Persist the newly-checked mode in each radio's toggled handler (all route through _update_dest, builddoc.py:460); apply the saved mode when its radio is legal and In-place is not auto-selecting, else fall back to the current has_tools default. Guard the installed-copy case where rb_test is disabled.",
+  "sites": [
+   "ff9mapkit/ff9mapkit/prefs.py",
+   "ff9mapkit/ff9mapkit/workspace/builddoc.py"
+  ],
+  "cost": "S",
+  "why": "Unanimous build (33). _field_box hard-resets rb_test.setChecked(self.has_tools) every session (builddoc.py:145), so a veteran whose workflow is Deploy-at-own-id re-picks rb_own on every open/launch. Persists an existing control's state with a clean legal-choice fallback; no new surface."
+ }
+]

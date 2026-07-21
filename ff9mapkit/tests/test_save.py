@@ -340,3 +340,66 @@ def test_apply_story_edit_threads_world_actor(tmp_path):
     sv = S.FF9Save.load(str(p))
     assert S.decode_world_position(bytearray(sv.gEventGlobal(1)), "chocobo") == (911.0, -355.0)
     assert S.decode_world_position(bytearray(sv.gEventGlobal(1))) == (0.0, 0.0)    # player record untouched
+
+
+# --- restore_backup: the "Undo my last edit" file op (roundtrip + guards) ---
+def test_original_from_backup_derives_the_source():
+    assert S._original_from_backup("SavedData_ww.dat.bak.20260101-000000") == "SavedData_ww.dat"
+    assert S._original_from_backup("a/SavedData_ww.dat.bak.20260101-000000.3") == "a/SavedData_ww.dat"
+    with pytest.raises(ValueError, match="not a recognised"):
+        S._original_from_backup("SavedData_ww.dat")       # a plain path, not a .bak
+
+
+def test_restore_backup_roundtrips_the_edit(tmp_path):
+    """An Apply's .bak, copied back, returns the save to its pre-edit bytes -- the whole recovery point."""
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    res = S.apply_story_edit(str(p), block=1, scenario=2500)
+    assert S.FF9Save.load(str(p)).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])   # edit landed
+    out = S.restore_backup(res["backups"])
+    assert out["restored"] and out["notes"]
+    assert S.FF9Save.load(str(p)).gEventGlobal(1)[:2] == bytes([6000 & 0xFF, 6000 >> 8])   # back to pristine
+
+
+def test_restore_backup_is_itself_reversible(tmp_path):
+    """restore_backup snapshots the CURRENT (post-edit) file before overwriting, so the confirm's "a .bak is
+    written first" promise holds and a restore can itself be undone."""
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    res = S.apply_story_edit(str(p), block=1, scenario=2500)
+    out = S.restore_backup(res["backups"])
+    assert out["backups"] and os.path.exists(out["backups"][0])                            # a safety .bak exists
+    assert S.FF9Save.load(out["backups"][0]).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])  # the post-edit state
+
+
+def test_restore_backup_dry_run_writes_nothing(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    res = S.apply_story_edit(str(p), block=1, scenario=2500)
+    n_before = len(glob.glob(str(p) + ".bak.*"))
+    out = S.restore_backup(res["backups"], dry_run=True)
+    assert out["restored"] is False and out["notes"]                                       # it LISTS the move
+    assert S.FF9Save.load(str(p)).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])   # still post-edit
+    assert len(glob.glob(str(p) + ".bak.*")) == n_before                                   # no new backup
+
+
+def test_restore_backup_refuses_a_missing_backup(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    S.apply_story_edit(str(p), block=1, scenario=2500)
+    with pytest.raises(ValueError, match="no longer exists"):
+        S.restore_backup([str(p) + ".bak.20260101-000000"])                                # never written
+    assert S.FF9Save.load(str(p)).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])   # unchanged on refusal
+
+
+def test_restore_backup_restores_both_dat_and_extra(tmp_path):
+    """A slot with a Memoria extra backs up BOTH files on Apply; restore must return both to pristine."""
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    _write_extra(tmp_path, 1, _geg(6000))
+    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8720,))
+    assert len(res["backups"]) == 2                                                         # .dat + extra
+    S.restore_backup(res["backups"])
+    assert S.FF9Save.load(str(p)).gEventGlobal(1)[:2] == bytes([6000 & 0xFF, 6000 >> 8])
+    got = S.read_extra_gEventGlobal(S.extra_file_path(str(p), 1))
+    assert got[0] | got[1] << 8 == 6000 and (got[1090] >> 0) & 1 == 0                       # the extra's flag cleared back

@@ -11,14 +11,18 @@ the CLI loop uses (the journey path = ``tools/deploy_journey.py``, the orchestra
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 from . import widgets
+from .. import prefs
 from ..editor import feedback as fb
 from ..editor import jobs
 
@@ -28,9 +32,10 @@ class BuildDoc(QWidget):
     ``shell.run_job`` (streams a subprocess to Output + posts a verdict); ``problems`` =
     ``shell._show_problems`` (the in-process Check verdict + problems list)."""
 
-    def __init__(self, pal, repo_root, *, run, problems):
+    def __init__(self, pal, repo_root, *, run, problems, on_coop=None):
         super().__init__()
         self.pal = pal
+        self._on_coop = on_coop        # shell nav: switch to the Co-op tab (a quiet header cross-link)
         # Resolve the DEV repo: a repo launch passes its own root; an INSTALLED launch passes the venv dir,
         # but can still light up dev mode if $FF9_REPO (or the cwd) points at a checkout -> resolve_dev_repo.
         self.repo = jobs.resolve_dev_repo(repo_root)
@@ -40,6 +45,8 @@ class BuildDoc(QWidget):
         # so the test-slot DEPLOY + the debug-menu loop are unavailable there. `build` + campaign/journey/New-Game
         # deploy work either way (the latter via the package CLI).
         self.has_tools = jobs.has_deploy_tools(self.repo)
+        self._suppress_dest_persist = False             # True while a PROGRAMMATIC dest pick runs (restore /
+        #                                                 legality fallback) -- only a user click is a pref
         self._run = run
         self._problems = problems
         self.kind = "field"
@@ -76,6 +83,15 @@ class BuildDoc(QWidget):
                                      "Turn a project file into a playable mod folder — check it, build "
                                      "it, put it in the game.")
         v.addWidget(crown)
+        if self._on_coop is not None:                   # quiet cross-link: Co-op deploys the same mod (wayfinding)
+            xlink = QLabel('Playing with a friend? → <a href="coop">Co-op</a>')
+            xlink.setObjectName("headerXlink")              # carries a :focus ring -- a keyboard Tab stop must show it
+            xlink.setTextFormat(Qt.TextFormat.RichText)
+            xlink.setProperty("role", "muted")
+            xlink.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                          | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)  # a Tab stop, not mouse-only
+            xlink.linkActivated.connect(lambda _=None: self._on_coop())
+            v.addWidget(xlink)
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()
@@ -126,9 +142,11 @@ class BuildDoc(QWidget):
         btns.addStretch(1)
         btns.addWidget(self.pack_btn)
         v.addLayout(btns)
+        v.addWidget(self._deployed_box())
         v.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
+        self._refresh_deployed()               # populate the ledger on open (refresh() re-scans on tab-show)
 
     def _field_box(self):
         box = widgets.section("Build to (field)")
@@ -159,6 +177,7 @@ class BuildDoc(QWidget):
         self.rb_own.setEnabled(self.has_tools)
         self.tg.addButton(self.rb_own)
         self.rb_own.toggled.connect(self._update_dest)
+        self.rb_own.toggled.connect(lambda ch: self._persist_dest("own", ch))
         of = QHBoxLayout()
         self.rb_other = QRadioButton("Build only — to a folder:")
         self.other = QLineEdit()
@@ -172,6 +191,11 @@ class BuildDoc(QWidget):
         for rb in (self.rb_test, self.rb_game, self.rb_other):
             self.tg.addButton(rb)
             rb.toggled.connect(self._update_dest)
+        # Persist a USER click on any of the four persistable modes (the squeeze law: a checked radio the
+        # user toggled is a preference; a programmatic pick under _suppress_dest_persist is not).
+        self.rb_test.toggled.connect(lambda ch: self._persist_dest("test", ch))
+        self.rb_game.toggled.connect(lambda ch: self._persist_dest("game", ch))
+        self.rb_other.toggled.connect(lambda ch: self._persist_dest("other", ch))
         self.other.textChanged.connect(self._update_dest)
         gv.addWidget(self.rb_inplace)                 # its caption is filled by set_field (donor-dependent)
         widgets.option(self.rb_test,
@@ -211,7 +235,8 @@ class BuildDoc(QWidget):
             self.rb_test.setToolTip("The test slot + ~ reload loop need a source checkout. Set the FF9_REPO "
                                     "environment variable to your Dream World IX repo (or launch it from there), "
                                     "then reopen — this lights up.")
-            (self.rb_game if self.game_mod else self.rb_other).setChecked(True)  # safe now: self.dest exists
+            # installed default -- a forced fallback, not a user pick, so don't persist it as a preference
+            self._set_dest_checked(self.rb_game if self.game_mod else self.rb_other)
         self.field_box = box
         return box
 
@@ -325,6 +350,88 @@ class BuildDoc(QWidget):
         self.battle_box = box
         return box
 
+    def _deployed_box(self):
+        """The read side of the reversible test mod folder: every field registered there, paired with the
+        per-id undo script deploy_field wrote for it, plus the folder-wide campaign / New-Game reverts.
+        The single Revert button reaches only the LATEST deploy; these accumulate, so this lists them all
+        with a confirm-first per-entry revert. Styled on modelsdoc._deployed_box (the proven read-inventory
+        widget language)."""
+        box = widgets.section("Deployed here")
+        v = box.content_layout
+        self.dep_list = QListWidget()
+        self.dep_list.setAccessibleName("Fields deployed in this mod folder")   # no visible label to buddy
+        self.dep_list.setMaximumHeight(170)
+        v.addWidget(self.dep_list)
+        row = QHBoxLayout()
+        self.dep_refresh = QPushButton("Refresh")
+        self.dep_refresh.clicked.connect(self._refresh_deployed)
+        row.addWidget(self.dep_refresh)
+        self.dep_revert = QPushButton("Revert selected…")
+        self.dep_revert.setToolTip("Run this deploy's own undo script, restoring the field's previous "
+                                   "contents in the mod folder.")
+        self.dep_revert.clicked.connect(self.on_deployed_revert)
+        row.addWidget(self.dep_revert)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.dep_hint = QLabel("")
+        self.dep_hint.setWordWrap(True)
+        self.dep_hint.setProperty("role", "muted")
+        v.addWidget(self.dep_hint)
+        self.deployed_box = box
+        return box
+
+    def _dep_row_label(self, r):
+        base = f"field {r['id']} ({r['name']})" if r["kind"] == "field" else r["name"]
+        return base if r["script"] else base + "   · no undo script"
+
+    def _refresh_deployed(self):
+        """Re-scan the reversible test mod folder's DictionaryPatch + tools/scroll_out and repaint the
+        ledger. Read-only informational rows (a registration with no revert script) are non-selectable so
+        Revert can only target an entry it can actually undo."""
+        if not hasattr(self, "dep_list"):
+            return
+        dp = None
+        try:
+            from .. import config
+            dp = config.find_game_path() / self.mod_folder / "DictionaryPatch.txt"
+        except Exception:                                # noqa: BLE001 -- no install found -> no field rows
+            dp = None
+        scroll = self.repo / "tools" / "scroll_out" if self.has_tools else None
+        rows = jobs.scan_deployed_reverts(dp, scroll)
+        self.dep_list.clear()
+        for r in rows:
+            it = QListWidgetItem(self._dep_row_label(r))
+            it.setData(Qt.ItemDataRole.UserRole, r)
+            if not r["script"]:                          # informational only -> not selectable / revertable
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.dep_list.addItem(it)
+        n_undo = sum(1 for r in rows if r["script"])
+        if not rows:
+            self.dep_hint.setText(f"Nothing registered in {self.mod_folder} yet.")
+        else:
+            self.dep_hint.setText(f"{len(rows)} deployed here · {n_undo} with an undo script — select one "
+                                  "and Revert selected to undo it.")
+        self.dep_revert.setEnabled(n_undo > 0)
+
+    def on_deployed_revert(self):
+        it = self.dep_list.currentItem()
+        if it is None:
+            return self._warn("Nothing selected", "Pick a deployed entry with an undo script first.")
+        r = it.data(Qt.ItemDataRole.UserRole)
+        if not r or not r.get("script"):
+            return self._warn("No undo script", "This entry has no revert script on disk — it's "
+                                                "informational only.")
+        what = f"field {r['id']}" if r["kind"] == "field" else r["name"]
+        if self._confirm(f"Revert {what}",
+                         f"Run the undo script for {what}?\n\nThis restores the previous contents in "
+                         f"{self.mod_folder} (reversible deploys only)."):
+            self._busy(True)
+            if not self._run([sys.executable, r["script"]], cwd=self.repo, subject=f"Revert {what}",
+                             ok_headline=f"Reverted {what}",
+                             ok_next="Relaunch the game (or ~ → Reload field) to load the restored state.",
+                             on_finished=lambda _c: (self._busy(False), self._refresh_deployed())):
+                self._busy(False)                        # a job was already running; nothing started
+
     # ------------------------------------------------------------------ kind detection + rendering
     def crumb_label(self):
         """A short 'you are deploying X' label for the breadcrumb when the Build & Deploy tab is active --
@@ -344,6 +451,7 @@ class BuildDoc(QWidget):
         The shell calls this when the Build & Deploy tab becomes current -- same fix as story_state's
         `_refresh_flag_names` on tab-show, so the view is current no matter the open/edit order."""
         self._on_path()
+        self._refresh_deployed()               # the 'Deployed here' ledger is a live inventory -> re-scan on show
 
     def _on_path(self, _text=None):
         path = self.path.text().strip().strip('"')
@@ -413,6 +521,7 @@ class BuildDoc(QWidget):
                 self.status.setText("Pick a field, campaign, journey, or battle file.")
             self._sync_own_id()
             self._sync_inplace()
+            self._apply_saved_dest()
             self._update_dest()
 
     def _sync_own_id(self):
@@ -424,8 +533,9 @@ class BuildDoc(QWidget):
         self.rb_own.setText(f"Deploy at its own id {self.field_id} — reversible" if known
                             else "Deploy at its own id" + ("" if self.has_tools else "   (dev repo only)"))
         self.rb_own.setEnabled(known)
-        if not known and self.rb_own.isChecked():
-            (self.rb_test if self.has_tools else self.rb_game if self.game_mod else self.rb_other).setChecked(True)
+        if not known and self.rb_own.isChecked():        # a forced fallback, not a user pick -> don't persist
+            self._set_dest_checked(self.rb_test if self.has_tools
+                                   else self.rb_game if self.game_mod else self.rb_other)
 
     def _sync_inplace(self):
         """Show/label the In-place radio for a verbatim fork of a real field, and DEFAULT to it the FIRST time
@@ -444,7 +554,8 @@ class BuildDoc(QWidget):
         if not show:
             self._inplace_autoselected_for = None
             if self.rb_inplace.isChecked():            # a prior fork's default -> fall back to a live option
-                (self.rb_test if self.has_tools else self.rb_game if self.game_mod else self.rb_other).setChecked(True)
+                self._set_dest_checked(self.rb_test if self.has_tools
+                                       else self.rb_game if self.game_mod else self.rb_other)
             return
         forest = " (Chocobo forest — keeps the dig HUD)" if t["is_forest"] else ""
         self.rb_inplace.setText(f"In-place on field {t['donor']} — reversible; keeps the real field's "
@@ -499,6 +610,42 @@ class BuildDoc(QWidget):
         self.dest.setText(msg)
         self.dest.setProperty("state", "warn" if warn else "")
         widgets.repolish(self.dest)                # setProperty does NOT restyle; _update_dest runs post-polish
+
+    # ------------------------------------------------------------------ destination persistence
+    # THE SQUEEZE LAW, applied to a radio: a value the user CLICKED is a real preference; a value COMPUTED
+    # under duress (a legality fallback, the installed-copy default, the restore itself) is not. So the four
+    # persistable modes persist only from a user toggle, and every programmatic pick runs through
+    # _set_dest_checked (which suppresses the persist). In-place is excluded entirely -- it is donor-driven
+    # and auto-selects, so remembering it would fight that auto-selection (prefs.set_deploy_dest drops it too).
+    def _set_dest_checked(self, rb):
+        """Select a destination radio WITHOUT persisting it -- for a programmatic pick (fallback / default /
+        restore), which is not a user preference."""
+        self._suppress_dest_persist = True
+        try:
+            rb.setChecked(True)
+        finally:
+            self._suppress_dest_persist = False
+
+    def _persist_dest(self, mode, checked):
+        """Remember the destination the user clicked (a checked radio, a real toggle -- not a suppressed
+        programmatic pick)."""
+        if checked and not self._suppress_dest_persist:
+            prefs.set_deploy_dest(mode)
+
+    def _apply_saved_dest(self):
+        """Restore the remembered destination for a loaded field -- but only when its radio is legal and
+        In-place is not auto-selecting (a verbatim fork's donor-driven route wins). Falls back legally by
+        doing nothing (leaving the has_tools default / a fallback in place) when the saved mode is unusable,
+        e.g. an installed copy where the test slot is disabled."""
+        if self._inplace_available and self.rb_inplace.isChecked():
+            return                                       # don't override the fork's auto-selected In-place
+        mode = prefs.deploy_dest()
+        if mode is None:
+            return
+        rb = {"test": self.rb_test, "own": self.rb_own,
+              "game": self.rb_game, "other": self.rb_other}[mode]
+        if rb.isEnabled() and not rb.isChecked():
+            self._set_dest_checked(rb)                   # programmatic: restoring is not a fresh user choice
 
     def _journey_newgame_mode(self) -> str:
         """The selected New-Game landing for the one-shot deploy: ``"hub"`` / ``"entry"`` / ``"none"``."""
@@ -583,7 +730,8 @@ class BuildDoc(QWidget):
         return f
 
     def _busy(self, b):
-        for w in (self.chk, self.go, self.rev, self.pack_btn, self.set_ng, self.rev_ng):
+        for w in (self.chk, self.go, self.rev, self.pack_btn, self.set_ng, self.rev_ng,
+                  self.dep_refresh, self.dep_revert):
             w.setEnabled(not b)
 
     # ------------------------------------------------------------------ Package for sharing
@@ -655,10 +803,12 @@ class BuildDoc(QWidget):
                      ok_next=f"Share {out} — unzipping it next to FF9_Launcher.exe installs the mod "
                              f"(folder '{name}', add it to Memoria.ini FolderNames).")
 
-    def _stream(self, argv, *, cwd, subject, ok_headline, ok_next=""):
+    def _stream(self, argv, *, cwd, subject, ok_headline, ok_next="", field_id=None):
+        # field_id (a real/test/own field-deploy target) rides to run_job so the shell's post-deploy spine
+        # can offer a one-click Copy-warp receipt; None on build/campaign/journey (no single warp id).
         self._busy(True)
         if not self._run(argv, cwd=cwd, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
-                         on_finished=lambda _c: self._busy(False)):
+                         field_id=field_id, on_finished=lambda _c: self._busy(False)):
             self._busy(False)                          # a job was already running; nothing started
 
     # ------------------------------------------------------------------ Check (in-process, structured)
@@ -742,7 +892,8 @@ class BuildDoc(QWidget):
                 self._stream(jobs.deploy_field_inplace_argv(self.repo, field, t), cwd=self.repo,
                              subject=f"Deploy in place on field {t['donor']}",
                              ok_headline=f"Deployed in place on field {t['donor']} ({self.mod_folder})",
-                             ok_next=f"In-game: reach it the normal way, or ~ → Warp {t['donor']}.")
+                             ok_next=f"In-game: reach it the normal way, or ~ → Warp {t['donor']}.",
+                             field_id=t["donor"])
             return
         if self.rb_test.isChecked():
             if not self._require_tools("Deploy to test slot"):
@@ -756,14 +907,14 @@ class BuildDoc(QWidget):
                 self._stream(jobs.deploy_field_argv(self.repo, field), cwd=self.repo,
                              subject=f"Deploy to test field {tid}",
                              ok_headline=f"Deployed to test field {tid} ({self.mod_folder})",
-                             ok_next=f"In-game: {reach}.")
+                             ok_next=f"In-game: {reach}.", field_id=tid)
         elif self.rb_own.isChecked():
             own = self.field_id
             nm = self.field_name or Path(field).stem
             self._stream(jobs.deploy_field_own_id_argv(self.repo, field, own, nm), cwd=self.repo,
                          subject=f"Deploy to field {own}",
                          ok_headline=f"Deployed field {own} ({self.mod_folder})",
-                         ok_next=f"In-game: ~ → Warp to field {own}. Undo with Revert.")
+                         ok_next=f"In-game: ~ → Warp to field {own}. Undo with Revert.", field_id=own)
         elif self.rb_game.isChecked():
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"

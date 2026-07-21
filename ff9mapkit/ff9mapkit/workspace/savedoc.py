@@ -41,6 +41,8 @@ class StoryStateDoc(QWidget):
         self.path = ""
         self.flag_names = {}       # {absolute bit: authored [[flag]] name} from the OPEN project (annotation only)
         self.reports_b = []        # the compare-against save (B)
+        self._undo_backups = []    # the .bak(s) from an Apply THIS session on THIS file (empty == undo disabled)
+        self._undo_path = ""       # the path those backups belong to (undo greys out when a different file loads)
 
         v = QVBoxLayout(self)
         bar = QHBoxLayout()
@@ -144,8 +146,13 @@ class StoryStateDoc(QWidget):
         self.apply_btn = QPushButton("Apply  (backup + write)")
         self.apply_btn.setObjectName("accent")
         self.apply_btn.clicked.connect(self._apply)
+        self.undo_btn = QPushButton("Undo last edit (restore backup)")
+        self.undo_btn.setEnabled(False)                    # only after an Apply this session on this file
+        self.undo_btn.setToolTip("Restore this save from the .bak written before your last Apply this session.")
+        self.undo_btn.clicked.connect(self._restore)
         btns.addWidget(self.preview_btn)
         btns.addWidget(self.apply_btn)
+        btns.addWidget(self.undo_btn)
         btns.addStretch(1)
         lay.addLayout(btns)
         if self._output is None:                 # standalone: an in-pane console; docked -> the bottom panel
@@ -187,6 +194,9 @@ class StoryStateDoc(QWidget):
             self.status.setText("no story state decoded")
             return False
         self.path = path
+        if os.path.abspath(path) != os.path.abspath(self._undo_path or ""):
+            self._undo_backups = []                        # a DIFFERENT file loaded -> the undo no longer applies
+        self._update_undo_enabled()
         self.blocks = self._editable_blocks(path, len(self.reports))
         self.path_lbl.setText(str(path))
         self.slots.clear()
@@ -377,9 +387,45 @@ class StoryStateDoc(QWidget):
         else:
             msg.append("  (no Memoria extra-save for this slot — the main save block governs)")
         msg.append("\nReload the save in-game to see it.")
+        self._undo_backups = list(res["backups"])          # arm 'Undo last edit' for THIS file this session
+        self._undo_path = self.path
         self._show_output("\n".join(msg))
         self.status.setText("save edited (backup written) — reload it in-game")
-        self.load(self.path, select=self.slots.currentRow())   # refresh, KEEPING the edited slot selected
+        self.load(self.path, select=self.slots.currentRow())   # refresh, KEEPING the edited slot selected (undo kept)
+        self._update_undo_enabled()
+
+    def _update_undo_enabled(self):
+        if hasattr(self, "undo_btn"):
+            self.undo_btn.setEnabled(bool(self._undo_backups))
+
+    def _restore(self):
+        """Copy the pre-edit .bak(s) back over the save (confirm-gated, reuse the Apply confirm), then reload."""
+        if not self._undo_backups:
+            return
+        baks = list(self._undo_backups)
+        try:
+            preview = _save.restore_backup(baks, dry_run=True)
+        except (ValueError, OSError) as e:
+            self._show_output(f"Cannot restore:\n  {e}")
+            self._undo_backups = []                        # the backup is gone -> the offer is stale
+            self._update_undo_enabled()
+            return
+        if not self._confirm("Restore your save from the backup taken before your last edit:\n"
+                             + "\n".join(f"  {n}" for n in preview["notes"])):
+            self._show_output("Cancelled — nothing restored.")
+            return
+        try:
+            res = _save.restore_backup(baks)
+        except (ValueError, OSError) as e:
+            self._show_output(f"Restore failed:\n  {e}")
+            return
+        msg = ["RESTORED from backup:"] + [f"  - {n}" for n in res["notes"]]
+        msg.append("\nReload the save in-game to see it.")
+        self._show_output("\n".join(msg))
+        self.status.setText("save restored from backup — reload it in-game")
+        self._undo_backups = []                            # one restore per Apply; re-Apply to re-arm
+        self._update_undo_enabled()
+        self.load(self.path, select=self.slots.currentRow())
 
 
 class ItemEquipDoc(QWidget):
@@ -398,6 +444,8 @@ class ItemEquipDoc(QWidget):
         self._output = output      # an output sink callable(text); None = an in-pane console (standalone)
         self.targets = []          # [{label, report, extra, container, block}] per populated slot
         self.path = ""
+        self._undo_backups = []    # the .bak(s) from an Apply THIS session on THIS file (empty == undo disabled)
+        self._undo_path = ""       # the path those backups belong to (undo greys out when a different file loads)
 
         v = QVBoxLayout(self)
         bar = QHBoxLayout()
@@ -461,6 +509,14 @@ class ItemEquipDoc(QWidget):
         self.edit_target.setWordWrap(True)
         self.edit_target.setProperty("role", "muted")
         ov.addWidget(self.edit_target)
+        urow = QHBoxLayout()
+        self.undo_btn = QPushButton("Undo last edit (restore backup)")
+        self.undo_btn.setEnabled(False)                    # only after an Apply this session on this file
+        self.undo_btn.setToolTip("Restore this save from the .bak written before your last Apply this session.")
+        self.undo_btn.clicked.connect(self._restore)
+        urow.addWidget(self.undo_btn)
+        urow.addStretch(1)
+        ov.addLayout(urow)
         # Only the edit SECTIONS scroll; the console (edit_txt) is pinned BELOW so Preview/Apply feedback
         # is always visible even on a short window (the bug: a single scroll hid the console off-screen).
         page = QWidget()
@@ -555,6 +611,9 @@ class ItemEquipDoc(QWidget):
             self.status.setText("no items/equipment decoded")
             return False
         self.path = path
+        if os.path.abspath(path) != os.path.abspath(self._undo_path or ""):
+            self._undo_backups = []                        # a DIFFERENT file loaded -> the undo no longer applies
+        self._update_undo_enabled()
         self.path_lbl.setText(str(path))
         self.slots.clear()
         for t in self.targets:
@@ -638,8 +697,51 @@ class ItemEquipDoc(QWidget):
         except Exception as e:                            # noqa: BLE001
             self._show_output(f"Write failed:\n  {e}")
             return
+        self._undo_backups = self._backups_of(res)         # arm 'Undo last edit' for THIS file this session
+        self._undo_path = self.path
         self._show_output(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
         self.status.setText("save edited (backup written) — reload it in-game")
+        self.load(self.path, select=self.slots.currentRow())   # same file -> undo kept
+        self._update_undo_enabled()
+
+    @staticmethod
+    def _backups_of(res):
+        """The timestamped .bak path(s) a write result recorded -- a single WriteReport (``.backup_path``) or the
+        dual ``{"main": rep, "extra": rep|None}`` an in-save write returns."""
+        reps = res.values() if isinstance(res, dict) else [res]
+        return [r.backup_path for r in reps if r is not None and getattr(r, "backup_path", None)]
+
+    def _update_undo_enabled(self):
+        if hasattr(self, "undo_btn"):
+            self.undo_btn.setEnabled(bool(self._undo_backups))
+
+    def _restore(self):
+        """Copy the pre-edit .bak(s) back over the save (confirm-gated, reuse the Apply confirm), then reload."""
+        if not self._undo_backups:
+            return
+        baks = list(self._undo_backups)
+        try:
+            preview = _save.restore_backup(baks, dry_run=True)
+        except (ValueError, OSError) as e:
+            self._show_output(f"Cannot restore:\n  {e}")
+            self._undo_backups = []                        # the backup is gone -> the offer is stale
+            self._update_undo_enabled()
+            return
+        if not self._confirm("Restore your save from the backup taken before your last edit:\n"
+                             + "\n".join(f"  {n}" for n in preview["notes"])):
+            self._show_output("Cancelled — nothing restored.")
+            return
+        try:
+            res = _save.restore_backup(baks)
+        except (ValueError, OSError) as e:
+            self._show_output(f"Restore failed:\n  {e}")
+            return
+        msg = ["RESTORED from backup:"] + [f"  - {n}" for n in res["notes"]]
+        msg.append("\nReload the save in-game to see it (no relaunch needed).")
+        self._show_output("\n".join(msg))
+        self.status.setText("save restored from backup — reload it in-game")
+        self._undo_backups = []                            # one restore per Apply; re-Apply to re-arm
+        self._update_undo_enabled()
         self.load(self.path, select=self.slots.currentRow())
 
     def _edit(self, kind, apply):
