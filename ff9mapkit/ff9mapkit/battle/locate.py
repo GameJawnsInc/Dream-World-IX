@@ -413,6 +413,27 @@ def build_map(game=None, *, force: bool = False) -> BattleMap:
     return bm
 
 
+def cached_map(game=None) -> "BattleMap | None":
+    """The already-built map if one is warm (the in-process memo, then the on-disk JSON cache) -- else
+    None. Never builds and never writes a fresh map: the cheap "reuse if present" probe ``encounters
+    --no-names`` needs (a cold miss there falls back to the census-only private helpers instead of paying
+    the raw16/text-pool name scans -- the census loop itself is the dominant ~6s cost, so re-paying it
+    when a warm map already holds the same census data would make the "faster" flag the slow path)."""
+    key = _memo_key(game)
+    if key in _MEMO:
+        return _MEMO[key]
+    cf = _cache_file_path()
+    if cf.is_file():
+        try:
+            bm = _from_cache_dict(json.loads(cf.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            bm = None
+        if bm is not None:
+            _MEMO[key] = bm
+            return bm
+    return None
+
+
 def _map(game=None) -> BattleMap:
     return build_map(game=game)
 
@@ -527,12 +548,13 @@ def classify(scene_id, *, game=None) -> str:
     return _map(game).classification.get(int(scene_id), "unplaced")
 
 
-def unresolved_report(game=None) -> dict:
+def unresolved_report(game=None, *, force: bool = False) -> dict:
     """A self-describing summary of everything this module could NOT resolve, for a browse UI's "coverage"
     panel: classification totals, fields with a computed-operand encounter, the engine-skipped junk scene
     ids, scene ids with partial name data, and real field ids the zone join never placed in an arc (the
-    one documented gap is field 70)."""
-    bm = _map(game)
+    one documented gap is field 70). ``force=True`` rebuilds the underlying map first (threaded straight
+    to :func:`build_map` -- so ``encounters --unresolved --force`` really does rebuild)."""
+    bm = build_map(game=game, force=force)
     return {
         "cache_version": bm.version,
         "scene_count": bm.scene_count,

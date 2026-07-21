@@ -229,6 +229,46 @@ def test_cache_ignores_a_stale_version(tmp_path, monkeypatch):
     assert calls["n"] == 1                               # the stale-version cache file was ignored, rebuilt
 
 
+def test_cached_map_memo_then_disk_never_builds(tmp_path, monkeypatch):
+    """cached_map is the 'reuse if warm, else None' probe: memo first, then the disk cache -- and it must
+    NEVER trigger a fresh build (that's what makes it safe for `encounters --no-names` to consult)."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+
+    def _boom(*a, **k):
+        raise AssertionError("cached_map must never build")
+    monkeypatch.setattr(loc, "_build_fresh", _boom)
+
+    assert loc.cached_map() is None                      # nothing warm anywhere -> None, no build
+
+    synthetic = loc.BattleMap(version=loc.CACHE_VERSION,
+                              census={250: {"random": [67], "scripted": [], "computed": False}},
+                              scene_sites={67: [(250, "random")]}, field_arc={}, arcs={}, names={})
+    _inject(synthetic)
+    assert loc.cached_map() is synthetic                 # memo hit
+
+    loc._MEMO.clear()
+    loc._write_cache(synthetic)
+    got = loc.cached_map()                               # disk hit (re-memoized), still no build
+    assert got is not None and got.scene_sites == {67: [(250, "random")]}
+
+
+def test_unresolved_report_threads_force(monkeypatch):
+    """unresolved_report(force=True) must reach build_map with force=True (the CLI's --unresolved --force
+    was a silent no-op before this parameter existed)."""
+    seen = {}
+
+    def _record(game=None, *, force=False):
+        seen["force"] = force
+        return loc.BattleMap(version=loc.CACHE_VERSION, census={}, scene_sites={}, field_arc={}, arcs={},
+                             names={})
+    monkeypatch.setattr(loc, "build_map", _record)
+
+    loc.unresolved_report(force=True)
+    assert seen["force"] is True
+    loc.unresolved_report()
+    assert seen["force"] is False
+
+
 # ---------------------------------------------------------------------------------------- game-gated ---
 @pytest.fixture(scope="module")
 def real_map():

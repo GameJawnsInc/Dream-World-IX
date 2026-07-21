@@ -4032,12 +4032,20 @@ def _cmd_encounters(args: argparse.Namespace) -> int:
     from .battle import locate as LOC
     try:
         if args.unresolved:
-            return _print_encounters_unresolved(LOC.unresolved_report(game=args.game))
+            return _print_encounters_unresolved(LOC.unresolved_report(game=args.game, force=args.force))
         if args.no_names:
-            census, _computed = LOC._census(game=args.game)
-            field_arc, arcs = LOC._zone_join()
-            classification, _junk = LOC._classify_scenes(census)
-            scene_sites = LOC._scene_site_index(census)
+            # A warm map (memo/disk) already holds the census -- reuse it (the census loop is the ~6s
+            # dominant cost); only a cold miss pays the census-only private helpers, which skip the
+            # raw16/text-pool name scans a full build_map() would add.
+            bm = None if args.force else LOC.cached_map(game=args.game)
+            if bm is not None:
+                census, field_arc, arcs = bm.census, bm.field_arc, bm.arcs
+                classification, scene_sites = bm.classification, bm.scene_sites
+            else:
+                census, _computed = LOC._census(game=args.game)
+                field_arc, arcs = LOC._zone_join()
+                classification, _junk = LOC._classify_scenes(census)
+                scene_sites = LOC._scene_site_index(census)
             names_ok = False
         else:
             bm = LOC.build_map(game=args.game, force=args.force)
@@ -6680,8 +6688,9 @@ def build_parser() -> argparse.ArgumentParser:
     enc.add_argument("--lang", default="us", choices=["us", "uk", "fr", "gr", "it", "es", "jp"],
                      help="language for monster/attack names (default us)")
     enc.add_argument("--no-names", action="store_true", dest="no_names",
-                     help="census + place data only -- skip the raw16/text-pool name scan (faster; no "
-                          "monster names, and disables --monster)")
+                     help="census + place data only -- reuse the cached map when one exists, else build "
+                          "WITHOUT the raw16/text-pool name scan (no monster names shown, disables "
+                          "--monster)")
     enc.add_argument("--force", action="store_true",
                      help="rebuild the cached battle-location map from the install instead of reusing it")
     enc.set_defaults(func=_cmd_encounters)

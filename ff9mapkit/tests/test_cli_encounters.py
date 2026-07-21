@@ -158,9 +158,11 @@ def test_encounters_no_matches_message_offline(capsys):
     assert "ff9mapkit scenes" in err and "--unresolved" in err
 
 
-def test_encounters_no_names_bypasses_build_map_and_skips_monster_names(monkeypatch, capsys):
-    """--no-names must use the PRIVATE, install-cheap helpers (never build_map/the memo -- proven here by
-    monkeypatching them instead of injecting a memo) and must never print monster/attack names."""
+def test_encounters_no_names_cold_uses_private_helpers_never_build_map(tmp_path, monkeypatch, capsys):
+    """--no-names with NO warm map anywhere (memo cleaned by the fixture, disk isolated to an empty
+    tmp dir) must fall back to the PRIVATE census-only helpers -- never build_map (which would add the
+    raw16/text-pool name scans) -- and must never print monster/attack names."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
     census = {250: {"random": [67], "scripted": [], "computed": False}}
     monkeypatch.setattr(loc, "_census", lambda game=None: (census, []))
     monkeypatch.setattr(loc, "_zone_join",
@@ -177,6 +179,53 @@ def test_encounters_no_names_bypasses_build_map_and_skips_monster_names(monkeypa
     assert "monsters:" not in out and "attacks:" not in out
 
 
+def test_encounters_no_names_reuses_a_warm_map_without_recensus(monkeypatch, capsys):
+    """A warm map makes --no-names free: it must be REUSED (the ~6s census loop is the dominant cost --
+    re-paying it made the 'faster' flag ~500x slower than the default warm path, the review's measured
+    trap) while STILL suppressing monster/attack names."""
+    _inject(_fake_map())
+
+    def _boom(*a, **k):
+        raise AssertionError("--no-names with a warm map must not re-run the census")
+    monkeypatch.setattr(loc, "_census", _boom)
+    monkeypatch.setattr(loc, "_build_fresh", _boom)
+
+    assert cli.main(["encounters", "--scene", "67", "--no-names"]) == 0
+    out = capsys.readouterr().out
+    assert "Evil Forest" in out
+    assert "monsters:" not in out and "attacks:" not in out
+
+
+def test_encounters_no_names_force_skips_the_warm_map(tmp_path, monkeypatch, capsys):
+    """--no-names --force must IGNORE a warm map and run the census fresh (proven by a memo whose data
+    contradicts the monkeypatched fresh census -- the output must show the fresh side)."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+    _inject(_fake_map())                                             # warm memo: knows nothing of scene 55
+    census = {300: {"random": [], "scripted": [55], "computed": False}}
+    monkeypatch.setattr(loc, "_census", lambda game=None: (census, []))
+    monkeypatch.setattr(loc, "_zone_join",
+                        lambda: ({300: "lindblum"}, {"lindblum": {"name": "Lindblum", "zone": "lb"}}))
+    monkeypatch.setattr(loc, "_classify_scenes", lambda c: ({55: "placed"}, []))
+
+    assert cli.main(["encounters", "--no-names", "--force", "--scene", "55"]) == 0
+    out = capsys.readouterr().out
+    assert "Lindblum" in out and "[placed]" in out                   # fresh census won, not the stale memo
+
+
+def test_encounters_unresolved_threads_force_into_build_map(monkeypatch, capsys):
+    """--unresolved --force must actually rebuild: unresolved_report threads force straight into
+    build_map (the review reproduced --force as a silent no-op on this path)."""
+    seen = {}
+
+    def _record(game=None, *, force=False):
+        seen["force"] = force
+        return _fake_map()
+    monkeypatch.setattr(loc, "build_map", _record)
+
+    assert cli.main(["encounters", "--unresolved", "--force"]) == 0
+    assert seen["force"] is True
+
+
 def test_encounters_no_names_and_monster_flag_conflict_is_cheap(monkeypatch, capsys):
     """The --monster/--no-names conflict must be caught BEFORE any census work (so it's a pure argparse-ish
     validation, not an install probe) -- proven by making the census helpers explode if ever called."""
@@ -190,9 +239,10 @@ def test_encounters_no_names_and_monster_flag_conflict_is_cheap(monkeypatch, cap
     assert "--monster needs monster-name data" in capsys.readouterr().err
 
 
-def test_encounters_no_names_monster_axis_skipped_with_note(monkeypatch, capsys):
+def test_encounters_no_names_monster_axis_skipped_with_note(tmp_path, monkeypatch, capsys):
     # a bare query (no --monster flag) under --no-names can't search names either -- silently skipped, with
     # an explanatory note in the "no matches" message (not a crash / not a silent false negative).
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))              # keep the dev machine's disk cache out
     census = {250: {"random": [67], "scripted": [], "computed": False}}
     monkeypatch.setattr(loc, "_census", lambda game=None: (census, []))
     monkeypatch.setattr(loc, "_zone_join",
