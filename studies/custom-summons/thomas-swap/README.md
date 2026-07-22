@@ -258,15 +258,19 @@ touch `ef227/` (the shared Bahamut donor -- never written by this build in the f
 `ef084/Sequence.seq` / `RisingRing.sfxmodel` (rung 3/5's leftovers, inert either way), or Iviv's own
 GEO 6100 asset.
 
-**Pre-existing bug found (out of this build's scope, routed around rather than fixed in place):**
-`rung7-creature/build_rung7.py`'s own `--restore` path carries a stale sha256 drift-guard constant
-(`RUNG6_BARE_SEQ_SHA256`) for `rung6-bare-sequence/bare_player_sequence.seq` that does not match the
-actual committed file (verified: `git status`/`git log` show that file unmodified since its original
-two commits -- the constant itself was simply computed wrong when rung 7 was authored). Calling
-`rung7_build(mod_root, game_path, "creature")` therefore raises a `DriftError` on every invocation.
-This build's own `restore()` does not depend on that function at all (see the `RUNG7_FILELIST_PATH`
-comment in `build_thomas.py`), so it is unaffected -- but a future session restoring rung 7 directly
-(`py studies/custom-summons/rung7-creature/build_rung7.py --restore`) will still hit it until fixed.
+**Pre-existing bug found (RESOLVED 2026-07-22 -- and the diagnosis above-the-fold here was wrong in
+an instructive way):** `rung7-creature/build_rung7.py --restore` raised a `DriftError` on every
+invocation, and this build routed around it by deploying rung 7's three committed sources itself.
+The constant (`RUNG6_BARE_SEQ_SHA256`) was in fact **correct** -- it matches the committed blob at
+every commit that ever touched `rung6-bare-sequence/bare_player_sequence.seq`. What drifted was the
+**checkout**: `core.autocrlf=true` smudged the committed LF bytes to CRLF on checkout (37 LF→CRLF
+rewrites, 1833→1870 bytes), and `git status` shows such a file as *clean* because autocrlf's clean
+filter reverses the smudge before comparing -- which is exactly why the original session here
+concluded "file unmodified, so the constant must be computed wrong". Fixed by marking
+`*.seq`/`*.sfxmodel` `-text` in `.gitattributes`, restoring the six affected study assets from
+their blobs, and teaching `build_rung7.py`'s guard to diagnose the CRLF-smudge case by name. This
+build's own `restore()` path is unchanged (self-contained verification remains the simpler
+dependency).
 
 ## Provenance -- LOCAL ONLY
 

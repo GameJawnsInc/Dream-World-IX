@@ -107,14 +107,14 @@ THOMAS_MANIFEST_REPO_PATH = HERE / "thomas_manifest.sfxmodel"    # committed, 10
 # (matches the rung6/rung7 cross-reference convention). Used both to build the Thomas deploy's
 # FileList.txt (identical content either way -- both name "creature_manifest.sfxmodel") and, on
 # --restore, to put ef084 back to rung 7's own resting state WITHOUT going through
-# rung7-creature/build_rung7.py's own build() -- that function's --restore path carries a stale,
-# pre-existing (not introduced by this build) sha256 drift-guard constant for
-# rung6-bare-sequence/bare_player_sequence.seq that no longer matches the actual committed file
-# (verified: git shows that file unmodified/clean; the constant itself was simply wrong), which
-# would make rung7_build() raise a DriftError on every call. Rather than depend on that broken
-# guard -- or edit a file outside this directory to fix someone else's stale constant -- this
-# script reads rung 7's own three committed source files directly and deploys them itself, with
-# ITS OWN correct verification. See README.md "Failure modes" for a pointer to the upstream issue.
+# rung7-creature/build_rung7.py's own build(). When this was written that function raised
+# DriftError on every call; the 2026-07-22 diagnosis found its sha constant was CORRECT all
+# along -- core.autocrlf had smudged the committed LF .seq to CRLF on checkout ("git status
+# clean" hides exactly that, because autocrlf's clean filter reverses the smudge before
+# comparing), which .gitattributes (*.seq/*.sfxmodel -text) now prevents. rung7_build() works
+# again, but this self-contained path is deliberately kept: reading rung 7's three committed
+# sources directly, with ITS OWN verification, remains the simpler dependency. See README.md
+# "Failure modes" for the full story.
 RUNG7_FILELIST_PATH = RUNG7_DIR / "FileList.txt"
 RUNG7_MANIFEST_PATH = RUNG7_DIR / "creature_manifest.sfxmodel"
 RUNG7_SEQ_PATH = RUNG7_DIR / "rung7_player_sequence.seq"

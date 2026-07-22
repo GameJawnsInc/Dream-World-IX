@@ -99,6 +99,9 @@ RUNG6_BARE_SEQ_REPO_PATH = RUNG6_DIR / "bare_player_sequence.seq"
 # The exact sha256 of rung 6's committed file at the time this script was written (independently
 # confirmed this session to match the LIVE deployed ef084/PlayerSequence.seq byte-for-byte) -- the
 # drift guard for --restore, which re-derives ef084's content from this file every run.
+# 2026-07-22: this constant matches the committed BLOB (LF); a core.autocrlf checkout used to smudge
+# the working file to CRLF and trip the guard on every run ("git status clean" hides exactly that).
+# .gitattributes now marks *.seq/*.sfxmodel -text; _read_verified diagnoses the smudge case by name.
 RUNG6_BARE_SEQ_SHA256 = "ae869ec52b5169681f00637dc8358cd8c23a77af3b96e788b159d39cc225329b"
 
 # --------------------------------------------------------------------------- rung 7's own committed sources
@@ -137,6 +140,13 @@ def _read_verified(path: Path, expected_sha256: str, desc: str) -> tuple[bytes, 
     raw = path.read_bytes()
     got = hashlib.sha256(raw).hexdigest()
     if got != expected_sha256:
+        if hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest() == expected_sha256:
+            raise DriftError(
+                f"{path} is the committed file with its LF line endings smudged to CRLF -- a "
+                f"core.autocrlf checkout from before .gitattributes marked *.seq/*.sfxmodel -text "
+                f"(2026-07-22) rewrote it. The repo bytes are intact; restore them with:\n"
+                f"  git checkout -- {path}"
+            )
         raise DriftError(
             f"{path} sha256 {got} != expected {expected_sha256} -- {desc} has changed since this "
             "script was derived against it; refusing to build against unverified content."
