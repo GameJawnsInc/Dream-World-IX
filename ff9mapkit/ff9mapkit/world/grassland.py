@@ -213,6 +213,32 @@ DESERT_MAINS_SECONDARY = dict(du=0.85058, dv=-0.11425,
                               blocks=((11, 4), (11, 5), (12, 4), (12, 5), (12, 6)))
 
 
+#: TOPO -> ground FAMILY, scoped to the families :data:`STRIPS` actually keys off (grass/desert/
+#: dunes today; ``studies/overworld-topography/dunes_grazing_eye.py``'s own ``TOPO_FAM`` table,
+#: reproduced here as shipped vocabulary rather than study-only). Variant/gameplay topo ids within
+#: a family share its plain-mains language (the ground-families census): grass's 9 walkable
+#: variants, desert's 4 (16 = the STRIPS decal's own dedicated fringe topo; 17 = plain mains; 19/20
+#: = dirt gameplay variants that recover the desert constants exactly), dunes' 1. A family with no
+#: STRIPS pair has no entry here -- nothing consumes it (an orphan-decal census only needs "which
+#: family does THIS tri's own topo wear", never a full topo->family census of every ground type).
+TOPO_FAMILY = {}
+for _t in (0, 1, 2, 3, 10, 11, 12, 13, 42):
+    TOPO_FAMILY[_t] = "grass"
+for _t in (16, 17, 19, 20):
+    TOPO_FAMILY[_t] = "desert"
+TOPO_FAMILY[41] = "dunes"
+del _t
+
+#: self-consistency: a colour band cannot classify a language it was never taught, and neither can
+#: an incomplete family table -- if STRIPS ever grows a pair whose family has no TOPO_FAMILY
+#: coverage, that pair would silently see zero tris and never flag anything. Fail loudly instead.
+_strips_families = {f for pair in STRIPS for f in pair}
+assert _strips_families <= set(TOPO_FAMILY.values()), (
+    f"STRIPS references families with no TOPO_FAMILY coverage: "
+    f"{sorted(_strips_families - set(TOPO_FAMILY.values()))}")
+del _strips_families
+
+
 def ground_uv(x: float, z: float, cell, quad, ori: int, ground: str = "grass"):
     """:func:`mains_uv` re-based to a ground family (THE TRANSLATION LAW). ``grass`` is
     the identity (bit-exact -- adding 0.0 changes no float)."""

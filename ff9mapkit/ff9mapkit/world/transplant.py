@@ -2439,8 +2439,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
                allow_mod_overwrite: bool = False, allow_wang_seams: bool = False,
-               enforce_wang_carry: bool = False, dry_run: bool = False,
-               skip_mirror: bool = False) -> dict:
+               enforce_wang_carry: bool = False, allow_orphan_decals: bool = False,
+               enforce_orphan_decals: bool = False, redress_orphans: bool = False,
+               dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2463,9 +2464,16 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     frame bounds; land fit within ``land_margin`` (an ISLAND default -- pass ``land_margin=0`` for
     a donor whose land legitimately reaches the block border); each tweak's exact edit-scope count;
     the :func:`ff9mapkit.world.mesh.weld_audit` (0 near-miss vertex pairs, like the verbatim donor);
-    and the engine-placement census (``miss == 0`` -- full walk/sail coverage). ``dry_run`` builds
-    and gates without writing. A donor part whose tris all clip away is BLANKED (a hidden override)
-    so the donor prefab's original sub-mesh cannot render unrotated underneath.
+    and the engine-placement census (``miss == 0`` -- full walk/sail coverage). Two more WARN-by-
+    default (report-only) census gates ride alongside: :func:`wang_carry_gate` and
+    :func:`~ff9mapkit.world.orphangate.orphan_decal_gate` (a STRIPS transition-vocabulary decal --
+    e.g. a grass|desert fringe tile -- carried without the neighbourhood context that justifies it;
+    checked against a 1-block Moore RING of real deployed-or-stock terrain around the target, read-
+    only, matching the study's own ``--census3``; ``enforce_orphan_decals``/``allow_orphan_decals``
+    match the wang-carry knobs; ``redress_orphans`` auto-fixes every non-``AMBIGUOUS`` finding to the
+    wearing side's plain mains IN MEMORY before any write). ``dry_run``
+    builds and gates without writing. A donor part whose tris all clip away is BLANKED (a hidden
+    override) so the donor prefab's original sub-mesh cannot render unrotated underneath.
 
     Returns a summary dict (``clean``, ``gates``, ``carried``, ``shift``, ``deployed`` paths). A real deploy
     auto-mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out)."""
@@ -2671,12 +2679,17 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         meshes, cell=(bx, by), sidecar_parts={p for p in parts if donor_has_part[p]}, disc=disc, lod=lod)
 
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
+    from . import orphangate as OG
     gates = []
     gates.append(effective_gate)
     gates.append(wang_carry_gate(
         {(bx, by): {pn.lower(): bm for pn, bm in meshes
                     if pn.lower() in ("sea1", "sea2", "sea3", "sea4", "sea5")}},
         {(bx, by)}, enforce=enforce_wang_carry, allow=allow_wang_seams))
+    gates.append(OG.orphan_decal_gate(
+        {(bx, by): meshes}, {(bx, by)}, enforce=enforce_orphan_decals,
+        allow=allow_orphan_decals, redress=redress_orphans,
+        mod_folder=mod_folder, disc=disc, lod=lod, game=game))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -2869,6 +2882,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       census_samples: int = 24, allow_real_target: bool = False,
                       allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
                       allow_wang_seams: bool = False, enforce_wang_carry: bool = False,
+                      allow_orphan_decals: bool = False, enforce_orphan_decals: bool = False,
+                      redress_orphans: bool = False,
                       dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
@@ -2904,7 +2919,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     CONTAINING cell's meshes, like the engine's per-block raycast), misses backmapped through
     the inverse transform to the donor's per-cell meshes (no INTRODUCED misses; a backmap into
     a data-less donor cell is introduced -- in situ that point was sailable SeaBlockPrefab
-    ocean, on a deployed cell it would be a void + vehicle wall).
+    ocean, on a deployed cell it would be a void + vehicle wall). Two more WARN-by-default
+    (report-only) census gates ride over the whole region: :func:`wang_carry_gate` and
+    :func:`~ff9mapkit.world.orphangate.orphan_decal_gate` (``enforce_orphan_decals``/
+    ``allow_orphan_decals``/``redress_orphans`` -- see :func:`transplant`).
 
     A real deploy auto-mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True``
     opts out -- :func:`~ff9mapkit.world.fuse.fuse_layout` uses this to defer to its own single
@@ -3196,6 +3214,12 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
          for (i, j), mlist in deploy_meshes.items()},
         {tuple(cell_meta[(i, j)]["cell"]) for (i, j) in deploy_meshes},
         enforce=enforce_wang_carry, allow=allow_wang_seams))
+    from . import orphangate as OG
+    orphan_region = {tuple(cell_meta[(i, j)]["cell"]) for (i, j) in deploy_meshes}
+    gates.append(OG.orphan_decal_gate(
+        {tuple(cell_meta[(i, j)]["cell"]): mlist for (i, j), mlist in deploy_meshes.items()},
+        orphan_region, enforce=enforce_orphan_decals, allow=allow_orphan_decals,
+        redress=redress_orphans, mod_folder=mod_folder, disc=disc, lod=lod, game=game))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})

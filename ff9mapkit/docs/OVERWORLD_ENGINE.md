@@ -573,6 +573,20 @@ extrusion whose welds are bit-exact by identity, with per-class UV fill [cliff v
 relief / plan-affine mirror]; the island measurably grows +4u, seam invisible). **Requires the custom engine (s34 +
 `Donor.txt`); RELAUNCH.**
 
+**The orphan-decal gate** (`world/orphangate.py`, productized 2026-07-22 from the comp[1] fringe arc's
+proven rule set — `studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md` Round 10) rides
+alongside the effective-prefab and Wang-carry gates on every `world-transplant`/`--size` carry. A
+transition-vocabulary tri (`grassland.STRIPS` — `('grass','desert')` or `('desert','dunes')`, any row/
+orientation) is an **orphan** unless its carried neighbourhood justifies it: a same-cell straddle for
+rows 1/3, the partner family within 2 cells for rows 0/2 (the observed curvature bound is 4), or — a
+second, independent axis — its own topo byte matches its decal group's measured norm. Same shape as
+`wang_carry_gate`: **WARN by default** (report-only, names the cells + missing context + remedy),
+`--enforce-orphan-decals` refuses, `--allow-orphan-decals` waives. `--redress-orphans` auto-fixes every
+finding to the wearing side's plain `GROUNDS` mains IN MEMORY at build time (the proven FIX-G shape —
+`assign_mains` → `ground_uv`, UV always, topo only when the decal's own dedicated fringe topo is still
+worn) — opt-in, since it changes output bytes. In WARN mode the gate never mutates anything, so it never
+perturbs an existing clean carry.
+
 ### Continent LAYOUTS — `world-fuse` + the shore tweaks (mint a beach on a kit-made shore, ★ in-game proven 2026-07-11)
 
 `ff9mapkit world-fuse <layout.toml> [--dry-run] [--allow-overwrite]` composes several `world-transplant` placements

@@ -5,6 +5,57 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the orphan-decal gate (`world-transplant` / `transplant_region`): a third carry-time census
+- **`world/orphangate.py` productizes the comp[1] fringe arc's proven rule set** (Round 10 of
+  `studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md`, in-game proven across 3 redress
+  rounds / 15 cells on the deployed comp[1] region, 2026-07-22): a transition-vocabulary tri
+  (`grassland.STRIPS` — today `('grass','desert')` or `('desert','dunes')`, any row, any orientation) is an
+  **orphan** unless its neighbourhood context justifies wearing it — straddle rows (1/3) need a genuine
+  same-cell straddle of the pair's two families; fringe rows (0/2) need the partner family within the
+  calibrated accept radius (2 cells; the observed curvature bound is 4) — plus a second, independent
+  **topo-consistency** check (a `(pair,row)` fringe group's topo is measured LIVE; a tri breaking an
+  overwhelming majority is a topo/UV mismatch even with lawful context nearby — this axis is what a
+  colour-band filter alone cannot see, and what let a misassigned tile slip past one).
+- **Follows `wang_carry_gate`'s exact shape**: WARN by default (`ok` stays `True`, a `warn` flag surfaces
+  the finding + names the cells/missing-context/remedy), `--enforce-orphan-decals` hard-fails,
+  `--allow-orphan-decals` waives even then. In WARN mode (the default) the gate is **purely read-only** —
+  it never mutates a byte of any mesh it inspects, so wiring it into `transplant()`/`transplant_region()`
+  changes **zero** output bytes of any existing mint/carry/retile path.
+- **`--redress-orphans`** auto-fixes every finding to the wearing side's plain `grassland.GROUNDS` mains —
+  the arc's own proven FIX-G shape (`assign_mains` → `ground_uv`, the SAME per-cell call the shipped
+  `GroundRetile` "recovered" path already uses): UV always, topo only when the tri still carries the
+  STRIPS decal's own dedicated fringe topo (not yet the family's own plain-mains topo); vertex positions,
+  normals and tangent[1:] are never touched. Applied **in memory, at build time, before any write** — never
+  touches an already-deployed file — then the census re-runs over the mutated meshes so a fully successful
+  auto-fix makes even an enforced build clean. Opt-in: changes output bytes vs. a plain carry.
+- **Scope**: hooked into `transplant()`/`transplant_region()` only — `world-island`/`world-mountain`/
+  `world-forest` never touch the STRIPS vocabulary at all (confirmed by grep), and `morph_in_place` has no
+  donor mapping, matching both precedent gates' own scope boundary. Validated against real deployed bytes:
+  the current comp[1] region censuses zero orphans (already hand-redressed), and the PRE-redress backup
+  bytes (`backups/comp1-redress.20260722-140044/`) reproduce the real historical defects — including the
+  exact Round-3 topo/UV mismatch at cell (305,−299) — with `--redress-orphans` fixing every one.
+  `world/fuse.fuse_layout` reaches `transplant_region()` without a dedicated top-level orphan-decal
+  parameter of its own — a placement dict may still set one, but absent that it stays WARN-only by
+  default (safe: WARN mode never mutates a byte).
+
+### Fixed — the orphan-decal gate now reads a RING of real context, and never guesses on an overlap
+- **RULE-FIDELITY fix (2026-07-22) vs `--census3` (`comp1_orphan_redress.round3_generalized_census`)**:
+  the gate's Class-A fringe-row radius search and Class-B topo-consistency group statistics were
+  scoped to the just-carried region alone — the study's own instrument always reads a 1-block Moore
+  RING of real bordering terrain (deployed override where one exists, else stock) alongside the
+  carried core for both checks. `orphan_decal_gate` now takes an injectable `context_provider`
+  (default `default_context_provider`, read-only, deployed-override-else-stock) and feeds ring
+  records into both checks exactly as the study does — a thin local topo group that needed a larger
+  sample to see its own minority member, and a lawful edge-fringe decal whose partner family sits
+  just outside the carry, are both handled correctly now. Read-only; changes zero output bytes on
+  the default (WARN, no `--redress-orphans`) path.
+- **AMBIGUOUS verdict**: a cell Class A and Class B independently claim (the study's own
+  `round3_build_and_gate` hard-refuses/asserts on this shape) is now its own `klass="AMBIGUOUS"`
+  verdict rather than being silently folded into whichever class happened to be inserted first — it
+  still counts toward `n_orphans`/`warn`/fails an enforced build, but `--redress-orphans` refuses to
+  auto-fix it (never guess on an unmodelled state). Surfaced as `n_ambiguous`/`ambiguous_cells` on
+  the gate result.
+
 ### Fixed — a stale atlas cache can no longer shadow the atlas the game renders
 - **`world/atlas.load_atlas` now returns the atlas the ENGINE renders by default.** Previously an existing
   `StreamingAssets/.ff9atlas_*.png` extract cache always won — so on an HD-modded install (Moguri) every

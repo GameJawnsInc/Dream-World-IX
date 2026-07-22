@@ -2645,7 +2645,10 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                       game=args.game, census_samples=args.samples,
                       allow_mod_overwrite=args.allow_mod_overwrite,
                       allow_wang_seams=args.allow_wang_seams,
-                      enforce_wang_carry=args.enforce_wang_carry, dry_run=args.dry_run,
+                      enforce_wang_carry=args.enforce_wang_carry,
+                      allow_orphan_decals=args.allow_orphan_decals,
+                      enforce_orphan_decals=args.enforce_orphan_decals,
+                      redress_orphans=args.redress_orphans, dry_run=args.dry_run,
                       skip_mirror=args.skip_mirror)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
@@ -2695,13 +2698,23 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     for g in summary["gates"]:
         detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
-        if g.get("warn"):
+        if g.get("warn") and g["gate"] == "wang-carry":
             dn, sn = g.get("incoherent_deep", 0), g.get("incoherent_shallow", 0)
             print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
                   f"the carried rim ({dn} deep sea3/sea5, {sn} shallow sea1/sea2) -- shipping FF9 abuts "
                   f"neither mid nor shallow water to the deep ring, so review these in-game and re-tile "
                   f"the rim (wang_rim_retile for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
                   f"pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).")
+        if g.get("warn") and g["gate"] == "orphan-decals":
+            print(f"  !! WARNING {g['gate']}: {g.get('n_orphans', '?')} orphaned transition-vocabulary "
+                  f"decal(s) at cell(s) {g.get('cells')} -- a grass|desert or desert|dunes STRIPS "
+                  f"fringe/straddle tile carried without the neighbourhood context that justifies it "
+                  f"(a same-cell partner for straddle rows, the partner family within 2 cells for "
+                  f"fringe rows), or with a topo byte breaking its own decal group's norm: "
+                  f"{g.get('detail') or 'see cells above'}. Review in-game (a hard-edged ecotone seam) "
+                  f"and either pass --redress-orphans to auto-fix to the wearing side's plain mains at "
+                  f"build time (changes output bytes), or --enforce-orphan-decals to refuse "
+                  f"(--allow-orphan-decals to silence).")
     if not summary["clean"]:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2
@@ -6021,6 +6034,24 @@ def build_parser() -> argparse.ArgumentParser:
                           "positive, so it stays opt-in until the donor-baseline subtraction lands.")
     wtp.add_argument("--allow-wang-seams", action="store_true", dest="allow_wang_seams",
                      help="waive THE WANG-CARRY GATE even when enforced (--enforce-wang-carry).")
+    wtp.add_argument("--enforce-orphan-decals", action="store_true", dest="enforce_orphan_decals",
+                     help="ENFORCE THE ORPHAN-DECAL GATE (default report-only): FAIL the build when "
+                          "the carried region wears a transition-vocabulary decal (a grass|desert or "
+                          "desert|dunes STRIPS fringe/straddle tile) without the neighbourhood "
+                          "context that justifies it -- a same-cell straddle for rows 1/3, the "
+                          "partner family within 2 cells for rows 0/2 -- or with a topo byte that "
+                          "breaks its own decal group's measured norm. The comp[1] orphan-decal "
+                          "class (studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md "
+                          "Round 10 + comp1_orphan_redress.py).")
+    wtp.add_argument("--allow-orphan-decals", action="store_true", dest="allow_orphan_decals",
+                     help="waive THE ORPHAN-DECAL GATE even when enforced (--enforce-orphan-decals).")
+    wtp.add_argument("--redress-orphans", action="store_true", dest="redress_orphans",
+                     help="auto-fix every ORPHAN-DECAL GATE finding to the wearing side's plain "
+                          "GROUNDS mains (assign_mains + ground_uv, the proven FIX-G shape: UV "
+                          "always, topo only when the tri still carries the decal's own dedicated "
+                          "fringe topo) IN MEMORY at build time, before any write. Changes output "
+                          "bytes vs. a plain carry -- opt-in; a byte-identical re-run needs this "
+                          "flag every time.")
     wtp.add_argument("--ground", default=None, metavar="FAMILY",
                      help="RETILE the carried block to another ground family by the byte-measured "
                           "TRANSLATION LAWS (grassland.GROUNDS + coastmorph.SAND_BANDS): ground "
