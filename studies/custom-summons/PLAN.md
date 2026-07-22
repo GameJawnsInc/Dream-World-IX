@@ -1,13 +1,19 @@
 # Custom Summons — feasibility study
 
-> **Status: RUNGS 1+2 ★ IN-GAME PROVEN 2026-07-21** — rung 1: "it worked, bahamut played in full"
-> from Iviv's minted Spark command (bench `rung1-borrowed-cinematic/`, field **30300**, minted
-> ability **"Bahamut Cinema" id 194**); rung 2: "both worked, the blip played and the fade was
-> slower" — the .seq edit→recast HOT LOOP is real (no relaunch; `rung2-seq-hot-edit/`, since
-> reverted; the minted chime stays staged for rung 3). Kit work item #4 (the vfx≥511 playParam
-> WARN) landed the same day; the rung-1 "crunchy audio" observation is INVESTIGATED (§8 — not our
-> binding; no-limiter clipping + known-poor vanilla assets; 2-step user A/B). NEXT = rung 3, the
-> fresh-id private donor copy. Research opened 2026-07-21 from a 20-agent ultracode workflow
+> **Status: RUNGS 1-7 ★ ALL IN-GAME PROVEN 2026-07-21, ONE SESSION — PAUSED at 7/9 (user's call).**
+> The whole mechanism ladder is closed: the borrowed cinematic → the hot loop → the fresh-id
+> private copy (+ the first minted audio in a summon) → damage-beat control → the first-ever
+> `CreateVisualEffect` + the first new visual content in a summon (the magenta ring) → the fully
+> hand-authored bare cast (TIER 3 VIABLE) → **THE CREATURE: the first custom model ever rendered
+> inside an FF9 battle effect** (FileList.txt→FBX, 3 casts to polish: render → upright →
+> facing+idling). RESTING STATE: the bench (field 30300, "Bahamut Cinema" id 194, vfx1=84) casts
+> the rung-7 creature proof; stock content 100% pristine (every shared override reverted); each
+> rung's build/revert scripts committed in its own subfolder. NEXT SESSION = **rung 8, the
+> composed epic** (creative direction OPEN — the user deferred the creature choice; default
+> candidate = the model pillar's from-scratch creature) + the productization runway (§9 items 1-2:
+> the `[[summon]]` block + the .seq codec/linter; the SFXRework deploy-warn now applies since we
+> ship .seq content; the §7 netsync freeze-ceiling check before shipping a long summon). The
+> crunchy-audio A/B (§8) remains available. Research opened 2026-07-21 from a 20-agent ultracode workflow
 > (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
 > load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
 > + a completeness critic). All file:line citations below were re-derived by skeptic agents against
