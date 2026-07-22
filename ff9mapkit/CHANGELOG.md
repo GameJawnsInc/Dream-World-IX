@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-island` OPT-IN rolling relief (THE DEAD-RELIEF RESURRECTION)
+- **`world-island --relief` adds gentle inland undulation to minted islands** — the resurrection of the
+  ambient relief field RETIRED 2026-07-15 (THE DEAD-RELIEF DISCOVERY: the first `relief_field` keyed a
+  donor block's LOCAL 4u lattice while `fill_y` sampled it with WORLD coords, so it read 0.0 everywhere
+  off block (0,0)). The rebuild is **not** a re-key of that single-block snapshot (which was also
+  non-tileable) — it is a **deterministic WORLD-XZ VALUE-NOISE field** (`grassland.relief(x, z, seed,
+  amp)` + `relief_fade`): 2 octaves (base period 20u + detail 10u), default amp 1.3, scaled per ground
+  family by `GROUNDS[..]["relief_scale"]` (grass 1.0, desert 1.6). Because it is a PURE function of world
+  (x, z), the frame bug **cannot recur** (same world point → same height) and cross-block seams **weld by
+  construction** (a block-local field would crack them). **Opt-in — default OFF ⇒ byte-identity**
+  (`relief_amp=0` returns `land_height` unchanged; all 17 world-island oracle blocks re-mint
+  hash-identical, the same no-op the retire proved). CLI: `--relief` / `--relief-amp N` (default 1.3) /
+  `--relief-seed N` (default from the centre). The rim-weld short-circuit the retire dropped is
+  **restored** (rim vertices → exactly `land_height`) plus a smoothstep FADE (fade 2→12u ≈ one
+  wavelength) so the wall-top ring never moves. New `verify_landmass` **slope-envelope gate**
+  (`main_slope_p99 ≤ 28.6` = the measured lowland-grass ceiling; bites an over-amplitude mint, vacuous for
+  flat). Calibrated on stock lowland (detrended grass std ~0.5, slope p99 ~15-33, wavelength ~20u); the
+  field measures std 0.58 / slope p99 11 / max 15 deg (>2.4× walkability margin), position-independent.
+  Relief is mutually exclusive with `world-hill`/`world-forest`/`world-mountain` per island (the 2.4u
+  ROLLING-RELIEF ENVELOPE gate is the backstop). Tests: 7 new in `tests/test_world_island.py`
+  (world-XZ purity/position-independence, seed decorrelation, fade-to-zero at shore, relief-off
+  byte-identity, in-envelope gates-clean, over-amplitude refusal, cross-border weld). Study record +
+  offline eye: `studies/overworld-topography/README.md` §THE ROLLING-RELIEF RESURRECTION, `relief_eye.py`.
+
 ### Added — overworld grid-bounds gate (the 24×20 block grid)
 - **`world-island` / `build_landmass` and the loose-mesh deploy layer now refuse an OFF-GRID target.**
   The engine's world is a fixed **24×20** block grid (`WMWorld.BuildBlockArray = new WMBlock[24, 20]`;

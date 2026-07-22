@@ -2708,9 +2708,9 @@ def _cmd_world_morphs(args: argparse.Namespace) -> int:
 
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
-    grass tile language (mains + verbatim meadow stamps; flat interior by design), gated offline (geometry,
-    UV language, and the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter
-    the world map."""
+    grass tile language (mains + verbatim meadow stamps; flat interior by default, OPT-IN rolling relief via
+    --relief), gated offline (geometry, UV language, slope envelope, and the ENGINE PLACEMENT simulator)
+    before deploy. Needs the custom engine (s34); re-enter the world map."""
     from .world import island as I
     from .world.grassland import GROUNDS
     gcls = GROUNDS.get(args.ground, {}).get("cls", "island")
@@ -2731,8 +2731,10 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
         if getattr(args, "beach_pins", None):
             beach["pins_from"] = tuple(int(v) for v in args.beach_pins.split(","))
     try:
+        relief_amp = args.relief_amp if args.relief else 0.0
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
+                  relief_amp=relief_amp, relief_seed=args.relief_seed,
                   beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
                   skip_mirror=args.skip_mirror)
         if args.center:
@@ -2746,8 +2748,12 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
         return 2
     verb = "would deploy" if args.dry_run else "deployed"
     cx, cz = summary["center"]
+    relief_note = ""
+    if relief_amp > 0.0:
+        p99 = summary["report"].get("main_slope_p99", 0.0)
+        relief_note = f", rolling relief amp {relief_amp} (ground slope p99 {p99} deg)"
     print(f"{verb} a synthetic landmass at world ({cx:.0f}, {cz:.0f}) (radius {summary['radius']}, "
-          f"seed {summary['seed']}) across {len(summary['blocks'])} block(s):")
+          f"seed {summary['seed']}{relief_note}) across {len(summary['blocks'])} block(s):")
     for b in summary["blocks"]:
         blk = tuple(b["block"])
         place = summary["report"].get("placement", {}).get(blk)
@@ -5883,9 +5889,10 @@ def build_parser() -> argparse.ArgumentParser:
     wis = sub.add_parser("world-island",
                          help="synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + "
                               "faithful rock wall + the real grass language (mains + verbatim meadow stamps), "
-                              "offline-gated (geometry + UV + engine-placement census). The interior is FLAT at "
-                              "--height by design (height = world-hill/world-forest/world-mountain). Needs the "
-                              "custom engine; re-enter the world.")
+                              "offline-gated (geometry + UV + slope envelope + engine-placement census). The "
+                              "interior is FLAT at --height by default; --relief adds gentle inland rolling "
+                              "undulation (local prominence still = world-hill/world-forest/world-mountain). "
+                              "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     _wtgt = wis.add_mutually_exclusive_group(required=True)
     _wtgt.add_argument("--cell", metavar="BX,BY", help="centre the island on ocean block BX,BY (grid 24x20)")
@@ -5907,6 +5914,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
     wis.add_argument("--flat", action="store_true",
                      help="skip the verbatim meadow stamps (no install data needed)")
+    wis.add_argument("--relief", action="store_true",
+                     help="OPT-IN rolling relief: gentle inland undulation from a deterministic WORLD-XZ "
+                          "value-noise field (calibrated to stock lowland: slope p99 ~11 deg, wavelength "
+                          "~20u), faded to 0 at the shore so the wall-top rim stays welded. Default OFF "
+                          "(flat = byte-identity with prior mints). Mutually exclusive with "
+                          "world-hill/forest/mountain on the same island (the 2.4u envelope gate is the backstop).")
+    wis.add_argument("--relief-amp", type=float, default=1.3,
+                     help="relief base amplitude in units (default 1.3 = the calibrated grass default; "
+                          "GROUNDS scales it per family, e.g. desert ~1.6x). Only applies with --relief.")
+    wis.add_argument("--relief-seed", type=float, default=None,
+                     help="relief field seed (deterministic; default derives from the centre)")
     wis.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
                           "desert, snow, canyon are island-complete fills; scrub/brush/dunes are "

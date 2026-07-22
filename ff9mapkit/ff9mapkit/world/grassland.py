@@ -82,10 +82,12 @@ FAM_REGION = {
 #: family has no native coast band -- use away from shorelines.
 GROUNDS = {
     "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0,
-                  cls="island", wall_coastal=True),
+                  cls="island", wall_coastal=True, relief_scale=1.0),  # opt-in relief base amp
     "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
                    wall_du=-0.27127, wall_dv=-0.02066, cls="island",
-                   wall_coastal=True),                              # map-wide 19/20 faces coastal, to
+                   wall_coastal=True, relief_scale=1.6),             # desert lowland ~1.5-2x rougher
+    #                                  (topo-17 detrended std ~1.0 vs grass ~0.5; calib_relief.py)
+    #                                  map-wide 19/20 faces coastal, to
     #                                  6.57u (2026-07-19 map-wide re-measure; the old "12/13 to 5.03u"
     #                                  was a specimen-slice reading, retired -- same defect class as the
     #                                  canyon/snow figures corrected 2026-07-18).
@@ -534,6 +536,83 @@ def stamp_geometry(placements) -> list:
                     corners.append((x, z, u, v))
                 out.append((corners, rec["fam"]))
     return out
+
+
+# ---- rolling relief (opt-in; a deterministic WORLD-XZ value-noise height field) ------------------------------------
+#
+# THE RESURRECTION (2026-07-21). Real grass/desert lowland is never dead-flat -- plane-DETRENDED
+# undulation measures (this study's census.py + calib): grass topo-0 residual std ~0.46-1.07 (calm
+# interior plains 0.46-0.49), 4u-neighbour |dY| med ~0.2 p90 ~0.5-0.7, per-tri slope p90 ~9-25 deg
+# p99 ~15-33 (independently re-confirming the HILL-AT-SCALE p99 28.6), autocorrelation decorrelation
+# ~9-12u (characteristic wavelength ~18-22u). Desert topo-17 is ~1.5-2x rougher.
+#
+# The FIRST relief shipped (grassland.relief_field/relief_at, 9e9be73) was DEAD: it keyed a real
+# donor block's BLOCK-LOCAL lattice (i in [0,16], j in [-16,0]) while island.fill_y sampled it with
+# WORLD coords, so field.get(...) -> 0.0 for every island away from block (0,0). It was RETIRED
+# (3ba8462, THE DEAD-RELIEF DISCOVERY). This resurrection fixes the frame BY CONSTRUCTION: a pure
+# function of WORLD (x, z). That (a) makes the same world location always yield the same height (the
+# dead-relief bug cannot recur), and (b) is REQUIRED for cross-block seam welds -- a border vertex
+# shared by two blocks has ONE world (x, z) -> ONE relief value on both sides (a block-local field
+# would crack seams). Opt-in only (island.build_landmass(relief_amp=0.0) = flat = byte-identity).
+
+#: (period_u, weight, salt) octave set -- calibrated (calib_relief.py): amp 1.3 measures std ~0.58,
+#: slope p90 ~8 / p99 ~11 / max ~15 deg (a >2.4x margin under the walk envelope MAX_FLANK 28.6),
+#: decorr ~15u -- squarely inside the calm-grass band, position-independent across seeds/offsets.
+RELIEF_OCTAVES = ((20.0, 1.0, 0), (10.0, 0.45, 0x9E37))
+RELIEF_DEFAULT_AMP = 1.3                                  # the grass default (GROUNDS[..]["relief_scale"] scales it)
+
+
+def _relief_hash01(ix: int, iz: int, seed: int) -> float:
+    """A deterministic integer hash of a lattice node -> a float in [0, 1). Pure; no RNG state."""
+    h = (ix * 374761393 + iz * 668265263 + (seed & 0xFFFFFFFF) * 2246822519) & 0xFFFFFFFF
+    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
+    h = (h ^ (h >> 16)) & 0xFFFFFFFF
+    return h / 4294967296.0
+
+
+def _relief_octave(x: float, z: float, period: float, seed: int) -> float:
+    """Smoothstep-interpolated bilinear value noise over a hash lattice of ``period`` -> [-1, 1]."""
+    gx = x / period
+    gz = z / period
+    ix = math.floor(gx)
+    iz = math.floor(gz)
+    tx = gx - ix
+    tz = gz - iz
+    sx = tx * tx * (3.0 - 2.0 * tx)                       # smoothstep -> C1-continuous (no lattice creases)
+    sz = tz * tz * (3.0 - 2.0 * tz)
+    c00 = _relief_hash01(ix, iz, seed)
+    c10 = _relief_hash01(ix + 1, iz, seed)
+    c01 = _relief_hash01(ix, iz + 1, seed)
+    c11 = _relief_hash01(ix + 1, iz + 1, seed)
+    top = c00 * (1.0 - sx) + c10 * sx
+    bot = c01 * (1.0 - sx) + c11 * sx
+    return (top * (1.0 - sz) + bot * sz) * 2.0 - 1.0
+
+
+def relief(x: float, z: float, *, seed: int = 0, amp: float = RELIEF_DEFAULT_AMP) -> float:
+    """Deterministic ambient relief displacement (in units) at WORLD ``(x, z)`` -- the multi-octave
+    value-noise sum (:data:`RELIEF_OCTAVES`) scaled by ``amp``. A PURE function of world coords: the
+    same ``(x, z)`` always returns the same height, so coincident cross-block seam vertices weld
+    exactly and the DEAD-RELIEF frame bug cannot recur. ``amp=0`` -> exactly 0.0 (the flat default)."""
+    if amp == 0.0:
+        return 0.0
+    s = 0.0
+    for (period, w, salt) in RELIEF_OCTAVES:
+        s += w * _relief_octave(x, z, period, (int(seed) ^ salt) & 0xFFFFFFFF)
+    return amp * s
+
+
+def relief_fade(edge_dist: float, *, fade_lo: float = 2.0, fade_hi: float = 12.0) -> float:
+    """Smoothstep rim fade weight in [0, 1]: 0 within ``fade_lo`` of the land edge/rim (the weld keeps
+    its exact Y), ramping to 1 by ``fade_hi`` (~one wavelength inland). Stock relief does NOT taper at
+    the coast (the land edge is where the cliff rises) -- this fade is a WELD-PRESERVATION requirement
+    (keep the synthetic wall-top rim at exactly land_height), not stock mimicry."""
+    if edge_dist <= fade_lo:
+        return 0.0
+    if edge_dist >= fade_hi:
+        return 1.0
+    t = (edge_dist - fade_lo) / (fade_hi - fade_lo)
+    return t * t * (3.0 - 2.0 * t)
 
 
 def smooth_normals(pos, tris, assign_vids):

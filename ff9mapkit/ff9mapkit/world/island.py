@@ -9,7 +9,8 @@ Composes everything the synth-island session proved, layer by layer:
   translated so the strip's sawtooth wrap lands on triangle boundaries, never mid-tri: the smear fix),
   V climbs the face.
 * **Grass**: the real tile language from :mod:`ff9mapkit.world.grassland` -- lattice mains
-  (quadrant+rotation, direction-aware bleed), verbatim meadow STAMPS, the verbatim rolling RELIEF field,
+  (quadrant+rotation, direction-aware bleed), verbatim meadow STAMPS, OPT-IN rolling RELIEF
+  (a deterministic world-XZ value-noise height field, off by default -- see ``relief_amp``),
   position-welded smoothed normals.
 * **Placement**: winding is enforced at emit and the build is gated by the offline engine simulator
   (:mod:`ff9mapkit.world.placement`) -- the old synth blob stranded the player 3x in-game because its top
@@ -42,6 +43,8 @@ BLOCK = 64.0
 GRID = 4.0
 LAND_TOPO = 0
 CLIFF_TOPO = 58
+MAX_FLANK = 28.6                                         # measured lowland-grass slope p99 (= interior.MAX_FLANK);
+#                                                         the OPT-IN relief ceiling -- ground tris must stay under it
 ROCK_U = (0.699, 0.947)                                  # the measured grey-rock atlas band
 ROCK_V = (0.923, 0.893)                                  # V: base -> top (the rock climbs the face)
 ROCK_DENSITY = 0.0125                                    # texels/u along the shore (measured constant)
@@ -224,15 +227,21 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                    rim_run: float = 1.0, undulation: float = 0.11, n_corners: int = 3,
                    corner_strength: float = 0.26, n_patches: int = 2, stamps=None,
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
+                   relief_amp: float = 0.0, relief_seed=None,
                    beach=None, disc: int = 1, game=None) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
     :func:`verify_landmass` checks it against the measured FF9 coastline language). The interior is
-    FLAT at ``land_height`` by design -- explicit height comes from the studied verbs (world-hill /
-    world-forest / world-mountain); an ambient relief field was RETIRED 2026-07-15 (never applied due
-    to a frame bug; flat repeatedly in-game approved -- THE DEAD-RELIEF DISCOVERY, resurrection notes
-    in studies/overworld-topography/README.md). ``stamps`` = a list / ``"auto"`` (load from the
+    FLAT at ``land_height`` when ``relief_amp=0`` (the default -- explicit local height comes from the
+    studied verbs world-hill / world-forest / world-mountain). ``relief_amp>0`` turns ON the OPT-IN
+    ambient rolling relief (:func:`grassland.relief`): a deterministic WORLD-XZ value-noise field,
+    scaled per ground family (``GROUNDS[..]["relief_scale"]``), faded to exactly 0 at the wall-top rim
+    (welds hold) -- the RESURRECTION of the field RETIRED 2026-07-15 (THE DEAD-RELIEF DISCOVERY, a
+    block-local-keyed field sampled with world coords; this one is world-keyed BY CONSTRUCTION so the
+    frame bug cannot recur and cross-block seams weld). Relief is MUTUALLY EXCLUSIVE with the explicit-
+    height verbs per island (the ROLLING-RELIEF ENVELOPE 2.4u gate is the backstop). ``relief_seed``
+    defaults from the centre. ``stamps`` = a list / ``"auto"`` (load from the
     install) / ``None`` (hermetic). ``ground`` picks the walkable
     ground family from :data:`grassland.GROUNDS` (the byte-measured TRANSLATION LAWS): ``"grass"``
     (the identity -- bit-frozen) or ``"desert"`` (topo-17 mains + the desert cliff-wall band; meadow
@@ -418,8 +427,23 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
         cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
 
+    # OPT-IN rolling relief (world-XZ value noise; default relief_amp=0 => flat => byte-identity).
+    r_amp = relief_amp * gspec.get("relief_scale", 1.0)
+    r_seed = int(cx * 7 + cz * 13) & 0xFFFFFFFF if relief_seed is None else int(relief_seed)
+    rim_keys = {(round(x, 3), round(z, 3)) for (x, z) in rim}
+
+    def _edge_dist(x, z):
+        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
+
     def fill_y(x, z):
-        return land_height                               # flat interior; exact weld at the wall top
+        if r_amp == 0.0:
+            return land_height                           # flat interior; exact weld at the wall top
+        if (round(x, 3), round(z, 3)) in rim_keys:
+            return land_height                           # THE RIM WELD: the wall-top ring never moves
+        w = G.relief_fade(_edge_dist(x, z))              # fade to 0 at the rim (welds), full inland
+        if w == 0.0:
+            return land_height
+        return land_height + w * G.relief(x, z, seed=r_seed, amp=r_amp)
 
     # global shore arc-length (continuous across cells -> the rock band chains block to block)
     cum = [0.0] * nring
@@ -617,6 +641,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
         else:
             seen[k] = v[1]
     down = steep = big = oob = 0
+    ground_slopes = []                                   # per-tri slope (deg) over walkable ground topo (relief gate)
     for tidx, tri in enumerate(gtris):
         a, b, c = gpos[tri[0]], gpos[tri[1]], gpos[tri[2]]
         ny2 = (b[2]-a[2])*(c[0]-a[0]) - (b[0]-a[0])*(c[2]-a[2])
@@ -631,6 +656,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
         _, idall, fam, uvv = gmeta[tidx]
         topo = decode_id(int(round(idall)))["topograph"]
         if topo == g_topo:
+            ground_slopes.append(math.degrees(math.acos(max(-1.0, min(1.0, abs(gn[1]) / gl)))))
             e = max(math.dist((a[0], a[2]), (b[0], b[2])), math.dist((b[0], b[2]), (c[0], c[2])),
                     math.dist((a[0], a[2]), (c[0], c[2])))
             if e > 8:
@@ -697,9 +723,21 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
         open_adj[eb].add(ea)
     miss_faces = {tuple(sorted((p, q, r))) for p in open_adj for q in open_adj[p] for r in open_adj[q]
                   if r != p and p in open_adj[r]}
+    # THE RELIEF SLOPE ENVELOPE (2026-07-21): the walkable ground's per-tri slope p99 must stay under
+    # the measured lowland-grass ceiling MAX_FLANK (28.6 deg). A FLAT mint reads p99 = 0 (every ground
+    # tri is horizontal), so this is vacuously clean for every frozen identity baseline; it only bites
+    # an OPT-IN relief mint whose amplitude was pushed off the calibrated band.
+    ss = sorted(ground_slopes)
+    if ss:
+        kk = (len(ss) - 1) * 0.99
+        lo = int(math.floor(kk))
+        main_slope_p99 = ss[lo] if lo >= len(ss) - 1 else ss[lo] + (ss[lo + 1] - ss[lo]) * (kk - lo)
+    else:
+        main_slope_p99 = 0.0
     report.update(cracks=cracks, down_facing=down, walk_filter_fails=steep, grass_over_8u=big,
                   uv_out_of_region=oob, holes=holes, holes_sampled=tot,
-                  open_edges=len(open_bad), missing_faces=len(miss_faces))
+                  open_edges=len(open_bad), missing_faces=len(miss_faces),
+                  main_slope_p99=round(main_slope_p99, 2))
 
     # the coastline SHAPE gate: the generated outline must sit inside the measured FF9 language
     # (real disc-1 coasts: med turn 22 deg/8u, corner(45-80) 15%, acute(>=80) 7%)
@@ -738,7 +776,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             place_reports[blk] = entry
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
-                       and len(open_bad) == 0 and shape["ok"]
+                       and len(open_bad) == 0 and shape["ok"] and main_slope_p99 <= MAX_FLANK + 1e-6
                        and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values()))
     return report
 
@@ -816,7 +854,8 @@ def _real_block_parts(blk, *, disc: int = 1, lod: str = "0_1", game=None) -> dic
 
 def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
-             ground: str = "grass", beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
+             ground: str = "grass", relief_amp: float = 0.0, relief_seed=None,
+             beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
              game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
@@ -834,7 +873,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
                            stamps=None if flat else "auto",
-                           ground=ground, beach=beach, disc=disc, game=game)
+                           ground=ground, relief_amp=relief_amp, relief_seed=relief_seed,
+                           beach=beach, disc=disc, game=game)
     # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and

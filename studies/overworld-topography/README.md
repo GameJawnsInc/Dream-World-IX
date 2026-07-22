@@ -487,6 +487,44 @@ or lattice-wrapped anchoring; the original bug was block-local field keys sample
 with world coords), rim-fade preserved (welds keep exact Y), applied per ground
 family, and proven through the offline eye + one playtest like every other rung.
 
+**THE ROLLING-RELIEF RESURRECTION (★ BUILT + DEPLOYED 2026-07-21, playtest pending).** The
+resurrection path above was taken — but NOT as prescribed (a re-key of the old snapshot). The
+archaeology found the old `relief_field` had TWO defects, not one: (a) the fatal frame bug (block-local
+lattice keys sampled with world coords → 0.0 off block (0,0)), and (b) a latent one — it was a
+single-block VERBATIM SNAPSHOT (a 16×16 = 64u patch), non-tileable, reading 0 past one block even if
+re-framed. A faithful resurrection needs a field defined over ALL world XZ. So the rebuild is a
+**deterministic WORLD-XZ VALUE-NOISE field** (`grassland.relief(x, z, seed, amp)` + `relief_fade`):
+2 octaves (base period 20u w1.0 + detail 10u w0.45), default amp 1.3, `GROUNDS[..]["relief_scale"]`
+per family (grass 1.0, desert 1.6). Because it is a PURE function of world (x, z): the frame bug cannot
+recur (same world point → same height, always), and cross-block seam welds hold BY CONSTRUCTION (one
+world (x,z) → one value on both sides of a border — a block-local field would crack seams). It is
+**opt-in** (`build_landmass(relief_amp=0)` default → flat → byte-identity); the retire also silently
+dropped the rim-weld short-circuit, which is **restored** (rim vertices → exactly `land_height`) plus a
+smoothstep FADE (fade 2→12u ≈ one wavelength) so the wall-top ring never moves.
+
+*Calibration (calib_relief.py; the design's ground truth):* stock grass topo-0, plane-DETRENDED, is
+std 0.46-1.07 (calm interior plains 0.46-0.49), 4u-neighbour |dY| med ~0.2 p90 ~0.5-0.7, per-tri slope
+p90 ~9-25 / p99 ~15-33 / max ~40 deg (independently re-confirms HILL-AT-SCALE p99 28.6), autocorrelation
+decorr ~9-12u (wavelength ~18-22u); desert topo-17 is ~1.5-2× rougher. Stock relief does NOT taper at
+the coast (the land edge is where the cliff rises) — the shore fade is a WELD-PRESERVATION requirement,
+not stock mimicry. The prototype field at amp 1.3 measures **std 0.58, slope p90 8 / p99 11 / max 15
+deg (>2.4× margin under MAX_FLANK 28.6), decorr 15u** — squarely in the calm-grass band,
+position-independent across seeds/offsets, block-decomposition-invariant.
+
+*Proof:* byte-identity of ALL 17 world-island oracle blocks HEAD-vs-worktree with relief OFF (relief
+returns land_height unchanged — the same no-op the 2026-07-15 retire proved); the full offline gate
+suite CLEAN with relief ON (cracks/down/steep/big/oob/holes/open all 0) + a NEW `verify_landmass`
+slope-envelope gate `main_slope_p99 ≤ 28.6` (bites a 12.0-amp mint, vacuous for flat); the offline eye
+`relief_eye.py` (top-down hillshade + grazing, CALIBRATED vs stock grass (15,15)/(18,12) through the
+same pipeline — the mint's local |dY| med 0.16 / p90 0.40 matches stock 0.17-0.20 / 0.55-0.57;
+`out/relief_eye_*.png`). Relief is MUTUALLY EXCLUSIVE with hill/forest/mountain per island (the 2.4u
+ROLLING-RELIEF ENVELOPE gate in `interior.py` is the backstop). DEMO island deployed at **`--cell 10,9`
+world (672,−608) r44** (the inter-continental strait, the most-flown-over open ocean; 6 blocks, both
+discs mirrored, `backups/relief-demo.20260721/` + `revert_relief_demo.py`). The one open risk is purely
+aesthetic (does the roll READ at the player camera) — the top-down eye shows it clearly, the grazing
+view shows a gentle wall-free dome, and only the playtest closes it. Full API: `world-island --relief
+[--relief-amp N] [--relief-seed N]`.
+
 **THE GROUND FAMILIES (★ offline 2026-07-15, playtest pending)** —
 `ground_families_anatomy.py` → `out/ground_families.json` + `.log`;
 `ground_families_eye.py` → `out/ground_families_eye.png` (the atlas contact sheet).

@@ -1,8 +1,9 @@
 """world-island + the placement simulator + the grass language: the synth-landmass builder.
 
 Hermetic -- the builder synthesizes everything (``flat`` mode needs no install data; meadow stamps are
-install-derived and covered by the gated tests elsewhere; interiors are FLAT by design -- the ambient
-relief field was retired 2026-07-15, THE DEAD-RELIEF DISCOVERY). Coverage:
+install-derived and covered by the gated tests elsewhere; interiors are FLAT by default -- the ambient
+relief field was RESURRECTED opt-in 2026-07-21 as a world-XZ value-noise field, world-keyed by
+construction so the DEAD-RELIEF frame bug cannot recur; off by default => byte-identity). Coverage:
   * the ENGINE PLACEMENT simulator's RE'd semantics (the rules that broke the original synth blob):
     winding filter, buffer-order-first (not nearest), mesh-order-first (Terrain shadows Sea), walk vs sky
     ray windows, the idall skip set, miss -> ground 0
@@ -358,3 +359,107 @@ def test_landmass_refuses_real_world_blocks(monkeypatch):
     with pytest.raises(ValueError, match=r"REAL world block.*(3, 1)"):
         I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
     assert not called                                    # refused BEFORE any file was written
+
+
+# ---- OPT-IN rolling relief (the 2026-07-21 resurrection; world-XZ value noise) --------------------------------------
+
+def test_relief_is_a_pure_function_of_world_xz():
+    """THE FRAME FIX (the exact axis the DEAD field failed): relief is a pure function of WORLD (x, z).
+    The SAME world point returns the SAME value regardless of how it was reached (a border vertex shared
+    by two blocks -> one value on both sides), and it is NON-ZERO far from the world origin -- the old
+    block-local field read 0.0 everywhere off block (0,0)."""
+    # determinism / block-decomposition invariance: identical call == identical result
+    for (x, z) in ((640.0, -608.0), (655.3, -611.7), (1200.0, -1200.0)):
+        assert G.relief(x, z, seed=1234, amp=1.3) == G.relief(x, z, seed=1234, amp=1.3)
+    # NON-ZERO away from the origin (the dead-relief bug produced identically 0.0 there)
+    far = [abs(G.relief(x, z, seed=1234, amp=1.3))
+           for (x, z) in ((672.0, -608.0), (160.0, -1120.0), (1400.0, -1250.0))]
+    assert all(v > 0.05 for v in far), far
+    # amp scales linearly; amp=0 is exactly flat
+    assert G.relief(672.0, -608.0, seed=7, amp=0.0) == 0.0
+    a = G.relief(672.0, -608.0, seed=7, amp=1.0)
+    assert G.relief(672.0, -608.0, seed=7, amp=2.0) == pytest.approx(2.0 * a, abs=1e-12)
+
+
+def test_relief_seed_decorrelates_the_field():
+    """Different seeds give a genuinely different field (not a global offset): the value at a fixed
+    world point moves, and the two fields are not equal across a sample of points."""
+    pts = [(100.0 + 17 * i, -300.0 - 23 * i) for i in range(40)]
+    a = [G.relief(x, z, seed=1, amp=1.3) for (x, z) in pts]
+    b = [G.relief(x, z, seed=2, amp=1.3) for (x, z) in pts]
+    assert a != b
+    assert sum(1 for u, v in zip(a, b) if abs(u - v) > 0.05) >= 20   # broadly different, not a shift
+
+
+def test_relief_fade_pins_the_shore_and_ramps_inland():
+    """THE WELD-PRESERVATION fade: 0 within fade_lo of the edge (the wall-top rim never moves),
+    smoothstep-ramping to exactly 1 by fade_hi."""
+    assert G.relief_fade(0.0) == 0.0
+    assert G.relief_fade(2.0) == 0.0                                 # at fade_lo
+    assert G.relief_fade(12.0) == 1.0                                # at fade_hi
+    assert G.relief_fade(50.0) == 1.0
+    mid = G.relief_fade(7.0)                                         # halfway -> smoothstep(0.5)=0.5
+    assert mid == pytest.approx(0.5, abs=1e-9)
+    # monotonic non-decreasing
+    xs = [i * 0.5 for i in range(40)]
+    ws = [G.relief_fade(x) for x in xs]
+    assert all(ws[i + 1] >= ws[i] - 1e-12 for i in range(len(ws) - 1))
+
+
+def test_relief_off_is_byte_identical_to_flat():
+    """The byte-identity PRIME GUARD: with relief_amp=0 (the default) every interior vertex sits at
+    exactly land_height -- the emitted geometry is the flat mint, float-for-float (the same class of
+    no-op the 2026-07-15 retire proved). Distinct Y == {0 sea-skirt, land_height}."""
+    flat = I.build_landmass(center=(224.0, -96.0), base_radius=20.0, seed=5.0)                 # default amp=0
+    explicit = I.build_landmass(center=(224.0, -96.0), base_radius=20.0, seed=5.0, relief_amp=0.0)
+    yf = sorted({round(p[1], 6) for p in flat["world"]["pos"]})
+    ye = sorted({round(p[1], 6) for p in explicit["world"]["pos"]})
+    assert yf == ye == [0.0, 3.2]
+    # and every emitted vertex position matches float-for-float
+    assert [tuple(p) for p in flat["world"]["pos"]] == [tuple(p) for p in explicit["world"]["pos"]]
+
+
+def test_relief_on_stays_in_the_slope_envelope_and_gates_clean():
+    """RELIEF ON at the demo site: the walkable-ground slope p99 stays under MAX_FLANK (28.6 deg, the
+    measured lowland ceiling), every geometry gate is clean, and the interior actually ROLLS (Y varies)
+    while the shore stays welded."""
+    built = I.build_landmass(center=(672.0, -608.0), base_radius=44.0, seed=None, lobes=1, relief_amp=1.3)
+    rep = I.verify_landmass(built)
+    assert rep["clean"], {k: v for k, v in rep.items() if k != "placement"}
+    assert rep["cracks"] == 0 and rep["down_facing"] == 0 and rep["walk_filter_fails"] == 0
+    assert rep["grass_over_8u"] == 0 and rep["open_edges"] == 0 and rep["holes"] == 0
+    assert 0.0 < rep["main_slope_p99"] <= I.MAX_FLANK                # rolls, but inside the envelope
+    # ground actually undulates (not flat), and the rim ring is welded at exactly land_height
+    from ff9mapkit.world.extract import decode_id
+    gpos, gtris, gmeta = built["world"]["pos"], built["world"]["tris"], built["world"]["meta"]
+    gy = [gpos[v][1] for ti, tri in enumerate(gtris) for v in tri
+          if decode_id(int(round(gmeta[ti][1])))["topograph"] == 0]
+    assert max(gy) - min(gy) > 1.0                                   # a real roll
+    rim_xz = {(round(x, 3), round(z, 3)) for (x, z) in built["rim"]}
+    for ti, tri in enumerate(gtris):
+        if decode_id(int(round(gmeta[ti][1])))["topograph"] != 0:
+            continue
+        for v in tri:
+            if (round(gpos[v][0], 3), round(gpos[v][2], 3)) in rim_xz:
+                assert gpos[v][1] == 3.2                             # THE RIM WELD short-circuit
+
+
+def test_relief_envelope_refuses_an_over_amplitude_mint():
+    """The slope-envelope gate BITES: a wildly over-amplitude relief (amp far off the calibrated band)
+    pushes the ground slope p99 past MAX_FLANK and verify_landmass goes not-clean -- the gate is real,
+    not vacuous."""
+    built = I.build_landmass(center=(672.0, -608.0), base_radius=44.0, seed=None, lobes=1, relief_amp=12.0)
+    rep = I.verify_landmass(built)
+    assert rep["main_slope_p99"] > I.MAX_FLANK
+    assert not rep["clean"]
+
+
+def test_relief_welds_across_a_block_border():
+    """A relief mint straddling a 64u block border stays watertight: because relief is keyed on WORLD
+    XZ, the two halves of a border-crossing triangle get the identical Y at the shared cut vertices
+    (a block-local field would crack here) -> cracks == 0 across the multi-block split."""
+    built = I.build_landmass(center=(256.0, -96.0), base_radius=26.0, seed=5.0, relief_amp=1.3)  # ON the x=256 border
+    assert len(built["blocks"]) >= 2
+    rep = I.verify_landmass(built)
+    assert rep["cracks"] == 0 and rep["open_edges"] == 0 and rep["clean"], \
+        {k: v for k, v in rep.items() if k != "placement"}
