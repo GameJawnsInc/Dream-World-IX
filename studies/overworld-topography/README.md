@@ -1156,8 +1156,7 @@ beach layered on a block. Terrain under it is the grass/dirt-ecotone family (top
 **Sea6 — an orthogonal special open-ocean tile, not a ladder rung.** 4 blocks: **(8,15), (12,0),
 (19,7), (22,13)**. Every instance is a **single ~4×4u quad (2 tri, 6 verts)**, always interior
 open ocean, y=0. Own material `Sea6Material`, atlas **`11_192_64`** (only **4** frames vs the
-ladder's 6) (`WMRenderTextureBank.cs:61-63`). Its u-max **0.9841 matches Sea5's** atlas scale,
-not Sea1–4's 0.9921. Registered LAST after Sea5 (`WMWorld.cs:766-770`). So Sea6 is not a depth
+ladder's 6) (`WMRenderTextureBank.cs:61-63`). (⚠ the earlier u-max-scale argument is RETRACTED — u-max is per-MESH, not per-material: sea1 also reads 0.9841 while sea3/4 read 0.9921.) Registered LAST after Sea5 (`WMWorld.cs:766-770`). So Sea6 is not a depth
 rung of the shallow↔deep ladder (land < beach1 < sea2 < sea1 < sea3 < sea5 < sea4) — it is a rare
 decorative deep-ocean fleck the artists sprinkled in four spots.
 
