@@ -16,6 +16,9 @@
 #   Assembly-CSharp.dll.x64.<timestamp>             arch-specific (old convention)
 #   Assembly-CSharp.dll.<label>-x64.<timestamp>     arch-specific (labeled)
 #   Assembly-CSharp.x64.dll.<timestamp>             arch-specific (current build-lane convention)
+#   Assembly-CSharp.x64.dll.<label>.<timestamp>     the CANONICAL form tools/backup_memoria_dll.py
+#                                                   writes (that script is the standard way to take
+#                                                   the pre-build snapshot -- all 3 DLLs x 2 arches)
 # An arch-specific backup restores only to its own Managed folder; per arch the newest match
 # (by mtime) wins. If NOTHING matches, the script says so LOUDLY and exits non-zero -- it used
 # to print "Done." after restoring zero files (found the hard way 2026-07-22, s47 review).

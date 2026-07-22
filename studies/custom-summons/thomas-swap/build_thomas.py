@@ -29,11 +29,14 @@ at rung 3's private folder ``ef084`` (``Unused_84`` -- never a real FF9 effect).
   2. Splices in ``thomas_player_sequence.seq``'s committed delta (a background ``StartThread`` that
      self-loads THIS SAME folder's id 84 as a JSON/FBX mesh -- rung 7's own proven mechanism, reused)
      immediately before the donor's own ``PlaySFX: SFX=Bahamut__Full`` line, and appends a generated
-     ``HideMeshes=<HIDE_RANGE>`` clause to that same line (default ``HIDE_RANGE=(0,31)`` -- round 1 of
-     bisecting Bahamut's native mesh-index space into a BODY half (hidden) vs an EFFECT half (kept) --
-     see README.md's "HideMeshes bisection protocol"; ``--hide-range A,B`` overrides the range for one
-     deploy, ``--calibrate`` omits the clause entirely (Bahamut's real mesh renders unsuppressed, for a
-     clean composition-reference video)).
+     ``HideMeshes=<HIDE_KEYS>`` clause to that same line -- the s47 mesh-stream probe's own hex ``_key``
+     list (default: the 7 keys the round-1 calibration cast confirmed are Bahamut's own creature/body,
+     out of 39 distinct keys logged across the whole cast -- see README.md's "HideMeshes: the s47
+     surgical key list" + PROBE.md's round-1 results). This REPLACES the earlier index-range bisection
+     guess (``HideMeshes=0,31``): a key is exact and stable for a mesh's whole lifetime, unlike an index
+     which can shift position in the draw buffer between phases. ``--hide-keys KEY1,KEY2,...`` overrides
+     the list for one deploy, ``--calibrate`` omits the clause entirely (Bahamut's real mesh renders
+     unsuppressed, for a clean composition-reference video/log).
   3. Writes the result to ``ef084/PlayerSequence.seq`` -- ``ef227`` (real stock Bahamut, and every
      vanilla Garnet/Eiko cast through it) is NEVER touched.
   4. Deploys ``ef084/FileList.txt`` (reused byte-identical from ``rung7-creature/FileList.txt`` -- same
@@ -58,14 +61,16 @@ refuses with a clear message if either is missing. Run ``blender_normalize.py`` 
 Usage (game may be CLOSED or OPEN for steps 1-4; step 5's id needs a relaunch to REGISTER, same as
 every mint):
 
-    py studies/custom-summons/thomas-swap/build_thomas.py                    # deploy w/ default HIDE_RANGE
-    py studies/custom-summons/thomas-swap/build_thomas.py --hide-range 32,63 # deploy w/ the OTHER half
-    py studies/custom-summons/thomas-swap/build_thomas.py --calibrate        # no HideMeshes at all
+    py studies/custom-summons/thomas-swap/build_thomas.py                        # deploy w/ default HIDE_KEYS
+    py studies/custom-summons/thomas-swap/build_thomas.py --hide-keys 0097BD01,0098BD0E  # round-2 candidate test
+    py studies/custom-summons/thomas-swap/build_thomas.py --calibrate            # no HideMeshes at all
     py studies/custom-summons/thomas-swap/build_thomas.py --restore   # back to rung 7's resting state
                                                                         # + Thomas's mint fully removed
 
-See README.md for the full test procedure, the failure-mode table, the HideMeshes bisection protocol,
-and the local-only provenance note.
+See README.md for the full test procedure, the failure-mode table, the HideMeshes surgical-key-list
+section, and the local-only provenance note. See PROBE.md for the s47 probe's round-1 calibration-cast
+results (the full 39-key classification + the trajectory reconstruction this build's FLIGHT is derived
+from) and the round-2 refinement protocol.
 """
 from __future__ import annotations
 
@@ -108,34 +113,55 @@ EXPECTED_DONOR_SHA256 = "4bc643bfb3ec478dcc1f5b51261f59637faac9d775cccd38c0055af
 ANCHOR_BASE = "PlaySFX: SFX=Bahamut__Full ; Reflect=True"
 ANCHOR_LINE = ANCHOR_BASE + "\r\n"
 
-# --------------------------------------------------------------------------- HIDEMESHES BISECTION
-# The original blanket HideMeshes=0..63 (first shipped 2026-07-21) suppressed Bahamut's body but ALSO
-# blanked his summon-swirl/beam/fire-column EFFECT meshes -- the 2026-07-22 calibration-cast video
-# showed the user wants those effect meshes KEPT (the fire column engulfing Thomas reads as
-# "SPECTACULAR"). HIDE_RANGE is round 1 of bisecting the native creature's mesh-index space into a
-# BODY half (assumed low indices -- hide) vs an EFFECT half (assumed high indices -- keep); see
-# README.md's "HideMeshes bisection protocol" table for what each round's video should show and which
-# half to split next. ``BattleActionCode.cs:394-419`` (``TryGetArgMeshList``) parses each bare decimal
-# token in the comma list as a plain index into ``SFXData.RunningInstance.preventedMeshIndices``
-# (``SFXData.cs:1377``); unmatched indices are inert (no error), so a narrower range is exactly as safe
-# as the original 0-63 blanket, just with less total coverage.
-HIDE_RANGE = (0, 31)          # round 1: hide only the first half (0..31 inclusive) of the index space
+# --------------------------------------------------------------------------- s47 PROBE -- SURGICAL HIDEMESHES KEY LIST (round 1, 2026-07-22)
+# The original blanket HideMeshes=0..63 (2026-07-21) and its index-range bisection successor
+# (HideMeshes=0,31, 2026-07-22 morning -- README.md's now-superseded "HideMeshes bisection protocol")
+# were both GUESSES against an unknown index space. The s47 mesh-stream probe
+# (memoria-patches/s47-sfx-mesh-probe.patch; PROBE.md) removed the guesswork: one instrumented
+# ``--calibrate`` cast (Memoria.ini [SfxProbe] Enabled=1) logged every native mesh-draw call across the
+# whole ~40s cinematic -- 19,456 MESH rows, 0 CAM rows (the camera hook never fired this cast; a KNOWN
+# probe defect, out of scope for this build -- see PROBE.md), tallying to exactly 39 distinct mesh
+# ``_key``s. ``TryGetArgMeshList`` (BattleActionCode.cs:394-419) parses each ``0x``-prefixed token in a
+# ``HideMeshes=`` list into an exact ``UInt32`` key (``SFXData.cs:1376-1392``'s ``preventedMeshIndices``
+# check matches by key OR index) -- a mesh's own ``_key`` is stable for its whole lifetime, so this list
+# is exact and immune to the index-form's "meshes shift position in the draw buffer between phases"
+# fragility.
+#
+# Of the 39 keys, 7 are Bahamut's own CREATURE/BODY -- present together on 301/325 frames (92.6%),
+# tracing one coherent, physically sensible rigid-body flight (see PROBE.md's round-1 results for the
+# full per-key classification and the trajectory this build's FLIGHT constants are reconstructed from):
+#   0033B990 / 0033B9D0   (paired, "0033B9_" prefix, frames 82-412)
+#   0035BAD0 / 0035BA90   (paired, "0035BA_" prefix, frames 82-410/414)
+#   0034BA10 / 0034BA50   (paired, "0034BA_" prefix, frames 82-411)
+#   0097BD02              (standalone, frames 82-417)
+# These 7 are HIDE_KEYS below -- Bahamut's body vanishes. His own swirl/beam/fire-column EFFECT meshes
+# (23 keys, confirmed keep-visible -- incl. 00B7BD80, folded into the fire-column group this round) and
+# 9 remaining keys of genuinely ambiguous classification all stay rendering unsuppressed this round (the
+# safer default -- see PROBE.md's round-1 results for the full per-key reasoning). Two of those 9
+# (00BDBE00, 0098BD0E) are live round-2 candidates for a future addition to HIDE_KEYS -- see PROBE.md's
+# round-2 refinement protocol for the recast that would confirm or refute each.
+HIDE_KEYS: "tuple[str, ...]" = (
+    "0033B990", "0033B9D0",
+    "0035BAD0", "0035BA90",
+    "0034BA10", "0034BA50",
+    "0097BD02",
+)
 
 
-def _hide_meshes_arg(hide_range: "tuple[int, int] | None") -> str:
-    """``hide_range=None`` = CALIBRATE mode: no ``HideMeshes`` argument at all -- the patched line is
+def _hide_meshes_arg(hide_keys: "tuple[str, ...] | None") -> str:
+    """``hide_keys=None`` = CALIBRATE mode: no ``HideMeshes`` argument at all -- the patched line is
     then byte-identical to the stock donor's own ``PlaySFX`` line, i.e. Bahamut's real mesh renders
-    completely unsuppressed. Otherwise a generated (not hand-typed) ``"lo,lo+1,...,hi"`` decimal list,
-    inclusive both ends."""
-    if hide_range is None:
+    completely unsuppressed. Otherwise a generated (not hand-typed) ``"0xKEY1,0xKEY2,..."`` hex-key
+    list -- the exact form ``TryGetArgMeshList`` parses into its ``keyList`` (as opposed to a bare
+    decimal token, which parses into the separate index-based ``indexList``)."""
+    if hide_keys is None:
         return ""
-    lo, hi = hide_range
-    indices = ",".join(str(i) for i in range(lo, hi + 1))
-    return f" ; HideMeshes={indices}"
+    tokens = ",".join(f"0x{key}" for key in hide_keys)
+    return f" ; HideMeshes={tokens}"
 
 
-def patched_line(hide_range: "tuple[int, int] | None") -> str:
-    return f"{ANCHOR_BASE}{_hide_meshes_arg(hide_range)}\r\n"
+def patched_line(hide_keys: "tuple[str, ...] | None") -> str:
+    return f"{ANCHOR_BASE}{_hide_meshes_arg(hide_keys)}\r\n"
 
 # --------------------------------------------------------------------------- our own committed sources
 THOMAS_SEQ_DELTA_PATH = HERE / "thomas_player_sequence.seq"      # committed, 100% our text (the splice)
@@ -167,186 +193,143 @@ THOMAS_GEO_ID = 6200                          # clear of the bench's existing mi
 THOMAS_GEO_NAME = "GEO_MON_B0_M200"           # M200 = 6200 - MINT_BAND_START(6000), same token scheme as derive_mint_name
 THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 
-# --------------------------------------------------------------------------- THE FLIGHT (2026-07-22)
-# Playtest report on the first (static) build: "bahamut is invisible, but Thomas just spawns in front
-# of Iviv and stays stationary instead of flying around like a dragon. there are also just periods of
-# black screen." Re-derived from source (Memoria.Assembly-CSharp) rather than assumed:
+# --------------------------------------------------------------------------- THE FLIGHT v2 (2026-07-22, s47-PROBE-DERIVED)
+# HISTORY (superseded, kept for the record): build 1 was a static hover ("stays stationary... spawns in
+# front of Iviv"); build 2 (the 6-phase "SKY ARC") re-derived the cave/sky/ground beats by EYE from the
+# calibration-cast video and used CASTER-RELATIVE NCalc expressions (``CasterPositionX + N``) throughout.
+# Both were reasoned guesses. THE s47 MESH PROBE removed the guesswork for the CREATURE'S OWN geometry:
+# one instrumented cast (see PROBE.md) logged Bahamut's own 7 body-mesh keys' world-space bounds on every
+# one of 325 frames he's on screen (frames 82-417) -- his ACTUAL baked flight path, not a video-derived
+# estimate.
 #
-#   ANCHOR TRUTH (verify-don't-assume result -- this REFUTES the mission's seed hypothesis that
-#   Target*/TargetAveragePosition* resolve to the CASTER on this route):
-#   Thomas's own quartet runs in a thread spawned by our spliced ``StartThread`` block. Text-DSL
-#   ``StartThread`` compiles to a ``RunThread`` op (BattleActionThread.cs:183-193) executed by the
-#   MAIN thread (thread 0, whose ``.targetId`` was set to the ability's REAL ``cmd.tar_id`` --
-#   "AllEnemy" per rung3.field.toml:147 -- at cast start, UnifiedBattleSequencer.cs:159-160
-#   ``threadList[0].targetId = cmd.tar_id``). Our ``StartThread`` line carries no ``Target=`` argument,
-#   so at that ``RunThread`` (UnifiedBattleSequencer.cs:1155-1156) ``tmpChar = runningThread.targetId``
-#   = the REAL AllEnemy bitmask, and the spawned child thread's OWN ``.targetId`` is set from that same
-#   value (:1168 ``copy.targetId = ... tmpChar``) -- NOT reset to 0, NOT the caster. When that child
-#   thread later runs ITS OWN ``LoadSFX: SFX=84 ; Char=Caster`` line, the same absent-``Target=``
-#   fallback fires again (:326-327 ``tmpChar = runningThread.targetId``, now the CHILD thread's
-#   inherited AllEnemy bitmask) feeding ``customRequest.SetupVfxRequest(cmd, sfxArg, caster, tmpChar)``
-#   (:330) -- ``Char=Caster`` only ever re-resolves the CASTER argument (staying Iviv, no change), never
-#   the target. In ``SetupVfxRequest`` (FF9/BTL_VFX_REQ.cs:57-69) that real bitmask populates ``trg[]``
-#   and ``UpdateTargetAveragePosition()`` (:72-91) computes the REAL average of the actual enemies'
-#   ``base_pos`` (Y forced to 0). So ``TargetAveragePositionX/Z`` on THIS exact route already resolved
-#   to the real enemy formation, not Iviv -- the first manifest's anchor was not "at the caster" by
-#   that mechanism. The actual defects were structural: (a) ``CasterPositionY + 20`` is GROUND level
-#   (no loom at all for a dragon), (b) Origin==Destination was a deliberate static hold (zero motion),
-#   and (c) Thomas's own ~10.1-unit (pre-scale) length -> ~2681 units at THOMAS_SCALE means a
-#   ground-level placement's bounding volume alone can sprawl back over a modest early-game arena's
-#   short caster<->enemy gap, which combined with (a) reads exactly as "spawns in front of Iviv".
+# RECONSTRUCTION METHOD (PROBE.md's round-1 results; independently re-verified against the raw log while
+# implementing this build -- every number below reproduces exactly): per frame, take the median across
+# the 7 creature keys of -- **X, Y: bounds CENTER** (``cx``, ``cy``); **Z: the FAR CORNER**
+# (``cz + ez`` or ``cz - ez``, whichever has the larger magnitude). The mission's own probe spec asked for
+# the far-corner pick on all 3 axes, but applying it to X/Y chases whichever silhouette extremity (a
+# wingtip, the tail) happens to be farthest that frame -- noisy and physically-implausible, because X/Y
+# stay close enough to world origin that the far corner has no stable "far side" to anchor to. Cross-check
+# that motivated the switch: raw CENTER cy stays in [-480.5, +511.5] across all 8,764 creature-key rows --
+# matching this same probe's own independent "Y never exceeds ~512" cluster read almost exactly. Z alone
+# carries the flight's real dramatic excursion (X stays in a tight ~[-266, +190] band the whole cast, Y
+# stays within that ~512 bound); this is why every piece below only really "moves" on Z + occasionally Y.
 #
-#   DESIGN CHOICE: build the flight on full CASTER-RELATIVE offsets anyway (per the mission's
-#   direction, rung 7's own in-game-proven pattern -- creature_manifest.sfxmodel:9's
-#   "CasterPositionZ + 600" hover, README "toward the enemy side" -- and this session's own
-#   composition-lens recon journal), rather than continuing to depend on TargetAveragePosition: it is
-#   unambiguous (Iviv's own real position, no scene-specific enemy-formation guesswork), and it
-#   directly targets the two REAL defects above (needs elevation + needs motion) regardless of root
-#   cause. AXIS CONVENTION (independently confirmed twice): +Z (world, from a PLAYER caster) = toward
-#   the enemies -- (1) rung7's own proven "CasterPositionZ + 600 ... toward the enemy side" hover, and
-#   (2) Thomas's own axis-verification table (README.md) showing his normalized front (Blender -Y) maps
-#   to +Z in the exported file, matching ``ef227/PlayerSequence.seq``'s stock
-#   ``MoveToPosition: RelativePosition=(0,0,400) ; Anim=MP_STEP_FORWARD`` (the caster's own forward
-#   step, toward the enemies, at positive Z).
+# ABSOLUTE WORLD COORDINATES (the mission's explicit direction, and a genuine design change from build 2):
+# every Movement Origin*/Destination* below is a PLAIN NUMERIC NCalc constant, not a ``CasterPosition* +
+# N`` expression. The bench arena is fixed and both the native donor's Raw mesh and Thomas's own JSON mesh
+# draw in the same identity world space (``SFXMesh.Render()`` -- ``Graphics.DrawMeshNow(_mesh,
+# Matrix4x4.identity)``, no transform in play, README's own "Axis verification" section) -- so an absolute
+# coordinate puts Thomas EXACTLY where Bahamut's own body was measured, independent of any caster-lookup
+# quirk (ShiftWorld, the AllEnemy-bitmask targetId inheritance build 2's own ANCHOR TRUTH investigation
+# found on this exact route) and independent of THIS scene's own camera framing.
 #
-#   2026-07-22 REDESIGN -- the orchestrator watched the calibration-cast video (both Bahamut and Thomas
-#   visible) and derived an authoritative video-seconds timing map: Thomas's own PlaySFX/frame-0 lands
-#   at video t~=5-6s, his clock runs FRAMES_PER_VIDEO_SECOND=15, total End=580 frames unchanged. The
-#   3-phase build above left the ENTIRE SKY REALM window (t~=13-20 -- Bahamut's iconic hover pose, head
-#   close-ups, the charge beginning) with no Thomas at all -- ~8s read as "tons of black screen" in the
-#   HideMeshes cast, because Thomas never left ground level while Bahamut's own cinematic went to the
-#   sky. THE REDESIGN adds a full ASCENT/SKY REIGN/DIVE arc so Thomas is on screen for that window too,
-#   using frames = (t_video - VIDEO_TO_FRAME_OFFSET_S) * FRAMES_PER_VIDEO_SECOND with +/-15-frame
-#   tolerance margins folded into each boundary below (not razor's-edge cuts):
-#     P1 ENTRANCE     0 .. P1_ENTRANCE_DURATION                        -- t~=6-11, the proven cave shots
-#                                                                          (unchanged path, just faster)
-#     P2 ASCENT        .. + P2_ASCENT_DURATION                         -- t~=11-14, rocket up to the sky
-#     P3 SKY REIGN      .. + P3_SKY_REIGN_DURATION                     -- t~=14-28, hover/close-ups/charge/
-#                                                                          blast -- THE BLACK-SCREEN KILLER
-#     P4 DIVE           .. + P4_DIVE_DURATION                          -- t~=28-31 BY THE ACTUAL DURATION
-#                                                                          (45 frames/3s, not "~1s" -- see
-#                                                                          CAVEAT below), touchdown ~2s
-#                                                                          AFTER the flare hits (t~=29)
-#     P5 GROUND REIGN   .. + P5_GROUND_REIGN_DURATION                  -- t~=31-42 BY THE ACTUAL DURATION
-#                                                                          (165 frames/11s); fire column
-#                                                                          engulfs him + both damage beats
-#                                                                          + undercarriage shots (unchanged
-#                                                                          from the original build's own
-#                                                                          ground-hover piece)
-#     P6 EXIT           .. + P6_EXIT_DURATION = THOMAS_END             -- t~=42-44.7 BY THE ACTUAL DURATION
-#                                                                          (40 frames/2.7s) -- this is AFTER
-#                                                                          the calibration video's own
-#                                                                          observed "t~=38-40: resolution,
-#                                                                          Thomas gone (End reached)," a
-#                                                                          ~5-7s gap between the given
-#                                                                          offset/rate constants and the
-#                                                                          given End-reached observation
-#                                                                          (see CAVEAT below -- NOT fixed
-#                                                                          here, no footage of THIS build)
+# THE MEASURED FLIGHT (10 pieces from real per-frame medians, PROBE.md's full derivation + the video-beat
+# cross-reference table) + 1 unmeasured tail (see CAVEAT), summing to THOMAS_END=580 unchanged:
+#   P1  ENTRANCE       0-82     swoop in (pre-log; Origin unmeasured, see CAVEAT) -> the proven cave shots
+#   P2  RISE-TO-FAR   82-144    climbs away in DEPTH (Y barely drops while Z plunges) -- the first sky/far shot
+#   P3  FAR-DIP      144-157    a brief mid-act partial return (2nd camera-cut beat, e.g. a head close-up)
+#   P4  FAR-DEEP     157-172    the cast's single deepest point (Z=-34768 at frame 166) + a brief hold --
+#                               the iconic hover-pose/close-up shot
+#   P5  RETURN-CUT   172-179    THE hard cut (Z snaps -34368 -> -4864 in ~7 frames) -- kept FAST/un-eased
+#                               on purpose, not smoothed away (the mission's own instruction)
+#   P6  2ND-APPROACH 179-204    a second, shallower re-plunge during the charge windup
+#   P7  CHARGE-CUT   204-207    a second hard snap back to near-stage (also kept fast/un-eased)
+#   P8  CHARGE-HOLD  207-250    Mega-Flare charge+blast -- CORRECTION vs build 2: this stays NEAR-STAGE
+#                               depth throughout, NOT the deep sky Z build 2 held through this whole window
+#   P9  GROUND-REIGN 250-414    long floaty near-stage drift (Z~-2768..-8400) -- fire column + both damage
+#                               beats + undercarriage shots
+#   P10 EXIT-EDGE    414-417    body's last 3 logged frames -- a sharp final recess (Z -3832 -> -9616),
+#                               the start of Bahamut's own climb-away
+#   TAIL (unmeasured) 417-580   NO creature-key ground truth exists here (only fire-column/ember EFFECT
+#                               keys keep logging, through ~frame 510-515) -- see CAVEAT
 #
-#   CAVEAT (adversarial verification, 2026-07-22, NOT yet in-game-checked -- the four t~= labels above
-#   for P4/P5/P6 were originally hand-estimated and did NOT match frames=(t-6)*15 applied to this
-#   build's own chosen Durations (P4=45f/P5=165f/P6=40f) -- corrected above to the values the formula
-#   actually produces. Two consequences worth a look once there's footage of THIS specific build:
-#     (a) P4's 45-frame (3s) dive means touchdown lands at t~=31, ~2s AFTER the flare hits the arena at
-#         t~=29 per the video map -- for that first ~2s of the intended "backlit by the blast, engulfed
-#         in the fire column" SPECTACULAR ground beat, Thomas would still read as mid-air/diving rather
-#         than grounded. If confirmed, the fix is a P4-duration retune (not attempted blind here).
-#     (b) P6 Exit (frames 540-580, t~=42-44.7) starts and ends entirely AFTER this same video's own
-#         literal "t~=38-40: resolution, Thomas gone (End reached)" observation -- SFXDataMesh.cs:799
-#         (`frame >= tok.endFrame` -> `SetActive(false)`) confirms "End reached" there literally means
-#         frame=580 was hit, so that observation IS a real video-time data point for frame 580, and it
-#         does not match 6 + 580/15 = 44.67s predicted by the given offset/rate constants -- a ~5-7s
-#         internal inconsistency in the given numbers, not something this script's math got wrong. If
-#         the real per-frame rate is faster than 15fps (needed to make End land at t~=38-40), P6 Exit
-#         may play out well after the real cinematic and battle result have already resolved -- i.e. an
-#         odd late coda -- rather than during it. Needs a fresh capture of THIS build before retuning
-#         (this project's own video-for-visual-bugs law); not fixed here.
+# CAVEAT (open concern, carried from the round-1 analysis -- NOT yet in-game-checked against THIS build):
+#   (a) CORRECTED during adversarial verification (2026-07-22): P5_DEST (frame 179) and P7_DEST (frame 207)
+#       are each backed by a FULL n=28 rows (all 7 creature keys logged that exact frame) -- solid,
+#       high-confidence points, NOT the sparse n=4 reads an earlier draft of this comment claimed. The
+#       actually sparse/gappy region is frames ~153-177 (inside P3/P4): 153/154/167/168/170/171/173-177
+#       have ZERO creature-key rows logged at all, and 155/165/166/169/172 are under-sampled (n=8/16/4/4/4).
+#       P4_DEST ITSELF (frame 172, the deepest/most dramatic pose of the whole flight) is the real n=4
+#       low-confidence measurement -- see PROBE.md's "Sample-count correction" section. P5/P7 are kept
+#       SHORT + Linear (no easing curve) because they read as genuine fast transitions in the data (a huge
+#       position delta over few frames), not because the destination points themselves are uncertain.
+#   (b) P1's Origin (frame 0, pre-log) and the TAIL's Destination (frames 417-580) have ZERO measured
+#       ground truth -- both are REASONED EXTRAPOLATIONS, not measurements (see ENTRANCE_ORIGIN / P11_TAIL_DEST
+#       below for the specific reasoning), and should be confirmed against a fresh video/log of THIS build
+#       before being trusted further (this project's own video-for-visual-bugs law; PROBE.md's round-2
+#       protocol).
+#   (c) Clock alignment (probe_frame ~= Thomas_frame, offset 0) is a REASONED assumption (this calibration
+#       log predates Thomas entirely -- effectId=227 only, no JSON-mesh key present) -- Thomas's own
+#       LoadSFX must async-load a fresh JSON mesh from disk (vs Bahamut's already-cached native asset), so
+#       his own PlaySFX may plausibly fire a handful of frames LATER; treat +/-5-10 frames as realistic
+#       slop on every boundary above. VIDEO_TO_FRAME_OFFSET_S/FRAMES_PER_VIDEO_SECOND below are kept as the
+#       t~= cross-reference, unchanged from build 2 (the mission's own given "t ~= 6 + frame/15" mapping).
+#   (d) Absolute-world Z DECREASES (more negative) as Bahamut flies "away" -- this doesn't match build 2's
+#       caster-relative +Z="toward enemies" sign convention. Expected: absolute-world coordinates have a
+#       different origin/orientation than a caster-relative delta -- exactly why the mission asked for
+#       absolute coords here. Nobody should reverse-engineer a caster world position from this sign flip.
 #
 #   Every number below is a named constant -- retune and rerun (recast-only, no relaunch) in one line.
-VIDEO_TO_FRAME_OFFSET_S = 6      # Thomas's own PlaySFX/frame-0, video-seconds (measured off the cast)
-FRAMES_PER_VIDEO_SECOND = 15     # Thomas's own clock rate (measured off the cast)
+VIDEO_TO_FRAME_OFFSET_S = 6      # Thomas's own PlaySFX/frame-0, video-seconds (per the mission's own t~=6+frame/15 map)
+FRAMES_PER_VIDEO_SECOND = 15     # Thomas's own clock rate (same source)
 
-# CAVE STAGE -- the settled hover point for P1's arrival AND P4's landing (unchanged numbers from the
-# original build's STAGE_*): comfortably past Thomas's own ~1340-unit half-length (10.116/2 *
-# THOMAS_SCALE) onto the enemy side so his own bulk doesn't sprawl back over the caster, elevated
-# roughly half his own ~1302-unit height -- a dragon looms, it doesn't stand.
-#
-# CAVEAT (found in adversarial review, 2026-07-22, NOT yet in-game-checked -- flag for the next video
-# capture): this Z-clearance reasoning is computed against Thomas's LENGTH axis (~2681 units), which
-# only runs along world Z while his yaw is near 0 (facing the enemies, true only during P1's own
-# approach and P6's own climb-away). Everywhere else -- P2 through P5 -- his yaw is held at
-# YAW_BROADSIDE=90, where a rotation about the vertical (Y) axis swaps which world axis his bounding
-# box projects onto: his ~2681-unit LENGTH sweeps world X (not Z), and only his ~926-unit WIDTH remains
-# on Z. Neither P3's own X range (SKY_DRIFT_X=250) nor P5's (GROUND_DRIFT_X - CAVE_STAGE_X=220) was
-# ever sized against a 2681-unit sweep -- if a playtest reports Thomas reading as absurdly wide /
-# clipped at the screen edges / only a sliver visible during either REIGN (as opposed to the
-# swoop/dive transitions), this axis swap -- not a miscalibrated magnitude -- is the first thing to
-# check from footage. Candidate fixes if confirmed: shrink THOMAS_SCALE for the reign holds
-# specifically (not straightforward -- Scaling is one constant piece, not per-phase), pick a
-# YAW_BROADSIDE nearer 0/180 so the long axis stays on Z, or accept a wider camera crop as the "epic"
-# read. Not fixed here -- no footage of THIS build yet, and retuning without it would be a guess (this
-# project's own video-for-visual-bugs law).
-CAVE_STAGE_X = 0            # CasterPositionX + 0   -- centered on the caster's own lane
-CAVE_STAGE_Y = 700          # CasterPositionY + 700 -- looming height
-CAVE_STAGE_Z = 1800         # CasterPositionZ + 1800 -- well onto the enemy side
+# Measured piece destinations -- (X, Y, Z) absolute world coords, PROBE.md's round-1 per-frame medians
+# (X/Y = bounds center, Z = far corner) at each piece boundary frame, rounded to the nearest whole unit.
+P1_DEST = (132, 512, -1568)          # frame 82  -- cave-shot entrance settle (PROBE.md's own table: -1568, not
+                                      # -1600 -- a transcription slip caught + fixed during adversarial verification,
+                                      # 2026-07-22 round 2; the raw log's own median is unambiguous, see verify below)
+P2_DEST = (129, 128, -17860)         # frame 144 -- rise-to-far, first sky/far shot
+P3_DEST = (6, -20, -8590)            # frame 157 -- the mid-act partial-return dip
+P4_DEST = (-266, -425, -34368)       # frame 172 -- the cast's single deepest point + brief hold (n=4 rows,
+                                      # the real low-confidence point in this reconstruction -- see CAVEAT a)
+P5_DEST = (144, 47, -4864)           # frame 179 -- THE hard return-cut (n=28 rows, solid -- see CAVEAT a)
+P6_DEST = (143, 124, -12336)         # frame 204 -- the second, shallower re-plunge
+P7_DEST = (152, 202, -4720)          # frame 207 -- the second hard cut back to near-stage (n=28 rows, solid -- see CAVEAT a)
+P8_DEST = (120, 118, -3968)          # frame 250 -- Mega-Flare charge+blast, held NEAR-STAGE
+P9_DEST = (35, -1, -3832)            # frame 414 -- long ground-reign drift settle
+P10_DEST = (35, -1, -9616)           # frame 417 -- body's last logged position, sharp final recess
 
-# P1 ENTRANCE origin -- swoop in from high off-side, descending + advancing into CAVE_STAGE (unchanged
-# numbers from the original build's ENTRANCE_*; only the phase's OWN duration got faster, 75 not 420).
-ENTRANCE_X = -2000     # off to one side (mission's own example number)
-ENTRANCE_Y = 1500      # higher than CAVE_STAGE_Y -- descends INTO the loom height as he arrives
-ENTRANCE_Z = 300       # barely onto the enemy side yet -- advances to CAVE_STAGE_Z over the swoop
+# P1 ENTRANCE origin (frame 0, PRE-LOG -- unmeasured, see CAVEAT b): a REASONED EXTRAPOLATION, not a
+# measurement. Preserves build 2's own "high, off-side" entrance SHAPE by re-applying that build's own
+# caster-relative delta (its ENTRANCE offset minus its CAVE_STAGE offset = (-2000, +800, -1500)) to the
+# NEWLY MEASURED P1_DEST, rather than re-guessing a fresh shape from nothing.
+ENTRANCE_ORIGIN = (P1_DEST[0] - 2000, P1_DEST[1] + 800, P1_DEST[2] - 1500)
 
-# P2 ASCENT destination -- SKY STAGE: straight up off CAVE_STAGE's own X/Z lane (per the mission spec:
-# "SKY_Y = CasterPositionY + 4500, Z stays ~+1800, X ~0").
-SKY_Y_OFFSET = 4500              # CasterPositionY + 4500 -- "SKY_Y" per the mission's redesign spec
-SKY_STAGE_X = CAVE_STAGE_X       # ~0, unchanged lane
-SKY_STAGE_Z = CAVE_STAGE_Z       # ~1800, unchanged lane -- "Z stays ~+1800" per spec
-
-# P3 SKY REIGN destination -- a gentle broadside sway/rise off SKY STAGE (mirrors the original ground
-# REIGN's own "alive, not frozen" drift mechanic, relocated to the sky + rescaled per the mission's own
-# amplitude: "drift amplitude ~250 X / ~100 Y"). Held via Sinus easing (floaty, no harsh start/stop),
-# so the piece-chain (Origin inherited from the PRIOR piece's own Destination, verified against
-# ParametricMovement.cs:88-105) lands P4's own Origin exactly where P3 visually stopped.
-SKY_DRIFT_X = 250        # a modest lateral sway among the clouds
-SKY_DRIFT_Y = 100        # a modest additional rise -- "breathing" through the hover pose/charge/blast
-
-# P5 GROUND REIGN destination -- the proven floaty ground hover (unchanged numbers from the original
-# build's own DRIFT_*): the fire column engulfs him here, both damage beats fire here.
-GROUND_DRIFT_X = CAVE_STAGE_X + 220     # a modest lateral sway
-GROUND_DRIFT_Y = CAVE_STAGE_Y + 80      # a modest additional rise -- "breathing" while he hovers
-GROUND_DRIFT_Z = CAVE_STAGE_Z           # Z held (no drift on the caster<->enemy axis during the reign)
-
-# P6 EXIT destination -- climb away up-forward, past the sequence's own close (unchanged numbers from
-# the original build's own EXIT_*).
-EXIT_X = GROUND_DRIFT_X + 380
-EXIT_Y = 1600
-EXIT_Z = 2600
+# TAIL destination (frames 417-580, UNMEASURED -- see CAVEAT b): no creature-key rows exist past frame
+# 417. A REASONED continuation of P10's own recess (still climbing away / receding further), carrying
+# forward build 2's own EXIT_Y=1600 magnitude and its SinusIn "accelerating departure" intent -- X holds
+# near the trend's own converged value (~35, matching frames 400-417), Z recedes further into the
+# distance (shallower than P4's own measured -34368 record, so this reads as "leaving" rather than
+# "returning to the same deep point"). Flagged for round 2 -- a fresh log/video of frames 417-580
+# specifically (PROBE.md's round-2 protocol) should replace this with real data.
+P11_TAIL_DEST = (35, 1600, -30000)
 
 # Yaw (Rotation.Y): P1 banks 0 (his normalized-forward, facing the enemies) -> 90 (broadside) as he
-# arrives at CAVE_STAGE, then HOLDS broadside from P2's entry all the way through the end of P5 (the
-# mission's own instruction -- also his iconic "number 1" side panel, per README's axis-verification
-# renders), then 90 -> 0 only in P6 as he turns forward again to climb away. Rotation.Z stays 0 in
-# every piece -- NO roll (he is not PSX-inverted; README's own axis-verification already established
-# his normalized Rotation=(0,0) needs no runtime compensation).
+# arrives at P1_DEST, then HOLDS broadside from P2 all the way through P10 (the mission's own
+# instruction -- also his iconic "number 1" side panel, per README's axis-verification renders), then
+# 90 -> 0 only in the TAIL as he turns forward again to climb away. Rotation.Z stays 0 in every piece --
+# NO roll (he is not PSX-inverted; README's own axis-verification already established his normalized
+# Rotation=(0,0) needs no runtime compensation).
 YAW_BROADSIDE = 90
 
-# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- boundaries match the
-# mission's video-derived timing map exactly (0-75 / 75-120 / 120-330 / 330-375 / 375-540 / 540-580);
-# sum = THOMAS_END = the FBX entry's own End, unchanged at 580 from the original 3-phase build. The
-# t~= labels below are frames=(t-6)*15 solved FORWARD from each Duration (adversarial-verification
-# correction, 2026-07-22 -- P4/P5/P6 were previously mislabeled ~2-5s early; see the CAVEAT above the
-# FLIGHT constants for what this means for the flare-hit/End-reached alignment, not fixed blind here).
-P1_ENTRANCE_DURATION = 75          # t~=6-11: the proven cave shots (was 420 -- now faster, same path)
-P2_ASCENT_DURATION = 45            # t~=11-14: rocket up to the sky stage
-P3_SKY_REIGN_DURATION = 210        # t~=14-28: hover pose/close-ups/charge/blast -- the black-screen killer
-P4_DIVE_DURATION = 45              # t~=28-31 (3s): plunge back down -- touchdown ~2s AFTER the flare
-                                    #   hits (t~=29 per the video map); see CAVEAT above
-P5_GROUND_REIGN_DURATION = 165     # t~=31-42 (11s): fire column + both damage beats + undercarriage shots
-P6_EXIT_DURATION = 40              # t~=42-44.7: climb away -- AFTER the calibration video's own observed
-                                    #   "End reached" at t~=38-40; see CAVEAT above
-THOMAS_END = (P1_ENTRANCE_DURATION + P2_ASCENT_DURATION + P3_SKY_REIGN_DURATION
-              + P4_DIVE_DURATION + P5_GROUND_REIGN_DURATION + P6_EXIT_DURATION)   # 580, unchanged
+# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- boundaries are the measured
+# piece-boundary frames themselves (82/144/157/172/179/204/207/250/414/417), plus the unmeasured tail
+# filling the remainder to THOMAS_END; sum = THOMAS_END = the FBX entry's own End, unchanged at 580.
+P1_ENTRANCE_DURATION = 82           # frames 0-82:     swoop in (pre-log entrance -> the measured settle)
+P2_RISE_TO_FAR_DURATION = 62        # frames 82-144:   climbs away in depth to the first sky/far shot
+P3_FAR_DIP_DURATION = 13            # frames 144-157:  the mid-act partial-return dip
+P4_FAR_DEEP_DURATION = 15           # frames 157-172:  the deepest point + brief hold (iconic close-up)
+P5_RETURN_CUT_DURATION = 7          # frames 172-179:  THE hard cut (kept fast, see CAVEAT a)
+P6_SECOND_APPROACH_DURATION = 25    # frames 179-204:  the second, shallower re-plunge
+P7_CHARGE_CUT_DURATION = 3          # frames 204-207:  the second hard cut back to near-stage
+P8_CHARGE_HOLD_DURATION = 43        # frames 207-250:  Mega-Flare charge+blast, near-stage
+P9_GROUND_REIGN_DURATION = 164      # frames 250-414:  fire column + both damage beats + undercarriage
+P10_EXIT_EDGE_DURATION = 3          # frames 414-417:  the sharp final recess (last logged body frames)
+P11_TAIL_DURATION = 163             # frames 417-580:  UNMEASURED -- reasoned climb-away (see CAVEAT b)
+THOMAS_END = (P1_ENTRANCE_DURATION + P2_RISE_TO_FAR_DURATION + P3_FAR_DIP_DURATION + P4_FAR_DEEP_DURATION
+              + P5_RETURN_CUT_DURATION + P6_SECOND_APPROACH_DURATION + P7_CHARGE_CUT_DURATION
+              + P8_CHARGE_HOLD_DURATION + P9_GROUND_REIGN_DURATION + P10_EXIT_EDGE_DURATION
+              + P11_TAIL_DURATION)   # 580, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -409,79 +392,86 @@ def _write(dest: Path, data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _rel(base: str, offset) -> str:
-    """An NCalc anchor expression: ``base`` plus/minus an integer caster-relative offset. offset==0
-    collapses to the bare base expression (both parse identically via NCalc -- purely for a
-    cleaner-reading generated manifest, exactly the ``_hide_meshes_arg``-style "generated, not
-    hand-typed" convention already used above for the .seq splice)."""
-    offset = int(offset)
-    if offset == 0:
-        return base
-    return f"{base} + {offset}" if offset > 0 else f"{base} - {-offset}"
+def _pt(xyz: "tuple[int, int, int]") -> dict:
+    """Split an (X, Y, Z) absolute-world tuple into the 3 ``Destination*`` JSON keys as plain numeric
+    NCalc constants (a bare literal like ``"-17860"`` parses via NCalc exactly as well as an expression
+    -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design, see THE FLIGHT v2
+    comment above)."""
+    x, y, z = xyz
+    return {"DestinationX": str(x), "DestinationY": str(y), "DestinationZ": str(z)}
 
 
 def build_manifest_json() -> dict:
-    """Generate ``thomas_manifest.sfxmodel``'s JSON from the named FLIGHT constants above (schema
+    """Generate ``thomas_manifest.sfxmodel``'s JSON from the named FLIGHT v2 constants above (schema
     verified against ``ParametricMovement.LoadFromJSON``, Memoria/Battle/SFX/ParametricMovement.cs:
     58-136 -- an array of pieces, ``Duration`` + per-axis ``Origin*``/``Destination*``/
     ``InterpolationType*``; an absent ``Origin*`` key on piece i>0 CHAINS from the prior piece's own
-    ``Destination*`` expression, :88-105/:104-105/:96-97 -- used below for pieces 2-6 of both Movement
-    and Rotation). The 2026-07-22 redesign is 6 pieces (Entrance/Ascent/Sky Reign/Dive/Ground Reign/
-    Exit): SinusOut (decelerating arrival, P1) -> SinusIn (accelerating launch, P2) -> Sinus (floaty
-    sky hover, P3) -> SinusIn (the dive, P4, mirrors Bahamut's own dive per the mission spec) -> Sinus
-    (floaty ground hover, P5) -> SinusIn (accelerating departure, P6); every Destination is always
-    given explicitly (never relied on the dest-defaults-to-origin fallback) so the JSON stays
-    self-documenting. Scaling is unchanged from the original build (constant THOMAS_SCALE, one piece,
-    no motion needed)."""
+    ``Destination*`` expression, :88-105/:104-105/:96-97 -- used below for pieces 2-11 of both Movement
+    and Rotation). 11 pieces (10 measured off the s47 probe's real per-frame medians + 1 unmeasured
+    tail, see the CAVEAT above): SinusOut (decelerating arrival, P1) -> SinusIn (accelerating rise, P2)
+    -> Sinus (a floaty partial-return dip, P3) -> SinusIn (plunging to the deepest point, P4) -> Linear
+    (THE hard cut, un-eased on purpose, P5) -> Sinus (the second re-plunge, P6) -> Linear (the second
+    hard cut, P7) -> Sinus (the charge+blast hold, P8) -> Sinus (the long ground-reign drift, P9) ->
+    SinusIn (the sharp final recess, P10) -> SinusIn (the reasoned climb-away tail, P11). Every
+    Destination is always given explicitly (never relied on the dest-defaults-to-origin fallback) so the
+    JSON stays self-documenting. Scaling is unchanged (constant THOMAS_SCALE, one piece spanning the
+    whole THOMAS_END, no motion needed)."""
     movement = [
-        {   # P1 ENTRANCE: swoop in high off-side -> descend+advance into CAVE_STAGE (faster than the
-            # original build, same path)
+        {   # P1 ENTRANCE: unmeasured origin (reasoned extrapolation, see CAVEAT b) -> the measured
+            # frame-82 cave-shot settle
             "Duration": str(P1_ENTRANCE_DURATION),
-            "OriginX": _rel("CasterPositionX", ENTRANCE_X),
-            "OriginY": _rel("CasterPositionY", ENTRANCE_Y),
-            "OriginZ": _rel("CasterPositionZ", ENTRANCE_Z),
-            "DestinationX": _rel("CasterPositionX", CAVE_STAGE_X),
-            "DestinationY": _rel("CasterPositionY", CAVE_STAGE_Y),
-            "DestinationZ": _rel("CasterPositionZ", CAVE_STAGE_Z),
+            "OriginX": str(ENTRANCE_ORIGIN[0]), "OriginY": str(ENTRANCE_ORIGIN[1]), "OriginZ": str(ENTRANCE_ORIGIN[2]),
+            **_pt(P1_DEST),
             "InterpolationTypeX": "SinusOut", "InterpolationTypeY": "SinusOut", "InterpolationTypeZ": "SinusOut",
         },
-        {   # P2 ASCENT: rocket up off CAVE_STAGE's own X/Z lane to SKY STAGE (Origin chained from P1's
-            # Destination)
-            "Duration": str(P2_ASCENT_DURATION),
-            "DestinationX": _rel("CasterPositionX", SKY_STAGE_X),
-            "DestinationY": _rel("CasterPositionY", SKY_Y_OFFSET),
-            "DestinationZ": _rel("CasterPositionZ", SKY_STAGE_Z),
+        {   # P2 RISE-TO-FAR: climbs away in depth to the first sky/far shot (Origin chained from P1's Destination)
+            "Duration": str(P2_RISE_TO_FAR_DURATION),
+            **_pt(P2_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
-        {   # P3 SKY REIGN: gentle broadside sway/rise among the clouds (Origin chained from P2's
-            # Destination) -- the Mega-Flare + both EffectPoints play out under this piece
-            "Duration": str(P3_SKY_REIGN_DURATION),
-            "DestinationX": _rel("CasterPositionX", SKY_STAGE_X + SKY_DRIFT_X),
-            "DestinationY": _rel("CasterPositionY", SKY_Y_OFFSET + SKY_DRIFT_Y),
-            "DestinationZ": _rel("CasterPositionZ", SKY_STAGE_Z),
+        {   # P3 FAR-DIP: a brief mid-act partial return (a 2nd camera-cut beat)
+            "Duration": str(P3_FAR_DIP_DURATION),
+            **_pt(P3_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P4 DIVE: plunge back down to CAVE_STAGE (Origin chained from P3's Destination) -- mirrors
-            # Bahamut's own dive per the mission spec, lands before the flare hits the ground
-            "Duration": str(P4_DIVE_DURATION),
-            "DestinationX": _rel("CasterPositionX", CAVE_STAGE_X),
-            "DestinationY": _rel("CasterPositionY", CAVE_STAGE_Y),
-            "DestinationZ": _rel("CasterPositionZ", CAVE_STAGE_Z),
+        {   # P4 FAR-DEEP: the cast's single deepest point + a brief hold -- the iconic hover/close-up shot
+            "Duration": str(P4_FAR_DEEP_DURATION),
+            **_pt(P4_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
-        {   # P5 GROUND REIGN: the proven floaty ground hover (Origin chained from P4's Destination) --
-            # unchanged from the original build's own ground-reign piece
-            "Duration": str(P5_GROUND_REIGN_DURATION),
-            "DestinationX": _rel("CasterPositionX", GROUND_DRIFT_X),
-            "DestinationY": _rel("CasterPositionY", GROUND_DRIFT_Y),
-            "DestinationZ": _rel("CasterPositionZ", GROUND_DRIFT_Z),
+        {   # P5 RETURN-CUT: THE hard cut -- Linear/un-eased on purpose, not smoothed away (see CAVEAT a)
+            "Duration": str(P5_RETURN_CUT_DURATION),
+            **_pt(P5_DEST),
+            "InterpolationTypeX": "Linear", "InterpolationTypeY": "Linear", "InterpolationTypeZ": "Linear",
+        },
+        {   # P6 2ND-APPROACH: a second, shallower re-plunge during the charge windup
+            "Duration": str(P6_SECOND_APPROACH_DURATION),
+            **_pt(P6_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P6 EXIT: climb away up-forward (Origin chained from P5's Destination) -- unchanged path
-            "Duration": str(P6_EXIT_DURATION),
-            "DestinationX": _rel("CasterPositionX", EXIT_X),
-            "DestinationY": _rel("CasterPositionY", EXIT_Y),
-            "DestinationZ": _rel("CasterPositionZ", EXIT_Z),
+        {   # P7 CHARGE-CUT: the second hard cut back to near-stage -- also Linear/un-eased (see CAVEAT a)
+            "Duration": str(P7_CHARGE_CUT_DURATION),
+            **_pt(P7_DEST),
+            "InterpolationTypeX": "Linear", "InterpolationTypeY": "Linear", "InterpolationTypeZ": "Linear",
+        },
+        {   # P8 CHARGE-HOLD: Mega-Flare charge+blast -- CORRECTION vs build 2: stays NEAR-STAGE depth
+            "Duration": str(P8_CHARGE_HOLD_DURATION),
+            **_pt(P8_DEST),
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
+        },
+        {   # P9 GROUND-REIGN: the long floaty near-stage drift -- fire column + both damage beats
+            "Duration": str(P9_GROUND_REIGN_DURATION),
+            **_pt(P9_DEST),
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
+        },
+        {   # P10 EXIT-EDGE: the body's last logged position -- a sharp final recess
+            "Duration": str(P10_EXIT_EDGE_DURATION),
+            **_pt(P10_DEST),
+            "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
+        },
+        {   # P11 TAIL: UNMEASURED -- a reasoned climb-away continuation (see CAVEAT b)
+            "Duration": str(P11_TAIL_DURATION),
+            **_pt(P11_TAIL_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
     ]
@@ -492,28 +482,17 @@ def build_manifest_json() -> dict:
             "OriginZ": "0", "DestinationZ": "0",
             "InterpolationTypeY": "Sinus",
         },
-        {   # P2: hold broadside through the ascent (Origin chained from P1's Destination = YAW_BROADSIDE)
-            "Duration": str(P2_ASCENT_DURATION),
-            "DestinationY": str(YAW_BROADSIDE),
-            "DestinationZ": "0",
-        },
-        {   # P3: hold broadside through the sky reign (the mega-flare window)
-            "Duration": str(P3_SKY_REIGN_DURATION),
-            "DestinationY": str(YAW_BROADSIDE),
-            "DestinationZ": "0",
-        },
-        {   # P4: hold broadside through the dive
-            "Duration": str(P4_DIVE_DURATION),
-            "DestinationY": str(YAW_BROADSIDE),
-            "DestinationZ": "0",
-        },
-        {   # P5: hold broadside through the ground reign (fire column + damage beats)
-            "Duration": str(P5_GROUND_REIGN_DURATION),
-            "DestinationY": str(YAW_BROADSIDE),
-            "DestinationZ": "0",
-        },
-        {   # P6: turn back to forward-facing as he climbs away
-            "Duration": str(P6_EXIT_DURATION),
+        {"Duration": str(P2_RISE_TO_FAR_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P3_FAR_DIP_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P4_FAR_DEEP_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P5_RETURN_CUT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P6_SECOND_APPROACH_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P7_CHARGE_CUT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P8_CHARGE_HOLD_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P9_GROUND_REIGN_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P10_EXIT_EDGE_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {   # P11 TAIL: turn back to forward-facing as he climbs away
+            "Duration": str(P11_TAIL_DURATION),
             "DestinationY": "0",
             "DestinationZ": "0",
             "InterpolationTypeY": "Sinus",
@@ -538,9 +517,9 @@ def build_manifest_json() -> dict:
     }
 
 
-def splice_sequence(donor_text: str, hide_range: "tuple[int, int] | None") -> str:
+def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None") -> str:
     """Insert the Thomas delta block immediately before ANCHOR_LINE, and replace ANCHOR_LINE itself
-    with ``patched_line(hide_range)`` (the HideMeshes-augmented form, or -- ``hide_range=None`` -- the
+    with ``patched_line(hide_keys)`` (the HideMeshes-augmented form, or -- ``hide_keys=None`` -- the
     bare unmodified anchor text, i.e. CALIBRATE mode). Raises DriftError if ANCHOR_LINE isn't found
     (the donor's shape changed since this script's splice point was derived -- abort rather than
     guess)."""
@@ -563,7 +542,7 @@ def splice_sequence(donor_text: str, hide_range: "tuple[int, int] | None") -> st
             f"{THOMAS_SEQ_DELTA_PATH} doesn't start with the expected StartThread line after "
             "stripping comments/blanks -- refusing to splice unexpected content"
         )
-    new_lines = lines[:idx] + delta_lines + [patched_line(hide_range)] + lines[idx + 1:]
+    new_lines = lines[:idx] + delta_lines + [patched_line(hide_keys)] + lines[idx + 1:]
     return "".join(new_lines)
 
 
@@ -632,11 +611,11 @@ def unmint_thomas(mod_root: Path) -> dict:
             "directive": directive}
 
 
-def build_thomas(mod_root: Path, game_path: Path, hide_range: "tuple[int, int] | None" = HIDE_RANGE) -> dict:
+def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | None" = HIDE_KEYS) -> dict:
     donor_bytes, donor_text = _read_verified(
         game_path / DONOR_REL_DIR / PLAYER_SEQ_NAME, EXPECTED_DONOR_SHA256, "stock ef227/PlayerSequence.seq"
     )
-    out_text = splice_sequence(donor_text, hide_range)
+    out_text = splice_sequence(donor_text, hide_keys)
     out_bytes = out_text.encode("utf-8")
 
     seq_dest = mod_root / FRESH_REL_DIR / PLAYER_SEQ_NAME
@@ -665,7 +644,7 @@ def build_thomas(mod_root: Path, game_path: Path, hide_range: "tuple[int, int] |
         "seq_dest": str(seq_dest), "seq_sha256": seq_sha256, "seq_diff": diff,
         "filelist_dest": str(filelist_dest), "filelist_sha256": filelist_sha256,
         "manifest_dest": str(manifest_dest), "manifest_sha256": manifest_sha256,
-        "mint": mint_info, "hide_range": hide_range,
+        "mint": mint_info, "hide_keys": hide_keys,
     }
 
 
@@ -707,36 +686,41 @@ def main() -> int:
                         help="undo the Thomas swap -- back to rung 7's own proven resting state, and "
                              "Thomas's GEO mint fully removed")
     hg_group = parser.add_mutually_exclusive_group()
-    hg_group.add_argument("--hide-range", metavar="A,B", default=None,
-                           help=f"override HIDE_RANGE (default {HIDE_RANGE[0]},{HIDE_RANGE[1]}) for this "
-                                "deploy -- two comma-separated inclusive integers, e.g. --hide-range 32,63 "
-                                "for round 2's other half. Only meaningful with a Thomas-swap deploy (not "
-                                "--restore). See README.md's HideMeshes bisection protocol.")
+    hg_group.add_argument("--hide-keys", metavar="KEY1,KEY2,...", default=None,
+                           help="override HIDE_KEYS (default the s47-probe-confirmed creature keys: "
+                                + ",".join(HIDE_KEYS) + ") for this deploy -- comma-separated hex mesh "
+                                "keys, `0x` prefix optional, e.g. --hide-keys 0097BD01,0098BD0E to test a "
+                                "round-2 candidate. Only meaningful with a Thomas-swap deploy (not "
+                                "--restore). See README.md's HideMeshes: the s47 surgical key list + "
+                                "PROBE.md's round-2 refinement protocol.")
     hg_group.add_argument("--calibrate", action="store_true",
                            help="deploy with NO HideMeshes argument at all -- the patched line is then "
                                 "byte-identical to the stock donor's own PlaySFX line, so Bahamut's real "
                                 "mesh renders completely unsuppressed. For recording a clean composition-"
-                                "reference video. Mutually exclusive with --hide-range.")
+                                "reference video/log. Mutually exclusive with --hide-keys.")
     args = parser.parse_args()
     mode = "restore" if args.restore else "thomas"
 
-    if mode == "restore" and (args.hide_range or args.calibrate):
-        parser.error("--hide-range/--calibrate only apply to a Thomas-swap deploy, not --restore")
+    if mode == "restore" and (args.hide_keys or args.calibrate):
+        parser.error("--hide-keys/--calibrate only apply to a Thomas-swap deploy, not --restore")
 
     if args.calibrate:
-        hide_range = None
-    elif args.hide_range:
-        parts = args.hide_range.split(",")
-        if len(parts) != 2:
-            parser.error(f"--hide-range must be 'A,B' (two comma-separated integers), got {args.hide_range!r}")
-        try:
-            hide_range = (int(parts[0]), int(parts[1]))
-        except ValueError:
-            parser.error(f"--hide-range must be 'A,B' (two comma-separated integers), got {args.hide_range!r}")
-        if hide_range[0] > hide_range[1]:
-            parser.error(f"--hide-range lo must be <= hi, got {hide_range}")
+        hide_keys = None
+    elif args.hide_keys:
+        raw_tokens = [t.strip() for t in args.hide_keys.split(",") if t.strip()]
+        if not raw_tokens:
+            parser.error(f"--hide-keys must be a non-empty comma-separated list, got {args.hide_keys!r}")
+        normalized = []
+        for tok in raw_tokens:
+            bare = tok[2:] if tok.lower().startswith("0x") else tok
+            try:
+                int(bare, 16)
+            except ValueError:
+                parser.error(f"--hide-keys token {tok!r} isn't a valid hex key")
+            normalized.append(bare.upper())
+        hide_keys = tuple(normalized)
     else:
-        hide_range = HIDE_RANGE
+        hide_keys = HIDE_KEYS
 
     game_path = config.find_game_path()
     mod_root = config.find_mod_root(game_path)
@@ -746,16 +730,15 @@ def main() -> int:
     print(f"private id   : ef{FRESH_EF_ID:03d} (rung 3/7's fresh-id folder -- reused, not re-minted)")
     print(f"mode         : {'THOMAS SWAP' if mode == 'thomas' else 'RESTORE (rung-7 resting state)'}")
     if mode == "thomas":
-        if hide_range is None:
-            print("hide range   : CALIBRATE -- no HideMeshes argument at all (Bahamut renders unsuppressed)")
+        if hide_keys is None:
+            print("hide keys    : CALIBRATE -- no HideMeshes argument at all (Bahamut renders unsuppressed)")
         else:
-            print(f"hide range   : {hide_range[0]}..{hide_range[1]} inclusive "
-                  f"({hide_range[1] - hide_range[0] + 1} indices)")
+            print(f"hide keys    : {len(hide_keys)} key(s) -- " + ",".join(f"0x{k}" for k in hide_keys))
     print()
 
     try:
         if mode == "thomas":
-            result = build_thomas(mod_root, game_path, hide_range)
+            result = build_thomas(mod_root, game_path, hide_keys)
         else:
             result = restore(mod_root, game_path)
     except (DriftError, ThomasAssetError) as e:
@@ -779,18 +762,28 @@ def main() -> int:
         print(f"  sha256 : {result['manifest_sha256']}")
         print(f"(repo copy kept in sync at {THOMAS_MANIFEST_REPO_PATH})")
         b1 = P1_ENTRANCE_DURATION
-        b2 = b1 + P2_ASCENT_DURATION
-        b3 = b2 + P3_SKY_REIGN_DURATION
-        b4 = b3 + P4_DIVE_DURATION
-        b5 = b4 + P5_GROUND_REIGN_DURATION
-        b6 = b5 + P6_EXIT_DURATION  # == THOMAS_END
-        print("THE FLIGHT (6 phases, 2026-07-22 redesign):")
-        print(f"  P1 entrance   0-{b1}   swoop in, high off-side -> cave stage")
-        print(f"  P2 ascent   {b1}-{b2}   rocket up to the sky stage")
-        print(f"  P3 sky reign  {b2}-{b3}  broadside hover among the clouds -- the black-screen killer")
-        print(f"  P4 dive     {b3}-{b4}  plunge back down to the cave stage")
-        print(f"  P5 ground reign {b4}-{b5}  fire column + both damage beats + undercarriage shots")
-        print(f"  P6 exit     {b5}-{b6}  climb away up-forward")
+        b2 = b1 + P2_RISE_TO_FAR_DURATION
+        b3 = b2 + P3_FAR_DIP_DURATION
+        b4 = b3 + P4_FAR_DEEP_DURATION
+        b5 = b4 + P5_RETURN_CUT_DURATION
+        b6 = b5 + P6_SECOND_APPROACH_DURATION
+        b7 = b6 + P7_CHARGE_CUT_DURATION
+        b8 = b7 + P8_CHARGE_HOLD_DURATION
+        b9 = b8 + P9_GROUND_REIGN_DURATION
+        b10 = b9 + P10_EXIT_EDGE_DURATION
+        b11 = b10 + P11_TAIL_DURATION  # == THOMAS_END
+        print("THE FLIGHT v2 (11 pieces, s47-probe-derived, 2026-07-22):")
+        print(f"  P1  entrance        0-{b1}    swoop in (unmeasured origin) -> the measured cave-shot settle")
+        print(f"  P2  rise-to-far   {b1}-{b2}   climbs away in depth -- the first sky/far shot")
+        print(f"  P3  far-dip       {b2}-{b3}  a brief mid-act partial-return dip")
+        print(f"  P4  far-deep      {b3}-{b4}  the cast's single deepest point + a brief hold")
+        print(f"  P5  return-cut    {b4}-{b5}  THE hard cut (fast, un-eased)")
+        print(f"  P6  2nd-approach  {b5}-{b6}  a second, shallower re-plunge")
+        print(f"  P7  charge-cut    {b6}-{b7}  the second hard cut back to near-stage")
+        print(f"  P8  charge-hold   {b7}-{b8}  Mega-Flare charge+blast -- NEAR-STAGE (not deep sky)")
+        print(f"  P9  ground-reign  {b8}-{b9}  fire column + both damage beats + undercarriage shots")
+        print(f"  P10 exit-edge    {b9}-{b10}  sharp final recess (last logged body frames)")
+        print(f"  P11 tail (UNMEASURED) {b10}-{b11}  reasoned climb-away -- see PROBE.md round-2 protocol")
         print()
         m = result["mint"]
         print(f"=== Thomas GEO mint: id={m['id']} name={m['name']} type_int={m['type_int']} ===")

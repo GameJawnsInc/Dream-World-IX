@@ -23,9 +23,11 @@ a human playtest — the agent cannot see the running game.
 **The build AUTO-DEPLOYS to the game with NO backup.** The csproj `AfterBuild` copies the
 built `Assembly-CSharp.dll` (+ `Memoria.Prime.dll`, `UnityEngine.UI.dll`) into BOTH
 `x64\FF9_Data\Managed\` and `x86\FF9_Data\Managed\`, overwriting the installed engine. Before
-the build, back up the game's live `Assembly-CSharp.dll` (both arches) to
-`backups/<file>.<timestamp>` per the repo hard constraint. A missed backup is only recoverable
-by re-running `Memoria.Patcher.exe` or Steam verify-integrity + re-patch.
+the build, run `py tools/backup_memoria_dll.py [label]` from the MAIN repo — it snapshots all
+3 DLLs x both arches to `backups/` under one canonical name + shared timestamp, prints the
+matching `restore_memoria_dll.py` one-liner, and exits non-zero unless the FULL set was
+captured (do not build on a partial). A missed backup is only recoverable by re-running
+`Memoria.Patcher.exe` or Steam verify-integrity + re-patch.
 
 ## The MSBuild recipe
 
