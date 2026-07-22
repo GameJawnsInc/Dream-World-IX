@@ -1,0 +1,37 @@
+// FF9CustomMap/StreamingAssets/Data/SpecialEffects/ef084/PlayerSequence.seq
+// RUNG 6 -- bare sequence: zero LoadSFX of any native id, kit-composed content only.
+// Replaces ef084's byte-identical Bahamut copy; ef084/Sequence.seq is never read (no LoadSFX exists to nest-load it).
+
+WaitAnimation: Char=Caster
+Message: Text=[CastName] ; Priority=1 ; Title=True ; Reflect=True
+SetupReflect: Delay=SFXLoaded
+PlayAnimation: Char=Caster ; Anim=MP_IDLE_TO_CHANT
+WaitAnimation: Char=Caster
+PlayAnimation: Char=Caster ; Anim=MP_CHANT ; Loop=True
+Channel
+SetBackgroundIntensity: Intensity=0 ; Time=12
+PlaySound: Sound=100000
+CreateVisualEffect: Char=Caster ; SFXModel=Data/SpecialEffects/ef084/RisingRing.sfxmodel
+Wait: Time=90
+WaitAnimation: Char=Caster
+StopChannel
+PlayAnimation: Char=Caster ; Anim=MP_MAGIC
+WaitAnimation: Char=Caster
+SetBackgroundIntensity: Intensity=1 ; Time=12
+Wait: Time=12
+EffectPoint: Char=AllTargets ; Type=Effect
+Wait: Time=12
+EffectPoint: Char=Everyone ; Type=Figure
+ActivateReflect
+WaitReflect
+PlayAnimation: Char=Caster ; Anim=Idle
+Turn: Char=Caster ; BaseAngle=Default ; Time=5
+WaitTurn: Char=Caster
+
+// 25 operation lines. Deliberately omitted vs the full stock template (all verified safe-to-drop, see
+// reflect_verdict/cmd_status_verdict in the rung-6 recon): the CasterRow==0 step-forward/step-back
+// StartThreads (physical repositioning irrelevant to a stationary caster with no melee-adjacent framing
+// need), the IsSingleSelectedTarget face-target Turn (the ability targets AllEnemy(8), rarely a single
+// survivor, and EffectPoint here uses Char=AllTargets/Everyone rather than a faced single target), and
+// the cmd_status cursor-hide/-show pair (cosmetic only, zero completion dependency, safe to add back
+// for polish -- suppresses the on-model targeting reticle for the ~7s chant if included).

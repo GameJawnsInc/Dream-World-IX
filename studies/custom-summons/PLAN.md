@@ -1,6 +1,19 @@
 # Custom Summons — feasibility study
 
-> **Status: RESEARCH DONE, build not started.** Opened 2026-07-21 from a 20-agent ultracode workflow
+> **Status: RUNGS 1-7 ★ ALL IN-GAME PROVEN 2026-07-21, ONE SESSION — PAUSED at 7/9 (user's call).**
+> The whole mechanism ladder is closed: the borrowed cinematic → the hot loop → the fresh-id
+> private copy (+ the first minted audio in a summon) → damage-beat control → the first-ever
+> `CreateVisualEffect` + the first new visual content in a summon (the magenta ring) → the fully
+> hand-authored bare cast (TIER 3 VIABLE) → **THE CREATURE: the first custom model ever rendered
+> inside an FF9 battle effect** (FileList.txt→FBX, 3 casts to polish: render → upright →
+> facing+idling). RESTING STATE: the bench (field 30300, "Bahamut Cinema" id 194, vfx1=84) casts
+> the rung-7 creature proof; stock content 100% pristine (every shared override reverted); each
+> rung's build/revert scripts committed in its own subfolder. NEXT SESSION = **rung 8, the
+> composed epic** (creative direction OPEN — the user deferred the creature choice; default
+> candidate = the model pillar's from-scratch creature) + the productization runway (§9 items 1-2:
+> the `[[summon]]` block + the .seq codec/linter; the SFXRework deploy-warn now applies since we
+> ship .seq content; the §7 netsync freeze-ceiling check before shipping a long summon). The
+> crunchy-audio A/B (§8) remains available. Research opened 2026-07-21 from a 20-agent ultracode workflow
 > (6 recon lenses over the Memoria source + game install + kit + community docs → synthesis → 12
 > load-bearing claims adversarially verified: 8 CONFIRMED, 4 PARTIAL-with-corrections, 0 REFUTED;
 > + a completeness critic). All file:line citations below were re-derived by skeptic agents against
@@ -309,27 +322,151 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    Proof: the full vanilla Bahamut plays from a non-Garnet/Eiko command. Also proves the command
    is selectable/targetable through the real battle HUD (the critic's input-side gap) — the
    [[playable]] minted-command menu wiring is already in-game proven, this composes it with a
-   summon-scale effect.
+   summon-scale effect. **[★ IN-GAME PROVEN 2026-07-21 — "it worked, bahamut played in full."
+   Bench `rung1-borrowed-cinematic/`, field 30300, "Bahamut Cinema" minted at id 194 on Iviv's
+   Spark (clone of stock row 62; targets=AllEnemy pinned — the ManyAny disjunct at btl_vfx.cs:99
+   is the ONLY other Vfx2 trigger, so full-227 is structurally unconditional; Iviv boots 80/80 MP
+   ≥ the faithful 56 cost; auto-learned at AP 0). Offline emission probe had verified the live
+   Actions.csv row byte-exact pre-playtest. Playtest residue: audio "a little crunchy at times"
+   → the open audio question (§8).]**
 2. **Hot-loop probe** — mod-folder-override the donor's own `ef227/PlayerSequence.seq` with one
    retimed Wait + one minted-sound `PlaySound`. Proof: the edited beat lands; establishes the .seq
    edit→recast loop + mod-folder resolution + custom-audio-in-.seq. (Throwaway: this rung edits
    the SHARED folder — vanilla Bahamut changes too. Rung 3 fixes that.)
+   **[★ IN-GAME PROVEN 2026-07-21 — "both worked, the blip played and the fade was slower." One
+   recast, no relaunch: mod-folder .seq shadowing + the per-cast re-parse + DSL injection all
+   proven in one shot (`rung2-seq-hot-edit/`; the override carried exactly 2 edits: `PlaySound:
+   Sound=103` first line + blackout fade Time 12→45). The ef227 override is REVERTED (stock
+   Bahamut pristine; selective revert — `remove_seq_override` only). Track B — minted sfx id
+   100000, the synthetic 880Hz chime (zero SE bytes) — REMAINS STAGED in the manifest + Sounds
+   tree (SoundMetaData loads once at process start), arming on the next relaunch: rung 3's cycle
+   closes §8's minted-id question with a hot-added `PlaySound: Sound=100000` recast.]**
 3. **Fresh-id private copy** — mint an unused id <511; ship `ef{N}/PlayerSequence.seq +
    Sequence.seq` as the donor's copy (`LoadSFX: SFX=Bahamut__Full` by NAME). Proof: plays
    identically under id N while stock Bahamut is untouched → the global-namespace collision is
    dead, and the fresh-folder mechanism itself is proven (half of rung 6 early).
+   **[BUILT + DEPLOYED 2026-07-21 → `rung3-fresh-id/`, id N=84 (the recon censused ALL 24 absent
+   folder ids 0-510 — they map 1:1 to SpecialEffect.cs's own `Unused_N` aliases; 84 = the mildest
+   documented legacy fallback). Key recon law: the folder id is consulted EXACTLY ONCE per rework
+   cast, as a path string — everything downstream (SFX.Play, playParam, LoadSfxSoundData,
+   FixedCameraEffects) keys on the .seq's NAME-resolved 227, and the copy's own Sequence.seq is
+   never even read on the player path (the nested LoadSFX reads the DONOR's ef227/Sequence.seq) —
+   §8's LoadSfxSoundData fresh-id question is thereby ANSWERED BY CONSTRUCTION for donor-borrowing
+   rungs. Deployed: ef084 verbatim pair + the bench toml redeployed on 30300 (row 194 now
+   `84;405`, verified live). ★★ FULLY PROVEN 2026-07-21, BOTH CASTS: cast A "worked, looked
+   identical to before" (the fresh-id private copy is indistinguishable, stock ef227 untouched —
+   the global-namespace collision is DEAD); cast B "the chime played at the start" (the
+   `--with-chime` recast — THE FIRST CUSTOM-MINTED AUDIO EVER PLAYED INSIDE A SUMMON SEQUENCE;
+   §8's minted-PlaySound question CLOSED; the ef084 copy since restored verbatim). CRUNCH NOTE:
+   "crunch still reduced" across both casts vs rung 1 — two consistent data points for the
+   cold-cache candidate (the AKB/OGG decode disk-caches after first-ever play), still not
+   conclusive per the user; the §8 A/B stands for a proper pin-down.]**
 4. **Damage-beat control** — move `EffectPoint` in the private copy. Proof: damage visibly lands
    at the new beat.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung4-effectpoint/` (recast pending). DESIGN CORRECTION vs
+   the ladder's wording: EffectPoint lives in the DONOR's ef227/Sequence.seq, which the cast
+   nested-loads by RESOLVED id (the private ef084/Sequence.seq is never read) — so rung 4 rides
+   the rung-2-proven shared-override class, throwaway until `revert_rung4.py`. The recon confirmed
+   the nested load is the SAME mod-stacked zero-cache AssetManager.LoadString path (File.ReadAllText
+   per cast, fresh SFXData per LoadSFX op — recast-only, no relaunch) and produced THE FULL TICK MAP
+   of Bahamut's 73-line Sequence.seq (t=0 blackout … t=434 Mega-Flare ramp … stock EffectPoint at
+   t=486/498, ~32.4s in; every HoldDuration self-consistent). The move: the EffectPoint pair
+   (12-tick gap preserved) relocated to immediately after the opening blackout (~1.2s in) —
+   anchor-block matched, DriftError-guarded, idempotent. ★ PROVEN 2026-07-21 — "it worked, damage
+   numbers popped up right after the blackout": the hit landed at the new beat (hit SFX + HP
+   damage confirmed) AND the number was ABSENT from its usual mid-flare spot — double evidence the
+   beat moved. The override is since REVERTED (stock resolution restored). MINTED EN ROUTE — **THE
+   FIGURE-VISIBILITY LAW**: the damage-number popup renders occluded/washed out under the
+   fullscreen SetBackgroundIntensity overlay (the user saw the hit only via SFX; the number hid
+   "behind the whiteout") — a composed summon (rung 8) must schedule `EffectPoint Type=Figure` in
+   a LIT window if the numbers should read.]**
 5. **Particle layering** — add `CreateVisualEffect: SFXModel=Common/ChannelSummon.sfxmodel` (then
    a bespoke Sprite .sfxmodel). Proof: our particle renders inside the donor cinematic.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung5-particles/` (stage A live, casts pending). HEADLINE
+   RECON FIND: `CreateVisualEffect` has ZERO stock usages across all 487 ef folders — our line is
+   the FIRST-EVER use of the op in any .seq; syntax derived from source, not examples. THE OP LAWS:
+   the `SFXModel=` key alone selects the mode; `Char=Caster` is REQUIRED in practice (absent Char →
+   a 0 bitmask → silent render-on-nobody); the path must be FULL Data/-rooted (no auto-prefix at
+   this call site — `Data/SpecialEffects/...`); `Time/Size/Speed` are PARSED BUT INERT for
+   SFXModel mode (all timing/scale lives in the JSON); the effect is fire-and-forget
+   (self-terminates past its own lastFrame; 0-tick op). Baseline: the bare `Channel` op for minted
+   cmd_no=46 falls to the SPELL case (pale gray-blue-white) — so stage A's added ChannelSummon
+   aura (green/burnt-orange) is visually distinct. The FIGURE-VISIBILITY law does NOT apply here
+   (particle draws ride a different path than the Type=Figure UI — source-read). Stage A (live) =
+   the stock ChannelSummon aura layered into the chant window of the PRIVATE ef084 copy; stage B
+   (built, deploy-tested once, waiting) = `rung5_sprite.sfxmodel` — a bespoke kit-owned no-texture
+   16-tri octagonal RISING RING, magenta (no stock aura uses it), fade-in/expand/rise/fade over
+   ~2.4s. ★★ FULLY PROVEN 2026-07-21, BOTH CASTS: cast A "I can see both auras during the chant"
+   (the op's first-ever exercise — additive layering confirmed, the stock ChannelSummon aura over
+   the Spell-case baseline); cast B "the magenta ring appeared during the chant" — **THE FIRST
+   GENUINELY NEW VISUAL CONTENT EVER RENDERED INSIDE AN FF9 SUMMON** (a hand-authored no-texture
+   Sprite .sfxmodel, zero SE bytes). The ef084 copy restored verbatim post-proof. Tier-3's
+   Sprite-particle half is now in-game proven; only the FBX half (rung 7) remains unexercised.]**
 6. **Fresh-id bare sequence** — id N with a trivial .seq and NO LoadSFX of any native id. Proof:
    graceful play (chars animate, sound, damage) with no native content at all → Tier 3 is viable;
    also observes what a camera-ownerless effect looks like.
+   **[BUILT + DEPLOYED 2026-07-21 → `rung6-bare-sequence/` (recast pending; the fresh-id half was
+   proven by rung 3, so this swaps ef084's content — recast-only). THE CAST-PROTOCOL GRAMMAR
+   DECODED (3 simple stock spells = one 67-line template + the donor): `cmd_status` = a pure
+   target-cursor visibility bitfield (bit 2), NOT load-bearing; the reflect triple is required
+   only for category-bit-0x1 abilities (Bahamut's 22 clears it — inert, kept for convention);
+   **THE ANIM=IDLE RELEASE LAW** — the literal string "Idle" is engine-recognized as
+   releaseCmdIdle (`btl_mot.EndCommandMotion` + `SetDefaultIdle`), THE canonical command-motion
+   release, and a looping clip is broken only by a SUBSEQUENT PlayAnimation call (no StopAnimation
+   op exists); a Loop=True WaitAnimation resolves at loop-wrap (never hangs). The deployed 25-op
+   bare sequence: banner → chant → half-dim (0.5, Figure-law compliant) → chime + magenta ring →
+   MP_MAGIC gesture → re-light → EffectPoint pair LIT → Anim=Idle close-out. Zero native content;
+   ef084/Sequence.seq present but unreachable (no LoadSFX to nest-load it).
+   ★★ FULLY PROVEN 2026-07-21 (two casts): cast 1 — the chant played, THE CHIME AND RING PLAYED,
+   the ~3000 damage landed with VISIBLE numbers (Figure-law window worked), and the battle ended
+   normally: the completion chain held with zero native content, TIER 3 IS VIABLE. The one
+   anomaly (SetBackgroundIntensity looked inert) was TRACED AND RESOLVED — the gate hypothesis
+   was REFUTED by the source (the write→static-tween→Loop-tick→setBGColor chain has NO SFX gate;
+   it runs unconditionally every battle frame), and the probe cast proved it: `Intensity=0`
+   produced the full blackout ("the background went black during the chant"). **THE INTENSITY
+   SUBTLETY LAW**: mid intensities (0.5) only nudge the BG materials' `_Intensity` shader float —
+   imperceptible under the default caster-framing camera; `Intensity=0` EXACTLY takes the
+   renderer.enabled=false branch = the vanilla-blackout drama. For legible mid-dims, pair with a
+   `PlayCamera` that foregrounds the background (a plain data-only op, works without LoadSFX —
+   the camera engine runs all battle regardless). Camera answer: a bare cast runs under the
+   default per-command battle camera (nothing moves it without PlayCamera/LoadSFX). The committed
+   bare sequence ships the proven 0-dim version.]**
 7. **THE creature rung** — `FileList.txt` + `Model our.sfxmodel` + `FBX` → a placeholder mesh from
    our model pipeline renders mid-cast. Highest-risk, highest-value; zero precedent anywhere.
    (Fallback if it fails: spawn the creature as a battle-actor model instead — our skinmint band —
    choreographed via ShowMesh/PlayAnimation; or prove the mechanism enemy-side first via the
    BattlePatch SequenceFile route, which is the more battle-tested load path.)
+   **[BUILT + DEPLOYED 2026-07-21 → `rung7-creature/` (cast pending; verifier READY, zero
+   blockers). THE CHAIN IS SILENT-SKIP-CLASS BY DESIGN (recon walked every failure site: missing
+   Path → entry dropped; unloadable FBX → ModelFactory null → continue; bad clip → stripped;
+   malformed JSON → Load null → skip — no crash sites reachable from our data). THE GRAMMAR LAWS:
+   FileList.txt tokens split on SINGLE SPACES (tabs/double-spaces break silently); multiple Model
+   lines COMPOSE onto one mesh list; `LoadSFX: SFX=84` numeric parses Int32-first; a `Camera`
+   line is INERT (the dead LoadFromJSON stub, re-confirmed at this call site). THE MOVEMENT TRAP:
+   an FBX entry with no Movement sits at WORLD ORIGIN (wrong place, not invisible) — the build
+   pins an explicit static CasterPosition-anchored curve. Asset = Iviv's own GEO 6100 (already
+   loading on this install; ZERO new bytes staged). The deployed sequence = rung 6's proven
+   skeleton + a ~4s reveal DURING the blackout (setBGColor disables only the battle-bg model's
+   renderers — the SFX mesh renders independently: a silhouette-against-black reveal), End=60
+   auto-destruct, then re-light → damage → close-out.
+   ★ MECHANISM PROVEN 2026-07-21 — "i see iviv after the long pauses": THE FIRST CUSTOM MODEL EVER
+   RENDERED INSIDE AN FF9 BATTLE EFFECT. The FileList.txt → .sfxmodel → FBX → ModelFactory route
+   works end-to-end in a live battle. Defect: spawned "upside down and backwards" — THE ROTATION
+   BASELINE LAW: the SFX path applies the manifest's Rotation curve RAW to eulerAngles
+   (SFXDataMesh.cs:807) with no battle-actor base rotation — btl_init.cs:220 shows players get
+   Euler(0,0,180) (PSX-heritage models are authored inverted; enemies get (0,180,180) at :353).
+   Fix staged: a constant Rotation Z=180 piece in the manifest (deployed; orientation recast
+   pending — if he then faces away, add Y=180 per the enemy variant).
+   ★★ FULLY PROVEN 2026-07-21 over 3 casts — "upright, facing forward, and idling the whole
+   time": the fix ladder ran render (cast 1) → orientation (Z=180, cast 2 upright-but-backwards)
+   → yaw+loop (Y=180 + THE ANIMATION-PLAYLIST LAW: the Animations array chains each clip ONCE
+   then freezes on the last — no loop flag exists; looping = repeated entries; cast 3 clean).
+   TWO LOGGED RESIDUALS, both non-gating: (a) the SFX path samples animation at the 15fps
+   sequence tick (battle actors animate at render rate — frame-quantization is the stock-effect
+   aesthetic); (b) an SFX-instantiated model keeps its FBX material state (no battle-actor
+   lighting/tint pass — irrelevant for a bespoke creature that owns its look). THE CREATURE
+   MECHANISM IS CLOSED: FileList.txt → .sfxmodel → FBX → ModelFactory, end-to-end in live
+   battle, first anywhere.]**
 8. **The composed epic** — full multi-phase original: buildup channel → blackout → creature reveal
    → attack → EffectPoint → resolution, minted music sting, PlayCamera cuts. Proof: a bespoke
    summon start-to-finish, zero DLL.
@@ -380,8 +517,34 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
 - Can one `.sfxmodel` compose multiple FBX entries (circle prop + creature + impact)? → rung 7-8.
 - Do arena camera slots 3-8 give usable framing, per-arena? → rung 9 groundwork.
 - Diorama-path freeze ceiling (see §7). → before shipping.
-- `PlaySound` with minted ids ≥100000 inside a .seq — expected to work (same SoundLib), unproven.
-  → rung 2.
+- `PlaySound` with minted ids ≥100000 inside a .seq — **★ CLOSED 2026-07-21 (rung 3 cast B):** the
+  minted sfx id 100000 (manifest-registered loose Ogg, zero SE bytes) played from a hand-authored
+  `PlaySound` line inside the private summon copy — "the chime played at the start." Custom audio
+  in a summon sequence is PROVEN. (Reminder law: SoundMetaData's id table loads once at process
+  start — a fresh minted id always needs one relaunch to arm before its first use.)
+- **THE CRUNCHY-AUDIO QUESTION — INVESTIGATED 2026-07-21 (3-lens workflow, engine + web + install):**
+  the crunch is NOT our binding (the bench plays ef227 as itself; the pitch-table switch keys purely
+  on the effect id, so a stock Garnet cast runs identical low-level audio code). Findings:
+  (a) **the legacy SFX.cs summon-sound layer (AdjustSoundIndex/SoundPlay pitch tables, StreamPlay's
+  1.3× volume) does NOT run live under rework** — it was export-tooling whose output got BAKED into
+  the shipped .seq PlaySound lines; live audio = .seq `PlaySound` → SoundEffectPlayer → SaXAudio;
+  (b) **structural: NO limiter/compressor anywhere in the SaXAudio chain** (AudioEffectManager =
+  Reverb/Eq/Echo/Volume only) — any voice stack on BusSoundEffect hard-clips; the stock Summon
+  channel fires 3 simultaneous full-volume sounds on one frame at every summon charge-up, RunThread
+  overlap triggers a force-stop/restart dedup (0.1s fade), and Speed=5 simultaneous ATB multiplies
+  stacking; (c) **community: the vanilla PC-port summon SFX assets are known-poor** ("squeaky,
+  pitchy" Silicon Studios re-creations of lost-source audio; Bahamut singled out even post-Moguri)
+  — an asset-quality ceiling fixed only by sound-replacement mods (FFIX Sounds Fix v2.2 / Moguri
+  "PlayStation Sounds"); #193 = abrupt StopSound clicks on Bahamut__Short specifically; a SaXAudio
+  OnBufferEnd race was fixed on Memoria canary 2026-07-19 (PR #1453, crash-class, post our pin);
+  (d) **install: Backend=1 (recommended — the Soloud-48kHz candidate ruled out), Moguri ships ZERO
+  audio (ruled out), PriorityToOGG is a no-op here (no loose .ogg exists for this content), and
+  `[Cheats] SpeedMode=1` (default ON) multiplies pitch by the F1 fast-forward factor if engaged.**
+  **THE 2-STEP A/B (user):** 1) recast with F1 fast-forward certainly OFF ($0, same session);
+  2) flip `[Audio] Backend` 1→2 + relaunch + recast — clean under Soloud ⇒ SaXAudio resampler
+  artifact (run Backend=2); same crunch ⇒ the shared pitch-table/asset territory ⇒ the fix is an
+  audio-replacement mod, not the kit. Optional decisive third: `[Hacks] AllCharactersAvailable=1`
+  → a real Garnet Bahamut on the same install (predicted identical — full binding exoneration).
 
 ## 9. Kit work items (when the build starts)
 
@@ -393,7 +556,12 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    487 stock folders (donor browsing; FixedCameraEffects flags; the missing SpecialEffect catalog).
 3. `battlepatch.py`: `sequence_file` in ATTACK_FIELDS + a String `encode_field` branch (the
    enemy-side lever; also unlocks retuning stock attack VFX — `vfx2` is `[PatchableField]` too).
-4. `actiondelta.py`: tighten vfx1/vfx2 warning at ≥511 (playParam bound).
+4. `actiondelta.py`: tighten vfx1/vfx2 warning at ≥511 (playParam bound). **★ DONE 2026-07-21**
+   (WARN not error — the bound gates SFX.Play/LoadSFX targets, not the folder lookup; both encoder
+   branches + the animation1/2 aliases covered, boundary-tested 510/511. The SFXRework=0 deploy-warn
+   is DEFERRED to the first .seq-emitting rung: rung 1 is rework-independent by construction — ef227
+   is real content under BOTH engines — and the deploy tooling has no "fresh id vs donor reuse"
+   signal yet; gate it like deploy_field's Folklore `[Import]` check when it lands.)
 5. `.sfxmodel` emitter — Sprite first (5 shipping references), FBX manifest second (reuse the
    model pillar's FBX output).
 6. Deploy: the ef-folder tree rides the normal mod-folder copy; no DictionaryPatch registration
