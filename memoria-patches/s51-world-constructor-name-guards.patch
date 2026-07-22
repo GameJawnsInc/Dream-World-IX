@@ -6,7 +6,7 @@ diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.
                      {
                          ff9.world.LoadCurrentChocoboTexture(index);
 -                        GameObject gameObject = ((Actor)posObj).wmActor.gameObject;
-+                        // [ff9mapkit s50] same law as the index-8 block below: the names cover the
++                        // [ff9mapkit s51] same law as the index-8 block below: the names cover the
 +                        // bundled prefab + a loose override at the REAL id only -- generalize the
 +                        // fallback to the actor's own model id and null-guard (a minted chocobo
 +                        // would NRE the world constructor otherwise).
@@ -44,7 +44,7 @@ diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.
 -                    GameObject gameObject2 = ((Actor)posObj).wmActor.gameObject;
 -                    Transform transform4 = gameObject2.transform.Find("GEO_SUB_W0_008(Clone)");
 -                    if (transform4 == null)
-+                    // [ff9mapkit s50] the two hardcoded names cover the bundled prefab and a loose
++                    // [ff9mapkit s51] the two hardcoded names cover the bundled prefab and a loose
 +                    // override AT THE REAL id only -- a MINTED index-8 vehicle instantiates as
 +                    // "<mintId>(Clone)", both Finds miss, and the unguarded localPosition deref
 +                    // NRE'd EVERY FRAME (black screen; custom-vehicle rung 2, 2026-07-22).
