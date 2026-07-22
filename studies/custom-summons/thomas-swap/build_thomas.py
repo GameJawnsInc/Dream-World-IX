@@ -28,8 +28,12 @@ at rung 3's private folder ``ef084`` (``Unused_84`` -- never a real FF9 effect).
      rung2/3/4 provenance law: verbatim Square-Enix .seq content never lands in the repo).
   2. Splices in ``thomas_player_sequence.seq``'s committed delta (a background ``StartThread`` that
      self-loads THIS SAME folder's id 84 as a JSON/FBX mesh -- rung 7's own proven mechanism, reused)
-     immediately before the donor's own ``PlaySFX: SFX=Bahamut__Full`` line, and appends
-     ``HideMeshes=0,1,...,63`` to that same line (generated here, not hand-typed, to avoid a miscount).
+     immediately before the donor's own ``PlaySFX: SFX=Bahamut__Full`` line, and appends a generated
+     ``HideMeshes=<HIDE_RANGE>`` clause to that same line (default ``HIDE_RANGE=(0,31)`` -- round 1 of
+     bisecting Bahamut's native mesh-index space into a BODY half (hidden) vs an EFFECT half (kept) --
+     see README.md's "HideMeshes bisection protocol"; ``--hide-range A,B`` overrides the range for one
+     deploy, ``--calibrate`` omits the clause entirely (Bahamut's real mesh renders unsuppressed, for a
+     clean composition-reference video)).
   3. Writes the result to ``ef084/PlayerSequence.seq`` -- ``ef227`` (real stock Bahamut, and every
      vanilla Garnet/Eiko cast through it) is NEVER touched.
   4. Deploys ``ef084/FileList.txt`` (reused byte-identical from ``rung7-creature/FileList.txt`` -- same
@@ -54,11 +58,14 @@ refuses with a clear message if either is missing. Run ``blender_normalize.py`` 
 Usage (game may be CLOSED or OPEN for steps 1-4; step 5's id needs a relaunch to REGISTER, same as
 every mint):
 
-    py studies/custom-summons/thomas-swap/build_thomas.py             # deploy the Thomas swap
+    py studies/custom-summons/thomas-swap/build_thomas.py                    # deploy w/ default HIDE_RANGE
+    py studies/custom-summons/thomas-swap/build_thomas.py --hide-range 32,63 # deploy w/ the OTHER half
+    py studies/custom-summons/thomas-swap/build_thomas.py --calibrate        # no HideMeshes at all
     py studies/custom-summons/thomas-swap/build_thomas.py --restore   # back to rung 7's resting state
                                                                         # + Thomas's mint fully removed
 
-See README.md for the full test procedure, the failure-mode table, and the local-only provenance note.
+See README.md for the full test procedure, the failure-mode table, the HideMeshes bisection protocol,
+and the local-only provenance note.
 """
 from __future__ import annotations
 
@@ -98,9 +105,37 @@ PLAYER_SEQ_REL = f"{FRESH_REL_DIR}/{PLAYER_SEQ_NAME}"
 EXPECTED_DONOR_SHA256 = "4bc643bfb3ec478dcc1f5b51261f59637faac9d775cccd38c0055afee14ece63"
 
 # The one line this script edits -- verified byte-exact against the live install this session.
-ANCHOR_LINE = "PlaySFX: SFX=Bahamut__Full ; Reflect=True\r\n"
-HIDE_MESHES = ",".join(str(i) for i in range(64))              # "0,1,2,...,63" -- generated, not hand-typed
-PATCHED_LINE = f"PlaySFX: SFX=Bahamut__Full ; Reflect=True ; HideMeshes={HIDE_MESHES}\r\n"
+ANCHOR_BASE = "PlaySFX: SFX=Bahamut__Full ; Reflect=True"
+ANCHOR_LINE = ANCHOR_BASE + "\r\n"
+
+# --------------------------------------------------------------------------- HIDEMESHES BISECTION
+# The original blanket HideMeshes=0..63 (first shipped 2026-07-21) suppressed Bahamut's body but ALSO
+# blanked his summon-swirl/beam/fire-column EFFECT meshes -- the 2026-07-22 calibration-cast video
+# showed the user wants those effect meshes KEPT (the fire column engulfing Thomas reads as
+# "SPECTACULAR"). HIDE_RANGE is round 1 of bisecting the native creature's mesh-index space into a
+# BODY half (assumed low indices -- hide) vs an EFFECT half (assumed high indices -- keep); see
+# README.md's "HideMeshes bisection protocol" table for what each round's video should show and which
+# half to split next. ``BattleActionCode.cs:394-419`` (``TryGetArgMeshList``) parses each bare decimal
+# token in the comma list as a plain index into ``SFXData.RunningInstance.preventedMeshIndices``
+# (``SFXData.cs:1377``); unmatched indices are inert (no error), so a narrower range is exactly as safe
+# as the original 0-63 blanket, just with less total coverage.
+HIDE_RANGE = (0, 31)          # round 1: hide only the first half (0..31 inclusive) of the index space
+
+
+def _hide_meshes_arg(hide_range: "tuple[int, int] | None") -> str:
+    """``hide_range=None`` = CALIBRATE mode: no ``HideMeshes`` argument at all -- the patched line is
+    then byte-identical to the stock donor's own ``PlaySFX`` line, i.e. Bahamut's real mesh renders
+    completely unsuppressed. Otherwise a generated (not hand-typed) ``"lo,lo+1,...,hi"`` decimal list,
+    inclusive both ends."""
+    if hide_range is None:
+        return ""
+    lo, hi = hide_range
+    indices = ",".join(str(i) for i in range(lo, hi + 1))
+    return f" ; HideMeshes={indices}"
+
+
+def patched_line(hide_range: "tuple[int, int] | None") -> str:
+    return f"{ANCHOR_BASE}{_hide_meshes_arg(hide_range)}\r\n"
 
 # --------------------------------------------------------------------------- our own committed sources
 THOMAS_SEQ_DELTA_PATH = HERE / "thomas_player_sequence.seq"      # committed, 100% our text (the splice)
@@ -174,79 +209,144 @@ THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 #   ``MoveToPosition: RelativePosition=(0,0,400) ; Anim=MP_STEP_FORWARD`` (the caster's own forward
 #   step, toward the enemies, at positive Z).
 #
-#   THE 3 PHASES map onto rung-4's tick map (PLAN.md; Thomas's own clock zeroes at HIS OWN PlaySFX,
-#   which fires within a tick or two of the donor's nested Sequence.seq's own frame-0 -- see README.md
-#   "Timing" for the background-thread offset-uncertainty discussion; each phase below is given a
-#   comfortable overlap margin against that uncertainty, not a razor's-edge cut):
-#     P1 ENTRANCE  t=0   .. P1_ENTRANCE_DURATION            -- covers blackout ramp (t=0), flash1
-#                                                               (t=116), flash2 (t=289); arrives just
-#                                                               before the dim silhouette reveal (t=403)
-#     P2 THE REIGN  ..   .. + P2_REIGN_DURATION              -- covers the dim reveal (t=403) through
-#                                                               the ENTIRE Mega-Flare window (t=434-516)
-#                                                               incl. BOTH EffectPoints (t=486, t=498)
-#     P3 EXIT       ..   .. + P3_EXIT_DURATION = THOMAS_END  -- covers lights-restored (t=516) through
-#                                                               the close (t~547) + the same ~33-tick
-#                                                               tail margin the prior static build used
+#   2026-07-22 REDESIGN -- the orchestrator watched the calibration-cast video (both Bahamut and Thomas
+#   visible) and derived an authoritative video-seconds timing map: Thomas's own PlaySFX/frame-0 lands
+#   at video t~=5-6s, his clock runs FRAMES_PER_VIDEO_SECOND=15, total End=580 frames unchanged. The
+#   3-phase build above left the ENTIRE SKY REALM window (t~=13-20 -- Bahamut's iconic hover pose, head
+#   close-ups, the charge beginning) with no Thomas at all -- ~8s read as "tons of black screen" in the
+#   HideMeshes cast, because Thomas never left ground level while Bahamut's own cinematic went to the
+#   sky. THE REDESIGN adds a full ASCENT/SKY REIGN/DIVE arc so Thomas is on screen for that window too,
+#   using frames = (t_video - VIDEO_TO_FRAME_OFFSET_S) * FRAMES_PER_VIDEO_SECOND with +/-15-frame
+#   tolerance margins folded into each boundary below (not razor's-edge cuts):
+#     P1 ENTRANCE     0 .. P1_ENTRANCE_DURATION                        -- t~=6-11, the proven cave shots
+#                                                                          (unchanged path, just faster)
+#     P2 ASCENT        .. + P2_ASCENT_DURATION                         -- t~=11-14, rocket up to the sky
+#     P3 SKY REIGN      .. + P3_SKY_REIGN_DURATION                     -- t~=14-28, hover/close-ups/charge/
+#                                                                          blast -- THE BLACK-SCREEN KILLER
+#     P4 DIVE           .. + P4_DIVE_DURATION                          -- t~=28-31 BY THE ACTUAL DURATION
+#                                                                          (45 frames/3s, not "~1s" -- see
+#                                                                          CAVEAT below), touchdown ~2s
+#                                                                          AFTER the flare hits (t~=29)
+#     P5 GROUND REIGN   .. + P5_GROUND_REIGN_DURATION                  -- t~=31-42 BY THE ACTUAL DURATION
+#                                                                          (165 frames/11s); fire column
+#                                                                          engulfs him + both damage beats
+#                                                                          + undercarriage shots (unchanged
+#                                                                          from the original build's own
+#                                                                          ground-hover piece)
+#     P6 EXIT           .. + P6_EXIT_DURATION = THOMAS_END             -- t~=42-44.7 BY THE ACTUAL DURATION
+#                                                                          (40 frames/2.7s) -- this is AFTER
+#                                                                          the calibration video's own
+#                                                                          observed "t~=38-40: resolution,
+#                                                                          Thomas gone (End reached)," a
+#                                                                          ~5-7s gap between the given
+#                                                                          offset/rate constants and the
+#                                                                          given End-reached observation
+#                                                                          (see CAVEAT below -- NOT fixed
+#                                                                          here, no footage of THIS build)
+#
+#   CAVEAT (adversarial verification, 2026-07-22, NOT yet in-game-checked -- the four t~= labels above
+#   for P4/P5/P6 were originally hand-estimated and did NOT match frames=(t-6)*15 applied to this
+#   build's own chosen Durations (P4=45f/P5=165f/P6=40f) -- corrected above to the values the formula
+#   actually produces. Two consequences worth a look once there's footage of THIS specific build:
+#     (a) P4's 45-frame (3s) dive means touchdown lands at t~=31, ~2s AFTER the flare hits the arena at
+#         t~=29 per the video map -- for that first ~2s of the intended "backlit by the blast, engulfed
+#         in the fire column" SPECTACULAR ground beat, Thomas would still read as mid-air/diving rather
+#         than grounded. If confirmed, the fix is a P4-duration retune (not attempted blind here).
+#     (b) P6 Exit (frames 540-580, t~=42-44.7) starts and ends entirely AFTER this same video's own
+#         literal "t~=38-40: resolution, Thomas gone (End reached)" observation -- SFXDataMesh.cs:799
+#         (`frame >= tok.endFrame` -> `SetActive(false)`) confirms "End reached" there literally means
+#         frame=580 was hit, so that observation IS a real video-time data point for frame 580, and it
+#         does not match 6 + 580/15 = 44.67s predicted by the given offset/rate constants -- a ~5-7s
+#         internal inconsistency in the given numbers, not something this script's math got wrong. If
+#         the real per-frame rate is faster than 15fps (needed to make End land at t~=38-40), P6 Exit
+#         may play out well after the real cinematic and battle result have already resolved -- i.e. an
+#         odd late coda -- rather than during it. Needs a fresh capture of THIS build before retuning
+#         (this project's own video-for-visual-bugs law); not fixed here.
 #
 #   Every number below is a named constant -- retune and rerun (recast-only, no relaunch) in one line.
+VIDEO_TO_FRAME_OFFSET_S = 6      # Thomas's own PlaySFX/frame-0, video-seconds (measured off the cast)
+FRAMES_PER_VIDEO_SECOND = 15     # Thomas's own clock rate (measured off the cast)
 
-# CENTER-STAGE -- the settled hover point for P2 ("the reign"): comfortably past Thomas's own
-# ~1340-unit half-length (10.116/2 * THOMAS_SCALE) onto the enemy side so his own bulk doesn't sprawl
-# back over the caster, and elevated roughly half his own ~1302-unit height (mission's suggested
-# 500-900 Y-band; 1200-2200 Z-band) -- a dragon looms, it doesn't stand.
+# CAVE STAGE -- the settled hover point for P1's arrival AND P4's landing (unchanged numbers from the
+# original build's STAGE_*): comfortably past Thomas's own ~1340-unit half-length (10.116/2 *
+# THOMAS_SCALE) onto the enemy side so his own bulk doesn't sprawl back over the caster, elevated
+# roughly half his own ~1302-unit height -- a dragon looms, it doesn't stand.
 #
 # CAVEAT (found in adversarial review, 2026-07-22, NOT yet in-game-checked -- flag for the next video
 # capture): this Z-clearance reasoning is computed against Thomas's LENGTH axis (~2681 units), which
-# only runs along world Z while his yaw is near 0 (facing the enemies, true for roughly the first half
-# of P1's approach). By the time he actually ARRIVES at CENTER-STAGE (end of P1, frame
-# P1_ENTRANCE_DURATION) his yaw has already eased to YAW_BROADSIDE=90 -- the pose he then HOLDS for the
-# entire P2 "reign" (the mega-flare window, the shot the player is actually watching). At yaw=90, a
-# rotation about the vertical (Y) axis swaps which world axis his bounding box projects onto: his
-# ~2681-unit LENGTH now sweeps world X (not Z), and only his ~926-unit WIDTH remains on Z. P2's own X
-# range (STAGE_X=0 -> DRIFT_X=220) was never sized against a 2681-unit sweep -- if the next playtest
-# reports Thomas reading as absurdly wide / clipped at the screen edges / only a sliver visible during
-# the HOVER (as opposed to the swoop-in), this axis swap -- not a miscalibrated magnitude -- is the
-# first thing to check from footage. Candidate fixes if confirmed: shrink THOMAS_SCALE for the P2 hold
+# only runs along world Z while his yaw is near 0 (facing the enemies, true only during P1's own
+# approach and P6's own climb-away). Everywhere else -- P2 through P5 -- his yaw is held at
+# YAW_BROADSIDE=90, where a rotation about the vertical (Y) axis swaps which world axis his bounding
+# box projects onto: his ~2681-unit LENGTH sweeps world X (not Z), and only his ~926-unit WIDTH remains
+# on Z. Neither P3's own X range (SKY_DRIFT_X=250) nor P5's (GROUND_DRIFT_X - CAVE_STAGE_X=220) was
+# ever sized against a 2681-unit sweep -- if a playtest reports Thomas reading as absurdly wide /
+# clipped at the screen edges / only a sliver visible during either REIGN (as opposed to the
+# swoop/dive transitions), this axis swap -- not a miscalibrated magnitude -- is the first thing to
+# check from footage. Candidate fixes if confirmed: shrink THOMAS_SCALE for the reign holds
 # specifically (not straightforward -- Scaling is one constant piece, not per-phase), pick a
 # YAW_BROADSIDE nearer 0/180 so the long axis stays on Z, or accept a wider camera crop as the "epic"
-# read. Not fixed here -- no footage yet, and retuning without it would be a guess (this project's own
-# video-for-visual-bugs law).
-STAGE_X = 0            # CasterPositionX + 0   -- centered on the caster's own lane
-STAGE_Y = 700          # CasterPositionY + 700 -- looming height
-STAGE_Z = 1800         # CasterPositionZ + 1800 -- well onto the enemy side
+# read. Not fixed here -- no footage of THIS build yet, and retuning without it would be a guess (this
+# project's own video-for-visual-bugs law).
+CAVE_STAGE_X = 0            # CasterPositionX + 0   -- centered on the caster's own lane
+CAVE_STAGE_Y = 700          # CasterPositionY + 700 -- looming height
+CAVE_STAGE_Z = 1800         # CasterPositionZ + 1800 -- well onto the enemy side
 
-# P1 ENTRANCE origin -- swoop in from high off-side, descending + advancing into CENTER-STAGE.
+# P1 ENTRANCE origin -- swoop in from high off-side, descending + advancing into CAVE_STAGE (unchanged
+# numbers from the original build's ENTRANCE_*; only the phase's OWN duration got faster, 75 not 420).
 ENTRANCE_X = -2000     # off to one side (mission's own example number)
-ENTRANCE_Y = 1500      # higher than STAGE_Y -- descends INTO the loom height as he arrives
-ENTRANCE_Z = 300       # barely onto the enemy side yet -- advances to STAGE_Z over the swoop
+ENTRANCE_Y = 1500      # higher than CAVE_STAGE_Y -- descends INTO the loom height as he arrives
+ENTRANCE_Z = 300       # barely onto the enemy side yet -- advances to CAVE_STAGE_Z over the swoop
 
-# P2 THE REIGN destination -- a gentle sway/rise off CENTER-STAGE, NOT a static hold ("alive, not
-# frozen"); held via Sinus easing (floaty, no harsh start/stop) rather than a Turning oscillator, so
-# the piece-chain (Origin inherited from the PRIOR piece's own Destination, verified against
-# ParametricMovement.cs:88-105) lands P3's own Origin exactly where P2 visually stopped.
-DRIFT_X = STAGE_X + 220     # a modest lateral sway
-DRIFT_Y = STAGE_Y + 80      # a modest additional rise -- "breathing" while he hovers
-DRIFT_Z = STAGE_Z           # Z held (no drift on the caster<->enemy axis during the reign)
+# P2 ASCENT destination -- SKY STAGE: straight up off CAVE_STAGE's own X/Z lane (per the mission spec:
+# "SKY_Y = CasterPositionY + 4500, Z stays ~+1800, X ~0").
+SKY_Y_OFFSET = 4500              # CasterPositionY + 4500 -- "SKY_Y" per the mission's redesign spec
+SKY_STAGE_X = CAVE_STAGE_X       # ~0, unchanged lane
+SKY_STAGE_Z = CAVE_STAGE_Z       # ~1800, unchanged lane -- "Z stays ~+1800" per spec
 
-# P3 EXIT destination -- climb away up-forward, past the sequence's own close.
-EXIT_X = DRIFT_X + 380
+# P3 SKY REIGN destination -- a gentle broadside sway/rise off SKY STAGE (mirrors the original ground
+# REIGN's own "alive, not frozen" drift mechanic, relocated to the sky + rescaled per the mission's own
+# amplitude: "drift amplitude ~250 X / ~100 Y"). Held via Sinus easing (floaty, no harsh start/stop),
+# so the piece-chain (Origin inherited from the PRIOR piece's own Destination, verified against
+# ParametricMovement.cs:88-105) lands P4's own Origin exactly where P3 visually stopped.
+SKY_DRIFT_X = 250        # a modest lateral sway among the clouds
+SKY_DRIFT_Y = 100        # a modest additional rise -- "breathing" through the hover pose/charge/blast
+
+# P5 GROUND REIGN destination -- the proven floaty ground hover (unchanged numbers from the original
+# build's own DRIFT_*): the fire column engulfs him here, both damage beats fire here.
+GROUND_DRIFT_X = CAVE_STAGE_X + 220     # a modest lateral sway
+GROUND_DRIFT_Y = CAVE_STAGE_Y + 80      # a modest additional rise -- "breathing" while he hovers
+GROUND_DRIFT_Z = CAVE_STAGE_Z           # Z held (no drift on the caster<->enemy axis during the reign)
+
+# P6 EXIT destination -- climb away up-forward, past the sequence's own close (unchanged numbers from
+# the original build's own EXIT_*).
+EXIT_X = GROUND_DRIFT_X + 380
 EXIT_Y = 1600
 EXIT_Z = 2600
 
 # Yaw (Rotation.Y): P1 banks 0 (his normalized-forward, facing the enemies) -> 90 (broadside) as he
-# arrives, holds broadside through P2 (the mission's "safe comedic read" -- also his iconic "number 1"
-# side panel, per README's axis-verification renders), then 90 -> 0 in P3 as he turns forward again to
-# climb away. Rotation.Z stays 0 in every piece -- NO roll (he is not PSX-inverted; README's own
-# axis-verification already established his normalized Rotation=(0,0) needs no runtime compensation).
+# arrives at CAVE_STAGE, then HOLDS broadside from P2's entry all the way through the end of P5 (the
+# mission's own instruction -- also his iconic "number 1" side panel, per README's axis-verification
+# renders), then 90 -> 0 only in P6 as he turns forward again to climb away. Rotation.Z stays 0 in
+# every piece -- NO roll (he is not PSX-inverted; README's own axis-verification already established
+# his normalized Rotation=(0,0) needs no runtime compensation).
 YAW_BROADSIDE = 90
 
-# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- sum = THOMAS_END = the FBX
-# entry's own End (matches the prior static build's End=580, generous ~33-tick tail past the donor's
-# own last beat at t~547; see PLAN.md's rung-4 tick-map annotation for every cited beat above).
-P1_ENTRANCE_DURATION = 420
-P2_REIGN_DURATION = 100
-P3_EXIT_DURATION = 60
-THOMAS_END = P1_ENTRANCE_DURATION + P2_REIGN_DURATION + P3_EXIT_DURATION   # 580, unchanged
+# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- boundaries match the
+# mission's video-derived timing map exactly (0-75 / 75-120 / 120-330 / 330-375 / 375-540 / 540-580);
+# sum = THOMAS_END = the FBX entry's own End, unchanged at 580 from the original 3-phase build. The
+# t~= labels below are frames=(t-6)*15 solved FORWARD from each Duration (adversarial-verification
+# correction, 2026-07-22 -- P4/P5/P6 were previously mislabeled ~2-5s early; see the CAVEAT above the
+# FLIGHT constants for what this means for the flare-hit/End-reached alignment, not fixed blind here).
+P1_ENTRANCE_DURATION = 75          # t~=6-11: the proven cave shots (was 420 -- now faster, same path)
+P2_ASCENT_DURATION = 45            # t~=11-14: rocket up to the sky stage
+P3_SKY_REIGN_DURATION = 210        # t~=14-28: hover pose/close-ups/charge/blast -- the black-screen killer
+P4_DIVE_DURATION = 45              # t~=28-31 (3s): plunge back down -- touchdown ~2s AFTER the flare
+                                    #   hits (t~=29 per the video map); see CAVEAT above
+P5_GROUND_REIGN_DURATION = 165     # t~=31-42 (11s): fire column + both damage beats + undercarriage shots
+P6_EXIT_DURATION = 40              # t~=42-44.7: climb away -- AFTER the calibration video's own observed
+                                    #   "End reached" at t~=38-40; see CAVEAT above
+THOMAS_END = (P1_ENTRANCE_DURATION + P2_ASCENT_DURATION + P3_SKY_REIGN_DURATION
+              + P4_DIVE_DURATION + P5_GROUND_REIGN_DURATION + P6_EXIT_DURATION)   # 580, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -312,8 +412,8 @@ def _write(dest: Path, data: bytes) -> str:
 def _rel(base: str, offset) -> str:
     """An NCalc anchor expression: ``base`` plus/minus an integer caster-relative offset. offset==0
     collapses to the bare base expression (both parse identically via NCalc -- purely for a
-    cleaner-reading generated manifest, exactly the ``HIDE_MESHES``-style "generated, not hand-typed"
-    convention already used above for the .seq splice)."""
+    cleaner-reading generated manifest, exactly the ``_hide_meshes_arg``-style "generated, not
+    hand-typed" convention already used above for the .seq splice)."""
     offset = int(offset)
     if offset == 0:
         return base
@@ -325,31 +425,60 @@ def build_manifest_json() -> dict:
     verified against ``ParametricMovement.LoadFromJSON``, Memoria/Battle/SFX/ParametricMovement.cs:
     58-136 -- an array of pieces, ``Duration`` + per-axis ``Origin*``/``Destination*``/
     ``InterpolationType*``; an absent ``Origin*`` key on piece i>0 CHAINS from the prior piece's own
-    ``Destination*`` expression, :88-105/:104-105/:96-97 -- used below for pieces 2/3 of both Movement
-    and Rotation). Movement uses SinusOut (decelerating arrival) -> Sinus (floaty hover, both ends
-    eased) -> SinusIn (accelerating departure); every Destination is always given explicitly (never
-    relied on the dest-defaults-to-origin fallback) so the JSON stays self-documenting. Scaling is
-    unchanged from the prior static build (constant THOMAS_SCALE, one piece, no motion needed)."""
+    ``Destination*`` expression, :88-105/:104-105/:96-97 -- used below for pieces 2-6 of both Movement
+    and Rotation). The 2026-07-22 redesign is 6 pieces (Entrance/Ascent/Sky Reign/Dive/Ground Reign/
+    Exit): SinusOut (decelerating arrival, P1) -> SinusIn (accelerating launch, P2) -> Sinus (floaty
+    sky hover, P3) -> SinusIn (the dive, P4, mirrors Bahamut's own dive per the mission spec) -> Sinus
+    (floaty ground hover, P5) -> SinusIn (accelerating departure, P6); every Destination is always
+    given explicitly (never relied on the dest-defaults-to-origin fallback) so the JSON stays
+    self-documenting. Scaling is unchanged from the original build (constant THOMAS_SCALE, one piece,
+    no motion needed)."""
     movement = [
-        {   # P1 ENTRANCE: swoop in high off-side -> descend+advance into CENTER-STAGE
+        {   # P1 ENTRANCE: swoop in high off-side -> descend+advance into CAVE_STAGE (faster than the
+            # original build, same path)
             "Duration": str(P1_ENTRANCE_DURATION),
             "OriginX": _rel("CasterPositionX", ENTRANCE_X),
             "OriginY": _rel("CasterPositionY", ENTRANCE_Y),
             "OriginZ": _rel("CasterPositionZ", ENTRANCE_Z),
-            "DestinationX": _rel("CasterPositionX", STAGE_X),
-            "DestinationY": _rel("CasterPositionY", STAGE_Y),
-            "DestinationZ": _rel("CasterPositionZ", STAGE_Z),
+            "DestinationX": _rel("CasterPositionX", CAVE_STAGE_X),
+            "DestinationY": _rel("CasterPositionY", CAVE_STAGE_Y),
+            "DestinationZ": _rel("CasterPositionZ", CAVE_STAGE_Z),
             "InterpolationTypeX": "SinusOut", "InterpolationTypeY": "SinusOut", "InterpolationTypeZ": "SinusOut",
         },
-        {   # P2 THE REIGN: gentle sway/rise off CENTER-STAGE (Origin chained from P1's Destination)
-            "Duration": str(P2_REIGN_DURATION),
-            "DestinationX": _rel("CasterPositionX", DRIFT_X),
-            "DestinationY": _rel("CasterPositionY", DRIFT_Y),
-            "DestinationZ": _rel("CasterPositionZ", DRIFT_Z),
+        {   # P2 ASCENT: rocket up off CAVE_STAGE's own X/Z lane to SKY STAGE (Origin chained from P1's
+            # Destination)
+            "Duration": str(P2_ASCENT_DURATION),
+            "DestinationX": _rel("CasterPositionX", SKY_STAGE_X),
+            "DestinationY": _rel("CasterPositionY", SKY_Y_OFFSET),
+            "DestinationZ": _rel("CasterPositionZ", SKY_STAGE_Z),
+            "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
+        },
+        {   # P3 SKY REIGN: gentle broadside sway/rise among the clouds (Origin chained from P2's
+            # Destination) -- the Mega-Flare + both EffectPoints play out under this piece
+            "Duration": str(P3_SKY_REIGN_DURATION),
+            "DestinationX": _rel("CasterPositionX", SKY_STAGE_X + SKY_DRIFT_X),
+            "DestinationY": _rel("CasterPositionY", SKY_Y_OFFSET + SKY_DRIFT_Y),
+            "DestinationZ": _rel("CasterPositionZ", SKY_STAGE_Z),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P3 EXIT: climb away up-forward (Origin chained from P2's Destination)
-            "Duration": str(P3_EXIT_DURATION),
+        {   # P4 DIVE: plunge back down to CAVE_STAGE (Origin chained from P3's Destination) -- mirrors
+            # Bahamut's own dive per the mission spec, lands before the flare hits the ground
+            "Duration": str(P4_DIVE_DURATION),
+            "DestinationX": _rel("CasterPositionX", CAVE_STAGE_X),
+            "DestinationY": _rel("CasterPositionY", CAVE_STAGE_Y),
+            "DestinationZ": _rel("CasterPositionZ", CAVE_STAGE_Z),
+            "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
+        },
+        {   # P5 GROUND REIGN: the proven floaty ground hover (Origin chained from P4's Destination) --
+            # unchanged from the original build's own ground-reign piece
+            "Duration": str(P5_GROUND_REIGN_DURATION),
+            "DestinationX": _rel("CasterPositionX", GROUND_DRIFT_X),
+            "DestinationY": _rel("CasterPositionY", GROUND_DRIFT_Y),
+            "DestinationZ": _rel("CasterPositionZ", GROUND_DRIFT_Z),
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
+        },
+        {   # P6 EXIT: climb away up-forward (Origin chained from P5's Destination) -- unchanged path
+            "Duration": str(P6_EXIT_DURATION),
             "DestinationX": _rel("CasterPositionX", EXIT_X),
             "DestinationY": _rel("CasterPositionY", EXIT_Y),
             "DestinationZ": _rel("CasterPositionZ", EXIT_Z),
@@ -363,13 +492,28 @@ def build_manifest_json() -> dict:
             "OriginZ": "0", "DestinationZ": "0",
             "InterpolationTypeY": "Sinus",
         },
-        {   # P2: hold broadside (Origin chained from P1's Destination = YAW_BROADSIDE already)
-            "Duration": str(P2_REIGN_DURATION),
+        {   # P2: hold broadside through the ascent (Origin chained from P1's Destination = YAW_BROADSIDE)
+            "Duration": str(P2_ASCENT_DURATION),
             "DestinationY": str(YAW_BROADSIDE),
             "DestinationZ": "0",
         },
-        {   # P3: turn back to forward-facing as he climbs away
-            "Duration": str(P3_EXIT_DURATION),
+        {   # P3: hold broadside through the sky reign (the mega-flare window)
+            "Duration": str(P3_SKY_REIGN_DURATION),
+            "DestinationY": str(YAW_BROADSIDE),
+            "DestinationZ": "0",
+        },
+        {   # P4: hold broadside through the dive
+            "Duration": str(P4_DIVE_DURATION),
+            "DestinationY": str(YAW_BROADSIDE),
+            "DestinationZ": "0",
+        },
+        {   # P5: hold broadside through the ground reign (fire column + damage beats)
+            "Duration": str(P5_GROUND_REIGN_DURATION),
+            "DestinationY": str(YAW_BROADSIDE),
+            "DestinationZ": "0",
+        },
+        {   # P6: turn back to forward-facing as he climbs away
+            "Duration": str(P6_EXIT_DURATION),
             "DestinationY": "0",
             "DestinationZ": "0",
             "InterpolationTypeY": "Sinus",
@@ -394,9 +538,10 @@ def build_manifest_json() -> dict:
     }
 
 
-def splice_sequence(donor_text: str) -> str:
+def splice_sequence(donor_text: str, hide_range: "tuple[int, int] | None") -> str:
     """Insert the Thomas delta block immediately before ANCHOR_LINE, and replace ANCHOR_LINE itself
-    with PATCHED_LINE (the HideMeshes-augmented form). Raises DriftError if ANCHOR_LINE isn't found
+    with ``patched_line(hide_range)`` (the HideMeshes-augmented form, or -- ``hide_range=None`` -- the
+    bare unmodified anchor text, i.e. CALIBRATE mode). Raises DriftError if ANCHOR_LINE isn't found
     (the donor's shape changed since this script's splice point was derived -- abort rather than
     guess)."""
     lines = donor_text.splitlines(keepends=True)
@@ -418,7 +563,7 @@ def splice_sequence(donor_text: str) -> str:
             f"{THOMAS_SEQ_DELTA_PATH} doesn't start with the expected StartThread line after "
             "stripping comments/blanks -- refusing to splice unexpected content"
         )
-    new_lines = lines[:idx] + delta_lines + [PATCHED_LINE] + lines[idx + 1:]
+    new_lines = lines[:idx] + delta_lines + [patched_line(hide_range)] + lines[idx + 1:]
     return "".join(new_lines)
 
 
@@ -487,11 +632,11 @@ def unmint_thomas(mod_root: Path) -> dict:
             "directive": directive}
 
 
-def build_thomas(mod_root: Path, game_path: Path) -> dict:
+def build_thomas(mod_root: Path, game_path: Path, hide_range: "tuple[int, int] | None" = HIDE_RANGE) -> dict:
     donor_bytes, donor_text = _read_verified(
         game_path / DONOR_REL_DIR / PLAYER_SEQ_NAME, EXPECTED_DONOR_SHA256, "stock ef227/PlayerSequence.seq"
     )
-    out_text = splice_sequence(donor_text)
+    out_text = splice_sequence(donor_text, hide_range)
     out_bytes = out_text.encode("utf-8")
 
     seq_dest = mod_root / FRESH_REL_DIR / PLAYER_SEQ_NAME
@@ -520,7 +665,7 @@ def build_thomas(mod_root: Path, game_path: Path) -> dict:
         "seq_dest": str(seq_dest), "seq_sha256": seq_sha256, "seq_diff": diff,
         "filelist_dest": str(filelist_dest), "filelist_sha256": filelist_sha256,
         "manifest_dest": str(manifest_dest), "manifest_sha256": manifest_sha256,
-        "mint": mint_info,
+        "mint": mint_info, "hide_range": hide_range,
     }
 
 
@@ -561,8 +706,37 @@ def main() -> int:
     group.add_argument("--restore", action="store_true",
                         help="undo the Thomas swap -- back to rung 7's own proven resting state, and "
                              "Thomas's GEO mint fully removed")
+    hg_group = parser.add_mutually_exclusive_group()
+    hg_group.add_argument("--hide-range", metavar="A,B", default=None,
+                           help=f"override HIDE_RANGE (default {HIDE_RANGE[0]},{HIDE_RANGE[1]}) for this "
+                                "deploy -- two comma-separated inclusive integers, e.g. --hide-range 32,63 "
+                                "for round 2's other half. Only meaningful with a Thomas-swap deploy (not "
+                                "--restore). See README.md's HideMeshes bisection protocol.")
+    hg_group.add_argument("--calibrate", action="store_true",
+                           help="deploy with NO HideMeshes argument at all -- the patched line is then "
+                                "byte-identical to the stock donor's own PlaySFX line, so Bahamut's real "
+                                "mesh renders completely unsuppressed. For recording a clean composition-"
+                                "reference video. Mutually exclusive with --hide-range.")
     args = parser.parse_args()
     mode = "restore" if args.restore else "thomas"
+
+    if mode == "restore" and (args.hide_range or args.calibrate):
+        parser.error("--hide-range/--calibrate only apply to a Thomas-swap deploy, not --restore")
+
+    if args.calibrate:
+        hide_range = None
+    elif args.hide_range:
+        parts = args.hide_range.split(",")
+        if len(parts) != 2:
+            parser.error(f"--hide-range must be 'A,B' (two comma-separated integers), got {args.hide_range!r}")
+        try:
+            hide_range = (int(parts[0]), int(parts[1]))
+        except ValueError:
+            parser.error(f"--hide-range must be 'A,B' (two comma-separated integers), got {args.hide_range!r}")
+        if hide_range[0] > hide_range[1]:
+            parser.error(f"--hide-range lo must be <= hi, got {hide_range}")
+    else:
+        hide_range = HIDE_RANGE
 
     game_path = config.find_game_path()
     mod_root = config.find_mod_root(game_path)
@@ -571,11 +745,17 @@ def main() -> int:
     print(f"mod folder   : {mod_root}")
     print(f"private id   : ef{FRESH_EF_ID:03d} (rung 3/7's fresh-id folder -- reused, not re-minted)")
     print(f"mode         : {'THOMAS SWAP' if mode == 'thomas' else 'RESTORE (rung-7 resting state)'}")
+    if mode == "thomas":
+        if hide_range is None:
+            print("hide range   : CALIBRATE -- no HideMeshes argument at all (Bahamut renders unsuppressed)")
+        else:
+            print(f"hide range   : {hide_range[0]}..{hide_range[1]} inclusive "
+                  f"({hide_range[1] - hide_range[0] + 1} indices)")
     print()
 
     try:
         if mode == "thomas":
-            result = build_thomas(mod_root, game_path)
+            result = build_thomas(mod_root, game_path, hide_range)
         else:
             result = restore(mod_root, game_path)
     except (DriftError, ThomasAssetError) as e:
@@ -598,10 +778,19 @@ def main() -> int:
         print(f"written  : {result['manifest_dest']}")
         print(f"  sha256 : {result['manifest_sha256']}")
         print(f"(repo copy kept in sync at {THOMAS_MANIFEST_REPO_PATH})")
-        print(f"THE FLIGHT: P1 entrance 0-{P1_ENTRANCE_DURATION} (swoop in, high off-side -> center-stage), "
-              f"P2 reign {P1_ENTRANCE_DURATION}-{P1_ENTRANCE_DURATION + P2_REIGN_DURATION} (broadside hover, "
-              f"gentle sway -- covers the Mega-Flare + both EffectPoints), "
-              f"P3 exit {P1_ENTRANCE_DURATION + P2_REIGN_DURATION}-{THOMAS_END} (climb away up-forward).")
+        b1 = P1_ENTRANCE_DURATION
+        b2 = b1 + P2_ASCENT_DURATION
+        b3 = b2 + P3_SKY_REIGN_DURATION
+        b4 = b3 + P4_DIVE_DURATION
+        b5 = b4 + P5_GROUND_REIGN_DURATION
+        b6 = b5 + P6_EXIT_DURATION  # == THOMAS_END
+        print("THE FLIGHT (6 phases, 2026-07-22 redesign):")
+        print(f"  P1 entrance   0-{b1}   swoop in, high off-side -> cave stage")
+        print(f"  P2 ascent   {b1}-{b2}   rocket up to the sky stage")
+        print(f"  P3 sky reign  {b2}-{b3}  broadside hover among the clouds -- the black-screen killer")
+        print(f"  P4 dive     {b3}-{b4}  plunge back down to the cave stage")
+        print(f"  P5 ground reign {b4}-{b5}  fire column + both damage beats + undercarriage shots")
+        print(f"  P6 exit     {b5}-{b6}  climb away up-forward")
         print()
         m = result["mint"]
         print(f"=== Thomas GEO mint: id={m['id']} name={m['name']} type_int={m['type_int']} ===")
