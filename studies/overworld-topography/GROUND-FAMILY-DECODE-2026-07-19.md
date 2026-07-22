@@ -1600,3 +1600,202 @@ measured colour, not language: a band cannot classify what the vocabulary does n
 **THE DUNES ISLAND IS PARKED AS DEPLOYED** (all mesh/seam/walkmesh gates green; the fringe
 verdicts on green content are void). **OPEN (gating any further dunes-fringe work): decode the
 desert|grass combining/tiling language.** User directive: switch gears — the arc pauses here.
+## Round 10 (2026-07-22) — THE DESERT|GRASS COMBINING LANGUAGE ★ DECODED (train+test falsified/refined; comp[1]'s green is EXPLAINED — 7 real orphan-decal defects, not lichen; READ-ONLY, nothing deployed, the redress itself is a NEXT round)
+
+**The question, in the doc's own words.** Round 9 ended on the user's correction, verbatim: *"there is no
+lichen. you're seeing where the desert meets the grass, and failing to understand the tiling language that
+combines them. let's switch gears since we're just spinning on this."* The doc's own restatement of the
+gate: *"the green content at the carry is the desert|grass COMBINING LANGUAGE, which this arc never decoded
+(the ecotone strip decode proved only grass|desert + desert|dunes as translated B-columns; the
+grass-adjacency combiners are structurally different art — the uncatalogued shared assets the round-2 decode
+itself flagged)."* And the literal OPEN item: **decode the desert|grass combining/tiling language.** This
+round does that, and then re-runs the comp[1] verdict through it.
+
+**Method.** Grass and desert are adjacent exactly ONCE on the whole 24×20-block map (the earlier
+biome-adjacency census's 193 within-block edges), and that one place is a tight 6-block cluster
+**(13–15, 11–12)** — the same neighbourhood comp[1]'s own donor blocks (12–15,10–13) already sit inside. A
+mechanical first pass (generalizing `dunes_field_mint.classify_tri`'s translation test from
+`(desert,dunes)` to `(grass,desert)`, reusing the shipped `STRIPS`/`GROUNDS`/`FAM_REGION` tables verbatim)
+over all 349 boundary tris in that cluster found **320/349 (92%) already land in ONE shared translated
+STRIP rect regardless of which side's topo they carry**, 40/349 in plain mains, and 2/349 unclassified —
+confirming the old "grass B-strips TRANSLATED" earmark was directionally right, but leaving row structure,
+band width, and the 2 stragglers completely unexplained. That gap is what earned a full census: the 6
+blocks were split **TRAIN** (13,11)/(14,11)/(15,11) — mine the laws from real bytes — and **TEST**
+(13,12)/(14,12)/(15,12) — held out, used only to adversarially verify each law against fresh data (the
+arc's REPRODUCE/METHOD/OVER-CLAIM discipline run as a numeric train/test split). Every law below was then
+run through a skeptic pass against the TEST set and reported honestly whether it survived, needed
+refinement, or broke. Finally — **CALIBRATE THE INSTRUMENT BEFORE YOU JUDGE WITH IT**, same as every prior
+round — the recovered vocabulary was rendered through the real Moguri atlas and banded against genuine
+stock colour variance *before* it was used to rule on comp[1]'s deployed green. **Nothing was deployed this
+round; all work is read-only against stock bytes and the live `FF9CustomMap-world` mod.**
+
+### THE DECODED LANGUAGE — a closed, 3-rect vocabulary
+
+The desert|grass fringe is exactly **grass mains / desert mains / ONE dedicated translated strip column**
+— `STRIPS[('grass','desert')]`, confirmed byte-exact (5dp) against `ff9mapkit/ff9mapkit/world/grassland.py`
+on both TRAIN and TEST blocks, with zero deviation in the rect itself. What was missing before this round —
+and what the census actually recovers — is the internal grammar of that one strip: which of its 4 rows goes
+where, and how wide the dressed band is.
+
+| asset | UV rect | role |
+|---|---|---|
+| `GROUNDS['grass']` mains | u[0.00391,0.12695] v[0.76855,0.83008] | plain grass, ≥2 cells from the line |
+| `GROUNDS['desert']` mains | u[0.65723,0.78027] v[0.66992,0.73145] (= grass mains + the known (0.65332,−0.09863) translation) | plain desert, ≥2 cells from the line |
+| `STRIPS[('grass','desert')]` row0 | u[0.91797,0.97852] v[0.32227,0.35157] | grass-side pure-fringe decal (near-exclusive) |
+| `STRIPS[('grass','desert')]` row1 | v[0.35352,0.38379] | straddle-cell shared decal, option A |
+| `STRIPS[('grass','desert')]` row2 | v[0.38477,0.41504] | desert-side pure-fringe decal (near-exclusive) |
+| `STRIPS[('grass','desert')]` row3 | v[0.41602,0.44629] | straddle-cell shared decal, option B |
+
+Co-resident in the same blocks but a **different pair**, flagged so nothing mis-attributes them: the
+already-known `STRIPS[('desert','dunes')]` column (u[0.25879,0.31934]); a genuinely new, still-undecoded
+**dunes|topo-49-mural fringe tile** (u[0.13867,0.19922] v[0.83594,0.86621], 1 quad, found only where dunes
+directly touches the mesa wall); and the previously-flagged, still-uninspected **grass|scrub** third shared
+asset (u[0.34082,0.40332], same v-band 0.83594–0.86621 — a real lead that the atlas may carry a whole row
+of small per-pair transition decals at that v-band, untouched by this round).
+
+**The mechanism, in one sentence:** at every 4-unit cell literally bisected by the walkmesh's own
+triangulation diagonal into one grass tri and one desert tri (a "straddle" cell), both triangles sample
+**the identical strip row** and their UVs union into one exact rectangle — one hand-painted decal split by
+topo, not two independently-dressed sides. Pure single-family cells one step from the line wear a
+family-keyed row (grass→row0, desert→row2) with high but not perfect reliability. Dressing itself never
+extends past roughly 1 cell from the line except where the boundary's own path reverses sharply. All of
+this reproduces the same shipping colour on both sides — the "hard seam" only exists in a provenance
+render, never in the real atlas.
+
+**Verified/refined against the TRAIN set, laws below; TEST verdicts recorded honestly, including two
+outright falsifications of the *stated form* (the underlying mechanism survives both):**
+
+- **LAW 1 — THE STRIP-IS-TRANSLATED-GRASS-B LAW.** *STATUS: confirmed, refined.* The grass|desert fringe
+  vocabulary is exactly grass's own `FAM_REGION['B']` transition strip translated by
+  `(du,dv)=(0.52442,−0.04687)` — independently re-derived by hand from `grassland.py`'s own constants
+  (0.39355+0.52442=0.91797; 0.36914−0.04687=0.32227, etc., all 4 rows). Confirmed byte-exact on effectively
+  every strip tri across all 3 TEST blocks. **One refinement:** ~0.4% of strip-region tris (1/245 in TEST)
+  straddle the sub-pixel gutter between two adjacent rows (a triangulation cut across a row boundary, not a
+  5th tile) — the law's "zero deviation" clause is now scoped to tris whose UV sits wholly inside one row
+  window; gutter-straddlers are a classifier tolerance gap, not new vocabulary.
+- **LAW 2 — THE SPLIT-CELL SHARED-DECAL LAW.** *STATUS: mechanism confirmed 44/44, one clause falsified.*
+  Every genuine same-cell straddle across all 3 TEST blocks (44 total) shows bit-identical UV bboxes on
+  both its triangles — even tighter than "unions to a rectangle." But the claim that straddle cells are
+  restricted to rows {1,3} broke once: block (15,12) cell (240,−193) is a straddle where **both sides read
+  row0**. Refined law: a straddle cell always shares one row (any of the pair's rows), with rows 1/3
+  dominant (43/44) and row0 a rare, so-far-unexplained exception; row2 never observed on a straddle in this
+  census.
+- **LAW 3 — THE FRINGE-ROW FAMILY-ATTRIBUTION LAW.** *STATUS: FALSIFIED as an absolute rule, strong default
+  (~96%) survives.* Two clean, structurally distinct counterexamples: block (14,12) cell (236,−195) is a
+  pure DESERT cell wedged directly between two straddle cells on its own east/west sides, and wears row3,
+  not the "always row2" rule; and a cross-block seam pair — pure grass cell (239,−192) in (14,11) vs. pure
+  desert cell (239,−193) in (14,12), sharing one continuous world edge — has the grass side reading row3
+  instead of the mandated row0 (desert reads row2 correctly). Both violations sit adjacent to a straddle
+  context (a dense zigzag run, or a block seam the within-block method can't fold into a normal straddle
+  cell). Refined candidate: **straddle-adjacency, not raw family membership, may be the real discriminator**
+  — flagged, not yet re-verified on a non-straddle-adjacent control block.
+- **LAW 4 — THE ONE-CELL BAND-WIDTH LAW.** *STATUS: modal claim survives, hard ceiling falsified.* 1-cell
+  dressing dominates everywhere sampled (70–100% of boundary tris at BFS depth 0). But the "never past
+  depth ≤1" ceiling breaks with quantified counterexamples: block (15,12) shows 26% of sampled directions
+  reaching depth 2 and ~3% reaching depth 3–4, all at "zigzag reentrants" (a local reversal in the
+  boundary's own ordered walk); block (14,12) shows a smaller but nonzero depth-2 reading (3.1%, grass
+  side). Refined: band width is modal-1-cell on a straight or gently-curving line, and locally widens only
+  where the boundary itself reverses direction — a curvature-gated exception, not a global 2–3 cell cap.
+- **LAW 5 — THE DESERT-DOMINANT PARTIAL-COVERAGE ASYMMETRY.** *STATUS: FALSIFIED at magnitude; structural
+  claim survives.* TRAIN read desert dressing 93% vs. grass 46% (~2×). All three TEST boundaries land near
+  parity instead: 93.3%/76.9% (1.21×), 92.7%/90.0% (1.03×), 100%/89.3% (1.12×) — grass dresses **75–90%** of
+  its eligible fringe, nowhere close to "under half." The magnitude and the "~2×" figure are retired as an
+  artifact of reading one block in isolation. What survives: adjacency is necessary but not sufficient
+  (both families always retain some undressed plain-mains cells despite true edge-adjacency), and desert
+  runs a few points ahead of grass, not multiples ahead.
+- **LAW 6 — THE FLUSH-LOWLAND / TOPO-16-ONLY SCOPE LAW.** *STATUS: fully supported, boundary widened.*
+  Confirmed on all 3 TEST blocks: desert is topo-16 exclusively at every boundary sampled (never
+  17/19/20), grass is topo-0, strips carry the ordinary walkable topo of whichever side they sit on (no
+  dedicated ecotone topograph), and vertex weld is byte-exact (0.0u) even across block seams. The observed
+  y-step ("flush, not a cliff") ceiling widens from TRAIN's 0.243u to TEST's 0.473u — both still ordinary
+  terrain roughness. Topo 17/19/20 desert and any cliffed grass|desert boundary remain **genuinely
+  untested** — zero examples exist in either TRAIN or TEST — correctly flagged out of scope, not assumed.
+- **LAW 7 — THE WORLD-SPACE CONTINUITY LAW.** *STATUS: split; half confirmed, half unsupported.* The
+  vocabulary itself (UV rects, topo pairing, row continuation, exact weld) is global and persists
+  byte-identically across every seam checked — confirmed. But its second clause — that a straddle cell can
+  itself be split BY the block seam — has no support: cells are grid-quantized to block boundaries and
+  never straddle one physically; a "crossing" is always two ordinary, fully-separate cells in adjacent
+  blocks, governed by the same near-chance-level (~22.9%, close to the 25% floor) row statistics as ordinary
+  in-block neighbours, not by the 100%-agreement straddle rule. Recommend splitting this into a surviving
+  GLOBAL-VOCABULARY law and dropping the seam-split-cell mechanism entirely.
+- **LAW 8 — THE CLOSED-VOCABULARY / NEGATIVE-RESULT LAW.** *STATUS: headline survives, mechanism refined.*
+  No 4th dedicated grass|desert tile exists anywhere in TEST: 2 of 3 blocks are 100% classified with zero
+  residual, and the third's lone residual (block (15,12), cell (248,−200), topo-0) is not a new asset — it's
+  the same row0/row1 gutter-straddle already caught by Law 1's refinement, not a cross-pair misattribution
+  as originally proposed. Refined: "unclassified" tris are either scanner misattribution to a *different*
+  pair (desert|dunes, as in block (14,11)) or a same-pair row-gutter straddle within the strip's own 4-row
+  block — neither implies a genuine 4th grass|desert atlas asset.
+
+### THE comp[1] VERDICT — the green is EXPLAINED, and it is a real defect
+
+**Calibration passed.** Rendering the closed vocabulary (grass mains / desert mains / 4 strip rows) through
+the real atlas gives a clean, monotone-separable green_frac signature — grass mains 0.733, desert mains
+0.000, strip rows 0.496/0.341/0.117/0.226 — and the same signature reproduces almost exactly when measured
+per-tri on the TRAIN blocks (mains-grass 0.747, mains-desert 0.000, strip rows 0.462/0.298/0.115/0.220). The
+elements are cleanly resolvable in this instrument; the earlier round-8/9 "faithful lichen" reading of the
+carry's green was a colour-band judgment on an **undecoded** language, exactly as the owner said.
+
+Loading all 13 deployed blocks touching comp[1] (1549 tris, zero grass tri anywhere in the region) and
+scoring every ground tile: **7 tris score green_frac > 0, and all 7 classify as `STRIPS(grass,desert)`** —
+5 at row2 (cells (307,−302), (304,−297), (312,−306), (313,−305), (320,−294)) and 2 at row1 (cells
+(317,−292), (320,−300)). Green_frac is only 0.015–0.030 — well under the 0.20 shard bar every earlier
+FIX-G/redress pass used, which is exactly why they survived unfixed through rounds 7–9. Reverse-mapping
+each cell through the carry's own translation recovers its donor cell exactly, and in every one of the 7
+cases that donor cell **is genuinely grass-adjacent in real stock** — the 2 row1 cells are literal
+grass+desert straddles at the donor site (Law 2), the 5 row2 cells are pure desert fringe genuinely
+bordering grass there (Law 3). At the deployed site, there is no grass tri within a 3×3-cell neighbourhood
+of any of the 7 — nor anywhere in the whole 13-block region — because the carry, by design, brought only
+the desert/dunes footprint and left grass to the host.
+
+**Ruling: all 7 = DEFECT.** Under the laws above (Laws 2/3/6, even refined, all require a genuine grass
+neighbour for this asset to be structurally valid), a lawful isolated desert cell with no grass in reach
+renders plain `GROUNDS['desert']` mains, not this strip decal. Every byte of the 7 tiles is itself real,
+unmodified stock content — nothing was invented — the defect is **contextual/topological** (an orphaned
+decal relocated out of the context that explains it), not a fabricated asset. This is a materially different
+finding from round 9's "faithful mesa lichen" — it is the SAME visual symptom, correctly re-attributed.
+
+**The rock/mesa green (topo 49/58) stays separately unresolved.** 23 tris there score green (max 0.061),
+but their UV rect (u≈[0.716,0.776] v≈[0.239,0.363]) is neither `STRIPS` pair — a third, uncatalogued
+rock/mural texture axis, out of this pair's proven scope. It is low-magnitude and probably is the genuine
+article the owner's correction was pointing past, not re-litigating: the 7 ground-tile defects read 2–5×
+greener and are shaped as recognizable diagonal blend wedges under 4× magnification (`gd_calibration_sheet.png`),
+which the rock fleck is not.
+
+Renders: `studies/overworld-topography/out/gd_calibration_sheet.png` (atlas-rect crop montage — visually
+confirms the diagonal grass→desert blend-tile identity), `out/comp1_residual_map.png` (top-down map of the
+13 deployed blocks, the 7 defect cells ringed), `out/grass_desert_combine_decode.json` (full data dump).
+
+**Honest limits.** Topo-17 desert (793 of the region's tris, the majority) was never itself tested against
+this vocabulary in TRAIN/TEST — no topo-17 tile happens to sample green in the deployed region, so the gap
+isn't currently load-bearing, but it's untested. n=7 is small, though every case round-trips to a genuinely
+grass-adjacent donor cell. Nothing was written, deployed, or mirrored this round — this is a diagnosis, not
+a fix.
+
+### What stays OPEN
+
+- **The redress itself is designed but not built.** The lawful substitute for the 7 defect cells is plain
+  `GROUNDS['desert']` mains (UV/topo only, zero geometry — the same shape of fix as Round 7/8's `FIX-G`).
+  Building + gating + deploying it is the natural next round.
+- **The rock/mural green (topo 49/58, u≈[0.716,0.776]v≈[0.239,0.363])** is a separate, still-uncatalogued
+  texture axis — genuinely unresolved, not ruled lawful or defect.
+- **The grass|scrub third shared asset** (u[0.34082,0.40332] v[0.83594,0.86621]) and the newly-found
+  **dunes|topo-49-mural fringe tile** (u[0.13867,0.19922], same v-band) remain undecoded — both sit at the
+  identical v-band, raising an unexamined lead that the atlas carries a whole row of small per-pair
+  transition decals there.
+- **Topo-17/19/20 desert and any cliffed grass|desert boundary** are untested by construction (zero examples
+  exist anywhere in the 6-block cluster) — the scope law's boundary, not yet probed.
+- **The straddle row1-vs-row3 choice** (Law 2's surviving half) and the **straddle-adjacency-vs-family**
+  discriminator behind Law 3's exceptions are both open mechanisms, honestly reported as undecoded rather
+  than papered over.
+- **The cross-block census for this pair was never run map-wide** — the "6 blocks / 193 edges" figure is a
+  lower bound from the one place grass and desert are known to touch, not an exhaustive sweep.
+- **Whether this same orphaned-grass-decal defect exists on the OTHER shipped desert-family carries**
+  (Uaho/crag/horseshoe/comp20, the (7,17)/(8,17)+2×2/(11,18) desert retiles) was not checked this round — a
+  natural kit-productization candidate: a donor-adjacency-keyed "orphaned ecotone decal" gate for
+  `GroundRetile`/`world-transplant`, parallel to Round 7/8's pixel-threshold green-shard de-green but keyed
+  off genuine donor-context adjacency rather than a colour band, since **a colour band cannot classify a
+  language it was never taught** — precisely the owner's point that opened this round.
+
+Artifacts (read-only, all under `studies/overworld-topography/out/`): `combining_census_slice{1..6}.json`
+(the TRAIN/TEST per-block census), `gd_calibration_sheet.png`, `comp1_residual_map.png`,
+`grass_desert_combine_decode.json`.
