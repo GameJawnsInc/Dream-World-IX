@@ -315,6 +315,16 @@ def test_open_campaign_kicks_the_map_redraw_for_warm_thumbs(app, pin_cache, tmp_
 
 
 # ------------------------------------------------------------------ the catalog picker doorway
+def test_the_model_fields_actually_reach_the_picker():
+    """THE CALL-SITE LAW: the card view lives behind the `model` catalog kind, so a model field
+    without a catalog= never shows Browse at all (the NPC Model id shipped exactly that way)."""
+    from ff9mapkit.editor import forms
+    npc_model = next(f for f in forms.NPC_SPEC if f.key == "model")
+    assert npc_model.catalog == "model"
+    walk_as = next(f for f in forms.PLAYER_SPEC if f.key == "model")
+    assert "model" in walk_as.catalog.split(","), "walk-as accepts an exact GEO name -- cards apply"
+
+
 def test_catalog_picker_offers_cards_only_for_the_model_kind(app, pin_cache):
     pal = pick_palette("dark")
     svc = _StubThumbs()
