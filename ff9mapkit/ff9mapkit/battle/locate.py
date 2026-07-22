@@ -360,9 +360,19 @@ def _from_cache_dict(d: dict) -> "BattleMap | None":
 
 
 def _write_cache(bm: BattleMap) -> None:
-    d = _cache_dir_path()
-    d.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(_cache_file_path(), json.dumps(_to_cache_dict(bm)))
+    """Best-effort BY DESIGN -- unlike the kit's load-bearing writers, a failed write here must never
+    kill the build that produced ``bm`` (the caller memoizes and returns it either way; the disk file is
+    pure acceleration for the NEXT process, and its readers already tolerate a missing/bad file). The
+    concrete failure this absorbs: on Windows, ``os.replace`` onto a cache file another process holds
+    open is denied (two pytest-xdist workers building at once, or the GUI's build thread racing a
+    concurrent CLI ``encounters`` run) -- the losing writer's content is equivalent anyway (same
+    install), so the write is simply dropped."""
+    try:
+        d = _cache_dir_path()
+        d.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(_cache_file_path(), json.dumps(_to_cache_dict(bm)))
+    except OSError:
+        pass
 
 
 def _build_fresh(game=None) -> BattleMap:
