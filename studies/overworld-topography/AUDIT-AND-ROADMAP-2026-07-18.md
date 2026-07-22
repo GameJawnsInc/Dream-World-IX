@@ -347,7 +347,7 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
 - [ ] **Fix minimap player-icon west-bias + document the w_naviGetPos dual regime** (6.0: play 9, leve 3) — likely a
   non-centered RectTransform pivot (WorldHUD.cs:651/733); the pre/post-SC-5990 formula switch is undocumented.
   DLL work — fold into one deliberate engine round.
-- [~] **Playtest a targeted (non-uniform) encounter re-table** (6.0) — one `[[set]] area=N` edit + one F6 check
+- [~] **Playtest a targeted (non-uniform) encounter re-table** (6.0) — one `[[set]] area=N` edit + one F6 check **★ IN-GAME PROVEN 2026-07-22: four separate encounters = Serpion / Bombs / Lizard Man / Axe Beak — all four scene slots fired, non-uniform confirmed** (`f54e272`; THE ZONE-KEY LAW: tables are zone-keyed, minted terrain (area 0) shares zone 0 with the Mist start — no private island table without a DLL; disc-4 +254 index shift = the noted kit gap).
   closes the last gap on the offline-proven world-encounters feature. **★ BUILT + DEPLOYED + OFFLINE-PROVEN
   2026-07-21 (awaits the one playtest).** The demo relief island (cell 10,9 / world (672,−608), both discs) walkable
   ground decodes to IDALL **area=0, topograph=0** (cliffs topo 58) → encounter **zone 0** — SHARED with the
