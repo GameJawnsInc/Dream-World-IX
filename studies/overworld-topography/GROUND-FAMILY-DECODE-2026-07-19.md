@@ -1892,3 +1892,13 @@ Cumulative redress ledger: round 1 = 7 cells (green-bearing grass|desert orphans
 (desert|dunes straddle-row orphan), round 3 = 7 cells (6 low-green grass|desert orphans + the
 misassigned tile). 15 cells total, every one donor-reverse-mapped, all three rounds idempotent under
 `--census3`. **★ IN-GAME PLAYTEST PENDING.** Remaining green = the lawful mesa moss only.
+
+**ROUND 3 ★ IN-GAME PROVEN (2026-07-22 evening, the owner): "no green, no mistiling."** The fringe
+arc is CLOSED: 15 cells over 3 redress rounds, every defect donor-reverse-mapped, the remaining mesa
+moss confirmed lawful in-game. (The missing-island scare between apply and playtest = a LAUNCH-WINDOW
+COLLISION with the concurrent vehicle session's engine churn — DLL swap 17:10 / .eb 17:12:59 / ini
+17:13; full-layer forensics verified every byte intact — terrain files, FolderNames, the DLL's s34
+literals AND WMWorld.cs call sites, ini sections — and a fresh relaunch restored the archipelago.
+Coordination note: FF9CustomMap-world now cohabits vehicle artifacts (boat model 6321 + WORLD11 .eb +
+their DictionaryPatch) — additive, nothing of ours overwritten.) NEXT (owner: "good to productize"):
+promote --census3's orphan logic into the kit as the carry-time gate Round 10 earmarked.
