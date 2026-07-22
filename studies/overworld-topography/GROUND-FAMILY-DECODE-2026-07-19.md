@@ -1512,3 +1512,68 @@ Artifacts: `dunes_residual_census.py` + `out/dunes_residual_census.json` + `out/
 + `out/resid_SE_{deployed,stock}.png`. **KIT-PRODUCTIZATION candidate** (alongside the seam-audit + green-shard
 de-green): the ECOTONE-CONTINUITY gate + a `--margin-rings` knob on the interior carry — any ensemble carry that
 relocates a boundary-embedded feature onto a plainer host truncates the donor's surrounding gradient the same way.
+
+## Round 9 (2026-07-21) — THE ECOTONE FIX, CALIBRATED AND ★ REFUTED — the deployment is already faithful; NO byte changed
+
+The Round-8 forensics gave the arc a recommendation (**raise `MARGIN_RINGS` 2 → ~5**) and a NEW gate
+(ECOTONE-CONTINUITY = "carry strip-ring depth ≥ donor − 1"). This round did what the STANDING SUSPICION demands
+of *every* verdict, including the forensics' own: **CALIBRATE THE FIX BEFORE SPENDING A DEPLOY ON IT.** The
+instrument refuted it three independent ways. Instrument: `dunes_residual_gates.py` (read-only; writes only
+`out/`). **NOTHING WAS DEPLOYED — the 5 carried Terrain blocks are byte-untouched on both discs.** Fresh snapshot
+of the current deployed state: `backups/dunes-residual.20260721/deployed-current/` (10 Terrain files).
+
+**1 — COLOUR. The "differently-UV-tiled host mains" the forensics blamed do NOT differ in colour.** Mean atlas RGB
+(the real Moguri terrain atlas, sub-tri sampled): carried desert `(175.8,132.1,100.7)` topo-16 / `(174.9,127.8,98.0)`
+topo-17 vs host desert `(176.4,129.9,99.3)` topo-17. **|carried − host| dRGB = 2.1–2.8.** And stock's OWN generic
+desert varies cell-to-cell by **p50 = 5.2, p99 = 18.2, max = 21.8** (1441 stock desert cells). **The carried desert
+is FAR more colour-continuous with the host than two stock desert cells are with each other.** The Round-8 PART-4
+ring-cutoff metric (44 "cut-off" cells) fired on a *topo-16-strip-abuts-topo-17-mains* rule that corresponds to **no
+visible seam** — a mis-calibrated instrument, the exact failure mode the arc keeps minting laws about. A provenance-
+coloured render (carried=orange / host=blue) shows a hard castellated boundary; through the *real atlas* that same
+boundary is invisible.
+
+**2 — GEOMETRY. There is no wide desert margin to carry.** An ASCII family map of the donor shows comp[1]'s dune
+blob sits in a **THIN desert apron (1–2 cells)** bounded by **GRASS** (west/south) and **topo-49 MESA-MURAL rock**
+(everywhere else). The forensics' "stock continues the strip to ring depth 3–5" was a **directional** artifact of
+`best_desert_azimuth`; measured **omnidirectionally** the topo-16 "strip" cells run to ring depth **11**, because
+they are topo-16 tiles that live INSIDE **mural-ROCK** cells — not a walkable desert gradient. Raising
+`MARGIN_RINGS` 2→6 does not *reduce* the boundary strip-count, it *raises* it (46→58): the donor desert is strippy
+throughout, so any cut boundary carries strips. There is no gradient to "complete."
+
+**3 — THE FORENSICS' FIX REGRESSES.** Rebuilt at `MARGIN_RINGS=5` (all 16 legacy gates + the frozen eye still pass,
+touch stays the 5 blocks), the carry (a) drags the geometry-moving conform fixes from **5.66u away from the dune
+core (rings=2) to 0.0u** — **313 host verts lifted right at the dune boundary** the frozen eye guards, vs **0** at
+rings=2 — and (b) the wider apron reaches grass-facing **khaki strips that render 2 NEW olive-green streaks** (user-
+stance render: olive-green **347→376 px**) — *the very "green shard" defect the user complained about.* A
+more-invasive change, at the dune boundary, that adds the defect it was meant to cure, to fix a colour seam that
+measures **2.1 / 18.2**. The `probe_rings_ab` / `resid_gate_antitest_ab.png` A/B shows it plainly. **REJECTED.**
+
+**VERDICT: all THREE residuals are within stock-derived bands on the CURRENT deployment. The faithful carry is
+already correct. No byte changed.** The current deploy carries **0** sloped non-rock green tris, flat-desert green
+≤ **0.022** (band 0.132), mesa lichen ≤ **0.099** (stock's own 0.615), and desert colour-continuity dRGB **2.1**
+(band 18.2). The user's "green shards" are faithful mesa lichen; the "detached fragments" are faithful strays
+(24/24 twins); the "cut-off ecotone" is the intended grass-amputation losing its green *contrast*, not a fixable
+mesh seam — and the one lever the forensics named (`MARGIN_RINGS`) makes it worse.
+
+**RECALIBRATED PERMANENT GATES (corrected; `dunes_residual_gates.py`, and the colour gate folded into
+`dunes_true_carry.build_and_gate` — now 17 gates).** The Round-8 gates 1–3 stand (all PASS). Gate 4 is **corrected**:
+- ~~ECOTONE-CONTINUITY (strip-ring depth ≥ donor − 1)~~ — **RETRACTED**: mis-calibrated (see §1–2). It measured a
+  colour-invisible provenance boundary and would have *mandated the regression*.
+- **ECOTONE COLOUR-CONTINUITY (NEW, correct):** carried-desert vs host-desert mean atlas colour within stock's own
+  cell-to-cell desert spread (**band = p99 = 18.2**). Current: **PASS** (dRGB 2.1). Folded into the build suite.
+- **GREEN no-sloped-shard (NEW):** 0 green desert tris on *sloped* conform cells — the FIX-G `ny≥0.7` blind spot the
+  rings=5 apron would open. Current: **PASS** (0).
+- **FIX-DISTANCE / ANTI-TEST (NEW, with teeth):** the geometry-moving fringe fixes stay **≥ 3.0u** from the dune
+  core (the rung-7 invariant). Deployed **PASS** (5.66u); the SAME gate **REJECTS** the rings=5 candidate (0.0u,
+  313 host-lifts) — so the suite is not merely a green light, it actively refuses the mis-calibrated fix.
+
+**Method law minted — CALIBRATE THE *FIX*, NOT ONLY THE INSTRUMENT.** Round 8 calibrated the green/fragment bands
+against stock and got #1/#2 right; it then handed on a fix (`MARGIN_RINGS`) and a gate (strip-ring depth) that were
+*themselves* never calibrated against the real atlas. A forensics report is a PRIOR, not a verdict — its recommended
+lever gets the same "measure stock first" treatment as the defect it diagnoses, or the cure ships the disease.
+(Corollary for the kit-productization: **do not ship the `--margin-rings` knob** as the ecotone remedy; the ecotone
+gate is COLOUR-continuity, and the boundary-embedded-feature carry needs no gradient extension when the host is the
+same colour family as the donor apron.)
+
+Artifacts: `dunes_residual_gates.py` + `out/dunes_residual_gates.json` + `out/resid_gate_antitest_ab.png`
+(rings=2 deployed vs rings=5 rejected, user stance) + `out/resid_gate_deployed.png`. The Round-8 renders stand.

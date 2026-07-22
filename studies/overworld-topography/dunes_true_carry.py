@@ -607,6 +607,69 @@ def _pt_cell_dist(px, pz, ci, cj):
     return math.hypot(dx, dz)
 
 
+# --- rung-9 ECOTONE colour-continuity (dunes_residual_gates.py). The rung-8 forensics blamed the
+#     residual "cut-off ecotone" on a colour seam between the carried donor desert apron and the host
+#     desert mains and recommended widening the carried margin (MARGIN_RINGS 2->5). CALIBRATION
+#     REFUTED it: carried vs host desert mean atlas colour differ by |dRGB|~2 while stock's OWN generic
+#     desert varies cell-to-cell by p99=18.2 -- the carried desert is FAR more colour-continuous with
+#     the host than two stock desert cells are with each other. So the corrected ecotone gate is
+#     colour-continuity (this), which the faithful rings=2 carry passes with huge margin; the rings=5
+#     "fix" instead drags the geometry-moving fixes onto the dune boundary (5.66u->0.0u) and reaches
+#     grass-facing khaki strips that render NEW olive-green streaks -- a regression, REJECTED.
+ECOTONE_COLOR_BAND = 18.22           # stock generic-desert cell-to-cell mean-colour p99 |dRGB| (calibrated)
+
+
+def _tri_mean_rgb(uv3, nsub=6):
+    GE._load_atlas()
+    acc = [0.0, 0.0, 0.0]; cnt = 0
+    for i in range(nsub + 1):
+        for j in range(nsub + 1 - i):
+            a, b = i / nsub, j / nsub; c = 1.0 - a - b
+            u = a * uv3[0][0] + b * uv3[1][0] + c * uv3[2][0]
+            v = a * uv3[0][1] + b * uv3[1][1] + c * uv3[2][1]
+            al, rgb = GE._atlas_bilinear(u, v)
+            if al < 24:
+                continue
+            acc[0] += rgb[0]; acc[1] += rgb[1]; acc[2] += rgb[2]; cnt += 1
+    return (acc[0] / cnt, acc[1] / cnt, acc[2] / cnt) if cnt else None
+
+
+def run_ecotone_color_gate(built_bms, placed_R):
+    """THE CORRECTED ECOTONE GATE (rung 9). The carried desert apron and the host desert mains must be
+    colour-CONTINUOUS -- their mean atlas colour within stock's own cell-to-cell desert spread -- so the
+    dune->desert transition reads as a gradient, not a seam. This is the metric that actually tracks the
+    'cut-off' the user reported (the rung-8 PART-4 strip-abuts-mains ring metric fired on a colour-
+    invisible provenance boundary). Measures the REBUILT geometry: mean colour of carried (in placed_R)
+    vs host (not) flat desert-ground tris."""
+    carried, host = [], []
+    for blk, bm in built_bms.items():
+        for (p3, uv3, n3, topo, fam) in GE._tris_of(bm, blk[0], blk[1]):
+            if topo not in (16, 17, 19, 20):
+                continue
+            if (sum(abs(nn[1]) for nn in n3) / 3.0) < 0.7:
+                continue
+            m = _tri_mean_rgb(uv3)
+            if m is None:
+                continue
+            cx = sum(p[0] for p in p3) / 3.0
+            cz = sum(p[2] for p in p3) / 3.0
+            cell = (math.floor(cx / CELL), math.floor(cz / CELL))
+            (carried if cell in placed_R else host).append(m)
+    if not carried or not host:
+        return gate("ECOTONE colour-continuity (carried desert vs host desert mean colour within the "
+                    f"stock cell-to-cell band {ECOTONE_COLOR_BAND:.1f})", True,
+                    "insufficient carried/host desert tris to compare (vacuously continuous)") or \
+               dict(color_dist=0.0, n_carried=len(carried), n_host=len(host))
+    ca = [sum(c[k] for c in carried) / len(carried) for k in range(3)]
+    ha = [sum(h[k] for h in host) / len(host) for k in range(3)]
+    d = math.dist(ca, ha)
+    gate("ECOTONE colour-continuity (carried desert vs host desert mean colour within the stock "
+         f"cell-to-cell band {ECOTONE_COLOR_BAND:.1f})", d <= ECOTONE_COLOR_BAND,
+         f"|carried-host| dRGB={d:.2f} (band {ECOTONE_COLOR_BAND:.1f}); carried={len(carried)} "
+         f"host={len(host)} tris")
+    return dict(color_dist=d, n_carried=len(carried), n_host=len(host))
+
+
 def run_fringe_gates(built_bms, donor, T, diag, eye_verdict):
     """THE RUNG-7 FRINGE GATES -- the cross-block instruments the dunes arc never had (the
     memory's own recorded blind spot: weld_audit is per-block LOCAL-frame, so a coincident
@@ -962,6 +1025,9 @@ def build_and_gate(*, render=True):
     print("\n--- rung-7 FRINGE gates (cross-block seam NULL + steps + holes + orphan-grass + eye-preserved) ---")
     fringe_info = run_fringe_gates(built_bms, donor, T, diag, verdict)
 
+    print("\n--- rung-9 ECOTONE colour-continuity gate (the corrected ecotone metric) ---")
+    ecotone_info = run_ecotone_color_gate(built_bms, placed_R)
+
     renders = fringe_renders = []
     if render:
         print("\n--- grazing A/B render (stock vs true carry) ---")
@@ -980,7 +1046,7 @@ def build_and_gate(*, render=True):
         margin_rings=MARGIN_RINGS, land_height=land_height, DY=diag["DY"],
         touched_blocks=[list(b) for b in sorted(built_bms)],
         carry_diag={k: v for k, v in diag.items() if k != "touched_blocks"},
-        gate_info=gate_info, vs_stamp=vs_stamp, fringe_info=fringe_info,
+        gate_info=gate_info, vs_stamp=vs_stamp, fringe_info=fringe_info, ecotone_info=ecotone_info,
         eye=dict(passed=verdict["passed"], gates={g: [str(v), p] for g, (v, p) in verdict["gates"].items()}),
         n_gates=len(GATES), n_failed=n_fail,
         gates=[{"name": n, "ok": ok, "detail": str(d)} for n, ok, d in GATES],
