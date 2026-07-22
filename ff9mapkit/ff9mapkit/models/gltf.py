@@ -826,10 +826,13 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
         mode = "re-rig"
 
     if like and geo_id is None:
-        # straight override of a real id: strip per-mode overlay meshes (battle_model*/field_model*) --
-        # the engine's name-hide can't fire on a flattened loose FBX, so a deployed overlay would render
-        # in BOTH field and battle (see extract.strip_overlay_meshes). Mints (--id) keep everything.
-        extract.strip_overlay_meshes(model, warn=pre_warnings.append)
+        # straight override of a real id: strip the overlay subtree the ENGINE would hide for the
+        # requested form (battle_model* for a field form, field_model* for a battle form -- a
+        # loose-FBX override can't be mode-hidden by name, so shipping the wrong-mode overlay would
+        # render in BOTH; the form's OWN overlay is real always-visible geometry, not a hidden one).
+        # Mints (--id) keep everything.
+        extract.strip_overlay_meshes(model, warn=pre_warnings.append,
+                                     prefixes=extract.overlay_hide_prefixes(like))
         pre_warnings.extend(export._shared_prefab_warnings(model))
 
     dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(type_int, tid))

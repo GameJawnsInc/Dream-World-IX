@@ -257,8 +257,9 @@ class ModelsDoc(QWidget):
         gb.clicked.connect(self.browse_model_glb)
         imp.addWidget(gb)
         self.mdl_import_btn = QPushButton("Import model")
-        self.mdl_import_btn.setToolTip("Splice the edited geometry back over the pristine rig (auto-detected "
-                                       "from the kit's glTF stamp) + write any CHANGED animation clips.")
+        self.mdl_import_btn.setToolTip("Splice the edited geometry back over the pristine rig of the model "
+                                       "selected above (falls back to the kit's glTF stamp if nothing's "
+                                       "selected) + write any CHANGED animation clips.")
         self.mdl_import_btn.clicked.connect(self.on_model_import)
         imp.addWidget(self.mdl_import_btn)
         v.addLayout(imp)
@@ -663,7 +664,16 @@ class ModelsDoc(QWidget):
         mod = self._model_mod_arg()
         if mod is None:
             return
-        self._kit(["model-import", glb, "--deploy", mod], subject="Import model",
+        # The kit auto-detects the source GEO from a stamp it embeds in asset.extras/node.extras -- but
+        # Blender's own glTF exporter only carries that through if "Include > Custom Properties" is
+        # checked (off by default), so a bare re-export commonly loses it. Fall back to the model still
+        # selected in the browser (the natural "export this, edit it, import it back" flow) rather than
+        # dead-ending on "needs --id".
+        args = ["model-import", glb]
+        if self._current is not None:
+            args += ["--like", self._current.name]
+        args += ["--deploy", mod]
+        self._kit(args, subject="Import model",
                   ok_next="Override deployed. Mesh edits: ~ → Reload on a field using the model. "
                           "Edited animations need a game RELAUNCH.")
 

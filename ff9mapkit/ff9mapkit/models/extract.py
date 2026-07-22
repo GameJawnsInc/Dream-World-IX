@@ -586,7 +586,7 @@ def _swap_alt_outfit_textures(geo: str, gid: int, bundle: _Bundle, textures: dic
 _OVERLAY_PREFIXES = ("battle_model", "field_model")
 
 
-def strip_overlay_meshes(model: dict, warn=None) -> list:
+def strip_overlay_meshes(model: dict, warn=None, prefixes: "tuple | None" = None) -> list:
     """Drop the engine's per-mode overlay meshes (``battle_model*`` / ``field_model*``) from a Model
     struct before a LOOSE-OVERRIDE deploy of a real id. Mutates in place; returns the dropped names.
 
@@ -594,13 +594,19 @@ def strip_overlay_meshes(model: dict, warn=None) -> list:
     wrong mode's subtree BY NAME -- ``GetChildByName("battle_model")``, an exact match on the subtree
     ROOT. The loose-FBX importer flattens every mesh to a direct child named after the MESH
     (``battle_model0``), so that hide can never fire on an override: a deployed overlay would render
-    in BOTH modes (field Zidane grows the battle-only Orichalcum daggers). Stripping matches what a
-    field-form override always shipped (body only); battle loses only the cosmetic overlay. To keep an
-    overlay mesh in both modes deliberately, rename it in Blender first. Materials no surviving
-    submesh references are compacted away (the FBX emitter writes EVERY ``materials[]`` row, and a
-    dangling one would shift the engine importer's material indexing) and their textures pruned."""
+    in BOTH modes (field Zidane grows the battle-only Orichalcum daggers). To keep an overlay mesh in
+    both modes deliberately, rename it in Blender first. Materials no surviving submesh references are
+    compacted away (the FBX emitter writes EVERY ``materials[]`` row, and a dangling one would shift
+    the engine importer's material indexing) and their textures pruned.
+
+    ``prefixes`` scopes WHICH overlay subtree(s) to drop -- pass ``overlay_hide_prefixes(<requested
+    geo>)`` so a FIELD-form override only strips ``battle_model*`` (its OWN ``field_model*``, if any,
+    is the form's real always-visible geometry, not a hidden overlay) and a BATTLE-form override only
+    strips ``field_model*``, matching what the engine's own by-name hide would do for that form.
+    Defaults to both prefixes (the old context-blind behavior) when omitted."""
     meshes = model.get("meshes") or []
-    drop = [me for me in meshes if str(me.get("name", "")).lower().startswith(_OVERLAY_PREFIXES)]
+    pref = tuple(prefixes) if prefixes is not None else _OVERLAY_PREFIXES
+    drop = [me for me in meshes if str(me.get("name", "")).lower().startswith(pref)]
     if not drop:
         return []
     drop_ids = {id(me) for me in drop}
