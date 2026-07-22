@@ -189,6 +189,62 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
+### THE FLIGHT v5 -- 2026-07-22, TRACK BAHAMUT (THE FINAL SOLVE, supersedes v1-v4)
+
+**The corrected target (user insight).** The real Bahamut cinematic DELIBERATELY swoops the creature
+off-screen while the camera pans to follow his blast -- the subject is intentionally entering/exiting
+frame at points. So faithfulness is NOT "keep Thomas centered/in-frame every frame" (that would be *less*
+faithful than the dragon he replaces); an always-in-frame check is WRONG. **Faithfulness = Thomas is
+wherever Bahamut was, every frame, off-screen swoops included.**
+
+**What overturned FLIGHT v4.** v4 was built on the premise that the render camera is STATIC -- the s48 CAM
+hook logged an unchanging `Camera.transform`. The **s50 probe disproves it**: it logs the actual
+per-frame render matrices (`camera.worldToCameraMatrix` = VIEW rows, `camera.projectionMatrix` = PROJ
+rows -- the very matrices `SFX.UpdateCamera()` assigns at `SFX.cs:1603-1604`), and they are anything but
+static. The logged CAM Transform is a **decoy** (nothing writes it per-frame -- exactly the ambiguity
+`viewspace_place.py`'s own `render_camera_confirmed` note flagged); the VIEW matrix **pans/orbits**
+dramatically frame to frame, and PROJ **zooms** (its `[1][1]` focal term sweeps ~2.33..4.65, i.e. vertical
+FOV ~47deg..24deg). v4's "assumed fixed 40deg camera" rested on a premise the raw matrices refute.
+
+**The solve -- placement is camera-INDEPENDENT.** Thomas is rendered by that *same* per-frame camera
+(`ef227`'s native camera track replays byte-identically every cast). So we model no camera at all: **place
+Thomas at Bahamut's own measured world position each frame, and the real per-frame VIEW+PROJ reproduces
+his exact screen position -- pan, zoom, off-screen swoop and all -- for free.** No FOV assumption, no
+projection guess. `matrix_solve.py`'s forward projection *verifies* the off-screen beats are real: of
+Bahamut's 324 on-cast body frames, only ~5 project strictly inside `|ndc|<1` -- his body is genuinely
+off-screen / behind the camera for most of the cast (the camera follows the effect/blast, not the
+creature). That's the deliberate behavior the user described, reproduced by copying his world path
+verbatim.
+
+**How the numbers are derived (`matrix_solve.py`).** Per frame, Bahamut's world position = the MEDIAN
+across his 7 body-mesh keys of (X = bounds `cx`, Y = bounds `cy`, Z = the FAR CORNER `cz -/+ ez`) -- the
+pool-pollution heuristic (PROBE.md round 1): the SFX vertex pool sits at world origin, so the AABB
+stretches from the real body toward 0; on Z the body is thousands of units out so the far corner recovers
+true depth, while on X/Y it sits near origin so the center is the better estimate. A windowed median
+(+/-6 frames) suppresses single-frame pooling spikes. The result is a coherent flight: he starts near
+(Z~=-1700), **dives far away** (Z~=-18000..-30000 around frames 120-166 -- keys agree tightly there, and
+the dive is independently corroborated by the older s47 cast's own ~-34000 reading), then returns to a
+moderate Z~=-4000..-7000 for the reign/charge/fire-column window through frame 417.
+
+**The manifest** (`build_thomas.py`'s `TRACKED_KEYFRAMES` + `ENTRANCE_ORIGIN`/`EXIT_DEST`): 30 Movement
+pieces -- an entrance (frames 0-82, off-screen origin -> Bahamut's first measured position, SinusOut);
+the measured **track** (82-417, 29 keyframes sampled every ~12 frames, Linear between -- the body moves
+smoothly in world space, so Linear between dense samples is faithful; the apparent screen cuts/swoops come
+from the baked camera, for free); an exit (417-580, climb-away, SinusIn). Rotation holds broadside
+(YAW=90) through the track. Durations sum to `THOMAS_END=580`. Only `ENTRANCE_ORIGIN`/`EXIT_DEST` are
+reasoned-without-ground-truth (the body is absent outside 82-417); everything in the track is measured.
+Re-derive/retune with `py matrix_solve.py --step 12 --window 6`. Deployed 2026-07-22
+(`creature_manifest.sfxmodel` sha256 `8a5b3e59c44b60cbaddbba8f69d202f8548e95a09c1c74f7dfa5ab35fbe6445a`).
+
+**Known open item.** With the camera now known to pan wildly, a fixed world yaw does not hold a constant
+facing to the lens -- a per-frame camera-relative yaw is now COMPUTABLE from the VIEW rows (`matrix_solve`
+exposes them) and is the obvious next refinement if his facing reads wrong on video. Left out of this pass
+to keep the FINAL SOLVE about POSITION (the headline). Per the project's video-for-visual-bugs law, a
+fresh capture of an actual cast is the real next check.
+
+<details>
+<summary>THE FLIGHT v4 -- VIEW-SPACE CHOREOGRAPHY (superseded 2026-07-22 by v5 -- the static-camera premise it rested on was disproved by the s50 probe; kept for the record)</summary>
+
 ### THE FLIGHT v4 -- 2026-07-22, VIEW-SPACE CHOREOGRAPHY (supersedes FLIGHT v3's mesh-derived placement)
 
 **The premise underneath every prior FLIGHT version turned out not to hold.** FLIGHT v1-v3 all placed
@@ -383,6 +439,8 @@ behind-camera (depth<=0):
   structurally-unreachable -- literally absent); no binary stock bytes committed to the repo (`*.fbx`
   gitignored, `.seq` in-repo is a splice-fragment-plus-documentation, never the full donor file).
 
+</details>
+
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
 alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
@@ -392,16 +450,17 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | File | What it is |
 |---|---|
 | `blender_normalize.py` | Committed, our script. Run ONCE (offline, via Blender) to produce `thomas_normalized.fbx` from the raw source. Never touches the repo. |
-| `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the named `THE FLIGHT` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
+| `matrix_solve.py` | Committed, our script -- **THE FLIGHT v5 (FINAL SOLVE) solver.** Parses the s50 probe's per-frame VIEW/PROJ/MESH, builds the 4x4 render matrices (numpy), exposes `project_world_to_ndc`/`world_from_ndc` (forward + off-center-frustum inverse, round-trip exact) both module-level and as frame-based `ProbeLog` methods, reconstructs Bahamut's per-frame world position (7-key pool-pollution median) + screen trajectory, and emits the `TRACKED_KEYFRAMES` table `build_thomas.py` bakes. Standalone: `py matrix_solve.py` self-tests + prints the analysis. |
+| `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the FLIGHT v5 `TRACKED_KEYFRAMES`/`ENTRANCE_ORIGIN`/`EXIT_DEST` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
 | `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. Imports `viewspace_place.py` for THE FLIGHT v4's camera model. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
-| `viewspace_place.py` | Committed, our script -- THE FLIGHT v4's camera/projection model: the static camera anchor (`CAM_POS`/`CAM_EULER_DEG`), `camera_basis()` (Euler→right/up/forward), `view_to_world()` (the screen-fraction+depth → absolute-world formula), `reign_depth_for_fill()` (sizing helper), and the full FOV recon (`fov_projection`/`render_camera_confirmed`/`shiftworld_effect`/`euler_convention`) in its own module docstring. Standalone library, importable and unit-testable independent of `build_thomas.py`; run directly (`py viewspace_place.py`) for a self-test (basis orthonormality, frustum shape, demo conversions). |
+| `viewspace_place.py` | Committed, our script -- **SUPERSEDED by `matrix_solve.py` (FLIGHT v5).** Was FLIGHT v4's camera/projection model, built on an assumed-STATIC camera; the s50 probe disproved that premise (the render VIEW/PROJ pan + zoom -- see the FLIGHT v5 section). No longer imported by `build_thomas.py`; kept for the record. Its `render_camera_confirmed` docstring correctly flagged the very ambiguity v5 resolved. |
 | `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts FLIGHT v3 (superseded, see the collapsed history above) windowed its pieces against. Standalone; not called by `build_thomas.py`. |
 | `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see the collapsed history above) -- the same NO-GO is what THE FLIGHT v4's assumed-FOV design is built on top of. Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
 | `README.md` | This file. |
 
-None of these seven files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
+None of these eight files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
 
 ## Regenerating the normalized model
 
@@ -435,18 +494,19 @@ FIRST time.
 5. Select **Iviv → Spark → Bahamut Cinema**.
 
 **Expect**: the full real Bahamut cinematic plays -- same chant, same camera cuts, same roars/flashes,
-same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright,
-correctly textured, and now FLYING THE 8-PIECE, VIEW-SPACE-CHOREOGRAPHED FLIGHT (see "THE FLIGHT v4"
-above): swoops in from off the upper-left edge, descending into a near-center settle during the
-chant/flashes (P1), pushes in to full reign size (P2), a gentle breathing bob up then down through the
-mid-cast windup (P3-P4), a slow lateral pass across the frame during the charge (P5, "for life"), a
-settle back toward center for the ground-reign/fire-column/damage-beat window (P6), a brief steady hold
-(P7), then a climb away toward a top corner as the lights restore (P8, receding into the distance).
-Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column EFFECT meshes should
-still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes: the
-s47 surgical key list" above if they aren't), and no more standing stationary in front of Iviv. Per the
-known trade-off in "THE FLIGHT v4" above, expect him to visibly overflow the frame's LEFT/RIGHT edges
-during the REIGN pieces even while correctly sized to the requested frame-HEIGHT fill -- that's his
+same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright, correctly
+textured, and now **TRACKING BAHAMUT'S OWN FLIGHT** (FLIGHT v5, see "THE FLIGHT v5 -- TRACK BAHAMUT"
+above): wherever Bahamut's body was on screen each frame, Thomas is -- entering, diving far away into the
+distance during the mid-cast dive (he goes small/deep, frames ~120-166), returning for the
+reign/charge/fire-column window, and -- crucially -- **going off-screen / off-frame exactly where the
+real cinematic sends the creature off-screen while the camera follows the blast** (that is FAITHFUL, not
+a bug; per matrix_solve.py Bahamut's own body is off-screen for most of the cast). Bahamut's own BODY mesh
+never appears at any point (his swirl/beam/fire-column EFFECT meshes should still be visible -- that's the
+whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes: the s47 surgical key list" above if
+they aren't), and no more standing stationary in front of Iviv. Because his facing is a fixed broadside
+yaw while the camera pans wildly, expect his presented side to vary shot to shot (the known open item in
+"THE FLIGHT v5" -- a per-frame camera-relative yaw is the next refinement); and expect him to visibly
+overflow the frame's LEFT/RIGHT edges when close, even while correctly sized -- that's his
 broadside length, not a bug.
 
 **If placement/motion/suppression is still off**: capture a short VIDEO of the cast (this project's
@@ -465,7 +525,7 @@ re-guess.
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 8-piece view-space-choreographed flight (off-edge entrance → approach → breathing bob → lateral pass → settle → hold → exit climb), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, TRACKING Bahamut's own flight (dives far away mid-cast, returns for the reign window, goes off-frame exactly where the real cinematic sends the creature off-screen), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
 | The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body. Now much less likely than the old index-range guess (the s47 probe's `HIDE_KEYS` are the exact, confirmed keys of Bahamut's own 7 body meshes -- PROBE.md's round-1 results), but still possible if this engine build's `_key` values differ from the probe's own cast (a fresh calibration cast would confirm), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); re-run `--calibrate` + the probe to re-derive the keys if needed |
 | Bahamut's body is correctly hidden, but **one of the kept effects (swirl/beam/fire-column/etc) also vanished** | One of `HIDE_KEYS`' 7 keys was misclassified as body when it's actually an effect (unlikely -- PROBE.md's round-1 classification found all 7 present together on 92.6% of frames, a strong rigid-body signal), or a round-2 candidate (`00BDBE00`/`0098BD0E`) was added to `--hide-keys` and turned out to be an effect after all | Capture video showing which specific effect is missing; drop the suspect key from `--hide-keys` and recast; see PROBE.md's round-2 protocol |
 | The cinematic plays, Bahamut's body is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
