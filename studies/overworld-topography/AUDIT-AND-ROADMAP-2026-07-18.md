@@ -364,8 +364,32 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   quest is active (rec[1] fog-twin keeps the full 4-way); (b) **kit gap** — the area/zone matcher does NOT apply the
   disc-4 `+254` alternate-band shift (`ff9.cs:9175`), so a disc-4 re-table needs explicit `index=254/255`, not
   `area=0`. Playtest: on a **disc-1** save, ~ → World → Teleport to the island and walk until an encounter fires.
-- [ ] **Census and carry a standalone stream/falls part** (5.5) — do any Stream/River/Falls parts sit on lowland
-  unattached to a massif? If yes, a genuinely new `world-river` mint verb becomes possible.
+- [x] **Census and carry a standalone stream/falls part** (5.5) — ★ **CLOSED BY CENSUS 2026-07-22**
+  (`standalone_water_census.py`, study `f385c65` + this mark; census re-run reproduces to the byte, `deployed=false`,
+  no build forced). Do any Stream/River/Falls parts sit on lowland unattached to a massif, so a `world-river` mint
+  could carry a SMALL self-contained water feature without dragging a mountain? **NO.** The water universe is 4 named
+  sub-mesh parts — disc 1: `river` 10 blocks / `stream` 7 / `riverjoint` 6 / `falls` 3 (disc 4 identical bar one
+  riverjoint) — over the **topo-62** channel bank (480 tris on 10 blocks, **10/10 within one block of a water part** ⇒
+  topo 62 IS the carved channel, part of every ensemble); only **2** water-topo tris (48/50/51) are baked into terrain
+  (single channel markers on (17,14)/(18,13)) — **no pond hides in terrain**, every real feature is a part.
+  **THE TERMINATION CENSUS is decisive: 6 welded water components map-wide, ZERO OPEN tips** — welding all water parts
+  and classifying each component's two flow-axis tips (SEA-anchored <8u / MASSIF-anchored <8u / OPEN >15u from both),
+  **every single terminus is SEA or MASSIF.** Every stock river rises in a mountain (geographically correct) or runs
+  massif-to-massif. The four systems: Daguerreo (5-6,15-16, both tips MASSIF — already carried); Plateau-B (14-15,17,
+  y26–28 both ends rock, + an area-14 field entrance); Cluster-D (18-20,10-13, plateau→falls→valley-stream, y0.4→26.4,
+  rock ≤80%, mountain-bound); **Cluster-C** (16,14)/(16,15)/(17,14) — the CLOSEST: a genuine lowland river-to-sea
+  (y ~0–1, rock ≤16%, natural sea mouth riverjoint+beach1 at (16,15), tip **0u** from sea) **but its SOURCE is the
+  massif foot** (upstream tip **3.2u** from rock, 23 rock tris within 12u; `out/streamC_topdown.png` = the offline eye,
+  ribbon ends in grass at the rock base) + three place-entrances (areas 11/15). Excluding the mountain leaves an
+  upstream **stump** (water from nowhere); including it **drags a mountain** — either way the constraint breaks.
+  **⇒ the ENSEMBLE LAW's stream instance:** no standalone lowland water feature exists to carry, so `world-river` has
+  nothing to mint; the lawful carriable unit for ANY water feature is the whole massif ENSEMBLE (Daguerreo, proven).
+  **WHAT WOULD UNLOCK IT (LATER tier):** (a) carry **cluster D** (18-20,10-13) as the next falls-to-sea massif
+  ensemble — still drags a mountain by definition, an ensemble carry not a standalone feature; or (b) carry **cluster
+  C** as a **coastal-river ensemble** onto an island whose coast aligns with the (16,15) river mouth (terrain channel +
+  stream + riverjoint + beach1 + sea, accepting/capping the massif-foot source) — a heavier coastal carry needing a
+  coast-aligned bench, not the small inland feature 5.5 sought. Full tip table + provenance: study README
+  "THE STANDALONE WATER-FEATURE CENSUS".
 - [ ] **Decode unstudied mesh parts: Beach2 (4 blocks), Sea6 (4), the sole Sea4f (12,0), block 219** (5.25) — pure
   read-only UnityPy decode; possible new vocabulary tier.
 - [ ] **Scope a real navimap marker slot** (5.25: play 8, feas 3) — given the all-zero navipos discovery, a custom
