@@ -138,7 +138,13 @@ abilities = [
   # own structural analysis already proved vfx2 never plays for this bench (AllEnemy(8) is never
   # ManyAny, and Iviv's minted "Spark" command never enters DecideSummonType) -- moving it would be
   # a no-op edit, not a real second data point, so it stays exactly as rung 1 left it.
-  { name = "Bahamut Cinema", from = "Bahamut", targets = "AllEnemy", vfx1 = 84, vfx2 = 405 },
+  # type = 0 clears the donor row's summon-class bit (stock Bahamut ships type=4): AbilityUI.cs:1313
+  # / the BattleHUD twin gate `(Type & 4) != 0 && battle.GARNET_SUMMON_FLAG != 0` -> `mpCost <<= 2`
+  # -- vanilla FF9's EARLY-GAME SUMMON HANDICAP (until Garnet's story awakening, summon-class costs
+  # x4 MP). A scenario-zero New Game has the flag SET, so the faithful clone displayed/charged
+  # 56*4=224 MP (playtest-caught 2026-07-22, "~240"). THE TYPE-4 MP LAW: a minted summon-alike must
+  # clear bit 4 unless it deliberately wants the story-gated x4.
+  { name = "Bahamut Cinema", from = "Bahamut", targets = "AllEnemy", vfx1 = 84, vfx2 = 405, type = 0 },
 ]
 
 # --- A SECOND custom character on a DIFFERENT rig -- proves the [[playable]] stack isn't Vivi/mage-specific.
