@@ -90,10 +90,15 @@ is closed to clear the cosmetic stamp.
 
 ## Restore / revert / bisect
 
-- `py tools/restore_memoria_dll.py baseline` — copies the no-edits
-  `*.baseline-rebuild-6b8bb2d5.*` backups back to both Managed folders (isolates "my edits"
-  from "the rebuild itself"). Verify the baseline files actually exist in `backups/` before
-  relying on this (they have gone missing before).
+- `py tools/restore_memoria_dll.py <selector>` — copies the newest backup set whose name
+  contains `<selector>` (usually a timestamp like `20260722-095733`) back into the Managed
+  folders. Matches every backup naming convention incl. the per-arch
+  `Assembly-CSharp.x64.dll.<ts>` names (arch-specific backups restore only their own arch);
+  exits non-zero with a loud `NOTHING RESTORED` message when no backup matches (fixed
+  2026-07-22 — it used to print `Done.` after restoring zero files). Run from the MAIN repo:
+  `backups/` lives there, not in a worktree. The historical `baseline` set
+  (`*.baseline-rebuild-6b8bb2d5.*`) is gone from `backups/`, so `baseline` mode now fails
+  loudly. Covered by `ff9mapkit/tests/test_restore_memoria_dll.py`.
 - True original install: re-run `Memoria.Patcher.exe` (or Steam verify-integrity + re-patch).
 - Close FF9 first: restore hits `WinError 1224` on any DLL the running game has memory-mapped
   (byte-identical copies are no-ops).
