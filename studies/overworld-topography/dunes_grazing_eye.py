@@ -372,10 +372,10 @@ def _load_atlas():
     global _ATLAS, _APX, _AW, _AH
     if _ATLAS is not None:
         return
-    from PIL import Image
-    mog = (GP / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / "worldmap"
-           / "textures" / "res(1_24)_terrain.png")
-    _ATLAS = Image.open(mog).convert("RGBA")
+    # Engine-resolved, NOT a hardcoded mod path: FF9CustomMap outranks MoguriMain, so a deployed T2
+    # atlas reskin would out-render Moguri -- load_atlas tracks whatever wins the FolderNames stack.
+    from ff9mapkit.world import atlas as A
+    _ATLAS = A.load_atlas("terrain")
     _AW, _AH = _ATLAS.size
     _APX = _ATLAS.load()
 
