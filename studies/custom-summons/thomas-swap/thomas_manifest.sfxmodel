@@ -49,9 +49,9 @@
           "DestinationX": "144",
           "DestinationY": "47",
           "DestinationZ": "-4864",
-          "InterpolationTypeX": "Linear",
-          "InterpolationTypeY": "Linear",
-          "InterpolationTypeZ": "Linear"
+          "InterpolationTypeX": "Sinus",
+          "InterpolationTypeY": "Sinus",
+          "InterpolationTypeZ": "Sinus"
         },
         {
           "Duration": "25",
@@ -67,12 +67,12 @@
           "DestinationX": "152",
           "DestinationY": "202",
           "DestinationZ": "-4720",
-          "InterpolationTypeX": "Linear",
-          "InterpolationTypeY": "Linear",
-          "InterpolationTypeZ": "Linear"
+          "InterpolationTypeX": "Sinus",
+          "InterpolationTypeY": "Sinus",
+          "InterpolationTypeZ": "Sinus"
         },
         {
-          "Duration": "43",
+          "Duration": "51",
           "DestinationX": "120",
           "DestinationY": "118",
           "DestinationZ": "-3968",
@@ -81,7 +81,16 @@
           "InterpolationTypeZ": "Sinus"
         },
         {
-          "Duration": "164",
+          "Duration": "4",
+          "DestinationX": "35",
+          "DestinationY": "-1",
+          "DestinationZ": "-3832",
+          "InterpolationTypeX": "Linear",
+          "InterpolationTypeY": "Linear",
+          "InterpolationTypeZ": "Linear"
+        },
+        {
+          "Duration": "152",
           "DestinationX": "35",
           "DestinationY": "-1",
           "DestinationZ": "-3832",
@@ -99,7 +108,16 @@
           "InterpolationTypeZ": "SinusIn"
         },
         {
-          "Duration": "163",
+          "Duration": "66",
+          "DestinationX": "35",
+          "DestinationY": "-1",
+          "DestinationZ": "-9616",
+          "InterpolationTypeX": "Sinus",
+          "InterpolationTypeY": "Sinus",
+          "InterpolationTypeZ": "Sinus"
+        },
+        {
+          "Duration": "97",
           "DestinationX": "35",
           "DestinationY": "1600",
           "DestinationZ": "-30000",
@@ -148,12 +166,17 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "43",
+          "Duration": "51",
           "DestinationY": "90",
           "DestinationZ": "0"
         },
         {
-          "Duration": "164",
+          "Duration": "4",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "152",
           "DestinationY": "90",
           "DestinationZ": "0"
         },
@@ -163,7 +186,12 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "163",
+          "Duration": "66",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "97",
           "DestinationY": "0",
           "DestinationZ": "0",
           "InterpolationTypeY": "Sinus"

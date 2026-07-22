@@ -71,6 +71,18 @@ See README.md for the full test procedure, the failure-mode table, the HideMeshe
 section, and the local-only provenance note. See PROBE.md for the s47 probe's round-1 calibration-cast
 results (the full 39-key classification + the trajectory reconstruction this build's FLIGHT is derived
 from) and the round-2 refinement protocol.
+
+FLIGHT v3 (2026-07-22, CAMERA-DECODE REWINDOWED): the mesh-probe reconstruction above is accurate for
+gross position but can't tell a real camera cut from a fast in-shot reposition. ``ef_camera_decode.py``
+(this dir) parses the REAL native ``ef227.bytes`` camera track (open managed code: SFXBinaryFile.cs's
+container spec, byte-exact validated this session; SFXDataCamera.cs's Code-stream reader, the same
+parser ``ff9mapkit/ff9mapkit/battle/camera_codec.py`` round-trips for raw17) and finds Bahamut Cinema
+has exactly **3 real camera shots** with hard cuts at absolute tick 258 and 483 (Thomas's own
+PlaySFX-zeroed clock, offset 0) -- NOT at frames 172-179/204-207 where the mesh-position method had
+guessed. See ``THE FLIGHT v3`` comment block below for the full re-derivation; the measured waypoints
+themselves (P1_DEST..P10_DEST) are UNCHANGED (the decode can't recover a literal eye/aim world position
+-- SFXDataCamera's spherical Position->matrix conversion lives in the closed native plugin, a confirmed
+gap, not guessed) -- only the piece BOUNDARIES/EASING were corrected to match the real cut timing.
 """
 from __future__ import annotations
 
@@ -193,81 +205,118 @@ THOMAS_GEO_ID = 6200                          # clear of the bench's existing mi
 THOMAS_GEO_NAME = "GEO_MON_B0_M200"           # M200 = 6200 - MINT_BAND_START(6000), same token scheme as derive_mint_name
 THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 
-# --------------------------------------------------------------------------- THE FLIGHT v2 (2026-07-22, s47-PROBE-DERIVED)
-# HISTORY (superseded, kept for the record): build 1 was a static hover ("stays stationary... spawns in
-# front of Iviv"); build 2 (the 6-phase "SKY ARC") re-derived the cave/sky/ground beats by EYE from the
-# calibration-cast video and used CASTER-RELATIVE NCalc expressions (``CasterPositionX + N``) throughout.
-# Both were reasoned guesses. THE s47 MESH PROBE removed the guesswork for the CREATURE'S OWN geometry:
-# one instrumented cast (see PROBE.md) logged Bahamut's own 7 body-mesh keys' world-space bounds on every
-# one of 325 frames he's on screen (frames 82-417) -- his ACTUAL baked flight path, not a video-derived
-# estimate.
+# --------------------------------------------------------------------------- THE FLIGHT v3 (2026-07-22, CAMERA-DECODE REWINDOWED)
+# HISTORY (superseded, kept for the record): build 1 was a static hover; build 2 (the 6-phase "SKY ARC")
+# eyeballed the beats from video; FLIGHT v2 (the 11-piece build) replaced the eyeball with the s47
+# mesh-probe's real per-frame medians of Bahamut's own 7 body-mesh keys -- accurate gross position, but it
+# had to GUESS where the camera cuts were (a big position delta between frames is a decent cut proxy, but
+# can't tell a real cut from a fast in-shot reposition). It guessed cuts at frames 172-179 (P4->P5) and
+# 204-207 (P6->P7) and modeled both Linear/un-eased.
 #
-# RECONSTRUCTION METHOD (PROBE.md's round-1 results; independently re-verified against the raw log while
-# implementing this build -- every number below reproduces exactly): per frame, take the median across
-# the 7 creature keys of -- **X, Y: bounds CENTER** (``cx``, ``cy``); **Z: the FAR CORNER**
-# (``cz + ez`` or ``cz - ez``, whichever has the larger magnitude). The mission's own probe spec asked for
-# the far-corner pick on all 3 axes, but applying it to X/Y chases whichever silhouette extremity (a
-# wingtip, the tail) happens to be farthest that frame -- noisy and physically-implausible, because X/Y
-# stay close enough to world origin that the far corner has no stable "far side" to anchor to. Cross-check
-# that motivated the switch: raw CENTER cy stays in [-480.5, +511.5] across all 8,764 creature-key rows --
-# matching this same probe's own independent "Y never exceeds ~512" cluster read almost exactly. Z alone
-# carries the flight's real dramatic excursion (X stays in a tight ~[-266, +190] band the whole cast, Y
-# stays within that ~512 bound); this is why every piece below only really "moves" on Z + occasionally Y.
+# THE CAMERA DECODE (``ef_camera_decode.py``, this session) removed that guess. It parses the REAL native
+# ``ef227.bytes`` container's baked camera track -- SFXBinaryFile.cs's chunk/opcode-stream spec (byte-exact
+# validated: the resource table sums to the file's own 823,296-byte length with zero slack) +
+# SFXDataCamera.cs's Code-stream reader (the SAME parser ``battle/camera_codec.py`` already round-trips for
+# raw17 stock scenes) -- and finds Bahamut Cinema is exactly **3 real camera shots**, 2 real hard cuts, on
+# Thomas's own PlaySFX-zeroed clock (offset 0, cross-checked 3 independent ways against the container's own
+# internal tick math -- see ``ef_camera_decode.py``'s own docstring for the citations):
+#   SHOT 0  ticks   0-258   ONE unbroken dolly (camera resource chunk0/arg6) -- P1 through P8 ALL fall
+#                           inside this single shot; there is NO real cut at 172-179 or 204-207, just a
+#                           fast in-shot reposition the mesh-position method mistook for a cut
+#   CUT 1   tick    258     the REAL first hard cut (8 ticks into old FLIGHT v2's "P9" span)
+#   SHOT 1  ticks 258-483   ONE unbroken shot (camera resource chunk1/arg16) -- the charge+blast+ground-
+#                           reign; both EFFECT_POINT damage beats (abs 454, 466) fall inside it
+#   CUT 2   tick    483     the REAL second hard cut, into the outro
+#   SHOT 2  ticks 483-514   an almost-static outro/fade keyframe (camera resource chunk1/arg47)
 #
-# ABSOLUTE WORLD COORDINATES (the mission's explicit direction, and a genuine design change from build 2):
-# every Movement Origin*/Destination* below is a PLAIN NUMERIC NCalc constant, not a ``CasterPosition* +
-# N`` expression. The bench arena is fixed and both the native donor's Raw mesh and Thomas's own JSON mesh
-# draw in the same identity world space (``SFXMesh.Render()`` -- ``Graphics.DrawMeshNow(_mesh,
-# Matrix4x4.identity)``, no transform in play, README's own "Axis verification" section) -- so an absolute
-# coordinate puts Thomas EXACTLY where Bahamut's own body was measured, independent of any caster-lookup
-# quirk (ShiftWorld, the AllEnemy-bitmask targetId inheritance build 2's own ANCHOR TRUTH investigation
-# found on this exact route) and independent of THIS scene's own camera framing.
+# CONFIRMED GEOMETRIC GAP (see ``ef_camera_decode.py``'s own docstring): SFXDataCamera's spherical
+# (pitch/orientation/roll/distance) Position format has NO open-code conversion to a Unity world-space eye
+# or look-at point -- that conversion runs inside the closed native ``FF9SpecialEffectPlugin.dll``
+# (``CameraEngine.SFX_PLUGIN``, a per-frame ``[DllImport]`` call). So this rewindow does NOT replace
+# Thomas's measured XYZ waypoints with camera-derived ones -- it uses the SAME P1_DEST..P10_DEST as FLIGHT
+# v2 (the mesh-probe medians below), only correcting WHERE the piece boundaries/easing fall relative to
+# the REAL cuts. Net changes vs FLIGHT v2:
+#   1. P5 (172-179) and P7 (204-207) re-eased Linear -> Sinus: both sit INSIDE shot 0's one continuous
+#      dolly -- an un-eased snap here would read as Thomas teleporting mid-shot, since no real cut covers it.
+#   2. P8's hold is extended 8 ticks (207-250 -> 207-258) to reach the REAL shot-0/shot-1 boundary exactly,
+#      then ONE new short Linear piece (CUT1, 258-262) carries the P8->P9 position delta FAST -- converting
+#      what FLIGHT v2 modeled as a slow 164-frame drift into the real hard cut, landing Thomas already
+#      "in frame" for the reign the instant the camera cuts (matching how a real edit reads).
+#   3. The post-cut hold (P9, now 262-414) + P10 (414-417, unchanged) + a new flat bridging hold (P10_HOLD,
+#      417-483) keep shot 1 fully continuous through to tick 483 -- no invented position jump, since the
+#      measured data shows none there; the REAL cut is honored by holding until the tick it actually lands,
+#      not by faking a spatial snap the data doesn't support.
+#   4. The unmeasured tail (P11) now starts its SinusIn climb-away AT tick 483 (was 417 in FLIGHT v2) --
+#      "the cut gives cover for a position change/motion change at that instant" per the decode's own
+#      placement recommendation; the climb-away now visibly BEGINS right as the outro shot cuts in, instead
+#      of already being 66 frames underway.
 #
-# THE MEASURED FLIGHT (10 pieces from real per-frame medians, PROBE.md's full derivation + the video-beat
-# cross-reference table) + 1 unmeasured tail (see CAVEAT), summing to THOMAS_END=580 unchanged:
-#   P1  ENTRANCE       0-82     swoop in (pre-log; Origin unmeasured, see CAVEAT) -> the proven cave shots
-#   P2  RISE-TO-FAR   82-144    climbs away in DEPTH (Y barely drops while Z plunges) -- the first sky/far shot
-#   P3  FAR-DIP      144-157    a brief mid-act partial return (2nd camera-cut beat, e.g. a head close-up)
-#   P4  FAR-DEEP     157-172    the cast's single deepest point (Z=-34768 at frame 166) + a brief hold --
-#                               the iconic hover-pose/close-up shot
-#   P5  RETURN-CUT   172-179    THE hard cut (Z snaps -34368 -> -4864 in ~7 frames) -- kept FAST/un-eased
-#                               on purpose, not smoothed away (the mission's own instruction)
-#   P6  2ND-APPROACH 179-204    a second, shallower re-plunge during the charge windup
-#   P7  CHARGE-CUT   204-207    a second hard snap back to near-stage (also kept fast/un-eased)
-#   P8  CHARGE-HOLD  207-250    Mega-Flare charge+blast -- CORRECTION vs build 2: this stays NEAR-STAGE
-#                               depth throughout, NOT the deep sky Z build 2 held through this whole window
-#   P9  GROUND-REIGN 250-414    long floaty near-stage drift (Z~-2768..-8400) -- fire column + both damage
-#                               beats + undercarriage shots
-#   P10 EXIT-EDGE    414-417    body's last 3 logged frames -- a sharp final recess (Z -3832 -> -9616),
-#                               the start of Bahamut's own climb-away
-#   TAIL (unmeasured) 417-580   NO creature-key ground truth exists here (only fire-column/ember EFFECT
-#                               keys keep logging, through ~frame 510-515) -- see CAVEAT
+# RECONSTRUCTION METHOD for the measured waypoints (UNCHANGED from FLIGHT v2 -- PROBE.md's round-1
+# results): per frame, median across the 7 creature keys of -- **X, Y: bounds CENTER** (``cx``, ``cy``);
+# **Z: the FAR CORNER** (``cz +/- ez``, whichever has the larger magnitude). Far-corner is essential for Z
+# (recovers true depth) but chases silhouette extremities on X/Y (which stay close enough to origin that
+# there's no stable "far side") -- cross-checked: raw CENTER cy stays in [-480.5, +511.5] across all 8,764
+# creature-key rows, matching the probe's own independent "Y never exceeds ~512" cluster read.
 #
-# CAVEAT (open concern, carried from the round-1 analysis -- NOT yet in-game-checked against THIS build):
-#   (a) CORRECTED during adversarial verification (2026-07-22): P5_DEST (frame 179) and P7_DEST (frame 207)
-#       are each backed by a FULL n=28 rows (all 7 creature keys logged that exact frame) -- solid,
-#       high-confidence points, NOT the sparse n=4 reads an earlier draft of this comment claimed. The
-#       actually sparse/gappy region is frames ~153-177 (inside P3/P4): 153/154/167/168/170/171/173-177
-#       have ZERO creature-key rows logged at all, and 155/165/166/169/172 are under-sampled (n=8/16/4/4/4).
-#       P4_DEST ITSELF (frame 172, the deepest/most dramatic pose of the whole flight) is the real n=4
-#       low-confidence measurement -- see PROBE.md's "Sample-count correction" section. P5/P7 are kept
-#       SHORT + Linear (no easing curve) because they read as genuine fast transitions in the data (a huge
-#       position delta over few frames), not because the destination points themselves are uncertain.
-#   (b) P1's Origin (frame 0, pre-log) and the TAIL's Destination (frames 417-580) have ZERO measured
-#       ground truth -- both are REASONED EXTRAPOLATIONS, not measurements (see ENTRANCE_ORIGIN / P11_TAIL_DEST
-#       below for the specific reasoning), and should be confirmed against a fresh video/log of THIS build
-#       before being trusted further (this project's own video-for-visual-bugs law; PROBE.md's round-2
-#       protocol).
-#   (c) Clock alignment (probe_frame ~= Thomas_frame, offset 0) is a REASONED assumption (this calibration
-#       log predates Thomas entirely -- effectId=227 only, no JSON-mesh key present) -- Thomas's own
-#       LoadSFX must async-load a fresh JSON mesh from disk (vs Bahamut's already-cached native asset), so
-#       his own PlaySFX may plausibly fire a handful of frames LATER; treat +/-5-10 frames as realistic
-#       slop on every boundary above. VIDEO_TO_FRAME_OFFSET_S/FRAMES_PER_VIDEO_SECOND below are kept as the
-#       t~= cross-reference, unchanged from build 2 (the mission's own given "t ~= 6 + frame/15" mapping).
-#   (d) Absolute-world Z DECREASES (more negative) as Bahamut flies "away" -- this doesn't match build 2's
-#       caster-relative +Z="toward enemies" sign convention. Expected: absolute-world coordinates have a
-#       different origin/orientation than a caster-relative delta -- exactly why the mission asked for
-#       absolute coords here. Nobody should reverse-engineer a caster world position from this sign flip.
+# ABSOLUTE WORLD COORDINATES (unchanged from FLIGHT v2): every Movement Origin*/Destination* is a PLAIN
+# NUMERIC NCalc constant, not a ``CasterPosition* + N`` expression -- ``SFXMesh.Render()`` draws via
+# ``Graphics.DrawMeshNow(_mesh, Matrix4x4.identity)`` (no transform), so both the native donor's Raw mesh
+# and Thomas's JSON mesh share one identity world space; an absolute coordinate puts Thomas exactly where
+# Bahamut's own body was measured, independent of caster-lookup quirks or camera framing.
+#
+# YAW / BROADSIDE (open concern, honestly unresolved): the mission asked for a per-window yaw computed from
+# each shot's eye->Thomas vector (yaw toward the enemies if the camera looks along his length axis, so the
+# silhouette stays readable). This is NOT computable from the decode -- see the CONFIRMED GEOMETRIC GAP
+# above; there is no eye/aim world position to take a vector from, for ANY of the 3 shots, not just some.
+# Falling back to the qualitative shot descriptions instead: shot 0 is a single continuous dolly (distance
+# push/pull, not a bearing change) -- a fixed viewing angle the whole shot, so if YAW_BROADSIDE=90 (length
+# on world X, perpendicular to a Z-ish depth-dolly view axis) reads correctly at the start it should read
+# correctly throughout; shot 1 is the charge+blast hero shot (broadside is the deliberately-designed framing
+# the whole build has assumed since FLIGHT v1); shot 2 is a near-static outro during which the model ALREADY
+# turns him back to forward-facing (yaw 90->0) as he climbs away -- exactly the departure framing a static
+# outro camera would want. Net: NO per-window yaw deviation is introduced here (still 0->90 bank-in during
+# P1, HOLD 90 through shots 0+1, 90->0 bank-out during the tail) -- the same scheme FLIGHT v2 used, now
+# understood to already match what the decode's own qualitative shot descriptions imply, rather than an
+# unexamined carryover. A future round that fixes the DLL-side gap (or gets a fresh camera log once the
+# CAM-hook defect is fixed, PROBE.md's round-2 protocol item 5) could compute this for real.
+#
+# THE REWINDOWED FLIGHT (13 pieces: the same 10 measured + 1 unmeasured-tail waypoints as FLIGHT v2, plus 1
+# new hard-cut piece and 1 new bridging hold), summing to THOMAS_END=580 unchanged:
+#   P1  ENTRANCE          0-82     swoop in (pre-log; Origin unmeasured) -> the measured cave-shot settle    [SHOT 0]
+#   P2  RISE-TO-FAR      82-144    climbs away in DEPTH -- the first sky/far shot                            [SHOT 0]
+#   P3  FAR-DIP         144-157    a brief mid-act partial return                                            [SHOT 0]
+#   P4  FAR-DEEP        157-172    the cast's single deepest point + a brief hold                            [SHOT 0]
+#   P5  RETURN-DRIFT    172-179    re-eased Sinus (was Linear) -- NO real cut here, still shot 0             [SHOT 0]
+#   P6  2ND-APPROACH    179-204    a second, shallower re-plunge                                              [SHOT 0]
+#   P7  CHARGE-DRIFT    204-207    re-eased Sinus (was Linear) -- NO real cut here, still shot 0              [SHOT 0]
+#   P8  CHARGE-HOLD     207-258    extended +8 ticks (was 207-250) to reach the REAL shot boundary exactly   [SHOT 0]
+#   CUT1 (NEW)          258-262    THE real hard cut -- Linear, fast P8_DEST->P9_DEST snap                   [cut]
+#   P9  GROUND-REIGN    262-414    post-cut hold at P9_DEST -- fire column + both damage beats               [SHOT 1]
+#   P10 EXIT-EDGE       414-417    sharp final recess (unchanged from FLIGHT v2)                             [SHOT 1]
+#   P10_HOLD (NEW)      417-483    flat bridging hold to the REAL 2nd cut tick (was silently absorbed into   [SHOT 1]
+#                                  FLIGHT v2's tail SinusIn before)
+#   P11 TAIL (tail)     483-580    unmeasured climb-away, now STARTS/accelerates right at the real cut       [SHOT 2]
+#
+# CAVEAT (carried forward from FLIGHT v2's round-1 analysis + the adversarial-verification correction --
+# see PROBE.md "Sample-count correction"; NOT re-checked in-game against THIS rewindow):
+#   (a) P5_DEST (179)/P7_DEST (207) are each backed by a full n=28 rows -- solid points; the actually
+#       sparse/gappy region is frames ~153-177 (inside P3/P4), and P4_DEST itself (172, the single deepest/
+#       most dramatic pose) is the real n=4 low-confidence measurement.
+#   (b) P1's Origin (frame 0, pre-log) and the TAIL's Destination (P11_TAIL_DEST) have ZERO measured ground
+#       truth -- both REASONED EXTRAPOLATIONS (see ENTRANCE_ORIGIN / P11_TAIL_DEST below), unconfirmed
+#       against a fresh video/log of THIS build (this project's video-for-visual-bugs law).
+#   (c) Clock alignment (probe/container tick ~= Thomas frame, offset 0) is a REASONED assumption, now
+#       backed by the camera decode's own 3-way internal cross-check (container total ticks=514 and the
+#       first camera's fire tick=14 both match the s47 probe's independently-logged cast bounds
+#       frames~11-510/515 within 2-4 ticks) -- stronger than FLIGHT v2's bare assumption, still not a
+#       literal re-measurement against THIS exact build. Treat +/-2-5 frames as realistic slop.
+#   (d) The CUT1/CUT2 tick placements (258, 483) themselves carry the decode's own PARTIAL confidence --
+#       SOLID on the container-parse + clock-alignment side, but the decode could not independently
+#       re-verify against a fresh camera log (the s47 CAM-hook defect, PROBE.md, means no camera log exists
+#       for THIS engine build to cross-check the container's baked ticks against real playback).
+#   (e) Absolute-world Z DECREASES (more negative) as Bahamut flies "away" -- unrelated to any caster-
+#       relative sign convention from earlier builds; nobody should reverse-engineer a caster position from
+#       this sign.
 #
 #   Every number below is a named constant -- retune and rerun (recast-only, no relaunch) in one line.
 VIDEO_TO_FRAME_OFFSET_S = 6      # Thomas's own PlaySFX/frame-0, video-seconds (per the mission's own t~=6+frame/15 map)
@@ -295,41 +344,50 @@ P10_DEST = (35, -1, -9616)           # frame 417 -- body's last logged position,
 # NEWLY MEASURED P1_DEST, rather than re-guessing a fresh shape from nothing.
 ENTRANCE_ORIGIN = (P1_DEST[0] - 2000, P1_DEST[1] + 800, P1_DEST[2] - 1500)
 
-# TAIL destination (frames 417-580, UNMEASURED -- see CAVEAT b): no creature-key rows exist past frame
-# 417. A REASONED continuation of P10's own recess (still climbing away / receding further), carrying
-# forward build 2's own EXIT_Y=1600 magnitude and its SinusIn "accelerating departure" intent -- X holds
-# near the trend's own converged value (~35, matching frames 400-417), Z recedes further into the
-# distance (shallower than P4's own measured -34368 record, so this reads as "leaving" rather than
-# "returning to the same deep point"). Flagged for round 2 -- a fresh log/video of frames 417-580
-# specifically (PROBE.md's round-2 protocol) should replace this with real data.
+# TAIL destination (piece runs ticks 483-580 under FLIGHT v3 -- starts at the real 2nd camera cut, was
+# 417-580 in FLIGHT v2; UNMEASURED either way, see CAVEAT b): no creature-key rows exist past frame 417,
+# so there's no ground truth for this piece regardless of where it starts. A REASONED continuation of
+# P10's own recess (still climbing away / receding further), carrying forward build 2's own EXIT_Y=1600
+# magnitude and its SinusIn "accelerating departure" intent -- X holds near the trend's own converged
+# value (~35, matching frames 400-417), Z recedes further into the distance (shallower than P4's own
+# measured -34368 record, so this reads as "leaving" rather than "returning to the same deep point").
+# Flagged for round 2 -- a fresh log/video of frames 417-580 specifically (PROBE.md's round-2 protocol)
+# should replace this with real data.
 P11_TAIL_DEST = (35, 1600, -30000)
 
 # Yaw (Rotation.Y): P1 banks 0 (his normalized-forward, facing the enemies) -> 90 (broadside) as he
-# arrives at P1_DEST, then HOLDS broadside from P2 all the way through P10 (the mission's own
+# arrives at P1_DEST, then HOLDS broadside from P2 all the way through P10_HOLD (the mission's own
 # instruction -- also his iconic "number 1" side panel, per README's axis-verification renders), then
 # 90 -> 0 only in the TAIL as he turns forward again to climb away. Rotation.Z stays 0 in every piece --
 # NO roll (he is not PSX-inverted; README's own axis-verification already established his normalized
 # Rotation=(0,0) needs no runtime compensation).
 YAW_BROADSIDE = 90
 
-# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- boundaries are the measured
-# piece-boundary frames themselves (82/144/157/172/179/204/207/250/414/417), plus the unmeasured tail
-# filling the remainder to THOMAS_END; sum = THOMAS_END = the FBX entry's own End, unchanged at 580.
-P1_ENTRANCE_DURATION = 82           # frames 0-82:     swoop in (pre-log entrance -> the measured settle)
-P2_RISE_TO_FAR_DURATION = 62        # frames 82-144:   climbs away in depth to the first sky/far shot
-P3_FAR_DIP_DURATION = 13            # frames 144-157:  the mid-act partial-return dip
-P4_FAR_DEEP_DURATION = 15           # frames 157-172:  the deepest point + brief hold (iconic close-up)
-P5_RETURN_CUT_DURATION = 7          # frames 172-179:  THE hard cut (kept fast, see CAVEAT a)
-P6_SECOND_APPROACH_DURATION = 25    # frames 179-204:  the second, shallower re-plunge
-P7_CHARGE_CUT_DURATION = 3          # frames 204-207:  the second hard cut back to near-stage
-P8_CHARGE_HOLD_DURATION = 43        # frames 207-250:  Mega-Flare charge+blast, near-stage
-P9_GROUND_REIGN_DURATION = 164      # frames 250-414:  fire column + both damage beats + undercarriage
-P10_EXIT_EDGE_DURATION = 3          # frames 414-417:  the sharp final recess (last logged body frames)
-P11_TAIL_DURATION = 163             # frames 417-580:  UNMEASURED -- reasoned climb-away (see CAVEAT b)
+# Tick-map phase lengths (frames, on Thomas's own PlaySFX-zeroed clock) -- boundaries are now the REAL
+# camera-shot structure (ef_camera_decode.py): shot 0 spans 0-258 (P1..P8, ONE continuous dolly), CUT1 is
+# the real hard cut at 258, shot 1 spans 258-483 (P9/P10/the bridging hold), CUT2's "cut" is realized as
+# the tail's motion BEGINNING exactly at 483 (no invented spatial jump -- the measured data shows none),
+# shot 2 (the outro) runs 483-580. Sum = THOMAS_END = the FBX entry's own End, unchanged at 580.
+P1_ENTRANCE_DURATION = 82           # frames 0-82:     swoop in (pre-log entrance -> the measured settle)          [SHOT 0]
+P2_RISE_TO_FAR_DURATION = 62        # frames 82-144:   climbs away in depth to the first sky/far shot               [SHOT 0]
+P3_FAR_DIP_DURATION = 13            # frames 144-157:  the mid-act partial-return dip                               [SHOT 0]
+P4_FAR_DEEP_DURATION = 15           # frames 157-172:  the deepest point + brief hold (iconic close-up)             [SHOT 0]
+P5_RETURN_DRIFT_DURATION = 7        # frames 172-179:  re-eased Sinus (was "RETURN_CUT"/Linear -- NO real cut here) [SHOT 0]
+P6_SECOND_APPROACH_DURATION = 25    # frames 179-204:  the second, shallower re-plunge                              [SHOT 0]
+P7_CHARGE_DRIFT_DURATION = 3        # frames 204-207:  re-eased Sinus (was "CHARGE_CUT"/Linear -- NO real cut here) [SHOT 0]
+P8_CHARGE_HOLD_DURATION = 51        # frames 207-258:  EXTENDED +8 (was 43/207-250) to reach the REAL cut exactly   [SHOT 0]
+CUT1_DURATION = 4                   # frames 258-262:  NEW -- THE real hard cut, fast Linear P8_DEST->P9_DEST snap  [cut]
+P9_GROUND_REIGN_DURATION = 152      # frames 262-414:  post-cut hold at P9_DEST (was 164/250-414 -- CUT1 now owns   [SHOT 1]
+                                     #                  the P8->P9 delta, so this piece is a flat post-cut hold)
+P10_EXIT_EDGE_DURATION = 3          # frames 414-417:  the sharp final recess (last logged body frames, unchanged)  [SHOT 1]
+P10_HOLD_DURATION = 66              # frames 417-483:  NEW -- flat bridging hold to the REAL 2nd cut tick (was      [SHOT 1]
+                                     #                  silently absorbed into FLIGHT v2's tail SinusIn before)
+P11_TAIL_DURATION = 97              # frames 483-580:  UNMEASURED climb-away, now STARTS at the real 2nd cut (was   [SHOT 2]
+                                     #                  163/417-580 in FLIGHT v2 -- see CAVEAT b)
 THOMAS_END = (P1_ENTRANCE_DURATION + P2_RISE_TO_FAR_DURATION + P3_FAR_DIP_DURATION + P4_FAR_DEEP_DURATION
-              + P5_RETURN_CUT_DURATION + P6_SECOND_APPROACH_DURATION + P7_CHARGE_CUT_DURATION
-              + P8_CHARGE_HOLD_DURATION + P9_GROUND_REIGN_DURATION + P10_EXIT_EDGE_DURATION
-              + P11_TAIL_DURATION)   # 580, unchanged
+              + P5_RETURN_DRIFT_DURATION + P6_SECOND_APPROACH_DURATION + P7_CHARGE_DRIFT_DURATION
+              + P8_CHARGE_HOLD_DURATION + CUT1_DURATION + P9_GROUND_REIGN_DURATION + P10_EXIT_EDGE_DURATION
+              + P10_HOLD_DURATION + P11_TAIL_DURATION)   # 580, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -395,81 +453,104 @@ def _write(dest: Path, data: bytes) -> str:
 def _pt(xyz: "tuple[int, int, int]") -> dict:
     """Split an (X, Y, Z) absolute-world tuple into the 3 ``Destination*`` JSON keys as plain numeric
     NCalc constants (a bare literal like ``"-17860"`` parses via NCalc exactly as well as an expression
-    -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design, see THE FLIGHT v2
+    -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design, see THE FLIGHT v3
     comment above)."""
     x, y, z = xyz
     return {"DestinationX": str(x), "DestinationY": str(y), "DestinationZ": str(z)}
 
 
 def build_manifest_json() -> dict:
-    """Generate ``thomas_manifest.sfxmodel``'s JSON from the named FLIGHT v2 constants above (schema
+    """Generate ``thomas_manifest.sfxmodel``'s JSON from the named FLIGHT v3 constants above (schema
     verified against ``ParametricMovement.LoadFromJSON``, Memoria/Battle/SFX/ParametricMovement.cs:
     58-136 -- an array of pieces, ``Duration`` + per-axis ``Origin*``/``Destination*``/
     ``InterpolationType*``; an absent ``Origin*`` key on piece i>0 CHAINS from the prior piece's own
-    ``Destination*`` expression, :88-105/:104-105/:96-97 -- used below for pieces 2-11 of both Movement
-    and Rotation). 11 pieces (10 measured off the s47 probe's real per-frame medians + 1 unmeasured
-    tail, see the CAVEAT above): SinusOut (decelerating arrival, P1) -> SinusIn (accelerating rise, P2)
-    -> Sinus (a floaty partial-return dip, P3) -> SinusIn (plunging to the deepest point, P4) -> Linear
-    (THE hard cut, un-eased on purpose, P5) -> Sinus (the second re-plunge, P6) -> Linear (the second
-    hard cut, P7) -> Sinus (the charge+blast hold, P8) -> Sinus (the long ground-reign drift, P9) ->
-    SinusIn (the sharp final recess, P10) -> SinusIn (the reasoned climb-away tail, P11). Every
-    Destination is always given explicitly (never relied on the dest-defaults-to-origin fallback) so the
-    JSON stays self-documenting. Scaling is unchanged (constant THOMAS_SCALE, one piece spanning the
-    whole THOMAS_END, no motion needed)."""
+    ``Destination*`` expression -- used below for pieces 2-13 of both Movement and Rotation). 13 pieces,
+    one group per REAL camera shot (ef_camera_decode.py) with the 2 real hard cuts as their own explicit
+    short Linear pieces: SHOT 0 (P1..P8, ticks 0-258, one continuous dolly -- SinusOut/SinusIn/Sinus
+    throughout, NO Linear inside it) -> CUT1 (258-262, the one deliberate Linear snap, timed to the real
+    cut) -> SHOT 1 (P9/P10/P10_HOLD, ticks 262-483, the charge+blast+ground-reign, gentle Sinus/SinusIn
+    holds) -> SHOT 2 (P11 TAIL, ticks 483-580, the reasoned climb-away, starting right at the real 2nd
+    cut). Every Destination is always given explicitly (never relied on the dest-defaults-to-origin
+    fallback) so the JSON stays self-documenting. Scaling is unchanged (constant THOMAS_SCALE, one piece
+    spanning the whole THOMAS_END, no motion needed)."""
     movement = [
-        {   # P1 ENTRANCE: unmeasured origin (reasoned extrapolation, see CAVEAT b) -> the measured
-            # frame-82 cave-shot settle
+        {   # P1 ENTRANCE [SHOT 0]: unmeasured origin (reasoned extrapolation, see CAVEAT b) -> the
+            # measured frame-82 cave-shot settle
             "Duration": str(P1_ENTRANCE_DURATION),
             "OriginX": str(ENTRANCE_ORIGIN[0]), "OriginY": str(ENTRANCE_ORIGIN[1]), "OriginZ": str(ENTRANCE_ORIGIN[2]),
             **_pt(P1_DEST),
             "InterpolationTypeX": "SinusOut", "InterpolationTypeY": "SinusOut", "InterpolationTypeZ": "SinusOut",
         },
-        {   # P2 RISE-TO-FAR: climbs away in depth to the first sky/far shot (Origin chained from P1's Destination)
+        {   # P2 RISE-TO-FAR [SHOT 0]: climbs away in depth to the first sky/far shot (Origin chained
+            # from P1's Destination)
             "Duration": str(P2_RISE_TO_FAR_DURATION),
             **_pt(P2_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
-        {   # P3 FAR-DIP: a brief mid-act partial return (a 2nd camera-cut beat)
+        {   # P3 FAR-DIP [SHOT 0]: a brief mid-act partial return -- still inside the one continuous dolly
             "Duration": str(P3_FAR_DIP_DURATION),
             **_pt(P3_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P4 FAR-DEEP: the cast's single deepest point + a brief hold -- the iconic hover/close-up shot
+        {   # P4 FAR-DEEP [SHOT 0]: the cast's single deepest point + a brief hold -- the iconic hover/
+            # close-up moment, still inside shot 0
             "Duration": str(P4_FAR_DEEP_DURATION),
             **_pt(P4_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
-        {   # P5 RETURN-CUT: THE hard cut -- Linear/un-eased on purpose, not smoothed away (see CAVEAT a)
-            "Duration": str(P5_RETURN_CUT_DURATION),
+        {   # P5 RETURN-DRIFT [SHOT 0]: re-eased Sinus (was Linear in FLIGHT v2) -- the camera decode found
+            # NO real cut here, just a fast in-shot reposition inside the one continuous dolly; an un-eased
+            # snap here (with no real cut to cover it) would read as Thomas teleporting mid-shot
+            "Duration": str(P5_RETURN_DRIFT_DURATION),
             **_pt(P5_DEST),
-            "InterpolationTypeX": "Linear", "InterpolationTypeY": "Linear", "InterpolationTypeZ": "Linear",
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P6 2ND-APPROACH: a second, shallower re-plunge during the charge windup
+        {   # P6 2ND-APPROACH [SHOT 0]: a second, shallower re-plunge during the charge windup
             "Duration": str(P6_SECOND_APPROACH_DURATION),
             **_pt(P6_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P7 CHARGE-CUT: the second hard cut back to near-stage -- also Linear/un-eased (see CAVEAT a)
-            "Duration": str(P7_CHARGE_CUT_DURATION),
+        {   # P7 CHARGE-DRIFT [SHOT 0]: re-eased Sinus (was Linear) -- same correction as P5, still shot 0
+            "Duration": str(P7_CHARGE_DRIFT_DURATION),
             **_pt(P7_DEST),
-            "InterpolationTypeX": "Linear", "InterpolationTypeY": "Linear", "InterpolationTypeZ": "Linear",
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P8 CHARGE-HOLD: Mega-Flare charge+blast -- CORRECTION vs build 2: stays NEAR-STAGE depth
+        {   # P8 CHARGE-HOLD [SHOT 0]: Mega-Flare charge+blast, held NEAR-STAGE -- duration EXTENDED +8
+            # ticks vs FLIGHT v2 so this piece's own end lands exactly on the REAL shot-0/shot-1 boundary
             "Duration": str(P8_CHARGE_HOLD_DURATION),
             **_pt(P8_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P9 GROUND-REIGN: the long floaty near-stage drift -- fire column + both damage beats
+        {   # CUT1 [the real hard cut]: NEW piece -- a fast Linear snap from P8_DEST to P9_DEST, landing
+            # exactly on the camera decode's own real cut tick (258). This is the ONE deliberate un-eased
+            # moment in the whole flight now, replacing FLIGHT v2's 164-frame slow drift between the same
+            # two points with the snap the real edit actually performs.
+            "Duration": str(CUT1_DURATION),
+            **_pt(P9_DEST),
+            "InterpolationTypeX": "Linear", "InterpolationTypeY": "Linear", "InterpolationTypeZ": "Linear",
+        },
+        {   # P9 GROUND-REIGN [SHOT 1]: post-cut hold at P9_DEST -- fire column + both damage beats land
+            # inside this shot; gentle Sinus (a floaty near-stage hover, not a rigid freeze)
             "Duration": str(P9_GROUND_REIGN_DURATION),
             **_pt(P9_DEST),
             "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
         },
-        {   # P10 EXIT-EDGE: the body's last logged position -- a sharp final recess
+        {   # P10 EXIT-EDGE [SHOT 1]: the body's last logged position -- a sharp final recess, unchanged
+            # from FLIGHT v2, still well inside shot 1 (the real cut is still 66 ticks away)
             "Duration": str(P10_EXIT_EDGE_DURATION),
             **_pt(P10_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
         },
-        {   # P11 TAIL: UNMEASURED -- a reasoned climb-away continuation (see CAVEAT b)
+        {   # P10_HOLD [SHOT 1]: NEW bridging piece -- a gentle Sinus hold at the recessed P10_DEST,
+            # filling shot 1 all the way to the REAL 2nd cut tick (483) instead of letting FLIGHT v2's tail
+            # SinusIn silently absorb this span
+            "Duration": str(P10_HOLD_DURATION),
+            **_pt(P10_DEST),
+            "InterpolationTypeX": "Sinus", "InterpolationTypeY": "Sinus", "InterpolationTypeZ": "Sinus",
+        },
+        {   # P11 TAIL [SHOT 2, the outro]: UNMEASURED -- a reasoned climb-away continuation, now
+            # STARTING/accelerating exactly at the real 2nd cut tick (483) rather than 66 ticks early
+            # (see CAVEAT b)
             "Duration": str(P11_TAIL_DURATION),
             **_pt(P11_TAIL_DEST),
             "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
@@ -485,13 +566,16 @@ def build_manifest_json() -> dict:
         {"Duration": str(P2_RISE_TO_FAR_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P3_FAR_DIP_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P4_FAR_DEEP_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
-        {"Duration": str(P5_RETURN_CUT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P5_RETURN_DRIFT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P6_SECOND_APPROACH_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
-        {"Duration": str(P7_CHARGE_CUT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(P7_CHARGE_DRIFT_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P8_CHARGE_HOLD_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {"Duration": str(CUT1_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P9_GROUND_REIGN_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
         {"Duration": str(P10_EXIT_EDGE_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
-        {   # P11 TAIL: turn back to forward-facing as he climbs away
+        {"Duration": str(P10_HOLD_DURATION), "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0"},
+        {   # P11 TAIL: turn back to forward-facing as he climbs away -- see the YAW / BROADSIDE comment
+            # above for why no per-shot yaw deviation was computed (the DLL-side eye/aim gap)
             "Duration": str(P11_TAIL_DURATION),
             "DestinationY": "0",
             "DestinationZ": "0",
@@ -765,25 +849,33 @@ def main() -> int:
         b2 = b1 + P2_RISE_TO_FAR_DURATION
         b3 = b2 + P3_FAR_DIP_DURATION
         b4 = b3 + P4_FAR_DEEP_DURATION
-        b5 = b4 + P5_RETURN_CUT_DURATION
+        b5 = b4 + P5_RETURN_DRIFT_DURATION
         b6 = b5 + P6_SECOND_APPROACH_DURATION
-        b7 = b6 + P7_CHARGE_CUT_DURATION
+        b7 = b6 + P7_CHARGE_DRIFT_DURATION
         b8 = b7 + P8_CHARGE_HOLD_DURATION
-        b9 = b8 + P9_GROUND_REIGN_DURATION
+        bc1 = b8 + CUT1_DURATION
+        b9 = bc1 + P9_GROUND_REIGN_DURATION
         b10 = b9 + P10_EXIT_EDGE_DURATION
-        b11 = b10 + P11_TAIL_DURATION  # == THOMAS_END
-        print("THE FLIGHT v2 (11 pieces, s47-probe-derived, 2026-07-22):")
+        b10h = b10 + P10_HOLD_DURATION
+        b11 = b10h + P11_TAIL_DURATION  # == THOMAS_END
+        print("THE FLIGHT v3 (13 pieces, CAMERA-DECODE REWINDOWED, 2026-07-22):")
+        print(f"  [SHOT 0: real camera ticks 0-258, ONE continuous dolly -- no real cut inside it]")
         print(f"  P1  entrance        0-{b1}    swoop in (unmeasured origin) -> the measured cave-shot settle")
         print(f"  P2  rise-to-far   {b1}-{b2}   climbs away in depth -- the first sky/far shot")
         print(f"  P3  far-dip       {b2}-{b3}  a brief mid-act partial-return dip")
         print(f"  P4  far-deep      {b3}-{b4}  the cast's single deepest point + a brief hold")
-        print(f"  P5  return-cut    {b4}-{b5}  THE hard cut (fast, un-eased)")
+        print(f"  P5  return-drift  {b4}-{b5}  re-eased Sinus (was Linear) -- NO real cut here")
         print(f"  P6  2nd-approach  {b5}-{b6}  a second, shallower re-plunge")
-        print(f"  P7  charge-cut    {b6}-{b7}  the second hard cut back to near-stage")
-        print(f"  P8  charge-hold   {b7}-{b8}  Mega-Flare charge+blast -- NEAR-STAGE (not deep sky)")
-        print(f"  P9  ground-reign  {b8}-{b9}  fire column + both damage beats + undercarriage shots")
+        print(f"  P7  charge-drift  {b6}-{b7}  re-eased Sinus (was Linear) -- NO real cut here")
+        print(f"  P8  charge-hold   {b7}-{b8}  Mega-Flare charge+blast -- extended +8 to reach the real cut")
+        print(f"  [CUT 1: the REAL hard cut, camera tick {b8}]")
+        print(f"  CUT1 (fast/Linear)  {b8}-{bc1}  the one deliberate snap, P8_DEST->P9_DEST")
+        print(f"  [SHOT 1: real camera ticks {b8}-483, the charge+blast+ground-reign]")
+        print(f"  P9  ground-reign  {bc1}-{b9}  post-cut hold -- fire column + both damage beats")
         print(f"  P10 exit-edge    {b9}-{b10}  sharp final recess (last logged body frames)")
-        print(f"  P11 tail (UNMEASURED) {b10}-{b11}  reasoned climb-away -- see PROBE.md round-2 protocol")
+        print(f"  P10_hold        {b10}-{b10h}  bridging hold to the real 2nd cut tick (483)")
+        print(f"  [CUT 2 / SHOT 2: the REAL 2nd hard cut + outro, camera tick 483-514]")
+        print(f"  P11 tail (UNMEASURED) {b10h}-{b11}  climb-away STARTS at the real cut -- see PROBE.md round-2 protocol")
         print()
         m = result["mint"]
         print(f"=== Thomas GEO mint: id={m['id']} name={m['name']} type_int={m['type_int']} ===")
