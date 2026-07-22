@@ -9,6 +9,10 @@
         "OriginX": "CasterPositionX", "OriginY": "CasterPositionY + 150", "OriginZ": "CasterPositionZ + 600",
         "DestinationX": "CasterPositionX", "DestinationY": "CasterPositionY + 150", "DestinationZ": "CasterPositionZ + 600"
       },
+      "Rotation": {
+        "Duration": "60",
+        "OriginZ": "180", "DestinationZ": "180"
+      },
       "Animations": [
         { "Path": "Animations/6100/1010000" }
       ]

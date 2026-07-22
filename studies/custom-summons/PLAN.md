@@ -442,7 +442,15 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    loading on this install; ZERO new bytes staged). The deployed sequence = rung 6's proven
    skeleton + a ~4s reveal DURING the blackout (setBGColor disables only the battle-bg model's
    renderers — the SFX mesh renders independently: a silhouette-against-black reveal), End=60
-   auto-destruct, then re-light → damage → close-out.]**
+   auto-destruct, then re-light → damage → close-out.
+   ★ MECHANISM PROVEN 2026-07-21 — "i see iviv after the long pauses": THE FIRST CUSTOM MODEL EVER
+   RENDERED INSIDE AN FF9 BATTLE EFFECT. The FileList.txt → .sfxmodel → FBX → ModelFactory route
+   works end-to-end in a live battle. Defect: spawned "upside down and backwards" — THE ROTATION
+   BASELINE LAW: the SFX path applies the manifest's Rotation curve RAW to eulerAngles
+   (SFXDataMesh.cs:807) with no battle-actor base rotation — btl_init.cs:220 shows players get
+   Euler(0,0,180) (PSX-heritage models are authored inverted; enemies get (0,180,180) at :353).
+   Fix staged: a constant Rotation Z=180 piece in the manifest (deployed; orientation recast
+   pending — if he then faces away, add Y=180 per the enemy variant).]**
 8. **The composed epic** — full multi-phase original: buildup channel → blackout → creature reveal
    → attack → EffectPoint → resolution, minted music sting, PlayCamera cuts. Proof: a bespoke
    summon start-to-finish, zero DLL.
