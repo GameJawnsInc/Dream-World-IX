@@ -1,0 +1,62 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -1039,7 +1039,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         Section("Vehicle");
+         Int32 cur = CurrentControlNo();
+         Int32 realMask = VehicleAllowMask();
+-        Int32 allowMask = _vehicleForceAll ? AllVehicleModes : realMask;
++        Int32 allowMask = _vehicleForceAll ? ExtendedVehicleModes : realMask;
+         GUILayout.Label("Current: " + VehicleName(cur).Trim('(', ')') + "   [190]=" + cur + "   world state " + WorldMapNo(), _hint);
+         VehicleButton("On foot", 0, allowMask, realMask);
+         VehicleButton("Chocobo — plains", 1, allowMask, realMask);
+@@ -1049,8 +1049,10 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         VehicleButton("Blue Narciss — boat", 7, allowMask, realMask);
+         VehicleButton("Hilda Garde III — airship", 8, allowMask, realMask);
+         VehicleButton("Invincible — airship", 9, allowMask, realMask);
++        VehicleButton("Row 10 — unused all-terrain (physics probe)", 10, allowMask, realMask);
++        VehicleButton("Row 11 — unused empty row (speed 0)", 11, allowMask, realMask);
+         GUILayout.Label(_vehicleForceAll
+-            ? "OVERRIDE ON — every mode is clickable; a red (forced) mode drives an unhandled nav arm and will likely crash. Reload a state (e.g. 9009) below, then force-test here."
++            ? "OVERRIDE ON — every mode is clickable; a red (forced) mode drives an unhandled nav arm and will likely crash. Reload a state (e.g. 9009) below, then force-test here. Rows 10/11 are LIVE-APPLY ONLY: go back On foot before any world reload, field exit, or save — loading with [190]>9 is a guaranteed black screen (no Init claims control)."
+             : "Greyed modes aren't handled by this world state — forcing them crashes its event script. All modes are safe on WORLD02/10/11.", _hint);
+         if (GUILayout.Button((_vehicleForceAll ? "[x]  " : "[  ]  ") + "Force every mode (may crash)", _toggleBtn, GUILayout.ExpandWidth(false)))
+             _vehicleForceAll = !_vehicleForceAll;
+@@ -1293,7 +1295,12 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     // modes work (WORLD11 in-game proven). Everywhere else -> foot only. (To reach a test entrance on a gated
+     // state, use the World-tab Teleport, which is vehicle-independent.)
+     // Bitmask: bit m set => mode m allowed. Modes: 0 foot, 1-5 chocobo, 6 gold-flight, 7 boat, 8/9 airship.
+-    private const Int32 AllVehicleModes = 0x3FF;   // 0..9
++    private const Int32 AllVehicleModes = 0x3FF;   // 0..9 (the real vehicles; what the allow-list grants)
++    // [ff9mapkit s48] The two UNUSED w_moveCHRControl physics rows (10 = populated all-terrain "hovercraft",
++    // 11 = all-zero/immobile). No dispatcher authors an arm for them, so they are debug-force-only: NEVER in
++    // an allow-list, and NEVER survivable across a world LOAD (no Init binds control for an unknown mode ->
++    // the 'no controlled actor' black screen, in-game confirmed 2026-07-22). Live-apply after a foot-load only.
++    private const Int32 ExtendedVehicleModes = 0xFFF;   // 0..11 incl. the unused rows (force-toggle only)
+     private const Int32 FootOnly = 0x001;          // 0
+     private static readonly Dictionary<Int32, Int32> VehicleAllowByWorld = new Dictionary<Int32, Int32>
+     {
+@@ -1427,6 +1434,14 @@ public class Ff9mkDebugMenu : MonoBehaviour
+                 _status = "vehicle swap: no gEventGlobal";
+                 return;
+             }
++            // [ff9mapkit s48] w_movementChange indexes w_moveCHRControl[mode] unguarded -- refuse a mode with no
++            // physics row (12 stock; a WorldCHRControl CSV can ship more) instead of an IndexOutOfRange mid-frame.
++            if (ff9.w_moveCHRControl == null || mode >= ff9.w_moveCHRControl.Length)
++            {
++                _status = "mode " + mode + ": no physics row (w_moveCHRControl has "
++                          + (ff9.w_moveCHRControl == null ? 0 : ff9.w_moveCHRControl.Length) + " rows)";
++                return;
++            }
+             // [ff9mapkit] Stop the OUTGOING vehicle's looping idle SE before switching. w_movementChange() only
+             // self-clears the boat (previousTransport==7); an airship layers SE 38 (engine hum) + its own se and is
+             // normally silenced by the game's SP1/SP2 dismount paths, which this direct poke bypasses -> without this
+@@ -1464,6 +1479,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             case 7: return "(Blue Narciss - boat)";
+             case 8: return "(Hilda Garde III - airship)";
+             case 9: return "(Invincible - airship)";
++            case 10: return "(row 10 - unused all-terrain)";
++            case 11: return "(row 11 - unused empty)";
+             default: return "(?)";
+         }
+     }

@@ -1,0 +1,27 @@
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -219,6 +219,23 @@
+                 w.WriteLine(String.Format(CultureInfo.InvariantCulture,
+                     "CAM,{0},{1:F4},{2:F4},{3:F4},{4:F4},{5:F4},{6:F4}",
+                     SFX.frameIndex, p.x, p.y, p.z, r.x, r.y, r.z));
++                // s50 -- the REAL per-frame camera: during SFX_PLUGIN playback the native plugin
++                // overrides camera.worldToCameraMatrix + camera.projectionMatrix DIRECTLY every
++                // frame (SFX.cs:1603-1604), while .transform stays frozen at its Awake pose -- so
++                // the CAM row above (transform) is inert and these two matrix rows carry the truth.
++                // Row-major m00..m33 (Unity mRowCol fields). VIEW = world->camera; PROJ = the
++                // hand-built off-center PSX frustum (incl. the -Y camera scale). Full MVP = PROJ*VIEW;
++                // invert to place a mesh at any target NDC.
++                Matrix4x4 vm = cam.worldToCameraMatrix;
++                w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                    "VIEW,{0},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11:F6},{12:F6},{13:F6},{14:F6},{15:F6},{16:F6}",
++                    SFX.frameIndex, vm.m00, vm.m01, vm.m02, vm.m03, vm.m10, vm.m11, vm.m12, vm.m13,
++                    vm.m20, vm.m21, vm.m22, vm.m23, vm.m30, vm.m31, vm.m32, vm.m33));
++                Matrix4x4 pm = cam.projectionMatrix;
++                w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                    "PROJ,{0},{1:F6},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11:F6},{12:F6},{13:F6},{14:F6},{15:F6},{16:F6}",
++                    SFX.frameIndex, pm.m00, pm.m01, pm.m02, pm.m03, pm.m10, pm.m11, pm.m12, pm.m13,
++                    pm.m20, pm.m21, pm.m22, pm.m23, pm.m30, pm.m31, pm.m32, pm.m33));
+                 w.Flush();
+             }
+             catch
