@@ -54,7 +54,13 @@ SNAP_TAG = 60
 # Rung 2: the minted hull -- GEO_SUB_W0_DWX (mint_boat.py; crimson-shift of the Narciss, same
 # rig, clips 5143/5145 still resolve to folder 321 via their ANH name tokens). The 3DModel
 # directive registers at LAUNCH -- deploying a SetModel(6321) .eb needs one relaunch first.
-MODEL_ID = 6321
+MODEL_ID = 6321                      # the minted crimson hull (mint_boat.py). Requires the s50 engine
+                                     # guards: ff9.w_movementMapConstructor's index-8 block hardcodes the
+                                     # clone names "GEO_SUB_W0_008(Clone)"/"321(Clone)" and dereferenced
+                                     # the miss unguarded -> a minted hull ("6321(Clone)") black-screened
+                                     # the world (in-game 2026-07-22). The Animation double-add warning in
+                                     # the log was a red herring (non-fatal; the proven Zidane override
+                                     # fires it too).
 # Bench geometry (world units; fixed-point = u*256), measured from the STOCK mesh by find_dock2.py:
 # the block-(7,17) islet's land spans z -1128..-1104 (centroid (493,-1115)); its sand (topo 31)
 # runs x 478..502, z -1126..-1116 -- a southwest-facing beach. Neighbouring pure-ocean blocks

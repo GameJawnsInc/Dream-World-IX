@@ -1,0 +1,79 @@
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -4465,22 +4465,31 @@ public static class ff9
+                     if (!FF9StateSystem.World.IsBeeScene)
+                     {
+                         ff9.world.LoadCurrentChocoboTexture(index);
+-                        GameObject gameObject = ((Actor)posObj).wmActor.gameObject;
++                        // [ff9mapkit s50] same law as the index-8 block below: the names cover the
++                        // bundled prefab + a loose override at the REAL id only -- generalize the
++                        // fallback to the actor's own model id and null-guard (a minted chocobo
++                        // would NRE the world constructor otherwise).
++                        GameObject gameObject = ((Actor)posObj).wmActor?.gameObject;
++                        if (gameObject == null)
++                            continue;
++                        String looseRoot = posObj.model.ToString() + "(Clone)";
+                         Transform transform = gameObject.transform.Find("GEO_SUB_W0_003(Clone)/mesh0");
+                         if (transform == null)
+                         {
+-                            transform = gameObject.transform.Find("308(Clone)/mesh0");
++                            transform = gameObject.transform.Find("308(Clone)/mesh0") ?? gameObject.transform.Find(looseRoot + "/mesh0");
+                         }
+                         Transform transform2 = gameObject.transform.Find("GEO_SUB_W0_003(Clone)/mesh1");
+                         if (transform2 == null)
+                         {
+-                            transform2 = gameObject.transform.Find("308(Clone)/mesh1");
++                            transform2 = gameObject.transform.Find("308(Clone)/mesh1") ?? gameObject.transform.Find(looseRoot + "/mesh1");
+                         }
+                         Transform transform3 = gameObject.transform.Find("GEO_SUB_W0_003(Clone)/mesh2");
+                         if (transform3 == null)
+                         {
+-                            transform3 = gameObject.transform.Find("308(Clone)/mesh2");
++                            transform3 = gameObject.transform.Find("308(Clone)/mesh2") ?? gameObject.transform.Find(looseRoot + "/mesh2");
+                         }
++                        if (transform == null || transform2 == null || transform3 == null)
++                            continue;
+                         Renderer component = transform.GetComponent<Renderer>();
+                         Material material = component.material;
+                         material.mainTexture = ff9.world.CurrentChocoboTextures[1];
+@@ -4494,15 +4503,32 @@ public static class ff9
+                 }
+                 if (posObj.index == 8 && !FF9StateSystem.World.IsBeeScene)
+                 {
+-                    GameObject gameObject2 = ((Actor)posObj).wmActor.gameObject;
+-                    Transform transform4 = gameObject2.transform.Find("GEO_SUB_W0_008(Clone)");
+-                    if (transform4 == null)
++                    // [ff9mapkit s50] the two hardcoded names cover the bundled prefab and a loose
++                    // override AT THE REAL id only -- a MINTED index-8 vehicle instantiates as
++                    // "<mintId>(Clone)", both Finds miss, and the unguarded localPosition deref
++                    // NRE'd EVERY FRAME (black screen; custom-vehicle rung 2, 2026-07-22).
++                    // Generalize the fallback to the actor's OWN model id (the exact rule behind
++                    // the "321(Clone)" special case) and null-guard the nudge.
++                    WMActor wmActor8 = ((Actor)posObj).wmActor;
++                    if (wmActor8 != null)
+                     {
+-                        transform4 = gameObject2.transform.Find("321(Clone)");
++                        GameObject gameObject2 = wmActor8.gameObject;
++                        Transform transform4 = gameObject2.transform.Find("GEO_SUB_W0_008(Clone)");
++                        if (transform4 == null)
++                        {
++                            transform4 = gameObject2.transform.Find("321(Clone)");
++                        }
++                        if (transform4 == null)
++                        {
++                            transform4 = gameObject2.transform.Find(posObj.model.ToString() + "(Clone)");
++                        }
++                        if (transform4 != null)
++                        {
++                            Vector3 localPosition = transform4.localPosition;
++                            localPosition.z = 1f;
++                            transform4.localPosition = localPosition;
++                        }
+                     }
+-                    Vector3 localPosition = transform4.localPosition;
+-                    localPosition.z = 1f;
+-                    transform4.localPosition = localPosition;
+                 }
+             }
+         }
