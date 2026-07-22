@@ -1577,3 +1577,17 @@ same colour family as the donor apron.)
 
 Artifacts: `dunes_residual_gates.py` + `out/dunes_residual_gates.json` + `out/resid_gate_antitest_ab.png`
 (rings=2 deployed vs rings=5 rejected, user stance) + `out/resid_gate_deployed.png`. The Round-8 renders stand.
+
+
+**ROUND 9 CORRECTION + PARK (the user, 2026-07-21, verbatim):** *"there is no lichen. you're
+seeing where the desert meets the grass, and failing to understand the tiling language that
+combines them. let's switch gears since we're just spinning on this."* The round-8/9 green
+classifications ("authentic mesa lichen", "stock-banded green") are **RETRACTED as
+interpretations** — the green content at the carry is the **desert|grass COMBINING LANGUAGE**,
+which this arc never decoded (the ecotone strip decode proved only grass|desert + desert|dunes
+as translated B-columns; the grass-adjacency combiners are structurally different art — the
+uncatalogued shared assets the round-2 decode itself flagged). The stock-banded pixel gates
+measured colour, not language: a band cannot classify what the vocabulary does not cover.
+**THE DUNES ISLAND IS PARKED AS DEPLOYED** (all mesh/seam/walkmesh gates green; the fringe
+verdicts on green content are void). **OPEN (gating any further dunes-fringe work): decode the
+desert|grass combining/tiling language.** User directive: switch gears — the arc pauses here.
