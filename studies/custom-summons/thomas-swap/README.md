@@ -189,175 +189,199 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-### THE FLIGHT v3 -- 2026-07-22, CAMERA-DECODE REWINDOWED (supersedes the 11-piece FLIGHT v2 below)
+### THE FLIGHT v4 -- 2026-07-22, VIEW-SPACE CHOREOGRAPHY (supersedes FLIGHT v3's mesh-derived placement)
 
-The first (static) build's playtest: *"bahamut is invisible, but Thomas just spawns in front of Iviv
-and stays stationary instead of flying around like a dragon. there are also just periods of black
-screen."* The 3-phase flight fixed "stationary" but not "black screen". The 6-phase "SKY ARC" fixed
-that by eyeballing a video. **FLIGHT v2** replaced the eyeball with a measurement -- the s47
-mesh-stream probe (PROBE.md) logged Bahamut's own 7 confirmed body-mesh keys' world-space bounds on
-every frame he's on screen, giving 10 real per-frame-median waypoints + 1 unmeasured tail. It was a
-genuine improvement, but it had no way to tell a real camera CUT from a fast in-shot reposition -- a
-big position delta between frames is a decent cut proxy, but not proof. A second playtest still found
-Thomas out of frame for much of the cast, and the diagnosis pointed at exactly this: FLIGHT v2 guessed
-cuts at frames 172-179 and 204-207 (modeling both `Linear`/un-eased) that don't actually exist.
+**The premise underneath every prior FLIGHT version turned out not to hold.** FLIGHT v1-v3 all placed
+Thomas at coordinates measured from *Bahamut's own real body position* (the s47 mesh probe's per-frame
+medians), on the assumption that wherever Bahamut's body was, the real camera must have been framing
+it. This round's own recon fixed the s48 CAM-hook defect (PROBE.md §9) and re-cast: **the logged camera
+is completely static across all 561 frames** -- world position `(0, 1000, -4500)`, `eulerAngles(10, 0,
+0)` -- verified byte-exact against `BattleMapCameraController.cs:26-30`'s `SetDefaultPsxCamera2()`
+directly in the engine source. Bahamut's apparent swoop was never camera motion; it's his own creature
+moving through world space while a fixed viewpoint watches. That's good news for placement (a known,
+fixed anchor!) but it retroactively undermines the *method*: Bahamut's measured position was framed by
+whatever the real per-frame *native* projection was doing (`camera.worldToCameraMatrix`/
+`.projectionMatrix`, overridden directly every single frame, `SFX.cs:1603-1604` -- properties this
+static Transform pose never reflects either way, confirmed dead end to recover, same as
+`ef_camera_solve.py`'s own NO-GO below). So FLIGHT v1-v3's absolute constants were never actually
+checked against any camera model -- they just happened to be wherever Bahamut's mesh was, a different
+claim.
 
-**THE CAMERA DECODE removes that guess.** `ef_camera_decode.py` (this dir) parses the REAL native
-`ef227.bytes` camera track straight out of open managed code -- `SFXBinaryFile.cs`'s container/opcode
-spec (validated byte-exact this session: the resource table sums to the file's own 823,296-byte length
-with zero slack) and `SFXDataCamera.cs`'s Code-stream reader (the SAME parser
-`ff9mapkit/ff9mapkit/battle/camera_codec.py` already round-trips for raw17 stock battle cameras) -- and
-finds Bahamut Cinema is exactly **3 real camera shots**, with hard cuts at absolute tick **258** and
-**483** (Thomas's own `PlaySFX`-zeroed clock, offset 0 -- confirmed 3 independent ways against the
-container's own internal tick math, see `ef_camera_decode.py`'s docstring for citations):
+**THE FIX: construct, don't infer.** `viewspace_place.py` (this dir, committable) implements
+`world = cam_pos + R(cam_euler) @ (sx*depth*tan(hfov/2), sy*depth*tan(vfov/2), depth)` against the one
+camera anchor that IS on record. Its own module docstring carries the full recon trail (re-verified
+directly against the live engine source this round, not merely cited):
 
-| Shot | Ticks | What it is |
-|---|---|---|
-| **Shot 0** | 0-258 | ONE unbroken dolly (camera resource chunk0/arg6) -- P1 through P8 (the entrance through the charge-hold) ALL fall inside this single shot; there is **no real cut** at 172-179 or 204-207 |
-| **Shot 1** | 258-483 | ONE unbroken shot (chunk1/arg16) -- the charge+blast+ground-reign; both real `EFFECT_POINT` damage beats (abs 454, 466) land inside it |
-| **Shot 2** | 483-514 | an almost-static outro/fade keyframe (chunk1/arg47) |
+- **`fov_projection` -- no literal per-frame FOV in degrees exists, confirmed.** The battle camera runs
+  in `CameraEngine.SFX_PLUGIN` mode for the whole fight (`SFX.cs:1634-1642`); every frame,
+  `SFX.UpdateCamera()` (`SFX.cs:1590-1605`) assigns `camera.worldToCameraMatrix`/`.projectionMatrix`
+  DIRECTLY from a native 13-float array -- `Camera.fieldOfView` is never touched. The projection is a
+  hand-built off-center frustum (`PsxCamera.PsxProj2UnityProj`, `PsxCamera.cs:172-178`, verified this
+  round): `left=-HalfScreenWidth, right=+HalfScreenWidth, bottom=-100, top=+120` (from
+  `FieldMap.PsxScreenHeightNative=220`, verified) fed through `PerspectiveOffCenter`
+  (`PsxCamera.cs:122-149`), whose `[0,0]` entry is `2*near/(right-left)` -- i.e. the frustum's angular
+  half-width is literally `atan(HalfScreenWidth/near)`, and `near` is `SFX.fxNearZ`
+  (`SFX.cs:1599 fxNearZ = array[12]`, overwriting a throwaway `100f` default at `SFX.cs:17` every
+  frame) -- a **dynamic, native-plugin-owned value with no static table**, the exact same
+  runtime-scratch-buffer dead end `ef_camera_solve.py` already hit for the anchor position. The
+  frustum's absolute ANGLE is therefore unrecoverable -- but its SHAPE (aspect + the vertical
+  bottom:top split) IS, because both axes share the same unknown `near` and the ratio cancels it.
+- **`render_camera_confirmed` -- yes, with the caveat this whole design is built around.** The
+  `BattleMapCameraController` GameObject IS the resolved render camera (15+ call sites share the same
+  `Camera.main ?? "Battle Camera"` fallback), but nothing in the codebase ever writes its
+  `.transform.position`/`.rotation` per frame -- only `worldToCameraMatrix`/`.projectionMatrix`
+  (`SFX.cs:1603-1604`). "The logged Transform never changed" is consistent with either "the camera
+  genuinely never moves" or "nothing ever updates a Transform that was never the real per-frame eye" --
+  the log can't distinguish the two, and this design doesn't pretend to.
+- **`shiftworld_effect` -- confirmed NO-OP for Thomas.** `battlebg.ShiftWorld()` only ever moves
+  `btlRoot` (background art/props, `battlebg.cs:407-455,11-40`); Thomas's own FBX token gets its
+  `transform.position` force-assigned in absolute world space every single frame
+  (`SFXDataMesh.cs:820`), immune to a parent-local offset regardless of parenting -- and he's never
+  parented under `btlRoot` in the first place. **`view_to_world()`'s output is used verbatim, no
+  compensation.**
+- **`euler_convention` -- Unity's fixed native order, verified against this codebase's own decomposition.**
+  `R = Ry(yaw) * Rx(pitch) * Rz(roll)` applied to a column vector -- `PsxCamera.cs:78-86
+  RotationMatrix2EulerAngle` is the textbook decomposition of exactly that product, no local override.
+  For this camera's actual pose (yaw=roll=0) the ordering is moot regardless -- pure-pitch rotation.
 
-**Confirmed geometric gap, carried into this rewindow:** SFXDataCamera's spherical
-(pitch/orientation/roll/distance) Position format has no open-code conversion to a literal Unity
-eye/look-at world position -- that conversion runs inside the closed native
-`FF9SpecialEffectPlugin.dll` (`CameraEngine.SFX_PLUGIN`). So this rewindow does **not** replace
-Thomas's measured XYZ waypoints with camera-derived ones -- the same `P1_DEST`..`P10_DEST` medians
-from FLIGHT v2 are reused unchanged; only the piece BOUNDARIES/EASING were corrected to match where the
-real cuts actually fall.
+The absolute FOV **magnitude** is therefore an explicitly-named, freely-retunable ASSUMPTION
+(`viewspace_place.DEFAULT_VFOV_DEG = 40.0`, aspect `16:9` -- Memoria's own `WidescreenSupport` defaults
+to `True`, `Graphics.cs:75`, verified this round, which rescales the live frustum to the player's own
+window aspect rather than the boxed 320:220 native one), never claimed as recovered -- placing Thomas in
+view space GUARANTEES he lands at the chosen screen fraction *relative to that assumed model*, by
+construction, which is strictly stronger than FLIGHT v3's un-checked absolute constants and honestly
+weaker than a claim to have recovered the true per-frame eye (a confirmed, not merely unresolved, dead
+end).
 
-**What changed vs FLIGHT v2:**
-1. **P5 (172-179) and P7 (204-207) are re-eased `Linear` → `Sinus`.** Both sit *inside* shot 0's one
-   continuous dolly -- an un-eased snap here, with no real cut to give it cover, would read as Thomas
-   visibly teleporting mid-shot.
-2. **P8's hold is extended 8 ticks** (207-250 → 207-258) so it ends exactly on the real shot-0/shot-1
-   boundary, followed by **one new short `Linear` piece, `CUT1`** (258-262) that carries the P8→P9
-   position delta FAST -- converting what FLIGHT v2 modeled as a slow 164-frame drift into the real
-   hard cut the footage actually has, so Thomas is already "in frame" for the reign the instant the
-   camera cuts.
-3. **A new flat bridging hold, `P10_HOLD`** (417-483), keeps shot 1 continuous all the way to the real
-   2nd cut tick -- no invented position jump (the measured data shows none there); the real cut is
-   honored by holding until the tick it actually lands on, not by faking a spatial snap.
-4. **The unmeasured tail (P11) now starts its climb-away at tick 483** (was 417) -- "the cut gives
-   cover for a position/motion change at that instant" per the decode's own placement recommendation.
+**Orientation, computed against this camera's own basis:** the camera's `forward` vector at this pose is
+`(0, -sin(10°), cos(10°))` -- mostly world +Z (`cos(10°) ≈ 0.985`), the SAME general direction Thomas's
+own neutral yaw=0 nose points (his face is at local/world +Z at yaw=0, per the axis-verification above).
+A camera looking the same direction an actor's nose points sees that actor's BACK -- so `YAW_BROADSIDE`
+(unchanged value, 90, now justified against this camera's own basis rather than assumed) turns him to
+present his iconic side profile. `build_thomas.py` prints the actual computed dot product
+(`YAW_FORWARD_DOT ≈ +0.9848`) as evidence, not assertion. No Z-roll in any piece.
 
-**The rewindowed flight** (13 pieces -- the same 10 measured + 1 unmeasured-tail waypoints as FLIGHT
-v2, plus the 1 new cut piece and 1 new bridging hold), still summing to `THOMAS_END=580`:
+**The view-space flight** (8 pieces, replacing FLIGHT v3's 13 -- durations sum to `THOMAS_END=580`,
+unchanged, matching the donor's own `WaitSFXDone`-gated cast length). Each `VS_*` keyframe is
+`(sx, sy, depth_factor)` -- screen fractions (`+1`=right/top edge of the assumed frustum) and a
+multiplier on `REIGN_DEPTH` (the camera-space distance at which Thomas's ~1302-unit HEIGHT -- not his
+length, which lies along world X once broadside, see the failure-mode table below -- fills
+`TARGET_REIGN_FILL=0.72` of the frame's vertical extent, i.e. squarely inside the mission's own
+"fill 60-80% of frame height" ask):
 
-| Piece | Frames | Dest (X, Y, Z) | Interp | Shot |
+| Piece | Frames | (sx, sy, depth×) | World dest (X, Y, Z) | Interp |
 |---|---|---|---|---|
-| **P1 Entrance** | 0-82 | (132, 512, -1568) | SinusOut | Shot 0 |
-| **P2 Rise-to-far** | 82-144 | (129, 128, -17860) | SinusIn | Shot 0 |
-| **P3 Far-dip** | 144-157 | (6, -20, -8590) | Sinus | Shot 0 |
-| **P4 Far-deep** | 157-172 | (-266, -425, -34368) | SinusIn | Shot 0 |
-| **P5 Return-drift** | 172-179 | (144, 47, -4864) | **Sinus (was Linear)** | Shot 0 |
-| **P6 2nd-approach** | 179-204 | (143, 124, -12336) | Sinus | Shot 0 |
-| **P7 Charge-drift** | 204-207 | (152, 202, -4720) | **Sinus (was Linear)** | Shot 0 |
-| **P8 Charge-hold** | 207-258 | (120, 118, -3968) | Sinus | Shot 0 (extended +8) |
-| **CUT1 (NEW)** | 258-262 | (35, -1, -3832) | **Linear -- the one deliberate snap** | the real cut |
-| **P9 Ground-reign** | 262-414 | (35, -1, -3832) | Sinus | Shot 1 |
-| **P10 Exit-edge** | 414-417 | (35, -1, -9616) | SinusIn | Shot 1 |
-| **P10_Hold (NEW)** | 417-483 | (35, -1, -9616) | Sinus | Shot 1 (bridges to the 2nd cut) |
-| **P11 Tail (UNMEASURED)** | 483-580 | (35, 1600, -30000) | SinusIn | Shot 2 (starts at the cut) |
+| ENTRANCE_ORIGIN | (P1 Origin) | (-1.35, +0.55, 2.40×) | (-5208, 1247, 1597) | -- |
+| **P1 Entrance** | 0-90 | (-0.25, +0.10, 1.35×) | (-542, 549, -1174) | SinusOut |
+| **P2 Approach-to-reign** | 90-150 | (+0.05, -0.05, 1.00×) | (80, 528, -2061) | SinusIn |
+| **P3 Reign bob (up)** | 150-195 | (+0.10, +0.10, 0.95×) | (153, 682, -2160) | Sinus |
+| **P4 Reign bob (down)** | 195-240 | (-0.02, -0.12, 1.05×) | (-34, 445, -1949) | Sinus |
+| **P5 Lateral pass** | 240-340 | (+0.55, -0.05, 1.00×) | (884, 528, -2061) | Sinus |
+| **P6 Reign bob (settle)** | 340-430 | (0.00, +0.02, 0.98×) | (0, 596, -2099) | Sinus |
+| **P7 Reign hold** | 430-490 | (-0.08, -0.06, 1.02×) | (-131, 510, -2013) | Sinus |
+| **P8 Exit climb** | 490-580 | (+1.15, +1.25, 3.20×) | (5915, 3505, 4013) | SinusIn |
 
-Yaw (Rotation.Y) banks 0→90 (broadside) during P1's own arrival, HOLDS broadside through `P10_Hold`
-(unchanged from FLIGHT v2), then 90→0 only in the TAIL as he turns forward again to climb away.
-Rotation.Z stays `0` throughout -- no roll. **The mission asked for a per-shot yaw computed from each
-window's own eye→Thomas vector** (yaw toward the enemies if the camera looks along his length axis);
-this is honestly NOT computable -- the same confirmed DLL-side gap above means there is no eye/aim
-world position for ANY of the 3 shots to take a vector from. Falling back to the decode's own
-*qualitative* shot descriptions instead: shot 0 is a single continuous push/pull dolly (not a bearing
-change), shot 1 is the charge+blast hero shot (broadside was always the intended framing here), and
-shot 2 is the near-static outro during which the model already turns him forward-facing as he departs
--- none of the 3 shots' own qualitative descriptions call for a yaw deviation from the existing
-broadside-hold scheme, so none was invented.
+(World-dest column is `viewspace_place.view_to_world()`'s literal output, rounded -- reproduced exactly
+by `thomas_manifest.sfxmodel`; `REIGN_DEPTH ≈ 2484.1` units at the default `vfov=40°`.) Reading the
+table left to right: an off-edge **entrance** descending into a near-center settle; an **approach** push
+in to full reign size; a **gentle breathing bob** (up then down) through the mid-cast windup; an
+**optional slow lateral pass** across the frame "for life" during the charge; a **settle back toward
+center** for the ground-reign/fire-column/damage-beat window; a brief **steady hold**; then an
+**exit climb** toward a top corner, receding, as the outro fades in.
 
-**Open concerns, carried + new (see `build_thomas.py`'s `THE FLIGHT v3` comment block and PROBE.md's
-round-2 protocol for the full detail):**
-- P5_DEST/P7_DEST (frames 179/207) are each backed by a full n=28 rows -- solid points. The real
-  low-sample point is `P4_DEST` (frame 172, the deepest/most dramatic pose, n=4).
-- P1's Origin (frame 0, pre-log) and P11's Destination (frames 483-580) have ZERO measured ground
-  truth -- both are documented reasoned extrapolations (`ENTRANCE_ORIGIN`, `P11_TAIL_DEST` in
-  `build_thomas.py`), not measurements.
-- Clock alignment (container/probe tick ≈ Thomas frame, offset 0) is now backed by the camera decode's
-  own 3-way internal cross-check (not just a bare assumption as in FLIGHT v2) -- still not a literal
-  re-measurement against THIS exact build; treat ±2-5 frames as realistic slop.
-- **New:** the CUT1/CUT2 tick placements (258, 483) themselves carry the decode's own **PARTIAL**
-  confidence rating -- solid on the container-parse side, but unconfirmed against a fresh camera log
-  (the s47 CAM-hook defect means no camera log exists yet for this engine build to cross-check the
-  container's baked ticks against real on-screen playback).
-- **New, confirmed dead end:** a literal per-shot eye/aim-vector yaw computation is not available from
-  open code -- the spherical-to-worldspace conversion lives in the closed
-  `FF9SpecialEffectPlugin.dll`. Don't re-attempt this without disassembling that DLL.
+**Known, inherited trade-off (carried forward, not new):** at full reign size and `YAW_BROADSIDE=90`,
+Thomas's ~2681-unit LENGTH sweeps world X while only his ~926-unit WIDTH remains on Z -- at
+`REIGN_DEPTH≈2484`, his half-length alone (`≈1340`) already exceeds the assumed frustum's own horizontal
+half-extent at that depth. **He is expected to read as overflowing the frame's sides during the REIGN
+pieces even though he's correctly sized to the requested 60-80% frame HEIGHT** -- the mission's own fill
+target is a height target, and a giant broadside train is wider than it is tall. This is the same
+trade-off FLIGHT v3's own failure-mode table already flagged (not a new bug); retune `YAW_BROADSIDE`
+toward 0/180 (keeps the long axis on Z instead) or increase `TARGET_REIGN_FILL`'s divisor (push
+`REIGN_DEPTH` out) if it reads badly in a real capture.
 
-Every number above is a named constant in `build_thomas.py` (`P1_DEST`...`P10_DEST`, `ENTRANCE_ORIGIN`,
-`P11_TAIL_DEST`, `YAW_BROADSIDE`, `CUT1_DURATION`, `P10_HOLD_DURATION`, the 13 `*_DURATION`s) -- retune
-+ rerun in one line, recast-only, no relaunch.
-
-### THE CAMERA DLL SOLVE ATTEMPT -- 2026-07-22, NO-GO (confirms FLIGHT v3's placement/yaw unchanged)
-
-FLIGHT v3 (above) left one open question: could the camera's real per-frame eye/look-at world position
-be recovered, closing the "compute a per-shot yaw from the eye->Thomas vector" gap the mission asked
-for? `ef_camera_solve.py` (this dir) attempted it -- reproducing the decompiled
-`FF9SpecialEffectPlugin.dll` spherical->Cartesian trig formula in committable Python and validating the
-result hard against the s47 mesh-probe's own measured Bahamut trajectory (`sfxmeshprobe.log`) before
-building anything on it. **Method**: re-disassemble `lookup_anchor` (RVA `0x1800148f0`-`0x1800149c4`,
-x64 plugin, pefile+capstone) to find each real camera keyframe's anchor-selector dispatch, then apply
-the confirmed branch-A trig formula (`resolve_position`, RVA `0x1800145a0`, `K=4096.8` byte-verified)
-to every keyframe as a documented approximation, since only 1 of ef227's 27 keyframes is genuinely
-branch-A.
-
-**Verdict: NO-GO**, printed by the script itself when run (`=== GO/NO-GO: NO-GO ===`). Quantified
-findings (default `distance_scale=63.0`, the mission's own "~63 units/byte" hint):
-
-- **The anchor is a runtime scratch buffer, not a compiled-in table -- CONFIRMED this pass, not merely
-  suspected.** 22 of ef227's 27 camera-position keyframes (all of shot 0 and shot 1 -- i.e. essentially
-  the entire flight Thomas needs to be placed within) select their anchor via a selector range whose
-  `lea rdx,[rip+0x20b727]` (RVA `0x14932`) resolves to RVA `0x220060` -- 1.9MB into `.data`'s 6.1MB
-  `VirtualSize`, but `.data`'s own `SizeOfRawData` is only ~104KB (ending exactly where `.pdata`'s raw
-  data begins). Zero bytes back that address on disk -- a PE section-table read (this pass) proves it's
-  a runtime-populated scratch region (very likely emulated PS1 RAM, seeded per-cast by
-  `PLAY_MODEL_ON_TARGET_V1`, which fires at outer-sequence ticks 15 and 258 -- exactly each shot's
-  activation), not a constant. **No amount of further static disassembly recovers it.**
-- Of ef227's 38 total Position records, only 2 (belonging to ONE keyframe -- shot 2's single static-outro
-  pose) have the confirmed branch-A flag bit set. **All of shot 0 and shot 1 use branch B**, whose own
-  secondary orientation-offset is sourced from the SAME unrecoverable scratch buffer.
-- Substituting the s47 mesh-probe's own measured Bahamut position as an anchor PROXY (licensed by
-  `target_pos.distance == 0` in all 11 records -- so target always equals its anchor, whatever it is)
-  gives 24/27 rows with both eye+target computable. **Distance sanity**: eye-target distances range
-  189.1-2962.5, median 1008.5 -- clears the "hundreds-to-few-thousand units" cinematic-sanity bar (a
-  real signal for `distance_scale=63`). **Directional sanity** (does the eye sit below/level with the
-  target during the described "low-angle crane" shots): **9 below / 14 above out of 24** -- a near
-  coin-flip, not a confirmation. An alternate `32x`/`64x` pitch/orientation-scale hypothesis
-  (`--pitch-scale`/`--orient-scale`) didn't improve it either (10/13).
-
-**Consequence: Thomas's placement and yaw stay exactly what FLIGHT v3 already ships.**
-`ef_camera_solve.py`'s own `build_placement_table()` deliberately RESTATES (does not recompute)
-`build_thomas.py`'s FLIGHT v3 constants -- no eye-derived pull, no computed per-shot yaw. The one
-genuinely confirmed contribution here is negative: it closes the "should we keep trying to solve this
-statically" question as NO, not merely "not yet solved." The only remaining path is a LIVE memory read
-during an actual cast (extend the s47 probe to log the scratch VA -- and, separately, branch B's own
-offset at `STATIC_TABLE+0x30`, itself in the same buffer) -- not more static disassembly of
-`resolve_position`/`lookup_anchor` (both are now fully read).
-
-Full per-keyframe CSV (scratch-only, guarded against ever landing under this repo) written to
-`%TEMP%\ef_camera_solve\ef227_solve.csv` on each run:
-
-```
-py studies/custom-summons/thomas-swap/ef_camera_solve.py
-    [--distance-scale 63.0] [--pitch-scale 1.0] [--orient-scale 1.0] [--out-csv <path>]
-```
+**Caveat:** this is a DESIGN, not a measurement -- there is no ground truth to check it against (the
+donor's real per-frame render state is the same confirmed-unrecoverable native scratch buffer
+throughout this whole study). It fully supersedes FLIGHT v1-v3's mesh-derived waypoints (see the
+collapsed history below) -- those described where Bahamut's body WAS, a different question from where
+Thomas should be FRAMED once the camera model is understood to be this static assumed one. Every
+constant (`VS_*`, `TARGET_REIGN_FILL`, `vsp.DEFAULT_VFOV_DEG`, the 8 `*_DURATION`s) is named and
+retunable in one edit, recast-only, no relaunch. Per this project's own video-for-visual-bugs law, a
+fresh capture of an actual cast is the real next check.
 
 <details>
-<summary>FLIGHT v2 (superseded 2026-07-22, kept for the record)</summary>
+<summary>FLIGHT v2 + FLIGHT v3 + the camera-DLL-solve attempt (all superseded 2026-07-22, kept for the record)</summary>
 
-The 11-piece build this rewindow replaces: same 10 measured waypoints + 1 unmeasured tail, but with P5
-(172-179) and P7 (204-207) modeled `Linear`/un-eased as guessed "hard cuts" (no camera data existed yet
-to confirm or refute this), P8 ending at frame 250 (not 258), P9 running as one long 164-frame drift
-from P8_DEST to P9_DEST (250-414, not a post-cut hold), and the tail's climb-away starting at frame 417
-(not 483). The measured waypoint VALUES were correct then and are unchanged now -- only the piece
-boundaries/easing were wrong, per the camera decode above.
+**FLIGHT v2** (11 pieces): the s47 mesh-stream probe (PROBE.md) logged Bahamut's own 7 confirmed
+body-mesh keys' world-space bounds on every frame he's on screen, giving 10 real per-frame-median
+waypoints + 1 unmeasured tail -- a genuine improvement over the earlier hand-eyeballed builds, but it
+had no way to tell a real camera CUT from a fast in-shot reposition, and guessed cuts at frames 172-179
+and 204-207 (modeling both `Linear`/un-eased) that a later camera decode found don't actually exist.
+
+**FLIGHT v3** (13 pieces, "CAMERA-DECODE REWINDOWED"): `ef_camera_decode.py` (this dir) parsed the REAL
+native `ef227.bytes` camera container (open managed code: `SFXBinaryFile.cs`'s container spec,
+byte-exact validated; `SFXDataCamera.cs`'s Code-stream reader) and found Bahamut Cinema is exactly 3
+real camera shots with hard cuts at absolute tick 258 and 483 -- NOT at 172-179/204-207 where the
+mesh-position method had guessed. It kept FLIGHT v2's same measured `P1_DEST`..`P10_DEST` XYZ values
+(the decode couldn't recover a literal eye/aim world position -- SFXDataCamera's spherical Position
+format has no open-code conversion to it, that runs inside the closed native plugin) and only corrected
+the piece BOUNDARIES/EASING to match the real cut timing: P5/P7 re-eased Linear→Sinus (no real cut
+covers them), P8 extended 8 ticks to reach the real shot boundary, a new `CUT1` piece carried the
+P8→P9 delta as the one deliberate fast snap, a new `P10_Hold` bridged to the real 2nd cut, and the
+unmeasured tail's climb-away start moved from tick 417 to 483.
+
+**THE CAMERA DLL SOLVE ATTEMPT** (`ef_camera_solve.py`, this dir): re-disassembled the closed
+`FF9SpecialEffectPlugin.dll` (pefile+capstone) trying to recover a literal per-frame eye/look-at and
+close the "compute yaw from the eye→Thomas vector" gap for real. **Verdict: NO-GO, confirmed, not
+guessed** -- 22 of ef227's 27 keyframes key their anchor into a runtime-populated scratch buffer (a PE
+section-table read proved the target RVA has zero bytes backing it on disk -- 1.9MB into `.data`'s
+6.1MB `VirtualSize`, but `.data`'s own `SizeOfRawData` is only ~104KB), so no further static
+disassembly recovers it. A proxy reconstruction (substituting the s47 probe's own measured Bahamut
+position as the anchor) validated only as a coin-flip on directional sanity (9-below/14-above of 24).
+This NO-GO is what THE FLIGHT v4 (above) is built on top of, rather than around.
 
 </details>
+
+### THE FLIGHT v4 ADVERSARIAL VERIFICATION -- 2026-07-22 (frustum re-projection + Euler-order fix)
+
+Re-projected the 8 deployed `Destination*` keyframes (plus the entrance origin) back through the static
+camera via `viewspace_place.py`'s own inverse math, and full-body-extent edges at all 7 "reign" keyframe
+centers, then swept the whole 0-580 range at 5-frame steps checking every sampled position for
+behind-camera (depth<=0):
+
+- **Zero behind-camera samples** across the entire 580-frame range (step-5 scan, 117 samples).
+- **Center positions**: all 7 reign destinations (P1-P7, frames ~90-490) land inside the assumed
+  frustum (`|sx|<=1, |sy|<=1`); the `ENTRANCE_ORIGIN` (frame 0) and `P8_DEST` (frame 580) are off-frame
+  by construction (`sx=-1.35/+1.15`, `sy=+0.55/+1.25`) -- exactly the documented, deliberate
+  entrance/exit design (`is_in_view()`'s own docstring: "expected and fine ... an entrance origin or an
+  exit destination"), not a defect. The actual on-camera window measures roughly frames 31-552 (~90% of
+  the 580-frame cast).
+- **Height fill, recomputed independently**: at the P2/P5 reign depth (2483.9 units), Thomas's raw
+  height (1301.9 = 4.913*265) fills **exactly 72.0%** of the frame's vertical extent -- matches
+  `TARGET_REIGN_FILL` by construction, comfortably inside the mission's 60-80% band.
+- **Body-edge overflow, reconfirmed (not new)**: at P5 (the lateral pass, `sx=+0.55`), Thomas's
+  broadside length edge projects to `sx=+1.383` -- outside the frame on the right. This is the SAME
+  trade-off already disclosed in this file's Failure-modes table and the build's own `open_concerns`
+  (his ~2676-unit length vs. the horizontal half-extent at reign depth); re-derived independently here,
+  not a fresh find. All other 6 reign keyframes' body edges (length AND width) stay inside frame.
+- **Euler-order defect found and fixed**: `camera_basis()`'s docstring claimed `R = Ry(yaw)*Rx(pitch)*
+  Rz(roll)` was Unity's native order and matched `PsxCamera.cs:78-86`'s own decomposition. Direct
+  numeric round-tripping of that decomposition formula against all 6 possible axis-orderings shows the
+  ACTUAL matching order is `R = Rz(roll)*Ry(yaw)*Rx(pitch)` (max error 1.1e-16 rad over 20 random-angle
+  trials; the previously-claimed order was off by tens of degrees on the same trials). **Fixed in
+  `camera_basis()`** -- and confirmed **inert for this specific deployment**: `CAM_EULER_DEG` has
+  yaw=roll=0 exactly, so every one of the 6 orderings collapses to the identical pure-X `Rx(pitch)`
+  matrix (the two zero-angle matrices are identity and drop out regardless of position in the product).
+  Rebuilt after the fix: `thomas_manifest.sfxmodel` sha256 **unchanged**
+  (`619f599921b467c55c65808efea68970cecefe49a13a9cfdd36dab33e62bdf09`, verified byte-identical
+  pre/post-fix, both against the repo copy and the deployed `ef084/creature_manifest.sfxmodel`
+  readback) -- proving the fix changed nothing observable today, only future-proofed the module against
+  a camera pose with nonzero yaw/roll.
+- **HideMeshes / manifest hygiene, reconfirmed**: deployed `PlayerSequence.seq` still carries the exact
+  7-key surgical list (`0x0033B990,0x0033B9D0,0x0035BAD0,0x0035BA90,0x0034BA10,0x0034BA50,0x0097BD02`,
+  unchanged); 8 Movement pieces / 8 Rotation pieces with matching per-piece durations summing to
+  `THOMAS_END=580`; no `ShiftWorld` op present anywhere in the deployed `.seq` (not merely
+  structurally-unreachable -- literally absent); no binary stock bytes committed to the repo (`*.fbx`
+  gitignored, `.seq` in-repo is a splice-fragment-plus-documentation, never the full donor file).
 
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
@@ -370,13 +394,14 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | `blender_normalize.py` | Committed, our script. Run ONCE (offline, via Blender) to produce `thomas_normalized.fbx` from the raw source. Never touches the repo. |
 | `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the named `THE FLIGHT` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
-| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. |
+| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. Imports `viewspace_place.py` for THE FLIGHT v4's camera model. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
-| `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts that FLIGHT v3's piece windowing above is derived from. Standalone; not called by `build_thomas.py` (its findings are baked into the named constants by hand, documented in the FLIGHT v3 comment block). |
-| `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see "THE CAMERA DLL SOLVE ATTEMPT" above) -- Thomas's placement/yaw are unchanged as a result. Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
+| `viewspace_place.py` | Committed, our script -- THE FLIGHT v4's camera/projection model: the static camera anchor (`CAM_POS`/`CAM_EULER_DEG`), `camera_basis()` (Euler→right/up/forward), `view_to_world()` (the screen-fraction+depth → absolute-world formula), `reign_depth_for_fill()` (sizing helper), and the full FOV recon (`fov_projection`/`render_camera_confirmed`/`shiftworld_effect`/`euler_convention`) in its own module docstring. Standalone library, importable and unit-testable independent of `build_thomas.py`; run directly (`py viewspace_place.py`) for a self-test (basis orthonormality, frustum shape, demo conversions). |
+| `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts FLIGHT v3 (superseded, see the collapsed history above) windowed its pieces against. Standalone; not called by `build_thomas.py`. |
+| `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see the collapsed history above) -- the same NO-GO is what THE FLIGHT v4's assumed-FOV design is built on top of. Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
 | `README.md` | This file. |
 
-None of these six files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
+None of these seven files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
 
 ## Regenerating the normalized model
 
@@ -411,17 +436,18 @@ FIRST time.
 
 **Expect**: the full real Bahamut cinematic plays -- same chant, same camera cuts, same roars/flashes,
 same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright,
-correctly textured, and now FLYING THE 13-PIECE, CAMERA-DECODE-REWINDOWED FLIGHT (see "THE FLIGHT v3"
-above): swoops in from high off to one side during the chant/flashes (P1, cave), climbs away in depth
-toward the first sky/far shot (P2), a brief partial-return dip (P3), the deepest point + hover-pose
-hold (P4), a continuous drift back toward near-stage (P5-P6-P7, no visible snap -- the real camera
-never cuts here), the Mega-Flare charge+blast held near-stage (P8) right up to the **real hard cut**
-(`CUT1`, a fast snap into the reign), the long floaty ground-reign hover through the fire column and
-both damage beats (P9), a sharp final recess (P10) held (`P10_Hold`) through to the **real 2nd hard
-cut**, then a reasoned climb-away STARTING right at that cut as the lights restore (P11, unmeasured
-tail). Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column EFFECT meshes
-should still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes:
-the s47 surgical key list" above if they aren't), and no more standing stationary in front of Iviv.
+correctly textured, and now FLYING THE 8-PIECE, VIEW-SPACE-CHOREOGRAPHED FLIGHT (see "THE FLIGHT v4"
+above): swoops in from off the upper-left edge, descending into a near-center settle during the
+chant/flashes (P1), pushes in to full reign size (P2), a gentle breathing bob up then down through the
+mid-cast windup (P3-P4), a slow lateral pass across the frame during the charge (P5, "for life"), a
+settle back toward center for the ground-reign/fire-column/damage-beat window (P6), a brief steady hold
+(P7), then a climb away toward a top corner as the lights restore (P8, receding into the distance).
+Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column EFFECT meshes should
+still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes: the
+s47 surgical key list" above if they aren't), and no more standing stationary in front of Iviv. Per the
+known trade-off in "THE FLIGHT v4" above, expect him to visibly overflow the frame's LEFT/RIGHT edges
+during the REIGN pieces even while correctly sized to the requested frame-HEIGHT fill -- that's his
+broadside length, not a bug.
 
 **If placement/motion/suppression is still off**: capture a short VIDEO of the cast (this project's
 own law -- `feedback-video-for-visual-bugs` -- behavior/positional bugs need footage, not a prose
@@ -429,23 +455,23 @@ description; a screenshot can't show a swoop, and can only show ONE instant of t
 `tools/game_snap.ps1` captures single frames only, which is enough for "is Bahamut's body really
 hidden RIGHT NOW" but NOT for "does the flight read as flying" or "are the effects still there
 throughout" -- use a screen recorder (OBS, Xbox Game Bar `Win+Alt+R`, or any capture tool) for the
-whole ~40s of the cast (chant through the flare through the exit), or re-run the s47 probe cast itself
-(PROBE.md), so the next iteration can retune `build_thomas.py`'s named FLIGHT v3 constants (`P1_DEST`
-through `P10_DEST`, `ENTRANCE_ORIGIN`, `P11_TAIL_DEST`, `YAW_BROADSIDE`, `CUT1_DURATION`,
-`P10_HOLD_DURATION`, the 13 `*_DURATION`s) or `HIDE_KEYS` from what actually happened frame-by-frame,
-rather than from a re-guess.
+whole ~40s of the cast (chant through the flare through the exit), so the next iteration can retune
+`build_thomas.py`'s named FLIGHT v4 constants (`VS_ENTRANCE_ORIGIN`, `VS_P1_DEST`..`VS_P8_DEST`,
+`TARGET_REIGN_FILL`, `YAW_BROADSIDE`, the 8 `*_DURATION`s) or `viewspace_place.DEFAULT_VFOV_DEG`/
+`DEFAULT_ASPECT`, or `HIDE_KEYS`, from what actually happened frame-by-frame, rather than from a
+re-guess.
 
 ## Failure modes
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 13-piece camera-decode-rewindowed flight (cave → far/sky → cave → the real cut → ground-reign → the real 2nd cut → exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 8-piece view-space-choreographed flight (off-edge entrance → approach → breathing bob → lateral pass → settle → hold → exit climb), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
 | The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body. Now much less likely than the old index-range guess (the s47 probe's `HIDE_KEYS` are the exact, confirmed keys of Bahamut's own 7 body meshes -- PROBE.md's round-1 results), but still possible if this engine build's `_key` values differ from the probe's own cast (a fresh calibration cast would confirm), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); re-run `--calibrate` + the probe to re-derive the keys if needed |
 | Bahamut's body is correctly hidden, but **one of the kept effects (swirl/beam/fire-column/etc) also vanished** | One of `HIDE_KEYS`' 7 keys was misclassified as body when it's actually an effect (unlikely -- PROBE.md's round-1 classification found all 7 present together on 92.6% of frames, a strong rigid-body signal), or a round-2 candidate (`00BDBE00`/`0098BD0E`) was added to `--hide-keys` and turned out to be an effect after all | Capture video showing which specific effect is missing; drop the suspect key from `--hide-keys` and recast; see PROBE.md's round-2 protocol |
 | The cinematic plays, Bahamut's body is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
-| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | Much less likely now that P1_DEST-P10_DEST are MEASURED off Bahamut's own real path (not guessed) AND the piece boundaries are re-windowed against the REAL camera cuts (not guessed cut-proxies), but `ENTRANCE_ORIGIN` (frame 0) and `P11_TAIL_DEST` (frames 483-580) are still REASONED EXTRAPOLATIONS with zero ground truth, and the camera decode's own per-shot yaw computation was a confirmed dead end (see CONFIRMED GEOMETRIC GAP in "THE FLIGHT v3" above) -- see the CAVEAT in `build_thomas.py`'s `THE FLIGHT v3` comment block | Capture video (see above); if the measured pieces (P1-P10) look right but the unmeasured Origin/Tail look wrong, retune just those two constants and rerun (recast-only, no relaunch) |
-| Thomas reads as **absurdly wide / clipped at the screen edges specifically during a REIGN piece** (P8 charge-hold or P9 ground-reign, not the transition pieces) | **Carried forward from earlier builds, NOT yet in-game-checked**: while his yaw is held at `YAW_BROADSIDE=90`, his ~2681-unit LENGTH sweeps world X (not Z) and only his ~926-unit WIDTH remains on Z -- neither reign piece's measured X range was sized with this axis swap in mind (they're MEASURED positions, so this is an inherent read of the real data, not a magnitude guess) | Capture video of both reign windows specifically; if confirmed, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or accept a wider camera crop |
-| Thomas still reads as **static / not "flying"**, or the cut at CUT1/CUT2 doesn't read as a real cut | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a piece's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 13 pieces (not 1, 3, 6, or 11) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
+| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | THE FLIGHT v4 is a DESIGN built against an ASSUMED camera model (`viewspace_place.py`'s named FOV/aspect), not a measurement -- if the real per-frame render eye differs meaningfully from the static `CAM_POS`/`CAM_EULER_DEG` anchor (a confirmed-open possibility, see "THE FLIGHT v4" above's `render_camera_confirmed` note), every `VS_*` keyframe could be off by a consistent amount | Capture video (see above); retune `viewspace_place.DEFAULT_VFOV_DEG`/`DEFAULT_ASPECT` first (a global scale/shape fix), then individual `VS_*` keyframes, and rerun (recast-only, no relaunch) |
+| Thomas reads as **absurdly wide / clipped at the screen edges specifically during a REIGN piece** (P3-P7) | **Expected, named trade-off, see "THE FLIGHT v4" above**: at `YAW_BROADSIDE=90`, his ~2681-unit LENGTH sweeps world X (not Z) and only his ~926-unit WIDTH remains on Z -- at `REIGN_DEPTH≈2484` his half-length alone already exceeds the assumed frustum's horizontal half-extent, even though he's correctly sized to the requested frame-HEIGHT fill | Capture video of the reign pieces specifically; if it reads badly, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or raise `TARGET_REIGN_FILL`'s effective depth (push `REIGN_DEPTH` out) |
+| Thomas still reads as **static / not "flying"** | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a piece's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 8 pieces (not 1, 3, 6, 11, or 13) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
 | Thomas appears **on his side / rotated 90°**, or the broadside yaw looks wrong (facing away instead of showing his profile) during any reign | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR `YAW_BROADSIDE`'s sign is backwards for this camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try `YAW_BROADSIDE = -90` in `build_thomas.py`, rerun (recast-only) |
 | Thomas appears **tiny or absurdly, unusably huge** | `THOMAS_SCALE` (265) was miscalibrated for this arena's actual camera framing | Edit `THOMAS_SCALE` in `build_thomas.py`, rerun (recast-only) |
 | The cast doesn't play at all / hangs | Something in the spliced `.seq` broke the DSL parser, or the background thread never resolves (`WaitSFXDone: SFX=84` blocking forever -- would only happen if `mesh.Begin()`/`Render()` threw before ever setting `ended`, an unhandled edge case) | `revert_thomas.py` immediately; the debug menu (`~`) may force past a stuck command state; worst case, full restart then revert |
@@ -489,11 +515,12 @@ dependency).
   **never** under `C:/gd/Dream-World-IX/` (this repo). The repo's `.gitignore` blanket-ignores
   `*.fbx`/`*.glb`/`*.gltf` (an accidental commit is structurally near-impossible), and no script in
   this directory ever writes a path under the repo root for asset bytes.
-- **The five files in this directory** (`blender_normalize.py`, `thomas_manifest.sfxmodel`,
-  `thomas_player_sequence.seq`, `build_thomas.py`, `revert_thomas.py`, this README) are 100%
-  hand-authored text -- zero Square-Enix bytes, zero third-party asset bytes. `thomas_manifest.sfxmodel`
-  references Thomas's model purely by his minted GEO NAME (`GEO_MON_B0_M200`), the same way any
-  `.seq` op references a resource by id/name.
+- **The files in this directory** (`blender_normalize.py`, `thomas_manifest.sfxmodel`,
+  `thomas_player_sequence.seq`, `build_thomas.py`, `revert_thomas.py`, `viewspace_place.py`,
+  `ef_camera_decode.py`, `ef_camera_solve.py`, this README) are 100% hand-authored text -- zero
+  Square-Enix bytes, zero third-party asset bytes. `thomas_manifest.sfxmodel` references Thomas's
+  model purely by his minted GEO NAME (`GEO_MON_B0_M200`), the same way any `.seq` op references a
+  resource by id/name.
 - **The real stock `ef227/PlayerSequence.seq`** this build splices is fetched fresh from the user's
   own install every run (sha256-drift-guarded) and is **never** written into the repo -- the
   rung2/3/4 provenance convention, unchanged.
