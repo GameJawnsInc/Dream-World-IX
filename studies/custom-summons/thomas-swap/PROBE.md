@@ -134,13 +134,14 @@ permanently; it costs nothing on a normal install.
   `backups/Assembly-CSharp.x64.dll.20260722-095733` → `x64\FF9_Data\Managed\Assembly-CSharp.dll`, and the
   `.x86.` sibling → `x86\FF9_Data\Managed\Assembly-CSharp.dll`. **Close FF9 first** — copying over a running
   game hits `WinError 1224` (the DLL is memory-mapped).
-- **`py tools/restore_memoria_dll.py baseline` — VERIFIED NOT CURRENTLY FUNCTIONAL, do not rely on it as
-  written:** it globs `backups/<dll>.*baseline*` looking for the documented no-edits `*.baseline-rebuild-
-  6b8bb2d5.*` set (see `project-ff9-memoria-build` memory), but no file matching that pattern exists in
-  `backups/` as of this writing (checked 2026-07-22) — running it prints `!! no backup found ... SKIPPED`
-  for all 3 DLLs yet still ends with `Done. Launch the game to test.`, which reads as success while actually
-  changing nothing. Use the pre-s47 backups above instead for a near-term revert, or re-run
-  `Memoria.Patcher.exe` for true stock (always works, pre-dates every local patch).
+- **`py tools/restore_memoria_dll.py 20260722-095733` — the tool was FIXED 2026-07-22** (the same-day
+  review found `baseline` mode restoring NOTHING yet printing `Done.`): it now matches every backup naming
+  convention including the per-arch `Assembly-CSharp.x64.dll.<ts>` names above (arch-specific backups land
+  only in their own Managed folder), and it exits non-zero with a loud `NOTHING RESTORED` message when no
+  backup matches — so the pre-s47 revert is now the one-liner with the timestamp selector. `baseline` still
+  finds nothing (the documented `*.baseline-rebuild-6b8bb2d5.*` set is gone from `backups/`) but now FAILS
+  LOUDLY instead of pretending. Run it from the MAIN repo — a worktree has no `backups/` of its own. For
+  true stock, re-run `Memoria.Patcher.exe` (always works, pre-dates every local patch).
 
 ## Build provenance
 
