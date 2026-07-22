@@ -1823,3 +1823,32 @@ all Round-10 conclusions are unaffected (the miscount was prose, not data).
 
 **★ IN-GAME PLAYTEST PENDING** — the fringe cells that wore the green wedges should now read as plain
 desert; UV-only, so walkability cannot regress.
+
+### Round 2 of the redress (2026-07-22, same day) — THE DESERT|DUNES ORPHAN ★ APPLIED (playtest pending)
+
+The first playtest reported a "mismatched transition tile" at world (1214,−1162) plus ~6-7 tiles with
+tiny green patches. Byte diagnosis, all read-only before any fix: **(a) the pale tile** = cell
+(303,−291), block (18,18) — BOTH tris plain desert (topo 17, ordinary mains idall) wearing
+`STRIPS[('desert','dunes')]` ROW1, the straddle-only shared decal, on a cell that straddles nothing —
+**the desert|dunes analogue of Round 10's orphan class**. Donor reverse-map (T re-verified 15/15 on
+genuine dune cells first): its stock content was a genuine grass|desert straddle (grass|desert row3)
+— un-carryable content the mint mis-mapped into the wrong pair's decal. Class-complete census (9-block
+core + full 1-block ring, rule = any desert|dunes row1/3 on a non-straddle cell): **n = 1** — the only
+one. Pre-existing since the 07-21 carry (block file mtime), not introduced or missed by round 1.
+**(b) the green patches** = the 23 known topo-49/58 rock/mural flecks (11 distinct cells, all block
+(19,18)) — ground green is ZERO on disk and the 7 round-1 cells verified clean three independent ways
+(no staleness). **The fix:** the cell's 2 tris → plain desert mains via the same `assign_mains(seed=0xF93)`
+precedent — UV-only (topo already 17), **exactly 48 changed bytes** in two 24-byte runs, applied 15:22,
+backup `backups/comp1-redress-round2.20260722-152213/` (18 files, both discs), disc-4 mirror
+byte-identical, standing gates 17/17 green, round-1 files untouched (mtimes still 14:00). The round-2
+matcher is rule-derived and idempotent (a post-apply dry-run reports the clean steady state, no crash).
+
+En route, a kit bug worth its own fix: `world/atlas.py load_atlas()` silently prefers a stale
+vanilla-extracted `.ff9atlas_terrain.png` cache over the Moguri atlas the game actually renders — a
+calibrate-the-instrument trap for every `*_eye.py` script (flagged as a spawned task; Round 10's own
+numbers are unaffected, it read the Moguri file directly).
+
+**STILL EXPECTED IN-GAME:** the tiny green on the MESA ROCK faces — the uncatalogued topo-49/58 mural
+texture axis, out of the ground vocabulary's scope. Stock mesas in the donor region carry the same
+flecks; decoding that language (Round-10 discipline on a different pair) is the open next study if the
+in-game read still offends.
