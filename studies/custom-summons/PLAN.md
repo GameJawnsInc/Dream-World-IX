@@ -175,6 +175,13 @@ long global freeze — see the netsync risk (§7).
 
 - **There is no Summon category anywhere.** No CommandType.Summon, no category bit. Summon-ness =
   three hardcoded `BattleCommandId` equality checks: SummonGarnet=16, Phantom=18, SummonEiko=20.
+  **CORRECTION (playtest-caught 2026-07-22, THE TYPE-4 MP LAW):** one more summon-ness site exists,
+  and it rides the ROW, not the command id — Actions.csv `type` bit 4 marks summon-class for the MP
+  system: `(Type & 4) != 0 && battle.GARNET_SUMMON_FLAG != 0 → mpCost <<= 2` (AbilityUI.cs:1310-1315
+  + the BattleHUD twin) — vanilla's early-game summon handicap. A scenario-zero New Game has the
+  flag SET, so a verbatim clone of a stock summon row (type=4) displays/charges ×4 MP (the bench's
+  56 became 224). A minted summon-alike must override `type = 0` unless the story-gated ×4 is
+  wanted. (The kit exposes `type` in ACTION_FIELDS; the bench toml now clears it.)
 - **Long vs short**: `DecideSummonType` (btl_cmd.cs:1583-1615) fires ONLY for those 3 command ids,
   matches ONLY the 16 stock `BattleAbilityId`s, first-ever cast per Eidolon guaranteed long
   (persistent `AchievementState.summon_*` flags, BattleAchievement.cs:91-168), then an MP-ratio
