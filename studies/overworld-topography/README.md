@@ -1087,3 +1087,49 @@ rung is UNBLOCKED (hill-at-scale geometry + this retile/weld recipe; not yet bui
 
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
+
+## THE STANDALONE WATER-FEATURE CENSUS (★ CLOSED BY CENSUS 2026-07-22 — `standalone_water_census.py`)
+
+Roadmap 5.5: can a SMALL self-contained water feature (a stream / pond / short falls) be
+carried onto a minted island **without dragging a mountain along**? The horseshoe proved
+falls/river/riverjoint aux parts carry as part of a BIG massif ensemble; the open question
+was whether stock holds a water feature whose complete ensemble (channel + aux parts +
+banks) closes naturally on ALL sides — no amputation stumps, sources/sinks judged honestly.
+
+**The whole water universe (disc 1):** the water features are named sub-mesh parts —
+`river` (10 blocks), `stream` (7), `riverjoint` (6), `falls` (3) — plus the channel-bank
+terrain family **topo 62** (480 tris on 10 blocks, **10/10 within one block of a water
+part** ⇒ topo 62 IS the carved channel, part of every feature's ensemble). Only **2**
+water-topo tris are baked into terrain (single channel markers on (17,14)/(18,13)); there
+is **no** pond hidden in terrain — every real feature is a part. (`sea6`/`sea4f` are sea
+layers, not features; `volcanocrater`/`volcanolava` = Gulug.)
+
+**THE TERMINATION CENSUS is decisive: 6 water components map-wide, ZERO OPEN tips.** Welding
+all water parts into components and classifying each component's two flow-axis tips as
+SEA-anchored / MASSIF-anchored / OPEN (far from both), **every single tip is SEA or MASSIF**:
+
+| comp | parts | y-range | tip A / tip B | blocks | reading |
+|---|---|---|---|---|---|
+| 0 | river+joint+stream | 0.4–2.9 | MASSIF / MASSIF | (18,13)(19,11-13) | valley stream, both ends rock |
+| 1 | joint+stream | −0.2–1.0 | **SEA** / **MASSIF** | (16,14)(16,15)(17,14) | lowland river-to-sea — source at massif foot |
+| 2 | falls+river+joint | 2.5–26.4 | MASSIF / MASSIF | (19,10-11)(20,10-11) | plateau river + falls |
+| 3 | river | 26.1–27.8 | MASSIF / MASSIF | (14,17)(15,17) | highland plateau river |
+| 4,5 | falls+river+joint | 15.2–26.0 | MASSIF | (5-6,15-16) | Daguerreo (already carried) |
+
+**Every stock river rises in a mountain** (geographically correct) or runs massif-to-massif.
+The closest thing to a standalone lowland feature is **cluster C** (16,14)/(16,15)/(17,14):
+a genuine lowland river (y ~0–1, rock ≤16%) with a natural **sea mouth** (riverjoint+beach1
+at (16,15), tip 0u from sea) — but its **source is the massif foot** (tip 3.2u from rock, 23
+rock tris within 12u; the top-down eye `out/streamC_topdown.png` shows the ribbon ending in
+grass at the base of the reddish rock). Excluding the mountain leaves an upstream stump
+(water from nowhere); including it drags a mountain — either way it violates the constraint.
+It also carries three place-entrances (areas 11/15) and empties into the sea, so a faithful
+carry would be a **coastal-river ensemble** (terrain+stream+joint+beach1+sea aligned to an
+island coast), NOT the "small self-contained inland feature" 5.5 asked for.
+
+**⇒ CLOSED BY CENSUS — the ENSEMBLE LAW's stream instance, with numbers.** No stock water
+feature has a self-contained open-lowland terminus, so there is no standalone stream/pond to
+carry. The lawful carriable unit for ANY water feature is the whole **massif ensemble**
+(Daguerreo-style, already proven; cluster D at (18-20,10-13) is the next such ensemble if a
+mountain-with-falls-to-sea is ever wanted — but that is an ensemble carry, not a standalone
+water feature). Do not force a build.
