@@ -450,7 +450,17 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    (SFXDataMesh.cs:807) with no battle-actor base rotation — btl_init.cs:220 shows players get
    Euler(0,0,180) (PSX-heritage models are authored inverted; enemies get (0,180,180) at :353).
    Fix staged: a constant Rotation Z=180 piece in the manifest (deployed; orientation recast
-   pending — if he then faces away, add Y=180 per the enemy variant).]**
+   pending — if he then faces away, add Y=180 per the enemy variant).
+   ★★ FULLY PROVEN 2026-07-21 over 3 casts — "upright, facing forward, and idling the whole
+   time": the fix ladder ran render (cast 1) → orientation (Z=180, cast 2 upright-but-backwards)
+   → yaw+loop (Y=180 + THE ANIMATION-PLAYLIST LAW: the Animations array chains each clip ONCE
+   then freezes on the last — no loop flag exists; looping = repeated entries; cast 3 clean).
+   TWO LOGGED RESIDUALS, both non-gating: (a) the SFX path samples animation at the 15fps
+   sequence tick (battle actors animate at render rate — frame-quantization is the stock-effect
+   aesthetic); (b) an SFX-instantiated model keeps its FBX material state (no battle-actor
+   lighting/tint pass — irrelevant for a bespoke creature that owns its look). THE CREATURE
+   MECHANISM IS CLOSED: FileList.txt → .sfxmodel → FBX → ModelFactory, end-to-end in live
+   battle, first anywhere.]**
 8. **The composed epic** — full multi-phase original: buildup channel → blackout → creature reveal
    → attack → EffectPoint → resolution, minted music sting, PlayCamera cuts. Proof: a bespoke
    summon start-to-finish, zero DLL.
