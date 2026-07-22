@@ -1,0 +1,24 @@
+{
+  "FBX": [
+    {
+      "Path": "GEO_MON_B0_M200",
+      "Start": "0",
+      "End": "580",
+      "Movement": {
+        "Duration": "580",
+        "OriginX": "TargetAveragePositionX", "OriginY": "CasterPositionY + 20", "OriginZ": "TargetAveragePositionZ",
+        "DestinationX": "TargetAveragePositionX", "DestinationY": "CasterPositionY + 20", "DestinationZ": "TargetAveragePositionZ"
+      },
+      "Rotation": {
+        "Duration": "580",
+        "OriginY": "0", "DestinationY": "0",
+        "OriginZ": "0", "DestinationZ": "0"
+      },
+      "Scaling": {
+        "Duration": "580",
+        "OriginX": "265", "OriginY": "265", "OriginZ": "265",
+        "DestinationX": "265", "DestinationY": "265", "DestinationZ": "265"
+      }
+    }
+  ]
+}
