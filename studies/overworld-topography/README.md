@@ -1133,3 +1133,58 @@ carry. The lawful carriable unit for ANY water feature is the whole **massif ens
 (Daguerreo-style, already proven; cluster D at (18-20,10-13) is the next such ensemble if a
 mountain-with-falls-to-sea is ever wanted — but that is an ensemble carry, not a standalone
 water feature). Do not force a build.
+
+## THE LAST-UNSTUDIED-MESH-PARTS CENSUS (★ DONE 2026-07-22 — `mesh_parts_census.py`)
+
+Roadmap 5.25. The coast/interior arc decoded Beach1 (the foam swash ribbon) and the Sea1–5
+shade ladder; four worldmap sub-mesh forms had never been measured. All four decoded offline
+with numbers, each with its kit-impact verdict. The census reproduces to the byte, `deployed=false`.
+
+**Engine map (C:/gd/FFIX/Memoria):** the prefab exposes fixed slots `Beach1/Beach2`,
+`Sea1..Sea6`, `Sea3_2/4_2/5_2` (`WMBlockPrefab.cs:14-36`); `WMWorldPrefabMaker.cs:38-167` binds
+each named sub-mesh to a slot; `WMRenderTextureBank.cs:34-63` gives the animated atlas bands.
+
+**Beach2 — a DISTINCT regional shore, not a second beach.** 4 blocks, identical disc1/disc4:
+**(6,3), (7,3), (8,2), (8,3)** — a contiguous far-north cluster. Own material `Beach2Material`,
+own animated atlas **`11_128_128`** (4 frames), UV band **u[0,0.5] v[0,0.97]** — DISTINCT from
+Beach1's `11_0_128` / v[0.02,0.47] (`WMWorldPrefabMaker.cs:72-81`, `WMRenderTextureBank.cs:37-39`).
+Registered form1+form2 right after Beach1 (`WMWorld.cs:711-720`, sets `HasBeach2`). Geometry is
+small (3–24 tri per block, y 0–0.78, same swash height as Beach1). **The tell: 4/4 Beach2 blocks
+carry NO Beach1** — Beach2 is an *alternative* coast art used in that one region, not a second
+beach layered on a block. Terrain under it is the grass/dirt-ecotone family (topos 7/27/49/58).
+
+**Sea6 — an orthogonal special open-ocean tile, not a ladder rung.** 4 blocks: **(8,15), (12,0),
+(19,7), (22,13)**. Every instance is a **single ~4×4u quad (2 tri, 6 verts)**, always interior
+open ocean, y=0. Own material `Sea6Material`, atlas **`11_192_64`** (only **4** frames vs the
+ladder's 6) (`WMRenderTextureBank.cs:61-63`). Its u-max **0.9841 matches Sea5's** atlas scale,
+not Sea1–4's 0.9921. Registered LAST after Sea5 (`WMWorld.cs:766-770`). So Sea6 is not a depth
+rung of the shallow↔deep ladder (land < beach1 < sea2 < sea1 < sea3 < sea5 < sea4) — it is a rare
+decorative deep-ocean fleck the artists sprinkled in four spots.
+
+**Sea4f — the seamless generic-ocean FILL mesh.** Exactly one exists: **`block[12][0] sea4f`**,
+**512 tri = 256 quads = a perfect 16×16 full-cell grid**, y=0. The runtime `SeaBlockPrefab` = the
+baked prefab **`Block[12][0]f`** (`WMWorld.cs:1161-1163`) — the tile the engine renders for EVERY
+open-ocean cell. There is exactly one generic ocean prefab, so exactly one `sea4f`; (12,0) is its
+arbitrary plain-open-ocean home (it also donates its Terrain+Sea4+Sea6 to the empty-block
+fallback, `WMWorldPrefabMaker.cs:152-156`). The real `block[12][0] sea4` (510 tri, −2) is the
+actual map cell; `sea4f` is its full-grid seamless twin.
+
+**Block 219 = grid (3,9), the Water Shrine.** `Number = row·24 + col`, so 219 = 9·24+3 → **(3,9)**
+(matches the `j==3 && i==9` form-2 special-case, `WMWorldPrefabMaker.cs:159`). It is the **ONLY**
+block with the `Sea3_2/4_2/5_2` **water-LEVEL form-switch** (stored in the 0_2 LOD; the two forms
+are the shrine's raised/lowered water). A small landmass (terrain 22 tri, y→4.5) with the shrine
+`object`, ringed by Sea3/Sea4/Sea5. The **early return** (`WMWorld.cs:569-604`) registers only
+Object/Terrain (f1+f2) + the WaterShrine effect + Sea3/4/5 (f1) + Sea3_2/4_2/5_2 (f2) then
+`return`s — **skipping** Beach1/2, Sea1/2/6, Stream/River/Falls, Volcano entirely.
+
+### Kit-impact verdicts
+
+| Form | Verdict | Evidence |
+|---|---|---|
+| **Beach2** | **REAL latent gap (low reach)** | `transplant.PARTS` (transplant.py:40) and `GroundRetile.for_donor` (transplant.py:445-462, gathers only terrain+beach1) OMIT beach2. The deploy loop (transplant.py:2656-2664) iterates ONLY `PARTS`, so a part outside it is neither re-emitted nor **blanked** → under a **rotated/shifted** `world-transplant` of (6,3)/(7,3)/(8,2)/(8,3) the donor prefab's original beach2 **free-rides UNROTATED** (a floating shore). Reach is narrow: none of the 4 are qualified `--donor` blocks, and the default `beach_only` donor scan excludes them (no beach1). **Fix (later):** add `"beach2"` to `PARTS` + `for_donor`'s gather (+ a `Beach2Material` foam-relabel branch). |
+| **Sea6** | real but **negligible** | Same `PARTS` omission drops it, but sea6 is one 4×4 2-tri fleck — cosmetically invisible. `SEA_ADJ_LAWFUL`/`OPEN_WATER_PARTS`/the wang gate never reason about it, and the kit never *emits* sea6, so no gate mis-fires. Adding `"sea6"` to `PARTS` would make a verbatim carry byte-complete. |
+| **Sea4f** | **decode-only** | The generic full-cell ocean fill; the reclaim divert (Path D) *replaces* the `SeaBlockPrefab` for a reclaimed cell, so no kit path ever reads or targets `sea4f`. |
+| **Block 219 / (3,9)** | **decode-only** | s34 Path-C overrides on (3,9) can reach **only** Terrain/Object/Sea3/4/5 (registered before the early return); Beach/Sea1/Sea2/Sea6/Stream/River/Falls overrides are silently dropped. Path D (reclaim) never applies — (3,9) is not `IsSea`. The WaterShrine effect + form-switch are hardcoded to `Number==219`, so the shrine is **uncarriable** (a copy at any other cell gets neither). No kit path targets (3,9). |
+
+The **disc-4 mirror** (`discmirror.py`) is part-agnostic (regex `[a-z0-9]+`, whole-donor
+free-ride pin) → it would carry beach2/sea6 faithfully; the mirror is **not** a gap.

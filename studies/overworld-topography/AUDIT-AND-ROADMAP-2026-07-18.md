@@ -390,8 +390,24 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   stream + riverjoint + beach1 + sea, accepting/capping the massif-foot source) — a heavier coastal carry needing a
   coast-aligned bench, not the small inland feature 5.5 sought. Full tip table + provenance: study README
   "THE STANDALONE WATER-FEATURE CENSUS".
-- [ ] **Decode unstudied mesh parts: Beach2 (4 blocks), Sea6 (4), the sole Sea4f (12,0), block 219** (5.25) — pure
-  read-only UnityPy decode; possible new vocabulary tier.
+- [x] **Decode unstudied mesh parts: Beach2 (4 blocks), Sea6 (4), the sole Sea4f (12,0), block 219** (5.25) — ★ **DONE
+  2026-07-22** (`mesh_parts_census.py`, study README "THE LAST-UNSTUDIED-MESH-PARTS CENSUS"; census re-run reproduces
+  to the byte, `deployed=false`). All four decoded with numbers + engine file:line, each with a kit-impact verdict.
+  **Beach2** (`11_128_128` atlas, own `Beach2Material`, 4f) = a DISTINCT regional shore on (6,3)/(7,3)/(8,2)/(8,3) —
+  a far-north cluster whose 4/4 blocks carry **NO Beach1**, so Beach2 is an *alternative* coast, not a 2nd beach on a
+  block (`WMWorld.cs:711-720`). **Sea6** (`11_192_64`, own material, 4f) = a single ~4×4u **2-tri** decorative
+  open-ocean fleck on (8,15)/(12,0)/(19,7)/(22,13); u-max 0.9841 = Sea5's scale, **orthogonal to the depth ladder**,
+  not a rung (`WMWorld.cs:766-770`). **Sea4f** = the sole `block[12][0] sea4f`, a **512-tri (16×16) full-cell**
+  seamless-ocean FILL mesh = the runtime `SeaBlockPrefab` baked as `Block[12][0]f` (`WMWorld.cs:1161`); one prefab ⇒
+  one mesh. **Block 219 = grid (3,9)**, the Water Shrine — the ONLY block with the `Sea3_2/4_2/5_2` water-LEVEL
+  form-switch; its early return (`WMWorld.cs:569-604`) registers only Object/Terrain(f1+2)+WaterShrine+Sea3/4/5(f1+2)
+  then `return`s. **KIT IMPACT:** `transplant.PARTS` (transplant.py:40) + `GroundRetile.for_donor` OMIT beach2 AND
+  sea6, and the deploy loop (transplant.py:2656-2664) neither re-emits nor BLANKS a part outside `PARTS` ⇒ a
+  **rotated/shifted** `world-transplant` of a beach2/sea6 donor leaves that part **free-riding UNROTATED** (beach2 = a
+  visible floating shore = a **real latent gap, low reach**: none of the 8 blocks are qualified donors + the default
+  beach_only scan excludes the beach2 four; fix = add `"beach2"`/`"sea6"` to `PARTS`+`for_donor`; sea6's loss is a
+  negligible fleck). Sea4f + block 219 = **decode-only** (no kit path reads/targets either; the shrine is uncarriable
+  — hardcoded `Number==219`). The disc-4 mirror is part-agnostic (unaffected). **No possible new vocabulary tier.**
 - [ ] **Scope a real navimap marker slot** (5.25: play 8, feas 3) — given the all-zero navipos discovery, a custom
   location can never draw a pause-map dot without an engine table edit; scope minimal-entry vs repurposing dead
   slot 63 first. DLL round.
