@@ -229,6 +229,25 @@ def test_cache_ignores_a_stale_version(tmp_path, monkeypatch):
     assert calls["n"] == 1                               # the stale-version cache file was ignored, rebuilt
 
 
+def test_write_cache_failure_never_kills_the_build(tmp_path, monkeypatch):
+    """A denied cache write (Windows ``os.replace`` vs a concurrent xdist worker / CLI run holding
+    battlemap.json open) is DROPPED, not raised: build_map still returns + memoizes the fresh map --
+    the disk file is pure acceleration for the next process."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+    synthetic = loc.BattleMap(version=loc.CACHE_VERSION, census={}, scene_sites={}, field_arc={},
+                              arcs={}, names={})
+    monkeypatch.setattr(loc, "_build_fresh", lambda game=None: synthetic)
+
+    def _deny(*_a, **_k):
+        raise PermissionError("battlemap.json is open in another process")
+    monkeypatch.setattr(loc, "atomic_write_text", _deny)
+
+    bm = loc.build_map(force=True)
+    assert bm is synthetic                               # the build survived the dropped write
+    assert loc._MEMO[loc._memo_key(None)] is synthetic   # and this process stays warm
+    assert not (tmp_path / "battlemap" / "battlemap.json").is_file()
+
+
 def test_cached_map_memo_then_disk_never_builds(tmp_path, monkeypatch):
     """cached_map is the 'reuse if warm, else None' probe: memo first, then the disk cache -- and it must
     NEVER trigger a fresh build (that's what makes it safe for `encounters --no-names` to consult)."""

@@ -127,7 +127,12 @@ def test_scene67_detail_shows_evil_forest_and_goblin_via_real_hook():
     from ff9mapkit.battle import locate as loc
     from ff9mapkit.workspace import forms_qt
 
-    loc._MEMO.clear()                                       # a clean census for this process
+    loc._MEMO.clear()                                       # drop any synthetic map a sibling test injected
+    loc.build_map()                                         # warm the REAL map ourselves: _scene_usage is
+    #                                                         warm-only by design, and nothing guarantees
+    #                                                         another test has written the shared disk cache
+    #                                                         yet (fresh worktree + xdist: the builder runs
+    #                                                         in a different worker)
     e = _scene_entry()
     d = infohub.detail(e, scene_usage_fn=forms_qt._scene_usage)
     assert ("classification", "placed") in d.facts
