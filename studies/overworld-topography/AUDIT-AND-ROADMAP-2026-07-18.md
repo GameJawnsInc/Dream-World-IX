@@ -405,7 +405,7 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   sea6, and the deploy loop (transplant.py:2656-2664) neither re-emits nor BLANKS a part outside `PARTS` ⇒ a
   **rotated/shifted** `world-transplant` of a beach2/sea6 donor leaves that part **free-riding UNROTATED** (beach2 = a
   visible floating shore = a **real latent gap, low reach**: none of the 8 blocks are qualified donors + the default
-  beach_only scan excludes the beach2 four; fix = add `"beach2"`/`"sea6"` to `PARTS`+`for_donor`; sea6's loss is a
+  ⚠ CORRECTED per adversarial re-verify: `list_coastal_donors(beach_only=True)` INCLUDES the beach2 four ('beach2'.startswith('beach'), extract.py:258/267) — reach stays low only because they serve the UNROTATED reclaim path (free-riding beach2 harmless there) and no qualified transplant donor bears them (transplant donors are user-specified, no auto-scan); fix = add `"beach2"`/`"sea6"` to `PARTS`+`for_donor`; sea6's loss is a
   negligible fleck). Sea4f + block 219 = **decode-only** (no kit path reads/targets either; the shrine is uncarriable
   — hardcoded `Number==219`). The disc-4 mirror is part-agnostic (unaffected). **No possible new vocabulary tier.**
 - [ ] **Scope a real navimap marker slot** (5.25: play 8, feas 3) — given the all-zero navipos discovery, a custom
