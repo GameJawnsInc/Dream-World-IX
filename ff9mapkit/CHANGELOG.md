@@ -5,7 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `world-island` OPT-IN rolling relief (THE DEAD-RELIEF RESURRECTION)
+### Added — Workspace model CARD picker + no-geometry filter; preview caching pass
+- **A card-grid model picker** (`workspace/modelcards.py` `ModelCardPicker`): browse the ~2000-model GEO
+  catalog as big thumbnail CARDS (search + group / field-only filters, double-click to pick). Opened from
+  the Models tab (**Cards…**) — picking selects that model in the tab — and from any form's catalog
+  picker on the `model` kind (**Card view…**), answering the form field directly. Renders are requested
+  **only for the cards in view** (scroll-driven, debounced), so opening it never floods the render queue.
+- **"Hide models with no geometry"** — a new toggle on both the Models tab (opt-in) and the card picker
+  (default on) drops the ids the render worker has PROBED as unshipped (PSX-era catalog leftovers; the
+  `absent` sidecars, now scanned by `thumbcache.absent_ids()`). The count label reports how many rows are
+  hidden, and the set grows live as previews render (`ModelThumbService.missed`). A fresh cache honestly
+  hides nothing.
+- **Preview caching/performance**: both thumbnail services now answer from the WARM DISK CACHE on the
+  GUI thread (one stat) instead of re-queuing every previously-rendered thumb through the worker each
+  session — field art shows instantly on campaign open and model list icons on first fill; the Models
+  list also memoizes decoded row icons (a search keystroke used to re-load every cached PNG from disk)
+  and skips render requests for known no-geometry ids.
 - **`world-island --relief` adds gentle inland undulation to minted islands** — the resurrection of the
   ambient relief field RETIRED 2026-07-15 (THE DEAD-RELIEF DISCOVERY: the first `relief_field` keyed a
   donor block's LOCAL 4u lattice while `fill_y` sampled it with WORLD coords, so it read 0.0 everywhere

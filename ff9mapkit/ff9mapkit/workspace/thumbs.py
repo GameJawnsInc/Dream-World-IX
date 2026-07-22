@@ -114,11 +114,38 @@ def build_thumb(project_toml, real_id) -> Path | None:
         return _scale_to_cache(full, out)
 
 
+def cached_thumb_fast(project_toml, real_id) -> Path | None:
+    """The cached thumbnail PNG if the DISK already has it -- a key derivation + one stat, no PIL, no
+    compose, GUI-thread safe. The services' warm fast path: without it a disk-cached thumb still paid a
+    worker round-trip per session (enqueue -> build_thumb's is_file -> queued signal) before any icon
+    showed. Returns None on anything less than a ready file (the worker owns the slow path)."""
+    try:
+        key = _key_for(_project_background(project_toml), real_id)
+        if key is None:
+            return None
+        out = _cache_dir() / f"{key}.png"
+        return out if out.is_file() else None
+    except OSError:
+        return None
+
+
 # ---------------------------------------------------------------- 3D model previews (the Models tab)
 # The pure cache/render logic is Qt-free in models/thumbcache.py (the Info Hub + the catalog pickers
 # read the cache tk-free); re-exported here so the Workspace side keeps one import site.
-from ..models.thumbcache import (MODEL_THUMB, build_model_thumb, model_thumb_meta,   # noqa: F401,E402
-                                 model_thumb_paths)
+from ..models.thumbcache import (MODEL_THUMB, build_model_thumb, cached_png,   # noqa: F401,E402
+                                 model_thumb_meta, model_thumb_paths)
+
+_GEO_IDS = None                                  # lazy {GEO name -> id} for the model services' disk reads
+
+
+def _geo_id(name):
+    """GEO name -> id via ONE lazily-built map (catalog.model(name) is a linear scan -- per-row lookups
+    from a 2000-row refill would be O(n^2))."""
+    global _GEO_IDS
+    if _GEO_IDS is None:
+        from .. import catalog
+        _GEO_IDS = {m.name: m.id for m in catalog.all_models()}
+    return _GEO_IDS.get(name)
 
 
 class ThumbService(QObject):
@@ -149,6 +176,13 @@ class ThumbService(QObject):
         png = self._done.get(member)
         if png:
             return png
+        # warm disk fast path: a previously-built thumb answers with one stat, no worker round-trip
+        # (campaign open used to enqueue EVERY member and wait for the queued ready() burst).
+        fast = cached_thumb_fast(project_toml, real_id)
+        if fast is not None:
+            with self._lock:
+                self._done[member] = str(fast)
+            return str(fast)
         # enqueue + worker liveness under ONE lock: the worker only retires (sets _worker = None) under the
         # same lock after a final empty-queue check, so a put can never be stranded by a dying worker.
         with self._lock:
@@ -218,6 +252,8 @@ class ModelThumbService(QObject):
     install never shipped) lands as a remembered miss -- the list shows it un-thumbnailed."""
 
     ready = Signal(str, str)                     # (geo name, png path)
+    missed = Signal(str)                         # (geo name) -- a build landed as a MISS (queued); the
+                                                 # Models tab checks the sidecar for the no-geometry filter
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -225,6 +261,7 @@ class ModelThumbService(QObject):
         self._done = {}                          # geo name -> png path (str)
         self._miss = set()
         self._pending = set()
+        self._disk_miss = set()                  # names whose DISK probe came back empty (skip re-stats)
         self._gen = 0
         self._lock = threading.Lock()
         self._worker = None
@@ -232,14 +269,29 @@ class ModelThumbService(QObject):
 
     # ---- GUI-thread API ----
     def cached(self, name) -> str | None:
-        return self._done.get(name)
+        """The ready preview path -- in-memory, or the WARM DISK cache (one stat, memoized both ways).
+        Without the disk read, every prior session's renders re-queued through the worker before a
+        single list icon showed; now a warm cache paints on the first refill."""
+        png = self._done.get(name)
+        if png:
+            return png
+        if not enabled() or name in self._disk_miss:
+            return None
+        gid = _geo_id(name)
+        disk = cached_png(gid) if gid is not None else None
+        with self._lock:
+            if disk:
+                self._done[name] = disk
+            else:
+                self._disk_miss.add(name)
+        return disk
 
     def request(self, name) -> str | None:
         """The cached path (instant) or None; a None ENQUEUES a background render unless it's a known
         miss. Same worker-liveness discipline as ThumbService.request (enqueue + start under one lock)."""
         if not enabled():
             return None
-        png = self._done.get(name)
+        png = self.cached(name)
         if png:
             return png
         with self._lock:
@@ -259,10 +311,12 @@ class ModelThumbService(QObject):
                 self._done.clear()
                 self._miss.clear()
                 self._pending.clear()
+                self._disk_miss.clear()
             else:
                 self._done.pop(name, None)
                 self._miss.discard(name)
                 self._pending.discard(name)
+                self._disk_miss.discard(name)
 
     # ---- worker ----
     def _drain(self):
@@ -290,8 +344,10 @@ class ModelThumbService(QObject):
                     self._miss.add(name)
                 else:
                     self._done[name] = str(png)
-            if png is not None:
-                try:
-                    self.ready.emit(name, str(png))
-                except RuntimeError:
-                    return
+            try:
+                if png is not None:
+                    self.ready.emit(name, str(png))   # queued into the GUI thread
+                else:
+                    self.missed.emit(name)            # the no-geometry filter reads the sidecar on this
+            except RuntimeError:                  # the service's C++ half died (app exit) -- stop quietly
+                return

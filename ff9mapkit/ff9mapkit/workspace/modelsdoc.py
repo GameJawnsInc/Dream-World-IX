@@ -18,28 +18,20 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QGuiApplication, QPixmap
+from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
 from .. import catalog
 from ..models.appearance import appearance_notes
-from . import thumbs as thumbs_mod, widgets
+from . import modelcards, thumbs as thumbs_mod, widgets
 
 _ICON = 56                                       # list-row icon size (px)
 _DETAIL_IMG = 224                                # detail-pane preview size (px)
 _THUMB_BATCH = 96                                # thumbnails auto-requested per filter result (top of list)
 
-_GROUPS = [                                      # combo label -> catalog.models(group=...) arg (None = all)
-    ("All groups", None),
-    ("Characters (MAIN)", "MAIN"),
-    ("NPCs", "NPC"),
-    ("Monsters", "MON"),
-    ("Sub && world (SUB)", "SUB"),
-    ("Weapons (WEP)", "WEP"),
-    ("Accessories (ACC)", "ACC"),
-]
+_GROUPS = modelcards.GROUPS                      # one list, one order (the card picker shares it)
 
 
 class ModelsDoc(QWidget):
@@ -53,10 +45,16 @@ class ModelsDoc(QWidget):
         self._problems = problems
         self.thumbs = model_thumbs if model_thumbs is not None else thumbs_mod.ModelThumbService(self)
         self.thumbs.ready.connect(self._thumb_ready)
+        self.thumbs.missed.connect(self._thumb_missed)
         self._current = None                     # the selected catalog.Model (or None)
         self._items = {}                         # geo name -> QListWidgetItem (the CURRENT filter's rows)
+        self._icons = {}                         # geo name -> QIcon (decode each cache PNG ONCE, not per refill)
+        # probed no-geometry ids (grows live via missed). Gated like every other cache read: a
+        # NO_THUMBS run (smoke/headless tests) must never scan the developer's real preview cache.
+        self._absent = modelcards.absent_geo_ids() if thumbs_mod.enabled() else set()
         self._blank = QPixmap(_ICON, _ICON)      # constant-size placeholder so rows never shift
         self._blank.fill(Qt.GlobalColor.transparent)
+        self._blank_icon = QIcon(self._blank)
         self._build()
         self._refill()
 
@@ -78,6 +76,11 @@ class ModelsDoc(QWidget):
         self.search.setPlaceholderText("Search by name, token, or a friendly name — vivi, GRN, MON_B3…")
         self.search.textChanged.connect(self._refill)
         srow.addWidget(self.search, 1)
+        self.cards_btn = QPushButton("Cards…")
+        self.cards_btn.setToolTip("Browse the same list as big thumbnail cards — a visual search "
+                                  "when you'd recognize the model but don't know its name.")
+        self.cards_btn.clicked.connect(self.on_cards)
+        srow.addWidget(self.cards_btn)
         lv.addLayout(srow)
         frow = QHBoxLayout()
         self.group = QComboBox()
@@ -90,6 +93,12 @@ class ModelsDoc(QWidget):
         self.field_only.setToolTip("Keep the field-form (F*) models — the ones an [[npc]] can wear.")
         self.field_only.toggled.connect(self._refill)
         frow.addWidget(self.field_only)
+        self.no_geo = QCheckBox("Hide no-geometry")
+        self.no_geo.setToolTip("Drop the ids probed as UNSHIPPED (PSX-era catalog leftovers with "
+                               "nothing to place or preview). The set fills in as previews render — "
+                               "a fresh cache hides nothing yet.")
+        self.no_geo.toggled.connect(self._refill)
+        frow.addWidget(self.no_geo)
         frow.addStretch(1)
         lv.addLayout(frow)
         self.listw = QListWidget()
@@ -433,33 +442,79 @@ class ModelsDoc(QWidget):
 
     # ------------------------------------------------------------------ browser
     def _refill(self, *_a):
+        cur = self.listw.currentItem()
+        keep = cur.data(Qt.ItemDataRole.UserRole) if cur is not None else None
         q = self.search.text().strip()
         grp = _GROUPS[self.group.currentIndex()][1]
-        entries = catalog.models(q or None, group=grp, field_only=self.field_only.isChecked())
+        entries, hidden = modelcards.filter_models(q, grp, field_only=self.field_only.isChecked(),
+                                                   hide_absent=self.no_geo.isChecked(),
+                                                   absent=self._absent)
         self.listw.clear()
         self._items = {}
         for m in entries:
             label = m.name + (f"  ·  id {m.id}" if m.id is not None else "")
             it = QListWidgetItem(label)
             it.setData(Qt.ItemDataRole.UserRole, m.name)
-            png = self.thumbs.cached(m.name)
-            it.setIcon(QPixmap(png) if png else self._blank)
+            it.setIcon(self._icon_for(m.name))
             self.listw.addItem(it)
             self._items[m.name] = it
-        self.count_lbl.setText(f"{len(entries)} model(s)"
+        if keep is not None and keep in self._items:     # a live filter update must not steal the pick
+            self.listw.setCurrentItem(self._items[keep])
+        note = f"  ·  {hidden} with no geometry hidden" if hidden else ""
+        self.count_lbl.setText(f"{len(entries)} model(s){note}"
                                + ("" if thumbs_mod.enabled() else "  ·  previews off"))
-        # warm the visible top of the list (the rest render on selection; all cache forever)
+        # warm the visible top of the list (the rest render on selection; all cache forever). Known
+        # no-geometry ids are skipped -- a render attempt on them is a guaranteed miss.
         if thumbs_mod.enabled():
             for m in entries[:_THUMB_BATCH]:
-                if self.thumbs.cached(m.name) is None:
+                if m.id not in self._absent and self.thumbs.cached(m.name) is None:
                     self.thumbs.request(m.name)
 
+    def _icon_for(self, name):
+        """The row icon, decoded ONCE per session: a refill used to re-load every cached PNG from disk
+        on every keystroke of the search box."""
+        ic = self._icons.get(name)
+        if ic is not None:
+            return ic
+        png = self.thumbs.cached(name)
+        if png:
+            ic = QIcon(QPixmap(png))
+            self._icons[name] = ic               # memo ONLY real art -- a blank must not mask a late render
+            return ic
+        return self._blank_icon
+
     def _thumb_ready(self, name, png):
+        self._icons[name] = QIcon(QPixmap(png))
         it = self._items.get(name)
         if it is not None:
-            it.setIcon(QPixmap(png))
+            it.setIcon(self._icons[name])
         if self._current is not None and self._current.name == name:
             self._set_detail_image(png)
+
+    def _thumb_missed(self, name):
+        """A render landed as a miss: when the sidecar says UNSHIPPED, grow the absent set (and, with
+        the hide toggle on, drop the row live). A plain miss (no install) writes no sidecar."""
+        m = catalog.model(name)
+        meta = thumbs_mod.model_thumb_meta(m.id) if m else None
+        if not (meta and meta.get("absent")) or m.id in self._absent:
+            return
+        self._absent.add(m.id)
+        if self.no_geo.isChecked() and name in self._items:
+            self._refill()
+
+    def on_cards(self):
+        """The card-grid picker over the SAME filter state; picking selects that model here."""
+        dlg = modelcards.ModelCardPicker(self, self.pal, self.thumbs,
+                                         initial=self.search.text().strip(),
+                                         group_index=self.group.currentIndex(),
+                                         field_only=self.field_only.isChecked())
+        dlg.exec()
+        if not dlg.result:
+            return
+        self.search.setText(dlg.result)          # the GEO name is an exact filter -> the row shows
+        it = self._items.get(dlg.result)
+        if it is not None:
+            self.listw.setCurrentItem(it)        # fires _on_select -> the detail pane fills
 
     def _on_select(self, item, _prev=None):
         if item is None:
