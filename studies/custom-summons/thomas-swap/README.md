@@ -293,6 +293,60 @@ Every number above is a named constant in `build_thomas.py` (`P1_DEST`...`P10_DE
 `P11_TAIL_DEST`, `YAW_BROADSIDE`, `CUT1_DURATION`, `P10_HOLD_DURATION`, the 13 `*_DURATION`s) -- retune
 + rerun in one line, recast-only, no relaunch.
 
+### THE CAMERA DLL SOLVE ATTEMPT -- 2026-07-22, NO-GO (confirms FLIGHT v3's placement/yaw unchanged)
+
+FLIGHT v3 (above) left one open question: could the camera's real per-frame eye/look-at world position
+be recovered, closing the "compute a per-shot yaw from the eye->Thomas vector" gap the mission asked
+for? `ef_camera_solve.py` (this dir) attempted it -- reproducing the decompiled
+`FF9SpecialEffectPlugin.dll` spherical->Cartesian trig formula in committable Python and validating the
+result hard against the s47 mesh-probe's own measured Bahamut trajectory (`sfxmeshprobe.log`) before
+building anything on it. **Method**: re-disassemble `lookup_anchor` (RVA `0x1800148f0`-`0x1800149c4`,
+x64 plugin, pefile+capstone) to find each real camera keyframe's anchor-selector dispatch, then apply
+the confirmed branch-A trig formula (`resolve_position`, RVA `0x1800145a0`, `K=4096.8` byte-verified)
+to every keyframe as a documented approximation, since only 1 of ef227's 27 keyframes is genuinely
+branch-A.
+
+**Verdict: NO-GO**, printed by the script itself when run (`=== GO/NO-GO: NO-GO ===`). Quantified
+findings (default `distance_scale=63.0`, the mission's own "~63 units/byte" hint):
+
+- **The anchor is a runtime scratch buffer, not a compiled-in table -- CONFIRMED this pass, not merely
+  suspected.** 22 of ef227's 27 camera-position keyframes (all of shot 0 and shot 1 -- i.e. essentially
+  the entire flight Thomas needs to be placed within) select their anchor via a selector range whose
+  `lea rdx,[rip+0x20b727]` (RVA `0x14932`) resolves to RVA `0x220060` -- 1.9MB into `.data`'s 6.1MB
+  `VirtualSize`, but `.data`'s own `SizeOfRawData` is only ~104KB (ending exactly where `.pdata`'s raw
+  data begins). Zero bytes back that address on disk -- a PE section-table read (this pass) proves it's
+  a runtime-populated scratch region (very likely emulated PS1 RAM, seeded per-cast by
+  `PLAY_MODEL_ON_TARGET_V1`, which fires at outer-sequence ticks 15 and 258 -- exactly each shot's
+  activation), not a constant. **No amount of further static disassembly recovers it.**
+- Of ef227's 38 total Position records, only 2 (belonging to ONE keyframe -- shot 2's single static-outro
+  pose) have the confirmed branch-A flag bit set. **All of shot 0 and shot 1 use branch B**, whose own
+  secondary orientation-offset is sourced from the SAME unrecoverable scratch buffer.
+- Substituting the s47 mesh-probe's own measured Bahamut position as an anchor PROXY (licensed by
+  `target_pos.distance == 0` in all 11 records -- so target always equals its anchor, whatever it is)
+  gives 24/27 rows with both eye+target computable. **Distance sanity**: eye-target distances range
+  189.1-2962.5, median 1008.5 -- clears the "hundreds-to-few-thousand units" cinematic-sanity bar (a
+  real signal for `distance_scale=63`). **Directional sanity** (does the eye sit below/level with the
+  target during the described "low-angle crane" shots): **9 below / 14 above out of 24** -- a near
+  coin-flip, not a confirmation. An alternate `32x`/`64x` pitch/orientation-scale hypothesis
+  (`--pitch-scale`/`--orient-scale`) didn't improve it either (10/13).
+
+**Consequence: Thomas's placement and yaw stay exactly what FLIGHT v3 already ships.**
+`ef_camera_solve.py`'s own `build_placement_table()` deliberately RESTATES (does not recompute)
+`build_thomas.py`'s FLIGHT v3 constants -- no eye-derived pull, no computed per-shot yaw. The one
+genuinely confirmed contribution here is negative: it closes the "should we keep trying to solve this
+statically" question as NO, not merely "not yet solved." The only remaining path is a LIVE memory read
+during an actual cast (extend the s47 probe to log the scratch VA -- and, separately, branch B's own
+offset at `STATIC_TABLE+0x30`, itself in the same buffer) -- not more static disassembly of
+`resolve_position`/`lookup_anchor` (both are now fully read).
+
+Full per-keyframe CSV (scratch-only, guarded against ever landing under this repo) written to
+`%TEMP%\ef_camera_solve\ef227_solve.csv` on each run:
+
+```
+py studies/custom-summons/thomas-swap/ef_camera_solve.py
+    [--distance-scale 63.0] [--pitch-scale 1.0] [--orient-scale 1.0] [--out-csv <path>]
+```
+
 <details>
 <summary>FLIGHT v2 (superseded 2026-07-22, kept for the record)</summary>
 
@@ -319,6 +373,7 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
 | `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts that FLIGHT v3's piece windowing above is derived from. Standalone; not called by `build_thomas.py` (its findings are baked into the named constants by hand, documented in the FLIGHT v3 comment block). |
+| `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see "THE CAMERA DLL SOLVE ATTEMPT" above) -- Thomas's placement/yaw are unchanged as a result. Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
 | `README.md` | This file. |
 
 None of these six files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
