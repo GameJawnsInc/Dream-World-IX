@@ -110,12 +110,19 @@ TurnInstant({{const({BOAT_FACE}) B_EXPR_END}})
 RET()
 """
 
+# Bench instrumentation (session-transient scratch, never saved during benching):
+#   Byte[2000] ticks every loop pass (changing = the loop is ALIVE)
+#   Byte[2001] ticks when the on-foot Confirm gate passes
+#   Byte[2002] ticks when the proximity check ALSO passes (the board runs)
 BOAT_LOOP = f"""
 L0:
+SET({{Global.Byte[2000] B_POST_PLUS B_EXPR_END}})
 SET({{Global.Byte[190] B_NOT Map.Byte[37] B_NOT B_ANDAND const4({CONFIRM}) B_KEYON B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
+SET({{Global.Byte[2001] B_POST_PLUS B_EXPR_END}})
 SET({{obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({NEAR}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({NEAR}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
+SET({{Global.Byte[2002] B_POST_PLUS B_EXPR_END}})
 DisableMove()
 DisableMenu()
 AttachObject({ANCHOR_UID}, {BOAT_UID}, 0)
@@ -161,7 +168,10 @@ def build_entry(etype: int, funcs) -> bytes:
         table += struct.pack("<HH", tag, fpos)
         code += body
         fpos += len(body)
-    return bytes([etype, fc]) + table + code
+    out = bytes([etype, fc]) + table + code
+    if len(out) % 4:                                  # stock entries are 4-byte padded (NOTHING = 0x00)
+        out += bytes(4 - len(out) % 4)
+    return out
 
 
 def asm(text: str) -> bytes:
