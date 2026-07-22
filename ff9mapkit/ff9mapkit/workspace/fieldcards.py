@@ -74,6 +74,7 @@ class FieldCardPicker(QDialog):
         self._entries = []
         self._items = {}                         # field id -> QListWidgetItem (current filter)
         self._icons = {}                         # field id -> QIcon (decode each cache PNG once)
+        self._disk_miss = set()                  # ids whose disk probe came back empty (skip re-stats)
         self._blank = QPixmap(CARD_W, CARD_H)
         self._blank.fill(Qt.GlobalColor.transparent)
         self._blank_icon = QIcon(self._blank)
@@ -188,6 +189,17 @@ class FieldCardPicker(QDialog):
         if ic is not None:
             return ic
         png = self.thumbs.cached(f"{_KEY}{fid}") if self.thumbs is not None else None
+        if png is None and thumbs_mod.enabled() and fid not in self._disk_miss:
+            # THE REOPEN HOLE: the field service's cached() is in-memory only, and its disk fast path
+            # lives in request() -- whose synchronous answer emits NO ready(). A fresh session's dialog
+            # therefore never painted art rendered last time (the user saw each browse "pick up further
+            # down the list"). So the grid probes the WARM DISK CACHE itself, row-build time; a miss is
+            # remembered so search-keystroke refills don't re-stat 800 files.
+            disk = thumbs_mod.cached_thumb_fast(None, fid)
+            if disk is not None:
+                png = str(disk)
+            else:
+                self._disk_miss.add(fid)
         if png:
             ic = QIcon(QPixmap(png))
             self._icons[fid] = ic                # memo ONLY real art -- a blank must not mask a late render
@@ -205,8 +217,16 @@ class FieldCardPicker(QDialog):
                 break
             r = self.listw.visualItemRect(it)
             if r.isValid() and r.intersects(vp):
-                if self.thumbs.cached(f"{_KEY}{fid}") is None:
-                    self.thumbs.request(f"{_KEY}{fid}", None, fid)
+                # already painted (memo'd from disk or a ready()) -> never spend the batch on it; a
+                # warm request() answers synchronously WITHOUT ready(), so it would consume the cap
+                # while painting nothing.
+                if fid in self._icons:
+                    continue
+                png = self.thumbs.request(f"{_KEY}{fid}", None, fid)
+                if png:                          # a warm synchronous answer paints NOW (no ready() comes)
+                    self._icons[fid] = QIcon(QPixmap(png))
+                    it.setIcon(self._icons[fid])
+                else:
                     n += 1
             elif r.isValid() and r.top() > vp.bottom():
                 break                            # row order -- past the fold, done

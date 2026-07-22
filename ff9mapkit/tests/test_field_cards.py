@@ -56,6 +56,7 @@ class _StubFieldThumbs(QObject):
 
 
 def _png(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     pm = QPixmap(4, 4)
     pm.fill(Qt.GlobalColor.white)
     p = tmp_path / "art.png"
@@ -107,7 +108,10 @@ def test_picker_returns_the_field_id_as_a_string(app):
     assert dlg.result == "50"
 
 
-def test_picker_requests_only_the_visible_cards(app, monkeypatch):
+def test_picker_requests_only_the_visible_cards(app, monkeypatch, tmp_path):
+    # PIN the cache dir: the grid now probes the disk cache at row build, and unpinned this test read
+    # the developer's REAL composites (0 cold cards visible -> 0 requests -> a false red).
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
     monkeypatch.setenv("FF9MAPKIT_NO_THUMBS", "0")
     svc = _StubFieldThumbs()
     dlg = FieldCardPicker(None, pick_palette("dark"), svc)
@@ -132,6 +136,61 @@ def test_ready_routes_by_the_namespaced_key(app, tmp_path):
     svc.ready.emit(f"{fieldcards._KEY}50", png)
     assert 50 in dlg._icons
     assert not dlg._items[50].icon().isNull()
+
+
+# ------------------------------------------------------------------ THE REOPEN HOLE (the playtest bug)
+def test_a_fresh_dialog_paints_art_rendered_last_session(app, monkeypatch, tmp_path):
+    """The reported symptom: quit + reopen showed NONE of the art rendered last time, and each browse
+    'picked up further down the list'. Root cause: the field service's cached() is in-memory only and
+    its disk fast path answers request() WITHOUT a ready() emit -- so nothing ever painted warm cards.
+    The grid must probe the warm disk cache itself at row build."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+    monkeypatch.setenv("FF9MAPKIT_NO_THUMBS", "0")
+    (tmp_path / "thumbs").mkdir(parents=True)
+    pm = QPixmap(4, 4)
+    pm.fill(Qt.GlobalColor.white)
+    pm.save(str(tmp_path / "thumbs" / "real_50.png"), "PNG")     # last session's composite of field 50
+    dlg = FieldCardPicker(None, pick_palette("dark"), _StubFieldThumbs())   # a FRESH (empty) service
+    assert 50 in dlg._icons, "a reopened dialog must paint previously-rendered art at refill"
+    assert not dlg._items[50].icon().isNull()
+
+
+def test_visible_batch_is_not_spent_on_already_painted_cards(app, monkeypatch, tmp_path):
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+    monkeypatch.setenv("FF9MAPKIT_NO_THUMBS", "0")
+    (tmp_path / "thumbs").mkdir(parents=True)
+    pm = QPixmap(4, 4)
+    pm.fill(Qt.GlobalColor.white)
+    pm.save(str(tmp_path / "thumbs" / "real_50.png"), "PNG")
+    svc = _StubFieldThumbs()
+    dlg = FieldCardPicker(None, pick_palette("dark"), svc)
+    dlg.show()
+    app.processEvents()
+    svc.requests.clear()
+    dlg._request_visible()
+    assert all(m != f"{fieldcards._KEY}50" for m, _rid in svc.requests), \
+        "a warm-painted card must not consume the cold-render budget"
+    dlg.close()
+
+
+def test_a_warm_synchronous_request_paints_immediately(app, monkeypatch, tmp_path):
+    """The other half of the hole: when request() answers synchronously (the service's own disk fast
+    path), no ready() will ever come -- the return value must paint the card on the spot."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))    # pinned EMPTY: the row-build disk probe must
+    monkeypatch.setenv("FF9MAPKIT_NO_THUMBS", "0")         # miss, so the REQUEST branch is what paints
+    png = _png(tmp_path / "elsewhere")
+
+    class _WarmFor50(_StubFieldThumbs):
+        def request(self, member, project_toml, real_id):
+            super().request(member, project_toml, real_id)
+            return png if real_id == 50 else None
+
+    dlg = FieldCardPicker(None, pick_palette("dark"), _WarmFor50())
+    dlg.show()
+    app.processEvents()
+    dlg._request_visible()                       # field 50 is the first card -- in the viewport
+    assert 50 in dlg._icons and not dlg._items[50].icon().isNull()
+    dlg.close()
 
 
 # ------------------------------------------------------------------ the doorways
