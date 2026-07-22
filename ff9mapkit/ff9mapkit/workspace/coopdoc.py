@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QTimer, Signal
+from PySide6.QtCore import Qt, QEvent, QObject, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
@@ -56,13 +56,14 @@ class CoopDoc(QWidget):
 
     _bridge_line = Signal(str)
 
-    def __init__(self, pal, kit_root, *, run, output=None, on_setup=None):
+    def __init__(self, pal, kit_root, *, run, output=None, on_setup=None, on_build=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)
         self._run = run
         self._output = output
         self._on_setup = on_setup      # opens the shell's Setup & Health dialog (None = no shell around us)
+        self._on_build = on_build      # shell nav: switch to Build & Deploy (a quiet header cross-link)
         self._server = None            # the in-process bridge's listening socket (None = not running)
         self._thread = None
         self._game = None              # resolved install path (None until _refresh_status finds it)
@@ -91,9 +92,18 @@ class CoopDoc(QWidget):
         crown, _ = widgets.nameplate(
             "", "Co-op",
             "Two-player co-op: you and a friend each see the other's ghost walk a shared field, and — if "
-            "you grant it in Play style below — they command party members in your battles. Every save "
-            "stays your own.")
+            "you grant it in Advanced options below — they command party members in your battles. Every "
+            "save stays your own.")
         v.addWidget(crown)
+        if self._on_build is not None:                  # quiet cross-link: deploy the shared mod on Build & Deploy
+            xlink = QLabel('Deploy the same mod → <a href="build">Build & Deploy</a>')
+            xlink.setObjectName("headerXlink")              # carries a :focus ring -- a keyboard Tab stop must show it
+            xlink.setTextFormat(Qt.TextFormat.RichText)
+            xlink.setProperty("role", "muted")
+            xlink.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                          | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)  # a Tab stop, not mouse-only
+            xlink.linkActivated.connect(lambda _=None: self._on_build())
+            v.addWidget(xlink)
 
         st = widgets.section("Status")
         sv = st.content_layout
@@ -261,6 +271,8 @@ class CoopDoc(QWidget):
 
         apply_row = QHBoxLayout()
         self.btn_style = _pad(QPushButton("Apply play style"))
+        self.btn_style.setToolTip("Start co-op already applies these — Apply just updates Memoria.ini; "
+                                  "a running game picks it up in a couple of seconds.")
         self.btn_style.clicked.connect(self.apply_playstyle)
         apply_row.addWidget(self.btn_style)
         apply_row.addStretch(1)
@@ -270,7 +282,24 @@ class CoopDoc(QWidget):
         # the widest thing in the card once the checkbox was split. A hint gets a hint's treatment
         # (widgets.caption: capped, wrapped, on the ramp), and the row collapses to the button.
         pv.addWidget(widgets.caption("Applies to a running game within a couple of seconds — no restart."))
-        v.addWidget(self.style_box)
+        # A first-run user only needs Host / Join / Start to see ghosts; battle co-op + visitor mode are
+        # power-user knobs, so the whole Play-style card lives behind a collapsed Advanced drawer (the same
+        # widgets.disclosure idiom Build & Deploy fences its battle/New-Game controls behind). The
+        # comes-back rule in _load_playstyle re-opens it whenever this machine already carries a non-default
+        # setting, so a configured knob is never hidden from the person who set it.
+        # "and", not "&": disclosure's header is a QToolButton, which reads a lone "&" as a mnemonic
+        # accelerator (an underline on the next letter) and would also speak the "&&" escape aloud through
+        # its accessibleName -- the plain word sidesteps both.
+        # Cross-tab beginner lever (ASK #12): the drawer's default open/shut tracks the mode -- Full opens
+        # every expert drawer, Guided collapses it to Host/Join/Start. The comes-back override (a non-default
+        # battle/visitor setting, below) keeps WINNING over the mode default in either mode (chair ruling).
+        # Mode read from the workspace global (forms_qt._GUIDED), not prefs, so a standalone CoopDoc in a
+        # test never inherits the developer's prefs file.
+        from . import forms_qt
+        self.style_drawer = widgets.disclosure("Advanced — battle co-op and visitor options",
+                                               expanded=not forms_qt._GUIDED)
+        self.style_drawer.content_layout.addWidget(self.style_box)
+        v.addWidget(self.style_drawer)
 
         btns = QHBoxLayout()
         self.btn_start = _pad(QPushButton("Start co-op"))
@@ -280,9 +309,13 @@ class CoopDoc(QWidget):
         self.btn_start.setObjectName("accent")
         self.btn_start.clicked.connect(self.start_coop)
         self.btn_stop = _pad(QPushButton("Stop bridge"))
+        self.btn_stop.setToolTip("Stops the local relay — co-op stays configured in Memoria.ini; "
+                                 "press Start co-op to reconnect.")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_bridge)
         self.btn_off = _pad(QPushButton("Disable co-op"))
+        self.btn_off.setToolTip("Turns co-op off in Memoria.ini and stops the bridge — the game "
+                                "reverts to solo.")
         self.btn_off.setProperty("role", "quiet")      # the ladder's bottom rung -- see style.py
         self.btn_off.clicked.connect(self.disable_coop)
         btns.addWidget(self.btn_start)
@@ -304,13 +337,9 @@ class CoopDoc(QWidget):
         # A hint gets a hint's treatment (capped measure, the caption tier). As a bare QLabel it wrapped
         # at the full page column -- ~135 characters a line, the exact COLUMN defect the rest of the app
         # already fixed (widgets.caption caps at ~74ch).
+        from .. import coop
         hint = widgets.caption(
-            "Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
-            "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
-            "spot: ~ → Warp to field → 30003). The in-game overlay shows the code + pairing "
-            "state, tells you which field your friend is on, and disappears when their ghost "
-            "is up. A running game picks up session changes within a few seconds — no restart "
-            "needed.")
+            f"Start co-op, keep this app open, then launch FF9 and stand on the same screen as your friend — ghosts appear on any field you two share (guaranteed meeting spot: ~ → Warp to field → {coop.COOP_FIELD}). The in-game overlay shows the code, pairing state, and which field your friend is on.")
         v.addWidget(hint)
         v.addStretch(1)
         scroll.setWidget(inner)
@@ -337,7 +366,7 @@ class CoopDoc(QWidget):
     def refresh_status(self):
         """Re-read install/engine/room/config state. Never raises -- a game-less machine shows what's
         missing instead (the smoke runs this headless)."""
-        from .. import coop
+        from .. import coop, health
         from ..config import find_game_path
         try:
             self._game = find_game_path(None)
@@ -358,21 +387,13 @@ class CoopDoc(QWidget):
         self.btn_start.setEnabled(True)
         self.lbl_game.setText(str(self._game))
         widgets.set_state(self.lbl_game, "")
-        dll = self._game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
-        try:
-            blob = dll.read_bytes() if dll.is_file() else b""
-        except OSError:
-            blob = b""
-        has_netsync = b"NetSyncClient" in blob
-        has_s37 = b"NetSyncBattle" in blob          # the battle/visitor lanes shipped together (s37)
-        has_s40 = b"NetSyncDiorama" in blob         # the battle diorama (s40)
-        self.lbl_engine.setText("netsync + battle co-op + diorama (s40) present" if has_s40 else
-                                "netsync + battle/visitor co-op (s37) — the battle diorama needs "
-                                "the newer s40 engine" if has_s37 else
-                                "netsync (s36) present — Play style needs the newer s37 engine"
-                                if has_netsync else
-                                "netsync MISSING — install the Dream World IX custom engine first")
-        widgets.set_state(self.lbl_engine, "" if has_s37 else "warn")
+        # The engine generation, from the SHARED derivation (health.netsync_generation) -- the same
+        # source Setup's "Co-op engine" health row reads, so the two can never disagree on the
+        # s36/s37/s40 boundary. The booleans below still drive the door / Play-style / diorama gates.
+        gen = health.netsync_generation(self._game)
+        has_s37, has_s40 = gen["s37"], gen["s40"]
+        self.lbl_engine.setText(gen["summary"])
+        widgets.set_state(self.lbl_engine, "" if gen["level"] == "ok" else "warn")
         # The door keys on the SAME predicate as the amber state one line up (not has_s37). Its first
         # cut keyed on `not has_netsync`, so an s36 machine got a warning naming the newer engine with
         # the door to that exact remedy hidden -- the scavenger hunt back for one engine generation
@@ -428,6 +449,30 @@ class CoopDoc(QWidget):
         self.cb_follow.setChecked((coop.read_ini_key(ini_text, "Netsync", "FollowHost") or "") == "1")
         # Diorama defaults ON in the engine (s40): an absent key reads as checked.
         self.cb_diorama.setChecked((coop.read_ini_key(ini_text, "Netsync", "Diorama") or "1") != "0")
+        # Comes-back rule: if this machine already carries a non-default battle/visitor setting -- a party
+        # slot granted (GuestSlots), a visitor outfit (GhostAs), or follow-host -- open the Advanced drawer
+        # so the setting is visible rather than buried. Only opens; a manual expand is never forced shut,
+        # and the default state (no slots, own model, no follow) leaves a collapsed drawer collapsed. Wait
+        # and diorama are excluded on purpose: both have non-empty engine defaults, so they aren't a signal
+        # that the user chose anything.
+        if self._has_nondefault_playstyle():
+            self.style_drawer.toggle_button.setChecked(True)
+
+    def _has_nondefault_playstyle(self) -> bool:
+        """True when this machine already carries a non-default battle/visitor knob -- a granted party slot
+        (GuestSlots), a visitor outfit (GhostAs), or follow-host. This is the computed auto-expand OVERRIDE:
+        it opens the drawer in _load_playstyle (comes-back rule) AND wins over the beginner-mode default in
+        apply_guided, so a configured knob is never hidden even in Guided mode (chair ruling). Wait/diorama
+        are excluded on purpose: both have non-empty engine defaults, so they aren't a chose-it signal."""
+        return (any(cb.isChecked() for cb in self.cb_slots)
+                or self.combo_ghost.currentIndex() > 0
+                or self.cb_follow.isChecked())
+
+    def apply_guided(self, guided: bool):
+        """Re-default the Advanced (play-style) drawer when the cross-tab beginner mode flips (ASK #12):
+        Full opens it, Guided collapses it -- EXCEPT the comes-back override keeps winning, so a machine
+        that already carries a non-default play style keeps the drawer open in either mode."""
+        self.style_drawer.toggle_button.setChecked(self._has_nondefault_playstyle() or not guided)
 
     def _playstyle_state(self):
         """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow, diorama) --

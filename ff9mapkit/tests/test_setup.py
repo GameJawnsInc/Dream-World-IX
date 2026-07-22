@@ -233,6 +233,105 @@ def test_setup_install_engine_skips_when_already_applied(tmp_path, monkeypatch, 
     assert not (game / "dwix-engine-backups").exists()        # skipped -> no swap, no backup
 
 
+# ---- engine_report: the plain-language `doctor` explainer's data (all advisory, never load-bearing) -
+def test_assembly_build_date_decodes_days_since_2000():
+    # .NET AssemblyVersion("1.1.*") fills BUILD with days since 2000-01-01 -> the DLL's compile date.
+    from datetime import date
+    assert memoria.assembly_build_date("1.1.9325.29463") == date(2025, 7, 13)   # the BASE_COMMIT date
+    assert memoria.assembly_build_date("1.1.0.0") == date(2000, 1, 1)
+    assert memoria.assembly_build_date(f"1.1.{memoria.BASE_COMMIT_DATE.toordinal() - date(2000, 1, 1).toordinal()}.1") \
+        == memoria.BASE_COMMIT_DATE
+
+
+def test_assembly_build_date_none_on_garbage():
+    for bad in (None, "", "1.1.9324", "1.1.9324.29463.5", "not.a.version.x", "1.1.x.0"):
+        assert memoria.assembly_build_date(bad) is None
+    assert memoria.assembly_build_date("1.1.99999999.0") is None      # out of date's range, never raises
+
+
+def test_dwix_backup_dirs_empty_and_populated(tmp_path):
+    game = _make_game(tmp_path)
+    assert memoria.dwix_backup_dirs(game) == []
+    for stamp in ("20260702-090000", "20260629-120000"):
+        (game / "dwix-engine-backups" / stamp / "x64").mkdir(parents=True)
+    (game / "dwix-engine-backups" / "loose.txt").write_text("", encoding="utf-8")   # files aren't stamps
+    got = [p.name for p in memoria.dwix_backup_dirs(game)]
+    assert got == ["20260629-120000", "20260702-090000"]              # sorted, oldest stamp first
+
+
+def test_engine_report_memoria_absent(tmp_path):
+    rep = memoria.engine_report(_make_game(tmp_path, memoria_installed=False))
+    assert rep["memoria_installed"] is False
+    assert rep["dwix_bundle_applied"] is False and rep["assembly_version"] is None
+
+
+def test_engine_report_stock_fresh(tmp_path, monkeypatch):
+    from datetime import date
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.9325.29463")   # 2025-07-13
+    rep = memoria.engine_report(_make_game(tmp_path))
+    assert rep["memoria_installed"] is True and rep["dwix_bundle_applied"] is False
+    assert rep["assembly_build_date"] == date(2025, 7, 13) == rep["base_commit_date"]
+
+
+def test_engine_report_stock_stale(tmp_path, monkeypatch):
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.11000.1")      # 2030-02-16
+    rep = memoria.engine_report(_make_game(tmp_path))
+    drift = (rep["assembly_build_date"] - rep["base_commit_date"]).days
+    assert drift > memoria.STALE_WARNING_DAYS and rep["dwix_bundle_applied"] is False
+
+
+def test_engine_report_detects_our_bundle_by_backup_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.9670.29463")
+    game = _make_game(tmp_path)
+    (game / "dwix-engine-backups" / "20260629-120000" / "x64").mkdir(parents=True)
+    rep = memoria.engine_report(game)
+    assert rep["dwix_bundle_applied"] is True and rep["dwix_backup_count"] == 1
+
+
+# ---- `doctor`'s engine block: the words the user actually reads -------------------------------------
+def _doctor(game, monkeypatch, capsys, mod_root=None):
+    import argparse
+    from ff9mapkit import cli
+    monkeypatch.setattr(cli, "find_game_path", lambda g: Path(game))
+    monkeypatch.setattr(cli, "find_mod_root", lambda g, m: Path(mod_root or (Path(game) / "FF9CustomMap")))
+    rc = cli._cmd_doctor(argparse.Namespace(game=str(game), mod_folder=None))
+    return rc, capsys.readouterr().out
+
+
+def test_doctor_reports_memoria_absent(tmp_path, monkeypatch, capsys):
+    rc, out = _doctor(_make_game(tmp_path, memoria_installed=False), monkeypatch, capsys)
+    assert rc == 0                                        # advisory only -- never gates the exit code
+    assert "Memoria NOT detected" in out
+    assert "world-*" not in out                           # no patch advice when there's no engine at all
+
+
+def test_doctor_reports_patched_engine(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.9670.29463")
+    game = _make_game(tmp_path)
+    (game / "dwix-engine-backups" / "20260629-120000" / "x64").mkdir(parents=True)
+    rc, out = _doctor(game, monkeypatch, capsys)
+    assert rc == 0 and "Dream World IX patches" in out
+    assert "Forked real fields" in out and "should work" in out
+    assert "no Dream World IX patches detected" not in out   # nothing to install; don't nag
+
+
+def test_doctor_reports_stock_engine_with_reassurance(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.9325.29463")   # on-base date
+    rc, out = _doctor(_make_game(tmp_path), monkeypatch, capsys)
+    assert rc == 0 and "no Dream World IX patches detected" in out
+    assert "novel from-scratch fields" in out              # the reassurance: most pillars already work
+    assert "FORKED real fields" in out and "world-*" in out
+    assert "docs/ENGINE.md" in out and "--install-engine" in out
+    assert "option 3" not in out                          # on-base -> no drift note
+
+
+def test_doctor_stock_engine_adds_drift_note_when_stale(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.11000.1")      # years newer
+    rc, out = _doctor(_make_game(tmp_path), monkeypatch, capsys)
+    assert rc == 0 and "no Dream World IX patches detected" in out
+    assert "big gap" in out and "option 3" in out and "memoria-patches/" in out
+
+
 # ---- game-install detection (Steam + GOG; rejects MS Store) ----------------------------------------
 def _make_ff9_root(tmp_path, *, launcher=True, streaming=True, managed=True):
     root = tmp_path / "FINAL FANTASY IX"

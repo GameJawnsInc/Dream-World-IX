@@ -554,6 +554,18 @@ _QSS = Template(
     QLabel { background: transparent; }
     QStatusBar { background: $surface; color: $muted; border-top: 1px solid $border; }
     QStatusBar::item { border: none; }
+    /* the beginner-mode chip (shell._build_mode_chip): a quiet, focusable status-bar word (Guided / Full).
+       No accent -- muted like the version chip beside it. Border reserved TRANSPARENT so the focus ring
+       costs no layout (same move as #disclosureToggle); padding is in px but the TEXT scales with CALIBRE,
+       so the chip grows with the dial. :focus recolours AND rings so a keyboard user can tell where they
+       are (WCAG 2.4.7; the whole-chain focus fence walks here). */
+    QToolButton#modeChip {
+        background: transparent; border: 1px solid transparent; color: $muted;
+        padding: 2px 8px; margin: 0;
+    }
+    QToolButton#modeChip:hover   { color: $text; }
+    QToolButton#modeChip:pressed { color: $pressed_fg; background: $pressed; }
+    QToolButton#modeChip:focus   { color: $text; border: 1px solid $focus; }
     QToolTip { background: $surface; color: $text; border: 1px solid $border; }
 
     /* --- component roles (Phase 1 substrate) -- these match ONLY widgets that set a dynamic `role`
@@ -600,6 +612,11 @@ _QSS = Template(
        Fenced by test_every_declared_weight_is_a_weight_segoe_can_draw. */
     QLabel[role="label"]   { font-weight: 600; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
+    /* An inline keyboard-reachable cross-link (builddoc/coopdoc header wayfinding). Its <a> makes it a Tab
+       stop (LinksAccessibleByKeyboard), so the a11y law says it MUST paint where the keyboard is. Reserve a
+       transparent 1px border at rest so :focus only RECOLOURS it -- no reflow between states. */
+    QLabel#headerXlink          { border: 1px solid transparent; border-radius: $radius_sm; padding: 1px 4px; }
+    QLabel#headerXlink:focus    { border: 1px solid $focus; }
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
     /* TEXT gets the derived *_text rung (AA 4.5 on the card fill); SHAPES below keep the canonical hue,
        where the 3.0 non-text floor is the right bar. Lifting the hues themselves was measured and

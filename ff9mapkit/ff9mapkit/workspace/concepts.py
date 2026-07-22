@@ -118,8 +118,8 @@ _CARDS = [
             ("f6 menu", "debug menu", "tilde", "~", "backquote")),
     Concept("memoria", "Memoria (the engine)",
             "The open-source engine layer this toolkit works with — the Steam release of FF9 uses it. Fields you "
-            "build from scratch run on the stock engine; forked fields need the small bundled patch set.",
-            "novel fields = stock Memoria; forked fields = the bundled s23–s34 patches.",
+            "build from scratch run on the stock engine; forked fields need the dwix-custom-memoria engine bundle.",
+            "novel fields = stock Memoria; forked fields = the bundled s23–s33 fork-gate patches.",
             ("engine", "dll")),
     Concept("eb", "Event script (.eb)",
             "A field's program — the code that runs it: what NPCs do, the dialogue, the doors, cutscenes, and "
@@ -151,7 +151,7 @@ _CARDS = [
     Concept("overworld", "Overworld (world map)",
             "The big walkable world map between towns. The kit's world-* commands reshape its land, coastlines, "
             "encounters, and entrances.",
-            "some overworld features need the bundled s34 engine patch.",
+            "some overworld features need the dwix-custom-memoria engine bundle (the s34 overworld override).",
             ("world map", "worldmap")),
     Concept("prop", "Prop",
             "A piece of set dressing on a field — a chest, tent, barrel, or sign. A model in a fixed pose with "

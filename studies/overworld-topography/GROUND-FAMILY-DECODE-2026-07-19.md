@@ -473,6 +473,15 @@ Not fixed this session — recorded for continuity across the account switch. Th
 carry stays fully closed and in-game proven (cave inert, the (12,18) sea holes patched and
 confirmed navigable, no z-fight).
 
+**§4 ADDENDUM 2b — the Disc4-only `Block[12][18] Object.ff9mesh` is CORRECT BY DESIGN, not a mirror
+gap (byte-verified 2026-07-20).** It is `world-mirror`'s FREE-RIDE PIN: donor (9,17)'s prefab Object
+part free-rides at (12,18) on Disc1 (the carry deliberately ships no Object override — "obj rides
+grass-clad"), but (9,17)'s Object genuinely DIFFERS between the two disc trees (terrain differs too,
+but terrain IS explicitly overridden on both), so the mirror pins the disc-1 bytes as an explicit
+Disc4 override (`discmirror.mirror()`'s `extras` path). Re-running that exact code path regenerates
+the deployed 4076 B file BYTE-IDENTICALLY. A Disc1/Disc4 file-set asymmetry on a `Donor.txt` sidecar
+cell is the pin's SIGNATURE — a future byte-sweep should not re-flag it.
+
 **§4 ADDENDUM 3 — ROOT-CAUSED + FIXED (2026-07-20): the s34 `HasLandOverride` divert gate, not a
 Terrain-registration requirement.** The live evidence ADDENDUM 2 asked for turned up in
 `GAME/Memoria.log` (boot 02:18) — the smoking gun is line 55 next to its siblings:

@@ -17,6 +17,7 @@ palette dict from :func:`.theme.apply_theme`, so it matches whatever app hosts i
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 # --- the four outcome levels (also the problem severities, minus "ok"/"running") -----------------
@@ -88,6 +89,82 @@ def problems(errors=(), warnings=()) -> list:
     rows = [Problem(ERROR, str(m)) for m in errors]
     rows += [Problem(WARN, str(m)) for m in warnings]
     return rows
+
+
+# --- failure-anchor extraction (the structured-failure lens) -------------------------------------
+# A subprocess job (build / deploy / import) has NO structured error list -- only an exit code and a
+# streamed log. On a crash the log is a grey wall in which the one line that says WHAT went wrong is the
+# identical ink to forty `wrote ...` lines. This layer pulls that ONE line out so the shell can post it as
+# a clickable Problems row that jumps to it in the Output console.
+#
+# THE "DON'T CRY WOLF" LAW (chair ruling, and the codified rule the console-tint already follows): fire
+# ONLY on a non-zero exit AND a TIGHT anchor. Two anchor classes, both self-evident rather than sniffed:
+#   * the terminal frame of a Python traceback -- the interpreter FIXES the header string and the final
+#     exception line sits at column 0 below the indented frames, so it is an exact anchor, not a guess;
+#   * the LAST ``error:``-classed CLI line -- ``error:`` with its colon, at the line head (optionally after
+#     a short ``prog:``/``subcmd:`` prefix, so argparse's ``prog: error: ...`` and the kit's ``assemble
+#     error: ...`` both match). The colon-immediately-after-``error`` is the tightness: a build log full of
+#     paths and prose mentioning "error" (``wrote build/error_log``, "an error occurred") never matches.
+# A non-zero exit with neither anchor yields NOTHING -- a no-anchor mess is not worth a false row.
+
+_TRACEBACK_HEADER = "Traceback (most recent call last):"   # interpreter-fixed; matches shell.py's _TRACE_ANCHOR
+# up to three short leading tokens (``prog:`` / ``build:``) then ``error:`` at a word boundary + a space.
+_ERROR_LINE = re.compile(r"^(?:\S+ ){0,3}error\s*:\s", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class FailureAnchor:
+    """The single tightest 'this is what went wrong' line pulled from a failed job's captured stdout.
+
+    ``text`` is the exact stripped line (shown as the Problems row's message AND searched for verbatim in
+    the Output console to reveal it); ``line_no`` is 1-based within the captured text (for tests/debugging);
+    ``kind`` is ``"traceback"`` or ``"error"``."""
+
+    text: str
+    line_no: int
+    kind: str
+
+
+def _traceback_anchor(lines):
+    """The terminal exception line of the LAST traceback in ``lines`` (chained tracebacks -> the final one),
+    or ``None``. Below the header the frame lines (``File ...`` / source) are all INDENTED, so the exception
+    line is the FIRST non-empty column-0 line after the last header -- the ``ValueError: ...``. Scanning
+    forward (not from the bottom) stops at the traceback's end, so any later program output isn't mistaken
+    for the exception."""
+    header = None
+    for i, ln in enumerate(lines):
+        if ln.strip() == _TRACEBACK_HEADER:
+            header = i
+    if header is None:
+        return None
+    for i in range(header + 1, len(lines)):
+        ln = lines[i]
+        if ln.strip() and not ln[:1].isspace():        # first non-empty column-0 line = the exception line
+            return FailureAnchor(ln.strip(), i + 1, "traceback")
+    return None
+
+
+def _error_line_anchor(lines):
+    """The LAST ``error:``-classed line in ``lines`` (see :data:`_ERROR_LINE`), or ``None``."""
+    for i in range(len(lines) - 1, -1, -1):
+        if _ERROR_LINE.match(lines[i].lstrip()):
+            return FailureAnchor(lines[i].strip(), i + 1, "error")
+    return None
+
+
+def failure_anchor(output, code):
+    """Pull the ONE tightest failure line out of a failed job's captured ``output``, or ``None``.
+
+    ``None`` whenever ``code == 0`` (success noise is never an anchor) or ``output`` is empty. Otherwise the
+    later (more terminal) of the two candidate anchors -- the traceback's exception line and the last
+    ``error:`` line -- wins, honouring the "the failure is at the tail" reading; ``None`` if neither fires."""
+    if code == 0 or not output:
+        return None
+    lines = output.splitlines()
+    cands = [c for c in (_traceback_anchor(lines), _error_line_anchor(lines)) if c]
+    if not cands:
+        return None
+    return max(cands, key=lambda c: c.line_no)
 
 
 # --- plain-language error layer ------------------------------------------------------------------

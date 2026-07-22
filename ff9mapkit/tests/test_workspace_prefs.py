@@ -206,6 +206,16 @@ def test_settings_menu_and_palette_commands_exist(app):
     assert {"Preferences…", "About Dream World IX", "Check for updates…"} <= labels
 
 
+def test_restore_last_session_is_a_noop_on_an_empty_recent_list(app, monkeypatch):
+    """restore_session's default flipped to ON, so this fences the newcomer path: with an empty recent
+    list (a fresh install), restore_last_session opens nothing and reports False -- the newcomer sees no
+    behavior change, which is the whole reason flipping the default is safe."""
+    monkeypatch.setattr(shell.prefs, "recent", lambda: [])
+    w = _win(app)
+    assert w.restore_last_session() is False
+    w.close()
+
+
 def test_startup_uses_the_saved_theme(app, monkeypatch):
     # main() resolves the palette from prefs.theme(); a saved "nord" must drive the window's palette.
     monkeypatch.setattr(shell.prefs, "theme", lambda: "nord")
@@ -271,7 +281,9 @@ def test_remove_recent(prefs_file, tmp_path):
 
 def test_restore_session_and_layout_prefs(prefs_file):
     p = prefs_file
-    assert p.restore_session() is False                      # opt-in: default off
+    assert p.restore_session() is True                       # default ON: the veteran reopens where they left off
+    p.set_restore_session(False)                             # the deliberate opt-OUT sticks...
+    assert p.restore_session() is False and p.load()["restore_session"] is False
     p.set_restore_session(True)
     assert p.restore_session() is True
     p.set_layout({"geometry": "QUJD", "state": "REVG", "central_split": [300, 640, 240]})

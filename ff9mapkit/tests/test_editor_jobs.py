@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from ff9mapkit.editor import jobs
 
 
@@ -221,6 +223,21 @@ def test_deploy_journey_argv(tmp_path):
     assert "--newgame" in both and "entry" in both and "--wire-newgame" not in both
 
 
+def test_newgame_from_stock_argv_carries_the_mod_folder(tmp_path):
+    """The re-wire must target the SAME folder the casualty was read from. Both argv builders default the
+    folder to FF9CustomMap, but a campaign whose mod_folder is something else needs it threaded through --
+    else the wholesale deploy wipes the override in that folder and the re-wire restores it in FF9CustomMap.
+    LAW (not the number): whatever folder is passed lands on --mod-folder, in both the repo-tool and the
+    installed-package variant."""
+    dev = jobs.newgame_from_stock_argv(tmp_path, 6000, mod_folder="FF9CustomMap-ow")
+    assert dev[-2:] == ["--mod-folder", "FF9CustomMap-ow"] and "6000" in dev
+    pkg = jobs.newgame_from_stock_pkg_argv(6000, mod_folder="FF9CustomMap-ow")
+    assert pkg[-2:] == ["--mod-folder", "FF9CustomMap-ow"] and "6000" in pkg
+    # the default is still FF9CustomMap (the common case is untouched)
+    assert jobs.newgame_from_stock_argv(tmp_path, 6000)[-2:] == ["--mod-folder", "FF9CustomMap"]
+    assert jobs.newgame_from_stock_pkg_argv(6000)[-2:] == ["--mod-folder", "FF9CustomMap"]
+
+
 def test_fork_command_argv(tmp_path):
     cmd = ("import-chain 300 --out ice_cavern --verbatim --id-base 6200 --name-prefix ICEC "
            "--mod-folder FF9CustomMap-icec --flags-per-field 16")
@@ -235,7 +252,10 @@ def test_fork_command_argv(tmp_path):
 def test_newgame_argv(tmp_path):
     # the robust path the GUI uses: CREATE the field-70 override from stock (works on a clean install)
     a = jobs.newgame_from_stock_argv(tmp_path, 6000)
-    assert a[1].replace("\\", "/").endswith("tools/wire_newgame_from_stock.py") and a[-1] == "6000"
+    # target id is the positional arg; the folder rides on --mod-folder (default FF9CustomMap) so a re-wire
+    # can be aimed at a campaign's own folder -- see test_newgame_from_stock_argv_carries_the_mod_folder
+    assert a[1].replace("\\", "/").endswith("tools/wire_newgame_from_stock.py") and "6000" in a
+    assert a[-2:] == ["--mod-folder", "FF9CustomMap"]
     # the patch-only twin still available
     b = jobs.newgame_retarget_argv(tmp_path, 4100)
     assert b[1].replace("\\", "/").endswith("tools/retarget_newgame_warp.py") and b[-1] == "4100"
@@ -346,3 +366,170 @@ def test_resolve_dev_repo(tmp_path, monkeypatch):
     sub = repo / "a" / "b"; sub.mkdir(parents=True)
     monkeypatch.chdir(sub)
     assert jobs.resolve_dev_repo(venv).resolve() == repo.resolve()
+
+
+# --------------------------------------------------------------------------- deployed-here ledger scan
+def _dp(tmp_path, *fields):
+    """Write a DictionaryPatch with the given (id, name) FieldScene rows (+ noise the scanner must skip)."""
+    lines = ["3DModel 40 foo bar baz", "# a comment", "MessageFile 4003"]
+    for fid, name in fields:
+        lines.append(f"FieldScene {fid} 11 0 {name} extra")
+    p = tmp_path / "DictionaryPatch.txt"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_scan_pairs_each_registered_id_with_its_per_id_revert(tmp_path):
+    dp = _dp(tmp_path, ("4003", "TESTROOM"), ("4100", "MYFORK"))
+    scroll = tmp_path / "scroll_out"; scroll.mkdir()
+    (scroll / "revert_deploy_4100.py").write_text("# undo 4100\n", encoding="utf-8")   # only 4100 has a script
+    rows = jobs.scan_deployed_reverts(dp, scroll)
+    by_id = {r["id"]: r for r in rows if r["kind"] == "field"}
+    assert by_id["4003"]["script"] is None, "an id with no revert script must be read-only informational"
+    assert by_id["4100"]["script"] and by_id["4100"]["script"].endswith("revert_deploy_4100.py")
+    assert by_id["4100"]["mtime"] is not None and by_id["4003"]["mtime"] is None
+    assert by_id["4003"]["name"] == "TESTROOM"           # the FieldScene name is carried for the label
+
+
+def test_scan_field_rows_keep_dictionarypatch_order(tmp_path):
+    dp = _dp(tmp_path, ("4100", "B"), ("4003", "A"))     # order as written, NOT sorted
+    rows = jobs.scan_deployed_reverts(dp, tmp_path / "none")
+    assert [r["id"] for r in rows if r["kind"] == "field"] == ["4100", "4003"]
+
+
+def test_scan_appends_folderwide_reverts_newest_first(tmp_path):
+    import os, time
+    dp = _dp(tmp_path, ("4003", "TESTROOM"))
+    scroll = tmp_path / "scroll_out"; scroll.mkdir()
+    camp = scroll / "revert_campaign.py"; camp.write_text("x", encoding="utf-8")
+    ng = scroll / "revert_newgame_from_stock.py"; ng.write_text("x", encoding="utf-8")
+    # make the New-Game revert strictly newer than the campaign one, deterministically
+    t = time.time()
+    os.utime(camp, (t - 100, t - 100))
+    os.utime(ng, (t, t))
+    rows = jobs.scan_deployed_reverts(dp, scroll)
+    field = [r for r in rows if r["kind"] == "field"]
+    extra = [r for r in rows if r["kind"] != "field"]
+    assert [r["kind"] for r in rows][:len(field)] == ["field"], "field rows come first"
+    assert [r["name"] for r in extra] == ["New Game entry", "campaign deploy"], "folder-wide reverts newest first"
+    assert all(r["script"] for r in extra) and all(r["id"] is None for r in extra)
+
+
+def test_scan_is_inert_without_a_dictpatch_or_scroll_dir(tmp_path):
+    # no DictionaryPatch (no install found) -> no field rows; no scroll dir -> every script reads absent.
+    assert jobs.scan_deployed_reverts(None, None) == []
+    assert jobs.scan_deployed_reverts(tmp_path / "absent.txt", tmp_path / "absent") == []
+    # a DictPatch but no scroll dir: field rows present, all read-only (no undo script reachable)
+    dp = _dp(tmp_path, ("4003", "TESTROOM"))
+    rows = jobs.scan_deployed_reverts(dp, None)
+    assert rows and all(r["script"] is None for r in rows)
+
+
+def test_scan_surfaces_the_install_revert(tmp_path):
+    # Install-to-game is now reversible (whole-folder snapshot), so its revert_install.py appears as a
+    # folder-wide 'Install to game' ledger row alongside the campaign / New-Game reverts.
+    dp = _dp(tmp_path, ("4100", "MYFORK"))
+    scroll = tmp_path / "scroll_out"; scroll.mkdir()
+    (scroll / "revert_install.py").write_text("x", encoding="utf-8")
+    rows = jobs.scan_deployed_reverts(dp, scroll)
+    inst = [r for r in rows if r["kind"] == "install"]
+    assert len(inst) == 1 and inst[0]["name"] == "Install to game" and inst[0]["script"]
+    assert inst[0]["id"] is None
+
+
+# --------------------------------------------------------------------------- Install-to-game backup law
+def test_snapshot_mod_folder_copies_and_writes_a_restoring_revert(tmp_path):
+    """The §2 backup law on Install-to-game: the WHOLE folder is snapshotted before the write, and the
+    emitted revert restores it byte-for-byte (a mutated DictionaryPatch + a deleted asset both come back)."""
+    import subprocess
+    mod = tmp_path / "FF9CustomMap"
+    (mod / "StreamingAssets").mkdir(parents=True)
+    (mod / "DictionaryPatch.txt").write_text("FieldScene 4100 11 0 X extra\n", encoding="utf-8")
+    (mod / "StreamingAssets" / "a.bytes").write_bytes(b"\x01\x02")
+    backups, reverts = tmp_path / "backups", tmp_path / "reverts"
+    rp = jobs.snapshot_mod_folder(mod, backups, reverts)
+    assert rp is not None and rp.name == "revert_install.py" and rp.is_file()
+    snaps = list(backups.glob("*/FF9CustomMap/DictionaryPatch.txt"))     # copied under backups/<stamp>/<name>/
+    assert snaps and snaps[0].read_text(encoding="utf-8").startswith("FieldScene 4100")
+    # mutate + delete, then run the revert -> the pre-install truth is restored exactly
+    (mod / "DictionaryPatch.txt").write_text("CLOBBERED\n", encoding="utf-8")
+    (mod / "StreamingAssets" / "a.bytes").unlink()
+    subprocess.run([sys.executable, str(rp)], check=True)
+    assert (mod / "DictionaryPatch.txt").read_text(encoding="utf-8").startswith("FieldScene 4100")
+    assert (mod / "StreamingAssets" / "a.bytes").read_bytes() == b"\x01\x02"
+
+
+def test_snapshot_of_an_absent_folder_reverts_by_removing_it(tmp_path):
+    """A fresh install (no prior folder): the snapshot records the absence, and the revert removes the
+    folder the install created -- restoring the true pre-install state, not an empty stub."""
+    import subprocess
+    mod = tmp_path / "FF9CustomMap"                                    # does NOT exist yet
+    rp = jobs.snapshot_mod_folder(mod, tmp_path / "backups", tmp_path / "reverts")
+    assert rp is not None
+    (mod / "sub").mkdir(parents=True)                                  # the install then creates it
+    (mod / "sub" / "f.bytes").write_bytes(b"x")
+    subprocess.run([sys.executable, str(rp)], check=True)
+    assert not mod.exists()
+
+
+def test_revert_install_argv(tmp_path):
+    assert jobs.revert_install_argv(tmp_path) is None                  # nothing snapshotted -> nothing to undo
+    scroll = tmp_path / "tools" / "scroll_out"; scroll.mkdir(parents=True)
+    (scroll / "revert_install.py").write_text("print('x')\n", encoding="utf-8")
+    a = jobs.revert_install_argv(tmp_path)
+    assert a and a[0] == sys.executable and a[-1].replace("\\", "/").endswith("scroll_out/revert_install.py")
+
+
+def test_revert_install_pkg_argv_reads_cache(tmp_path, monkeypatch):
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "deploy_reverts_dir", lambda: tmp_path / "rv")
+    assert jobs.revert_install_pkg_argv() is None                      # empty cache
+    (tmp_path / "rv").mkdir()
+    (tmp_path / "rv" / "revert_install.py").write_text("x", encoding="utf-8")
+    r = jobs.revert_install_pkg_argv()
+    assert r and r[-1].endswith("revert_install.py")
+
+
+# --------------------------------------------------------------------------- New-Game casualty reader
+def test_current_newgame_target_reads_the_deployed_override(tmp_path, monkeypatch):
+    # a deployed field-70 override under the mod folder -> current_newgame_target reads its Field() warp
+    from ff9mapkit import newgame
+    p = tmp_path / newgame.OVERRIDE_REL.format(lang="us")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"\x00\x01\x02")                                     # bytes present...
+    monkeypatch.setattr(newgame, "newgame_target", lambda data: 6000)  # ...parsed by the real reader
+    assert jobs.current_newgame_target(tmp_path) == 6000
+
+
+def test_current_newgame_target_none_when_absent_or_unparseable(tmp_path):
+    from ff9mapkit import newgame
+    assert jobs.current_newgame_target(tmp_path) is None               # no override deployed -> None
+    p = tmp_path / newgame.OVERRIDE_REL.format(lang="us")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"not a real eb file")                              # unparseable -> graceful None (no raise)
+    assert jobs.current_newgame_target(tmp_path) is None
+
+
+def test_current_newgame_target_round_trips_a_real_override(tmp_path):
+    """No stub: build a GENUINE field-70 override from stock, remap its warp -> 6000, and read it back
+    through the real ``newgame_target`` bytecode parser. The monkeypatched sibling above proves only the
+    plumbing (it hard-codes the parse); this is the CI guard against a field-70 format / entry-tag drift,
+    exercising the exact reader ``wire_from_stock`` self-verifies with. Game-gated: this module needs no
+    install, so it SKIPS cleanly without one (a fresh public clone), and only runs where p0data is present."""
+    from ff9mapkit import config, extract, newgame
+    try:
+        game = config.find_game_path()
+    except Exception:                                                  # noqa: BLE001
+        game = None
+    if not game or not (game / "StreamingAssets" / "p0data2.bin").is_file():
+        pytest.skip("needs the FF9 install + UnityPy (real field-70 .eb round-trip)")
+    data = extract.EventBundle(game=str(game)).eb_for_id(newgame.NEWGAME_FIELD)
+    assert data, "stock field 70 .eb must extract from p0data"
+    stock_dest = newgame.newgame_target(data)                          # the real parser finds the warp
+    assert stock_dest is not None
+    out = newgame.remap_fields(data, {stock_dest: 6000})
+    assert out != data, "the remap must change the warp target"
+    p = tmp_path / newgame.OVERRIDE_REL.format(lang="us")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(out)                                                 # a real override on disk...
+    assert jobs.current_newgame_target(tmp_path) == 6000              # ...read back with NO stub

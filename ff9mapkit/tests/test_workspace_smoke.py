@@ -96,7 +96,12 @@ def test_the_smoke_survives_a_hostile_prefs_file(tmp_path):
                                    here without ever opening Preferences
         theme         light     <- the palette half of the app most tests never render
         motion        off       <- animate/no-animate paths
-        restore_session True    <- the startup path that opens the last project
+        restore_session False   <- the OPT-OUT. restore-session's default flipped to True (the veteran
+                                   reopens where they left off), so False is now the deliberate non-default.
+                                   The fence's recent list is empty either way, so restore_last_session
+                                   no-ops -- what is under test is the pref READ, not a project reopen.
+        confirm_reversible_deploys True  <- the confirm modal was REMOVED by default on reversible deploys
+                                   (F9 = one keystroke); True opts it back in, so it is the non-default here.
 
     If the smoke passes here, it is measuring the product. If it fails, it is measuring its owner.
     """
@@ -105,13 +110,20 @@ def test_the_smoke_survives_a_hostile_prefs_file(tmp_path):
     cfg.mkdir(parents=True)
     (cfg / "prefs.json").write_text(json.dumps({
         "guided": False, "density": "compact", "text_scale": 150,
-        "theme": "light", "motion": "off", "restore_session": True, "recent": [],
+        "theme": "light", "motion": "off", "restore_session": False,
+        "confirm_reversible_deploys": True, "recent": [],
         # getstarted_hidden: the round-8 key, added THE SAME DAY it shipped -- because this fence's own
         # `layout` comment below documents what happens otherwise ("covering the keys that came to
         # mind"), and the round's adversarial review caught the omission within hours: the smoke's
         # newcomer asserts read the dismissal live, so a machine whose owner clicked Hide went red.
         # The dismissal is now stubbed in-memory inside _smoke; this key keeps that pin honest.
         "getstarted_hidden": True,
+        # has_deployed: the sticky first-deploy marker. A veteran's machine reads True, which SILENCES the
+        # first-run READY spine -- so a fence whose thesis is "every value non-default" must set it, or the
+        # smoke measures a fresh install's spine on a veteran's box. deploy_dest: the remembered Build &
+        # Deploy destination -- 'own' is the veteran workflow the persistence exists for, and BuildDoc reads
+        # it at construction to restore the radio, so it belongs in "the machine that broke".
+        "has_deployed": True, "deploy_dest": "own",
         # `layout` WAS THE ONE KEY THIS FENCE SKIPPED -- and it is the exact key THE DOC PANE proved was
         # the defect ("the defect is entirely the PERSISTED layout"). A fence whose thesis is "every value
         # deliberately non-default" that omits the one key a sibling commit is about is not covering the

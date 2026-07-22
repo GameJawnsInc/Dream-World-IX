@@ -65,7 +65,9 @@ class TuningDialog(QDialog):
         outer = QVBoxLayout(self)
         intro = QLabel("Mod-GLOBAL player/ability tuning for this journey — the same BaseStats / abilities / "
                        "leveling deltas a field.toml carries, injected into the entry member at deploy. One CSV "
-                       "per mod (shared across a multi-journey hub).")
+                       "per mod (shared across a multi-journey hub). The stat, ability, status, gem, command and "
+                       "leveling tables are edited here; nested blocks ([[learn]], [[ability_feature]], "
+                       "[[status_set]], [[magic_sword_set]]) stay hand-authored in the TOML.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color:{self.pal['muted']};")
         outer.addWidget(intro)

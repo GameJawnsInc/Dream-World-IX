@@ -1,0 +1,1219 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index c7fe3628..8c1ce87a 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1107,6 +1107,7 @@
+     <Compile Include="Global\UI\UITweener.cs" />
+     <Compile Include="Global\UI\UIViewport.cs" />
+     <Compile Include="Global\UI\UIWidget\UIWidget.cs" />
++    <Compile Include="Global\FolkloreUI.cs" />
+     <Compile Include="Global\UI\UIWidget\UIWidgetContainer.cs" />
+     <Compile Include="Global\UI\UIWrapContent.cs" />
+     <Compile Include="Global\vib.cs" />
+@@ -1494,7 +1495,7 @@
+     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+   </ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+-  <Target Name="AfterBuild">
++  <Target Name="AfterBuild" Condition="'$(DWIXNoDeploy)' != 'true'">
+     <Deploy SolutionDir="$(SolutionDir)" TargetPath="$(TargetPath)" TargetDir="$(TargetDir)" TargetName="$(TargetName)" />
+   </Target>
+ </Project>
+\ No newline at end of file
+diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
+new file mode 100644
+index 00000000..911282a9
+--- /dev/null
++++ b/Assembly-CSharp/Global/FolkloreUI.cs
+@@ -0,0 +1,796 @@
++using Assets.Sources.Scripts.UI.Common;
++using Memoria;
++using Memoria.Assets;
++using Memoria.Prime;
++using Memoria.Scenes;
++using System;
++using System.Collections.Generic;
++using System.IO;
++using UnityEngine;
++
++// ff9mapkit s45 -- THE FOLKLORE CODEX submenu (Phase B: the entry list + detail text + categories).
++// A first-class UIScene reached from the Folklore main-menu row (Phase A). The screen: the stock
++// full-screen menu backdrop + a LEFT framed pane holding the scrollable entry list (the
++// ControlPanel-proven SupportAbilityListPanel clone -> RecycleListPopulator; the pane's window
++// caption = the current category, paged with L1/R1) + a RIGHT framed pane (window caption = the
++// entry name, body = the P0 KeyItem lore text). Entries come from FolkloreRegistry (the mod-shipped
++// FolklorePatch.txt); OWNED entries (rare_item_obtained) show name + text, unowned rows show the
++// locked "???" form. Design: studies/folklore-codex/SUBMENU.md; the data spine is the kit's
++// DLL-free [[folklore]] P0. Everything gates on Memoria.ini [Folklore] Enabled (default OFF =
++// fail-safe vanilla).
++//
++// ROUND-2 LAWS (the first playtest's three mechanisms -- keep these invariants):
++//  * Every runtime clone that must outlive a field load lives UNDER this scene's transform
++//    (UIManager's DontDestroyOnLoad tree). An un-parented Instantiate lands at the SCENE root and
++//    dies on the next field load -- the itemPrefab template did exactly that, and RefreshPool
++//    destroys the whole cell pool BEFORE re-instantiating, so one dead template = a permanently
++//    blank list until process restart.
++//  * NGUI anchors RE-ASSERT every frame (UIRect.Update -> OnAnchor). A cloned widget that keeps
++//    baked anchor targets snaps back to its donor's screen position; every repositioned clone
++//    must SetAnchor(null) first (and the GenericInfoPanel FRAME child must be re-anchored onto
++//    OUR pane root -- the ControlPanel.InstantiatePanel recipe).
++//  * The grey/blue window skin is an IMPERATIVE sweep (UIScene.DisplayWindowBackground over
++//    "Window Color"-tagged sprites), applied per list row at populate time -- rows built after
++//    base.Show's scene sweep stay on their baked (blue) atlas without the per-row call.
++//
++// SERIALIZATION LAW: this component is AddComponent'd onto a RUNTIME GameObject (UIManager.Start), so
++// its fields are safe -- but every field ADDED to the baked UIManager/MainMenuUI for this feature must
++// be [NonSerialized] (the WMWorld serialization-layout blackscreen law).
++public class FolkloreUI : UIScene
++{
++    private const String ListGroupButton = "Folklore.List";
++
++    public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
++    {
++        // REDESIGN instrumentation: the ~3s first-open hang must NAME itself (Awake fires inside
++        // the first Show's activation, so this timer brackets the whole burst)
++        System.Diagnostics.Stopwatch showWatch = System.Diagnostics.Stopwatch.StartNew();
++        UIScene.SceneVoidDelegate afterShowAction = delegate
++        {
++            // the ItemUI Show idiom: scroll + pointer plumbing per group, then arm the list
++            if (this.listPopulator != null)
++            {
++                ButtonGroupState.SetScrollButtonToGroup(this.listPopulator.ScrollButton, ListGroupButton);
++                ButtonGroupState.SetPointerLimitRectToGroup(this.listClipWidget, this.listPopulator.cellHeight, ListGroupButton);
++                ButtonGroupState.SetPointerOffsetToGroup(new Vector2(54f, 0f), ListGroupButton);   // the ItemUI key-item offset
++                ButtonGroupState.SetPointerDepthToGroup(this.listPopulator.panel.depth + 2, ListGroupButton);
++                // ^ +2, not +1: the caption rail's panel sits at list+1, and equal panel depths
++                //   sort arbitrarily in NGUI -- the finger must deterministically top the stack
++                // ^ the finger renders in a POOLED panel at per-group depth (DEFAULT 5 -- under our
++                //   rows at 6, which is why it vanished the moment the panes arrived; Dialog.cs idiom)
++                ButtonGroupState.ActiveGroup = ListGroupButton;
++            }
++            if (afterFinished != null)
++                afterFinished();
++        };
++        base.Show(afterShowAction);
++        this.RefreshCategoryList(true);
++        if (showWatch.ElapsedMilliseconds > 50)
++            Log.Message($"[FolkloreUI] Show took {showWatch.ElapsedMilliseconds}ms");
++        if (!this.firstFramesLogged)
++        {
++            // the synchronous stopwatches CANNOT see the likeliest hang homes -- RepositionList is
++            // Invoke-deferred and NGUI's geometry/drawcall fill runs in LateUpdate after Show
++            // returns (review find) -- so bracket the first rendered frames too
++            this.firstFramesLogged = true;
++            base.StartCoroutine(this.LogFirstFrames());
++        }
++    }
++
++    private System.Collections.IEnumerator LogFirstFrames()
++    {
++        Single t0 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t1 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t2 = Time.realtimeSinceStartup;
++        yield return null;
++        Single t3 = Time.realtimeSinceStartup;
++        Log.Message($"[FolkloreUI] first frames ms: {(t1 - t0) * 1000f:F0} / {(t2 - t1) * 1000f:F0} / {(t3 - t2) * 1000f:F0}");
++    }
++
++    public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
++    {
++        // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
++        // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
++        this.muteSettleDepth = 0;
++        ButtonGroupState.MuteActiveSound = false;
++        base.Hide(afterFinished);
++        // THE ItemUI IDIOM (ItemUI.cs Hide override): re-tween the main menu's row COLUMN back in
++        // while this scene fades out -- StartSubmenuTweenIn is the ONLY thing that reopens the
++        // TweenOut-collapsed row clip (the Phase A review's HIGH find).
++        PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
++    }
++
++    public override Boolean OnKeyCancel(GameObject go)
++    {
++        if (base.OnKeyCancel(go))
++        {
++            FF9Sfx.FF9SFX_Play(101);
++            this.Hide(delegate
++            {
++                PersistenSingleton<UIManager>.Instance.MainMenuScene.NeedTweenAndHideSubMenu = false;
++                PersistenSingleton<UIManager>.Instance.MainMenuScene.CurrentSubMenu = MainMenuUI.SubMenu.Folklore;
++                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.MainMenu);
++            });
++        }
++        return true;
++    }
++
++    public override Boolean OnKeyConfirm(GameObject go)
++    {
++        if (base.OnKeyConfirm(go))
++        {
++            // browse-only in Phase B: Confirm acknowledges (owned = the stock confirm chime,
++            // locked = the refusal buzz) and CLEARS the New! bang -- the ItemUI skin-view idiom
++            // (FF9Item_UseImportant marks the entry read, save-persistent). The s46 display window
++            // gives Confirm a bigger job.
++            if (this.entries != null && this.currentIndex < this.entries.Count
++                && ff9item.FF9Item_IsExistImportant(this.entries[this.currentIndex].Id))
++            {
++                FF9Sfx.FF9SFX_Play(103);
++                if (!ff9item.FF9Item_IsUsedImportant(this.entries[this.currentIndex].Id))
++                {
++                    ff9item.FF9Item_UseImportant(this.entries[this.currentIndex].Id);
++                    this.RefreshCategoryList(false);       // re-populate the rows (bang off)
++                }
++            }
++            else
++                FF9Sfx.FF9SFX_Play(102);
++        }
++        return true;
++    }
++
++    public override Boolean OnKeyLeftBumper(GameObject go)
++    {
++        if (base.OnKeyLeftBumper(go))
++            this.StepCategory(-1);
++        return true;
++    }
++
++    public override Boolean OnKeyRightBumper(GameObject go)
++    {
++        if (base.OnKeyRightBumper(go))
++            this.StepCategory(+1);
++        return true;
++    }
++
++    public override Boolean OnItemSelect(GameObject go)
++    {
++        if (base.OnItemSelect(go))
++        {
++            if (ButtonGroupState.ActiveGroup == ListGroupButton && go != null)
++            {
++                RecycleListItem cell = go.GetComponent<RecycleListItem>();
++                if (cell != null && this.currentIndex != cell.ItemDataIndex)
++                {
++                    this.currentIndex = cell.ItemDataIndex;
++                    this.RefreshDetail();
++                }
++            }
++        }
++        return true;
++    }
++
++    private void StepCategory(Int32 dir)
++    {
++        Int32[] cats = FolkloreRegistry.CategoriesPresent();
++        if (cats.Length < 2)
++            return;                                        // one (or zero) categories -> nothing to page
++        Int32 at = Array.IndexOf(cats, this.currentCategory);
++        Int32 next = cats[((at < 0 ? 0 : at) + dir + cats.Length) % cats.Length];
++        if (next == this.currentCategory)
++            return;
++        FF9Sfx.FF9SFX_Play(1047);                          // the universal page-flip id (Status/Card
++                                                           // bumper paging -- VOCABULARY SS4)
++        this.currentCategory = next;
++        // the rebuild destroys the row pool and re-seats the cursor on the new rows, and
++        // ActiveButtonChanged fires the cursor-move beep on the new button (ButtonGroupState.cs:557)
++        // ON TOP of the page flip -- stock bumper-paging never trips this because it pages with the
++        // SUB-MENU group active, not a live list. MuteActiveSound is the stock counter-instrument
++        // (AbilityUI.cs:1480-1482); held across frames because part of the settle is
++        // Invoke-deferred (RepositionList) -- the SaveLoadUI cross-window idiom (SaveLoadUI.cs:565-576).
++        ButtonGroupState.MuteActiveSound = true;
++        this.muteSettleDepth++;
++        this.RefreshCategoryList(true);
++        base.StartCoroutine(this.UnmuteAfterSettle());
++    }
++
++    private System.Collections.IEnumerator UnmuteAfterSettle()
++    {
++        yield return null;                                 // the Invoke(0) pump runs RepositionList
++        yield return null;                                 // the select settle
++        if (--this.muteSettleDepth <= 0)
++        {
++            this.muteSettleDepth = 0;
++            ButtonGroupState.MuteActiveSound = false;
++        }
++    }
++
++    // rebuild the list for the current category (cursor to row 0 when `reset`), then the detail pane
++    private void RefreshCategoryList(Boolean reset)
++    {
++        if (this.listPopulator == null)
++            return;
++        this.entries = FolkloreRegistry.ForCategory(this.currentCategory);
++        if (this.entries.Count == 0)                       // registry empty -> try the first non-empty category
++        {
++            Int32[] cats = FolkloreRegistry.CategoriesPresent();
++            if (cats.Length > 0 && cats[0] != this.currentCategory)
++            {
++                this.currentCategory = cats[0];
++                this.entries = FolkloreRegistry.ForCategory(this.currentCategory);
++            }
++        }
++        if (this.categoryLabel != null)
++            this.categoryLabel.rawText = Localization.GetWithDefault(FolkloreRegistry.CategoryKey(this.currentCategory));
++        List<ListDataTypeBase> data = new List<ListDataTypeBase>();
++        foreach (FolkloreRegistry.Entry e in this.entries)
++            data.Add(new FolkloreListData { Entry = e });
++        if (reset)
++            this.currentIndex = 0;
++        System.Diagnostics.Stopwatch listWatch = System.Diagnostics.Stopwatch.StartNew();
++        try
++        {
++            if (data.Count > 0)
++            {
++                if (this.listPopulator.ItemsPool.Count == 0)
++                {
++                    this.listPopulator.PopulateListItemWithData = this.PopulateListCell;
++                    this.listPopulator.InitTableView(data, this.currentIndex);
++                }
++                else if (reset)
++                {
++                    this.listPopulator.InitTableView(data, 0);
++                }
++                else
++                {
++                    this.listPopulator.SetOriginalData(data);
++                }
++            }
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);                                // a codex glitch must never brick the whole
++        }                                                  // menu until restart (the round-1 failure)
++        if (listWatch.ElapsedMilliseconds > 50)
++            Log.Message($"[FolkloreUI] list populate took {listWatch.ElapsedMilliseconds}ms (rows={data.Count})");
++        this.RefreshDetail();
++    }
++
++    private void PopulateListCell(Transform item, ListDataTypeBase data, Int32 index, Boolean isInit)
++    {
++        FolkloreListData row = (FolkloreListData)data;
++        Boolean owned = ff9item.FF9Item_IsExistImportant(row.Entry.Id);
++        // THE VANILLA POPULATE (ItemUI.DisplayKeyItemDetail, mirrored): trust the baked cell
++        // completely -- name text, the New! bang, the per-row window-color sweep, nothing else.
++        // Cell shape (KeyItemDetailHUD): child 0 = Name label, child 1 = the New! icon pair.
++        if (isInit)
++            this.DisplayWindowBackground(item.gameObject, null);   // the row wears the CURRENT
++        ButtonGroupState button = item.GetComponent<ButtonGroupState>();   // grey/blue window atlas
++        UILabel nameLabel = item.GetChild(0).GetComponent<UILabel>();
++        UISprite newIconSprite = item.GetChild(1).GetChild(0).GetComponent<UISprite>();
++        UISprite newIconLabelSprite = item.GetChild(1).GetChild(1).GetComponent<UISprite>();
++        // one-shot geometry census of the donor cell (numbers for styling rounds; log-only)
++        if (isInit && index == 0 && !this.dumpedCellOnce)
++        {
++            this.dumpedCellOnce = true;
++            foreach (UIWidget w in item.GetComponentsInChildren<UIWidget>(true))
++                Log.Message($"[FolkloreUI] cell child '{w.name}' tag={w.gameObject.tag} local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot}");
++        }
++        if (button != null && button.Help != null)
++            button.Help.Enable = false;                    // no help bar on the codex screen
++        nameLabel.gameObject.SetActive(true);
++        nameLabel.rawText = owned ? FF9TextTool.ImportantItemName(row.Entry.Id)
++                                  : Localization.GetWithDefault("FolkloreLocked");
++        nameLabel.color = owned ? FF9TextTool.White : FF9TextTool.Gray;
++        if (owned && !ff9item.FF9Item_IsUsedImportant(row.Entry.Id))
++        {
++            newIconSprite.spriteName = "icon_new_exclamation";   // the stock New! bang, cleared by
++            newIconLabelSprite.gameObject.SetActive(true);       // Confirm (the ItemUI skin idiom)
++        }
++        else
++        {
++            newIconSprite.spriteName = String.Empty;
++            newIconLabelSprite.gameObject.SetActive(false);
++        }
++    }
++
++    private void RefreshDetail()
++    {
++        if (this.detailNameLabel == null)
++            return;
++        if (this.entries == null || this.entries.Count == 0 || this.currentIndex >= this.entries.Count)
++        {
++            this.detailNameLabel.rawText = String.Empty;
++            this.detailBodyLabel.rawText = String.Empty;
++            return;
++        }
++        FolkloreRegistry.Entry e = this.entries[this.currentIndex];
++        if (ff9item.FF9Item_IsExistImportant(e.Id))
++        {
++            this.detailNameLabel.rawText = FF9TextTool.ImportantItemName(e.Id);
++            String lore = FF9TextTool.ImportantItemSkin(e.Id);
++            if (String.IsNullOrEmpty(lore))
++                lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
++            this.detailBodyLabel.rawText = lore;
++        }
++        else
++        {
++            this.detailNameLabel.rawText = Localization.GetWithDefault("FolkloreLocked");
++            this.detailBodyLabel.rawText = Localization.GetWithDefault("FolkloreLockedHint");
++        }
++    }
++
++    // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
++    // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
++    // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
++    // MAIN-MENU transforms and re-assert each frame), re-anchor the frame onto OUR pane root, then
++    // de-anchor + pivot + place the root. The frame's own caption label is the pane's title plate.
++    // bordered=false drops the frame's white Border + Shadow, keeping the flat Body sheet + the
++    // caption -- the stock ITEM-page list style (an open sheet, not a windowed box; the playtest
++    // round-8 find: a bordered window manufactures margins a fixed-width row list can never fill)
++    private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
++    {
++        GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
++        paneGo.name = name;
++        UIWidget pane = paneGo.GetComponent<UIWidget>();
++        GameObject frameGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel.GetChild(2));
++        paneGo.transform.DestroyChildren();
++        frameGo.name = name + " Frame";
++        frameGo.transform.parent = paneGo.transform;
++        frameGo.transform.localScale = Vector3.one;
++        UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
++        if (frameLoc != null)
++            frameLoc.key = String.Empty;                   // the caption plate is OURS to write
++        caption = frameGo.GetComponentInChildren<UILabel>();
++        caption.fontSize = 34;                             // the baked tab reads tiny on a full pane
++        if (!bordered)
++        {
++            GameObject borderGo = frameGo.FindChild("Border");   // GOFrameBackground children are
++            if (borderGo != null)                                // found BY NAME ("not always in
++                borderGo.SetActive(false);                       // the same order")
++            GameObject shadowGo = frameGo.FindChild("Shadow");
++            if (shadowGo != null)
++                shadowGo.SetActive(false);
++        }
++        UIWidget frame = frameGo.GetComponent<UIWidget>();
++        frame.leftAnchor.Set(pane.transform, 0f, 0);       // the frame FILLS the pane rect
++        frame.rightAnchor.Set(pane.transform, 1f, 0);
++        frame.topAnchor.Set(pane.transform, 1f, 0);
++        frame.bottomAnchor.Set(pane.transform, 0f, 0);
++        paneGo.transform.parent = base.transform;
++        paneGo.transform.localScale = Vector3.one;
++        pane.SetAnchor((GameObject)null);
++        pane.pivot = UIWidget.Pivot.Center;
++        pane.SetRawRect(x, y, w, h);
++        frameGo.SetActive(true);
++        paneGo.SetActive(true);
++        return paneGo;
++    }
++
++    private void Awake()
++    {
++        // Built IN CODE from cloned stock pieces (zero new Unity assets -- the ControlPanel idiom).
++        // Awake runs on the first Show (the GameObject is created inactive by UIManager.Start).
++        // UI space: center origin, +y up, 1080 tall (1920 wide at 16:9); panes stay inside the
++        // pillarbox-safe +-771 band so non-widescreen keeps the whole screen.
++        // REDESIGN (Option B, studies/folklore-codex/REDESIGN.md): per-stage timings, so the
++        // first-open burst is attributed before anything gets optimized.
++        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
++        MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
++
++        // the stock full-screen menu backdrop (MainMenuUI child 4, already GOMenuBackground-sized
++        // to UIContentSize) -- without it the panes float on black
++        GameObject bgGo = UnityEngine.Object.Instantiate(menu.transform.GetChild(4).gameObject);
++        bgGo.name = "Folklore Background";
++        bgGo.transform.parent = base.transform;
++        bgGo.transform.localScale = Vector3.one;
++        bgGo.transform.localPosition = Vector3.zero;
++        foreach (UIWidget bgWidget in bgGo.GetComponentsInChildren<UIWidget>(true))
++            bgWidget.SetAnchor((GameObject)null);
++        UISprite bgSprite = bgGo.GetComponent<UISprite>();
++        if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
++            bgSprite.spriteName = "item_bg";               // the stock SUBMENU backdrop flavor
++        bgGo.SetActive(true);
++        Int64 tBg = watch.ElapsedMilliseconds;
++
++        // the stock cross-fade (HonoFading re-derives its sprite from the CLONE's own object)
++        GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
++        fadeGo.name = "Folklore Fade";
++        fadeGo.transform.parent = base.transform;
++        fadeGo.transform.localPosition = menu.ScreenFadeGameObject.transform.localPosition;
++        fadeGo.transform.localScale = Vector3.one;
++        base.FadingComponent = fadeGo.GetComponent<HonoFading>();
++
++        // RIGHT pane: the detail WINDOW (bordered -- the stock skin-popup style); caption = entry name.
++        // (The LEFT side is NOT a built pane: the list donor carries its own AUTHENTIC dressing --
++        // sheet + capped rails + header caption -- resurrected below; the round-9 borderless-frame
++        // approximation had no edges and an inset body.)
++        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -40f, 780f, 880f, true, out this.detailNameLabel);
++        this.detailNameLabel.rawText = String.Empty;
++
++        // the lore body label inside the right pane
++        GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
++        bodyGo.name = "Folklore Detail Body";
++        bodyGo.transform.parent = this.detailPanel.transform;
++        bodyGo.transform.localScale = Vector3.one;
++        bodyGo.SetActive(true);
++        this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
++        this.detailBodyLabel.SetAnchor((GameObject)null);
++        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the pane
++        this.detailBodyLabel.SetRawRect(0f, 330f, 600f, 640f);
++        this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
++        this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
++        this.detailBodyLabel.multiLine = true;
++        this.detailBodyLabel.rawText = String.Empty;
++        Int64 tPane = watch.ElapsedMilliseconds;
++
++        // the scrollable entry list -- THE KEY ITEMS LIST donor (ItemUI.KeyItemListPanel): name-only
++        // fixed-size window-bar rows, the codex's exact shape (ROUND-4 LAW: the donor cell is a
++        // FINISHED design -- style nothing, stretch nothing; the round-3 anchor surgery is why rows
++        // sheared). The clone's serialized refs (table / panel / draggablePanel / ScrollButton) all
++        // point IN-subtree, so Unity remaps them to the clone -- trust them, reassign NOTHING.
++        GameObject listRoot = UnityEngine.Object.Instantiate(
++            PersistenSingleton<UIManager>.Instance.ItemScene.KeyItemListPanel);
++        listRoot.name = "Folklore List";
++        listRoot.transform.parent = base.transform;        // scene-level, like the donor in ItemUI
++        listRoot.transform.localScale = Vector3.one;
++        GameObject listPanelGo = listRoot.GetChild(1);
++        this.listPopulator = listPanelGo.GetComponent<RecycleListPopulator>();
++        // THE PRESERVE-THE-BAKE CAPTURE (the REDESIGN law): snapshot the donor's solved geometry
++        // BEFORE any mutation -- the panel seat, the baked clip rect (center + height; the height
++        // IS the dressing's rail-to-rail content box), the dressing seat. Every vertical number
++        // downstream COPIES this bake; nothing vertical is re-derived (the Phase-B formula refit
++        // is exactly how row 1 ended up under the top rail).
++        Vector3 bakedPanelPos = listPanelGo.transform.localPosition;
++        Vector4 bakedClip = this.listPopulator.panel.baseClipRegion;   // (cx, cy, width, height)
++        Vector2 bakedClipOffset = this.listPopulator.panel.clipOffset; // the OTHER half of the NGUI
++        // scroll state: the donor is the LIVE ItemScene panel, and every scroll moves localPosition
++        // and clipOffset in exact opposition (UIScrollView.MoveRelative) -- P+O is the
++        // scroll-INVARIANT window anchor, P alone is contaminated by any leftover Key-Items scroll
++        // (the redesign review's blocker: dressing seated n rows off after the player scrolls
++        // Key Items then first-opens Folklore).
++        Vector3 bakedDressingPos = listRoot.GetChild(2).transform.localPosition;
++        Log.Message($"[FolkloreUI] bake: panelPos={bakedPanelPos} clip={bakedClip} clipOffset={bakedClipOffset} dressingPos={bakedDressingPos} cellH={this.listPopulator.cellHeight}");
++        this.listPopulator.table.transform.DestroyChildren();   // the donor's parked pool cells rode the clone
++        // the cell template: OUR clone (GroupName edits never touch the donor's shared prefab),
++        // parented INSIDE THE TABLE like vanilla's own template, inactive. TWO laws meet here:
++        //  * round 1: the template must live in the DontDestroyOnLoad tree or a field load kills it
++        //    and RefreshPool wipes the pool then throws forever;
++        //  * round 14: RepositionList's SetDragAmount CACHES content bounds computed from where
++        //    freshly-spawned clones sit = the TEMPLATE's world position (UITable/NGUI bounds skip
++        //    inactive objects, but clones inherit the template's spot before repositioning). A
++        //    template parked away from the list skews the cached bounds by exactly its distance --
++        //    the ~7/~20-unit "slack" of rounds 7-12 and the full page-off of round 13's layout.
++        Transform cellTemplate = UnityEngine.Object.Instantiate(this.listPopulator.itemPrefab);
++        cellTemplate.name = "Folklore Cell Template";
++        cellTemplate.parent = this.listPopulator.table.transform;
++        cellTemplate.gameObject.SetActive(false);
++        this.listPopulator.itemPrefab = cellTemplate;
++        ButtonGroupState cellGroup = cellTemplate.gameObject.GetComponent<ButtonGroupState>();
++        if (cellGroup != null)
++        {
++            cellGroup.GroupName = ListGroupButton;
++            cellGroup.Help = new ButtonGroupState.HelpDetail { Enable = false };
++        }
++        // THE ENGINE RESHAPE (round-13, the REAL mechanism): ItemUI.UpdateUserInterface resizes this
++        // very donor through GOSubPanel.ChangeDims -- it normalizes the cell PREFAB to exact dims at
++        // origin, sets the columns, DE-ANCHORS the clip panel (the un-cleared panel anchors were the
++        // first-open-vs-settled drift), and syncs the snap-scroll heights. Drive our clone through
++        // the same call with the codex shape: ONE column x 8 rows of the donor's current row height.
++        GOScrollablePanel folkPanel = new GOScrollablePanel(listRoot);
++        Single rowH = this.listPopulator.cellHeight;       // honor the widescreen-interface scale
++        const Single colW = 745f;                          // the stock key-item column (1490 / 2)
++        // THE STOCK INVARIANT, INVERTED: every stock list derives rowH = round(bakedPanelHeight /
++        // rows) so rows*rowH lands back on the bake (VOCABULARY SS2.7/SS6.2). The codex keeps the
++        // donor's rowH and derives the ROW COUNT from the baked clip height instead -- same
++        // invariant, and it absorbs the pre/post-widescreen clone-time variance (donor cellHeight
++        // 98 baked vs ini-scaled): both states derive the box the DONOR is actually displaying.
++        Int32 rowCount = Math.Max(1, Mathf.RoundToInt(bakedClip.w / rowH));
++        Single listH = rowCount * rowH;
++        folkPanel.SubPanel.ChangeDims(1, rowCount, colW, rowH);
++        cellTemplate.localScale = Vector3.one;
++        cellTemplate.localPosition = new Vector3(          // seat the template AT the row-0 slot
++            this.listPopulator.table.padding.x + colW / 2f,    // (RepositionList's own posX/posY
++            -(this.listPopulator.table.padding.y + rowH / 2f), // math) so spawn-time bounds are TRUE
++            0f);                                               // (ChangeDims zeroed it)
++        UIPanel scenePanel = base.GetComponent<UIPanel>(); // separate UIPanels sort by PANEL depth:
++        this.listPopulator.panel.depth =                   // keep the list above the sheet Body
++            (scenePanel != null ? scenePanel.depth : 5) + 1;   // sprite (round-2 find)
++        UIWidget listRootWidget = listRoot.GetComponent<UIWidget>();
++        if (listRootWidget != null)
++            listRootWidget.SetAnchor((GameObject)null);    // anchors re-assert every frame
++        // THE CANONICAL SCROLL FRAME (round-15): NGUI scrolling slides the panel TRANSFORM with the
++        // content while clipOffset counter-slides the WINDOW (UIScrollView.MoveRelative), so a
++        // cloned panel carries the donor's arbitrary scroll state in BOTH values and SetDragAmount
++        // re-solves them from content bounds -- every constant read off the clone was a snapshot of
++        // a moving frame (rounds 7-14). Force the exact state SetDragAmount(0,0) solves FOR: the
++        // window at the panel origin and the content's top-left already on the window's top-left --
++        // a FIXPOINT, so the settle recomputes to itself and nothing can drift.
++        listPanelGo.transform.localPosition = Vector3.zero;
++        this.listPopulator.panel.clipOffset = Vector2.zero;
++        // ChangeDims already wrote baseClipRegion = (bakedCx, bakedCy, colW, listH): the BAKED clip
++        // center STANDS (Phase B overwrote it to zero, shearing the window off the dressing by
++        // exactly the baked offset -- the rows-over-the-rail mechanism). The round-15 fixpoint
++        // algebra generalizes: content top-left == window top-left, wherever the baked center sits.
++        this.listPopulator.table.transform.localPosition = new Vector3(
++            bakedClip.x - colW / 2f - this.listPopulator.table.padding.x,
++            bakedClip.y + listH / 2f + this.listPopulator.table.padding.y, 0f);
++        listRoot.transform.localPosition = new Vector3(-415f - bakedClip.x, -40f - bakedClip.y, 0f);
++        // ^ the VISIBLE column center (root + baked clip center) lands on the proven (-415, -40) seat
++        // THE POINTER RECT: SetPointerLimitRectToGroup reads widget.transform.LOCALPOSITION +- size/2,
++        // and vanilla list panels are DIRECT children of their scene root, so that position is
++        // SCREEN-space. A pane-local widget (localPosition ~0) hands the clamp a rect around screen
++        // center and the finger gets dragged mid-row (the round-7 find). A bare scene-level widget
++        // spanning the rows region restores the stock left-edge finger.
++        GameObject pointerRectGo = new GameObject("Folklore Pointer Rect");
++        pointerRectGo.layer = base.gameObject.layer;
++        pointerRectGo.transform.parent = base.transform;
++        pointerRectGo.transform.localScale = Vector3.one;
++        pointerRectGo.transform.localPosition = new Vector3(-415f, -40f, 0f);   // = the clip center
++        this.listClipWidget = pointerRectGo.AddComponent<UIWidget>();
++        this.listClipWidget.pivot = UIWidget.Pivot.Center;
++        this.listClipWidget.width = (Int32)colW;
++        this.listClipWidget.height = (Int32)listH;
++        Int64 tList = watch.ElapsedMilliseconds;
++        // THE PRESERVE-THE-BAKE DRESSING (REDESIGN SS3, replacing the round-10 formula refit): the
++        // donor's CaptionBackground (child 2: TopBorder capped rail / Border / Body sheet /
++        // [Shadow] / CaptionPanel) carries the bake's own VERTICAL solution -- header label above
++        // the rail above row 1, rail thickness, sheet extent, shadow. COPY it: every sprite child
++        // keeps its baked y/height/pivot/active state; only the HORIZONTAL axis changes (the donor
++        // is a 1490-wide two-column panel, the codex is one 745 column), width-refit + re-centered
++        // on the clip column. The formula refit seated the thin rails ON the content edges -- the
++        // top rail's lower half is exactly what row 1 was drawn over.
++        Single dressW = colW + 4f;                         // the column + a 2-unit sheet lip per side
++        GameObject dressingGo = listRoot.GetChild(2);
++        dressingGo.SetActive(true);
++        dressingGo.transform.localScale = Vector3.one;
++        UIWidget dressingRoot = dressingGo.GetComponent<UIWidget>();
++        if (dressingRoot != null)
++            dressingRoot.SetAnchor((GameObject)null);
++        Vector3 dressSeat = bakedDressingPos - bakedPanelPos    // the panel moved to origin; the
++            - new Vector3(bakedClipOffset.x, bakedClipOffset.y, 0f);   // dressing rides the same
++        dressingGo.transform.localPosition = dressSeat;         // delta, scroll-state cancelled
++        // ^ subtracting BOTH halves (P and O) makes the seat scroll-invariant: window-in-listRoot
++        //   = P + clip.xy + O, and the donor's dressing-to-window offset must be what we preserve
++        Single clipCX = bakedClip.x - dressSeat.x;         // the clip column center, dressing-local
++        foreach (UIWidget dw in dressingGo.GetComponentsInChildren<UIWidget>(true))
++            Log.Message($"[FolkloreUI] dressing '{dw.name}' baked local={dw.transform.localPosition} size={dw.width}x{dw.height} pivot={dw.pivot} active={dw.gameObject.activeSelf} anchored={dw.isAnchored}");
++        Int32 capIdx = -1;
++        for (Int32 i = 0; i < dressingGo.transform.childCount; i++)
++        {
++            GameObject childGo = dressingGo.GetChild(i);
++            if (childGo.GetComponent<UIPanel>() != null)   // the CaptionPanel: handled whole, below
++            {
++                capIdx = i;
++                continue;
++            }
++            UIWidget w = childGo.GetComponent<UIWidget>();
++            if (w == null)
++                continue;
++            w.SetAnchor((GameObject)null);
++            Vector3 lp = w.transform.localPosition;        // width-only refit: baked y/height/pivot
++            w.transform.localPosition = new Vector3(       // stand; x re-centers on the column
++                clipCX + (w.pivotOffset.x - 0.5f) * dressW, lp.y, lp.z);
++            w.width = (Int32)dressW;
++        }
++        if (capIdx >= 0)
++        {
++            // the header rail's caption panel: keep its BAKED seat + label Y (the stock header
++            // line); the category name takes the first label's slot, x re-inset for one column
++            GameObject capPanelGo = dressingGo.GetChild(capIdx);
++            capPanelGo.SetActive(true);
++            UIPanel capPanel = capPanelGo.GetComponent<UIPanel>();
++            if (capPanel != null)
++            {
++                capPanel.SetAnchor((GameObject)null);      // anchors re-assert every frame
++                capPanel.depth = this.listPopulator.panel.depth + 1;   // the caption rides ABOVE rows
++            }
++            for (Int32 i = 1; i < capPanelGo.transform.childCount; i++)
++                capPanelGo.transform.GetChild(i).gameObject.SetActive(false);   // NUM etc: no columns here
++            GameObject capNameGo = capPanelGo.GetChild(0);
++            capNameGo.SetActive(true);
++            UILocalize capLoc = capNameGo.GetComponent<UILocalize>();
++            if (capLoc != null)
++                capLoc.key = String.Empty;                 // the header label is OURS to write
++            this.categoryLabel = capNameGo.GetComponent<UILabel>();
++            this.categoryLabel.SetAnchor((GameObject)null);
++            this.categoryLabel.pivot = UIWidget.Pivot.Left;    // pivot FIRST: the setter re-seats the
++            Vector3 capLp = this.categoryLabel.transform.localPosition;   // transform to keep the rect
++            // in place, so the POST-pivot y IS the baked header line whatever the baked pivot was
++            // (review find); and clipCX is DRESSING-local while the label lives in the CaptionPanel's
++            // frame -- re-express through the panel's own baked seat (review find)
++            this.categoryLabel.transform.localPosition = new Vector3(
++                clipCX - capPanelGo.transform.localPosition.x - dressW / 2f + 40f, capLp.y, capLp.z);
++        }
++        listRoot.SetActive(true);
++        Int64 total = watch.ElapsedMilliseconds;
++        Log.Message($"[FolkloreUI] awake ms: bg+fade={tBg} panes={tPane - tBg} list={tList - tPane} dressing={total - tList} total={total} (rows={rowCount} rowH={rowH})");
++    }
++
++    public void OnLocalize()
++    {
++        if (this.categoryLabel != null)
++            this.categoryLabel.rawText = Localization.GetWithDefault(FolkloreRegistry.CategoryKey(this.currentCategory));
++        this.RefreshDetail();
++    }
++
++    [NonSerialized]
++    private RecycleListPopulator listPopulator;
++    [NonSerialized]
++    private UIWidget listClipWidget;
++    [NonSerialized]
++    private GameObject detailPanel;
++    [NonSerialized]
++    private UILabel detailNameLabel;
++    [NonSerialized]
++    private UILabel detailBodyLabel;
++    [NonSerialized]
++    private UILabel categoryLabel;
++    [NonSerialized]
++    private List<FolkloreRegistry.Entry> entries;
++    [NonSerialized]
++    private Int32 currentCategory;                         // 0 bestiary / 1 places / 2 lore
++    [NonSerialized]
++    private Int32 currentIndex;
++    [NonSerialized]
++    private Boolean dumpedCellOnce;
++    [NonSerialized]
++    private Boolean firstFramesLogged;
++    [NonSerialized]
++    private Int32 muteSettleDepth;
++
++    private class FolkloreListData : ListDataTypeBase
++    {
++        public FolkloreRegistry.Entry Entry;
++    }
++}
++
++// The mod-shipped codex registry: each mod folder may carry a root-level `FolklorePatch.txt`
++// (the DictionaryPatch/ForkDonorPatch idiom -- read via TryFindAssetInModOnDisc, low->high, higher
++// folders override per id). Line grammar: `<keyItemId> <category> [displayRef]` -- category =
++// bestiary|places|lore (or 0|1|2); `#`-prefixed lines are comments; the optional third token is the
++// s46 display-window asset reference (parsed + stored now, unused in Phase B). The registry is the
++// single source of truth for WHICH key-item ids are Folklore -- the ItemUI Key-Items filter keys on
++// the REGISTERED SET, never a blind id band (the SUBMENU.md M5 correction).
++public static class FolkloreRegistry
++{
++    public const String PatchPath = "FolklorePatch.txt";
++
++    public class Entry
++    {
++        public Int32 Id;
++        public Int32 Category;
++        public String Display;                             // reserved for the s46 render rig
++    }
++
++    private static readonly Dictionary<Int32, Entry> _entries = new Dictionary<Int32, Entry>();
++    private static Boolean _loaded;
++
++    public static String CategoryKey(Int32 cat)
++    {
++        switch (cat)
++        {
++            case 0: return "FolkloreBestiary";
++            case 1: return "FolklorePlaces";
++            default: return "FolkloreLore";
++        }
++    }
++
++    private static Int32 ParseCategory(String token)
++    {
++        switch (token.Trim().ToLowerInvariant())
++        {
++            case "bestiary": case "0": return 0;
++            case "places": case "1": return 1;
++            case "lore": case "2": return 2;
++            default: return -1;
++        }
++    }
++
++    private static void EnsureLoaded()
++    {
++        if (_loaded)
++            return;
++        _loaded = true;
++        foreach (AssetManager.AssetFolder folder in AssetManager.FolderLowToHigh)
++        {
++            if (String.IsNullOrEmpty(folder.FolderPath))
++                continue;                                  // patches load from MOD folders only (the
++            try                                            // DataPatchers idiom -- never the base dir)
++            {
++                if (!folder.TryFindAssetInModOnDisc(PatchPath, out String path))
++                    continue;
++                foreach (String raw in File.ReadAllLines(path))
++                {
++                    String line = raw.Trim();
++                    if (line.Length == 0 || line.StartsWith("#") || line.StartsWith("//"))
++                        continue;
++                    String[] tok = line.Split(DataPatchers.SpaceSeparators, StringSplitOptions.RemoveEmptyEntries);
++                    if (tok.Length < 2 || !Int32.TryParse(tok[0], out Int32 id))
++                    {
++                        Log.Warning($"[FolkloreRegistry] bad line in {path}: '{raw}'");
++                        continue;
++                    }
++                    Int32 cat = ParseCategory(tok[1]);
++                    if (cat < 0)
++                    {
++                        Log.Warning($"[FolkloreRegistry] unknown category in {path}: '{raw}'");
++                        continue;
++                    }
++                    _entries[id] = new Entry { Id = id, Category = cat, Display = tok.Length > 2 ? tok[2] : null };
++                }
++            }
++            catch (Exception err)
++            {
++                Log.Error(err);                            // per-FOLDER isolation: one unreadable file
++            }                                              // must not half-load the whole registry
++        }
++        if (_entries.Count > 0)
++            Log.Message($"[FolkloreRegistry] {_entries.Count} codex entries registered");
++    }
++
++    public static Boolean IsFolklore(Int32 keyItemId)
++    {
++        EnsureLoaded();
++        return _entries.ContainsKey(keyItemId);
++    }
++
++    public static List<Entry> ForCategory(Int32 cat)
++    {
++        EnsureLoaded();
++        List<Entry> outList = new List<Entry>();
++        foreach (Entry e in _entries.Values)
++            if (e.Category == cat)
++                outList.Add(e);
++        outList.Sort((a, b) => a.Id.CompareTo(b.Id));      // stable curated order = id order
++        return outList;
++    }
++
++    public static Int32[] CategoriesPresent()
++    {
++        EnsureLoaded();
++        List<Int32> cats = new List<Int32>();
++        for (Int32 c = 0; c <= 2; c++)
++        {
++            foreach (Entry e in _entries.Values)
++            {
++                if (e.Category == c)
++                {
++                    cats.Add(c);
++                    break;
++                }
++            }
++        }
++        return cats.ToArray();
++    }
++}
++
++// The s45 feature gate: Memoria.ini [Folklore] Enabled (default 0 = the row/scene/filter never exist;
++// fail-safe vanilla). Read ONCE per process; the netsync IniFile idiom.
++internal static class FolkloreConfig
++{
++    private static Int32 _enabled = -1;
++
++    internal static Boolean Enabled
++    {
++        get
++        {
++            if (_enabled < 0)
++            {
++                try
++                {
++                    IniFile ini = new IniFile(IniFile.MemoriaIniPath);
++                    _enabled = ini.GetSetting("Folklore", "Enabled", "0").Trim() == "1" ? 1 : 0;
++                }
++                catch (Exception err)
++                {
++                    Log.Error(err);
++                    _enabled = 0;                          // unreadable ini -> stock behavior
++                }
++            }
++            return _enabled > 0;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Global/ItemUI.cs b/Assembly-CSharp/Global/ItemUI.cs
+index fec55217..55aea8c5 100644
+--- a/Assembly-CSharp/Global/ItemUI.cs
++++ b/Assembly-CSharp/Global/ItemUI.cs
+@@ -726,7 +726,14 @@ public class ItemUI : UIScene
+     {
+         _keyItemIdList.Clear();
+         foreach (Int32 id in FF9StateSystem.Common.FF9.rare_item_obtained)
++        {
++            // ff9mapkit s45 -- Folklore codex entries live in the dedicated screen, not Key Items.
++            // Keyed on the REGISTERED set (FolklorePatch.txt), never a blind id band; with the
++            // feature off the filter is inert and a P0 text-only build still shows them here.
++            if (FolkloreConfig.Enabled && FolkloreRegistry.IsFolklore(id))
++                continue;
+             _keyItemIdList.Add(id);
++        }
+         if (_keyItemIdList.Count == 0)
+             _keyItemIdList.Add(FF9FITEM_RARE_NONE);
+         List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
+diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
+index 0b138cde..3ad39be8 100644
+--- a/Assembly-CSharp/Global/MainMenuUI.cs
++++ b/Assembly-CSharp/Global/MainMenuUI.cs
+@@ -70,6 +70,8 @@ public class MainMenuUI : UIScene
+         this.ConfigSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Config) ? FF9TextTool.White : FF9TextTool.Gray;
+         if (this.PartySubMenu != null)
+             this.PartySubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Party) ? FF9TextTool.White : FF9TextTool.Gray;
++        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
++            this.FolkloreSubMenu.GetComponentInChildren<UILabel>().color = IsSubMenuEnabled(SubMenu.Folklore) ? FF9TextTool.White : FF9TextTool.Gray;
+         if (!UIManager.IsUIStateMenu(PersistenSingleton<UIManager>.Instance.PreviousState))
+             ImpactfulActionCount = 0;
+     }
+@@ -96,7 +98,17 @@ public class MainMenuUI : UIScene
+         {
+             this.screenFadePanel.depth = 7;
+             this.submenuTransition.AnimationTime = FF9StateSystem.Settings.IsFastForward ? Configuration.Interface.FadeDuration / FF9StateSystem.Settings.FastForwardFactor : Configuration.Interface.FadeDuration;
+-            this.submenuTransition.TweenOut(null);
++            if (this.collapseInstantly)
++            {
++                // ff9mapkit s45 -- the Party/Folklore descends deactivate the tween's host during
++                // their Show path, killing the collapse coroutine mid-flight and freezing the
++                // title plate half-collapsed (stock Memoria ships this on Form Party). Write the
++                // final collapsed state directly; the regrow TweenIn on return is unaffected.
++                this.collapseInstantly = false;
++                this.submenuTransition.ResetToMinimum();
++            }
++            else
++                this.submenuTransition.TweenOut(null);
+         }
+         base.Hide(afterHideAction);
+     }
+@@ -135,7 +147,6 @@ public class MainMenuUI : UIScene
+     {
+         if (base.OnKeyConfirm(go))
+         {
+-            Single shiftFactor = this.PartySubMenu == null ? 1f : 7f / 8f;
+             if (ButtonGroupState.ActiveGroup == MainMenuUI.SubMenuGroupButton)
+             {
+                 if (IsSubMenuEnabled(this.GetSubMenuFromGameObject(go)))
+@@ -146,7 +157,7 @@ public class MainMenuUI : UIScene
+                     {
+                         case MainMenuUI.SubMenu.Item:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f);
++                            this.CollapseSubmenuTo(this.ItemSubMenu);
+                             this.ItemSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -176,7 +187,7 @@ public class MainMenuUI : UIScene
+                             break;
+                         case MainMenuUI.SubMenu.Card:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 490f);
++                            this.CollapseSubmenuTo(this.CardSubMenu);
+                             this.CardSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -186,7 +197,7 @@ public class MainMenuUI : UIScene
+                             break;
+                         case MainMenuUI.SubMenu.Config:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * (this.PartySubMenu == null ? 588f : 686f));
++                            this.CollapseSubmenuTo(this.ConfigSubMenu);
+                             this.ConfigSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -194,9 +205,21 @@ public class MainMenuUI : UIScene
+                                 base.Loading = true;
+                             });
+                             break;
++                        case MainMenuUI.SubMenu.Folklore:  // ff9mapkit s45 -- sits below Card (+Party)
++                            this.NeedTweenAndHideSubMenu = false;
++                            this.CollapseSubmenuTo(this.FolkloreSubMenu);
++                            this.collapseInstantly = true; // see Hide -- this Show kills the tween
++                            this.FolkloreSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
++                            this.Hide(delegate
++                            {
++                                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.Folklore);
++                                base.Loading = true;
++                            });
++                            break;
+                         case MainMenuUI.SubMenu.Party:
+                             this.NeedTweenAndHideSubMenu = false;
+-                            this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 588f);
++                            this.CollapseSubmenuTo(this.PartySubMenu);
++                            this.collapseInstantly = true; // see Hide -- this Show kills the tween
+                             this.PartySubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+@@ -227,7 +250,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Ability:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 98f);
++                                this.CollapseSubmenuTo(this.AbilitySubMenu);
+                                 this.AbilitySubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -238,7 +261,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Equip:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 196f);
++                                this.CollapseSubmenuTo(this.EquipSubMenu);
+                                 this.EquipSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -249,7 +272,7 @@ public class MainMenuUI : UIScene
+                             case MainMenuUI.SubMenu.Status:
+                                 this.characterMemorize = go;
+                                 this.NeedTweenAndHideSubMenu = false;
+-                                this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + shiftFactor * 294f);
++                                this.CollapseSubmenuTo(this.StatusSubMenu);
+                                 this.StatusSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                                 this.Hide(delegate
+                                 {
+@@ -563,6 +586,8 @@ public class MainMenuUI : UIScene
+                 return this.ConfigSubMenu;
+             case MainMenuUI.SubMenu.Party:
+                 return this.PartySubMenu;
++            case MainMenuUI.SubMenu.Folklore:              // ff9mapkit s45
++                return this.FolkloreSubMenu;
+             default:
+                 return this.ItemSubMenu;
+         }
+@@ -586,6 +611,8 @@ public class MainMenuUI : UIScene
+             return MainMenuUI.SubMenu.Order;
+         if (go == this.PartySubMenu)
+             return MainMenuUI.SubMenu.Party;
++        if (this.FolkloreSubMenu != null && go == this.FolkloreSubMenu)    // ff9mapkit s45
++            return MainMenuUI.SubMenu.Folklore;
+         return MainMenuUI.SubMenu.None;
+     }
+ 
+@@ -667,6 +694,41 @@ public class MainMenuUI : UIScene
+     {
+     }
+ 
++    // ff9mapkit s45 -- the EXACT hub->submenu collapse for a (possibly relaid) command list. The
++    // collapsed command window IS every sub-screen's TITLE PLATE (HideAfterClip=0 in the bake):
++    // a 74-tall clip in a 104-tall frame, top-pinned over the command window, that vanilla aims
++    // at the chosen row via ShiftContentClip = 9 + 98*rowIndex. That identity is really
++    // shift = 9 + (bakedItemRowY - rowY) -- the Table slides up by the chosen row's distance
++    // below row 0 -- and it lands the row's CENTER on the collapsed clip's center (the bake's
++    // own anchor law: clip (0,103,402,678) collapses to center 406.67, rows land at 406). The
++    // squeezed relays moved rows off the 98 pitch, so the old shiftFactor approximation framed
++    // them up to ~11px off; the row's CURRENT seat is exact for every layout and reduces to the
++    // stock 9+98k bit-for-bit on the untouched vanilla bake. The plate keeps its BAKED 74/104
++    // minima: a 69/79-tall squeezed bar sits centered with a few px of dark gap inside the
++    // 74 clip (the 8px inter-row gap exceeds the slack, so no neighbor row can show; scaling
++    // the minima instead MOVES the collapsed clip center off the landing slot -- the v4 lesson).
++    private void CollapseSubmenuTo(GameObject row)
++    {
++        this.submenuTransition.ShiftContentClip = new Vector2(0f, 9f + this.bakedItemRowY - row.transform.localPosition.y);
++    }
++
++    // ff9mapkit s45 -- one command-row seat: widget + collider + the children's anchor pass.
++    // Memoria's original squeeze resized only the ROW widget and left Label/Spliter/Highlight to
++    // the deferred OnEnable anchor pass -- which never lands on a runtime CLONE (the Party and
++    // Folklore rows kept their 402x90 donor-state selection plate forever; even the baked rows
++    // flash donor-size for the first frames of each open). SetAnchor(row) keeps each child's
++    // BAKED relative/absolute anchor values (do NOT use the value-resetting overload -- the
++    // Spliter's asymmetric anchors must survive), re-caches the target, and runs OnAnchor NOW
++    // against the squeezed rect -- the exact solve the baked rows demonstrably settle to.
++    private static void LayoutSubMenuRow(GameObject row, Int32 y, Int32 h)
++    {
++        row.GetComponent<UIWidget>().SetRawRect(201, y, 402, h);
++        row.GetComponent<BoxCollider>().size = new Vector3(402, h);
++        foreach (UIRect childRect in row.GetComponentsInChildren<UIRect>(true))
++            if (childRect.transform != row.transform)
++                childRect.SetAnchor(row.transform);
++    }
++
+     protected void Awake()
+     {
+         base.FadingComponent = this.ScreenFadeGameObject.GetComponent<HonoFading>();
+@@ -677,6 +739,10 @@ public class MainMenuUI : UIScene
+         this.OrderSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(4);
+         this.CardSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(5);
+         this.ConfigSubMenu = this.SubMenuPanel.GetChild(0).GetChild(0).GetChild(6);
++        // ff9mapkit s45 -- row 0's baked seat (-45), captured BEFORE any row relay: the anchor of
++        // the collapse identity (see CollapseSubmenuTo). Nothing may be read off the private
++        // transition fields here -- stock Awake only assigns them at its END (the NRE lesson).
++        this.bakedItemRowY = this.ItemSubMenu.transform.localPosition.y;
+         if (this.PartySubMenu == null && (Configuration.Hacks.AllCharactersAvailable > 0 || Configuration.Battle.IsMenuEnabledInBattle(SubMenu.Party)))
+         {
+             UITable table = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
+@@ -697,14 +763,64 @@ public class MainMenuUI : UIScene
+             Int32 h = 79;
+             foreach (GameObject go in new GameObject[] { this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu, this.OrderSubMenu, this.CardSubMenu, this.PartySubMenu, this.ConfigSubMenu })
+             {
+-                go.GetComponent<UIWidget>().SetRawRect(201, y, 402, h);
+-                go.GetComponent<BoxCollider>().size = new Vector3(402, h);
++                LayoutSubMenuRow(go, y, h);            // ff9mapkit s45 -- was bare SetRawRect+collider
+                 y -= h + 8;
+                 h = h == 79 ? 78 : 79;
+             }
+             table.enabled = false;
+         }
+ 
++        // ff9mapkit s45 -- THE FOLKLORE ROW: the Party-precedent runtime clone (Card -> [Party] ->
++        // Folklore -> Config). Gated on Memoria.ini [Folklore] Enabled; absent = vanilla bytes-for-
++        // bytes behavior. The generalized manual layout loop replaces the Party block's hardcoded
++        // 8-row walk whenever Folklore is present (the UITable is disabled; there is NO auto-reflow).
++        if (this.FolkloreSubMenu == null && FolkloreConfig.Enabled)
++        {
++            UITable folkloreTable = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
++            this.FolkloreSubMenu = UnityEngine.Object.Instantiate(this.CardSubMenu);
++            UILocalize folkloreLocalize = this.FolkloreSubMenu.GetChild(0).GetComponent<UILocalize>();
++            ButtonGroupState.HelpDetail folkloreHelp = this.FolkloreSubMenu.GetComponent<ButtonGroupState>().Help;
++            folkloreLocalize.key = "Folklore";
++            folkloreHelp.TextKey = "FolkloreHelp";
++            this.ConfigSubMenu.transform.parent = null;    // the Party reparent dance: Config stays last
++            this.FolkloreSubMenu.transform.parent = folkloreTable.transform;
++            this.ConfigSubMenu.transform.parent = folkloreTable.transform;
++            GameObject rowAbove = this.PartySubMenu != null ? this.PartySubMenu : this.CardSubMenu;
++            rowAbove.GetComponent<UIKeyNavigation>().onDown = this.FolkloreSubMenu;
++            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onDown = this.ConfigSubMenu;
++            this.ConfigSubMenu.GetComponent<UIKeyNavigation>().onUp = this.FolkloreSubMenu;
++            this.FolkloreSubMenu.GetComponent<UIKeyNavigation>().onUp = rowAbove;
++            this.FolkloreSubMenu.transform.localScale = Vector3.one;
++            System.Collections.Generic.List<GameObject> orderedRows = new System.Collections.Generic.List<GameObject>
++            {
++                this.ItemSubMenu, this.AbilitySubMenu, this.EquipSubMenu, this.StatusSubMenu,
++                this.OrderSubMenu, this.CardSubMenu
++            };
++            if (this.PartySubMenu != null)
++                orderedRows.Add(this.PartySubMenu);
++            orderedRows.Add(this.FolkloreSubMenu);
++            orderedRows.Add(this.ConfigSubMenu);
++            // The pitch derives from the row count so the walk always fits the command window's
++            // baked ~684-unit span (the Party squeeze's proven 8-row walk: 4*79 + 4*78 heights
++            // + 7*8 gaps = 684). 8 rows reproduce Memoria's exact 79/78 @ -39 walk; 9 rows
++            // (Party + Folklore) compress one notch further to 69/68 @ -34 so Config stays
++            // inside the clip with a mouse-reachable collider.
++            Int32 rowCount = orderedRows.Count;
++            Int32 rowGap = 8;
++            Int32 heightBudget = 684 - rowGap * (rowCount - 1);
++            Int32 rowTall = (heightBudget + rowCount - 1) / rowCount;
++            Int32 rowShort = heightBudget / rowCount;
++            Int32 folkloreY = -(rowTall - 1) / 2;
++            Int32 folkloreH = rowTall;
++            foreach (GameObject go in orderedRows)
++            {
++                LayoutSubMenuRow(go, folkloreY, folkloreH);
++                folkloreY -= folkloreH + rowGap;
++                folkloreH = folkloreH == rowTall ? rowShort : rowTall;
++            }
++            folkloreTable.enabled = false;
++        }
++
+         UIEventListener.Get(this.ItemSubMenu).Click += onClick;
+         UIEventListener.Get(this.AbilitySubMenu).Click += onClick;
+         UIEventListener.Get(this.EquipSubMenu).Click += onClick;
+@@ -714,6 +830,8 @@ public class MainMenuUI : UIScene
+         UIEventListener.Get(this.ConfigSubMenu).Click += onClick;
+         if (this.PartySubMenu != null)
+             UIEventListener.Get(this.PartySubMenu).Click += onClick;
++        if (this.FolkloreSubMenu != null)                  // ff9mapkit s45
++            UIEventListener.Get(this.FolkloreSubMenu).Click += onClick;
+ 
+         foreach (Transform tr in this.CharacterListPanel.transform)
+         {
+@@ -783,7 +901,13 @@ public class MainMenuUI : UIScene
+     private GameObject ConfigSubMenu;
+     [NonSerialized]
+     private GameObject PartySubMenu;
++    [NonSerialized] private Single bakedItemRowY;         // ff9mapkit s45 -- row 0's baked seat
++    [NonSerialized] private Boolean collapseInstantly;    // (captured in Awake pre-relay; see
++                                                          // CollapseSubmenuTo + Hide; NonSerialized
++                                                          // = the baked-MonoBehaviour layout law)
+     [NonSerialized]
++    private GameObject FolkloreSubMenu;                    // ff9mapkit s45 (NonSerialized: the baked-
++    [NonSerialized]                                        // MonoBehaviour serialization-layout law)
+     private GOMenuBackground Background;
+ 
+     private UILabel gilLabel;
+@@ -820,6 +944,7 @@ public class MainMenuUI : UIScene
+         Card,
+         Config,
+         Party,
++        Folklore,   // ff9mapkit s45 -- appended before None (existing ordinals stay stable)
+         None
+     }
+ }
+diff --git a/Assembly-CSharp/Global/UI/UIManager.cs b/Assembly-CSharp/Global/UI/UIManager.cs
+index 62ff7210..82cf804a 100644
+--- a/Assembly-CSharp/Global/UI/UIManager.cs
++++ b/Assembly-CSharp/Global/UI/UIManager.cs
+@@ -154,6 +154,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                     return "PreEnding";
+                 case UIManager.UIState.Ending:
+                     return "Ending";
++                case UIManager.UIState.Folklore:
++                    return "Folklore";
+             }
+             return String.Empty;
+         }
+@@ -195,6 +197,22 @@ public class UIManager : PersistenSingleton<UIManager>
+         OverlayCanvas instance = PersistenSingleton<OverlayCanvas>.Instance;
+         this.fastTrophy = GameObject.Find("UI Root/Submenu Container/Fast Trophy");
+         SceneDirector.GetDefaultFadeInTransition();
++        // ff9mapkit s45 -- construct the Folklore codex scene at runtime (created INACTIVE so its
++        // Awake defers to the first Show, when the clone-source menu widgets all exist).
++        if (FolkloreConfig.Enabled && this.FolkloreScene == null && this.MainMenuScene != null)
++        {
++            GameObject folkloreGo = new GameObject("Folklore UI");
++            folkloreGo.layer = this.MainMenuScene.gameObject.layer;   // the UI layer -- a fresh
++            // GameObject lands on layer 0, which every UI camera CULLS (NGUI drawcalls take the
++            // PANEL GameObject's layer; the s45 review's invisible-shell find)
++            folkloreGo.transform.parent = this.MainMenuScene.transform.parent;
++            folkloreGo.transform.localPosition = Vector3.zero;
++            folkloreGo.transform.localScale = Vector3.one;
++            folkloreGo.SetActive(false);
++            UIPanel folklorePanel = folkloreGo.AddComponent<UIPanel>();
++            folklorePanel.depth = 5;
++            this.FolkloreScene = folkloreGo.AddComponent<FolkloreUI>();
++        }
+     }
+ 
+     public void OnLevelWasLoaded(Int32 sceneNo)
+@@ -223,7 +241,9 @@ public class UIManager : PersistenSingleton<UIManager>
+         this.ChocographScene.gameObject.SetActive(false);
+         this.EndingScene.gameObject.SetActive(false);
+         this.EndGameScene.gameObject.SetActive(false);
+-        this.MainMenuScene.SubMenuPanel.SetActive(false);
++        if (this.FolkloreScene != null)                    // ff9mapkit s45 -- MANDATORY: the sweep is
++            this.FolkloreScene.gameObject.SetActive(false); // hand-maintained; omit = the codex renders
++        this.MainMenuScene.SubMenuPanel.SetActive(false);  // over field/battle/world after a load
+         ButtonGroupState.DisableAllGroup(true);
+         ButtonGroupState.HelpEnabled = false;
+         if (this.Dialogs != null)
+@@ -387,6 +407,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                 return this.EndingScene;
+             case UIManager.UIState.EndGame:
+                 return this.EndGameScene;
++            case UIManager.UIState.Folklore:               // ff9mapkit s45 (null while [Folklore] is off)
++                return this.FolkloreScene;
+         }
+         if (this.QuitScene.isShowQuitUI)
+             return this.NoneScene;
+@@ -623,7 +645,7 @@ public class UIManager : PersistenSingleton<UIManager>
+ 
+     public static Boolean IsUIStateMenu(UIManager.UIState state)
+     {
+-        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph;
++        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph || state == UIState.Folklore;
+     }
+ 
+     public static Vector2 UIContentSize = GetUIContentSize();
+@@ -701,6 +723,12 @@ public class UIManager : PersistenSingleton<UIManager>
+     public EndingUI EndingScene;
+     public EndGameHUD EndGameScene;
+     public NoneUI NoneScene;
++    // ff9mapkit s45 -- the Folklore codex scene, BUILT AT RUNTIME in Start() (a C# patch cannot add
++    // a serialized scene reference to the baked prefab). [NonSerialized] is LOAD-BEARING: UIManager
++    // is a baked MonoBehaviour, and a new serialized field shifts its serialization layout -> the
++    // WMWorld blackscreen law (memoria-patches lore, 2026-07-02).
++    [NonSerialized]
++    public FolkloreUI FolkloreScene;
+ 
+     [Header("ETC")]
+     public DialogManager Dialogs;
+@@ -735,7 +763,10 @@ public class UIManager : PersistenSingleton<UIManager>
+         Chocograph,
+         PreEnding,
+         Ending,
+-        EndGame
++        EndGame,
++        Folklore    // ff9mapkit s45 -- APPENDED (state/prevState are serialized: a mid-enum insert
++                    // would shift the baked ordinals in the scene asset). IsUIStateMenu is widened
++                    // to include it (28 falls outside the MainMenu..Tutorial range test).
+     }
+ 
+     public enum Scene

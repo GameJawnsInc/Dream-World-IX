@@ -27,6 +27,34 @@ def find_game() -> tuple:
         return None, str(e)
 
 
+def netsync_generation(game) -> dict:
+    """Which co-op ENGINE GENERATION the installed Assembly-CSharp.dll is -- the one derivation the
+    Co-op status card (coopdoc) and Setup's health row now SHARE. Both probed the DLL independently
+    before: two copies of the s36/s37/s40 marker knowledge, two chances to drift on the boundary.
+
+    Never raises (like every probe here): an absent/unreadable DLL reads as no netsync. Returns
+    ``{"netsync", "s37", "s40": bool, "summary": str, "level": "ok"|"warn"}`` -- warn below s37, which
+    is the floor the Play-style lanes need.
+    """
+    blob = b""
+    if game is not None:
+        dll = Path(game) / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
+        try:
+            blob = dll.read_bytes() if dll.is_file() else b""
+        except OSError:
+            blob = b""
+    netsync = b"NetSyncClient" in blob        # s36: the ghost-sync client
+    s37 = b"NetSyncBattle" in blob            # s37: battle co-op + visitor mode (shipped together)
+    s40 = b"NetSyncDiorama" in blob           # s40: the battle diorama
+    summary = ("netsync + battle co-op + diorama (s40) present" if s40 else
+               "netsync + battle/visitor co-op (s37) — the battle diorama needs the newer s40 engine"
+               if s37 else
+               "netsync (s36) present — Play style needs the newer s37 engine" if netsync else
+               "netsync MISSING — install the Dream World IX custom engine first")
+    return {"netsync": netsync, "s37": s37, "s40": s40, "summary": summary,
+            "level": "ok" if s37 else "warn"}
+
+
 def health_report(game=None) -> list:
     """Every check, in reading order. ``game`` (optional) overrides the resolved install path."""
     rows = [_row("Kit version", __version__)]
@@ -80,6 +108,11 @@ def health_report(game=None) -> list:
             except Exception:   # noqa: BLE001
                 pass
             rows.append(_row("Memoria engine", f"installed{f' (Assembly {ver})' if ver else ''}"))
+            # The co-op engine generation, from the SAME derivation the Co-op status card reads (one
+            # source -- the two used to probe the DLL separately). warn below s37; the summary carries
+            # the "install the custom engine" / "needs the newer s40" remedy in its own words.
+            gen = netsync_generation(game)
+            rows.append(_row("Co-op engine", gen["summary"], gen["level"]))
         else:
             rows.append(_row("Memoria engine", "not detected", "warn",
                              "novel fields run on stock Memoria; FORKED fields need the custom engine "

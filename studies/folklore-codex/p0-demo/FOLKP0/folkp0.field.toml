@@ -1,0 +1,124 @@
+# FOLKP0 — the Folklore codex P0 demo field (studies/folklore-codex/PLAN.md, phase P0).
+#
+# THE GATE (in-game, human): walk the three marked spots -> each grants a Folklore entry (a minted
+# key item, band 80-254) with an acknowledgement line -> open Menu > Item > Key Items -> the three
+# entries list with name + help line + long lore popup, the "New!" badge clears once read -> save at
+# the Moogle -> quit -> load -> the entries persist.
+#
+# Deploy:   py tools/deploy_field.py studies/folklore-codex/p0-demo/FOLKP0/folkp0.field.toml --id 30020
+# RELAUNCH required on first deploy (new id registration) AND after any folklore text edit (KeyItem
+# text imports once at engine startup -- the ~ reload never re-reads it). Reach via ~ > Warp > 30020.
+
+[field]
+id = 30020           # dev scratch band (clear of the coop 30110-30200 + stolen-ember 30100-30102 slots)
+name = "FOLKP0"
+area = 11
+title = "FOLKP0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# ---- the codex entries (P0: three, one per future category -- Bestiary / Places / Lore) ----------
+# All text is ORIGINAL kit-authored flavor (provenance-clean). The curly quotes exercise the UTF-8
+# encoding decision in-game (cp1252 would garble them).
+
+# Lore rides THE SKIN BUDGET (playtest-minted law): the parchment popup is a fixed ~6-line panel,
+# no scroll -- vanilla's longest lore is 210 chars hand-wrapped; the kit lints ~6 auto-wrapped lines.
+
+[[folklore]]
+id = 80
+category = "bestiary"
+name = "Mist Wraith"
+display = "GEO_MON_B3_009"    # FF9's floating ghost -- wraith-fit, framing-proven in round 2.
+                              # (History: round 1 shipped 187 here, which model-preview then exposed
+                              # as a red-ring battle PROP whose idle exits the frame -- the law: a GEO
+                              # table row is not a creature, preview every pick offline first.)
+help = "A restless shape glimpsed where the Mist pools thickest."
+lore = "A pale figure drifts at the edge of lantern-light, never nearer, never further. Millers call it Mist on the wind. The travellers ask: “then why does it stop when we stop?”"
+
+[[folklore]]
+id = 81
+category = "places"
+name = "Village of Dali"
+help = "A quiet village of windmills and underground works."
+lore = "By day the village turns its sails and tends its fields. Yet the cellars stay locked, and children say the ground hums at night — “like a kettle big as a barn.”"
+
+[[folklore]]
+id = 82
+category = "lore"
+name = "The Eidolon Wall"
+help = "Weathered carvings said to name the guardian spirits."
+lore = "A wall older than any kingdom, its carvings worn soft as riverstone. Scholars argue over every figure; the summoners beneath it never wrote a word. They needed no reminding."
+
+# Two more bestiary entries so the CODEX LIST proves multi-row + cursor movement (round 2's gap:
+# one entry per category could never show a second row).
+
+[[folklore]]
+id = 83
+category = "bestiary"
+name = "Marsh Croaker"
+display = "GEO_MON_B3_026"    # the Gigan Toad -- "a fat frog", literally (flavor pass,
+                              # model-preview-verified)
+help = "A fat frog whose croak carries a storm's worth of warning."
+lore = "Ferrymen swear the croakers fall silent an hour before rain. One old pilot keeps three in a cage by the tiller. “Cheaper than a weather-mage,” he says, “and twice as honest.”"
+
+[[folklore]]
+id = 84
+category = "bestiary"
+name = "Gale Sprite"
+display = "GEO_MON_B3_020"    # the Dragon Fly -- "a flicker of wings" (flavor pass,
+                              # model-preview-verified; shimmer-wings, playful-elusive)
+help = "A flicker of wings seen only when the wind changes."
+lore = "No net has ever held one. Hunters who follow the flicker uphill find only flattened grass and their own hats gone missing. The wind, laughing, gives nothing back."
+
+# ---- the discovery spots (walk-in events; once each, silent grant + an acknowledgement line) -----
+
+[[event]]
+zone = [[-950, -650], [-550, -650], [-550, -1050], [-950, -1050]]
+give_folklore = "Mist Wraith"
+message = "A chill hangs here... The tale of the Mist Wraith comes to mind.\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[550, -650], [950, -650], [950, -1050], [550, -1050]]
+give_folklore = "Village of Dali"
+message = "Scattered millstones and a windmill sketch... Dali, was it?\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[-200, -1450], [200, -1450], [200, -1850], [-200, -1850]]
+give_folklore = "The Eidolon Wall"
+message = "A rubbing of ancient carvings lies here. The Eidolon Wall...\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[-950, -1450], [-550, -1450], [-550, -1850], [-950, -1850]]
+give_folklore = "Marsh Croaker"
+message = "A damp cage sits abandoned here. Something croaked at the sky...\n(Folklore added to Key Items.)"
+
+[[event]]
+zone = [[550, -1450], [950, -1450], [950, -1850], [550, -1850]]
+give_folklore = "Gale Sprite"
+message = "The grass lies flat in a spiral. The wind snatches at your hat...\n(Folklore added to Key Items.)"
+
+# ---- the save Moogle (the save -> quit -> load half of the gate, self-contained) -----------------
+
+[[savepoint]]
+zone = [[-300, -300], [300, -300], [300, 100], [-300, 100]]
+pos = [0, -100]

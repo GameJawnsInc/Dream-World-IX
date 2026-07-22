@@ -1,0 +1,8 @@
+// FF9CustomMap/StreamingAssets/Data/SpecialEffects/ef084/FileList.txt
+// RUNG 7 -- the first FileList.txt ever written for any .seq in this study (0/487 stock ef folders
+// ship one -- SFXData.cs:244-279 parses it, reachable only from a LoadSFX/LoadMonsterSFX op).
+// One "Model <name>" line -> AssetManager.UsePathWithDefaultFolder(defaultFolder, "creature_manifest.sfxmodel")
+// resolves it relative to THIS SAME ef084/ folder (no "/" in the name -> Path.Combine with defaultFolder).
+// Grammar is space-split, arguments[0]=="Model" (SFXData.cs:253-254) -- exactly one literal space,
+// no tab, no double space.
+Model creature_manifest.sfxmodel

@@ -249,6 +249,8 @@ class BattleDoc(QWidget):
         self.save_btn.clicked.connect(self._save)
         self.save_btn.setEnabled(False)
         self.check_btn = QPushButton("Check")
+        self.check_btn.setToolTip("Check for problems without saving — results go to the Problems dock. "
+                                  "Save writes your changes to the battle.toml.")
         self.check_btn.clicked.connect(self._check)
         self.check_btn.setEnabled(False)
         btns.addWidget(self.save_btn)
@@ -297,6 +299,16 @@ class BattleDoc(QWidget):
             return "no battle map open"
         sid = self.open_scene_id()
         return Path(self.path).stem + (f" — scene {sid}" if sid is not None else "")
+
+    def apply_guided(self, guided: bool):     # noqa: ARG002  (mode is read live from forms_qt at re-mount)
+        """Re-render the mounted form when the cross-tab beginner mode flips (ASK #12). This panel is
+        _GUIDED-gated by construction (Full shows the donor-site / AI-facts panels inline; Guided tucks
+        them behind an Advanced drawer BELOW the form), so it satisfies the lever by REBUILDING rather
+        than toggling a persistent drawer -- ``_mount`` reads ``forms_qt._GUIDED`` live. Re-mount the
+        current node so the flip lands now instead of on the next node selection."""
+        row = self.nodes.currentRow()
+        if row >= 0:
+            self._on_node(row)
 
     # ------------------------------------------------------------------ load
     def browse(self):
@@ -457,6 +469,10 @@ class BattleDoc(QWidget):
     def _mount(self, kind, idx, spec, entity):
         self._clear()
         advanced = []                                       # byte-level helper panels -> tucked in Guided mode
+        if kind == _MAP:
+            loc_panel = self._location_panel(entity)        # "where is this scene fought / by whom" (warm-only)
+            if loc_panel is not None:
+                self.host_lay.addWidget(loc_panel)
         if kind == _ENEMY:
             base = self._donor_baseline(entity)             # read-only "what you're tuning from" panel
             if base is not None:
@@ -634,6 +650,30 @@ class BattleDoc(QWidget):
             o_lbl = widgets.caption(f"other AI funcs: {html.escape(' · '.join(other))}")
             v.addWidget(o_lbl)
         return box
+
+    def _location_panel(self, battlemap):
+        """Read-only 'where is this scene fought in the real game / by whom' for the ``[battlemap]`` node --
+        WARM ONLY (``locate.cached_map``), best-effort. None when there's no scene id, no warm index, or no
+        install (never builds, never blocks -- the Info Hub's Build button owns the census). Purely additive
+        context for a fork/override -- the same 'found in' line the ``battle-scene`` CLI prints."""
+        sid = battlemap.get("scene_id")
+        if not isinstance(sid, int):
+            return None
+        try:
+            from ..battle import locate as loc
+            if loc.cached_map() is None:                    # cold -> no panel (the Info Hub owns the build)
+                return None
+            places = loc.scene_places(sid)
+            mons = [m for m in (loc.monster_names(sid) or []) if m]
+        except Exception:                                   # noqa: BLE001 -- purely additive, never fatal
+            return None
+        if not places and not mons:
+            return None
+        pairs = [("Monsters", ", ".join(mons) or "(no name data)")]
+        for g in places:
+            loc_name = g["arc_name"] or "an unmapped field"
+            pairs.append((loc_name, f"field(s) {', '.join(str(f) for f in g['fields'])} ({'/'.join(g['kinds'])})"))
+        return self._facts_panel("Fought in the real game", pairs)
 
     def _baseline_panel(self, type_no, pairs):
         return self._facts_panel(f"Donor baseline — enemy type {type_no} (the forked stats you're tuning from)", pairs)

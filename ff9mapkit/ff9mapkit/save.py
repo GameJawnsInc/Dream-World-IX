@@ -384,6 +384,47 @@ def _unique_backup_path(base: str) -> str:
     return f"{base}.{n}"
 
 
+_BACKUP_SUFFIX_RE = re.compile(r"\.bak\.\d{8}-\d{6}(?:\.\d+)?$")
+
+
+def _original_from_backup(bak: str) -> str:
+    """The original file a ``<orig>.bak.<ts>[.N]`` backup (from :func:`apply_story_edit` / the item writers'
+    ``_atomic_write``) was taken from. Raises ValueError on a path that isn't that shape."""
+    m = _BACKUP_SUFFIX_RE.search(bak)
+    if not m:
+        raise ValueError(f"not a recognised .bak backup path: {bak!r}")
+    return bak[:m.start()]
+
+
+def restore_backup(backups, *, do_backup: bool = True, dry_run: bool = False) -> dict:
+    """Copy one or more timestamped ``.bak`` backups back over the files they came from -- the "undo my last
+    edit" the GUI's save editors offer (they remember the ``backups`` an Apply returned). Each entry is a
+    ``<orig>.bak.<ts>[.N]`` path; its pristine bytes overwrite ``<orig>``. A fresh timestamped backup of the
+    CURRENT (about-to-be-overwritten) file is taken first when ``do_backup`` -- so a restore is itself
+    reversible and the "a .bak is written first" promise the confirm makes stays true. ``dry_run`` validates
+    the paths + lists what would move but writes nothing. Returns ``{"notes", "restored", "backups"}``. Raises
+    ValueError (BEFORE touching anything) if a backup path is unrecognised or gone."""
+    import time
+    pairs = []
+    for bak in backups:
+        if not os.path.exists(bak):
+            raise ValueError(f"backup no longer exists: {bak}")
+        pairs.append((bak, _original_from_backup(bak)))    # raises on an unrecognised shape
+    notes = [f"{os.path.basename(o)} <- {os.path.basename(b)}" for b, o in pairs]
+    if not pairs or dry_run:
+        return {"notes": notes, "restored": False, "backups": []}
+    safety = []
+    for bak, orig in pairs:
+        if do_backup and os.path.exists(orig):
+            s = _unique_backup_path(f"{orig}.bak.{time.strftime('%Y%m%d-%H%M%S')}")
+            with open(orig, "rb") as fs, open(s, "wb") as fd:
+                fd.write(fs.read())
+            safety.append(s)
+        with open(bak, "rb") as fs, open(orig, "wb") as fd:
+            fd.write(fs.read())
+    return {"notes": notes, "restored": True, "backups": safety}
+
+
 def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags=(), clear_flags=(),
                      world_x: float | None = None, world_z: float | None = None, world_actor="player",
                      do_backup: bool = True, dry_run: bool = False) -> dict:

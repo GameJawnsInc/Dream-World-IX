@@ -1,9 +1,13 @@
 """Home's beginner guide: THE GOES-AWAY LAW + TAILOR (content-sized modals).
 
 The law (shell._getstarted_show): onboarding is for someone who has not yet done the thing -- DONE is
-measured (game located + templates + any project history), never assumed, and once measured done the
-guide leaves on its own. Dismissal (the Hide link) is a user choice and beats everything; the Home setup
-banner stays as the fail-safe surface for real setup problems.
+measured, never assumed, and once measured done the guide leaves on its own. The arc it teaches now runs
+all the way to the payoff (setup -> fork -> DEPLOY-and-play), so its completion signal is the last rung:
+``has_deployed`` (the sticky first-deploy latch). That is what tells a veteran who closed a project apart
+from a newcomer who forked a field but has not yet put it in the game -- the latter still gets the guide
+while a target is open (the "now deploy and press ~" moment), gated so a veteran never sees it. Dismissal
+(the Hide link) is a user choice and beats everything; the Home setup banner stays as the fail-safe
+surface for real setup problems.
 
 TAILOR (widgets.fit_dialog): a popup's size is a FUNCTION of its content -- the width is asked for in
 characters of the dialog's own polished font (so it moves with the CALIBRE dial), lists ask to show
@@ -29,7 +33,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFormLayout, QLabel,     #
                                QLineEdit, QListWidget, QVBoxLayout, QWidget)
 
 from ff9mapkit.workspace import widgets                                        # noqa: E402
-from ff9mapkit.workspace.shell import _getstarted_show                         # noqa: E402
+from ff9mapkit.workspace.shell import _getstarted_primary_ix, _getstarted_show  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -39,27 +43,72 @@ def app():
 
 # ---------------------------------------------------------------------------- the goes-away law (pure)
 def test_the_goes_away_law_truth_table():
-    """The whole 16-row table, spelled out -- the law is small enough to enumerate, so enumerate it."""
+    """The whole table, spelled out -- the law is small enough to enumerate, so enumerate it. Four state
+    booleans (setup_incomplete, has_target, has_recent, has_deployed) x dismissed = 32 rows, each justified
+    by the priority order the law itself walks."""
     for setup_incomplete in (False, True):
         for has_target in (False, True):
             for has_recent in (False, True):
-                # dismissed wins over EVERYTHING, including an incomplete setup.
-                assert _getstarted_show(setup_incomplete=setup_incomplete, has_target=has_target,
-                                        has_recent=has_recent, dismissed=True) is False
-                got = _getstarted_show(setup_incomplete=setup_incomplete, has_target=has_target,
-                                       has_recent=has_recent, dismissed=False)
-                if setup_incomplete:
-                    want = True                          # the app cannot build anything yet -> guide
-                else:
-                    want = not has_target and not has_recent   # measured done -> only a true first-run sees it
-                assert got is want, (setup_incomplete, has_target, has_recent)
+                for has_deployed in (False, True):
+                    row = (setup_incomplete, has_target, has_recent, has_deployed)
+                    # dismissed wins over EVERYTHING, including an incomplete setup.
+                    assert _getstarted_show(setup_incomplete=setup_incomplete, has_target=has_target,
+                                            has_recent=has_recent, has_deployed=has_deployed,
+                                            dismissed=True) is False
+                    got = _getstarted_show(setup_incomplete=setup_incomplete, has_target=has_target,
+                                           has_recent=has_recent, has_deployed=has_deployed,
+                                           dismissed=False)
+                    if setup_incomplete:
+                        want = True                      # the app cannot build anything yet -> guide
+                    elif has_deployed:
+                        want = False                     # completed the whole arc once -> veteran, never again
+                    else:
+                        # setup done, never deployed: show while a target is OPEN (the "now deploy" moment),
+                        # or to a true first-run user with no history at all.
+                        want = has_target or not has_recent
+                    assert got is want, row
 
 
-def test_a_closed_project_is_not_a_new_user():
-    """The regression this law exists for: setup done + nothing open + real history -> the guide is GONE
-    (the old rule `setup_incomplete or nothing_open` showed the full newcomer checklist here forever)."""
+def test_a_veteran_who_closed_a_project_is_not_a_new_user():
+    """The original regression: setup done + nothing open + real history + HAS DEPLOYED -> the guide is
+    GONE (the old rule `setup_incomplete or nothing_open` showed the full newcomer checklist here forever).
+    has_deployed is the signal that makes this a veteran and not a stalled newcomer."""
     assert _getstarted_show(setup_incomplete=False, has_target=False, has_recent=True,
-                            dismissed=False) is False
+                            has_deployed=True, dismissed=False) is False
+
+
+def test_the_arc_stays_open_from_the_fork_to_the_first_deploy():
+    """The gap this round closes: after the fork opens a target, the old rule VANISHED the guide -- exactly
+    when "now deploy and press ~" is the next thing to say. With a target open and nothing ever deployed the
+    guide STAYS (so the deploy rung can be pointed at), and the instant the first deploy latches has_deployed
+    it goes away for good."""
+    open_never_deployed = dict(setup_incomplete=False, has_target=True, has_recent=False,
+                               dismissed=False)
+    assert _getstarted_show(has_deployed=False, **open_never_deployed) is True, \
+        "a fork is open but nothing was ever deployed -- the guide names the deploy step"
+    assert _getstarted_show(has_deployed=True, **open_never_deployed) is False, \
+        "the first deploy latched -> the veteran never sees the guide again"
+
+
+def test_a_closed_never_deployed_project_relies_on_recent_not_the_guide():
+    """A newcomer who forked, then closed the project WITHOUT deploying: with history but no target open the
+    guide stays out (Recent + the spine carry them), and reopening the project brings the target -- and the
+    guide with it (see the fork->deploy fence above). The full newcomer checklist does not reappear on a
+    closed project just because the arc's last rung is unmet."""
+    assert _getstarted_show(setup_incomplete=False, has_target=False, has_recent=True,
+                            has_deployed=False, dismissed=False) is False
+
+
+def test_the_accent_walks_the_arc_and_a_done_veteran_gets_no_accent():
+    """THE ONE-ACCENT LAW at the step level: the accent lands on the first NOT-done step, and a Ctrl-K
+    forced peek by a veteran whose every step is done accents NOTHING (-1) -- never nudging them toward an
+    already-completed step. A no-op fallback of ``len(steps)-1`` would accent the last done row here, so the
+    all-done row is the assertion that fails a regression. ``steps[i][2]`` is the done flag."""
+    step = lambda done: ("title", "why", done, "label", None)
+    assert _getstarted_primary_ix([step(True)] * 4) == -1, "all done -> no accent (the forced-peek case)"
+    assert _getstarted_primary_ix([step(True), step(False), step(False)]) == 1, "first not-done wins"
+    assert _getstarted_primary_ix([step(False), step(True)]) == 0
+    assert _getstarted_primary_ix([step(True), step(True), step(False), step(True)]) == 2
 
 
 # ------------------------------------------------------------------------------------ TAILOR fences

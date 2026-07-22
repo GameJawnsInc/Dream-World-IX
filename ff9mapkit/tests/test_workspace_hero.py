@@ -626,6 +626,33 @@ def test_the_lede_rule_lands_under_its_title_not_through_it(app):
         card.deleteLater()
 
 
+def test_the_colophon_cites_the_one_mark_at_reduced_ink(app):
+    """The About box earns the signet -- but as one more CITATION of the single mark, not a new ornament.
+
+    "One corner, once, or it's a costume" forbids a REPEATED ornament; it does not forbid the SAME mark,
+    from the SAME function, quoted on the handful of five-second identity surfaces. The colophon follows
+    the lede's precedent (half the ink) and goes one step quieter: a shorter arm AND a fainter dissolve
+    (a_from below the lede's default 255), so it is subordinate to both prior citations by construction.
+    """
+    import inspect
+
+    src = inspect.getsource(hero_mod.ColophonMark.paintEvent)
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "signet_elbow(" in code, "the colophon must draw the SHARED mark, not its own path code"
+    assert "a_from=170" in code, "reduced ink: the dissolve must start fainter than the lede's default 255"
+    for banned in ("border-left", "fillRect", "drawRect"):
+        assert banned not in code, f"the colophon must be a corner, not a {banned}"
+    # subordinate to the lede by construction -- a shorter arm at a fainter start
+    assert hero_mod.ColophonMark._ARM < hero_mod.LedeCard._ARM, \
+        "the colophon must be quieter than the lede (a third, fainter citation)"
+    # the doubled filigree + the bead stay the hero's alone -- they are the signature, not the citation
+    assert "_BEAD" not in code and "drawPath(ip)" not in code, \
+        "the colophon must not wear the signature's private detail"
+    # the rise is DERIVED, never a pinned constant (LedeCard's strike-through-the-title lesson)
+    assert not hasattr(hero_mod.ColophonMark, "_UP"), "the colophon re-pinned its rise -- it must derive it"
+    assert callable(getattr(hero_mod.ColophonMark, "_up", None)), "the derived rise is gone"
+
+
 def test_the_lede_mark_holds_no_pinned_rise(app):
     """The rise is DERIVED, and a constant is what broke it. Fenced at the source: a `_UP = <n>` class
     attribute would pass every ratio check while silently going stale the next time the head rung moves --
@@ -636,3 +663,197 @@ def test_the_lede_mark_holds_no_pinned_rise(app):
         "goes stale the next time the ramp moves -- which is how it came to underline its own title."
     )
     assert callable(getattr(hero_mod.LedeCard, "_up", None)), "the derived rise is gone"
+
+
+# --- the far plane: depth in the band's dead right half ---------------------------------------
+# The right ~55% of the band was flat void. A second, dimmer $text bloom (recession_bloom) fills it as
+# atmospheric recession. Two laws bind it, and they are fenced separately because they fail separately:
+#
+#   1. TEXT-ZONE NON-OVERLAP. Its visible weight must stay clear of the LEFT-aligned overline / wordmark /
+#      status -- and narrow windows COMPRESS the geometry (the axis fallback shrinks the column with the
+#      width), so peak-alpha ordering alone is not enough: the relationship is fenced at multiple widths.
+#      This is a WIDTH claim, so the render half runs native-only; the alpha arithmetic is font-free and
+#      runs everywhere.
+#   2. THE NINTH GROUND. The band writes everything in $text and owes every ground it invents a contrast
+#      fence. This new bloom is a new ground -- so the overline and status must still clear 4.5:1 over it,
+#      in all 8 palettes. The base ground comes from the trusted render (hand-modelling the off-axis mist
+#      LIED, per the block above), and the recession's delta is layered on ARITHMETICALLY -- it is a
+#      well-defined PadSpread ramp I own, unlike the mist whose geometry a hand-model got wrong.
+
+_TEXT_ZONE_FRAC = 0.5     # the overline/status never fill more than the column's left half (validated below)
+_ALPHA_IN_TEXT_MAX = 2.0  # <2/255 of ink is below perception -- "clear of the text zone" means this
+_VOID_ALPHA_MIN = 10.0    # ...and the void must actually receive weight, or the feature is a no-op
+
+
+def test_the_far_plane_is_dimmer_than_the_near_bloom_and_fills_the_void(app):
+    """Peak-alpha ordering + the no-op guard, arithmetic and font-free (so it runs in CI too).
+
+    The far plane must be DIMMER than the near mist (that ordering is what makes it read as recession and
+    not as a second competing bloom), it must actually put weight in the right void (or it is a no-op that
+    changed nothing), and it must put ~none in the left-half text zone. Swept across widths because the
+    axis fallback shrinks the column as the window narrows -- the compression the chair flagged.
+    """
+    assert hero_mod._RECESSION_ALPHA < hero_mod._MIST_ALPHA, \
+        "the far plane must be self-fenced BELOW the near bloom's alpha"
+
+    for w in (640, 760, 900, 1280):
+        host, band, _ = _band(app)
+        band.setGeometry(0, 0, w, band.height())
+        x0, col = band._axis()                       # column_source is None -> the deterministic fallback
+        h = band.height()
+        _bh, overline_y, _word_y, _rule_y, status_y, _arm = band._m
+        cx, cy, rrad, alpha = hero_mod.recession_bloom(x0, col, h)
+
+        # the void receives real weight (not a no-op) -- the bloom peaks near the column's right edge
+        assert hero_mod.recession_alpha_at(cx, cy, rrad, alpha, cx, cy) >= _VOID_ALPHA_MIN, \
+            f"{w}px: the far plane put no weight in the void -- it is a no-op"
+
+        # ...and ~none in the left-half text zone, at BOTH painted rows
+        bound = x0 + _TEXT_ZONE_FRAC * col
+        for row_y in (overline_y, status_y):
+            for px in range(int(x0), int(bound) + 1, 6):
+                a = hero_mod.recession_alpha_at(cx, cy, rrad, alpha, px, row_y)
+                assert a <= _ALPHA_IN_TEXT_MAX, (
+                    f"{w}px: the far plane reaches the text zone (alpha {a:.2f} at x={px}, y={row_y:.0f}) "
+                    f"-- it must stay in the dead right half")
+        host.deleteLater()
+
+
+def _plate_and_full(d, w):
+    """The band at width ``w``, rendered twice: glyphs on, and glyphs suppressed. Native-real fonts.
+
+    The two renders differ ONLY in drawText (the fills/gradients/signet all use fillRect/drawPath, which
+    run identically both times), so their per-pixel diff is exactly the painted text -- which is how we
+    read where a text row actually ENDS without trusting an offscreen font metric.
+    """
+    from PySide6.QtGui import QPainter
+    band = hero_mod.HeroBand(d)
+    band.setGeometry(0, 0, w, band.height())
+    full = band.grab().toImage()
+    orig = QPainter.drawText
+    QPainter.drawText = lambda *a, **k: None
+    try:
+        bare = band.grab().toImage()
+    finally:
+        QPainter.drawText = orig
+    band.deleteLater()
+    return band, full, bare
+
+
+def test_the_far_planes_weight_clears_the_real_text_at_every_width(app):
+    """The non-overlap LAW, measured against the REAL rendered text, native, at a narrow AND a wide width.
+
+    The arithmetic fence above proves the bloom is clear of the column's left HALF; this proves the text
+    actually lives there -- so the two together say "the bloom's weight is clear of the text" without a
+    single hardcoded pixel width. At the actual right-most glyph of each row, the recession's alpha must be
+    below perception. Skipped where the font DB is stubbed (offscreen), because a width read there is
+    fiction -- the same trap noted at the top of this file.
+    """
+    from PySide6.QtGui import QFontDatabase, QImage
+
+    fams = set(QFontDatabase.families())
+    if not fams or "Segoe UI" not in fams:
+        pytest.skip("no real font database (offscreen QPA stubs it and lies about width)")
+
+    d = theme.derive(dict(theme.MIST))
+    for w in (760, 1280):
+        band, full, bare = _plate_and_full(d, w)
+        x0, col = band._axis()
+        h = band.height()
+        _bh, overline_y, _word_y, _rule_y, status_y, _arm = band._m
+        cx, cy, rrad, alpha = hero_mod.recession_bloom(x0, col, h)
+
+        for name, base_y in (("overline", overline_y), ("status", status_y)):
+            right = 0
+            for yy in range(max(0, int(base_y) - 10), int(base_y) + 2):
+                for xx in range(int(x0), min(w, int(x0 + col))):
+                    if QImage.pixelColor(full, xx, yy) != QImage.pixelColor(bare, xx, yy):
+                        right = max(right, xx)
+            assert right > x0, f"{w}px: found no {name} glyphs to measure"
+            # 1. the text stays in the column's left half -- validates the arithmetic fence's bound
+            assert right <= x0 + _TEXT_ZONE_FRAC * col + 4, (
+                f"{w}px: {name} runs to x={right}, past half the column (x0={x0}, col={col}) -- the "
+                f"arithmetic non-overlap fence's {_TEXT_ZONE_FRAC:g} bound no longer holds")
+            # 2. and the recession's weight at the real right edge of the text is below perception
+            a = hero_mod.recession_alpha_at(cx, cy, rrad, alpha, right, base_y)
+            assert a <= _ALPHA_IN_TEXT_MAX, (
+                f"{w}px: the far plane's weight (alpha {a:.2f}) reaches the {name}'s right edge x={right}")
+
+
+def test_the_far_plane_clears_real_text_across_the_calibre_dial(app):
+    """THE NON-OVERLAP LAW, swept across the CALIBRE text-size dial -- the axis the fence above never moved.
+
+    The sibling test proves the bloom clears the text at DEFAULT scale only. But CALIBRE grows the type
+    (and the band), so at 150% the status string is ~1.5x wider and CROSSES the column's midline into the
+    recession's right void, while the bloom's radius grew with the band height -- so the haze reached the
+    status text's real right edge (measured ~4/255 at the 686px floor, past the 2/255 perception cap). This
+    fence renders the REAL band at every scale + a narrow AND wide width, measures each row's real advance
+    with QFontMetricsF, and demands the recession's alpha at that right edge stay below perception. It FAILS
+    on a height-based radius and passes only because recession_bloom pins the radius to the DESIGN size
+    (scale-robust by construction). Native-only: an offscreen advance is fiction (see the file header).
+    """
+    from PySide6.QtGui import QFont, QFontMetricsF
+
+    from ff9mapkit import prefs
+
+    fams = set(QFontDatabase.families())
+    if not fams or "Segoe UI" not in fams:
+        pytest.skip("no real font database (offscreen QPA stubs it and lies about width)")
+
+    overline = f"FF9 FIELD TOOLKIT · {hero_mod.__version__}"
+    status = "Nothing open yet — pick a starting point below."   # the band's default status string
+    pal = theme.pick_palette("dark")
+    for scale in prefs.TEXT_SCALES:
+        band = hero_mod.HeroBand(pal, scale=scale)
+        band.set_density("comfortable", scale)                        # apply the dial -> _m/_type/_height
+        overline_px, _word_px, status_px = band._type
+        of = QFont("Segoe UI"); of.setPixelSize(overline_px); of.setWeight(QFont.Weight.DemiBold)
+        of.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0 * scale / 100.0)
+        sf = QFont("Segoe UI"); sf.setPixelSize(status_px)
+        o_adv = QFontMetricsF(of).horizontalAdvance(overline)
+        s_adv = QFontMetricsF(sf).horizontalAdvance(status)
+        for w in (686, 760, 1280):                                    # 686 ~= the app's hard floor
+            band.setGeometry(0, 0, w, band.height())
+            x0, col = band._axis()                                    # no column_source -> the fallback axis
+            h = band.height()
+            _bh, overline_y, _word_y, _rule_y, status_y, _arm = band._m
+            cx, cy, rrad, alpha = hero_mod.recession_bloom(x0, col, h, scale)
+            for name, adv, row_y in (("overline", o_adv, overline_y), ("status", s_adv, status_y)):
+                a = hero_mod.recession_alpha_at(cx, cy, rrad, alpha, x0 + adv, row_y)
+                assert a <= _ALPHA_IN_TEXT_MAX, (
+                    f"scale={scale} {w}px: the far plane's weight (alpha {a:.2f}) reaches the {name}'s real "
+                    f"right edge x={x0 + adv:.0f} -- the non-overlap fence fails at this dial setting")
+            # the void still receives real weight at this scale (not shrunk into a no-op)
+            assert hero_mod.recession_alpha_at(cx, cy, rrad, alpha, cx, cy) >= _VOID_ALPHA_MIN, \
+                f"scale={scale} {w}px: pinning the radius must not turn the far plane into a no-op"
+        band.deleteLater()
+
+
+def test_the_far_plane_keeps_every_palettes_text_clearing_its_floor(app):
+    """THE NINTH GROUND for the new bloom: overline and status still clear 4.5:1 over it, all 8 palettes.
+
+    Colour, so it is safe without a real font DB. The BASE ground is read from the trusted render (the
+    hand-model of the off-axis mist lied -- see the block above), and the recession is layered on as an
+    exact arithmetic delta: composite $text at the recession's alpha over the base, then measure. Sampled
+    only across the TEXT ZONE (the column's left half) -- the whole point is that the bloom is elsewhere,
+    so this passes with margin, but it is the note that fails the day someone drags the bloom leftward.
+    """
+    from PySide6.QtGui import QImage
+
+    rows = {"overline": 34, "status": 130}
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        img = _bare_plate(d)                          # base ground at 1280, comfortable
+        ink = _rgb(pal["text"])
+        x0, col, h = 210, 860, hero_mod._METRICS["comfortable"][0]   # the fixed 1280 fallback geometry
+        cx, cy, rrad, alpha = hero_mod.recession_bloom(x0, col, h)
+        for name, y in rows.items():
+            worst = 99.0
+            for x in range(200, int(x0 + _TEXT_ZONE_FRAC * col), 5):
+                gc = QImage.pixelColor(img, x, y)
+                base = (gc.red(), gc.green(), gc.blue())
+                a = hero_mod.recession_alpha_at(cx, cy, rrad, alpha, x, y) / 255.0
+                ground = tuple(bb * (1 - a) + ik * a for bb, ik in zip(base, ink))
+                worst = min(worst, _cr(ink, ground))
+            assert worst >= 4.5, (
+                f"{mode}: hero {name} {worst:.2f} over the far plane -- the recession broke the ninth-ground fence")

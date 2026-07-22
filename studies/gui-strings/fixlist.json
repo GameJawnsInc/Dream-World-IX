@@ -1,0 +1,298 @@
+[
+ {
+  "file": "ff9mapkit/ff9mapkit/editor/forms.py",
+  "line": 121,
+  "action": "edit",
+  "old": "    Field(\"flag\", \"Opened-flag\", FLAGREF, \"REQUIRED save bit that marks it looted (it stays open across \"\r\n          \"saves) -- a [[flag]] name (recommended) or a safe-band index >= 8712. Not auto-allocated, so it's \"\r\n          \"resilient to reordering + a player's save state\", catalog=\"flag\"),",
+  "new": "    Field(\"flag\", \"Opened-flag\", FLAGREF, \"REQUIRED save bit that marks it looted (stays open across saves) -- a [[flag]] name (recommended) or a safe-band index >= 8712.\", catalog=\"flag\"),",
+  "note": "Trailing 'Not auto-allocated ... resilient to reordering + save state' is why-it-works rationale, not what-to-do; overflows the measure for a field hint."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/editor/forms.py",
+  "line": 264,
+  "action": "edit",
+  "old": "    Field(\"spawn\", \"Spawn (x, z)\", COORD, \"where the player appears -- the DEFAULT arrival (an debug-menu warp, or \"",
+  "new": "    Field(\"spawn\", \"Spawn (x, z)\", COORD, \"where the player appears -- the DEFAULT arrival (a debug-menu warp, or \"",
+  "note": "Grammar: 'an' before a consonant sound. Content is current (correctly 'debug-menu', not the stale F6)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/battledoc.py",
+  "line": 251,
+  "action": "add",
+  "old": null,
+  "new": "Check for problems without saving — results go to the Problems dock. Save writes your changes to the battle.toml.",
+  "note": "ADD a setToolTip on the battle-pane Check button; the Check-validates-but-Save-persists distinction currently lives only in code comments."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/builddoc.py",
+  "line": 169,
+  "action": "add",
+  "old": null,
+  "new": "Compiles the field into a plain folder — nothing is deployed to the game.",
+  "note": "ADD a widgets.option caption under the 'Build only — to a folder' radio to match the other three destinations (captions at 177/180/183); it is the only destination with no inline caption."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/concepts.py",
+  "line": 122,
+  "action": "edit",
+  "old": "            \"novel fields = stock Memoria; forked fields = the bundled s23–s34 patches.\",",
+  "new": "            \"novel fields = stock Memoria; forked fields = the bundled s23–s33 fork-gate patches.\",",
+  "note": "Stale fact: the fork-donor remap suite is s23-s33; s34 is the overworld override (correctly attributed on the Overworld card at 151). Also canonicalizes 'fork-gate patches'."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/coopdoc.py",
+  "line": 263,
+  "action": "add",
+  "old": null,
+  "new": "Start co-op already uses these settings — Apply only pushes changes to a game that's already running.",
+  "note": "ADD a caption or Apply tooltip clarifying the Start-vs-Apply relationship (Start already folds in the play-style widget values)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/coopdoc.py",
+  "line": 282,
+  "action": "add",
+  "old": null,
+  "new": "Stops the local relay — co-op stays configured in Memoria.ini; press Start co-op to reconnect.",
+  "note": "ADD a setToolTip on 'Stop bridge' so it is distinguishable from 'Disable co-op'."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/coopdoc.py",
+  "line": 284,
+  "action": "add",
+  "old": null,
+  "new": "Turns co-op off in Memoria.ini and stops the bridge — the game reverts to solo.",
+  "note": "ADD a setToolTip on 'Disable co-op' so 'turn co-op off' is not a coin-flip against 'Stop bridge'."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/coopdoc.py",
+  "line": 308,
+  "action": "edit",
+  "old": "            \"Start co-op, keep this app open, then launch FF9 and stand on the same screen as \"\r\n            \"your friend — ghosts appear anywhere you two share a field (guaranteed meeting \"\r\n            \"spot: ~ → Warp to field → 30003). The in-game overlay shows the code + pairing \"\r\n            \"state, tells you which field your friend is on, and disappears when their ghost \"\r\n            \"is up. A running game picks up session changes within a few seconds — no restart \"\r\n            \"needed.\")",
+  "new": "            \"Start co-op, keep this app open, then launch FF9 and stand on the same screen as your friend — ghosts appear on any field you two share (guaranteed meeting spot: ~ → Warp to field → 30003). The in-game overlay shows the code, pairing state, and which field your friend is on.\")",
+  "note": "7-line always-visible block whose final sentence triplicates the caption at 272 and the log at 549 — trimmed. NOTE: kept the hardcoded 30003 (a plain string); this caption lives in _build_ui which does NOT import coop at this scope, so a {coop.COOP_FIELD} swap would NameError — the runtime-constant swap is a code follow-up (add a local `from .. import coop`)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/forms_qt.py",
+  "line": 101,
+  "action": "edit",
+  "old": "    btn.setToolTip(f\"What's a {c.title.lower()}?\")",
+  "new": "    btn.setToolTip(f\"Open the {c.title} concept card\")",
+  "note": "Unconditional .lower() + forced 'a' article misreads for acronym/technical titles ('What's a mes?'); article-free, case-preserving."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/forms_qt.py",
+  "line": 445,
+  "action": "add",
+  "old": null,
+  "new": "Copy name keeps this open — close when you're done.",
+  "note": "ADD a caption beside Copy name/Close in CatalogPicker browse mode; Copy name deliberately does NOT close the dialog (unlike Use this) and nothing signals that."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/hero.py",
+  "line": 383,
+  "action": "edit",
+  "old": "        p.drawText(QPointF(x0, overline_y), \"FF9 FIELD TOOLKIT \\u00b7 1.0.0b15\")",
+  "new": "        p.drawText(QPointF(x0, overline_y), \"FF9 FIELD TOOLKIT \\u00b7 1.0.0b17\")",
+  "note": "Stale version; the same home screen's status bar reads v1.0.0b17 and Setup reads Kit version 1.0.0b17. Ideally bind to __version__ so it cannot re-stale (code follow-up)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+  "line": 133,
+  "action": "edit",
+  "old": "        mhint = widgets.caption(\"Verbatim ships the field's real event script + dialogue WHOLE — it runs the original \"\r\n                                \"logic, story gating, real doors and rotating cast (the proven faithful path), carrying \"\r\n                                \"every NPC/prop/line itself. A verbatim fork boots at scenario zero — use Preview fidelity \"\r\n                                \"for the suggested starting beat, then add a [startup] block in the editor. The scene + \"\r\n                                \"carry options appear only in Re-authorable mode (which drops the real logic for editable \"\r\n                                \"[[npc]]/content you re-author).\")",
+  "new": "        mhint = widgets.caption(\"Ships the field's real script + dialogue whole — original logic, story gating, doors and rotating cast, every NPC and prop carried. It boots at scenario zero; use Preview fidelity for the starting beat, then add a [startup] block in the editor. (Scene and carry options live in Re-authorable mode.)\")",
+  "note": "~470-char run-on caption violates the measure law; scenario-zero/[startup] guidance is repeated at Preview fidelity (748) and the Import verdict (905)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+  "line": 159,
+  "action": "add",
+  "old": null,
+  "new": "Pick one dialogue strategy: carry the real lines, or re-author them as stubs.",
+  "note": "ADD a caption near the 'Real dialogue, verbatim' + 'Dialogue as editable [[npc]] stubs' checkbox pair (Re-authorable mode); the two are alternatives and shouldn't both be ticked."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+  "line": 205,
+  "action": "add",
+  "old": null,
+  "new": "The new fork's id and name — not the source field above.",
+  "note": "ADD a caption above the output 'Field id:' (default 4003) + 'Name' row in the Fork-a-real-field card; both the source box (top) and this destination row read as 'field id' — a source-vs-destination trap."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+  "line": 559,
+  "action": "edit",
+  "old": "        self.arc_editable.setToolTip(\"Per-depth repaintable layers for art-modding a whole set at once \"\r\n                                     \"(~2–3 GB whole-game) instead of the lightweight default (~500 MB).\")",
+  "new": "        self.arc_editable.setToolTip(\"Per-depth repaintable layers for art-modding a whole set at once — much larger than the lightweight default (whole-game is on the order of a few GB).\")",
+  "note": "Soften the UNVERIFIABLE ~2-3 GB / ~500 MB figures to an estimate; mechanism kept."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/importdoc.py",
+  "line": 567,
+  "action": "edit",
+  "old": "        hint = widgets.caption(\"Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special \"\r\n                               \"fields with no scene) are listed and skipped.\")",
+  "new": "        hint = widgets.caption(\"Whole game: seconds for lightweight, several minutes and a few GB for editable (rough estimates). Sceneless world/special fields are listed and skipped.\")",
+  "note": "Soften the UNVERIFIABLE ~15-20 s / ~2-3 GB figures; keep the verified skip behavior."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/modelsdoc.py",
+  "line": 289,
+  "action": "add",
+  "old": null,
+  "new": "Works on a field.toml's [[playable]] block — not the model selected above.",
+  "note": "ADD a section caption under the 'Custom playable's battle animset' header; the section operates on a chosen field.toml, not the highlighted model — a real trap (Export donor .glb acts on the donor named in the toml)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/modelsdoc.py",
+  "line": 345,
+  "action": "edit",
+  "old": "                          \"Blender (active action only!), then Route edited .glb.\")",
+  "new": "                          \"Blender (active action only), then Route edited .glb.\")",
+  "note": "Drop the exclamation on a work-surface success string (no-exclamation rule); the parenthetical already carries the emphasis."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/modelsdoc.py",
+  "line": 646,
+  "action": "edit",
+  "old": "        files, _ = QFileDialog.getOpenFileNames(self, \"The edited {name}.png file(s)\", \"\",",
+  "new": "        files, _ = QFileDialog.getOpenFileNames(self, \"The edited reskin PNG(s)\", \"\",",
+  "note": "A bare un-interpolated '{name}' brace in a plain-string dialog title reads as a leaked template placeholder; the name-keeping rule is taught at 636 and 233."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/palette.py",
+  "line": 101,
+  "action": "edit",
+  "old": "        self.q.setPlaceholderText(\"Search content & commands…  (a field name, or a command)\")",
+  "new": "        self.q.setPlaceholderText(\"Search content & commands…  (a field, a command, or a concept to learn)\")",
+  "note": "Promotes the palette's buried role as the in-place glossary route (typing a jargon word surfaces a 'Learn' card)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/savedoc.py",
+  "line": 105,
+  "action": "edit",
+  "old": "        self.diff_txt.setPlaceholderText(\"Open a second save (B) above and Compare to see which story flags \"\r\n                                         \"and scenario beats changed between them.\")",
+  "new": "        self.diff_txt.setPlaceholderText(\"Compare to see which story flags and scenario beats changed — between two slots of this save, or across a second save (B) opened above.\")",
+  "note": "Misleading: Compare falls back to a two-slot diff of the SAME save when no B is loaded (line 258); the placeholder framed a second file as required."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/savedoc.py",
+  "line": 614,
+  "action": "edit",
+  "old": "            self.edit_target.setText(f\"Editing: {t['label']} (vanilla — main block). Gil, items, equipment, \"\r\n                                     \"stats, abilities, key items. Backed up first. (Some characters share one \"\r\n                                     \"equipment record in vanilla saves, so editing one can affect another.)\")",
+  "new": "            self.edit_target.setText(f\"Editing: {t['label']} (vanilla — main block). Backed up first. (Some characters share one equipment record in vanilla saves, so editing one can affect another.)\")",
+  "note": "Drop the field enumeration that restates the section titles + status bar (429); keep the shared-equipment-record caveat."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 424,
+  "action": "edit",
+  "old": "            ph = QLabel(\"No campaign open  —  Open a campaign.toml to navigate it.\")",
+  "new": "            ph = QLabel(\"No project open  —  open a journey, campaign, or field to navigate it.\")",
+  "note": "Terminology: match the three-level phrasing at line 2867. Empty-state was campaign-only."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 548,
+  "action": "edit",
+  "old": "        self.statusBar().showMessage(\"Open a campaign.toml to begin.\")",
+  "new": "        self.statusBar().showMessage(\"Open a journey, campaign, or field to begin.\")",
+  "note": "Generic launch/empty status understated the entry points; match line 2867."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 1092,
+  "action": "edit",
+  "old": "        self.act_close.setToolTip(\"Close the open project and return to the empty Workspace — the way OUT of any \"\r\n                                  \"journey / campaign / field, from any tab\")",
+  "new": "        self.act_close.setToolTip(\"Close the open project and return to the empty Workspace (works from any tab).\")",
+  "note": "Drop emphatic filler ('the way OUT of any journey / campaign / field'); keep the load-bearing 'works from any tab'."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 1123,
+  "action": "edit",
+  "old": "                                    \"kept (only the scene side is re-read). (F5)\")",
+  "new": "                                    \"kept. (F5)\")",
+  "note": "Trim the redundant parenthetical that restates 'your unsaved field.toml edits are kept'."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 2497,
+  "action": "add",
+  "old": null,
+  "new": "Leave blank unless a fork/report gave you a beat number.",
+  "note": "ADD a steering hint to the optional story-beat inputs (also lines 2554, 3106); placeholders name set_scenario but never say what values are valid or where a scenario id comes from."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 2905,
+  "action": "edit",
+  "old": "            raise ValueError(f\"area must be ≥ 10 (got {area}) — single-digit areas black-screen (CLAUDE.md §7)\")",
+  "new": "            raise ValueError(f\"area must be ≥ 10 (got {area}) — single-digit areas black-screen the game\")",
+  "note": "User-facing error cited an internal dev doc; state the consequence plainly."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 2934,
+  "action": "add",
+  "old": null,
+  "new": "Downward camera tilt in degrees (0 = level; ~48 is typical). Leave as-is if unsure.",
+  "note": "ADD a widgets.caption/tooltip on the New-field dialog 'Camera pitch' input (default 48); today it is a bare number with no unit/range and no error path teaches it."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 2980,
+  "action": "add",
+  "old": null,
+  "new": "The Memoria mod folder this campaign deploys into — leave as FF9CustomMap unless you keep separate mod stacks.",
+  "note": "ADD a tooltip/caption on the New-campaign dialog 'Mod folder' input (prefilled FF9CustomMap); currently unexplained."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 3700,
+  "action": "edit",
+  "old": "            self._muted(\"a read-only view of the shipped .eb — edit it in place (Phase 2), not here\"),",
+  "new": "            self._muted(\"a read-only view of the shipped .eb — edit it by opening a routine below, not here\"),",
+  "note": "'(Phase 2)' is an internal dev-phase label; point at the real affordance (select a routine node)."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 4758,
+  "action": "edit",
+  "old": "                     f\"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item \"\r\n                     \"in the tree to edit it.\")",
+  "new": "                     f\"{n} {sing.lower()}(s) on this field — add one below.\")",
+  "note": "Drop the redundant navigation clause restating on-screen affordances; keep the count + add action."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 5395,
+  "action": "add",
+  "old": null,
+  "new": "Difficulty rises in-game as you keep digging; the preview shows the shortest time (difficulty 1).",
+  "note": "ADD a muted hint under the Chocobo timer seed field; 'difficulty' is referenced (label + preview) but never defined and the preview is a floor."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 5911,
+  "action": "edit",
+  "old": "            \"Adds a NEW selectable row to an existing choice menu in this routine (a base-0 contiguous GetChoose \"\r\n            \"switch + a [CHOO] row list). Picking the row runs the effect below; the row appears last.\"))",
+  "new": "            \"Adds a new selectable row to an existing choice menu in this routine. \"\r\n            \"Picking the row runs the effect below; the row appears last.\"))",
+  "note": "Strip implementation lore ('a base-0 contiguous GetChoose switch + a [CHOO] row list') from always-visible dialog prose; mechanism stays on the hover tooltip at 5639."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 6638,
+  "action": "edit",
+  "old": "            note = widgets.caption(f\"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). \"\r\n                          f\"This form edits scene #1 — edit the others in the TOML.\")",
+  "new": "            note = widgets.caption(f\"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes. \"\r\n                          f\"This form edits scene #1 — edit the rest in the TOML.\")",
+  "note": "Drop the concept-name aside '(the story dispatch)' to keep the caption in the measure."
+ },
+ {
+  "file": "ff9mapkit/ff9mapkit/workspace/shell.py",
+  "line": 7457,
+  "action": "edit",
+  "old": "            return head + [self._muted(\"camera / walkmesh / layers are SPATIAL — authored in Blender, \"",
+  "new": "            return head + [self._muted(\"camera / walkmesh / layers are SPATIAL — authored in Blender (the sibling scene.toml), \"",
+  "note": "Read-only note dead-ended the user; name the file that holds it. Aligns with the editor note at forms.py:279 and shell.py:6373."
+ }
+]

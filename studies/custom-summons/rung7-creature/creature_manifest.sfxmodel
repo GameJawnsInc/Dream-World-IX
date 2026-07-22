@@ -1,0 +1,27 @@
+{
+  "FBX": [
+    {
+      "Path": "GEO_MAIN_B0_M100",
+      "Start": "0",
+      "End": "60",
+      "Movement": {
+        "Duration": "60",
+        "OriginX": "CasterPositionX", "OriginY": "CasterPositionY + 150", "OriginZ": "CasterPositionZ + 600",
+        "DestinationX": "CasterPositionX", "DestinationY": "CasterPositionY + 150", "DestinationZ": "CasterPositionZ + 600"
+      },
+      "Rotation": {
+        "Duration": "60",
+        "OriginY": "180", "DestinationY": "180",
+        "OriginZ": "180", "DestinationZ": "180"
+      },
+      "Animations": [
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" }
+      ]
+    }
+  ]
+}

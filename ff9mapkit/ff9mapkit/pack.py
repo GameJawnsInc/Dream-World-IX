@@ -49,6 +49,26 @@ def suggest_ids(base: int, count: int) -> list[int]:
     return [base + i for i in range(count)]
 
 
+def check_custom_id(value, what: str = "field id") -> int:
+    """Parse + band-check a user-entered custom field id; return it as an int.
+
+    A custom field id lives in ``[CUSTOM_ID_MIN..FIELD_ID_MAX]`` (real ids are locked; the scratch band
+    is the top of it). Raises ``ValueError`` on a non-number or an out-of-band value, in the exact voice
+    the Workspace New pickers hand-copied at four sites -- ``"{what} {id} out of the custom band
+    4000-32767 (real ids are locked)"`` -- so this one validator can replace them without changing a
+    character of what the user reads. ``what`` names the input for that message ('field id', 'entry
+    field id', 'hub field id'); callers int() the value separately today.
+    """
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} {value!r} is not a whole number") from None
+    if not (CUSTOM_ID_MIN <= n <= FIELD_ID_MAX):
+        raise ValueError(f"{what} {n} out of the custom band {CUSTOM_ID_MIN}–{FIELD_ID_MAX} "
+                         "(real ids are locked)")
+    return n
+
+
 def pack_mod(mod_root, out_path, *, name=None) -> Path:
     """Zip a built mod folder for distribution. Returns the zip path.
 

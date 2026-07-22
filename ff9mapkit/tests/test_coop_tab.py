@@ -212,6 +212,67 @@ def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_pat
     assert coop.btn_start.isEnabled()
 
 
+def test_the_engine_row_reads_the_shared_health_source(coop, app, monkeypatch, tmp_path):
+    """One source of truth: the Status card's `engine` line is now health.netsync_generation's summary
+    verbatim, the SAME derivation Setup's 'Co-op engine' health row reads. Written a known s37 DLL, the
+    card's text must EQUAL the helper's -- a coopdoc that reworded the sentence (two copies again) fails
+    this, and the level must track (ok at s37, warn below)."""
+    from ff9mapkit import config as cfg, health
+
+    game = tmp_path / "game"
+    managed = game / "x64" / "FF9_Data" / "Managed"
+    managed.mkdir(parents=True)
+    (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient NetSyncBattle")   # s37
+    coop.refresh_status()
+    gen = health.netsync_generation(game)
+    assert coop.lbl_engine.text() == gen["summary"], "the card's engine line must be the shared summary"
+    assert gen["level"] == "ok" and coop.lbl_engine.property("state") != "warn"
+
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient")                 # s36 -> warn
+    coop.refresh_status()
+    gen = health.netsync_generation(game)
+    assert coop.lbl_engine.text() == gen["summary"]
+    assert gen["level"] == "warn" and coop.lbl_engine.property("state") == "warn"
+
+
+def test_advanced_drawer_comes_back_for_a_non_default_play_style(coop, app):
+    """THE COMES-BACK RULE. The Play-style card is folded into a collapsed Advanced drawer -- but a knob
+    that was configured on this machine must not hide from the person who set it. _load_playstyle re-opens
+    the drawer whenever the ini carries a non-default GuestSlots / GhostAs / FollowHost, and only then.
+
+    Both directions are the law: a default ini leaves a collapsed drawer collapsed (so an 'always expand'
+    implementation fails the first half), and each non-default key ALONE re-opens it (so a no-op auto-expand
+    fails the second half). Reads only the passed ini text -- no game, no prefs."""
+    drawer = coop.style_drawer
+
+    def loads_open(ini):
+        drawer.toggle_button.setChecked(False)      # start collapsed -- the rule only ever opens
+        coop._load_playstyle(ini)
+        _settle(app)
+        return drawer.toggle_button.isChecked()
+
+    try:
+        assert not loads_open("[Netsync]\n"), "an all-default ini must leave the drawer collapsed"
+        assert not loads_open(
+            "[Netsync]\nGuestSlots = 0\nGhostAs = off\nFollowHost = 0\nGuestWaitMs = 30000\n"
+        ), "explicit-default values must still leave it collapsed"
+        # Wait / diorama are NOT signals (both have non-empty engine defaults) -- a non-default wait alone
+        # must not trip the rule.
+        assert not loads_open("[Netsync]\nGuestWaitMs = 5000\nDiorama = 0\n"), (
+            "wait/diorama are not comes-back signals -- they must not open the drawer")
+        # Each real signal, alone, re-opens it.
+        assert loads_open("[Netsync]\nGuestSlots = 1\n"), "a granted battle slot must re-open the drawer"
+        assert loads_open("[Netsync]\nGhostAs = vivi\n"), "a visitor outfit must re-open the drawer"
+        assert loads_open("[Netsync]\nFollowHost = 1\n"), "follow-host must re-open the drawer"
+    finally:
+        drawer.toggle_button.setChecked(False)
+        coop._load_playstyle("[Netsync]\n")         # leave the shared doc at its default state
+        _settle(app)
+
+
 def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypatch, tmp_path):
     """`coop host` deliberately treats a stored SessionCode it cannot vouch for as ABSENT and mints a
     fresh one. The tab has to match: refresh_status SEEDS the code field from the ini, and in Host mode

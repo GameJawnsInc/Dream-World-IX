@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import collections
 import html
+import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -98,7 +99,7 @@ def _concept_badge(term, palette):
     # which CALIBRE could not reach: a Python pin freezes the circle while the "?" inside it grows with
     # the text (audited: the glyph overflows a frozen 22px box at 150%), and any badge built before a live
     # scale change would keep the stale size. In QSS, one re-render moves the box and the glyph together.
-    btn.setToolTip(f"What's a {c.title.lower()}?")
+    btn.setToolTip(f"Open the {c.title} concept card")
     btn.setAccessibleName(f"What is {c.title}")
     btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
     return btn, card_html
@@ -352,7 +353,7 @@ class CatalogPicker(QDialog):
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
     def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False,
-                 sps_context=None):
+                 sps_context=None, entries=None):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.kinds = kinds
@@ -361,6 +362,10 @@ class CatalogPicker(QDialog):
         self.browse = browse                           # browse mode: "Use this" copies the name + stays open
         self.limit = limit
         self.want_id = want_id                         # a numeric field (e.g. encounter scene) wants the id back
+        # A PRE-SCOPED entry list: when given, the picker filters THESE locally (by the same name/model/
+        # summary substring the spine uses) instead of calling infohub.browse -- so a caller can open the
+        # picker over a computed SUBSET (e.g. Import's suggested test rooms) without a new catalog kind.
+        self._fixed_entries = list(entries) if entries is not None else None
         self.result = None
         self._entries = []
         lay = QVBoxLayout(self)
@@ -391,6 +396,8 @@ class CatalogPicker(QDialog):
         bar.addWidget(cancel)
         bar.addStretch(1)
         lay.addLayout(bar)
+        if browse:                                     # Copy name copies + keeps browsing; nothing else signals that
+            lay.addWidget(widgets.caption("Copy name keeps this open — close when you're done."))
         self._refresh()
         # lines= carries the height when the initial search matched nothing (an empty list has no rows
         # to measure); list_rows rules when it did.
@@ -398,11 +405,17 @@ class CatalogPicker(QDialog):
         self.q.setFocus()
 
     def _refresh(self):
-        try:
-            self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
-                                           campaign_context=self.plan, sps_context=self.sps_context)
-        except Exception:                              # noqa: BLE001 -- a catalog needing data we lack
-            self._entries = []
+        if self._fixed_entries is not None:            # a pre-scoped subset: filter it locally, no infohub call
+            q = (self.q.text() or "").strip().lower()
+            self._entries = [e for e in self._fixed_entries
+                             if not q or q in e.name.lower()
+                             or (e.model and q in e.model.lower()) or q in e.summary.lower()]
+        else:
+            try:
+                self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
+                                               campaign_context=self.plan, sps_context=self.sps_context)
+            except Exception:                          # noqa: BLE001 -- a catalog needing data we lack
+                self._entries = []
         self.lst.clear()
         for e in self._entries:
             self.lst.addItem(f"{e.name}    [{e.kind}]")
@@ -475,10 +488,11 @@ _KIND_LABEL = {
     "sps_template": "SPS templates",
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
-    "song": "Songs", "storyflag": "Story flags",
+    "encounter": "Encounters", "song": "Songs", "storyflag": "Story flags",
 }
-# sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs.
-_LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS
+# sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs,
+# then the install-backed picker-only Encounters kind (NOT in infohub.KINDS -- warm rich / cold baked).
+_LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS + ("encounter",)
 
 
 def _esc(s) -> str:
@@ -495,6 +509,10 @@ _HUB_HELP = {
     "model": "the raw GEO models by their engine name — the lowest level, no animation join.",
     "item": "item / equipment names (+ stats read from your install).",
     "scene": "battle encounter scenes, by id.",
+    "encounter": "the battle scenes read from your install — labeled with their real monsters + the "
+                 "place they're fought (search by a monster OR a place name). Build the index once (~10 s) "
+                 "for the rich labels; until then every scene shows its baked <code>BSC_</code> name, and "
+                 "afterwards the list focuses on the scenes actually fought in a real field.",
     "song": "the game's music tracks, by song id (from your install's manifest) — pick one in the Music "
             "form, or mint your own via <code>[music] file</code>. Appears after the first song browse.",
     "storyflag": "FF9's built-in story-state registry — named engine vars, scenario beats, reserved bit regions.",
@@ -510,7 +528,7 @@ _HUB_HELP = {
 def _hub_help_html() -> str:
     """The Info Hub help text: a one-line intro, the per-section glossary (static catalogs first, the
     campaign-only sections last), and how Copy name / Copy snippet are used."""
-    order = list(infohub.KINDS) + ["field", "flag", "sps"]
+    order = list(infohub.KINDS) + ["encounter", "field", "flag", "sps"]
     rows = "".join(f'<p style="margin:4px 0;"><b>{_KIND_LABEL.get(k, k)}</b> — {_HUB_HELP[k]}</p>'
                    for k in order if k in _HUB_HELP)
     return (
@@ -526,6 +544,53 @@ def _hub_help_html() -> str:
         "</div>")
 
 
+# the `battle.locate` module ref, lazily imported + memoized on first use -- install-dependent (a field
+# census + a p0data2/mainData scan on a cold cache, ~6s+), so it must NEVER import at this module's own
+# import time (that would tax every Workspace launch, scene detail or not). `_scene_usage` below is the
+# `infohub.detail(scene_usage_fn=...)` hook wired at the ONE call site that renders a scene's detail pane
+# (CatalogLibrary._describe) -- CatalogPicker's preview never reaches kind='scene' (it only ever calls
+# detail() for 'sps'/'sps_template'), so it needs no hook.
+_locate_mod = None
+
+
+def _scene_usage(scene_id):
+    """``infohub.detail``'s ``scene_usage_fn`` hook: battle-census facts + 'where does this fight happen'
+    for one scene id, decoded from the user's own install via :mod:`battle.locate`. WARM ONLY -- it consults
+    ``locate.cached_map()`` and returns ``None`` the moment the map is cold, so opening a scene/encounter
+    detail NEVER pays the ~9s census on the GUI thread (the Info Hub's 'Build battle index' button is the
+    one place that build runs, off-thread; once it warms ``locate._MEMO`` every scene lights up rich). Also
+    returns ``None`` on ANY failure (no install, no UnityPy, a stale/mid-write cache) so a missing/broken
+    install degrades the detail pane to the bare kind/id facts, never breaks it."""
+    global _locate_mod
+    try:
+        if _locate_mod is None:
+            from ..battle import locate as _locate_mod_
+            _locate_mod = _locate_mod_
+        loc = _locate_mod
+        if loc.cached_map() is None:                        # WARM ONLY: never trigger a ~9s cold build on the
+            return None                                     # GUI thread -- cold degrades to the bare kind/id
+        #                                                     facts (the Info Hub's Build button owns the build)
+        sid = int(scene_id)
+        enemies = [n for n in (loc.monster_names(sid) or []) if n]
+        places, locations = [], []
+        for g in loc.scene_places(sid):
+            arc_name = g["arc_name"] or "an unmapped field"
+            kind = "/".join(g["kinds"])
+            fids = g["fields"]
+            fdesc = f"field {fids[0]}" if len(fids) == 1 else f"fields {', '.join(str(f) for f in fids)}"
+            places.append(f"{arc_name} ({fdesc}, {kind})")
+            locations.extend((fid, arc_name) for fid in fids)
+        return {
+            "classification": loc.classify(sid),
+            "enemies": enemies,
+            "attacks": [a for a in (loc.attack_names(sid) or []) if a],
+            "places": places,
+            "locations": sorted(set(locations)),
+        }
+    except Exception:                                       # noqa: BLE001 -- best-effort enrichment only
+        return None
+
+
 class CatalogLibrary(QDialog):
     """The Info Hub as a SECTIONED LIBRARY (replacing the all-in-one browse list). Three columns: a category
     sidebar with per-kind counts, a per-section searchable result list, and a rich DETAIL pane built from
@@ -533,6 +598,12 @@ class CatalogLibrary(QDialog):
     ``field.toml`` snippet -- the data the flat browser computed and then threw away. Browse-only: 'Copy
     name' / 'Copy snippet' put text on the clipboard; nothing is returned (the in-form picker stays
     :class:`CatalogPicker`)."""
+
+    # Emitted from the battle-index worker thread with None (ok) or an Exception, so the ~9s cold census
+    # (locate.build_map) NEVER runs on the GUI thread; handled by _on_index_ready. See _build_index. The one
+    # place a cold build runs -- once it warms locate._MEMO, every warm-only read site (scene detail, the
+    # encounter section, the scene picker, battledoc) lights up rich for the rest of the session.
+    _index_ready = Signal(object)
 
     def __init__(self, parent, plan, palette, sps_context=None):
         super().__init__(parent)
@@ -576,6 +647,16 @@ class CatalogLibrary(QDialog):
         self.count.setStyleSheet(f"color:{palette['muted']};")
         self.count.setWordWrap(True)
         mv.addWidget(self.count)
+        # The ONE async cold-build front door (Encounters section only). Add to LAYOUT before setVisible.
+        self._index_busy = False
+        self._index_ready.connect(self._on_index_ready)
+        self.build_btn = QPushButton("Build battle index")
+        self.build_btn.setToolTip("Read where each battle scene is fought + its real monster/attack names "
+                                  "from your FF9 install (~10 s, once per session — everything then shows "
+                                  "the rich labels).")
+        self.build_btn.clicked.connect(self._build_index)
+        mv.addWidget(self.build_btn)
+        self.build_btn.setVisible(False)                   # shown only on the Encounters section
         split.addWidget(mid)
 
         right = QWidget()                                  # col 3: rich detail pane + copy buttons
@@ -643,6 +724,12 @@ class CatalogLibrary(QDialog):
         except Exception:                                  # noqa: BLE001 -- a catalog needing data we lack
             allent = []
         counts = collections.Counter(e.kind for e in allent)
+        # Encounters is picker-only (NOT in KINDS), so the browse above never counts it -- add its count from
+        # the build-free encounter_entries() (warm rich / cold baked; never triggers the census at dialog-open).
+        try:
+            counts["encounter"] = len(infohub.encounter_entries())
+        except Exception:                                  # noqa: BLE001 -- no install -> the section just hides
+            pass
         self._cat_kinds = [None]
         self.cats.addItem(f"All  ({len(allent)})")
         for k in _LIBRARY_ORDER:
@@ -655,7 +742,21 @@ class CatalogLibrary(QDialog):
             self._kind = self._cat_kinds[row]
             where = "all sections" if self._kind is None else _KIND_LABEL.get(self._kind, self._kind).lower()
             self.q.setPlaceholderText(f"Search {where}…")
+            self._sync_build_btn()
             self._refresh_list()
+
+    def _sync_build_btn(self):
+        """Show the Build button only on the Encounters section, its label reflecting whether the battle
+        index is already warm (build-free: cached_map never builds)."""
+        show = self._kind == "encounter"
+        self.build_btn.setVisible(show)
+        if show and not self._index_busy:
+            try:
+                from ..battle import locate as loc
+                warm = loc.cached_map() is not None
+            except Exception:                              # noqa: BLE001 -- no install -> offer the build
+                warm = False
+            self.build_btn.setText("Rebuild battle index" if warm else "Build battle index")
 
     def _refresh_list(self):
         kinds = None if self._kind is None else [self._kind]
@@ -694,7 +795,8 @@ class CatalogLibrary(QDialog):
             self.detail.setHtml("")
             return
         try:
-            d = infohub.detail(e, campaign_context=self.plan, sps_context=self.sps_context)
+            d = infohub.detail(e, campaign_context=self.plan, sps_context=self.sps_context,
+                               scene_usage_fn=_scene_usage)
         except Exception:                                  # noqa: BLE001 -- degrade to the one-line summary
             self.detail.setHtml(f"<b>{_esc(e.name)}</b> [{_esc(e.kind)}]<br>{_esc(e.summary)}")
             return
@@ -784,6 +886,57 @@ class CatalogLibrary(QDialog):
         if e is not None:
             QApplication.clipboard().setText(infohub.snippet(e))
             self.count.setText(f"Copied the {e.kind} snippet for “{e.name}”.")
+
+    def _build_index(self):
+        """Run the ONE cold battle-index census off the GUI thread (the importdoc find-rooms worker pattern:
+        a daemon thread + the ``_index_ready`` Signal + a busy button). Already warm -> just refresh the
+        section (no rebuild). Once ``locate.build_map`` warms ``locate._MEMO`` every warm-only read site --
+        this section's labels, scene/encounter detail, the field-editor scene picker, AND battledoc -- shows
+        rich data for the rest of the session."""
+        from ..battle import locate as loc
+        try:
+            if loc.cached_map() is not None:               # already warm -> no rebuild, just re-label the list
+                return self._refresh_list()
+        except Exception:                                  # noqa: BLE001 -- probe failed -> fall through to build
+            pass
+        # This re-entry guard is PER-INSTANCE (locate.build_map has no process lock). It is sufficient only
+        # because the Info Hub is opened MODALLY as a single instance (shell: CatalogLibrary(...).exec()), so
+        # this is the only builder. If the dialog is ever made modeless / multi-instance, move the in-flight
+        # guard down into locate.build_map (a module lock + memo re-check) so concurrent builders coalesce.
+        if self._index_busy:
+            return
+        self._index_busy = True
+        self.build_btn.setEnabled(False)
+        self.build_btn.setText("Building battle index… (~10 s)")
+
+        def _work():
+            try:
+                loc.build_map()                            # census + name scan; memoizes locate._MEMO + writes disk
+                res = None
+            except Exception as e:                         # noqa: BLE001 -- no install / UnityPy -> surfaced below
+                res = e
+            try:
+                self._index_ready.emit(res)                # back to the GUI thread
+            except RuntimeError:
+                pass                                       # the dialog's C++ object was torn down mid-build
+                #                                            (window closed during the ~10s build) -> nothing
+                #                                            to deliver to; a daemon-thread emit onto a deleted
+                #                                            CatalogLibrary would otherwise raise on app-close.
+
+        threading.Thread(target=_work, name="ff9-battle-index", daemon=True).start()
+
+    def _on_index_ready(self, res):
+        """GUI-thread handler for the battle-index worker: restore the button, then refresh to rich rows, or
+        warn (no install / UnityPy)."""
+        self._index_busy = False
+        self.build_btn.setEnabled(True)
+        self.build_btn.setText("Rebuild battle index")
+        if isinstance(res, Exception):
+            return QMessageBox.warning(
+                self, "Couldn't build the battle index",
+                f"{res}\n\n(Reading battle locations needs your FF9 install + UnityPy — check "
+                "Settings ▸ Setup & health.)")
+        self._refresh_list()                               # everything is warm now: rich labels + rich detail
 
     def _show_help(self):
         """A small modal glossary: what each section is (archetype vs creature vs model vs prop …) and how

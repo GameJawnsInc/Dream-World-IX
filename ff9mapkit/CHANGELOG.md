@@ -42,6 +42,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (naming every off-grid block); `mesh.deploy_override` / `deploy_donor_sidecar` refuse before touching the
   filesystem (belt-and-braces for any direct-deploy path). Tests: `tests/test_world_grid_bounds.py`.
 
+### Added — battle locations: `encounters` verb + `battle.locate` (scene↔place census, monster names)
+- **`ff9mapkit encounters`** answers "what battles are in Evil Forest" and "where does a Goblin appear"
+  — the join FF9 never ships: each field's own `.eb` names its battle scenes (`SetRandomBattles` /
+  `Battle`/`BattleEx`, decoded by the existing `eventscan`), joined to `region_catalog.toml`'s 73
+  story-visit arcs and to each scene's real enemy display names. No args = a per-place summary +
+  coverage totals; a query auto-detects a place, monster, or `BSC_` scene name/id (`--monster`/`--place`
+  force an axis, `--scene` prints one scene's places + monster/attack names, `--unresolved` prints the
+  honest gap report, `--lang` picks the name language). Distinct from `scenes` (bare id/name catalog)
+  and `world-encounters` (overworld terrain table only).
+- **`ff9mapkit.battle.locate`** — the read-live engine underneath: an ~6s census over all 818 real
+  fields (zero computed operands in the whole corpus; scene id 0 is a real scene), honest per-scene
+  classification (`placed` 284 / `model-bucket` 176 / `overworld` 274 / `unplaced` 122 of 856), and a
+  bulk monster-name extractor that resolves battle text through `mainData`'s ResourceManager container
+  path (battle and field `.mes` share bare numeric names inside `resources.assets` — name-matching
+  returns the wrong text) in ONE pass instead of per-scene 590MB reloads. Cached under the gitignored
+  `provision.cache_dir()/battlemap/` (cold ~9s, warm ~0.006s; `--force` rebuilds); extracted content is
+  never committed as repo data.
+- **`battle-scene <donor>`** now prints each enemy type's real display name and a "found in:
+  <place> (field N, kind)" line. **InfoHub** scene entries show BSC name, classification, enemies, and
+  place; the Workspace detail pane wires it lazily via a new `scene_usage_fn` hook (separate from the
+  model `usage_fn` — the two id spaces collide numerically).
+- A new `engine` block reports whether Memoria is installed, whether the Dream World IX patches were
+  applied (detected via the `dwix-engine-backups/` dirs our installer leaves), and — when they weren't —
+  which pillars already work unmodified (novel fields, models, battle, audio, playable characters) versus
+  which need the bundle (forked real fields, the `world-*` overworld commands). No bundle zip required.
+- The installed engine's compile date is decoded from its FileVersion alone (`AssemblyVersion("1.1.*")`
+  fills the build field with days since 2000-01-01); a drift of more than ~180 days from the pinned base
+  adds a note that the prebuilt bundle may not be a clean match and to build from `memoria-patches/`
+  instead. Advisory only — nothing here affects `doctor`'s exit code.
+
 ### Added — overworld sea-carry gates (`world-transplant` / `transplant_region`)
 - **The effective-prefab gate + auto-arm** — the s34 sea→land divert binds a cell's sub-mesh overrides
   only for the transforms its *effective* prefab exposes, looked up by `transform.name`: an un-armed

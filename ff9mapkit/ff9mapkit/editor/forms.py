@@ -118,9 +118,7 @@ CHEST_SPEC = [
     Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
-    Field("flag", "Opened-flag", FLAGREF, "REQUIRED save bit that marks it looted (it stays open across "
-          "saves) -- a [[flag]] name (recommended) or a safe-band index >= 8712. Not auto-allocated, so it's "
-          "resilient to reordering + a player's save state", catalog="flag"),
+    Field("flag", "Opened-flag", FLAGREF, "REQUIRED save bit that marks it looted (stays open across saves) -- a [[flag]] name (recommended) or a safe-band index >= 8712.", catalog="flag"),
     Field("requires_flag", "Appears when flag set", FLAGREF,
           "story gate: the chest only appears after this flag (name or index) is set", catalog="flag"),
     Field("requires_flag_clear", "Appears when flag clear", FLAGREF,
@@ -149,7 +147,7 @@ SPS_SPEC = [
 ]
 ENCOUNTER_SPEC = [
     Field("scene", "Battle scene id", OPTINT, "e.g. 67 = Evil Forest; blank = no random battles",
-          catalog="scene"),
+          catalog="encounter,scene"),
     Field("freq", "Frequency (0-255)", OPTINT, "default 255"),
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]
@@ -261,7 +259,7 @@ DIALOGUE_SPEC = [
     Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
 ]
 PLAYER_SPEC = [
-    Field("spawn", "Spawn (x, z)", COORD, "where the player appears -- the DEFAULT arrival (an debug-menu warp, or "
+    Field("spawn", "Spawn (x, z)", COORD, "where the player appears -- the DEFAULT arrival (a debug-menu warp, or "
           "any door without a per-door row below); usually placed in Blender"),
     Field("face", "Spawn facing (0-255)", OPTINT,
           "0=south (toward the camera), 64=west, 128=north, 192=east"),

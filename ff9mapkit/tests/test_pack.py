@@ -28,6 +28,33 @@ def test_suggest_ids_range_check():
         pack.suggest_ids(pack.CUSTOM_ID_MAX, 5)
 
 
+def test_check_custom_id_speaks_the_hand_copied_band_voice():
+    """The shared validator the Workspace pickers collapsed onto -- so its out-of-band message must be
+    BYTE-IDENTICAL to the strings they used to hand-copy, or the rewire silently changed what a user reads.
+    Wave 2 completed the rewire, so the band voice now lives in ONE place (here); the fence flips to demand
+    the call sites no longer hand-copy it."""
+    assert pack.check_custom_id("4003") == 4003                 # a string parses
+    assert pack.check_custom_id(4000) == pack.CUSTOM_ID_MIN     # so does an int; edges are inclusive
+    assert pack.check_custom_id(pack.FIELD_ID_MAX) == pack.FIELD_ID_MAX
+
+    with pytest.raises(ValueError) as under:
+        pack.check_custom_id(3999)
+    assert str(under.value) == "field id 3999 out of the custom band 4000–32767 (real ids are locked)"
+    with pytest.raises(ValueError) as over:
+        pack.check_custom_id(pack.FIELD_ID_MAX + 1, what="entry field id")
+    assert str(over.value) == ("entry field id 32768 out of the custom band 4000–32767 "
+                               "(real ids are locked)")
+    with pytest.raises(ValueError):                             # a non-number is refused, not int()-crashed
+        pack.check_custom_id("not-an-int")
+
+    # THE REWIRE IS DONE: the New pickers must no longer hand-copy the band literal -- they validate through
+    # this one validator now. If a call site re-hand-copies the string (the drift this dedupe existed to
+    # kill), it reappears in shell.py and this goes red.
+    shell = (Path(pack.__file__).parent / "workspace" / "shell.py").read_text(encoding="utf-8")
+    assert "out of the custom band" not in shell, "the band voice is owned by check_custom_id, not hand-copied"
+    assert "pack.check_custom_id" in shell, "the New pickers validate through the shared validator"
+
+
 def test_new_project_scaffold(tmp_path):
     proj = pack.new_project("MY_ROOM", tmp_path, area=11)
     toml = proj / "my_room.field.toml"

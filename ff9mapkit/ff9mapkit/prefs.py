@@ -228,12 +228,63 @@ def set_getstarted_hidden(on: bool) -> None:
 
 
 def restore_session() -> bool:
-    """Opt-in: reopen the most recent project on launch. Default False."""
-    return get("restore_session", False) is True
+    """Reopen the most recent project on launch. Default True -- the returning veteran picks up exactly
+    where they left off, and F9 is live on restore. Newcomers are untouched: :meth:`shell.restore_last_session`
+    no-ops on an empty recent list, so a fresh install with nothing to reopen sees no behavior change.
+    Type-disciplined like :func:`guided` (also default-True): only an explicit ``False`` opts out; an absent
+    key or a corrupt value degrades to the default (ON)."""
+    return get("restore_session", True) is not False
 
 
 def set_restore_session(on: bool) -> None:
     put("restore_session", bool(on))
+
+
+def confirm_reversible_deploys() -> bool:
+    """Whether a REVERSIBLE deploy (the test slot / an in-place fork) still pops a confirm modal before it
+    runs. Default False -- F9 is a true one-keystroke loop, matching the 'reversible' labelling and Revert's
+    one-click undo; the confirm can be opted back IN in Preferences. Install-to-game and the wholesale
+    campaign/journey deploys keep their unconditional confirm regardless of this pref."""
+    return get("confirm_reversible_deploys", False) is True
+
+
+def set_confirm_reversible_deploys(on: bool) -> None:
+    put("confirm_reversible_deploys", bool(on))
+
+
+def has_deployed() -> bool:
+    """The sticky first-deploy marker: True once the user has ever deployed. Default False; latched True
+    on the first successful deploy and never unset. The first-run READY spine reads it to stop pointing a
+    newcomer at Deploy once they've found it (silent forever after)."""
+    return get("has_deployed", False) is True
+
+
+def set_has_deployed(on: bool) -> None:
+    """Set the first-deploy marker. A one-way latch in practice (only ever called with True)."""
+    put("has_deployed", bool(on))
+
+
+# The Build & Deploy destination radio, remembered across sessions so a veteran's workflow (e.g. "deploy
+# at its own id") survives an open/relaunch instead of hard-resetting to the has_tools default every time.
+# 'inplace' is DELIBERATELY excluded -- it is donor-driven and auto-selects for a verbatim fork of a real
+# field, so persisting it would fight that auto-selection. Only a radio the USER clicked is stored.
+DEPLOY_DESTS = ("test", "own", "game", "other")
+
+
+def deploy_dest() -> str | None:
+    """The saved Build & Deploy destination mode -- one of :data:`DEPLOY_DESTS`, or ``None`` when the user
+    has never pinned one (fall back to the has_tools default). Type-disciplined: a corrupt/unknown value
+    (incl. the non-persistable ``"inplace"``) reads as ``None``."""
+    val = get("deploy_dest", None)
+    return val if val in DEPLOY_DESTS else None
+
+
+def set_deploy_dest(mode: str) -> None:
+    """Remember the destination the user CLICKED. Only the four persistable modes are stored; anything
+    else (incl. ``"inplace"``) is ignored, so the auto-selecting In-place fork route never becomes a
+    sticky global preference."""
+    if mode in DEPLOY_DESTS:
+        put("deploy_dest", mode)
 
 
 def layout() -> dict:

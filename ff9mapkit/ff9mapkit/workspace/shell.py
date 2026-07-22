@@ -20,10 +20,10 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
-    QPixmap, QShortcut, QTextCharFormat, QTextCursor,
+    QPixmap, QShortcut, QTextCharFormat, QTextCursor, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -49,7 +49,7 @@ from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
-from .hero import HeroBand, LedeCard
+from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
@@ -265,27 +265,48 @@ def _toml_str(s) -> str:
 
 
 def _getstarted_show(*, setup_incomplete: bool, has_target: bool, has_recent: bool,
-                     dismissed: bool) -> bool:
+                     has_deployed: bool, dismissed: bool) -> bool:
     """THE GOES-AWAY LAW: onboarding is for someone who has not yet done the thing, so DONE is measured,
     never assumed -- and once measured done, the guide leaves on its own.
 
-    Pure so the whole truth table is a fence (test_home_beginner). The old rule was
-    ``setup_incomplete or nothing_open``, which showed the full newcomer checklist to a VETERAN every
-    time they closed a project: 'nothing open right now' is not 'has never opened anything', and prime
-    Home space went to two ticked done-rows while the user's own Recent list sat below the fold.
+    Pure so the whole truth table is a fence (test_home_beginner). The arc the guide teaches now runs
+    all the way to the payoff -- setup, fork, DEPLOY-and-play -- so its completion signal is the last
+    rung, not the middle one. ``has_deployed`` is that signal: a sticky, save-persistent latch set on
+    the first real deploy (prefs.has_deployed), and it is exactly what separates "a veteran who closed a
+    project" from "a newcomer who forked a field and has not yet put it in the game".
 
     * dismissed wins over everything -- Hide is an explicit user choice, and the Home setup banner (a
       one-liner, not a checklist) still surfaces real setup problems underneath it.
-    * setup incomplete -> show: the app cannot build anything until these steps run.
-    * setup complete -> show only to a user with NO project history and nothing open. Any recent entry
-      (even one whose file is currently unreachable -- an unplugged drive is not a reset) means the
-      first-ten-minutes arc happened; Home's job is now Recent + the spine, not the guide.
+    * setup incomplete -> show: the app cannot build anything until these steps run. This is checked BEFORE
+      has_deployed on purpose -- a proven veteran whose install later goes unreachable (moved/uninstalled,
+      or prefs copied to a fresh machine) genuinely needs the setup steps back, so the "veteran never sees
+      it" guarantee below is precisely "a veteran WITH A HEALTHY SETUP never sees it".
+    * has_deployed -> gone: the user has completed the whole arc once with a healthy setup; Home's job is
+      now Recent + the spine, and this branch is silent forever after.
+    * setup complete, never deployed -> show while a target is OPEN (this is the "now deploy and press
+      ~" moment the old rule cut off the instant the fork opened a target), OR to a true first-run user
+      with no history at all. A closed project with history but no deploy relies on Recent + the spine
+      (``not has_recent`` is False there) -- reopening it brings has_target back and the guide with it.
+
+    The old rule was ``not has_target and not has_recent``, which VANISHED the guide the moment the fork
+    opened a target -- exactly when "now deploy" is the next thing to say. Re-derived (not patched) so
+    the arc closes at the payoff instead of at the fork.
     """
     if dismissed:
         return False
     if setup_incomplete:
         return True
-    return not has_target and not has_recent
+    if has_deployed:
+        return False
+    return has_target or not has_recent
+
+
+def _getstarted_primary_ix(steps) -> int:
+    """The index of the guide's ONE accented step: the first NOT-done step (``steps[i][2]`` is the done
+    flag). ``-1`` when every step is done -- only the Ctrl-K FORCED peek by a done-everything veteran reaches
+    that, and accenting nothing keeps the one-accent budget while never nudging a veteran toward an
+    already-completed step (a non-forced show always has an unmet step, so it never hits the ``-1``)."""
+    return next((i for i, s in enumerate(steps) if not s[2]), -1)
 
 
 def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare", entry=4100,
@@ -421,7 +442,7 @@ class BreadcrumbBar(QWidget):
             if w:
                 w.deleteLater()
         if not crumbs:
-            ph = QLabel("No campaign open  —  Open a campaign.toml to navigate it.")
+            ph = QLabel("No project open  —  open a journey, campaign, or field to navigate it.")
             ph.setProperty("role", "muted")
             self._lay.addWidget(ph)
             self._lay.addStretch(1)
@@ -511,6 +532,9 @@ class Workspace(QMainWindow):
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._deployed_target = None               # the file path last deployed OK -> the spine's post-deploy hint
+        self._deployed_field_id = None             # the field id that last deploy targeted -> the spine's Copy-warp receipt
+        self._deployed_dest = None                 # the destination key at deploy time -> the spine drops its Undo once the radio moves off it
+        self._deployed_revertible = False          # did that deploy write a revert script -> no Undo for a deploy that cannot be undone
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
@@ -545,9 +569,41 @@ class Workspace(QMainWindow):
         self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
-        self.statusBar().showMessage("Open a campaign.toml to begin.")
+        self.statusBar().showMessage("Open a journey, campaign, or field to begin.")
+        self._build_mode_chip()
         self._build_version_label()
         self._restore_layout()                     # window/splitters/console from last session (best-effort)
+
+    # ---- beginner-mode chip ----
+    def _build_mode_chip(self):
+        """A quiet status-bar chip naming the beginner mode (Guided / Full), added left of the version chip.
+        It exists because the cross-tab lever (ASK #12) makes the mode consequential -- a user who flips it
+        now sees where it lives. Click / Enter / Space opens Preferences. Quiet tier (muted, no accent), a
+        real keyboard tab stop with a visible focus ring (the QSS #modeChip:focus rule), and dial-proof --
+        it sizes to its own text, so CALIBRE grows it cleanly with no hardcoded width."""
+        self.mode_chip = QToolButton()
+        self.mode_chip.setObjectName("modeChip")
+        self.mode_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_chip.setFocusPolicy(Qt.FocusPolicy.TabFocus)   # reachable by Tab; not a click-focus grabber
+        self.mode_chip.clicked.connect(self._open_preferences)
+        self.statusBar().addPermanentWidget(self.mode_chip)
+        self._refresh_mode_chip()
+
+    def _refresh_mode_chip(self):
+        """Re-label the status-bar mode chip for the current beginner mode. Reads ``forms_qt._GUIDED`` live
+        so a flip from Preferences/Ctrl-K/Cancel-revert always lands on the right word. A no-op until the
+        chip is built (guarded, since the shell wires ``_apply_guided`` before the chrome in some paths)."""
+        chip = getattr(self, "mode_chip", None)
+        if chip is None:
+            return
+        from . import forms_qt
+        guided = forms_qt._GUIDED
+        chip.setText("Guided" if guided else "Full")
+        chip.setToolTip(
+            "Beginner mode: Guided — expert fields tuck into an Advanced drawer. Click to change in Preferences."
+            if guided else
+            "Beginner mode: Full — every field and expert drawer is shown. Click to change in Preferences.")
+        chip.setAccessibleName("Beginner mode: " + ("Guided" if guided else "Full"))
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -678,11 +734,23 @@ class Workspace(QMainWindow):
 
     def _apply_guided(self, on):
         """Set Guided/Full beginner mode LIVE + re-mount the open form so it applies now. Guided tucks each
-        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed."""
+        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed.
+
+        The CROSS-TAB LEVER (ASK #12): 'Full' also opens every expert drawer on the doc tabs (builddoc's
+        Advanced, coopdoc's play-style, importdoc's Walk-as + 'More ways to import') and re-renders the
+        _GUIDED-gated Battle panel -- so flipping the mode is consequential everywhere, not just on the
+        open form. Each doc's ``apply_guided`` fences its own computed auto-expand overrides (a non-default
+        co-op play style, a configured Walk-as swap) so those keep WINNING over the mode default (chair
+        ruling). Re-callable from the live Preferences preview AND its Cancel-revert path."""
         from . import forms_qt
         forms_qt.set_guided(bool(on))
         if getattr(self, "tree", None) is not None and self.tree.currentItem() is not None:
             self._on_select()                              # re-render the current form under the new mode
+        for _doc in (getattr(self, "build_deploy", None), getattr(self, "coop_doc", None),
+                     getattr(self, "import_field", None), getattr(self, "battle", None)):
+            if _doc is not None and hasattr(_doc, "apply_guided"):
+                _doc.apply_guided(bool(on))
+        self._refresh_mode_chip()                          # keep the status-bar mode chip in step
 
     def _toggle_guided(self):
         """Flip Guided <-> Full and persist it (the Ctrl-K quick command)."""
@@ -935,6 +1003,17 @@ class Workspace(QMainWindow):
                            "opens automatically when the Workspace starts.")
         restore.setChecked(prefs.restore_session())
         lay.addWidget(restore)
+        # ASK #1 (Wave A shipped the pref + skip-by-default; this is its Preferences row). A reversible deploy
+        # (test slot / in-place fork) skips its confirm modal by default so F9 is a true one-keystroke loop;
+        # ticking this opts the confirm back IN. Install-to-game + the wholesale campaign/journey deploys keep
+        # their unconditional confirm regardless. Sibling pattern: read now, persist in _accept, drop on Cancel.
+        confirm_rev = QCheckBox("Ask before reversible deploys (test slot / in-place fork)")
+        confirm_rev.setObjectName("confirm_reversible_chk")
+        confirm_rev.setToolTip("Off (default): F9 deploys straight to the test slot / in-place with no modal — "
+                               "Revert undoes it in one click. On: a confirm appears first. Install to game and "
+                               "campaign/journey deploys always confirm.")
+        confirm_rev.setChecked(prefs.confirm_reversible_deploys())
+        lay.addWidget(confirm_rev)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
             chk.setObjectName("update_chk")
@@ -965,6 +1044,7 @@ class Workspace(QMainWindow):
             prefs.set_guided(bool(mode_combo.currentData()))
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
+            prefs.set_confirm_reversible_deploys(confirm_rev.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -975,7 +1055,11 @@ class Workspace(QMainWindow):
                 self._text_scale = original_scale         # assign, don't _apply_: retheme() below re-renders
                                                           # the sheet FROM this field, so applying here would
                                                           # just build the same stylesheet twice
-                self._apply_guided(original_guided)
+                from . import forms_qt
+                if forms_qt._GUIDED != original_guided:   # only revert the mode (and re-default the cross-tab
+                    self._apply_guided(original_guided)   # drawers) if it was actually previewed-changed -- a
+                                                          # blanket re-default would disturb drawers a Cancel
+                                                          # never touched (the round-5 density lesson).
                 anim.configure(original_motion)           # revert the live motion preview too
                 self.retheme(original)                    # re-applies qss() with the restored density
 
@@ -1030,14 +1114,22 @@ class Workspace(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle("About Dream World IX")
         lay = QVBoxLayout(dlg)
-        head = QHBoxLayout()
+        # The colophon earns the signet: the icon + wordmark sit in a card that paints the one gold mark
+        # (ColophonMark), the same corner the hero and lede draw, at reduced ink. The left content margin
+        # clears the mark's arm exactly as the lede's does.
+        head_card = ColophonMark(self.pal, scale=self._text_scale)
+        head = QHBoxLayout(head_card)
+        head.setContentsMargins(ColophonMark._INSET + 22, 14, 16, 14)
+        head.setSpacing(12)
         icon = QLabel()
         icon.setPixmap(_app_icon().pixmap(48, 48))
         head.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
         title = QLabel(f"<b>Dream World IX</b> · ff9mapkit<br>"
                        f"<span style='color:{self.pal['muted']}'>v{__version__} · {mode}</span>")
         head.addWidget(title, 1)
-        lay.addLayout(head)
+        lay.addWidget(head_card)
+        # NOT registered for live retint: the About box is a short-lived modal rebuilt fresh on each open
+        # with the current palette, and a retint lambda would outlive the dialog and touch a deleted widget.
         body = QLabel(
             "Build brand-new playable <i>Final Fantasy IX</i> fields — and faithfully fork the real ones — "
             "for the Memoria engine.<br><br>"
@@ -1089,8 +1181,7 @@ class Workspace(QMainWindow):
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
         self.act_close = QAction("Close", self)
-        self.act_close.setToolTip("Close the open project and return to the empty Workspace — the way OUT of any "
-                                  "journey / campaign / field, from any tab")
+        self.act_close.setToolTip("Close the open project and return to the empty Workspace (works from any tab).")
         self.act_close.triggered.connect(self._close_project)
         tb.addAction(self.act_close)
         tb.addSeparator()
@@ -1120,7 +1211,7 @@ class Workspace(QMainWindow):
         self.act_refresh.setToolTip("Re-read the Blender-owned scene.toml from disk (after a re-export) and "
                                     "rebuild the tree — updates the 'needs definition' nodes + counts and the "
                                     "Inspector WITHOUT re-opening the field. Your unsaved field.toml edits are "
-                                    "kept (only the scene side is re-read). (F5)")
+                                    "kept. (F5)")
         self.act_refresh.triggered.connect(self.on_refresh_scene)
         tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
         self.act_lint_cli = QAction("Lint", self)
@@ -1285,7 +1376,22 @@ class Workspace(QMainWindow):
         for _ekey in (Qt.Key_Return, Qt.Key_Enter):                 # Enter = open (parity with double-click)
             esc = QShortcut(QKeySequence(_ekey), self.tree, activated=self._open_current_tree_item)
             esc.setContext(Qt.ShortcutContext.WidgetShortcut)
-        tv.addWidget(self.tree, 1)
+        # The empty stage has a voice: with no project the tree is a blank void, so a QStackedWidget swaps it
+        # for a teaching empty-state (a QTreeWidget can't host a child overlay cleanly). Toggled on the open/
+        # close path via the tree model's row signals -- any addTopLevelItem/clear re-evaluates the count.
+        self._nav_stack = QStackedWidget()
+        self._nav_stack.addWidget(self.tree)                        # index 0 = the populated tree
+        self._nav_empty = widgets.empty_state(
+            "◇", "Nothing open yet",
+            teach="Open a journey, campaign, or field from the toolbar — or start on Home.",
+            teach_width=(150, 240))                                 # a narrow measure -- the navigator column is
+        #                                                             ~300px; the wide default would inflate it
+        self._nav_stack.addWidget(self._nav_empty)                  # index 1 = the void's teaching state
+        tv.addWidget(self._nav_stack, 1)
+        _navmodel = self.tree.model()
+        for _navsig in (_navmodel.rowsInserted, _navmodel.rowsRemoved, _navmodel.modelReset):
+            _navsig.connect(self._sync_nav_stack)
+        self._sync_nav_stack()
         split.addWidget(tree_col)
 
         self.tabs = _RailTabs()
@@ -1328,7 +1434,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.models_doc, "Models")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
-        self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
+        self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems,
+                                     on_coop=lambda: self.tabs.setCurrentWidget(self.coop_doc))
         self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                       on_forked=self._import_forked,       # a clean fork auto-opens its project
@@ -1337,7 +1444,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.import_field, "Import")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
-        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup)
+        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup,
+                                on_build=lambda: self.tabs.setCurrentWidget(self.build_deploy))
         self.tabs.addTab(self.coop_doc, "Co-op")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -1491,6 +1599,24 @@ class Workspace(QMainWindow):
         self._busy_bar.setVisible(False)
         self._busy_bar.setAccessibleName("Working")
         hh.addWidget(self._busy_bar)
+        # a Stop control so a wedged job is escapable without killing the whole app (a silent UnityPy bundle
+        # read freezes both the bar and Output -- a slow import reads identically to a hang). Hidden except
+        # while a job runs; styled like the other console-head buttons.
+        self._stop_btn = QPushButton("Stop")
+        self._stop_btn.setObjectName("consoleHeadBtn")
+        self._stop_btn.setToolTip("Stop the running job (kills the subprocess; the verdict reads 'Stopped.')")
+        self._stop_btn.clicked.connect(self._stop_job)
+        self._stop_btn.setVisible(False)
+        hh.addWidget(self._stop_btn)
+        # the elapsed clock + stall detector: text, not motion (reduced-motion-safe). All fenced OFF whenever
+        # no job runs -- the timer is only active between _set_busy(True) and (False).
+        self._busy = False
+        self._stopped = False
+        self._elapsed = QElapsedTimer()
+        self._last_output_ms = 0
+        self._job_timer = QTimer(self)
+        self._job_timer.setInterval(1000)
+        self._job_timer.timeout.connect(self._tick_job)
         self._console_head = head
         panel_v.addWidget(head)
 
@@ -1511,6 +1637,11 @@ class Workspace(QMainWindow):
             self.pal["muted"])
         self.problems.setAccessibleName("Problems")
         self.problems.setIconSize(QSize(16, 16))     # room for the per-row severity icon (error/warn shapes)
+        # A failed job posts a single anchor row that carries the offending line in UserRole -- clicking (or
+        # Enter-ing) it reveals that line in the Output console. Rows WITHOUT an anchor (validation errors,
+        # etc.) carry no UserRole and _jump_to_anchor no-ops on them, so this is safe to wire once for all.
+        self.problems.itemClicked.connect(self._jump_to_anchor)
+        self.problems.itemActivated.connect(self._jump_to_anchor)
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -1581,8 +1712,20 @@ class Workspace(QMainWindow):
     def _console_head_h(self):
         return self._console_head.sizeHint().height()
 
+    def _elapsed_str(self):
+        """``m:ss`` of the running job, or ``""`` when nothing runs (the clock is fenced to the busy window)."""
+        if not (getattr(self, "_busy", False) and getattr(self, "_elapsed", None) is not None
+                and self._elapsed.isValid()):
+            return ""
+        s = self._elapsed.elapsed() // 1000
+        return f"{s // 60}:{s % 60:02d}"
+
     def _sync_console_btn(self):
-        self._console_btn.setText(("▾  " if self._console_open else "▸  ") + "Problems  ·  Output")
+        # while a job runs, the collapsed toggle carries the elapsed clock so the running state is legible
+        # even with the console collapsed (the always-visible chrome, mirrored -- see also _refresh_deploy_btn).
+        el = self._elapsed_str()
+        base = ("▾  " if self._console_open else "▸  ") + "Problems  ·  Output"
+        self._console_btn.setText(base + (f"  —  Working… {el}" if el else ""))
         self._console_btn.setToolTip("Collapse the console panel" if self._console_open
                                      else "Expand the console panel")
 
@@ -1755,6 +1898,9 @@ class Workspace(QMainWindow):
         v.addWidget(self._home_row("save", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
+        v.addWidget(self._home_row("pin", "Co-op", "play a live session with a friend — ghost sync on a "
+                                   "shared field, co-op battles (a play session, not shipping)",
+                                   [("Go to Co-op", lambda: self.tabs.setCurrentWidget(self.coop_doc), False)]))
         v.addStretch(1)
         hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <a href=\"conceptmap\">How it all fits</a> · "
                       "<b>Close</b> (toolbar) returns here.")
@@ -1814,7 +1960,12 @@ class Workspace(QMainWindow):
     def _getstarted_steps(self):
         """The newcomer's provenance-clean first-steps, each with a ``done`` flag + a primary action. Nothing
         here ships FF9 content: the setup steps point the kit at the user's OWN install, then the creative
-        endpoint forks a real field FROM that install. ``done=None`` marks the (always-available) action step."""
+        arc forks a real field FROM that install and deploys it into the game.
+
+        EVERY step's done is MEASURED (no ``done=None`` action step): the accent walks the arc, so the one
+        primary step is always the exact next thing. The fork step reads done from an open target or any
+        project history (either means the creative step happened); the deploy step reads the sticky
+        first-deploy latch. A ``None`` here would freeze primary_ix on it forever -- the bug the round fixed."""
         from .. import health, provision
         game, _err = health.find_game()
         have_game = game is not None
@@ -1824,14 +1975,18 @@ class Workspace(QMainWindow):
                 have_templates = bool(provision.templates_present())
             except Exception:                          # noqa: BLE001 -- a probe hiccup must not break Home
                 have_templates = False
+        forked = self._current_target()[0] is not None or bool(prefs.recent())
         return [
             ("Point the kit at your FF9 install", "So it can read the game's own fields, art, and data — "
              "nothing is shipped with the tool.", have_game, "Locate game…", self._open_setup),
             ("Extract the base templates (a one-time ~1–2 min copy)", "The kit builds from these, regenerated "
              "from YOUR install — never from Square-Enix bytes.", have_templates, "Run setup…", self._open_setup),
             ("Fork your first field from the game", "Turn any real FF9 screen into an editable project — "
-             "starting from one that already works is the fastest way to learn.", None, "Go to Import",
+             "starting from one that already works is the fastest way to learn.", forked, "Go to Import",
              lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Deploy your fork and play it", "Press Deploy (F9) to put it in the game, then in-game press "
+             "~ → Reload field to walk it.", prefs.has_deployed(), "Go to Build",
+             lambda: self.tabs.setCurrentWidget(self.build_deploy)),
         ]
 
     def _getstarted_row(self, num, title, desc, done, label, cb, primary):
@@ -1898,20 +2053,24 @@ class Workspace(QMainWindow):
             setup_incomplete=setup_incomplete,
             has_target=self._current_target()[0] is not None,
             has_recent=bool(prefs.recent()),
+            has_deployed=prefs.has_deployed(),
             dismissed=prefs.getstarted_hidden())
         for w in (self._start_head, self._start_intro, self._start_note, self._start_box, self._start_footer):
             w.setVisible(show)
         if show and hasattr(self, "_home_setup"):
             self._home_setup.setVisible(False)                        # the checklist covers the setup warning
-        # THE ONE-ACCENT LAW, enforced at the call site: while the guide is up and nothing is open, the
-        # lede IS the guide's primary step (same title, same note, same verb -- _lede_state reuses the
-        # steps), so showing both rendered the identical row twice with TWO accent buttons 250px apart.
-        # One of them has to go, and it is the lede: the guide carries the context (step N of 3, the ✓s).
+        # THE ONE-ACCENT LAW, enforced at the call site: while the guide is up, its primary step IS the
+        # page's single accent, so the lede (also accent) must yield -- showing both renders two accent
+        # buttons that name the same next step (the lede reuses these very steps). The guide keeps it:
+        # it carries the context (step N of 4, the ✓s, the arc through Deploy). Now the guide can show
+        # WITH a target open (the "now deploy" moment), the yield is unconditional on `show` -- the old
+        # `target is not None or not show` predated the guide reaching that state and would double the
+        # accent there.
         if hasattr(self, "_lede"):
-            self._lede.setVisible(self._current_target()[0] is not None or not show)
+            self._lede.setVisible(not show)
         if not show:
             return
-        primary_ix = next((i for i, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        primary_ix = _getstarted_primary_ix(steps)      # first not-done step, or -1 (forced peek, all done)
         for i, (title, desc, done, label, cb) in enumerate(steps):
             self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
 
@@ -2358,6 +2517,15 @@ class Workspace(QMainWindow):
                 lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             gv.addLayout(row)
+            if not forked and pf is None:              # no playbook command -> show the shape to run by hand
+                cmd = QLineEdit(f'py -m ff9mapkit import-chain <seed field id> --out "{self.manifest.root / f}"')
+                cmd.setReadOnly(True)
+                crow = QHBoxLayout()
+                crow.addWidget(cmd, 1)
+                cpy = QPushButton("Copy")
+                cpy.clicked.connect(lambda _=False, c=cmd: QApplication.clipboard().setText(c.text()))
+                crow.addWidget(cpy)
+                gv.addLayout(crow)
         if missing_cmds:
             allb = QPushButton(f"Fork all missing ({len(missing_cmds)})")
             allb.setObjectName("accent")
@@ -2491,14 +2659,14 @@ class Workspace(QMainWindow):
         jid.setPlaceholderText("dali   (a slug: A-Z, 0-9, _)")
         jname = QLineEdit()
         jname.setPlaceholderText("Dali")
-        entry = QLineEdit()
-        entry.setPlaceholderText("4100   (the installed field this row warps into)")
         scenario = QLineEdit()
         scenario.setPlaceholderText("optional story beat (set_scenario)")
         form.addRow("Journey id", jid)
         form.addRow("Menu label", jname)
-        form.addRow("Entry field id", entry)
+        entry = widgets.id_field(form, "Entry field id",
+                                 placeholder="4100   (the installed field this row warps into)")
         form.addRow("Scenario", scenario)
+        form.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
                       "just points New Game at its field id.")
         note.setWordWrap(True)
@@ -2522,7 +2690,8 @@ class Workspace(QMainWindow):
                 raise ValueError("a journey id is required")
             if sid in {j.id for j in self.manifest.journeys}:
                 raise ValueError(f"a journey id {sid!r} is already in this hub — pick another")
-            ent = int(entry_text)
+            from .. import pack
+            ent = pack.check_custom_id(entry_text, what="entry field id")
             row = J.render_journey_row(sid, name or sid, ent,
                                        scenario=int(scenario_text) if str(scenario_text).strip() else None)
             text = Path(self.journey_root).read_text(encoding="utf-8").rstrip("\n") + "\n\n" + row
@@ -2554,6 +2723,7 @@ class Workspace(QMainWindow):
         scenario.setPlaceholderText("optional story beat (the seed scenario)")
         form.addRow("Base party", party)
         form.addRow("Start beat", scenario)
+        form.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         if j.is_bare:
             note = QLabel("⚠ This is a BARE single-field journey: the base PARTY won't apply (it's injected into "
                           "a MULTI-campaign entry's script at deploy). Set the party on the entry FIELD's [party] "
@@ -2679,18 +2849,7 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setProperty("role", "muted")
         lay.addWidget(intro)
-        lst = QListWidget()
-        for a in arcset.arcs:
-            tag = "   ✓ in arc" if a.key in existing else ""
-            it = QListWidgetItem(f"{a.name}   (seed {a.seed}){tag}")
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(Qt.CheckState.Unchecked)
-            it.setData(Qt.ItemDataRole.UserRole, a.key)
-            if a.note:                                  # the catalog note shows even on a disabled "✓ in arc" row
-                it.setToolTip(a.note + ("  (already in this arc)" if a.key in existing else ""))
-            if a.key in existing:                       # already chained -> not re-addable (append is idempotent)
-                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            lst.addItem(it)
+        lst = widgets.region_catalog_list(arcset, exclude=existing, show_counts=True)
         lay.addWidget(lst)
 
         def _set_all(checked):
@@ -2902,9 +3061,9 @@ class Workspace(QMainWindow):
         name = _field_token(name)
         area = int(area)
         if area < 10:
-            raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen (CLAUDE.md §7)")
-        if field_id is not None and not (4000 <= int(field_id) <= 32767):
-            raise ValueError(f"field id {field_id} out of the custom band 4000–32767 (real ids are locked)")
+            raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen the game")
+        if field_id is not None:
+            field_id = pack.check_custom_id(field_id, what="field id")
         proj_dir = Path(dest) / name
         fpath = proj_dir / f"{name.lower()}.field.toml"
         if fpath.exists():
@@ -2923,15 +3082,15 @@ class Workspace(QMainWindow):
         name = QLineEdit()
         name.setPlaceholderText("MY_ROOM")
         dest = QLineEdit(self._default_new_dest())
-        fid = QLineEdit()
-        fid.setPlaceholderText("auto (suggested)")
         area = QLineEdit("11")
         pitch = QLineEdit("48")
         form.addRow("Name", name)
         form.addRow("Destination", self._dir_row(dest, "Choose where to scaffold the field"))
-        form.addRow("Field id", fid)
+        fid = widgets.id_field(form, "Field id")
         form.addRow("Area (≥10)", area)
         form.addRow("Camera pitch", pitch)
+        form.addRow(widgets.caption("Downward camera tilt in degrees (0 = level; ~48 is typical). "
+                                    "Leave as-is if unsure."))
         note = QLabel("A new walkable room with PLACEHOLDER art is created under "
                       "<dest>/<NAME>/ and opened. Repaint the layers + author it here.")
         note.setProperty("role", "muted")
@@ -2978,6 +3137,8 @@ class Workspace(QMainWindow):
         form.addRow("Name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose the campaign folder (campaign.toml goes here)"))
         form.addRow("Mod folder", mod)
+        mod.setToolTip("The Memoria mod folder this campaign deploys into — leave as FF9CustomMap unless "
+                       "you keep separate mod stacks.")
         form.addRow("First field id", idb)
         note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
                       "tree (or its root) to <b>Add field…</b>.")
@@ -3017,6 +3178,10 @@ class Workspace(QMainWindow):
         name = str(name).strip()
         if not name:
             raise ValueError("a hub / journey name is required")
+        from .. import pack
+        pack.check_custom_id(hub_id, what="hub field id")
+        if kind == "bare":
+            pack.check_custom_id(entry, what="entry field id")
         dest = Path(dest)
         jpath = dest / "journeys.toml"
         if jpath.exists():
@@ -3091,17 +3256,15 @@ class Workspace(QMainWindow):
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
         dest = QLineEdit(self._default_new_dest())
-        hub_id = QLineEdit("4600")
         borrow = QLineEdit("N11_HUT")
         jid = QLineEdit("intro")
         jname = QLineEdit("Intro")
         form.addRow("Hub name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose a folder for the journeys.toml"))
-        form.addRow("Hub field id", hub_id)
+        hub_id = widgets.id_field(form, "Hub field id", value="4600")
         form.addRow("Hub art (borrow a real field)", borrow)
         form.addRow("First journey id", jid)
         form.addRow("First journey name", jname)
-        entry = QLineEdit("4100")
         scenario = QLineEdit()
         scenario.setPlaceholderText("optional story beat")
         campaigns = QLineEdit()
@@ -3109,8 +3272,9 @@ class Workspace(QMainWindow):
         bare_panel, bl = QWidget(), None
         bl = QFormLayout(bare_panel)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.addRow("Entry field id", entry)
+        entry = widgets.id_field(bl, "Entry field id", value="4100")
         bl.addRow("Scenario", scenario)
+        bl.addRow(widgets.caption("Leave blank unless a fork/report gave you a beat number."))
         multi_panel = QWidget()
         ml = QFormLayout(multi_panel)
         ml.setContentsMargins(0, 0, 0, 0)
@@ -3697,7 +3861,7 @@ class Workspace(QMainWindow):
             return
         grp.setData(0, _DETAIL, [
             f"{len([x for x in lm.entries if x.role != 'empty'])} entries, {len(lm.nodes)} routines",
-            self._muted("a read-only view of the shipped .eb — edit it in place (Phase 2), not here"),
+            self._muted("a read-only view of the shipped .eb — edit it by opening a routine below, not here"),
             self._muted("'?' marks a target chosen at runtime (computed / dynamic-caller) — unresolvable offline")])
         from .. import logic_map as LM
         try:                                            # a Hot & Cold forest fork -> a high-level authoring node
@@ -4755,8 +4919,7 @@ class Workspace(QMainWindow):
         self._set_editor_tab(f"{sing}s")            # so the tab reflects the group, not the prior leaf's name
         n = len(self._doc(member).data.get(kind, []) or [])
         self._header(f"{member}  ·  {sing}s",
-                     f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
-                     "in the tree to edit it.")
+                     f"{n} {sing.lower()}(s) on this field — add one below.")
         btn = QPushButton(f"Add {sing}")
         btn.setObjectName("accent")
         btn.setIcon(icons.icon("plus", self.pal["accent_fg"], 15))
@@ -4992,8 +5155,10 @@ class Workspace(QMainWindow):
             ed = QPlainTextEdit(str(site.old))
             ed.setMinimumSize(QSize(380, 96))
             form.addRow("New line", ed)
+            msg = "This replaces the line in every language."
             if site.note:
-                form.addRow(self._muted_label(site.note + " — other languages are set to this line too."))
+                msg = site.note + " — " + msg
+            form.addRow(self._muted_label(msg))
             form.addRow(self._ok_cancel(dlg))
             return ed.toPlainText() if dlg.exec() == QDialog.DialogCode.Accepted else None
         prefill = self._logic_value_str(site, site.old) if site.value_kind == "item" else str(site.old)
@@ -5396,6 +5561,8 @@ class Workspace(QMainWindow):
         ed = QLineEdit(str(cur if cur is not None else vanilla))
         ed.setMinimumWidth(120)
         form.addRow("Seconds", ed)
+        form.addRow(self._muted_label("Difficulty is a runtime multiplier (≥1); the preview shows the "
+                                      "shortest time (difficulty 1)."))
         hint = self._muted_label("")
         form.addRow(hint)
 
@@ -5471,6 +5638,7 @@ class Workspace(QMainWindow):
         def on_change(*_):
             k = kind.currentIndex()
             ed.setEnabled(k in (0, 1))
+            ed.setPlaceholderText({0: "item name or id", 1: "gil amount"}.get(k, ""))
             if k == 2:
                 hint.setText("→ the dig finds nothing")
                 return
@@ -5908,8 +6076,8 @@ class Workspace(QMainWindow):
         form = QFormLayout()
         outer.addLayout(form)
         form.addRow(self._muted_label(
-            "Adds a NEW selectable row to an existing choice menu in this routine (a base-0 contiguous GetChoose "
-            "switch + a [CHOO] row list). Picking the row runs the effect below; the row appears last."))
+            "Adds a new selectable row to an existing choice menu in this routine. "
+            "Picking the row runs the effect below; the row appears last."))
 
         hint = self._menu_txid_hint(eb, entry, tag)
         txid_ed = QLineEdit("" if hint is None else str(hint))
@@ -6635,9 +6803,13 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Cutscene")
         _raw_cs = doc.data.get("cutscene")
         if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
-                          f"This form edits scene #1 — edit the others in the TOML.")
+            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes. "
+                          f"This form edits scene #1 — edit the rest in the TOML.")
             self.doc_host_lay.addWidget(note)
+            openb = QPushButton("Open the .toml")
+            openb.clicked.connect(lambda _=False, m=member: QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(self.member_paths[m]))))
+            self.doc_host_lay.addWidget(openb, 0, Qt.AlignmentFlag.AlignLeft)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
                                    on_change=lambda m=member: self._on_form_change(m))
@@ -7094,6 +7266,16 @@ class Workspace(QMainWindow):
         for i in range(self.tree.topLevelItemCount()):
             walk(self.tree.topLevelItem(i))
 
+    def _sync_nav_stack(self, *args):
+        """Swap the navigator between the tree and its empty-state on the open/close path. With no project the
+        tree renders as a blank void, so show the teaching empty-state instead; a filter box over that void is
+        misleading, so hide it too. Wired to the tree model's row-change signals -- every populate/clear fires it."""
+        if not hasattr(self, "_nav_stack"):
+            return
+        empty = self.tree.topLevelItemCount() == 0
+        self._nav_stack.setCurrentWidget(self._nav_empty if empty else self.tree)
+        self.tree_filter.setVisible(not empty)
+
     def _repair_central_split(self, sizes):
         """A SQUEEZE IS NOT A PREFERENCE. Return the saved sizes, or the default when they are the fossil
         of a too-narrow window rather than anything the user chose.
@@ -7185,6 +7367,17 @@ class Workspace(QMainWindow):
         close/tab change — cheap: one line-edit read + one stat)."""
         if getattr(self, "deploy_btn", None) is None:
             return
+        if getattr(self, "_busy", False):
+            # a job is running: the crumb button mirrors it (disabled + subject + muted hourglass) so the
+            # always-visible chrome shows the running state, not a live-looking button whose click no-ops.
+            subject = (getattr(self, "_job", None) or ("Working",))[0]
+            self.deploy_btn.setText(f"{subject}…")
+            self.deploy_btn.setEnabled(False)
+            self.deploy_btn.setIcon(icons.icon("hourglass", self.pal["muted"], 16))
+            self.deploy_btn.setToolTip("A job is running — its output streams in the console below.")
+            self._refresh_spine()
+            return
+        self.deploy_btn.setText("Deploy   F9")         # restore after a busy relabel
         t = self._deploy_target()
         self.deploy_btn.setEnabled(bool(t))
         # the rocket follows the button's foreground: accent_fg when live, muted when disabled/greyed
@@ -7211,7 +7404,12 @@ class Workspace(QMainWindow):
 
         What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
         tab, and Home's lede never shows it) and JUST-DEPLOYED (press ~ -> Reload field -- the only thing
-        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
+        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app;
+        it also carries a Copy-warp receipt for the deployed id so the field is reached without a hand-retype).
+
+        READY is restored for ONE audience only: a newcomer who has never deployed (``prefs.has_deployed()``
+        False) has never met the top-right Deploy chip, so the spine points at it once. The instant the first
+        deploy lands the marker sticks and this branch is silent forever after -- a veteran sees ("", []).
         """
         if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
             return ("", [])
@@ -7221,9 +7419,30 @@ class Workspace(QMainWindow):
         t = self._deploy_target()
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
-        if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
-            return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", [])
-        return ("", [])                                 # READY -- the Deploy button is already right there
+        bd = getattr(self, "build_deploy", None)
+        if self._deployed_target == t and (             # JUST DEPLOYED -- the next step is in the GAME...
+                self._deployed_dest is None or bd is None
+                or self._deployed_dest == bd.deploy_dest_key()):  # ...and the deploy's destination is still selected
+            acts = []
+            fid = self._deployed_field_id
+            if fid is not None:                         # a one-click warp-id receipt: no hand-retype into ~ -> Warp
+                acts.append((f"Copy warp: {fid}", lambda f=fid: self._copy_warp(f), False))
+            # ...and the take-it-back affordance, right where the deploy just landed: the actual Revert button
+            # scrolls below the fold on the Build tab. This quiet tuple runs the SAME revert (_undo_last_deploy
+            # -> BuildDoc.on_revert), so there is one owner of 'undo a deploy'. Offered only when that deploy
+            # WROTE a revert script (_deployed_revertible) -- an install whose pre-install snapshot failed says
+            # "Revert is unavailable", and an Undo that then reports "nothing to revert" contradicts it. Quiet,
+            # not accent -- the crumb Deploy chip owns the surface's single accent; undo is never the loud step.
+            if self._deployed_revertible:
+                acts.append(("Undo this deploy", self._undo_last_deploy, False))
+            return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", acts)
+        if not prefs.has_deployed():                    # FIRST-RUN -- name the Deploy step for a newcomer once
+            # quiet, NOT accent: the always-visible crumb Deploy chip (top-right) is this surface's single
+            # accent, and it is enabled+accent in exactly this state -- a second gold Deploy one row below it
+            # would be two accents on one surface. The spine names the step; the chip carries the accent.
+            return ("Your fork is ready — press Deploy to put it in your game.",
+                    [("Deploy", self._deploy_now, False)])
+        return ("", [])                                 # READY (veteran) -- the Deploy button is already right there
 
     def _refresh_spine(self):
         """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
@@ -7260,6 +7479,34 @@ class Workspace(QMainWindow):
             return                                 # deploying the stale on-disk state would mislead
         self.statusBar().showMessage(f"Deploying {Path(t).name}…", 4000)
         self.build_deploy.on_go()
+
+    def _copy_warp(self, field_id):
+        """Put the bare deployed field id on the clipboard — paste straight into ~ → Warp to field (no
+        hand-retype, where a mistype warps to the wrong field: own-id / campaign ids vary)."""
+        QApplication.clipboard().setText(str(field_id))
+        self.statusBar().showMessage(
+            f"Copied field id {field_id} — in your game, ~ → Warp to field, then paste it.", 5000)
+
+    def _undo_last_deploy(self):
+        """The spine's 'Undo this deploy' — roll back what was just deployed through the SAME revert path
+        the Build tab's Revert button uses (its argv builders + its confirm), so there is one owner of
+        'undo a deploy'. The JUST-DEPLOYED spine state only offers this while the Build tab is still aimed at
+        this target AND its destination radio still matches the deploy (_next_actions' dest-key gate), so
+        :meth:`BuildDoc.on_revert` picks exactly what was deployed. On a successful revert the callback
+        collapses the JUST-DEPLOYED strip — a stale 'press ~ → Reload' + Undo for an already-undone deploy is
+        the defect that closes."""
+        if getattr(self, "build_deploy", None) is None:
+            return
+        self.build_deploy.on_revert(then=self._clear_deployed_state)
+
+    def _clear_deployed_state(self, *_):
+        """Drop the JUST-DEPLOYED spine state (called on a successful spine Undo). The strip collapses
+        instead of restating ~-Reload + Undo for a deploy that no longer exists."""
+        self._deployed_target = None
+        self._deployed_field_id = None
+        self._deployed_dest = None
+        self._deployed_revertible = False
+        self._refresh_spine()
 
     def _open_setup(self):
         """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
@@ -7454,8 +7701,9 @@ class Workspace(QMainWindow):
             return [self._muted(f"in field: {member}")]
         head = [f"in field: {self._goto_link(member)}"]
         if key == "camera":                            # spatial -- Blender-only (mirror the editor's own note)
-            return head + [self._muted("camera / walkmesh / layers are SPATIAL — authored in Blender, "
-                                       "read-only here.")]
+            return head + [self._muted("camera / walkmesh / layers are SPATIAL — authored in Blender (the sibling scene.toml), "
+                                       "read-only here."),
+                           self._muted("ⓘ ") + self._link("concept:field-toml", "What's a scene.toml?")]
         if ":" in key:                                 # a list entity (npc:2, gateway:0, ...)
             section, idx = key.split(":")
             lst = doc.data.get(section, []) or []
@@ -7918,14 +8166,48 @@ class Workspace(QMainWindow):
 
     def _set_busy(self, on):
         """Toggle the console 'Working…' loading state (shown while a subprocess job runs). The text label
-        always shows; the animated indeterminate bar shows only when motion is on (reduced-motion-safe)."""
+        always shows (with an elapsed clock + stall note); the animated indeterminate bar shows only when
+        motion is on (reduced-motion-safe). The Stop button + clock are fenced OFF whenever no job runs."""
         if getattr(self, "_busy_label", None) is None:
             return
-        self._busy_label.setVisible(bool(on))
-        self._busy_bar.setVisible(bool(on) and anim.enabled())
+        on = bool(on)
+        self._busy = on
+        self._busy_label.setVisible(on)
+        self._busy_bar.setVisible(on and anim.enabled())
+        self._stop_btn.setVisible(on)
+        if on:
+            self._elapsed.start()
+            self._last_output_ms = 0
+            self._busy_label.setText("Working…")
+            self._job_timer.start()
+        else:
+            self._job_timer.stop()
+        self._sync_console_btn()                        # mirror the running state to the collapsed toggle
+        self._refresh_deploy_btn()                      # ... and to the always-visible crumb Deploy button
+
+    def _tick_job(self):
+        """Once a second while a job runs: refresh the elapsed clock and, after a stdout silence, say so.
+        Text only (reduced-motion-safe). Only ever active between _set_busy(True) and (False)."""
+        if not self._busy or getattr(self, "_busy_label", None) is None:
+            return
+        ms = self._elapsed.elapsed()
+        secs = ms // 1000
+        label = f"Working… {secs // 60}:{secs % 60:02d}"
+        silence = (ms - self._last_output_ms) // 1000
+        if silence >= 20:                               # a slow bundle read reads identically to a hang --
+            label += f" · no output for {silence}s (still running)"   # say it is alive rather than frozen
+        self._busy_label.setText(label)
+        self._sync_console_btn()
+
+    def _stop_job(self):
+        """Kill the running subprocess. _proc_done then posts the normal ERROR verdict with 'Stopped.'."""
+        p = getattr(self, "proc", None)
+        if p is not None and p.state() != QProcess.ProcessState.NotRunning:
+            self._stopped = True
+            p.kill()                                    # -> finished(non-zero) -> _proc_done
 
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
-                fail_hint="See the Output panel.", on_finished=None):
+                fail_hint="See the Output panel.", on_finished=None, field_id=None):
         """Run ONE streaming subprocess job (lint / build / deploy / import): stream its stdout into the
         Output panel, then post a returncode verdict to Problems. ``argv[0]`` is the program. Returns
         ``False`` (and starts nothing) if a job is already running, else ``True``; ``on_finished(code)``
@@ -7933,7 +8215,9 @@ class Workspace(QMainWindow):
         Import docs only build the argv (the Qt analogue of the tkinter apps' thread+queue)."""
         if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
             return False
-        self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
+        self._stopped = False                           # fresh job -> not a Stop until the button says so
+        self._job = (subject, ok_headline, ok_next, fail_hint, on_finished, field_id)
+        self._job_out = []                              # THIS job's stdout, verbatim -> post-hoc failure anchor
         # No clear(). The header is a SEPARATOR, and a separator with nothing above it separates nothing --
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
@@ -8008,23 +8292,75 @@ class Workspace(QMainWindow):
         self.output.ensureCursorVisible()
 
     def _drain_proc(self):
-        text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
+        raw = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
+        self._job_out.append(raw)                        # accumulate VERBATIM (unrstripped) so a chunk boundary
+        text = raw.rstrip()                              # mid-line doesn't corrupt the joined anchor scan
         if text:
+            self._last_output_ms = self._elapsed.elapsed()   # reset the stall clock: real output arrived
             self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
-        subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
-            self, "_job", ("Job", None, "", "See the Output panel.", None))
+        subject, ok_headline, ok_next, fail_hint, on_finished, field_id = getattr(
+            self, "_job", ("Job", None, "", "See the Output panel.", None, None))
+        if self._stopped:                               # a Stop kill -> the verdict names it plainly
+            fail_hint = "Stopped."
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
-        self._show_problems(v, [])
-        if code == 0 and ("deploy" in subject.lower() or "install to game" in subject.lower()):
+        # Structured failure: on a non-zero exit, pull the ONE tightest failure line out of THIS job's
+        # captured stdout (feedback.failure_anchor -- pure, tk-free, "don't cry wolf": exit!=0 + a tight
+        # anchor only) and post it as a clickable Problems row. A Stop kill is user-intended, not a failure
+        # to surface, so it carries no anchor. Exit 0 / no anchor -> the empty list, exactly as before.
+        anchor = None
+        if code != 0 and not self._stopped:
+            anchor = fb.failure_anchor("".join(getattr(self, "_job_out", [])), code)
+        self._show_problems(v, [fb.Problem(fb.ERROR, anchor.text)] if anchor else [])
+        if anchor:
+            self._attach_anchor_jump(anchor.text)
+        # a REAL deploy only: a dry-run subject ("Journey deploy playbook (dry-run)") contains "deploy" but
+        # writes nothing to the game, so it must not fake a just-deployed state nor latch the first-run marker.
+        if code == 0 and "dry-run" not in subject.lower() and (
+                "deploy" in subject.lower() or "install to game" in subject.lower()):
             self._deployed_target = self._deploy_target()   # -> the spine's 'now press ~ (tilde) in-game' hint
+            self._deployed_field_id = field_id              # -> the spine's Copy-warp receipt (None => no receipt)
+            # Snapshot WHERE this went + whether it can be undone, captured now while the Build tab still
+            # reflects the just-run deploy: the spine reads the snapshot (not the live radio) so a later radio
+            # move retires a stale Undo, and a non-revertible deploy (install snapshot failed) offers none.
+            bd = getattr(self, "build_deploy", None)
+            self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
+            self._deployed_revertible = bool(bd is not None and bd.revert_available())
+            prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
         if on_finished:
             on_finished(code)
+
+    def _attach_anchor_jump(self, line):
+        """Tag the just-posted anchor row (the sole ERROR row _proc_done added) with the offending ``line``
+        in UserRole so clicking it reveals that line in Output, and note the jump affordance in its tooltip
+        (additive -- humanize()'s plain-language tooltip, if any, is kept)."""
+        for i in range(self.problems.count()):
+            it = self.problems.item(i)
+            if it.text() == line:
+                it.setData(Qt.ItemDataRole.UserRole, line)   # the exact line to reveal in the Output console
+                tip = it.toolTip()
+                it.setToolTip((tip + "\n\n" if tip else "") + "Click to reveal this line in the Output panel.")
+                break
+
+    def _jump_to_anchor(self, item):
+        """Reveal a clicked/activated anchor row's line in the Output console. No-op on rows with no anchor
+        (validation errors etc. carry no UserRole). Searches the document BACKWARD from the end so the match
+        is THIS job's occurrence -- the log accumulates across jobs, so an earlier identical line loses."""
+        line = item.data(Qt.ItemDataRole.UserRole)
+        if not line:
+            return
+        self._raise_console()                            # a collapsed console can't show the line
+        cur = self.output.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        found = self.output.document().find(line, cur, QTextDocument.FindFlag.FindBackward)
+        if not found.isNull():
+            self.output.setTextCursor(found)             # selecting the match highlights + scrolls to it
+            self.output.ensureCursorVisible()
 
 
 # --------------------------------------------------------------------------- entry point + smoke
@@ -8051,8 +8387,13 @@ def _smoke(win):
     # No restore: `main()` does `_smoke(win); return` and the process exits, so a "then put it back" line
     # would be decoration -- and a claim in a comment that the code does not keep is the exact defect this
     # round has been paying for.
-    from . import forms_qt as _fq_smoke
-    _fq_smoke.set_guided(True)
+    # Pin Guided AND re-default the UI to it. `set_guided` alone flips the module global, but the doc
+    # drawers were already CONSTRUCTED under the machine's real mode (the cross-tab lever, ASK #12, reads
+    # forms_qt._GUIDED at construction) -- so on a `guided:false` box builddoc/coop/import would boot with
+    # their expert drawers OPEN, and the down-file 'More ways to import is collapsed by default' assert
+    # would read the hostile prefs, not the product. `_apply_guided(True)` sets the global AND re-collapses
+    # every drawer to Guided, so the smoke measures Guided regardless of the box it runs on.
+    win._apply_guided(True)
     # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
     # a smoke run never writes temp paths into the developer's real prefs.json.
     _rec = []
@@ -9290,8 +9631,24 @@ def _smoke(win):
         assert imp._region_ids is None, "textEdited wiring must drop the cluster"
         imp.on_region_dryrun()
         assert "--whole-zone" in icap[-1] and "--ids" not in icap[-1], icap[-1]
-    imp.on_find()
-    assert "list-fields" in icap[-1], icap[-1]
+    # Find… no longer dumps `list-fields` -- it opens the realfield CatalogPicker and fills the source id.
+    # Offscreen there is no user to dismiss a modal, so fake QDialog.exec to accept the first row (the
+    # headless analogue of a double-click, exactly as test_import_pickfill._accept_first_row does) around
+    # the ONE on_find call, then restore it -- a bare `imp.on_find()` here HANGS to the subprocess timeout.
+    _real_exec = QDialog.exec
+
+    def _pick_first_row(self):
+        if getattr(self, "lst", None) is not None and self.lst.count():
+            self.lst.setCurrentRow(0)
+            self._ok()                               # want_id -> the id string lands in self.result
+        return QDialog.DialogCode.Accepted
+    QDialog.exec = _pick_first_row
+    try:
+        imp.field.setText("")                        # so the assertion below proves the PICK filled it
+        imp.on_find()
+    finally:
+        QDialog.exec = _real_exec
+    assert imp.field.text().isdigit(), imp.field.text()   # the picked real-field id filled the source box
 
     # UNDO / REDO -- a fresh loose field gives a clean history to exercise the stacks
     uf = d / "UNDOTEST.field.toml"
@@ -9710,7 +10067,7 @@ def _smoke(win):
     # templates?), history (prefs.recent) AND the dismissal (prefs.getstarted_hidden, stubbed in-memory
     # at the top of _smoke with the recent-store) -- so the smoke PINS all three rather than reading this
     # machine (a test that reads the developer's machine is a report on the developer). Newcomer state
-    # -> 3 live steps ending on 'fork your first field' and the lede stays out of the guide's way (the
+    # -> 4 live steps (setup x2, fork, deploy-and-play) and the lede stays out of the guide's way (the
     # one-accent law); veteran state -> the guide is GONE and the lede leads with the user's history.
     from .. import health as _health, provision as _prov
     _orig_state = (_health.find_game, _prov.templates_present, prefs.recent)
@@ -9719,7 +10076,7 @@ def _smoke(win):
         _prov.templates_present = lambda: False
         prefs.recent = lambda: []
         win._refresh_home_status()
-        assert win._start_lay.count() == 3, win._start_lay.count()
+        assert win._start_lay.count() == 4, win._start_lay.count()   # setup x2 + fork + deploy-and-play
         assert win._start_box.isVisibleTo(win._welcome_tab), "the guide must show for a newcomer"
         assert not win._lede.isVisibleTo(win._welcome_tab), \
             "the lede mirrors the guide's primary step -- showing both is the same row twice (one-accent law)"
@@ -10004,9 +10361,9 @@ def main(argv=None):
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
-    if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
+    if prefs.restore_session():                    # default ON: pick up where the last session left off
         try:
-            win.restore_last_session()
+            win.restore_last_session()             # no-ops on an empty recent list -> newcomers untouched
         except Exception:                          # noqa: BLE001  (a broken project must not block launch)
             pass
     sys.exit(app.exec())

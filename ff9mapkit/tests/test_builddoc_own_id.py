@@ -112,15 +112,25 @@ def test_own_id_revert_targets_that_id(app, tmp_path):
             per_id.unlink()
 
 
-def test_install_to_game_preserves_other_fields(app, tmp_path):
+def test_install_to_game_preserves_other_fields(app, tmp_path, monkeypatch):
     """The mode that caused the incident now passes --preserve-existing, so installing one field leaves
-    the folder's other fields registered."""
+    the folder's other fields registered -- AND it honours the §2 backup law: the whole mod folder is
+    snapshotted before the write (jobs.snapshot_mod_folder stubbed here so the test never copies the real
+    live folder). The stub returns a path -> Install-to-game reports itself reversible."""
+    from ff9mapkit.workspace import builddoc
+    snapped = []
+    monkeypatch.setattr(builddoc.jobs, "snapshot_mod_folder",
+                        lambda mod, b, r: snapped.append(mod) or (tmp_path / "revert_install.py"))
     doc = _doc(app)
     p = _field(tmp_path)
     doc.path.setText(str(p))
     if not doc.game_mod:
         pytest.skip("no game install detected")
     doc.rb_game.setChecked(True)
+    # the dest line + Revert now read as reversible (checked BEFORE the deploy: _busy disables rev while a
+    # job streams, and the stub `run` never fires on_finished to re-enable it)
+    assert doc.rev.isEnabled() and "no undo" not in doc.dest.text().lower()
     doc._go_field(str(p))
     argv = " ".join(str(x) for x in doc._calls[-1][0])
     assert "--preserve-existing" in argv
+    assert snapped == [doc.game_mod], "Install-to-game must snapshot the mod folder before the write (§2)"

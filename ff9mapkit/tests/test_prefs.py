@@ -136,6 +136,67 @@ def test_os_text_scale_is_inert_when_the_slider_was_never_touched(tmp_path, monk
     assert prefs.os_text_scale() == 100, "a machine without winreg must land on the inert default"
 
 
+def test_has_deployed_is_a_sticky_latch(tmp_path, monkeypatch):
+    """The first-deploy marker: default False, latches True and does not un-latch."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.has_deployed() is False                 # a fresh install has never deployed
+    prefs.set_has_deployed(True)
+    assert prefs.has_deployed() is True and prefs.load()["has_deployed"] is True
+    prefs.put("has_deployed", "yes")                      # a malformed on-disk value is not truthy-coerced
+    assert prefs.has_deployed() is False
+
+
+def test_restore_session_defaults_on_and_only_explicit_false_opts_out(tmp_path, monkeypatch):
+    """The default FLIPPED to ON (the veteran reopens the last project). Modelled on guided() (also
+    default-True): only an explicit False opts out; an absent key or junk degrades to the default (ON) --
+    a corrupt file must not silently stop reopening the veteran's work."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.restore_session() is True                   # nothing saved -> ON
+    prefs.set_restore_session(False)
+    assert prefs.restore_session() is False and prefs.load()["restore_session"] is False
+    prefs.set_restore_session(True)
+    assert prefs.restore_session() is True
+    prefs.put("restore_session", "yes")                       # junk degrades to the default (ON), like guided()
+    assert prefs.restore_session() is True
+
+
+def test_confirm_reversible_deploys_defaults_off_and_round_trips(tmp_path, monkeypatch):
+    """The confirm modal on a REVERSIBLE deploy is OFF by default (F9 = one keystroke); it opts back in.
+    Default-False like has_deployed: a malformed value is not truthy-coerced to ON."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.confirm_reversible_deploys() is False        # default: no modal on a reversible deploy
+    prefs.set_confirm_reversible_deploys(True)
+    assert (prefs.confirm_reversible_deploys() is True
+            and prefs.load()["confirm_reversible_deploys"] is True)
+    prefs.set_confirm_reversible_deploys(False)
+    assert prefs.confirm_reversible_deploys() is False
+    prefs.put("confirm_reversible_deploys", "yes")            # a malformed on-disk value is not truthy-coerced
+    assert prefs.confirm_reversible_deploys() is False
+
+
+def test_deploy_dest_defaults_none_and_round_trips_the_four_modes(tmp_path, monkeypatch):
+    """None means 'never pinned' (fall back to the has_tools default); only the four persistable modes stick."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.deploy_dest() is None                    # nothing saved -> the caller uses its default
+    for mode in prefs.DEPLOY_DESTS:
+        prefs.set_deploy_dest(mode)
+        assert prefs.deploy_dest() == mode and prefs.load()["deploy_dest"] == mode
+
+
+def test_deploy_dest_never_persists_inplace_or_junk(tmp_path, monkeypatch):
+    """In-place is donor-driven and auto-selects, so it must NOT become a sticky global preference -- and a
+    corrupt/unknown value reads as None (fall back), never as itself."""
+    _isolate(tmp_path, monkeypatch)
+    prefs.set_deploy_dest("own")                           # a real choice on disk
+    prefs.set_deploy_dest("inplace")                       # ...must be ignored, not stored
+    assert prefs.deploy_dest() == "own", "In-place leaked into the persisted destination"
+    assert prefs.load()["deploy_dest"] == "own"
+    prefs.put("deploy_dest", "inplace")                    # even hand-edited onto disk, it reads as unset
+    assert prefs.deploy_dest() is None
+    prefs.put("deploy_dest", 7)
+    assert prefs.deploy_dest() is None
+
+
 def test_the_os_slider_snaps_into_the_rungs_we_actually_ship(tmp_path, monkeypatch):
     """Microsoft documents [100, 225]; we ship (100, 110, 125, 150). Windows' common stops must land
     exactly, anything above our top must clamp to it, and junk outside the documented range must not be

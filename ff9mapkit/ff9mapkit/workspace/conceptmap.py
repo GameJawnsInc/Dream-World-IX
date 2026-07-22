@@ -29,6 +29,16 @@ _NODES = [
 # arrows: (from_index, to_index)
 _EDGES = [(0, 1), (1, 2), (2, 3), (2, 4), (2, 5)]
 
+# The spine is the trunk -- Journey ▸ Campaign ▸ Field -- everything else hangs off Field.  An edge
+# whose BOTH ends are spine nodes is a trunk link (heavier); an edge into a leaf is a field-child (light).
+_SPINE = (0, 1, 2)
+_PLINTH_PAD = 12                                    # lip of raised band around the spine trio
+_W_SPINE, _W_CHILD = 3, 1                           # per-edge pen weights: trunk vs field-child
+
+
+def _is_spine_edge(a, b):
+    return a in _SPINE and b in _SPINE
+
 
 class ConceptMapView(QGraphicsView):
     """A read-only diagram; clicking a box calls ``on_concept(term)``."""
@@ -49,10 +59,22 @@ class ConceptMapView(QGraphicsView):
         sc, pal = self._scene, self.pal
         sc.clear()
         muted = QColor(pal["muted"])
-        for a, b in _EDGES:                          # arrows under the nodes
+        # The trunk plinth: a quiet raised band behind the spine trio, painted FIRST so the nodes and
+        # arrows sit on top of it -- it fuses Journey ▸ Campaign ▸ Field into one backbone instead of
+        # three loose boxes.  Elevation token (surface_btn) + a neutral border, no accent.
+        sx = [_NODES[i][3] for i in _SPINE]
+        sy = [_NODES[i][4] for i in _SPINE]
+        px, py = min(sx) - _PLINTH_PAD, min(sy) - _PLINTH_PAD
+        pw = (max(sx) + _NW) - min(sx) + 2 * _PLINTH_PAD
+        ph = _NH + 2 * _PLINTH_PAD
+        plinth = QPainterPath()
+        plinth.addRoundedRect(px, py, pw, ph, 12, 12)
+        sc.addPath(plinth, QPen(QColor(pal["border"]), 1), QBrush(QColor(pal["surface_btn"])))
+        for a, b in _EDGES:                          # arrows under the nodes, trunk links heavier
             ax, ay = _NODES[a][3] + _NW / 2, _NODES[a][4] + _NH
             bx, by = _NODES[b][3] + _NW / 2, _NODES[b][4]
-            sc.addLine(ax, ay, bx, by, QPen(muted, 2))
+            weight = _W_SPINE if _is_spine_edge(a, b) else _W_CHILD
+            sc.addLine(ax, ay, bx, by, QPen(muted, weight))
         for term, title, sub, x, y in _NODES:
             path = QPainterPath()
             path.addRoundedRect(x, y, _NW, _NH, 8, 8)

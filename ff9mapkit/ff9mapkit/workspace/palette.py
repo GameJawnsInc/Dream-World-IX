@@ -98,7 +98,7 @@ class CommandPalette(QDialog):
         lay = QVBoxLayout(card)
         lay.setContentsMargins(12, 12, 12, 12)
         self.q = QLineEdit()
-        self.q.setPlaceholderText("Search content & commands…  (a field name, or a command)")
+        self.q.setPlaceholderText("Search content & commands…  (a field, a command, or a concept to learn)")
         self.q.textChanged.connect(self._refilter)
         self.q.returnPressed.connect(self._run_current)
         self.q.installEventFilter(self)                # forward Up/Down to the list while typing

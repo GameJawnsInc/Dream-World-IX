@@ -36,6 +36,13 @@ import re
 from . import battlecsv
 
 _I32 = 2 ** 31 - 1
+_SFX_PLAYPARAM_BOUND = 511    # SFX.playParam is a fixed Int32[511] (engine SFX.cs:1937-1946) -- SFX.Play silently
+#                                substitutes Fire__Multi for effNum >= 511. The bound applies to ids reaching
+#                                SFX.Play (the legacy SFXRework=0 route, or a LoadSFX/PlaySFX target inside a
+#                                .seq) -- NOT to the Actions.csv animationId1/2 folder lookup (ef{id:D3}/,
+#                                un-gated; a missing folder is a logged no-op). Hence WARN, never a range error.
+_VFX_COLS = ("animationid1", "animationid2")   # the two vfx CSV columns this bound applies to (vfx1/vfx2 +
+#                                                 their animation1/animation2 aliases both resolve here)
 # friendly TOML key -> (CSV column, encoder, max). The capped columns are narrow engine types (Byte 0-255 /
 # UInt16 0-65535); a value past the cap is rejected OFFLINE (else Byte.Parse overflows -> a boot crash).
 ACTION_FIELDS = {
@@ -174,6 +181,18 @@ def _resolve_script(value) -> int:
     return _to_int(value, "script")
 
 
+def _maybe_warn_vfx_playparam(col, key, v, warnings) -> None:
+    """Heads-up (not a build error): a vfx1/vfx2 id >= the SFX.playParam Int32[511] bound. The Actions.csv
+    animationId1/2 folder lookup itself is un-gated even under SFXRework=1 (a missing ef{id:D3}/ is a logged
+    no-op) -- this only bites an id ALSO reached via SFX.Play (the legacy SFXRework=0 route, or a LoadSFX/PlaySFX
+    target inside a .seq), which silently substitutes Fire__Multi past the bound."""
+    if warnings is not None and col in _VFX_COLS and v >= _SFX_PLAYPARAM_BOUND:
+        warnings.append(f"{key}={v} is >= the SFX.playParam bound (Int32[{_SFX_PLAYPARAM_BOUND}]) -- SFX.Play "
+                        f"would silently substitute Fire__Multi past this id; the Actions.csv animation-folder "
+                        f"lookup is un-gated even under SFXRework=1, but heads-up if this id is ALSO reached via "
+                        f"SFX.Play/.seq LoadSFX/PlaySFX")
+
+
 def _encode_value(key, value, spec, *, warnings=None) -> str:
     """Resolve + RANGE-CHECK an override value -> the CSV cell string. Raises ActionDeltaError offline (so a
     bad value fails the build/lint, never the game). ``warnings`` (optional) collects the script-catalog note."""
@@ -184,6 +203,7 @@ def _encode_value(key, value, spec, *, warnings=None) -> str:
         v = _to_int(value, key)
         if not -(vmax + 1) <= v <= vmax:
             raise ActionDeltaError(f"{key}={v} out of range ({-(vmax + 1)}..{vmax})")
+        _maybe_warn_vfx_playparam(col, key, v, warnings)
         return str(v)
     elif enc == "bool":
         return _encode_bool(value, key)                  # the CSV stores Booleans as 1/0
@@ -209,6 +229,7 @@ def _encode_value(key, value, spec, *, warnings=None) -> str:
         raise ActionDeltaError(f"internal: bad encoder {enc!r}")
     if not 0 <= v <= vmax:
         raise ActionDeltaError(f"{key}={v} out of range (0-{vmax})")
+    _maybe_warn_vfx_playparam(col, key, v, warnings)
     return str(v)
 
 

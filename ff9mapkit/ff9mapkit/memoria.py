@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import zipfile
+from datetime import date, timedelta
 from pathlib import Path
 
 from . import fsutil
@@ -27,6 +28,64 @@ ENGINE_DLLS = ("Assembly-CSharp.dll", "Memoria.Prime.dll", "UnityEngine.UI.dll")
 # build-DATE-derived FileVersion; Memoria.Prime is hardcoded 1.0.0.0), so we can't read the user's
 # commit -- but Assembly-CSharp's FileVersion DOES tell our patched build apart from a stock one.
 BASE_COMMIT = "6b8bb2d5"
+
+# The calendar date of BASE_COMMIT. Memoria's Assembly-CSharp is AssemblyVersion("1.1.*"), and .NET
+# wildcard versioning fills the BUILD field with days-since-2000-01-01 -- so a DLL's FileVersion IS its
+# compile date, decodable with arithmetic alone (this is the same number Memoria.log prints as
+# "[Initialization] Memoria version: YYYY-MM-DD"). BASE_COMMIT was the main commit nearest this date.
+BASE_COMMIT_DATE = date(2025, 7, 13)
+
+# How far an installed engine's compile date may drift from BASE_COMMIT_DATE before we mention that the
+# prebuilt bundle may not be a clean match. Rough, advisory: the bundle replaces only the 3 MANAGED DLLs,
+# never Memoria's native side, so a big drift is a real (if not certain) mismatch risk -- see docs/ENGINE.md
+# ("pinned to a specific Memoria base -- if you run a much newer Memoria and hit crashes, build from source").
+STALE_WARNING_DAYS = 180
+
+
+def assembly_build_date(version: str | None) -> date | None:
+    """The compile date encoded in a ``"1.1.<build>.<revision>"`` FileVersion, or ``None`` if the string
+    isn't that 4-part numeric shape. See :data:`BASE_COMMIT_DATE` for why build == days since 2000-01-01."""
+    if not version:
+        return None
+    parts = str(version).split(".")
+    if len(parts) != 4 or not all(p.isdigit() for p in parts):
+        return None
+    try:
+        return date(2000, 1, 1) + timedelta(days=int(parts[2]))
+    except (OverflowError, ValueError):                 # a nonsense build number, e.g. 9999999
+        return None
+
+
+def dwix_backup_dirs(game) -> list[Path]:
+    """The per-install ``<game>/dwix-engine-backups/<stamp>/`` dirs, sorted (oldest stamp first).
+
+    Their presence is the cheap, reliable signal that OUR installer applied the engine bundle here --
+    :func:`install_engine_bundle` is the only thing that creates them. Fingerprinting the live DLL bytes
+    would be stronger but needs a bundle to compare against, which ``doctor`` doesn't have."""
+    root = Path(game) / "dwix-engine-backups"
+    if not root.is_dir():
+        return []
+    return sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name)
+
+
+def engine_report(game) -> dict:
+    """Everything ``doctor`` (and the GUI's Setup & Health page) needs to explain the engine situation in
+    plain language, with no bundle zip in hand. Purely read-only + advisory; every field may be ``None``.
+
+    Returns ``{memoria_installed, assembly_version, assembly_build_date, base_commit_date,
+    dwix_bundle_applied, dwix_backup_count}``."""
+    game = Path(game)
+    installed = memoria_status(game)["installed"]
+    version = read_assembly_version(managed_dirs(game)[0] / "Assembly-CSharp.dll") if installed else None
+    backups = dwix_backup_dirs(game)
+    return {
+        "memoria_installed": installed,
+        "assembly_version": version,
+        "assembly_build_date": assembly_build_date(version),
+        "base_commit_date": BASE_COMMIT_DATE,
+        "dwix_bundle_applied": bool(installed and backups),
+        "dwix_backup_count": len(backups),
+    }
 
 
 def read_assembly_version(dll_path) -> str | None:
