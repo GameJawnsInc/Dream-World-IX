@@ -111,15 +111,27 @@ RET()
 """
 
 # Bench instrumentation (session-transient scratch, never saved during benching):
-#   Byte[2000] ticks every loop pass (changing = the loop is ALIVE)
-#   Byte[2001] ticks when the on-foot Confirm gate passes
-#   Byte[2002] ticks when the proximity check ALSO passes (the board runs)
+#   Byte[2000] loop alive     Byte[2001] on-foot ([190]==0) frames
+#   Byte[2003] Confirm EDGE (B_KEYON) seen     Byte[2004] Confirm HELD (B_KEY) seen
+#   Byte[2002] full gate + proximity passed (the board runs)
+# The board itself now takes the HELD form (B_KEY) -- stock loot idioms use either.
 BOAT_LOOP = f"""
 L0:
 SET({{Global.Byte[2000] B_POST_PLUS B_EXPR_END}})
-SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEYON B_ANDAND B_EXPR_END}})
-JMP_IFNOT(L500)
+SET({{Global.Byte[190] B_NOT B_EXPR_END}})
+JMP_IFNOT(L10)
 SET({{Global.Byte[2001] B_POST_PLUS B_EXPR_END}})
+L10:
+SET({{const4({CONFIRM}) B_KEYON B_EXPR_END}})
+JMP_IFNOT(L20)
+SET({{Global.Byte[2003] B_POST_PLUS B_EXPR_END}})
+L20:
+SET({{const4({CONFIRM}) B_KEY B_EXPR_END}})
+JMP_IFNOT(L30)
+SET({{Global.Byte[2004] B_POST_PLUS B_EXPR_END}})
+L30:
+SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEY B_ANDAND B_EXPR_END}})
+JMP_IFNOT(L500)
 SET({{obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({NEAR}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({NEAR}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
 SET({{Global.Byte[2002] B_POST_PLUS B_EXPR_END}})
