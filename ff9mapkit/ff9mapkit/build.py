@@ -7413,6 +7413,13 @@ def _emit_folklore(projects, layout) -> list:
     convention for non-localized custom content). Written UTF-8 no-BOM (the engine reads these via
     ``File.ReadAllText`` = UTF-8 -- NOT cp1252, which would garble curly quotes / accents).
 
+    Also emits the ``FolklorePatch.txt`` registry sidecar (categories + an optional third ``display``
+    token per entry, resolved via :func:`ff9mapkit.content.folklore.resolve_display` -- an unresolvable
+    ``display`` warns and drops ONLY that token, never the entry -- and an optional 4th ``idle``
+    token, resolved via :func:`ff9mapkit.content.folklore.resolve_idle`, meaningful only alongside
+    ``display``: an unresolvable ``idle``, or an ``idle`` with no ``display``, warns and drops ONLY
+    the idle token).
+
     Build does NOT run ``validate()`` -> warn-and-skip a bad block, never crash (the recurring lesson);
     ``lint`` reports the precise error via ``_validate_folklore``. Returns warnings."""
     from .content import folklore as _folklore
@@ -7439,7 +7446,8 @@ def _emit_folklore(projects, layout) -> list:
                 continue
             if iid in seen:
                 warnings.append(f"[[folklore]] id {iid} is defined twice ({seen[iid]} and "
-                                f"{_field_name(p)}) -- the later one wins")
+                                f"{_field_name(p)}) -- the later one wins (the earlier block's "
+                                "display/idle, if any, drop with it)")
                 blocks = [x for x in blocks if int(x["id"]) != iid]
             seen[iid] = _field_name(p)
             # over-budget text still RENDERS (just clips) -> warn-and-ship here; lint ERRORS precisely
@@ -7452,6 +7460,34 @@ def _emit_folklore(projects, layout) -> list:
             if isinstance(b.get("help"), str) and len(b["help"]) > _folklore.HELP_MAX_CHARS:
                 warnings.append(f"[[folklore]] id {iid} help is {len(b['help'])} chars and may clip "
                                 f"(vanilla max {_folklore.HELP_MAX_CHARS})")
+            # THE displayRef LANE (s46 rung 4): resolve now so a bad ref never reaches render_patch_lines
+            # -- warn and drop the display ONLY. The entry itself is NEVER skipped for a bad portrait (it
+            # still ships its two-token line + full text) -- one notch finer than the warn-and-skip above.
+            if b.get("display") is not None:
+                try:
+                    _folklore.resolve_display(b["display"])
+                except (TypeError, ValueError) as e:
+                    warnings.append(f"[[folklore]] id {iid} display {b['display']!r} on "
+                                    f"{_field_name(p)}: {e} -- shipped without a portrait (text-only pane)")
+                    b = dict(b)
+                    b.pop("display", None)
+            # THE idle LANE: meaningful only alongside display -- same fail-soft law, one notch finer
+            # (a bad/orphaned idle drops the IDLE TOKEN ONLY; the entry -- and its display, if any --
+            # ships regardless).
+            if b.get("idle") is not None:
+                if b.get("display") is None:
+                    warnings.append(f"[[folklore]] id {iid} idle {b['idle']!r} on {_field_name(p)} has "
+                                    "no display -- idle is meaningless without a portrait, dropped")
+                    b = dict(b)
+                    b.pop("idle", None)
+                else:
+                    try:
+                        _folklore.resolve_idle(b["display"], b["idle"])
+                    except (TypeError, ValueError) as e:
+                        warnings.append(f"[[folklore]] id {iid} idle {b['idle']!r} on "
+                                        f"{_field_name(p)}: {e} -- shipped with the default idle clip")
+                        b = dict(b)
+                        b.pop("idle", None)
             blocks.append(b)
     if not blocks:
         return warnings
@@ -7466,6 +7502,16 @@ def _emit_folklore(projects, layout) -> list:
             path = path_fns[stem](lang)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body, encoding="utf-8", newline="\n")
+    # the codex registry sidecar (categories + the Key-Items filter set for the s45 engine screen)
+    try:
+        patch_lines = _folklore.render_patch_lines(blocks)
+    except (TypeError, ValueError) as e:                   # a bad category on an otherwise-shipped block
+        warnings.append(f"FolklorePatch.txt skipped: {e}")
+        patch_lines = []
+    if patch_lines:
+        layout.folklore_patch.write_text(
+            "# ff9mapkit [[folklore]] codex registry -- <keyItemId> <category>\n"
+            + "\n".join(patch_lines) + "\n", encoding="utf-8", newline="\n")
     return warnings
 
 

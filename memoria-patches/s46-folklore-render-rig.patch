@@ -1,0 +1,1514 @@
+diff --git a/Assembly-CSharp/Global/FolkloreUI.cs b/Assembly-CSharp/Global/FolkloreUI.cs
+index 911282a..b773739 100644
+--- a/Assembly-CSharp/Global/FolkloreUI.cs
++++ b/Assembly-CSharp/Global/FolkloreUI.cs
+@@ -40,8 +40,90 @@ public class FolkloreUI : UIScene
+ {
+     private const String ListGroupButton = "Folklore.List";
+ 
++    // s46 rung 2 RETREAT LEVER: flip to false + rebuild/redeploy to fully retreat rung 2 -- LateUpdate
++    // no-ops on its very first line, EnsureFolkloreModel skips clip discovery/AlwaysAnimate entirely,
++    // and only RenderFolkloreEntry's one-shot Render() on selection ever fires (byte-for-byte the
++    // rung-1 static-portrait behavior, just fed by the registry model instead of the hardcoded GEO).
++    private const Boolean FolkloreRigLiveIdle = true;
++
++    // s46 round 3 -- FRAMING KNOBS (aesthetic, playtest-tuned; neither is load-bearing). The round-2
++    // snap showed the creature sitting in the UPPER portion of the view (the model pivot is low) with
++    // its legs clipping the old narrow 640x720 aspect. The landscape 680x400 RT widens the horizontal
++    // FOV (no more leg clip); the shorter camera distance grows the creature in the fixed 40-degree
++    // vertical FOV; the aim offset (stage-local, PSX y-down so NEGATIVE = screen-up) re-centers the
++    // low-pivot model vertically. s46 rung 3: these two are now the AUTO-FIT FALLBACK pose only --
++    // used whenever ApplyFolkloreAutoFraming can't trust its own bounds math -- still the round-3
++    // playtest-proven GEO_MON_B3_118 numbers ("looks good").
++    private const Single FolkloreRigCamDist = -700f;   // was -1000 (the viewer's own bench distance)
++    private const Single FolkloreRigAimY = -80f;       // aim above the pivot, toward the body's center
++    // s46 rung 3: == the RT/portrait seat dims (FolkloreUI.cs ~475,495 below). No in-tree camera sets
++    // .aspect for an RT render target (no precedent found tree-wide) -- set it explicitly and
++    // re-assert every Render() call, since nothing else in this file ever touches it.
++    private const Single FolkloreRigAspect = 680f / 400f;
++    // fit-distance multiplier absorbing idle sway; no in-tree precedent (ModelViewerScene's -1000
++    // bench is a fixed eyeballed constant, not derived) -- playtest-tunable, mid of the 1.15-1.3 range.
++    private const Single FolkloreAutoFitMargin = 1.2f;
++    private const Single FolkloreAutoFitMinExtent = 1f;      // degenerate/collapsed-mesh guard
++    // absurd-bounds guard (~4x the real GEO table's measured max: height 3236 @id370, radius 4887
++    // @id348, FF9BattleDBHeightAndRadius.cs:409,421,427)
++    private const Single FolkloreAutoFitMaxExtent = 20000f;
++    // s46 rung 4 -- THE LIVE-FIT WINDOW: the auto-framing bounds-fit gathers `sharedMesh.bounds` --
++    // the STATIC bind-pose asset bounds, which never move (animation only moves bones/skinning, never
++    // the asset). GEO_MON_B3_118's crab idles high/tight vs its own sprawled bind pose, so the rung-3
++    // fit under-frames it: the round-1 playtest measured the clip clipped at the window top. This
++    // grows the fit envelope from LIVE (animated) world bounds for a short window after mount, then
++    // freezes -- an idle loop has shown its whole excursion well inside a few seconds.
++    private const Single FolkloreFitGrowEpsilon = 2f;      // sub-2-unit skeleton wobble (breathing/
++                                                            // idle sway) must not re-run the FOV math
++                                                            // every frame -- only a real envelope
++                                                            // excursion (the crab's idle pulling the
++                                                            // body up out of the bind-pose fit) refits
++    // REPAIR (post-rung-4 skeptic review, MEDIUM): a flat 2-unit floor is a near-no-op at real
++    // creature scale -- GEO_MON_B3_118 (id 350) itself measures height 775 / radius 1205
++    // (FF9BattleDBHeightAndRadius.cs:421), i.e. low-hundreds-to-thousands of units even before any
++    // larger GEO entry (max height 3236 @id370, max radius 4887 @id348) -- so ordinary idle
++    // breathing/weight-shift motion clears 2 units on some axis most frames, making the "subtle
++    // settle, never per-frame jitter" comment below mostly aspirational for anything but a tiny
++    // model. This percentage is taken alongside the flat floor (whichever is larger) so a small
++    // model still gets the flat epsilon and a large one gets a threshold proportional to its own
++    // envelope.
++    private const Single FolkloreFitGrowEpsilonRelative = 0.01f;   // 1% of the committed envelope's
++                                                                    // largest half-extent axis
++    // REPAIR (post-rung-4 skeptic review, HIGH): was a FRAME count (`state.length * 60f`) decremented
++    // once per LateUpdate call. LateUpdate runs once per RENDERED frame, and Unity vsync (Memoria
++    // defaults Configuration.Graphics.VSync=true, GraphicsSection.cs:35) overrides
++    // Application.targetFrameRate whenever vsync is on (FPSManager.cs:41-45) -- so on any >60Hz
++    // display the window elapses in LESS wall-clock time than the clip's own length, freezing the
++    // envelope before an idle loop has shown its full excursion. Now a SECONDS budget decremented by
++    // Time.deltaTime -- independent of the viewer's actual refresh rate.
++    private const Single FolkloreFitWindowMinSeconds = 0.5f;  // clamp band for the idle-clip-length ->
++    private const Single FolkloreFitWindowMaxSeconds = 4f;    // window-seconds conversion (FF9 idle
++                                                                // clips run well inside this)
++    // s46 rung 5 -- THE BODY-BLEND FIT (RENDER-RIG.md's "zoom in on small creatures" round): a hovering/
++    // darting idle (GEO_MON_B3_020's Dragon Fly measured ~3.4x its own body vertically) makes the live
++    // envelope frame the whole MOTION VOLUME, not the creature -- the bug becomes a speck inside its
++    // own flight box. This is how much of the excursion (envelope minus body) stays in frame: 1.0 =
++    // today's whole-flight-volume behavior (unchanged), 0.0 = a pure body close-up (every excursion
++    // crops at the frame edge). 0.4 measured on the Dragon Fly gives ~1.7x zoom-in with only brief
++    // bob-peak edge contact -- see ApplyFolkloreLiveFit.
++    private const Single FolkloreFitExcursionWeight = 0.4f;
++
++    // s46 rung 5 -- THE TURNTABLE (RENDER-RIG.md's user-requested garnish): retreat lever. false
++    // restores the static yaw-0 facing AND the pre-turntable fit math EXACTLY (ApplyFolkloreLiveFit's
++    // sweep branch is skipped whole, the model's own transform.localRotation is never touched past
++    // EnsureFolkloreModel's Euler(20,0,0) mount pose) -- byte-identical to the round-3/rung-4/rung-5
++    // behavior this const did not exist to gate.
++    private const Boolean FolkloreRigTurntable = true;
++    // taste knob: degrees/second the portrait model yaws while displayed. 25 deg/s ~= one full
++    // revolution every 14.4s -- slow enough to read as ambient motion, not a spin.
++    private const Single FolkloreTurntableDegPerSec = 25f;
++
+     public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
+     {
++        // REPAIR (post-rung-3 review, HIGH): a fresh screen-visit is never "closing" -- this must be
++        // reset before RefreshCategoryList/RefreshDetail can run below, since those can fire the
++        // one-shot defer coroutine this flag gates (see Hide() and RenderFolkloreEntryNextFrame).
++        this.folkloreClosing = false;
+         // REDESIGN instrumentation: the ~3s first-open hang must NAME itself (Awake fires inside
+         // the first Show's activation, so this timer brackets the whole burst)
+         System.Diagnostics.Stopwatch showWatch = System.Diagnostics.Stopwatch.StartNew();
+@@ -91,6 +173,21 @@ public class FolkloreUI : UIScene
+ 
+     public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
+     {
++        // REPAIR (post-rung-3 review, HIGH): set BEFORE TeardownFolkloreRig -- UIScene.Hide (verified
++        // read: UIScene.cs:74-98) does NOT deactivate this scene's GameObject on this same frame when
++        // fading is enabled (FadeIn only calls AfterHide's SetActive(false) once fadeInDuration
++        // elapses, several frames later). A pending RenderFolkloreEntryNextFrame one-shot defer
++        // coroutine (armed by RenderFolkloreEntryLazily on the FIRST owned-entry render of a
++        // screen-visit) is only halted by Unity when the GameObject actually deactivates -- not by
++        // this method's own synchronous teardown -- so without this flag a stale coroutine resuming
++        // mid-fade would re-mint the whole rig (stage/camera/RT/portrait) and re-spawn+animate a
++        // model while the screen is supposed to be closing. Checked by RenderFolkloreEntryNextFrame
++        // and RenderFolkloreEntry (defense in depth); reset in Show().
++        this.folkloreClosing = true;
++        // s46 rung 1: full rig teardown FIRST, unconditionally -- idempotent + exception-safe (see
++        // TeardownFolkloreRig below). Must run even if everything else in Hide later changes -- the
++        // fail-safe ladder's standing law: a dead/half-built rig must never leak past this screen.
++        this.TeardownFolkloreRig();
+         // strand insurance: deactivation kills coroutines, so a Hide landing inside the 2-frame
+         // unmute window would otherwise leave the cursor-move sound muted GAME-WIDE
+         this.muteSettleDepth = 0;
+@@ -102,6 +199,21 @@ public class FolkloreUI : UIScene
+         PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
+     }
+ 
++    // s46 rung 1 REPAIR: Hide()'s explicit TeardownFolkloreRig() call above is NOT the only
++    // deactivation path -- UIManager.OnLevelWasLoaded (UIManager.cs:244-245, re-verified live)
++    // does `this.FolkloreScene.gameObject.SetActive(false);` directly on EVERY level load, entirely
++    // bypassing this Hide() override. Unity calls OnDisable whenever a GameObject becomes inactive
++    // -- whether via its own SetActive(false) (this codepath) or an ancestor's -- for EITHER
++    // deactivation path, so this makes teardown unconditional IN FACT, not just in a comment.
++    // TeardownFolkloreRig is fully idempotent (every step null-checked, fields cleared in `finally`),
++    // so the double call this produces on the ordinary Hide() flow (explicit call above, then this
++    // OnDisable firing right behind base.Hide's own eventual SetActive(false), sync or fade-deferred
++    // per UIScene.Hide/AfterHide) is a safe no-op.
++    private void OnDisable()
++    {
++        this.TeardownFolkloreRig();
++    }
++
+     public override Boolean OnKeyCancel(GameObject go)
+     {
+         if (base.OnKeyCancel(go))
+@@ -300,10 +412,16 @@ public class FolkloreUI : UIScene
+     {
+         if (this.detailNameLabel == null)
+             return;
++        // s46 rung 1 REPAIR: the pane census runs HERE -- unconditionally, on the very first
++        // RefreshDetail call regardless of whether that first entry is owned or locked -- BEFORE any
++        // portrait is ever minted. This is the only way to read the frame Body sheet's real baked
++        // depth landscape uncontaminated by the new widget.
++        this.DumpDetailPaneOnce();
+         if (this.entries == null || this.entries.Count == 0 || this.currentIndex >= this.entries.Count)
+         {
+             this.detailNameLabel.rawText = String.Empty;
+             this.detailBodyLabel.rawText = String.Empty;
++            this.HideFolkloreRig();                            // no stale creature behind an empty pane
+             return;
+         }
+         FolkloreRegistry.Entry e = this.entries[this.currentIndex];
+@@ -314,14 +432,1187 @@ public class FolkloreUI : UIScene
+             if (String.IsNullOrEmpty(lore))
+                 lore = FF9TextTool.ImportantItemHelpDescription(e.Id);
+             this.detailBodyLabel.rawText = lore;
++            this.RenderFolkloreEntryLazily();                  // s46 rung 1: the hardcoded portrait --
++                                                                 // OWNED entries only (the spoiler-safe
++                                                                 // convention this branch already follows:
++                                                                 // the LOCKED branch below surfaces zero
++                                                                 // per-entry data of any kind, on purpose)
+         }
+         else
+         {
+             this.detailNameLabel.rawText = Localization.GetWithDefault("FolkloreLocked");
+             this.detailBodyLabel.rawText = Localization.GetWithDefault("FolkloreLockedHint");
++            this.HideFolkloreRig();                            // LOCKED entries show zero per-entry data
++                                                                 // anywhere in this file -- a rendered
++                                                                 // creature is exactly that kind of leak
+         }
+     }
+ 
++    // s46 rung 1: the one-shot pane census (the file's own dumpedCellOnce/dressing-dump idiom) -- the
++    // only way to know the frame Body sheet's REAL baked depth without guessing. Called from
++    // RefreshDetail's very first invocation, UNCONDITIONALLY and BEFORE any portrait is ever minted,
++    // so the dump reads the pane's true pre-existing depth landscape uncontaminated by the new widget.
++    private void DumpDetailPaneOnce()
++    {
++        if (this.dumpedDetailPaneOnce || this.detailPanel == null)
++            return;
++        this.dumpedDetailPaneOnce = true;
++        foreach (UIWidget w in this.detailPanel.GetComponentsInChildren<UIWidget>(true))
++            Log.Message($"[FolkloreUI] detail pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
++        if (this.portraitPanel != null)
++            foreach (UIWidget w in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                Log.Message($"[FolkloreUI] portrait pane child '{w.name}' local={w.transform.localPosition} size={w.width}x{w.height} pivot={w.pivot} depth={w.depth}");
++    }
++
++    // s46 rung 1 -- lazy mint (never Awake/Show, per the s45 first-open-hang budget), cached for the
++    // screen visit. Returns false (and leaves the pane text-only) on ANY failure -- the codex's
++    // standing law: a rig glitch must never brick the menu (mirrors the try/catch already at
++    // RefreshCategoryList).
++    //
++    // Every this.folklore* field is assigned IMMEDIATELY after the object it backs is constructed,
++    // not batched at the end: a mid-mint exception (the explicit throw below fires on any install
++    // where the test GEO fails to resolve) must leave the catch's TeardownFolkloreRig() able to see
++    // and destroy whatever was actually built -- base.transform lives in UIManager's
++    // DontDestroyOnLoad tree, so an unreachable half-built rig would leak for the whole process.
++    private Boolean EnsureFolkloreRenderRig()
++    {
++        if (this.folklorePortrait != null)
++            return true;                                       // already minted this screen-visit
++        if (this.folkloreRigFailed)
++            return false;                                      // do not retry every selection
++        System.Diagnostics.Stopwatch rigWatch = System.Diagnostics.Stopwatch.StartNew();
++        try
++        {
++            // the stage: far offstage + layer 10 (leak defenses), parented under THIS scene's own
++            // transform -- base.transform already lives inside UIManager's DontDestroyOnLoad tree (the
++            // file's own ROUND-2 LAW), so this satisfies both "outlives nothing it shouldn't" and "dies
++            // with the scene as a backstop" simultaneously; every other clone in this file parents here.
++            GameObject stage = new GameObject("Folklore Render Stage");
++            stage.transform.parent = base.transform;
++            stage.transform.localScale = Vector3.one;
++            stage.transform.localPosition = new Vector3(0f, -10000f, -10000f);
++            this.folkloreStage = stage;                          // commit IMMEDIATELY: any later throw
++                                                                  // in this try must still let the
++                                                                  // catch's TeardownFolkloreRig() reach
++                                                                  // this object (the mid-mint-leak fix)
++
++            // s46 rung 3: model spawning moved to EnsureFolkloreModel (per-entry swap, driven by the
++            // registry's own Display token) -- this rig-mint only builds the stage/camera/RT/portrait
++            // infrastructure, which now survives every entry swap for the whole screen-visit.
++
++            GameObject camGo = new GameObject("Folklore Render Camera");
++            camGo.transform.parent = stage.transform;
++            camGo.transform.localScale = Vector3.one;
++            Camera cam = camGo.AddComponent<Camera>();
++            this.folkloreCamera = cam;                           // commit IMMEDIATELY (same reason)
++            cam.enabled = false;                                // leak defense: never joins the render
++                                                                 // loop; Camera.Render() still works
++                                                                 // regardless of .enabled
++            cam.cullingMask = 1 << 10;                          // leak defense: layer 10, the one slab
++                                                                 // no stock camera already covers
++                                                                 // (Battle 0xFFFFFFFF, FieldMap 0xFFFFFBDF)
++            cam.depth = -4096f;                                 // leak defense: parking convention, MBG.cs:44
++            cam.clearFlags = CameraClearFlags.SolidColor;
++            cam.backgroundColor = new Color(0f, 0f, 0f, 0f);    // TRANSPARENT -- the rung-5 probe pulled
++                                                                 // forward by the round-1 playtest ("a
++                                                                 // hard-edged black border"): the field
++                                                                 // look's Unlit/Transparent Cutout writes
++                                                                 // clean 0/1 alpha (no PSX battle shader
++                                                                 // in this path), and UITexture's default
++                                                                 // Unlit/Transparent Colored alpha-blends
++                                                                 // -- the creature composites straight
++                                                                 // onto the pane sheet. RETREAT LEVER:
++                                                                 // Color.black restores the opaque box if
++                                                                 // this ever halos on a future asset.
++            cam.fieldOfView = 40f;
++            cam.nearClipPlane = 0.1f;
++            cam.farClipPlane = 10000f;
++            cam.aspect = FolkloreRigAspect;                     // s46 rung 3: no in-tree camera sets
++                                                                 // .aspect for an RT target -- assert it
++                                                                 // here and again every Render() call
++            this.ApplyFolkloreCameraFallbackPose();             // sane default before any model is
++                                                                 // mounted -- EnsureFolkloreModel
++                                                                 // overwrites this per entry via
++                                                                 // ApplyFolkloreAutoFraming
++
++            // leak defense: stamp layer 10 recursively -- stage+camera only here (no model exists yet
++            // at rig-mint time under rung 3; EnsureFolkloreModel stamps each freshly spawned model
++            // itself, since a fresh CreateModel output defaults to layer 0). NGUITools' layer-INHERIT
++            // law only fires through NGUITools.AddChild, not a plain transform.parent assignment, so
++            // this must be an explicit stamp.
++            FolkloreUI.SetLayerRecursive(stage, 10);
++
++            RenderTexture rt = new RenderTexture(680, 400, 24);   // 24-bit depth mandatory for 3D --
++                                                                   // the tree's only nonzero-depth RT
++                                                                   // precedent is GEOTEXHEADER.cs:126;
++                                                                   // dims == the portrait seat exactly
++                                                                   // (round 3), so nothing stretches
++            rt.name = "Folklore Rig RT";
++            rt.filterMode = ModelFactory.GetFilterMode(Configuration.Graphics.ElementsSmoothTexture, 0);
++            rt.wrapMode = TextureWrapMode.Clamp;
++            rt.Create();
++            this.folkloreRT = rt;                                // commit IMMEDIATELY (same reason)
++            cam.targetTexture = rt;                              // PERSISTENT -- the one genuinely novel
++                                                                 // composition (Libra's own camera keeps
++                                                                 // this only for one Render() call)
++
++            UITexture portrait = NGUITools.AddWidget<UITexture>(this.portraitPanel, 0);   // depth fixed below
++            this.folklorePortrait = portrait;                    // commit IMMEDIATELY (same reason)
++            portrait.mainTexture = rt;
++            portrait.SetAnchor((GameObject)null);               // the file's own ROUND-2 LAW: anchors
++            portrait.pivot = UIWidget.Pivot.Center;              // re-assert every frame -- SetAnchor(null)
++                                                                  // THEN pivot THEN SetRawRect
++            portrait.SetRawRect(0f, -20f, 680f, 400f);           // round 3: centered in the TOP window
++            // (its own 780x500 pane), nudged 20 down so the caption rail keeps clear air: top edge
++            // +180 vs the window's +250, bottom -220 vs -250. The text lives in the BOTTOM window now
++            // -- no overlap anywhere, the round-2 complaint's actual fix. Seat == RT dims (680x400),
++            // so the render maps 1:1. NEVER call MakePixelPerfect (harmless now that seat == RT, but
++            // the ban stands -- a future RT resize would silently blow the seat).
++
++            // depth: one above the TOP window's OWN Body sheet -- scoped to the portrait's own pane
++            // (the round-3 skeptic: the old min-of-both-labels derivation coupled the bottom
++            // window's label into a decision local to this one). Measured bake per frame clone:
++            // Shadow 3 / Body 4 / Border 8 / Caption 9 -> the portrait lands at 5, above the sheet,
++            // below the border ring and the caption. The runtime read (fallback 4 = the measured
++            // bake) tracks a future re-bake instead of hardcoding. Round-1 history: a blind
++            // textDepth-2 "safety margin" was an EXACT tie with the sheet -- the census log is the
++            // instrument, margins chosen without it can BE the collision.
++            Int32 sheetDepth = 4;
++            foreach (UIWidget fw in this.portraitPanel.GetComponentsInChildren<UIWidget>(true))
++                if (fw.name == "Body")
++                {
++                    sheetDepth = fw.depth;
++                    break;
++                }
++            portrait.depth = sheetDepth + 1;
++
++            this.folkloreRigFailed = false;
++            Log.Message($"[FolkloreUI] rig mint took {rigWatch.ElapsedMilliseconds}ms");   // always log
++                                                                 // the first mint -- cheap, and it
++                                                                 // directly attributes/exonerates the
++                                                                 // s45 first-open-hang investigation
++                                                                 // (measured one frame AFTER Show(),
++                                                                 // not inside it -- see
++                                                                 // RenderFolkloreEntryLazily below)
++            return true;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);                                     // a rig glitch must never brick the menu
++            this.TeardownFolkloreRig();                         // half-built pieces must not leak either
++                                                                 // -- REACHABLE: every field above was
++                                                                 // committed as-you-go, so whatever was
++                                                                 // actually built before the throw is
++                                                                 // visible to (and destroyed by) this call
++            this.folkloreRigFailed = true;                      // never retry every frame/selection
++                                                                 // (TeardownFolkloreRig's own finally
++                                                                 // resets this to false -- this line
++                                                                 // runs AFTER it, so it wins)
++            return false;
++        }
++    }
++
++    // s46 rung 3 -- per-entry model swap (the viewer's ChangeModel discipline, ModelViewerScene.cs:
++    // 1699-1711, hardened by this file's own HonoBehavior-safe / SetActive-before-Destroy laws). No-ops
++    // if the same entry's model is already mounted. A bad/unresolvable Display token degrades ONLY this
++    // entry (Log.Warning naming entry+token, DestroyFolkloreModel, return false) -- folkloreRigFailed is
++    // NEVER touched here; the stage/camera/RT/portrait survive for the next entry.
++    private Boolean EnsureFolkloreModel(FolkloreRegistry.Entry entry)
++    {
++        if (entry == null)
++            return false;
++        if (this.folkloreModel != null && this.folkloreModelEntryId == entry.Id)
++            return true;                                        // zero-cost no-op -- same entry re-selected
++
++        String geoName;
++        if (!FolkloreUI.ResolveFolkloreDisplay(entry.Display, out geoName))
++        {
++            Log.Warning($"[FolkloreUI] entry {entry.Id}: no usable display token ('{entry.Display}')");
++            this.DestroyFolkloreModel();
++            return false;
++        }
++
++        try
++        {
++            this.DestroyFolkloreModel();                        // HonoBehavior-safe destroy of whatever
++                                                                  // was previously mounted, BEFORE spawn
++
++            GameObject model = ModelFactory.CreateModel(geoName, false, true, Configuration.Graphics.ElementsSmoothTexture);
++            if (model == null)
++            {
++                Log.Warning($"[FolkloreUI] entry {entry.Id}: ModelFactory.CreateModel returned null for '{geoName}'");
++                return false;
++            }
++            model.transform.parent = this.folkloreStage.transform;
++            model.transform.localPosition = Vector3.zero;
++            model.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);        // ModelViewerScene.cs:106
++            model.transform.localRotation = Quaternion.Euler(20f, 0f, 0f);   // static pose -- the
++            // viewer's OWN yaw lives on a SEPARATE wrapper transform driven by drag input
++            // (ModelViewerScene.cs:607-609,617); rung 1 has no interactive rotation to replicate, so a
++            // single composed Euler on the model's own transform is a deliberate simplification, not a
++            // copy of the viewer's mechanism. Yaw 0 = the viewer's own default AND playtest-proven to
++            // face the camera (round 1 shipped a 180 guess -- the user saw the creature's back).
++            foreach (Collider col in model.GetComponentsInChildren<Collider>(true))
++                UnityEngine.Object.Destroy(col);                // leak defense: strip colliders at spawn
++                                                                 // (CreateModel attaches none today, so
++                                                                 // this is moot right now -- cheap
++                                                                 // insurance against a future asset)
++            FolkloreUI.SetLayerRecursive(model, 10);            // scoped to JUST the new model -- the
++                                                                 // stage+camera were stamped once at
++                                                                 // rig-mint time and never lose their
++                                                                 // layer; a fresh CreateModel output
++                                                                 // defaults to layer 0
++
++            this.folkloreModel = model;                          // commit AS-YOU-GO -- the mint law: a
++            this.folkloreModelEntryId = entry.Id;                // later exception must still leave the
++            this.folkloreLateUpdateSamples = 0;                  // catch's DestroyFolkloreModel() able
++            this.folkloreAnimation = null;                       // to see and destroy what was actually
++            this.folkloreAnimName = String.Empty;                // built
++            // s46 rung 4 -- reset the live-fit envelope on EVERY swap (design law: a new entry's
++            // envelope must never inherit the previous entry's grown extents). Frozen defaults true;
++            // the fit block below (re)seeds it only on a successful static gather+fit.
++            this.folkloreFitMin = Vector3.zero;
++            this.folkloreFitMax = Vector3.zero;
++            this.folkloreFitFrozen = true;
++            this.folkloreFitWindow = 0f;
++            // REPAIR (post-rung-4 skeptic review, HIGH): the static bind-pose seed can only ever be
++            // UNIONED (Vector3.Min/Max), never shrunk -- an idle clip that holds the body TIGHTER than
++            // its sprawled bind pose (exactly GEO_MON_B3_118's report: "high/tight vs its sprawled bind
++            // pose") can therefore never pull the camera closer than the static fit's own distance, so
++            // "too far back" was structurally unfixable by the union alone. This flag gates LateUpdate
++            // REPLACING (not unioning with) the static seed on the first live sample of each window --
++            // see the fit block below.
++            this.folkloreFitLiveSeeded = false;
++            // s46 rung 5: the body box mirrors folkloreFitLiveSeeded's own reset coverage exactly -- a
++            // new entry's body box must never inherit the previous entry's grown box.
++            this.folkloreFitBodyMax = Vector3.zero;
++            // s46 rung 5 (turntable): mirrors folkloreFitBodyMax's own reset coverage exactly -- a new
++            // entry always starts facing the camera, never inheriting the previous entry's spin.
++            this.folkloreYaw = 0f;
++
++            if (FolkloreUI.FolkloreRigLiveIdle)
++            {
++                Animation anim = model.GetComponent<Animation>();
++                if (anim != null)
++                {
++                    anim.cullingType = AnimationCullingType.AlwaysAnimate;   // the camera is permanently
++                        // disabled + manually rendered -- BasedOnRenderers/isVisible timing has zero
++                        // guarantee here (no in-tree precedent; mirrors the netsync ghost's own
++                        // force-past-culling-ambiguity discipline, NetSyncClient.cs:1653-1657)
++                    List<String> animList = FolkloreUI.GetFolkloreAnimationNames(geoName);
++                    foreach (String clipName in animList)
++                        AnimationFactory.AddAnimWithAnimatioName(model, clipName);
++                    if (animList.Count > 0)
++                    {
++                        this.folkloreAnimation = anim;
++                        // s46 rung 5 -- entry.IdleClip is an OPTIONAL override of which discovered clip
++                        // plays as the idle (some creatures' animList[0] is a non-idle pose, RENDER-RIG.md's
++                        // own open item); ResolveFolkloreIdleClip only ever picks a name FROM animList
++                        // (see its own header comment for why) and always falls back to animList[0] on
++                        // any miss, so this call can never leave folkloreAnimName unset.
++                        this.folkloreAnimName = FolkloreUI.ResolveFolkloreIdleClip(entry.IdleClip, animList, animList[0], entry.Id);
++                    }
++                }
++
++                // s46 rung 4 -- THE LIVE-BOUNDS LAW: force every SkinnedMeshRenderer under the model to
++                // recompute its WORLD bounds from the actual animated skeleton every frame -- the
++                // DELIBERATE OPPOSITE of the netsync ghost's updateWhenOffscreen=false + huge-localBounds
++                // hack (NetSyncClient.cs:1653-1657). There the goal is never-culled-CHEAP: FF9 field
++                // characters are placed on screen by a PSX projection done IN THE SHADER, so normal
++                // frustum culling on the true world bounds wrongly hides them, and the ghost fakes past
++                // it with a deliberately-wrong huge box. Here the rig's camera is PERMANENTLY
++                // `enabled = false` and only ever driven by a manual `Camera.Render()` -- no Unity
++                // culling system ever runs against this renderer at all -- so there is nothing to fake
++                // past, and the goal flips: PER-POSE ACCURATE world bounds, so LateUpdate's live-fit
++                // gather below tracks where the idle clip actually holds the body (GEO_MON_B3_118's
++                // crab idles high/tight vs its sprawled bind pose) instead of the static mesh.bounds
++                // asset extent used for the frame-1 fit.
++                foreach (SkinnedMeshRenderer smr in model.GetComponentsInChildren<SkinnedMeshRenderer>(true))
++                    smr.updateWhenOffscreen = true;
++            }
++
++            // REPAIR (post-rung-3 review, HIGH): gate auto-framing behind the SAME retreat lever as
++            // clip discovery. Previously ApplyFolkloreAutoFraming ran unconditionally here, so flipping
++            // FolkloreRigLiveIdle=false (believing the file's own comment that this "fully retreats
++            // rung 2" to rung 1's exact static pose) still left every model mount driven by the
++            // untested rung-3 bounds-fit math -- giving a maintainer trying to isolate a framing
++            // regression zero diagnostic value from the lever. With the lever off this now calls
++            // ApplyFolkloreCameraFallbackPose() directly, byte-identical to the round-3
++            // playtest-proven GEO_MON_B3_118 pose the comment already promises.
++            //
++            // s46 rung 4: the rung-3 combined gather+fit (ApplyFolkloreAutoFraming) is split in two --
++            // GatherFolkloreStaticBounds (the bind-pose mesh.bounds walk, unchanged guards) and
++            // ApplyFolkloreFit(min, max) (the FOV math + camera set, unchanged verbatim) -- so this
++            // mount path can SEED the live-fit envelope from the very bounds that produced the frame-1
++            // pose (frame-1 behavior is therefore identical to rung 3's own ApplyFolkloreAutoFraming).
++            if (FolkloreUI.FolkloreRigLiveIdle)
++            {
++                Vector3 fitMin, fitMax;
++                if (this.GatherFolkloreStaticBounds(model, out fitMin, out fitMax) && this.ApplyFolkloreFit(fitMin, fitMax))
++                {
++                    this.folkloreFitMin = fitMin;
++                    this.folkloreFitMax = fitMax;
++                    this.folkloreFitFrozen = false;
++                    this.folkloreFitWindow = FolkloreUI.ComputeFolkloreFitWindowSeconds(this.folkloreAnimation, this.folkloreAnimName);
++                    // the frame-1 pose (above) is still the static bind-pose fit -- byte-identical to
++                    // rung 3 -- but the very first LateUpdate live sample REPLACES it (see below), not
++                    // unions with it, so a tighter idle pose can pull the camera in.
++                    this.folkloreFitLiveSeeded = false;
++                    // s46 rung 5: already zero from the reset above (mirrors folkloreFitLiveSeeded's
++                    // own restate here) -- the first live sample seeds it fresh, same as the envelope.
++                    this.folkloreFitBodyMax = Vector3.zero;
++                    // s46 rung 5 (turntable): already zero from the reset above -- restated here for
++                    // clarity, mirroring folkloreFitBodyMax's own restate on this exact branch.
++                    this.folkloreYaw = 0f;
++                }
++                else
++                {
++                    Log.Warning($"[FolkloreUI] entry {entry.Id}: auto-framing degenerate for '{geoName}', using fallback pose");
++                    this.ApplyFolkloreCameraFallbackPose();
++                    // design law: a model whose STATIC fit already failed must never partially engage
++                    // live refit -- folkloreFitFrozen is already true from the reset above, but state
++                    // it explicitly here so this branch reads correct on its own.
++                    this.folkloreFitFrozen = true;
++                    this.folkloreFitWindow = 0f;
++                    // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
++                    this.folkloreFitBodyMax = Vector3.zero;
++                    // s46 rung 5 (turntable): same restate-for-clarity as the other fit state here.
++                    this.folkloreYaw = 0f;
++                }
++            }
++            else
++            {
++                this.ApplyFolkloreCameraFallbackPose();
++                // retreat-lever law: FolkloreRigLiveIdle=false bypasses ALL rung-4 machinery -- already
++                // frozen/zeroed by the reset above, restated for clarity at the call site that matters.
++                this.folkloreFitFrozen = true;
++                this.folkloreFitWindow = 0f;
++                // s46 rung 5: same restate-for-clarity as the other fit state on this branch.
++                this.folkloreFitBodyMax = Vector3.zero;
++                // s46 rung 5 (turntable): same restate-for-clarity as the other fit state here -- this
++                // branch also covers FolkloreRigLiveIdle=false, where LateUpdate's rotation drive never
++                // fires anyway (gated on the same const), so this yaw stays 0 for the whole visit.
++                this.folkloreYaw = 0f;
++            }
++            return true;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            this.DestroyFolkloreModel();                          // a bad model must not leak either
++            return false;
++        }
++    }
++
++    // HonoBehavior-safe, SetActive-before-Destroy per-model teardown -- TeardownFolkloreRig's
++    // stage-scoped shape, re-targeted at just the model so stage/camera/RT/portrait survive.
++    private void DestroyFolkloreModel()
++    {
++        try
++        {
++            if (this.folkloreModel != null)
++            {
++                this.folkloreModel.SetActive(false);
++                HonoBehavior[] hbs = this.folkloreModel.GetComponentsInChildren<HonoBehavior>(true);
++                if (hbs != null)
++                    foreach (HonoBehavior hb in hbs)
++                        if (hb != null)
++                            hb.UnregisterHonoBehavior(dispose: true);
++                UnityEngine.Object.Destroy(this.folkloreModel);   // unconditional regardless of the loop
++            }
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++        }
++        finally
++        {
++            this.folkloreModel = null;
++            this.folkloreModelEntryId = -1;
++            this.folkloreAnimation = null;
++            this.folkloreAnimName = String.Empty;
++            // s46 rung 4: clear the live-fit envelope alongside the model it was gathered from -- the
++            // design law's explicit clear point (a stale envelope surviving a destroyed model has
++            // nothing left to describe).
++            this.folkloreFitMin = Vector3.zero;
++            this.folkloreFitMax = Vector3.zero;
++            this.folkloreFitFrozen = true;
++            this.folkloreFitWindow = 0f;
++            this.folkloreFitLiveSeeded = false;
++            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
++                                                        // own reset coverage exactly
++            this.folkloreYaw = 0f;                     // s46 rung 5 (turntable): same reset coverage
++        }
++    }
++
++    // s46 rung 3 -- the displayRef grammar (RENDER-RIG.md section 3). Split on the FIRST ':'; scheme
++    // "model" (or a colon-less token, the implicit-model shorthand) resolves a GEO name -- an
++    // all-digits payload looks it up as a numeric FF9BattleDB.GEO id via TryGetValue ONLY (GetValue /
++    // the indexer THROW on a miss -- TwoWayDictionary.cs:83-86,118-123 -- and an author-supplied
++    // numeric id is untrusted input); otherwise the payload IS the GEO name, validated via
++    // ModelFactory.GetGEOID(name) != -1 (the same "no such model" guard CreateModel's own callers use,
++    // ModelFactory.cs:391-401). Any other scheme, an unresolvable id/name, or a GEO_SUB_W0 worldmap
++    // actor (needs the viewer's 3-directional light rig we don't ship, ModelViewerScene.cs:196-217) is
++    // refused.
++    // REPAIR (post-rung-3 review, BLOCKER): the whole body now runs inside its own try/catch. A
++    // hand-edited FolklorePatch.txt line quoting its third token (e.g. `model:"GEO_MON_B3_118"`) --
++    // exactly the malformed-token case this file's own playtest checklist calls for -- reaches
++    // ModelFactory.GetGEOID -> Path.GetFileNameWithoutExtension (ModelFactory.cs:391-393), which
++    // throws ArgumentException on `"`/`<`/`>`/`|`/control chars (verified: CheckInvalidPathChars,
++    // standard .NET/Mono Path behavior). This was the ONE step in the whole per-entry swap chain
++    // (EnsureFolkloreModel -> RenderFolkloreEntry -> RenderFolkloreEntryLazily/NextFrame ->
++    // RefreshDetail -> the NGUI OnItemSelect callback) with zero exception protection anywhere in its
++    // call chain -- an uncaught throw here would unwind out of NGUI's own callback, worse than the
++    // documented text-only degrade (and it would skip DestroyFolkloreModel, leaving a PREVIOUS
++    // entry's creature standing next to the new entry's text). Matches this file's standing law
++    // (every new method that can fail catches Exception, logs, degrades -- never rethrows).
++    private static Boolean ResolveFolkloreDisplay(String token, out String geoName)
++    {
++        geoName = null;
++        if (String.IsNullOrEmpty(token))
++            return false;
++        try
++        {
++            String scheme, payload;
++            Int32 colon = token.IndexOf(':');
++            if (colon < 0) { scheme = "model"; payload = token; }
++            else { scheme = token.Substring(0, colon); payload = token.Substring(colon + 1); }
++            if (scheme != "model" || String.IsNullOrEmpty(payload))
++                return false;
++
++            String name;
++            Int32 id;
++            if (Int32.TryParse(payload, out id))
++            {
++                if (!FF9BattleDB.GEO.TryGetValue(id, out name))
++                    return false;
++            }
++            else
++            {
++                name = payload;
++                if (ModelFactory.GetGEOID(name) == -1)
++                    return false;
++            }
++            if (name.Contains("GEO_SUB_W0"))
++                return false;                                   // needs lights we don't ship (rung 5)
++            geoName = name;
++            return true;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            geoName = null;
++            return false;
++        }
++    }
++
++    // s46 rung 2 -- re-implements ModelViewerScene.GetAnimationsOfModel's GEO-suffix filter
++    // (ModelViewerScene.cs:1679-1691) against a bare GEO name string instead of its PRIVATE ModelObject
++    // wrapper (FolkloreUI spawns via bare ModelFactory.CreateModel, not the viewer's own wrapper type).
++    private static List<String> GetFolkloreAnimationNames(String geoName)
++    {
++        List<String> result = new List<String>();
++        if (String.IsNullOrEmpty(geoName) || geoName.Length <= 4)
++            return result;
++        String identifier = geoName.Substring(4);
++        foreach (KeyValuePair<Int32, String> anim in FF9DBAll.AnimationDB)
++            if (!String.IsNullOrEmpty(anim.Value) && anim.Value.Length > 4 && anim.Value.Substring(4).StartsWith(identifier))
++                result.Add(anim.Value);
++        return result;
++    }
++
++    // s46 rung 5 -- the idleClip token (RENDER-RIG.md's own open item): an OPTIONAL per-entry override
++    // of WHICH discovered clip plays as the idle, for creatures whose animList[0] (discovery order, not
++    // curated) isn't their best look. Parse shape mirrors ResolveFolkloreDisplay (split on the FIRST
++    // ':'; a colon-less token or any scheme other than "idle" is malformed). FAIL-SOFT LAW (deliberately
++    // DIFFERENT from Display's): a bad idleClip token never degrades the entry to text-only -- the model
++    // and its default idle are both already fine -- it only warns (naming entry+token+why) and falls
++    // back to defaultClip. Resolution is restricted to the DISCOVERED list ONLY: AnimationFactory has
++    // already attached every name in `discovered` to this exact model (EnsureFolkloreModel, just above
++    // the call site), so picking among them is safe, whereas loading an arbitrary clip name here would
++    // bind a clip that was never attached to this rig -- a cross-rig/garbage clip, not merely a wrong
++    // idle. Match order: (a) exact case-sensitive hit; (b) a suffix hit -- a discovered name ends with
++    // '_' + payload (so 'idle:002' finds 'ANH_MON_B3_009_002'); a suffix matching MORE THAN ONE
++    // discovered name is ambiguous and defaults rather than guessing.
++    private static String ResolveFolkloreIdleClip(String token, List<String> discovered, String defaultClip, Int32 entryId)
++    {
++        if (String.IsNullOrEmpty(token))
++            return defaultClip;                                 // no override requested -- today's
++                                                                  // behavior, unchanged, no warning
++        try
++        {
++            Int32 colon = token.IndexOf(':');
++            if (colon < 0)
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip token '{token}' missing the 'idle:' scheme, using default clip");
++                return defaultClip;
++            }
++            String scheme = token.Substring(0, colon);
++            String payload = token.Substring(colon + 1);
++            if (scheme != "idle")
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: unknown idle clip scheme in '{token}', using default clip");
++                return defaultClip;
++            }
++            if (String.IsNullOrEmpty(payload))
++            {
++                // the skeptic's diagnostics nit: an 'idle:' with nothing after it is NOT an unknown
++                // scheme -- name the real failure so the FolklorePatch.txt author fixes the right thing
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip token '{token}' has an empty payload, using default clip");
++                return defaultClip;
++            }
++            if (discovered.Contains(payload))                   // exact case-sensitive match first
++                return payload;
++            String suffix = "_" + payload;                       // else a SUFFIX match against the
++            List<String> candidates = new List<String>();         // discovered list only -- never an
++            foreach (String name in discovered)                   // arbitrary clip name (see header)
++                if (name.EndsWith(suffix, StringComparison.Ordinal))
++                    candidates.Add(name);
++            if (candidates.Count == 1)
++                return candidates[0];
++            if (candidates.Count > 1)
++            {
++                Log.Warning($"[FolkloreUI] entry {entryId}: idle clip '{token}' is ambiguous among [{String.Join(", ", candidates.ToArray())}], using default clip");
++                return defaultClip;
++            }
++            Log.Warning($"[FolkloreUI] entry {entryId}: idle clip '{token}' matched no discovered animation, using default clip");
++            return defaultClip;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            return defaultClip;                                 // fail-soft law: never brick the mount
++        }
++    }
++
++    // s46 rung 3 (split in rung 4 -- see ApplyFolkloreFit below): the STATIC bind-pose bounds gather
++    // (no in-tree precedent; standard perspective-fit math). Walks the model's
++    // SkinnedMeshRenderer/MeshRenderer set, SKIPPING disabled renderers (isBattle:false only disables
++    // the "battle_model" Renderer COMPONENTS -- ModelFactory.cs:189-198 -- it does NOT deactivate their
++    // GameObjects, so a naive walk would still enumerate and pollute the fit with hidden battle-form
++    // geometry). Uses each renderer's MESH bind-pose bounds (sharedMesh.bounds -- synchronous,
++    // render-independent, unlike a live SkinnedMeshRenderer.bounds which only refreshes after an actual
++    // visible/rendered pass -- see GatherFolkloreLiveBounds below for that half) transformed through the
++    // renderer's own world transform and back into the STAGE's local space, so the model's 0.5 scale /
++    // 20-degree pitch and any bone offsets compose correctly without hand-multiplying matrices.
++    private Boolean GatherFolkloreStaticBounds(GameObject model, out Vector3 min, out Vector3 max)
++    {
++        min = Vector3.zero; max = Vector3.zero;
++        Boolean any = false;
++        foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
++        {
++            if (!r.enabled)
++                continue;
++            Mesh mesh = null;
++            SkinnedMeshRenderer smr = r as SkinnedMeshRenderer;
++            if (smr != null)
++                mesh = smr.sharedMesh;
++            else
++            {
++                MeshFilter mf = r.GetComponent<MeshFilter>();
++                if (mf != null)
++                    mesh = mf.sharedMesh;
++            }
++            if (mesh == null)
++                continue;
++            Vector3 e = mesh.bounds.extents;
++            if (e.x > FolkloreAutoFitMaxExtent || e.y > FolkloreAutoFitMaxExtent || e.z > FolkloreAutoFitMaxExtent)
++                continue;                                          // reject one absurd renderer (the
++                                                                     // codebase's anti-culling-override
++                                                                     // idiom, e.g. Single.MaxValue*0.01f --
++                                                                     // FieldMapActor.cs:316,323,327)
++            Vector3 c = mesh.bounds.center;
++            for (Int32 sx = -1; sx <= 1; sx += 2)
++                for (Int32 sy = -1; sy <= 1; sy += 2)
++                    for (Int32 sz = -1; sz <= 1; sz += 2)
++                    {
++                        Vector3 world = r.transform.TransformPoint(c + new Vector3(sx * e.x, sy * e.y, sz * e.z));
++                        Vector3 stageLocal = this.folkloreStage.transform.InverseTransformPoint(world);
++                        if (!any) { min = stageLocal; max = stageLocal; any = true; }
++                        else { min = Vector3.Min(min, stageLocal); max = Vector3.Max(max, stageLocal); }
++                    }
++        }
++        return any;
++    }
++
++    // s46 rung 4 -- the LIVE (animated) counterpart to GatherFolkloreStaticBounds, called from
++    // LateUpdate. Renderer.bounds is already a WORLD-space AABB (unlike sharedMesh.bounds, which is
++    // mesh-LOCAL and had to be transformed through the renderer's own transform above) -- for a
++    // SkinnedMeshRenderer with updateWhenOffscreen=true (set in EnsureFolkloreModel) this AABB is
++    // recomputed from the actual animated skeleton, not the static asset. Only the world->stage-local
++    // half of the static gather's math is still needed here. SAME per-renderer absurd-extent guard as
++    // the static gather (FolkloreAutoFitMaxExtent).
++    private Boolean GatherFolkloreLiveBounds(GameObject model, out Vector3 min, out Vector3 max)
++    {
++        min = Vector3.zero; max = Vector3.zero;
++        Boolean any = false;
++        foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
++        {
++            if (!r.enabled)
++                continue;
++            Bounds b = r.bounds;
++            Vector3 e = b.extents;
++            if (e.x > FolkloreAutoFitMaxExtent || e.y > FolkloreAutoFitMaxExtent || e.z > FolkloreAutoFitMaxExtent)
++                continue;
++            Vector3 c = b.center;
++            for (Int32 sx = -1; sx <= 1; sx += 2)
++                for (Int32 sy = -1; sy <= 1; sy += 2)
++                    for (Int32 sz = -1; sz <= 1; sz += 2)
++                    {
++                        // stage rotation is identity at mint (EnsureFolkloreRenderRig never sets
++                        // localRotation on the stage) but this does not ASSUME it stays that way --
++                        // InverseTransformPoint is exact regardless.
++                        Vector3 world = c + new Vector3(sx * e.x, sy * e.y, sz * e.z);
++                        Vector3 stageLocal = this.folkloreStage.transform.InverseTransformPoint(world);
++                        if (!any) { min = stageLocal; max = stageLocal; any = true; }
++                        else { min = Vector3.Min(min, stageLocal); max = Vector3.Max(max, stageLocal); }
++                    }
++        }
++        return any;
++    }
++
++    // s46 rung 3 (the FOV-fit math itself unchanged verbatim by the rung-4 split; re-split again in
++    // rung 5 -- see ApplyFolkloreFitCore below) -- thin (min,max)->(center,halfExtents) wrapper. The
++    // static-mount path (EnsureFolkloreModel) and the round-3 fallback pose both still call this exact
++    // signature, so their numbers stay bit-identical to before the rung-5 split.
++    private Boolean ApplyFolkloreFit(Vector3 min, Vector3 max)
++    {
++        Vector3 boundsCenter = (min + max) * 0.5f;
++        Vector3 halfExtents = (max - min) * 0.5f;
++        return this.ApplyFolkloreFitCore(boundsCenter, halfExtents);
++    }
++
++    // s46 rung 5 -- THE BODY-BLEND FIT CORE: the FOV/distance math extracted verbatim out of
++    // ApplyFolkloreFit (above) into a (center, halfExtents) core so the live path (LateUpdate, via
++    // ApplyFolkloreLiveFit below) can fit a DIFFERENT box than the plain min/max envelope while the
++    // static-mount path keeps calling the (min,max) wrapper unchanged.
++    private Boolean ApplyFolkloreFitCore(Vector3 center, Vector3 halfExtents)
++    {
++        if (halfExtents.x < FolkloreAutoFitMinExtent && halfExtents.y < FolkloreAutoFitMinExtent && halfExtents.z < FolkloreAutoFitMinExtent)
++            return false;
++        if (halfExtents.x > FolkloreAutoFitMaxExtent || halfExtents.y > FolkloreAutoFitMaxExtent || halfExtents.z > FolkloreAutoFitMaxExtent)
++            return false;
++
++        Single fovV = this.folkloreCamera.fieldOfView * Mathf.Deg2Rad;   // Camera.fieldOfView is VERTICAL
++                                                                           // (Unity default; confirmed no
++                                                                           // horizontal-FOV math anywhere in
++                                                                           // this codebase's 13 fieldOfView
++                                                                           // call sites)
++        Single tanHalfV = Mathf.Tan(fovV * 0.5f);
++        Single dv = halfExtents.y / Mathf.Max(tanHalfV, 0.0001f);
++        Single dh = halfExtents.x / Mathf.Max(tanHalfV * FolkloreRigAspect, 0.0001f);
++        Single d = Mathf.Max(dv, dh) * FolkloreAutoFitMargin + halfExtents.z;
++        if (Single.IsNaN(d) || Single.IsInfinity(d) || d < 1f)
++            return false;
++
++        this.folkloreCamera.transform.localPosition = center + new Vector3(0f, 0f, -d);
++        this.folkloreCamera.transform.LookAt(this.folkloreStage.transform.TransformPoint(center), Vector3.down);
++        return true;
++    }
++
++    // s46 rung 5 -- THE BODY-BLEND FIT: blends the live envelope (candidateMin/candidateMax, the
++    // window's whole-flight-volume union the caller already tracks in folkloreFitMin/Max) toward the
++    // tighter folkloreFitBodyMax body box by FolkloreFitExcursionWeight -- see that const's own comment
++    // for the 0..1 semantics. GROUNDED-CREATURE REGRESSION SAFETY, stated precisely (REPAIR,
++    // post-rung-5 skeptic review, MEDIUM -- the prior wording overclaimed exact "componentwise EQUAL"):
++    // envHalf is a UNION of per-frame boxes across every sampled CENTER this window, while
++    // folkloreFitBodyMax is a MAX of per-frame OWN half-extents independent of center -- these coincide
++    // exactly only when the idle's center never drifts a single unit within the window. Any nonzero
++    // sway/weight-shift/breathing translation still makes envHalf strictly >= folkloreFitBodyMax (never
++    // <), so effective is always <= envHalf, with the gap proportional to positional drift -- i.e.
++    // "grounded" creatures (envelope ~= body, the approximate claim this design was proven against in
++    // rounds 1-3) keep a framing that is AT MOST marginally tighter than fitting the envelope directly,
++    // never looser and never a regression class of its own.
++    //
++    // s46 rung 5 (turntable) -- THE ROTATION-INVARIANT SWEEP FIT, gated on FolkloreRigTurntable below:
++    // the live envelope this method receives is measured at whatever yaws the settle window happened
++    // to OBSERVE (a few seconds of a slowly-turning model), so fitting (center, effective) directly --
++    // exactly as the non-turntable branch still does -- clips a long/asymmetric creature's SIDES the
++    // moment it rotates past whatever angle the window sampled. Rather than observe every angle, the
++    // sweep is computed ANALYTICALLY: the yaw axis is the stage-vertical line through the model seat
++    // (stage-local x=0,z=0 -- the model sits at localPosition zero, EnsureFolkloreModel) -- TRULY
++    // vertical, not merely approximately (REPAIR, post-turntable skeptic review, MEDIUM: LateUpdate now
++    // composes the 20-degree pitch in the model's own LOCAL frame ahead of yaw, so yaw is a pure
++    // rotation about the fixed Y axis with nothing to absorb -- see LateUpdate's own comment). The live
++    // GATHER upstream (GatherFolkloreLiveBounds, called every LateUpdate while the model is already
++    // turning) keeps working in plain stage space -- the union just sees a sequence of ROTATED
++    // silhouettes over the window, which only enriches (never narrows) the envelope this method
++    // receives; the sweep math below then extrapolates the FULL circle from whatever partial arc the
++    // window actually observed, so no in-window angle -- let alone an angle the window never saw -- can
++    // clip the UNBLENDED envelope.
++    //
++    // REPAIR (post-turntable skeptic review, HIGH): the sweep MUST run on envHalf (the raw envelope --
++    // a monotonic union of every OBSERVED silhouette, so its corner-distance-from-axis is a true
++    // rotation-invariant superset), never on `effective` (the body-blended, deliberately SHRUNK box --
++    // FolkloreFitExcursionWeight < 1 makes it strictly smaller than envHalf whenever body < envHalf, so
++    // it is NOT a safe superset, and sweeping it directly would silently break this comment's own proof
++    // for exactly the elongated/asymmetric creature the sweep exists to protect -- clipping at any yaw
++    // outside the settle window's partial arc). Instead: sweep envHalf (safe, full-circle) AND body
++    // (this frame's own instantaneous silhouette, mirroring the Y-axis's existing body-blend) into two
++    // RADII, then blend the RADII by FolkloreFitExcursionWeight -- the same zoom knob, applied only
++    // where the safety proof still holds.
++    //
++    // HONEST REGRESSION (comment, not a defect): a grounded/stationary creature pays the turntable's
++    // universal price too -- centering the fit ON the rotation axis means the swept radius is the
++    // DIAGONAL of the (asymmetric) envelope/body boxes, r ~= sqrt(x^2 + z^2), not x/z alone, so every
++    // creature renders somewhat SMALLER once the turntable is on than the yaw-0-only fit this same
++    // method produced before. That is correct behavior for a model that rotates (a fixed camera framing
++    // a spinning long body must frame its widest sweep, not its narrowest silhouette), not a bug to
++    // chase. At FolkloreFitExcursionWeight=1.0 this radius blend reduces exactly to the raw envelope
++    // sweep (full protection); below 1.0 a creature CAN still crop at a widest-silhouette yaw the
++    // settle window never sampled, by construction -- the SAME accepted trade-off class the Y axis
++    // already pays at bob-peaks, not a new or worse one.
++    //
++    // The static-mount PRE-live fit (frame 1, via ApplyFolkloreFit -> this class's OTHER FitCore
++    // caller) stays UN-SWEPT on purpose: folkloreYaw is 0 on frame 1 by construction (every reset site
++    // above sets it), so the un-swept fit is already exact there -- the first LIVE refit (this method,
++    // within ~2 frames per the rung-4 window) is what applies the sweep.
++    private Boolean ApplyFolkloreLiveFit(Vector3 candidateMin, Vector3 candidateMax)
++    {
++        Vector3 center = (candidateMin + candidateMax) * 0.5f;
++        Vector3 envHalf = (candidateMax - candidateMin) * 0.5f;
++        // the body box is a per-frame INSTANTANEOUS sample maxed across the window while envHalf comes
++        // from a UNION across the same window, so body <= envHalf already holds in the ordinary case --
++        // guard the degenerate case explicitly (the body box must never widen the effective fit past
++        // the envelope itself) rather than assume it.
++        Vector3 body = Vector3.Min(this.folkloreFitBodyMax, envHalf);
++        Vector3 effective = body + (envHalf - body) * FolkloreFitExcursionWeight;
++        if (!FolkloreUI.FolkloreRigTurntable)
++            return this.ApplyFolkloreFitCore(center, effective);
++
++        // the sweep cylinder: max distance from the (stage x=0,z=0) yaw axis to any of a box's 4
++        // horizontal corners -- centering both the aim and the radius ON the axis makes the fit
++        // yaw-independent (a box off-centered from its own rotation axis would otherwise still clip at
++        // SOME angle even after this math). Run once on envHalf (the safe superset) and once on body
++        // (this frame's own silhouette), THEN blend the two RADII -- see the HIGH repair note above for
++        // why the box itself must never be blended before this loop.
++        Single rEnv = 0f;
++        Single rBody = 0f;
++        for (Int32 sx = -1; sx <= 1; sx += 2)
++            for (Int32 sz = -1; sz <= 1; sz += 2)
++            {
++                Single ex = center.x + sx * envHalf.x;
++                Single ez = center.z + sz * envHalf.z;
++                rEnv = Mathf.Max(rEnv, Mathf.Sqrt(ex * ex + ez * ez));
++                Single bx = center.x + sx * body.x;
++                Single bz = center.z + sz * body.z;
++                rBody = Mathf.Max(rBody, Mathf.Sqrt(bx * bx + bz * bz));
++            }
++        // body <= envHalf componentwise (the guard above) => rBody <= rEnv always, so this blend never
++        // exceeds the safe envelope radius.
++        Single r = rBody + (rEnv - rBody) * FolkloreFitExcursionWeight;
++        Vector3 sweptHalfExtents = new Vector3(r, effective.y, r);
++        Vector3 sweptCenter = new Vector3(0f, center.y, 0f);
++        return this.ApplyFolkloreFitCore(sweptCenter, sweptHalfExtents);
++    }
++
++    // s46 rung 4 -- the live-fit window length: give the idle clip roughly its own play length to show
++    // its full excursion before freezing the envelope, clamped to a sane [0.5s,4s] band. `state.length`
++    // is already SECONDS (this codebase's own idiom for clip-length-driven timing math --
++    // BattlePlayerCharacter.cs:31,49; EventEngineUtils.cs:1841) -- REPAIR (post-rung-4 skeptic review,
++    // HIGH): previously converted to a FRAME count at an assumed 60fps and decremented once per
++    // LateUpdate call, which only equals 60 real frames/second when vsync is off; Memoria defaults
++    // vsync ON (GraphicsSection.cs:35) and Unity vsync always overrides targetFrameRate
++    // (FPSManager.cs:41-45), so on a >60Hz display the window elapsed in LESS wall-clock time than the
++    // clip's own length. Returning seconds directly and decrementing by Time.deltaTime in LateUpdate
++    // makes the window's real duration independent of the viewer's refresh rate. The AnimationState
++    // indexer can return null for a name that was never successfully Add'd (defensive -- not expected
++    // in practice since folkloreAnimName is only ever set from a clip
++    // AnimationFactory.AddAnimWithAnimatioName just attached, EnsureFolkloreModel above).
++    private static Single ComputeFolkloreFitWindowSeconds(Animation anim, String clipName)
++    {
++        if (anim == null || String.IsNullOrEmpty(clipName))
++            return 0f;                                             // no clips -- frozen immediately
++        AnimationState state = anim[clipName];
++        if (state == null)
++            return 0f;
++        return Mathf.Clamp(state.length, FolkloreFitWindowMinSeconds, FolkloreFitWindowMaxSeconds);
++    }
++
++    // s46 rung 3: the round-3 playtest-proven pose (GEO_MON_B3_118, "looks good") -- the AUTO-FIT
++    // FALLBACK, used whenever ApplyFolkloreAutoFraming can't trust its own math.
++    private void ApplyFolkloreCameraFallbackPose()
++    {
++        this.folkloreCamera.transform.localPosition = new Vector3(0f, 0f, FolkloreRigCamDist);
++        this.folkloreCamera.transform.LookAt(this.folkloreStage.transform.TransformPoint(0f, FolkloreRigAimY, 0f), Vector3.down);
++    }
++
++    // s46 rung 1: the very FIRST render (the rig's own mint) must not execute inside Show()'s own
++    // call frame. Show() unconditionally calls RefreshCategoryList(true), which unconditionally ends
++    // in RefreshDetail() -- so for any save where the default category's row-0 entry is OWNED (the
++    // common case), the owned branch's render would run SYNCHRONOUSLY inside Show(), bundling the
++    // whole rig mint with the exact burst RENDER-RIG.md's build line says to keep clear of. Defer
++    // EXACTLY that one case -- the rig not yet minted -- by a single frame; every later selection
++    // (rig already minted) renders immediately. This is a ONE-SHOT single-frame defer, not a
++    // per-frame drive (mirrors the file's own UnmuteAfterSettle/LogFirstFrames idiom).
++    private void RenderFolkloreEntryLazily()
++    {
++        if (!base.gameObject.activeInHierarchy)
++            return;                                              // StartCoroutine throws on an inactive
++                                                                   // object; unreachable today (UIRoot
++                                                                   // .Broadcast only hits active trees)
++                                                                   // but one line closes the class
++        if (this.folklorePortrait == null && !this.folkloreRigFailed)
++            base.StartCoroutine(this.RenderFolkloreEntryNextFrame(this.currentIndex));
++        else
++            this.RenderFolkloreEntry();                          // rig already built (or known-dead) --
++                                                                   // this call is already off Show()'s
++                                                                   // own call frame (OnItemSelect/
++                                                                   // OnLocalize/StepCategory's settle)
++    }
++
++    private System.Collections.IEnumerator RenderFolkloreEntryNextFrame(Int32 forIndex)
++    {
++        yield return null;                                       // let Show()'s own call frame finish
++                                                                   // first -- the mint happens here, one
++                                                                   // frame later, never inline with Show
++        if (this.folkloreClosing)
++            yield break;                                          // REPAIR: Hide() fired while this
++                                                                    // one-shot defer was still pending --
++                                                                    // a stale resume must never re-mint
++                                                                    // the rig mid-close (see Hide())
++        if (this.currentIndex == forIndex)                        // still the same selection -- render it
++            this.RenderFolkloreEntry();                           // (else: a newer selection already
++                                                                   // re-entered RefreshDetail and will
++                                                                   // handle its own render)
++    }
++
++    // s46 rung 3: one manual Render() per entry-show/re-show; the model itself now comes from the
++    // registry's own Display token (EnsureFolkloreModel), not a hardcoded GEO
++    private void RenderFolkloreEntry()
++    {
++        if (this.folkloreClosing)
++            return;                                                // REPAIR: defense-in-depth against
++                                                                     // any other path into this method
++                                                                     // during a fade-out close
++        if (!this.EnsureFolkloreRenderRig())
++            return;                                              // rig-infrastructure failure -- unchanged
++        if (this.entries == null || this.currentIndex < 0 || this.currentIndex >= this.entries.Count)
++            return;                                               // defensive bounds re-check (cheap)
++        FolkloreRegistry.Entry entry = this.entries[this.currentIndex];
++        if (!this.EnsureFolkloreModel(entry))
++        {
++            this.HideFolkloreRig();                                // per-entry degrade -- rig survives
++            return;
++        }
++        try
++        {
++            this.folklorePortrait.gameObject.SetActive(true);
++            if (this.folkloreAnimation != null)
++                this.folkloreAnimation.enabled = true;              // undo a prior HideFolkloreRig pause
++            this.folkloreCamera.aspect = FolkloreRigAspect;
++            this.folkloreCamera.Render();
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            this.HideFolkloreRig();                               // degrade to text-only, never throw
++        }
++    }
++
++    // s46 rung 2 -- the living idle. LateUpdate (not Update) so the manual Render() captures the CURRENT
++    // frame's just-sampled skeleton pose, not last frame's stale one: Unity's own execution order is
++    // Update -> legacy Animation sampling -> LateUpdate -> camera rendering (MovieMaterialProcessor.cs:
++    // 9-27 is this codebase's own precedent for choosing LateUpdate for a post-sample pump). A private
++    // LateUpdate here does not conflict with UIScene's own PRIVATE Update() (FieldHUD:UIScene already
++    // proves a derived-class private per-frame method runs alongside, not instead of, the base's --
++    // FieldHUD.cs:379-384). Unity skips this entirely while the GameObject is inactive (Hide/OnDisable
++    // path); the remaining gate below covers the scene-active-but-portrait-hidden case (a LOCKED/empty
++    // RefreshDetail branch already called HideFolkloreRig without deactivating the whole scene).
++    private void LateUpdate()
++    {
++        if (!FolkloreUI.FolkloreRigLiveIdle)
++            return;
++        if (this.folklorePortrait == null || !this.folklorePortrait.gameObject.activeSelf)
++            return;
++        if (this.folkloreCamera == null || this.folkloreModel == null)
++            return;
++
++        // s46 rung 5 -- THE TURNTABLE. Gated on the SAME four conditions already checked above
++        // (FolkloreRigLiveIdle, portrait active, camera+model non-null) plus its own retreat lever --
++        // load-bearing: with FolkloreRigLiveIdle=false this whole method has already returned above,
++        // so the turntable is fully dead there too (a rotating model behind a live=false rig would
++        // freeze at whatever yaw the last frame happened to render, since nothing pumps a per-frame
++        // Render() in that configuration -- worse than the static yaw-0 it replaces). Drives the
++        // model's own transform directly (the viewer itself yaws on a SEPARATE drag wrapper transform;
++        // this file composes on the model's own transform instead, the same declared simplification
++        // EnsureFolkloreModel's own mount-pose comment already notes).
++        //
++        // REPAIR (post-turntable skeptic review, MEDIUM): composing `Quaternion.Euler(20f, yaw, 0f)`
++        // (the mount's OWN idiom, naively extended) does NOT rotate about a vertical axis as yaw
++        // varies. Unity's Euler(x,y,z) composes INTRINSICALLY z-then-x-then-y, which for x=20,z=0
++        // collapses to: yaw about the FIXED (unrotated) vertical Y axis first, THEN a fixed 20-degree
++        // tilt about the FIXED X axis applied to the whole already-yawed shape -- equivalent to
++        // rotating about an axis tilted 20 degrees off vertical. A point offset from that axis by its
++        // own horizontal radius r bobs in world-Y by up to r*sin(20 deg) (~0.34r) over a full turn --
++        // hundreds of units for a real GEO entry (radius up to 4887, FF9BattleDBHeightAndRadius.cs:
++        // 427) -- and ApplyFolkloreLiveFit's sweep deliberately leaves effective.y unswept, so this
++        // wobble is invisible to it past the settle window. Composing the OTHER order instead -- pitch
++        // FIRST in the model's OWN (local) frame, THEN yaw about the FIXED vertical Y axis -- makes yaw
++        // a genuine rotation about a truly vertical axis (rotation about Y never changes a point's Y
++        // coordinate), eliminating the wobble outright instead of trusting an unmeasured margin to
++        // absorb it (this also makes ApplyFolkloreLiveFit's rotation-invariance proof for the x/z sweep
++        // exact, not merely approximate). Identical to the mount's Euler(20,0,0) at yaw=0
++        // (AngleAxis(0,up) is identity), so frame 1 (EnsureFolkloreModel) is untouched.
++        if (FolkloreUI.FolkloreRigTurntable)
++        {
++            this.folkloreYaw = (this.folkloreYaw + FolkloreTurntableDegPerSec * Time.deltaTime) % 360f;
++            this.folkloreModel.transform.localRotation =
++                Quaternion.AngleAxis(this.folkloreYaw, Vector3.up) * Quaternion.AngleAxis(20f, Vector3.right);
++        }
++
++        // the viewer's own re-Play-if-not-playing loop IS the loop mechanism (ModelViewerScene.cs:
++        // 1324-1329) -- but THAT code is not gated on an empty clip name because the viewer never calls
++        // ChangeAnimation with an empty list. folkloreAnimName is only ever non-empty when at least one
++        // clip attached (set in EnsureFolkloreModel), so this guard closes the risk the viewer's own code
++        // doesn't: Play("") is never reachable from this file.
++        if (this.folkloreAnimation != null && this.folkloreAnimation.enabled && !String.IsNullOrEmpty(this.folkloreAnimName))
++            if (!this.folkloreAnimation.IsPlaying(this.folkloreAnimName))
++                this.folkloreAnimation.Play(this.folkloreAnimName);
++
++        // s46 rung 4 -- THE LIVE-FIT WINDOW (RENDER-RIG.md rung-2/3 gap): runs BEFORE Render() so this
++        // frame's refit, if any, already applies to the frame about to be captured. Gated
++        // !frozen && window>0 -- the retreat lever's own early-return above already keeps this whole
++        // block out of a FolkloreRigLiveIdle=false build (folkloreFitFrozen is forced true and the
++        // window forced 0 for every mount when the lever is off, EnsureFolkloreModel), and a model
++        // whose STATIC fit already failed is frozen at mount too (never partially engages live refit).
++        // window is real SECONDS (REPAIR, post-rung-4 skeptic review, HIGH -- was a frame count that
++        // assumed 60fps LateUpdate cadence; vsync locks the real rate to the display's refresh, so a
++        // >60Hz monitor elapsed the old frame-count window before the clip's own length had played).
++        if (!this.folkloreFitFrozen && this.folkloreFitWindow > 0f)
++        {
++            Vector3 liveMin, liveMax;
++            if (this.GatherFolkloreLiveBounds(this.folkloreModel, out liveMin, out liveMax))
++            {
++                // REPAIR (post-rung-4 skeptic review, HIGH): the static bind-pose seed can only ever be
++                // UNIONED, never shrunk, so a camera fit from it can only ever get further away, never
++                // closer -- structurally unable to fix "too far back" for an idle that holds the body
++                // tighter than its bind pose. On the FIRST live sample of the window, REPLACE the seed
++                // with the live bounds outright; only subsequent samples union-grow from there.
++                Vector3 candidateMin = this.folkloreFitLiveSeeded ? Vector3.Min(this.folkloreFitMin, liveMin) : liveMin;
++                Vector3 candidateMax = this.folkloreFitLiveSeeded ? Vector3.Max(this.folkloreFitMax, liveMax) : liveMax;
++
++                // REPAIR (post-rung-4 skeptic review, HIGH): validate the CANDIDATE against the same
++                // absurd-extent guard ApplyFolkloreFit itself enforces, BEFORE committing it to
++                // folkloreFitMin/Max. GatherFolkloreLiveBounds only guards each renderer's bounds
++                // EXTENTS, never its CENTER -- a SkinnedMeshRenderer with normal extents but an
++                // off-origin center (a stale first-sampled-frame skeleton, a malformed bind pose, any
++                // bone glitch) would previously blow the union past FolkloreAutoFitMaxExtent, get
++                // committed here regardless of whether ApplyFolkloreFit went on to refuse it, and then
++                // (because the union is monotonic) poison every remaining frame of the window -- every
++                // later real, small, legitimate growth measures under FolkloreFitGrowEpsilon relative
++                // to the already-corrupted committed bounds, so the camera never refits again and the
++                // window still logs a clean "settled". Reject just this one frame's contribution
++                // instead, exactly like an already-handled degenerate gather.
++                Vector3 candHalfExtents = (candidateMax - candidateMin) * 0.5f;
++                Boolean candidateValid = !Single.IsNaN(candHalfExtents.x) && !Single.IsNaN(candHalfExtents.y) && !Single.IsNaN(candHalfExtents.z)
++                    && !Single.IsInfinity(candHalfExtents.x) && !Single.IsInfinity(candHalfExtents.y) && !Single.IsInfinity(candHalfExtents.z)
++                    && candHalfExtents.x <= FolkloreAutoFitMaxExtent && candHalfExtents.y <= FolkloreAutoFitMaxExtent && candHalfExtents.z <= FolkloreAutoFitMaxExtent;
++
++                if (candidateValid)
++                {
++                    // s46 rung 5 -- THE BODY BOX: this frame's OWN INSTANTANEOUS half-extents, straight
++                    // out of liveMin/liveMax (NOT the running candidateMin/candidateMax envelope, which
++                    // is a union of every position the idle has ever visited this window). A hovering/
++                    // darting idle's candidate envelope balloons with travel; this stays the creature's
++                    // own size.
++                    Vector3 frameHalfExtents = (liveMax - liveMin) * 0.5f;
++
++                    if (!this.folkloreFitLiveSeeded)
++                    {
++                        // first real data for this window -- always attempt a refit (not epsilon-gated):
++                        // this is the sample that may pull the camera IN closer than the static seed,
++                        // not just grow it, so it must never be skipped as "no meaningful growth".
++                        this.folkloreFitMin = candidateMin;
++                        this.folkloreFitMax = candidateMax;
++                        this.folkloreFitLiveSeeded = true;
++                        // s46 rung 5: seed the body box from the SAME sample that replaces the envelope
++                        // seed above.
++                        this.folkloreFitBodyMax = frameHalfExtents;
++                        this.ApplyFolkloreLiveFit(candidateMin, candidateMax);
++                    }
++                    else
++                    {
++                        Single growX = Mathf.Max(this.folkloreFitMin.x - candidateMin.x, candidateMax.x - this.folkloreFitMax.x);
++                        Single growY = Mathf.Max(this.folkloreFitMin.y - candidateMin.y, candidateMax.y - this.folkloreFitMax.y);
++                        Single growZ = Mathf.Max(this.folkloreFitMin.z - candidateMin.z, candidateMax.z - this.folkloreFitMax.z);
++                        // REPAIR (post-rung-4 skeptic review, MEDIUM): scale the grow threshold to the
++                        // committed envelope's own size (see FolkloreFitGrowEpsilonRelative) -- a flat
++                        // 2-unit floor alone is a near-no-op once the envelope reaches real creature
++                        // scale (hundreds-to-thousands of units), which turned the "subtle settle" this
++                        // comment describes into a near-per-frame refit for most models.
++                        Vector3 baseHalfExtents = (this.folkloreFitMax - this.folkloreFitMin) * 0.5f;
++                        Single baseMaxAxis = Mathf.Max(baseHalfExtents.x, Mathf.Max(baseHalfExtents.y, baseHalfExtents.z));
++                        Single growEpsilon = Mathf.Max(FolkloreFitGrowEpsilon, FolkloreFitGrowEpsilonRelative * baseMaxAxis);
++                        this.folkloreFitMin = candidateMin;
++                        this.folkloreFitMax = candidateMax;
++                        // REPAIR (post-rung-5 skeptic review, HIGH): folkloreFitBodyMax grows every
++                        // valid frame, but until this fix the refit below fired ONLY on ENVELOPE growth
++                        // (growX/Y/Z, the position-union box) -- for a cyclic idle the envelope
++                        // stabilizes within the first loop, so a LATER frame's own bigger instantaneous
++                        // pose (wings spread wider, a tail flick) could keep growing folkloreFitBodyMax
++                        // with zero envelope growth to trigger on, leaving ApplyFolkloreLiveFit's
++                        // consumer (body blend, see ApplyFolkloreLiveFit above) stuck on a stale,
++                        // too-small body box -- the camera fit that value drove reads too tight for the
++                        // creature's later, larger poses. Capture the pre-update body box and OR its own
++                        // growth (same growEpsilon threshold) into the refit trigger so a body-only
++                        // growth event still re-fits with the fresh box.
++                        Vector3 prevBodyMax = this.folkloreFitBodyMax;
++                        this.folkloreFitBodyMax = Vector3.Max(this.folkloreFitBodyMax, frameHalfExtents);
++                        Boolean bodyGrew = (this.folkloreFitBodyMax.x - prevBodyMax.x) > growEpsilon
++                            || (this.folkloreFitBodyMax.y - prevBodyMax.y) > growEpsilon
++                            || (this.folkloreFitBodyMax.z - prevBodyMax.z) > growEpsilon;
++                        // EXPAND-ONLY refit from here: only re-run the FOV math when the envelope OR the
++                        // body box noticeably grew this frame, so the camera only ever pulls back/
++                        // recenters from its live-seeded pose -- a subtle settle, never a per-frame
++                        // jitter chasing every sub-pixel skeleton wobble.
++                        if (growX > growEpsilon || growY > growEpsilon || growZ > growEpsilon || bodyGrew)
++                            this.ApplyFolkloreLiveFit(candidateMin, candidateMax);
++                    }
++                }
++                // else: the candidate is degenerate (a corrupted renderer this frame) -- reject it
++                // silently, keep whatever was already committed, the window still counts down below
++            }
++            // else: a degenerate live gather (no renderer passed the guards) this frame -- skip
++            // silently, the window still counts down below
++            this.folkloreFitWindow -= Time.deltaTime;
++            if (this.folkloreFitWindow <= 0f)
++            {
++                this.folkloreFitFrozen = true;
++                // s46 rung 5: the settle log now names both boxes -- the envelope (whole-flight-volume,
++                // as before) and the body box the live-fit blend actually frames toward.
++                Log.Message($"[FolkloreUI] live-fit settled for entry {this.folkloreModelEntryId}, stage-local extents={this.folkloreFitMax - this.folkloreFitMin}, bodyHalfExtents={this.folkloreFitBodyMax}");
++            }
++        }
++
++        this.folkloreCamera.aspect = FolkloreRigAspect;
++        if (this.folkloreLateUpdateSamples < 5)
++        {
++            System.Diagnostics.Stopwatch renderWatch = System.Diagnostics.Stopwatch.StartNew();
++            this.folkloreCamera.Render();
++            this.folkloreLateUpdateSamples++;
++            Log.Message($"[FolkloreUI] live-idle render frame {this.folkloreLateUpdateSamples} took {renderWatch.Elapsed.TotalMilliseconds:F2}ms");
++        }
++        else
++        {
++            this.folkloreCamera.Render();                          // steady state -- no per-frame log spam
++        }
++    }
++
++    // hide (not tear down) -- for the locked/empty RefreshDetail branches, so a previously-rendered
++    // creature never shows behind "???" or an empty pane. Safe to call on an unbuilt rig.
++    private void HideFolkloreRig()
++    {
++        if (this.folklorePortrait != null)
++            this.folklorePortrait.gameObject.SetActive(false);
++        if (this.folkloreAnimation != null)
++            this.folkloreAnimation.enabled = false;                // s46 rung 2: stop sampling a hidden
++    }                                                                // creature -- LateUpdate's own
++                                                                      // portrait.activeSelf guard already
++                                                                      // skips the render; this also skips
++                                                                      // the now-pointless animation cost
++
++    // full teardown -- called from Hide AND OnDisable (both idempotent-safe), exception-safe: every
++    // step is null-checked, the catch swallows so neither caller can ever throw out of this method,
++    // and the finally always clears every ref (a second/third call is a cheap no-op).
++    private void TeardownFolkloreRig()
++    {
++        try
++        {
++            if (this.folklorePortrait != null)
++            {
++                this.folklorePortrait.mainTexture = null;
++                this.folklorePortrait.gameObject.SetActive(false);   // same-frame belt-and-brace before
++                                                                      // the deferred Destroy below runs
++                // detailPanel is built ONCE in Awake and lives the whole process (FolkloreUI's
++                // GameObject sits in UIManager's DontDestroyOnLoad tree), so a merely-deactivated
++                // portrait would never be reclaimed -- and the next codex visit mints a BRAND-NEW one
++                // (EnsureFolkloreRenderRig only checks this.folklorePortrait == null, which the
++                // finally below always resets). Destroy it or every ordinary Cancel-out-of-codex
++                // cycle leaks one permanent GameObject+UIWidget under detailPanel.
++                UnityEngine.Object.Destroy(this.folklorePortrait.gameObject);
++            }
++            if (this.folkloreCamera != null)
++                this.folkloreCamera.targetTexture = null;
++            if (this.folkloreRT != null)
++            {
++                this.folkloreRT.Release();
++                // Release() alone drops the native surface but leaves the managed RenderTexture
++                // wrapper referenced by nothing but this about-to-be-nulled field -- Destroy it too
++                // rather than relying on eventual GC/finalizer.
++                UnityEngine.Object.Destroy(this.folkloreRT);
++            }
++            if (this.folkloreStage != null)
++            {
++                this.folkloreStage.SetActive(false);            // SetActive(false) BEFORE any deferred
++                                                                  // Destroy -- Destroy is end-of-frame, a
++                                                                  // stray render could otherwise catch one
++                                                                  // live frame (a NEW discipline -- no
++                                                                  // in-tree precedent exists for this
++                                                                  // exact step)
++                // UnregisterHonoBehavior(dispose:true) disposes h.gameObject -- the HonoBehavior
++                // COMPONENT'S OWN GameObject -- never an ANCESTOR (HonoBehaviorSystem.cs:264-291:
++                // RemoveBehavior's dispose branch passes h.gameObject specifically). In this rig any
++                // future HonoBehavior would sit on `model`, a CHILD of folkloreStage -- so the dispose
++                // call is an EXTRA step (lets HonoBehaviorSystem retire each behavior's own hooks
++                // first), never a substitute for the unconditional ancestor Destroy below.
++                HonoBehavior[] hbs = this.folkloreStage.GetComponentsInChildren<HonoBehavior>(true);
++                if (hbs != null)
++                    foreach (HonoBehavior hb in hbs)
++                        if (hb != null)
++                            hb.UnregisterHonoBehavior(dispose: true);   // the s36 law
++                                                                         // (NetSyncClient.cs:1821-1848)
++                // ALWAYS destroy the ancestor -- takes stage+camera+model with it regardless of
++                // whether the loop above found anything. GEO_MON_B3_118/isBattle:false attaches zero
++                // HonoBehaviors today (ModelFactory.cs has no AddComponent call at all), so `hbs` is
++                // always empty right now -- but the code ships correct for the future rung the
++                // dispose loop was written for.
++                UnityEngine.Object.Destroy(this.folkloreStage);
++            }
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);                                      // teardown itself must never throw
++        }
++        finally
++        {
++            this.folklorePortrait = null;
++            this.folkloreCamera = null;
++            this.folkloreRT = null;
++            this.folkloreStage = null;
++            this.folkloreRigFailed = false;                      // a fresh screen-visit deserves a fresh
++                                                                   // attempt (the "never retry" ladder
++                                                                   // item guards WITHIN one visit only)
++            // s46 rung 3: folkloreStage's own Destroy() above already cascade-destroyed the model
++            // GameObject (it's a CHILD of folkloreStage) -- these are the reference-null backstop for
++            // the case DestroyFolkloreModel was never separately reached (OnDisable/exception path).
++            this.folkloreModel = null;
++            this.folkloreModelEntryId = -1;
++            this.folkloreAnimation = null;
++            this.folkloreAnimName = String.Empty;
++            this.folkloreLateUpdateSamples = 0;
++            // s46 rung 4: same reference-null backstop as folkloreModel above, for the OnDisable/
++            // exception path that reaches TeardownFolkloreRig without DestroyFolkloreModel ever
++            // running separately (its own finally clears these on the ordinary per-swap path).
++            this.folkloreFitMin = Vector3.zero;
++            this.folkloreFitMax = Vector3.zero;
++            this.folkloreFitFrozen = true;
++            this.folkloreFitWindow = 0f;
++            this.folkloreFitLiveSeeded = false;
++            this.folkloreFitBodyMax = Vector3.zero;   // s46 rung 5: mirrors folkloreFitLiveSeeded's
++                                                        // own reset coverage exactly
++            this.folkloreYaw = 0f;                     // s46 rung 5 (turntable): same reset coverage --
++                                                        // the OnDisable/exception backstop path
++        }
++    }
++
++    private static void SetLayerRecursive(GameObject go, Int32 layer)
++    {
++        go.layer = layer;
++        foreach (Transform child in go.transform)
++            FolkloreUI.SetLayerRecursive(child.gameObject, layer);
++    }
++
+     // A stock framed window pane, THE ControlPanel.InstantiatePanel recipe (the FieldCreator-proven
+     // way to reuse GenericInfoPanel): clone the root for its UIWidget, clone the FRAME child (child 2
+     // = Border/Body/Shadow/Caption) SEPARATELY, strip every baked child (their anchors target
+@@ -403,14 +1694,25 @@ public class FolkloreUI : UIScene
+         fadeGo.transform.localScale = Vector3.one;
+         base.FadingComponent = fadeGo.GetComponent<HonoFading>();
+ 
+-        // RIGHT pane: the detail WINDOW (bordered -- the stock skin-popup style); caption = entry name.
++        // RIGHT column: THE EQUIP-SENTENCE SPLIT (s46 round 3, user-directed -- "look at Equip: top
++        // and bottom split on its right panels"): TWO stacked bordered windows, the stock Equip
++        // screen's right-column shape (EQUIPMENT over ABILITY) recomposed as PORTRAIT over LORE.
++        // Both are the SAME proven GenericInfoPanel recipe the old single pane used -- nothing new
++        // is synthesized, the primitives are stock. Column footprint unchanged (780 wide at x=410,
++        // spanning the old pane's +400..-480 band): TOP 780x500 @ (410,+150) = the portrait window,
++        // caption = entry name (same label binding, RefreshDetail untouched); a 20-unit gap; BOTTOM
++        // 780x360 @ (410,-300) = the lore window, caption blank (a localization row can name it
++        // later without a DLL change).
+         // (The LEFT side is NOT a built pane: the list donor carries its own AUTHENTIC dressing --
+         // sheet + capped rails + header caption -- resurrected below; the round-9 borderless-frame
+         // approximation had no edges and an inset body.)
+-        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -40f, 780f, 880f, true, out this.detailNameLabel);
++        this.portraitPanel = this.BuildFramedPane(menu, "Folklore Portrait Pane", 410f, 150f, 780f, 500f, true, out this.detailNameLabel);
+         this.detailNameLabel.rawText = String.Empty;
++        UILabel loreCaption;
++        this.detailPanel = this.BuildFramedPane(menu, "Folklore Detail Pane", 410f, -300f, 780f, 360f, true, out loreCaption);
++        loreCaption.rawText = String.Empty;
+ 
+-        // the lore body label inside the right pane
++        // the lore body label inside the BOTTOM window (top margin clears the caption rail)
+         GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
+         bodyGo.name = "Folklore Detail Body";
+         bodyGo.transform.parent = this.detailPanel.transform;
+@@ -418,8 +1720,8 @@ public class FolkloreUI : UIScene
+         bodyGo.SetActive(true);
+         this.detailBodyLabel = bodyGo.GetComponent<UILabel>();
+         this.detailBodyLabel.SetAnchor((GameObject)null);
+-        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the pane
+-        this.detailBodyLabel.SetRawRect(0f, 330f, 600f, 640f);
++        this.detailBodyLabel.pivot = UIWidget.Pivot.Top;   // lore reads from the TOP of the window
++        this.detailBodyLabel.SetRawRect(0f, 140f, 680f, 280f);
+         this.detailBodyLabel.alignment = NGUIText.Alignment.Left;
+         this.detailBodyLabel.overflowMethod = UILabel.Overflow.ShrinkContent;   // long lore SHRINKS, never clips
+         this.detailBodyLabel.multiLine = true;
+@@ -623,6 +1925,9 @@ public class FolkloreUI : UIScene
+     [NonSerialized]
+     private GameObject detailPanel;
+     [NonSerialized]
++    private GameObject portraitPanel;                      // s46 round 3: the TOP window of the
++                                                            // Equip-sentence split (portrait over lore)
++    [NonSerialized]
+     private UILabel detailNameLabel;
+     [NonSerialized]
+     private UILabel detailBodyLabel;
+@@ -640,6 +1945,90 @@ public class FolkloreUI : UIScene
+     private Boolean firstFramesLogged;
+     [NonSerialized]
+     private Int32 muteSettleDepth;
++    // REPAIR (post-rung-3 review, HIGH): true from Hide()'s very first line until the next Show()
++    // resets it -- closes the fade-window race where a stale one-shot defer coroutine (armed before
++    // Hide) resumes mid-fade-out and re-mints/re-animates the rig. See Hide()/Show()/
++    // RenderFolkloreEntryNextFrame/RenderFolkloreEntry.
++    [NonSerialized]
++    private Boolean folkloreClosing;
++
++    // s46 rung 1 -- THE RENDER RIG (studies/folklore-codex/RENDER-RIG.md). Minted lazily on the FIRST
++    // owned-entry selection (never Awake/Show, and deferred one frame past Show() itself -- see
++    // RenderFolkloreEntryLazily), cached for the screen visit, torn down whole in Hide AND OnDisable.
++    [NonSerialized]
++    private GameObject folkloreStage;
++    [NonSerialized]
++    private Camera folkloreCamera;
++    [NonSerialized]
++    private RenderTexture folkloreRT;
++    [NonSerialized]
++    private UITexture folklorePortrait;
++    [NonSerialized]
++    private Boolean folkloreRigFailed;         // a dead rig must never retry every frame/selection
++    [NonSerialized]
++    private Boolean dumpedDetailPaneOnce;
++
++    // s46 rung 3: the spawned creature, distinct handle (rung 1 only ever reached it as a child of
++    // folkloreStage -- the per-entry swap needs its own reference to destroy/replace)
++    [NonSerialized]
++    private GameObject folkloreModel;
++    [NonSerialized]
++    private Int32 folkloreModelEntryId = -1;   // which entry.Id is currently mounted; -1 = none
++    // s46 rung 2: cached Animation component, null if the model has none or FolkloreRigLiveIdle is off
++    [NonSerialized]
++    private Animation folkloreAnimation;
++    [NonSerialized]
++    private String folkloreAnimName = String.Empty;   // the clip currently driven; empty = static bind pose
++    // brackets the first 5 live-idle render frames per model-mount for cost telemetry, then goes
++    // silent (Synchronous-stopwatches-cannot-see-real-costs law)
++    [NonSerialized]
++    private Int32 folkloreLateUpdateSamples;
++
++    // s46 rung 4 -- THE LIVE-FIT ENVELOPE (RENDER-RIG.md rung-2/3 gap: the idle clip holds the body
++    // away from the static bind-pose mesh.bounds fit). Stage-local min/max, seeded from the static
++    // gather at mount (frame-1 behavior identical to rung 3), grown only from LIVE (animated) world
++    // bounds while the countdown window below is running (LateUpdate).
++    [NonSerialized]
++    private Vector3 folkloreFitMin;
++    [NonSerialized]
++    private Vector3 folkloreFitMax;
++    // true once the window has elapsed, the static fit failed, or FolkloreRigLiveIdle is off --
++    // LateUpdate's live-fit gather+refit is a complete no-op while frozen
++    [NonSerialized]
++    private Boolean folkloreFitFrozen = true;
++    // counts down (real SECONDS, via Time.deltaTime -- REPAIR, was a frame count assuming 60fps; see
++    // ComputeFolkloreFitWindowSeconds) from the idle clip's own length, clamped [0.5s,4s], to 0 -- the
++    // live-fit gather only runs while this is > 0
++    [NonSerialized]
++    private Single folkloreFitWindow;
++    // REPAIR (post-rung-4 skeptic review, HIGH): true once the FIRST live (animated) sample of the
++    // current window has been gathered -- until then, folkloreFitMin/Max still hold the STATIC
++    // bind-pose seed from mount, and the very next live sample REPLACES (not unions with) it. An
++    // expand-only union seeded from the static bounds can never produce a fit tighter than the static
++    // fit itself, which made "too far back" structurally unfixable for any idle whose live bounds are
++    // smaller than its bind pose (GEO_MON_B3_118's crab). After the first live sample, subsequent
++    // samples union-grow as before (still monotonic within the window -- no per-frame jitter).
++    [NonSerialized]
++    private Boolean folkloreFitLiveSeeded;
++    // s46 rung 5 -- THE BODY BOX (RENDER-RIG.md's zoom-in round): the componentwise MAX, over the same
++    // settle window as folkloreFitMin/Max, of each frame's OWN INSTANTANEOUS half-extents
++    // ((liveMax-liveMin)*0.5f straight out of GatherFolkloreLiveBounds) -- the creature's conservative
++    // body box, free of travel. folkloreFitMin/Max is a UNION across the whole window (it necessarily
++    // includes every position the idle ever visited); this field never unions positions across frames,
++    // only sizes, so a creature that hovers/darts around a wide area still measures a tight body here.
++    // Seeded from the first VALID live sample (the same sample that replaces the envelope seed in
++    // folkloreFitMin/Max), grown componentwise on every later valid sample. Consumed by
++    // ApplyFolkloreLiveFit, reset at every site that resets folkloreFitLiveSeeded.
++    [NonSerialized]
++    private Vector3 folkloreFitBodyMax;
++
++    // s46 rung 5 -- THE TURNTABLE's own drive angle (degrees, [0,360)). Reset alongside
++    // folkloreFitBodyMax at every one of its own reset sites (swap-reset block, mount restate, the
++    // two fallback branches, DestroyFolkloreModel finally, TeardownFolkloreRig backstop) so every
++    // freshly-mounted creature starts at the proven camera-facing yaw 0, exactly like rung-1/3's own
++    // Euler(20,0,0) mount pose before this rung existed.
++    [NonSerialized]
++    private Single folkloreYaw;
+ 
+     private class FolkloreListData : ListDataTypeBase
+     {
+@@ -663,6 +2052,10 @@ public static class FolkloreRegistry
+         public Int32 Id;
+         public Int32 Category;
+         public String Display;                             // reserved for the s46 render rig
++        public String IdleClip;                            // s46 rung 5: optional per-entry idle-clip
++                                                             // override ('idle:<clip-or-suffix>') -- the
++                                                             // same tok.Length-guarded 4th-token idiom as
++                                                             // Display's 3rd; extra tokens still ignored
+     }
+ 
+     private static readonly Dictionary<Int32, Entry> _entries = new Dictionary<Int32, Entry>();
+@@ -719,7 +2112,15 @@ public static class FolkloreRegistry
+                         Log.Warning($"[FolkloreRegistry] unknown category in {path}: '{raw}'");
+                         continue;
+                     }
+-                    _entries[id] = new Entry { Id = id, Category = cat, Display = tok.Length > 2 ? tok[2] : null };
++                    _entries[id] = new Entry
++                    {
++                        Id = id,
++                        Category = cat,
++                        Display = tok.Length > 2 ? tok[2] : null,
++                        IdleClip = tok.Length > 3 ? tok[3] : null,   // s46 rung 5 -- mirrors Display's
++                                                                      // own tok.Length idiom one token
++                                                                      // over; tokens beyond 4 stay ignored
++                    };
+                 }
+             }
+             catch (Exception err)
+

@@ -1,0 +1,5 @@
+# Engine patches are byte-exact artifacts (CRLF convention + deliberately CR-less
+# lines before "\ No newline" markers -- THE PRE-MARKER CR RULE, 2026-07-21).
+# autocrlf normalization would re-CRLF every line on checkout and break the
+# forward --binary gate; store and check out their bytes verbatim.
+memoria-patches/*.patch -text

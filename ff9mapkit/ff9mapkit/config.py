@@ -357,6 +357,14 @@ class ModLayout:
         channel; the engine's "skin" description shown by the Key Items detail popup)."""
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "keyitem" / "imp_skin.mes"
 
+    @property
+    def folklore_patch(self) -> Path:
+        """``<root>/FolklorePatch.txt`` -- the Folklore codex registry sidecar (``<id> <category>``
+        per line; the s45 engine's FolkloreRegistry reads every mod folder's copy low->high, the
+        DictionaryPatch idiom). The single source of truth for WHICH key-item ids are codex entries
+        (drives the dedicated screen's categories AND the Key-Items-tab filter)."""
+        return self.root / "FolklorePatch.txt"
+
     # --- dialogue text (.mes), one folder per language ---
     def text_field_dir(self, lang: str) -> Path:
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "field"

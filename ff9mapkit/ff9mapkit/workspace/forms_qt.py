@@ -538,6 +538,48 @@ def _hub_help_html() -> str:
         "</div>")
 
 
+# the `battle.locate` module ref, lazily imported + memoized on first use -- install-dependent (a field
+# census + a p0data2/mainData scan on a cold cache, ~6s+), so it must NEVER import at this module's own
+# import time (that would tax every Workspace launch, scene detail or not). `_scene_usage` below is the
+# `infohub.detail(scene_usage_fn=...)` hook wired at the ONE call site that renders a scene's detail pane
+# (CatalogLibrary._describe) -- CatalogPicker's preview never reaches kind='scene' (it only ever calls
+# detail() for 'sps'/'sps_template'), so it needs no hook.
+_locate_mod = None
+
+
+def _scene_usage(scene_id):
+    """``infohub.detail``'s ``scene_usage_fn`` hook: battle-census facts + 'where does this fight happen'
+    for one scene id, decoded from the user's own install via :mod:`battle.locate` (cached there after the
+    first call -- a cold build costs ~6s+scan, paid once per Workspace session, never at app startup, only
+    on the first scene the user actually opens). Returns ``None`` on ANY failure (no install, no UnityPy, a
+    stale/mid-write cache) so a missing/broken install degrades the detail pane to the bare kind/id facts,
+    never breaks it."""
+    global _locate_mod
+    try:
+        if _locate_mod is None:
+            from ..battle import locate as _locate_mod_
+            _locate_mod = _locate_mod_
+        loc = _locate_mod
+        sid = int(scene_id)
+        enemies = [n for n in (loc.monster_names(sid) or []) if n]
+        places, locations = [], []
+        for g in loc.scene_places(sid):
+            arc_name = g["arc_name"] or "an unmapped field"
+            kind = "/".join(g["kinds"])
+            fids = g["fields"]
+            fdesc = f"field {fids[0]}" if len(fids) == 1 else f"fields {', '.join(str(f) for f in fids)}"
+            places.append(f"{arc_name} ({fdesc}, {kind})")
+            locations.extend((fid, arc_name) for fid in fids)
+        return {
+            "classification": loc.classify(sid),
+            "enemies": enemies,
+            "places": places,
+            "locations": sorted(set(locations)),
+        }
+    except Exception:                                       # noqa: BLE001 -- best-effort enrichment only
+        return None
+
+
 class CatalogLibrary(QDialog):
     """The Info Hub as a SECTIONED LIBRARY (replacing the all-in-one browse list). Three columns: a category
     sidebar with per-kind counts, a per-section searchable result list, and a rich DETAIL pane built from
@@ -706,7 +748,8 @@ class CatalogLibrary(QDialog):
             self.detail.setHtml("")
             return
         try:
-            d = infohub.detail(e, campaign_context=self.plan, sps_context=self.sps_context)
+            d = infohub.detail(e, campaign_context=self.plan, sps_context=self.sps_context,
+                               scene_usage_fn=_scene_usage)
         except Exception:                                  # noqa: BLE001 -- degrade to the one-line summary
             self.detail.setHtml(f"<b>{_esc(e.name)}</b> [{_esc(e.kind)}]<br>{_esc(e.summary)}")
             return

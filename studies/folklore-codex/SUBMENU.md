@@ -328,3 +328,85 @@ untouched (display-only filter — ids stay in `rare_item_obtained`).
 - **M4 overlay route: REFUTED** — see §1.
 - **M5 Key-Items filter: PARTIAL** — sound; filter on the registered SET, config-gated (§5).
 - **M6 localization: CONFIRMED** — `LocalizationPatch.txt` CSV, low-to-high mod merge, all-7-column rows.
+
+## Phase B record (built + FUNCTIONAL ★ 2026-07-21 — 16 playtest rounds; styling → the menu study)
+
+**What shipped (s45, `FolkloreUI.cs` + the `ItemUI.cs` filter):** the two-pane codex — LEFT = the
+**KEY ITEMS LIST donor** (`ItemScene.KeyItemListPanel` clone — M3's ability-list pick was WRONG for
+faithfulness: its cells are icon+number bars that fight restyling; the key-items cell is the codex's
+exact name-only shape, populated vanilla-style with ZERO restyling) forced 1-column via the engine's
+own `GOSubPanel.ChangeDims`, wearing the donor's authentic `CaptionBackground` dressing (sheet +
+capped rails; the CATEGORY name sits on the header rail where stock puts "ITEM"); owned = white +
+the stock `New!` bang (Confirm clears it via `FF9Item_UseImportant`, save-persistent); locked =
+grey `???`. RIGHT = a bordered detail window (frame caption = entry name; lore body ShrinkContent).
+Stock `item_bg` backdrop; L1/R1 pages categories; `FolklorePatch.txt` registry (mod-root,
+`<keyItemId> <category> [displayRef]`, low→high override); the Key-Items tab filters the REGISTERED set.
+
+**The 16 rounds in one paragraph:** round 1's blank-after-field-load = the orphaned cell template
+(RefreshPool wipes-then-throws); rounds 2-3 = anchors re-assert every frame + panel-depth sorting +
+the window-color per-row sweep; rounds 4-6 = the donor swap + single column + dressing strip;
+rounds 7-8 = the pooled pointer's per-group DEPTH (default 5 = buried) + its SCENE-SPACE limit rect;
+rounds 9-10 = the borderless-frame dead end, reversed by resurrecting the donor's own dressing;
+rounds 11-13 = chasing constants that were snapshots of NGUI's coupled scroll state
+(panel transform + clipOffset); rounds 14-16 = the ChangeDims reshape, the template's row-0 seat
+(spawn-position bounds cache), and the SetDragAmount(0,0) FIXPOINT. Full law set →
+`~/.claude` memory `project-ff9-ngui-menu-construction` + the memoria-patches README s45 row.
+
+**Open defects (cosmetic, deliberately deferred):** (a) ~3s hang on the FIRST open (the Awake clone
+burst — profile before optimizing); (b) row 1 overlaps the top rail (content top = window top; stock
+seats rows below the header rail).
+
+**THE PIVOT (user call, 2026-07-21):** stop iterating the screen blind — run a **menu-shape-language
+study** first (how stock FF9 menus compose: sheets vs bordered windows, rails/caps, header captions,
+row grammars, margins, depth stacks), THEN redesign the codex screen from that vocabulary.
+"The way we're going about it now isn't good for discoverability."
+
+**THE STUDY RAN same day** → `studies/menu-shape-language/VOCABULARY.md` (10-screen + 3-machinery census,
+claims skeptic-verified). Headline for the redesign: **Chocograph is the stock codex** — browse list +
+persistent hover-populated detail pane + silhouette undiscovered slots, no modality; the recommended
+composition ("Option B") writes our screen in that sentence with the Key-Item cell and a recycling
+SubPanel. Both open defects are solved in vocabulary terms there (§6).
+
+## The Option B redesign round (★ IN-GAME PROVEN 2026-07-21 — both defects CLOSED)
+
+One build round + one sound fix, spec at `REDESIGN.md`:
+- **THE PRESERVE-THE-BAKE LAW executed:** capture the donor's solved geometry BEFORE mutation, copy it.
+  The scroll frame keeps the BAKED clip center (Phase B zeroed it — the rows-over-rail mechanism); the
+  dressing children keep baked y/height/pivot/active with a width-only refit; `rowCount` is DERIVED
+  (round(bakedClipH/rowH) — the stock invariant inverted, absorbing widescreen clone-time variance).
+- **THE SCROLL-SUM INVARIANT (the review's blocker, fixed pre-playtest):** the dressing seat must be
+  `D − P − clipOffset` — the live donor's values are individually wild (the bake log showed
+  panelPos (−721, 389), clip center (721, 1538), clipOffset (0, −1930): only the SUM is sane) and NGUI
+  scroll moves P and clipOffset in exact opposition, so only the sum is scroll-invariant. The 3-lens
+  adversarial review (algebra / lifecycle / regression) caught it plus two caption-label frame bugs
+  (dressing-local x written in CaptionPanel space; localPosition read before the pivot setter's
+  compensation) and the finger/caption depth tie.
+- **The hang: GONE, measured** — awake 4ms, first frames 8/14/18ms ("the first open is instant").
+  Instrumentation brackets the synchronous stages AND the Invoke-deferred/LateUpdate window.
+- **The double-sound fix:** category paging re-seats the cursor on the rebuilt rows and
+  ActiveButtonChanged fires 103 on top of the 1047 page flip (stock never trips it — it pages with the
+  SUB-MENU group active). Fix = `ButtonGroupState.MuteActiveSound` (the AbilityUI idiom) held across the
+  2-frame Invoke-deferred settle (the SaveLoadUI cross-window precedent) + strand-insurance unmute in
+  Hide (deactivation kills coroutines — a mid-window cancel would mute the beep game-wide).
+- Playtests: "the layout is great", "first open is instant", "sounds right now"; survives title→load
+  and relaunch. Gate quirk: the reverse patch gate must run TEXT mode (`--binary` mis-parses the
+  csproj's no-newline marker into a phantom fuzz-1). (Since superseded: the marker was a real byte
+  mismatch — the pre-marker CR rule, minted by the 2026-07-21 9-row round, makes forward `--binary`
+  truly exact; see memoria-patches/README.md §s45.)
+
+## The 2026-07-21 main-menu round (9 rows + the title plate) — ★ DONE, one TODO
+
+The 9-row KNOWN ISSUE (the `[Hacks] AllCharactersAvailable` + `[Folklore]` combo pushed Config
+outside the command window — filed by the s46-plan session) is ★ RESOLVED, and the round then
+exposed + fixed the title-plate collapse mechanics; 5 build rounds total (count-derived row pitch ·
+row-children anchor seat · the collapse identity `9 + bakedItemRowY − rowY` · BAKED 74/104 plate
+minima kept · instant `ResetToMinimum()` on the Party/Folklore descends whose Show kills the tween
+coroutine — the stock Form Party freeze). Laws + census method →
+`~/.claude` memory `project-ff9-ngui-menu-construction`.
+
+**TODO (cosmetic, user-flagged 2026-07-21): sharp corners on the custom screens' inner cards** —
+the Folklore list rows / detail-window body (and the Form Party info cards) show square inner
+corners where stock screens read slightly rounded. Likely the cloned sprites' sliced-corner
+rendering vs the stock atlas variants (`dialog_bg` vs the rounded `card_` sprites) or a
+DisplayWindowBackground atlas swap landing on a square-cornered sprite name. Compare the baked
+Item-screen body sprites' spriteName/type in the level2 dump vs our clones' before styling anything.
