@@ -68,7 +68,10 @@ def export_model(token: str, out_dir, *, game=None, flat: bool = False) -> dict:
     model = extract.read_model(token, game=game)
     merge_warnings: list = []
     if not flat:
-        extract.strip_overlay_meshes(model, warn=merge_warnings.append)   # a loose override can't be mode-hidden
+        # a loose override can't be mode-hidden by name -- strip only the overlay THIS form's engine
+        # by-name hide would drop (its own opposite-mode overlay is real always-visible geometry)
+        extract.strip_overlay_meshes(model, warn=merge_warnings.append,
+                                     prefixes=extract.overlay_hide_prefixes(token))
         merge_warnings.extend(_shared_prefab_warnings(model))
     extract.merge_nested_child_meshes(model, warn=merge_warnings.append)   # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
@@ -104,7 +107,8 @@ def deploy_override(token: str, mod_folder, *, game=None) -> dict:
     :func:`~ff9mapkit.models.extract.strip_overlay_meshes`)."""
     model = extract.read_model(token, game=game)
     merge_warnings: list = []
-    extract.strip_overlay_meshes(model, warn=merge_warnings.append)
+    extract.strip_overlay_meshes(model, warn=merge_warnings.append,
+                                 prefixes=extract.overlay_hide_prefixes(token))
     merge_warnings.extend(_shared_prefab_warnings(model))
     extract.merge_nested_child_meshes(model, warn=merge_warnings.append)   # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
