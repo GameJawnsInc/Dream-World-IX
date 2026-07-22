@@ -8,8 +8,10 @@ from those sources; where they conflict, the memory file wins.
 
 1. **STOP-confirm** the change is truly engine-side (see SKILL.md — most tasks need no rebuild).
 2. **Back up the game's live DLLs first** — the build auto-deploys with no backup (below).
-   Snapshot `Assembly-CSharp.dll` from BOTH `x64\FF9_Data\Managed\` and `x86\FF9_Data\Managed\`
-   to `backups/<file>.<timestamp>`.
+   Run `py tools/backup_memoria_dll.py [label]` from the MAIN repo: it snapshots all 3 DLLs
+   from BOTH Managed folders to `backups/<stem>.<arch>.dll[.<label>].<timestamp>` (one shared
+   timestamp = one restore selector), prints the restore one-liner, and exits non-zero unless
+   the full 3x2 set was captured — do NOT build on a partial.
 
 ## Toolchain (verified on this machine)
 
