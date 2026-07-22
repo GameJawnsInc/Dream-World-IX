@@ -130,6 +130,18 @@ SET({{const4({CONFIRM}) B_KEY B_EXPR_END}})
 JMP_IFNOT(L30)
 SET({{Global.Byte[2004] B_POST_PLUS B_EXPR_END}})
 L30:
+SET({{const4(67108863) B_KEY B_EXPR_END}})
+JMP_IFNOT(L32)
+SET({{Global.Byte[2005] B_POST_PLUS B_EXPR_END}})
+L32:
+SET({{const4(983040) B_KEY B_EXPR_END}})
+JMP_IFNOT(L34)
+SET({{Global.Byte[2006] B_POST_PLUS B_EXPR_END}})
+L34:
+SET({{const4(66060288) B_KEY B_EXPR_END}})
+JMP_IFNOT(L36)
+SET({{Global.Byte[2007] B_POST_PLUS B_EXPR_END}})
+L36:
 SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEY B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
 SET({{obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({NEAR}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({NEAR}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
