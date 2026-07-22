@@ -430,6 +430,19 @@ follow-on, and it's wiring an already-solved format, not reverse engineering.
    (Fallback if it fails: spawn the creature as a battle-actor model instead — our skinmint band —
    choreographed via ShowMesh/PlayAnimation; or prove the mechanism enemy-side first via the
    BattlePatch SequenceFile route, which is the more battle-tested load path.)
+   **[BUILT + DEPLOYED 2026-07-21 → `rung7-creature/` (cast pending; verifier READY, zero
+   blockers). THE CHAIN IS SILENT-SKIP-CLASS BY DESIGN (recon walked every failure site: missing
+   Path → entry dropped; unloadable FBX → ModelFactory null → continue; bad clip → stripped;
+   malformed JSON → Load null → skip — no crash sites reachable from our data). THE GRAMMAR LAWS:
+   FileList.txt tokens split on SINGLE SPACES (tabs/double-spaces break silently); multiple Model
+   lines COMPOSE onto one mesh list; `LoadSFX: SFX=84` numeric parses Int32-first; a `Camera`
+   line is INERT (the dead LoadFromJSON stub, re-confirmed at this call site). THE MOVEMENT TRAP:
+   an FBX entry with no Movement sits at WORLD ORIGIN (wrong place, not invisible) — the build
+   pins an explicit static CasterPosition-anchored curve. Asset = Iviv's own GEO 6100 (already
+   loading on this install; ZERO new bytes staged). The deployed sequence = rung 6's proven
+   skeleton + a ~4s reveal DURING the blackout (setBGColor disables only the battle-bg model's
+   renderers — the SFX mesh renders independently: a silhouette-against-black reveal), End=60
+   auto-destruct, then re-light → damage → close-out.]**
 8. **The composed epic** — full multi-phase original: buildup channel → blackout → creature reveal
    → attack → EffectPoint → resolution, minted music sting, PlayCamera cuts. Proof: a bespoke
    summon start-to-finish, zero DLL.

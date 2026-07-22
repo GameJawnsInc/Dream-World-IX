@@ -1,0 +1,63 @@
+// FF9CustomMap/StreamingAssets/Data/SpecialEffects/ef084/PlayerSequence.seq
+// RUNG 7 -- THE CREATURE RUNG. FileList.txt + a .sfxmodel FBX entry reveals a mesh from OUR OWN loose-FBX
+// model pipeline (Iviv's GEO_MAIN_B0_M100, minted id 6100) mid-cast -- the SAME ModelFactory.CreateModel
+// loader the kit's proven custom-model pillar already uses (SFXDataMesh.cs:744), reached for the first
+// time ever through the FileList.txt/Model route (0/487 stock ef folders use it; zero community sighting).
+//
+// Extends rung 6's proven bare sequence (rung6-bare-sequence/bare_player_sequence.seq, zero LoadSFX)
+// verbatim -- every rung-6 line is unchanged -- with exactly ONE new LoadSFX/WaitSFXLoaded/PlaySFX/
+// WaitSFXDone quartet, all targeting THIS PRIVATE folder's own id (84), never the shared Bahamut donor
+// (ef227).
+//
+// UseCamera=False (an explicit addition beyond the recon's minimal proposed line -- see README.md
+// "Design decisions") keeps the native camera plugin out of the loop entirely: id 84 has no native
+// ef###.bytes content to feed it, and PLAN.md §3.5 traces camera-owning effects as re-invoking
+// FF9SpecialEffectPlugin.dll live every frame -- an unrelated, untested variable this rung deliberately
+// does not introduce alongside the FBX-loader bet.
+//
+// SkipSequence=True on PlaySFX prevents ef084/Sequence.seq (rung 3's leftover byte-identical copy of
+// Bahamut's OWN nested Sequence.seq, still on disk, still readable by any LoadSFX op regardless of the
+// FileList.txt/JSON-mesh branch -- SFXData.cs:174) from re-arming as a second, duplicate-damage parallel
+// thread alongside this file's own EffectPoint pair.
+
+WaitAnimation: Char=Caster
+Message: Text=[CastName] ; Priority=1 ; Title=True ; Reflect=True
+SetupReflect: Delay=SFXLoaded
+LoadSFX: SFX=84 ; Char=Caster ; Reflect=True ; UseCamera=False
+PlayAnimation: Char=Caster ; Anim=MP_IDLE_TO_CHANT
+WaitAnimation: Char=Caster
+PlayAnimation: Char=Caster ; Anim=MP_CHANT ; Loop=True
+Channel
+SetBackgroundIntensity: Intensity=0 ; Time=12
+PlaySound: Sound=100000
+CreateVisualEffect: Char=Caster ; SFXModel=Data/SpecialEffects/ef084/RisingRing.sfxmodel
+Wait: Time=90
+WaitAnimation: Char=Caster
+StopChannel
+PlayAnimation: Char=Caster ; Anim=MP_MAGIC
+WaitAnimation: Char=Caster
+WaitSFXLoaded: SFX=84 ; Reflect=True
+PlaySFX: SFX=84 ; Reflect=True ; SkipSequence=True
+WaitSFXDone: SFX=84 ; Reflect=True
+SetBackgroundIntensity: Intensity=1 ; Time=12
+Wait: Time=12
+EffectPoint: Char=AllTargets ; Type=Effect
+Wait: Time=12
+EffectPoint: Char=Everyone ; Type=Figure
+ActivateReflect
+WaitReflect
+PlayAnimation: Char=Caster ; Anim=Idle
+Turn: Char=Caster ; BaseAngle=Default ; Time=5
+WaitTurn: Char=Caster
+
+// 29 operation lines = rung 6's proven 25 (byte-identical, unchanged) + exactly 4 new lines (LoadSFX /
+// WaitSFXLoaded / PlaySFX / WaitSFXDone), inserted between rung 6's post-MP_MAGIC WaitAnimation and its
+// re-light SetBackgroundIntensity=1. The creature is revealed and held for its own 60-frame (~4s at the
+// bench's BattleTPS=15) window ENTIRELY INSIDE the still-active Intensity=0 blackout -- per the chain
+// recon's blackout_scope finding, SetBackgroundIntensity only disables MeshRenderers that are direct
+// children of battlebg.btlModel (the pre-rendered arena art root); an SFXDataMesh.JSON FBX GameObject is
+// created independently via ModelFactory.CreateModel and is never parented there, so it renders fully lit
+// against the black void -- the same reveal-from-blackout staging native summons already use, now proven
+// data-only. The FIGURE-VISIBILITY LAW (rung 4) is respected exactly as rung 6 established it: both
+// EffectPoint lines still fire only after the full re-light (SetBackgroundIntensity=1) plus a 12-tick
+// settle Wait.
