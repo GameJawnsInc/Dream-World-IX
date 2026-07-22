@@ -1,0 +1,464 @@
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+index e033a7a..cfaeb5c 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -20,27 +20,34 @@
+     // disassembly. See studies/custom-summons/thomas-swap/PROBE.md for the arming + read-out
+     // procedure.
+     //
+-    // Two hooks call into this class:
++    // Hooks call into this class:
+     //   - SFXDataMesh.cs, Runtime.Render() (the SFXRender.commandBuffer draw walk) -> LogFrame().
+-    //   - SFXDataCamera.cs, UpdateCamera() (the SFX_PLUGIN camera-engine branch) -> LogCamera().
++    //   - SFXDataMesh.cs, Runtime.Render() (co-located with LogFrame, same call) -> LogCamera(Camera). [s48 -- moved from SFXDataCamera.cs, see LogCamera()'s own doc comment for why]
++    //   - SFXRender.cs, Add() (every decoded native primitive, BEFORE mesh-batching) -> LogPrim(). [s48]
++    //   - SFXDataMesh.cs, Runtime.End() (effect-lifecycle end, flushes a pending PRIMSUM row) -> FlushPrimSummary(). [s48]
+     //
+-    // ZERO-COST WHEN DISABLED: each call site guards on the cached `Enabled` bool (a single
+-    // static field read, set once from Memoria.ini at first touch) before calling in; nothing
+-    // is allocated, no file is opened, no work happens on a normal (Enabled=0) install.
++    // ZERO-COST WHEN DISABLED: each call site guards on its own cached bool (a single static
++    // field read, set once from Memoria.ini at first touch) before calling in; nothing is
++    // allocated, no file is opened, no work happens on a normal (all-flags-0) install.
+     //
+     // Output: a CSV-ish per-session log, recreated (FileMode.Create) at the first write of a
+     // process -- so every game launch starts a fresh file, never an ever-growing one.
+     //   MESH,<effectId>,<frame>,<index>,<keyHex>,<vertCount>,<triCount>,<cx>,<cy>,<cz>,<ex>,<ey>,<ez>
+     //   CAM,<frame>,<px>,<py>,<pz>,<rx>,<ry>,<rz>
++    //   PRIM,<effectId>,<frame>,<index>,<code>,<vertHint>,<otz>,<x>,<y>            [s48, drawable tags]
++    //   STATE,<effectId>,<frame>,<index>,<code>,<label>                           [s48, DR_* tags]
++    //   PRIMSUM,<effectId>,<frame>,<count>,<minX>,<minY>,<maxX>,<maxY>            [s48, PrimSummary=1 mode]
+     // effectId = (Int32)SFX.currentEffectID (the SpecialEffect enum, cast to its underlying int);
+-    // frame = SFX.frameIndex (the native plugin's own frame counter -- shared by both MESH and
+-    // CAM lines, so the two streams correlate on that column); index = the mesh's position in
++    // frame = SFX.frameIndex (the native plugin's own frame counter -- shared by every row type,
++    // so all streams correlate on that column); index (MESH) = the mesh's position in
+     // SFXRender.commandBuffer that frame; keyHex = SFXMeshBase._key (the same hex key
+     // HideMeshes/-Colors take); vertCount/triCount read straight off the drawn Unity Mesh
+     // (mesh.vertexCount / mesh.triangles.Length/3); cx,cy,cz/ex,ey,ez = mesh.bounds center and
+     // extents -- WORLD space here, because SFXMesh.Render() draws via
+     // Graphics.DrawMeshNow(_mesh, Matrix4x4.identity) (object space IS world space for this
+-    // mesh class, no transform in play). CAM lines use Camera.main's position + eulerAngles.
++    // mesh class, no transform in play). CAM lines use the resolved battle/plugin camera's
++    // (see LogCamera()) position + eulerAngles. PRIM/STATE/PRIMSUM columns are documented on
++    // LogPrim() below.
+     public static class SfxMeshProbe
+     {
+         private const String LogPath = "./sfxmeshprobe.log";
+@@ -50,6 +57,16 @@
+         // Memoria.ini is the same rule every other engine-side toggle already follows.
+         public static readonly Boolean Enabled = LoadEnabled();
+
++        // s48 -- independent sub-flags: a user can capture the raw primitive stream without
++        // paying for (or wading through) the MESH/CAM rows, and vice versa.
++        public static readonly Boolean CapturePrims = LoadCapturePrims();
++        // s48 -- MODE selector under CapturePrims=1 only (no effect if CapturePrims=0): collapse
++        // to one PRIMSUM row per frame instead of one PRIM/STATE row per primitive. See LogPrim().
++        public static readonly Boolean PrimSummary = LoadPrimSummary();
++        // s48 -- hard cap on per-primitive PRIM/STATE rows for the process lifetime (ignored in
++        // PrimSummary mode, which is already bounded to 1 row/frame). See LogPrim().
++        public static readonly Int32 PrimRowCap = LoadPrimRowCap();
++
+         private static StreamWriter _writer;
+         private static Boolean _writerInitTried;
+
+@@ -65,6 +82,46 @@
+             }
+         }
+
++        private static Boolean LoadCapturePrims()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "CapturePrims", "0").Trim() == "1";
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        private static Boolean LoadPrimSummary()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "PrimSummary", "0").Trim() == "1";
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        private static Int32 LoadPrimRowCap()
++        {
++            try
++            {
++                String raw = IniFile.MemoriaIni.GetSetting("SfxProbe", "PrimCap", "200000").Trim();
++                Int32 cap;
++                if (Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap) && cap > 0)
++                    return cap;
++                return 200000;
++            }
++            catch
++            {
++                return 200000;
++            }
++        }
++
+         private static StreamWriter Writer
+         {
+             get
+@@ -76,9 +133,12 @@
+                     {
+                         Stream stream = new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                         _writer = new StreamWriter(stream);
+-                        _writer.WriteLine("# ff9mapkit s47 sfx-mesh-probe");
++                        _writer.WriteLine("# ff9mapkit s47+s48 sfx probe (mesh/camera/raw-primitive capture)");
+                         _writer.WriteLine("# MESH,effectId,frame,index,keyHex,vertCount,triCount,cx,cy,cz,ex,ey,ez");
+                         _writer.WriteLine("# CAM,frame,px,py,pz,rx,ry,rz");
++                        _writer.WriteLine("# PRIM,effectId,frame,index,code,vertHint,otz,x,y");
++                        _writer.WriteLine("# STATE,effectId,frame,index,code,label");
++                        _writer.WriteLine("# PRIMSUM,effectId,frame,count,minX,minY,maxX,maxY");
+                         _writer.Flush();
+                     }
+                     catch
+@@ -127,18 +187,31 @@
+             }
+         }
+
+-        // Called from SFXDataCamera.cs, UpdateCamera() -- only while the SFX_PLUGIN camera
+-        // engine is actually driving Camera.main (the caller already gates on that).
+-        public static void LogCamera()
++        // Called from SFXDataMesh.cs, Runtime.Render() -- co-located with LogFrame(), NOT from
++        // SFXDataCamera.cs anymore. s48 ROOT-CAUSE: s47's hook lived in SFXDataCamera.cs
++        // UpdateCamera() and read Camera.main directly, which is why a full cast logged 19,436
++        // MESH rows but ZERO CAM rows even with Enabled=1 -- TWO compounding defects, not one:
++        //   1) Camera.main is routinely null during native SFX battle playback (15+ other call
++        //      sites in this subsystem already fall back to the "Battle Camera" GameObject's own
++        //      Camera component for exactly that reason, e.g. SFXRender.Render()
++        //      Global/SFXRender/SFXRender.cs:125, SFXDataMesh.cs Runtime.Render():635).
++        //   2) Even with (1) fixed in place, SFXDataCamera.UpdateCamera() is driven by battle.cs
++        //      BattleMain() (Global/battle/battle.cs:86) UNCONDITIONALLY every Unity Update()
++        //      tick -- not gated on the native SFX frame actually advancing (SFX.isUpdated, only
++        //      checked in Runtime.Render()). SFX.frameIndex only changes when the native sim
++        //      ticks, so a fix in place there would emit many duplicate CAM rows per frameIndex
++        //      value, uncorrelated with the MESH rows' own cadence.
++        // Fix: take the camera as a PARAMETER, resolved ONCE by the caller (Runtime.Render()
++        // already computes `camera` via the same Camera.main-or-"Battle Camera" fallback, for its
++        // own rendering -- SFXDataMesh.cs:635) and log it right alongside LogFrame(), same
++        // SFX.frameIndex, same call-per-actual-frame gating.
++        public static void LogCamera(Camera cam)
+         {
+-            if (!Enabled)
++            if (!Enabled || cam == null)
+                 return;
+             StreamWriter w = Writer;
+             if (w == null)
+                 return;
+-            Camera cam = Camera.main;
+-            if (cam == null)
+-                return;
+             try
+             {
+                 Vector3 p = cam.transform.position;
+@@ -152,5 +225,215 @@
+             {
+             }
+         }
++
++        // s48 -- raw native-primitive capture (Memoria.ini [SfxProbe] CapturePrims=1). Hooked at
++        // the TOP of SFXRender.Add() (Global/SFXRender/SFXRender.cs:208) -- the single funnel
++        // every decoded PS1 GPU primitive returned by the native SFX_GetPrim loop
++        // (SFXRender.Update(), same file :76-85) passes through, BEFORE SFXRender batches it
++        // into a keyed SFXMesh. This is strictly richer than the s47 MESH rows for understanding
++        // a native effect's own decoded output: it sees every individual triangle/quad/line/
++        // tile/sprite in native decode + depth-sort order, with its own tag type and PSX-native
++        // screen-space vertex -- the SFXMesh commandBuffer only exposes the POST-BATCH merged
++        // mesh (many primitives of one key collapsed together, draw order and per-primitive
++        // type lost). This does not read shippable creature/effect asset data any more than the
++        // s47 mesh hook already does -- it is the same category of read-the-decoded-OUTPUT
++        // introspection, at finer granularity, for reuse of TIMING and GEOMETRY (not extraction
++        // of packaged content).
++        //
++        // GEOMETRY, GENERICALLY: every PSX GPU primitive tag this engine decodes (POLY_F3/FT3/
++        // F4/FT4/G3/GT3/G4/GT4, LINE_F2/G2, TILE/SPRT and their fixed-size variants) places its
++        // first vertex (x0,y0, each Int16) at the SAME fixed byte offset 8 from the tag pointer
++        // -- immediately after the shared 8-byte P_TAG header (a 32-bit OT-link word, then the
++        // r0/g0/b0/code byte word). See PSX_LIBGPU.cs: P_TAG's `code` sits at byte 7, and every
++        // POLY_*/LINE_*/TILE/SPRT struct places x0 right at byte 8, whether or not it then uses
++        // [StructLayout(Explicit)] to interleave uv/clut fields after later vertices. That means
++        // vertex0 can be read WITHOUT a per-type cast for every case SFXRender.Add() itself
++        // switches on (mirrored below by `tag->code & 252`, 1:1 with that switch).
++        //
++        // The DR_* rendering-STATE tags (DR_TPAGE/DR_AREA/DR_OFFSET/DR_MOVE -- matched by EXACT
++        // `tag->code`, never by the masked switch) carry no vertex and are logged as STATE rows
++        // with no coordinate read. DR_TPAGE in particular is only an 8-byte struct (the tag word
++        // + one code word); its own offset 8 would already be the START of the NEXT primitive in
++        // the stream, so it is deliberately excluded from the generic vertex read -- not merely
++        // skipped for tidiness.
++        //
++        // VOLUME (a real concern -- a full cast logged 19,436 s47 MESH rows, one per BATCHED
++        // mesh; nothing is batched yet at this hook, so the raw primitive count can run
++        // 10-100x that). Two independent, DOCUMENTED controls -- this probe never silently
++        // truncates:
++        //   - PrimSummary=1 (Memoria.ini [SfxProbe]): collapses to ONE PRIMSUM row per frame
++        //     (a primitive count + the frame's vertex0 bounding box) instead of one row per
++        //     primitive. Flushed on the next frame boundary, and on effect end via
++        //     FlushPrimSummary() (called from SFXDataMesh.cs Runtime.End()).
++        //   - PrimCap=<N> (Memoria.ini [SfxProbe], default 200000): a hard cap on per-primitive
++        //     PRIM/STATE rows for the process lifetime. The row that crosses it writes ONE
++        //     "# PRIM CAPTURE TRUNCATED" marker line and every row after that is dropped for
++        //     the rest of the session -- so a short log always SAYS it is short; it never just
++        //     quietly stops matching the cast.
++        //
++        // index = this primitive's 0-based position in the frame's SFX_GetPrim stream
++        // (SFXRender.primCount at call time, read before Update() increments it -- see
++        // SFXRender.cs:78-85); code = the primitive's raw tag->code byte (decimal, matches
++        // SFXRender.Add()'s own switch cases 1:1, e.g. 60 = POLY_GT4); vertHint/label = a human
++        // shape/state name, informational only; otz = SFXMesh.GzDepth at capture time (the same
++        // depth-sort value SFXMesh.PolyXxx() ultimately writes as the vertex's own Z -- see
++        // SFXMesh.cs:340-351); x,y = vertex0 in the SAME post-drOffset space SFXMesh.PolyXxx()
++        // writes into its mesh (raw x0/y0 + SFXMeshBase.drOffsetX/Y -- directly comparable to a
++        // MESH row's cx/cy).
++        public unsafe static void LogPrim(PSX_LIBGPU.P_TAG* tag, Int32 index)
++        {
++            if (!CapturePrims || tag == null)
++                return;
++            try
++            {
++                Byte code = tag->code;
++                Boolean hasVertex;
++                String label = TypeLabel(code, out hasVertex);
++                Int32 frame = SFX.frameIndex;
++                Int32 effectId = (Int32)SFX.currentEffectID;
++                Int32 x = 0, y = 0;
++                if (hasVertex)
++                {
++                    Int16* v = (Int16*)((Byte*)tag + 8);
++                    x = v[0] + SFXMeshBase.drOffsetX;
++                    y = v[1] + SFXMeshBase.drOffsetY;
++                }
++                if (PrimSummary)
++                {
++                    if (hasVertex)
++                        AccumulateSummary(frame, effectId, x, y);
++                    return;
++                }
++                StreamWriter w = Writer;
++                if (w == null)
++                    return;
++                if (_primRowCount >= PrimRowCap)
++                {
++                    if (!_primCapWarned)
++                    {
++                        _primCapWarned = true;
++                        w.WriteLine("# PRIM CAPTURE TRUNCATED at " + PrimRowCap.ToString(CultureInfo.InvariantCulture) +
++                            " rows (raise [SfxProbe] PrimCap=<N>, or set PrimSummary=1 for a bounded one-row-per-frame mode instead)");
++                        w.Flush();
++                    }
++                    return;
++                }
++                _primRowCount++;
++                if (hasVertex)
++                    w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                        "PRIM,{0},{1},{2},{3},{4},{5:F4},{6},{7}",
++                        effectId, frame, index, code, label, SFXMesh.GzDepth, x, y));
++                else
++                    w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                        "STATE,{0},{1},{2},{3},{4}",
++                        effectId, frame, index, code, label));
++                w.Flush();
++            }
++            catch
++            {
++                // A probe must never take the real battle render down with it.
++            }
++        }
++
++        // Mirrors SFXRender.Add()'s own `tag->code & 252` switch 1:1, for LABELING only -- if
++        // that switch's case set ever changes, this table needs to move with it. Case values are
++        // Global/SFXRender/SFXRender.cs:210-294's exact literals.
++        private static String TypeLabel(Byte code, out Boolean hasVertex)
++        {
++            switch (code & 252)
++            {
++                case 32: hasVertex = true; return "F3";
++                case 36: hasVertex = true; return "FT3";
++                case 40: hasVertex = true; return "F4";
++                case 44: hasVertex = true; return "FT4";
++                case 48: hasVertex = true; return "G3";
++                case 52: hasVertex = true; return "GT3";
++                case 56: hasVertex = true; return "G4";
++                case 60: hasVertex = true; return "GT4";
++                case 64: hasVertex = true; return "LINE_F2";
++                case 68: hasVertex = true; return "FT4_BLUR";
++                case 72: hasVertex = true; return "GT4_BLUR";
++                case 76: hasVertex = true; return "FT4_POINT";
++                case 80: hasVertex = true; return "LINE_G2";
++                case 96: hasVertex = true; return "TILE";
++                case 100: hasVertex = true; return "SPRT";
++                case 104: hasVertex = true; return "TILE_1";
++                case 112: hasVertex = true; return "TILE_8";
++                case 116: hasVertex = true; return "SPRT_8";
++                case 120: hasVertex = true; return "TILE_16";
++                case 124: hasVertex = true; return "SPRT_16";
++                default:
++                    hasVertex = false;
++                    switch (code)
++                    {
++                        case 225: return "DR_TPAGE";
++                        case 228: return "DR_AREA";
++                        case 229: return "DR_OFFSET";
++                        case 231: return "DR_MOVE";
++                        default: return "UNKNOWN_" + code.ToString(CultureInfo.InvariantCulture);
++                    }
++            }
++        }
++
++        private static Int32 _primRowCount;
++        private static Boolean _primCapWarned;
++
++        private static Int32 _sumFrame = Int32.MinValue;
++        private static Int32 _sumEffectId;
++        private static Int32 _sumCount;
++        private static Int32 _sumMinX, _sumMinY, _sumMaxX, _sumMaxY;
++
++        private static void AccumulateSummary(Int32 frame, Int32 effectId, Int32 x, Int32 y)
++        {
++            if (frame != _sumFrame)
++            {
++                FlushSummary();
++                _sumFrame = frame;
++                _sumEffectId = effectId;
++                _sumCount = 0;
++                _sumMinX = Int32.MaxValue;
++                _sumMinY = Int32.MaxValue;
++                _sumMaxX = Int32.MinValue;
++                _sumMaxY = Int32.MinValue;
++            }
++            _sumCount++;
++            if (x < _sumMinX) _sumMinX = x;
++            if (x > _sumMaxX) _sumMaxX = x;
++            if (y < _sumMinY) _sumMinY = y;
++            if (y > _sumMaxY) _sumMaxY = y;
++        }
++
++        private static void FlushSummary()
++        {
++            if (_sumCount == 0)
++                return;
++            StreamWriter w = Writer;
++            if (w == null)
++                return;
++            try
++            {
++                w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                    "PRIMSUM,{0},{1},{2},{3},{4},{5},{6}",
++                    _sumEffectId, _sumFrame, _sumCount, _sumMinX, _sumMinY, _sumMaxX, _sumMaxY));
++                w.Flush();
++            }
++            catch
++            {
++            }
++        }
++
++        // Called from SFXDataMesh.cs, Runtime.End() -- flushes the last frame's pending PRIMSUM
++        // row (AccumulateSummary only flushes on a FRAME-BOUNDARY transition, so the very last
++        // frame of a cast would otherwise never reach the file). No-op unless CapturePrims=1 AND
++        // PrimSummary=1; also resets the accumulator so the next effect's frame-0 primitives
++        // never merge into a stale row from this one.
++        public static void FlushPrimSummary()
++        {
++            if (!CapturePrims || !PrimSummary)
++                return;
++            FlushSummary();
++            _sumFrame = Int32.MinValue;
++            _sumCount = 0;
++        }
+     }
+ }
+diff --git a/Assembly-CSharp/Global/SFXRender/SFXRender.cs b/Assembly-CSharp/Global/SFXRender/SFXRender.cs
+index bd567ac..d7c0c57 100644
+--- a/Assembly-CSharp/Global/SFXRender/SFXRender.cs
++++ b/Assembly-CSharp/Global/SFXRender/SFXRender.cs
+@@ -1,4 +1,5 @@
+-﻿using Memoria.Data;
++﻿using Memoria;
++using Memoria.Data;
+ using Memoria.Prime;
+ using System;
+ using System.Collections.Generic;
+@@ -207,6 +208,12 @@
+
+     public unsafe static void Add(PSX_LIBGPU.P_TAG* tag)
+     {
++        // s48 -- the SFX_GetPrim output-capture probe: every decoded native primitive funnels
++        // through here, one call per SFX_GetPrim() result (SFXRender.Update() above), BEFORE
++        // this method batches it into a keyed SFXMesh. Zero-cost when off (one cached bool
++        // read); see SfxMeshProbe.LogPrim() for the full design + the volume-bounding controls.
++        if (SfxMeshProbe.CapturePrims)
++            SfxMeshProbe.LogPrim(tag, SFXRender.primCount);
+         switch (tag->code & 252)
+         {
+             case 32:
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+index dbfa4c2..4ee7cf7 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+@@ -639,7 +639,14 @@
+             PSXTextureMgr.CaptureBG();
+             //camera.worldToCameraMatrix = Matrix4x4.identity;
+             if (SfxMeshProbe.Enabled)
++            {
+                 SfxMeshProbe.LogFrame(SFXRender.commandBuffer);
++                // s48 -- co-located with LogFrame on purpose (see SfxMeshProbe.LogCamera()'s own
++                // doc comment): same SFX.frameIndex per row, and `camera` above is already resolved
++                // via the same Camera.main-or-"Battle Camera" fallback the old SFXDataCamera.cs
++                // hook needed but never had -- no second lookup, no repeat of that dead-hook bug.
++                SfxMeshProbe.LogCamera(camera);
++            }
+             for (Int32 i = 0; i < SFXRender.commandBuffer.Count; i++)
+             {
+                 if (SFXRender.commandBuffer[i] is SFXMesh)
+@@ -664,6 +671,11 @@
+         }
+         public override void End()
+         {
++            // s48 -- flush any pending PRIMSUM row for this effect (AccumulateSummary only
++            // flushes on a frame-boundary transition, so the cast's very last frame otherwise
++            // never reaches the log); no-op unless [SfxProbe] CapturePrims=1 AND PrimSummary=1.
++            if (SfxMeshProbe.CapturePrims)
++                SfxMeshProbe.FlushPrimSummary();
+             if (SFX.isRunning && SFX.currentEffectID == effNum)
+             {
+                 SFXData.BattleCallbackDummyLoadImages = false;
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
+index f032b59..45b6681 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
+@@ -544,8 +544,22 @@
+         if (SFXDataCamera.currentCameraEngine == CameraEngine.SFX_PLUGIN)
+         {
+             SFX.UpdateCamera();
+-            if (SfxMeshProbe.Enabled)
+-                SfxMeshProbe.LogCamera();
++            // s48 -- the s47 camera-probe hook used to live here (LogCamera(), reading Camera.main
++            // directly) and is REMOVED, root-caused to TWO compounding defects, not one:
++            //   1) Camera.main is routinely null during native SFX battle playback -- 15+ other call
++            //      sites in this exact subsystem already fall back to the "Battle Camera" GameObject's
++            //      own Camera component for exactly that reason (e.g. SFXRender.Render()
++            //      Global/SFXRender/SFXRender.cs:125, SFXDataMesh.cs Runtime.Render():635).
++            //   2) Even with (1) fixed in place, this method is driven by battle.cs BattleMain()
++            //      (Global/battle/battle.cs:86), which calls UpdateCamera() UNCONDITIONALLY every
++            //      Unity Update() tick -- not gated on the native SFX frame actually advancing (that
++            //      gate is SFX.isUpdated, checked only in SFXDataMesh.cs Runtime.Render()). SFX.frameIndex
++            //      only changes when the native sim ticks, so logging here would emit many duplicate
++            //      CAM rows per SFX.frameIndex value, uncorrelated with the MESH rows' own cadence.
++            // The probe now hooks the co-located, correctly-gated site instead: SFXDataMesh.cs
++            // Runtime.Render(), right where LogFrame() already fires -- same SFX.frameIndex-per-row
++            // cadence as MESH, and it reuses that method's own already-resolved `camera` local (no
++            // second Camera.main-or-fallback lookup needed). See SfxMeshProbe.cs LogCamera(Camera).
+         }
+         else if (SFXDataCamera.currentCameraEngine == CameraEngine.SFX_DATA_CAMERA)
+         {
