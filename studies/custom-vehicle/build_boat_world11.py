@@ -51,18 +51,19 @@ LANGS = ("us", "uk", "jp", "es", "fr", "gr", "it")
 BOAT_UID = 15
 ANCHOR_UID = 14
 SNAP_TAG = 60
-SEED_BIT = 8713                      # kit safe band: "dwix boat record seeded" (8712 burned by the
-                                     # first bench round's ocean coords in the user's live session)
+SEED_BIT = 8714                      # kit safe band: "dwix boat record seeded". BUMP this constant on
+                                     # every geometry re-site -- the previous bit is burned into the
+                                     # live session's gEventGlobal with the OLD coords (8712, 8713 spent).
 
-# Bench geometry (world units; fixed-point = u*256). The archipelago is GONE post-reset (the
-# 2026-07-19 install reset; ground truth = the FF9CustomMap-world tree holds no landmass) -- so
-# the bench uses STOCK geography: the small stock beach island fully inside block (7,17)
-# (x 448-512, z -1088..-1152; the ground-retile studies' donor), with open ocean one block south.
-BOAT_SPAWN = (480, -1180)            # open ocean, block (7,18), ~45u off the island's south beach
+# Bench geometry (world units; fixed-point = u*256), measured from the STOCK mesh by find_dock2.py:
+# the block-(7,17) islet's land spans z -1128..-1104 (centroid (493,-1115)); its sand (topo 31)
+# runs x 478..502, z -1126..-1116 -- a southwest-facing beach. Neighbouring pure-ocean blocks
+# carry NO terrain mesh (the missing-block law), so a MISS south of the sand is open sea.
+BOAT_SPAWN = (486, -1140)            # ~15u off the sand line -- "right by the beach"
 BOAT_Y = 200                         # sea-level fixed-point Y (the stock boat's own seed value)
 BOAT_FACE = 0
-DOCK = (480, -1120)                  # the stock beach island's centre -- guaranteed land
-DOCK_Y = 1024                        # ~4u; the engine ground-snaps on the next frame
+DOCK = (493, -1114)                  # the islet's land centroid -- measured, walkable
+DOCK_Y = 768                         # ~3u; the engine ground-snaps on the next frame
 DOCK_FACE = 128
 NEAR = 100 * 256                     # board proximity (generous for the bench)
 
