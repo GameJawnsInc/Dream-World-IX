@@ -1799,3 +1799,27 @@ a fix.
 Artifacts (read-only, all under `studies/overworld-topography/out/`): `combining_census_slice{1..6}.json`
 (the TRAIN/TEST per-block census), `gd_calibration_sheet.png`, `comp1_residual_map.png`,
 `grass_desert_combine_decode.json`.
+
+### Round 10 addendum (2026-07-22, same day) — THE REDRESS ★ APPLIED (in-game playtest pending)
+
+`comp1_orphan_redress.py` re-pointed the 7 orphaned decals to lawful plain desert mains — UV + idall
+(topo 16→17, event/area/flags unchanged) only, zero geometry motion, the FIX-G shape, per-cell
+assignment `assign_mains(seed=0xF93)` = the arc's own redress precedent. Only 3 blocks hold targets:
+(19,18) ×3, (19,19) ×2, (20,18) ×2 — blocks (18,18)/(19,17) hold none of the 7 and were not touched.
+Proof stack: the redress output reproduces each defect cell's OWN topo-17 partner tri byte-for-byte
+(the strongest "indistinguishable from the region's real desert" check available); independent
+per-byte diff audit — every changed byte inside the touched tris' UV(8B)+idall(4B) windows, 72/48/48
+bytes across the 3 files, zero exceptions, file sizes unchanged; post-redress region re-classify = 0
+green ground tris, rock-green untouched at exactly 23; the standing carry gates re-run read-only =
+17/17 green; disc-4 `auto_mirror` cell-scoped, all 27 counterpart files byte-identical to disc 1;
+backup (54 files, taken BEFORE any write) = `backups/comp1-redress.20260722-140044/`, restorable via
+`--revert`. En route the backup-first refusal gate EARNED ITS KEEP: the first `--apply` matched 0
+backup files (an unescaped `Block[19][18]` glob — `[..]` is a character class; the kit's own
+`Block[[]*` idiom in discmirror.py is the fix) and correctly REFUSED to write anything.
+
+**CORRECTION to Round 10's prose:** the census region is the 9-block MINT_BLOCKS square (18–20,17–19),
+not "13 deployed blocks" — the 9-block set reproduces the dump's tri totals/topo census byte-for-byte;
+all Round-10 conclusions are unaffected (the miscount was prose, not data).
+
+**★ IN-GAME PLAYTEST PENDING** — the fringe cells that wore the green wedges should now read as plain
+desert; UV-only, so walkability cannot regress.
