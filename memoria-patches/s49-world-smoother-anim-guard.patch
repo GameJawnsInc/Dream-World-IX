@@ -1,0 +1,59 @@
+diff --git a/Assembly-CSharp/Memoria/Application/SmoothFrameUpdater_World.cs b/Assembly-CSharp/Memoria/Application/SmoothFrameUpdater_World.cs
+--- a/Assembly-CSharp/Memoria/Application/SmoothFrameUpdater_World.cs
++++ b/Assembly-CSharp/Memoria/Application/SmoothFrameUpdater_World.cs
+@@ -1,4 +1,6 @@
+ ﻿using System;
++using System.Collections.Generic;
++using Memoria.Prime;
+ using UnityEngine;
+ 
+ namespace Memoria
+@@ -7,6 +9,21 @@ namespace Memoria
+     {
+         private const Single ActorSmoothMovementMaxSqr = 100f;
+ 
++        // [ff9mapkit s49] one warning per (uid, anim) pair -- see the RegisterState guard below
++        private static readonly HashSet<Int32> _warnedUnsmoothable = new HashSet<Int32>();
++
++        private static void WarnUnsmoothable(Obj obj, WMActor actor, String curAnim)
++        {
++            Int32 key = (obj.uid << 16) ^ actor.originalActor.anim;
++            if (!_warnedUnsmoothable.Add(key))
++                return;
++            Int32 model = (obj as PosObj)?.model ?? -1;
++            Log.Warning($"[ff9mk s49] world actor uid={obj.uid} model={model} anim={actor.originalActor.anim} "
++                        + $"name='{curAnim}' has no matching AnimationState -- skipping frame-smoothing for it "
++                        + "(unguarded, this was an every-frame NRE that aborted the HonoBehavior sweep and with it "
++                        + "the whole world script tick)");
++        }
++
+         // Disable smooth effects for the duration of a couple of main loop ticks
+         public static Int32 Skip
+         {
+@@ -53,9 +70,25 @@ namespace Memoria
+                 if (actor == null || objList.obj.cid != 4 || actor.Animation == null)
+                     continue;
+ 
+-                String curAnim = FF9DBAll.AnimationDB.GetValue(actor.originalActor.anim);
++                // [ff9mapkit s49] guard the whole current-anim resolution: an actor whose current anim id is
++                // not in AnimationDB, or whose Animation component holds no clip under that name, made
++                // anim[curAnim] return null and the .time reads below NRE EVERY FRAME -- inside
++                // HonoBehaviorSystem.Update's sweep, which aborts the sweep and freezes the world script
++                // tick (the HonoBehavior teardown law's exception shape). Such an actor simply does not
++                // frame-smooth; a one-shot warning names it so the log diagnoses the data side.
++                String curAnim;
++                if (!FF9DBAll.AnimationDB.TryGetValue(actor.originalActor.anim, out curAnim) || String.IsNullOrEmpty(curAnim))
++                {
++                    WarnUnsmoothable(objList.obj, actor, curAnim);
++                    continue;
++                }
+                 Animation anim = actor.Animation;
+                 AnimationState animState = anim[curAnim];
++                if (animState == null)
++                {
++                    WarnUnsmoothable(objList.obj, actor, curAnim);
++                    continue;
++                }
+ 
+                 if (actor._smoothUpdateRegistered)
+                 {
