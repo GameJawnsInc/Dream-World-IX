@@ -158,34 +158,65 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-**Movement** anchors Thomas over `TargetAveragePositionX/Z` (the enemy formation's average position
--- the composition lens's "center-stage" recipe: on the `LoadSFX`/`PlaySFX` route this is the REAL
-average of every selected target's position, Y forced to 0, `BTL_VFX_REQ.cs:72-91`) at
-`CasterPositionY + 20` (the caster's own ground level, +20 to clear the arena floor mesh -- Thomas's
-own local origin already sits at his wheels post-normalization, so no further Y compensation is
-needed). Static (`Origin == Destination`) -- rung 7's proven minimal pattern; no motion, to keep this
-first cast simple and robust.
+### THE FLIGHT (2026-07-22 revision -- replaces the original static hover)
 
-**Timing**: `Start=0, End=580` on Thomas's own frame clock (zeroed at HIS OWN `PlaySFX`, which fires
-within ~1-2 ticks of the main thread's `PlaySFX: SFX=Bahamut__Full`, per the background-thread
-analysis above). The real donor `ef227/Sequence.seq`'s own tick map (re-derived this session by
-summing every `Wait: Time=` line, matching rung 4's own independently-derived beats exactly):
-blackout ramp → **t=434** flare escalation → **t=486** `EffectPoint: Type=Effect` (damage) →
-**t=498** `EffectPoint: Type=Figure` (damage numbers) → re-light → **t≈547** final `Wait`. `End=580`
-gives Thomas a ~33-tick (~2.2s) margin past the real cinematic's own last beat, so he is on stage for
-the ENTIRE reveal-through-flare-through-both-EffectPoints window, exactly as asked, and only vanishes
-during the tail re-light/step-back beats.
+The first build's playtest: *"bahamut is invisible, but Thomas just spawns in front of Iviv and stays
+stationary instead of flying around like a dragon. there are also just periods of black screen."*
+Re-derived from source rather than assumed (see `build_thomas.py`'s own `THE FLIGHT` comment block for
+the full citation trail):
+
+**Anchor truth.** The mission's seed hypothesis was that `Target*`/`TargetAveragePosition*` resolve to
+the CASTER on Thomas's own `LoadSFX: SFX=84 ; Char=Caster` route. Tracing the actual runtime path
+(`StartThread` compiles to a `RunThread` op, `BattleActionThread.cs:183-193`, executed by the MAIN
+thread whose `.targetId` was set to the ability's REAL `cmd.tar_id` -- "AllEnemy" per
+`rung3.field.toml:147` -- at cast start, `UnifiedBattleSequencer.cs:159-160`) shows the opposite: our
+`StartThread`/`LoadSFX` lines carry no `Target=` argument, so both the spawned child thread's own
+`.targetId` (`UnifiedBattleSequencer.cs:1155-1156,1168`) and its later `LoadSFX` call
+(`UnifiedBattleSequencer.cs:326-330`) fall through to `runningThread.targetId`, which is the REAL
+AllEnemy bitmask inherited from the main thread -- NOT reset to 0, NOT the caster. `Char=Caster` only
+ever re-resolves the *caster* argument (stays Iviv); it never touches the target. So
+`TargetAveragePositionX/Z` (`FF9/BTL_VFX_REQ.cs:72-91`) already correctly averaged the REAL enemies'
+position on this exact route -- **the hypothesis is refuted**. The actual defects were structural: (a)
+`CasterPositionY + 20` is GROUND level (zero loom for a dragon), (b) `Origin == Destination` was a
+deliberate static hold (zero motion), and (c) Thomas's own ~2681-unit length means a ground-level
+placement's bounding volume alone can sprawl back over a modest early-game arena's short
+caster↔enemy gap -- combined with (a), this reads exactly as "spawns in front of Iviv, stationary."
+
+**Design choice.** Rather than continue depending on `TargetAveragePosition` (scene-specific enemy
+formation, unproven for scene 67's exact layout), the flight is built entirely on **caster-relative
+offsets** -- unambiguous (Iviv's own real position), and this directly targets both real defects
+(needs elevation + needs motion) regardless of the refuted hypothesis. Axis convention (`+Z` from a
+player caster = toward the enemies) is independently confirmed twice: rung 7's own in-game-proven
+`"CasterPositionZ + 600"` hover ("toward the enemy side"), and Thomas's own axis-verification table
+above (his normalized front lands at `+Z`, matching the donor's own
+`MoveToPosition: RelativePosition=(0,0,400)` caster forward-step).
+
+**The 3 phases** (every number is a named constant in `build_thomas.py` -- retune + rerun in one line,
+recast-only, no relaunch), mapped onto rung-4's tick map (Thomas's own clock zeroes at HIS OWN
+`PlaySFX`, which fires within ~1-2 ticks of the donor's nested `Sequence.seq` frame-0 -- generous
+overlap margins below, not razor's-edge cuts, to absorb that uncertainty):
+
+| Phase | Frames | Covers | Motion |
+|---|---|---|---|
+| **P1 Entrance** | 0–420 | blackout ramp (t=0), flash1 (t=116), flash2 (t=289); arrives just before the dim reveal (t=403) | swoop in from high off to one side (`CasterPositionX-2000, CasterPositionY+1500, CasterPositionZ+300`), descending + advancing into center-stage (`CasterPositionX, CasterPositionY+700, CasterPositionZ+1800`); `SinusOut` (decelerating arrival) on all 3 axes; yaw banks 0→90° |
+| **P2 The Reign** | 420–520 | the dim reveal (t=403) through the ENTIRE Mega-Flare window (t=434–516) incl. BOTH `EffectPoint`s (t=486, t=498) | a gentle sway/rise off center-stage (`+220/+80` on X/Y, Z held) via `Sinus` easing (floaty, not a static hold); yaw holds broadside (90°) -- the "safe comedic read" per the mission, and his iconic number-1 side panel |
+| **P3 Exit** | 520–580 | lights-restored (t=516) through the close (t≈547) + the same ~33-tick tail margin the original build used | climbs away up-forward (`+380/+1600 total/+2600 total` off center-stage) via `SinusIn` (accelerating departure); yaw turns back 90→0° |
+
+Rotation.Z stays `0` in every piece -- **no roll** (Thomas is not PSX-inverted; the axis-verification
+above already established his normalized `Rotation=(0,0)` needs no runtime compensation, so only Y-yaw
+is ever touched). `Start=0, End=580` unchanged from the original build (the 3 phase durations sum to
+exactly 580).
 
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
-alone is sufficient to give a static prop a well-defined exposure window.
+alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 
 ## Files in this directory
 
 | File | What it is |
 |---|---|
 | `blender_normalize.py` | Committed, our script. Run ONCE (offline, via Blender) to produce `thomas_normalized.fbx` from the raw source. Never touches the repo. |
-| `thomas_manifest.sfxmodel` | Committed, 100% our JSON. Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
+| `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the named `THE FLIGHT` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
 | `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--restore` undoes it. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
@@ -226,18 +257,32 @@ FIRST time.
 
 **Expect**: the full real Bahamut cinematic plays -- same chant, same camera cut, same roars/flashes,
 same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright,
-correctly textured, facing the enemies, present from shortly after the chant through the flare and
-both damage beats. No visible Bahamut mesh at any point.
+correctly textured, and now FLYING THE 3-PHASE FLIGHT (see "THE FLIGHT" above): swoops in from high
+off to one side during the chant/flashes, arrives and hovers broadside (showing his full profile/
+number-1 side panel) with a gentle sway through the entire Mega-Flare + both damage beats, then climbs
+away up-forward as the lights restore. No visible Bahamut mesh at any point, and no more standing
+stationary in front of Iviv.
+
+**If placement/motion is still off**: capture a short VIDEO of the cast (this project's own law --
+`feedback-video-for-visual-bugs` -- behavior/positional bugs need footage, not a prose description; a
+screenshot can't show a swoop). `tools/game_snap.ps1` captures single frames only, which is enough for
+"is Bahamut's mesh really hidden" but NOT for "does the flight read as flying" -- use a screen
+recorder (OBS, Xbox Game Bar `Win+Alt+R`, or any capture tool) for the ~10s of the cast (chant through
+the flare) so the next iteration can retune `build_thomas.py`'s named `THE FLIGHT` constants (`STAGE_*`
+/ `ENTRANCE_*` / `DRIFT_*` / `EXIT_*` / `YAW_BROADSIDE` / the 3 `*_DURATION`s) from what actually
+happened frame-by-frame, rather than from a re-guess.
 
 ## Failure modes
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, Bahamut's own mesh never appears** | **SUCCESS** | -- |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 3-phase flight, Bahamut's own mesh never appears** | **SUCCESS** | -- |
 | The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native creature -- the ONE genuinely unproven op in this build (first-ever use in the study; the 0-63 blanket range assumed but never confirmed against ef227's actual emitted mesh-key count). Possible causes: the index range doesn't cover ef227's real keys (try widening past 63, or switch to hex `0x...` KEY form if the recon's `SFXDataMeshConverter` debug dump is used to read ef227's real keys), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots) |
 | The cinematic plays, Bahamut's mesh is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
-| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible) | The `TargetAveragePosition`/`CasterPosition` anchor assumption was wrong for this specific route/arena -- a genuinely new discovery, not a mechanism failure. `TargetAveragePositionY` is always forced to 0 by design (`BTL_VFX_REQ.cs:90`); the anchor uses `CasterPositionY` deliberately for that reason | Edit `OriginX/Y/Z` and `DestinationX/Y/Z` in `thomas_manifest.sfxmodel`, rerun `build_thomas.py` (recast-only, no relaunch) |
-| Thomas appears **on his side / rotated 90°** | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build -- re-open `blender_normalize.py`'s renders and the axis-verification table above; the fallback fix is a `Rotation` value in `thomas_manifest.sfxmodel`, not a code change | Compare against `view_front.png`/`view_top.png`; adjust `Rotation` Y/Z in the manifest, recast |
+| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the swoop/hover/climb geometry just looks wrong for this arena's actual camera framing | The caster-relative constants (`STAGE_*`/`ENTRANCE_*`/`DRIFT_*`/`EXIT_*` in `build_thomas.py`) were miscalibrated for scene 67's actual arena size/camera -- a genuinely new discovery, not a mechanism failure (the CASTER anchor itself is unambiguous; only the OFFSET magnitudes are a guess). `TargetAveragePositionY`/`CasterPositionY` ground-truth is always real; nothing here forces Y=0 the way the ORIGINAL build's `TargetAveragePosition` route did | Capture video (see above), then retune the named offset constants in `build_thomas.py` and rerun (recast-only, no relaunch) |
+| Thomas reads as **absurdly wide / clipped at the screen edges specifically during the HOVER** (P2, not the swoop-in) | **Found in adversarial review, 2026-07-22, NOT yet in-game-checked**: the `STAGE_Z` clearance math was sized against Thomas's ~2681-unit LENGTH axis, which only runs along world Z while his yaw is near 0. By the time he arrives at center-stage he's already yawed to `YAW_BROADSIDE=90` (the pose held through the entire P2 reign) -- at that yaw his LENGTH sweeps world X instead (P2's own X range is only `STAGE_X=0 -> DRIFT_X=220`, never sized against a 2681-unit sweep), while only his ~926-unit WIDTH remains on Z. See `build_thomas.py`'s own caveat comment above `STAGE_X/Y/Z` for the numbers and candidate fixes | Capture video of the HOVER specifically; if confirmed, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or accept a wider camera crop, per the code comment |
+| Thomas still reads as **static / not "flying"** despite the new manifest | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or the phase Durations are too long/too subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 3 pieces (not 1) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
+| Thomas appears **on his side / rotated 90°**, or the P2 broadside yaw looks wrong (facing away instead of showing his profile) | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR `YAW_BROADSIDE`'s sign is backwards for this camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try `YAW_BROADSIDE = -90` in `build_thomas.py`, rerun (recast-only) |
 | Thomas appears **tiny or absurdly, unusably huge** | `THOMAS_SCALE` (265) was miscalibrated for this arena's actual camera framing | Edit `THOMAS_SCALE` in `build_thomas.py`, rerun (recast-only) |
 | The cast doesn't play at all / hangs | Something in the spliced `.seq` broke the DSL parser, or the background thread never resolves (`WaitSFXDone: SFX=84` blocking forever -- would only happen if `mesh.Begin()`/`Render()` threw before ever setting `ended`, an unhandled edge case) | `revert_thomas.py` immediately; the debug menu (`~`) may force past a stuck command state; worst case, full restart then revert |
 | The cinematic is missing beats / looks re-timed vs. the real Bahamut cast | The splice landed on the wrong anchor or duplicated `ef227/Sequence.seq`'s content (the `SkipSequence=True` guard failed) | Re-diff the deployed `ef084/PlayerSequence.seq` against the printed diff above; confirm no second `EffectPoint` pair fires (double damage numbers) |
