@@ -189,80 +189,121 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-### THE FLIGHT v2 -- 2026-07-22, s47-PROBE-DERIVED (replaces the static hover, the 3-phase flight, AND the video-eyeballed 6-phase "SKY ARC")
+### THE FLIGHT v3 -- 2026-07-22, CAMERA-DECODE REWINDOWED (supersedes the 11-piece FLIGHT v2 below)
 
 The first (static) build's playtest: *"bahamut is invisible, but Thomas just spawns in front of Iviv
 and stays stationary instead of flying around like a dragon. there are also just periods of black
-screen."* The 3-phase flight fixed "stationary" but not "black screen" (Bahamut's own cinematic
-leaves the ground for an extended sky-realm window the 3-phase flight never visited). The 6-phase
-"SKY ARC" fixed that by watching the calibration-cast video and hand-deriving a video-seconds timing
-map -- a real improvement, but still an EYEBALLED estimate, built entirely on caster-relative NCalc
-expressions.
+screen."* The 3-phase flight fixed "stationary" but not "black screen". The 6-phase "SKY ARC" fixed
+that by eyeballing a video. **FLIGHT v2** replaced the eyeball with a measurement -- the s47
+mesh-stream probe (PROBE.md) logged Bahamut's own 7 confirmed body-mesh keys' world-space bounds on
+every frame he's on screen, giving 10 real per-frame-median waypoints + 1 unmeasured tail. It was a
+genuine improvement, but it had no way to tell a real camera CUT from a fast in-shot reposition -- a
+big position delta between frames is a decent cut proxy, but not proof. A second playtest still found
+Thomas out of frame for much of the cast, and the diagnosis pointed at exactly this: FLIGHT v2 guessed
+cuts at frames 172-179 and 204-207 (modeling both `Linear`/un-eased) that don't actually exist.
 
-**This build replaces the eyeball with a measurement.** The s47 mesh-stream probe (PROBE.md) logged
-Bahamut's own 7 confirmed body-mesh keys' world-space bounds on every one of the 325 frames he's on
-screen (frames 82-417 of his own `PlaySFX`-zeroed clock) -- his ACTUAL baked flight path, not a
-video-derived guess.
+**THE CAMERA DECODE removes that guess.** `ef_camera_decode.py` (this dir) parses the REAL native
+`ef227.bytes` camera track straight out of open managed code -- `SFXBinaryFile.cs`'s container/opcode
+spec (validated byte-exact this session: the resource table sums to the file's own 823,296-byte length
+with zero slack) and `SFXDataCamera.cs`'s Code-stream reader (the SAME parser
+`ff9mapkit/ff9mapkit/battle/camera_codec.py` already round-trips for raw17 stock battle cameras) -- and
+finds Bahamut Cinema is exactly **3 real camera shots**, with hard cuts at absolute tick **258** and
+**483** (Thomas's own `PlaySFX`-zeroed clock, offset 0 -- confirmed 3 independent ways against the
+container's own internal tick math, see `ef_camera_decode.py`'s docstring for citations):
 
-**Reconstruction method** (PROBE.md's round-1 results; independently re-verified against the raw log
-while building this): per frame, take the median across the 7 creature keys of -- **X, Y: bounds
-CENTER**; **Z: the FAR CORNER** (`center ± extent`, whichever side has the larger magnitude). The far
-corner is essential for Z (the real body sits far enough from world origin that it reliably recovers
-his true depth) but produces a noisy, silhouette-chasing signal on X/Y (which stay close enough to
-origin that whichever wingtip/tail happens to be farthest that frame gets picked instead of the
-body's own center) -- confirmed by a cross-check: raw CENTER `cy` stays in `[-480.5, +511.5]` across
-all 8,764 creature-key rows, matching the probe's own independent "Y never exceeds ~512" cluster read
-almost exactly.
+| Shot | Ticks | What it is |
+|---|---|---|
+| **Shot 0** | 0-258 | ONE unbroken dolly (camera resource chunk0/arg6) -- P1 through P8 (the entrance through the charge-hold) ALL fall inside this single shot; there is **no real cut** at 172-179 or 204-207 |
+| **Shot 1** | 258-483 | ONE unbroken shot (chunk1/arg16) -- the charge+blast+ground-reign; both real `EFFECT_POINT` damage beats (abs 454, 466) land inside it |
+| **Shot 2** | 483-514 | an almost-static outro/fade keyframe (chunk1/arg47) |
 
-**Absolute world coordinates** (a genuine design change from both prior builds, not just a retune):
-every `Movement` `Origin*`/`Destination*` below is now a **plain numeric NCalc constant**, not a
-`CasterPosition* + N` expression. `SFXMesh.Render()` draws via `Graphics.DrawMeshNow(_mesh,
-Matrix4x4.identity)` -- no transform in play -- so the native donor's Raw mesh and Thomas's own JSON
-mesh draw in the SAME identity world space; the bench arena is fixed, so an absolute coordinate puts
-Thomas exactly where Bahamut's own body was measured, regardless of any caster-lookup quirk or this
-scene's own camera framing.
+**Confirmed geometric gap, carried into this rewindow:** SFXDataCamera's spherical
+(pitch/orientation/roll/distance) Position format has no open-code conversion to a literal Unity
+eye/look-at world position -- that conversion runs inside the closed native
+`FF9SpecialEffectPlugin.dll` (`CameraEngine.SFX_PLUGIN`). So this rewindow does **not** replace
+Thomas's measured XYZ waypoints with camera-derived ones -- the same `P1_DEST`..`P10_DEST` medians
+from FLIGHT v2 are reused unchanged; only the piece BOUNDARIES/EASING were corrected to match where the
+real cuts actually fall.
 
-**The measured flight** (10 pieces off real per-frame medians + 1 unmeasured tail, summing to
-`THOMAS_END=580` unchanged) against the video-beat cross-reference the earlier builds derived by eye:
+**What changed vs FLIGHT v2:**
+1. **P5 (172-179) and P7 (204-207) are re-eased `Linear` → `Sinus`.** Both sit *inside* shot 0's one
+   continuous dolly -- an un-eased snap here, with no real cut to give it cover, would read as Thomas
+   visibly teleporting mid-shot.
+2. **P8's hold is extended 8 ticks** (207-250 → 207-258) so it ends exactly on the real shot-0/shot-1
+   boundary, followed by **one new short `Linear` piece, `CUT1`** (258-262) that carries the P8→P9
+   position delta FAST -- converting what FLIGHT v2 modeled as a slow 164-frame drift into the real
+   hard cut the footage actually has, so Thomas is already "in frame" for the reign the instant the
+   camera cuts.
+3. **A new flat bridging hold, `P10_HOLD`** (417-483), keeps shot 1 continuous all the way to the real
+   2nd cut tick -- no invented position jump (the measured data shows none there); the real cut is
+   honored by holding until the tick it actually lands on, not by faking a spatial snap.
+4. **The unmeasured tail (P11) now starts its climb-away at tick 483** (was 417) -- "the cut gives
+   cover for a position/motion change at that instant" per the decode's own placement recommendation.
 
-| Phase | Frames | Dest (X, Y, Z) | Video beat it covers | Interp |
+**The rewindowed flight** (13 pieces -- the same 10 measured + 1 unmeasured-tail waypoints as FLIGHT
+v2, plus the 1 new cut piece and 1 new bridging hold), still summing to `THOMAS_END=580`:
+
+| Piece | Frames | Dest (X, Y, Z) | Interp | Shot |
 |---|---|---|---|---|
-| **P1 Entrance** | 0-82 | (132, 512, -1568) | pre-log swoop-in → the proven cave shots | SinusOut (decelerating arrival) |
-| **P2 Rise-to-far** | 82-144 | (129, 128, -17860) | climbs away in DEPTH (Y barely drops, Z plunges) -- the first sky/far shot | SinusIn (accelerating launch) |
-| **P3 Far-dip** | 144-157 | (6, -20, -8590) | a brief mid-act partial return (a 2nd camera-cut beat, e.g. a head close-up) | Sinus (floaty) |
-| **P4 Far-deep** | 157-172 | (-266, -425, -34368) | the cast's single deepest point (Z=-34768 at frame 166) + a brief hold -- the iconic hover-pose shot | SinusIn |
-| **P5 Return-cut** | 172-179 | (144, 47, -4864) | **THE hard cut** (Z snaps -34368→-4864 in ~7 frames) -- kept FAST/un-eased on purpose | Linear (no easing curve) |
-| **P6 2nd-approach** | 179-204 | (143, 124, -12336) | a second, shallower re-plunge during the charge windup | Sinus |
-| **P7 Charge-cut** | 204-207 | (152, 202, -4720) | a second hard cut back to near-stage | Linear |
-| **P8 Charge-hold** | 207-250 | (120, 118, -3968) | Mega-Flare charge+blast -- **CORRECTION vs the 6-phase build**: stays NEAR-STAGE depth, not deep sky | Sinus |
-| **P9 Ground-reign** | 250-414 | (35, -1, -3832) | fire column + both damage beats + undercarriage shots | Sinus |
-| **P10 Exit-edge** | 414-417 | (35, -1, -9616) | body's last logged position -- a sharp final recess (Bahamut's own climb-away starting) | SinusIn |
-| **P11 Tail (UNMEASURED)** | 417-580 | (35, 1600, -30000) | no creature-key rows exist here (only fire-column/ember effect keys, through ~510-515) -- a REASONED climb-away continuation | SinusIn |
+| **P1 Entrance** | 0-82 | (132, 512, -1568) | SinusOut | Shot 0 |
+| **P2 Rise-to-far** | 82-144 | (129, 128, -17860) | SinusIn | Shot 0 |
+| **P3 Far-dip** | 144-157 | (6, -20, -8590) | Sinus | Shot 0 |
+| **P4 Far-deep** | 157-172 | (-266, -425, -34368) | SinusIn | Shot 0 |
+| **P5 Return-drift** | 172-179 | (144, 47, -4864) | **Sinus (was Linear)** | Shot 0 |
+| **P6 2nd-approach** | 179-204 | (143, 124, -12336) | Sinus | Shot 0 |
+| **P7 Charge-drift** | 204-207 | (152, 202, -4720) | **Sinus (was Linear)** | Shot 0 |
+| **P8 Charge-hold** | 207-258 | (120, 118, -3968) | Sinus | Shot 0 (extended +8) |
+| **CUT1 (NEW)** | 258-262 | (35, -1, -3832) | **Linear -- the one deliberate snap** | the real cut |
+| **P9 Ground-reign** | 262-414 | (35, -1, -3832) | Sinus | Shot 1 |
+| **P10 Exit-edge** | 414-417 | (35, -1, -9616) | SinusIn | Shot 1 |
+| **P10_Hold (NEW)** | 417-483 | (35, -1, -9616) | Sinus | Shot 1 (bridges to the 2nd cut) |
+| **P11 Tail (UNMEASURED)** | 483-580 | (35, 1600, -30000) | SinusIn | Shot 2 (starts at the cut) |
 
-Yaw (Rotation.Y) banks 0→90 (broadside) during P1's own arrival, HOLDS broadside from P2 through P10
-(the mission's own instruction -- also his iconic number-1 side panel, per the axis-verification
-renders), then 90→0 only in the TAIL as he turns forward again to climb away. Rotation.Z stays `0`
-throughout -- no roll.
+Yaw (Rotation.Y) banks 0→90 (broadside) during P1's own arrival, HOLDS broadside through `P10_Hold`
+(unchanged from FLIGHT v2), then 90→0 only in the TAIL as he turns forward again to climb away.
+Rotation.Z stays `0` throughout -- no roll. **The mission asked for a per-shot yaw computed from each
+window's own eye→Thomas vector** (yaw toward the enemies if the camera looks along his length axis);
+this is honestly NOT computable -- the same confirmed DLL-side gap above means there is no eye/aim
+world position for ANY of the 3 shots to take a vector from. Falling back to the decode's own
+*qualitative* shot descriptions instead: shot 0 is a single continuous push/pull dolly (not a bearing
+change), shot 1 is the charge+blast hero shot (broadside was always the intended framing here), and
+shot 2 is the near-static outro during which the model already turns him forward-facing as he departs
+-- none of the 3 shots' own qualitative descriptions call for a yaw deviation from the existing
+broadside-hold scheme, so none was invented.
 
-**Open concerns, carried forward (see `build_thomas.py`'s own `THE FLIGHT v2` comment block and
-PROBE.md's round-2 protocol for the full detail):**
-- **Corrected during adversarial verification:** P5_DEST/P7_DEST (frames 179/207) are each backed by a
-  FULL n=28 rows -- solid points, not the sparse n=4 an earlier draft claimed. The real low-sample
-  point is `P4_DEST` (frame 172, the deepest/most dramatic pose, n=4) and the gappy frames-153-177
-  zone around it (several frames have zero creature-key rows logged at all) -- see PROBE.md's
-  "Sample-count correction" section. P5/P7 are still kept short + `Linear` because the data shows a
-  genuine large position delta over few frames, not because the endpoints themselves are uncertain.
-- P1's Origin (frame 0, pre-log) and P11's Destination (frames 417-580) have ZERO measured ground
+**Open concerns, carried + new (see `build_thomas.py`'s `THE FLIGHT v3` comment block and PROBE.md's
+round-2 protocol for the full detail):**
+- P5_DEST/P7_DEST (frames 179/207) are each backed by a full n=28 rows -- solid points. The real
+  low-sample point is `P4_DEST` (frame 172, the deepest/most dramatic pose, n=4).
+- P1's Origin (frame 0, pre-log) and P11's Destination (frames 483-580) have ZERO measured ground
   truth -- both are documented reasoned extrapolations (`ENTRANCE_ORIGIN`, `P11_TAIL_DEST` in
-  `build_thomas.py`), not measurements. A fresh video/log of THIS build would let round 2 replace
-  either with real data.
-- Clock alignment (probe-frame ≈ Thomas-frame, offset 0) is a reasoned assumption -- this calibration
-  log predates Thomas entirely (no JSON-mesh key present in it) -- treat ±5-10 frames as realistic
-  slop on every boundary above.
+  `build_thomas.py`), not measurements.
+- Clock alignment (container/probe tick ≈ Thomas frame, offset 0) is now backed by the camera decode's
+  own 3-way internal cross-check (not just a bare assumption as in FLIGHT v2) -- still not a literal
+  re-measurement against THIS exact build; treat ±2-5 frames as realistic slop.
+- **New:** the CUT1/CUT2 tick placements (258, 483) themselves carry the decode's own **PARTIAL**
+  confidence rating -- solid on the container-parse side, but unconfirmed against a fresh camera log
+  (the s47 CAM-hook defect means no camera log exists yet for this engine build to cross-check the
+  container's baked ticks against real on-screen playback).
+- **New, confirmed dead end:** a literal per-shot eye/aim-vector yaw computation is not available from
+  open code -- the spherical-to-worldspace conversion lives in the closed
+  `FF9SpecialEffectPlugin.dll`. Don't re-attempt this without disassembling that DLL.
 
 Every number above is a named constant in `build_thomas.py` (`P1_DEST`...`P10_DEST`, `ENTRANCE_ORIGIN`,
-`P11_TAIL_DEST`, `YAW_BROADSIDE`, the 11 `*_DURATION`s) -- retune + rerun in one line, recast-only, no
-relaunch.
+`P11_TAIL_DEST`, `YAW_BROADSIDE`, `CUT1_DURATION`, `P10_HOLD_DURATION`, the 13 `*_DURATION`s) -- retune
++ rerun in one line, recast-only, no relaunch.
+
+<details>
+<summary>FLIGHT v2 (superseded 2026-07-22, kept for the record)</summary>
+
+The 11-piece build this rewindow replaces: same 10 measured waypoints + 1 unmeasured tail, but with P5
+(172-179) and P7 (204-207) modeled `Linear`/un-eased as guessed "hard cuts" (no camera data existed yet
+to confirm or refute this), P8 ending at frame 250 (not 258), P9 running as one long 164-frame drift
+from P8_DEST to P9_DEST (250-414, not a post-cut hold), and the tail's climb-away starting at frame 417
+(not 483). The measured waypoint VALUES were correct then and are unchanged now -- only the piece
+boundaries/easing were wrong, per the camera decode above.
+
+</details>
 
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
@@ -277,9 +318,10 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
 | `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
+| `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts that FLIGHT v3's piece windowing above is derived from. Standalone; not called by `build_thomas.py` (its findings are baked into the named constants by hand, documented in the FLIGHT v3 comment block). |
 | `README.md` | This file. |
 
-None of these five files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
+None of these six files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
 
 ## Regenerating the normalized model
 
@@ -312,18 +354,19 @@ FIRST time.
 4. Get into a battle on field 30300 (the random encounter, scene 67).
 5. Select **Iviv → Spark → Bahamut Cinema**.
 
-**Expect**: the full real Bahamut cinematic plays -- same chant, same camera cut, same roars/flashes,
+**Expect**: the full real Bahamut cinematic plays -- same chant, same camera cuts, same roars/flashes,
 same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright,
-correctly textured, and now FLYING THE MEASURED 11-PIECE FLIGHT (see "THE FLIGHT v2" above): swoops in
-from high off to one side during the chant/flashes (P1, cave), climbs away in depth toward the first
-sky/far shot (P2), a brief partial-return dip (P3), the deepest point + hover-pose hold (P4), a hard
-cut back to near-stage (P5), a second shallower re-plunge (P6) and hard cut (P7), the Mega-Flare
-charge+blast held near-stage (P8), the long floaty ground-reign hover through the fire column and both
-damage beats (P9), a sharp final recess (P10), then a reasoned climb-away as the lights restore (P11,
-unmeasured tail). Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column
-EFFECT meshes should still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`;
-see "HideMeshes: the s47 surgical key list" above if they aren't), and no more standing stationary in
-front of Iviv.
+correctly textured, and now FLYING THE 13-PIECE, CAMERA-DECODE-REWINDOWED FLIGHT (see "THE FLIGHT v3"
+above): swoops in from high off to one side during the chant/flashes (P1, cave), climbs away in depth
+toward the first sky/far shot (P2), a brief partial-return dip (P3), the deepest point + hover-pose
+hold (P4), a continuous drift back toward near-stage (P5-P6-P7, no visible snap -- the real camera
+never cuts here), the Mega-Flare charge+blast held near-stage (P8) right up to the **real hard cut**
+(`CUT1`, a fast snap into the reign), the long floaty ground-reign hover through the fire column and
+both damage beats (P9), a sharp final recess (P10) held (`P10_Hold`) through to the **real 2nd hard
+cut**, then a reasoned climb-away STARTING right at that cut as the lights restore (P11, unmeasured
+tail). Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column EFFECT meshes
+should still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes:
+the s47 surgical key list" above if they aren't), and no more standing stationary in front of Iviv.
 
 **If placement/motion/suppression is still off**: capture a short VIDEO of the cast (this project's
 own law -- `feedback-video-for-visual-bugs` -- behavior/positional bugs need footage, not a prose
@@ -332,21 +375,22 @@ description; a screenshot can't show a swoop, and can only show ONE instant of t
 hidden RIGHT NOW" but NOT for "does the flight read as flying" or "are the effects still there
 throughout" -- use a screen recorder (OBS, Xbox Game Bar `Win+Alt+R`, or any capture tool) for the
 whole ~40s of the cast (chant through the flare through the exit), or re-run the s47 probe cast itself
-(PROBE.md), so the next iteration can retune `build_thomas.py`'s named FLIGHT v2 constants (`P1_DEST`
-through `P10_DEST`, `ENTRANCE_ORIGIN`, `P11_TAIL_DEST`, `YAW_BROADSIDE`, the 11 `*_DURATION`s) or
-`HIDE_KEYS` from what actually happened frame-by-frame, rather than from a re-guess.
+(PROBE.md), so the next iteration can retune `build_thomas.py`'s named FLIGHT v3 constants (`P1_DEST`
+through `P10_DEST`, `ENTRANCE_ORIGIN`, `P11_TAIL_DEST`, `YAW_BROADSIDE`, `CUT1_DURATION`,
+`P10_HOLD_DURATION`, the 13 `*_DURATION`s) or `HIDE_KEYS` from what actually happened frame-by-frame,
+rather than from a re-guess.
 
 ## Failure modes
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the measured 11-piece flight (cave → far/sky → cave → ground → exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 13-piece camera-decode-rewindowed flight (cave → far/sky → cave → the real cut → ground-reign → the real 2nd cut → exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
 | The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body. Now much less likely than the old index-range guess (the s47 probe's `HIDE_KEYS` are the exact, confirmed keys of Bahamut's own 7 body meshes -- PROBE.md's round-1 results), but still possible if this engine build's `_key` values differ from the probe's own cast (a fresh calibration cast would confirm), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); re-run `--calibrate` + the probe to re-derive the keys if needed |
 | Bahamut's body is correctly hidden, but **one of the kept effects (swirl/beam/fire-column/etc) also vanished** | One of `HIDE_KEYS`' 7 keys was misclassified as body when it's actually an effect (unlikely -- PROBE.md's round-1 classification found all 7 present together on 92.6% of frames, a strong rigid-body signal), or a round-2 candidate (`00BDBE00`/`0098BD0E`) was added to `--hide-keys` and turned out to be an effect after all | Capture video showing which specific effect is missing; drop the suspect key from `--hide-keys` and recast; see PROBE.md's round-2 protocol |
 | The cinematic plays, Bahamut's body is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
-| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | Much less likely now that P1_DEST-P10_DEST are MEASURED off Bahamut's own real path (not guessed), but `ENTRANCE_ORIGIN` (frame 0) and `P11_TAIL_DEST` (frames 417-580) are still REASONED EXTRAPOLATIONS with zero ground truth -- see the CAVEAT in `build_thomas.py`'s `THE FLIGHT v2` comment block | Capture video (see above); if the measured pieces (P1-P10) look right but the unmeasured Origin/Tail look wrong, retune just those two constants and rerun (recast-only, no relaunch) |
+| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | Much less likely now that P1_DEST-P10_DEST are MEASURED off Bahamut's own real path (not guessed) AND the piece boundaries are re-windowed against the REAL camera cuts (not guessed cut-proxies), but `ENTRANCE_ORIGIN` (frame 0) and `P11_TAIL_DEST` (frames 483-580) are still REASONED EXTRAPOLATIONS with zero ground truth, and the camera decode's own per-shot yaw computation was a confirmed dead end (see CONFIRMED GEOMETRIC GAP in "THE FLIGHT v3" above) -- see the CAVEAT in `build_thomas.py`'s `THE FLIGHT v3` comment block | Capture video (see above); if the measured pieces (P1-P10) look right but the unmeasured Origin/Tail look wrong, retune just those two constants and rerun (recast-only, no relaunch) |
 | Thomas reads as **absurdly wide / clipped at the screen edges specifically during a REIGN piece** (P8 charge-hold or P9 ground-reign, not the transition pieces) | **Carried forward from earlier builds, NOT yet in-game-checked**: while his yaw is held at `YAW_BROADSIDE=90`, his ~2681-unit LENGTH sweeps world X (not Z) and only his ~926-unit WIDTH remains on Z -- neither reign piece's measured X range was sized with this axis swap in mind (they're MEASURED positions, so this is an inherent read of the real data, not a magnitude guess) | Capture video of both reign windows specifically; if confirmed, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or accept a wider camera crop |
-| Thomas still reads as **static / not "flying"** | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a phase's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 11 pieces (not 1, 3, or 6) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
+| Thomas still reads as **static / not "flying"**, or the cut at CUT1/CUT2 doesn't read as a real cut | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a piece's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 13 pieces (not 1, 3, 6, or 11) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
 | Thomas appears **on his side / rotated 90°**, or the broadside yaw looks wrong (facing away instead of showing his profile) during any reign | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR `YAW_BROADSIDE`'s sign is backwards for this camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try `YAW_BROADSIDE = -90` in `build_thomas.py`, rerun (recast-only) |
 | Thomas appears **tiny or absurdly, unusably huge** | `THOMAS_SCALE` (265) was miscalibrated for this arena's actual camera framing | Edit `THOMAS_SCALE` in `build_thomas.py`, rerun (recast-only) |
 | The cast doesn't play at all / hangs | Something in the spliced `.seq` broke the DSL parser, or the background thread never resolves (`WaitSFXDone: SFX=84` blocking forever -- would only happen if `mesh.Begin()`/`Render()` threw before ever setting `ended`, an unhandled edge case) | `revert_thomas.py` immediately; the debug menu (`~`) may force past a stuck command state; worst case, full restart then revert |
