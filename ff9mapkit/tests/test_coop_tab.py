@@ -212,6 +212,32 @@ def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_pat
     assert coop.btn_start.isEnabled()
 
 
+def test_the_engine_row_reads_the_shared_health_source(coop, app, monkeypatch, tmp_path):
+    """One source of truth: the Status card's `engine` line is now health.netsync_generation's summary
+    verbatim, the SAME derivation Setup's 'Co-op engine' health row reads. Written a known s37 DLL, the
+    card's text must EQUAL the helper's -- a coopdoc that reworded the sentence (two copies again) fails
+    this, and the level must track (ok at s37, warn below)."""
+    from ff9mapkit import config as cfg, health
+
+    game = tmp_path / "game"
+    managed = game / "x64" / "FF9_Data" / "Managed"
+    managed.mkdir(parents=True)
+    (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient NetSyncBattle")   # s37
+    coop.refresh_status()
+    gen = health.netsync_generation(game)
+    assert coop.lbl_engine.text() == gen["summary"], "the card's engine line must be the shared summary"
+    assert gen["level"] == "ok" and coop.lbl_engine.property("state") != "warn"
+
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient")                 # s36 -> warn
+    coop.refresh_status()
+    gen = health.netsync_generation(game)
+    assert coop.lbl_engine.text() == gen["summary"]
+    assert gen["level"] == "warn" and coop.lbl_engine.property("state") == "warn"
+
+
 def test_advanced_drawer_comes_back_for_a_non_default_play_style(coop, app):
     """THE COMES-BACK RULE. The Play-style card is folded into a collapsed Advanced drawer -- but a knob
     that was configured on this machine must not hide from the person who set it. _load_playstyle re-opens

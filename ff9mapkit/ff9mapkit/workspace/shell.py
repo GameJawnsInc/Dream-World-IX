@@ -49,7 +49,7 @@ from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
-from .hero import HeroBand, LedeCard
+from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
@@ -265,27 +265,48 @@ def _toml_str(s) -> str:
 
 
 def _getstarted_show(*, setup_incomplete: bool, has_target: bool, has_recent: bool,
-                     dismissed: bool) -> bool:
+                     has_deployed: bool, dismissed: bool) -> bool:
     """THE GOES-AWAY LAW: onboarding is for someone who has not yet done the thing, so DONE is measured,
     never assumed -- and once measured done, the guide leaves on its own.
 
-    Pure so the whole truth table is a fence (test_home_beginner). The old rule was
-    ``setup_incomplete or nothing_open``, which showed the full newcomer checklist to a VETERAN every
-    time they closed a project: 'nothing open right now' is not 'has never opened anything', and prime
-    Home space went to two ticked done-rows while the user's own Recent list sat below the fold.
+    Pure so the whole truth table is a fence (test_home_beginner). The arc the guide teaches now runs
+    all the way to the payoff -- setup, fork, DEPLOY-and-play -- so its completion signal is the last
+    rung, not the middle one. ``has_deployed`` is that signal: a sticky, save-persistent latch set on
+    the first real deploy (prefs.has_deployed), and it is exactly what separates "a veteran who closed a
+    project" from "a newcomer who forked a field and has not yet put it in the game".
 
     * dismissed wins over everything -- Hide is an explicit user choice, and the Home setup banner (a
       one-liner, not a checklist) still surfaces real setup problems underneath it.
-    * setup incomplete -> show: the app cannot build anything until these steps run.
-    * setup complete -> show only to a user with NO project history and nothing open. Any recent entry
-      (even one whose file is currently unreachable -- an unplugged drive is not a reset) means the
-      first-ten-minutes arc happened; Home's job is now Recent + the spine, not the guide.
+    * setup incomplete -> show: the app cannot build anything until these steps run. This is checked BEFORE
+      has_deployed on purpose -- a proven veteran whose install later goes unreachable (moved/uninstalled,
+      or prefs copied to a fresh machine) genuinely needs the setup steps back, so the "veteran never sees
+      it" guarantee below is precisely "a veteran WITH A HEALTHY SETUP never sees it".
+    * has_deployed -> gone: the user has completed the whole arc once with a healthy setup; Home's job is
+      now Recent + the spine, and this branch is silent forever after.
+    * setup complete, never deployed -> show while a target is OPEN (this is the "now deploy and press
+      ~" moment the old rule cut off the instant the fork opened a target), OR to a true first-run user
+      with no history at all. A closed project with history but no deploy relies on Recent + the spine
+      (``not has_recent`` is False there) -- reopening it brings has_target back and the guide with it.
+
+    The old rule was ``not has_target and not has_recent``, which VANISHED the guide the moment the fork
+    opened a target -- exactly when "now deploy" is the next thing to say. Re-derived (not patched) so
+    the arc closes at the payoff instead of at the fork.
     """
     if dismissed:
         return False
     if setup_incomplete:
         return True
-    return not has_target and not has_recent
+    if has_deployed:
+        return False
+    return has_target or not has_recent
+
+
+def _getstarted_primary_ix(steps) -> int:
+    """The index of the guide's ONE accented step: the first NOT-done step (``steps[i][2]`` is the done
+    flag). ``-1`` when every step is done -- only the Ctrl-K FORCED peek by a done-everything veteran reaches
+    that, and accenting nothing keeps the one-accent budget while never nudging a veteran toward an
+    already-completed step (a non-forced show always has an unmet step, so it never hits the ``-1``)."""
+    return next((i for i, s in enumerate(steps) if not s[2]), -1)
 
 
 def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare", entry=4100,
@@ -512,6 +533,8 @@ class Workspace(QMainWindow):
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._deployed_target = None               # the file path last deployed OK -> the spine's post-deploy hint
         self._deployed_field_id = None             # the field id that last deploy targeted -> the spine's Copy-warp receipt
+        self._deployed_dest = None                 # the destination key at deploy time -> the spine drops its Undo once the radio moves off it
+        self._deployed_revertible = False          # did that deploy write a revert script -> no Undo for a deploy that cannot be undone
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
@@ -1091,14 +1114,22 @@ class Workspace(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle("About Dream World IX")
         lay = QVBoxLayout(dlg)
-        head = QHBoxLayout()
+        # The colophon earns the signet: the icon + wordmark sit in a card that paints the one gold mark
+        # (ColophonMark), the same corner the hero and lede draw, at reduced ink. The left content margin
+        # clears the mark's arm exactly as the lede's does.
+        head_card = ColophonMark(self.pal, scale=self._text_scale)
+        head = QHBoxLayout(head_card)
+        head.setContentsMargins(ColophonMark._INSET + 22, 14, 16, 14)
+        head.setSpacing(12)
         icon = QLabel()
         icon.setPixmap(_app_icon().pixmap(48, 48))
         head.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
         title = QLabel(f"<b>Dream World IX</b> · ff9mapkit<br>"
                        f"<span style='color:{self.pal['muted']}'>v{__version__} · {mode}</span>")
         head.addWidget(title, 1)
-        lay.addLayout(head)
+        lay.addWidget(head_card)
+        # NOT registered for live retint: the About box is a short-lived modal rebuilt fresh on each open
+        # with the current palette, and a retint lambda would outlive the dialog and touch a deleted widget.
         body = QLabel(
             "Build brand-new playable <i>Final Fantasy IX</i> fields — and faithfully fork the real ones — "
             "for the Memoria engine.<br><br>"
@@ -1929,7 +1960,12 @@ class Workspace(QMainWindow):
     def _getstarted_steps(self):
         """The newcomer's provenance-clean first-steps, each with a ``done`` flag + a primary action. Nothing
         here ships FF9 content: the setup steps point the kit at the user's OWN install, then the creative
-        endpoint forks a real field FROM that install. ``done=None`` marks the (always-available) action step."""
+        arc forks a real field FROM that install and deploys it into the game.
+
+        EVERY step's done is MEASURED (no ``done=None`` action step): the accent walks the arc, so the one
+        primary step is always the exact next thing. The fork step reads done from an open target or any
+        project history (either means the creative step happened); the deploy step reads the sticky
+        first-deploy latch. A ``None`` here would freeze primary_ix on it forever -- the bug the round fixed."""
         from .. import health, provision
         game, _err = health.find_game()
         have_game = game is not None
@@ -1939,14 +1975,18 @@ class Workspace(QMainWindow):
                 have_templates = bool(provision.templates_present())
             except Exception:                          # noqa: BLE001 -- a probe hiccup must not break Home
                 have_templates = False
+        forked = self._current_target()[0] is not None or bool(prefs.recent())
         return [
             ("Point the kit at your FF9 install", "So it can read the game's own fields, art, and data — "
              "nothing is shipped with the tool.", have_game, "Locate game…", self._open_setup),
             ("Extract the base templates (a one-time ~1–2 min copy)", "The kit builds from these, regenerated "
              "from YOUR install — never from Square-Enix bytes.", have_templates, "Run setup…", self._open_setup),
             ("Fork your first field from the game", "Turn any real FF9 screen into an editable project — "
-             "starting from one that already works is the fastest way to learn.", None, "Go to Import",
+             "starting from one that already works is the fastest way to learn.", forked, "Go to Import",
              lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Deploy your fork and play it", "Press Deploy (F9) to put it in the game, then in-game press "
+             "~ → Reload field to walk it.", prefs.has_deployed(), "Go to Build",
+             lambda: self.tabs.setCurrentWidget(self.build_deploy)),
         ]
 
     def _getstarted_row(self, num, title, desc, done, label, cb, primary):
@@ -2013,20 +2053,24 @@ class Workspace(QMainWindow):
             setup_incomplete=setup_incomplete,
             has_target=self._current_target()[0] is not None,
             has_recent=bool(prefs.recent()),
+            has_deployed=prefs.has_deployed(),
             dismissed=prefs.getstarted_hidden())
         for w in (self._start_head, self._start_intro, self._start_note, self._start_box, self._start_footer):
             w.setVisible(show)
         if show and hasattr(self, "_home_setup"):
             self._home_setup.setVisible(False)                        # the checklist covers the setup warning
-        # THE ONE-ACCENT LAW, enforced at the call site: while the guide is up and nothing is open, the
-        # lede IS the guide's primary step (same title, same note, same verb -- _lede_state reuses the
-        # steps), so showing both rendered the identical row twice with TWO accent buttons 250px apart.
-        # One of them has to go, and it is the lede: the guide carries the context (step N of 3, the ✓s).
+        # THE ONE-ACCENT LAW, enforced at the call site: while the guide is up, its primary step IS the
+        # page's single accent, so the lede (also accent) must yield -- showing both renders two accent
+        # buttons that name the same next step (the lede reuses these very steps). The guide keeps it:
+        # it carries the context (step N of 4, the ✓s, the arc through Deploy). Now the guide can show
+        # WITH a target open (the "now deploy" moment), the yield is unconditional on `show` -- the old
+        # `target is not None or not show` predated the guide reaching that state and would double the
+        # accent there.
         if hasattr(self, "_lede"):
-            self._lede.setVisible(self._current_target()[0] is not None or not show)
+            self._lede.setVisible(not show)
         if not show:
             return
-        primary_ix = next((i for i, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        primary_ix = _getstarted_primary_ix(steps)      # first not-done step, or -1 (forced peek, all done)
         for i, (title, desc, done, label, cb) in enumerate(steps):
             self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
 
@@ -7375,11 +7419,22 @@ class Workspace(QMainWindow):
         t = self._deploy_target()
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
-        if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
+        bd = getattr(self, "build_deploy", None)
+        if self._deployed_target == t and (             # JUST DEPLOYED -- the next step is in the GAME...
+                self._deployed_dest is None or bd is None
+                or self._deployed_dest == bd.deploy_dest_key()):  # ...and the deploy's destination is still selected
             acts = []
             fid = self._deployed_field_id
             if fid is not None:                         # a one-click warp-id receipt: no hand-retype into ~ -> Warp
-                acts = [(f"Copy warp: {fid}", lambda f=fid: self._copy_warp(f), False)]
+                acts.append((f"Copy warp: {fid}", lambda f=fid: self._copy_warp(f), False))
+            # ...and the take-it-back affordance, right where the deploy just landed: the actual Revert button
+            # scrolls below the fold on the Build tab. This quiet tuple runs the SAME revert (_undo_last_deploy
+            # -> BuildDoc.on_revert), so there is one owner of 'undo a deploy'. Offered only when that deploy
+            # WROTE a revert script (_deployed_revertible) -- an install whose pre-install snapshot failed says
+            # "Revert is unavailable", and an Undo that then reports "nothing to revert" contradicts it. Quiet,
+            # not accent -- the crumb Deploy chip owns the surface's single accent; undo is never the loud step.
+            if self._deployed_revertible:
+                acts.append(("Undo this deploy", self._undo_last_deploy, False))
             return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", acts)
         if not prefs.has_deployed():                    # FIRST-RUN -- name the Deploy step for a newcomer once
             # quiet, NOT accent: the always-visible crumb Deploy chip (top-right) is this surface's single
@@ -7431,6 +7486,27 @@ class Workspace(QMainWindow):
         QApplication.clipboard().setText(str(field_id))
         self.statusBar().showMessage(
             f"Copied field id {field_id} — in your game, ~ → Warp to field, then paste it.", 5000)
+
+    def _undo_last_deploy(self):
+        """The spine's 'Undo this deploy' — roll back what was just deployed through the SAME revert path
+        the Build tab's Revert button uses (its argv builders + its confirm), so there is one owner of
+        'undo a deploy'. The JUST-DEPLOYED spine state only offers this while the Build tab is still aimed at
+        this target AND its destination radio still matches the deploy (_next_actions' dest-key gate), so
+        :meth:`BuildDoc.on_revert` picks exactly what was deployed. On a successful revert the callback
+        collapses the JUST-DEPLOYED strip — a stale 'press ~ → Reload' + Undo for an already-undone deploy is
+        the defect that closes."""
+        if getattr(self, "build_deploy", None) is None:
+            return
+        self.build_deploy.on_revert(then=self._clear_deployed_state)
+
+    def _clear_deployed_state(self, *_):
+        """Drop the JUST-DEPLOYED spine state (called on a successful spine Undo). The strip collapses
+        instead of restating ~-Reload + Undo for a deploy that no longer exists."""
+        self._deployed_target = None
+        self._deployed_field_id = None
+        self._deployed_dest = None
+        self._deployed_revertible = False
+        self._refresh_spine()
 
     def _open_setup(self):
         """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
@@ -8248,6 +8324,12 @@ class Workspace(QMainWindow):
                 "deploy" in subject.lower() or "install to game" in subject.lower()):
             self._deployed_target = self._deploy_target()   # -> the spine's 'now press ~ (tilde) in-game' hint
             self._deployed_field_id = field_id              # -> the spine's Copy-warp receipt (None => no receipt)
+            # Snapshot WHERE this went + whether it can be undone, captured now while the Build tab still
+            # reflects the just-run deploy: the spine reads the snapshot (not the live radio) so a later radio
+            # move retires a stale Undo, and a non-revertible deploy (install snapshot failed) offers none.
+            bd = getattr(self, "build_deploy", None)
+            self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
+            self._deployed_revertible = bool(bd is not None and bd.revert_available())
             prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
         if on_finished:
@@ -9985,7 +10067,7 @@ def _smoke(win):
     # templates?), history (prefs.recent) AND the dismissal (prefs.getstarted_hidden, stubbed in-memory
     # at the top of _smoke with the recent-store) -- so the smoke PINS all three rather than reading this
     # machine (a test that reads the developer's machine is a report on the developer). Newcomer state
-    # -> 3 live steps ending on 'fork your first field' and the lede stays out of the guide's way (the
+    # -> 4 live steps (setup x2, fork, deploy-and-play) and the lede stays out of the guide's way (the
     # one-accent law); veteran state -> the guide is GONE and the lede leads with the user's history.
     from .. import health as _health, provision as _prov
     _orig_state = (_health.find_game, _prov.templates_present, prefs.recent)
@@ -9994,7 +10076,7 @@ def _smoke(win):
         _prov.templates_present = lambda: False
         prefs.recent = lambda: []
         win._refresh_home_status()
-        assert win._start_lay.count() == 3, win._start_lay.count()
+        assert win._start_lay.count() == 4, win._start_lay.count()   # setup x2 + fork + deploy-and-play
         assert win._start_box.isVisibleTo(win._welcome_tab), "the guide must show for a newcomer"
         assert not win._lede.isVisibleTo(win._welcome_tab), \
             "the lede mirrors the guide's primary step -- showing both is the same row twice (one-accent law)"

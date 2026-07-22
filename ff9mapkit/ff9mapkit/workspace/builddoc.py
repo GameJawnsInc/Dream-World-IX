@@ -984,7 +984,7 @@ class BuildDoc(QWidget):
             self._stream(jobs.deploy_field_own_id_argv(self.repo, field, own, nm), cwd=self.repo,
                          subject=f"Deploy to field {own}",
                          ok_headline=f"Deployed field {own} ({self.mod_folder})",
-                         ok_next=f"In-game: ~ → Warp to field {own}. Undo with Revert.", field_id=own)
+                         ok_next=f"In-game: ~ → Warp to field {own}. Undo this deploy any time.", field_id=own)
         elif self.rb_game.isChecked():
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
@@ -1002,7 +1002,7 @@ class BuildDoc(QWidget):
                 self._stream(jobs.build_argv(field, str(self.game_mod), preserve_existing=True),
                              cwd=self.kit_cwd, subject="Install to game",
                              ok_headline=f"Built into {self.game_mod}",
-                             ok_next=("Undo with Revert (the folder was backed up first)." if snap_ok else
+                             ok_next=("Undo this deploy any time (the folder was backed up first)." if snap_ok else
                                       "Note: the pre-install backup could not be written — Revert is "
                                       "unavailable for this install. Restore from your own backup if needed."),
                              then=self._refresh_deployed)
@@ -1230,36 +1230,72 @@ class BuildDoc(QWidget):
                          then=self._refresh_newgame_status)
 
     # ------------------------------------------------------------------ Revert
-    def on_revert(self):
-        # campaign/journey reverts work for an installed copy too -- the package deploy writes them to a
-        # per-user cache (jobs.revert_*_pkg_argv); battle + the test-slot field revert are dev-repo-only.
+    def _revert_plan(self):
+        """``(argv, what, needs_tools)`` for reverting the CURRENT destination -- PURE (no dialogs), so it
+        is shared by :meth:`on_revert` (which prompts + streams) and :meth:`revert_available` (a silent
+        predicate the shell reads to decide whether to offer an Undo). ``argv`` is ``None`` when no revert
+        applies; ``needs_tools`` is True for the dev-repo-only reverts (battle + the test-slot/own-id field
+        deploy), False for the ones that also run on an installed copy (campaign/journey/install, via the
+        package-cache revert scripts)."""
+        # campaign/journey/install reverts work for an installed copy too -- the package deploy writes them to
+        # a per-user cache (jobs.revert_*_pkg_argv); battle + the test-slot/own-id field revert are dev-only.
         if self.kind == "campaign":
             argv = jobs.revert_campaign_argv(self.repo) if self.has_tools else jobs.revert_campaign_pkg_argv()
-            what = "campaign"
-        elif self.kind == "journey":
+            return argv, "campaign", False
+        if self.kind == "journey":
             argv = (jobs.revert_journey_argv(self.repo) if self.has_tools else jobs.revert_journey_pkg_argv())
             what = ("journey links" if argv and Path(argv[-1]).name == "revert_journey_links.py" else "journey")
-        elif self.kind == "field" and self.rb_game.isChecked():
-            # Install-to-game is reversible via the pre-install whole-folder snapshot -- and, unlike the
-            # test-slot/own-id reverts, this works on an installed copy too, so it is handled BEFORE the
-            # _require_tools gate below.
+            return argv, what, False
+        if self.kind == "field" and self.rb_game.isChecked():
             argv = jobs.revert_install_argv(self.repo) if self.has_tools else jobs.revert_install_pkg_argv()
-            what = "install"
-        else:
-            if not self._require_tools("Revert"):
-                return
-            if self.kind == "battle":
-                argv, what = jobs.revert_battle_argv(self.repo), "battle"
-            else:
-                # an own-id deploy has its OWN revert script; using the generic "latest" one there could
-                # undo a different id's later deploy instead (jobs.revert_field_argv)
-                fid = self.field_id if self.rb_own.isChecked() else None
-                argv = jobs.revert_field_argv(self.repo, fid)
-                what = f"field {fid}" if fid is not None else "test field"
+            return argv, "install", False
+        if self.kind == "battle":
+            return jobs.revert_battle_argv(self.repo), "battle", True
+        # an own-id deploy has its OWN revert script; using the generic "latest" one there could undo a
+        # different id's later deploy instead (jobs.revert_field_argv)
+        fid = self.field_id if self.rb_own.isChecked() else None
+        return jobs.revert_field_argv(self.repo, fid), (f"field {fid}" if fid is not None else "test field"), True
+
+    def deploy_dest_key(self):
+        """A hashable snapshot of the CURRENT deploy destination (kind + radio + id). The shell captures it
+        at deploy time and compares it live, so moving the destination radio AFTER a deploy retires the
+        spine's stale 'Undo this deploy' (which reverts the LIVE destination) instead of offering an undo for
+        a destination the deploy never touched."""
+        if self.kind != "field":
+            return (self.kind,)
+        if self._inplace_available and self.rb_inplace.isChecked():
+            return ("inplace", self.inplace_target["donor"] if self.inplace_target else None)
+        if self.rb_own.isChecked():
+            return ("own", self.field_id)
+        if self.rb_game.isChecked():
+            return ("install",)
+        return ("test",)
+
+    def revert_available(self):
+        """True when :meth:`on_revert` would find a revert script to run for the CURRENT destination (mirrors
+        its argv-exists check, no dialogs). The shell reads this at deploy time so it never offers 'Undo this
+        deploy' for a deploy that cannot be undone -- notably an install whose pre-install snapshot failed, so
+        no revert script was written (its own receipt already says Revert is unavailable)."""
+        try:
+            argv, _what, needs_tools = self._revert_plan()
+        except Exception:                              # noqa: BLE001 -- a bad radio state is not a crash here
+            return False
+        if needs_tools and not self.has_tools:
+            return False
+        return argv is not None and Path(argv[-1]).exists()
+
+    def on_revert(self, *, then=None):
+        argv, what, needs_tools = self._revert_plan()
+        # Install-to-game is reversible via the pre-install whole-folder snapshot and, unlike the
+        # test-slot/own-id/battle reverts, runs on an installed copy too -- so it skips the _require_tools gate.
+        if needs_tools and not self._require_tools("Revert"):
+            return
         if argv is None or not Path(argv[-1]).exists():
             return self._info("Nothing to revert", f"No {what} deploy to undo yet.")
         cwd = self.repo if self.has_tools else self.kit_cwd
         if self._confirm(f"Revert {what}", f"Restore the game to before the last {what} deploy?"):
+            # `then` (fires on a code==0 finish) lets the shell's spine Undo self-dismiss the JUST-DEPLOYED
+            # state once the deploy it advertised is actually gone (the Build tab's own Revert passes none).
             self._stream(argv, cwd=cwd, subject=f"Revert {what}",
                          ok_headline=f"Reverted the last {what} deploy",
-                         ok_next="Relaunch the game to load the restored state.")
+                         ok_next="Relaunch the game to load the restored state.", then=then)

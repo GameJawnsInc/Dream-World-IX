@@ -201,6 +201,37 @@ def realfield_entries(ids=None) -> list:
     return [by_id[i] for i in ids if i in by_id]
 
 
+def encounter_entries() -> list:
+    """Every reachable battle scene as an ``encounter`` Entry, labeled with its real monsters + place when a
+    WARM battle map exists, else the baked ``BSC_`` name. NEVER builds the ~9s census -- reads
+    :func:`battle.locate.cached_map` ONLY (warm memo/disk), exactly as :func:`_song_entries` (force=False)
+    reads only the already-extracted cache. This module stays install-free: an encounter's rich census
+    data (monsters/place/classification) arrives here through the read-live ``locate`` import, the same
+    best-effort exception the ``song`` kind takes -- :func:`detail` never touches ``locate`` (the scene
+    branch's ``scene_usage_fn`` hook is that live path). NOT a member of :data:`KINDS`: picker-only, added
+    to :func:`browse` only when explicitly requested, so it never bloats the kitchen-sink library. NOT
+    memoized -- warmth changes at runtime (after a Build), and the in-memory label build is sub-ms."""
+    try:
+        from .battle import locate as _loc
+        bm = _loc.cached_map()                            # WARM ONLY -- None when cold (never a GUI-thread build)
+    except Exception:   # noqa: BLE001 -- no install / no UnityPy / unreadable cache -> the baked fallback
+        bm = None
+    out = []
+    if bm is not None:                                   # warm: rich labels, only the reached ('placed') scenes
+        # DELIBERATELY reached-only (scene_sites): the warm list is the "scenes actually fought in a real
+        # field" view, which is the useful one once the census exists. This is narrower than the cold baked
+        # fallback below (every BSC scene), so building the index visibly TRIMS the section -- the picker copy
+        # says so, and pickability is unaffected (the scene fallback still offers every baked scene by id).
+        for sid in sorted(bm.scene_sites):
+            label = _loc.scene_label(sid)                # "Goblin, Fang -- Evil Forest (field 250, random)"
+            cls = bm.classification.get(sid, "placed")
+            out.append(Entry("encounter", label, None, f"battle scene #{sid} -- {cls}", sid))
+        return out
+    for nm, sid in _cat.battle_scenes():                 # cold: never-empty baked fallback (BSC name only)
+        out.append(Entry("encounter", nm, None, f"battle scene #{sid} (build the battle index for real names)", sid))
+    return out
+
+
 def _sps_template_entries() -> list:
     """The curated ``[[sps]]`` effect templates (``sps.templates``) as a static, install-free kind -- the
     names + descriptions list with no install; the detail-pane PREVIEW renders the donor effect lazily
@@ -443,6 +474,8 @@ def browse(query: str = "", kinds=None, limit=200, campaign_context=None, sps_co
         extra = extra + _song_entries(force=bool(kinds))   # runs only when songs were explicitly asked for
     if "realfield" in want:            # picker-only kind (NOT in KINDS): only when explicitly requested
         extra = extra + _realfield_entries()
+    if "encounter" in want:            # picker-only kind (NOT in KINDS): warm rich / cold baked, never builds
+        extra = extra + encounter_entries()
     entries = (extra + _all_entries()) if extra else _all_entries()
     out = []
     for e in entries:
@@ -484,6 +517,8 @@ def snippet(entry: Entry) -> str:
     if e.kind == "item":
         return f'give_item = [{e.ident}, 1]  # {e.name} -- e.g. an [[event]] reward'
     if e.kind == "scene":
+        return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "encounter":                          # the rich, install-backed sibling of 'scene' -- same block
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
     if e.kind == "song":
         return f'[music]\nsong = {e.ident}  # {e.name}'
@@ -612,7 +647,7 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         from . import itemstats as _istats                            # live stat join from YOUR install
         d.facts = [("kind", "item"), ("id", str(e.ident))] + _istats.facts(e.ident)
         return d
-    if e.kind == "scene":
+    if e.kind in ("scene", "encounter"):        # an encounter's ident IS a scene id -> the identical detail path
         d.facts = [("kind", "battle scene"), ("id", str(e.ident))]
         bsc = _cat.scene_name(e.ident)          # baked _scenedb lookup -- install-free, always safe
         if bsc:
@@ -629,6 +664,9 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
                 enemies = [n for n in (info.get("enemies") or []) if n]
                 if enemies:
                     d.facts.append(("enemies", ", ".join(enemies)))
+                atks = [a for a in (info.get("attacks") or []) if a]
+                if atks:
+                    d.facts.append(("attacks", ", ".join(atks)))
                 for place in info.get("places") or []:
                     d.facts.append(("place", place))
                 locs = info.get("locations")

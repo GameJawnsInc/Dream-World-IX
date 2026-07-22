@@ -281,6 +281,54 @@ class LedeCard(QFrame):
         p.end()
 
 
+class ColophonMark(QFrame):
+    """The signet on the colophon -- the About box's one gold mark, at reduced ink.
+
+    The SIGNET brief lists About among the app's five-second identity surfaces, so it earns the mark; and
+    it is the SAME corner from the SAME function (:func:`signet_elbow`) the hero and the lede draw, cited
+    a third time and fainter still. "One corner, once, or it's a costume" forbids a REPEATED ornament, not
+    the same mark quoted on the handful of surfaces built to be looked at -- this follows the lede's
+    precedent (half the ink) and takes it one step quieter: the dissolve starts fainter too (``a_from``
+    below the lede's default 255), so the About mark is subordinate to BOTH prior citations by
+    construction.
+
+    ONE gold, and no other on the surface: the About box's accent Close button rides $accent and its links
+    ride $accent as links always do; gold appears exactly here. Reads ``role="card"`` and paints -- zero
+    new tokens, exactly like LedeCard. The rise is DERIVED from the head rung (LedeCard's lesson: a pinned
+    rise strikes through a grown title once the ramp or the dial moves)."""
+
+    _INSET = 10
+    _ARM = 132          # below the lede's 170 -- a third, quieter citation of the one mark
+    _TOP = 14           # the header layout's top margin (shell._open_about) -- where the title's box starts
+
+    def __init__(self, pal, parent=None, scale=100):
+        super().__init__(parent)
+        self.pal = pal
+        self._scale = scale
+        self.setProperty("role", "card")
+
+    def _up(self):
+        """The arm's rise -- derived from the rung the title wears, so the rule follows the text-size dial
+        instead of striking through a grown title (see LedeCard._up for the full account of that bug)."""
+        f = QFont("Segoe UI")
+        f.setPixelSize(style.type_px("type_head", self._scale))
+        f.setWeight(QFont.Weight.DemiBold)
+        clear = self._TOP + QFontMetricsF(f).height() + 2      # +2: a rule ON the descenders is not a rule
+        return max(26, int(clear - self._INSET + 0.5))          # never tighter than the lede's shipped 26
+
+    def paintEvent(self, ev):                          # noqa: N802 (Qt override)
+        super().paintEvent(ev)                         # the QSS card fill + border, then the mark on top
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        gold = QColor(GOLD_DARK if self.pal.get("dark") else GOLD_LIGHT)
+        k = self._scale / 100.0
+        up = self._up()
+        x = self._INSET + 0.5
+        y = self._INSET + up + 0.5
+        signet_elbow(p, x, y, self._ARM * k, up, gold, a_from=170, r=_ELBOW_R * k)   # reduced ink
+        p.end()
+
+
 class HeroBand(QWidget):
     """Full-bleed front-door band. ``column_source`` is Home's ``body`` widget -- the hero reads its
     REAL geometry so the wordmark, the gold elbow and every card below sit on ONE axis."""

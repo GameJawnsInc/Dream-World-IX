@@ -366,7 +366,7 @@ class CoopDoc(QWidget):
     def refresh_status(self):
         """Re-read install/engine/room/config state. Never raises -- a game-less machine shows what's
         missing instead (the smoke runs this headless)."""
-        from .. import coop
+        from .. import coop, health
         from ..config import find_game_path
         try:
             self._game = find_game_path(None)
@@ -387,21 +387,13 @@ class CoopDoc(QWidget):
         self.btn_start.setEnabled(True)
         self.lbl_game.setText(str(self._game))
         widgets.set_state(self.lbl_game, "")
-        dll = self._game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
-        try:
-            blob = dll.read_bytes() if dll.is_file() else b""
-        except OSError:
-            blob = b""
-        has_netsync = b"NetSyncClient" in blob
-        has_s37 = b"NetSyncBattle" in blob          # the battle/visitor lanes shipped together (s37)
-        has_s40 = b"NetSyncDiorama" in blob         # the battle diorama (s40)
-        self.lbl_engine.setText("netsync + battle co-op + diorama (s40) present" if has_s40 else
-                                "netsync + battle/visitor co-op (s37) — the battle diorama needs "
-                                "the newer s40 engine" if has_s37 else
-                                "netsync (s36) present — Play style needs the newer s37 engine"
-                                if has_netsync else
-                                "netsync MISSING — install the Dream World IX custom engine first")
-        widgets.set_state(self.lbl_engine, "" if has_s37 else "warn")
+        # The engine generation, from the SHARED derivation (health.netsync_generation) -- the same
+        # source Setup's "Co-op engine" health row reads, so the two can never disagree on the
+        # s36/s37/s40 boundary. The booleans below still drive the door / Play-style / diorama gates.
+        gen = health.netsync_generation(self._game)
+        has_s37, has_s40 = gen["s37"], gen["s40"]
+        self.lbl_engine.setText(gen["summary"])
+        widgets.set_state(self.lbl_engine, "" if gen["level"] == "ok" else "warn")
         # The door keys on the SAME predicate as the amber state one line up (not has_s37). Its first
         # cut keyed on `not has_netsync`, so an s36 machine got a warning naming the newer engine with
         # the door to that exact remedy hidden -- the scavenger hunt back for one engine generation

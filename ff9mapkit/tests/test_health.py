@@ -66,6 +66,49 @@ def test_health_no_scripts_dll_row_when_absent(monkeypatch, tmp_path):
     assert "Custom battle formula DLL" not in labels
 
 
+def _write_engine(tmp_path, blob: bytes):
+    """A minimal installed-Memoria fixture whose Assembly-CSharp.dll carries the given marker bytes."""
+    game = tmp_path / "FF9"
+    for arch in ("x64", "x86"):
+        mgd = game / arch / "FF9_Data" / "Managed"
+        mgd.mkdir(parents=True)
+        (mgd / "Assembly-CSharp.dll").write_bytes(blob)
+    (game / "StreamingAssets").mkdir()
+    (game / "FF9_Launcher.exe").write_bytes(b"")
+    (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n", encoding="utf-8")
+    return game
+
+
+def test_netsync_generation_boundaries(tmp_path):
+    """The ONE derivation Setup and the Co-op card share: the s36/s37/s40 markers -> booleans + a
+    summary + a level. warn below s37 (the Play-style floor); ok at s37 and s40. Each marker string
+    must appear in its own summary -- a no-op that returned a fixed string fails the marker asserts."""
+    cases = {
+        b"": (False, False, False, "warn", "MISSING"),
+        b"...NetSyncClient...": (True, False, False, "warn", "(s36)"),
+        b"...NetSyncClient NetSyncBattle...": (True, True, False, "ok", "(s37)"),
+        b"...NetSyncClient NetSyncBattle NetSyncDiorama...": (True, True, True, "ok", "(s40)"),
+    }
+    for blob, (net, s37, s40, level, needle) in cases.items():
+        game = _write_engine(tmp_path / needle.strip("()"), blob)
+        gen = health.netsync_generation(game)
+        assert (gen["netsync"], gen["s37"], gen["s40"]) == (net, s37, s40)
+        assert gen["level"] == level and needle in gen["summary"]
+    # a None install (no game) never raises and reads as no netsync
+    assert health.netsync_generation(None)["level"] == "warn"
+
+
+def test_health_report_has_co_op_engine_row_from_shared_source(tmp_path, monkeypatch):
+    """Setup's report gains the engine-generation triage row, sourced from netsync_generation -- the
+    SAME helper the Co-op status card reads. Its value/level must equal the helper's, so the two
+    surfaces render one fact (a hardcoded row would drift from the helper and fail this)."""
+    game = _write_engine(tmp_path, b"...NetSyncClient NetSyncBattle...")   # s37
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: game)
+    row = next(r for r in health.health_report() if r["label"] == "Co-op engine")
+    gen = health.netsync_generation(game)
+    assert row["value"] == gen["summary"] and row["level"] == gen["level"] == "ok"
+
+
 def test_worst_level_ordering():
     assert health.worst_level([{"level": "ok"}]) == "ok"
     assert health.worst_level([{"level": "ok"}, {"level": "warn"}]) == "warn"

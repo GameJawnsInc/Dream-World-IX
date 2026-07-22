@@ -626,6 +626,33 @@ def test_the_lede_rule_lands_under_its_title_not_through_it(app):
         card.deleteLater()
 
 
+def test_the_colophon_cites_the_one_mark_at_reduced_ink(app):
+    """The About box earns the signet -- but as one more CITATION of the single mark, not a new ornament.
+
+    "One corner, once, or it's a costume" forbids a REPEATED ornament; it does not forbid the SAME mark,
+    from the SAME function, quoted on the handful of five-second identity surfaces. The colophon follows
+    the lede's precedent (half the ink) and goes one step quieter: a shorter arm AND a fainter dissolve
+    (a_from below the lede's default 255), so it is subordinate to both prior citations by construction.
+    """
+    import inspect
+
+    src = inspect.getsource(hero_mod.ColophonMark.paintEvent)
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "signet_elbow(" in code, "the colophon must draw the SHARED mark, not its own path code"
+    assert "a_from=170" in code, "reduced ink: the dissolve must start fainter than the lede's default 255"
+    for banned in ("border-left", "fillRect", "drawRect"):
+        assert banned not in code, f"the colophon must be a corner, not a {banned}"
+    # subordinate to the lede by construction -- a shorter arm at a fainter start
+    assert hero_mod.ColophonMark._ARM < hero_mod.LedeCard._ARM, \
+        "the colophon must be quieter than the lede (a third, fainter citation)"
+    # the doubled filigree + the bead stay the hero's alone -- they are the signature, not the citation
+    assert "_BEAD" not in code and "drawPath(ip)" not in code, \
+        "the colophon must not wear the signature's private detail"
+    # the rise is DERIVED, never a pinned constant (LedeCard's strike-through-the-title lesson)
+    assert not hasattr(hero_mod.ColophonMark, "_UP"), "the colophon re-pinned its rise -- it must derive it"
+    assert callable(getattr(hero_mod.ColophonMark, "_up", None)), "the derived rise is gone"
+
+
 def test_the_lede_mark_holds_no_pinned_rise(app):
     """The rise is DERIVED, and a constant is what broke it. Fenced at the source: a `_UP = <n>` class
     attribute would pass every ratio check while silently going stale the next time the head rung moves --

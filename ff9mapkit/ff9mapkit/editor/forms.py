@@ -147,7 +147,7 @@ SPS_SPEC = [
 ]
 ENCOUNTER_SPEC = [
     Field("scene", "Battle scene id", OPTINT, "e.g. 67 = Evil Forest; blank = no random battles",
-          catalog="scene"),
+          catalog="encounter,scene"),
     Field("freq", "Frequency (0-255)", OPTINT, "default 255"),
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]

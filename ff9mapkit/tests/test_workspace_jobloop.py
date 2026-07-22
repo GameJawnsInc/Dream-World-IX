@@ -182,18 +182,94 @@ def test_dry_run_playbook_does_not_latch_the_first_run_marker(win):
 
 # --------------------------------------------------------------- item 4: Copy-warp receipt
 def test_just_deployed_offers_a_copy_warp_receipt(win):
-    """After a deploy the spine carries a one-click Copy-warp receipt for the deployed id; with no id known
-    (a build/campaign deploy) it carries only the guidance."""
+    """After a deploy the spine carries a one-click Copy-warp receipt for the deployed id, followed by the
+    quiet 'Undo this deploy' affordance. With no id known (a build/campaign deploy) the receipt drops but
+    the undo affordance remains -- undo does not need a warp id."""
     _open_deployable(win, target="X.toml")
     win._deployed_target = "X.toml"
     win._deployed_field_id = 4003
+    win._deployed_dest = win.build_deploy.deploy_dest_key()   # the deploy's destination is still selected
+    win._deployed_revertible = True                          # the deploy wrote a revert script -> Undo is offered
     guidance, actions = win._next_actions()
-    assert guidance and len(actions) == 1
-    assert actions[0][0] == "Copy warp: 4003" and actions[0][2] is False, "a quiet (non-accent) receipt"
+    labels = [a[0] for a in actions]
+    assert guidance and labels == ["Copy warp: 4003", "Undo this deploy"]
+    assert actions[0][2] is False, "a quiet (non-accent) receipt"
+    assert actions[1][2] is False, "and a quiet undo -- the crumb Deploy chip owns the surface's accent"
 
-    win._deployed_field_id = None                        # no single warp id -> guidance only, no button
+    win._deployed_field_id = None                        # no single warp id -> undo only, no receipt
     guidance, actions = win._next_actions()
-    assert guidance and actions == [], "no id, no receipt button"
+    assert guidance and [a[0] for a in actions] == ["Undo this deploy"], "no id: undo stays, receipt drops"
+
+
+def test_undo_this_deploy_routes_through_the_build_tabs_revert(win):
+    """THE SINGLE-OWNER LAW: the spine's undo must invoke the SAME revert path the Build tab's Revert
+    button uses (its argv builders + confirm), not a second implementation. A no-op stand-in for on_revert
+    would pass a shape check, so this asserts the delegation actually fires BuildDoc.on_revert once."""
+    calls = []
+    win.build_deploy.on_revert = lambda **k: calls.append(k)
+    win._undo_last_deploy()
+    assert len(calls) == 1, "undo delegates to the one owner of 'revert a deploy'"
+    assert callable(calls[0].get("then")), \
+        "and threads a self-dismiss callback so a successful undo collapses the just-deployed spine state"
+
+
+def test_deploy_dest_key_moves_with_the_destination_radio(win):
+    """The captured-destination snapshot the spine compares (findings 2/7): a field's key changes with the
+    destination radio, so a post-deploy radio move is detectable; kind != field keys on the kind alone."""
+    bd = win.build_deploy
+    bd.kind = "field"
+    bd.rb_test.setChecked(True)
+    assert bd.deploy_dest_key() == ("test",)
+    bd.rb_game.setChecked(True)
+    assert bd.deploy_dest_key() == ("install",), "moving the radio moves the key"
+
+
+def test_undo_retires_when_the_destination_radio_moves_off_the_deploy(win):
+    """Findings 2/7: the spine's Undo reverts the LIVE destination radio, so a radio move AFTER a deploy must
+    RETIRE the stale JUST-DEPLOYED strip rather than offer an undo for a destination the deploy never touched.
+    The strip is gated on the destination key captured at deploy time still matching the live one."""
+    _open_deployable(win, target="X.toml")
+    prefs.set_has_deployed(True)                          # a veteran redeploying -> the fall-through is silent
+    win._deployed_target = "X.toml"
+    win._deployed_field_id = None
+    win._deployed_revertible = True
+    win._deployed_dest = ("test",)
+    win.build_deploy.deploy_dest_key = lambda: ("test",)   # radio still on the captured destination
+    guidance, actions = win._next_actions()
+    assert guidance and [a[0] for a in actions] == ["Undo this deploy"], "matched destination -> undo stands"
+    win.build_deploy.deploy_dest_key = lambda: ("install",)  # radio moved off the deploy
+    guidance, actions = win._next_actions()
+    assert (guidance, actions) == ("", []), "a destination change retires the stale undo"
+
+
+def test_undo_is_withheld_when_the_deploy_left_no_revert_script(win):
+    """Finding 5: an install whose pre-install snapshot FAILED cannot be reverted (its own receipt says so),
+    so the JUST-DEPLOYED spine must not offer an Undo that would then report 'nothing to revert'. The undo
+    tuple is gated on the deploy having written a revert script (_deployed_revertible)."""
+    _open_deployable(win, target="X.toml")
+    win.build_deploy.deploy_dest_key = lambda: ("install",)
+    win._deployed_target = "X.toml"
+    win._deployed_field_id = None
+    win._deployed_dest = ("install",)
+    win._deployed_revertible = False                     # the snapshot failed -> no revert script written
+    guidance, actions = win._next_actions()
+    assert guidance and actions == [], "the deploy is confirmed, but a non-revertible deploy offers no undo"
+    win._deployed_revertible = True                      # a normal (snapshot-backed) install
+    _, actions = win._next_actions()
+    assert [a[0] for a in actions] == ["Undo this deploy"], "a revertible deploy offers the undo"
+
+
+def test_a_successful_undo_self_dismisses_the_just_deployed_state(win):
+    """Finding 1: once the spine's Undo actually reverts the deploy, the JUST-DEPLOYED strip must COLLAPSE --
+    restating '~ -> Reload' + Undo for an already-undone deploy is the defect. _undo_last_deploy threads a
+    then-callback that on_revert fires on a code==0 finish; this asserts that callback clears every marker."""
+    win._deployed_target = "X.toml"
+    win._deployed_field_id = 4003
+    win._deployed_dest = ("test",)
+    win._deployed_revertible = True
+    win._clear_deployed_state()                          # the callback on_revert fires on a successful revert
+    assert win._deployed_target is None and win._deployed_field_id is None, "the deploy markers clear"
+    assert win._deployed_dest is None and win._deployed_revertible is False, "and so do the destination gates"
 
 
 def test_copy_warp_puts_the_bare_id_on_the_clipboard(win, app):

@@ -277,9 +277,11 @@ def test_party_spec_builds_party_table_and_omits_empty():
 
 def test_encounter_scene_advertises_the_battle_scene_catalog():
     # the scene field is OPTINT (blank = no encounter, so opening the form on a battle-less field doesn't
-    # soft-lock) but advertises the 'scene' catalog so the editor renders a Browse picker that returns the id.
+    # soft-lock) but advertises the battle-scene catalog so the editor renders a Browse picker that returns
+    # the id. It points at the rich, install-backed 'encounter' kind FIRST (real monster/place labels when
+    # the battle index is warm), with the baked install-free 'scene' kind as the never-empty fallback.
     scene = next(f for f in forms.ENCOUNTER_SPEC if f.key == "scene")
-    assert scene.kind == forms.OPTINT and scene.catalog == "scene"
+    assert scene.kind == forms.OPTINT and scene.catalog == "encounter,scene"
 
 
 # ---- [startup]: scenario beat + list-of-table flag/word/byte writes -----------------------

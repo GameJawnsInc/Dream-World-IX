@@ -53,6 +53,7 @@ def test_scene_detail_enriched_via_fake_hook():
     def fake_hook(sid):
         seen.append(sid)
         return {"classification": "placed", "enemies": ["Goblin", "Fang"],
+                "attacks": ["Knife", "Goblin Punch"],
                 "places": ["Evil Forest (field 250, random)"],
                 "locations": [(250, "Evil Forest")]}
 
@@ -60,6 +61,7 @@ def test_scene_detail_enriched_via_fake_hook():
     assert seen == [67]                                                  # called with the SCENE id
     assert ("classification", "placed") in d.facts
     assert any(lbl == "enemies" and val == "Goblin, Fang" for lbl, val in d.facts)
+    assert any(lbl == "attacks" and val == "Knife, Goblin Punch" for lbl, val in d.facts)
     assert ("place", "Evil Forest (field 250, random)") in d.facts
     assert d.locations == [(250, "Evil Forest")]                         # shape forms_qt's render expects
 
@@ -80,6 +82,7 @@ def test_scene_detail_hook_missing_keys_degrade_per_key():
     e = _scene_entry()
     d = infohub.detail(e, scene_usage_fn=lambda sid: {"enemies": ["Goblin"]})
     assert not any(lbl == "classification" for lbl, _ in d.facts)        # key absent -> fact simply omitted
+    assert not any(lbl == "attacks" for lbl, _ in d.facts)              # attacks absent -> no attacks fact
     assert any(lbl == "enemies" and val == "Goblin" for lbl, val in d.facts)
     assert d.locations is None                                           # "locations" key absent -> stays None
 
