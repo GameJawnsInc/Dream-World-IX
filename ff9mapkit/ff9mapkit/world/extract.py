@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import json
 import struct
-from collections import Counter
-from dataclasses import dataclass, field as _dcfield
+from collections import Counter, OrderedDict
+from dataclasses import dataclass, field as _dcfield, replace as _dc_replace
 from pathlib import Path
 
 from .. import config
@@ -87,6 +87,23 @@ def encode_id(event: int = 0, area: int = 0, topograph: int = 0, flags: int = 0)
 def _unitypy():
     from ..extract import _unitypy as _u           # reuse the field extractor's lazy import + error message
     return _u()
+
+
+_CLASS_ID_MESH = None
+
+
+def _class_id_mesh():
+    """Lazily-cached ``UnityPy.enums.ClassIDType.Mesh`` member. ``o.type`` (every object in ``env.objects``)
+    is already a genuine ``ClassIDType`` (UnityPy ``ObjectReader.type``), so comparing it directly against
+    this member -- instead of stringifying via ``o.type.name`` -- selects the identical object set (the
+    enum's ``.name`` IS the literal string ``"Mesh"`` by construction) while skipping the ``DynamicClassAttribute``
+    descriptor dispatch that dominated read_block's hot-loop profile. Import stays lazy (not at module top)
+    to match :func:`_unitypy`'s deferred-install-error contract."""
+    global _CLASS_ID_MESH
+    if _CLASS_ID_MESH is None:
+        from UnityPy.enums import ClassIDType      # noqa: PLC0415
+        _CLASS_ID_MESH = ClassIDType.Mesh
+    return _CLASS_ID_MESH
 
 
 def _streaming_assets(game=None) -> Path:
@@ -215,20 +232,94 @@ def _decode_world_mesh(mesh_pptr, *, disc: int, x: int, y: int, lod: str) -> Blo
                      raw_vbuf=raw, raw_ibuf=ib, use32=use32, submeshes=submeshes)
 
 
+# read_block() is the hot path of every worldmap sweep (world-morphs/transplant/coastmorph/island/...):
+# a naive call re-scans ALL of env.objects (~18.6k) for the matching container string AND re-decodes the
+# vertex buffer, even when the SAME block was just read for a neighbor/donor lookup moments ago. Both costs
+# are memoized here, per env (an env is process-lifetime-cached by extract._load_env's bounded LRU, so tying
+# these to it needs no separate invalidation: the source p0data*.bin bytes are static for the process, and an
+# evicted+GC'd env simply takes its index/memo with it). UnityPy's Environment has no __slots__, so they're
+# stashed as plain attributes rather than an external id(env)-keyed dict (which would risk id-reuse aliasing
+# after an eviction). Neither ever sees a DEPLOYED mod-folder override -- those are a wholly separate,
+# already-uncached loose-.ff9mesh path (mesh.blockmesh_from_ff9mesh, via entrance.read_block_stacked /
+# interior.read_deployed_blocks) that never calls into read_block/_worldmap_env at all.
+def _mesh_index(env) -> dict:
+    """Once per env: ``{container_lower: mesh_pptr}`` over every Mesh-typed object, ``setdefault`` so a
+    hypothetical duplicate container resolves to the FIRST one in ``env.objects`` order -- exactly matching
+    the original per-call linear scan's semantics (no duplicates found on disc 1: 2199/2199 distinct)."""
+    idx = getattr(env, "_ff9mapkit_mesh_index", None)
+    if idx is None:
+        idx = {}
+        mesh_type = _class_id_mesh()               # enum-member compare -- no .name descriptor dispatch
+        for o in env.objects:
+            if o.type != mesh_type:
+                continue
+            c = (getattr(o, "container", None) or "").lower()
+            if c:
+                idx.setdefault(c, o)
+        env._ff9mapkit_mesh_index = idx
+    return idx
+
+
+_BLOCK_MEMO_MAX = 512          # masters are ~0.4 MB avg; unbounded, a host that read every key would retain ~800 MB
+
+
+def _block_memo(env) -> OrderedDict:
+    """Once per env: ``{(disc, lod, x, y, part): BlockMesh}`` decode memo (bounded LRU, ``_BLOCK_MEMO_MAX``).
+    Holds the MASTER decode only -- every :func:`read_block` call still returns its own independent copy
+    (:func:`_copy_blockmesh`), so a caller that mutates its result in place (``mesh.lift_block`` and friends)
+    can never corrupt a later, unrelated read of the "same" block. Bounded so a long-lived host (the Workspace,
+    the test suite) stays flat; sweep locality keeps the hit rate."""
+    memo = getattr(env, "_ff9mapkit_block_memo", None)
+    if memo is None:
+        memo = OrderedDict()
+        env._ff9mapkit_block_memo = memo
+    return memo
+
+
+def _copy_blockmesh(master: BlockMesh) -> BlockMesh:
+    """A fresh, independently-mutable ``BlockMesh`` built from the memoized ``master``. Every in-place
+    mutator in ``mesh.py`` (``lift_block``, ``raise_vertex_near_center``, ``deform_radial``, ``deform_ridge``,
+    ``flatten_region``, ``recompute_normals``, ``retarget_tiles``) writes into a ROW element (``v[1] +=
+    amount``, ``tan[vi][0] = x``), never replaces a whole ``chan_arrays[ci]`` list -- so one level of
+    row-copy fully isolates the copy. ``tris``/``flat_index``/``channels``/``submeshes`` are copied one
+    level too (cheap -- their elements are immutable ints/tuples -- and it keeps the invariant uniform
+    rather than a fragile per-field allowlist a future mutator could silently violate). Only the truly
+    immutable fields are shared: ``raw_vbuf``/``raw_ibuf`` (``bytes``) and ``use32``."""
+    return _dc_replace(master,
+                       chan_arrays={ci: [row[:] for row in arr] for ci, arr in master.chan_arrays.items()},
+                       tris=[t[:] for t in master.tris],
+                       flat_index=master.flat_index[:],
+                       channels=dict(master.channels),
+                       submeshes=list(master.submeshes))
+
+
 def read_block(x: int, y: int, *, disc: int = 1, lod: str = "0_1", part: str = "terrain", game=None) -> BlockMesh:
     """Decode disc ``disc`` block ``(x, y)``'s sub-mesh. ``x`` in 0..23, ``y`` in 0..19. ``part`` selects the block
     layer: ``"terrain"`` (ground + walkmesh + the tangent.x entrance IDALL) or ``"object"`` (the baked buildings /
     towns / trees + decorative geometry). Only ~63 blocks carry an ``object`` mesh (those with a structure);
     :func:`list_object_blocks` enumerates them."""
     env = _worldmap_env(disc, game)
-    target = f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part.lower()}"
-    for o in env.objects:
-        if o.type.name != "Mesh":
-            continue
-        c = (getattr(o, "container", None) or "").lower()
-        if c.endswith(target) or (target in c):
-            return _decode_world_mesh(o, disc=disc, x=x, y=y, lod=lod)
-    raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found (looked for container {target!r})")
+    key = (disc, lod, x, y, part)
+    from ..extract import env_lock                   # decode/index seek the env's SHARED stateful reader, and a
+    with env_lock:                                   # memoized race would poison the cache PERMANENTLY (extract.py:89)
+        memo = _block_memo(env)
+        master = memo.get(key)
+        if master is None:
+            target = f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part.lower()}"
+            o = None
+            for c, oo in _mesh_index(env).items():   # insertion order == env.objects order: first match wins,
+                if c.endswith(target) or (target in c):   # exactly the original linear scan's semantics
+                    o = oo
+                    break
+            if o is None:
+                raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found (looked for container {target!r})")
+            master = _decode_world_mesh(o, disc=disc, x=x, y=y, lod=lod)
+            memo[key] = master
+            while len(memo) > _BLOCK_MEMO_MAX:
+                memo.popitem(last=False)
+        else:
+            memo.move_to_end(key)
+        return _copy_blockmesh(master)
 
 
 def list_object_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
