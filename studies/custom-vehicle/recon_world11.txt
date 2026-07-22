@@ -1,0 +1,2123 @@
+== WORLD11  (9348 bytes) ==
+
+
+ENTRY 0:
+  func tag=0  abs 494..615  (121 B)
+  func tag=1  abs 615..794  (179 B)
+  func tag=4  abs 794..852  (58 B)
+  func tag=10  abs 852..901  (49 B)
+  func tag=38805  abs 901..901  (0 B)
+  func tag=38809  abs 901..941  (40 B)
+  func tag=39061  abs 941..970  (29 B)
+  func tag=39569  abs 970..999  (29 B)
+  func tag=39049  abs 999..1028  (29 B)
+  func tag=40077  abs 1028..1057  (29 B)
+  func tag=40333  abs 1057..1086  (29 B)
+  func tag=39825  abs 1086..1115  (29 B)
+  func tag=39829  abs 1115..1144  (29 B)
+  func tag=40085  abs 1144..1173  (29 B)
+  func tag=39025  abs 1173..1173  (0 B)
+  func tag=39021  abs 1173..1173  (0 B)
+  func tag=38769  abs 1173..1173  (0 B)
+  func tag=38765  abs 1173..1258  (85 B)
+  func tag=38781  abs 1258..1287  (29 B)
+  func tag=38789  abs 1287..1316  (29 B)
+  func tag=41589  abs 1316..1345  (29 B)
+  func tag=41326  abs 1345..1345  (0 B)
+  func tag=41582  abs 1345..1345  (0 B)
+  func tag=41586  abs 1345..1345  (0 B)
+  func tag=41330  abs 1345..1438  (93 B)
+  func tag=40305  abs 1438..1438  (0 B)
+  func tag=40309  abs 1438..1467  (29 B)
+  func tag=40817  abs 1467..1496  (29 B)
+  func tag=39293  abs 1496..1496  (0 B)
+  func tag=39289  abs 1496..1525  (29 B)
+  func tag=39801  abs 1525..1554  (29 B)
+  func tag=39549  abs 1554..1554  (0 B)
+  func tag=39553  abs 1554..1583  (29 B)
+  func tag=40325  abs 1583..1583  (0 B)
+  func tag=40581  abs 1583..1583  (0 B)
+  func tag=40585  abs 1583..1583  (0 B)
+  func tag=40329  abs 1583..1647  (64 B)
+  func tag=39305  abs 1647..1676  (29 B)
+  func tag=38561  abs 1676..1676  (0 B)
+  func tag=38301  abs 1676..1705  (29 B)
+  func tag=40349  abs 1705..1705  (0 B)
+  func tag=40353  abs 1705..1734  (29 B)
+  func tag=40109  abs 1734..1763  (29 B)
+  func tag=38517  abs 1763..1763  (0 B)
+  func tag=38521  abs 1763..1792  (29 B)
+
+ENTRY 1:
+  func tag=0  abs 1806..1807  (1 B)
+  func tag=1  abs 1807..3114  (1307 B)
+  func tag=11  abs 3114..3324  (210 B)
+
+ENTRY 2:
+  func tag=0  abs 3334..3335  (1 B)
+  func tag=1  abs 3335..3400  (65 B)
+
+ENTRY 3:
+  func tag=0  abs 3410..3428  (18 B)
+  func tag=1  abs 3428..4468  (1040 B)
+
+ENTRY 4:
+  func tag=0  abs 4498..4499  (1 B)
+  func tag=1  abs 4499..4505  (6 B)
+  func tag=12  abs 4505..4521  (16 B)
+  func tag=15  abs 4521..4591  (70 B)
+  func tag=16  abs 4591..4661  (70 B)
+  func tag=17  abs 4661..4731  (70 B)
+  func tag=18  abs 4731..4784  (53 B)
+
+ENTRY 5:
+  func tag=0  abs 4810..4854  (44 B)
+  func tag=1  abs 4854..4860  (6 B)
+  func tag=14  abs 4860..5908  (1048 B)
+  func tag=23  abs 5908..5942  (34 B)
+  func tag=19  abs 5942..5949  (7 B)
+  func tag=20  abs 5949..5956  (7 B)
+
+ENTRY 6:
+  func tag=0  abs 5974..6004  (30 B)
+  func tag=1  abs 6004..6010  (6 B)
+  func tag=21  abs 6010..6478  (468 B)
+  func tag=22  abs 6478..6492  (14 B)
+
+ENTRY 7:
+  func tag=0  abs 6510..6537  (27 B)
+  func tag=1  abs 6537..6583  (46 B)
+  func tag=24  abs 6583..6702  (119 B)
+  func tag=25  abs 6702..6824  (122 B)
+
+ENTRY 8:
+  func tag=0  abs 6842..6903  (61 B)
+  func tag=1  abs 6903..6949  (46 B)
+  func tag=24  abs 6949..7136  (187 B)
+  func tag=25  abs 7136..7324  (188 B)
+
+ENTRY 9:
+  func tag=0  abs 7342..7403  (61 B)
+  func tag=1  abs 7403..7449  (46 B)
+  func tag=24  abs 7449..7619  (170 B)
+  func tag=25  abs 7619..7792  (173 B)
+
+ENTRY 10:
+  func tag=0  abs 7810..7871  (61 B)
+  func tag=1  abs 7871..7917  (46 B)
+  func tag=24  abs 7917..8189  (272 B)
+  func tag=25  abs 8189..8464  (275 B)
+
+ENTRY 11:
+  func tag=0  abs 8474..8531  (57 B)
+  func tag=1  abs 8531..8552  (21 B)
+
+ENTRY 12:
+  func tag=0  abs 8562..8563  (1 B)
+  func tag=1  abs 8563..8912  (349 B)
+
+ENTRY 13:
+  func tag=0  abs 8922..8923  (1 B)
+  func tag=1  abs 8923..8956  (33 B)
+
+ENTRY 14:
+  func tag=0  abs 8978..9082  (104 B)
+  func tag=1  abs 9082..9242  (160 B)
+  func tag=13  abs 9242..9308  (66 B)
+  func tag=19  abs 9308..9342  (34 B)
+  func tag=20  abs 9342..9348  (6 B)
+
+----- ENTRY 0 tag=0 -----
+SET({Global.Byte[102] const(11) B_LET B_EXPR_END})
+InitCode(13, 0)
+InitCode(12, 0)
+InitCode(1, 0)
+InitCode(2, 0)
+InitCode(3, 0)
+InitCode(4, 0)
+SET({Global.UInt16[0] const(2800) B_GE Global.UInt16[0] const(2900) B_LT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L47)
+InitObject(11, 0)
+L47:
+InitObject(8, 0)
+InitObject(9, 0)
+InitObject(10, 0)
+InitObject(5, 0)
+InitObject(14, 0)
+InitObject(6, 0)
+SET({Map.Byte[24] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[26] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[27] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[28] const(100) B_LET B_EXPR_END})
+RunWorldCode(0, 4)
+RunWorldCode(2, 1)
+RunWorldCode(26, 365)
+SET({Map.Byte[35] const(0) B_LET B_EXPR_END})
+RET()
+
+----- ENTRY 0 tag=1 -----
+L0:
+SET({Map.Byte[24] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L25)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+L25:
+SET({Map.Byte[24] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[25] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L58)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+L58:
+SET({Map.Byte[25] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[26] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L91)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+L91:
+SET({Map.Byte[26] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[27] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L124)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+L124:
+SET({Map.Byte[27] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[28] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L157)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+L157:
+SET({Map.Byte[28] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[33] const(0) B_LET B_EXPR_END})
+op_22(1)
+JMP(L0)
+
+----- ENTRY 0 tag=4 -----
+SET({Map.Byte[24] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L19)
+SET({Map.Byte[24] const(100) B_LET B_EXPR_END})
+L19:
+SET({Map.Byte[25] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L38)
+SET({Map.Byte[25] const(100) B_LET B_EXPR_END})
+L38:
+SET({Map.Byte[26] const(100) B_LE B_EXPR_END})
+JMP_IFNOT(L57)
+SET({Map.Byte[26] const(100) B_LET B_EXPR_END})
+L57:
+RET()
+
+----- ENTRY 0 tag=10 -----
+EnableMenu()
+SetObjectSize(14, 67, 67, 67)
+SetObjectSize(5, 76, 76, 76)
+SetObjectSize(8, 75, 75, 75)
+SetObjectSize(9, 75, 75, 75)
+SetObjectSize(10, 75, 75, 75)
+SetObjectSize(6, 100, 100, 100)
+SetObjectSize(11, 100, 100, 100)
+RunWorldCode(26, 231)
+RET()
+
+----- ENTRY 0 tag=38805 -----
+
+
+----- ENTRY 0 tag=38809 -----
+SET({B_SYSVAR[210] const(3) B_EQ B_EXPR_END})
+JMP_IFNOT(L39)
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L39)
+SET({Map.Byte[39] const(92) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L39:
+RET()
+
+----- ENTRY 0 tag=39061 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(4) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39569 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(12) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39049 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(13) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40077 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(10) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40333 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(11) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39825 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(9) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39829 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(7) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40085 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(8) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39025 -----
+
+
+----- ENTRY 0 tag=39021 -----
+
+
+----- ENTRY 0 tag=38769 -----
+
+
+----- ENTRY 0 tag=38765 -----
+SET({Global.UInt16[0] const(3900) B_LE B_EXPR_END})
+JMP_IFNOT(L42)
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L39)
+SET({Map.Byte[39] const(93) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L39:
+JMP(L84)
+L42:
+SET({Global.UInt16[0] const(4990) B_GT B_EXPR_END})
+JMP_IFNOT(L56)
+JMP(L84)
+L56:
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L84)
+SET({Map.Byte[39] const(19) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L84:
+RET()
+
+----- ENTRY 0 tag=38781 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(16) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=38789 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(15) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=41589 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(23) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=41326 -----
+
+
+----- ENTRY 0 tag=41582 -----
+
+
+----- ENTRY 0 tag=41586 -----
+
+
+----- ENTRY 0 tag=41330 -----
+SET({Global.Byte[190] B_EXPR_END})
+SWITCHEX(L92, 0, L20, 8, L51, 9, L51)
+L20:
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L48)
+SET({Map.Byte[39] const(25) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L48:
+JMP(L92)
+L51:
+SET({Map.Byte[28] const(100) B_EQ Global.Byte[190] const(8) B_EQ Global.Byte[190] const(9) B_EQ B_OROR B_ANDAND B_EXPR_END})
+JMP_IFNOT(L89)
+SET({Map.Byte[39] const(25) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L89:
+JMP(L92)
+L92:
+RET()
+
+----- ENTRY 0 tag=40305 -----
+
+
+----- ENTRY 0 tag=40309 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(22) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40817 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(24) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39293 -----
+
+
+----- ENTRY 0 tag=39289 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(17) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39801 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(21) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=39549 -----
+
+
+----- ENTRY 0 tag=39553 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(60) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40325 -----
+
+
+----- ENTRY 0 tag=40581 -----
+
+
+----- ENTRY 0 tag=40585 -----
+
+
+----- ENTRY 0 tag=40329 -----
+SET({Map.Byte[25] const(100) B_EQ Global.Byte[190] B_NOT Global.Byte[190] const(1) B_EQ B_OROR Global.Byte[190] const(2) B_EQ B_OROR Global.Byte[190] const(3) B_EQ B_OROR Global.Byte[190] const(4) B_EQ B_OROR Global.Byte[190] const(5) B_EQ B_OROR B_ANDAND B_EXPR_END})
+JMP_IFNOT(L63)
+SET({Map.Byte[39] const(20) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L63:
+RET()
+
+----- ENTRY 0 tag=39305 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(14) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=38561 -----
+
+
+----- ENTRY 0 tag=38301 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(2) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40349 -----
+
+
+----- ENTRY 0 tag=40353 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(6) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=40109 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(5) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 0 tag=38517 -----
+
+
+----- ENTRY 0 tag=38521 -----
+SET({Map.Byte[24] const(100) B_EQ Global.Byte[190] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L28)
+SET({Map.Byte[39] const(18) B_LET B_EXPR_END})
+RunScriptAsync(6, 1, 11)
+L28:
+RET()
+
+----- ENTRY 1 tag=0 -----
+RET()
+
+----- ENTRY 1 tag=1 -----
+L0:
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L1301, L12)
+L12:
+SET({Map.Byte[24] const(192) B_EQ B_EXPR_END})
+JMP_IFNOT(L43)
+SET({Map.Byte[24] Map.Byte[24] const(100) B_MINUS B_LET B_EXPR_END})
+WindowAsync(6, 4, 82)
+JMP(L182)
+L43:
+SET({Map.Byte[24] const(193) B_EQ B_EXPR_END})
+JMP_IFNOT(L74)
+SET({Map.Byte[24] Map.Byte[24] const(100) B_MINUS B_LET B_EXPR_END})
+WindowAsync(6, 4, 83)
+JMP(L182)
+L74:
+SET({Map.Byte[24] const(191) B_EQ B_EXPR_END})
+JMP_IFNOT(L105)
+SET({Map.Byte[24] Map.Byte[24] const(100) B_MINUS B_LET B_EXPR_END})
+WindowAsync(6, 4, 86)
+JMP(L182)
+L105:
+SET({Map.Byte[24] const(101) B_GE Map.Byte[24] const(91) B_NE B_ANDAND Map.Byte[24] const(92) B_NE B_ANDAND Map.Byte[24] const(93) B_NE B_ANDAND B_EXPR_END})
+JMP_IFNOT(L182)
+SET({Map.Byte[24] Map.Byte[24] const(100) B_MINUS B_LET B_EXPR_END})
+SET({Map.Byte[38] B_EXPR_END})
+JMP_IFNOT(L170)
+SetTextVariable(0, {Map.Byte[24] B_EXPR_END})
+WindowAsync(6, 4, 2)
+JMP(L176)
+L170:
+WindowAsync(6, 4, 1)
+L176:
+WindowAsync(7, 16, 40)
+L182:
+SET({Map.Byte[24] const(1) B_GE Map.Byte[24] const(90) B_LT B_ANDAND Map.Byte[30] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L1269)
+SET({Map.Byte[24] const(52) B_EQ const4(131072) B_KEYON B_ANDAND Map.Byte[35] B_NOT B_ANDAND Global.Bit[812] B_NOT B_ANDAND Global.Bit[811] B_NOT B_ANDAND Map.Byte[37] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L251)
+CloseWindow(6)
+CloseWindow(7)
+Battle(0, 144)
+L251:
+SET({B_SYSVAR[2] const4(131072) B_KEYON B_ANDAND Map.Byte[35] B_NOT B_ANDAND Global.Bit[812] B_NOT B_ANDAND Global.Bit[811] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L1266)
+SET({Map.Byte[29] Map.Byte[24] B_LET B_EXPR_END})
+DisableMove()
+DisableMenu()
+SET({Global.Byte[190] const(0) B_EQ Map.Byte[29] const(0) B_NE B_ANDAND B_EXPR_END})
+JMP_IFNOT(L1264)
+CloseWindow(6)
+CloseWindow(7)
+SET({Map.Byte[38] B_NOT B_EXPR_END})
+JMP_IFNOT(L422)
+SET({Map.Byte[29] const(16) B_LE B_EXPR_END})
+JMP_IFNOT(L349)
+SET({Global.UInt16[92] const(1) Map.Byte[29] const(1) B_MINUS B_SHIFT_LEFT B_OR_LET B_EXPR_END})
+JMP(L422)
+L349:
+SET({Map.Byte[29] const(32) B_LE B_EXPR_END})
+JMP_IFNOT(L378)
+SET({Global.UInt16[94] const(1) Map.Byte[29] const(17) B_MINUS B_SHIFT_LEFT B_OR_LET B_EXPR_END})
+JMP(L422)
+L378:
+SET({Map.Byte[29] const(48) B_LE B_EXPR_END})
+JMP_IFNOT(L407)
+SET({Global.UInt16[96] const(1) Map.Byte[29] const(33) B_MINUS B_SHIFT_LEFT B_OR_LET B_EXPR_END})
+JMP(L422)
+L407:
+SET({Global.UInt16[98] const(1) Map.Byte[29] const(49) B_MINUS B_SHIFT_LEFT B_OR_LET B_EXPR_END})
+L422:
+SET({Map.Byte[38] const(0) B_LET B_EXPR_END})
+RunWorldCode(32, 75)
+RunWorldCode(41, 0)
+FadeFilter(2, 24, 0, 255, 255, 255)
+op_22(25)
+SET({Global.Int16[2] const(9999) B_LET B_EXPR_END})
+JMP(L465)
+L462:
+op_22(1)
+L465:
+SET({B_SYSVAR[200] B_EXPR_END})
+JMP_IF(L462)
+SET({Map.Byte[29] B_EXPR_END})
+SWITCH(2, L1261, L1176, L824, L881, L1169, L1144, L984, L991, L977, L945, L952, L888, L938, L913, L831, L856, L1116, L1130, L1137, L1261, L1091, L1201, L1084, L1041, L998, L1261, L1261, L810, L817, L1216, L726, L719, L712, L778, L698, L705, L673, L1261, L1261, L666, L1231, L659, L1261, L1261, L607, L1246, L1261, L600, L1261, L1261, L803, L1261, L1261, L1261, L1261, L1261, L1261, L1261, L1261, L1123)
+L600:
+Field(2300)
+JMP(L1261)
+L607:
+SET({Global.UInt16[0] const(10400) B_LT B_EXPR_END})
+JMP_IFNOT(L634)
+SET({Global.Bit[780] const(0) B_LET B_EXPR_END})
+Field(2500)
+JMP(L656)
+L634:
+SET({Global.UInt16[0] const(11090) B_LT B_EXPR_END})
+JMP_IFNOT(L652)
+Field(2500)
+JMP(L656)
+L652:
+Field(2501)
+L656:
+JMP(L1261)
+L659:
+Field(2250)
+JMP(L1261)
+L666:
+Field(2800)
+JMP(L1261)
+L673:
+SET({Global.UInt16[0] const(6790) B_LT B_EXPR_END})
+JMP_IFNOT(L691)
+Field(1650)
+JMP(L695)
+L691:
+Field(1757)
+L695:
+JMP(L1261)
+L698:
+Field(1557)
+JMP(L1261)
+L705:
+Field(1555)
+JMP(L1261)
+L712:
+Field(1500)
+JMP(L1261)
+L719:
+Field(1425)
+JMP(L1261)
+L726:
+SET({Global.UInt16[0] const(6200) B_LT B_EXPR_END})
+JMP_IFNOT(L753)
+SET({Global.Bit[766] const(0) B_LET B_EXPR_END})
+Field(1463)
+JMP(L775)
+L753:
+SET({Global.UInt16[0] const(11090) B_LT B_EXPR_END})
+JMP_IFNOT(L771)
+Field(1450)
+JMP(L775)
+L771:
+Field(3050)
+L775:
+JMP(L1261)
+L778:
+SET({Global.UInt16[0] const(11090) B_LT B_EXPR_END})
+JMP_IFNOT(L796)
+Field(1600)
+JMP(L800)
+L796:
+Field(1700)
+L800:
+JMP(L1261)
+L803:
+Field(2200)
+JMP(L1261)
+L810:
+Field(2212)
+JMP(L1261)
+L817:
+Field(3100)
+JMP(L1261)
+L824:
+Field(262)
+JMP(L1261)
+L831:
+SET({Global.UInt16[0] const(6790) B_LT B_EXPR_END})
+JMP_IFNOT(L849)
+Field(852)
+JMP(L853)
+L849:
+Field(856)
+L853:
+JMP(L1261)
+L856:
+SET({Global.UInt16[0] const(6790) B_LT B_EXPR_END})
+JMP_IFNOT(L874)
+Field(851)
+JMP(L878)
+L874:
+Field(855)
+L878:
+JMP(L1261)
+L881:
+Field(300)
+JMP(L1261)
+L888:
+SET({Global.UInt16[0] const(3900) B_GT B_EXPR_END})
+JMP_IFNOT(L906)
+Field(312)
+JMP(L910)
+L906:
+Field(311)
+L910:
+JMP(L1261)
+L913:
+SET({Global.UInt16[0] const(2540) B_LE B_EXPR_END})
+JMP_IFNOT(L931)
+Field(359)
+JMP(L935)
+L931:
+Field(350)
+L935:
+JMP(L1261)
+L938:
+Field(455)
+JMP(L1261)
+L945:
+Field(800)
+JMP(L1261)
+L952:
+SET({Global.UInt16[0] const(6790) B_LT B_EXPR_END})
+JMP_IFNOT(L970)
+Field(850)
+JMP(L974)
+L970:
+Field(854)
+L974:
+JMP(L1261)
+L977:
+Field(806)
+JMP(L1261)
+L984:
+Field(853)
+JMP(L1261)
+L991:
+Field(807)
+JMP(L1261)
+L998:
+SET({Global.UInt16[0] const(5598) B_LT B_EXPR_END})
+JMP_IFNOT(L1016)
+Field(550)
+JMP(L1038)
+L1016:
+SET({Global.UInt16[0] const(8800) B_LT B_EXPR_END})
+JMP_IFNOT(L1034)
+Field(1300)
+JMP(L1038)
+L1034:
+Field(2100)
+L1038:
+JMP(L1261)
+L1041:
+SET({Global.UInt16[0] const(8800) B_GT B_EXPR_END})
+JMP_IFNOT(L1059)
+Field(2152)
+JMP(L1081)
+L1059:
+SET({Global.UInt16[0] const(5598) B_GT B_EXPR_END})
+JMP_IFNOT(L1077)
+Field(1352)
+JMP(L1081)
+L1077:
+Field(602)
+L1081:
+JMP(L1261)
+L1084:
+Field(1256)
+JMP(L1261)
+L1091:
+SET({Global.UInt16[0] const(3700) B_LT B_EXPR_END})
+JMP_IFNOT(L1109)
+Field(700)
+JMP(L1113)
+L1109:
+Field(701)
+L1113:
+JMP(L1261)
+L1116:
+Field(707)
+JMP(L1261)
+L1123:
+Field(706)
+JMP(L1261)
+L1130:
+Field(750)
+JMP(L1261)
+L1137:
+Field(1000)
+JMP(L1261)
+L1144:
+SET({Global.UInt16[0] const(6990) B_LT B_EXPR_END})
+JMP_IFNOT(L1162)
+Field(908)
+JMP(L1166)
+L1162:
+Field(1908)
+L1166:
+JMP(L1261)
+L1169:
+Field(1950)
+JMP(L1261)
+L1176:
+SET({Global.UInt16[0] const(8800) B_LT B_EXPR_END})
+JMP_IFNOT(L1194)
+Field(1856)
+JMP(L1198)
+L1194:
+Field(2450)
+L1198:
+JMP(L1261)
+L1201:
+SET({Global.Int16[2] const(9998) B_LET B_EXPR_END})
+Field(650)
+JMP(L1261)
+L1216:
+SET({Global.Int16[2] const(9997) B_LET B_EXPR_END})
+Field(650)
+JMP(L1261)
+L1231:
+SET({Global.Int16[2] const(9995) B_LET B_EXPR_END})
+Field(650)
+JMP(L1261)
+L1246:
+SET({Global.Int16[2] const(9996) B_LET B_EXPR_END})
+Field(650)
+JMP(L1261)
+L1261:
+JMP(L1266)
+L1264:
+EnableMove()
+EnableMenu()
+L1266:
+JMP(L1298)
+L1269:
+SET({Map.Byte[30] B_EXPR_END})
+JMP_IFNOT(L1298)
+SET({Map.Byte[24] const(100) B_LET B_EXPR_END})
+SET({Map.Byte[25] const(100) B_LET B_EXPR_END})
+CloseWindow(6)
+CloseWindow(7)
+L1298:
+JMP(L1301)
+L1301:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 1 tag=11 -----
+SET({Map.Byte[39] const(16) B_LE B_EXPR_END})
+JMP_IFNOT(L32)
+SET({Map.Byte[38] Global.UInt16[92] Map.Byte[39] const(1) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_LET B_EXPR_END})
+JMP(L114)
+L32:
+SET({Map.Byte[39] const(32) B_LE B_EXPR_END})
+JMP_IFNOT(L64)
+SET({Map.Byte[38] Global.UInt16[94] Map.Byte[39] const(17) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_LET B_EXPR_END})
+JMP(L114)
+L64:
+SET({Map.Byte[39] const(48) B_LE B_EXPR_END})
+JMP_IFNOT(L96)
+SET({Map.Byte[38] Global.UInt16[96] Map.Byte[39] const(33) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_LET B_EXPR_END})
+JMP(L114)
+L96:
+SET({Map.Byte[38] Global.UInt16[98] Map.Byte[39] const(49) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_LET B_EXPR_END})
+L114:
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L140, L126)
+L126:
+SET({Map.Byte[24] Map.Byte[39] const(100) B_PLUS B_LET B_EXPR_END})
+JMP(L140)
+L140:
+SET({Map.Byte[24] const(20) B_EQ Map.Byte[24] const(120) B_EQ B_OROR B_EXPR_END})
+JMP_IFNOT(L173)
+SET({Map.Byte[25] Map.Byte[24] B_LET B_EXPR_END})
+SET({Map.Byte[24] const(100) B_LET B_EXPR_END})
+L173:
+SET({Map.Byte[26] const(20) B_EQ Map.Byte[26] const(120) B_EQ B_OROR B_EXPR_END})
+JMP_IFNOT(L206)
+SET({Map.Byte[25] Map.Byte[26] B_LET B_EXPR_END})
+SET({Map.Byte[26] const(100) B_LET B_EXPR_END})
+L206:
+RET()
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 2 tag=0 -----
+RET()
+
+----- ENTRY 2 tag=1 -----
+L0:
+SET({Map.Byte[30] const(1) B_EQ Global.Byte[190] B_NOT B_ANDAND Map.Byte[41] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L59)
+DisableMove()
+DisableMenu()
+JMP(L27)
+L24:
+op_22(1)
+L27:
+SET({B_SYSVAR[200] B_EXPR_END})
+JMP_IF(L24)
+RunScriptAsync(6, 4, 12)
+RunScriptAsync(6, 250, 13)
+RunScriptSync(6, 5, 14)
+SET({Map.Byte[30] const(0) B_LET B_EXPR_END})
+EnableMove()
+EnableMenu()
+L59:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 3 tag=0 -----
+JMP(L6)
+L3:
+op_22(1)
+L6:
+SET({B_SYSVAR[209] B_NOT B_EXPR_END})
+JMP_IF(L3)
+op_22(2)
+RET()
+
+----- ENTRY 3 tag=1 -----
+L0:
+SET({B_SYSVAR[209] B_EXPR_END})
+JMP_IFNOT(L1033)
+SET({Map.Byte[35] B_EXPR_END})
+SWITCH(0, L1033, L21, L287)
+L21:
+SET({B_SYSVAR[2] B_EXPR_END})
+JMP_IFNOT(L284)
+SET({const4(524288) B_KEYON B_EXPR_END})
+JMP_IFNOT(L213)
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L210, L61, L90, L90, L90, L90, L90)
+L61:
+SET({Global.Byte[190] B_NOT Map.Byte[37] B_NOT B_ANDAND Map.Byte[41] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L87)
+DisableMove()
+DisableMenu()
+SET({Map.Byte[30] const(1) B_LET B_EXPR_END})
+L87:
+JMP(L210)
+L90:
+op_22(1)
+SET({Map.Byte[37] B_NOT B_EXPR_END})
+JMP_IFNOT(L207)
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(1, L207, L121, L121, L121, L121, L121)
+L121:
+SET({B_SYSVAR[198] Global.Int24[184] B_SYSVAR[198] const(1) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L156)
+DisableMove()
+DisableMenu()
+SET({Map.Byte[37] const(4) B_LET B_EXPR_END})
+JMP(L204)
+L156:
+SET({B_SYSVAR[198] B_NOT B_EXPR_END})
+JMP_IFNOT(L175)
+SET({Map.Byte[37] const(5) B_LET B_EXPR_END})
+JMP(L204)
+L175:
+SET({B_SYSVAR[198] Global.Int24[184] B_SYSVAR[198] const(1) B_MINUS B_SHIFT_RIGHT const(1) B_AND B_ANDAND B_EXPR_END})
+JMP_IFNOT(L204)
+SET({Map.Byte[37] const(3) B_LET B_EXPR_END})
+L204:
+JMP(L207)
+L207:
+JMP(L210)
+L210:
+JMP(L284)
+L213:
+SET({const4(33554432) B_KEYON Map.Byte[30] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L284)
+SET({Map.Byte[37] B_NOT B_EXPR_END})
+JMP_IFNOT(L284)
+SET({Global.Byte[100] B_EXPR_END})
+SWITCH(0, L284, L250, L266)
+L250:
+RunWorldCode(4, 1)
+SET({Global.Byte[100] const(1) B_LET B_EXPR_END})
+JMP(L284)
+L266:
+DisableMove()
+DisableMenu()
+RunWorldCode(4, 2)
+SET({Map.Byte[35] const(1) B_LET B_EXPR_END})
+JMP(L284)
+L284:
+JMP(L1033)
+L287:
+CloseWindow(5)
+SET({Global.Byte[103] Instance.Byte[1] B_NOT B_ANDAND B_SYSVAR[211] B_ANDAND B_EXPR_END})
+JMP_IFNOT(L327)
+SetTextVariable(0, {Global.Byte[103] B_EXPR_END})
+WindowAsync(4, 4, 3)
+SET({Instance.Byte[1] const(1) B_LET B_EXPR_END})
+JMP(L353)
+L327:
+SET({Global.Byte[103] B_NOT Instance.Byte[1] B_ANDAND B_SYSVAR[211] B_NOT B_OROR B_EXPR_END})
+JMP_IFNOT(L353)
+CloseWindow(4)
+SET({Instance.Byte[1] const(0) B_LET B_EXPR_END})
+L353:
+SET({const4(16777216) B_KEYON B_EXPR_END})
+JMP_IFNOT(L789)
+CloseWindow(4)
+SET({Instance.Byte[1] const(0) B_LET B_EXPR_END})
+RunWorldCode(27, 0)
+RunWorldCode(35, 1)
+RunWorldCode(36, 0)
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L771, L420, L698, L698, L698, L698, L698, L707, L716, L725, L725)
+L420:
+SET({Global.Byte[191] B_NOT B_EXPR_END})
+JMP_IFNOT(L483)
+SET({Global.UInt16[0] const(10400) B_GE B_EXPR_END})
+JMP_IFNOT(L450)
+SET({Instance.Byte[2] const(57) B_LET B_EXPR_END})
+JMP(L480)
+L450:
+SET({Global.UInt16[0] const(9400) B_GE B_EXPR_END})
+JMP_IFNOT(L472)
+SET({Instance.Byte[2] const(37) B_LET B_EXPR_END})
+JMP(L480)
+L472:
+SET({Instance.Byte[2] const(33) B_LET B_EXPR_END})
+L480:
+JMP(L535)
+L483:
+SET({Global.UInt16[0] const(10400) B_GE B_EXPR_END})
+JMP_IFNOT(L505)
+SET({Instance.Byte[2] const(59) B_LET B_EXPR_END})
+JMP(L535)
+L505:
+SET({Global.UInt16[0] const(9400) B_GE B_EXPR_END})
+JMP_IFNOT(L527)
+SET({Instance.Byte[2] const(39) B_LET B_EXPR_END})
+JMP(L535)
+L527:
+SET({Instance.Byte[2] const(35) B_LET B_EXPR_END})
+L535:
+EnableDialogChoices({Instance.Byte[2] B_EXPR_END}, 0)
+WindowSync(3, 0, 5)
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L695, L569, L599, L665, L674, L683, L692)
+L569:
+WindowAsync(3, 0, 70)
+JMP(L581)
+L578:
+op_22(1)
+L581:
+SET({const4(131072) B_KEYON B_NOT B_EXPR_END})
+JMP_IF(L578)
+CloseWindow(3)
+JMP(L695)
+L599:
+SET({Global.Byte[191] const(5) B_GE B_EXPR_END})
+JMP_IFNOT(L656)
+WindowSync(3, 0, 6)
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L653, L632, L641, L650)
+L632:
+WindowSync(3, 0, 71)
+JMP(L653)
+L641:
+WindowSync(3, 0, 72)
+JMP(L653)
+L650:
+JMP(L653)
+L653:
+JMP(L662)
+L656:
+WindowSync(3, 0, 71)
+L662:
+JMP(L695)
+L665:
+WindowSync(3, 0, 73)
+JMP(L695)
+L674:
+WindowSync(3, 0, 74)
+JMP(L695)
+L683:
+WindowSync(3, 0, 75)
+JMP(L695)
+L692:
+JMP(L695)
+L695:
+JMP(L771)
+L698:
+WindowSync(3, 0, 71)
+JMP(L771)
+L707:
+WindowSync(3, 0, 72)
+JMP(L771)
+L716:
+WindowSync(3, 0, 73)
+JMP(L771)
+L725:
+WindowSync(3, 0, 7)
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L768, L747, L756, L765)
+L747:
+WindowSync(3, 0, 74)
+JMP(L768)
+L756:
+WindowSync(3, 0, 75)
+JMP(L768)
+L765:
+JMP(L768)
+L768:
+JMP(L771)
+L771:
+RunWorldCode(36, 1)
+RunWorldCode(35, 0)
+RunWorldCode(27, 1)
+JMP(L1030)
+L789:
+SET({const4(33554432) B_KEYON B_EXPR_END})
+JMP_IFNOT(L864)
+CloseWindow(4)
+SET({Global.Byte[103] const(0) B_LET B_EXPR_END})
+SET({Instance.Byte[1] const(0) B_LET B_EXPR_END})
+RunWorldCode(4, 0)
+SET({Global.Byte[100] const(0) B_LET B_EXPR_END})
+SET({Map.Byte[35] const(0) B_LET B_EXPR_END})
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L857, L852)
+L852:
+EnableMove()
+EnableMenu()
+JMP(L861)
+L857:
+EnableMove()
+JMP(L861)
+L861:
+JMP(L1030)
+L864:
+SET({const4(131072) B_KEYON Global.Byte[103] B_ANDAND Global.Byte[190] const(8) B_EQ Global.Byte[190] const(9) B_EQ B_OROR B_ANDAND B_EXPR_END})
+JMP_IFNOT(L1019)
+CloseWindow(4)
+SET({Instance.Byte[1] const(0) B_LET B_EXPR_END})
+RunWorldCode(27, 0)
+RunWorldCode(35, 1)
+RunWorldCode(36, 0)
+SetTextVariable(0, {Global.Byte[103] B_EXPR_END})
+WindowSync(3, 0, 4)
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L1001, L944, L993)
+L944:
+RunWorldCode(34, 0)
+CloseWindow(4)
+SET({Global.Byte[103] const(0) B_LET B_EXPR_END})
+SET({Instance.Byte[1] const(0) B_LET B_EXPR_END})
+RunWorldCode(4, 0)
+SET({Global.Byte[100] const(0) B_LET B_EXPR_END})
+SET({Map.Byte[35] const(0) B_LET B_EXPR_END})
+EnableMove()
+JMP(L1001)
+L993:
+RunWorldCode(38, 0)
+JMP(L1001)
+L1001:
+RunWorldCode(36, 1)
+RunWorldCode(35, 0)
+RunWorldCode(27, 1)
+JMP(L1030)
+L1019:
+SET({const4(8388608) B_KEYON B_EXPR_END})
+JMP_IFNOT(L1030)
+L1030:
+JMP(L1033)
+L1033:
+op_22(1)
+JMP(L0)
+NOTHING()
+
+----- ENTRY 4 tag=0 -----
+RET()
+
+----- ENTRY 4 tag=1 -----
+L0:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 4 tag=12 -----
+RunWorldCode(16, 32)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+RET()
+
+----- ENTRY 4 tag=15 -----
+SET({Instance.Byte[0] const(0) B_LET B_EXPR_END})
+JMP(L58)
+L11:
+SET({B_SYSVAR[208] B_NOT B_EXPR_END})
+JMP_IFNOT(L50)
+RunWorldCode(6, {obj(uid=5).f[0] B_EXPR_END})
+RunWorldCode(7, {obj(uid=5).f[1] B_EXPR_END})
+RunWorldCode(8, {obj(uid=5).f[2] B_EXPR_END})
+RunWorldCode(9, 12000)
+RunWorldCode(10, 0)
+L50:
+op_22(1)
+SET({Instance.Byte[0] B_POST_PLUS B_EXPR_END})
+L58:
+SET({Instance.Byte[0] const(26) B_LT B_EXPR_END})
+JMP_IF(L11)
+RET()
+
+----- ENTRY 4 tag=16 -----
+SET({Instance.Byte[0] const(0) B_LET B_EXPR_END})
+JMP(L58)
+L11:
+SET({B_SYSVAR[208] B_NOT B_EXPR_END})
+JMP_IFNOT(L50)
+RunWorldCode(6, {obj(uid=5).f[0] B_EXPR_END})
+RunWorldCode(7, {obj(uid=5).f[1] B_EXPR_END})
+RunWorldCode(8, {obj(uid=5).f[2] B_EXPR_END})
+RunWorldCode(9, 7000)
+RunWorldCode(10, 1)
+L50:
+op_22(1)
+SET({Instance.Byte[0] B_POST_PLUS B_EXPR_END})
+L58:
+SET({Instance.Byte[0] const(8) B_LT B_EXPR_END})
+JMP_IF(L11)
+RET()
+
+----- ENTRY 4 tag=17 -----
+SET({Instance.Byte[0] const(0) B_LET B_EXPR_END})
+JMP(L58)
+L11:
+SET({B_SYSVAR[208] B_NOT B_EXPR_END})
+JMP_IFNOT(L50)
+RunWorldCode(6, {obj(uid=5).f[0] B_EXPR_END})
+RunWorldCode(7, {obj(uid=5).f[1] B_EXPR_END})
+RunWorldCode(8, {obj(uid=5).f[2] B_EXPR_END})
+RunWorldCode(9, 12000)
+RunWorldCode(10, 0)
+L50:
+op_22(1)
+SET({Instance.Byte[0] B_POST_PLUS B_EXPR_END})
+L58:
+SET({Instance.Byte[0] const(30) B_LT B_EXPR_END})
+JMP_IF(L11)
+RET()
+
+----- ENTRY 4 tag=18 -----
+RunWorldCode(17, 0)
+RunWorldCode(18, 60)
+RunWorldCode(24, 0)
+op_22(14)
+RunWorldCode(16, 31)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+op_22(100)
+RunWorldCode(17, 127)
+RunWorldCode(18, 60)
+RunWorldCode(24, 0)
+RET()
+NOTHING()
+
+----- ENTRY 5 tag=0 -----
+SetObjectIndex(11)
+SetModel(307, 200)
+SetObjectFlags(14)
+SetObjectSize(5, 76, 76, 76)
+SetStandAnimation(6149)
+SetWalkAnimation(6155)
+op_35(6155)
+SetWalkSpeed(255)
+SetWalkTurnSpeed(255)
+SET({Instance.Byte[24] const(0) B_LET B_EXPR_END})
+RET()
+
+----- ENTRY 5 tag=1 -----
+L0:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 5 tag=14 -----
+RunWorldCode(35, 1)
+SET({Instance.Byte[20] B_SYSVAR[199] B_LET B_EXPR_END})
+SET({Instance.Byte[19] B_SYSVAR[0] B_LET B_EXPR_END})
+SET({Instance.Byte[0] const(192) Instance.Byte[20] Instance.Byte[19] B_PLUS B_MINUS B_LET B_EXPR_END})
+TurnInstant({B_PTR(250) B_ANGLEA B_EXPR_END})
+SET({Instance.Byte[21] const(1) B_LET B_EXPR_END})
+SET({Instance.Byte[22] const(0) B_LET B_EXPR_END})
+JMP(L194)
+L58:
+SET({Instance.Int24[1] Instance.Byte[0] B_COS const(2) B_MULT Instance.Byte[0] B_COS const(4) B_MULT Instance.Byte[0] B_COS const(2) B_MULT B_MINUS Instance.Byte[21] B_DIV B_PLUS B_LET B_EXPR_END})
+SET({Instance.Int24[4] Instance.Byte[0] B_SIN const(2) B_MULT Instance.Byte[0] B_SIN const(4) B_MULT Instance.Byte[0] B_SIN const(2) B_MULT B_MINUS Instance.Byte[21] B_DIV B_PLUS B_LET B_EXPR_END})
+MoveInstantXZY({obj(uid=250).f[0] Instance.Int24[1] B_PLUS B_EXPR_END}, {obj(uid=255).f[1] B_EXPR_END}, {obj(uid=250).f[2] Instance.Int24[4] B_PLUS B_EXPR_END})
+SET({Instance.Byte[21] Instance.Byte[21] const(1) B_PLUS B_LET B_EXPR_END})
+SET({Instance.Byte[22] const(0) B_EQ B_EXPR_END})
+JMP_IFNOT(L183)
+MoveInstantXZY({obj(uid=250).f[0] Instance.Int24[1] B_PLUS B_EXPR_END}, 2000, {obj(uid=250).f[2] Instance.Int24[4] B_PLUS B_EXPR_END})
+JMP(L186)
+L183:
+SetObjectFlags(7)
+L186:
+op_22(1)
+SET({Instance.Byte[22] B_POST_PLUS B_EXPR_END})
+L194:
+SET({Instance.Byte[22] const(10) B_LT B_EXPR_END})
+JMP_IF(L58)
+SET({Instance.Int24[1] Instance.Byte[0] B_COS const(2) B_MULT B_LET B_EXPR_END})
+SET({Instance.Int24[4] Instance.Byte[0] B_SIN const(2) B_MULT B_LET B_EXPR_END})
+MoveInstantXZY({obj(uid=250).f[0] Instance.Int24[1] B_PLUS B_EXPR_END}, {obj(uid=255).f[1] B_EXPR_END}, {obj(uid=250).f[2] Instance.Int24[4] B_PLUS B_EXPR_END})
+SetObjectFlags(7)
+SET({Instance.Int24[7] Instance.Byte[0] B_COS const(3) B_DIV B_LET B_EXPR_END})
+SET({Instance.Int24[10] Instance.Byte[0] B_SIN const(3) B_DIV B_LET B_EXPR_END})
+RunScriptAsync(4, 4, 15)
+InitWalk()
+Walk({obj(uid=250).f[0] Instance.Int24[7] B_PLUS B_EXPR_END}, {obj(uid=250).f[2] Instance.Int24[10] B_PLUS B_EXPR_END})
+SetWalkSpeed(60)
+RunScriptAsync(4, 4, 16)
+TurnInstant({obj(uid=5).f[3] const(64) B_MINUS B_EXPR_END})
+RunAnimation(6151)
+SET({Instance.Int24[13] Instance.Byte[0] B_COS const(8) B_DIV B_LET B_EXPR_END})
+SET({Instance.Int24[16] Instance.Byte[0] B_SIN const(8) B_DIV B_LET B_EXPR_END})
+InitWalk()
+Walk({obj(uid=250).f[0] Instance.Int24[13] B_PLUS B_EXPR_END}, {obj(uid=250).f[2] Instance.Int24[16] B_PLUS B_EXPR_END})
+SET({Instance.SByte[25] const(0) B_LET B_EXPR_END})
+JMP(L1036)
+L372:
+RunWorldCode(16, 6)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+WindowAsync(5, 4, 42)
+L393:
+op_22(1)
+SET({const4(196608) B_KEYON B_NOT B_EXPR_END})
+JMP_IF(L393)
+CloseWindow(5)
+SET({B_SYSVAR[9] const(2) B_EQ const4(131072) B_KEYON B_ANDAND B_EXPR_END})
+JMP_IFNOT(L444)
+RunWorldCode(16, 39)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+L444:
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L1033, L460, L627, L862)
+L460:
+SET({Instance.Byte[24] const(0) B_LET B_EXPR_END})
+RunWorldCode(16, 39)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+WindowAsync(5, 4, 43)
+L489:
+op_22(1)
+SET({const4(196608) B_KEYON B_NOT B_EXPR_END})
+JMP_IF(L489)
+CloseWindow(5)
+SET({B_SYSVAR[9] const(1) B_EQ const4(131072) B_KEYON B_ANDAND B_EXPR_END})
+JMP_IFNOT(L540)
+RunWorldCode(16, 39)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+L540:
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L624, L554, L613)
+L554:
+RunWorldCode(16, 5)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+WindowSync(5, 4, 45)
+JMP(L581)
+L578:
+op_22(1)
+L581:
+SET({B_SYSVAR[200] B_EXPR_END})
+JMP_IF(L578)
+RunWorldCode(39, 0)
+Menu(4, 0)
+RunWorldCode(40, 0)
+SET({Instance.Byte[23] const(2) B_LET B_EXPR_END})
+JMP(L624)
+L613:
+SET({Instance.Byte[23] const(1) B_LET B_EXPR_END})
+JMP(L624)
+L624:
+JMP(L1033)
+L627:
+SET({Instance.Byte[24] const(0) B_LET B_EXPR_END})
+RunWorldCode(16, 39)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+SET({Map.Byte[42] const(253) B_HAVE_ITEM B_LET B_EXPR_END})
+SET({Map.Byte[42] B_NOT B_EXPR_END})
+JMP_IFNOT(L676)
+WindowSync(5, 4, 46)
+JMP(L859)
+L676:
+SetTextVariable(1, {Map.Byte[42] B_EXPR_END})
+WindowAsync(5, 4, 44)
+L688:
+op_22(1)
+SET({const4(196608) B_KEYON B_NOT B_EXPR_END})
+JMP_IF(L688)
+CloseWindow(5)
+SET({B_SYSVAR[9] const(1) B_EQ const4(131072) B_KEYON B_ANDAND B_EXPR_END})
+JMP_IFNOT(L739)
+RunWorldCode(16, 39)
+RunWorldCode(17, 126)
+RunWorldCode(20, 0)
+L739:
+SET({B_SYSVAR[9] B_EXPR_END})
+SWITCH(0, L859, L753, L848)
+L753:
+RemoveItem(253, 1)
+RunScriptAsync(5, 4, 18)
+FadeFilter(2, 24, 0, 255, 255, 255)
+op_22(25)
+RunScriptAsync(5, 5, 19)
+RunScriptAsync(5, 250, 19)
+RunScriptSync(5, 6, 21)
+FadeFilter(3, 16, 0, 0, 0, 0)
+op_22(40)
+FadeFilter(2, 24, 0, 255, 255, 255)
+op_22(25)
+RunScriptAsync(5, 6, 22)
+RunScriptAsync(5, 5, 20)
+RunScriptSync(5, 250, 20)
+FadeFilter(3, 16, 0, 0, 0, 0)
+op_22(20)
+SET({Instance.Byte[23] const(2) B_LET B_EXPR_END})
+JMP(L859)
+L848:
+SET({Instance.Byte[23] const(1) B_LET B_EXPR_END})
+JMP(L859)
+L859:
+JMP(L1033)
+L862:
+SET({Instance.Byte[23] B_EXPR_END})
+SWITCH(1, L894, L876, L885)
+L876:
+WindowAsync(5, 4, 47)
+JMP(L983)
+L885:
+WindowAsync(5, 4, 48)
+JMP(L983)
+L894:
+SET({Instance.Byte[24] const(8) B_LT B_EXPR_END})
+JMP_IFNOT(L914)
+WindowAsync(5, 4, 50)
+JMP(L980)
+L914:
+SET({Instance.Byte[24] const(8) B_EQ B_EXPR_END})
+JMP_IFNOT(L934)
+WindowAsync(5, 4, 51)
+JMP(L980)
+L934:
+SET({Instance.Byte[24] const(12) B_EQ B_EXPR_END})
+JMP_IFNOT(L954)
+WindowAsync(5, 4, 52)
+JMP(L980)
+L954:
+SET({Instance.Byte[24] const(16) B_GE B_EXPR_END})
+JMP_IFNOT(L974)
+WindowAsync(5, 4, 49)
+JMP(L980)
+L974:
+WindowAsync(5, 4, 50)
+L980:
+JMP(L983)
+L983:
+SET({Instance.Byte[23] B_NOT Instance.Byte[24] const(32) B_LT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L1009)
+SET({Instance.Byte[24] Instance.Byte[24] const(1) B_PLUS B_LET B_EXPR_END})
+L1009:
+RunScriptSync(5, 5, 23)
+SET({Instance.SByte[25] const(65535) B_LET B_EXPR_END})
+SET({Instance.Byte[23] const(0) B_LET B_EXPR_END})
+JMP(L1033)
+L1033:
+op_22(1)
+L1036:
+SET({Instance.SByte[25] const(0) B_GE B_EXPR_END})
+JMP_IF(L372)
+RET()
+
+----- ENTRY 5 tag=23 -----
+SetWalkSpeed(255)
+RunScriptAsync(4, 4, 17)
+InitWalk()
+Walk({obj(uid=250).f[0] Instance.Int24[1] B_PLUS B_EXPR_END}, {obj(uid=250).f[2] Instance.Int24[4] B_PLUS B_EXPR_END})
+SetObjectFlags(14)
+RunWorldCode(35, 0)
+RET()
+
+----- ENTRY 5 tag=19 -----
+SetObjectFlags(14)
+SetWalkSpeed(255)
+RET()
+
+----- ENTRY 5 tag=20 -----
+SetObjectFlags(5)
+RET()
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 6 tag=0 -----
+SetObjectIndex(13)
+SetModel(311, 100)
+SetObjectFlags(14)
+SetObjectSize(6, 100, 100, 100)
+SetStandAnimation(5046)
+SetWalkAnimation(5046)
+op_35(5046)
+RET()
+
+----- ENTRY 6 tag=1 -----
+L0:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 6 tag=21 -----
+RunWorldCode(14, 4096)
+RunWorldCode(0, 2)
+MoveInstantXZY({obj(uid=250).f[0] B_EXPR_END}, {obj(uid=250).f[1] B_EXPR_END}, {obj(uid=250).f[2] B_EXPR_END})
+SetObjectFlags(7)
+SET({const(0) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L82)
+SetHP(0, {const(0) B_CURHP const(0) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(0, {const(0) B_CURMP const(0) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L82:
+SET({const(1) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L137)
+SetHP(1, {const(1) B_CURHP const(1) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(1, {const(1) B_CURMP const(1) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L137:
+SET({const(2) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L192)
+SetHP(2, {const(2) B_CURHP const(2) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(2, {const(2) B_CURMP const(2) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L192:
+SET({const(3) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L247)
+SetHP(3, {const(3) B_CURHP const(3) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(3, {const(3) B_CURMP const(3) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L247:
+SET({const(4) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L302)
+SetHP(4, {const(4) B_CURHP const(4) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(4, {const(4) B_CURMP const(4) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L302:
+SET({const(5) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L357)
+SetHP(5, {const(5) B_CURHP const(5) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(5, {const(5) B_CURMP const(5) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L357:
+SET({const(6) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L412)
+SetHP(6, {const(6) B_CURHP const(6) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(6, {const(6) B_CURMP const(6) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L412:
+SET({const(7) B_CURHP const(0) B_NE B_EXPR_END})
+JMP_IFNOT(L467)
+SetHP(7, {const(7) B_CURHP const(7) B_MAXHP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+SetMP(7, {const(7) B_CURMP const(7) B_MAXMP const(1) B_PLUS const(2) B_DIV B_PLUS B_EXPR_END})
+L467:
+RET()
+
+----- ENTRY 6 tag=22 -----
+RunWorldCode(14, 4096)
+RunWorldCode(0, 4)
+SetObjectFlags(14)
+RET()
+
+----- ENTRY 7 tag=0 -----
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L20)
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+JMP(L26)
+L20:
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+L26:
+RET()
+
+----- ENTRY 7 tag=1 -----
+L0:
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L27)
+SET({Instance.Byte[0] const(1) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 24)
+JMP(L40)
+L27:
+SET({Instance.Byte[0] const(2) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 25)
+L40:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 7 tag=24 -----
+MoveInstantXZY({const4(297728) B_EXPR_END}, 57136, {const4(4294772736) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(316672) B_EXPR_END}, 57136, {const4(4294792448) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(326144) B_EXPR_END}, 57136, {const4(4294725376) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(337664) B_EXPR_END}, 57136, {const4(4294762496) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331520) B_EXPR_END}, 57136, {const4(4294781952) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(288256) B_EXPR_END}, 57136, {const4(4294757376) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(297728) B_EXPR_END}, 57136, {const4(4294772736) B_EXPR_END})
+RET()
+
+----- ENTRY 7 tag=25 -----
+MoveInstantXZY({const4(297728) B_EXPR_END}, 57136, {const4(4294772736) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(288256) B_EXPR_END}, 57136, {const4(4294757376) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331520) B_EXPR_END}, 57136, {const4(4294781952) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(337664) B_EXPR_END}, 57136, {const4(4294762496) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(328814) B_EXPR_END}, 57136, {const4(4294726981) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(316672) B_EXPR_END}, 57136, {const4(4294792448) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(297728) B_EXPR_END}, 57136, {const4(4294772736) B_EXPR_END})
+RET()
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 8 tag=0 -----
+SetObjectIndex(18)
+SetModel(319, 120)
+SetObjectFlags(7)
+SetObjectLogicalSize(0, 100, 100)
+SetObjectSize(8, 75, 75, 75)
+SetStandAnimation(3130)
+SetWalkAnimation(3130)
+op_35(3130)
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L54)
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+JMP(L60)
+L54:
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+L60:
+RET()
+
+----- ENTRY 8 tag=1 -----
+L0:
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L27)
+SET({Instance.Byte[0] const(1) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 24)
+JMP(L40)
+L27:
+SET({Instance.Byte[0] const(2) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 25)
+L40:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 8 tag=24 -----
+MoveInstantXZY({const4(308480) B_EXPR_END}, 57136, {const4(4294740992) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(327680) B_EXPR_END}, 57136, {const4(4294735360) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(338432) B_EXPR_END}, 57136, {const4(4294740736) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(323328) B_EXPR_END}, 57136, {const4(4294781184) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(312320) B_EXPR_END}, 57136, {const4(4294787328) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(294656) B_EXPR_END}, 57136, {const4(4294779136) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(277504) B_EXPR_END}, 57136, {const4(4294776320) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(280064) B_EXPR_END}, 57136, {const4(4294766848) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(316416) B_EXPR_END}, 57136, {const4(4294761728) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(319488) B_EXPR_END}, 57136, {const4(4294754560) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(308480) B_EXPR_END}, 57136, {const4(4294740992) B_EXPR_END})
+RET()
+
+----- ENTRY 8 tag=25 -----
+MoveInstantXZY({const4(308480) B_EXPR_END}, 57136, {const4(4294740992) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(319488) B_EXPR_END}, 57136, {const4(4294754560) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(316416) B_EXPR_END}, 57136, {const4(4294761728) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(280064) B_EXPR_END}, 57136, {const4(4294766848) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(277504) B_EXPR_END}, 57136, {const4(4294776320) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(294656) B_EXPR_END}, 57136, {const4(4294779136) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(312320) B_EXPR_END}, 57136, {const4(4294787328) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(323328) B_EXPR_END}, 57136, {const4(4294781184) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(338432) B_EXPR_END}, 57136, {const4(4294740736) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(327680) B_EXPR_END}, 57136, {const4(4294735360) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(308480) B_EXPR_END}, 57136, {const4(4294740992) B_EXPR_END})
+RET()
+NOTHING()
+
+----- ENTRY 9 tag=0 -----
+SetObjectIndex(20)
+SetModel(315, 120)
+SetObjectFlags(7)
+SetObjectLogicalSize(0, 100, 100)
+SetObjectSize(9, 75, 75, 75)
+SetStandAnimation(3596)
+SetWalkAnimation(3596)
+op_35(3596)
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L54)
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+JMP(L60)
+L54:
+SetWalkSpeed(128)
+SetWalkTurnSpeed(3)
+L60:
+RET()
+
+----- ENTRY 9 tag=1 -----
+L0:
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L27)
+SET({Instance.Byte[0] const(1) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 24)
+JMP(L40)
+L27:
+SET({Instance.Byte[0] const(2) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 25)
+L40:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 9 tag=24 -----
+MoveInstantXZY({const4(319744) B_EXPR_END}, 57136, {const4(4294777856) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(311552) B_EXPR_END}, 57136, {const4(4294782464) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(299520) B_EXPR_END}, 57136, {const4(4294767872) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(286720) B_EXPR_END}, 57136, {const4(4294772224) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(299264) B_EXPR_END}, 57136, {const4(4294775552) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(325376) B_EXPR_END}, 57136, {const4(4294766080) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(332288) B_EXPR_END}, 57136, {const4(4294743296) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320000) B_EXPR_END}, 57136, {const4(4294745088) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324608) B_EXPR_END}, 57136, {const4(4294759936) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(319744) B_EXPR_END}, 57136, {const4(4294777856) B_EXPR_END})
+RET()
+
+----- ENTRY 9 tag=25 -----
+MoveInstantXZY({const4(319744) B_EXPR_END}, 57136, {const4(4294777856) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324608) B_EXPR_END}, 57136, {const4(4294759936) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320000) B_EXPR_END}, 57136, {const4(4294745088) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(332288) B_EXPR_END}, 57136, {const4(4294743296) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(325376) B_EXPR_END}, 57136, {const4(4294766080) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(299264) B_EXPR_END}, 57136, {const4(4294775552) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(286720) B_EXPR_END}, 57136, {const4(4294772224) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(299520) B_EXPR_END}, 57136, {const4(4294767872) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(311552) B_EXPR_END}, 57136, {const4(4294782464) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(319744) B_EXPR_END}, 57136, {const4(4294777856) B_EXPR_END})
+RET()
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 10 tag=0 -----
+SetObjectIndex(21)
+SetModel(314, 120)
+SetObjectFlags(7)
+SetObjectLogicalSize(0, 100, 100)
+SetObjectSize(10, 75, 75, 75)
+SetStandAnimation(5109)
+SetWalkAnimation(5109)
+op_35(5109)
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L54)
+SetWalkSpeed(64)
+SetWalkTurnSpeed(6)
+JMP(L60)
+L54:
+SetWalkSpeed(64)
+SetWalkTurnSpeed(6)
+L60:
+RET()
+
+----- ENTRY 10 tag=1 -----
+L0:
+SET({B_SYSVAR[0] const(2) B_REM B_EXPR_END})
+JMP_IFNOT(L27)
+SET({Instance.Byte[0] const(1) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 24)
+JMP(L40)
+L27:
+SET({Instance.Byte[0] const(2) B_LET B_EXPR_END})
+RunScriptAsync(6, 255, 25)
+L40:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 10 tag=24 -----
+MoveInstantXZY({const4(311808) B_EXPR_END}, 60136, {const4(4294775552) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(314624) B_EXPR_END}, 57136, {const4(4294766336) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324864) B_EXPR_END}, 58636, {const4(4294766336) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324864) B_EXPR_END}, 57136, {const4(4294757376) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331008) B_EXPR_END}, 60136, {const4(4294754048) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331008) B_EXPR_END}, 57136, {const4(4294746368) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(325632) B_EXPR_END}, 58636, {const4(4294742528) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(326144) B_EXPR_END}, 57136, {const4(4294750720) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(329472) B_EXPR_END}, 60136, {const4(4294758400) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320000) B_EXPR_END}, 57136, {const4(4294763520) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320768) B_EXPR_END}, 59136, {const4(4294770432) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(322560) B_EXPR_END}, 57136, {const4(4294774272) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(317952) B_EXPR_END}, 58636, {const4(4294780416) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(308992) B_EXPR_END}, 57136, {const4(4294765568) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(303360) B_EXPR_END}, 60136, {const4(4294765824) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(311808) B_EXPR_END}, 57136, {const4(4294775552) B_EXPR_END})
+RET()
+
+----- ENTRY 10 tag=25 -----
+MoveInstantXZY({const4(311808) B_EXPR_END}, 57136, {const4(4294775552) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(303360) B_EXPR_END}, 57136, {const4(4294765824) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(308992) B_EXPR_END}, 57136, {const4(4294765568) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(317952) B_EXPR_END}, 57136, {const4(4294780416) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(322560) B_EXPR_END}, 57136, {const4(4294774272) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320768) B_EXPR_END}, 57136, {const4(4294770432) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(320000) B_EXPR_END}, 57136, {const4(4294763520) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(329472) B_EXPR_END}, 57136, {const4(4294758400) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(326144) B_EXPR_END}, 57136, {const4(4294750720) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(325632) B_EXPR_END}, 57136, {const4(4294742528) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331008) B_EXPR_END}, 57136, {const4(4294746368) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(331008) B_EXPR_END}, 57136, {const4(4294754048) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324864) B_EXPR_END}, 57136, {const4(4294757376) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(324864) B_EXPR_END}, 57136, {const4(4294766336) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(314624) B_EXPR_END}, 57136, {const4(4294766336) B_EXPR_END})
+InitWalk()
+WalkXZY({const4(311808) B_EXPR_END}, 57136, {const4(4294775552) B_EXPR_END})
+RET()
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 11 tag=0 -----
+SetObjectIndex(15)
+SetModel(313, 100)
+SetObjectFlags(5)
+SetObjectLogicalSize(0, 60, 80)
+op_DF(100)
+SetObjectSize(11, 100, 100, 100)
+SetStandAnimation(5106)
+SetWalkAnimation(5106)
+op_35(5106)
+MoveInstantXZY({const4(282324) B_EXPR_END}, 58765, {const4(4294761467) B_EXPR_END})
+TurnInstant(184)
+RET()
+
+----- ENTRY 11 tag=1 -----
+L0:
+SetAnimationFlags(1, 1)
+SetAnimationInOut(0, 0)
+RunAnimation(5106)
+op_22(1)
+JMP(L0)
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 12 tag=0 -----
+RET()
+
+----- ENTRY 12 tag=1 -----
+L0:
+SET({B_SYSVAR[207] B_EXPR_END})
+SWITCH(0, L335, L60, L71, L82, L93, L104, L115, L126, L137, L148, L159, L170, L181, L192, L203, L214, L225, L236, L247, L258, L269, L280, L291, L302, L313, L324)
+L60:
+SET({Instance.Byte[0] const(12) B_LET B_EXPR_END})
+JMP(L335)
+L71:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L82:
+SET({Instance.Byte[0] const(11) B_LET B_EXPR_END})
+JMP(L335)
+L93:
+SET({Instance.Byte[0] const(14) B_LET B_EXPR_END})
+JMP(L335)
+L104:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L115:
+SET({Instance.Byte[0] const(14) B_LET B_EXPR_END})
+JMP(L335)
+L126:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L137:
+SET({Instance.Byte[0] const(14) B_LET B_EXPR_END})
+JMP(L335)
+L148:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L159:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L170:
+SET({Instance.Byte[0] const(24) B_LET B_EXPR_END})
+JMP(L335)
+L181:
+SET({Instance.Byte[0] const(12) B_LET B_EXPR_END})
+JMP(L335)
+L192:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L203:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L214:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L225:
+SET({Instance.Byte[0] const(11) B_LET B_EXPR_END})
+JMP(L335)
+L236:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L247:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L258:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L269:
+SET({Instance.Byte[0] const(14) B_LET B_EXPR_END})
+JMP(L335)
+L280:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L291:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L302:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L313:
+SET({Instance.Byte[0] const(32) B_LET B_EXPR_END})
+JMP(L335)
+L324:
+SET({Instance.Byte[0] const(16) B_LET B_EXPR_END})
+JMP(L335)
+L335:
+SetRandomBattleFrequency({Instance.Byte[0] B_EXPR_END})
+op_22(1)
+JMP(L0)
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 13 tag=0 -----
+RET()
+
+----- ENTRY 13 tag=1 -----
+L0:
+SET({Instance.Int24[0] obj(uid=10).f[0] B_LET B_EXPR_END})
+SET({Instance.Int24[3] obj(uid=10).f[1] B_LET B_EXPR_END})
+SET({Instance.Int24[6] obj(uid=10).f[2] B_LET B_EXPR_END})
+op_22(1)
+JMP(L0)
+NOTHING()
+NOTHING()
+NOTHING()
+
+----- ENTRY 14 tag=0 -----
+SetObjectIndex(1)
+SetModel(310, 100)
+SetObjectFlags(5)
+SetObjectLogicalSize(0, 50, 100)
+SetObjectSize(14, 67, 67, 67)
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L40, L34)
+L34:
+DefinePlayerCharacter()
+EnableMove()
+EnableMenu()
+JMP(L40)
+L40:
+SET({Global.Int16[2] const(0) B_EQ B_EXPR_END})
+JMP_IFNOT(L87)
+SET({Global.Int24[64] const4(293294) B_LET B_EXPR_END})
+SET({Global.Int16[67] const(58663) B_LET B_EXPR_END})
+SET({Global.Int24[69] const4(4294755960) B_LET B_EXPR_END})
+SET({Global.Byte[72] const(199) B_LET B_EXPR_END})
+L87:
+MoveInstantXZY({Global.Int24[64] B_EXPR_END}, {Global.Int16[67] B_EXPR_END}, {Global.Int24[69] B_EXPR_END})
+TurnInstant({Global.Byte[72] B_EXPR_END})
+RET()
+
+----- ENTRY 14 tag=1 -----
+L0:
+SET({Global.Byte[190] B_EXPR_END})
+SWITCH(0, L154, L12)
+L12:
+SET({Map.Byte[37] B_NOT B_EXPR_END})
+JMP_IFNOT(L151)
+SetObjectFlags(5)
+SetStandAnimation(4720)
+SetInactiveAnimation(4715)
+SetAnimationStandSpeed(16, 32, 16, 16)
+SetWalkAnimation(4721)
+op_35(4721)
+SET({Global.Int24[64] obj(uid=255).f[0] B_LET B_EXPR_END})
+SET({Global.Int16[67] obj(uid=255).f[1] B_LET B_EXPR_END})
+SET({Global.Int24[69] obj(uid=255).f[2] B_LET B_EXPR_END})
+SET({Global.Byte[72] obj(uid=255).f[3] B_LET B_EXPR_END})
+DefinePlayerCharacter()
+SET({Global.Byte[181] const(1) B_EQ B_EXPR_END})
+JMP_IFNOT(L100)
+SET({Map.Byte[37] const(1) B_LET B_EXPR_END})
+JMP(L100)
+L100:
+SET({B_SYSVAR[205] B_EXPR_END})
+JMP_IFNOT(L151)
+SET({Global.Bit[1609] B_NOT Global.Bit[1608] B_NOT B_ANDAND B_EXPR_END})
+JMP_IFNOT(L151)
+SET({B_SYSVAR[193] B_EXPR_END})
+SWITCH(36, L151, L135, L143)
+L135:
+Battle(0, 942)
+JMP(L151)
+L143:
+Battle(0, 941)
+JMP(L151)
+L151:
+JMP(L154)
+L154:
+op_22(1)
+JMP(L0)
+
+----- ENTRY 14 tag=13 -----
+op_22(42)
+SET({Instance.SByte[2] B_PTR(5) B_ANGLEA obj(uid=250).f[3] B_MINUS B_LET B_EXPR_END})
+SET({Instance.SByte[2] Instance.SByte[2] const(4) B_DIV B_LET B_EXPR_END})
+SET({Instance.Byte[0] const(0) B_LET B_EXPR_END})
+JMP(L54)
+L37:
+TurnInstant({obj(uid=250).f[3] Instance.SByte[2] B_PLUS B_EXPR_END})
+op_22(1)
+SET({Instance.Byte[0] B_POST_PLUS B_EXPR_END})
+L54:
+SET({Instance.Byte[0] const(4) B_LT B_EXPR_END})
+JMP_IF(L37)
+RET()
+
+----- ENTRY 14 tag=19 -----
+SET({Instance.Byte[0] const(0) B_LET B_EXPR_END})
+JMP(L22)
+L11:
+SetObjectFlags(14)
+op_22(1)
+SET({Instance.Byte[0] B_POST_PLUS B_EXPR_END})
+L22:
+SET({Instance.Byte[0] const(60) B_LT B_EXPR_END})
+JMP_IF(L11)
+RET()
+
+----- ENTRY 14 tag=20 -----
+SetObjectFlags(5)
+RET()
+NOTHING()
+NOTHING()
