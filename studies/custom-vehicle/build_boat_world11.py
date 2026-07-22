@@ -71,7 +71,10 @@ DOCK_Y = 768                         # ~3u; the engine ground-snaps on the next 
 DOCK_FACE = 128
 NEAR = 100 * 256                     # board proximity (generous for the bench)
 
-CONFIRM = 131072                     # 0x20000 B_KEYON -- the Confirm button (stock dumps)
+CONFIRM = 147456                     # 0x24000 = logical Confirm (0x20000) | physical Cross (0x4000).
+                                     # The button-word bisection (2026-07-22) proved the held button
+                                     # lands in the LOW 16 (physical PSX) bits on this input path with
+                                     # the logical bit unset -- accept BOTH (EventInput.cs:549/554).
 
 
 def fp(v: int) -> int:
