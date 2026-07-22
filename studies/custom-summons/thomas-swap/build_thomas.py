@@ -83,6 +83,17 @@ guessed. See ``THE FLIGHT v3`` comment block below for the full re-derivation; t
 themselves (P1_DEST..P10_DEST) are UNCHANGED (the decode can't recover a literal eye/aim world position
 -- SFXDataCamera's spherical Position->matrix conversion lives in the closed native plugin, a confirmed
 gap, not guessed) -- only the piece BOUNDARIES/EASING were corrected to match the real cut timing.
+
+THE CAMERA DLL SOLVE ATTEMPT (2026-07-22, ``ef_camera_solve.py``, this dir): a follow-up pass
+re-disassembled the closed ``FF9SpecialEffectPlugin.dll`` (pefile+capstone) to try to recover a
+literal per-frame eye/look-at and close the yaw gap above for real. Result: **NO-GO, confirmed, not
+guessed** -- 22 of ef227's 27 keyframes key their anchor into a runtime-populated scratch buffer (a PE
+section-table read this pass ran directly proves the target RVA has zero bytes backing it on disk), so
+no further static disassembly recovers it. A proxy reconstruction (substituting the s47 probe's own
+measured Bahamut position as the anchor) still validates only as a coin-flip on directional sanity
+(9-below/14-above of 24). Thomas's placement/yaw below are UNCHANGED from FLIGHT v3 as a direct result
+-- this is a confirmed dead end, not an unexplored one. See ``ef_camera_solve.py``'s own module
+docstring and README.md's "THE CAMERA DLL SOLVE ATTEMPT" section for the full byte-cited case.
 """
 from __future__ import annotations
 
@@ -264,21 +275,30 @@ THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 # and Thomas's JSON mesh share one identity world space; an absolute coordinate puts Thomas exactly where
 # Bahamut's own body was measured, independent of caster-lookup quirks or camera framing.
 #
-# YAW / BROADSIDE (open concern, honestly unresolved): the mission asked for a per-window yaw computed from
-# each shot's eye->Thomas vector (yaw toward the enemies if the camera looks along his length axis, so the
-# silhouette stays readable). This is NOT computable from the decode -- see the CONFIRMED GEOMETRIC GAP
-# above; there is no eye/aim world position to take a vector from, for ANY of the 3 shots, not just some.
-# Falling back to the qualitative shot descriptions instead: shot 0 is a single continuous dolly (distance
-# push/pull, not a bearing change) -- a fixed viewing angle the whole shot, so if YAW_BROADSIDE=90 (length
-# on world X, perpendicular to a Z-ish depth-dolly view axis) reads correctly at the start it should read
-# correctly throughout; shot 1 is the charge+blast hero shot (broadside is the deliberately-designed framing
-# the whole build has assumed since FLIGHT v1); shot 2 is a near-static outro during which the model ALREADY
-# turns him back to forward-facing (yaw 90->0) as he climbs away -- exactly the departure framing a static
-# outro camera would want. Net: NO per-window yaw deviation is introduced here (still 0->90 bank-in during
-# P1, HOLD 90 through shots 0+1, 90->0 bank-out during the tail) -- the same scheme FLIGHT v2 used, now
-# understood to already match what the decode's own qualitative shot descriptions imply, rather than an
-# unexamined carryover. A future round that fixes the DLL-side gap (or gets a fresh camera log once the
-# CAM-hook defect is fixed, PROBE.md's round-2 protocol item 5) could compute this for real.
+# YAW / BROADSIDE -- ATTEMPTED this session (``ef_camera_solve.py``), CONFIRMED NO-GO, not merely
+# unresolved anymore. The mission asked for a per-window yaw computed from each shot's eye->Thomas
+# vector. ``ef_camera_solve.py`` re-disassembled ``lookup_anchor`` (RVA 0x1800148f0, pefile+capstone)
+# and this pass additionally read the PE section table directly: the STATIC_TABLE selector every real
+# keyframe in shots 0+1 actually uses (code 21-31, 22/27 keyframes) resolves to RVA 0x220060 -- 1.9MB
+# into .data's 6.1MB VirtualSize, but .data's SizeOfRawData is only ~104KB. Zero bytes back that
+# address on disk: it's a runtime-populated scratch buffer (likely emulated PS1 RAM seeded per-cast by
+# PLAY_MODEL_ON_TARGET_V1, which fires at ticks 15/258 -- exactly each shot's activation), not a
+# compiled-in constant -- CONFIRMED this pass, no further static disassembly recovers it. Substituting
+# the s47 probe's own measured Bahamut position as an anchor PROXY (licensed by target_pos.distance==0
+# in all 11 records, so target always equals its anchor) still gave a validation run: 24/27 keyframes
+# solvable, eye-target distances 189.1-2962.5 (median 1008.5, clears the "hundreds-to-few-thousand"
+# cinematic-sanity bar -- a real signal for distance_scale=63), but the eye-below-target directional
+# check (does the eye sit low during the described "crane up" shots) came back 9-below/14-above out of
+# 24 -- a near coin-flip, not a confirmation, and an alternate 32x/64x pitch/orientation-scale hypothesis
+# didn't improve it (10/13). VERDICT: NO-GO -- printed by ``ef_camera_solve.py`` itself when run. Net:
+# NO per-window yaw deviation is introduced here (still 0->90 bank-in during P1, HOLD 90 through shots
+# 0+1, 90->0 bank-out during the tail) -- the same scheme FLIGHT v2 used, restated (not recomputed) by
+# ``ef_camera_solve.py``'s own ``build_placement_table()``. The only path left to compute this for real
+# is a LIVE memory read during an actual cast (extending the s47 probe to also log the scratch VA and,
+# separately, Branch B's own secondary-offset value at STATIC_TABLE+0x30 -- itself in the SAME
+# unrecoverable buffer) -- not further static disassembly of resolve_position/lookup_anchor (both are
+# now fully read). See ``ef_camera_solve.py``'s own module docstring + README.md's "THE CAMERA DLL
+# SOLVE ATTEMPT" section for the full byte-cited case.
 #
 # THE REWINDOWED FLIGHT (13 pieces: the same 10 measured + 1 unmeasured-tail waypoints as FLIGHT v2, plus 1
 # new hard-cut piece and 1 new bridging hold), summing to THOMAS_END=580 unchanged:
