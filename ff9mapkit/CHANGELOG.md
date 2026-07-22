@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a stale atlas cache can no longer shadow the atlas the game renders
+- **`world/atlas.load_atlas` now returns the atlas the ENGINE renders by default.** Previously an existing
+  `StreamingAssets/.ff9atlas_*.png` extract cache always won — so on an HD-modded install (Moguri) every
+  texture-judging instrument built on `load_atlas` could silently measure the VANILLA 1024×1024 atlas while
+  the game rendered Moguri's HD one (terrain 2048×4096 — not square; UVs are normalized so any dims render).
+  New `resolve_atlas_source(part)` mirrors `AssetManager.SearchAssetOnDisc` for
+  `WorldMap/Textures/res(1_24)_<part>.png` exactly: the `Memoria.ini [Mod] FolderNames` stack high→low, then
+  the game root, probing `StreamingAssets/Assets/Resources/...` before a `FF9_Data/...` fallback sweep,
+  honoring a mod folder's `ModFileList.txt` loose-entry gate (MoguriMain ships one). A loose override is read
+  directly and never cached; the extract cache only ever serves the BUNDLE and is keyed to its source
+  `p0data*.bin` (size+mtime) via a `.src.json` sidecar — a sidecar-less cache is never trusted, and the
+  legacy artifact is deleted once a loose override is what renders. `load_atlas(source="bundle")` /
+  `world-atlas-extract --source bundle` keep the vanilla atlas reachable (the extract CLI now reports the
+  resolved source + real dimensions).
+
 ### Added — `world-island` OPT-IN rolling relief (THE DEAD-RELIEF RESURRECTION)
 - **`world-island --relief` adds gentle inland undulation to minted islands** — the resurrection of the
   ambient relief field RETIRED 2026-07-15 (THE DEAD-RELIEF DISCOVERY: the first `relief_field` keyed a

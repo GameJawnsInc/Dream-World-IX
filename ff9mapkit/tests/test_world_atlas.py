@@ -135,6 +135,125 @@ def test_add_tile_stubbed(tmp_path, monkeypatch):
     assert dest.is_file()                                      # the reskinned atlas was deployed
 
 
+# ---------------------------------------------------------------- engine-true source resolution + keyed cache
+# The 2026-07-22 trap: a stale vanilla extract cache silently shadowed the Moguri HD atlas the game renders,
+# so texture-judging instruments measured pixels the game never shows. load_atlas now resolves the source the
+# way the ENGINE does (SearchAssetOnDisc over the FolderNames stack) and only trusts the cache for the bundle,
+# keyed to its source p0data file.
+
+def _mk_game(tmp_path, folders=("ModA", "ModB")):
+    g = tmp_path / "game"
+    (g / "StreamingAssets").mkdir(parents=True)
+    if folders is not None:
+        names = ", ".join(f'"{f}"' for f in folders)
+        (g / "Memoria.ini").write_text(f"[Mod]\nFolderNames = {names}\n", encoding="utf-8")
+    return g
+
+
+def _put_loose(g, folder, part="terrain", color=(0, 0, 255, 255), size=128, lower=True, ff9data=False):
+    rel = "FF9_Data/WorldMap/Textures" if ff9data else "StreamingAssets/Assets/Resources/WorldMap/Textures"
+    if lower and not ff9data:                                             # Moguri ships lowercase assets/...
+        rel = "StreamingAssets/" + rel.split("/", 1)[1].lower()
+    d = (g / folder / rel) if folder else (g / rel)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{A.ATLAS_NAMES[part]}.png"
+    Image.new("RGBA", (size, size), color).save(p)
+    return p
+
+
+def test_resolve_atlas_source_foldernames_order(tmp_path, monkeypatch):
+    g = _mk_game(tmp_path)
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    assert A.resolve_atlas_source("terrain") == ("bundle", None)          # nothing loose -> the p0data atlas
+    pb = _put_loose(g, "ModB", lower=True)                                # Moguri-style lowercase casing
+    assert A.resolve_atlas_source("terrain") == ("loose", pb)
+    pa = _put_loose(g, "ModA", lower=False)                               # a HIGHER folder now overrides
+    assert A.resolve_atlas_source("terrain") == ("loose", pa)
+    assert A.resolve_atlas_source("object") == ("bundle", None)           # parts resolve independently
+
+
+def test_resolve_atlas_source_root_and_ff9data_sweeps(tmp_path, monkeypatch):
+    g = _mk_game(tmp_path)
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    # the game root ("" folder) is swept after every mod folder
+    proot = _put_loose(g, "", lower=False)
+    assert A.resolve_atlas_source("terrain") == ("loose", proot)
+    # a LOWER folder's StreamingAssets hit beats a higher folder's FF9_Data one (sweep 1 completes first)
+    pff9 = _put_loose(g, "ModA", ff9data=True)
+    assert (g / "ModA" / "FF9_Data" / "WorldMap" / "Textures" / f"{A.ATLAS_NAMES['terrain']}.png") == pff9
+    assert A.resolve_atlas_source("terrain") == ("loose", proot)
+    proot.unlink()
+    assert A.resolve_atlas_source("terrain") == ("loose", pff9)           # FF9_Data sweep as the fallback
+
+
+def test_resolve_atlas_source_honors_modfilelist(tmp_path, monkeypatch):
+    g = _mk_game(tmp_path)
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    pa = _put_loose(g, "ModA")
+    pb = _put_loose(g, "ModB")
+    listed = "assets/resources/worldmap/textures/" + A.ATLAS_NAMES["terrain"].lower() + ".png"
+    # a ModFileList.txt that does NOT list the atlas gates it OFF even though the file exists on disk
+    (g / "ModA" / "ModFileList.txt").write_text("memoria.ini\nsome/other/file.png\n", encoding="utf-8")
+    assert A.resolve_atlas_source("terrain") == ("loose", pb)
+    # listing it turns ModA back on
+    (g / "ModA" / "ModFileList.txt").write_text(f"memoria.ini\n{listed}\n", encoding="utf-8")
+    assert A.resolve_atlas_source("terrain") == ("loose", pa)
+    # entries after a <bundle> header are in-bundle, and an all-bundle list means an EMPTY loose set ->
+    # the engine falls back to File.Exists (AssetList.Count == 0)
+    (g / "ModA" / "ModFileList.txt").write_text(f"<p0data3.bin>\n{listed}\n", encoding="utf-8")
+    assert A.resolve_atlas_source("terrain") == ("loose", pa)
+
+
+def test_load_atlas_stale_cache_cannot_shadow_loose(tmp_path, monkeypatch):
+    """THE regression: a sidecar-less vanilla cache must never shadow the loose atlas the game renders."""
+    g = _mk_game(tmp_path)
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    stale = g / "StreamingAssets" / ".ff9atlas_terrain.png"
+    Image.new("RGBA", (64, 64), (255, 0, 0, 255)).save(stale)             # the vanilla-extract artifact
+    _put_loose(g, "ModB", color=(0, 0, 255, 255), size=128)               # the Moguri-style HD override
+    img = A.load_atlas("terrain")
+    assert img.size == (128, 128) and img.getpixel((5, 5)) == (0, 0, 255, 255)
+    assert not stale.is_file()                                            # the legacy artifact is healed away
+
+
+def test_load_atlas_bundle_cache_keyed_to_source(tmp_path, monkeypatch):
+    g = _mk_game(tmp_path, folders=None)                                  # no Memoria.ini: modless install
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    fake_bin = g / "StreamingAssets" / "p0data3.bin"
+    fake_bin.write_bytes(b"v1")
+    calls = []
+
+    def fake_extract(sa, name):
+        calls.append(name)
+        return Image.new("RGBA", (64, 64), (0, 255, 0, 255)), fake_bin
+
+    monkeypatch.setattr(A, "_extract_from_bundles", fake_extract)
+    assert A.load_atlas("terrain").getpixel((0, 0)) == (0, 255, 0, 255)
+    assert len(calls) == 1
+    assert (g / "StreamingAssets" / ".ff9atlas_terrain.png.src.json").is_file()
+    A.load_atlas("terrain")
+    assert len(calls) == 1                                                # keyed cache hit, no re-extract
+    fake_bin.write_bytes(b"v2-longer")                                    # the source bundle changed
+    A.load_atlas("terrain")
+    assert len(calls) == 2                                                # fingerprint mismatch -> re-extract
+    (g / "StreamingAssets" / ".ff9atlas_terrain.png.src.json").unlink()
+    A.load_atlas("terrain")
+    assert len(calls) == 3                                                # sidecar-less cache is NEVER trusted
+
+
+def test_load_atlas_source_bundle_ignores_loose(tmp_path, monkeypatch):
+    g = _mk_game(tmp_path)
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    _put_loose(g, "ModA", color=(0, 0, 255, 255))
+    monkeypatch.setattr(A, "_extract_from_bundles",
+                        lambda sa, name: (Image.new("RGBA", (64, 64), (0, 255, 0, 255)),
+                                          g / "StreamingAssets" / "p0data3.bin"))
+    assert A.load_atlas("terrain").getpixel((0, 0)) == (0, 0, 255, 255)               # engine -> the override
+    assert A.load_atlas("terrain", source="bundle", cache=False).getpixel((0, 0)) == (0, 255, 0, 255)
+    with pytest.raises(ValueError):
+        A.load_atlas("terrain", source="live")
+
+
 def _game_ready() -> bool:
     try:
         return (config.find_game_path(None) / "StreamingAssets").is_dir()
@@ -145,5 +264,16 @@ def _game_ready() -> bool:
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 @pytest.mark.parametrize("part", ["terrain", "object"])
 def test_real_atlas_extracts_1024(part, tmp_path):
-    img = A.load_atlas(part, cache=False)
+    img = A.load_atlas(part, cache=False, source="bundle")
     assert img.size == (1024, 1024) and img.mode == "RGBA"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install")
+def test_real_engine_atlas_is_what_renders():
+    kind, loose = A.resolve_atlas_source("terrain")
+    assert kind in ("loose", "bundle")
+    if kind == "loose":
+        assert loose.is_file()
+    img = A.load_atlas("terrain", cache=False)
+    # NOT necessarily square: Moguri's HD terrain atlas is 2048x4096. UVs are normalized, so any dims render.
+    assert img.mode == "RGBA" and img.width >= 1024 and img.height >= 1024

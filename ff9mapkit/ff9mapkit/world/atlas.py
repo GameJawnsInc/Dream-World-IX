@@ -10,14 +10,27 @@ drop them, and we crop real tiles for a visual catalog so a user can pick a look
 Two products: **extract** (atlas → PNG, cached) for previewing/repainting, and **crop/blank/catalog** helpers the
 palette + CLI use. Repainting the PNG and dropping it at :func:`atlas_override_path` is the no-DLL **T2 HD reskin**
 (`AssetManager.SearchAssetOnDisc` checks that mod path first, `WMBlock.cs:290`).
+
+**Which atlas the game RENDERS is a mod-stack question**, not a p0data question: `WMBlock.LoadMaterials` asks
+`SearchAssetOnDisc("WorldMap/Textures/res(1_24)_<part>.png")`, which sweeps every `Memoria.ini [Mod] FolderNames`
+folder high→low (then the game root) for a loose PNG — a Moguri install renders `MoguriMain`'s HD atlas (terrain:
+2048×4096, NOT square — UVs are normalized so any dims render), never the bundled 1024² one. :func:`resolve_atlas_source` mirrors that resolution exactly (including each folder's
+``ModFileList.txt`` loose-entry gate), and :func:`load_atlas` defaults to the ENGINE's answer so texture-judging
+instruments (green_frac, the *_eye.py studies) measure the pixels the game actually shows. The PNG cache inside
+StreamingAssets only ever serves the BUNDLE extraction and is keyed to its source p0data file via a ``.src.json``
+sidecar — a cache without a matching sidecar is never trusted (the 2026-07-22 stale-vanilla-cache trap).
 """
 from __future__ import annotations
 
 ATLAS_NAMES = {"terrain": "res(1_24)_terrain", "object": "res(1_24)_objects"}
-ATLAS_SIZE = 1024
+ATLAS_SIZE = 1024                                         # the VANILLA bundle size; loose HD overrides are larger
 # T2 reskin override path (SearchAssetOnDisc: Assets/Resources/<name>.png under StreamingAssets; shared, no disc)
 _OVERRIDE_REL = "StreamingAssets/assets/resources/worldmap/textures/{name}.png"
-_ATLAS_CACHE = ".ff9atlas_{part}.png"                     # cached PNG next to StreamingAssets
+# Bundle-extraction cache. Home: inside the install's StreamingAssets, next to the p0data bundles it is derived
+# from (per-install like its source; precedent: .ff9mapkit-worldmap-bundle.json). Staleness is handled by the
+# sidecar key, not by location.
+_ATLAS_CACHE = ".ff9atlas_{part}.png"
+_ATLAS_CACHE_SRC = ".ff9atlas_{part}.png.src.json"        # sidecar: identity of the p0data file the cache came from
 
 
 def _part_name(part: str) -> str:
@@ -26,19 +39,135 @@ def _part_name(part: str) -> str:
     return ATLAS_NAMES[part]
 
 
-def load_atlas(part: str = "terrain", *, game=None, cache: bool = True):
-    """The atlas as a PIL ``Image`` (RGBA). Extracted from p0data on first use and cached to a PNG next to
-    StreamingAssets; later calls read the cache. Raises if Pillow/UnityPy or the install is missing."""
+# --------------------------------------------------------------------------- engine-true source resolution
+
+def _ci_file(base, *parts):
+    """``base/parts`` resolved case-insensitively (`File.Exists` is case-insensitive on Windows, and Moguri ships
+    the lowercase ``assets/resources/...`` casing). Returns the real ``Path`` or ``None``."""
+    import os
+    from pathlib import Path
+    cur = Path(base)
+    segs = [s for p in parts for s in str(p).replace("\\", "/").split("/") if s]
+    for i, seg in enumerate(segs):
+        want_file = i == len(segs) - 1
+        nxt = cur / seg
+        if nxt.is_file() if want_file else nxt.is_dir():
+            cur = nxt
+            continue
+        try:
+            names = os.listdir(cur)
+        except OSError:
+            return None
+        for n in names:
+            if n.lower() == seg.lower():
+                cand = cur / n
+                if cand.is_file() if want_file else cand.is_dir():
+                    cur = cand
+                    break
+        else:
+            return None
+    return cur
+
+
+def _mod_folder_stack(game_root) -> list:
+    """``FolderHighToLow`` as folder names: the ``Memoria.ini [Mod] FolderNames`` list (highest priority first)
+    plus ``\"\"`` for the game root itself (the AssetManager static ctor appends it). ``[\"\"]`` when the ini is
+    absent/unreadable — a modless install resolves straight to the bundle."""
+    from ..deploystack import parse_folder_names
+    try:
+        names = parse_folder_names((game_root / "Memoria.ini").read_text(encoding="utf-8", errors="ignore"))
+    except OSError:
+        names = []
+    return list(names) + [""]
+
+
+def _mod_loose_list(folder_root):
+    """A mod folder's ``ModFileList.txt`` LOOSE entries (lowercased), or ``None`` for File.Exists semantics.
+    Mirrors ``AssetFolder.ReadFileList`` + ``TryFindAssetInModOnDisc``: entries after the first ``<bundle>``
+    header are in-bundle (not loose), and an EMPTY loose set falls back to File.Exists (AssetList.Count == 0)."""
+    p = _ci_file(folder_root, "ModFileList.txt")
+    if p is None:
+        return None
+    loose = set()
+    in_bundle = False
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        s = line.strip().lower()
+        if not s:
+            continue
+        if "<" in s:
+            if ">" not in s:
+                continue                                 # malformed header line: the engine skips it entirely
+            in_bundle = True
+        if not in_bundle:
+            loose.add(s)
+    return loose or None
+
+
+def resolve_atlas_source(part: str = "terrain", *, game=None):
+    """Which atlas file the ENGINE renders for ``part``: ``("loose", Path)`` for a mod/game-root loose PNG, or
+    ``("bundle", None)`` when nothing overrides and the p0data atlas shows.
+
+    Byte-follows ``AssetManager.SearchAssetOnDisc`` for ``WorldMap/Textures/res(1_24)_<part>.png`` (the
+    ``WMBlock`` material path): sweep every ``FolderNames`` folder high→low then the game root probing
+    ``StreamingAssets/Assets/Resources/WorldMap/Textures/<name>.png``, THEN the same folders probing
+    ``FF9_Data/WorldMap/Textures/<name>.png`` — a lower folder's StreamingAssets hit beats a higher folder's
+    FF9_Data one. A folder with a ``ModFileList.txt`` is gated by its loose-entry LIST, not by File.Exists
+    (MoguriMain ships one); a listed-but-unreadable file still wins the sweep here, and :func:`load_atlas`
+    then falls back to the bundle exactly like ``WMBlock``'s soft-fail."""
+    from pathlib import Path
+    from .. import config
+    name = _part_name(part)
+    root = Path(config.find_game_path(game))
+    folders = _mod_folder_stack(root)
+    lists = {f: (_mod_loose_list(root / f) if f else None) for f in folders}
+    for prefix, asset in (("StreamingAssets", f"Assets/Resources/WorldMap/Textures/{name}.png"),
+                          ("FF9_Data", f"WorldMap/Textures/{name}.png")):
+        for fold in folders:
+            base = root / fold if fold else root
+            listed = lists[fold]
+            if listed is not None:
+                if asset.lower() in listed:
+                    return ("loose", _ci_file(base, prefix, asset) or base / prefix / asset)
+                continue
+            p = _ci_file(base, prefix, asset)
+            if p is not None:
+                return ("loose", p)
+    return ("bundle", None)
+
+
+# --------------------------------------------------------------------------- bundle extraction + keyed cache
+
+def _fingerprint(path) -> dict:
+    """The staleness key for a cache source file: absolute path + size + mtime_ns."""
+    import os
+    st = os.stat(path)
+    return {"source": str(path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
+def _bundle_cache_valid(cache_path, sidecar_path) -> bool:
+    """True iff the cache PNG exists AND its sidecar records a bundle source that still fingerprints the same.
+    A sidecar-less cache is NEVER trusted — that is exactly the legacy stale-vanilla-cache artifact."""
+    import json
+    if not cache_path.is_file():
+        return False
+    try:
+        rec = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        return (rec.get("kind") == "bundle"
+                and _fingerprint(rec["source"]) == {k: rec[k] for k in ("source", "size", "mtime_ns")})
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def _extract_from_bundles(sa, name):
+    """Extract Texture2D ``name`` from ``StreamingAssets/p0data*.bin`` → ``(RGBA image, bundle Path)``.
+    Raises if UnityPy is missing or no bundle carries the texture."""
     import glob
     from pathlib import Path
-    from PIL import Image
-    from .. import config
     from . import extract as X
-    name = _part_name(part)
-    sa = Path(config.find_game_path(game)) / "StreamingAssets"
-    cache_path = sa / _ATLAS_CACHE.format(part=part)
-    if cache and cache_path.is_file():
-        return Image.open(cache_path).convert("RGBA")
     X._unitypy()
     import UnityPy
     for p in sorted(glob.glob(str(sa / "p0data*.bin")), key=lambda q: (0 if "p0data3." in Path(q).name else 1, q)):
@@ -51,20 +180,64 @@ def load_atlas(part: str = "terrain", *, game=None, cache: bool = True):
                 continue
             d = o.read()
             if getattr(d, "m_Name", "") == name:
-                img = d.image.convert("RGBA")
-                if cache:
-                    try:
-                        img.save(cache_path)
-                    except OSError:
-                        pass
-                return img
+                return d.image.convert("RGBA"), Path(p)
     raise ValueError(f"overworld atlas texture {name!r} not found in StreamingAssets/p0data*.bin")
 
 
-def extract_atlas(part: str = "terrain", *, out, game=None):
-    """Save the ``part`` atlas PNG to ``out`` (for previewing or repainting). Returns the written ``Path``."""
+def load_atlas(part: str = "terrain", *, game=None, cache: bool = True, source: str = "engine"):
+    """The atlas as a PIL ``Image`` (RGBA) — by default the one the GAME RENDERS.
+
+    ``source="engine"`` resolves the live texture the way the engine does (:func:`resolve_atlas_source`): a
+    loose mod override (e.g. Moguri's 2048×4096 HD atlas) is read directly and never cached — so a stale
+    extract cache can never shadow it. ``source="bundle"`` forces the vanilla p0data atlas (always 1024²). The bundle
+    extraction is cached to a PNG inside StreamingAssets, keyed to its source p0data file by a ``.src.json``
+    sidecar (size+mtime); a mismatching or sidecar-less cache is re-extracted, and the legacy sidecar-less
+    artifact is deleted once a loose override is what renders. Raises if Pillow/UnityPy or the install is
+    missing."""
+    import json
     from pathlib import Path
-    img = load_atlas(part, game=game)
+    from PIL import Image
+    from .. import config
+    if source not in ("engine", "bundle"):
+        raise ValueError(f"source must be 'engine' or 'bundle' (got {source!r})")
+    name = _part_name(part)
+    sa = Path(config.find_game_path(game)) / "StreamingAssets"
+    cache_path = sa / _ATLAS_CACHE.format(part=part)
+    sidecar_path = sa / _ATLAS_CACHE_SRC.format(part=part)
+    if source == "engine":
+        kind, loose = resolve_atlas_source(part, game=game)
+        if kind == "loose":
+            if cache and cache_path.is_file() and not sidecar_path.is_file():
+                try:                                     # heal the legacy trap: older kits would still read it
+                    cache_path.unlink()
+                except OSError:
+                    pass
+            try:
+                return Image.open(loose).convert("RGBA")
+            except OSError:                              # listed-but-unreadable: WMBlock soft-fails to the bundle
+                pass
+    if cache and _bundle_cache_valid(cache_path, sidecar_path):
+        return Image.open(cache_path).convert("RGBA")
+    img, bin_path = _extract_from_bundles(sa, name)
+    if cache:
+        try:
+            import io
+            from ..fsutil import atomic_write_bytes, atomic_write_text
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            atomic_write_bytes(cache_path, buf.getvalue())
+            atomic_write_text(sidecar_path, json.dumps({"kind": "bundle", **_fingerprint(bin_path)}))
+        except OSError:
+            pass
+    return img
+
+
+def extract_atlas(part: str = "terrain", *, out, game=None, source: str = "engine"):
+    """Save the ``part`` atlas PNG to ``out`` (for previewing or repainting). ``source`` as in
+    :func:`load_atlas` — default the engine-rendered atlas, ``"bundle"`` for the vanilla 1024². Returns the
+    written ``Path``."""
+    from pathlib import Path
+    img = load_atlas(part, game=game, source=source)
     dest = Path(out)
     dest.parent.mkdir(parents=True, exist_ok=True)
     img.save(dest)

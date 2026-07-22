@@ -2348,15 +2348,22 @@ def _cmd_world_texture_palette(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_atlas_extract(args: argparse.Namespace) -> int:
-    """Extract the shared overworld texture atlas (res(1_24)_terrain/_objects, 1024x1024) to a PNG -- for previewing
-    or repainting (drop the repainted PNG back via `world-atlas-reskin` for a no-DLL HD reskin)."""
+    """Extract the shared overworld texture atlas (res(1_24)_terrain/_objects) to a PNG -- for previewing or
+    repainting (drop the repainted PNG back via `world-atlas-reskin` for a no-DLL HD reskin). Default = the atlas
+    the ENGINE renders (a loose HD mod override like Moguri's when one is stacked); --source bundle = vanilla."""
     from .world import atlas as A
     try:
-        dest = A.extract_atlas(args.part, out=args.out, game=args.game)
+        dest = A.extract_atlas(args.part, out=args.out, game=args.game, source=args.source)
+        kind, loose = A.resolve_atlas_source(args.part, game=args.game) if args.source == "engine" \
+            else ("bundle", None)
     except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    print(f"extracted the {args.part} atlas (1024x1024) -> {dest}")
+    from PIL import Image
+    with Image.open(dest) as im:
+        w, h = im.size
+    src = f"loose override {loose}" if kind == "loose" else "the vanilla p0data bundle"
+    print(f"extracted the {args.part} atlas ({w}x{h}, from {src}) -> {dest}")
     return 0
 
 
@@ -5841,10 +5848,14 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.set_defaults(func=_cmd_world_texture_palette)
 
     wax = sub.add_parser("world-atlas-extract",
-                         help="extract the shared overworld texture atlas (terrain/object, 1024x1024) to a PNG for "
-                              "previewing or repainting")
+                         help="extract the shared overworld texture atlas (terrain/object) to a PNG for previewing "
+                              "or repainting -- by default the atlas the ENGINE renders (mod-stack resolved)")
     wax.add_argument("--part", choices=["terrain", "object"], default="terrain")
     wax.add_argument("--out", required=True, help="output PNG path")
+    wax.add_argument("--source", choices=["engine", "bundle"], default="engine",
+                     help="'engine' (default) = the atlas the game renders, resolved like SearchAssetOnDisc across "
+                          "the Memoria.ini FolderNames stack (e.g. Moguri's HD atlas); "
+                          "'bundle' = the vanilla 1024x1024 p0data atlas")
     wax.set_defaults(func=_cmd_world_atlas_extract)
 
     wac = sub.add_parser("world-atlas-catalog",
