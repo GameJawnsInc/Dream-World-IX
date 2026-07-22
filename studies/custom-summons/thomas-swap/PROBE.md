@@ -305,3 +305,71 @@ play through) should specifically check:
   byte-identical to both deployed `x64\` and `x86\` `FF9_Data\Managed\Assembly-CSharp.dll` copies.
 - Backups of the pre-s47 installed DLLs (both arches) were taken before building:
   `backups/Assembly-CSharp.x64.dll.20260722-095733`, `backups/Assembly-CSharp.x86.dll.20260722-095733`.
+
+## 9. s48 — the dead-CAM fix + raw-primitive capture (CODED, **NOT YET BUILT**)
+
+**⚠ `memoria-patches/s48-sfx-output-capture.patch` is AUTHORED AND STATICALLY VERIFIED ONLY — it has not been
+compiled or deployed.** The engine build was deliberately withheld this round because the user has unrelated
+debug-menu edits in flight on the same (non-worktree) `C:\gd\FFIX\Memoria` tree, and an msbuild `AfterBuild`
+auto-deploys straight into the live game with no backup. **Build it yourself when that work lands** — the
+normal recipe (`building-the-memoria-engine` skill): back up both installed DLLs first
+(`tools/restore_memoria_dll.py` reads that naming convention), then msbuild the `Assembly-CSharp.csproj`, then
+copy `Output\Assembly-CSharp.dll` to both `x64\FF9_Data\Managed\` and `x86\FF9_Data\Managed\` (or let
+`AfterBuild` do it, closed-game only). Revert with the same `restore_memoria_dll.py <timestamp>` path §7
+above already documents. Round-2 note: round 1's `--calibrate` cast (§8) pre-dates s48 entirely — a fresh
+cast is needed to actually exercise any of the below.
+
+**Item 1 — the CAM-hook fix.** §8's round-1 cast measured **19,456 MESH rows / 0 CAM rows** even with
+`Enabled=1` (the "confirmed, out of scope" defect called out there). Root-caused to two compounding bugs, not
+one: (a) `Camera.main` is routinely **null** during native SFX battle playback — s47's `LogCamera()` read it
+directly and returned silently on null, while 15+ other call sites in this exact subsystem (e.g.
+`SFXRender.Render()`, and `SFXDataMesh.cs Runtime.Render()` itself) already fall back to the `"Battle Camera"`
+GameObject's own `Camera` for exactly that reason; (b) even fixed in place, the old call site
+(`SFXDataCamera.cs UpdateCamera()`) is driven by `battle.cs BattleMain()` **every Unity `Update()` tick**, not
+gated on the native SFX frame actually advancing — a same-site fix would still emit duplicate rows per
+`SFX.frameIndex`, uncorrelated with the MESH rows' own cadence. **Fix:** the old call site is removed;
+`LogCamera(Camera cam)` now takes the camera as a parameter and is called from `SFXDataMesh.cs
+Runtime.Render()`, co-located with the already-proven-firing `LogFrame()` — same `SFX.frameIndex` per row,
+reusing that method's own already-resolved camera local. No ini flag change needed for this half — it rides
+the existing `[SfxProbe] Enabled=1`.
+
+**Item 2 — new `[SfxProbe]` sub-flags for the raw native-primitive stream** (independent of `Enabled`):
+
+| Key | Default | What it does |
+|---|---|---|
+| `CapturePrims` | `0` | Arms `SfxMeshProbe.LogPrim()`, hooked at the TOP of `SFXRender.Add()` (`Global/SFXRender/SFXRender.cs`) — the funnel every native `SFX_GetPrim()`-decoded PS1 GPU primitive passes through **before** it gets batched into a keyed `SFXMesh`. Richer than the MESH rows: individual triangle/quad/line/tile/sprite, own tag type + draw/depth order, not yet merged. |
+| `PrimSummary` | `0` | Mode selector under `CapturePrims=1` only: collapses to **one `PRIMSUM` row per frame** (primitive count + vertex0 bounding box) instead of one row per primitive. Use this first on any real cast — a full cast can emit 10-100x the 19,456 MESH-row count at the raw-primitive level. |
+| `PrimCap` | `200000` | Hard cap on per-primitive `PRIM`/`STATE` row output (ignored in `PrimSummary` mode). The row that crosses it writes one `# PRIM CAPTURE TRUNCATED` marker and stops — the log always visibly says it's short, it never just quietly stops matching the cast length. |
+
+New row formats (documented in the log's own header + `SfxMeshProbe.cs`'s banner comment):
+
+```
+PRIM,effectId,frame,index,code,vertHint,otz,x,y     -- one drawable primitive (default CapturePrims mode)
+STATE,effectId,frame,index,code,label               -- one DR_TPAGE/DR_AREA/DR_OFFSET/DR_MOVE state tag
+PRIMSUM,effectId,frame,count,minX,minY,maxX,maxY     -- one row/frame (PrimSummary=1 mode)
+```
+
+`x,y` are vertex0 in the same post-`drOffset` space `SFXMesh.PolyXxx()` writes into its own mesh (raw PS1
+`x0,y0` + `SFXMeshBase.drOffsetX/Y`) — directly comparable to a MESH row's `cx,cy`. Read generically (no
+per-type struct cast): every drawable PSX primitive tag places its first vertex at the same fixed byte offset
+8 from the tag pointer, right after the shared 8-byte `P_TAG` header — verified against every struct in
+`PSX_LIBGPU.cs`. The 4 exact-code `DR_*` state tags carry no vertex and log as `STATE` rows instead (`DR_TPAGE`
+in particular is only 8 bytes on the wire — reading its own offset 8 would already be the next primitive).
+
+**Suggested arming for a round-2 cast**, once built:
+
+```ini
+[SfxProbe]
+Enabled=1
+CapturePrims=1
+PrimSummary=1
+```
+
+(`PrimSummary=1` first — a bounded few-hundred-row PRIMSUM stream is enough to sanity-check the CAM fix and
+see the raw primitive VOLUME per frame before ever asking for the unbounded per-primitive `PRIM`/`STATE` rows.)
+
+Everything above is zero-cost when off (one cached-bool read per call site, matching s47's own convention) and
+does not touch any debug-menu file (`Ff9mkDebugMenu.cs`/`UIKeyTrigger.cs`) — only
+`Memoria/Battle/SFX/{SfxMeshProbe.cs,SFXDataMesh.cs,SFXDataCamera.cs}` and `Global/SFXRender/SFXRender.cs`. See
+`memoria-patches/README.md`'s s48 row for the full patch description and gate method (round-trip byte-exact,
+`git apply --check` clean from the s47 tip — verified statically; **not yet compiled**).
