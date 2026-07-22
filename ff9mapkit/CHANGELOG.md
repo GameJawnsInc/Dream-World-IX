@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Workspace FIELD card picker (region-divided)
+- **A region-divided card view over FF9's ~818 real fields** (`workspace/fieldcards.py`
+  `FieldCardPicker`): every field as a card of its actual pre-rendered background, with a region list
+  (Prima Vista, A. Castle, Alexandria, … — derived from the fields' place names, ordered by first
+  field id ≈ story order) dividing the catalog, plus search by place/room/id/FBG name. Opened from the
+  Import tab (**Cards…** beside Find…) and from the realfield picker (**Card view…**) — the pick fills
+  the fork-source box. Art rides the SHARED field thumbnail service (the same composites the campaign
+  Map shows, so caches are shared both ways), requested only for the cards in view; a machine without
+  the install degrades to labeled cards.
+
 ### Added — Workspace model CARD picker + no-geometry filter; preview caching pass
 - **A card-grid model picker** (`workspace/modelcards.py` `ModelCardPicker`): browse the ~2000-model GEO
   catalog as big thumbnail CARDS (search + group / field-only filters, double-click to pick). Opened from

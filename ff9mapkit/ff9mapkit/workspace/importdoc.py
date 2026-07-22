@@ -93,7 +93,8 @@ class ImportDoc(QWidget):
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
-        self._buttons = [self.find_btn, self.preview_btn, self.study_btn, self.rooms_btn, self.import_btn,
+        self._buttons = [self.find_btn, self.field_cards_btn, self.preview_btn, self.study_btn,
+                         self.rooms_btn, self.import_btn,
                          self.dryrun_btn, self.fork_region_btn, self.catalog_btn, self.arc_btn,
                          self.rp_unpack_btn, self.rp_pack_btn,
                          self.dlg_btn, self.save_btn, self.list_btn, self.songs_btn, self.sfx_btn,
@@ -115,6 +116,11 @@ class ImportDoc(QWidget):
         self.find_btn.setToolTip("Pick a real FF9 field from a searchable list (id · name) — the chosen id "
                                  "fills the box above. Same catalog as ‘List fields’ under Read & inspect.")
         self.find_btn.clicked.connect(self.on_find)
+        self.field_cards_btn = QPushButton("Cards…")
+        self.field_cards_btn.setToolTip("Browse every real field as background-art cards, divided by "
+                                        "region — a visual search when you'd recognize the room but "
+                                        "don't know its name. The pick fills the box.")
+        self.field_cards_btn.clicked.connect(self.on_field_cards)
         # Suggest a test room: pre-scopes the SAME picker to the best swap/demo rooms (a ~45s sweep, cached +
         # off the GUI thread). Kept OUT of the advanced Walk-as drawer (chair ruling) and beside the id box it
         # fills, so both pick-and-fill entry points sit together.
@@ -125,6 +131,7 @@ class ImportDoc(QWidget):
         self.rooms_btn.clicked.connect(self.on_suggest_rooms)
         row.addWidget(self.field, 1)
         row.addWidget(self.find_btn)
+        row.addWidget(self.field_cards_btn)
         row.addWidget(self.rooms_btn)
         v.addLayout(row)
         # the pre-fork STUDY row -- 'fork/learn from a real field's bytes BEFORE authoring' as buttons
@@ -795,13 +802,22 @@ class ImportDoc(QWidget):
     def _pick_realfield(self, *, entries=None, title=None):
         """Open a CatalogPicker over real FF9 fields and, on a pick, ``setText`` the chosen id into the
         source box. ``entries`` pre-scopes it to a computed subset (Import's suggested test rooms); ``None``
-        browses every real field via ``infohub`` (kind='realfield')."""
+        browses every real field via ``infohub`` (kind='realfield'). The shell's field ThumbService rides
+        along so the picker can offer the region-divided card view."""
         from .forms_qt import CatalogPicker
         dlg = CatalogPicker(self, ["realfield"], self.field.text().strip(), None, self.pal,
-                            want_id=True, entries=entries)
+                            want_id=True, entries=entries, field_thumbs=self.thumbs)
         if title:
             dlg.setWindowTitle(title)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result:
+            self.field.setText(dlg.result)
+
+    def on_field_cards(self):
+        """The region-divided field card view, one click from the source box; the pick fills it."""
+        from .fieldcards import FieldCardPicker
+        dlg = FieldCardPicker(self, self.pal, self.thumbs, initial=self.field.text().strip())
+        dlg.exec()
+        if dlg.result:
             self.field.setText(dlg.result)
 
     def on_suggest_rooms(self):
