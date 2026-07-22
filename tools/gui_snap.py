@@ -360,12 +360,23 @@ class _grab_next_dialog:
         return False
 
 
+def _open_campaign_newgame(win) -> None:
+    """Open BuildDoc's named 'a campaign deploy will wipe your New Game entry' 3-button confirm with a
+    fabricated plan + casualty id, so the harness can grab a surface that only appears when a live New-Game
+    override exists on the machine."""
+    from types import SimpleNamespace
+    bd = win.build_deploy
+    bd.plan = SimpleNamespace(name="Demo Campaign", members=[0, 1, 2], mod_folder="FF9CustomMap")
+    bd._confirm_campaign_deploy(4100, "Reach each screen in-game via ~ -> Warp.")
+
+
 def snap_dialog(ctx: _Ctx, key: str) -> None:
     openers = {
         "new-field":     lambda w: w.on_new_field(),
         "new-campaign":  lambda w: w.on_new_campaign(),
         "new-journey":   lambda w: w.on_new_journey(),
         "fork-regions":  lambda w: w.import_field.open_region_catalog(),
+        "import-fields": lambda w: w.import_field.on_find(),
         "setup":         lambda w: w._open_setup(),
         "prefs":         lambda w: w._open_preferences(),
         "about":         lambda w: w._open_about(),
@@ -375,6 +386,9 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
         # the real opener is _fork_dialog (the first cut guessed `on_fork_battle` behind a hasattr guard,
         # which made this surface permanently, silently dead -- caught by the round's adversarial review)
         "fork-battle":   lambda w: w.battle._fork_dialog(),
+        # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
+        # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
+        "campaign-newgame": _open_campaign_newgame,
     }
     with _pin_setup_state(game=True, templates=True):
         win = _make_win(ctx)
@@ -387,8 +401,8 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
 
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
-DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "setup", "prefs",
-           "about", "concept-map", "infohub", "updates", "fork-battle")
+DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
+           "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame")
 
 
 def all_surfaces() -> list[str]:

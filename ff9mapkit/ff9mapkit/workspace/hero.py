@@ -51,6 +51,7 @@ _ARM_INDENT = 18       # the arm sits in the GUTTER: at 0 it impales the "D" and
 _ELBOW_R = 6
 _BEAD = 3.5
 _MIST_ALPHA = 40
+_RECESSION_ALPHA = 18  # the far plane, self-fenced STRICTLY below the near bloom -- a far plane is dimmer
 
 
 def band_metrics(density: str = "comfortable", scale: int = 100):
@@ -89,6 +90,48 @@ def band_type(scale: int = 100):
     return (style.type_px("type_caption", scale),
             int(_WORD_PX * scale / 100 + 0.5),
             style.type_px("type_body", scale))
+
+
+def recession_bloom(x0, col, h, scale=100):
+    """The far plane: geometry of a second, dimmer ``$text`` bloom that fills the band's dead right half.
+
+    The near mist sits left-of-centre (``x0 + 0.28*col``), so the right ~55% of the band was flat void.
+    This is one more static radial -- the SAME climate ink as the mist, at ``_RECESSION_ALPHA`` (fixed
+    strictly below ``_MIST_ALPHA``, because a far plane is dimmer than a near one, and that ordering is
+    the whole reason it reads as recession and not as a second competing bloom). No gold, no motion.
+
+    Anchored to the column's RIGHT edge (``cx = x0 + 0.96*col``) and sized just under the band height, so
+    its visible weight lands in the right void and never reaches the LEFT-aligned overline / wordmark /
+    status. Narrow windows compress that geometry, so the non-overlap is fenced arithmetically at multiple
+    widths in test_workspace_hero -- returning plain numbers (not a QRadialGradient) is what lets the fence
+    measure the alpha at any point without a font database.
+
+    THE RADIUS IS PINNED TO THE DESIGN (100%) SIZE, not the scaled band height. CALIBRE grows the band and
+    the type; the atmospheric haze is BACKGROUND, not type, so it must not grow with the dial. It had to:
+    at 150% the status string is ~1.5x wider and crosses the column's midline into the right void, while a
+    height-based radius grew with the band -- so the bloom reached the status text's right edge (alpha ~4/255
+    at the 686px floor, past the 2/255 perception cap the fence enforces). Pinning the radius at ``0.96 *
+    h_design`` (``h * 100/scale`` -- band height is exactly proportional to scale) makes the non-overlap
+    SCALE-ROBUST BY CONSTRUCTION and leaves ``scale=100`` byte-identical. Fenced across the dial in
+    test_workspace_hero.
+
+    Returns ``(cx, cy, radius, alpha)``.
+    """
+    return x0 + 0.96 * col, h * 0.5, 0.96 * h * 100.0 / scale, _RECESSION_ALPHA
+
+
+def recession_alpha_at(cx, cy, radius, alpha, px, py):
+    """The recession's alpha (0..``alpha``) at ``(px, py)`` -- a PadSpread radial's linear ramp.
+
+    Qt's ``QRadialGradient`` (default ``PadSpread``) fades ``colorAt(0)`` at the centre to ``colorAt(1)`` at
+    ``radius`` and holds the edge stop beyond it. Both endpoints here are the same ``$text`` colour, so the
+    only thing that varies with distance is the alpha: ``alpha * (1 - clamp(dist/radius, 0, 1))``. This is
+    the recession's whole contribution to the ground at a point, computable with no render.
+    """
+    if radius <= 0:
+        return 0.0
+    dist = ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+    return alpha * max(0.0, 1.0 - min(1.0, dist / radius))
 
 # The signet signs itself, once, on the front door's first paint.
 #
@@ -352,6 +395,18 @@ class HeroBand(QWidget):
         c1 = QColor(pal["text"]); c1.setAlpha(0)
         mist.setColorAt(0.0, c0); mist.setColorAt(1.0, c1)
         p.fillRect(r, QBrush(mist))
+
+        # 3b. THE FAR PLANE -- the dead right half becomes atmospheric recession, not flat void. One more
+        #     static radial, the SAME $text haze as the near mist but dimmer (alpha self-fenced below
+        #     _MIST_ALPHA), anchored to the column's right edge so its weight fills the void and stays
+        #     clear of the left-aligned text. No gold, no motion. Its non-overlap with the overline /
+        #     wordmark / status is fenced at multiple widths in test_workspace_hero (recession_bloom).
+        rcx, rcy, rrad, ralpha = recession_bloom(x0, col, h, self._scale)
+        far = QRadialGradient(QPointF(rcx, rcy), rrad)
+        f0 = QColor(pal["text"]); f0.setAlpha(ralpha)
+        f1 = QColor(pal["text"]); f1.setAlpha(0)
+        far.setColorAt(0.0, f0); far.setColorAt(1.0, f1)
+        p.fillRect(r, QBrush(far))
 
         # 4. bottom border
         p.fillRect(QRectF(0, h - 1, w, 1), QColor(pal["border"]))

@@ -115,7 +115,15 @@ class BuildDoc(QWidget):
         # Phase 6: the routine deploy is field / campaign / journey (the F9 button drives these). The niche
         # battle target and the New-Game footgun (single-owner -- a wholesale campaign re-deploy WIPES it) are
         # fenced behind an Advanced drawer so they're not visually co-equal with routine deploy.
-        adv = widgets.disclosure("Advanced — battle deploy · New Game entry (single-owner)")
+        # Cross-tab beginner lever (ASK #12): the drawer's default open/shut tracks the mode -- Guided
+        # collapses it (the routine deploy stays front-and-centre), Full opens every expert drawer inline.
+        # A live flip re-defaults it via apply_guided() below. builddoc has no computed auto-expand
+        # override, so the mode default always wins here. The mode is read from the workspace's live global
+        # (forms_qt._GUIDED, which the shell keeps synced to prefs), NOT prefs.guided() -- so a standalone
+        # BuildDoc in a test never inherits the developer's prefs file (THE DISEASE).
+        from . import forms_qt
+        adv = widgets.disclosure("Advanced — battle deploy · New Game entry (single-owner)",
+                                 expanded=not forms_qt._GUIDED)
         adv.content_layout.addWidget(self._battle_box())
         adv.content_layout.addWidget(self._newgame_box())
         self._advanced = adv
@@ -147,6 +155,15 @@ class BuildDoc(QWidget):
         scroll.setWidget(inner)
         outer.addWidget(scroll)
         self._refresh_deployed()               # populate the ledger on open (refresh() re-scans on tab-show)
+        self._refresh_newgame_status()         # and the 'New Game currently points at ...' line
+
+    def apply_guided(self, guided: bool):
+        """Re-default the Advanced drawer when the cross-tab beginner mode flips (ASK #12): Full opens it,
+        Guided collapses it. Called by the shell's ``_apply_guided`` on the live Preferences/Ctrl-K flip
+        (and on the Cancel-revert path). The one computed auto-expand override -- a BATTLE target (whose
+        Deploy-battle box lives inside this drawer, revealed in ``_update_dest``) -- keeps WINNING over the
+        mode default (chair ruling), so a battle deploy's controls never vanish in Guided mode."""
+        self._advanced.toggle_button.setChecked(getattr(self, "kind", None) == "battle" or not guided)
 
     def _field_box(self):
         box = widgets.section("Build to (field)")
@@ -206,7 +223,7 @@ class BuildDoc(QWidget):
                        "registrations, and this writes an undo you can run from Revert.", gv)
         widgets.option(self.rb_game,
                        "Installs at the field's OWN id, into your shipping mod folder. Overwrites whatever "
-                       "is there — no automatic undo.", gv)
+                       "is there — but the folder is backed up first, so Revert can undo it.", gv)
         # "Build only — to a folder:" keeps its sentence: it is a FIELD LABEL for the adjacent QLineEdit,
         # not prose. Cutting it orphans the input.
         gv.addLayout(of)
@@ -223,7 +240,8 @@ class BuildDoc(QWidget):
         # least important. style.py documents that role as "an actionable VALUE (e.g. a deploy target)", and
         # measured, accent-as-text is sub-AA in 6 of 7 palettes (NORD 2.44:1 on surface_2). It is now a
         # short muted value line; the per-option captions above carry the explanation, and the rev tooltips
-        # keep the detail. state="warn" on the one branch that is a real diagnostic (see _update_dest).
+        # keep the detail. Every destination is reversible now (even Install-to-game snapshots first), so no
+        # branch is a "danger" diagnostic -- the value line is uniformly muted.
         self.dest = QLabel("")
         self.dest.setWordWrap(True)
         self.dest.setProperty("role", "muted")
@@ -323,8 +341,26 @@ class BuildDoc(QWidget):
                                "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
                                "to test.")
         gv.addWidget(hint)
+        # A persistent read of where New Game currently lands -- so a wholesale campaign/journey deploy's
+        # 'casualty' has a name here, not just in the deploy confirm. Refreshed on every tab-show + after a
+        # set/revert (jobs.current_newgame_target reads the deployed field-70 override).
+        self.newgame_status = QLabel("")
+        self.newgame_status.setWordWrap(True)
+        self.newgame_status.setProperty("role", "muted")
+        gv.addWidget(self.newgame_status)
         self.newgame_box = box
         return box
+
+    def _refresh_newgame_status(self):
+        """Show where New Game currently points (the deployed FF9CustomMap field-70 override), or that it
+        uses the stock opening. Silently blank when no install is found."""
+        if not hasattr(self, "newgame_status"):
+            return
+        tgt = jobs.current_newgame_target(self.game_mod) if self.game_mod else None
+        if tgt is not None:
+            self.newgame_status.setText(f"New Game currently points at field {tgt}.")
+        else:
+            self.newgame_status.setText("New Game currently uses the stock opening (no custom entry deployed).")
 
     def _battle_box(self):
         box = widgets.section("Deploy battle map")
@@ -452,6 +488,7 @@ class BuildDoc(QWidget):
         `_refresh_flag_names` on tab-show, so the view is current no matter the open/edit order."""
         self._on_path()
         self._refresh_deployed()               # the 'Deployed here' ledger is a live inventory -> re-scan on show
+        self._refresh_newgame_status()         # so is 'New Game currently points at ...'
 
     def _on_path(self, _text=None):
         path = self.path.text().strip().strip('"')
@@ -574,10 +611,9 @@ class BuildDoc(QWidget):
         tid = self.worktree_id or 4003
         own = self.field_id if self.field_id is not None else "?"
         # Each branch resolves to a short VALUE LINE (the option's caption above already explains the mode,
-        # and the rev tooltip keeps the fine print) -- say each fact exactly once. `warn` marks the ONE
-        # branch that is a real diagnostic: an install to the game has no automatic undo. Never demote the
-        # answer to "why is this dangerous" into 11px grey.
-        warn = False
+        # and the rev tooltip keeps the fine print) -- say each fact exactly once. There is no longer a
+        # "danger" branch: Install-to-game became reversible this wave (it snapshots the whole mod folder
+        # before the write), so every destination's value line is uniformly muted -- no state="warn".
         if self._inplace_available and self.rb_inplace.isChecked():
             t = self.inplace_target
             # KEEP "in place" + the donor id unsplit: test_builddoc_inplace.py:58 asserts on dest.text().
@@ -597,19 +633,18 @@ class BuildDoc(QWidget):
             self.rev.setToolTip(f"Undo the last deploy of field {own} (restores its previous contents).")
         elif self.rb_game.isChecked():
             where = self.game_mod or "(game install not found)"
-            msg = f"→ field {own} in {where} · overwrites, no undo"
-            warn = True
-            self.rev.setEnabled(False)             # a direct game install overwrites in place -- no revert script
-            self.rev.setToolTip(f"A direct game install overwrites field {own} in place — there's no automatic "
-                                "undo. Restore from your backup, or re-install the original field.")
+            # Reversible now: Install-to-game snapshots the whole folder first (backup law, §2) and writes
+            # revert_install.py. Still an overwrite in the shipping folder, so the value line names that.
+            msg = f"→ field {own} in {where} · overwrites (backed up — Revert undoes it)"
+            self.rev.setEnabled(True)
+            self.rev.setToolTip(f"A direct game install overwrites field {own} in place. The whole mod "
+                                "folder is backed up before the write, so Revert restores it.")
         else:
             folder = self.other.text().strip() or "(pick a folder)"
             msg = f"→ field {own} → {folder} · no game change"
             self.rev.setEnabled(False)             # building into a plain folder deploys nothing to revert
             self.rev.setToolTip("Builds into a plain folder — nothing was deployed to the game to revert.")
         self.dest.setText(msg)
-        self.dest.setProperty("state", "warn" if warn else "")
-        widgets.repolish(self.dest)                # setProperty does NOT restyle; _update_dest runs post-polish
 
     # ------------------------------------------------------------------ destination persistence
     # THE SQUEEZE LAW, applied to a radio: a value the user CLICKED is a real preference; a value COMPUTED
@@ -699,6 +734,15 @@ class BuildDoc(QWidget):
     def _confirm(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
 
+    def _confirm_reversible(self, title, text):
+        """A REVERSIBLE deploy (the test slot / an in-place fork) skips the modal by default, so F9 is a
+        true one-keystroke loop; ``prefs.confirm_reversible_deploys`` opts the confirm back IN. The no-undo
+        Install-to-game and the wholesale campaign/journey deploys never route through here -- they keep
+        their unconditional :meth:`_confirm`."""
+        if not prefs.confirm_reversible_deploys():
+            return True
+        return self._confirm(title, text)
+
     def _warn(self, title, text):
         QMessageBox.warning(self, title, text)
 
@@ -733,6 +777,24 @@ class BuildDoc(QWidget):
         for w in (self.chk, self.go, self.rev, self.pack_btn, self.set_ng, self.rev_ng,
                   self.dep_refresh, self.dep_revert):
             w.setEnabled(not b)
+
+    def _revert_dirs(self):
+        """(backups_dir, reverts_dir) for the Install-to-game snapshot -- the repo's ``backups/`` +
+        ``tools/scroll_out/`` on a dev checkout, else the installed copy's per-user cache (Install-to-game
+        works on both, so this can't assume repo tools)."""
+        if self.has_tools:
+            return self.repo / "backups", self.repo / "tools" / "scroll_out"
+        from .. import provision
+        return provision.deploy_backups_dir(), provision.deploy_reverts_dir()
+
+    def _snapshot_before_install(self) -> bool:
+        """Back up the whole game mod folder before an Install-to-game write and wire its revert. Returns
+        True when a revert script was written (Install-to-game becomes reversible), False when it could not
+        be (so the caller states the honest truth instead of overclaiming)."""
+        if not self.game_mod:                              # rb_game is disabled without an install; belt-and-braces
+            return False
+        backups_dir, reverts_dir = self._revert_dirs()
+        return jobs.snapshot_mod_folder(self.game_mod, backups_dir, reverts_dir) is not None
 
     # ------------------------------------------------------------------ Package for sharing
     def _pack_guess(self):
@@ -803,12 +865,20 @@ class BuildDoc(QWidget):
                      ok_next=f"Share {out} — unzipping it next to FF9_Launcher.exe installs the mod "
                              f"(folder '{name}', add it to Memoria.ini FolderNames).")
 
-    def _stream(self, argv, *, cwd, subject, ok_headline, ok_next="", field_id=None):
+    def _stream(self, argv, *, cwd, subject, ok_headline, ok_next="", field_id=None, then=None):
         # field_id (a real/test/own field-deploy target) rides to run_job so the shell's post-deploy spine
         # can offer a one-click Copy-warp receipt; None on build/campaign/journey (no single warp id).
+        # `then` (called on a code==0 finish) chains a follow-on job -- e.g. 'Deploy & re-wire' runs the
+        # New-Game re-wire after a campaign deploy succeeds. run_job's proc is NotRunning by the time
+        # on_finished fires, so starting the next job here is legal.
         self._busy(True)
+
+        def _fin(code):
+            self._busy(False)
+            if then is not None and code == 0:
+                then()
         if not self._run(argv, cwd=cwd, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
-                         field_id=field_id, on_finished=lambda _c: self._busy(False)):
+                         field_id=field_id, on_finished=_fin):
             self._busy(False)                          # a job was already running; nothing started
 
     # ------------------------------------------------------------------ Check (in-process, structured)
@@ -886,7 +956,7 @@ class BuildDoc(QWidget):
                 return
             t = self.inplace_target
             hud = "\n\nKeeps the Chocobo dig HUD (hardcoded on the real forest id)." if t["is_forest"] else ""
-            if self._confirm(f"Deploy in place on field {t['donor']}",
+            if self._confirm_reversible(f"Deploy in place on field {t['donor']}",
                              f"Build and deploy this fork IN PLACE on field {t['donor']} ({self.mod_folder})? "
                              f"The engine loads it instead of the real field (reversible).{hud}"):
                 self._stream(jobs.deploy_field_inplace_argv(self.repo, field, t), cwd=self.repo,
@@ -901,7 +971,7 @@ class BuildDoc(QWidget):
             tid = self.worktree_id or 4003
             reach = ("New Game → walk to the hut door (or ~ → Warp)" if tid == 4003
                      else f"~ → Warp to field {tid}")
-            if self._confirm(f"Deploy to test field {tid}",
+            if self._confirm_reversible(f"Deploy to test field {tid}",
                              f"Build and deploy this field to the test slot {tid} ({self.mod_folder})? "
                              "It replaces whatever is there now (reversible)."):
                 self._stream(jobs.deploy_field_argv(self.repo, field), cwd=self.repo,
@@ -919,19 +989,98 @@ class BuildDoc(QWidget):
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
                              "Writes the field at its real id, replacing any field already installed "
-                             "there under that id. Other fields in the folder stay registered."):
+                             "there under that id. Other fields in the folder stay registered.\n\n"
+                             "The folder is backed up first, so you can undo this with Revert."):
+                # HONOR THE BACKUP LAW (§2). Install-to-game is the one GUI write into the real shipping
+                # folder; snapshot the WHOLE folder BEFORE the build and wire the install revert. (The build
+                # rewrites the folder's DictionaryPatch + patches wholesale, so a per-id write-set isn't
+                # reliable here -> whole-folder, correctness over economy -- jobs.snapshot_mod_folder.)
+                snap_ok = self._snapshot_before_install()
                 # preserve_existing: a build writes the folder's WHOLE DictionaryPatch, so without it
                 # every other field in a shipping folder is silently unregistered -- their files stay,
                 # and the engine black-screens on them (observed 2026-07-18).
                 self._stream(jobs.build_argv(field, str(self.game_mod), preserve_existing=True),
                              cwd=self.kit_cwd, subject="Install to game",
-                             ok_headline=f"Built into {self.game_mod}")
+                             ok_headline=f"Built into {self.game_mod}",
+                             ok_next=("Undo with Revert (the folder was backed up first)." if snap_ok else
+                                      "Note: the pre-install backup could not be written — Revert is "
+                                      "unavailable for this install. Restore from your own backup if needed."),
+                             then=self._refresh_deployed)
         else:
             out = self.other.text().strip()
             if not out:
                 return self._warn("No folder", "Pick an output folder.")
             self._stream(jobs.build_argv(field, out), cwd=self.kit_cwd, subject="Build",
                          ok_headline=f"Built into {out}")
+
+    def _current_newgame_target_for(self, mod_folder_name):
+        """The field id New Game currently lands on for a given mod-folder NAME, resolved against the
+        detected game install -- or ``None`` when there is no install, no override, or it can't be parsed."""
+        if not self.game_mod:
+            return None
+        try:
+            return jobs.current_newgame_target(Path(self.game_mod).parent / mod_folder_name)
+        except Exception:                              # noqa: BLE001 -- best-effort read; never blocks a deploy
+            return None
+
+    def _confirm_campaign_deploy(self, casualty, route):
+        """The named 3-button confirm shown when a wholesale campaign deploy would WIPE a live New-Game
+        entry: 'Deploy & re-wire' / 'Deploy anyway' / 'Cancel'. Returns ``"rewire"`` / ``"anyway"`` /
+        ``"cancel"``. A QDialog (not a QMessageBox) so it wears the app's dialog grammar and is grab-testable
+        by tools/gui_snap.py (dlg:campaign-newgame)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Deploy campaign")
+        v = QVBoxLayout(dlg)
+        head = QLabel(f"Deploy campaign ‘{self.plan.name}’")
+        head.setProperty("role", "head")
+        v.addWidget(head)
+        body = widgets.Prose(
+            f"Reversibly installs {len(self.plan.members)} fields into {self.plan.mod_folder}. {route}\n\n"
+            f"Heads up: a wholesale campaign deploy replaces that folder, which wipes the New Game entry — "
+            f"it currently points at field {casualty}. Re-wire it back after the deploy, or deploy and "
+            f"leave New Game unwired.", widgets.CAPTION_W)
+        v.addWidget(body)
+        result = {"choice": "cancel"}
+
+        def _pick(choice):
+            result["choice"] = choice
+            dlg.accept()
+        rewire = QPushButton("Deploy && re-wire")      # && -> a literal '&' (a single & is a Qt mnemonic)
+        anyway = QPushButton("Deploy anyway")
+        cancel = QPushButton("Cancel")
+        rewire.clicked.connect(lambda: _pick("rewire"))
+        anyway.clicked.connect(lambda: _pick("anyway"))
+        cancel.clicked.connect(lambda: _pick("cancel"))
+        rewire.setDefault(True)                         # the recommended path; quiet/default tier (no accent)
+        row = QHBoxLayout()
+        row.addWidget(cancel)
+        row.addStretch(1)
+        row.addWidget(anyway)
+        row.addWidget(rewire)
+        v.addLayout(row)
+        widgets.fit_dialog(dlg, ch=74)
+        dlg.exec()
+        return result["choice"]
+
+    def _rewire_newgame_after_deploy(self, target):
+        """The 'Deploy & re-wire' follow-on: re-point New Game back at ``target`` (the id the wholesale
+        deploy just wiped) via the from-stock wiring. Runs after the deploy job finishes cleanly.
+
+        The re-wire MUST target the SAME folder the casualty was read from (``self.plan.mod_folder``, via
+        :meth:`_current_newgame_target_for`) -- otherwise a campaign whose mod_folder is not FF9CustomMap
+        gets its override wiped in that folder and restored in FF9CustomMap (both argv builders default the
+        folder, so the fix is to pass it through)."""
+        if target is None:
+            return
+        mod_folder = self.plan.mod_folder
+        if self.has_tools:
+            argv, cwd = jobs.newgame_from_stock_argv(self.repo, target, mod_folder=mod_folder), self.repo
+        else:
+            argv, cwd = jobs.newgame_from_stock_pkg_argv(target, mod_folder=mod_folder), self.kit_cwd
+        self._stream(argv, cwd=cwd, subject="Re-wire New Game",
+                     ok_headline=f"Re-wired New Game to field {target}",
+                     ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.",
+                     then=self._refresh_newgame_status)
 
     def _go_campaign(self, path):
         if self.rb_camp_build.isChecked():
@@ -942,26 +1091,40 @@ class BuildDoc(QWidget):
         route = ("It also wires New Game to enter the chain (experimental)." if wire
                  else "Reach each screen in-game via ~ → Warp." if self.has_tools
                  else "Reach the chain via New Game (if wired) or a [[gateway]] from an early field.")
-        if self._confirm("Deploy campaign",
-                         f"Reversibly install campaign '{self.plan.name}' ({len(self.plan.members)} fields) "
-                         f"into:\n\n{self.plan.mod_folder}\n\n{route}"):
-            ids = [m.new_id for m in self.plan.members]
-            entry = self.plan.members[0].new_id if self.plan.members else (min(ids) if ids else "?")
-            # Repo checkout -> the dev tool (reverts to tools/scroll_out); installed copy -> the package CLI
-            # (ff9mapkit deploy-campaign; reverts to a per-user cache). Same in-game-proven orchestration.
-            if self.has_tools:
-                argv, cwd = jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire,
-                                                      mod_folder=self.plan.mod_folder), self.repo
-            else:
-                argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
-                                                          mod_folder=self.plan.mod_folder), self.kit_cwd
-            reach = (f"Relaunch once (new DictionaryPatch), then ~ → Warp → {entry} to walk the chain." if self.has_tools
-                     else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames AND Priorities, same order "
-                          f"(Memoria auto-detects it; a FolderNames-only hand edit is reverted by the launcher), "
-                          f"relaunch once, then reach the chain via New Game / a gateway.")
-            self._stream(argv, cwd=cwd, subject="Deploy campaign",
-                         ok_headline=f"Deployed campaign '{self.plan.name}' → {self.plan.mod_folder}",
-                         ok_next=reach)
+        # A wholesale campaign deploy REPLACES the mod folder, which WIPES the field-70 New-Game override.
+        # When one is live, name the casualty in a 3-button dialog and offer to re-wire it after the deploy;
+        # with none live there is nothing to warn about, so keep the plain reversible confirm.
+        casualty = self._current_newgame_target_for(self.plan.mod_folder) if not wire else None
+        rewire_after = False
+        if casualty is not None:
+            choice = self._confirm_campaign_deploy(casualty, route)
+            if choice == "cancel":
+                return
+            rewire_after = (choice == "rewire")
+        elif not self._confirm("Deploy campaign",
+                               f"Reversibly install campaign '{self.plan.name}' ({len(self.plan.members)} "
+                               f"fields) into:\n\n{self.plan.mod_folder}\n\n{route}"):
+            return
+        ids = [m.new_id for m in self.plan.members]
+        entry = self.plan.members[0].new_id if self.plan.members else (min(ids) if ids else "?")
+        # Repo checkout -> the dev tool (reverts to tools/scroll_out); installed copy -> the package CLI
+        # (ff9mapkit deploy-campaign; reverts to a per-user cache). Same in-game-proven orchestration.
+        if self.has_tools:
+            argv, cwd = jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire,
+                                                  mod_folder=self.plan.mod_folder), self.repo
+        else:
+            argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
+                                                      mod_folder=self.plan.mod_folder), self.kit_cwd
+        reach = (f"Relaunch once (new DictionaryPatch), then ~ → Warp → {entry} to walk the chain." if self.has_tools
+                 else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames AND Priorities, same order "
+                      f"(Memoria auto-detects it; a FolderNames-only hand edit is reverted by the launcher), "
+                      f"relaunch once, then reach the chain via New Game / a gateway.")
+        # 'Deploy & re-wire' chains the New-Game re-wire after the deploy succeeds -- re-pointing New Game
+        # back at the casualty id the wholesale replace wiped (the existing wire-from-stock path).
+        then = (lambda: self._rewire_newgame_after_deploy(casualty)) if rewire_after else None
+        self._stream(argv, cwd=cwd, subject="Deploy campaign",
+                     ok_headline=f"Deployed campaign '{self.plan.name}' → {self.plan.mod_folder}",
+                     ok_next=reach, then=then)
 
     def _go_journey(self, path):
         # Repo checkout -> the dev tool (cwd=repo, reverts to tools/scroll_out); installed copy -> the package
@@ -993,7 +1156,9 @@ class BuildDoc(QWidget):
         route = {"hub": "New Game will land on the hub MENU (single-owner — replaces the current New-Game target).",
                  "entry": "New Game will land STRAIGHT in the opening field, no menu (single-owner — replaces the "
                           "current target; keeps the real opening FMV).",
-                 "none": "New Game is left UNCHANGED — reach the hub via ~ → Warp."}[mode]
+                 "none": "New Game is not wired to this journey — but a wholesale deploy replaces the mod "
+                         "folder(s), so an existing custom New-Game entry living in one is wiped back to "
+                         "stock. Reach the hub via ~ → Warp; re-wire New Game afterward if you had one."}[mode]
         layout = ("MERGED into ONE stacked mod folder (a single FolderNames entry)" if single
                   else "every campaign into its own stacked mod folder")
         folders_note = ("Reversible via one unified revert. You then add the ONE merged folder to Memoria.ini "
@@ -1050,7 +1215,8 @@ class BuildDoc(QWidget):
                 argv, cwd = jobs.newgame_from_stock_pkg_argv(fid), self.kit_cwd
             self._stream(argv, cwd=cwd, subject="Set New Game entry",
                          ok_headline=f"New Game now lands on field {fid}",
-                         ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.")
+                         ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.",
+                         then=self._refresh_newgame_status)
 
     def on_revert_newgame(self):
         argv = (jobs.revert_newgame_argv(self.repo) if self.has_tools else jobs.revert_newgame_pkg_argv())
@@ -1060,7 +1226,8 @@ class BuildDoc(QWidget):
         if self._confirm("Revert New Game", "Restore the previous New-Game landing?"):
             self._stream(argv, cwd=cwd, subject="Revert New Game",
                          ok_headline="Reverted the New-Game retarget",
-                         ok_next="Relaunch to load the restored New-Game landing.")
+                         ok_next="Relaunch to load the restored New-Game landing.",
+                         then=self._refresh_newgame_status)
 
     # ------------------------------------------------------------------ Revert
     def on_revert(self):
@@ -1072,6 +1239,12 @@ class BuildDoc(QWidget):
         elif self.kind == "journey":
             argv = (jobs.revert_journey_argv(self.repo) if self.has_tools else jobs.revert_journey_pkg_argv())
             what = ("journey links" if argv and Path(argv[-1]).name == "revert_journey_links.py" else "journey")
+        elif self.kind == "field" and self.rb_game.isChecked():
+            # Install-to-game is reversible via the pre-install whole-folder snapshot -- and, unlike the
+            # test-slot/own-id reverts, this works on an installed copy too, so it is handled BEFORE the
+            # _require_tools gate below.
+            argv = jobs.revert_install_argv(self.repo) if self.has_tools else jobs.revert_install_pkg_argv()
+            what = "install"
         else:
             if not self._require_tools("Revert"):
                 return

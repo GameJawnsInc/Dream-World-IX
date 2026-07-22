@@ -199,3 +199,91 @@ def test_just_deployed_offers_a_copy_warp_receipt(win):
 def test_copy_warp_puts_the_bare_id_on_the_clipboard(win, app):
     win._copy_warp(6001)
     assert QApplication.clipboard().text() == "6001", "the bare id lands on the clipboard for ~ -> Warp"
+
+
+# --------------------------------------------------------------- item 5: structured failure + jump
+_FAILED = (
+    "reading broken.field.toml\n"
+    "error: [camera] section is required\n"
+)
+
+
+def _run_failed(win, output, code, *, stopped=False):
+    """Simulate a job whose stdout is ``output`` finishing with ``code`` -- populate the console + the job
+    buffer the way _drain_proc would, then post the verdict via _proc_done."""
+    win._job = ("Build", None, "", "See the Output panel.", None, None)
+    win._stopped = stopped
+    win._job_out = [output]                              # what _drain_proc accumulates verbatim
+    win.output.clear()
+    win._log(output.rstrip())                            # what the user sees streamed into Output
+    win._proc_done(code, None)
+
+
+def _anchor_rows(win):
+    return [win.problems.item(i) for i in range(win.problems.count())
+            if win.problems.item(i).data(win_role())]
+
+
+def win_role():
+    from PySide6.QtCore import Qt
+    return Qt.ItemDataRole.UserRole
+
+
+def test_failed_job_posts_a_clickable_anchor_row(win):
+    """A non-zero exit whose log carries a tight anchor posts ONE Problems row carrying the offending line
+    in UserRole (the clickable jump target). The chair's law: fire only on failure + a tight anchor."""
+    _run_failed(win, _FAILED, 1)
+    rows = _anchor_rows(win)
+    assert len(rows) == 1, "exactly one anchor row on a failed job with a tight anchor"
+    assert rows[0].text() == "error: [camera] section is required"
+    assert rows[0].data(win_role()) == "error: [camera] section is required", "carries the jump target"
+
+
+def test_clicking_the_anchor_row_reveals_the_line_in_output(win):
+    """Activating the anchor row selects its line in the Output console -- the jump. (Backward search finds
+    THIS job's occurrence since the log accumulates.)"""
+    _run_failed(win, _FAILED, 1)
+    row = _anchor_rows(win)[0]
+    win.output.moveCursor(QTextCursor_start())           # park the cursor away from the match
+    win._jump_to_anchor(row)
+    assert win.output.textCursor().selectedText() == "error: [camera] section is required", \
+        "the jump selects (reveals) the anchored line in Output"
+
+
+def test_jump_no_ops_on_a_row_without_an_anchor(win):
+    """A plain validation row (no UserRole) must not move the Output cursor -- _jump_to_anchor is safe to
+    wire for every row because it no-ops on the anchorless ones."""
+    from PySide6.QtWidgets import QListWidgetItem
+    win.output.clear()
+    win._log("some unrelated output")
+    win.output.moveCursor(QTextCursor_start())
+    before = win.output.textCursor().position()
+    win._jump_to_anchor(QListWidgetItem("a validation problem"))   # no UserRole set
+    assert win.output.textCursor().position() == before, "no anchor -> no jump"
+
+
+def test_exit_zero_posts_no_anchor_row(win):
+    """Success posts no anchor row even when the log echoes an `error:` line (the extractor gates on code)."""
+    _run_failed(win, _FAILED, 0)
+    assert _anchor_rows(win) == [], "exit 0 -> no anchor row"
+
+
+def test_a_stop_kill_posts_no_anchor_row(win):
+    """A user Stop is intended, not a failure to dissect -- it carries the 'Stopped.' verdict but no anchor
+    row (the exit is non-zero, so this must be gated on _stopped, not on the code alone)."""
+    _run_failed(win, _FAILED, 1, stopped=True)
+    assert _anchor_rows(win) == [], "a Stop kill surfaces no structured-failure row"
+    assert "Stopped." in win.banner.text()
+
+
+def test_no_anchor_failure_posts_no_row(win):
+    """A non-zero exit whose log has neither a traceback nor an `error:` line posts zero rows -- a no-anchor
+    mess is not worth a false row (don't cry wolf)."""
+    _run_failed(win, "wrote build/error_log.txt\ndone in 3s\n", 1)
+    assert _anchor_rows(win) == [], "no tight anchor -> no row"
+    assert win.banner.property("state") == "error", "the verdict still reads failed"
+
+
+def QTextCursor_start():
+    from PySide6.QtGui import QTextCursor
+    return QTextCursor.MoveOperation.Start

@@ -162,6 +162,45 @@ def _song_entries(force: bool = False) -> list:
     return _SONG_CACHE
 
 
+_REALFIELD_CACHE: Optional[list] = None
+
+
+def _realfield_entries() -> list:
+    """Every REAL FF9 field as a ``realfield`` Entry -- so a frontend's CatalogPicker can pick-and-fill a
+    SOURCE field id the same interactive way it picks a model or item, instead of dumping ``list-fields``
+    text to a console. Backed by the baked id->FBG table (:data:`extract.ID_TO_FBG`, always present +
+    provenance-clean); the nicer names from the gitignored dev ``reference/field-manifest.tsv`` enrich it
+    when a checkout has them, else the FBG folder is the name. The id + FBG live in the SUMMARY so a
+    numeric-id query and an FBG-substring query BOTH match. Built once; best-effort -- a missing table
+    yields an empty kind (never raises). NOT a member of :data:`KINDS`: it's a picker-only kind, added to
+    :func:`browse` only when explicitly requested, so it never bloats the kitchen-sink library."""
+    global _REALFIELD_CACHE
+    if _REALFIELD_CACHE is None:
+        try:
+            from . import extract as _extract
+            names = _extract._manifest_field_names()       # {} without the dev-only manifest
+            out = []
+            for fid, fbg in sorted(_extract.ID_TO_FBG.items()):
+                short = re.sub(r"^fbg_n\d+_", "", fbg or "")
+                nm = names.get(fid) or short or str(fid)
+                out.append(Entry("realfield", nm, fbg or None, f"field #{fid} -- {short or fbg}", fid))
+            _REALFIELD_CACHE = out
+        except Exception:   # noqa: BLE001 -- no baked table / no extract -> empty kind
+            _REALFIELD_CACHE = []
+    return _REALFIELD_CACHE
+
+
+def realfield_entries(ids=None) -> list:
+    """The ``realfield`` entries: every real FF9 field, or -- when ``ids`` is given -- just those ids in the
+    given order (a pre-scoped subset for a picker like Import's suggested test rooms). Public so a frontend
+    can open a CatalogPicker over a SUBSET without re-deriving the id/name/FBG labels."""
+    allent = _realfield_entries()
+    if ids is None:
+        return list(allent)
+    by_id = {e.ident: e for e in allent}
+    return [by_id[i] for i in ids if i in by_id]
+
+
 def _sps_template_entries() -> list:
     """The curated ``[[sps]]`` effect templates (``sps.templates``) as a static, install-free kind -- the
     names + descriptions list with no install; the detail-pane PREVIEW renders the donor effect lazily
@@ -402,6 +441,8 @@ def browse(query: str = "", kinds=None, limit=200, campaign_context=None, sps_co
     extra = field_entries + sps_entries
     if "song" in want:                 # lazy install-gated kind: the one-time 590 MB manifest extraction
         extra = extra + _song_entries(force=bool(kinds))   # runs only when songs were explicitly asked for
+    if "realfield" in want:            # picker-only kind (NOT in KINDS): only when explicitly requested
+        extra = extra + _realfield_entries()
     entries = (extra + _all_entries()) if extra else _all_entries()
     out = []
     for e in entries:
@@ -453,6 +494,8 @@ def snippet(entry: Entry) -> str:
         return (f'[[sps_edit]]\nsps = {e.ident}        # re-skin this effect over its carried texture\n'
                 f'kind = "tint"\nmul = [0, 0, 512]    # recolour the whole ramp (256 == identity; this -> blue)\n'
                 f'# other kinds: recolor_ramp / scale / reposition -- see docs/SPS.md')
+    if e.kind == "realfield":                          # a real FF9 field -> the Import SOURCE value (its id)
+        return str(e.ident)
     if e.kind == "field":                              # a campaign member -- not a paste-able toml block
         return f"# campaign field: {e.name} (id {e.ident})"
     if e.kind == "flag":                               # a shared named story flag -> the gate line
@@ -514,6 +557,12 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         return _sps_template_detail(e)
     if e.kind == "sps":                                # a carried field effect (decode + preview)
         return _sps_detail(e)
+    if e.kind == "realfield":                          # a real FF9 field (Import source picker) -- id, not a model
+        d = Detail(name=e.name, kind="realfield", model=e.model, model_id=None, snippet=snippet(e))
+        d.facts = [("kind", "real FF9 field"), ("id", str(e.ident))]
+        if e.model:
+            d.facts.append(("fbg", e.model))
+        return d
     if e.kind == "field":
         return _field_detail(e, campaign_context)
     if e.kind == "flag":                               # a shared named story flag (cross-field gate)

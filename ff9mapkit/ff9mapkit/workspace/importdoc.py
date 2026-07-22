@@ -11,9 +11,10 @@ are the shell's, and the commands are the same CLI the terminal loop uses.
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
@@ -28,10 +29,21 @@ class ImportDoc(QWidget):
     job to the Output panel + posts a verdict); ``problems`` = ``shell._show_problems`` (unused here -- the
     shell-outs have only a stream + a return code, so the verdict comes from run_job)."""
 
+    # Emitted from the find-rooms worker thread with a forkreport.RoomSweep (or an Exception) so the ~45s
+    # sweep never blocks the GUI thread; handled by _on_rooms_ready on the GUI thread. See on_suggest_rooms.
+    _rooms_ready = Signal(object)
+
     def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None, thumbs=None,
                  on_open_models=None):
         super().__init__()
         self.pal = pal
+        # Suggested-test-rooms cache: find-rooms is a ~45s sweep with no cache of its own, so remember the
+        # last RoomSweep keyed on the install path -- a second Suggest click is instant, and a changed game
+        # path (a different install = different fields) invalidates it. Set on the GUI thread only.
+        self._rooms_cache = None
+        self._rooms_cache_key = None
+        self._rooms_busy = False
+        self._rooms_ready.connect(self._on_rooms_ready)
         self.thumbs = thumbs                           # the shell's ThumbService (field art previews); optional
         self._preview_key = None                       # the thumb key we're waiting on for the fork preview
         self._on_open_models = on_open_models          # shell callback: switch to the Models tab
@@ -66,7 +78,14 @@ class ImportDoc(QWidget):
         # Phase 6: FOREGROUND the simple-fork path; tuck the four other jobs (region / catalog+archive /
         # repaint / models / read) behind a disclosure, so the default Import view is one clear task.
         root.addWidget(self._fork_box())
-        more = widgets.disclosure("More ways to import — region · catalog · repaint · models · read")
+        # Cross-tab beginner lever (ASK #12): the two expert drawers on this tab (this one + the Walk-as
+        # swap below) default open in Full mode and collapsed in Guided; a live flip re-defaults them via
+        # apply_guided(). "More ways to import" has no computed override -- the mode default always wins.
+        # Mode read from the workspace global (forms_qt._GUIDED), not prefs, so a standalone ImportDoc in a
+        # test never inherits the developer's prefs file (THE DISEASE).
+        from . import forms_qt
+        more = widgets.disclosure("More ways to import — region · catalog · repaint · models · read",
+                                  expanded=not forms_qt._GUIDED)
         for _boxfn in (self._region_box, self._archive_box, self._repaint_box, self._models_box, self._read_box):
             more.content_layout.addWidget(_boxfn())
         self._more_import = more                        # kept so the smoke can assert it's collapsed by default
@@ -86,18 +105,27 @@ class ImportDoc(QWidget):
         v = box.content_layout
         lbl = widgets.caption("ONE screen — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). For a whole "
                               "connected AREA (many screens wired together), use Fork a region below. "
-                              "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
+                              "Find… picks one from a searchable list; Preview shows what a fork will/won't reproduce.")
         v.addWidget(lbl)
         row = QHBoxLayout()
         self.field = QLineEdit()
         self.field.setPlaceholderText("field id or name")
         self.field.setAccessibleName("Field id or name")        # no visible label to buddy
         self.find_btn = QPushButton("Find…")
-        self.find_btn.setToolTip("List the real FF9 fields matching the box above (id + name) — the same lookup "
-                                 "as 'List fields' under Read & inspect.")
+        self.find_btn.setToolTip("Pick a real FF9 field from a searchable list (id · name) — the chosen id "
+                                 "fills the box above. Same catalog as ‘List fields’ under Read & inspect.")
         self.find_btn.clicked.connect(self.on_find)
+        # Suggest a test room: pre-scopes the SAME picker to the best swap/demo rooms (a ~45s sweep, cached +
+        # off the GUI thread). Kept OUT of the advanced Walk-as drawer (chair ruling) and beside the id box it
+        # fills, so both pick-and-fill entry points sit together.
+        self.rooms_btn = QPushButton("Suggest a test room…")
+        self.rooms_btn.setToolTip("Sweep ALL fields for the best swap/demo rooms (single-PC, swap-clean, "
+                                  "close camera) and pick one — its id fills the box above. ~45 s the first "
+                                  "time, then cached.")
+        self.rooms_btn.clicked.connect(self.on_suggest_rooms)
         row.addWidget(self.field, 1)
         row.addWidget(self.find_btn)
+        row.addWidget(self.rooms_btn)
         v.addLayout(row)
         # the pre-fork STUDY row -- 'fork/learn from a real field's bytes BEFORE authoring' as buttons
         study = QHBoxLayout()
@@ -167,7 +195,16 @@ class ImportDoc(QWidget):
         # writes mode_chip, neither of which exists yet here.
 
         # Walk as (player swap): who you CONTROL in the fork, decoupled from [party] MEMBERSHIP. Applies to
-        # EITHER fork mode (the CLI forces --verbatim when set), so it lives OUTSIDE the verbatim-only carry box.
+        # EITHER fork mode (the CLI forces --verbatim when set), so it lives OUTSIDE the verbatim-only carry
+        # box -- but it's an EXPERT knob (its own hint warns the swapped rig's scripted gestures glitch), so
+        # it folds behind a collapsed disclosure, the same idiom Co-op uses for its Play-style card. The
+        # comes-back rule (_sync_swap_drawer) re-opens it the moment a swap is set, so a configured swap is
+        # never hidden from the person who set it. NB the 'Suggest a test room…' button stays OUT of this
+        # drawer (chair ruling): it's a newcomer aid that lives with the id box above.
+        from . import forms_qt                  # the workspace mode global (see the 'More ways' note above)
+        self.swap_drawer = widgets.disclosure("Walk as a different character — player swap (advanced)",
+                                              expanded=not forms_qt._GUIDED)
+        sd = self.swap_drawer.content_layout
         swap = QHBoxLayout()
         _l_swap = QLabel("Walk as:")
         swap.addWidget(_l_swap)
@@ -178,26 +215,19 @@ class ImportDoc(QWidget):
                                    "amarant"])
         self.swap_player.setCurrentText("")
         self.swap_player.currentTextChanged.connect(self._sync_mode)   # a Walk-as FORCES verbatim -> reflect it live
+        self.swap_player.currentTextChanged.connect(self._sync_swap_drawer)   # + reveal the drawer when set
         self.swap_player.setMaximumWidth(180)     # a short char-name/GEO id -- don't fill the row (a full-width
         swap.addWidget(self.swap_player)          # combo is a big wheel-scroll target in the scrolling panel)
         self.neutralize = QCheckBox("Neutralize scripted gestures")
         swap.addWidget(self.neutralize)
-        self.rooms_btn = QPushButton("Suggest a test room…")
-        self.rooms_btn.setToolTip("Sweep ALL fields for the best swap/demo rooms (single-PC, swap-clean, "
-                                  "close camera) — answers 'which field should I try this in'. ~45 s; the "
-                                  "table streams to Output.")
-        self.rooms_btn.clicked.connect(
-            lambda: self._kit(["find-rooms"], subject="Find test rooms",
-                              ok_next="Pick a room from the table above, put its id in the field box, and "
-                                      "Preview fidelity / Import."))
-        swap.addWidget(self.rooms_btn)
         swap.addStretch(1)                        # left-align the compact combo + checkbox
-        v.addLayout(swap)
+        sd.addLayout(swap)
         swap_hint = widgets.caption("Optional: control a different character (a playable name) or any model (a GEO id, "
                                     "e.g. a moogle 199) instead of the field's real player. Implies a verbatim fork. On "
                                     "a story field the swapped rig's scripted GESTURES glitch — tick Neutralize to stand "
                                     "cleanly (it won't emote), or fork a free-roam field.")
-        v.addWidget(swap_hint)
+        sd.addWidget(swap_hint)
+        v.addWidget(self.swap_drawer)
 
         out = QHBoxLayout()
         _l_out = QLabel("Write to:")
@@ -259,6 +289,22 @@ class ImportDoc(QWidget):
             self.art_native.setChecked(True)
         if hasattr(self, "mode_chip"):
             self._refresh_mode_chip()
+
+    def _sync_swap_drawer(self, *_):
+        """Comes-back rule for the player-swap drawer: the moment a 'Walk as' character is set, reveal the
+        (advanced, collapsed-by-default) drawer so the configured swap is never hidden. OPEN-ONLY -- clearing
+        the swap, or a manual collapse of an empty drawer, leaves it collapsed (mirrors the Co-op fold)."""
+        if self.swap_player.currentText().strip():
+            self.swap_drawer.toggle_button.setChecked(True)
+
+    def apply_guided(self, guided: bool):
+        """Re-default both expert drawers on this tab when the cross-tab beginner mode flips (ASK #12):
+        Full opens them, Guided collapses them. The Walk-as drawer's comes-back override (a configured
+        swap) keeps WINNING over the mode default, so a set swap stays visible in either mode (chair
+        ruling); 'More ways to import' has no override, so the mode default always wins there."""
+        swap_set = bool(self.swap_player.currentText().strip())
+        self.swap_drawer.toggle_button.setChecked(swap_set or not guided)
+        self._more_import.toggle_button.setChecked(not guided)
 
     def _refresh_mode_chip(self):
         """The live 'Will fork: …' label by the Import button -- so you SEE the resolved mode before clicking,
@@ -741,8 +787,83 @@ class ImportDoc(QWidget):
                           f"id) and relaunch.")
 
     def on_find(self):
-        flt = self.field.text().strip()
-        self._kit(["list-fields", flt] if flt else ["list-fields"], subject="Find fields")
+        """Pick a real FF9 field from the interactive catalog picker (the ``realfield`` Info-Hub kind) --
+        the chosen id fills the source box, like every other lookup in the app, instead of dumping
+        ``list-fields`` text to the console."""
+        self._pick_realfield()
+
+    def _pick_realfield(self, *, entries=None, title=None):
+        """Open a CatalogPicker over real FF9 fields and, on a pick, ``setText`` the chosen id into the
+        source box. ``entries`` pre-scopes it to a computed subset (Import's suggested test rooms); ``None``
+        browses every real field via ``infohub`` (kind='realfield')."""
+        from .forms_qt import CatalogPicker
+        dlg = CatalogPicker(self, ["realfield"], self.field.text().strip(), None, self.pal,
+                            want_id=True, entries=entries)
+        if title:
+            dlg.setWindowTitle(title)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result:
+            self.field.setText(dlg.result)
+
+    def on_suggest_rooms(self):
+        """Suggest a test room: open the SAME picker pre-scoped to the best swap/demo rooms. The ranking is
+        forkreport.find_rooms -- a ~45s install sweep with no cache of its own, so we run it OFF the GUI
+        thread (busy affordance on the button) and cache the RoomSweep keyed on the install path (a second
+        click is instant; a changed game path invalidates it). Never a console dump -- the result feeds the
+        picker."""
+        key = self._game_key()
+        if self._rooms_cache is not None and self._rooms_cache_key == key:
+            return self._open_rooms_picker(self._rooms_cache)   # cached -> instant
+        if self._rooms_busy:
+            return
+        self._rooms_busy = True
+        self.rooms_btn.setEnabled(False)
+        self.rooms_btn.setText("Sweeping fields… (~45 s)")
+
+        def _work():
+            try:
+                from .. import forkreport as FR
+                res = FR.find_rooms()
+            except Exception as e:                     # noqa: BLE001 -- no install / UnityPy -> surfaced below
+                res = e
+            try:
+                self._rooms_ready.emit(res)            # back to the GUI thread
+            except RuntimeError:
+                pass                                   # the doc's C++ object was torn down mid-sweep (window
+                #                                        closed during the ~45s FR.find_rooms) -> nothing to
+                #                                        deliver to; a daemon-thread emit onto a deleted
+                #                                        ImportDoc would otherwise raise on app-close.
+
+        threading.Thread(target=_work, name="ff9-find-rooms", daemon=True).start()
+
+    def _on_rooms_ready(self, res):
+        """GUI-thread handler for the find-rooms worker: restore the button, then cache + show, or warn."""
+        self._rooms_busy = False
+        self.rooms_btn.setEnabled(True)
+        self.rooms_btn.setText("Suggest a test room…")
+        if isinstance(res, Exception):
+            return self._warn("Couldn't find test rooms",
+                              f"{res}\n\n(Sweeping for test rooms needs your FF9 install + UnityPy — check "
+                              "Settings ▸ Setup & health.)")
+        self._rooms_cache = res
+        self._rooms_cache_key = self._game_key()
+        self._open_rooms_picker(res)
+
+    def _open_rooms_picker(self, sweep):
+        """Pre-scope the real-field picker to a RoomSweep's ranked room ids (best-first)."""
+        from .. import infohub
+        entries = infohub.realfield_entries(ids=[r.field_id for r in sweep.rooms])
+        if not entries:
+            return self._warn("No test rooms",
+                              "The sweep found no clean swap/demo rooms — use Find… to pick any real field.")
+        self._pick_realfield(entries=entries, title="Suggested test rooms")
+
+    def _game_key(self):
+        """The install path as the rooms-cache key (a different install = different fields). '' if unknown."""
+        try:
+            from .. import config
+            return str(config.find_game_path(None))
+        except Exception:                              # noqa: BLE001 -- no configured install -> a stable ''
+            return ""
 
     def on_preview(self):
         field = self.field.text().strip()

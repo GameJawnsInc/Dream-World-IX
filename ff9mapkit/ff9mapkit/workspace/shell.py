@@ -23,7 +23,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
-    QPixmap, QShortcut, QTextCharFormat, QTextCursor,
+    QPixmap, QShortcut, QTextCharFormat, QTextCursor, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -547,8 +547,40 @@ class Workspace(QMainWindow):
         self._build_central()
         self._build_console()
         self.statusBar().showMessage("Open a journey, campaign, or field to begin.")
+        self._build_mode_chip()
         self._build_version_label()
         self._restore_layout()                     # window/splitters/console from last session (best-effort)
+
+    # ---- beginner-mode chip ----
+    def _build_mode_chip(self):
+        """A quiet status-bar chip naming the beginner mode (Guided / Full), added left of the version chip.
+        It exists because the cross-tab lever (ASK #12) makes the mode consequential -- a user who flips it
+        now sees where it lives. Click / Enter / Space opens Preferences. Quiet tier (muted, no accent), a
+        real keyboard tab stop with a visible focus ring (the QSS #modeChip:focus rule), and dial-proof --
+        it sizes to its own text, so CALIBRE grows it cleanly with no hardcoded width."""
+        self.mode_chip = QToolButton()
+        self.mode_chip.setObjectName("modeChip")
+        self.mode_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_chip.setFocusPolicy(Qt.FocusPolicy.TabFocus)   # reachable by Tab; not a click-focus grabber
+        self.mode_chip.clicked.connect(self._open_preferences)
+        self.statusBar().addPermanentWidget(self.mode_chip)
+        self._refresh_mode_chip()
+
+    def _refresh_mode_chip(self):
+        """Re-label the status-bar mode chip for the current beginner mode. Reads ``forms_qt._GUIDED`` live
+        so a flip from Preferences/Ctrl-K/Cancel-revert always lands on the right word. A no-op until the
+        chip is built (guarded, since the shell wires ``_apply_guided`` before the chrome in some paths)."""
+        chip = getattr(self, "mode_chip", None)
+        if chip is None:
+            return
+        from . import forms_qt
+        guided = forms_qt._GUIDED
+        chip.setText("Guided" if guided else "Full")
+        chip.setToolTip(
+            "Beginner mode: Guided — expert fields tuck into an Advanced drawer. Click to change in Preferences."
+            if guided else
+            "Beginner mode: Full — every field and expert drawer is shown. Click to change in Preferences.")
+        chip.setAccessibleName("Beginner mode: " + ("Guided" if guided else "Full"))
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -679,11 +711,23 @@ class Workspace(QMainWindow):
 
     def _apply_guided(self, on):
         """Set Guided/Full beginner mode LIVE + re-mount the open form so it applies now. Guided tucks each
-        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed."""
+        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed.
+
+        The CROSS-TAB LEVER (ASK #12): 'Full' also opens every expert drawer on the doc tabs (builddoc's
+        Advanced, coopdoc's play-style, importdoc's Walk-as + 'More ways to import') and re-renders the
+        _GUIDED-gated Battle panel -- so flipping the mode is consequential everywhere, not just on the
+        open form. Each doc's ``apply_guided`` fences its own computed auto-expand overrides (a non-default
+        co-op play style, a configured Walk-as swap) so those keep WINNING over the mode default (chair
+        ruling). Re-callable from the live Preferences preview AND its Cancel-revert path."""
         from . import forms_qt
         forms_qt.set_guided(bool(on))
         if getattr(self, "tree", None) is not None and self.tree.currentItem() is not None:
             self._on_select()                              # re-render the current form under the new mode
+        for _doc in (getattr(self, "build_deploy", None), getattr(self, "coop_doc", None),
+                     getattr(self, "import_field", None), getattr(self, "battle", None)):
+            if _doc is not None and hasattr(_doc, "apply_guided"):
+                _doc.apply_guided(bool(on))
+        self._refresh_mode_chip()                          # keep the status-bar mode chip in step
 
     def _toggle_guided(self):
         """Flip Guided <-> Full and persist it (the Ctrl-K quick command)."""
@@ -936,6 +980,17 @@ class Workspace(QMainWindow):
                            "opens automatically when the Workspace starts.")
         restore.setChecked(prefs.restore_session())
         lay.addWidget(restore)
+        # ASK #1 (Wave A shipped the pref + skip-by-default; this is its Preferences row). A reversible deploy
+        # (test slot / in-place fork) skips its confirm modal by default so F9 is a true one-keystroke loop;
+        # ticking this opts the confirm back IN. Install-to-game + the wholesale campaign/journey deploys keep
+        # their unconditional confirm regardless. Sibling pattern: read now, persist in _accept, drop on Cancel.
+        confirm_rev = QCheckBox("Ask before reversible deploys (test slot / in-place fork)")
+        confirm_rev.setObjectName("confirm_reversible_chk")
+        confirm_rev.setToolTip("Off (default): F9 deploys straight to the test slot / in-place with no modal — "
+                               "Revert undoes it in one click. On: a confirm appears first. Install to game and "
+                               "campaign/journey deploys always confirm.")
+        confirm_rev.setChecked(prefs.confirm_reversible_deploys())
+        lay.addWidget(confirm_rev)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
             chk.setObjectName("update_chk")
@@ -966,6 +1021,7 @@ class Workspace(QMainWindow):
             prefs.set_guided(bool(mode_combo.currentData()))
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
+            prefs.set_confirm_reversible_deploys(confirm_rev.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -976,7 +1032,11 @@ class Workspace(QMainWindow):
                 self._text_scale = original_scale         # assign, don't _apply_: retheme() below re-renders
                                                           # the sheet FROM this field, so applying here would
                                                           # just build the same stylesheet twice
-                self._apply_guided(original_guided)
+                from . import forms_qt
+                if forms_qt._GUIDED != original_guided:   # only revert the mode (and re-default the cross-tab
+                    self._apply_guided(original_guided)   # drawers) if it was actually previewed-changed -- a
+                                                          # blanket re-default would disturb drawers a Cancel
+                                                          # never touched (the round-5 density lesson).
                 anim.configure(original_motion)           # revert the live motion preview too
                 self.retheme(original)                    # re-applies qss() with the restored density
 
@@ -1546,6 +1606,11 @@ class Workspace(QMainWindow):
             self.pal["muted"])
         self.problems.setAccessibleName("Problems")
         self.problems.setIconSize(QSize(16, 16))     # room for the per-row severity icon (error/warn shapes)
+        # A failed job posts a single anchor row that carries the offending line in UserRole -- clicking (or
+        # Enter-ing) it reveals that line in the Output console. Rows WITHOUT an anchor (validation errors,
+        # etc.) carry no UserRole and _jump_to_anchor no-ops on them, so this is safe to wire once for all.
+        self.problems.itemClicked.connect(self._jump_to_anchor)
+        self.problems.itemActivated.connect(self._jump_to_anchor)
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -8076,6 +8141,7 @@ class Workspace(QMainWindow):
             return False
         self._stopped = False                           # fresh job -> not a Stop until the button says so
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished, field_id)
+        self._job_out = []                              # THIS job's stdout, verbatim -> post-hoc failure anchor
         # No clear(). The header is a SEPARATOR, and a separator with nothing above it separates nothing --
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
@@ -8150,7 +8216,9 @@ class Workspace(QMainWindow):
         self.output.ensureCursorVisible()
 
     def _drain_proc(self):
-        text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
+        raw = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
+        self._job_out.append(raw)                        # accumulate VERBATIM (unrstripped) so a chunk boundary
+        text = raw.rstrip()                              # mid-line doesn't corrupt the joined anchor scan
         if text:
             self._last_output_ms = self._elapsed.elapsed()   # reset the stall clock: real output arrived
             self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
@@ -8164,7 +8232,16 @@ class Workspace(QMainWindow):
             fail_hint = "Stopped."
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
-        self._show_problems(v, [])
+        # Structured failure: on a non-zero exit, pull the ONE tightest failure line out of THIS job's
+        # captured stdout (feedback.failure_anchor -- pure, tk-free, "don't cry wolf": exit!=0 + a tight
+        # anchor only) and post it as a clickable Problems row. A Stop kill is user-intended, not a failure
+        # to surface, so it carries no anchor. Exit 0 / no anchor -> the empty list, exactly as before.
+        anchor = None
+        if code != 0 and not self._stopped:
+            anchor = fb.failure_anchor("".join(getattr(self, "_job_out", [])), code)
+        self._show_problems(v, [fb.Problem(fb.ERROR, anchor.text)] if anchor else [])
+        if anchor:
+            self._attach_anchor_jump(anchor.text)
         # a REAL deploy only: a dry-run subject ("Journey deploy playbook (dry-run)") contains "deploy" but
         # writes nothing to the game, so it must not fake a just-deployed state nor latch the first-run marker.
         if code == 0 and "dry-run" not in subject.lower() and (
@@ -8175,6 +8252,33 @@ class Workspace(QMainWindow):
             self._refresh_spine()
         if on_finished:
             on_finished(code)
+
+    def _attach_anchor_jump(self, line):
+        """Tag the just-posted anchor row (the sole ERROR row _proc_done added) with the offending ``line``
+        in UserRole so clicking it reveals that line in Output, and note the jump affordance in its tooltip
+        (additive -- humanize()'s plain-language tooltip, if any, is kept)."""
+        for i in range(self.problems.count()):
+            it = self.problems.item(i)
+            if it.text() == line:
+                it.setData(Qt.ItemDataRole.UserRole, line)   # the exact line to reveal in the Output console
+                tip = it.toolTip()
+                it.setToolTip((tip + "\n\n" if tip else "") + "Click to reveal this line in the Output panel.")
+                break
+
+    def _jump_to_anchor(self, item):
+        """Reveal a clicked/activated anchor row's line in the Output console. No-op on rows with no anchor
+        (validation errors etc. carry no UserRole). Searches the document BACKWARD from the end so the match
+        is THIS job's occurrence -- the log accumulates across jobs, so an earlier identical line loses."""
+        line = item.data(Qt.ItemDataRole.UserRole)
+        if not line:
+            return
+        self._raise_console()                            # a collapsed console can't show the line
+        cur = self.output.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        found = self.output.document().find(line, cur, QTextDocument.FindFlag.FindBackward)
+        if not found.isNull():
+            self.output.setTextCursor(found)             # selecting the match highlights + scrolls to it
+            self.output.ensureCursorVisible()
 
 
 # --------------------------------------------------------------------------- entry point + smoke
@@ -8201,8 +8305,13 @@ def _smoke(win):
     # No restore: `main()` does `_smoke(win); return` and the process exits, so a "then put it back" line
     # would be decoration -- and a claim in a comment that the code does not keep is the exact defect this
     # round has been paying for.
-    from . import forms_qt as _fq_smoke
-    _fq_smoke.set_guided(True)
+    # Pin Guided AND re-default the UI to it. `set_guided` alone flips the module global, but the doc
+    # drawers were already CONSTRUCTED under the machine's real mode (the cross-tab lever, ASK #12, reads
+    # forms_qt._GUIDED at construction) -- so on a `guided:false` box builddoc/coop/import would boot with
+    # their expert drawers OPEN, and the down-file 'More ways to import is collapsed by default' assert
+    # would read the hostile prefs, not the product. `_apply_guided(True)` sets the global AND re-collapses
+    # every drawer to Guided, so the smoke measures Guided regardless of the box it runs on.
+    win._apply_guided(True)
     # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
     # a smoke run never writes temp paths into the developer's real prefs.json.
     _rec = []
@@ -9440,8 +9549,24 @@ def _smoke(win):
         assert imp._region_ids is None, "textEdited wiring must drop the cluster"
         imp.on_region_dryrun()
         assert "--whole-zone" in icap[-1] and "--ids" not in icap[-1], icap[-1]
-    imp.on_find()
-    assert "list-fields" in icap[-1], icap[-1]
+    # Find… no longer dumps `list-fields` -- it opens the realfield CatalogPicker and fills the source id.
+    # Offscreen there is no user to dismiss a modal, so fake QDialog.exec to accept the first row (the
+    # headless analogue of a double-click, exactly as test_import_pickfill._accept_first_row does) around
+    # the ONE on_find call, then restore it -- a bare `imp.on_find()` here HANGS to the subprocess timeout.
+    _real_exec = QDialog.exec
+
+    def _pick_first_row(self):
+        if getattr(self, "lst", None) is not None and self.lst.count():
+            self.lst.setCurrentRow(0)
+            self._ok()                               # want_id -> the id string lands in self.result
+        return QDialog.DialogCode.Accepted
+    QDialog.exec = _pick_first_row
+    try:
+        imp.field.setText("")                        # so the assertion below proves the PICK filled it
+        imp.on_find()
+    finally:
+        QDialog.exec = _real_exec
+    assert imp.field.text().isdigit(), imp.field.text()   # the picked real-field id filled the source box
 
     # UNDO / REDO -- a fresh loose field gives a clean history to exercise the stacks
     uf = d / "UNDOTEST.field.toml"
@@ -10154,9 +10279,9 @@ def main(argv=None):
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
-    if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
+    if prefs.restore_session():                    # default ON: pick up where the last session left off
         try:
-            win.restore_last_session()
+            win.restore_last_session()             # no-ops on an empty recent list -> newcomers untouched
         except Exception:                          # noqa: BLE001  (a broken project must not block launch)
             pass
     sys.exit(app.exec())

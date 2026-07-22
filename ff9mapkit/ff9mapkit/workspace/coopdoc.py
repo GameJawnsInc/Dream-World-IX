@@ -290,7 +290,14 @@ class CoopDoc(QWidget):
         # "and", not "&": disclosure's header is a QToolButton, which reads a lone "&" as a mnemonic
         # accelerator (an underline on the next letter) and would also speak the "&&" escape aloud through
         # its accessibleName -- the plain word sidesteps both.
-        self.style_drawer = widgets.disclosure("Advanced — battle co-op and visitor options")
+        # Cross-tab beginner lever (ASK #12): the drawer's default open/shut tracks the mode -- Full opens
+        # every expert drawer, Guided collapses it to Host/Join/Start. The comes-back override (a non-default
+        # battle/visitor setting, below) keeps WINNING over the mode default in either mode (chair ruling).
+        # Mode read from the workspace global (forms_qt._GUIDED), not prefs, so a standalone CoopDoc in a
+        # test never inherits the developer's prefs file.
+        from . import forms_qt
+        self.style_drawer = widgets.disclosure("Advanced — battle co-op and visitor options",
+                                               expanded=not forms_qt._GUIDED)
         self.style_drawer.content_layout.addWidget(self.style_box)
         v.addWidget(self.style_drawer)
 
@@ -456,10 +463,24 @@ class CoopDoc(QWidget):
         # and the default state (no slots, own model, no follow) leaves a collapsed drawer collapsed. Wait
         # and diorama are excluded on purpose: both have non-empty engine defaults, so they aren't a signal
         # that the user chose anything.
-        if (any(cb.isChecked() for cb in self.cb_slots)
-                or self.combo_ghost.currentIndex() > 0
-                or self.cb_follow.isChecked()):
+        if self._has_nondefault_playstyle():
             self.style_drawer.toggle_button.setChecked(True)
+
+    def _has_nondefault_playstyle(self) -> bool:
+        """True when this machine already carries a non-default battle/visitor knob -- a granted party slot
+        (GuestSlots), a visitor outfit (GhostAs), or follow-host. This is the computed auto-expand OVERRIDE:
+        it opens the drawer in _load_playstyle (comes-back rule) AND wins over the beginner-mode default in
+        apply_guided, so a configured knob is never hidden even in Guided mode (chair ruling). Wait/diorama
+        are excluded on purpose: both have non-empty engine defaults, so they aren't a chose-it signal."""
+        return (any(cb.isChecked() for cb in self.cb_slots)
+                or self.combo_ghost.currentIndex() > 0
+                or self.cb_follow.isChecked())
+
+    def apply_guided(self, guided: bool):
+        """Re-default the Advanced (play-style) drawer when the cross-tab beginner mode flips (ASK #12):
+        Full opens it, Guided collapses it -- EXCEPT the comes-back override keeps winning, so a machine
+        that already carries a non-default play style keeps the drawer open in either mode."""
+        self.style_drawer.toggle_button.setChecked(self._has_nondefault_playstyle() or not guided)
 
     def _playstyle_state(self):
         """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow, diorama) --

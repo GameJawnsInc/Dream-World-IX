@@ -12,6 +12,8 @@ go through :mod:`..config` (the install resolver), so they need no repo path.
 
 from __future__ import annotations
 
+import datetime
+import shutil
 import sys
 import tomllib
 from pathlib import Path
@@ -75,6 +77,32 @@ def field_inplace_target(path):
     tb = EVENT_ID_TO_MES.get(donor, f.get("text_block") or 1073)
     return {"donor": donor, "name": f.get("name") or Path(path).stem,
             "text_block": tb, "is_forest": donor in (2950, 2951, 2952)}
+
+
+def current_newgame_target(mod_folder):
+    """Where a deployed field-70 New-Game override points -- the field id New Game lands on -- or ``None``
+    when no override is deployed under ``mod_folder`` (or it can't be parsed).
+
+    ``mod_folder`` is the on-disk mod-folder DIRECTORY (e.g. ``<game>/FF9CustomMap``), not just its name.
+    Pure + side-effect-free (reads one ``.eb.bytes`` file, writes nothing), so it is unit-testable against
+    a scratch tree. Used to NAME the New-Game casualty a wholesale campaign/journey deploy would silently
+    wipe (that deploy wholesale-replaces the mod folder, taking the override with it). Returns the first
+    ``Field()`` warp in the override's Main_Init -- the current New-Game destination. Never raises."""
+    try:
+        from ..newgame import LANGS, OVERRIDE_REL, newgame_target
+        base = Path(mod_folder)
+        for lang in LANGS:
+            p = base / OVERRIDE_REL.format(lang=lang)
+            if p.is_file():
+                try:
+                    tgt = newgame_target(p.read_bytes())
+                except Exception:                            # noqa: BLE001 -- unparseable/corrupt -> None
+                    tgt = None
+                if tgt is not None:
+                    return tgt
+        return None
+    except Exception:                                        # noqa: BLE001 -- bad path / import failure -> None
+        return None
 
 
 # --------------------------------------------------------------------------- install / deploy targets
@@ -197,6 +225,7 @@ def scan_deployed_reverts(dict_patch, scroll_dir):
     # ones that exist on disk become rows, newest first (mirrors latest_newgame_revert's mtime pick).
     extra = []
     for kind, label, fname in (("campaign", "campaign deploy", "revert_campaign.py"),
+                               ("install", "Install to game", "revert_install.py"),
                                ("newgame", "New Game entry", "revert_newgame_from_stock.py"),
                                ("newgame", "New Game retarget", "revert_newgame_retarget.py")):
         s = _script(fname)
@@ -315,11 +344,75 @@ def import_chain_args(seeds, *, out=None, whole_zone=True, ids=None, verbatim=Tr
     return args
 
 
+# --------------------------------------------------------------------------- Install-to-game backup law
+def _stamp():
+    return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def snapshot_mod_folder(mod_folder, backups_dir, reverts_dir):
+    """Honor Hard-Constraint §2 (back up before editing any game file) on an 'Install to game' write:
+    snapshot the WHOLE live mod folder and emit a standalone ``revert_install.py`` that restores it.
+
+    Why the whole folder rather than just the installed id's files: 'Install to game' runs
+    ``ff9mapkit build ... --preserve-existing``, which REWRITES the folder's DictionaryPatch wholesale
+    (plus BattlePatch/TextPatch and the mod-global CSVs) alongside the built id's StreamingAssets bytes --
+    the write-set spans registration files rebuilt from scratch, so a reliable per-id derivation isn't
+    available at this layer. Per the chair's ruling (correctness beats economy) we copy the whole folder;
+    a re-install over unchanged files restores them byte-identically.
+
+    Copies ``mod_folder`` to ``backups_dir/<stamp>/<name>/`` and writes ``revert_install.py`` into
+    ``reverts_dir`` (the same revert-cache the ledger + Revert read). The revert deletes the live folder and
+    restores the snapshot -- or, when the folder did NOT exist before the install, removes it. Returns the
+    revert-script :class:`Path`, or ``None`` when there is nothing to protect or the backup could not be
+    written (the caller then tells the user Revert is unavailable rather than overclaiming).
+
+    Pure of any game knowledge (two path args in, one path out); never raises."""
+    try:
+        mod = Path(mod_folder)
+        backups_dir, reverts_dir = Path(backups_dir), Path(reverts_dir)
+        snap = None
+        if mod.is_dir():
+            snap = backups_dir / _stamp() / mod.name
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(mod, snap)                        # the pre-install truth, kept whole
+        reverts_dir.mkdir(parents=True, exist_ok=True)
+        rl = ['"""Revert an Install-to-game: restore the mod-folder snapshot taken before the install."""',
+              "import os, shutil",
+              f"LIVE = {str(mod)!r}",
+              f"SNAP = {str(snap) if snap else None!r}",
+              "if SNAP and os.path.isdir(SNAP):",
+              "    if os.path.isdir(LIVE): shutil.rmtree(LIVE)",
+              "    shutil.copytree(SNAP, LIVE); print('restored', LIVE)",
+              "elif os.path.isdir(LIVE):",                    # folder was absent before -> the install created it
+              "    shutil.rmtree(LIVE); print('removed', LIVE)",
+              "else:",
+              "    print('nothing to revert:', LIVE)",
+              ""]
+        p = reverts_dir / "revert_install.py"
+        p.write_text("\n".join(rl), encoding="utf-8")
+        return p
+    except OSError:                                           # a copy/write failure -> no undo (caller warns)
+        return None
+
+
 # --------------------------------------------------------------------------- deploy / revert argv
 # Each returns a FULL argv whose [0] is the interpreter, so a QProcess can split it into
 # program=argv[0], arguments=argv[1:], and a subprocess can run it as-is.
 def _tool(repo_root, *parts):
     return str(Path(repo_root, "tools", *parts))
+
+
+def revert_install_argv(repo_root):
+    """The interpreter + the Install-to-game revert script (dev repo: ``tools/scroll_out/revert_install.py``),
+    or ``None`` if no install has been snapshotted yet."""
+    p = Path(repo_root) / "tools" / "scroll_out" / "revert_install.py"
+    return [sys.executable, str(p)] if p.is_file() else None
+
+
+def revert_install_pkg_argv():
+    """The installed-copy Install-to-game revert (the per-user cache's ``revert_install.py``), or ``None``."""
+    p = _cache_revert("revert_install.py")
+    return [sys.executable, str(p)] if p else None
 
 
 def build_argv(field, out, *, mod_name="FF9CustomMap", preserve_existing=False):
@@ -530,14 +623,19 @@ def revert_journey_argv(repo_root):
     return [sys.executable, str(s)] if s else None
 
 
-def newgame_from_stock_argv(repo_root, field_id):
+def newgame_from_stock_argv(repo_root, field_id, *, mod_folder="FF9CustomMap"):
     """Point New Game at a deployed field id by CREATING the field-70 override from STOCK
     (``tools/wire_newgame_from_stock.py``) -- the robust path: it extracts stock field 70, repoints its
     terminal ``Field(50)``->``Field(<id>)`` (all 7 langs, the opening FMV+fade preserved), and works even when
     NO override exists yet (a clean install, or after a fresh wholesale campaign deploy wiped it). This is the
     disc-1-proven New-Game wiring; the patch-only :func:`newgame_retarget_argv` no-ops when there's nothing to
-    patch. Reversible (writes ``revert_newgame_from_stock.py``)."""
-    return [sys.executable, _tool(repo_root, "wire_newgame_from_stock.py"), str(field_id)]
+    patch. Reversible (writes ``revert_newgame_from_stock.py``).
+
+    ``mod_folder`` MUST match the folder the wholesale deploy wiped (the tool defaults it to FF9CustomMap):
+    a re-wire that lands in FF9CustomMap after a campaign whose ``mod_folder`` is something else restores the
+    override in the WRONG folder. Mirrors :func:`newgame_from_stock_pkg_argv` and the tool's --mod-folder."""
+    return [sys.executable, _tool(repo_root, "wire_newgame_from_stock.py"), str(field_id),
+            "--mod-folder", str(mod_folder)]
 
 
 def newgame_retarget_argv(repo_root, field_id):

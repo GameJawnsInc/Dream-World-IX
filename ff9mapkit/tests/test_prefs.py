@@ -146,6 +146,34 @@ def test_has_deployed_is_a_sticky_latch(tmp_path, monkeypatch):
     assert prefs.has_deployed() is False
 
 
+def test_restore_session_defaults_on_and_only_explicit_false_opts_out(tmp_path, monkeypatch):
+    """The default FLIPPED to ON (the veteran reopens the last project). Modelled on guided() (also
+    default-True): only an explicit False opts out; an absent key or junk degrades to the default (ON) --
+    a corrupt file must not silently stop reopening the veteran's work."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.restore_session() is True                   # nothing saved -> ON
+    prefs.set_restore_session(False)
+    assert prefs.restore_session() is False and prefs.load()["restore_session"] is False
+    prefs.set_restore_session(True)
+    assert prefs.restore_session() is True
+    prefs.put("restore_session", "yes")                       # junk degrades to the default (ON), like guided()
+    assert prefs.restore_session() is True
+
+
+def test_confirm_reversible_deploys_defaults_off_and_round_trips(tmp_path, monkeypatch):
+    """The confirm modal on a REVERSIBLE deploy is OFF by default (F9 = one keystroke); it opts back in.
+    Default-False like has_deployed: a malformed value is not truthy-coerced to ON."""
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.confirm_reversible_deploys() is False        # default: no modal on a reversible deploy
+    prefs.set_confirm_reversible_deploys(True)
+    assert (prefs.confirm_reversible_deploys() is True
+            and prefs.load()["confirm_reversible_deploys"] is True)
+    prefs.set_confirm_reversible_deploys(False)
+    assert prefs.confirm_reversible_deploys() is False
+    prefs.put("confirm_reversible_deploys", "yes")            # a malformed on-disk value is not truthy-coerced
+    assert prefs.confirm_reversible_deploys() is False
+
+
 def test_deploy_dest_defaults_none_and_round_trips_the_four_modes(tmp_path, monkeypatch):
     """None means 'never pinned' (fall back to the has_tools default); only the four persistable modes stick."""
     _isolate(tmp_path, monkeypatch)

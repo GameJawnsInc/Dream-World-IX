@@ -228,12 +228,28 @@ def set_getstarted_hidden(on: bool) -> None:
 
 
 def restore_session() -> bool:
-    """Opt-in: reopen the most recent project on launch. Default False."""
-    return get("restore_session", False) is True
+    """Reopen the most recent project on launch. Default True -- the returning veteran picks up exactly
+    where they left off, and F9 is live on restore. Newcomers are untouched: :meth:`shell.restore_last_session`
+    no-ops on an empty recent list, so a fresh install with nothing to reopen sees no behavior change.
+    Type-disciplined like :func:`guided` (also default-True): only an explicit ``False`` opts out; an absent
+    key or a corrupt value degrades to the default (ON)."""
+    return get("restore_session", True) is not False
 
 
 def set_restore_session(on: bool) -> None:
     put("restore_session", bool(on))
+
+
+def confirm_reversible_deploys() -> bool:
+    """Whether a REVERSIBLE deploy (the test slot / an in-place fork) still pops a confirm modal before it
+    runs. Default False -- F9 is a true one-keystroke loop, matching the 'reversible' labelling and Revert's
+    one-click undo; the confirm can be opted back IN in Preferences. Install-to-game and the wholesale
+    campaign/journey deploys keep their unconditional confirm regardless of this pref."""
+    return get("confirm_reversible_deploys", False) is True
+
+
+def set_confirm_reversible_deploys(on: bool) -> None:
+    put("confirm_reversible_deploys", bool(on))
 
 
 def has_deployed() -> bool:

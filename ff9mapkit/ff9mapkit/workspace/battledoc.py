@@ -300,6 +300,16 @@ class BattleDoc(QWidget):
         sid = self.open_scene_id()
         return Path(self.path).stem + (f" — scene {sid}" if sid is not None else "")
 
+    def apply_guided(self, guided: bool):     # noqa: ARG002  (mode is read live from forms_qt at re-mount)
+        """Re-render the mounted form when the cross-tab beginner mode flips (ASK #12). This panel is
+        _GUIDED-gated by construction (Full shows the donor-site / AI-facts panels inline; Guided tucks
+        them behind an Advanced drawer BELOW the form), so it satisfies the lever by REBUILDING rather
+        than toggling a persistent drawer -- ``_mount`` reads ``forms_qt._GUIDED`` live. Re-mount the
+        current node so the flip lands now instead of on the next node selection."""
+        row = self.nodes.currentRow()
+        if row >= 0:
+            self._on_node(row)
+
     # ------------------------------------------------------------------ load
     def browse(self):
         f, _ = QFileDialog.getOpenFileName(self, "Open a battle.toml", "", "TOML (*.toml)")

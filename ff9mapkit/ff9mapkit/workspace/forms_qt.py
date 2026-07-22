@@ -352,7 +352,7 @@ class CatalogPicker(QDialog):
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
     def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False,
-                 sps_context=None):
+                 sps_context=None, entries=None):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.kinds = kinds
@@ -361,6 +361,10 @@ class CatalogPicker(QDialog):
         self.browse = browse                           # browse mode: "Use this" copies the name + stays open
         self.limit = limit
         self.want_id = want_id                         # a numeric field (e.g. encounter scene) wants the id back
+        # A PRE-SCOPED entry list: when given, the picker filters THESE locally (by the same name/model/
+        # summary substring the spine uses) instead of calling infohub.browse -- so a caller can open the
+        # picker over a computed SUBSET (e.g. Import's suggested test rooms) without a new catalog kind.
+        self._fixed_entries = list(entries) if entries is not None else None
         self.result = None
         self._entries = []
         lay = QVBoxLayout(self)
@@ -400,11 +404,17 @@ class CatalogPicker(QDialog):
         self.q.setFocus()
 
     def _refresh(self):
-        try:
-            self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
-                                           campaign_context=self.plan, sps_context=self.sps_context)
-        except Exception:                              # noqa: BLE001 -- a catalog needing data we lack
-            self._entries = []
+        if self._fixed_entries is not None:            # a pre-scoped subset: filter it locally, no infohub call
+            q = (self.q.text() or "").strip().lower()
+            self._entries = [e for e in self._fixed_entries
+                             if not q or q in e.name.lower()
+                             or (e.model and q in e.model.lower()) or q in e.summary.lower()]
+        else:
+            try:
+                self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
+                                               campaign_context=self.plan, sps_context=self.sps_context)
+            except Exception:                          # noqa: BLE001 -- a catalog needing data we lack
+                self._entries = []
         self.lst.clear()
         for e in self._entries:
             self.lst.addItem(f"{e.name}    [{e.kind}]")

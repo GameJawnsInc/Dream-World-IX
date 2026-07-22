@@ -554,6 +554,18 @@ _QSS = Template(
     QLabel { background: transparent; }
     QStatusBar { background: $surface; color: $muted; border-top: 1px solid $border; }
     QStatusBar::item { border: none; }
+    /* the beginner-mode chip (shell._build_mode_chip): a quiet, focusable status-bar word (Guided / Full).
+       No accent -- muted like the version chip beside it. Border reserved TRANSPARENT so the focus ring
+       costs no layout (same move as #disclosureToggle); padding is in px but the TEXT scales with CALIBRE,
+       so the chip grows with the dial. :focus recolours AND rings so a keyboard user can tell where they
+       are (WCAG 2.4.7; the whole-chain focus fence walks here). */
+    QToolButton#modeChip {
+        background: transparent; border: 1px solid transparent; color: $muted;
+        padding: 2px 8px; margin: 0;
+    }
+    QToolButton#modeChip:hover   { color: $text; }
+    QToolButton#modeChip:pressed { color: $pressed_fg; background: $pressed; }
+    QToolButton#modeChip:focus   { color: $text; border: 1px solid $focus; }
     QToolTip { background: $surface; color: $text; border: 1px solid $border; }
 
     /* --- component roles (Phase 1 substrate) -- these match ONLY widgets that set a dynamic `role`
