@@ -51,15 +51,19 @@ LANGS = ("us", "uk", "jp", "es", "fr", "gr", "it")
 BOAT_UID = 15
 ANCHOR_UID = 14
 SNAP_TAG = 60
-SEED_BIT = 8714                      # kit safe band: "dwix boat record seeded". BUMP this constant on
-                                     # every geometry re-site -- the previous bit is burned into the
-                                     # live session's gEventGlobal with the OLD coords (8712, 8713 spent).
-
 # Bench geometry (world units; fixed-point = u*256), measured from the STOCK mesh by find_dock2.py:
 # the block-(7,17) islet's land spans z -1128..-1104 (centroid (493,-1115)); its sand (topo 31)
 # runs x 478..502, z -1126..-1116 -- a southwest-facing beach. Neighbouring pure-ocean blocks
 # carry NO terrain mesh (the missing-block law), so a MISS south of the sand is open sea.
-BOAT_SPAWN = (486, -1140)            # ~15u off the sand line -- "right by the beach"
+#
+# POSITION IS HARD-CODED for the bench -- NO gEventGlobal reads/writes. The first build parked
+# via the stock boat record Global[74..82] gated on a safe-band seed bit, which is only sound in
+# a fresh session: a real SAVE holds live gameplay state in both (kit content allocates flags
+# from 8712 up; bytes 74-82 hold field flags off the overworld) -> the boat parked at garbage
+# after relaunch (in-game 2026-07-22). Parked-position persistence returns in a later rung with
+# properly kit-allocated storage. Stock knowledge (user): the Narciss beaches itself nose-on-
+# the-sand -- that is the boarding model, not an offshore float.
+BOAT_SPAWN = (492, -1130)            # beached at the sand line (sand reaches z -1126 here)
 BOAT_Y = 200                         # sea-level fixed-point Y (the stock boat's own seed value)
 BOAT_FACE = 0
 DOCK = (493, -1114)                  # the islet's land centroid -- measured, walkable
@@ -101,16 +105,8 @@ SetAnimationFlags(1, 1)
 SetAnimationInOut(0, 0)
 RunAnimation(5143)
 L200:
-SET({{Global.Bit[{SEED_BIT}] B_EXPR_END}})
-JMP_IF(L300)
-SET({{Global.Int24[74] const4({fp(BOAT_SPAWN[0])}) B_LET B_EXPR_END}})
-SET({{Global.Int16[77] const({BOAT_Y}) B_LET B_EXPR_END}})
-SET({{Global.Int24[79] const4({fp(BOAT_SPAWN[1])}) B_LET B_EXPR_END}})
-SET({{Global.Byte[82] const({BOAT_FACE}) B_LET B_EXPR_END}})
-SET({{Global.Bit[{SEED_BIT}] const(1) B_LET B_EXPR_END}})
-L300:
-MoveInstantXZY({{Global.Int24[74] B_EXPR_END}}, {{Global.Int16[77] B_EXPR_END}}, {{Global.Int24[79] B_EXPR_END}})
-TurnInstant({{Global.Byte[82] B_EXPR_END}})
+MoveInstantXZY({{const4({fp(BOAT_SPAWN[0])}) B_EXPR_END}}, {{const({BOAT_Y}) B_EXPR_END}}, {{const4({fp(BOAT_SPAWN[1])}) B_EXPR_END}})
+TurnInstant({{const({BOAT_FACE}) B_EXPR_END}})
 RET()
 """
 
@@ -136,10 +132,6 @@ L500:
 SET({{Global.Byte[190] const(7) B_EQ const4({CONFIRM}) B_KEYON B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L900)
 DisableMove()
-SET({{Global.Int24[74] obj(uid={BOAT_UID}).f[0] B_LET B_EXPR_END}})
-SET({{Global.Int16[77] obj(uid={BOAT_UID}).f[1] B_LET B_EXPR_END}})
-SET({{Global.Int24[79] obj(uid={BOAT_UID}).f[2] B_LET B_EXPR_END}})
-SET({{Global.Byte[82] obj(uid={BOAT_UID}).f[3] B_LET B_EXPR_END}})
 DetachObject({ANCHOR_UID})
 RunScriptSync(6, {ANCHOR_UID}, {SNAP_TAG})
 SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
