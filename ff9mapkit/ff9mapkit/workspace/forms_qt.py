@@ -353,11 +353,14 @@ class CatalogPicker(QDialog):
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
     def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False,
-                 sps_context=None, entries=None):
+                 sps_context=None, entries=None, model_thumbs=None, field_thumbs=None):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.kinds = kinds
         self.plan = plan
+        self.pal = palette
+        self.model_thumbs = model_thumbs           # the shared preview services -> each enables a card view
+        self.field_thumbs = field_thumbs
         self.sps_context = sps_context                 # the open field's carried effects (for the 'sps' kind)
         self.browse = browse                           # browse mode: "Use this" copies the name + stays open
         self.limit = limit
@@ -394,6 +397,19 @@ class CatalogPicker(QDialog):
         cancel.clicked.connect(self.reject)
         bar.addWidget(use)
         bar.addWidget(cancel)
+        # the MODEL / REALFIELD kinds are visual searches: offer the card grid when the matching preview
+        # service is on hand (a GEO name is only a valid answer for 'model'; a field id for 'realfield')
+        self.cards_btn = None
+        if model_thumbs is not None and kinds and "model" in kinds:
+            self.cards_btn = QPushButton("Card view…")
+            self.cards_btn.setToolTip("Browse the models as big thumbnail cards instead of text rows.")
+            self.cards_btn.clicked.connect(self._open_cards)
+            bar.addWidget(self.cards_btn)
+        elif field_thumbs is not None and kinds and "realfield" in kinds:
+            self.cards_btn = QPushButton("Card view…")
+            self.cards_btn.setToolTip("Browse the real fields as background-art cards, divided by region.")
+            self.cards_btn.clicked.connect(self._open_field_cards)
+            bar.addWidget(self.cards_btn)
         bar.addStretch(1)
         lay.addLayout(bar)
         if browse:                                     # Copy name copies + keeps browsing; nothing else signals that
@@ -470,14 +486,49 @@ class CatalogPicker(QDialog):
         self.result = str(e.ident) if self.want_id and e.ident is not None else e.name
         self.accept()
 
+    def _open_cards(self):
+        """The card-grid model picker over the same query; its pick answers THIS dialog (name, or the
+        id for a numeric field), through the same browse/copy behaviour as a row pick."""
+        from .modelcards import ModelCardPicker
+        dlg = ModelCardPicker(self, self.pal, self.model_thumbs, initial=self.q.text().strip())
+        dlg.exec()
+        if not dlg.result:
+            return
+        if self.browse:
+            QApplication.clipboard().setText(dlg.result)
+            self.info.setText(f"Copied “{dlg.result}” [model] to the clipboard.")
+            return
+        if self.want_id:
+            from .. import catalog as _catmod
+            m = _catmod.model(dlg.result)
+            if m is None:
+                return
+            self.result = str(m.id)
+        else:
+            self.result = dlg.result
+        self.accept()
 
-def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False, sps_context=None):
+    def _open_field_cards(self):
+        """The region-divided field card picker; its pick (a field id) answers THIS dialog."""
+        from .fieldcards import FieldCardPicker
+        dlg = FieldCardPicker(self, self.pal, self.field_thumbs, initial=self.q.text().strip())
+        dlg.exec()
+        if not dlg.result:
+            return
+        self.result = dlg.result                   # already the id string -- what a realfield pick returns
+        self.accept()
+
+
+def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False, sps_context=None,
+                 model_thumbs=None):
     """Open :class:`CatalogPicker` for a comma-separated ``catalog`` string; return the chosen NAME (or the
     entry's numeric id as a string when ``want_id`` -- for an INT field like an encounter's battle scene),
     or None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``.
-    ``sps_context`` (the open field's carried effects) makes the ``sps`` kind browse THIS field's effects."""
+    ``sps_context`` (the open field's carried effects) makes the ``sps`` kind browse THIS field's effects;
+    ``model_thumbs`` (the shared preview service) unlocks the model card view."""
     kinds = [k.strip() for k in catalog.split(",")] if catalog else None
-    dlg = CatalogPicker(parent, kinds, initial, plan, palette, want_id=want_id, sps_context=sps_context)
+    dlg = CatalogPicker(parent, kinds, initial, plan, palette, want_id=want_id, sps_context=sps_context,
+                        model_thumbs=model_thumbs)
     dlg.exec()
     return dlg.result
 

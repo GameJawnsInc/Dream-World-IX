@@ -3771,8 +3771,12 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
+        warm = False
         for m in plan.members:                     # prefetch every member's background thumbnail (async,
-            self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id)   # cached, install-gated)
+            if self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id):   # cached, install-gated)
+                warm = True
+        if warm:                                   # the warm disk fast path answers WITHOUT a ready() emit,
+            self._thumb_rerender.start()           # and map.render ran above it -- kick the coalesced redraw
         if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
             prefs.add_recent("campaign", path)     # already the recent entry
         self._refresh_deploy_btn()
@@ -6416,7 +6420,8 @@ class Workspace(QMainWindow):
         kinds = [k.strip() for k in catalog.split(",")] if catalog else []
         ctx = self._flag_pick_context() if "flag" in kinds else self.plan
         sps_ctx = self._current_field_sps_context() if "sps" in kinds else None
-        return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id, sps_context=sps_ctx)
+        return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id, sps_context=sps_ctx,
+                            model_thumbs=self.model_thumbs)
 
     def _current_field_sps_context(self):
         """``{member: sps_dir}`` for the field whose form is OPEN, if it carries a ``sps/`` sidecar -- so the

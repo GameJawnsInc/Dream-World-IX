@@ -43,6 +43,29 @@ def model_thumb_meta(geo_id) -> "dict | None":
         return None
 
 
+def absent_ids() -> set:
+    """The geo ids the render worker has PROBED and found unshipped (no geometry on disc anywhere --
+    the PSX-era catalog leftovers). One directory scan over the ``absent`` sidecars; a fresh machine
+    (nothing probed yet) honestly returns an empty set. Cache reads only -- never touches the install."""
+    out = set()
+    d = provision.cache_dir() / "model_thumbs"
+    try:
+        sidecars = list(d.glob(f"*_v{_MODEL_RENDER_V}.json"))
+    except OSError:
+        return out
+    for meta in sidecars:
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("absent") and data.get("id") is not None:
+            try:
+                out.add(int(data["id"]))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
 def build_model_thumb(token, ctx: "dict | None" = None) -> "str | None":
     """Synchronously render (or reuse) the cached preview PNG for a model. Pure worker logic -- no Qt.
     ``ctx`` (a plain dict, thread-confined to the caller) keeps the p0data bundles + the p0data5 env

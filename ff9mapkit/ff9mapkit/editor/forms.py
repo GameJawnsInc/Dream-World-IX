@@ -71,7 +71,8 @@ NPC_SPEC = [
     Field("name", "Name", STR, "a label (also links this NPC to its Blender marker)"),
     Field("preset", "Preset", PRESET, "who it looks like (any archetype/creature)",
           catalog="archetype,creature"),
-    Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset"),
+    Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset",
+          catalog="model"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
@@ -264,7 +265,7 @@ PLAYER_SPEC = [
     Field("face", "Spawn facing (0-255)", OPTINT,
           "0=south (toward the camera), 64=west, 128=north, 192=east"),
     Field("model", "Walk-as model", FLAGREF, "re-skin WHO YOU WALK AS (a model id, an exact GEO name, or an "
-          "archetype name). Movement clips only -- free-roam fields", catalog="archetype,creature"),
+          "archetype name). Movement clips only -- free-roam fields", catalog="archetype,creature,model"),
     Field("arrival", "Per-door arrivals", ARRIVALLIST,
           "one row per entrance -- 'entrance, x, z' or 'entrance, x, z, face' (rows split by ';'). The "
           "arriving door picks its row via the entrance= its gateway wrote; no row = the spawn above. "
