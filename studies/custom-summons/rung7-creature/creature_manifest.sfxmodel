@@ -11,9 +11,15 @@
       },
       "Rotation": {
         "Duration": "60",
+        "OriginY": "180", "DestinationY": "180",
         "OriginZ": "180", "DestinationZ": "180"
       },
       "Animations": [
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
+        { "Path": "Animations/6100/1010000" },
         { "Path": "Animations/6100/1010000" }
       ]
     }
