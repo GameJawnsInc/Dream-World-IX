@@ -347,8 +347,23 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
 - [ ] **Fix minimap player-icon west-bias + document the w_naviGetPos dual regime** (6.0: play 9, leve 3) — likely a
   non-centered RectTransform pivot (WorldHUD.cs:651/733); the pre/post-SC-5990 formula switch is undocumented.
   DLL work — fold into one deliberate engine round.
-- [ ] **Playtest a targeted (non-uniform) encounter re-table** (6.0) — one `[[set]] area=N` edit + one F6 check
-  closes the last gap on the offline-proven world-encounters feature.
+- [~] **Playtest a targeted (non-uniform) encounter re-table** (6.0) — one `[[set]] area=N` edit + one F6 check
+  closes the last gap on the offline-proven world-encounters feature. **★ BUILT + DEPLOYED + OFFLINE-PROVEN
+  2026-07-21 (awaits the one playtest).** The demo relief island (cell 10,9 / world (672,−608), both discs) walkable
+  ground decodes to IDALL **area=0, topograph=0** (cliffs topo 58) → encounter **zone 0** — SHARED with the
+  Alexandria/Mist start (areas {0,1}); no minted island can get a private encounter table without a DLL (every area
+  maps to a zone that also covers real map, and the table is zone-keyed), so this re-tables zone 0 and the mix appears
+  on the island AND at the start (still ONE area's table, reversible). `world-encounters --config` set the two topo-0
+  fog twins (disc-1 records 0+1) `scene[]=[206,165,5,230]` = `BSC_WM_0301/_0601/_0704/_0201` (four different disc-1
+  formations, Lv 8–11, all valid — no superboss). Gates: pristine round-trip identity, all 1420 scene slots valid,
+  **16-byte diff** (only the two records' scene fields, every other discmr.img byte verbatim), decode-back of the
+  deployed override, idempotency. `studies/overworld-topography/encounter_retable_island.toml` +
+  `encounter_retable_verify.py`; backup + revert `backups/encounter-retable.20260721/`. Deployed to
+  `FF9CustomMap-world` disc1 only — **RELAUNCH** (discmr.img is a bundled asset, not ~-reloadable). En route:
+  (a) the **Mu** friendly-monster special row targets zone-0 rec[0], overwriting its `scene[3]:=scene[2]` when the Mu
+  quest is active (rec[1] fog-twin keeps the full 4-way); (b) **kit gap** — the area/zone matcher does NOT apply the
+  disc-4 `+254` alternate-band shift (`ff9.cs:9175`), so a disc-4 re-table needs explicit `index=254/255`, not
+  `area=0`. Playtest: on a **disc-1** save, ~ → World → Teleport to the island and walk until an encounter fires.
 - [ ] **Census and carry a standalone stream/falls part** (5.5) — do any Stream/River/Falls parts sit on lowland
   unattached to a massif? If yes, a genuinely new `world-river` mint verb becomes possible.
 - [ ] **Decode unstudied mesh parts: Beach2 (4 blocks), Sea6 (4), the sole Sea4f (12,0), block 219** (5.25) — pure

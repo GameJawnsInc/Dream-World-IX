@@ -1,0 +1,35 @@
+# Targeted, NON-UNIFORM overworld encounter re-table for the relief demo island.
+#
+# The island (relief demo, --cell 10,9 == world (672,-608), r44; blocks (9-11,8-10),
+# both discs) has walkable ground with IDALL area=0, topograph=0 (its cliffs are topo 58)
+# -- decoded from the DEPLOYED Terrain.ff9mesh bytes. area 0 -> encounter ZONE 0
+# (w_worldArea2Zone), whose disc-1 slice is records 0-5, topographs {0,13,37} x fog twins.
+#
+# The player's walkable tile is topograph 0, so on the island the engine
+# (w_worldGetBattleScenePtr) fires the ONE zone-0 topo-0 record matching the current fog:
+# rec[0] (fog off) or rec[1] (fog on). This [[set]] rewrites BOTH twins' scene[] with a
+# distinctive 4-way mix that the Mist start never has; SelectScene then splits scene[0..3]
+# by the d[] table (rec[0] index 1 = a clean 25/25/25/25%; rec[1] index 0 = 37/28/22/12%).
+# pattern/pad (topograph/fog) are left untouched, so nothing else re-keys -- 16 scene bytes
+# change, every other byte of discmr.img is verbatim.
+#
+# Disc 1 only: the island lives on disc 1, and disc1/discmr.img records 0-5 fire directly.
+# (On disc 4 the engine reads records i+254 for i<100 -- the kit's area/zone matcher does
+# NOT apply that shift, a productization gap; a disc-4 test would target index 254/255.)
+#
+# The four scenes (all valid battle-scene ids, all already loaded by the disc-1 overworld,
+# all sane overworld formations -- no superboss):
+#   206 BSC_WM_0301  Lv10 (HP589, weak Ice/Thunder, half Water) + a Lv6 companion  [Dali plains]
+#   165 BSC_WM_0601  Lv10 (HP526, ABSORBS Fire, null Earth) -- the fire-eater        [zone 6]
+#     5 BSC_WM_0704  Lv11 (HP889, null Earth) -- the tanky beast                     [zone 7]
+#   230 BSC_WM_0201  Lv 8 (HP397, weak Ice, 9-attack caster)                         [zone 2]
+#
+# Deploy:  py -m ff9mapkit world-encounters --config studies/overworld-topography/encounter_retable_island.toml \
+#              --disc 1 --mod-folder FF9CustomMap-world
+# Revert:  delete <mod>/StreamingAssets/assets/resources/worldmap/wmap/disc1/discmr.img.bytes
+#          (no discmr override existed before; see backups/encounter-retable.20260721/).
+
+[[set]]
+area = 0          # the demo island's terrain area (read from its deployed IDALL bytes)
+topograph = 0     # its walkable plains tile -> zone-0 records 0 + 1 (both fog twins); topo-13/37 records untouched
+scene = [206, 165, 5, 230]
