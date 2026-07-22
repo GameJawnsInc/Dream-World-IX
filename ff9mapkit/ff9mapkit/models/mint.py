@@ -160,8 +160,8 @@ def stage_mint(block: dict, dest_dir, *, base_dir=None, game=None) -> dict:
         if not src_fbx.is_file():
             raise FileNotFoundError(f"[[mint]] id={man['id']} fbx not found: {src_fbx}")
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / f"{man['id']}.fbx").write_text(src_fbx.read_text(encoding="ascii"),
-                                               encoding="ascii", newline="\n")
+        # byte-verbatim: an author's FBX may be Kaydara BINARY, not ASCII -- any text decode corrupts it
+        (dest / f"{man['id']}.fbx").write_bytes(src_fbx.read_bytes())
         for png in src_fbx.parent.glob("*.png"):        # ship the model's textures alongside
             (dest / png.name).write_bytes(png.read_bytes())
     return man

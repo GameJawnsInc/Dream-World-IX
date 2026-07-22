@@ -3,3 +3,10 @@
 # autocrlf normalization would re-CRLF every line on checkout and break the
 # forward --binary gate; store and check out their bytes verbatim.
 memoria-patches/*.patch -text
+
+# SFX sequence scripts + sfxmodel manifests are byte-exact deploy assets (sha256
+# drift-guarded by the custom-summons study builds; the committed LF bytes are the
+# live-deploy-proven ones). core.autocrlf smudged them to CRLF on checkout, which
+# tripped every guard -- never line-end convert them (2026-07-22).
+*.seq -text
+*.sfxmodel -text

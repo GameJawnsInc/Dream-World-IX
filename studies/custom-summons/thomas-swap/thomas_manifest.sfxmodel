@@ -1,0 +1,113 @@
+{
+  "FBX": [
+    {
+      "Path": "GEO_MON_B0_M200",
+      "Start": "0",
+      "End": "580",
+      "Movement": [
+        {
+          "Duration": "75",
+          "OriginX": "CasterPositionX - 2000",
+          "OriginY": "CasterPositionY + 1500",
+          "OriginZ": "CasterPositionZ + 300",
+          "DestinationX": "CasterPositionX",
+          "DestinationY": "CasterPositionY + 700",
+          "DestinationZ": "CasterPositionZ + 1800",
+          "InterpolationTypeX": "SinusOut",
+          "InterpolationTypeY": "SinusOut",
+          "InterpolationTypeZ": "SinusOut"
+        },
+        {
+          "Duration": "45",
+          "DestinationX": "CasterPositionX",
+          "DestinationY": "CasterPositionY + 4500",
+          "DestinationZ": "CasterPositionZ + 1800",
+          "InterpolationTypeX": "SinusIn",
+          "InterpolationTypeY": "SinusIn",
+          "InterpolationTypeZ": "SinusIn"
+        },
+        {
+          "Duration": "210",
+          "DestinationX": "CasterPositionX + 250",
+          "DestinationY": "CasterPositionY + 4600",
+          "DestinationZ": "CasterPositionZ + 1800",
+          "InterpolationTypeX": "Sinus",
+          "InterpolationTypeY": "Sinus",
+          "InterpolationTypeZ": "Sinus"
+        },
+        {
+          "Duration": "45",
+          "DestinationX": "CasterPositionX",
+          "DestinationY": "CasterPositionY + 700",
+          "DestinationZ": "CasterPositionZ + 1800",
+          "InterpolationTypeX": "SinusIn",
+          "InterpolationTypeY": "SinusIn",
+          "InterpolationTypeZ": "SinusIn"
+        },
+        {
+          "Duration": "165",
+          "DestinationX": "CasterPositionX + 220",
+          "DestinationY": "CasterPositionY + 780",
+          "DestinationZ": "CasterPositionZ + 1800",
+          "InterpolationTypeX": "Sinus",
+          "InterpolationTypeY": "Sinus",
+          "InterpolationTypeZ": "Sinus"
+        },
+        {
+          "Duration": "40",
+          "DestinationX": "CasterPositionX + 600",
+          "DestinationY": "CasterPositionY + 1600",
+          "DestinationZ": "CasterPositionZ + 2600",
+          "InterpolationTypeX": "SinusIn",
+          "InterpolationTypeY": "SinusIn",
+          "InterpolationTypeZ": "SinusIn"
+        }
+      ],
+      "Rotation": [
+        {
+          "Duration": "75",
+          "OriginY": "0",
+          "DestinationY": "90",
+          "OriginZ": "0",
+          "DestinationZ": "0",
+          "InterpolationTypeY": "Sinus"
+        },
+        {
+          "Duration": "45",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "210",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "45",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "165",
+          "DestinationY": "90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "40",
+          "DestinationY": "0",
+          "DestinationZ": "0",
+          "InterpolationTypeY": "Sinus"
+        }
+      ],
+      "Scaling": {
+        "Duration": "580",
+        "OriginX": "265",
+        "OriginY": "265",
+        "OriginZ": "265",
+        "DestinationX": "265",
+        "DestinationY": "265",
+        "DestinationZ": "265"
+      }
+    }
+  ]
+}

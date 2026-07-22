@@ -1,0 +1,200 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 8c1ce87..f8f4be0 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -507,6 +507,7 @@
+     <Compile Include="Memoria\Battle\SFX\SFXDataCamera.cs" />
+     <Compile Include="Memoria\Battle\SFX\SFXDataMesh.cs" />
+     <Compile Include="Memoria\Battle\SFX\SFXDataMeshConverter.cs" />
++    <Compile Include="Memoria\Battle\SFX\SfxMeshProbe.cs" />
+     <Compile Include="Memoria\Battle\SFX\UnifiedBattleSequencer.cs" />
+     <Compile Include="Memoria\Configuration\Access\Mod.cs" />
+     <Compile Include="Memoria\Configuration\Access\Cheats.cs" />
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
+index fe81a2f..f032b59 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataCamera.cs
+@@ -544,6 +544,8 @@ public class SFXDataCamera
+         if (SFXDataCamera.currentCameraEngine == CameraEngine.SFX_PLUGIN)
+         {
+             SFX.UpdateCamera();
++            if (SfxMeshProbe.Enabled)
++                SfxMeshProbe.LogCamera();
+         }
+         else if (SFXDataCamera.currentCameraEngine == CameraEngine.SFX_DATA_CAMERA)
+         {
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+index 11348c6..dbfa4c2 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+@@ -638,6 +638,8 @@ public abstract class SFXDataMesh
+             RenderTexture.active = null;
+             PSXTextureMgr.CaptureBG();
+             //camera.worldToCameraMatrix = Matrix4x4.identity;
++            if (SfxMeshProbe.Enabled)
++                SfxMeshProbe.LogFrame(SFXRender.commandBuffer);
+             for (Int32 i = 0; i < SFXRender.commandBuffer.Count; i++)
+             {
+                 if (SFXRender.commandBuffer[i] is SFXMesh)
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+new file mode 100644
+index 0000000..e033a7a
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -0,0 +1,156 @@
++using Memoria.Data;
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++using System.IO;
++using UnityEngine;
++
++namespace Memoria
++{
++    // s47 -- THE SFX MESH PROBE. A default-OFF, permanent debug-class instrumentation feature:
++    // when armed via Memoria.ini [SfxProbe] Enabled=1, logs per-frame structured data during
++    // native SFX (SFXSpecialEffectPlugin) playback -- both battle and menu/model-viewer casts.
++    //
++    // WHY: the Bahamut->Thomas custom-summon swap (studies/custom-summons/thomas-swap/) needs
++    // (1) the hex mesh-key split between a donor summon's CREATURE meshes and its swirl/flare/
++    // fire-column EFFECT meshes, to feed BattleActionCode's HideMeshes argument
++    // (BattleActionCode.cs:394-419, TryGetArgMeshList -- accepts "0xHEX,0xHEX,..." keys), and
++    // (2) the donor's baked per-frame camera path, to author the replacement model's flight
++    // curves against. One instrumented cast gives both -- no ef###.bytes decoding, no DLL
++    // disassembly. See studies/custom-summons/thomas-swap/PROBE.md for the arming + read-out
++    // procedure.
++    //
++    // Two hooks call into this class:
++    //   - SFXDataMesh.cs, Runtime.Render() (the SFXRender.commandBuffer draw walk) -> LogFrame().
++    //   - SFXDataCamera.cs, UpdateCamera() (the SFX_PLUGIN camera-engine branch) -> LogCamera().
++    //
++    // ZERO-COST WHEN DISABLED: each call site guards on the cached `Enabled` bool (a single
++    // static field read, set once from Memoria.ini at first touch) before calling in; nothing
++    // is allocated, no file is opened, no work happens on a normal (Enabled=0) install.
++    //
++    // Output: a CSV-ish per-session log, recreated (FileMode.Create) at the first write of a
++    // process -- so every game launch starts a fresh file, never an ever-growing one.
++    //   MESH,<effectId>,<frame>,<index>,<keyHex>,<vertCount>,<triCount>,<cx>,<cy>,<cz>,<ex>,<ey>,<ez>
++    //   CAM,<frame>,<px>,<py>,<pz>,<rx>,<ry>,<rz>
++    // effectId = (Int32)SFX.currentEffectID (the SpecialEffect enum, cast to its underlying int);
++    // frame = SFX.frameIndex (the native plugin's own frame counter -- shared by both MESH and
++    // CAM lines, so the two streams correlate on that column); index = the mesh's position in
++    // SFXRender.commandBuffer that frame; keyHex = SFXMeshBase._key (the same hex key
++    // HideMeshes/-Colors take); vertCount/triCount read straight off the drawn Unity Mesh
++    // (mesh.vertexCount / mesh.triangles.Length/3); cx,cy,cz/ex,ey,ez = mesh.bounds center and
++    // extents -- WORLD space here, because SFXMesh.Render() draws via
++    // Graphics.DrawMeshNow(_mesh, Matrix4x4.identity) (object space IS world space for this
++    // mesh class, no transform in play). CAM lines use Camera.main's position + eulerAngles.
++    public static class SfxMeshProbe
++    {
++        private const String LogPath = "./sfxmeshprobe.log";
++
++        // Read once (lazily, on first touch of this class) and cached for the process lifetime --
++        // an ini-gated debug feature doesn't need hot-reload; a relaunch after editing
++        // Memoria.ini is the same rule every other engine-side toggle already follows.
++        public static readonly Boolean Enabled = LoadEnabled();
++
++        private static StreamWriter _writer;
++        private static Boolean _writerInitTried;
++
++        private static Boolean LoadEnabled()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "Enabled", "0").Trim() == "1";
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        private static StreamWriter Writer
++        {
++            get
++            {
++                if (_writer == null && !_writerInitTried)
++                {
++                    _writerInitTried = true;
++                    try
++                    {
++                        Stream stream = new FileStream(LogPath, FileMode.Create, FileAccess.Write, FileShare.Read);
++                        _writer = new StreamWriter(stream);
++                        _writer.WriteLine("# ff9mapkit s47 sfx-mesh-probe");
++                        _writer.WriteLine("# MESH,effectId,frame,index,keyHex,vertCount,triCount,cx,cy,cz,ex,ey,ez");
++                        _writer.WriteLine("# CAM,frame,px,py,pz,rx,ry,rz");
++                        _writer.Flush();
++                    }
++                    catch
++                    {
++                        _writer = null;
++                    }
++                }
++                return _writer;
++            }
++        }
++
++        // Called from SFXDataMesh.cs, Runtime.Render() -- the SFXRender.commandBuffer draw walk.
++        // Logs EVERY SFXMesh in the buffer (hidden/prevented ones included -- a --calibrate cast
++        // that renders every native mesh needs the full set to build the HideMeshes split).
++        public static void LogFrame(List<SFXMeshBase> commandBuffer)
++        {
++            if (!Enabled || commandBuffer == null)
++                return;
++            StreamWriter w = Writer;
++            if (w == null)
++                return;
++            try
++            {
++                Int32 frame = SFX.frameIndex;
++                Int32 effectId = (Int32)SFX.currentEffectID;
++                for (Int32 i = 0; i < commandBuffer.Count; i++)
++                {
++                    SFXMesh mesh = commandBuffer[i] as SFXMesh;
++                    if (mesh == null || mesh._mesh == null)
++                        continue;
++                    Bounds b = mesh._mesh.bounds;
++                    Vector3 c = b.center;
++                    Vector3 e = b.extents;
++                    Int32 vertCount = mesh._mesh.vertexCount;
++                    Int32 triCount = mesh._mesh.triangles.Length / 3;
++                    w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                        "MESH,{0},{1},{2},{3:X8},{4},{5},{6:F4},{7:F4},{8:F4},{9:F4},{10:F4},{11:F4}",
++                        effectId, frame, i, mesh._key, vertCount, triCount,
++                        c.x, c.y, c.z, e.x, e.y, e.z));
++                }
++                w.Flush();
++            }
++            catch
++            {
++                // A probe must never take the real battle render down with it.
++            }
++        }
++
++        // Called from SFXDataCamera.cs, UpdateCamera() -- only while the SFX_PLUGIN camera
++        // engine is actually driving Camera.main (the caller already gates on that).
++        public static void LogCamera()
++        {
++            if (!Enabled)
++                return;
++            StreamWriter w = Writer;
++            if (w == null)
++                return;
++            Camera cam = Camera.main;
++            if (cam == null)
++                return;
++            try
++            {
++                Vector3 p = cam.transform.position;
++                Vector3 r = cam.transform.eulerAngles;
++                w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                    "CAM,{0},{1:F4},{2:F4},{3:F4},{4:F4},{5:F4},{6:F4}",
++                    SFX.frameIndex, p.x, p.y, p.z, r.x, r.y, r.z));
++                w.Flush();
++            }
++            catch
++            {
++            }
++        }
++    }
++}
