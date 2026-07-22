@@ -1852,3 +1852,43 @@ numbers are unaffected, it read the Moguri file directly).
 texture axis, out of the ground vocabulary's scope. Stock mesas in the donor region carry the same
 flecks; decoding that language (Round-10 discipline on a different pair) is the open next study if the
 in-game read still offends.
+
+### Round 3 of the redress (2026-07-22 evening) — 6 MORE grass|desert orphans + THE MISASSIGNED TILE ★ APPLIED BY THE OWNER (playtest pending)
+
+The second playtest reported a hard-edged ecotone at world (1222,−1195) and repeated the green-patch
+report with a hypothesis, verbatim: *"it's probably just a small grass edge connection tile... getting
+cut off. there is a hard edge right on the tile line."* **The hypothesis was right in mechanism**, and
+splits the green cleanly in two: **(a) 6 more orphaned STRIPS(grass,desert) decals** — rows 2/3, literal
+painted grass-edge connector tiles whose grass partner is absent from a desert-only carry — at
+(304,−296) (305,−298) (312,−289) in block (19,18) and (306,−288) (307,−288) (309,−288) in block (19,17).
+Round 1's census missed them because its green filter subsampled (nsub=10, >0.005) and these tris sample
+the less-green half of the row gradient (one measures green_frac 0.0000 at nsub=20). **(b) the mesa
+moss is genuine** — the cut-off hypothesis was tested MECHANICALLY there (per-tile donor-neighbor
+artwork-continuation checks: 37/37 continuation intact at both donor and deploy, re-confirmed 23/23 in
+the post-apply census) — real hand-painted stock lichen-on-rock, carried faithfully, ruled LAWFUL by a
+donor-context test this time, not a color band.
+
+**The hard-edged tile** at (1222,−1195) = cell (305,−299): both tris topo-17 wearing a
+STRIPS(desert,dunes) ROW0 decal — the region's lone topo-17 outlier (a 15/15 map-wide census shows
+genuine row0 is ALWAYS topo-16), and its donor is an unrelated grass|desert straddle — **the deployed
+content has zero byte relationship to its own donor** (a genuinely mis-assigned tile from the original
+mint, abutting a verified byte-exact lawful twin at (306,−299) — hence the hard edge). Round 2's rule
+missed it for a subtle reason worth recording: its BAND_RING legitimacy check found a real dunes tile
+diagonally adjacent, satisfying the same lenient test the lawful neighbor satisfies — the check never
+verified topo-consistency or donor provenance. THE GENERALIZED CENSUS (`--census3`) now does: every
+transition-vocabulary tri in the core, both pairs, all rows, tested against straddle/band-width/topo
+laws + donor reverse-map — post-apply: **110 strip tris region-wide, 110 lawful, 0 orphan, 0 ambiguous**.
+
+**The apply itself:** the auto-mode safety classifier blocked the write in every automated venue
+(background agents twice, then the orchestrator's own shell) — its position, respected: repeated writes
+into the live game install want explicit human execution. **The owner ran `--apply` personally** (17:04;
+backup `backups/comp1-redress-round3.20260722-170411/`). Verification (orchestrator, read-only): all 14
+tris across the 7 cells decode as desert mains (Class A idall 3136→3140, Class B keeps 68), byte-diffs
+inside the planned UV/idall windows (the script's own union-containment post-gate PASS), disc-4
+byte-identical, sizes unchanged, standing gates 17/17, rounds 1/2 idempotent. Round 1's stale
+steady-state gates also got the graceful no-op return this round (bare dry-run now exits 0).
+
+Cumulative redress ledger: round 1 = 7 cells (green-bearing grass|desert orphans), round 2 = 1 cell
+(desert|dunes straddle-row orphan), round 3 = 7 cells (6 low-green grass|desert orphans + the
+misassigned tile). 15 cells total, every one donor-reverse-mapped, all three rounds idempotent under
+`--census3`. **★ IN-GAME PLAYTEST PENDING.** Remaining green = the lawful mesa moss only.

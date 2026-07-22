@@ -88,6 +88,44 @@ ROUND 2 (2026-07-22, same day) -- THE DESERT|DUNES PAIR'S OWN ORPHAN-DECAL CLASS
   a PURE UV defect. The redress is UV-only, the same ``assign_mains(seed=0xF93)`` -> ``ground_uv(...,
   'desert')`` call Round 1 uses, applied to both of the cell's tris (so the cell renders as one
   ordinary plain-desert quad, split by its own walkmesh diagonal, exactly like its neighbours).
+
+ROUND 3 (2026-07-22, same day) -- THE GENERALIZED CENSUS (DIAGNOSER 2) + THE 7-CELL FIX
+  A 2nd playtest report ("(1222,-1195) has another hard-edged ecotone") exposed the gap in Round
+  1+2's hand-rolled, single-pair rules: Round 1 only ever decoded (grass,desert) via a colour
+  filter, Round 2 only ever decoded (desert,dunes) via dunes_grazing_eye._classify_tri's
+  hardcoded translation -- neither could see a defect on the OTHER pair, and the colour filter is
+  provably incomplete on its own pair (Round-10's TRAIN calibration measures strip:2/strip:3
+  green_frac min == 0.0 -- a genuine defect can sample zero green by dumb luck of triangle shape).
+  classify_tri_any_pair (DIAGNOSER 2, read-only, round3_generalized_census / --census3) replaces
+  colour with the same brute-force UV/row decode dunes_grazing_eye._classify_tri uses,
+  generalized over EVERY catalogued STRIPS pair, and cross-checks every finding against its own
+  reverse-mapped donor cell (T re-derived from live topo-41 footprints, never trusted from prose)
+  -- plus mechanically tests the owner's own connector-cutoff hypothesis for the remaining green
+  topo-49/58 rock/mural flecks (edge-adjacency diffed, deployed vs donor): REFUTED, 0/23
+  confirmed, the rock/mural content is genuine verbatim and stays untouched.
+
+  The generalized census surfaces 6 orphans, ALL pair (grass,desert) -- CLASS A below. It does
+  NOT surface a 7th: cell (305,-299)'s two STRIPS(desert,dunes) row0 tris pass the census's own
+  context-radius test (a genuine dunes tile sits one cell away, so _row_lawfulness reads them
+  lawful) -- but BOTH tris already carry topo 17 (GROUNDS['desert']['topo'], desert's own
+  PLAIN-MAINS topo), not the STRIPS language's own dedicated fringe-decal topo 16 that every OTHER
+  instance of this exact (pair,row) group wears (measured live, this run: 15 other cells / 30
+  tris, unanimous at topo 16 -- (305,-299) is the region's sole topo-17 outlier). That is a
+  topo/UV MISMATCH, orthogonal to context-radius lawfulness -- CLASS B, caught by a new,
+  independent rule-derived check (topo_consistency_defects) added by THE FIX ROUND below, never
+  by the diagnoser (which only ever tests neighbourhood context, not a tri's own topo byte against
+  its group's measured norm).
+
+  THE FIX (round3_census / round3_build_and_gate / round3_apply_redress, below the diagnoser)
+  reduces both classes to the SAME lawful target for the SAME underlying reason (this carry
+  brought zero grass, so nothing here can lawfully wear a grass-adjacent decal) via the arc's two
+  ALREADY-PROVEN redress shapes, reused verbatim (never re-derived): CLASS A (6 cells, 1 tri each)
+  is Round 1's own shape (compute_redress: topo16 -> GROUNDS['desert']['topo']=17 + UV); CLASS B
+  (1 cell, both tris) is Round 2's own shape (compute_redress_round2: UV-only, idall already
+  correct). Files touched -- a SMALLER footprint than Round 1's 3 blocks, exactly 2:
+    FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh
+    FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r17/Block[19][17] Terrain.ff9mesh
+  (Disc-4 mirrored by discmirror.auto_mirror, --apply only, exactly as Rounds 1+2.)
 """
 from __future__ import annotations
 
@@ -99,7 +137,7 @@ import json
 import math
 import shutil
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -291,6 +329,15 @@ def build_and_gate(game_root: Path):
     gate("Round-10 dump has exactly 7 defect cells", len(targets) == 7, f"cells={sorted(targets)}")
 
     blocks, bms, plan, straddle_problems = locate_tris(game_root, targets)
+    if not plan:
+        # Idempotent steady-state (same shape as rounds 2/3): the 7 cells no longer decode as
+        # topo-16 strip tiles because the redress already landed (applied 2026-07-22 14:00,
+        # backup comp1-redress.20260722-140044). The pre-apply reconciliation gates below assert
+        # PRE-state facts and would report 5 stale FAILs -- report the clean no-op instead.
+        print("\nround 1: 0 located targets -- the 7 grass|desert orphan decals are already "
+              "redressed on disk (idempotent no-op; nothing to do).")
+        return dict(bms={}, new_bms={}, plan=[], blocks=[], targets=targets, n_fail=0,
+                    out=dict(idempotent_noop=True, gates=[], plan=[]))
     gate("every target cell holds exactly 2 tris (the walkmesh's own diagonal split) with exactly 1 "
          "at topo 16 (the other legitimately topo 17 already) -- re-verified against LIVE bytes, "
          "not merely trusted from the dump", not straddle_problems, f"{straddle_problems}")
@@ -796,6 +843,801 @@ def round2_apply_redress(game_root: Path, res2: dict, out2: dict) -> int:
 
 
 # ================================================================================================
+# ROUND 3 (DIAGNOSER 2, read-only) -- THE GENERALIZED ORPHAN CENSUS
+#   Rounds 1+2 each hand-rolled a rule for ONE pair (grass|desert via a colour filter; desert|
+#   dunes via GE._classify_tri, which hardcodes the (desert,dunes) UV translation only -- it
+#   CANNOT decode a grass|desert tri at all). Two playtest reports exposed the gap this closes:
+#   (a) a "hard-edged ecotone" at world (1222,-1195) = cell (305,-299), block (19,18) -- outside
+#       Round 1's seven and (per Round 2's own rule, which only tests topo==41 partners) not
+#       caught by Round 2 either; (b) the owner's mechanism hypothesis for the remaining green
+#       rock/mural (topo 49/58) flecks -- a connector tile cut off at the tile boundary, not
+#       lichen -- tested here by DIFFING mesh-adjacency, deployed vs donor, not by colour.
+#
+#   THE GAP IN THE COLOUR FILTER (why this round exists, proven from the dump's OWN numbers):
+#   Round 10's calibration table (out/grass_desert_combine_decode.json ->
+#   calibration.train_resolvability) reports 'strip:2'.min == 0.0 and 'strip:3'.min == 0.0 on
+#   real TRAIN triangles -- i.e. a genuine STRIPS(grass,desert) row-2/row-3 triangle CAN sample
+#   green_frac exactly 0.0 (a small triangle covering mostly the rect's non-green corner). A
+#   green_frac>0 filter is therefore NOT a complete census of the vocabulary, even restricted to
+#   the one pair it can see. `classify_tri_any_pair` below replaces colour with the same brute-
+#   force UV/row DECODE `dunes_grazing_eye._classify_tri` uses, generalized to try every pair in
+#   `grassland.STRIPS` (currently exactly 2: (grass,desert) and (desert,dunes) -- the Round-10
+#   census's own closed vocabulary; nothing else is catalogued, so nothing else is tested here).
+# ================================================================================================
+
+# the donor cluster comp[1] was carried from (Round 10's own figure, re-verified below against
+# live bytes via GE.translation rather than trusted blind) + its 1-block Moore ring, clipped to
+# the engine's real 24x20 grid -- read-only context for the donor-lawfulness reverse-map.
+DONOR_CORE = GE.STOCK_BLOCKS                      # (12-15, 10-13), == dunes_grazing_eye's own comp[1] donor
+DONOR_RING = sorted({(bx + dx, by + dy) for (bx, by) in DONOR_CORE
+                     for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                     if M.block_in_grid(bx + dx, by + dy)})
+
+
+def _strip_uv_for_pair(pair, x: float, z: float, cell, row: int, ori: int):
+    spec = GL.STRIPS[pair]
+    du, dv = spec["du"], spec["dv"]
+    i, j = cell
+    fx = (x - CELL * i) / CELL
+    fz = (z - CELL * j) / CELL
+    a, b = GL.rot_ab(fx, fz, ori)
+    a, b = max(0.0, min(1.0, a)), max(0.0, min(1.0, b))
+    u0, u1 = GL.STRIP_U
+    v0, v1 = GL.STRIPS_V[row]
+    return (u0 + a * (u1 - u0) + du, v0 + b * (v1 - v0) + dv)
+
+
+def classify_tri_any_pair(world_pts, uvs, cell, eps=0.004):
+    """Generalized brute-force tri classifier: tries EVERY catalogued STRIPS pair (both
+    directions the Round-10 vocabulary knows) at all 4 rows x 4 orientations, then GROUNDS mains
+    for grass/desert/dunes, before giving up as ('other', None, None, None). A strict superset of
+    ``dunes_grazing_eye._classify_tri`` (which hardcodes the (desert,dunes) translation only)."""
+    def match(fn):
+        return all(abs(fn(p)[0] - uv[0]) < eps and abs(fn(p)[1] - uv[1]) < eps
+                   for p, uv in zip(world_pts, uvs))
+    for pair in GL.STRIPS:
+        for ori in GE.ORIS:
+            for row in range(4):
+                if match(lambda p, pr=pair, r=row, o=ori: _strip_uv_for_pair(pr, p[0], p[2], cell, r, o)):
+                    return ("strip", pair, row, ori)
+    for ground in ("grass", "desert", "dunes"):
+        for uh in (0, 1):
+            for vh in (0, 1):
+                for ori in GE.ORIS:
+                    if match(lambda p, q=(uh, vh), o=ori, g=ground:
+                             GL.ground_uv(p[0], p[2], cell, q, o, g)):
+                        return ("mains", ground, (uh, vh), ori)
+    return ("other", None, None, None)
+
+
+def _region_tris(game_root: Path, blocks, override_bms=None):
+    """Every triangle in `blocks`, flattened to one record each: an in-memory override if
+    supplied, else the live MOD override if deployed there, else real stock bytes (mirrors
+    `_region_blockmeshes` + `round2_census`'s inline loop, factored out for round 3's reuse over
+    BOTH the deployed comp[1] region and the stock donor region)."""
+    bms = _region_blockmeshes(game_root, blocks, override_bms)
+    out = []
+    for (bx, by), (bm, src) in bms.items():
+        ox, oz = X.block_world_origin(bx, by)
+        for tri in bm.tris:
+            wpts = [(bm.verts[j][0] + ox, bm.verts[j][1], bm.verts[j][2] + oz) for j in tri]
+            uv3 = [tuple(bm.uvs[j]) for j in tri]
+            idall = int(round(bm.tangents[tri[0]][0]))
+            topo = X.decode_id(idall)["topograph"]
+            cx = sum(p[0] for p in wpts) / 3.0
+            cz = sum(p[2] for p in wpts) / 3.0
+            cell = (math.floor(cx / CELL), math.floor(cz / CELL))
+            out.append(dict(block=(bx, by), src=src, tri_idx=list(tri), topo=topo,
+                            fam=GE.TOPO_FAM.get(topo), world_pts=wpts, uv=uv3, cell=cell))
+    return out
+
+
+ROUND3_MAX_BAND_RADIUS = 4   # Law 4's own observed outer curvature-exception bound (block (15,12)
+                              # reached depth 3-4 at a zigzag reentrant); the modal law is radius 1,
+                              # Round 2's own generosity accepted radius <=2 without further flag.
+ROUND3_ACCEPT_RADIUS = 2     # matches Round 2's BAND_RING precedent exactly
+
+
+def _row_lawfulness(cell, pair, row, fam_t, cell_fams):
+    """The Round-10 justifying-context rule for ONE (cell,pair,row,fam) hit, decoupled from
+    `classify_tri_any_pair` so it can be evaluated on `cell_fams` alone (a pure TOPO_FAM lookup,
+    unaffected by whether a GIVEN tri's vertices happen to be grid-aligned or a real stock
+    sub-cell-CONFORMING vertex -- see the round3_generalized_census docstring's donor-lookup note:
+    a conforming donor vertex's UV stays pinned to its quadrant CORNER (grassland.py's own
+    documented 'bleed rule'), which `classify_tri_any_pair`'s linear fx/fz interpolation does not
+    reproduce, so re-classifying a donor tri from scratch silently false-negatives exactly where
+    the donor's real geometry is most interesting. Testing lawfulness via `cell_fams` (family
+    presence per cell, from TOPO_FAM -- never from a UV re-decode) sidesteps that gap entirely and
+    is used for BOTH the main scan and the donor cross-check below, so the two stay logically
+    identical."""
+    fams_here = cell_fams.get(cell, set())
+    if row in (1, 3):
+        lawful = fams_here == set(pair)
+        detail = dict(kind="straddle-row", fams_present=sorted(fams_here))
+        if not lawful:
+            detail["missing_context"] = (f"no same-cell straddle: cell holds families "
+                                         f"{sorted(fams_here)}, needs BOTH {sorted(pair)}")
+        return lawful, detail
+    if row in (0, 2):
+        partner = pair[1] if fam_t == pair[0] else pair[0] if fam_t == pair[1] else None
+        if partner is None:
+            return None, dict(kind="fringe-row", partner_family=None,
+                              missing_context=f"ambiguous: tri's own family {fam_t!r} not in pair {pair}")
+        radius_needed = None
+        for r in range(1, ROUND3_MAX_BAND_RADIUS + 1):
+            found = any(
+                (cell[0] + di, cell[1] + dj) in cell_fams
+                and partner in cell_fams[(cell[0] + di, cell[1] + dj)]
+                for di in range(-r, r + 1) for dj in range(-r, r + 1)
+                if max(abs(di), abs(dj)) == r)
+            if found:
+                radius_needed = r
+                break
+        lawful = radius_needed is not None and radius_needed <= ROUND3_ACCEPT_RADIUS
+        detail = dict(kind="fringe-row", partner_family=partner, radius_needed=radius_needed)
+        if not lawful:
+            detail["missing_context"] = (
+                f"partner family {partner!r} first found at radius {radius_needed} "
+                f"(> accept radius {ROUND3_ACCEPT_RADIUS})" if radius_needed is not None
+                else f"partner family {partner!r} not found within {ROUND3_MAX_BAND_RADIUS} cells at all")
+        return lawful, detail
+    return None, dict(kind=f"row{row}", missing_context="row index outside {0,1,2,3}")
+
+
+def generalized_orphan_census(tris, report_blocks=None):
+    """THE GENERALIZED ORPHAN CENSUS over an already-loaded tri list (deployed OR donor -- this
+    function is region-agnostic, called on both below). Tests every strip-classified tri against
+    its OWN pair's justifying-context law:
+      - straddle rows {1,3}: lawful only if the SAME cell carries tris of BOTH pair families
+        (Law 2 -- a genuine same-cell straddle).
+      - fringe rows {0,2}: lawful only if the pair's OTHER family (relative to this tri's own
+        topo family) sits within `ROUND3_ACCEPT_RADIUS` cells (Law 4's modal-1 + Round 2's own
+        curvature-exception generosity); the ACTUAL minimal radius that rescues a hit is
+        recorded (not just pass/fail), so a >1-cell rescue reads as a flagged curvature case
+        rather than a silent pass.
+    `report_blocks`: if given (an iterable of (bx,by)), ONLY tris in those blocks are DECODED and
+    appended to `results` -- every OTHER tri in `tris` still feeds `cell_fams` (neighbour
+    CONTEXT). This is the writable-core-vs-read-only-ring split: the 1-block Moore ring is real,
+    un-carried stock terrain (mountains/grass genuinely bordering comp[1]) -- scanning it for
+    "defects" would flag ordinary stock content, not a carry defect, and it is not ours to fix
+    regardless. Without this filter the ring's own real stock STRIPS content pollutes the report.
+    Returns (results, cell_fams) -- results is a list of dicts, one per DECODED strip-classified
+    tri, 'lawful' True/False/None (None = ambiguous, needs eyes)."""
+    report_set = set(report_blocks) if report_blocks is not None else None
+    by_cell = defaultdict(list)
+    for t in tris:
+        by_cell[t["cell"]].append(t)
+    cell_fams = defaultdict(set)
+    for t in tris:
+        if t["fam"]:
+            cell_fams[t["cell"]].add(t["fam"])
+
+    results = []
+    for t in tris:
+        if report_set is not None and t["block"] not in report_set:
+            continue
+        cls = classify_tri_any_pair(t["world_pts"], t["uv"], t["cell"])
+        if cls[0] != "strip":
+            continue
+        _, pair, row, ori = cls
+        cell = t["cell"]
+        fam_t = t["fam"]
+        lawful, detail = _row_lawfulness(cell, pair, row, fam_t, cell_fams)
+        rec = dict(cell=list(cell), block=list(t["block"]), tri_idx=t["tri_idx"], pair=list(pair),
+                   row=row, ori=ori, topo=t["topo"], fam=fam_t, uv=[list(u) for u in t["uv"]],
+                   lawful=(None if lawful is None else bool(lawful)),
+                   missing_context=detail.get("missing_context"))
+        rec.update({k: v for k, v in detail.items() if k != "missing_context"})
+        results.append(rec)
+    return results, cell_fams
+
+
+def rock_mural_neighbor_test(deployed_tris, donor_tris, T, scan_blocks=None):
+    """Mechanically test the owner's CONNECTOR-CUTOFF hypothesis for the topo-49/58 rock/mural
+    green flecks, verbatim: 'if it's truly lichen (i highly doubt it, it's probably just a small
+    grass edge connection tile), then it's getting cut off. there is a hard edge right on the
+    tile line.' Build an edge-adjacency graph (shared-vertex-pair keys, the same method
+    `dunes_grazing_eye.boundary_conformance` uses) on BOTH the deployed region and the donor
+    region, then for every rock/mural tri that reads green in the deployed region: find its
+    edge-adjacent neighbours' families at the deployed site, locate its BYTE-IDENTICAL UV twin in
+    the donor region (a rigid carry copies UV verbatim -- the same identity test
+    `orientation_fidelity`'s byte_derivation clause uses) and find that twin's edge-adjacent
+    neighbours' families at the DONOR site. `grass_neighbor_in_donor_only=True` on a record is
+    the hypothesis CONFIRMED for that tri (a real stock grass-adjacency the carry's rectangular
+    window did not bring along); False/None is the hypothesis not supported for that tri (the
+    donor site shows the same boundary, or no donor twin was found)."""
+    def edge_graph(tris):
+        owner = defaultdict(list)
+        for idx, t in enumerate(tris):
+            ks = [tuple(round(v, 3) for v in (p[0], p[2])) for p in t["world_pts"]]
+            for i in range(3):
+                e = frozenset((ks[i], ks[(i + 1) % 3]))
+                if len(e) == 2:
+                    owner[e].append(idx)
+        return owner
+
+    def neighbors_of(tris, owner, idx):
+        t = tris[idx]
+        ks = [tuple(round(v, 3) for v in (p[0], p[2])) for p in t["world_pts"]]
+        nb = set()
+        for i in range(3):
+            e = frozenset((ks[i], ks[(i + 1) % 3]))
+            if len(e) == 2:
+                for j in owner.get(e, ()):
+                    if j != idx:
+                        nb.add(j)
+        return nb
+
+    dep_owner = edge_graph(deployed_tris)
+    don_owner = edge_graph(donor_tris)
+    don_by_cell = defaultdict(list)
+    for j, dt in enumerate(donor_tris):
+        don_by_cell[dt["cell"]].append(j)
+
+    scan_set = set(scan_blocks) if scan_blocks is not None else None
+    green_idx = [i for i, t in enumerate(deployed_tris)
+                if t["topo"] in ROCK_TOPOS and (scan_set is None or t["block"] in scan_set)
+                and GE.tri_green_frac(t["uv"], nsub=10) > 0.0]
+
+    out = []
+    for idx in green_idx:
+        t = deployed_tris[idx]
+        nb = neighbors_of(deployed_tris, dep_owner, idx)
+        nb_fams = sorted({f for j in nb if (f := deployed_tris[j]["fam"])})
+        nb_topos = sorted({deployed_tris[j]["topo"] for j in nb})
+        dcell = (t["cell"][0] - T[0], t["cell"][1] - T[1])
+        # rock/mural wall tris are a full 3D mesh (not a flat 2-tri/cell floor grid), so their
+        # centroid-bucketed cell can drift by +/-1 between donor and deployed even for a truly
+        # rigid carry -- search a small neighbourhood, not just the exact reverse-mapped cell.
+        match_idx = None
+        for rad in range(0, 3):
+            cands = [(dcell[0] + di, dcell[1] + dj) for di in range(-rad, rad + 1)
+                     for dj in range(-rad, rad + 1) if max(abs(di), abs(dj)) == rad]
+            for cc in cands:
+                for j in don_by_cell.get(cc, ()):
+                    if _uv_sets_match(donor_tris[j]["uv"], t["uv"], tol=1e-3):
+                        match_idx = j
+                        break
+                if match_idx is not None:
+                    break
+            if match_idx is not None:
+                break
+        d_nb_fams = d_nb_topos = None
+        if match_idx is not None:
+            dnb = neighbors_of(donor_tris, don_owner, match_idx)
+            d_nb_fams = sorted({f for j in dnb if (f := donor_tris[j]["fam"])})
+            d_nb_topos = sorted({donor_tris[j]["topo"] for j in dnb})
+        out.append(dict(
+            cell=list(t["cell"]), block=list(t["block"]), topo=t["topo"],
+            green_frac=round(GE.tri_green_frac(t["uv"], nsub=10), 4),
+            deployed_neighbor_fams=nb_fams, deployed_neighbor_topos=nb_topos,
+            donor_cell=list(dcell), donor_twin_found=match_idx is not None,
+            donor_neighbor_fams=d_nb_fams, donor_neighbor_topos=d_nb_topos,
+            grass_neighbor_in_donor_only=bool(d_nb_fams is not None and "grass" in d_nb_fams
+                                              and "grass" not in nb_fams),
+        ))
+    return out
+
+
+def round3_generalized_census(game_root: Path):
+    """DIAGNOSER 2 entry point -- READ-ONLY, writes only to out/ (never the game). Runs the
+    generalized UV/row census over the deployed comp[1] core+ring, reverse-maps every finding
+    through T to the donor region for a lawfulness cross-check, and runs the rock/mural
+    connector-cutoff mechanism test. Prints a full report and returns the dict written to
+    out/comp1_generalized_orphan_census.json."""
+    print("\n" + "#" * 96)
+    print("# ROUND 3 (DIAGNOSER 2) -- THE GENERALIZED ORPHAN CENSUS (read-only)")
+    print("#" * 96)
+
+    dep_tris = _region_tris(game_root, ROUND2_RING)
+    don_tris = _region_tris(game_root, DONOR_RING)
+
+    # T re-derived from LIVE bytes (never trusted from prose): topo-41 footprint bbox-min delta,
+    # the same method dunes_grazing_eye's own self-test/anti-test uses.
+    dep_cmap = GE.cells_map([(t["world_pts"], t["uv"], None, t["topo"], t["fam"]) for t in dep_tris])
+    don_cmap = GE.cells_map([(t["world_pts"], t["uv"], None, t["topo"], t["fam"]) for t in don_tris])
+    dep_fp41 = GE.topo41_footprint(dep_cmap)
+    don_fp41 = GE.topo41_footprint(don_cmap)
+    T = GE.translation(don_fp41, dep_fp41)
+    print(f"\nT (donor -> deployed cell translation, re-derived from live topo-41 footprints) = {T}")
+
+    # `report_blocks=MINT_BLOCKS`: DECODE only the writable 9-block core -- the 1-block ring is
+    # real, un-carried stock terrain (it still feeds `cell_fams` CONTEXT above via the full
+    # `dep_tris`/`don_tris` passed in, just not reported as a candidate defect). The donor side is
+    # intentionally left UNFILTERED (every DONOR_RING cell decoded) since it is a read-only
+    # lawfulness LOOKUP keyed by reverse-mapped cell, not a defect report of its own.
+    dep_results, dep_fams = generalized_orphan_census(dep_tris, report_blocks=MINT_BLOCKS)
+    don_results, don_fams = generalized_orphan_census(don_tris)
+
+    orphans = [r for r in dep_results if r["lawful"] is False]
+    ambiguous = [r for r in dep_results if r["lawful"] is None]
+    lawful = [r for r in dep_results if r["lawful"] is True]
+    print(f"\ndeployed region (9-block WRITABLE CORE only, decoded against the full core+ring "
+         f"context): {len(dep_results)} strip-classified tris -- {len(lawful)} lawful, "
+         f"{len(orphans)} ORPHAN, {len(ambiguous)} ambiguous")
+
+    don_by_cell = defaultdict(list)          # raw donor tris (uv-existence check)
+    for t in don_tris:
+        don_by_cell[t["cell"]].append(t)
+    don_results_by_cell = defaultdict(list)  # decoded donor strip results (report-only)
+    for r2 in don_results:
+        don_results_by_cell[tuple(r2["cell"])].append(r2)
+
+    for r in sorted(orphans, key=lambda r: tuple(r["cell"])):
+        cell = tuple(r["cell"])
+        pair, row, fam_t = tuple(r["pair"]), r["row"], r["fam"]
+        dcell = (cell[0] - T[0], cell[1] - T[1])
+        r["donor_cell"] = list(dcell)
+        # (1) does REAL donor content -- UV-byte-identical to this orphan's tri -- exist at dcell
+        # at all? (a rigid carry copies UV verbatim; this is the same identity test
+        # `orientation_fidelity`'s byte_derivation clause and Round 10's own "reverse-mapping...
+        # recovers a donor cell" language use.) Report every donor tri's OWN reclassification too
+        # (via the already-decoded don_results, not a re-decode), but do NOT gate donor_lawful on
+        # it succeeding -- see next point.
+        donor_raw_hits = don_by_cell.get(dcell, [])
+        donor_hits = don_results_by_cell.get(dcell, [])
+        uv_twin = [h for h in donor_raw_hits if _uv_sets_match(h["uv"], r["uv"], tol=1e-3)]
+        # (2) donor_lawful is evaluated via `_row_lawfulness` directly on `don_fams` (pure TOPO_FAM
+        # cell-family lookup) using THIS orphan's OWN (pair,row,fam) -- NOT by re-running
+        # `classify_tri_any_pair` on the donor's own tri. A donor boundary tri can carry a
+        # genuine sub-cell CONFORMING vertex (grassland.py's own documented 'bleed rule': the UV
+        # stays pinned to the quadrant corner even though the vertex sits off it) -- the linear
+        # fx/fz interpolation `classify_tri_any_pair` uses does not reproduce that pinned corner,
+        # so re-decoding a donor tri from scratch can false-negative to 'other' exactly on the
+        # most genuine boundary content (caught empirically on cell (312,-289)/donor (225,-188):
+        # a UV-byte-identical donor twin exists with a real off-grid vertex, but re-classifying it
+        # returns 'other' -- cell-family lookup sidesteps the gap entirely).
+        d_lawful, d_detail = _row_lawfulness(dcell, pair, row, fam_t, don_fams)
+        r["donor_uv_twin_found"] = bool(uv_twin)
+        r["donor_hits_reclassified"] = [(tuple(h["pair"]), h["row"], h["lawful"]) for h in donor_hits]
+        r["donor_lawful"] = None if d_lawful is None else bool(d_lawful)
+        r["donor_lawful_detail"] = d_detail
+        print(f"  ORPHAN cell{cell} block{tuple(r['block'])} pair={pair} row={row} "
+             f"ori={r['ori']} kind={r['kind']} -- {r['missing_context']}")
+        print(f"      donor_cell={dcell} donor_uv_twin_found={r['donor_uv_twin_found']} "
+             f"donor_hits_reclassified={r['donor_hits_reclassified']} "
+             f"donor_lawful(via cell_fams)={r['donor_lawful']} ({d_detail.get('missing_context', 'OK')})")
+
+    # explicit reconciliation checks the task calls for -----------------------------------------
+    target_305 = [r for r in dep_results if tuple(r["cell"]) == (305, -299)]
+    print(f"\ncell (305,-299) [world (1222,-1195), the 2nd playtest report]: "
+         f"{len(target_305)} strip-classified tri(s): "
+         f"{[(tuple(r['pair']), r['row'], r['kind'], r['lawful'], r.get('missing_context')) for r in target_305]}")
+    if not target_305:
+        # not strip-classified at all under the generalized decode -- report its RAW classification
+        raw = [t for t in dep_tris if tuple(t["cell"]) == (305, -299)]
+        for t in raw:
+            cls = classify_tri_any_pair(t["world_pts"], t["uv"], t["cell"])
+            print(f"      raw tri block{t['block']} topo={t['topo']} fam={t['fam']} classify={cls}")
+
+    round1_cells = {(307, -302), (304, -297), (312, -306), (313, -305), (320, -294),
+                    (317, -292), (320, -300)}
+    round2_cells = {(303, -291)}
+    for label, cellset in (("round-1 FIXED", round1_cells), ("round-2 FIXED", round2_cells)):
+        hits = [r for r in dep_results if tuple(r["cell"]) in cellset]
+        orphan_hits = [r for r in hits if r["lawful"] is False]
+        print(f"\nidempotence check -- {label} cells {sorted(cellset)}: "
+             f"{len(hits)} strip-classified tri(s) remain, {len(orphan_hits)} still ORPHAN "
+             f"(expect 0 -- redress already applied)")
+        for r in hits:
+            print(f"      cell{tuple(r['cell'])} pair={tuple(r['pair'])} row={r['row']} lawful={r['lawful']}")
+
+    rock_test = rock_mural_neighbor_test(dep_tris, don_tris, T, scan_blocks=MINT_BLOCKS)
+    n_confirmed = sum(1 for r in rock_test if r["grass_neighbor_in_donor_only"])
+    print(f"\nrock/mural connector-cutoff test: {len(rock_test)} green topo-49/58 tris checked, "
+         f"{n_confirmed} show a donor-only grass neighbour (hypothesis CONFIRMED for those), "
+         f"{sum(1 for r in rock_test if not r['donor_twin_found'])} had no donor twin located")
+    for r in rock_test:
+        print(f"  cell{tuple(r['cell'])} block{tuple(r['block'])} green_frac={r['green_frac']} "
+             f"deployed_nb_fams={r['deployed_neighbor_fams']} donor_cell={tuple(r['donor_cell'])} "
+             f"donor_twin={r['donor_twin_found']} donor_nb_fams={r['donor_neighbor_fams']} "
+             f"CONFIRMED={r['grass_neighbor_in_donor_only']}")
+
+    out = dict(
+        T=list(T), n_deployed_strip_tris=len(dep_results), n_lawful=len(lawful),
+        n_orphan=len(orphans), n_ambiguous=len(ambiguous),
+        orphans=orphans, ambiguous=ambiguous,
+        cell_305_299=[{k: v for k, v in r.items()} for r in target_305],
+        idempotence=dict(
+            round1_cells=sorted(list(c) for c in round1_cells),
+            round2_cells=sorted(list(c) for c in round2_cells),
+            round1_remaining_orphans=[r for r in dep_results
+                                      if tuple(r["cell"]) in round1_cells and r["lawful"] is False],
+            round2_remaining_orphans=[r for r in dep_results
+                                      if tuple(r["cell"]) in round2_cells and r["lawful"] is False],
+        ),
+        rock_mural_connector_test=rock_test,
+        n_rock_mural_confirmed=n_confirmed,
+    )
+    OUT3 = HERE / "out" / "comp1_generalized_orphan_census.json"
+    OUT3.write_text(json.dumps(out, indent=1, default=str))
+    print(f"\n-> {OUT3}")
+    return out
+
+
+# ================================================================================================
+# ROUND 3 FIX -- the 7-cell re-census redress (module docstring's own "ROUND 3" section is the
+#   contract). Consumes the DIAGNOSER 2 machinery above (classify_tri_any_pair,
+#   generalized_orphan_census, ROUND2_RING, FRINGE_ROWS) as its own rule-derivation source; adds
+#   exactly ONE new rule (topo_consistency_defects, CLASS B) the diagnoser does not compute on its
+#   own, then reuses Round 1's and Round 2's ALREADY-PROVEN redress shapes verbatim -- this round
+#   invents no new fix mechanism, only a new defect-DETECTION rule for the one shape neither prior
+#   round's rule could see.
+# ================================================================================================
+
+EXPECTED_ROUND3_CLASS_A = {(304, -296), (305, -298), (306, -288), (307, -288), (309, -288), (312, -289)}
+EXPECTED_ROUND3_CLASS_B = {(305, -299)}
+EXPECTED_ROUND3_DEFECTS = EXPECTED_ROUND3_CLASS_A | EXPECTED_ROUND3_CLASS_B   # 7 cells, asserted below
+EXPECTED_ROUND3_BLOCKS = {(19, 17), (19, 18)}          # -- all RE-DERIVED from live bytes below,
+                                                        #    never trusted blind; a mismatch is a
+                                                        #    hard AssertionError (same law as Round 2)
+
+FRINGE_MODE_MIN_GROUP = 5      # refuse to judge a (pair,row) group smaller than this -- too thin
+                                # a sample to call any topo value "the norm" with confidence
+FRINGE_MODE_MIN_SHARE = 0.8    # the group's modal topo must hold at least this share before a
+                                # minority member is trusted as a genuine outlier rather than noise
+
+
+def topo_consistency_defects(tris, report_blocks):
+    """CLASS B's own rule -- a SECOND, independent lawfulness test for FRINGE-row {0,2} STRIPS
+    decals (any catalogued pair), orthogonal to `_row_lawfulness`'s context-radius test. Within
+    the loaded region, every (pair,row) fringe group's topo is measured LIVE (never hardcoded):
+    if one topo value holds an overwhelming majority (>=FRINGE_MODE_MIN_SHARE of a
+    >=FRINGE_MODE_MIN_GROUP sample), any tri breaking that majority is a topo/UV mismatch -- it
+    renders a decal UV under a topo that does not match the language's own established encoding
+    for that exact decal, independent of whether its *neighbourhood* otherwise reads as a lawful
+    place to wear one (a topo-consistency defect can coexist with, or exist entirely without, a
+    context-radius defect -- they test different bytes). STRADDLE rows {1,3} are OUT OF SCOPE
+    here on purpose: a genuine straddle legitimately wears TWO different topos across its two
+    tris (one per family, measured: 18/18 and 7/7 in this exact region), so "the group's mode" is
+    not a meaningful single number there -- Round 2 / `_row_lawfulness`'s STRADDLE_ROWS branch
+    already owns that class, untouched by this function.
+
+    Returns (defects: {cell: [hit, ...]}, group_stats: {(pair,row): (mode_topo, mode_n, total_n,
+    {topo: count})}). `defects` hits are restricted to `report_blocks` (the writable core, never
+    the read-only ring); the group STATISTICS themselves are measured over the WHOLE loaded
+    region (ring included) for a larger, more trustworthy sample than the 9-block core alone."""
+    report_set = set(report_blocks)
+    by_group = defaultdict(list)
+    for t in tris:
+        cls = classify_tri_any_pair(t["world_pts"], t["uv"], t["cell"])
+        if cls[0] != "strip":
+            continue
+        _, pair, row, ori = cls
+        if row not in FRINGE_ROWS:
+            continue
+        by_group[(pair, row)].append(dict(cell=t["cell"], block=t["block"], tri_idx=t["tri_idx"],
+                                          pair=pair, row=row, ori=ori, topo=t["topo"],
+                                          uv=[list(u) for u in t["uv"]]))
+    defects = defaultdict(list)
+    group_stats = {}
+    for key, group in by_group.items():
+        ct = Counter(r["topo"] for r in group)
+        mode_topo, mode_n = ct.most_common(1)[0]
+        group_stats[key] = (mode_topo, mode_n, len(group), dict(ct))
+        if len(group) < FRINGE_MODE_MIN_GROUP or mode_n / len(group) < FRINGE_MODE_MIN_SHARE:
+            continue    # too thin / no clear majority -- refuse to judge this group at all
+        for r in group:
+            if r["topo"] != mode_topo and tuple(r["block"]) in report_set:
+                defects[tuple(r["cell"])].append(r)
+    return dict(defects), group_stats
+
+
+def round3_census(game_root: Path, override_bms: dict | None = None):
+    """Rule-derived (never a hardcoded cell list) census for THIS round: CLASS A straight off
+    `generalized_orphan_census`'s own orphan set (any pair, lawful=False, restricted to the
+    writable core); CLASS B off the new `topo_consistency_defects` above. Returns (class_a:
+    {cell: [hit]}, class_b: {cell: [hit,...]}, class_b_group_stats, overlap -- cells claimed by
+    BOTH classes, which must always be empty: the two fix SHAPES are mutually exclusive)."""
+    tris = _region_tris(game_root, ROUND2_RING, override_bms)
+    dep_results, _cell_fams = generalized_orphan_census(tris, report_blocks=MINT_BLOCKS)
+    class_a = defaultdict(list)
+    for r in dep_results:
+        if r["lawful"] is False:
+            class_a[tuple(r["cell"])].append(r)
+    class_b, class_b_stats = topo_consistency_defects(tris, report_blocks=MINT_BLOCKS)
+    overlap = set(class_a) & set(class_b)
+    return dict(class_a), class_b, class_b_stats, overlap
+
+
+def round3_build_and_gate(game_root: Path):
+    gates3: list = []
+
+    def g3(name, ok, detail=""):
+        gates3.append((name, bool(ok), detail))
+        print(f"GATE [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
+        return bool(ok)
+
+    print("\n" + "#" * 96)
+    print("# ROUND 3 FIX -- the 7-cell re-census redress (Class A: grass-absent orphans off "
+         "DIAGNOSER 2; Class B: topo/UV mismatch, new rule)")
+    print("#" * 96 + "\n")
+
+    class_a, class_b, class_b_stats, overlap = round3_census(game_root)
+    print(f"CLASS A (topo16->17 + UV, Round-1's own shape): {len(class_a)} cell(s): {sorted(class_a)}")
+    print(f"CLASS B (UV-only, Round-2's own shape): {len(class_b)} cell(s): {sorted(class_b)}")
+    print("Class-B fringe-row (pair,row) group stats (mode_topo, mode_n/total_n, counts):")
+    for key, (mode_topo, mode_n, total_n, ct) in sorted(class_b_stats.items(), key=lambda kv: str(kv[0])):
+        print(f"  group {key}: mode_topo={mode_topo} ({mode_n}/{total_n}) counts={ct}")
+
+    derived = set(class_a) | set(class_b)
+    if not derived:
+        print("\nround 3: 0 rule-derived defects -- the 7-cell redress is already applied on disk "
+             "(idempotent no-op; nothing to do).")
+        return dict(bms={}, new_bms={}, plan=[], blocks=[], n_fail=0,
+                    out=dict(idempotent_noop=True, gates=[], plan=[]))
+
+    g3("Class A and Class B never claim the same cell (the two fix SHAPES are mutually exclusive "
+       "-- a cell needing BOTH would be an unmodelled 3rd shape, refuse rather than guess)",
+       not overlap, f"overlap={sorted(overlap)}")
+    assert not overlap, (f"round-3 CLASS A/B overlap {sorted(overlap)} -- REFUSING to proceed on "
+                         f"an unmodelled defect shape (ambiguous diagnosis -- report, do not fix)")
+    g3("derived defect cell set == the plan's own asserted 7-cell target set, EXACTLY",
+       derived == EXPECTED_ROUND3_DEFECTS,
+       f"derived={sorted(derived)} expected={sorted(EXPECTED_ROUND3_DEFECTS)}")
+    assert derived == EXPECTED_ROUND3_DEFECTS, (
+        f"round-3 rule-derived defect set {sorted(derived)} != the plan's asserted "
+        f"{sorted(EXPECTED_ROUND3_DEFECTS)} -- REFUSING to proceed on an unreconciled derivation "
+        f"(ambiguous diagnosis -- report, do not fix)")
+    g3("derived Class-A set == the plan's own asserted Class-A set, EXACTLY",
+       set(class_a) == EXPECTED_ROUND3_CLASS_A, f"class_a={sorted(class_a)}")
+    g3("derived Class-B set == the plan's own asserted Class-B set, EXACTLY",
+       set(class_b) == EXPECTED_ROUND3_CLASS_B, f"class_b={sorted(class_b)}")
+
+    blocks3 = sorted({tuple(h["block"]) for hits in list(class_a.values()) + list(class_b.values())
+                      for h in hits})
+    g3("derived touched-block set == {(19,17),(19,18)}, EXACTLY -- a SMALLER footprint than "
+       "Round 1's 3 blocks (this round opens neither (18,18) nor (19,19) nor (20,18))",
+       set(blocks3) == EXPECTED_ROUND3_BLOCKS, f"blocks={blocks3}")
+    g3("every derived block sits inside the writable 9-block comp[1] core (MINT_BLOCKS) -- never "
+       "the read-only ring", all(b in set(MINT_BLOCKS) for b in blocks3), f"blocks={blocks3}")
+
+    g3("every Class-A cell contributes exactly 1 hit (the walkmesh diagonal's OTHER tri is "
+       "already plain mains -- same shape as Round 1)",
+       all(len(hits) == 1 for hits in class_a.values()),
+       f"{[(c, len(h)) for c, h in class_a.items() if len(h) != 1]}")
+    g3("every Class-A hit's OWN topo == 16 (STRIPS grass|desert's dedicated fringe-decal topo, "
+       "never GROUNDS['desert']['topo'] -- confirms Class A never overlaps Class B's own anomaly)",
+       all(h["topo"] == 16 for hits in class_a.values() for h in hits),
+       f"{[(c, h['topo']) for c, hits in class_a.items() for h in hits if h['topo'] != 16]}")
+    g3("every Class-B cell contributes exactly 2 hits (unlike Class A, the WHOLE cell wears the "
+       "defect here -- matching Round 2's own (303,-291) shape)",
+       all(len(hits) == 2 for hits in class_b.values()),
+       f"{[(c, len(h)) for c, h in class_b.items() if len(h) != 2]}")
+    g3("every Class-B hit's OWN topo == GROUNDS['desert']['topo'] (17) -- the anomaly IS that it "
+       "already reads as plain-desert-mains topo while wearing a decal UV",
+       all(h["topo"] == GL.GROUNDS["desert"]["topo"] for hits in class_b.values() for h in hits),
+       f"{[(c, h['topo']) for c, hits in class_b.items() for h in hits if h['topo'] != GL.GROUNDS['desert']['topo']]}")
+
+    # --- compute the redress on COPIES (bms itself is never mutated at build time) -----------------
+    bms_loaded = _region_blockmeshes(game_root, blocks3)
+    bms = {b: bms_loaded[b][0] for b in blocks3}
+    origins = {b: X.block_world_origin(*b) for b in blocks3}
+    new_bms = {b: copy.deepcopy(bm) for b, bm in bms.items()}
+
+    plan = []
+    for cell in sorted(class_a):
+        h = class_a[cell][0]
+        blk = tuple(h["block"])
+        ox, oz = origins[blk]
+        bm = bms[blk]
+        quad, ori, new_uv, new_idall = compute_redress(bm, ox, oz, cell, h["tri_idx"])
+        old_idall = [int(round(bm.tangents[j][0])) for j in h["tri_idx"]]
+        nb = new_bms[blk]
+        for k, j in enumerate(h["tri_idx"]):
+            old_tan = nb.tangents[j]
+            nb.uvs[j] = new_uv[k]
+            nb.tangents[j] = [float(new_idall[k])] + list(old_tan[1:])
+        plan.append(dict(klass="A", cell=list(cell), block=list(blk), row=h["row"], ori=h["ori"],
+                         tri_idx=h["tri_idx"], old_uv=h["uv"], new_uv=new_uv,
+                         old_idall=old_idall, new_idall=new_idall, quad=list(quad), new_ori=ori,
+                         donor_cell=h.get("donor_cell")))
+
+    for cell in sorted(class_b):
+        hits = class_b[cell]
+        blk = tuple(hits[0]["block"])
+        ox, oz = origins[blk]
+        bm = bms[blk]
+        nb = new_bms[blk]
+        quad = ori = None
+        tri_reports = []
+        for h in hits:
+            quad, ori, new_uv = compute_redress_round2(bm, ox, oz, cell, h["tri_idx"])
+            old_idall = [int(round(bm.tangents[j][0])) for j in h["tri_idx"]]
+            for k, j in enumerate(h["tri_idx"]):
+                nb.uvs[j] = new_uv[k]
+            tri_reports.append(dict(tri_idx=h["tri_idx"], old_uv=h["uv"], new_uv=new_uv,
+                                    old_idall=old_idall))
+        plan.append(dict(klass="B", cell=list(cell), block=list(blk), row=hits[0]["row"],
+                         ori=hits[0]["ori"], quad=list(quad) if quad else None, new_ori=ori,
+                         tris=tri_reports))
+
+    # --- new-topo / event-area-flags-preserved checks (Class A only -- Class B never touches idall) -
+    a_entries = [p for p in plan if p["klass"] == "A"]
+    g3("Class-A: new topo == GROUNDS['desert']['topo'] (17) for every redressed corner",
+       all(X.decode_id(v)["topograph"] == GL.GROUNDS["desert"]["topo"]
+           for p in a_entries for v in p["new_idall"]))
+    g3("Class-A: event/area/flags preserved bit-for-bit (topo is the ONLY idall field that changes)",
+       all(_same_event_area_flags(o, n) for p in a_entries
+           for (o, n) in zip(p["old_idall"], p["new_idall"])))
+    b_entries = [p for p in plan if p["klass"] == "B"]
+    b_idall_moved = []
+    for p in b_entries:
+        blk = tuple(p["block"])
+        nb = new_bms[blk]
+        for t in p["tris"]:
+            for k, j in enumerate(t["tri_idx"]):
+                new_idall_j = int(round(nb.tangents[j][0]))
+                if new_idall_j != t["old_idall"][k]:
+                    b_idall_moved.append((p["cell"], j, t["old_idall"][k], new_idall_j))
+    g3("Class-B: idall is UNTOUCHED for every redressed corner (UV-only, exactly Round 2's own "
+       "shape -- topo 17 was already correct here, so nothing to re-encode)",
+       not b_idall_moved, f"moved={b_idall_moved}")
+
+    region = GL.ground_main_region("desert")
+
+    def _in_region(uv):
+        return (region[0] - REGION_TOL <= uv[0] <= region[2] + REGION_TOL
+               and region[1] - REGION_TOL <= uv[1] <= region[3] + REGION_TOL)
+
+    out_of_region = []
+    for p in plan:
+        if p["klass"] == "A":
+            out_of_region += [(p["cell"], uv) for uv in p["new_uv"] if not _in_region(uv)]
+        else:
+            out_of_region += [(p["cell"], t["new_uv"][k]) for t in p["tris"] for k in range(3)
+                              if not _in_region(t["new_uv"][k])]
+    g3(f"every new UV corner lands inside GROUNDS['desert'] mains region "
+      f"{tuple(round(x, 5) for x in region)} (+/-{REGION_TOL})", not out_of_region,
+      f"out_of_region={out_of_region}")
+
+    # --- zero geometry moved anywhere; every OTHER vertex (incl. idall/tangent) untouched -----------
+    geom_ok, other_ok = True, True
+    other_detail = {}
+    for blk in blocks3:
+        bm0, bm1 = bms[blk], new_bms[blk]
+        if bm0.verts != bm1.verts or bm0.normals != bm1.normals:
+            geom_ok = False
+        changed = set()
+        for p in plan:
+            if tuple(p["block"]) != blk:
+                continue
+            changed.update(p["tri_idx"] if p["klass"] == "A" else
+                           (j for t in p["tris"] for j in t["tri_idx"]))
+        bad = [j for j in range(bm0.vcount) if j not in changed
+              and (bm0.uvs[j] != bm1.uvs[j] or bm0.tangents[j] != bm1.tangents[j])]
+        if bad:
+            other_ok = False
+            other_detail[str(blk)] = bad[:8]
+    g3("zero vertex/normal motion anywhere (verts+normals byte-identical, every touched block)", geom_ok)
+    g3("every OTHER vertex's uv+tangent is byte-identical pre/post (only the 8 redressed corners "
+      "move: 6 Class-A + 2 Class-B)", other_ok, f"{other_detail}")
+
+    post_green = [(p["cell"], GE.tri_green_frac(p["new_uv"], nsub=10)) for p in a_entries]
+    g3("Class-A: each redressed tri's NEW uv classifies as non-green (matching Round 1's own gate)",
+      all(g == 0.0 for _, g in post_green), f"{post_green}")
+
+    # --- POST-STATE reclassify (in-memory, pre-write): re-run round3_census with the redressed
+    #     blocks substituted in, confirm 0 Class-A + 0 Class-B defects remain ---------------------
+    post_a, post_b, _post_stats, post_overlap = round3_census(game_root, override_bms=new_bms)
+    g3("POST-STATE reclassify (in-memory, pre-write): 0 Class-A defects left in the comp[1] region",
+      not post_a, f"cells={sorted(post_a)}")
+    g3("POST-STATE reclassify (in-memory, pre-write): 0 Class-B defects left in the comp[1] region",
+      not post_b, f"cells={sorted(post_b)}")
+
+    n_fail = sum(1 for _, ok, _ in gates3 if not ok)
+    print(f"\n=== round-3: {len(gates3)} gates, {n_fail} FAILED ===")
+
+    print("\n--- round-3 per-tri plan (old row/uv -> target desert-mains uv) ---")
+    for p in plan:
+        if p["klass"] == "A":
+            print(f"  [A] cell{tuple(p['cell'])} block{tuple(p['block'])} row={p['row']} "
+                 f"idall {p['old_idall'][0]}->{p['new_idall'][0]} donor_cell={p.get('donor_cell')}")
+            print(f"      old uv={p['old_uv']}")
+            print(f"      new uv={p['new_uv']}  (quad={p['quad']} ori={p['new_ori']})")
+        else:
+            print(f"  [B] cell{tuple(p['cell'])} block{tuple(p['block'])} old_row={p['row']} "
+                 f"old_ori={p['ori']} -> quad={p['quad']} new_ori={p['new_ori']}")
+            for t in p["tris"]:
+                print(f"      tri{t['tri_idx']} idall {t['old_idall'][0]} (unchanged)")
+                print(f"        old uv={t['old_uv']}")
+                print(f"        new uv={t['new_uv']}")
+
+    out = dict(
+        mod_folder=MOD, mint_blocks=[list(b) for b in MINT_BLOCKS],
+        touched_blocks=[list(b) for b in blocks3],
+        class_a_cells=[list(c) for c in sorted(class_a)],
+        class_b_cells=[list(c) for c in sorted(class_b)],
+        class_b_group_stats={str(k): v for k, v in class_b_stats.items()},
+        plan=plan,
+        post_state=dict(class_a_cells=[list(c) for c in sorted(post_a)],
+                        class_b_cells=[list(c) for c in sorted(post_b)]),
+        n_gates=len(gates3), n_failed=n_fail,
+        gates=[{"name": n, "ok": ok, "detail": str(d)} for n, ok, d in gates3],
+        deployed=False,
+    )
+    return dict(bms=bms, new_bms=new_bms, plan=plan, blocks=blocks3, class_a=class_a,
+               class_b=class_b, n_fail=n_fail, out=out)
+
+
+def round3_apply_redress(game_root: Path, res3: dict, out3: dict) -> int:
+    """--apply for Round 3: same backup-first-refusal / write / mirror / post-check shape as
+    ``apply_redress``/``round2_apply_redress``, generalized over BOTH Class-A (uv+idall) and
+    Class-B (uv-only) touched vertices via the existing ``_expected_byte_windows`` (an envelope
+    that already covers both windows per touched vertex -- safe to reuse unmodified for a tri
+    whose idall byte does not actually change, since the check is "stayed within the window", not
+    "the window's bytes must differ")."""
+    bms, new_bms, plan, blocks = res3["bms"], res3["new_bms"], res3["plan"], res3["blocks"]
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_root = BACKUP_ROOT / f"comp1-redress-round3.{ts}"
+    try:
+        n_bk = backup_files(game_root, blocks, backup_root)
+    except Exception as e:
+        sys.exit(f"REFUSING to write (round 3): backup failed ({e}); nothing was touched.")
+    if n_bk == 0:
+        sys.exit("REFUSING to write (round 3): backup copied 0 files (unexpected); aborting before any write.")
+    print(f"\n[round 3] backed up {n_bk} file(s) -> {backup_root}")
+
+    before_bytes = {}
+    written = []
+    for blk in blocks:
+        rel = M.override_relpath(1, blk[0], blk[1], part="Terrain")
+        path = game_root / MOD / rel
+        before_bytes[blk] = path.read_bytes()
+        p = M.deploy_override(new_bms[blk], mod_folder=MOD, part="Terrain")
+        written.append(p)
+        print(f"  wrote {p}")
+
+    mirror_summary = DM.auto_mirror(written, mod_folder=MOD)
+    print(f"  disc-4 mirror summary: {mirror_summary}")
+
+    post_gates = []
+
+    def pg(name, ok, detail=""):
+        post_gates.append({"name": name, "ok": bool(ok), "detail": str(detail)})
+        print(f"POST [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
+
+    post_a, post_b, _stats, post_overlap = round3_census(game_root)
+    pg("POST re-classify (disk read-back): 0 Class-A + 0 Class-B defects left in the region",
+      not post_a and not post_b, f"class_a={sorted(post_a)} class_b={sorted(post_b)}")
+
+    diff_report = {}
+    all_diffs_ok = True
+    for blk in blocks:
+        rel = M.override_relpath(1, blk[0], blk[1], part="Terrain")
+        after = (game_root / MOD / rel).read_bytes()
+        before = before_bytes[blk]
+        diffs = _byte_diff_ranges(before, after)
+        touched = set()
+        for p in plan:
+            if tuple(p["block"]) != blk:
+                continue
+            touched.update(p["tri_idx"] if p["klass"] == "A" else
+                           (j for t in p["tris"] for j in t["tri_idx"]))
+        windows = _expected_byte_windows(bms[blk], touched)
+        bad = _bytes_outside_windows(diffs, windows)
+        diff_report[str(blk)] = dict(n_diff_ranges=len(diffs), n_expected_windows=len(windows),
+                                     n_diff_bytes=sum(e - s for s, e in diffs),
+                                     n_window_bytes=sum(w1 - w0 for w0, w1 in windows),
+                                     out_of_expected_bytes=bad)
+        if bad:
+            all_diffs_ok = False
+    pg("byte-diff vs backup touches ONLY the UV/idall windows of the redressed corners (per-byte "
+      "union containment, every touched file)", all_diffs_ok, f"{diff_report}")
+
+    n_post_fail = sum(1 for g in post_gates if not g["ok"])
+    out3["deployed"] = True
+    out3["backup_dir"] = str(backup_root)
+    out3["written"] = [str(p) for p in written]
+    out3["mirror_summary"] = mirror_summary
+    out3["post_gates"] = post_gates
+    out3["n_post_gates"] = len(post_gates)
+    out3["n_post_failed"] = n_post_fail
+    print(f"\n=== round-3 APPLY complete: {len(post_gates)} post-gates, {n_post_fail} FAILED ===")
+    return n_post_fail
+
+
+# ================================================================================================
 # --apply: backup -> write -> mirror -> post-checks
 # ================================================================================================
 def backup_files(game_root: Path, blocks: list, backup_root: Path) -> int:
@@ -983,12 +1825,20 @@ def main():
     ap.add_argument("--apply", action="store_true", help="write + backup + mirror + post-check")
     ap.add_argument("--revert", metavar="BACKUP_DIR", default=None,
                     help="restore every file from a prior --apply's backup dir")
+    ap.add_argument("--census3", action="store_true",
+                    help="DIAGNOSER 2 (read-only, never writes to the game): run the generalized "
+                         "orphan census (round3_generalized_census) over BOTH catalogued STRIPS "
+                         "pairs and print/dump the report; ignores --apply")
     args = ap.parse_args()
 
     if args.revert:
         return revert_from_backup(args.revert)
 
     game_root = Path(_cfg.find_game_path(None))
+
+    if args.census3:
+        round3_generalized_census(game_root)
+        return 0
 
     print("#" * 96)
     print("# ROUND 1 -- grass|desert orphan decals (Round 10's own dump)")
@@ -1000,15 +1850,22 @@ def main():
     print("#" * 96)
     res2 = round2_build_and_gate(game_root)
 
+    print("\n" + "#" * 96)
+    print("# ROUND 3 -- the 7-cell re-census redress (Class A grass-absent + Class B topo/UV mismatch)")
+    print("#" * 96)
+    res3 = round3_build_and_gate(game_root)
+
     out = dict(res["out"])
     out["round2"] = res2["out"]
+    out["round3"] = res3["out"]
 
     if args.apply:
         # Round 1 was already applied earlier the same day (backups/comp1-redress.20260722-140044/)
         # -- a re-run of its own matcher correctly finds 0 targets (idempotent: an already-redressed
         # cell no longer decodes as topo16, so it never re-matches). An EMPTY plan is that expected
         # steady state, not a failure, so it is not treated as one; a NON-empty plan that still fails
-        # its own gates is refused exactly as before.
+        # its own gates is refused exactly as before. Round 3 follows the identical idempotence
+        # contract (a bare re-run after its own apply finds 0 Class-A/Class-B targets).
         any_post_fail = 0
         if res["plan"]:
             if res["n_fail"]:
@@ -1024,13 +1881,20 @@ def main():
             any_post_fail += round2_apply_redress(game_root, res2, out["round2"])
         else:
             print("\nROUND 2: nothing to apply (0 located targets)")
+        if res3["plan"]:
+            if res3["n_fail"]:
+                sys.exit(f"REFUSING round-3 --apply: {res3['n_fail']} dry-run gate(s) failed")
+            any_post_fail += round3_apply_redress(game_root, res3, out["round3"])
+        else:
+            print("\nROUND 3: nothing to apply (0 located targets -- idempotent no-op, consistent "
+                 "with the redress already on disk)")
         OUT.write_text(json.dumps(out, indent=1, default=str))
         print(f"\n-> {OUT}")
         return 0 if any_post_fail == 0 else 1
 
     OUT.write_text(json.dumps(out, indent=1, default=str))
     print(f"\nDRY-RUN only -- nothing written to the game. Plan -> {OUT}")
-    return 0 if (res["n_fail"] == 0 and res2["n_fail"] == 0) else 1
+    return 0 if (res["n_fail"] == 0 and res2["n_fail"] == 0 and res3["n_fail"] == 0) else 1
 
 
 if __name__ == "__main__":
