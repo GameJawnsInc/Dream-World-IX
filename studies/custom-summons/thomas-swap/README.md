@@ -18,7 +18,7 @@ cinematic running underneath it: the real camera (armed by the untouched `LoadSF
 ; UseCamera=True` line), the real sounds (the untouched `ef227/Sequence.seq`'s `PlaySound` calls),
 and the real damage/EffectPoint timing. Nothing about Bahamut's OWN drama is edited or re-timed --
 only his BODY mesh is suppressed (his own swirl/beam/fire-column EFFECT meshes are deliberately
-KEPT -- see "HideMeshes bisection protocol" below) and Thomas is layered in alongside it.
+KEPT -- see "HideMeshes: the s47 surgical key list" below) and Thomas is layered in alongside it.
 
 ## The mechanism, precisely
 
@@ -52,7 +52,7 @@ actual "Mega-Flare" choreography (`EffectPoint`, `PlaySound`, `SetBackgroundInte
 `Bahamut__Full`) -- never `ef084`'s own `Sequence.seq` (rung 3's inert leftover copy, never read on
 this path). It is never copied, never edited, and stays 100% the real cinematic.
 
-### 1. `HideMeshes=<HIDE_RANGE>` -- suppresses (some of) Bahamut's meshes, keeps his camera+tick alive
+### 1. `HideMeshes=<HIDE_KEYS>` -- the s47 surgical key list
 
 `PlaySFX`'s own `HideMeshes` argument (`BattleActionCode.cs:394-419 TryGetArgMeshList`) is parsed
 into `SFXData.RunningInstance.preventedMeshIndices` (`SFXData.cs:136-154,1376-1392`) and honored
@@ -63,38 +63,40 @@ arm at `Runtime.Begin()` (`SFXDataCamera.currentCameraEngine = SFX_PLUGIN`) -- r
 untouched every frame. `battle.cs:86`'s `SFXDataCamera.UpdateCamera()` call is a wholly separate,
 unconditional-per-frame call site that only reads that static flag -- it has no dependency on the
 mesh-draw walk at all. Net effect: the real Bahamut camera cut keeps running exactly as authored;
-only the indices actually named in `HideMeshes` stop rendering; unmatched indices are inert (no
-error), so a narrower range is exactly as safe as a wider one, just with less total coverage.
+only the meshes actually named in `HideMeshes` stop rendering; unmatched keys are inert (no error).
 
-**The original blanket `0-63` (2026-07-21) over-suppressed.** The calibration-cast video (both
-Bahamut and Thomas visible) showed the blanket range also blanked Bahamut's own summon-swirl/beam/
-fire-column **effect** meshes -- which the user explicitly wants **kept** (the fire column engulfing
-Thomas during P5 reads as "SPECTACULAR"). `HIDE_RANGE` in `build_thomas.py` (default `(0, 31)`) is
-**round 1 of a bisection**: hide only the first half of the index space (assumed BODY meshes) and
-leave the second half (assumed EFFECT meshes) rendering, then read the result off a video and narrow
-from there. See "HideMeshes bisection protocol" below for the full round-by-round table -- **this
-whole suppression axis is still the one genuinely unproven op in this build** (first-ever use
-anywhere in the study).
+`TryGetArgMeshList` splits each comma-separated token two ways: an `0x`-prefixed token parses as an
+exact `UInt32` **key** (`SFXMeshBase._key`, stable for a mesh's whole lifetime) into `keyList`; a bare
+decimal token parses as an **index** into the separate `indexList`. **This build now uses the key
+form exclusively** -- superseding both the original blanket `HideMeshes=0..63` (2026-07-21, over-
+suppressed: it also blanked Bahamut's own summon-swirl/beam/fire-column effect meshes) and its
+index-range bisection successor (`HideMeshes=0,31`, an assume-body-is-the-low-half guess that was
+never actually confirmed against the real index/key layout).
 
-#### HideMeshes bisection protocol
+**The guess is gone.** The s47 mesh-stream probe (`memoria-patches/s47-sfx-mesh-probe.patch`;
+PROBE.md) logs every native mesh's own `_key` + world-space bounds on every drawn frame. One
+`--calibrate` cast (19,456 MESH rows across the whole ~40s cinematic) tallied to exactly **39
+distinct keys**, classified in PROBE.md's round-1 results:
 
-`build_thomas.py --hide-range A,B` deploys with a one-off range override (recast-only, no relaunch);
-`--calibrate` deploys with no `HideMeshes` argument at all (byte-identical to the stock donor's own
-`PlaySFX` line -- Bahamut's real mesh renders completely unsuppressed, for a clean composition
-reference). Cast, capture a short video (screenshots can't show this -- see "Failure modes"), then
-read the result against this table to pick the next round's split:
+- **7 CREATURE/BODY keys** (present together on 301/325 of Bahamut's on-screen frames, 92.6% --
+  tracing one coherent rigid-body flight): `0033B990`/`0033B9D0` (paired), `0035BAD0`/`0035BA90`
+  (paired), `0034BA10`/`0034BA50` (paired), `0097BD02` (standalone). These are `HIDE_KEYS` in
+  `build_thomas.py` -- Bahamut's body vanishes.
+- **23 confirmed KEEP-VISIBLE effect keys** -- the cast-in swirl, the sky-act/ground-act backdrops,
+  the wing-trail, the 6 charge-orb keys, the Mega-Flare beam, and the fire-column group (7 keys,
+  incl. `00B7BD80` -- folded in this round by naming-pattern + z-band match with its sibling orb
+  keys, see PROBE.md for the full per-key reasoning).
+- **9 remaining keys of genuinely ambiguous classification**, all defaulted KEEP-VISIBLE this round
+  (the safer choice over a blind hide) -- two of them (`00BDBE00`, `0098BD0E`) are live round-2
+  candidates. See PROBE.md's round-1 results for the full per-key reasoning and its round-2
+  refinement protocol for how to test each.
 
-| Round | `--hide-range` | What to observe | Next step |
-|---|---|---|---|
-| **0 -- baseline** | `--calibrate` | The real, unsuppressed Bahamut -- establishes what "body" vs "effect" looks like with nothing hidden. Capture once, for comparison. | Move to round 1 |
-| **1 (THIS DEPLOY, default)** | `0,31` | Is Bahamut's **body** (scales, wings, head, legs) gone? Are the **swirl** (cast-in vortex), **beam** (Mega-Flare), and **fire column** (P5) still visible? | Body gone + all 3 effects present → **DONE, ship 0,31**. Body gone but an effect ALSO vanished → that effect's mesh is in 0-31; retry with a narrower low sub-range (e.g. `0,15`) to isolate which effect index it is. Body still (partly) visible → widen (e.g. `0,47`) |
-| **2a -- narrow low** | `0,15` (only if round 1 lost an effect) | Which of body/swirl/beam/column reappears vs. round 1 | Repeat bisecting the half that still mixes body+effect indices |
-| **2b -- other half** | `32,63` | Confirms the complement: body should still render (unsuppressed), effects should be unaffected by this range at all (nothing here was ever hidden by round 1) | Cross-check only -- not expected to change round 1's verdict |
-| **3+ -- converge** | narrower still, e.g. `16,23` / `24,31` | Same body/swirl/beam/column checklist | Stop once a range hides 100% of body and 0% of the 3 kept effects; that range becomes the new default `HIDE_RANGE` in `build_thomas.py` |
-
-Every round is a one-line CLI override -- no code edit needed until the final range is picked (at
-which point update `HIDE_RANGE` itself so the default matches, per the "generated, not hand-typed"
-convention already used for the range expansion).
+`build_thomas.py --hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (comma-separated
+hex, `0x` prefix optional, e.g. `--hide-keys 0097BD01,0098BD0E` to test a round-2 candidate --
+recast-only, no relaunch); `--calibrate` deploys with no `HideMeshes` argument at all (byte-identical
+to the stock donor's own `PlaySFX` line -- Bahamut's real mesh renders completely unsuppressed, for a
+fresh composition-reference cast/log). See PROBE.md for the full calibration-cast results, the
+trajectory reconstruction this build's FLIGHT is derived from, and the round-2 protocol.
 
 ### 2. A second `LoadSFX` -- Thomas coexists with the native donor, zero shared state
 
@@ -187,61 +189,80 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-### THE FLIGHT -- 2026-07-22 six-phase redesign (replaces the original static hover AND the first 3-phase flight)
+### THE FLIGHT v2 -- 2026-07-22, s47-PROBE-DERIVED (replaces the static hover, the 3-phase flight, AND the video-eyeballed 6-phase "SKY ARC")
 
 The first (static) build's playtest: *"bahamut is invisible, but Thomas just spawns in front of Iviv
 and stays stationary instead of flying around like a dragon. there are also just periods of black
-screen."* The 3-phase flight fixed the "stationary" half but not the "black screen" half: it
-watched the calibration-cast video (both Bahamut and Thomas visible, HideMeshes hand-stripped for the
-capture) and found that Bahamut's OWN cinematic leaves the ground entirely for an extended **SKY
-REALM** window (a `ShiftWorld` cloud world -- the iconic hover pose, head close-ups, the charge
-beginning) while the 3-phase flight kept Thomas anchored at ground level the whole time -- so that
-whole window played as empty sky, "tons of black screen" in the HideMeshes cast.
+screen."* The 3-phase flight fixed "stationary" but not "black screen" (Bahamut's own cinematic
+leaves the ground for an extended sky-realm window the 3-phase flight never visited). The 6-phase
+"SKY ARC" fixed that by watching the calibration-cast video and hand-deriving a video-seconds timing
+map -- a real improvement, but still an EYEBALLED estimate, built entirely on caster-relative NCalc
+expressions.
 
-**The video-derived timing map** (video-seconds; Thomas's own `PlaySFX`/frame-0 lands at video
-t≈5-6s, his clock runs `FRAMES_PER_VIDEO_SECOND=15` frames/video-second):
+**This build replaces the eyeball with a measurement.** The s47 mesh-stream probe (PROBE.md) logged
+Bahamut's own 7 confirmed body-mesh keys' world-space bounds on every one of the 325 frames he's on
+screen (frames 82-417 of his own `PlaySFX`-zeroed clock) -- his ACTUAL baked flight path, not a
+video-derived guess.
 
-| Video t | What's on screen | Thomas, before this redesign |
-|---|---|---|
-| 0-5 | cast banner, blackout, two flashes, whiteout -- party-side cave shots | (before his own clock starts) |
-| 6-7 | the summon swirl (a native vortex effect) + Bahamut swooping in | present -- entrance works |
-| 8-12 | cave-level shots -- undercarriage, side profile, speed-lines | **present, ALREADY GREAT** -- preserved as P1 |
-| **13-20** | **THE SKY REALM** (`ShiftWorld` cloud world): swoop, the iconic hover pose, head close-ups, the charge beginning | **ABSENT -- the black-screen window** |
-| 21-23 | god's-eye dive shots looking straight down at the arena; tiny Thomas visible dead-center below | absent (expendable per the mission, but now covered by P4 anyway) |
-| 24-28 | the Mega-Flare charge + blast (mouth glow, starburst, a solid-blue flash frame, the beam) -- sky shots | absent |
-| 29-34 | the flare hits the arena: Thomas backlit by the blast, engulfed in the fire column, silhouetted in the firestorm | **present, SPECTACULAR** -- preserved as P5 |
-| 35-37 | the damage beat (number pops) + party-under-his-wheels undercarriage shots | **present, PERFECT** -- preserved as P5 |
-| 38-40 | resolution, Thomas gone, enemy dead | (past his own End) |
+**Reconstruction method** (PROBE.md's round-1 results; independently re-verified against the raw log
+while building this): per frame, take the median across the 7 creature keys of -- **X, Y: bounds
+CENTER**; **Z: the FAR CORNER** (`center ± extent`, whichever side has the larger magnitude). The far
+corner is essential for Z (the real body sits far enough from world origin that it reliably recovers
+his true depth) but produces a noisy, silhouette-chasing signal on X/Y (which stay close enough to
+origin that whichever wingtip/tail happens to be farthest that frame gets picked instead of the
+body's own center) -- confirmed by a cross-check: raw CENTER `cy` stays in `[-480.5, +511.5]` across
+all 8,764 creature-key rows, matching the probe's own independent "Y never exceeds ~512" cluster read
+almost exactly.
 
-**Design.** Convert video-seconds to Thomas-frames as `frames = (t_video - VIDEO_TO_FRAME_OFFSET_S) *
-FRAMES_PER_VIDEO_SECOND` with the usual generous overlap margins folded into each boundary (not
-razor's-edge cuts). The redesign keeps P1's cave entrance and the old P2/P3 ground-reign-and-exit
-verbatim (both were already proven great) and inserts a full **ascent -> sky reign -> dive** arc
-between them, so Thomas is on screen for the sky window too:
+**Absolute world coordinates** (a genuine design change from both prior builds, not just a retune):
+every `Movement` `Origin*`/`Destination*` below is now a **plain numeric NCalc constant**, not a
+`CasterPosition* + N` expression. `SFXMesh.Render()` draws via `Graphics.DrawMeshNow(_mesh,
+Matrix4x4.identity)` -- no transform in play -- so the native donor's Raw mesh and Thomas's own JSON
+mesh draw in the SAME identity world space; the bench arena is fixed, so an absolute coordinate puts
+Thomas exactly where Bahamut's own body was measured, regardless of any caster-lookup quirk or this
+scene's own camera framing.
 
-| Phase | Frames | Covers | Motion |
-|---|---|---|---|
-| **P1 Entrance** | 0-75 | t≈6-11, the proven cave shots | Same swoop path as the original build (`CasterPositionX-2000/+1500Y/+300Z` → cave stage `CasterPositionX/+700Y/+1800Z`), just faster (75 frames, not 420); `SinusOut` (decelerating arrival) on all 3 axes; yaw banks 0→90° |
-| **P2 Ascent** | 75-120 | t≈11-14, the launch into the sky | Rocket straight up off the cave stage's own X/Z lane to the sky stage (`CasterPositionX, CasterPositionY+4500, CasterPositionZ+1800`); `SinusIn` (accelerating launch) on all 3 axes; yaw holds broadside |
-| **P3 Sky Reign** | 120-330 | t≈14-28 -- hover pose, close-ups, the charge, the blast. **THE BLACK-SCREEN KILLER** | A gentle broadside sway among the clouds (`+250 X / +100 Y` off the sky stage, Z held) via `Sinus` easing (floaty, not a static hold); yaw holds broadside |
-| **P4 Dive** | 330-375 | t≈28-29+, the plunge back down, landing before the flare hits the ground | Plunge back to the cave stage; `SinusIn`, mirroring Bahamut's own dive; yaw holds broadside |
-| **P5 Ground Reign** | 375-540 | t≈29-37 -- the fire column engulfs him, both damage beats, the undercarriage shots | The proven floaty ground hover, unchanged from the original build (`+220 X / +80 Y` off the cave stage, Z held) via `Sinus` easing; yaw holds broadside |
-| **P6 Exit** | 540-580 | t≈37-40, lights restore, climb away | Climbs away up-forward (unchanged path from the original build), via `SinusIn` (accelerating departure); yaw banks 90→0° |
+**The measured flight** (10 pieces off real per-frame medians + 1 unmeasured tail, summing to
+`THOMAS_END=580` unchanged) against the video-beat cross-reference the earlier builds derived by eye:
 
-Yaw (Rotation.Y) is held broadside (`YAW_BROADSIDE=90`) continuously from P2's entry through the end
-of P5 -- the "safe comedic read" (his iconic number-1 side panel stays toward camera) through the
-entire sky-to-ground arc -- banking only 0→90 during P1's own arrival and back 90→0 during P6's own
-climb-away. Rotation.Z stays `0` in every piece -- **no roll** (Thomas is not PSX-inverted; the
-axis-verification above already established his normalized `Rotation=(0,0)` needs no runtime
-compensation, so only Y-yaw is ever touched). `Start=0, End=580` unchanged (the 6 phase durations sum
-to exactly 580: 75+45+210+45+165+40).
+| Phase | Frames | Dest (X, Y, Z) | Video beat it covers | Interp |
+|---|---|---|---|---|
+| **P1 Entrance** | 0-82 | (132, 512, -1568) | pre-log swoop-in → the proven cave shots | SinusOut (decelerating arrival) |
+| **P2 Rise-to-far** | 82-144 | (129, 128, -17860) | climbs away in DEPTH (Y barely drops, Z plunges) -- the first sky/far shot | SinusIn (accelerating launch) |
+| **P3 Far-dip** | 144-157 | (6, -20, -8590) | a brief mid-act partial return (a 2nd camera-cut beat, e.g. a head close-up) | Sinus (floaty) |
+| **P4 Far-deep** | 157-172 | (-266, -425, -34368) | the cast's single deepest point (Z=-34768 at frame 166) + a brief hold -- the iconic hover-pose shot | SinusIn |
+| **P5 Return-cut** | 172-179 | (144, 47, -4864) | **THE hard cut** (Z snaps -34368→-4864 in ~7 frames) -- kept FAST/un-eased on purpose | Linear (no easing curve) |
+| **P6 2nd-approach** | 179-204 | (143, 124, -12336) | a second, shallower re-plunge during the charge windup | Sinus |
+| **P7 Charge-cut** | 204-207 | (152, 202, -4720) | a second hard cut back to near-stage | Linear |
+| **P8 Charge-hold** | 207-250 | (120, 118, -3968) | Mega-Flare charge+blast -- **CORRECTION vs the 6-phase build**: stays NEAR-STAGE depth, not deep sky | Sinus |
+| **P9 Ground-reign** | 250-414 | (35, -1, -3832) | fire column + both damage beats + undercarriage shots | Sinus |
+| **P10 Exit-edge** | 414-417 | (35, -1, -9616) | body's last logged position -- a sharp final recess (Bahamut's own climb-away starting) | SinusIn |
+| **P11 Tail (UNMEASURED)** | 417-580 | (35, 1600, -30000) | no creature-key rows exist here (only fire-column/ember effect keys, through ~510-515) -- a REASONED climb-away continuation | SinusIn |
 
-Every number above is a named constant in `build_thomas.py` (`CAVE_STAGE_*`, `SKY_Y_OFFSET`,
-`SKY_STAGE_*`, `SKY_DRIFT_*`, `GROUND_DRIFT_*`, `EXIT_*`, `YAW_BROADSIDE`, the 6 `*_DURATION`s) --
-retune + rerun in one line, recast-only, no relaunch. See `build_thomas.py`'s own `THE FLIGHT` comment
-block for the anchor-truth citation trail (unchanged from the 3-phase build: `Target*`/
-`TargetAveragePosition*` do NOT resolve to the caster on this route -- the flight is built on
-caster-relative offsets by design choice, not because that hypothesis held).
+Yaw (Rotation.Y) banks 0→90 (broadside) during P1's own arrival, HOLDS broadside from P2 through P10
+(the mission's own instruction -- also his iconic number-1 side panel, per the axis-verification
+renders), then 90→0 only in the TAIL as he turns forward again to climb away. Rotation.Z stays `0`
+throughout -- no roll.
+
+**Open concerns, carried forward (see `build_thomas.py`'s own `THE FLIGHT v2` comment block and
+PROBE.md's round-2 protocol for the full detail):**
+- **Corrected during adversarial verification:** P5_DEST/P7_DEST (frames 179/207) are each backed by a
+  FULL n=28 rows -- solid points, not the sparse n=4 an earlier draft claimed. The real low-sample
+  point is `P4_DEST` (frame 172, the deepest/most dramatic pose, n=4) and the gappy frames-153-177
+  zone around it (several frames have zero creature-key rows logged at all) -- see PROBE.md's
+  "Sample-count correction" section. P5/P7 are still kept short + `Linear` because the data shows a
+  genuine large position delta over few frames, not because the endpoints themselves are uncertain.
+- P1's Origin (frame 0, pre-log) and P11's Destination (frames 417-580) have ZERO measured ground
+  truth -- both are documented reasoned extrapolations (`ENTRANCE_ORIGIN`, `P11_TAIL_DEST` in
+  `build_thomas.py`), not measurements. A fresh video/log of THIS build would let round 2 replace
+  either with real data.
+- Clock alignment (probe-frame ≈ Thomas-frame, offset 0) is a reasoned assumption -- this calibration
+  log predates Thomas entirely (no JSON-mesh key present in it) -- treat ±5-10 frames as realistic
+  slop on every boundary above.
+
+Every number above is a named constant in `build_thomas.py` (`P1_DEST`...`P10_DEST`, `ENTRANCE_ORIGIN`,
+`P11_TAIL_DEST`, `YAW_BROADSIDE`, the 11 `*_DURATION`s) -- retune + rerun in one line, recast-only, no
+relaunch.
 
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
@@ -254,7 +275,7 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | `blender_normalize.py` | Committed, our script. Run ONCE (offline, via Blender) to produce `thomas_normalized.fbx` from the raw source. Never touches the repo. |
 | `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the named `THE FLIGHT` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
-| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-range A,B` overrides `HIDE_RANGE` for one deploy (bisection protocol above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. |
+| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
 | `README.md` | This file. |
 
@@ -293,38 +314,39 @@ FIRST time.
 
 **Expect**: the full real Bahamut cinematic plays -- same chant, same camera cut, same roars/flashes,
 same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright,
-correctly textured, and now FLYING THE 6-PHASE FLIGHT (see "THE FLIGHT" above): swoops in from high
-off to one side during the chant/flashes (P1, cave), rockets up into the clouds (P2), hovers broadside
-among the clouds through the entire charge-and-blast window (P3, sky -- the window that used to be
-blank), dives back down before the flare lands (P4), hovers at ground level broadside through the fire
-column and both damage beats (P5, ground -- unchanged from the prior build), then climbs away
-up-forward as the lights restore (P6). Bahamut's own BODY mesh never appears at any point (his swirl/
-beam/fire-column EFFECT meshes should still be visible -- that's the whole point of the narrower
-`HIDE_RANGE`; see "HideMeshes bisection protocol" above if they aren't), and no more standing
-stationary in front of Iviv.
+correctly textured, and now FLYING THE MEASURED 11-PIECE FLIGHT (see "THE FLIGHT v2" above): swoops in
+from high off to one side during the chant/flashes (P1, cave), climbs away in depth toward the first
+sky/far shot (P2), a brief partial-return dip (P3), the deepest point + hover-pose hold (P4), a hard
+cut back to near-stage (P5), a second shallower re-plunge (P6) and hard cut (P7), the Mega-Flare
+charge+blast held near-stage (P8), the long floaty ground-reign hover through the fire column and both
+damage beats (P9), a sharp final recess (P10), then a reasoned climb-away as the lights restore (P11,
+unmeasured tail). Bahamut's own BODY mesh never appears at any point (his swirl/beam/fire-column
+EFFECT meshes should still be visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`;
+see "HideMeshes: the s47 surgical key list" above if they aren't), and no more standing stationary in
+front of Iviv.
 
 **If placement/motion/suppression is still off**: capture a short VIDEO of the cast (this project's
 own law -- `feedback-video-for-visual-bugs` -- behavior/positional bugs need footage, not a prose
-description; a screenshot can't show a swoop, and can only show ONE instant of the suppression
-bisection). `tools/game_snap.ps1` captures single frames only, which is enough for "is Bahamut's body
-really hidden RIGHT NOW" but NOT for "does the flight read as flying" or "are the effects still there
+description; a screenshot can't show a swoop, and can only show ONE instant of the suppression state).
+`tools/game_snap.ps1` captures single frames only, which is enough for "is Bahamut's body really
+hidden RIGHT NOW" but NOT for "does the flight read as flying" or "are the effects still there
 throughout" -- use a screen recorder (OBS, Xbox Game Bar `Win+Alt+R`, or any capture tool) for the
-whole ~40s of the cast (chant through the flare through the exit) so the next iteration can retune
-`build_thomas.py`'s named `THE FLIGHT` constants (`CAVE_STAGE_*` / `SKY_Y_OFFSET` / `SKY_STAGE_*` /
-`SKY_DRIFT_*` / `GROUND_DRIFT_*` / `EXIT_*` / `YAW_BROADSIDE` / the 6 `*_DURATION`s) or `HIDE_RANGE`
-from what actually happened frame-by-frame, rather than from a re-guess.
+whole ~40s of the cast (chant through the flare through the exit), or re-run the s47 probe cast itself
+(PROBE.md), so the next iteration can retune `build_thomas.py`'s named FLIGHT v2 constants (`P1_DEST`
+through `P10_DEST`, `ENTRANCE_ORIGIN`, `P11_TAIL_DEST`, `YAW_BROADSIDE`, the 11 `*_DURATION`s) or
+`HIDE_KEYS` from what actually happened frame-by-frame, rather than from a re-guess.
 
 ## Failure modes
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the 6-phase flight (cave → sky → cave → ground → exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
-| The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body -- the ONE genuinely unproven op in this build (first-ever use in the study; `HIDE_RANGE`'s bisection is a guess about which half holds body vs. effects, never confirmed against ef227's actual emitted mesh-key count). Possible causes: the body's indices aren't in the current range (try `--hide-range 32,63` or a wider range, or switch to hex `0x...` KEY form if the recon's `SFXDataMeshConverter` debug dump is used to read ef227's real keys), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); see "HideMeshes bisection protocol" above |
-| Bahamut's body is correctly hidden, but **one of the 3 kept effects (swirl/beam/fire-column) also vanished** | The current `HIDE_RANGE` half also contains that effect's mesh index -- follow the bisection protocol's round 2a (narrow the low sub-range) to isolate it | Capture video showing which specific effect is missing; retry with `--hide-range` narrowed to roughly half the current range, repeat until body-hidden + all-3-effects-kept |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, FLYING the measured 11-piece flight (cave → far/sky → cave → ground → exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
+| The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body. Now much less likely than the old index-range guess (the s47 probe's `HIDE_KEYS` are the exact, confirmed keys of Bahamut's own 7 body meshes -- PROBE.md's round-1 results), but still possible if this engine build's `_key` values differ from the probe's own cast (a fresh calibration cast would confirm), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); re-run `--calibrate` + the probe to re-derive the keys if needed |
+| Bahamut's body is correctly hidden, but **one of the kept effects (swirl/beam/fire-column/etc) also vanished** | One of `HIDE_KEYS`' 7 keys was misclassified as body when it's actually an effect (unlikely -- PROBE.md's round-1 classification found all 7 present together on 92.6% of frames, a strong rigid-body signal), or a round-2 candidate (`00BDBE00`/`0098BD0E`) was added to `--hide-keys` and turned out to be an effect after all | Capture video showing which specific effect is missing; drop the suspect key from `--hide-keys` and recast; see PROBE.md's round-2 protocol |
 | The cinematic plays, Bahamut's body is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
-| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the swoop/ascent/sky-hover/dive/ground-hover/climb geometry just looks wrong for this arena's actual camera framing | The caster-relative constants (`CAVE_STAGE_*`/`ENTRANCE_*`/`SKY_Y_OFFSET`/`SKY_STAGE_*`/`SKY_DRIFT_*`/`GROUND_DRIFT_*`/`EXIT_*` in `build_thomas.py`) were miscalibrated for scene 67's actual arena size/camera -- a genuinely new discovery, not a mechanism failure (the CASTER anchor itself is unambiguous; only the OFFSET magnitudes are a guess). `CasterPositionY` ground-truth is always real | Capture video (see above), then retune the named offset constants in `build_thomas.py` and rerun (recast-only, no relaunch) |
-| Thomas reads as **absurdly wide / clipped at the screen edges specifically during either REIGN** (P3 sky or P5 ground, not the swoop/ascent/dive/climb transitions) | **Found in adversarial review, 2026-07-22, NOT yet in-game-checked (carried forward from the 3-phase build)**: the stage clearance math was sized against Thomas's ~2681-unit LENGTH axis, which only runs along world Z while his yaw is near 0 (true only during P1's approach and P6's climb-away). Through P2-P5 his yaw is held at `YAW_BROADSIDE=90`, where his LENGTH sweeps world X instead (P3's own X range is `SKY_DRIFT_X=250`, P5's is `GROUND_DRIFT_X - CAVE_STAGE_X=220` -- neither was ever sized against a 2681-unit sweep), while only his ~926-unit WIDTH remains on Z. See `build_thomas.py`'s own caveat comment above `CAVE_STAGE_X/Y/Z` for the numbers and candidate fixes | Capture video of both REIGN windows specifically; if confirmed, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or accept a wider camera crop, per the code comment |
-| Thomas still reads as **static / not "flying"**, or **never visits the sky** despite the new manifest | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or the phase Durations are too long/too subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 6 pieces (not 1 or 3) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
+| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | Much less likely now that P1_DEST-P10_DEST are MEASURED off Bahamut's own real path (not guessed), but `ENTRANCE_ORIGIN` (frame 0) and `P11_TAIL_DEST` (frames 417-580) are still REASONED EXTRAPOLATIONS with zero ground truth -- see the CAVEAT in `build_thomas.py`'s `THE FLIGHT v2` comment block | Capture video (see above); if the measured pieces (P1-P10) look right but the unmeasured Origin/Tail look wrong, retune just those two constants and rerun (recast-only, no relaunch) |
+| Thomas reads as **absurdly wide / clipped at the screen edges specifically during a REIGN piece** (P8 charge-hold or P9 ground-reign, not the transition pieces) | **Carried forward from earlier builds, NOT yet in-game-checked**: while his yaw is held at `YAW_BROADSIDE=90`, his ~2681-unit LENGTH sweeps world X (not Z) and only his ~926-unit WIDTH remains on Z -- neither reign piece's measured X range was sized with this axis swap in mind (they're MEASURED positions, so this is an inherent read of the real data, not a magnitude guess) | Capture video of both reign windows specifically; if confirmed, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or accept a wider camera crop |
+| Thomas still reads as **static / not "flying"** | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a phase's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 11 pieces (not 1, 3, or 6) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
 | Thomas appears **on his side / rotated 90°**, or the broadside yaw looks wrong (facing away instead of showing his profile) during any reign | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR `YAW_BROADSIDE`'s sign is backwards for this camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try `YAW_BROADSIDE = -90` in `build_thomas.py`, rerun (recast-only) |
 | Thomas appears **tiny or absurdly, unusably huge** | `THOMAS_SCALE` (265) was miscalibrated for this arena's actual camera framing | Edit `THOMAS_SCALE` in `build_thomas.py`, rerun (recast-only) |
 | The cast doesn't play at all / hangs | Something in the spliced `.seq` broke the DSL parser, or the background thread never resolves (`WaitSFXDone: SFX=84` blocking forever -- would only happen if `mesh.Begin()`/`Render()` threw before ever setting `ended`, an unhandled edge case) | `revert_thomas.py` immediately; the debug menu (`~`) may force past a stuck command state; worst case, full restart then revert |
