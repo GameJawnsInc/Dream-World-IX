@@ -189,7 +189,26 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-### THE FLIGHT v9 -- 2026-07-23, MEASURED (CURRENT, supersedes v8) -- the creature's REAL screen path
+### THE FLIGHT v10 -- 2026-07-23, MEASURED POSITION + SIZE (CURRENT, supersedes v9)
+
+v9 placed Thomas at the creature's real per-frame screen POSITION but at a CONSTANT size; playtest ("much
+better coverage ... he doesn't scale down during the swoop ... tweens around into place"). Both symptoms are
+the missing depth cue -- a constant-size Thomas translating reads as a flat 2D tween, not a creature moving
+through 3D. **v10 adds the creature's real per-frame SIZE.** The s53 `BONES` row gives its node-cloud AABB;
+its apparent on-screen height is `WORLD_H * native_H / depth` (apparent size ∝ 1/depth -- robust, unlike
+projecting the AABB's 8 corners, whose near-camera members spike to 750×). Measured, the dragon shrinks to
+~**0.21×** frame height during the far swoop (f176) and swells to 5-9× up close during the charge. v10 sets
+Thomas's per-frame apparent height to that (smoothed; clamped `[0.18, 0.70]` so the giant charge frames stay
+near v9's proven ~0.55 size instead of overflowing as a wall-of-train). This (a) makes him **scale down during
+the swoop** and (b) varies his placement DEPTH per frame → real 3D motion, not a flat tween. Position and the
+every-frame keyframes are unchanged from v9. `flight_v10_solve.py`, 334 keyframes; retune `FRAC_MIN`/`FRAC_MAX`
+/`SMOOTH_WIN`. Deployed 2026-07-23. (Open: Thomas's own ORIENTATION is still camera-broadside, not the dragon's
+actual vertical→horizontal roll through the swoop -- a later pass if the size fix isn't enough.)
+
+<details>
+<summary>THE FLIGHT v9 -- 2026-07-23, MEASURED (superseded same day by v10 -- right position, constant size; kept for the record)</summary>
+
+### THE FLIGHT v9 -- 2026-07-23, MEASURED (was CURRENT, supersedes v8) -- the creature's REAL screen path
 
 **The breakthrough.** The s53 probe (PROBE.md §11) + the FORMAT round found why v5/v7/v8 all failed: the
 creature projects through the plugin's own **native GTE** (world→view matrix `M` @0x1C1DC8 + OFX=160/OFY=120/H),
@@ -599,6 +618,8 @@ behind-camera (depth<=0):
   `THOMAS_END=580`; no `ShiftWorld` op present anywhere in the deployed `.seq` (not merely
   structurally-unreachable -- literally absent); no binary stock bytes committed to the repo (`*.fbx`
   gitignored, `.seq` in-repo is a splice-fragment-plus-documentation, never the full donor file).
+
+</details>
 
 </details>
 
