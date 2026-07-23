@@ -2056,3 +2056,69 @@ Scripts: `studies/overworld-topography/seam_null_recon.py` (the recon), `gd_seam
 `gd_eye_review.py` (the plan-view render). Artifacts: `out/seam_null_recon.json`, `out/gd_seam_dress.json`,
 `out/gd_seam_dress_stdout.txt`, `out/gd_eye_bare_seam_planview.png`. Read-only throughout; zero writes to
 the game install, zero deploys, zero disc-4 mirror invocations, zero commits.
+
+## Rung C — THE FIRST MIXED-BIOME MINT: built, gated 19/19 clean, REJECTED on sight (2026-07-22)
+
+**The task Rung B left open** — give `gd_seam_dress.py` a genuine touching grass|desert boundary to
+dress — was picked up the same day. `contract_gd_composition.py` first ran the census the brief demanded
+before any design: does a stock grass|desert line ever reach a coastline? **No** — the nearest measured
+boundary cell to a real sea vertex is **39.95u** away (`out/contract_gd_composition.json`'s `coast` key),
+and every termination this census found lands within 4.27–7.64u of topo-49 mesa rock, never open water.
+The design therefore built a **fully inland** mint: two rock anchors (Uaho `(0,0)`, the crag `(10,5-6)`
+— both already-qualified `world-mountain` donors) planted on a 17-block `world-island` grass landmass at
+an open-ocean site `(190,-1120) r=95`, joined by a seeded partition line, with the desert side of the
+line retiled via the exact `--ground desert` UV transform (Law 6: forced topo 16, never 17) and dressed
+via `gd_seam_dress.py`'s own `assign_dressing`/`compute_dress` — unmodified, imported not reimplemented.
+
+**Every gate passed — 19/19, 0 failures**, `out/mixed_biome_mint.json`: OPEN-OCEAN TARGET, MOD-OVERWRITE
+(0 overlap with the 24 live deployed blocks), GRID-BOUNDS, `verify_landmass` clean on the pristine
+pre-anchor mint (cracks/holes/open-edges/down-facing all 0, shape `ok=True`), both anchor
+`carve_mountain` census gates, the partition-line shape-tolerance check, the sector retile (96 tris
+touched, zero vertex/normal motion — UV+idall only), the dressing plan (120 writes), the orphan-decal
+gate (0/0 over 240 checked STRIPS(grass,desert) tri-corners, ring-true), the wang-carry gate, the
+FLAT-MESH and SEA-LAYER byte invariants, and the `gd_seam_dress` engine self-test (realized rates within
+3 points of the null-cluster targets at N=4000). **None of that caught the actual defect**, because none
+of it checks macro silhouette, decal-vs-body coverage ratio, or rock-contact at the line's termini — a
+gate gap now flagged back to the study, not yet closed.
+
+**A dedicated render pass** (`mixed_biome_eye_review.py`, new this round — reusable) is what caught it,
+after fixing a Z-sign bug in its own overlay grid (verified against a known-good real stock block before
+trusting the corrected output — the CALIBRATE-THE-INSTRUMENT law paying rent again). The wide plan-view
+(`out/mixed_biome_mint/renders/mixed_eye_wide_planview.png`) shows the built result plainly: the two rock
+anchors sit in adjacent blocks `(2,16)`/`(2,18)` with the desert patch squeezed into the single block
+between them, `(2,17)` — **and not touching either anchor**. `wide_fam_counts` puts a number on it:
+**desert=2, strip(decal)=240** — the retiled corridor is thinner than the fringe/straddle dressing band
+almost everywhere, so the "boundary" *is* the entire visible patch; there is no plain-desert interior
+body the way the real stock cluster has one (`stock_ab_fam_counts`: desert=210 against strip=392, a
+roughly 1:2 body-to-decal ratio, not this mint's ~1:120). This is exactly the **castellation / no-real-
+body** failure mode the brief's own graveyard (label-stamps, minted beaches, from-scratch massifs) warned
+about, and it also breaks the design's own cited justification: stock's line terminates *into* mesa rock,
+this one floats with a clean grass gap on both sides.
+
+**Root cause is geometric, not a code defect**, and `sector_retile`'s own stats show it precisely: of
+4591 scanned plain-grass-mains tris along the 167u partition line, 1176 were excluded by anchor
+clearance alone (`clear_radius` 35.0u for Uaho, 48.7u for the crag — legitimate, protecting each carve's
+own zip annulus per the ORDERING NOTE in `mixed_biome_mint.py`'s module docstring), 2197 by which side of
+the line they fell on, and 1122 by the 16u depth cap — leaving 96 tris, all in one ~64u block. Two
+anchors this close together, with clearance radii this large relative to the line length, consume nearly
+the whole corridor before dressing even runs. **This is a parameter/site-geometry problem, not a
+NO-ENCLOSED-DUNES-class hard kill** — the mechanism (mint, carve, retile, dress, every gate) is sound and
+independently proven elsewhere; a wider anchor separation, smaller `ANCHOR_CLEAR` margin, or
+smaller-`r_rim` donors would very likely open the corridor enough to leave a real plain-desert body and
+let the desert visibly meet rock at the termini, satisfying the cited stock law instead of contradicting
+it.
+
+**Verdict: REJECTED, not shipped.** The mint was never `--apply`'d (dry-run only, twice-plus during
+iteration, always to `out/mixed_biome_mint/` — the game install's 24-block override inventory was
+verified unchanged before and after every run this session). The graveyard grows by one entry: **a
+composition built entirely from proven generators can still fail on sight if the SITE geometry (anchor
+separation vs. clearance radii vs. line length) leaves no room for a body behind the decal band** — the
+offline gate suite has no shape/coverage-ratio check for this yet, and should grow one
+(`retiled corridor must retain >=X% plain mains after dressing`, `desert patch must intersect >=1
+anchor's realized footprint or clearance boundary`) before the next attempt at this target.
+
+Scripts: `studies/overworld-topography/contract_gd_composition.py` (the census), `mixed_biome_mint.py`
+(the build, dry-run-default/`--apply`/`--revert`), `mixed_biome_eye_review.py` (the render, reusable).
+Artifacts: `out/contract_gd_composition.json`, `out/mixed_biome_mint.json`,
+`out/mixed_biome_mint/renders/` (7 files incl. `mixed_eye_review.json`). Read-only throughout; zero
+writes to the game install, zero deploys, zero disc-4 mirror invocations, zero commits.
