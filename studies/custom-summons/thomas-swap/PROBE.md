@@ -441,3 +441,54 @@ NDC beats, and the Thomas-swap staging problem is closed.
 Reads the ROOT transform ONLY (choreography/staging — the same class of data as the camera track s47/s50
 already log), never the per-bone array; patches no DLL, extracts no asset bytes. `root_reproject.py` is pure
 analysis over the user's own log. Off by default (`CaptureRoot=0`), zero cost when off (one cached-bool read).
+
+## 11. s53 — the MODEL census + the COMPOSED transform + the NATIVE camera (the s52 CORRECTION; ★ BUILT + DEPLOYED 2026-07-23)
+
+The FORMAT round (`disasm/FORMAT.md`) found why every flight (v5/v7/v8) failed: **the creature projects
+through the plugin's own GTE with a native world→view matrix `M`, not the managed Unity VIEW/PROJ** (which
+was retracted — it fails 88.7% of frames), and the drawn transform is **node 0 of `*(SummonData+0x38)`**, not
+the `+0x40` root s52 logs. `memoria-patches/s53-sfx-model-census.patch` (two files, `SfxMeshProbe.cs` +
+`SFXDataMesh.cs`, built on top of s52) adds `LogModels()`, gated on a new `[SfxProbe] CaptureModels=1`
+(+`Enabled=1`). Per frame it logs three new row types:
+
+- **`PSXCAM`** (x64 only) — the native world→view matrix `M` @RVA `0x1C1DC8` + the GTE screen params
+  **OFX=160 @0x211FA0, OFY=120 @0x211FA4, H @0x211FA8**, plus `PsxCtx[+0x14]` as a tamper check (constant
+  across the cast ⇒ the `M` read is fresh). All RVAs independently re-verified against `SFX_Update`'s work
+  body `fn[0x13c4..0x1610]` and the GTE consumer `fn[0x3e80..0x40c1]`.
+- **`MODEL`** (both arches) — one row per candidate native model: the summon slot (`kind S`) and all 32
+  eff-model slots (`kind E`), each with `hasMotion`/`hasParent` flags, the draw **anchor** (`ax,ay,az` =
+  `DATA+0x40`), and the **composed** matrix actually fed to the GTE (`wx,wy,wz`+`m00..m22` = node 0 of
+  `*(DATA+0x38)`), plus `bones32` (0 = never drawn). `ModelsActiveOnly=1` (default) emits active slots +
+  activation edges only.
+- **`BONES`** (optional, `ModelsBoneCount>0`) — the summon node-translation AABB + centroid (aggregate
+  only, an irreversible 93×3→6 reduction; `ModelsBoneCount=93` = Bahamut/ef227's node count).
+
+**The reprojection is now a zero-free-parameter identity** (no sign-convention search):
+`p_view = M.R·bones[0].t + M.t` (fp12), then `SX = OFX + ((sat16(p_view.x)·((H<<16)/p_view.z))>>16)`, same
+for `SY`. **Falsifiable prediction:** on the ~40% of frames where the creature is framed, `(SX,SY)` lands
+inside the creature's own `PRIM` screen AABB — at which point the creature's exact per-frame screen path is
+known for the first time, and inverting the *managed* `PROJ·VIEW` at that screen point gives the Unity world
+point to hang a rung-7 puppet on (what FLIGHT has never had). Full read-out protocol (6 steps, each a
+prediction that can fail): **`disasm/FORMAT.md` §5.4 + `disasm/D1-creature-id-probe.md` §4.**
+
+### Arm it (already set on this install 2026-07-23)
+
+```ini
+[SfxProbe]
+Enabled = 1
+CaptureRoot = 1          ; keep — the ROOT anchor half, parsed by existing tooling
+CaptureModels = 1        ; NEW — the s53 census + composed transform + PSXCAM
+ModelsActiveOnly = 1     ; NEW — active slots + activation edges only (default)
+ModelsCap = 120000       ; NEW
+ModelsBoneCount = 93     ; NEW — 93 = Bahamut/ef227's node count; 0 disables the BONES row
+```
+
+Relaunch → cast the summon → the log gains `PSXCAM`/`MODEL`/`BONES` rows alongside the existing ones.
+
+**Build record:** FF9 closed, full DLL backup `20260723-110746`
+(`py tools/restore_memoria_dll.py 20260723-110746` reverts the engine), `msbuild … /p:SolutionDir=C:\gd\FFIX\Memoria\ /m`
+→ 0 errors, deployed both arches (sha `3cca581c…`), `LogModels`/`CaptureModels`/`WriteNativeCamera` + the
+`PSXCAM`/`MODEL`/`BONES` literals verified in the deployed metadata. Patch round-trips byte-exact onto the
+s52-tip. **Provenance:** identities + flags + world transforms = staging/choreography (same class as the camera
+track); NO geometry read, NO per-bone matrices emitted (`WriteBoneAabb` reduces in-loop); no DLL modified.
+Off by default (`CaptureModels=0`), zero cost when off.
