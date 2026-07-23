@@ -314,6 +314,47 @@ def test_open_campaign_kicks_the_map_redraw_for_warm_thumbs(app, pin_cache, tmp_
         "a warm-cache open must start the coalesced Map redraw (no ready() will arrive)"
 
 
+def test_scene_refresh_re_resolves_the_thumbs_it_invalidated(app, pin_cache, tmp_path, monkeypatch):
+    """F5's analogue invalidates the thumb cache 'to re-resolve' -- and for two rounds NOBODY
+    re-resolved: the next Map redraw probed an empty in-memory cache and found nothing, and no call
+    site was left holding a request. The refresh must spend the prefetch loop itself."""
+    from ff9mapkit import campaign as C, prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    d = tmp_path / "camp"
+    plan = C.new_campaign("Warm", "FF9CustomMap", d)
+    C.add_field(plan, d, name="room_a")
+    win = shell.Workspace(pick_palette("dark"))
+    requested = []
+    monkeypatch.setattr(win.thumbs, "request",
+                        lambda name, *a, **k: (requested.append(name), str(tmp_path / "warm.png"))[1])
+    assert win.open_campaign(d / "campaign.toml")
+    requested.clear()
+    win._thumb_rerender.stop()
+    win.on_refresh_scene()
+    assert requested, "the scene refresh invalidated the thumbs and must RE-REQUEST them"
+    assert win._thumb_rerender.isActive(), "warm re-answers must kick the coalesced Map redraw"
+
+
+def test_adding_a_field_requests_its_thumb(app, pin_cache, tmp_path, monkeypatch):
+    """Add-field re-renders the Map -- so the NEW member needs a thumb request of its own, or its
+    card keeps the placeholder band until the campaign is next reopened."""
+    from ff9mapkit import campaign as C, prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    d = tmp_path / "camp"
+    plan = C.new_campaign("Warm", "FF9CustomMap", d)
+    C.add_field(plan, d, name="room_a")
+    win = shell.Workspace(pick_palette("dark"))
+    requested = []
+    monkeypatch.setattr(win.thumbs, "request",
+                        lambda name, *a, **k: (requested.append(name), None)[1])
+    assert win.open_campaign(d / "campaign.toml")
+    requested.clear()
+    win._add_field_to_campaign("room_b")
+    assert "room_b" in requested, "the freshly added member's art must be requested, not orphaned"
+
+
 # ------------------------------------------------------------------ the catalog picker doorway
 def test_the_model_fields_actually_reach_the_picker():
     """THE CALL-SITE LAW: the card view lives behind the `model` catalog kind, so a model field

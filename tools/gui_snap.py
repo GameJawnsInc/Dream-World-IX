@@ -100,6 +100,8 @@ class _Ctx:
         self.guided = args.guided != "full"
         self.width = args.width
         self.height = args.height
+        self.campaign = getattr(args, "campaign", None)
+        self.thumb_source = getattr(args, "thumb_source", None)
         self.out = Path(args.out)
         self.out.mkdir(parents=True, exist_ok=True)
         self.saved: list[Path] = []
@@ -266,6 +268,139 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
         _close(win)
 
 
+# ---------------------------------------------------------------------------------------- map states
+MAP_STATES = ("empty", "plain", "art")
+
+
+class _pin_map_art:
+    """The `map:art` surface's cache pin: FF9MAPKIT_DATA -> a scratch cache SEEDED with one thumb per
+    member, thumbs ENABLED for this surface only (the module-top NO_THUMBS pin returns on exit).
+
+    Seeding order per member: the project's own background.png (build_thumb scales it -- game-free);
+    else a real_<id>.png copied from --thumb-source (a warm cache from a real session, e.g. the main
+    repo's .ff9mapkit-cache/thumbs); else a generated flat-gradient placeholder. Every member lands
+    WARM, so open_campaign answers entirely from the disk fast path and NO worker thread ever spawns --
+    which is also the point: the grab proves the warm-cache -> art-band contract on a fresh session."""
+
+    def __init__(self, campaign_toml: Path, thumb_source: Path | None):
+        self.campaign_toml = Path(campaign_toml)
+        self.thumb_source = Path(thumb_source) if thumb_source else None
+
+    def __enter__(self):
+        self._env = {k: os.environ.get(k) for k in ("FF9MAPKIT_DATA", "FF9MAPKIT_NO_THUMBS")}
+        cache = _SCRATCH / "map_cache"
+        os.environ["FF9MAPKIT_DATA"] = str(cache)
+        os.environ["FF9MAPKIT_NO_THUMBS"] = "0"
+        self._seed(cache / "thumbs")
+        return self
+
+    def __exit__(self, *exc):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return False
+
+    def _seed(self, tdir: Path) -> None:
+        import shutil
+
+        from ff9mapkit import campaign as C
+        from ff9mapkit.workspace import thumbs as T
+        tdir.mkdir(parents=True, exist_ok=True)
+        plan = C.load_campaign(self.campaign_toml)
+        counts = {"project": 0, "copied": 0, "placeholder": 0}
+        for i, m in enumerate(plan.members):
+            toml = (self.campaign_toml.parent / m.toml_rel).resolve()
+            if T._project_background(toml) is not None:
+                T.build_thumb(toml, m.real_id)             # scales the project art into the pinned cache
+                counts["project"] += 1
+                continue
+            src = (self.thumb_source / f"real_{int(m.real_id)}.png") if self.thumb_source else None
+            if src is not None and src.is_file():
+                shutil.copy2(src, tdir / src.name)
+                counts["copied"] += 1
+                continue
+            self._placeholder(tdir / f"real_{int(m.real_id)}.png", i)
+            counts["placeholder"] += 1
+        print(f"  map:art seeded {len(plan.members)} thumb(s) -- "
+              + ", ".join(f"{v} {k}" for k, v in counts.items() if v))
+
+    @staticmethod
+    def _placeholder(out: Path, i: int) -> None:
+        """A deterministic flat two-tone gradient (no fonts -- font rasters differ per machine)."""
+        from PIL import Image
+        hues = ((66, 84, 122), (94, 74, 106), (64, 102, 96), (116, 96, 66))
+        r0, g0, b0 = hues[i % len(hues)]
+        im = Image.new("RGB", (360, 270))
+        px = im.load()
+        for y in range(270):
+            t = y / 270
+            row = (int(r0 * (1 - t) + 24 * t), int(g0 * (1 - t) + 28 * t), int(b0 * (1 - t) + 34 * t))
+            for x in range(360):
+                px[x, y] = row
+        im.save(out, "PNG")
+
+
+def _map_campaign(ctx: _Ctx) -> Path:
+    p = Path(ctx.campaign) if ctx.campaign else REPO / "examples" / "stolen-ember" / "campaign.toml"
+    if not p.is_file():
+        raise FileNotFoundError(f"no campaign.toml at {p} (pass --campaign)")
+    return p
+
+
+def _grab_map_scene(ctx: _Ctx, name: str, mv) -> None:
+    """The WHOLE scene at 1:1 (the viewport crops a large campaign) -- the full-map record."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QImage, QPainter
+    r = mv._scene.sceneRect()
+    img = QImage(int(r.width()), int(r.height()), QImage.Format.Format_ARGB32)
+    img.fill(mv.backgroundBrush().color())
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    mv._scene.render(p, QRectF(0, 0, r.width(), r.height()), r)
+    p.end()
+    path = ctx.png(name)
+    img.save(str(path))
+    print(f"  {path}\n      scene {int(r.width())}x{int(r.height())}")
+    ctx.saved.append(path)
+
+
+def snap_map(ctx: _Ctx, state: str) -> None:
+    if state not in MAP_STATES:
+        raise ValueError(f"unknown map state {state!r} (know: {', '.join(MAP_STATES)})")
+    if state == "empty":
+        win = _make_win(ctx)
+        win.tabs.setCurrentWidget(win.map)
+        _grab(ctx, "map-empty", win)
+        _close(win)
+        return
+    camp = _map_campaign(ctx)
+    if state == "plain":                           # NO_THUMBS stays pinned -> the compact no-art boxes
+        win = _make_win(ctx)                       # (what a game-less machine sees)
+        win.open_campaign(camp)                    # lands on the Map tab itself
+        _grab(ctx, "map-plain", win)
+        _grab_map_scene(ctx, "map-plain-scene", win.map)
+        _close(win)
+        return
+    with _pin_map_art(camp, Path(ctx.thumb_source) if ctx.thumb_source else None):
+        win = _make_win(ctx)
+        win.open_campaign(camp)
+        # THE CACHING CONTRACT, asserted where it lives: the warm disk fast path answers request()
+        # with NO ready() emit, and open_campaign renders the Map BEFORE the prefetch loop -- so a
+        # warm open MUST have scheduled the coalesced rerender itself. Fire it now (the harness
+        # cannot idle 250ms) and require the art bands to be up.
+        assert win._thumb_rerender.isActive(), \
+            "warm-cache open did not schedule the map rerender (the REOPEN HOLE class)"
+        win._thumb_rerender.stop()
+        win.map.rerender()
+        _settle()
+        assert win.map._use_thumbs, "cached thumbs on disk but the map drew the no-art boxes"
+        _grab(ctx, "map-art", win)
+        _grab_map_scene(ctx, "map-art-scene", win.map)
+        _close(win)
+
+
 # ------------------------------------------------------------------------------------------- surfaces
 def snap_home(ctx: _Ctx, state: str) -> None:
     pins = {"fresh":   dict(game=False, templates=False),
@@ -407,7 +542,8 @@ DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-f
 
 def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
-            + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES])
+            + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
+            + [f"map:{s}" for s in MAP_STATES])
 
 
 def main() -> None:
@@ -419,6 +555,10 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=850)
     ap.add_argument("--out", default=str(HERE / "scroll_out" / "gui_snaps"))
+    ap.add_argument("--campaign", default=None,
+                    help="map:* surfaces: the campaign.toml to open (default: examples/stolen-ember)")
+    ap.add_argument("--thumb-source", default=None,
+                    help="map:art: a warm thumbs cache dir to copy real_<id>.png art from")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
     if args.list or not args.surfaces:
@@ -439,6 +579,8 @@ def main() -> None:
                 snap_dialog(ctx, rest)
             elif kind == "coop":
                 snap_coop(ctx, rest)
+            elif kind == "map":
+                snap_map(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface
