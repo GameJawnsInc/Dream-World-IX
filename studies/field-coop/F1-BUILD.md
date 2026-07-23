@@ -333,3 +333,53 @@ crash window that outranks it.
 follow-allowance · F11 manual TP · snapshot taint). Open: L3 on a live pad, auto-TP (failed
 acceptance, default-OFF pending rework), the battle-boots-solo-party crash window (must-fix,
 cross-cutting), and the F2 promotion for follow-warp latency.
+
+## F2 (wire v11) — BUILT 2026-07-23, solo bench + two-machine proof PENDING
+
+A read-only recon produced the implementation spec below; an adversarial pre-build review confirmed
+it, surfacing ONE real finding — the L1 pin-flag desync across a link blip (a latent stuck-controls
+freeze: a guest pinned mid-co-location that drops and regains the link before the release conditions
+fire never un-pins) — fixed before the build. Built + deployed to the desktop engine, DLL
+`588EBC3219F7DD17`.
+
+**Content:**
+1. **THE TRANSITION-INTENT LANE** — the host emits `SectionIntent` (state-lane section 4:
+   `[destField u16][nonce u8]`) at the MAPJUMP opcode's commit point, which the recon proved is the
+   ONLY decidably field→field funnel. The ratified DESIGN.md idea of hooking `SetNextMap` directly was
+   REJECTED: WMAPJUMP (world-map exit, a frontier) flows through the same call with mode still 1 —
+   hooking there would emit intents for overworld exits too. A fired host transition has no abort
+   path, so an intent is a reliable promise. The guest fast path (`ServiceIntentFollow`) fires the
+   same proven warp body via a shared `StartFollowWarp` helper, skipping the 1200ms debounce (the
+   intent IS the debounce). The serial `FollowHostTick` path stays byte-intact underneath as a
+   guaranteed fallback floor. The `_followWarpedTo` latch gives free dedup. Handled: second-intent-
+   mid-load, mid-diorama deferral, and blip loss (30Hz latest-slot re-send).
+2. **DIALOGUE L1 CO-LOCATION** — `SectionEvent` (section 5: `[flag u8][nonce u8]`). Host detection =
+   `!GetUserControl()` corroborated by `UIManager.Dialogs.Visible` (a bare usercontrol check
+   false-positives on gateway walks). Guest snaps via the proven `SnapToHost` + pins
+   (`SetUserControl(false)` ONLY if the guest still HAD control — its own re-staged cutscene keeps
+   its own), releases on flag-fall / field-leave / session-drop / pending-warp. Explicitly NOT
+   choice/pacing sync — that stays the ratified F3/L2 round.
+3. **THE R2 SAME-DOOR INTERLOCK — DEFERRED** to an F2.1 polish (orchestrator decision):
+   `RedirectGuestFieldJump` is untouched; F1's proven bounce-then-follow stands.
+4. **Selftest benches** shipped in the ~ Go tab: an intent injector (fabricates a section through the
+   REAL codec into the REAL fast path) and an L1 flag toggle (snap+freeze on the selftest mirror).
+5. **The wire bump v10→v11** hard-splits mixed versions on both transports (single `Version` const,
+   verified shared).
+
+**Solo bench recipes (not yet run):**
+1. **Inject intent → field N**: expect the fabricated-intent log, then
+   `[NetSync] intent: following the peer to field N (parallel)`, then fade+warp.
+2. **L1 toggle**: expect the co-locate/release log pair.
+
+**Two-machine boxes — QUEUED, not yet run** (F2 patch capture is pending in-game proof):
+1. Parallel-warp feel + latency vs the serial baseline.
+2. Strict nonce dedup.
+3. Chained transitions land on the final field with no double-fire.
+4. Host self-clear + no redundant serial warp.
+5. Same-door = at most F1's single bounce.
+6. L1 on a real mirrored cutscene.
+7. L1 vs the guest's own re-staged cutscene (restore only what we took).
+8. Scene-end-into-gateway control ownership (guest stays frozen through the fade).
+9. s56 blip during an intent (serial floor recovers, no stuck screen).
+10. v10↔v11 silent no-sync sanity.
+11. Edge-only logging (no per-frame spam).

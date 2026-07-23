@@ -233,6 +233,8 @@ cutscene-sync research note from the memory.
   asymmetry rule applies: update both machines anyway).
 - **Round F2 — wire v11:** the transition-intent lane + dialogue L1 (co-location) — L1 needs the
   host's in-event broadcast, so it shares the bump.
+  - **F2: BUILT 2026-07-23** — the `SetNextMap` emit-point idea above was corrected to the MAPJUMP
+    handler (the WMAPJUMP conflation); detail → `F1-BUILD.md`'s new F2 section.
 - **Round F3:** dialogue L2 (confirm/choice mirror) — full lockstep per the ratified decision.
 - Each gate ships with its selftest bench arm (see The frame) and one-line decline telemetry (the
   B3.3b every-gate-logs law). Sequencing vs the outstanding netsync queue: the s42 fixes are
