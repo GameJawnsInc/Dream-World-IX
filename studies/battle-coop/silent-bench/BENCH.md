@@ -1,5 +1,13 @@
 # Silent Bench — the host-silent battle bench (field 30112)
 
+**★★ TWO-MACHINE PROVEN 2026-07-23** (the reliability-round session): the host's random battle on
+this bench was silent for BOTH players — the host truly silent, and the guest's diorama honored
+the `0xFFFE` host-silent sentinel with no carried theme and no local fallback — and warping back
+to field 250 afterward resumed the field music for BOTH players cleanly (the stop-not-suspend
+path: no stacking, no double copies — the exact defect this bench exists to catch). Closed via the
+engine's **s54** fix on the guest side, not a change to this bench or its recipe, which stands
+unchanged for future re-runs; see `../b36-round.md` (Lane 1) for the mechanism.
+
 A minimal walkable field that **force-stops whatever BGM is playing on any entry** and whose
 random encounters play **no battle music**, so a two-machine netsync session can verify the
 battle-diorama's **host-silent BGM-carry lane** (s41/B3.6, wire v10). No stock FF9 field has a
