@@ -41,11 +41,20 @@ PROVENANCE = _PKG_DATA / "provenance"          # tracked: ships our patches + ma
 MANIFEST = PROVENANCE / "manifest.json"
 
 
+_INSTALLED = None                              # (pkg_data_it_answered_for, bool) -- install mode cannot
+                                               # change mid-process, so stat pyproject.toml ONCE, not on
+                                               # every cache_dir()/data_dir() call (startup makes hundreds)
+
+
 def _is_installed_pkg() -> bool:
     """True when running from an INSTALLED wheel (pip / uv / the .exe), False in a repo/editable checkout.
     A checkout has the package sitting next to its ``pyproject.toml``; an installed wheel (site-packages /
-    a uv tools venv) does not. Used to keep generated files OUT of the read-only, upgrade-wiped package dir."""
-    return not (_PKG_DATA.parent.parent / "pyproject.toml").is_file()
+    a uv tools venv) does not. Used to keep generated files OUT of the read-only, upgrade-wiped package dir.
+    Memoized KEYED on ``_PKG_DATA`` (the seam the suite repoints), so tests still see a live re-derive."""
+    global _INSTALLED
+    if _INSTALLED is None or _INSTALLED[0] != _PKG_DATA:
+        _INSTALLED = (_PKG_DATA, not (_PKG_DATA.parent.parent / "pyproject.toml").is_file())
+    return _INSTALLED[1]
 
 
 def _user_dir(sub: str) -> Path:
@@ -86,13 +95,15 @@ def region_template_path() -> Path:
 # intent, you supply the bytes -- the whole cache is gitignored (.ff9mapkit-cache/), never committed.
 def cache_dir() -> Path:
     """The workspace extract-cache root (gitignored). ``$FF9MAPKIT_DATA`` overrides (a writable dir for a
-    read-only wheel install / a shared cache); else the kit-root ``.ff9mapkit-cache/`` (reserved + ignored)."""
+    read-only wheel install / a shared cache); else the kit-root ``.ff9mapkit-cache/`` (reserved + ignored).
+    The kit root derives from ``_PKG_DATA`` (resolved once at import) -- re-resolving ``__file__`` per call
+    cost startup two ``_getfinalpathname`` syscalls x hundreds of thumb-cache probes."""
     env = os.environ.get("FF9MAPKIT_DATA")
     if env:
         return Path(env)
     if _is_installed_pkg():
         return _user_dir("cache")
-    return Path(__file__).resolve().parent.parent / ".ff9mapkit-cache"
+    return _PKG_DATA.parent.parent / ".ff9mapkit-cache"
 
 
 def field_cache_dir(field_id) -> Path:

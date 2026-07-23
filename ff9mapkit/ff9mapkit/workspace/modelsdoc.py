@@ -49,9 +49,10 @@ class ModelsDoc(QWidget):
         self._current = None                     # the selected catalog.Model (or None)
         self._items = {}                         # geo name -> QListWidgetItem (the CURRENT filter's rows)
         self._icons = {}                         # geo name -> QIcon (decode each cache PNG ONCE, not per refill)
-        # probed no-geometry ids (grows live via missed). Gated like every other cache read: a
-        # NO_THUMBS run (smoke/headless tests) must never scan the developer's real preview cache.
-        self._absent = modelcards.absent_geo_ids() if thumbs_mod.enabled() else set()
+        # probed no-geometry ids (grows live via missed). Lazily scanned on first NEED -- the tab is
+        # built at Workspace construction, and the sidecar sweep (hundreds of small files) belongs to
+        # the hide-toggle/miss paths, not to startup. None = not scanned yet (tests assign a set).
+        self._absent = None
         self._blank = QPixmap(_ICON, _ICON)      # constant-size placeholder so rows never shift
         self._blank.fill(Qt.GlobalColor.transparent)
         self._blank_icon = QIcon(self._blank)
@@ -442,14 +443,22 @@ class ModelsDoc(QWidget):
         self.on_deployed_refresh()
 
     # ------------------------------------------------------------------ browser
+    def _absent_ids(self):
+        """The probed no-geometry set, sidecar-scanned on FIRST need (gated like every other cache
+        read: a NO_THUMBS run never scans the developer's real preview cache)."""
+        if self._absent is None:
+            self._absent = modelcards.absent_geo_ids() if thumbs_mod.enabled() else set()
+        return self._absent
+
     def _refill(self, *_a):
         cur = self.listw.currentItem()
         keep = cur.data(Qt.ItemDataRole.UserRole) if cur is not None else None
         q = self.search.text().strip()
         grp = _GROUPS[self.group.currentIndex()][1]
+        hide = self.no_geo.isChecked()
         entries, hidden = modelcards.filter_models(q, grp, field_only=self.field_only.isChecked(),
-                                                   hide_absent=self.no_geo.isChecked(),
-                                                   absent=self._absent)
+                                                   hide_absent=hide,
+                                                   absent=self._absent_ids() if hide else frozenset())
         self.listw.clear()
         self._items = {}
         for m in entries:
@@ -465,21 +474,25 @@ class ModelsDoc(QWidget):
         self.count_lbl.setText(f"{len(entries)} model(s){note}"
                                + ("" if thumbs_mod.enabled() else "  ·  previews off"))
         # warm the visible top of the list (the rest render on selection; all cache forever). Known
-        # no-geometry ids are skipped -- a render attempt on them is a guaranteed miss.
+        # no-geometry ids are skipped -- a render attempt on them is a guaranteed miss. cached() is
+        # probed FIRST: on a warm cache nothing needs the absent set, so startup skips its sidecar scan.
         if thumbs_mod.enabled():
             for m in entries[:_THUMB_BATCH]:
-                if m.id not in self._absent and self.thumbs.cached(m.name) is None:
+                if self.thumbs.cached(m.name) is None and m.id not in self._absent_ids():
                     self.thumbs.request(m.name)
 
     def _icon_for(self, name):
-        """The row icon, decoded ONCE per session: a refill used to re-load every cached PNG from disk
-        on every keystroke of the search box."""
+        """The row icon, resolved ONCE per session: a refill used to re-load every cached PNG from disk
+        on every keystroke of the search box. FILE-BACKED (QIcon(path), not QIcon(QPixmap(path))): Qt
+        defers the PNG decode to first PAINT, so a warm cache of ~700 previews costs the startup refill
+        nothing -- eager decodes here were the GUI-thread seconds behind the slow-launch report. A
+        RE-rendered PNG must not serve Qt's stale pixmap cache, so _thumb_ready stays eager."""
         ic = self._icons.get(name)
         if ic is not None:
             return ic
         png = self.thumbs.cached(name)
         if png:
-            ic = QIcon(QPixmap(png))
+            ic = QIcon(png)
             self._icons[name] = ic               # memo ONLY real art -- a blank must not mask a late render
             return ic
         return self._blank_icon
@@ -497,9 +510,9 @@ class ModelsDoc(QWidget):
         the hide toggle on, drop the row live). A plain miss (no install) writes no sidecar."""
         m = catalog.model(name)
         meta = thumbs_mod.model_thumb_meta(m.id) if m else None
-        if not (meta and meta.get("absent")) or m.id in self._absent:
+        if not (meta and meta.get("absent")) or m.id in self._absent_ids():
             return
-        self._absent.add(m.id)
+        self._absent_ids().add(m.id)
         if self.no_geo.isChecked() and name in self._items:
             self._refill()
 

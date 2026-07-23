@@ -10371,12 +10371,18 @@ def main(argv=None):
     # there. The --smoke path returns above and never reaches this, so it still gets instant end-states.
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.show()
+    app.processEvents()                            # deliver the expose/paint NOW: restoring a big journey
+                                                   # below can take seconds, and until exec() nothing else
+                                                   # paints -- the app must LOOK started before it loads
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # default ON: pick up where the last session left off
+        app.setOverrideCursor(Qt.CursorShape.WaitCursor)   # the painted-but-frozen restore window is WORKING
         try:
             win.restore_last_session()             # no-ops on an empty recent list -> newcomers untouched
         except Exception:                          # noqa: BLE001  (a broken project must not block launch)
             pass
+        finally:
+            app.restoreOverrideCursor()
     sys.exit(app.exec())
 
 
