@@ -1902,3 +1902,157 @@ literals AND WMWorld.cs call sites, ini sections — and a fresh relaunch restor
 Coordination note: FF9CustomMap-world now cohabits vehicle artifacts (boat model 6321 + WORLD11 .eb +
 their DictionaryPatch) — additive, nothing of ours overwritten.) NEXT (owner: "good to productize"):
 promote --census3's orphan logic into the kit as the carry-time gate Round 10 earmarked.
+
+# Round 11 (2026-07-22) — THE 0.836 V-BAND DECODED + THE SEAM-DRESSING SYNTHESIS ★ RUNG A DECODED, RUNG B FALSIFIED-AS-INAPPLICABLE (both read-only against the live install; nothing deployed, nothing written)
+
+**The question.** Round 10 closed the desert|grass combining language as a decoded, closed 3-rect
+vocabulary, but flagged one loose end in passing: the atlas v-band `[0.83594, 0.86621]` hosts the
+grass|scrub third shared asset (`u[0.34082,0.40332]`) AND the newly-found dunes|topo-49-mural fringe
+tile (`u[0.13867,0.19922]`) at the exact same v-extent — "an unexamined lead that the atlas carries a
+whole row of small per-pair transition decals there." Separately, the orphan-gate install sweep
+(comp[1]'s redress rounds) surfaced a second, structurally different question: the deployed mod's own
+bare grass|desert seam between blocks `(7,19)` (a grass islet) and `(8,19)` (the plain desert islet) —
+does it need dressing under Round 10's own laws? This round answers both, one purely by census
+(**Rung A**), one by attempting to build and apply the actual dressing pass (**Rung B**) — which turned
+up a negative result worth recording precisely because it was earned, not assumed.
+
+## Rung A — THE 0.836 V-BAND: a second, disjoint transition-decal row
+
+**Method.** Censused the full v-band `[0.83594,0.86621]` across all 260 real disc-1 blocks (83,939
+terrain tris scanned), keeping only tris whose UV v-extent matches the row byte-exact to 5dp (zero
+tolerance widening — the 68 tris that looked like "partial matches" under a widened window turned out to
+belong entirely to a SEPARATE, equally clean adjacent row at `v[0.85645,0.88672]`, a still-undecoded
+rock+building(topo59) decal at `u[0.88379,0.94434]` — flagged as a new lead, explicitly out of this
+round's scope).
+
+**Result: yes, it's a real row, and it's bigger than the 2 leads that flagged it.** 179 tris land in the
+row, clustering into **4 distinct family pairs** across 16 raw UV sub-windows — none of which is a
+`STRIPS`-table entry (`STRIPS` only covers `(grass,desert)` and `(desert,dunes)`). This row is a
+separate, disjoint small-decal vocabulary, and the only place `topo 49` (rock/mural, otherwise a
+non-walkable wall/mural surface with no "ground family" status anywhere else in the shipped vocabulary)
+gets dedicated transition decals against ordinary walkable ground.
+
+| pair | u-envelope | n tris | independent sites | straddle:fringe |
+|---|---|---|---|---|
+| rock\|snow | [0.00391,0.06445] | 8 | 2 (blocks (4,4), (8,3)) | 8:0 (100% straddle, thin sample) |
+| desert\|rock | [0.07129,0.13184] | 34 | **10** (best-replicated pair) | 21:13 (~62/38) |
+| dunes\|rock ("mural") | [0.13867,0.19922] | 20 | 1 (one contiguous 4-block mesa, the known lead) | 16:4 |
+| grass\|scrub | [0.27832,0.52637] | 117 | 2 (dominant block (5,7) + a 4-block cluster (15,4)-(16,5)) | 72:45 |
+
+**Two organizational dialects**, cleanly separated by whether rock is one side of the pair:
+
+- **(A) ground-to-ground** (grass\|scrub, the only example this census found) replicates `STRIPS`' full
+  4-role grammar — 2 family-keyed pure-fringe roles + 2 same-cell straddle-option roles — but laid out as
+  **4 adjacent u-columns of one shared row**, transposed from `STRIPS`' 4 v-rows of one shared column.
+  Role 1 (`u[0.27832,0.34082]`, scrub-side fringe, unanimous partner=grass 20/20) → role 2
+  (`u[0.34082,0.40332]`, straddle variant A, the originally-flagged lead, 38/38 genuine same-cell
+  straddles) → role 3 (`u[0.40332,0.46582]`, grass-side fringe, unanimous partner=scrub 25/25 — cleaner
+  than `STRIPS(grass,desert)`'s own Law 3, which broke twice on real counterexamples) → role 4
+  (`u[0.46582,0.52637]`, straddle variant B, 34/34 genuine straddles). The straddle-A-vs-B choice
+  mechanism is left open, mirroring Round 10's own still-open row1-vs-row3 question for
+  `STRIPS(grass,desert)`.
+- **(B) rock-boundary** (rock\|snow, desert\|rock, dunes\|rock) is structurally simpler: each pair
+  occupies just 2 half-tile sub-windows with **identical** straddle/fringe composition on both halves — a
+  mains-style "2 quadrant variants for cosmetic variety" pattern, not a role split. Ownership varies and
+  is itself unexplained: rock\|snow and desert\|rock sit **exclusively on the rock tri** (never the
+  ground-family tri), while dunes\|rock splits roughly evenly between rock- and dunes-owned tris.
+
+**Sample-size discipline, honestly stated per pair** (site count, not raw tri count, is the binding
+constraint — several pairs concentrate at effectively one physical location despite a large tri count):
+only **desert\|rock** (10 independent sites) reaches anything close to Round 10's own train/test bar.
+grass\|scrub has 2 sites; rock\|snow has 2 thin sites; dunes\|rock is **1 contiguous site** (do not
+generalize its 16:4 ratio, or the both-families-wear-it finding, beyond that one mesa — the same
+"n=2/too small to law-ify" caution the arc has flagged before, here restated as "one physical location
+regardless of tri count").
+
+**Row/column substructure:** the whole v-band is exactly one atlas row (~0.03027 tall, standard row
+pitch), occupying only the left ~53% of atlas width (`u[0.00391,0.52637]`), with a genuine ~0.079-wide
+unused gap between the dunes\|rock slot (ends 0.19922) and the grass\|scrub block (starts 0.27832) —
+nothing fills that gap. The adjacent row at `v[0.85645,0.88672]` (rock+building, undecoded) is a natural
+next lead if this vocabulary axis is pursued further; out of scope here.
+
+**Roadmap check (per this task's own gate):** `AUDIT-AND-ROADMAP-2026-07-18.md`'s "Resolve ground-family +
+ecotone decode gaps" item is already checked `[x]` done, credited to Round 10 — this round extends that
+decode further rather than contradicting or re-opening a closed item; no roadmap conflict found. The
+roadmap's own sequencing law 3 ("the ecotone/ground-family decode gates ensemble-carry and mixed-biome
+extension") is exactly what this round continues to satisfy.
+
+Script: `studies/overworld-topography/vband_decode.py`. Artifact: `out/vband_census.json`. Read-only,
+zero writes.
+
+## Rung B — THE SEAM DRESSING: a real, generic tool, and an honestly empty plan
+
+**The brief's premise, checked first.** The orphan-gate install sweep named blocks `(7,19)` and `(8,19)`
+as a candidate: block-grid-adjacent, one pure grass, one pure desert, zero transition decals between
+them. Before writing any dressing logic, a dedicated recon pass (`seam_null_recon.py`) measured the
+**actual mesh footprints**, not the block-grid coordinates: `(7,19)`'s grass islet spans world
+`x[448,496] z[-1268,-1216]`; `(8,19)`'s desert islet spans world `x[516,572] z[-1276,-1220]`. **They do
+not touch.** Each is its own separate rock/cliff-ringed landmass with a **32-world-unit open-water gap**
+between them. The nearest real grass-vs-desert cell pair anywhere near that gap is 8 cells apart —
+4× beyond the orphan gate's own `ACCEPT_RADIUS=2` lawful-fringe window. A plan-view render
+(`out/gd_eye_bare_seam_planview.png`) confirms this visually.
+
+**The tool was built anyway, generically — not as a hand-fit to prove the premise wrong.**
+`gd_seam_dress.py` (662 lines, matching `comp1_orphan_redress.py`'s exact conventions —
+dry-run-default, `--core`/`--apply`/`--revert`, backup-first-refusal, disc-4 mirror, byte-diff-window
+post-checks) computes eligibility **live off current deployed bytes every run**, parameterized on
+`--core`, never a hardcoded cell list:
+
+- **eligibility** is the SAME function the productized orphan gate itself uses to judge an *existing*
+  decal (`ff9mapkit.world.orphangate.row_lawfulness`), called here in the forward direction ("would the
+  gate certify this if I placed it?") — self-consistency by construction: any cell this tool would ever
+  dress is a cell the gate reads back as 0-orphan.
+- **assignment** (which row, whether to dress a fringe cell at all) is one seeded `random.Random` stream
+  per phase, consumed in `sorted(cell)` order — the same determinism-by-sorted-iteration precedent as
+  `grassland.assign_mains`. Straddle rows draw `p(row1) = 0.6505` (the freshly re-measured
+  TRANSPLANT-NULL ratio at the real cluster (13-15,11-12): 67:36), else row3 — deliberately reproducing
+  only Round 10's two dominant rows, not the documented row0 exception. Fringe cells draw
+  `Bernoulli(p=0.7438 grass / 0.8945 desert)` per eligible cell, matching the null cluster's own
+  75-90%-not-100% coverage so a synthesized band doesn't read mechanically over-regular.
+- **the write** is UV+topo only, zero geometry, on existing tris (`orphangate._strip_uv_for_pair`, the
+  exact inverse of the gate's own forward decoder; topo follows Law 6 — desert-side dressed content →
+  topo 16 (never 17), grass-side → topo 0, the *opposite* direction of `comp1_orphan_redress`'s own
+  16→17 fix, correctly so: that fix pushed an orphaned decal away from a boundary that didn't exist,
+  while a genuine new dressing pass pushes toward one that does).
+
+**The run against the brief's own named target: 0 eligible cells.** Neither straddle (Law 2 — no
+same-cell split exists, because the cells don't even touch) nor fringe (Law 4/6 — no opposite family
+sits within radius 2) finds anything to dress at `(7,19)/(8,19)`. This is not a tool limitation — a
+**full sweep of all 24 currently-deployed terrain override blocks**, grouped into their 4 connected
+(block-grid-adjacent) components and each run through the identical eligibility engine, confirms **zero
+eligible grass|desert cells anywhere in the deployed mod**: the named pair (0), the pure-grass component
+(0, no desert present), the pure-desert component (0, no grass present), and the desert+dunes component
+(0, no grass present). There is currently no lawful grass|desert seam anywhere in the install to dress.
+
+**Post-checks, run anyway despite the empty plan:** the pre-state orphan gate over the unchanged core
+reads PASS (0 orphans/0 ambiguous). Because there is no real dressed output to validate statistics
+against, a synthetic-cell-id engine self-test (N=4000/phase, fake integer cell ids — explicitly not real
+terrain) confirms the assignment function's realized rates converge on the null-cluster targets it was
+calibrated from (straddle p(row1): target 0.6505 vs. realized 0.6485; fringe coverage: target
+{grass:0.7438, desert:0.8945} vs. realized {grass:0.7425, desert:0.90275} — both within 3 points at
+N=4000, PASS).
+
+**Verdict: SHIP as a correct, honest, zero-risk deliverable — with the finding that the stated target
+produces an empty plan, and that this is the right answer, not a bug.** The reviewed premise ("directly
+adjacent bare seam") is factually wrong when judged by mesh content rather than block-grid coordinates;
+the tool already surfaces this loudly in both its own docstring and stdout, and refuses to fabricate a
+decal there — inventing one would repeat the comp[1] orphan-decal defect class in reverse (a decal with
+no lawful donor context), exactly the failure mode THE FORM LESSON and the orphan-gate's whole existence
+guard against. **There is nothing to playtest from this round**: dry-run output is 0 eligible cells / 0
+writes anywhere in the currently deployed mod, and even a hypothetical `--apply` exits cleanly having
+written nothing but the JSON report. **A known, non-blocking caveat carried forward from the review:**
+`compute_dress()`/`_strip_uv_for_pair` inherit a pre-existing sub-texel UV mismatch on
+boundary-bleed-clamped cells (2/4 in a small independent sample) — not new, the same formula already
+ships in the in-game-proven `comp1_orphan_redress` rounds, visually indistinguishable at render
+resolution in every case checked.
+
+**What remains open, honestly:** if a genuine touching grass|desert boundary is ever created (a future
+transplant/carry — out of this round's read-only scope), `gd_seam_dress.py --core <blocks> --apply` is
+ready to dress it the same session, using the exact same null-calibrated, gate-self-consistent rule
+derived here. Until then, the seam-dressing arc's Rung B is **closed as inapplicable to the current
+install**, not closed as solved — a distinction worth keeping honest in the record.
+
+Scripts: `studies/overworld-topography/seam_null_recon.py` (the recon), `gd_seam_dress.py` (the tool),
+`gd_eye_review.py` (the plan-view render). Artifacts: `out/seam_null_recon.json`, `out/gd_seam_dress.json`,
+`out/gd_seam_dress_stdout.txt`, `out/gd_eye_bare_seam_planview.png`. Read-only throughout; zero writes to
+the game install, zero deploys, zero disc-4 mirror invocations, zero commits.
