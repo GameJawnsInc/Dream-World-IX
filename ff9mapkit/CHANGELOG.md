@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the visible `[[platform]]` model (★ in-game proven) + the block documented
+- **`[[platform]]` gains `prop`/`model` (+ `model_offset`, `model_pos`)** — a visible platform that
+  rides with the player in lockstep: the model gets its own walk-through, walkmesh-detached object
+  entry whose loop pins it to the player's live position (the 0x78 obj-var read) while a per-platform
+  MAP ride-bit (`Bit[328..331]`, a new reserved band) is held by the ride function. No duration math,
+  any easing, and one model serves a bidirectional zone pair — it rests wherever the last ride left
+  it. Without a model every ride body is byte-identical to before (test-pinned). ★ In-game proven
+  (a cask lift riding up under the player, then the `warp_to` fade tail).
+- **`[[platform]]` is now documented in FORMAT.md** (it never was — v1's whole zone/land/rise/entry/
+  warp_to surface plus the new model keys, and the engine visibility law: keep visible rides short,
+  do big floor changes with `warp_to`, fork Pandemonium `--verbatim` for a tall faithful elevator).
+
 ### Added — from-scratch navigable jumps (`[[jump]] to =`): the copy-only gap closed (★ in-game proven)
 - **`content/jump.py jump_arc_body(to, via=, steps=)`** generates FF9's real ledge-hop arc from just the
   landing point(s) — no verbatim sidecar needed. Grounded in a full-game census (51 navigable hops over
