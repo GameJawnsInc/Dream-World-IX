@@ -373,3 +373,67 @@ does not touch any debug-menu file (`Ff9mkDebugMenu.cs`/`UIKeyTrigger.cs`) — o
 `Memoria/Battle/SFX/{SfxMeshProbe.cs,SFXDataMesh.cs,SFXDataCamera.cs}` and `Global/SFXRender/SFXRender.cs`. See
 `memoria-patches/README.md`'s s48 row for the full patch description and gate method (round-trip byte-exact,
 `git apply --check` clean from the s47 tip — verified statically; **not yet compiled**).
+
+## 10. s52 — the SUMMON ROOT-TRANSFORM probe (the staging fix; AUTHORED + STAGED, **NOT YET BUILT**)
+
+The 2026-07-22 disasm round (`disasm/FINDINGS.md`) proved the thing every prior FLIGHT lacked: the summoned
+creature's TRUE per-frame world transform is live-readable from `FF9SpecialEffectPlugin.dll`'s own runtime
+state. `memoria-patches/s52-sfx-summon-root.patch` adds `SfxMeshProbe.LogSummonRoot()` (called from
+`SFXDataMesh.cs Runtime.Render()`, co-located with `LogFrame`/`LogCamera`, same `SFX.frameIndex`) to log it as
+a `ROOT` row. It reads the plugin's one-slot summon-model record → `SummonData` block → root world MATRIX
+(a 32-byte libgte MATRIX: 3×3 s16 rotation `/4096`, s32 world translation), rebuilt every `Hi_DrawSummonModel`.
+**Arch-correct** (both shipped builds, adversarially cross-checked): x64 `recRVA 0x220830` / active `+0x50` /
+root `DATA+0x40`; x86 `recRVA 0x20869c` / active `+0x4c` / root `DATA+0x24`, selected at runtime by
+`IntPtr.Size`. Module base via `GetModuleHandle("FF9SpecialEffectPlugin.dll")` (HMODULE == base). It reads the
+ROOT transform ONLY — never the per-bone array (dumping that over a cast would reconstruct stock skeletal
+animation = out of bounds); it patches no DLL and calls no plugin export.
+
+**⚠ NOT YET COMPILED/DEPLOYED.** Same reason as s48/s50: the shared `C:\gd\FFIX\Memoria` tree carries unrelated
+in-flight edits and `AfterBuild` auto-deploys with no backup. The source edits are staged in that tree; the
+patch file is the durable record (round-trip byte-exact: `patch -p1` onto the s50-tip pristine of both files
+reproduces the live edits). **Build it** via the `building-the-memoria-engine` skill (back up both installed
+DLLs first, `tools/restore_memoria_dll.py` reads that naming convention) when the in-flight work lands.
+
+### Arm it (once built)
+
+```ini
+[SfxProbe]
+Enabled=1
+CaptureRoot=1
+```
+
+`CaptureRoot` needs `Enabled=1` too — the ROOT rows are only useful next to the VIEW/PROJ rows they are
+reprojected against, and `LogSummonRoot` is called from inside the `Enabled`-gated block. Relaunch (ini is
+read once per process), then cast a **summon** and let the whole cast play through. `ROOT` rows land in the
+same `<game>\sfxmeshprobe.log` as the other row types (a non-summon effect logs none — the native `active`
+flag gates it). Row format:
+
+```
+ROOT,effectId,frame,active,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz
+```
+
+`tx,ty,tz` = the creature's world translation (s32 world units — the load-bearing datum); `m00..m22` = the
+3×3 rotation in raw `1/4096` fixed-point (facing); all correlate with the `VIEW`/`PROJ`/`MESH`/`PRIM` rows on
+`frame`.
+
+### Read it — `root_reproject.py`
+
+```
+py studies/custom-summons/thomas-swap/root_reproject.py --csv roots.csv
+```
+
+Three outputs over the one cast: (1) **EXTRACT** — the ROOT world trajectory (frame → `tx,ty,tz` + an
+approximate heading), the metric path FLIGHT re-stages Thomas on (`--csv` writes it for `build_thomas.py` /
+`flight_v7_solve.py`); (2) **VALIDATE** — projects each ROOT through the same frame's `VIEW*PROJ` (reusing
+`matrix_solve`'s proven primitives) and reports on-screen coverage + the NDC path — a **coherent path with
+jumps only at the ~15 known camera hard-cuts** is the pass (the real cinematic deliberately swoops off-screen
+at points, so <100% on-screen is faithful, not a bug); (3) **CROSS-CHECK** — how far the OLD MESH-bounds proxy
+sat from the true ROOT each frame, quantifying the pool pollution (`FINDINGS.md` §4) that made every prior
+FLIGHT scatter. Then re-stage: feed the real ROOT curve into `flight_v7_solve.py` in place of v7's constructed
+NDC beats, and the Thomas-swap staging problem is closed.
+
+### Provenance
+
+Reads the ROOT transform ONLY (choreography/staging — the same class of data as the camera track s47/s50
+already log), never the per-bone array; patches no DLL, extracts no asset bytes. `root_reproject.py` is pure
+analysis over the user's own log. Off by default (`CaptureRoot=0`), zero cost when off (one cached-bool read).
