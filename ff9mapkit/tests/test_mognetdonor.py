@@ -132,11 +132,17 @@ _REAL = _stock_1865()
 
 
 @pytest.mark.skipif(_REAL is None, reason="no FF9 install reachable for field 1865")
-def test_find_letter_display_on_the_real_donor():
-    site = md.find_letter_display(_REAL[0])
-    assert site is not None
-    assert (site["entry"], site["tag"]) == (5, 3)
-    assert site["arms"] == {19: 46, 22: 49, 33: 52, 48: 63}   # Kupo's four stock letters
+def test_find_letter_displays_on_the_real_donor():
+    """The first playtest's decode: 1865 carries FOUR Byte[37] switches -- the read-mail display, the
+    delivery announce (txids -1), the delivery display, and the delivery thanks (txids +1)."""
+    sites = md.find_letter_displays(_REAL[0])
+    roles = [s["role"] for s in sorted(sites, key=lambda s: s["switch_off"])]
+    assert roles == ["letter", "announce", "letter", "thanks"]
+    for s in sites:
+        base = {19: 46, 22: 49, 33: 52, 48: 63}               # Kupo's four stock letters
+        delta = {"letter": 0, "announce": -1, "thanks": 1}[s["role"]]
+        assert s["arms"] == {v: t + delta for v, t in base.items()}
+    assert (md.find_letter_display(_REAL[0])["entry"], md.find_letter_display(_REAL[0])["tag"]) == (5, 3)
 
 
 @pytest.mark.skipif(_REAL is None, reason="no FF9 install reachable for field 1865")
@@ -146,18 +152,24 @@ def test_patch_donor_field_end_to_end():
         eb, mes, roster_name="Mogwai", content_letters={56: "Hello, kupo!"},
         inbound={"variant": 57, "from_id": 1, "prompt": "Deliver this, kupo?", "line": "Thanks!"})
     assert not eblint.errors(eblint.lint_eb(patched))
-    # our content guard sits at the (shifted) convergence
-    site = md.find_letter_display(patched)
-    conv_ins, nxt = read_code(patched, site["conv"])
-    assert conv_ins.op == 0x05                                    # the variant-56 guard's condition
-    # the additive mes: entry 0 re-emitted with 42 rows; letter txid = stock max + 1
+    # EVERY classified site's convergence now opens with a guard condition (the variant-56 splice)
+    sites = md.find_letter_displays(patched)
+    assert [s["role"] for s in sorted(sites, key=lambda s: s["switch_off"])] == \
+        ["letter", "announce", "letter", "thanks"]
+    for s in sites:
+        conv_ins, _ = read_code(patched, s["conv"])
+        assert conv_ins.op == 0x05, f"site {s['role']}@{s['switch_off']} conv lacks the guard"
+    # the additive mes: entry 0 (42 rows) + the announce/letter/thanks triplet + 2 prompt entries
     from ff9mapkit import dialogue
     add = dialogue.parse_mes(add_mes)
     stock_max = max(dialogue.parse_mes(mes))
     assert add[0].text.count("\n") == _mognet.ROSTER_SIZE        # 41 breaks = 42 rows
     assert add[0].text.endswith("Mogwai")
-    assert set(add) == {0, stock_max + 1, stock_max + 2, stock_max + 3}
+    assert set(add) == {0} | {stock_max + k for k in range(1, 6)}
+    assert add[stock_max + 1].text.startswith(md.SPEAKER_DRESS)  # the announce, speaker form
+    assert "[CHOO]" in add[stock_max + 4].text                   # the offer prompt has REAL choice rows
     # the talk tag now OPENS with the inbound give gate (give_available_cond on variant 57)
+    site = md.find_letter_display(patched)
     talk = EbScript.from_bytes(patched).entry(site["entry"]).func_by_tag(site["tag"])
     head = patched[talk.abs_start:talk.abs_start + len(_mognet.give_available_cond(57))]
     assert head == _mognet.give_available_cond(57)
@@ -168,4 +180,4 @@ def test_patch_refuses_a_stock_variant_collision():
     # the shipped-band guard fires first (19 is a real letter's variant -- its locks alias); the
     # dedicated stock-arm check behind it is defence-in-depth for allow_shipped-style futures
     with pytest.raises(ValueError, match="SHIPPED band"):
-        md.patch_recipient_letters(_REAL[0], {19: 999})           # 19 is Kupo's own letter
+        md.patch_recipient_letters(_REAL[0], {19: {"letter": 999}})   # 19 is Kupo's own letter

@@ -54,7 +54,11 @@ def main():
     ap.add_argument("field", type=int, help="the donor field id (e.g. 1865 = Kupo, Alexandria Steeple)")
     ap.add_argument("--name", default=None, help="our moogle's name -> the 42nd roster row here")
     ap.add_argument("--letter", nargs=2, action="append", metavar=("VARIANT", "TEXT"), default=[],
-                    help="letter content for OUR variant delivered here (repeatable)")
+                    help='letter content for OUR variant delivered here (repeatable; "\\n" = line break)')
+    ap.add_argument("--announce", default=None,
+                    help="the donor's delivery announce line (speaker-form; default kit wording)")
+    ap.add_argument("--thanks", default=None,
+                    help="the donor's post-letter thanks line (speaker-form; default kit wording)")
     ap.add_argument("--inbound", type=int, default=None, metavar="VARIANT",
                     help="this donor offers a letter (VARIANT) addressed to our moogle")
     ap.add_argument("--from-id", type=int, default=None, help="the donor moogle's own roster id")
@@ -65,7 +69,14 @@ def main():
                     or "FF9CustomMap")
     args = ap.parse_args()
 
-    letters = {int(v): t for v, t in args.letter}
+    letters = {}
+    for v, t in args.letter:
+        spec = {"letter": t.replace("\\n", "\n")}
+        if args.announce:
+            spec["announce"] = args.announce
+        if args.thanks:
+            spec["thanks"] = args.thanks
+        letters[int(v)] = spec
     inbound = None
     if args.inbound is not None:
         if args.from_id is None or not args.prompt:

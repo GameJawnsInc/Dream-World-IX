@@ -32,14 +32,21 @@ VARIANT_BYTE = 37         # MAP.Byte[37] -- the letter-display selector the dono
 WINDOW_ASYNC_OP = 0x20    # the arms' window op (WindowAsync(LETTER_WINDOW, LETTER_FLAGS, txid))
 
 
-def find_letter_display(eb_bytes) -> dict | None:
-    """Locate the donor's letter-content switch structurally: an ``op_06`` whose selector statement is
-    exactly ``05 D5 25 7F`` (push ``Byte[37]``) and whose every case arm OPENS with
-    ``WindowAsync(3, 16, <txid>)``. Returns ``{entry, tag, func_start, switch_off, conv, arms}`` where
-    ``conv`` = the default target (the arms' convergence -- where a guarded custom arm splices in) and
-    ``arms`` = ``{variant: txid}``; or None (not a Mognet recipient field)."""
+WINDOW_SYNC_OP = 0x1F     # the announce/thanks arms' window op (WindowSync(3, 128, txid))
+
+
+def find_letter_displays(eb_bytes) -> list:
+    """Locate EVERY ``Byte[37]``-selected ``op_06`` whose case arms open with a window op -- the donor's
+    letter machinery. Field 1865 (decoded 2026-07-22, the first playtest's finding) has FOUR: per stock
+    letter a TRIPLET of txids (announce = letter-1 / letter / thanks = letter+1) across the READ-MAIL
+    display, the DELIVERY announce, the DELIVERY display, and the DELIVERY thanks -- patching only one
+    leaves the delivery path flashing empty. Each site: ``{entry, tag, func_start, switch_off, conv,
+    arms, win_op, win_flags, role}`` with ``role`` in ``letter`` (the 0x20/16 full-screen display) /
+    ``announce`` (0x1F arms whose txids sit one BELOW a letter site's) / ``thanks`` (one ABOVE) /
+    ``unknown`` (left unpatched, warned by the caller)."""
     eb = EbScript.from_bytes(eb_bytes)
     selector = bytes([0x05, _region.GLOB_UINT8, VARIANT_BYTE, 0x7F])
+    sites = []
     for e in eb.entries:
         if e.empty:
             continue
@@ -49,50 +56,89 @@ def find_letter_display(eb_bytes) -> dict | None:
                 if (ins.op == 0x06 and prev is not None
                         and eb.data[prev.off:prev.end] == selector):
                     info = decode_switch(ins)
-                    if info is None:
-                        prev = ins
-                        continue
-                    arms, default_tgt, ok = {}, None, True
-                    for ed in info.edges:
-                        if ed.value is None:
-                            default_tgt = ed.target
-                            continue
-                        t, _ = read_code(eb.data, ed.target)
-                        if (t.op == WINDOW_ASYNC_OP and len(t.args) >= 3
-                                and t.args[0] == _mognet.LETTER_WINDOW
-                                and t.args[1] == _mognet.LETTER_FLAGS):
-                            arms[ed.value] = t.args[2]
-                        else:
-                            ok = False
-                    if ok and arms and default_tgt is not None:
-                        return {"entry": e.index, "tag": f.tag, "func_start": f.abs_start,
-                                "switch_off": ins.off, "conv": default_tgt, "arms": arms}
+                    if info is not None:
+                        arms, default_tgt, wops, wflags, ok = {}, None, set(), set(), True
+                        for ed in info.edges:
+                            if ed.value is None:
+                                default_tgt = ed.target
+                                continue
+                            t, _ = read_code(eb.data, ed.target)
+                            if t.op in (WINDOW_ASYNC_OP, WINDOW_SYNC_OP) and len(t.args) >= 3:
+                                arms[ed.value] = t.args[2]
+                                wops.add(t.op)
+                                wflags.add(t.args[1])
+                            else:
+                                ok = False
+                        if ok and arms and default_tgt is not None and len(wops) == 1:
+                            sites.append({"entry": e.index, "tag": f.tag, "func_start": f.abs_start,
+                                          "switch_off": ins.off, "conv": default_tgt, "arms": arms,
+                                          "win_op": wops.pop(), "win_flags": wflags.pop()})
                 prev = ins
+    # classify: letter sites are the async full-screen displays; a sync site whose every shared
+    # variant's txid sits exactly one below/above a letter site's is its announce/thanks sibling
+    letter_arms = {}
+    for s in sites:
+        if s["win_op"] == WINDOW_ASYNC_OP and s["win_flags"] == _mognet.LETTER_FLAGS:
+            s["role"] = "letter"
+            letter_arms.update(s["arms"])
+    for s in sites:
+        if "role" in s:
+            continue
+        shared = [v for v in s["arms"] if v in letter_arms]
+        if shared and all(s["arms"][v] == letter_arms[v] - 1 for v in shared):
+            s["role"] = "announce"
+        elif shared and all(s["arms"][v] == letter_arms[v] + 1 for v in shared):
+            s["role"] = "thanks"
+        else:
+            s["role"] = "unknown"
+    return sites
+
+
+def find_letter_display(eb_bytes) -> dict | None:
+    """The primary (first) letter-display site, or None -- the anchor the talk-tag prepend keys on."""
+    for s in find_letter_displays(eb_bytes):
+        if s["role"] == "letter":
+            return s
     return None
 
 
-def letter_content_guard(variant: int, txid: int) -> bytes:
-    """One spliced arm: ``if (Byte[37] == variant) WindowAsync(3, 16, txid)`` -- the same window shape
-    as the donor's own arms, gated so every stock path flows through untouched."""
+def letter_content_guard(variant: int, txid: int, *, win_op: int = WINDOW_ASYNC_OP,
+                         win_flags: int = _mognet.LETTER_FLAGS) -> bytes:
+    """One spliced arm: ``if (Byte[37] == variant) Window*(3, flags, txid)`` -- the same window op +
+    flags as the host site's own arms, gated so every stock path flows through untouched."""
+    win = (opcodes.window_async(_mognet.LETTER_WINDOW, win_flags, int(txid))
+           if win_op == WINDOW_ASYNC_OP
+           else opcodes.window_sync(_mognet.LETTER_WINDOW, win_flags, int(txid)))
     return _region.if_block(
-        _region.cond_cmp(_region.GLOB_UINT8, VARIANT_BYTE, int(variant), "=="),
-        opcodes.window_async(_mognet.LETTER_WINDOW, _mognet.LETTER_FLAGS, int(txid)))
+        _region.cond_cmp(_region.GLOB_UINT8, VARIANT_BYTE, int(variant), "=="), win)
 
 
-def patch_recipient_letters(eb_bytes, letters: dict) -> bytes:
-    """Splice content arms for ``letters`` = ``{variant: txid}`` at the donor's letter-display
-    convergence. Every stock arm's jump targets the convergence (== the insert point), so it flows
-    INTO the guards and falls through for stock variants -- the ``tgt == abs_ins`` insert semantics."""
-    site = find_letter_display(eb_bytes)
-    if site is None:
+def patch_recipient_letters(eb_bytes, triplets: dict) -> bytes:
+    """Splice content arms for ``triplets`` = ``{variant: {"letter": txid, "announce": txid,
+    "thanks": txid}}`` at EVERY classified letter-machinery site's convergence (read-mail display,
+    delivery announce/display/thanks -- the first playtest proved patching one site is not enough:
+    the delivery path has its own switches). Sites are patched in DESCENDING convergence order so
+    earlier sites' recorded offsets stay valid. Every stock arm's jump targets its convergence (==
+    the insert point), so it flows INTO the guards and falls through for stock variants."""
+    sites = find_letter_displays(eb_bytes)
+    if not any(s["role"] == "letter" for s in sites):
         raise ValueError("no Mognet letter-display switch found -- not a recipient moogle field?")
-    for v in letters:
+    for v in triplets:
         _mognet.check_variant(v)
-        if v in site["arms"]:
-            raise ValueError(f"variant {v} already has a stock arm (txid {site['arms'][v]})")
-    frag = b"".join(letter_content_guard(v, t) for v, t in sorted(letters.items()))
-    return edit.insert_in_function(eb_bytes, site["entry"], site["tag"],
-                                   site["conv"] - site["func_start"], frag)
+        for s in sites:
+            if v in s["arms"]:
+                raise ValueError(f"variant {v} already has a stock arm (txid {s['arms'][v]})")
+    out = eb_bytes
+    for site in sorted(sites, key=lambda s: s["conv"], reverse=True):
+        if site["role"] == "unknown":
+            continue
+        frag = b"".join(
+            letter_content_guard(v, t[site["role"]], win_op=site["win_op"], win_flags=site["win_flags"])
+            for v, t in sorted(triplets.items()) if t.get(site["role"]) is not None)
+        if frag:
+            out = edit.insert_in_function(out, site["entry"], site["tag"],
+                                          site["conv"] - site["func_start"], frag)
+    return out
 
 
 def inbound_give_prepend(variant: int, *, from_id: int, prompt_txid: int,
@@ -127,18 +173,44 @@ def _re_emit_entry(entry, text: str) -> str:
     return f"_[TXID={entry.txid}][STRT={entry.strt}]{tail}{text}[ENDN]"
 
 
+DEFAULT_ANNOUNCE = "A letter for me?  Kupo!"
+DEFAULT_THANKS_AT_DONOR = "What a nice letter, kupo!"
+SPEAKER_DRESS = "[WDTH=0,0,6,0,-1][IMME][TEXT=0,0]"   # the stock announce/thanks dress: the moogle's
+                                                       # own roster name + instant pop (field 1865 @45/47)
+QUOTE_OPEN, QUOTE_CLOSE = "“", "”"
+
+
+def _speaker_line(text: str) -> str:
+    """The stock announce/thanks form: the speaker dress, then the curly-quoted line (the kit-wide
+    SPEAKER FORM law -- name line + curly quotes, never 'Name:')."""
+    return f"{SPEAKER_DRESS}\n{QUOTE_OPEN}{text}{QUOTE_CLOSE}"
+
+
+def choice_prompt_text(prompt: str, yes: str = "Sure, kupo!", no: str = "Not now") -> str:
+    """A REAL two-row choice window text -- ``[PCHC=2,1]`` + the prompt + the ``[CHOO]`` rows. The
+    first playtest proved a bare prompt line auto-resolves (switch_on_choice reads a stale selection
+    -> the offer 'accepts itself'); the choice rows are load-bearing, not dressing."""
+    from .text import CHOICE_OPEN, CHOICE_INDENT
+    return ("[PCHC=2,1][IMME]" + str(prompt) + CHOICE_OPEN
+            + ("\n" + CHOICE_INDENT).join((str(yes), str(no))))
+
+
 def donor_mes_additions(stock_mes_body: str, *, roster_name: str | None = None,
                         letters: dict | None = None, prompts: list | None = None) -> tuple:
     """Build the ADDITIVE ``.mes`` override for a donor field's block: re-emitted ``[TXID=0]`` with the
-    42nd roster row appended (when ``roster_name``), plus new entries above the stock max txid for
-    ``letters`` = ``{variant: body_text}`` (rendered through the stock letter template -- the STRT of
-    an existing stock letter entry is reused) and ``prompts`` = plain window texts (the inbound offer
-    lines). Returns ``(mes_text, {variant: txid}, [prompt_txids])``.
+    42nd roster row appended (when ``roster_name``), plus -- per ``letters`` entry ``{variant: {"letter":
+    body, "announce": line?, "thanks": line?}}`` (a bare string = the letter body with default
+    announce/thanks) -- a TRIPLET of new entries above the stock max txid: the announce and thanks in
+    the stock speaker form (STRT/TAIL copied from the donor's own announce/thanks windows -- the
+    window-geometry law) and the letter through the stock letter template. ``prompts`` = extra window
+    texts (the inbound offer, already choice-formatted by the caller). Returns
+    ``(mes_text, {variant: {"announce": txid, "letter": txid, "thanks": txid}}, [prompt_txids])``.
 
     The override merges per-txid over the stock block (FF9TextTool is cumulative), so ONLY the touched
     txids ship -- nothing else is redefined. Stock text appears ONLY in the re-emitted entry 0, which
     is why this runs at deploy time from the user's own install (provenance)."""
     from .. import dialogue as _dialogue
+    from .text import mes_entry
     entries = _dialogue.parse_mes(stock_mes_body)
     if 0 not in entries:
         raise ValueError("stock block has no entry 0 (the roster) -- not a moogle field block?")
@@ -151,23 +223,35 @@ def donor_mes_additions(stock_mes_body: str, *, roster_name: str | None = None,
                              f"refusing to patch an unrecognised roster")
         parts.append(_re_emit_entry(e0, e0.text + "\n" + str(roster_name)))
     next_txid = max(entries) + 1
-    # the stock letter template's window geometry: reuse an existing letter arm's STRT (they are
-    # per-field placement -- the window-geometry-is-part-of-the-entry law)
     letter_txids, prompt_txids = {}, []
     if letters:
-        from .text import mes_entry
-        strt = None
-        for e in entries.values():          # any entry opening with the letter header's [WDTH tag
-            if e.text.startswith("[WDTH") and e.strt:
-                strt = tuple(int(v) for v in e.strt.split(","))
-                break
+        # per-field window geometry, copied from the donor's own entries (the window-geometry law):
+        # the letter STRT from a [WDTH=0,55-opening full-screen letter; announce/thanks STRT+TAIL
+        # from a speaker-dressed window
+        l_strt, at_strt, at_tail = None, None, "UPR"
+        for e in entries.values():
+            if l_strt is None and e.text.startswith("[WDTH=0,55") and e.strt:
+                l_strt = tuple(int(v) for v in e.strt.split(","))
+            if at_strt is None and e.text.startswith(SPEAKER_DRESS) and e.strt:
+                at_strt = tuple(int(v) for v in e.strt.split(","))
+                at_tail = e.tail or "UPR"
         for v in sorted(letters):
-            body = _mognet.letter_entry_text(letters[v])
-            parts.append(mes_entry(body, next_txid, strt=strt or (10, 1), tail=""))
-            letter_txids[v] = next_txid
+            spec = letters[v] if isinstance(letters[v], dict) else {"letter": letters[v]}
+            tri = {}
+            parts.append(mes_entry(_speaker_line(spec.get("announce", DEFAULT_ANNOUNCE)),
+                                   next_txid, strt=at_strt or (240, 3), tail=at_tail))
+            tri["announce"] = next_txid
             next_txid += 1
+            parts.append(mes_entry(_mognet.letter_entry_text(spec["letter"]), next_txid,
+                                   strt=l_strt or (10, 1), tail=""))
+            tri["letter"] = next_txid
+            next_txid += 1
+            parts.append(mes_entry(_speaker_line(spec.get("thanks", DEFAULT_THANKS_AT_DONOR)),
+                                   next_txid, strt=at_strt or (136, 3), tail=at_tail))
+            tri["thanks"] = next_txid
+            next_txid += 1
+            letter_txids[v] = tri
     for p in (prompts or []):
-        from .text import mes_entry
         parts.append(mes_entry(str(p), next_txid))
         prompt_txids.append(next_txid)
         next_txid += 1
@@ -184,7 +268,9 @@ def patch_donor_field(eb_bytes, stock_mes_body: str, *, roster_name: str | None 
     inbound = dict(inbound) if inbound else None
     prompts = []
     if inbound:
-        prompts.append(inbound["prompt"])
+        prompts.append(choice_prompt_text(inbound["prompt"],
+                                          inbound.get("yes", "Sure, kupo!"),
+                                          inbound.get("no", "Not now")))
         if inbound.get("line"):
             prompts.append(inbound["line"])
     mes_text, letter_txids, prompt_txids = donor_mes_additions(
