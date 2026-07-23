@@ -351,7 +351,9 @@ DEFAULT_THANKS = "A letter from [TEXT=0,1], kupo! Thank you!"   # [TEXT=0,1] = r
 DEFAULT_GIVE_PROMPT = "Would you deliver my letter to {to}, kupo?"
 DEFAULT_GIVE_YES, DEFAULT_GIVE_NO = "Take the letter", "Not now"
 DEFAULT_GIVE_LINE = "Take good care of it, kupo!"
-DEFAULT_NOTHING = "No mail today, kupo..."
+DEFAULT_NOTHING = "I want mail!  Kupo!"   # THE stock line, verbatim (donor txid 19 -- invariant across
+                                          # 1865/407/300/115, double space included; the user-granted
+                                          # menu-wording provenance exception, docs/PROVENANCE.md)
 DEFAULT_ERASE = "This old mail ledger is unreadable, kupo. Starting fresh!"
 
 

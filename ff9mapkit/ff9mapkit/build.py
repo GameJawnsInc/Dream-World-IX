@@ -6341,6 +6341,17 @@ def collect_text(project: FieldProject):
                 s = _text.wrap_text(s, wrap)[0]
             return _text.menu_style(s, speaker=speaker, feeds=feeds)
 
+        def _bubble(text_line, *, speaker=spk):
+            """The moogle's own SPEECH BUBBLE -- the donor txid-19 shape ("I want mail!  Kupo!"),
+            invariant across every donor block checked (1865/407/300/115: `[WDTH=0,0,6,0,-1]` + the
+            speaker form, NO [IMME], un-pinned -> the engine places it at the speaking moogle with a
+            tail). The 2026-07-22 playtest law: the no-mail line is spoken BY the moogle, never shown
+            in the pinned menu spot."""
+            s = _text.with_speaker(speaker, str(text_line))
+            if wrap is not None:
+                s = _text.wrap_text(s, wrap)[0]
+            return ("[WDTH=0,0,6,0,-1]" if (speaker and "[TEXT=" in str(speaker)) else "") + s
+
         _pin_main, _pin_sub = _text.menu_pos_tag(_mp_main), _text.menu_pos_tag(_mp_sub)
 
         # cancel is the LAST row in every menu: B backs out of the option list AND out of the confirm.
@@ -6408,8 +6419,10 @@ def collect_text(project: FieldProject):
                                           + ("\n" + _text.CHOICE_INDENT).join(ayn), _tail_sub),
                 "thanks": _add_raw(_pin_sub + _menu(mg.get("thanks", _mognet.DEFAULT_THANKS), feeds=False),
                                    _tail_sub),
-                "nothing": _add_raw(_pin_sub + _menu(mg.get("nothing", _mognet.DEFAULT_NOTHING), feeds=False),
-                                    _tail_sub),
+                # the donor-invariant bubble geometry (txid 19 in every donor block: STRT 116,2 +
+                # TAIL=UPR) rides with it -- ship it verbatim, not the pinned menu position
+                "nothing": _add_raw(_bubble(mg.get("nothing", _mognet.DEFAULT_NOTHING)),
+                                    "UPR", strt=(116, 2)),
                 "erase": _add_raw(str(mg.get("erase", _mognet.DEFAULT_ERASE)), ""),
             }
             if give:

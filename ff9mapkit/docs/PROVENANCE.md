@@ -86,8 +86,14 @@ the generator, ~340 distinct excerpts in total (most instances are system messag
 way a guide or wiki quotes a line to name a scene — kept committed so the flag research is readable
 without a game install. The digest is fully regenerable from your own copy (`research/README.md`
 has the commands), and the machine-form output (`research/flag_lore.json`) is gitignored, never
-committed. This is the repository's only committed game-text exception; everything else in
-`research/` stays in the identifier category.
+committed. Everything else in `research/` stays in the identifier category.
+
+One further, deliberately tiny exception of the same kind: the save-moogle's default no-mail line
+(`content/mognet.py DEFAULT_NOTHING`) is FF9's own four-word stock phrase **"I want mail!  Kupo!"**
+— invariant across every donor moogle field, quoted verbatim (double space included) so a kit save
+point behaves indistinguishably from a stock one. The same brief-identifying-quotation rationale as
+FLAG_LORE's excerpts, granted explicitly by the project owner for the savepoint menu wording
+("the wiki-with-dialog case"). These two are the repository's only committed game-text exceptions.
 
 ## For maintainers
 
