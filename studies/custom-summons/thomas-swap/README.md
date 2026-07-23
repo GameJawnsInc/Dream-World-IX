@@ -189,6 +189,34 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
+> ## ⛔ THE FLIGHT ARC IS CLOSED (2026-07-23) — the puppet-overlay approach has a ceiling; PIVOT to a source-level transplant
+>
+> **What we tried (v1→v10.1):** hide the native creature's body meshes (`HideMeshes`) and overlay Thomas as a
+> separate rigid FBX whose per-frame world transform we choreograph. The s52/s53 probes + the FORMAT round
+> made this as good as it can get: we RECOVERED the creature's true per-frame screen position (native GTE
+> reprojection, zero false positives) AND its real apparent size (BONES AABB), and drove Thomas from that
+> measurement (v9 position, v10 size, v10.1 world-smoothing).
+>
+> **Why it's closed (playtest verdicts, 2026-07-23):** "much better coverage ... doesn't scale down like a
+> dragon flying down ... hard corners are jarring ... missing for much of the swooping." Matching a **rigid
+> train's** on-screen position + size to the dragon is fundamentally a 2D billboard composited over the real
+> cinematic — it can't reproduce a creature *flying down, banking, shrinking, and rolling vertical→horizontal*
+> through the swoops, and back-projecting a measured screen path through a cutting camera turns every camera
+> move into a world jump (softened, but never a real swoop). **The overlay is a dead end for FIDELITY; the
+> mechanisms it proved (HideMeshes, the FileList FBX render, the s52/s53 probes) are permanent wins.**
+>
+> **THE PIVOT (user's call):** stop puppeteering. Pursue a **faithful source-level transplant** — put OUR OWN
+> model where the real creature renders so it inherits the dragon's actual animation + camera — and a **Blender
+> round-trip** of the summon format (the FORMAT round already decoded geometry + motion + camera + sequence).
+> The most promising lever the probes opened: we can now READ the creature's real per-frame bone matrices
+> (`Hi_GetSummonBoneMatrix` / the summon bone array `*(DATA+0x38)`), so we could **pose our own skinned model
+> with the stock per-frame skeleton** — our mesh, the dragon's actual motion — instead of overlaying a rigid
+> prop. See the research round opened 2026-07-23 (`disasm/TRANSPLANT.md` when it lands) and `disasm/FORMAT.md`
+> §4 (TIER R/W roadmap). The v10.1 build stays deployed as the resting state; it is NOT the destination.
+
+<details>
+<summary>THE FLIGHT v1→v10.1 history (CLOSED 2026-07-23 -- kept for the record; the recovered measurements + the s52/s53 probes are the durable wins, the puppet placement is not the path to fidelity)</summary>
+
 ### THE FLIGHT v10 -- 2026-07-23, MEASURED POSITION + SIZE (CURRENT, supersedes v9)
 
 v9 placed Thomas at the creature's real per-frame screen POSITION but at a CONSTANT size; playtest ("much
@@ -640,6 +668,8 @@ behind-camera (depth<=0):
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
 alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
+
+</details>
 
 ## Files in this directory
 
