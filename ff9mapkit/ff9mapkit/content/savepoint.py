@@ -550,7 +550,21 @@ def menu_rows(cfg) -> list:
     return [k for k in MENU_ROW_ORDER if on[k]] + ["cancel"]
 
 
-def save_dispatch_menu(prompt_txid: int, rows, bodies, *, prologue: bytes = b"") -> bytes:
+MENU_REOPEN_BIT = 336          # MAP.Bit[336+k] -- the "return to the moogle's menu" latch for save
+MENU_REOPEN_MAX = 4            # point k (bit-byte 42; clear of the ACT 322 / reveal 323-326 /
+                               # platform 328-331 bands). See save_dispatch_menu(reopen_rows=).
+
+
+def menu_reopen_bit(index: int = 0) -> int:
+    """The per-save-point menu-reopen bit (range-checked like every other reserved band here)."""
+    k = int(index)
+    if not 0 <= k < MENU_REOPEN_MAX:
+        raise ValueError(f"savepoint index {k} is outside the menu-reopen band (0..{MENU_REOPEN_MAX - 1})")
+    return MENU_REOPEN_BIT + k
+
+
+def save_dispatch_menu(prompt_txid: int, rows, bodies, *, prologue: bytes = b"",
+                       reopen_rows=(), reopen_index: int = 0) -> bytes:
     """The moogle's talk body for ANY configured row set: lock control, open the prompt, dispatch with
     :func:`choice.switch_on_choice` (op_0B -- one sysvar-9 read, so nested confirms are safe), restore.
 
@@ -558,10 +572,38 @@ def save_dispatch_menu(prompt_txid: int, rows, bodies, *, prologue: bytes = b"")
     any missing key emit nothing). The row ORDER here must match the ``[CHOO]`` list the build writes --
     both derive from :func:`menu_rows`, so they cannot drift. ``prologue`` runs after the control lock
     and before the first window -- the build passes ``SetTextVariable(0, <moogle id>)`` there so a
-    network moogle's windows can speak as their roster identity (``mognet.VAR_SPEAKER``)."""
+    network moogle's windows can speak as their roster identity (``mognet.VAR_SPEAKER``).
+
+    ``reopen_rows`` names rows that are SUBMENUS of this menu -- completing (or cancelling) one
+    returns to the moogle's menu instead of ending the talk, exactly the stock cycle ("Mognet is a
+    submenu of the save system": the 2026-07-22 donor playtest -- Kupo's Mognet exit re-opens his
+    menu; ours dropped the whole dialogue). Mechanism = the proven reveal_menu_cycle reopen shape:
+    the loop top clears MAP.Bit[336+k], each submenu row's body is followed by a set of it, and the
+    dispatch tail jumps back to the WINDOW (not the lock -- control stays held) while the bit is up."""
+    dispatch_bodies = []
+    reopen = set(reopen_rows or ())
+    bit = menu_reopen_bit(reopen_index) if reopen else None
+    for r in rows:
+        b = bytes(bodies.get(r, b"") or b"")
+        if r in reopen and b:
+            b += _region.set_var(_region.MAP_BOOL, bit, 1)
+        dispatch_bodies.append(b)
+    core = (opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
+            + _choice.switch_on_choice(dispatch_bodies))
+    if reopen:
+        clear = _region.set_var(_region.MAP_BOOL, bit, 0)
+        loop = clear + core
+        cond = _region.cond_truthy(_region.MAP_BOOL, bit)
+        back = bytes([0x01]) + struct.pack("<h", -(len(loop) + len(cond) + 3 + 3))
+        core = loop + _region.if_block(cond, back)
+        # structural self-check (the reveal_menu_cycle displacement lesson: count the condition too)
+        _jmp_at = len(loop) + len(cond) + 3
+        _target = _jmp_at + 3 + struct.unpack("<h", core[_jmp_at + 1:_jmp_at + 3])[0]
+        if _target != 0:
+            raise AssertionError(f"save_dispatch_menu: the reopen jump targets byte {_target}, not the "
+                                 f"loop top (0)")
     return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + bytes(prologue)
-            + opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
-            + _choice.switch_on_choice([bytes(bodies.get(r, b"") or b"") for r in rows])
+            + core
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 

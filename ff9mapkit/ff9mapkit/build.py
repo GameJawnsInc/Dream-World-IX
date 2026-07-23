@@ -5390,7 +5390,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     bodies["mognet"] = _mognet_body(mg, t)
                 if reopen:
                     bodies = {key: (body or b"") + reopen for key, body in bodies.items()}
-                return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies, prologue=prologue)
+                # Mognet is a SUBMENU of the save menu (the donor cycle, playtest 2026-07-22):
+                # completing or cancelling it returns to the moogle's menu, never ends the talk
+                return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies, prologue=prologue,
+                                                     reopen_rows=(("mognet",) if "mognet" in bodies
+                                                                  else ()), reopen_index=k)
             inner = save_body
             if reopen:
                 inner = (save_body if save_body is not None

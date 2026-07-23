@@ -504,6 +504,30 @@ def test_reveal_state_loop_pathing_detach_on_perch_reattach_on_stow():
     assert _pathing_args(body) == [0, 1]
 
 
+def test_save_menu_mognet_reopen_cycle():
+    """Mognet is a SUBMENU of the save menu (the donor cycle): its row's completion sets the reopen
+    bit and the dispatch loops back to the MENU WINDOW -- not out of the talk. Without reopen_rows
+    the emitted bytes are the original shape (byte-identity for every non-mognet save point)."""
+    import pytest
+    from ff9mapkit.eb.disasm import iter_code
+    rows = ["save", "mognet", "cancel"]
+    bodies = {"save": _savepoint.save_confirm_body(11), "mognet": opcodes.wait(3)}
+    plain = _savepoint.save_dispatch_menu(10, rows, bodies)
+    looped = _savepoint.save_dispatch_menu(10, rows, bodies, reopen_rows=("mognet",), reopen_index=0)
+    assert plain != looped
+    # the plain form has NO reopen-bit tokens at all
+    import struct as _s
+    bit_tok = bytes([0xE5]) + _s.pack("<H", _savepoint.menu_reopen_bit(0))
+    assert bit_tok not in plain
+    # the looped form: bit cleared at the loop top, set at the mognet arm's end, and a backward
+    # jump whose target is the loop top (the clear)
+    assert looped.count(bit_tok) == 3                       # clear + arm set + the loop condition
+    back = [i for i in iter_code(looped, 0, len(looped)) if i.op == 0x01 and i.imm(0) >= 0x8000]
+    assert len(back) == 1                                    # exactly one backward jump (the reopen)
+    with pytest.raises(ValueError):
+        _savepoint.menu_reopen_bit(_savepoint.MENU_REOPEN_MAX)
+
+
 def test_reveal_init_tail_byte_exact():
     assert _savepoint.reveal_init_tail().hex() == "93000e"          # SetObjectFlags(14)
     assert _savepoint.reveal_init_tail() == opcodes.encode(0x93, _savepoint.REVEAL_HIDE_FLAGS)

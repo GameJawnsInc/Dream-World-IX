@@ -655,15 +655,17 @@ def test_built_field_moogle_runs_the_whole_network_act(tmp_path, fake_roster):
     G0[_m.DELIVERED_IDX] = 12
     _set_slot(G0, 0, 19, 23, 1)                        # the live save's actual letter
     _set_slot(G0, 1, 55, 8, 41)                        # a letter addressed to Mogwai
-    G = run(body, G0, choices=[1, 0])
+    # Mognet is a SUBMENU (the donor cycle, 2026-07-22): completing it reopens the moogle's menu, so
+    # every mognet visit scripts a trailing Cancel (row 2) to leave the reopened menu.
+    G = run(body, G0, choices=[1, 0, 2])
     assert _mailbox(G) == [(1, 19, 23, 1), (0, 0, 0, 0), (0, 0, 0, 0)]   # ours consumed, theirs SURVIVES
     assert G[_m.DELIVERED_IDX] == 13 and _bit(G, _m.read_lock_bit(55)) == 1
     # Mognet again, nothing addressed to us now -> the give offer -> accept it
-    G2 = run(body, G, choices=[1, 0])
+    G2 = run(body, G, choices=[1, 0, 2])
     assert _mailbox(G2)[1] == (1, 56, 41, 1)           # FROM Mogwai (41) TO Kupo (1), first free slot
     assert _bit(G2, _m.give_lock_bit(56)) == 1
     # Mognet a third time: letter handed out, nothing held -> case (c), a pure no-op
-    G3 = run(body, G2, choices=[1])
+    G3 = run(body, G2, choices=[1, 2])
     assert bytes(G3) == bytes(G2)
 
 
@@ -771,7 +773,7 @@ def test_build_ships_the_letter_and_the_display(tmp_path, fake_roster):
     G0 = bytearray(2048)
     G0[_m.GUARD_IDX] = 1
     _set_slot(G0, 0, 55, 8, 41)
-    G = run(body, G0, choices=[1, 0])
+    G = run(body, G0, choices=[1, 0, 2])   # trailing Cancel: the reopened menu (donor cycle)
     assert _mailbox(G) == [(0, 0, 0, 0)] * 3 and _bit(G, _m.read_lock_bit(55)) == 1
     # and the letter window itself is in the emitted bytes: WindowAsync(3, 16, letter_txid) --
     # once per slot-consume arm (3) at each interact point (zone + moogle talk = 2)
@@ -867,7 +869,7 @@ def test_built_field_shows_the_status_box(tmp_path, fake_roster):
     G0[_m.GUARD_IDX] = 1
     _set_slot(G0, 0, 19, 23, 1)
     wins = []
-    run(body, G0, choices=[1, 1], windows=wins)
+    run(body, G0, choices=[1, 1, 2], windows=wins)   # trailing Cancel: the reopened menu (donor cycle)
     assert (5, 8, t["status1"]) in wins
     assert (5, 8, t["status2"]) not in wins
 
@@ -1143,37 +1145,37 @@ def test_built_read_mail_full_lifecycle(tmp_path, fake_roster):
     body = _moogle_talk_body(eb)
     # ---- visit 1: nothing known, flag clear -> the v1 give-offer path (decline it) ----
     wins = []
-    G = run(body, choices=[1, 1], windows=wins)                    # Mognet -> give offer -> "Not now"
+    G = run(body, choices=[1, 1, 2], windows=wins)                 # Mognet -> give offer -> "Not now" -> Cancel the reopened menu
     assert (2, 8, t["give_prompt"]) in wins and not any(w[0] == 3 for w in wins)
     # ---- visit 2: the story flag is set -> the ARRIVAL, then the submenu exists; cancel out ->
     #      the give offer fires in the SAME talk (decline) ----
     G[8720 >> 3] |= 1 << (8720 & 7)
     wins, masks = [], []
-    G = run(body, G, choices=[1, 2, 1], windows=wins, masks=masks)
+    G = run(body, G, choices=[1, 2, 1, 2], windows=wins, masks=masks)
     assert (1, 128, t["arrive"]) in wins and (3, 16, t["letter57"]) in wins
     assert _bit(G, _m.read_lock_bit(57)) == 1
     assert masks[0] == 4 | 2                                       # submenu: read known, no delivery
     assert (2, 8, t["menu_prompt"]) in wins and (2, 8, t["give_prompt"]) in wins
     # ---- visit 3: re-read via the submenu; pure + repeatable ----
     wins, masks = [], []
-    G3 = run(body, bytearray(G), choices=[1, 1, 1, 1], windows=wins, masks=masks)
+    G3 = run(body, bytearray(G), choices=[1, 1, 1, 1, 2], windows=wins, masks=masks)
     # Mognet -> Read mail -> row 1 (News From The Mines) -> then the give offer, declined
     assert masks == [4 | 2, 0x8000 | 2]                            # submenu, then the which-letter list
     assert (2, 8, t["read_prompt"]) in wins and (3, 16, t["letter57"]) in wins
     assert (1, 128, t["arrive"]) not in wins                       # the arrival never re-fires
-    G4 = run(body, bytearray(G3), choices=[1, 1, 1, 1], windows=[], masks=[])
+    G4 = run(body, bytearray(G3), choices=[1, 1, 1, 1, 2], windows=[], masks=[])
     assert bytes(G4) == bytes(G3)                                  # byte-stable across repeat reads
     # ---- visit 4: a delivery TO Mogwai pending -> submenu row 0 = the accept; then read lists BOTH ----
     _set_slot(G4, 0, 55, 8, 41)
     G4[_m.GUARD_IDX] = 1
     wins, masks = [], []
-    G5 = run(body, bytearray(G4), choices=[1, 0, 0, 1], windows=wins, masks=masks)
+    G5 = run(body, bytearray(G4), choices=[1, 0, 0, 1, 2], windows=wins, masks=masks)
     # Mognet -> submenu accept -> confirm Yes -> (letter displays) -> give offer declined
     assert masks[0] == 4 | 1 | 2                                   # delivery pending + letters known
     assert (3, 16, t["letter55"]) in wins and _bit(G5, _m.read_lock_bit(55)) == 1
     assert _mailbox(G5)[0] == (0, 0, 0, 0) and G5[_m.DELIVERED_IDX] == 1
     wins, masks = [], []
-    run(body, bytearray(G5), choices=[1, 1, 0, 1], windows=wins, masks=masks)
+    run(body, bytearray(G5), choices=[1, 1, 0, 1, 2], windows=wins, masks=masks)
     assert masks == [4 | 2, 0x8000 | 1 | 2]                        # read list now carries BOTH rows
     assert (3, 16, t["letter55"]) in wins                          # row 0 re-displays the accept letter
     # ---- and the mailbox-status + save rows never regressed: Save -> Yes still fires Menu(4,0) ----
@@ -1260,11 +1262,11 @@ def test_give_offer_is_one_shot_through_the_submenu(tmp_path, fake_roster):
     G = bytearray(2048)
     G[8720 >> 3] |= 1 << (8720 & 7)                                # the arrival -> the submenu exists
     wins = []
-    G = run(body, G, choices=[1, 2, 0], windows=wins)              # arrival; cancel submenu; TAKE the give
+    G = run(body, G, choices=[1, 2, 0, 2], windows=wins)           # arrival; cancel submenu; TAKE the give; Cancel the reopened menu
     assert (2, 8, t["give_prompt"]) in wins
     assert _bit(G, _m.give_lock_bit(56)) == 1 and _mailbox(G)[0][1] == 56
     wins = []
-    run(body, bytearray(G), choices=[1, 2], windows=wins)          # reopen; cancel -> NO offer window
+    run(body, bytearray(G), choices=[1, 2, 2], windows=wins)       # reopen; cancel -> NO offer window; Cancel the reopened menu
     assert (2, 8, t["give_prompt"]) not in wins
 
 
@@ -1284,12 +1286,12 @@ def test_built_ungated_and_scenario_arrivals_with_bespoke_announce(tmp_path, fak
     t = ct[-1][0]
     body = _moogle_talk_body(eb)
     wins = []
-    G = run(body, choices=[1, 2, 1], windows=wins)                 # first open: 57 arrives, 58 waits
+    G = run(body, choices=[1, 2, 1, 2], windows=wins)              # first open: 57 arrives, 58 waits
     assert _bit(G, _m.read_lock_bit(57)) == 1 and _bit(G, _m.read_lock_bit(58)) == 0
     assert (1, 128, t["arrive"]) in wins and (3, 16, t["letter57"]) in wins
     G[0:2] = (2500).to_bytes(2, "little")                          # cross the beat
     wins = []
-    G = run(body, G, choices=[1, 2, 1], windows=wins)
+    G = run(body, G, choices=[1, 2, 1, 2], windows=wins)
     assert _bit(G, _m.read_lock_bit(58)) == 1
     assert (1, 128, t["announce58"]) in wins and (3, 16, t["letter58"]) in wins
     assert (1, 128, t["arrive"]) not in wins                       # bespoke replaces the shared line
