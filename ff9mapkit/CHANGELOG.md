@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — synthesis recipes in the Info Hub item detail (+ fork-report labels synthesists)
+- **`itemstats` joins the base `Synthesis.csv`** (live from your install, cached, nothing committed —
+  the same provenance stance as the stat join): an item's Info Hub detail now shows **synthesize**
+  ("Dagger + MageMasher @ 300 gil (synth shops 32, 33, 34, 35, 38)") and **synth ingredient of**
+  (Ore → all eight gems + TinArmor). New `synthesis_of` / `synthesis_uses` / `recipe_desc` API;
+  degrades to nothing offline.
+- **fork-report** now tells a donor's shops apart: an id absent from `ShopItems.csv` opens as
+  SYNTHESIS (`ff9buy.FF9Buy_GetType`) — "opens SYNTHESIS shop(s) #38" + the recipes-caveat, and
+  `--explain` says "a synthesis shop".
+
 ### Added — `[[synthesis_edit]]`: retune or remove a VANILLA synthesis recipe
 - **`[[synthesis_edit]] recipe = "Butterfly Sword"`** (or the recipe's integer Id) + any of
   `price` / `ingredients` (full replacement, dups matter) / `result` / `shops` (which synthesists

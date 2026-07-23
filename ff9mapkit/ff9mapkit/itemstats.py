@@ -5,7 +5,7 @@ is names-only): it powers the Info Hub item detail + ``ff9mapkit items``.
 PROVENANCE -- item STATS are game DATA, never committed (docs/PROVENANCE.md: the committed ``_*.py`` tables
 hold names/ids ONLY). So this reads the numbers LIVE from YOUR OWN install and ships/commits nothing:
 
-    <install>/StreamingAssets/Data/Items/{Items,Weapons,Armors,Stats,ItemEffects}.csv
+    <install>/StreamingAssets/Data/Items/{Items,Weapons,Armors,Stats,ItemEffects,Synthesis}.csv
 
 -- Memoria's editable item tables (semicolon-delimited; the very tables the engine loads). They're cached
 in-memory per process. If the install/CSVs aren't reachable, every accessor returns ``None`` and callers
@@ -269,6 +269,104 @@ def _build(iid, r, ic, weap, wc, armor, ac, stat, sc, effect, ec) -> ItemStat:
     return st
 
 
+# ---- synthesis recipes (Synthesis.csv) ------------------------------------------------------------
+@dataclass
+class SynthRecipe:
+    """One base ``Synthesis.csv`` row: combine ``ingredients`` + ``price`` gil -> ``result``, offered at
+    every synth shop in ``shops`` (an empty list = unlisted -- no synthesist offers it)."""
+    id: int
+    shops: list                                          # synth-shop ids (vanilla synthesists = 32-39)
+    price: int
+    result: int                                          # the produced item id
+    ingredients: list                                    # consumed item ids; duplicates = need N copies
+
+
+def _int_list(cell) -> list:
+    """A comma-separated int cell (``"32, 38"``) -> ``[32, 38]``; junk tokens skipped, never raises."""
+    out = []
+    for tok in str(cell).split(","):
+        tok = tok.strip()
+        if tok:
+            try:
+                out.append(int(tok))
+            except ValueError:
+                pass
+    return out
+
+
+_SYNTH_CACHE = None   # None = not loaded; False = tried + unavailable; (by_result, by_ingredient) dicts
+
+
+def _load_synthesis(game=None):
+    """Read + index the base ``Synthesis.csv`` (cached). Returns ``(by_result, by_ingredient)`` -- each
+    ``{item_id: [SynthRecipe, ...]}`` -- or ``None`` when the install/file isn't reachable."""
+    global _SYNTH_CACHE
+    if _SYNTH_CACHE is not None:
+        return _SYNTH_CACHE or None
+    try:
+        from .config import find_game_path
+        path = find_game_path(game) / "StreamingAssets" / "Data" / "Items" / "Synthesis.csv"
+        cols, rows = _read_csv(path)
+        if not cols or "Result" not in cols or "Ingredients" not in cols:
+            raise ValueError("Synthesis.csv had no parseable header")
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        _SYNTH_CACHE = False
+        return None
+    by_result: dict = {}
+    by_ingredient: dict = {}
+    for r in rows:
+        rid = _i(r, cols, "Id")
+        result = _i(r, cols, "Result")
+        if rid is None or result is None:
+            continue
+        shops = _int_list(r[cols["Shops"]]) if cols.get("Shops", len(r)) < len(r) else []
+        ing: list = []
+        for cell in r[cols["Ingredients"]:]:             # the engine reads EVERY cell from Ingredients on
+            if cell.startswith("#"):                     # (FF9MIX_DATA.ParseEntry); stop at a comment cell
+                break
+            ing += _int_list(cell)
+        rec = SynthRecipe(rid, shops, _i(r, cols, "Price", 0) or 0, result,
+                          [i for i in ing if i != 255])  # NoItem ingredients are engine no-ops
+        by_result.setdefault(result, []).append(rec)
+        for iid in dict.fromkeys(rec.ingredients):       # distinct -- a dup ingredient indexes once
+            by_ingredient.setdefault(iid, []).append(rec)
+    _SYNTH_CACHE = (by_result, by_ingredient)
+    return _SYNTH_CACHE
+
+
+def synthesis_of(item_id, *, game=None) -> list:
+    """The recipes that PRODUCE this item (usually 0 or 1) -- ``[]`` when none / install unreachable."""
+    table = _load_synthesis(game)
+    if not table:
+        return []
+    try:
+        return list(table[0].get(int(item_id), ()))
+    except (ValueError, TypeError):
+        return []
+
+
+def synthesis_uses(item_id, *, game=None) -> list:
+    """The recipes that CONSUME this item as an ingredient -- ``[]`` when none / install unreachable."""
+    table = _load_synthesis(game)
+    if not table:
+        return []
+    try:
+        return list(table[1].get(int(item_id), ()))
+    except (ValueError, TypeError):
+        return []
+
+
+def recipe_desc(rec: SynthRecipe) -> str:
+    """One phrase for a recipe: ``"Dagger + Mage Masher @ 300 gil (synth shops 32, 33)"``. An empty
+    ``shops`` list (a removed/unlisted recipe) says so."""
+    ing = " + ".join(_items.name_of(i) or f"item {i}" for i in rec.ingredients) or "nothing"
+    if rec.shops:
+        where = f"synth shop{'s' if len(rec.shops) > 1 else ''} {', '.join(str(s) for s in rec.shops)}"
+    else:
+        where = "no shop (unlisted)"
+    return f"{ing} @ {rec.price} gil ({where})"
+
+
 # ---- public API -----------------------------------------------------------------------------------
 def available(game=None) -> bool:
     """True if the install's item CSVs could be read (so stat enrichment is live)."""
@@ -337,10 +435,17 @@ def facts(item_id, *, game=None) -> list:
         out.append(("equippable by", ", ".join(st.equip)))
     if st.abilities:
         out.append(("teaches", ", ".join(st.abilities)))
+    for rec in synthesis_of(item_id, game=game):         # how to MAKE this item (base Synthesis.csv)
+        out.append(("synthesize", recipe_desc(rec)))
+    uses = synthesis_uses(item_id, game=game)            # what this item helps make
+    if uses:
+        out.append(("synth ingredient of",
+                    ", ".join(_items.name_of(r.result) or f"item {r.result}" for r in uses)))
     return out
 
 
 def _reset_cache():
-    """Test hook: drop the in-memory cache so a later call re-reads (e.g. after pointing at a fixture)."""
-    global _CACHE
+    """Test hook: drop the in-memory caches so a later call re-reads (e.g. after pointing at a fixture)."""
+    global _CACHE, _SYNTH_CACHE
     _CACHE = None
+    _SYNTH_CACHE = None
