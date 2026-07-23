@@ -161,9 +161,10 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
 : The open-source FF9 engine layer this toolkit targets ([Memoria](https://github.com/Albeoris/Memoria),
   used by the Steam release). A **novel** field (built from scratch or BG-borrowing real art) runs on a
   **stock, unmodified Memoria**. A **forked** field needs a small bundled patch set
-  ([`memoria-patches/`](../../memoria-patches/), `s23`–`s34`) to restore the `fldMapNo`-keyed behaviors
-  noted above; the bundle also carries `s22`, the in-game debug menu (~) (below). See [`ENGINE.md`](ENGINE.md)
-  for exactly what's stock vs. patched.
+  ([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) to restore the `fldMapNo`-keyed behaviors
+  noted above; the bundle also carries `s22` (the in-game debug menu (~), below), `s34` (the
+  overworld-mesh override), and the `s36`–`s41` netsync patches (experimental co-op). See
+  [`ENGINE.md`](ENGINE.md) for exactly what's stock vs. patched.
 
 **p0data**
 : The packed FF9 asset bundles (`p0data*.bin`) in your install's `StreamingAssets/`, where the real

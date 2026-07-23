@@ -1,0 +1,132 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index 9df90ea..08becb4 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -856,6 +856,18 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             Boolean benchOk = Memoria.Netsync.NetSyncBattle.WireBenchBoot(sc, pat, out benchDetail);
+             Memoria.Prime.Log.Message("[NetSync] diorama wire bench: " + (benchOk ? benchDetail : "FAIL (" + benchDetail + ")"));
+         }
++        // s54 -- the SILENT wire bench: identical to "Wire bench" but the fabricated boot block ships
++        // songId = 0xFFFE (host audibly silent) instead of 156, to exercise the host-silent BGM lane
++        // SOLO (BattleSwirl's STOPCURRENT branch + Boot's pre-swirl stop). PASS = the diorama boots to
++        // SILENCE (no ending theme, no lingering field BGM) and re-benching does not stack music.
++        if (GUILayout.Button("Bench (silent)", _button, GUILayout.Width(116f)))
++        {
++            Int32.TryParse(_dioramaPattern, out Int32 pat);
++            SetOpen(false);
++            String benchDetail;
++            Boolean benchOk = Memoria.Netsync.NetSyncBattle.WireBenchBoot(sc, pat, out benchDetail, true);
++            Memoria.Prime.Log.Message("[NetSync] diorama wire bench (silent): " + (benchOk ? benchDetail : "FAIL (" + benchDetail + ")"));
++        }
+         GUI.enabled = true;
+         GUILayout.EndHorizontal();
+         GUILayout.Label(valid ? "scene " + sc + " = " + FF9StateSystem.Battle.mapName[sc]
+diff --git a/Assembly-CSharp/Global/battle/BattleSwirl.cs b/Assembly-CSharp/Global/battle/BattleSwirl.cs
+index e93d0c1..998d768 100644
+--- a/Assembly-CSharp/Global/battle/BattleSwirl.cs
++++ b/Assembly-CSharp/Global/battle/BattleSwirl.cs
+@@ -92,9 +92,19 @@ public class BattleSwirl : MonoBehaviour
+         if (Memoria.Netsync.NetSyncDiorama.TryGetWireBattleSong(out songid))
+         {
+             // [ff9mapkit netsync] B3.6: the wire wins -- the HOST's audible song (its BattlePatch +
+-            // s33 already applied); 0xFFFE = host silent -> silence (Boot suspended the field BGM)
++            // s33 already applied). s54: 0xFFFE = the host is audibly silent -> render TRUE silence.
++            // This branch is diorama-only by construction: 0xFFFE can arrive ONLY via
++            // TryGetWireBattleSong, which returns true only inside a booted diorama (BootFromWire
++            // stamps _wireSongId; the manual Boot resets it to -1). The old `0xFFFE -> -1` fold hit
++            // the `songid == -1` early return below with IsPlayFieldBGMInCurrentBattle left TRUE, so
++            // the guest's own FIELD music kept playing through the diorama battle.
+             if (songid == 0xFFFE)
+-                songid = -1;
++            {
++                FF9StateSystem.Battle.IsPlayFieldBGMInCurrentBattle = false;
++                SoundLib.GetAllSoundDispatchPlayer().FF9SOUND_SONG_STOPCURRENT();   // same primitive as HonoluluFieldMain.cs:151
++                Memoria.Prime.Log.Message("[NetSync] diorama swirl (field): host silent -> battle renders silent, field BGM stopped");
++                return;
++            }
+         }
+         else
+         songid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo), FF9StateSystem.Field.FF9Field.loc.map.nextMapNo); // [ff9mapkit] fork falls back to the donor's field battle BGM (the BattlePatch override still fires first)
+@@ -114,9 +124,17 @@ public class BattleSwirl : MonoBehaviour
+         Int32 songid;
+         if (Memoria.Netsync.NetSyncDiorama.TryGetWireBattleSong(out songid))
+         {
+-            // [ff9mapkit netsync] B3.6: the wire wins (see the field branch)
++            // [ff9mapkit netsync] B3.6: the wire wins (see the field branch). s54: 0xFFFE = host
++            // audibly silent -> render TRUE silence (diorama-only, same construction as the field
++            // branch). The old `0xFFFE -> -1` fold took the `songid == -1` early return below and
++            // left the guest's own WORLD music playing through the diorama battle.
+             if (songid == 0xFFFE)
+-                songid = -1;
++            {
++                FF9StateSystem.Battle.IsPlayFieldBGMInCurrentBattle = false;
++                SoundLib.GetAllSoundDispatchPlayer().FF9SOUND_SONG_STOPCURRENT();   // same primitive as HonoluluFieldMain.cs:151
++                Memoria.Prime.Log.Message("[NetSync] diorama swirl (world): host silent -> battle renders silent, world BGM stopped");
++                return;
++            }
+         }
+         else
+         songid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForWorldMap, FF9StateSystem.Common.FF9.wldMapNo, FF9StateSystem.World.FF9World.map.nextMapNo);
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index cddaaa9..4158007 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -1189,12 +1189,15 @@ namespace Memoria.Netsync
+         // bench FAILS. PASS = the enemies stand rotated 180 degrees (the pre-emptive layout).
+         // (The hand-built payload mirrors SampleOwnBattle's layout; the parser is the shared oracle --
+         // encoder drift shows up as a garbled spectate panel in any selftest battle.)
+-        internal static Boolean WireBenchBoot(Int32 mapNo, Int32 patNum, out String detail)
++        internal static Boolean WireBenchBoot(Int32 mapNo, Int32 patNum, out String detail, Boolean silent = false)
+         {
+             const Byte BenchNonce = 77;
+-            const UInt16 BenchSong = 156;   // v10 marker: DISTINCTIVE on purpose (the ending theme --
+-                                            // unmistakably not the local battle BGM, so a dropped
+-                                            // songId carry is audible AND visible in the detail line)
++            // v10 marker: 156 (the ending theme) is DISTINCTIVE on purpose -- unmistakably not the
++            // local battle BGM, so a dropped songId carry is audible AND visible in the detail line.
++            // s54: the silent bench ships 0xFFFE (the host-audibly-silent sentinel) instead, to
++            // exercise the BattleSwirl STOPCURRENT branch + the Boot pre-swirl stop lane SOLO. The
++            // default (silent=false) keeps the 156 bench byte-for-byte unchanged.
++            UInt16 BenchSong = silent ? (UInt16)0xFFFE : (UInt16)156;
+             detail = "build failed";
+             try
+             {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 7a0187e..0e0d85f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -304,14 +304,31 @@ namespace Memoria.Netsync
+                     // B3.6 -- boot THROUGH the swirl (encounter swish + the wire song via BattleSwirl).
+                     // First, the field-side pre-swirl audio seam (HonoluluFieldMain's nextMode==2 block,
+                     // which SceneDirector.Replace never runs for us) -- wire song KNOWN only: on 0xFFFE
+-                    // the host is audibly silent, so the guest suspends too; on unknown skip everything
+-                    // (pure B3.1 behavior, fail-safe -- the swirl then computes locally).
++                    // the host is audibly silent, so the guest STOPS its field BGM (s54 -- not suspend;
++                    // see below); on a real song id it SUSPENDS; on unknown skip everything (pure B3.1
++                    // behavior, fail-safe -- the swirl then computes locally).
+                     if (_wireSongId >= 0)
+                     {
+                         try
+                         {
+                             Int32 cur = FF9Snd.GetCurrentMusicId();
+-                            if (cur != -1 && _wireSongId != cur)      // -1 guard: suspend(-1) is garbage
++                            if (_wireSongId == 0xFFFE)
++                            {
++                                // s54: host audibly silent -> STOP the field BGM, never SUSPEND it.
++                                // A suspend leaves a suspend-slot entry that the guest's OWN field
++                                // reload (HonoluluFieldMain.cs:146-151 -> FF9SOUND_SONG_LOAD) restores
++                                // and re-plays OVER this never-stopped instance across boot->leave->
++                                // re-boot, stacking two copies. A stop clears currentMusicID with no
++                                // slot to duplicate, so every (re-)boot starts from true silence. The
++                                // real-song lane below keeps SUSPEND: it is two-machine proven, and its
++                                // field-reload restore is the intended resume.
++                                if (cur != -1)
++                                {
++                                    SoundLib.GetAllSoundDispatchPlayer().FF9SOUND_SONG_STOPCURRENT();
++                                    Log.Message("[NetSync] diorama pre-swirl: host silent -> field BGM STOPPED (no suspend to re-stack)");
++                                }
++                            }
++                            else if (cur != -1 && _wireSongId != cur)      // -1 guard: suspend(-1) is garbage
+                                 FF9Snd.ff9fldsnd_song_suspend(cur);
+                             // SuspendResidentSounds, inlined verbatim (HonoluluFieldMain.cs:337-349)
+                             AllSoundDispatchPlayer soundDispatchPlayer = SoundLib.GetAllSoundDispatchPlayer();

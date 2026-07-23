@@ -1,0 +1,356 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 4a83e33..e82f54a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -103,6 +103,16 @@ namespace Memoria.Netsync
+         // same suite passed on 07-15 and failed on 07-16 with zero code change: the laptop crossed the
+         // boundary in between. Every tick baseline below initializes from Environment.TickCount.
+         private Int32 _ghostLightTick = Environment.TickCount - 1000;   // last lighting re-apply (the engine re-tints per frame)
++        // s56 GHOST BLIP-GRACE: the last frame the ghost was PAIRED on my screen. A relay transport
++        // blip drops IsConnected for the ~2.5-3s reconnect cycle and ClearRemote zeroes the peer the
++        // same frame -- pre-s56 the ghost vanished and popped back. When the drop is a TRANSPORT drop
++        // (link DOWN), hold the ghost planted at its last pose for GhostGraceMs so it rides out the
++        // reconnect; a peer who DELIBERATELY left this screen sends field 0 / another field as DATA
++        // with the link UP, so those paths still despawn instantly. This smooths ONLY the rendered
++        // ghost -- the session-end verdict runs off its own separate 3s exit-ramp debounce, untouched.
++        // Tick-baseline law: pre-expired so a never-paired start never holds a (nonexistent) ghost.
++        private Int32 _ghostLastPairedTick = Environment.TickCount - 100000;
++        private const Int32 GhostGraceMs = 5000;
+ 
+         // On-screen status overlay -- the user-facing half of session setup: shows the session code +
+         // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
+@@ -227,6 +237,25 @@ namespace Memoria.Netsync
+         private Int32 _dioramaSkipNonce = -1;            // the user manually left THIS battle's diorama -- don't re-boot it
+         private Boolean _dioramaWatcherLeft;             // B3.6: OUR OWN staleness-leave/fence-disarm is in flight --
+                                                          // the opt-out stamp must not misread it as a user opt-out
++        // s56 DIORAMA BLIP-TOLERANCE (resync-not-reboot). A transport blip flickers the battle lane
++        // stale mid-fight; pre-s56 the watcher LEFT (its 2s PeerBattleLive horizon is shorter than the
++        // ~2.5-3s reconnect) and the teardown cleared the nonce WITHOUT a skip stamp, so the SAME
++        // still-live nonce re-booted on reconnect = "battles start twice". Two levers:
++        //  (a) _dioramaStaleSince -- while the lane is stale AND the transport is DOWN, HOLD the booted
++        //      diorama frozen (no Leave, no per-frame churn) until the blip clears or drags past
++        //      DioramaBlipHoldMs. A genuinely-over battle leaves the lane stale with the transport UP
++        //      (the 30 Hz position keepalive) and leaves at once. Watcher-SCOPED: PeerBattleLive's 2s
++        //      horizon is unchanged for its other consumers (spectate panel, TryGetPeerUnits reconcile).
++        //  (b) _dioramaWatcherLeftFinal -- when the watcher DOES leave for real (genuine-over / hard-cap
++        //      / a NEW battle's nonce), stamp _dioramaSkipNonce on teardown so the same fight cannot
++        //      re-boot; a genuinely NEW fight bumps the nonce and boots normally. NOT set by the fence-1
++        //      dropped-Replace mop-up, which wants the watcher to RETRY (that path stays skip-less).
++        // Sentinel law (as _exitRampSafeSince): 0 = not currently holding; delta read only when != 0.
++        private Int32 _dioramaStaleSince;
++        private Boolean _dioramaBlipHoldLogged;          // one "held through a blip" line per blip, never per frame
++        private Boolean _dioramaBlipHoldGaveUpLogged;    // one "gave up after the cap" line per blip, never per frame
++        private Boolean _dioramaWatcherLeftFinal;        // s56: the pending teardown is a REAL leave -> stamp skip
++        private const Int32 DioramaBlipHoldMs = 8000;    // max hold while the transport is down before giving up to the spectate panel
+         private Int32 _dioramaSeenNonce = -1;            // rising-edge diagnostic: one log line per peer battle
+         private Int32 _dioramaActionTick = Environment.TickCount - 10000;   // tick-baseline law: NEVER a bare 0 --
+                                                          // `now - 0 < 1000` is ALWAYS TRUE on a >24.86-day-uptime
+@@ -922,6 +951,7 @@ namespace Memoria.Netsync
+                 FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
++                    _ghostLastPairedTick = Environment.TickCount;   // s56: ghost blip-grace baseline (last paired frame)
+                     SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
+                     WriteCoopCells(1, rs.Pos);             // the peer's TRUE position feeds the [[coop]] gates
+                     // Visitor mode may DRESS the peer's ghost as one of MY party members (the one they
+@@ -944,6 +974,24 @@ namespace Memoria.Netsync
+                     }
+                     AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
+                 }
++                else if (onField && _ghost != null && _socket != null && !_socket.IsConnected &&
++                         Environment.TickCount - _ghostLastPairedTick < GhostGraceMs)
++                {
++                    // s56 GHOST BLIP-GRACE: a TRANSPORT drop (link DOWN) just zeroed the peer via
++                    // ClearRemote. We were paired on this screen within the grace window and I'm still
++                    // standing on the field -- HOLD the ghost planted at its last pose (its clip keeps
++                    // looping) so it rides out the ~2.5-3s reconnect instead of vanishing this frame and
++                    // popping back. A deliberate leave (field-0 sentinel / another field) keeps the link
++                    // UP and never reaches here -> it still despawns instantly below. Presence is set 0
++                    // (the peer's live position is unknown mid-blip; a [[coop]] plate must not stay held
++                    // on stale data), and the overlay stays OFF (the held ghost is the status -- no
++                    // "connecting" flicker every blip). The session-end ramp is untouched (its own 3s
++                    // debounce, above).
++                    SetOverlay(OvlOff);
++                    WriteCoopCells(0, Vector3.zero);
++                    if (ee != null)
++                        ServiceGhostLighting(ee);          // keep the tint honest if I walk a light zone while it holds
++                }
+                 else
+                 {
+                     DespawnGhost();
+@@ -1060,6 +1108,9 @@ namespace Memoria.Netsync
+             catch { }
+             if (!NetSyncDiorama.Booted && _dioramaWireNonce >= 0)
+             {
++                _dioramaStaleSince = 0;              // s56: any teardown ends the blip-hold clock
++                _dioramaBlipHoldLogged = false;
++                _dioramaBlipHoldGaveUpLogged = false;
+                 // The diorama ended while its battle may still be live. If WE requested the leave the
+                 // lane is stale or the nonce moved on -- but if the lane is still fresh with the SAME
+                 // nonce, the USER left it deliberately (F6 -> Leave): remember the nonce so the watcher
+@@ -1067,11 +1118,22 @@ namespace Memoria.Netsync
+                 // (a new nonce) boots normally.
+                 if (_dioramaWatcherLeft)
+                 {
+-                    // B3.6 companion fix: OUR OWN staleness-leave landed here. Teardown lags the leave
+-                    // request by a fade, and if the lane recovered inside that window the old code
+-                    // misread the watcher's leave as a user opt-out -- with the skip no longer dying
+-                    // on staleness (below), that misread would have silenced the WHOLE fight.
++                    // B3.6 companion fix: OUR OWN leave/mop-up landed here. Teardown lags the leave
++                    // request by a fade. TWO sub-cases (s56):
++                    //  - a REAL watcher-leave (_dioramaWatcherLeftFinal: genuine-over / hard-cap /
++                    //    new-nonce) STAMPS the skip so the SAME fight can't re-boot on a mid-blip
++                    //    reconnect (the "battles start twice" bug). A genuinely NEW fight bumps the
++                    //    nonce and boots normally -- skip is spent below when nonce != skip.
++                    //  - a fence-1 dropped-BOOT mop-up (NOT final) leaves the skip alone so the watcher
++                    //    RETRIES the boot (that Replace never rendered; there was no fight to skip).
+                     _dioramaWatcherLeft = false;
++                    if (_dioramaWatcherLeftFinal)
++                    {
++                        _dioramaWatcherLeftFinal = false;
++                        _dioramaSkipNonce = _dioramaWireNonce;
++                        Log.Message("[NetSync] diorama watcher-leave settled (nonce " + _dioramaSkipNonce
++                                    + ") -- the same fight won't re-boot on reconnect");
++                    }
+                     _dioramaWireNonce = -1;
+                 }
+                 else
+@@ -1124,7 +1186,50 @@ namespace Memoria.Netsync
+             {
+                 if (_dioramaWireNonce < 0)
+                     return;                              // an F6 manual diorama -- not ours to end
+-                if ((!live || nonce != _dioramaWireNonce) &&
++                // s56 BLIP-TOLERANCE: decide whether the lane going stale is a genuine end or a blip.
++                //  - live + SAME nonce   -> keep reconciling (clear the hold clock).
++                //  - live + a NEW nonce  -> a genuinely new battle: leave, come home, boot it next pass.
++                //  - stale + link UP     -> the host's battle really ended (it stopped type-1 frames but
++                //                           its 30 Hz position keepalive holds the link): leave.
++                //  - stale + link DOWN   -> a transport blip: HOLD the diorama frozen (no Leave, no
++                //                           churn) until the link resumes or the hold passes the hard
++                //                           cap; the SAME fight then resumes with the reconnected frames
++                //                           instead of tearing down and re-booting ("battles twice").
++                Boolean transportUp = _socket != null && _socket.IsConnected;
++                Boolean shouldLeave;
++                if (live)
++                {
++                    shouldLeave = nonce != _dioramaWireNonce;
++                    _dioramaStaleSince = 0;
++                    _dioramaBlipHoldLogged = false;
++                    _dioramaBlipHoldGaveUpLogged = false;
++                }
++                else if (transportUp)
++                {
++                    shouldLeave = true;                  // stale + link UP -> the fight is over
++                    _dioramaStaleSince = 0;
++                }
++                else
++                {
++                    if (_dioramaStaleSince == 0)         // stale + link DOWN -> start the blip-hold (sentinel law)
++                    {
++                        _dioramaStaleSince = Environment.TickCount;
++                        if (!_dioramaBlipHoldLogged)
++                        {
++                            _dioramaBlipHoldLogged = true;
++                            Log.Message("[NetSync] diorama: mid-battle link blip -- holding the scene frozen (up to "
++                                        + (DioramaBlipHoldMs / 1000) + "s) rather than leaving");
++                        }
++                    }
++                    shouldLeave = Environment.TickCount - _dioramaStaleSince > DioramaBlipHoldMs;
++                    if (shouldLeave && !_dioramaBlipHoldGaveUpLogged)
++                    {
++                        _dioramaBlipHoldGaveUpLogged = true;
++                        Log.Message("[NetSync] diorama: link still down after " + (DioramaBlipHoldMs / 1000)
++                                    + "s -- leaving to the spectate panel");
++                    }
++                }
++                if (shouldLeave &&
+                     Environment.TickCount - _dioramaActionTick > 1000)
+                 {
+                     // B3.6 FENCE 3 -- never auto-Leave mid-swirl: BattleSwirl's ReplacePending
+@@ -1151,6 +1256,9 @@ namespace Memoria.Netsync
+                     {
+                         _dioramaActionTick = Environment.TickCount;
+                         _dioramaWatcherLeft = true;      // B3.6: OUR leave -- not a user opt-out (companion fix)
++                        _dioramaWatcherLeftFinal = true; // s56: a REAL leave (genuine-over / hard-cap / new
++                                                         //      nonce) -> teardown stamps skip so the same
++                                                         //      fight can't re-boot on a mid-blip reconnect
+                         NetSyncDiorama.Leave();          // request-only; teardown happens on arrival
+                     }
+                 }
+@@ -1215,6 +1323,10 @@ namespace Memoria.Netsync
+             {
+                 _dioramaWireNonce = nonce;
+                 _dioramaWatcherLeft = false;             // B3.6: a fresh boot clears any stale leave flag
++                _dioramaWatcherLeftFinal = false;        // s56: ...and the skip-on-teardown intent with it
++                _dioramaStaleSince = 0;                  // s56: a fresh boot starts with a clean hold clock
++                _dioramaBlipHoldLogged = false;
++                _dioramaBlipHoldGaveUpLogged = false;
+                 // B3.5 (F3): the action lane needs the booted nonce INSIDE NetSyncDiorama to key each
+                 // frame against (Boot resets it to -1, so a manual F6 diorama drops all action frames).
+                 NetSyncDiorama.BootedWireNonce = nonce;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
+index 45c8a23..c528639 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
+@@ -46,6 +46,11 @@ namespace Memoria.Netsync
+         private readonly System.Object _writeLock = new System.Object();   // serialize ALL frame writes (writer + pong)
+         private readonly NetSyncFrames _frames = new NetSyncFrames();
+         private UInt32 _maskCtr;
++        // s56 break-reason instrumentation: ReadLoop/ReadFull stash WHY a connection ended (caught
++        // exception / orderly EOF / WS close frame w/ code+reason), and ConnectLoop logs it ONCE at
++        // the "disconnected; retrying" line -- never per read-iteration. Set on the socket thread,
++        // read on the same thread right after the read loop returns (no cross-thread hazard).
++        private String _breakReason;
+ 
+         // relayUrl = scheme://host[:port] ; role = "host" | "guest" ; insecureTls accepts any wss cert.
+         public NetSyncRelay(String relayUrl, String sessionCode, String role, Boolean insecureTls)
+@@ -161,9 +166,11 @@ namespace Memoria.Netsync
+                     Handshake(stream);
+                     _stream = stream;
+                     _connected = true;
++                    _breakReason = null;   // s56: fresh connection -- forget any prior drop's reason
+                     Log.Message("[NetSync] relay connected " + (_secure ? "wss" : "ws") + "://" + _host + ":" + _port + _path);
+                     RunConnection(stream);
+-                    Log.Message("[NetSync] relay disconnected; retrying");
++                    Log.Message("[NetSync] relay disconnected; retrying"
++                                + (_breakReason != null ? " (" + _breakReason + ")" : " (link closed)"));
+                 }
+                 catch (Exception err)
+                 {
+@@ -303,13 +310,28 @@ namespace Memoria.Netsync
+                 }
+                 Byte[] mask = null;
+                 if (masked) { mask = new Byte[4]; if (!ReadFull(stream, mask, 4)) break; }
+-                if (len < 0 || len > 1 << 20) break;    // sanity cap (our payloads are tiny)
++                if (len < 0 || len > 1 << 20) { _breakReason = "protocol error (frame len " + len + " out of range)"; break; }    // sanity cap (our payloads are tiny)
+                 Byte[] payload = new Byte[(Int32)len];
+                 if (len > 0 && !ReadFull(stream, payload, (Int32)len)) break;
+                 if (masked && mask != null)
+                     for (Int32 i = 0; i < payload.Length; i++) payload[i] ^= mask[i & 3];
+ 
+-                if (opcode == 0x8) break;               // close
++                if (opcode == 0x8)                      // close -- log the code + reason if the relay sent one
++                {
++                    String cr = "no payload";
++                    try
++                    {
++                        if (payload != null && payload.Length >= 2)
++                        {
++                            Int32 closeCode = (payload[0] << 8) | payload[1];
++                            String reason = payload.Length > 2 ? Encoding.UTF8.GetString(payload, 2, payload.Length - 2) : "";
++                            cr = "code " + closeCode + (reason.Length > 0 ? " \"" + reason + "\"" : "");
++                        }
++                    }
++                    catch { }
++                    _breakReason = "WS close frame from the relay (" + cr + ")";
++                    break;
++                }
+                 if (opcode == 0x9) { WritePong(stream, payload); continue; }   // ping -> pong
+                 if (opcode == 0xA) continue;            // pong
+                 if ((opcode == 0x2 || opcode == 0x1) && fin && payload.Length >= NetSyncWire.HeaderSize)
+@@ -349,15 +371,17 @@ namespace Memoria.Netsync
+             try { lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); } } catch { }
+         }
+ 
+-        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
++        // s56: instance (was static) so it can stash the break reason for ConnectLoop's one-line log.
++        // Only ReadLoop calls it; the reason is set on the same socket thread that reads it.
++        private Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
+         {
+             Int32 off = 0;
+             while (off < count)
+             {
+                 Int32 n;
+                 try { n = stream.Read(buf, off, count - off); }
+-                catch { return false; }
+-                if (n <= 0) return false;
++                catch (Exception ex) { _breakReason = "read threw (" + ex.GetType().Name + ": " + ex.Message + ")"; return false; }
++                if (n <= 0) { _breakReason = "orderly EOF (relay closed the stream)"; return false; }
+                 off += n;
+             }
+             return true;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index 632ee1f..f95f2d4 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -399,6 +399,10 @@ namespace Memoria.Netsync
+         public Boolean IsConnected { get { return _connected; } }
+ 
+         private readonly NetSyncFrames _frames = new NetSyncFrames();
++        // s56 break-reason instrumentation: ReadLoop/ReadFull stash WHY the link dropped (caught
++        // exception / orderly EOF / wire-version mismatch); Host/ClientLoop log it ONCE at the
++        // "disconnected"/"lost host" line -- never per read-iteration. Same-thread set/read.
++        private String _breakReason;
+ 
+         public NetSyncSocket(Boolean isHost, String peerAddress, Int32 port)
+         {
+@@ -482,7 +486,8 @@ namespace Memoria.Netsync
+                     Socket s = listener.AcceptSocket();   // blocks until a client connects
+                     Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
+                     HandleConnection(s);
+-                    Log.Message("[NetSync] peer disconnected; awaiting reconnect");
++                    Log.Message("[NetSync] peer disconnected; awaiting reconnect"
++                                + (_breakReason != null ? " (" + _breakReason + ")" : " (link closed)"));
+                 }
+             }
+             catch (Exception err) { Log.Error(err, "[NetSync] host loop failed"); }
+@@ -499,7 +504,8 @@ namespace Memoria.Netsync
+                     s.Connect(_peerAddress, _port);
+                     Log.Message("[NetSync] connected to host " + _peerAddress + ":" + _port);
+                     HandleConnection(s);
+-                    Log.Message("[NetSync] lost host; retrying");
++                    Log.Message("[NetSync] lost host; retrying"
++                                + (_breakReason != null ? " (" + _breakReason + ")" : " (link closed)"));
+                 }
+                 catch (Exception err)
+                 {
+@@ -515,6 +521,7 @@ namespace Memoria.Netsync
+             s.NoDelay = true;
+             _conn = s;
+             _connected = true;
++            _breakReason = null;   // s56: fresh connection -- forget any prior drop's reason
+             Thread writer = new Thread(() => WriteLoop(s)) { IsBackground = true, Name = "NetSync-write" };
+             writer.Start();
+             try
+@@ -545,6 +552,7 @@ namespace Memoria.Netsync
+                         // Foreign bytes or an OLD-VERSION peer (v2 sent raw 38-byte packets) -- drop the
+                         // link; mixed engine versions deliberately don't sync (update both machines).
+                         Log.Message("[NetSync] peer speaks a different wire version -- disconnecting");
++                        _breakReason = "wire-version mismatch (update both machines' engine)";
+                         break;
+                     }
+                     Byte[] payload = new Byte[len];
+@@ -575,15 +583,17 @@ namespace Memoria.Netsync
+             catch { /* disconnect -> ReadLoop's finally cleans up */ }
+         }
+ 
+-        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
++        // s56: instance (was static) so it can stash the break reason for the Host/ClientLoop log.
++        // Only ReadLoop calls it; the reason is set on the same socket thread that reads it.
++        private Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
+         {
+             Int32 off = 0;
+             while (off < count)
+             {
+                 Int32 n;
+                 try { n = stream.Read(buf, off, count - off); }
+-                catch { return false; }
+-                if (n <= 0) return false;   // graceful close
++                catch (Exception ex) { _breakReason = "read threw (" + ex.GetType().Name + ": " + ex.Message + ")"; return false; }
++                if (n <= 0) { _breakReason = "orderly EOF (peer closed the stream)"; return false; }   // graceful close
+                 off += n;
+             }
+             return true;
+diff --git a/Memoria.Prime/Log.cs b/Memoria.Prime/Log.cs
+index cef272f..36fcb4d 100644
+--- a/Memoria.Prime/Log.cs
++++ b/Memoria.Prime/Log.cs
+@@ -122,7 +122,7 @@ namespace Memoria.Prime
+ 
+         private void WritePrefix(DateTime time, Char type, Int32 offset)
+         {
+-            _sw.Write(time.ToString("dd.MM.yyyy hh:mm:ss "));
++            _sw.Write(time.ToString("dd.MM.yyyy HH:mm:ss "));   // HH = 24-hour; 'hh' logged PM as its 12-hour hour (no AM/PM), so every afternoon line read 12h off
+             _sw.Write('|');
+             _sw.Write(type);
+             _sw.Write("| ");

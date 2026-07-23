@@ -183,6 +183,6 @@ playtesting — so the kit is built to be **provably correct offline**:
 - every codec round-trips real game assets byte-for-byte;
 - compiling the worked examples reproduces in-game-verified outputs exactly (golden masters);
 - camera/projection math is regression-tested against six real cameras and the engine's own formulas;
-- a ~2,850-test offline suite (the kit plus the Blender add-on);
+- a ~4,400-test offline suite (the kit plus the Blender add-on);
 - the few engine facts that *can't* be derived offline were each pinned with a temporary in-engine
   probe, then removed.

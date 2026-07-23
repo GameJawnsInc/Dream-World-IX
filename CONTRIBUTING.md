@@ -50,7 +50,7 @@ The full setup (game-path resolution, the extras, the dev loop) is in **[SETUP.m
 | `ff9mapkit/blender/` | The Blender add-on (package `ff9mapkit_blender`, with its own tests). |
 | `apps/` | The desktop **Workspace** GUI (PySide6). |
 | `tools/` | The build/deploy dev-loop scripts. |
-| `memoria-patches/` | The engine patch suite (the in-game debug menu (~) `s22` + the fork-donor remap patches `s23`–`s34`). |
+| `memoria-patches/` | The engine patch suite (the in-game debug menu (~) `s22`, the fork-donor remap patches `s23`–`s33`, the `s34` overworld-mesh override, the `s35` overlay cache, and the `s36`–`s41` co-op netsync patches). |
 | `ff9mapkit/docs/` | The documentation set. |
 
 ## Provenance rule
