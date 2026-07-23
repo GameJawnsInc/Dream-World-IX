@@ -65,8 +65,10 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | NPCs (archetypes by name, any GEO model + animations) and `[[prop]]` set-dressing | ✓ | [FORMAT](FORMAT.md), [ARCHETYPES](ARCHETYPES.md) |
 | Custom dialogue (own `.mes`, speaker tags, auto-wrap); view/import real dialogue | ✓ | [DIALOGUE](DIALOGUE.md) |
 | Dialogue choices (`[[choice]]`) — NPC or zone triggered, item/gil/flag effects | ✓ | [FORMAT](FORMAT.md) |
-| Gateways (round-trip doors, walk-out direction), ladders, jumps | ✓ | [FORMAT](FORMAT.md) |
-| Save points (`[[savepoint]]` — save→reload into a custom field works) | ✓ | [SAVEPOINT](SAVEPOINT.md) |
+| Gateways (round-trip doors, walk-out direction), ladders, jumps (`[[jump]]`, from-scratch `to=` hops) | ✓ | [FORMAT](FORMAT.md) |
+| Moving platforms / elevators — carried on verbatim forks, or authored declaratively (`[[platform]]`) | ✓ | [FORMAT](FORMAT.md) |
+| Save points (`[[savepoint]]`) — the real moogle menu (Save / Tent / Mognet / Mog Shop / Switch party); save→reload works | ✓ | [SAVEPOINT](SAVEPOINT.md) |
+| Mognet: the save moogle joins FF9's real letter network as a new identity (`[savepoint.mognet]` — outbound, accepts, read-mail) | ✓ | [SAVEPOINT](SAVEPOINT.md) |
 | Random encounters (+ battle music, + after-battle reinit) | ✓ | [FORMAT](FORMAT.md) |
 | Events: chests / gil / messages / story flags (one-shot or repeatable) | ✓ | [FORMAT](FORMAT.md) |
 | Story branching: flag-gated NPCs / gateways / events; save-persistent flags | ✓ | [FORMAT](FORMAT.md) |
@@ -103,6 +105,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Opening-camera tweaks + authored multi-segment opening sweeps (`[[scene.camera_keyframes]]`) | ✓ | [FORMAT](FORMAT.md) |
 | Attack choreography disassemble/edit (`battle-seq`, `btlseq.raw17`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Enemy AI disassembly (`battle-ai`), scene inspection (`battle-scene`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Battle locations (`encounters`) — what fights happen in a real place, where a monster appears | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Player-side tuning: base stats, leveling, gems, ability effects (`ability-features`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Mint a brand-new battle **formula** (`script = {template/body}` → `Memoria.Scripts.<Mod>.dll`) — drain / %-max-HP / custom C#, no engine rebuild | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Pair a **field effect** (`script.field`) so a scripted ability heals/cures out of combat too — same DLL, same scriptId | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
@@ -150,8 +153,9 @@ and marker commands are stock-engine.
 Two-player co-op ("ghost sync"): each player sees the other walk a shared field in real time, and
 the host can grant the guest party slots to command in battle plus a "visitor mode" that dresses the
 ghost as a real party member and follows the host between screens. Requires the Dream World IX
-custom engine's `s36`/`s37` netsync patches ([ENGINE.md](ENGINE.md)), which are not yet in the
-pre-built engine bundle. Every save stays each player's own.
+custom engine's `s36`–`s41` netsync patches ([ENGINE.md](ENGINE.md)), shipped in the pre-built
+engine bundle. Every save stays each player's own. The wire protocol still changes from release to
+release — both machines must run the same bundle version.
 
 | Capability | | Docs |
 |---|---|---|
@@ -159,7 +163,8 @@ pre-built engine bundle. Every save stays each player's own.
 | Internet play through a public rendezvous relay (random private session codes), or direct LAN (`coop host --lan`) | ✓ | `coop -h` |
 | Battle co-op — guest spectates, or commands granted party slots with the full menu set (`--guest-slots`, `--guest-wait`) | ✓ | `coop -h` |
 | Visitor mode — the ghost dresses as a party member, follow-host auto-warp + encounter pause (`--ghost-as`, `--follow-host`) | ✓ | `coop -h` |
-| The battle diorama — a following guest's screen boots the host's battles live, render-only (`--diorama`; s40 engine) | ✓ | `coop -h` |
+| The battle diorama — a following guest's screen boots the host's battles live, render-only (s40/s41 engine) | ✓ | `coop -h` |
+| Co-op field vocabulary (`[[coop]]`) — two-plate gates, zone gathers, held-plate doors, fail-safe vanilla | ✓ | [FORMAT](FORMAT.md) |
 | Print the current co-op config in human terms (`coop show`); hot-reload — a running game applies changes in seconds | ✓ | `coop -h` |
 | The Workspace **Co-op** tab: point-and-click host/join + the Play-style panel for all of the above | ✓ | Workspace → Co-op |
 
@@ -182,8 +187,8 @@ pre-built engine bundle. Every save stays each player's own.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | 105 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
-| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Models / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art + 3D-model thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
+| **CLI** | 115 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
+| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Models / Build & Deploy / Import / Co-op / World tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art + 3D-model thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
 | **Blender add-on** | Camera posing, walkmesh modeling, markers, field import, battle-map + model round-trips | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Field logic in forms — stdlib Tkinter, no PySide6 needed | [README](../README.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), the logic file owns *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
@@ -193,7 +198,7 @@ pre-built engine bundle. Every save stays each player's own.
 - **Byte-exact codecs** — `.eb` script, `.bgi` walkmesh, `.bgx`/`.bgs` scene, `.mes` text all
   round-trip real game data byte-for-byte; building the worked examples reproduces
   in-game-verified assets exactly.
-- **Offline golden-master suite** — ~2,850 kit tests + the Blender add-on suite; correctness is
+- **Offline golden-master suite** — ~4,400 kit tests + the Blender add-on suite; correctness is
   provable without launching the game.
 - **Grounded in source** — opcode tables and camera/projection math are baked from the Memoria
   engine source; the `.eb` and scene formats were reverse-engineered and byte-verified.

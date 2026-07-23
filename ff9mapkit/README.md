@@ -10,7 +10,8 @@ encounters, music, and (verbatim mode) the real script and dialogue · NPCs, dia
 gateways, events, story branching, cutscenes, shops, save points from one `field.toml` · custom
 **3D battle backgrounds** + battle tuning · multi-field **campaigns** and **journeys** ·
 custom **3D character models** (Blender round-trip) and **playable characters** · **overworld**
-terrain/coast/entrance authoring · custom **music/SFX** · save and story-state editing.
+island/terrain/coast/entrance authoring · custom **music/SFX** · experimental two-player
+**co-op** · save and story-state editing.
 
 Authoring surfaces: TOML by hand, the form editor (`ff9mapkit edit`), the
 [Blender add-on](blender/README.md), and the one-window
@@ -46,7 +47,7 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 
 ## Commands
 
-114 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
+115 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
 [`SETUP.md` §7](../SETUP.md#7-cli-command-reference). The families:
 
 - **Setup** — `setup` · `doctor` · `extract-templates`
@@ -54,20 +55,23 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 - **Build & ship** — `build` · `lint` · `pack` · `export-art` · `repaint-native`
 - **Fork real fields** — `import` (`--editable`/`--native`/`--verbatim`) · `import-all` ·
   `import-chain` · `fork-report` · `list-fields` / `find-field` / `find-rooms` ·
-  `logic-map` / `lint-eb`
+  `logic-map` / `lint-eb` · `chocobo-export`
 - **Campaigns & journeys** — `new-campaign` / `add-field` / `build-all` / `lint-campaign` ·
   `gen-hub` / `lint-journey` / `assemble-journey` / `reference-arcs` ·
   `deploy-campaign` / `deploy-journey` / `newgame`
 - **Battle** — `battle-import` / `battle-build` · `battle-list` / `battle-scene` / `battle-ai` /
-  `battle-seq` · `battle-patch` / `characters` / `ability-gems` / `ability-features`
-- **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-export` /
-  `playable-anims`
+  `battle-seq` · `battle-patch` / `battle-telemetry` / `characters` / `ability-gems` /
+  `ability-features`
+- **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-anim-new` /
+  `model-preview` / `model-reskin` / `model-deployed` / `model-export` / `playable-anims` ·
+  `image-field`
 - **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-transplant` /
   `world-water` / `world-island` / `world-forest` / `world-hill` / `world-mountain` /
   `world-entrance` / `world-encounters` and the rest of the `world-*` suite
+- **Multiplayer** — `coop` (host / join / show; experimental)
 - **Audio** — `audio-import` · `music-list` / `sfx-list`
 - **Catalogs & dialogue** — `catalog` / `models` / `animations` / `archetypes` / `items` /
-  `scenes` / `flags` / `sps` · `dialogue` / `dialogue-import`
+  `scenes` / `encounters` / `flags` / `sps` · `dialogue` / `dialogue-import`
 - **Saves** — `flags-inspect` / `flags-diff` / `save-edit` · `items-inspect` / `items-set-*`
 
 ## Docs
@@ -98,7 +102,7 @@ The package is organized by domain: `eb` (event-script codec + content injectors
 plus `battle/`, `world/`, `models/`, `content/`, deploy/journey orchestration, and the
 `editor/`+`workspace/` front-ends.
 
-Correctness is proven offline by a golden-master test suite (~2,850 tests): every codec
+Correctness is proven offline by a golden-master test suite (~4,400 tests): every codec
 round-trips real install assets byte-for-byte (regenerated locally via `extract-templates` — the
 repo ships none), and compiling the bundled examples reproduces in-game-verified output exactly.
 
