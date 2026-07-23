@@ -41,7 +41,7 @@ at rung 3's private folder ``ef084`` (``Unused_84`` -- never a real FF9 effect).
      vanilla Garnet/Eiko cast through it) is NEVER touched.
   4. Deploys ``ef084/FileList.txt`` (reused byte-identical from ``rung7-creature/FileList.txt`` -- same
      ``Model creature_manifest.sfxmodel`` line) and a GENERATED ``thomas_manifest.sfxmodel`` (built from
-     the ``KEYFRAMES_V7`` constant below by ``build_manifest_json()`` -- an IN-FRAME-BY-CONSTRUCTION
+     the ``KEYFRAMES_V8`` constant below by ``build_manifest_json()`` -- an IN-FRAME-BY-CONSTRUCTION
      flight solved against the real per-frame camera, see THE FLIGHT v7 below; the repo copy is kept in
      sync so it stays git-diffable) -> that same filename (OVERWRITING rung 7's own Iviv-clone manifest
      at that path -- ``--restore`` puts rung 7's back).
@@ -107,8 +107,10 @@ sys.path.insert(0, str(HERE))
 from ff9mapkit import config, fsutil          # noqa: E402
 from ff9mapkit.models import export as mexport  # noqa: E402
 from ff9mapkit.models import mint as mmint      # noqa: E402
-# THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION) bakes KEYFRAMES_V7 below as constants; the tool that DERIVED
-# them from the s50 probe log is flight_v7_solve.py (this dir, imports matrix_solve.py for the shared
+# THE FLIGHT v8 (HYBRID: real-ROOT entrance + constructed reign, 2026-07-23) bakes KEYFRAMES_V8 below as
+# constants; the tool that DERIVED them is flight_v8_solve.py (this dir; the entrance is the s52 ROOT
+# probe's MEASURED swoop-in, the reign reuses v7's NDC back-projection -- see the README's FLIGHT v8
+# section + PROBE.md sec 10). flight_v7_solve.py remains the reused machinery (imports matrix_solve.py for the shared
 # projection primitives). build-time needs no game log or either superseded v3/v4 module.
 
 RUNG7_DIR = REPO / "studies" / "custom-summons" / "rung7-creature"
@@ -282,75 +284,43 @@ THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 # next check -- this is a DESIGN verified against the real camera log's OWN geometry (matrix_solve.py's
 # projection math + flight_v7_solve.py's drift check), not a claim to have watched it play.
 
-# --- KEYFRAMES_V7: (frame, (world X, Y, Z), yaw_deg) -- flight_v7_solve.py's adaptive path, 62 keyframes,
-# --- frames 0..580. Labels kept in a parallel tuple (not in the hot data -- keeps this literal pasteable
-# --- verbatim from the solver's own printed table). ---
-KEYFRAMES_V7: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
-    (   0, (  3530,    202,    -844),  +240.42),  # entrance origin (off-frame edge, swooping in)
-    (   1, (  3434,    204,    -827),  +240.42),  # (auto -- drift insert)
-    (   2, (  3341,    207,    -810),  +240.42),  # (auto -- drift insert)
-    (   3, (  3250,    209,    -793),  +240.42),  # (auto -- drift insert)
-    (   4, (  3162,    211,    -777),  +240.42),  # (auto -- drift insert)
-    (   5, (  3075,    214,    -761),  +240.42),  # (auto -- drift insert)
-    (   7, (  2908,    218,    -730),  +240.42),  # (auto -- drift insert)
-    (  15, (  2308,    234,    -620),  +240.42),  # (auto -- drift insert)
-    (  30, (  1417,    258,    -456),  +240.42),  # swoop continues
-    (  55, (   404,    367,    -501),  +240.42),  # arriving
-    (  80, (    91,   1834,     -24),  +185.27),  # center-stage begin
-    ( 115, (   197,   1920,    -210),  +185.27),  # reign bob (up)
-    ( 123, (   145,   1881,    -122),  +185.27),  # (auto -- drift insert)
-    ( 127, (   124,   1861,     -85),  +185.27),  # (auto -- drift insert)
-    ( 128, (    63,    404,     464),   +90.00),  # (auto -- drift insert)
-    ( 129, (    54,    425,     469),   +90.00),  # (auto -- drift insert)
-    ( 132, (   140,    910,     449),   +92.64),  # (auto -- drift insert)
-    ( 150, (   311,   2203,     -74),  +103.54),  # reign bob (down)
-    ( 167, ( -2063,   1015,    3297),  +230.60),  # (auto -- drift insert)
-    ( 176, ( -2186,   1062,    3165),  +230.60),  # (auto -- drift insert)
-    ( 177, ( -2199,   1067,    3151),  +230.60),  # (auto -- drift insert)
-    ( 178, (   918,   8251,   19938),  +235.78),  # (auto -- drift insert)
-    ( 180, (   604,   8878,   20024),  +235.32),  # (auto -- drift insert)
-    ( 185, (  -547,  10875,   20310),  +233.70),  # charge windup
-    ( 200, ( -4091,  14683,   21222),  +228.83),  # (auto -- drift insert)
-    ( 203, ( -4757,  15061,   21400),  +227.91),  # (auto -- drift insert)
-    ( 205, (   444,  20870,   15128),  +231.68),  # (auto -- drift insert)
-    ( 207, (   515,  21144,   14996),  +234.03),  # (auto -- drift insert)
-    ( 215, (   531,  22253,   14796),  +241.77),  # charge peak
-    ( 232, (   828,  23991,   14748),  +249.85),  # (auto -- drift insert)
-    ( 241, (   304,  24023,   19083),  +106.87),  # (auto -- drift insert)
-    ( 250, ( -1221,  24842,   17606),   +81.74),  # lateral pass (left)
-    ( 290, (  1671,  23131,   15240),   +48.78),  # lateral pass (right)
-    ( 300, (  1813,  22939,   14891),   +47.74),  # (auto -- drift insert)
-    ( 301, (  1801,  22934,   14880),   +47.74),  # (auto -- drift insert)
-    ( 302, (   681,   6520,   -4816),   +90.59),  # (auto -- drift insert)
-    ( 305, (   631,   7126,   -5040),   +92.04),  # (auto -- drift insert)
-    ( 310, (   540,   8403,   -5456),   +95.26),  # (auto -- drift insert)
-    ( 330, (   -90,  12744,   -6483),  +107.98),  # return toward center
-    ( 365, (  1128,  12979,   -8439),  +241.80),  # (auto -- drift insert)
-    ( 382, (  1462,  13211,   -9025),  +241.84),  # (auto -- drift insert)
-    ( 383, (    61,  14565,   -6682),  +258.76),  # (auto -- drift insert)
-    ( 384, (    62,  14561,   -6678),  +258.76),  # (auto -- drift insert)
-    ( 386, (    63,  14554,   -6671),  +258.76),  # (auto -- drift insert)
-    ( 391, (    67,  14929,   -7401),  +258.76),  # (auto -- drift insert)
-    ( 400, (    75,  13944,   -7170),  +251.45),  # settle, approach fire column
-    ( 403, (   228,  13771,   -7177),  +227.35),  # (auto -- drift insert)
-    ( 407, (  1153,  10564,   -5145),  +181.53),  # (auto -- drift insert)
-    ( 415, (   342,   7623,   -1284),   +97.06),  # (auto -- drift insert)
-    ( 418, ( -2236,   7479,   -1844),  +128.14),  # (auto -- drift insert)
-    ( 422, ( -3303,   1677,   -2522),  +133.23),  # (auto -- drift insert)
-    ( 426, ( -3263,    998,   -2506),  +133.30),  # (auto -- drift insert)
-    ( 430, ( -3283,   1002,   -2527),  +133.18),  # fire column ignition -- BIG
-    ( 470, (  -889,   2229,   -6155),   +96.33),  # fire column continues -- stay BIG
-    ( 510, (     0,   2085,   -6106),   +90.00),  # aftermath -- still present
-    ( 511, (  -972,   1199,    -861),  +120.78),  # (auto -- drift insert)
-    ( 513, (  -949,   1175,    -836),  +120.58),  # (auto -- drift insert)
-    ( 517, (  -901,   1123,    -789),  +120.01),  # (auto -- drift insert)
-    ( 525, (  -804,   1022,    -688),  +118.90),  # (auto -- drift insert)
-    ( 540, (   413,   1566,    2618),   +95.64),  # aftermath settle
-    ( 560, (  -186,     17,   -1613),  +240.42),  # exit begin
-    ( 580, (  -532,   -442,   -3044),  +240.42),  # exit end
+# --- KEYFRAMES_V8: (frame, (world X, Y, Z), yaw_deg) -- flight_v8_solve.py's HYBRID path, 27 keyframes,
+# --- frames 0..580. Entrance (82-100) = Bahamut's MEASURED real ROOT (s52 probe, camera-validated
+# --- on-screen swoop-in, growing 18%->65% of frame); swoop-by + float/charge (130-300) = constructed via
+# --- v7's NDC back-projection to the user's 4-phase spec (in-frame, drift-verified); fire column (340-580)
+# --- = world-HOLD, the camera pans onto the fire column and carries Thomas out of frame. Derived verbatim
+# --- from flight_v8_solve.py's printed table (do not hand-edit -- re-run the solver). See PROBE.md sec 10. ---
+KEYFRAMES_V8: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
+    (   0, (    813,    2275,    -2898), +240.42),  # lead-in (off-frame top, flying down)
+    (  82, (  -1224,   -4096,        0), +185.27),  # real entrance (measured swoop-in)
+    (  85, (  -1112,   -2958,     -273), +185.27),  # real entrance (measured swoop-in)
+    (  88, (   -954,   -1840,     -472), +185.27),  # real entrance (measured swoop-in)
+    (  91, (   -794,    -766,     -582), +185.27),  # real entrance (measured swoop-in)
+    (  94, (   -665,     244,     -613), +185.27),  # real entrance (measured swoop-in)
+    (  97, (   -584,    1168,     -583), +185.27),  # real entrance (measured swoop-in)
+    ( 100, (   -547,    1990,     -506), +185.27),  # real entrance (measured swoop-in)
+    ( 130, (   1022,     326,      856),  +90.44),  # swoop-by (sweep across, right)
+    ( 145, (    538,    2221,      182), +101.63),  # (auto -- drift insert)
+    ( 152, (    187,    2463,       30), +104.58),  # (auto -- drift insert)
+    ( 160, (  -1117,    1023,     3559), +230.60),  # swoop-by (sweep across, left)
+    ( 175, (  -1652,    1016,     3286), +230.60),  # (auto -- drift insert)
+    ( 176, (  -1685,    1015,     3268), +230.60),  # (auto -- drift insert)
+    ( 177, (  -1718,    1015,     3250), +230.60),  # (auto -- drift insert)
+    ( 178, (   1381,    8165,    20000), +235.78),  # (auto -- drift insert)
+    ( 182, (    551,    9612,    20200), +234.68),  # (auto -- drift insert)
+    ( 190, (  -1517,   12382,    20631), +232.08),  # settle center -- float begins
+    ( 207, (    579,   21099,    14900), +234.03),  # (auto -- drift insert)
+    ( 225, (    279,   23397,    14830), +247.65),  # float + charge -- BIG
+    ( 245, (    478,   24291,    18275), +100.62),  # (auto -- drift insert)
+    ( 265, (    387,   23426,    14803),  +60.01),  # float + charge -- stay BIG
+    ( 300, (   1646,   22781,    13996),  +47.74),  # charge hold -- present, camera still on him
+    ( 340, (   1646,   22781,    13996),  -80.52),  # fire column (camera off him -- world hold, exits by camera pan)
+    ( 430, (   1646,   22781,    13996), -226.80),  # fire column (camera off him -- world hold, exits by camera pan)
+    ( 510, (   1646,   22781,    13996), -270.00),  # fire column (camera off him -- world hold, exits by camera pan)
+    ( 580, (   1646,   22781,    13996), -119.58),  # fire column (camera off him -- world hold, exits by camera pan)
 )
 
-THOMAS_END = KEYFRAMES_V7[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
+THOMAS_END = KEYFRAMES_V8[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -417,50 +387,50 @@ def _pt(xyz: "tuple[int, int, int]") -> dict:
     """Split an (X, Y, Z) absolute-world tuple into the 3 ``Destination*`` JSON keys as plain numeric
     NCalc constants (a bare literal like ``"-17860"`` parses via NCalc exactly as well as an expression
     -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design; these XYZ values
-    are ``KEYFRAMES_V7``'s own back-projected world positions, solved to hit an authored on-screen target
+    are ``KEYFRAMES_V8``'s own back-projected world positions, solved to hit an authored on-screen target
     under each frame's real camera -- see THE FLIGHT v7 comment block above)."""
     x, y, z = xyz
     return {"DestinationX": str(x), "DestinationY": str(y), "DestinationZ": str(z)}
 
 
 def build_manifest_json() -> dict:
-    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v7 (IN-FRAME BY CONSTRUCTION)
-    ``KEYFRAMES_V7`` constant above (schema verified against ``ParametricMovement.LoadFromJSON``,
+    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v8 (HYBRID: real entrance + constructed reign)
+    ``KEYFRAMES_V8`` constant above (schema verified against ``ParametricMovement.LoadFromJSON``,
     Memoria/Battle/SFX/ParametricMovement.cs:58-136 -- an array of pieces, ``Duration`` + per-axis
     ``Origin*``/``Destination*``/``InterpolationType*``; an absent ``Origin*`` on piece i>0 CHAINS from
     the prior piece's own ``Destination*``; an absent ``InterpolationType*`` defaults to ``Linear``,
     l.254).
 
-    Movement is one Linear piece per consecutive ``KEYFRAMES_V7`` transition (61 pieces for 62
+    Movement is one Linear piece per consecutive ``KEYFRAMES_V8`` transition (61 pieces for 62
     keyframes) -- deliberately ALL Linear, no Sinus/SinusIn/SinusOut anywhere: the drift verification in
     ``flight_v7_solve.py`` (every segment's real-camera projection stays within margin) was performed
     assuming Linear interpolation between consecutive keyframes, so using anything else here would let
     the DEPLOYED runtime path diverge from the path that was actually checked. Rotation mirrors the same
     piece/duration structure, holding ``DestinationY`` = each keyframe's own per-frame broadside yaw
     (``DestinationZ`` always ``"0"`` -- no roll, per the README axis-verification). Scaling is one
-    constant piece (``THOMAS_SCALE`` -- must match ``flight_v7_solve.THOMAS_SCALE``, both currently 265).
+    constant piece (``THOMAS_SCALE`` -- must match ``flight_v8_solve.THOMAS_SCALE``, both currently 265).
     All piece durations sum to ``THOMAS_END`` on every axis (asserted below)."""
     movement = [
         {   # first piece needs an explicit Origin -- every later piece chains from the prior Destination
-            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
-            "OriginX": str(KEYFRAMES_V7[0][1][0]), "OriginY": str(KEYFRAMES_V7[0][1][1]), "OriginZ": str(KEYFRAMES_V7[0][1][2]),
-            **_pt(KEYFRAMES_V7[1][1]),
+            "Duration": str(KEYFRAMES_V8[1][0] - KEYFRAMES_V8[0][0]),
+            "OriginX": str(KEYFRAMES_V8[0][1][0]), "OriginY": str(KEYFRAMES_V8[0][1][1]), "OriginZ": str(KEYFRAMES_V8[0][1][2]),
+            **_pt(KEYFRAMES_V8[1][1]),
         },
     ]
-    prev_frame = KEYFRAMES_V7[1][0]
-    for frame, xyz, _yaw in KEYFRAMES_V7[2:]:
+    prev_frame = KEYFRAMES_V8[1][0]
+    for frame, xyz, _yaw in KEYFRAMES_V8[2:]:
         movement.append({"Duration": str(frame - prev_frame), **_pt(xyz)})   # Linear default
         prev_frame = frame
 
     rotation = [
         {
-            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
-            "OriginY": f"{KEYFRAMES_V7[0][2]:.2f}", "DestinationY": f"{KEYFRAMES_V7[1][2]:.2f}",
+            "Duration": str(KEYFRAMES_V8[1][0] - KEYFRAMES_V8[0][0]),
+            "OriginY": f"{KEYFRAMES_V8[0][2]:.2f}", "DestinationY": f"{KEYFRAMES_V8[1][2]:.2f}",
             "OriginZ": "0", "DestinationZ": "0",
         },
     ]
-    prev_frame = KEYFRAMES_V7[1][0]
-    for frame, _xyz, yaw in KEYFRAMES_V7[2:]:
+    prev_frame = KEYFRAMES_V8[1][0]
+    for frame, _xyz, yaw in KEYFRAMES_V8[2:]:
         rotation.append({
             "Duration": str(frame - prev_frame),
             "DestinationY": f"{yaw:.2f}", "DestinationZ": "0",
@@ -470,7 +440,7 @@ def build_manifest_json() -> dict:
     # invariant: every axis's piece durations sum to THOMAS_END (the cast length)
     assert sum(int(p["Duration"]) for p in movement) == THOMAS_END, "movement durations != THOMAS_END"
     assert sum(int(p["Duration"]) for p in rotation) == THOMAS_END, "rotation durations != THOMAS_END"
-    assert len(movement) == len(KEYFRAMES_V7) - 1 == len(rotation), "piece count != KEYFRAMES_V7 transitions"
+    assert len(movement) == len(KEYFRAMES_V8) - 1 == len(rotation), "piece count != KEYFRAMES_V8 transitions"
     scaling = {
         "Duration": str(THOMAS_END),
         "OriginX": str(THOMAS_SCALE), "OriginY": str(THOMAS_SCALE), "OriginZ": str(THOMAS_SCALE),
@@ -739,14 +709,14 @@ def main() -> int:
         print(f"                  height%, solved to a real-camera depth and back-projected to world via that")
         print(f"                  frame's real VIEW+PROJ (flight_v7_solve.py); segments whose real-camera drift")
         print(f"                  would leave the frame are recursively bisected with extra keyframes until every")
-        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V7)} keyframes, {len(KEYFRAMES_V7)-1} Linear")
+        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V8)} keyframes, {len(KEYFRAMES_V8)-1} Linear")
         print(f"                  pieces (no easing -- keeps the deployed path == the verified path).")
         print(f"  yaw           : per-keyframe, derived from that frame's own camera forward vector (broadside")
         print(f"                  presentation to the ACTUAL camera at that moment, not a fixed world angle).")
         print()
-        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V7)} total,")
-        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V7)} incl. 18 authored beats + adaptive drift-inserts:")
-        for frame, xyz, yaw in KEYFRAMES_V7:
+        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V8)} total,")
+        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V8)} incl. 18 authored beats + adaptive drift-inserts:")
+        for frame, xyz, yaw in KEYFRAMES_V8:
             print(f"    f{frame:<4d} = {xyz}  yaw={yaw:+.1f}")
         print()
         m = result["mint"]

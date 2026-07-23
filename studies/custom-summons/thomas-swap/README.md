@@ -189,6 +189,45 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
+### THE FLIGHT v8 -- 2026-07-23, HYBRID: real entrance + constructed reign (CURRENT, supersedes v7)
+
+**What changed.** The s52 ROOT probe (PROBE.md §10) captured Bahamut's real per-frame world transform.
+`root_reproject.py` + a camera-aim diagnostic established that the creature is actively posed (live ROOT)
+for frames **82-301 (~43% of the cast** -- matching the user's own recollection of ~40% and a clean
+4-phase structure: fly-down, swoop-by, float+charge with the camera ON him, then the camera pans OFF to
+follow the fire column), then parks for the fire column. **But only the swoop-in (82-100) has a clean,
+camera-VALIDATED ROOT→screen mapping** (camera aimed straight at it, `fwd·dir ≈ +0.97`, projects
+on-screen). From ~108 on, the summon-model ROOT diverges hard from where the visible creature is drawn
+(at the charge it sits ~40,000 units below/behind the camera) -- the FINDINGS §4 puzzle (a different draw
+path, or a large draw-time world offset the probe can't see), so it is NOT a trustworthy placement source
+there.
+
+**The hybrid (`flight_v8_solve.py`, 27 keyframes, frames 0-580):**
+- **Entrance (82-100): the REAL ROOT world positions** -- Thomas traces Bahamut's actual descent, growing
+  naturally 18%→65% of frame as he approaches (measured, camera-validated). Trimmed at 100, not the full
+  107, because the real creature swoops so close by 107 that Thomas would fill 167% of frame (a wall of
+  train); a constructed lead-in brings him in from off-frame top ("flying down"). Push `ENTRANCE_REAL`
+  toward 107 for a deliberately overwhelming close pass.
+- **Swoop-by + float/charge (130-300): CONSTRUCTED** via v7's proven NDC back-projection to the user's
+  4-phase spec -- a visible lateral swoop-by, then a BIG (62-66% frame) center-stage float held through
+  the charge (the beat the user wants Thomas present for). Drift-verified in-frame (21/21 segments,
+  worst |ndc| 0.70).
+- **Fire column (340-580): world-HOLD** -- Thomas holds his phase-3 world position and the camera pans
+  away onto the fire column, carrying him out of frame naturally (faithful "the camera moves off him";
+  deliberately not drift-guaranteed -- he is meant to exit).
+
+Yaw is per-keyframe broadside to each frame's real camera (his side/"1" panel to the lens), unwrapped for
+continuity -- unchanged from v7. `THOMAS_SCALE=265` throughout (apparent size is controlled by the
+per-keyframe depth/height solve, and by the real depth in the measured entrance). **Caveat** (this
+project's video-for-visual-bugs law): this is a DESIGN verified against the real camera log's geometry
+plus the user's own description of the cinematic -- a fresh capture of an actual cast is the real next
+check. Re-derive/retune: edit `flight_v8_solve.py`'s `ENTRANCE_REAL`/`BEATS_AFTER`/`PHASE4_FRAMES`, run
+`py flight_v8_solve.py`, and re-bake into `build_thomas.py` (the constant is generated, not hand-typed).
+Deployed 2026-07-23.
+
+<details>
+<summary>THE FLIGHT v7 -- 2026-07-22, IN-FRAME BY CONSTRUCTION (superseded 2026-07-23 by v8 -- pure construction, no real data; its NDC back-projection + drift machinery is REUSED by v8; kept for the record)</summary>
+
 ### THE FLIGHT v7 -- 2026-07-22, IN-FRAME BY CONSTRUCTION (THE FINAL PRAGMATIC ROUND, supersedes v1-v5)
 
 **The pivot -- user-accepted trade.** FLIGHT v5 (below, collapsed) was internally SOUND: Thomas is an
@@ -529,6 +568,8 @@ behind-camera (depth<=0):
   `THOMAS_END=580`; no `ShiftWorld` op present anywhere in the deployed `.seq` (not merely
   structurally-unreachable -- literally absent); no binary stock bytes committed to the repo (`*.fbx`
   gitignored, `.seq` in-repo is a splice-fragment-plus-documentation, never the full donor file).
+
+</details>
 
 </details>
 
