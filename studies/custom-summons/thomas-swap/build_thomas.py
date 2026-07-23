@@ -41,9 +41,10 @@ at rung 3's private folder ``ef084`` (``Unused_84`` -- never a real FF9 effect).
      vanilla Garnet/Eiko cast through it) is NEVER touched.
   4. Deploys ``ef084/FileList.txt`` (reused byte-identical from ``rung7-creature/FileList.txt`` -- same
      ``Model creature_manifest.sfxmodel`` line) and a GENERATED ``thomas_manifest.sfxmodel`` (built from
-     the named FLIGHT v5 constants below by ``build_manifest_json()`` -- Bahamut's OWN measured world
-     flight, tracked frame-by-frame; the repo copy is kept in sync so it stays git-diffable) -> that same filename
-     (OVERWRITING rung 7's own Iviv-clone manifest at that path -- ``--restore`` puts rung 7's back).
+     the ``KEYFRAMES_V7`` constant below by ``build_manifest_json()`` -- an IN-FRAME-BY-CONSTRUCTION
+     flight solved against the real per-frame camera, see THE FLIGHT v7 below; the repo copy is kept in
+     sync so it stays git-diffable) -> that same filename (OVERWRITING rung 7's own Iviv-clone manifest
+     at that path -- ``--restore`` puts rung 7's back).
   5. Mints Thomas's own additive GEO id (>= 6000, the kit's mint band -- ``ff9mapkit/docs/CUSTOM_MODELS.md``)
      via a BINARY-SAFE raw copy (``ff9mapkit.models.mint.stage_mint``'s own ``fbx=`` path text-decodes
      as ASCII and would corrupt a real binary FBX -- confirmed by the asset lens; this script mirrors
@@ -69,19 +70,24 @@ every mint):
 
 See README.md for the full test procedure, the failure-mode table, the HideMeshes surgical-key-list
 section, and the local-only provenance note. See PROBE.md for the mesh-probe key classification and
-matrix_solve.py for the FLIGHT v5 solve this build's placement is derived from.
+flight_v7_solve.py for THE FLIGHT v7 solve this build's placement is derived from (matrix_solve.py
+supplies the projection primitives both v5 and v7 share).
 
-THE FLIGHT v5 (2026-07-22, TRACK BAHAMUT -- THE FINAL SOLVE; supersedes v1-v4, see the FLIGHT v5 comment
-block below the constants for the full case): the corrected target is that Bahamut's cinematic
-DELIBERATELY swoops the creature off-screen while the camera follows his blast -- so faithful = "Thomas
-is wherever Bahamut was", off-frame beats included, NOT "keep Thomas centered". The s50 probe logs the
-actual per-frame render matrices (``camera.worldToCameraMatrix``/``.projectionMatrix``, ``SFX.cs:
-1603-1604``) and they PAN + ZOOM (not static -- overturning FLIGHT v4's premise; the CAM-Transform v4
-read was a decoy nothing writes per-frame). Since Thomas is rendered by that SAME baked camera, placement
-is camera-independent: put him at Bahamut's OWN measured world position each frame (``matrix_solve.py``:
-median of the 7 body-mesh keys, pool-pollution heuristic) and the real camera reproduces his exact screen
-trajectory for free. No FOV assumption, no camera model -- ``viewspace_place.py`` (v4) and
-``ef_camera_decode.py``/``ef_camera_solve.py`` (v3) are retained only as the superseded record.
+THE FLIGHT v7 (2026-07-22, IN-FRAME BY CONSTRUCTION -- THE FINAL PRAGMATIC ROUND; supersedes v1-v5, see
+THE FLIGHT v7 comment block below the constants for the full case). The goal changed: tracking Bahamut's
+own real position (v5) is technically sound but reads as mostly EMPTY (his body is off-screen ~97-99% of
+the real cast -- the camera follows the blast, not the creature), and separately, tracking him via the
+native primitive stream directly was tried and FALSIFIED this round (no stable discriminator isolates his
+creature in the raw primitives). The mission is now explicit: THOMAS VISIBLE AND DRAMATIC THROUGHOUT, a
+promo shot, not a fidelity exercise -- the user accepted this trade. What stays sound (unchanged from v5):
+Thomas's world position projects correctly through the s50 probe's real per-frame VIEW/PROJ (he's an
+ordinary GameObject on the real render pipeline) -- only "where do I put him" changes. THE FLIGHT v7
+instead CONSTRUCTS a target on-screen position + apparent size per story beat, solves the real-camera
+depth that hits it, back-projects to world, and recursively densifies with extra keyframes wherever the
+real camera log's own drift would carry him out of frame between beats -- verified, not assumed (61/61
+final segments in-margin). ``viewspace_place.py`` (v4) and ``ef_camera_decode.py``/``ef_camera_solve.py``
+(v3) remain retained only as the superseded record; matrix_solve.py (v5's own solver) is still imported
+by flight_v7_solve.py for its projection primitives, not for Bahamut-tracking.
 """
 from __future__ import annotations
 
@@ -101,9 +107,9 @@ sys.path.insert(0, str(HERE))
 from ff9mapkit import config, fsutil          # noqa: E402
 from ff9mapkit.models import export as mexport  # noqa: E402
 from ff9mapkit.models import mint as mmint      # noqa: E402
-# THE FLIGHT v5 (TRACK BAHAMUT) bakes the measured world trajectory below as constants; the tool that
-# DERIVED them from the s50 probe log is matrix_solve.py (this dir). build-time needs no game log or
-# viewspace_place.py (FLIGHT v4's now-superseded assumed-static-camera model -- see the FLIGHT v5 block).
+# THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION) bakes KEYFRAMES_V7 below as constants; the tool that DERIVED
+# them from the s50 probe log is flight_v7_solve.py (this dir, imports matrix_solve.py for the shared
+# projection primitives). build-time needs no game log or either superseded v3/v4 module.
 
 RUNG7_DIR = REPO / "studies" / "custom-summons" / "rung7-creature"
 
@@ -208,131 +214,143 @@ THOMAS_GEO_ID = 6200                          # clear of the bench's existing mi
 THOMAS_GEO_NAME = "GEO_MON_B0_M200"           # M200 = 6200 - MINT_BAND_START(6000), same token scheme as derive_mint_name
 THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 
-# --------------------------------------------------------------------------- THE FLIGHT v5 (2026-07-22, TRACK BAHAMUT -- THE FINAL SOLVE)
-# THE CORRECTED TARGET (user insight): the real Bahamut cinematic deliberately SWOOPS THE CREATURE
-# OFF-SCREEN and PANS THE CAMERA to follow his blast -- the subject is intentionally entering/exiting
-# frame at points. So faithfulness is NOT "keep Thomas centered/in-frame every frame" (that would be LESS
-# faithful than the dragon he replaces). Faithfulness = **Thomas is wherever Bahamut was, every frame**,
-# off-screen swoop-ins and camera-follows-blast beats included.
+# --------------------------------------------------------------------------- THE FLIGHT v7 (2026-07-22, IN-FRAME BY CONSTRUCTION -- THE FINAL PRAGMATIC ROUND)
+# THE PIVOT (user-accepted trade). FLIGHT v5 (TRACK BAHAMUT -- see matrix_solve.py, kept for the record)
+# was internally sound -- Thomas is an ordinary GameObject whose world position is force-set every frame
+# and rendered by the real per-frame camera (SFXDataMesh.cs:820), so projecting his world position through
+# the logged VIEW/PROJ correctly predicts where he lands on screen -- but its PREMISE ("faithful = wherever
+# Bahamut's own body was, off-screen swoops included") produces a promo clip that is mostly EMPTY:
+# matrix_solve.py's own self-test measures only ~4/323 (1.2%) of Bahamut's own measured frames landing
+# on-screen; the deployed v5 build scored ~2.7% (9/336) on-screen coverage end to end. Separately, TRACKING
+# Bahamut himself via the native PS1-primitive stream (rather than the mesh-bounds proxy) was tried and
+# FALSIFIED this round -- no stable discriminator isolates his creature in the raw primitive stream, and
+# the two video-confirmed beats (swirl entrance, fire column) contain ZERO body-key primitives. The goal is
+# now explicit and different: THOMAS VISIBLE AND DRAMATIC THROUGHOUT -- a promo shot, not a fidelity
+# exercise.
 #
-# WHY FLIGHT v1-v4 ARE ALL SUPERSEDED. v1 hovered; v2/v3 placed Thomas at Bahamut's mesh-derived body
-# medians but had to GUESS the camera; v4 abandoned that for a VIEW-SPACE construction against a camera it
-# believed was STATIC (the s48 CAM hook logged an unchanging Transform). **The s50 probe overturns v4's
-# premise.** It logs the actual per-frame render matrices -- ``camera.worldToCameraMatrix`` (VIEW rows) and
-# ``camera.projectionMatrix`` (PROJ rows), the very matrices ``SFX.UpdateCamera()`` assigns at
-# ``SFX.cs:1603-1604`` -- and they are NOT static: the logged CAM Transform is a decoy (nothing writes it
-# per-frame), while VIEW pans/orbits dramatically frame to frame and PROJ *zooms* (its [1][1] focal term
-# sweeps ~2.33..4.65 => vertical FOV ~47deg..24deg). v4's whole "assumed fixed 40deg camera" was built on a
-# premise the raw render matrices disprove. (matrix_solve.py's module docstring carries the full evidence.)
+# WHAT STAYS SOUND (unchanged from v5, re-used verbatim, not re-derived): the captured per-frame
+# camera.worldToCameraMatrix (VIEW)/camera.projectionMatrix (PROJ) pair from the s50 probe IS the real
+# render camera for THIS cast, and a world point projects through it correctly (matrix_solve.py's
+# round-trip self-test, empirically corroborated against the user's own video). Only "where do I put
+# Thomas" changes -- not the projection math.
 #
-# THE FINAL SOLVE -- placement becomes camera-INDEPENDENT. Thomas is rendered by that SAME per-frame camera
-# (ef227's native camera track replays byte-identically every cast). So we do NOT model the camera at all:
-# **put Thomas at Bahamut's own measured world position each frame, and the real per-frame VIEW+PROJ
-# reproduces Bahamut's exact screen position -- pan, zoom, off-screen swoop and all -- for free.** No FOV
-# assumption, no projection guess. matrix_solve.py's own forward projection VERIFIES this: of Bahamut's 324
-# on-cast body frames, only ~5 project strictly inside |ndc|<1 -- his body is genuinely off-screen /
-# behind the camera for most of the cast (the camera follows the effect/blast, not the creature), which is
-# exactly the deliberate off-screen behavior the user described and the reason an always-in-frame check is
-# WRONG. We reproduce it by copying his world path verbatim.
+# THE METHOD -- construct in NDC, back-project to world (studies/custom-summons/thomas-swap/
+# flight_v7_solve.py -- full derivation + module docstring; re-run it to reproduce every number below):
+#   1. author a target on-screen position (ndc_x, ndc_y, comfortably inside frame) and an apparent HEIGHT
+#      fraction of the frame (~45-65%) at each of 18 story "beats" spanning frames 0..580 (a swooping
+#      entrance from a frame edge -> center-stage reign w/ gentle bob+charge -> a slow lateral pass -> BIG
+#      AND PRESENT through the fire-column/aftermath window 430-540 (the beats the user liked -- no
+#      receding/climbing away there, unlike v5's exit piece) -> a short exit);
+#   2. solve the camera-space depth that makes Thomas's own scaled height actually fill that fraction
+#      under THAT FRAME's real PROJ[1][1] (the vertical focal term sweeps ~2.33..4.65 across the cast --
+#      zoom means the SAME height fraction needs a DIFFERENT depth at every beat, the main thing to get
+#      right per the mission);
+#   3. back-project (ndc_x, ndc_y, view_z=-depth) through THAT FRAME's real VIEW+PROJ
+#      (matrix_solve.world_from_ndc, the general off-center-frustum inverse, round-trip exact);
+#   4. derive YAW per keyframe from the camera's own forward vector (broadside presentation to THAT
+#      frame's actual camera -- closes the "fixed yaw drifts as the camera pans" open item both v4 and v5
+#      left unresolved).
 #
-# HOW THE NUMBERS BELOW WERE DERIVED (matrix_solve.py, from the s50 probe log; re-derive with
-#   py matrix_solve.py --step 12 --window 6
-# and paste TRACKED_KEYFRAMES / ENTRANCE_ORIGIN / EXIT_DEST). Per frame, Bahamut's world position is the
-# MEDIAN across his 7 confirmed body-mesh keys of (X=bounds cx, Y=bounds cy, Z=the FAR CORNER cz-/+ez) --
-# the pool-pollution heuristic from PROBE.md round 1 (the SFX vertex pool sits at world origin, so the
-# AABB stretches from the real body toward 0; on Z the body is thousands of units out so the far corner
-# recovers true depth, while on X/Y it sits near origin so the center is the better estimate). A windowed
-# median (+/-6 frames) suppresses single-frame pooling spikes. The result is a coherent flight: he starts
-# near (Z~=-1700), DIVES far away (Z~=-18000..-27000 around frames 120-165 -- the deep swoop, keys agree
-# tightly there so it is real signal, independently corroborated by the older s47 cast's own -34000 dive),
-# then returns to a moderate Z~=-4000..-7000 for the reign/charge/fire-column window through frame 417.
+# WHY 62 KEYFRAMES, NOT ~14-18 (an honest, MEASURED deviation, not scope creep). The 18 authored beats
+# above are still all present below (their own labels survive verbatim) as the mandatory story waypoints.
+# But directly checking a hand-picked ~16-beat arc against the REAL camera log found this cast's camera is
+# CUT-HEAVY, not smoothly panning as the mission's own drift-margin language assumes: dozens of single-
+# FRAME eye jumps of 2000-22000 world units (real hard cuts -- flight_v7_solve.camera_eye_census finds 15
+# jumps over 2000 units alone) interleaved with a few sustained fast continuous dolly/orbit shots. A
+# straight Linear-in-world interpolation between two in-frame beats, sampled at the REAL intermediate-frame
+# cameras, blew the |ndc|<1 envelope by 10-75x on more than half of the first attempt's segments -- not a
+# rounding error, a wrong premise (linear-in-world only tracks linear-in-camera). flight_v7_solve.py fixes
+# this by treating each beat as mandatory and RECURSIVELY BISECTING any segment whose real-camera drift
+# would exceed DRIFT_LIMIT=0.85, inserting exactly as many extra keyframes as the log demands (each
+# insertion computed as intended-screen-position lerp -> its own real depth/back-projection, same method as
+# every authored beat) -- verified, not assumed: the final build is 61/61 segments within the 0.85 |ndc|
+# margin, worst point anywhere 0.83. 44 of the 62 keyframes are these adaptive drift-inserts (labeled
+# "(auto -- drift insert)" in the table); every one is a measured necessity against the real log, not a
+# guess. Re-derive with `py flight_v7_solve.py`.
 #
-# SHIFTWORLD: still a non-issue -- Thomas's JSON-mesh token has its transform.position force-assigned in
-# absolute world space every frame (SFXDataMesh.cs:820), never parented under battlebg.btlRoot -- so these
-# world coords are used VERBATIM. ORIENTATION: held broadside (YAW_BROADSIDE=90) through the tracked window
-# to present his iconic side profile, turning 0->90 on entrance and 90->0 on the exit climb; no Z-roll (he
-# is not PSX-inverted -- README axis-verification). NOTE: with the camera now known to pan wildly, a fixed
-# world yaw does not hold a constant facing to the lens; a per-frame camera-relative yaw is now COMPUTABLE
-# from the VIEW rows (matrix_solve gives them) and is the obvious next refinement if his facing reads
-# wrong on video -- left out of this pass to keep the FINAL SOLVE about POSITION, the headline.
+# INTERPOLATION: every Movement/Rotation piece below is Linear (no Sinus/SinusIn/SinusOut anywhere) --
+# deliberately, because the drift verification above was performed assuming Linear interpolation between
+# consecutive keyframes; introducing easing would make the DEPLOYED runtime path diverge from the path
+# that was actually checked, silently invalidating the in-frame guarantee. The entrance/exit already read
+# as smooth swoops because the adaptive bisection naturally packs keyframes densely right where the
+# camera moves fastest (see frames 0-30 and 400-430 below).
 #
-# TIMING: body frames span 82..417 in the probe's SFX.frameIndex, which aligns with Thomas's own PlaySFX-
-# zeroed clock at ~offset 0 (README "Timing math"). Movement: an entrance (0..82) from an off-screen
-# origin into the first tracked point; the measured track (82..417) as dense Linear pieces; an exit
-# (417..580) climbing away after the body vanishes. Durations sum to THOMAS_END=580 (the donor's own
-# WaitSFXDone-gated cast length, unchanged from every prior FLIGHT version).
+# SHIFTWORLD: still a non-issue (SFXDataMesh.cs:820 force-assigns absolute world position every frame,
+# Thomas is never parented under battlebg.btlRoot) -- these world coords are used VERBATIM.
 #
-# CAVEAT: the TRACKED 82..417 window is a MEASUREMENT (Bahamut's own logged mesh bounds); the ENTRANCE_
-# ORIGIN and EXIT_DEST are the only reasoned-without-ground-truth points (the body is absent outside its
-# 82..417 window) -- documented as such, retunable. Per the project's video-for-visual-bugs law, a fresh
-# capture of an actual cast is the real next check.
-YAW_BROADSIDE = 90                  # Rotation.Y held broadside through the track; Rotation.Z stays 0 (no roll)
+# CAVEAT: per this project's own video-for-visual-bugs law, a fresh capture of an actual cast is the real
+# next check -- this is a DESIGN verified against the real camera log's OWN geometry (matrix_solve.py's
+# projection math + flight_v7_solve.py's drift check), not a claim to have watched it play.
 
-# --- the tracked flight: Bahamut's own measured world position, sampled every ~12 frames (matrix_solve.py
-# --- --step 12 --window 6, windowed-median of the 7 body keys). (frame, (X, Y, Z)) absolute world. ---
-#
-# 2026-07-22 ADVERSARIAL-REVIEW CORRECTION: the prior table below was built from matrix_solve.py's
-# body_world() BEFORE it filtered THE DEGENERATE-POOL-ROW SIGNATURE (see ProbeLog._is_pool_row's
-# docstring) -- a body key with no active geometry that frame doesn't drop out of the log, it reports the
-# SFX vertex pool's own fixed unused-slot bounding box (cx=34.5,cy=-0.5,ex=ey=1023.5, IDENTICAL every
-# time, verified across all 39 keys in the cast, not just the 7 body keys). 323/324 (99.7%) of this cast's
-# body frames had >=1 of the 7 keys in that exact state, folded unfiltered into the per-frame median. Two
-# of the OLD table's own headline points turned out to be built from ZERO real content once filtered out:
-# frame 166 ("the single deepest point... corroborated by the s47 cast's ~-34000", Z=-30864 old vs -28548
-# now -- the old number happened to land close, but had no real data behind it) and frame 417 ("last frame
-# his body is logged", (34,0,-4288) old vs (80,229,-5032) now -- a real, material change, since body_world
-# _smoothed's fixed +/-6 window was ALSO entirely pool-degenerate for the whole 411-417 tail; the function
-# now widens its search window until it finds real content, see its docstring). Regenerated with:
-#   py matrix_solve.py --step 12 --window 6
-TRACKED_KEYFRAMES: "tuple[tuple[int, tuple[int, int, int]], ...]" = (
-    (  82, (   156,    444,   -2344)),
-    (  94, (   142,    206,   -5936)),
-    ( 106, (   131,    118,   -8976)),
-    ( 118, (   145,    118,  -13424)),
-    ( 130, (   164,    118,  -20208)),   # into the deep dive (keys agree tightly here -- real)
-    ( 142, (   164,    118,  -18800)),
-    ( 154, (    35,   -129,   -7832)),
-    ( 166, (    44,   -128,  -28548)),   # the single deepest point (re-derived post pool-row filter)
-    ( 178, (    96,    -53,   -6704)),
-    ( 190, (   132,    102,   -7648)),
-    ( 202, (   132,    116,  -10336)),
-    ( 214, (   152,    176,   -6192)),
-    ( 226, (   152,    151,   -3328)),
-    ( 238, (   156,    200,   -3296)),
-    ( 250, (   127,    172,   -3136)),   # reign/charge window -- moderate depth, near-center-ish
-    ( 262, (   149,     93,   -5232)),
-    ( 274, (   167,     90,   -5904)),
-    ( 286, (   159,     90,   -6448)),
-    ( 298, (   125,     90,   -6768)),
-    ( 310, (   180,   -254,   -6128)),
-    ( 322, (   134,     18,   -6128)),
-    ( 334, (   126,     54,   -7248)),
-    ( 346, (   154,    170,   -4288)),
-    ( 358, (   170,    187,   -4192)),
-    ( 370, (   170,    191,   -4032)),
-    ( 382, (   188,    176,   -4032)),
-    ( 394, (   112,    130,   -3696)),
-    ( 406, (    86,    180,   -4848)),
-    ( 417, (    80,    229,   -5032)),   # last frame his body is logged -- then he vanishes (fire column)
+# --- KEYFRAMES_V7: (frame, (world X, Y, Z), yaw_deg) -- flight_v7_solve.py's adaptive path, 62 keyframes,
+# --- frames 0..580. Labels kept in a parallel tuple (not in the hot data -- keeps this literal pasteable
+# --- verbatim from the solver's own printed table). ---
+KEYFRAMES_V7: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
+    (   0, (  3530,    202,    -844),  +240.42),  # entrance origin (off-frame edge, swooping in)
+    (   1, (  3434,    204,    -827),  +240.42),  # (auto -- drift insert)
+    (   2, (  3341,    207,    -810),  +240.42),  # (auto -- drift insert)
+    (   3, (  3250,    209,    -793),  +240.42),  # (auto -- drift insert)
+    (   4, (  3162,    211,    -777),  +240.42),  # (auto -- drift insert)
+    (   5, (  3075,    214,    -761),  +240.42),  # (auto -- drift insert)
+    (   7, (  2908,    218,    -730),  +240.42),  # (auto -- drift insert)
+    (  15, (  2308,    234,    -620),  +240.42),  # (auto -- drift insert)
+    (  30, (  1417,    258,    -456),  +240.42),  # swoop continues
+    (  55, (   404,    367,    -501),  +240.42),  # arriving
+    (  80, (    91,   1834,     -24),  +185.27),  # center-stage begin
+    ( 115, (   197,   1920,    -210),  +185.27),  # reign bob (up)
+    ( 123, (   145,   1881,    -122),  +185.27),  # (auto -- drift insert)
+    ( 127, (   124,   1861,     -85),  +185.27),  # (auto -- drift insert)
+    ( 128, (    63,    404,     464),   +90.00),  # (auto -- drift insert)
+    ( 129, (    54,    425,     469),   +90.00),  # (auto -- drift insert)
+    ( 132, (   140,    910,     449),   +92.64),  # (auto -- drift insert)
+    ( 150, (   311,   2203,     -74),  +103.54),  # reign bob (down)
+    ( 167, ( -2063,   1015,    3297),  +230.60),  # (auto -- drift insert)
+    ( 176, ( -2186,   1062,    3165),  +230.60),  # (auto -- drift insert)
+    ( 177, ( -2199,   1067,    3151),  +230.60),  # (auto -- drift insert)
+    ( 178, (   918,   8251,   19938),  +235.78),  # (auto -- drift insert)
+    ( 180, (   604,   8878,   20024),  +235.32),  # (auto -- drift insert)
+    ( 185, (  -547,  10875,   20310),  +233.70),  # charge windup
+    ( 200, ( -4091,  14683,   21222),  +228.83),  # (auto -- drift insert)
+    ( 203, ( -4757,  15061,   21400),  +227.91),  # (auto -- drift insert)
+    ( 205, (   444,  20870,   15128),  +231.68),  # (auto -- drift insert)
+    ( 207, (   515,  21144,   14996),  +234.03),  # (auto -- drift insert)
+    ( 215, (   531,  22253,   14796),  +241.77),  # charge peak
+    ( 232, (   828,  23991,   14748),  +249.85),  # (auto -- drift insert)
+    ( 241, (   304,  24023,   19083),  +106.87),  # (auto -- drift insert)
+    ( 250, ( -1221,  24842,   17606),   +81.74),  # lateral pass (left)
+    ( 290, (  1671,  23131,   15240),   +48.78),  # lateral pass (right)
+    ( 300, (  1813,  22939,   14891),   +47.74),  # (auto -- drift insert)
+    ( 301, (  1801,  22934,   14880),   +47.74),  # (auto -- drift insert)
+    ( 302, (   681,   6520,   -4816),   +90.59),  # (auto -- drift insert)
+    ( 305, (   631,   7126,   -5040),   +92.04),  # (auto -- drift insert)
+    ( 310, (   540,   8403,   -5456),   +95.26),  # (auto -- drift insert)
+    ( 330, (   -90,  12744,   -6483),  +107.98),  # return toward center
+    ( 365, (  1128,  12979,   -8439),  +241.80),  # (auto -- drift insert)
+    ( 382, (  1462,  13211,   -9025),  +241.84),  # (auto -- drift insert)
+    ( 383, (    61,  14565,   -6682),  +258.76),  # (auto -- drift insert)
+    ( 384, (    62,  14561,   -6678),  +258.76),  # (auto -- drift insert)
+    ( 386, (    63,  14554,   -6671),  +258.76),  # (auto -- drift insert)
+    ( 391, (    67,  14929,   -7401),  +258.76),  # (auto -- drift insert)
+    ( 400, (    75,  13944,   -7170),  +251.45),  # settle, approach fire column
+    ( 403, (   228,  13771,   -7177),  +227.35),  # (auto -- drift insert)
+    ( 407, (  1153,  10564,   -5145),  +181.53),  # (auto -- drift insert)
+    ( 415, (   342,   7623,   -1284),   +97.06),  # (auto -- drift insert)
+    ( 418, ( -2236,   7479,   -1844),  +128.14),  # (auto -- drift insert)
+    ( 422, ( -3303,   1677,   -2522),  +133.23),  # (auto -- drift insert)
+    ( 426, ( -3263,    998,   -2506),  +133.30),  # (auto -- drift insert)
+    ( 430, ( -3283,   1002,   -2527),  +133.18),  # fire column ignition -- BIG
+    ( 470, (  -889,   2229,   -6155),   +96.33),  # fire column continues -- stay BIG
+    ( 510, (     0,   2085,   -6106),   +90.00),  # aftermath -- still present
+    ( 511, (  -972,   1199,    -861),  +120.78),  # (auto -- drift insert)
+    ( 513, (  -949,   1175,    -836),  +120.58),  # (auto -- drift insert)
+    ( 517, (  -901,   1123,    -789),  +120.01),  # (auto -- drift insert)
+    ( 525, (  -804,   1022,    -688),  +118.90),  # (auto -- drift insert)
+    ( 540, (   413,   1566,    2618),   +95.64),  # aftermath settle
+    ( 560, (  -186,     17,   -1613),  +240.42),  # exit begin
+    ( 580, (  -532,   -442,   -3044),  +240.42),  # exit end
 )
 
-# The ONLY two reasoned-without-ground-truth points (body absent outside 82..417); re-extrapolated from
-# the corrected table above (py matrix_solve.py):
-#  ENTRANCE_ORIGIN -- his earliest measured velocity (f82->f94) extended back to frame 0, so the entrance
-#                     is a smooth continuation of his real motion into the first tracked point.
-#  EXIT_DEST       -- a reasoned dramatic climb-and-recede after his body vanishes at 417 (matrix_solve's
-#                     own velocity extrapolation from the new f406->f417 segment drifts only mildly, unlike
-#                     the old table's extrapolation which needed an override; kept as a manual dramatic
-#                     climb-away rather than the raw extrapolation, since the body is unmeasured past 417
-#                     either way and "climb up and recede" reads better than a shallow drift).
-ENTRANCE_ORIGIN: "tuple[int, int, int]" = (255, 2068, 22201)
-EXIT_DEST: "tuple[int, int, int]" = (34, 4000, -14000)
-
-TRACK_START = TRACKED_KEYFRAMES[0][0]    # 82
-TRACK_END = TRACKED_KEYFRAMES[-1][0]     # 417
-THOMAS_END = 580                          # donor's WaitSFXDone-gated cast length, unchanged
-ENTRANCE_DURATION = TRACK_START           # 0..82
-EXIT_DURATION = THOMAS_END - TRACK_END    # 417..580 == 163
+THOMAS_END = KEYFRAMES_V7[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -399,71 +417,60 @@ def _pt(xyz: "tuple[int, int, int]") -> dict:
     """Split an (X, Y, Z) absolute-world tuple into the 3 ``Destination*`` JSON keys as plain numeric
     NCalc constants (a bare literal like ``"-17860"`` parses via NCalc exactly as well as an expression
     -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design; these XYZ values
-    are Bahamut's own measured world positions (TRACKED_KEYFRAMES) or the reasoned entrance/exit points,
-    see THE FLIGHT v5 comment block above)."""
+    are ``KEYFRAMES_V7``'s own back-projected world positions, solved to hit an authored on-screen target
+    under each frame's real camera -- see THE FLIGHT v7 comment block above)."""
     x, y, z = xyz
     return {"DestinationX": str(x), "DestinationY": str(y), "DestinationZ": str(z)}
 
 
 def build_manifest_json() -> dict:
-    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v5 (TRACK BAHAMUT) constants above
-    (schema verified against ``ParametricMovement.LoadFromJSON``, Memoria/Battle/SFX/ParametricMovement.cs:
-    58-136 -- an array of pieces, ``Duration`` + per-axis ``Origin*``/``Destination*``/
-    ``InterpolationType*``; an absent ``Origin*`` on piece i>0 CHAINS from the prior piece's own
-    ``Destination*``; an absent ``InterpolationType*`` defaults to ``Linear``, l.254).
+    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v7 (IN-FRAME BY CONSTRUCTION)
+    ``KEYFRAMES_V7`` constant above (schema verified against ``ParametricMovement.LoadFromJSON``,
+    Memoria/Battle/SFX/ParametricMovement.cs:58-136 -- an array of pieces, ``Duration`` + per-axis
+    ``Origin*``/``Destination*``/``InterpolationType*``; an absent ``Origin*`` on piece i>0 CHAINS from
+    the prior piece's own ``Destination*``; an absent ``InterpolationType*`` defaults to ``Linear``,
+    l.254).
 
-    Movement is 1 entrance piece + one Linear piece per tracked keyframe transition + 1 exit piece:
-      * ENTRANCE (0..TRACK_START, SinusOut): off-screen ENTRANCE_ORIGIN -> the first tracked point,
-        easing into Bahamut's real f82 position.
-      * TRACK (TRACK_START..TRACK_END): Bahamut's own measured world path, one Linear segment between
-        consecutive TRACKED_KEYFRAMES (Origin chained). Linear (not eased) because these are dense
-        samples of a continuously-moving body -- the body moves smoothly in WORLD space; the apparent
-        on-screen cuts/swoops come from the camera, which is baked into ef227 and replays for free.
-      * EXIT (TRACK_END..THOMAS_END, SinusIn): last tracked point -> the reasoned EXIT_DEST climb-away.
-    Rotation is a simple 3-piece scheme (independent piece list): turn 0->broadside over the entrance,
-    hold broadside through the whole track, turn broadside->0 over the exit. Scaling is one constant
-    piece (THOMAS_SCALE, no motion -- apparent size tracks depth via the flight's own Z, faithfully). All
-    piece durations sum to THOMAS_END=580 on every axis (asserted below)."""
+    Movement is one Linear piece per consecutive ``KEYFRAMES_V7`` transition (61 pieces for 62
+    keyframes) -- deliberately ALL Linear, no Sinus/SinusIn/SinusOut anywhere: the drift verification in
+    ``flight_v7_solve.py`` (every segment's real-camera projection stays within margin) was performed
+    assuming Linear interpolation between consecutive keyframes, so using anything else here would let
+    the DEPLOYED runtime path diverge from the path that was actually checked. Rotation mirrors the same
+    piece/duration structure, holding ``DestinationY`` = each keyframe's own per-frame broadside yaw
+    (``DestinationZ`` always ``"0"`` -- no roll, per the README axis-verification). Scaling is one
+    constant piece (``THOMAS_SCALE`` -- must match ``flight_v7_solve.THOMAS_SCALE``, both currently 265).
+    All piece durations sum to ``THOMAS_END`` on every axis (asserted below)."""
     movement = [
-        {   # ENTRANCE: off-screen origin -> Bahamut's first measured position (smooth arrival)
-            "Duration": str(ENTRANCE_DURATION),
-            "OriginX": str(ENTRANCE_ORIGIN[0]), "OriginY": str(ENTRANCE_ORIGIN[1]), "OriginZ": str(ENTRANCE_ORIGIN[2]),
-            **_pt(TRACKED_KEYFRAMES[0][1]),
-            "InterpolationTypeX": "SinusOut", "InterpolationTypeY": "SinusOut", "InterpolationTypeZ": "SinusOut",
+        {   # first piece needs an explicit Origin -- every later piece chains from the prior Destination
+            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
+            "OriginX": str(KEYFRAMES_V7[0][1][0]), "OriginY": str(KEYFRAMES_V7[0][1][1]), "OriginZ": str(KEYFRAMES_V7[0][1][2]),
+            **_pt(KEYFRAMES_V7[1][1]),
         },
     ]
-    # TRACK: one Linear segment per keyframe transition (Origin chains from the prior Destination)
-    prev_frame = TRACKED_KEYFRAMES[0][0]
-    for frame, xyz in TRACKED_KEYFRAMES[1:]:
+    prev_frame = KEYFRAMES_V7[1][0]
+    for frame, xyz, _yaw in KEYFRAMES_V7[2:]:
         movement.append({"Duration": str(frame - prev_frame), **_pt(xyz)})   # Linear default
         prev_frame = frame
-    movement.append(
-        {   # EXIT: climb away + recede after the body vanishes (reasoned, no ground truth past 417)
-            "Duration": str(EXIT_DURATION),
-            **_pt(EXIT_DEST),
-            "InterpolationTypeX": "SinusIn", "InterpolationTypeY": "SinusIn", "InterpolationTypeZ": "SinusIn",
-        }
-    )
+
     rotation = [
-        {   # turn from normalized-forward (0) to broadside (90) as he enters
-            "Duration": str(ENTRANCE_DURATION),
-            "OriginY": "0", "DestinationY": str(YAW_BROADSIDE),
+        {
+            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
+            "OriginY": f"{KEYFRAMES_V7[0][2]:.2f}", "DestinationY": f"{KEYFRAMES_V7[1][2]:.2f}",
             "OriginZ": "0", "DestinationZ": "0",
-            "InterpolationTypeY": "Sinus",
-        },
-        {   # HOLD broadside through the entire tracked window (present his iconic side profile)
-            "Duration": str(TRACK_END - TRACK_START),
-            "DestinationY": str(YAW_BROADSIDE), "DestinationZ": "0",
-        },
-        {   # EXIT: turn back to forward-facing as he climbs away
-            "Duration": str(EXIT_DURATION),
-            "DestinationY": "0", "DestinationZ": "0",
-            "InterpolationTypeY": "Sinus",
         },
     ]
+    prev_frame = KEYFRAMES_V7[1][0]
+    for frame, _xyz, yaw in KEYFRAMES_V7[2:]:
+        rotation.append({
+            "Duration": str(frame - prev_frame),
+            "DestinationY": f"{yaw:.2f}", "DestinationZ": "0",
+        })
+        prev_frame = frame
+
     # invariant: every axis's piece durations sum to THOMAS_END (the cast length)
     assert sum(int(p["Duration"]) for p in movement) == THOMAS_END, "movement durations != THOMAS_END"
     assert sum(int(p["Duration"]) for p in rotation) == THOMAS_END, "rotation durations != THOMAS_END"
+    assert len(movement) == len(KEYFRAMES_V7) - 1 == len(rotation), "piece count != KEYFRAMES_V7 transitions"
     scaling = {
         "Duration": str(THOMAS_END),
         "OriginX": str(THOMAS_SCALE), "OriginY": str(THOMAS_SCALE), "OriginZ": str(THOMAS_SCALE),
@@ -727,18 +734,20 @@ def main() -> int:
         print(f"written  : {result['manifest_dest']}")
         print(f"  sha256 : {result['manifest_sha256']}")
         print(f"(repo copy kept in sync at {THOMAS_MANIFEST_REPO_PATH})")
-        print("THE FLIGHT v5 (TRACK BAHAMUT -- THE FINAL SOLVE, 2026-07-22):")
-        print(f"  method        : Thomas placed at Bahamut's OWN measured world position each frame; the real")
-        print(f"                  per-frame camera (VIEW+PROJ, s50 probe -- pans + zooms, NOT static) reproduces")
-        print(f"                  his exact screen path (off-screen swoops included) for free. See matrix_solve.py.")
-        print(f"  entrance      : frames 0-{TRACK_START}   off-screen ENTRANCE_ORIGIN={ENTRANCE_ORIGIN} -> first tracked point (SinusOut)")
-        print(f"  TRACK         : frames {TRACK_START}-{TRACK_END}  {len(TRACKED_KEYFRAMES)} measured keyframes, Linear between (Bahamut's real world flight)")
-        print(f"  exit          : frames {TRACK_END}-{THOMAS_END} last tracked point -> EXIT_DEST={EXIT_DEST} climb-away (SinusIn)")
-        print(f"  yaw broadside : {YAW_BROADSIDE} deg held through the track (side profile); 0->90 in, 90->0 out; no roll")
+        print("THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION, 2026-07-22):")
+        print(f"  method        : each of 18 authored story beats gets a target on-screen (ndc_x,ndc_y) + apparent")
+        print(f"                  height%, solved to a real-camera depth and back-projected to world via that")
+        print(f"                  frame's real VIEW+PROJ (flight_v7_solve.py); segments whose real-camera drift")
+        print(f"                  would leave the frame are recursively bisected with extra keyframes until every")
+        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V7)} keyframes, {len(KEYFRAMES_V7)-1} Linear")
+        print(f"                  pieces (no easing -- keeps the deployed path == the verified path).")
+        print(f"  yaw           : per-keyframe, derived from that frame's own camera forward vector (broadside")
+        print(f"                  presentation to the ACTUAL camera at that moment, not a fixed world angle).")
         print()
-        print("  tracked world XYZ baked into the manifest (Bahamut's own bounds, windowed-median of 7 body keys):")
-        for frame, xyz in TRACKED_KEYFRAMES:
-            print(f"    f{frame:<4d} = {xyz}")
+        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V7)} total,")
+        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V7)} incl. 18 authored beats + adaptive drift-inserts:")
+        for frame, xyz, yaw in KEYFRAMES_V7:
+            print(f"    f{frame:<4d} = {xyz}  yaw={yaw:+.1f}")
         print()
         m = result["mint"]
         print(f"=== Thomas GEO mint: id={m['id']} name={m['name']} type_int={m['type_int']} ===")

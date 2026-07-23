@@ -189,6 +189,97 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
+### THE FLIGHT v7 -- 2026-07-22, IN-FRAME BY CONSTRUCTION (THE FINAL PRAGMATIC ROUND, supersedes v1-v5)
+
+**The pivot -- user-accepted trade.** FLIGHT v5 (below, collapsed) was internally SOUND: Thomas is an
+ordinary Unity GameObject whose world position is force-set every frame (`SFXDataMesh.cs:820`) and
+rendered by the normal pipeline under the real per-frame camera, so projecting his world position through
+the s50 probe's logged VIEW/PROJ correctly predicts where he lands on screen (empirically corroborated
+against the user's own video). But v5's premise -- "faithful = wherever Bahamut's own body was, off-screen
+swoops included" -- makes a promo clip that is mostly EMPTY: `matrix_solve.py`'s own self-test measures
+only ~4/323 (1.2%) of Bahamut's own measured frames landing on-screen; the deployed v5 build scored ~2.7%
+(9/336) on-screen coverage end to end. Separately, this round also tried TRACKING Bahamut's own real
+position via the native PS1-primitive stream directly (rather than the mesh-bounds proxy) -- **FALSIFIED**:
+no stable discriminator isolates his creature in the raw primitive stream (independent methods disagree,
+latch onto backdrop planes), and the two video-confirmed beats (swirl entrance, fire column) contain ZERO
+body-key primitives. The goal is now explicit and different: **THOMAS VISIBLE AND DRAMATIC THROUGHOUT** --
+a promo shot, not a fidelity exercise. The user accepted this trade.
+
+**What stays sound (unchanged from v5, re-used verbatim -- not re-derived).** The captured per-frame
+`camera.worldToCameraMatrix` (VIEW) / `camera.projectionMatrix` (PROJ) pair from the s50 probe IS the real
+render camera for this cast, and a world point projects through it correctly. Only "where do I put Thomas"
+changes -- not the projection math (`flight_v7_solve.py`, this dir, imports `matrix_solve.py`'s
+`project_world_to_ndc`/`world_from_ndc` directly, no reimplementation).
+
+**The method -- construct in NDC, back-project to world.** For each of 18 authored story beats spanning
+frames 0-580 (a swooping entrance from a frame edge, a big center-stage reign with gentle bob/drift through
+the mid + charge, a slow lateral pass, staying BIG AND PRESENT through the fire-column/aftermath window
+430-540 -- the beats the user specifically liked, no receding/climbing away there unlike v5's old exit
+piece -- then a short exit at the very end):
+
+1. author a target on-screen position `(ndc_x, ndc_y)`, comfortably inside frame (`|ndc| <= ~0.55`), and a
+   target apparent HEIGHT fraction of the frame (`~45-65%`);
+2. solve the camera-space depth that makes Thomas's own scaled height (`4.913 * 265 ≈ 1301.9` units) fill
+   that fraction under THAT FRAME's real `PROJ[1][1]` (the vertical focal term sweeps `~2.33..4.65` across
+   the cast -- the PROJ zoom means the SAME height fraction needs a DIFFERENT depth at every beat, per the
+   mission's own emphasis: `depth = PROJ[1][1] * height_scaled / (2 * height_frac)`);
+3. back-project `(ndc_x, ndc_y, view_z=-depth)` through that frame's real VIEW+PROJ with
+   `matrix_solve.world_from_ndc` (the general off-center-frustum inverse, round-trip verified exact);
+4. derive a per-keyframe YAW from the camera's own forward vector (`-VIEW[2,:3]`, the row negated) so
+   Thomas presents broadside to THAT frame's actual camera -- closing the "fixed yaw drifts as the camera
+   pans" open item both v4 and v5 left unresolved (a fixed `YAW_BROADSIDE` constant no longer applies once
+   the camera's own heading is known to swing wildly, see below).
+
+**Why 62 keyframes, not ~14-18 -- an honest, MEASURED deviation, not scope creep.** The mission's own
+drift-margin language ("dense enough that between-keyframe drift cannot wander out of frame") reads as
+assuming a camera that pans/zooms *smoothly*. Directly checking a hand-picked ~16-beat arc against the REAL
+camera log refutes that assumption for this cast: `flight_v7_solve.camera_eye_census` finds **15 single-
+FRAME eye jumps over 2000 world units** (real hard cuts, e.g. `f177->f178` jumps 18,960 units in ONE frame)
+interleaved with sustained fast continuous dolly/orbit shots (hundreds of units per frame for tens of
+frames, e.g. the `f178-f236` charge-windup shot). The first straight attempt -- 18 hand-picked beats,
+Linear-in-world between them -- blew the `|ndc|<1` on-screen envelope by **10-75x on more than half its
+segments** when checked against the real intermediate-frame cameras (not a rounding error -- a wrong
+premise: linear-in-world only tracks linear-in-camera, and this camera is not remotely linear). Rather than
+ship that and call 16 keyframes "dense enough," `flight_v7_solve.py` ADAPTS: the 18 authored beats remain
+mandatory story waypoints (each still lands as a real keyframe at its own authored ndc/height -- their
+labels survive verbatim into the final table), and any segment between two beats whose real-camera drift
+would exceed `DRIFT_LIMIT=0.85` is **recursively bisected**, inserting an extra keyframe at the intended
+screen-position lerp of the two flanking points (solved to world the same way as every authored beat) --
+verified per segment, not assumed. The result: **62 total keyframes, 61/61 final segments within the 0.85
+margin, worst point anywhere 0.83** (`flight_v7_solve.py`'s own drift-verification pass). 44 of the 62 are
+these adaptive "(auto -- drift insert)" keyframes; every one is a measured necessity against the real log.
+The fire-column/aftermath window (430-540) the user liked turned out to fall in one of the CALMER stretches
+of this camera's motion -- it needed zero drift-inserts at all (`430->470->510` are both 40-frame gaps that
+already passed the check directly), so Thomas stays big and steady there by construction, not by luck.
+
+**Interpolation is Linear everywhere -- deliberately, not an oversight.** No `Sinus`/`SinusIn`/`SinusOut`
+appears anywhere in the deployed `Movement`/`Rotation` arrays. The drift verification above was performed
+assuming Linear interpolation between consecutive keyframes; introducing easing on any segment would make
+the DEPLOYED runtime path diverge from the path that was actually checked, silently invalidating the
+in-frame guarantee for that stretch. This isn't a visible loss -- the adaptive bisection already packs
+keyframes densely wherever the real camera moves fastest (e.g. 8 keyframes inside the first 30 frames of
+the entrance), so the swoop-in and the exit both already read as smooth multi-point curves, not abrupt
+2-point teleports.
+
+**Orientation and Scaling, unchanged in spirit from v5.** `ShiftWorld` is still a non-issue (Thomas's
+`transform.position` is force-assigned in absolute world space every frame, never parented under
+`battlebg.btlRoot`) -- world coordinates are used verbatim. `Scaling` stays one constant piece at
+`THOMAS_SCALE=265` throughout (unchanged from every prior FLIGHT version -- apparent on-screen size is now
+controlled entirely through the per-keyframe DEPTH solve, not by varying the scale itself; `THOMAS_SCALE`
+must stay in sync between `build_thomas.py` and `flight_v7_solve.py`, both currently 265, cross-referenced
+in each file's own header comment).
+
+**Caveat.** Per this project's own video-for-visual-bugs law, a fresh capture of an actual cast is the real
+next check -- everything above is a DESIGN verified against the real camera log's OWN geometry
+(`matrix_solve.py`'s projection math + `flight_v7_solve.py`'s drift check), not a claim to have watched it
+play. Re-derive/retune with `py flight_v7_solve.py` (edit the `BEATS`/`ENTRANCE_NDC`/`DRIFT_LIMIT`
+constants at the top of that file, rerun, paste its printed `KEYFRAMES_V7` table into `build_thomas.py`).
+Deployed 2026-07-22 (`creature_manifest.sfxmodel` sha256
+`0e34c27758d3ad98bdb360c4500f5ce61225269331731d3b116f22dd3b3c447b`).
+
+<details>
+<summary>THE FLIGHT v5 -- TRACK BAHAMUT (superseded 2026-07-22 by v7 -- v5 was technically sound but reads as mostly off-screen; kept for the record)</summary>
+
 ### THE FLIGHT v5 -- 2026-07-22, TRACK BAHAMUT (THE FINAL SOLVE, supersedes v1-v4)
 
 **The corrected target (user insight).** The real Bahamut cinematic DELIBERATELY swoops the creature
@@ -441,6 +532,8 @@ behind-camera (depth<=0):
 
 </details>
 
+</details>
+
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
 alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
@@ -450,17 +543,18 @@ alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
 | File | What it is |
 |---|---|
 | `blender_normalize.py` | Committed, our script. Run ONCE (offline, via Blender) to produce `thomas_normalized.fbx` from the raw source. Never touches the repo. |
-| `matrix_solve.py` | Committed, our script -- **THE FLIGHT v5 (FINAL SOLVE) solver.** Parses the s50 probe's per-frame VIEW/PROJ/MESH, builds the 4x4 render matrices (numpy), exposes `project_world_to_ndc`/`world_from_ndc` (forward + off-center-frustum inverse, round-trip exact) both module-level and as frame-based `ProbeLog` methods, reconstructs Bahamut's per-frame world position (7-key pool-pollution median) + screen trajectory, and emits the `TRACKED_KEYFRAMES` table `build_thomas.py` bakes. Standalone: `py matrix_solve.py` self-tests + prints the analysis. |
-| `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the FLIGHT v5 `TRACKED_KEYFRAMES`/`ENTRANCE_ORIGIN`/`EXIT_DEST` constants (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
+| `matrix_solve.py` | Committed, our script -- the shared projection library (FLIGHT v5's own solver, still load-bearing). Parses the s50 probe's per-frame VIEW/PROJ/MESH, builds the 4x4 render matrices (numpy), exposes `project_world_to_ndc`/`world_from_ndc` (forward + off-center-frustum inverse, round-trip exact) both module-level and as frame-based `ProbeLog` methods. FLIGHT v7 (`flight_v7_solve.py`) imports these primitives directly rather than reimplementing them; v5's own `TRACKED_KEYFRAMES`-style Bahamut-tracking self-test is superseded but the projection math it's built on is not. Standalone: `py matrix_solve.py` self-tests + prints the (superseded) Bahamut-tracking analysis. |
+| `flight_v7_solve.py` | Committed, our script -- **THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION) solver**, current. Authors 18 story-beat targets (screen position + apparent height), solves each to a real-camera depth + world position via `matrix_solve`, then recursively bisects any segment whose real-camera drift would leave the frame until every segment verifies. Prints the pasteable `KEYFRAMES_V7` table `build_thomas.py` bakes, plus the camera hard-cut census and the final drift-verification report. Standalone: `py flight_v7_solve.py`. |
+| `thomas_manifest.sfxmodel` | Committed, 100% our JSON -- **GENERATED** by `build_thomas.py`'s `build_manifest_json()` from the FLIGHT v7 `KEYFRAMES_V7` constant (not hand-typed; the repo copy is kept in sync on every run so it stays git-diffable). Deployed as `ef084/creature_manifest.sfxmodel` (overwrites rung 7's Iviv-clone one there). |
 | `thomas_player_sequence.seq` | Committed, 100% our text -- the splice DELTA (not a standalone sequence; see its own header comment). `build_thomas.py` inserts it into a runtime copy of the real stock donor. |
-| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. Imports `viewspace_place.py` for THE FLIGHT v4's camera model. |
+| `build_thomas.py` | Fetches the real donor fresh from the install (sha256-guarded, never committed), splices, mints Thomas's GEO, deploys everything. `--hide-keys KEY1,KEY2,...` overrides `HIDE_KEYS` for one deploy (the s47 surgical key list above), `--calibrate` deploys with no `HideMeshes` at all. `--restore` undoes it. Bakes `KEYFRAMES_V7` (from `flight_v7_solve.py`'s own printed table) -- no live dependency on either solver script or the probe log at build time. |
 | `revert_thomas.py` | Alias of `build_thomas.py --restore` (house convention). |
-| `viewspace_place.py` | Committed, our script -- **SUPERSEDED by `matrix_solve.py` (FLIGHT v5).** Was FLIGHT v4's camera/projection model, built on an assumed-STATIC camera; the s50 probe disproved that premise (the render VIEW/PROJ pan + zoom -- see the FLIGHT v5 section). No longer imported by `build_thomas.py`; kept for the record. Its `render_camera_confirmed` docstring correctly flagged the very ambiguity v5 resolved. |
+| `viewspace_place.py` | Committed, our script -- **SUPERSEDED (v4, then v5, now v7).** Was FLIGHT v4's camera/projection model, built on an assumed-STATIC camera; the s50 probe disproved that premise. No longer imported by `build_thomas.py`; kept for the record. Its `render_camera_confirmed` docstring correctly flagged the very ambiguity v5/v7 resolved. |
 | `ef_camera_decode.py` | Our script -- parses the REAL `ef227.bytes` native camera container (extracted fresh from `resources.assets` via UnityPy each run, never committed) to recover the 3 real camera shots/2 real cuts FLIGHT v3 (superseded, see the collapsed history above) windowed its pieces against. Standalone; not called by `build_thomas.py`. |
-| `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see the collapsed history above) -- the same NO-GO is what THE FLIGHT v4's assumed-FOV design is built on top of. Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
+| `ef_camera_solve.py` | Our script -- reproduces the decompiled `FF9SpecialEffectPlugin.dll` spherical->Cartesian camera formula and validates it against `sfxmeshprobe.log`. Confirmed **NO-GO** (see the collapsed history above). Standalone; not called by `build_thomas.py`. Writes its own scratch-only CSV, never under this repo. |
 | `README.md` | This file. |
 
-None of these eight files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
+None of these files contain Square-Enix bytes or third-party asset bytes -- see "Provenance."
 
 ## Regenerating the normalized model
 
@@ -495,19 +589,15 @@ FIRST time.
 
 **Expect**: the full real Bahamut cinematic plays -- same chant, same camera cuts, same roars/flashes,
 same damage timing -- but the creature on screen is **Thomas the Tank Engine**, huge, upright, correctly
-textured, and now **TRACKING BAHAMUT'S OWN FLIGHT** (FLIGHT v5, see "THE FLIGHT v5 -- TRACK BAHAMUT"
-above): wherever Bahamut's body was on screen each frame, Thomas is -- entering, diving far away into the
-distance during the mid-cast dive (he goes small/deep, frames ~120-166), returning for the
-reign/charge/fire-column window, and -- crucially -- **going off-screen / off-frame exactly where the
-real cinematic sends the creature off-screen while the camera follows the blast** (that is FAITHFUL, not
-a bug; per matrix_solve.py Bahamut's own body is off-screen for most of the cast). Bahamut's own BODY mesh
-never appears at any point (his swirl/beam/fire-column EFFECT meshes should still be visible -- that's the
-whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes: the s47 surgical key list" above if
-they aren't), and no more standing stationary in front of Iviv. Because his facing is a fixed broadside
-yaw while the camera pans wildly, expect his presented side to vary shot to shot (the known open item in
-"THE FLIGHT v5" -- a per-frame camera-relative yaw is the next refinement); and expect him to visibly
-overflow the frame's LEFT/RIGHT edges when close, even while correctly sized -- that's his
-broadside length, not a bug.
+textured, and now **VISIBLE AND DRAMATIC THROUGHOUT** (FLIGHT v7, see "THE FLIGHT v7 -- IN-FRAME BY
+CONSTRUCTION" above): a swooping entrance from a frame edge, a big center-stage reign with gentle bob and
+a charge windup, a slow lateral pass, staying BIG AND PRESENT through the fire-column/aftermath window
+(430-540 -- the beats the user specifically liked, no receding away there), then a short exit at the end.
+His facing is now a PER-KEYFRAME broadside yaw computed against each frame's actual camera (not a fixed
+world angle), so his presented side should track the lens reasonably even as the camera cuts. Bahamut's
+own BODY mesh never appears at any point (his swirl/beam/fire-column EFFECT meshes should still be
+visible -- that's the whole point of the s47-probe-derived `HIDE_KEYS`; see "HideMeshes: the s47 surgical
+key list" above if they aren't), and no more standing stationary in front of Iviv.
 
 **If placement/motion/suppression is still off**: capture a short VIDEO of the cast (this project's
 own law -- `feedback-video-for-visual-bugs` -- behavior/positional bugs need footage, not a prose
@@ -516,24 +606,23 @@ description; a screenshot can't show a swoop, and can only show ONE instant of t
 hidden RIGHT NOW" but NOT for "does the flight read as flying" or "are the effects still there
 throughout" -- use a screen recorder (OBS, Xbox Game Bar `Win+Alt+R`, or any capture tool) for the
 whole ~40s of the cast (chant through the flare through the exit), so the next iteration can retune
-`build_thomas.py`'s named FLIGHT v4 constants (`VS_ENTRANCE_ORIGIN`, `VS_P1_DEST`..`VS_P8_DEST`,
-`TARGET_REIGN_FILL`, `YAW_BROADSIDE`, the 8 `*_DURATION`s) or `viewspace_place.DEFAULT_VFOV_DEG`/
-`DEFAULT_ASPECT`, or `HIDE_KEYS`, from what actually happened frame-by-frame, rather than from a
-re-guess.
+`flight_v7_solve.py`'s `BEATS` (per-beat ndc/height targets), `ENTRANCE_NDC`, or `DRIFT_LIMIT`, rerun it,
+and re-paste its printed `KEYFRAMES_V7` table into `build_thomas.py`, from what actually happened
+frame-by-frame rather than from a re-guess.
 
 ## Failure modes
 
 | Symptom | Meaning | What to check |
 |---|---|---|
-| **Full cinematic plays, Thomas visible/huge/upright/textured, TRACKING Bahamut's own flight (dives far away mid-cast, returns for the reign window, goes off-frame exactly where the real cinematic sends the creature off-screen), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
+| **Full cinematic plays, Thomas visible/huge/upright/textured, in-frame and dramatic throughout (swooping entrance, center-stage reign, lateral pass, big through the fire-column/aftermath, short exit), Bahamut's BODY mesh never appears, his swirl/beam/fire-column EFFECT meshes still do** | **SUCCESS** | -- |
 | The cinematic plays with the REAL camera/sounds/timing, but **Bahamut's native BODY mesh is still visible** (Thomas may or may not also be there) | `HideMeshes` didn't suppress the native body. Now much less likely than the old index-range guess (the s47 probe's `HIDE_KEYS` are the exact, confirmed keys of Bahamut's own 7 body meshes -- PROBE.md's round-1 results), but still possible if this engine build's `_key` values differ from the probe's own cast (a fresh calibration cast would confirm), or the argument name/syntax is subtly wrong | Re-check the deployed `ef084/PlayerSequence.seq`'s `PlaySFX: SFX=Bahamut__Full` line byte-for-byte against the diff above; capture video (behavior bugs need it, not screenshots); re-run `--calibrate` + the probe to re-derive the keys if needed |
 | Bahamut's body is correctly hidden, but **one of the kept effects (swirl/beam/fire-column/etc) also vanished** | One of `HIDE_KEYS`' 7 keys was misclassified as body when it's actually an effect (unlikely -- PROBE.md's round-1 classification found all 7 present together on 92.6% of frames, a strong rigid-body signal), or a round-2 candidate (`00BDBE00`/`0098BD0E`) was added to `--hide-keys` and turned out to be an effect after all | Capture video showing which specific effect is missing; drop the suspect key from `--hide-keys` and recast; see PROBE.md's round-2 protocol |
 | The cinematic plays, Bahamut's body is correctly hidden, but **Thomas never appears** | Either (a) the FileList.txt/manifest didn't resolve (re-check `ef084/FileList.txt` + `creature_manifest.sfxmodel` bytes match what's printed above), or (b) `GEO_MON_B0_M200` didn't resolve to id 6200 -- **the relaunch didn't happen, or happened before this deploy** (re-run `build_thomas.py`, then relaunch), or (c) the two-SFX coexistence has an untested interaction specific to a background `StartThread` (rung 7 proved the FileList.txt route in the MAIN thread only, never inside a `StartThread` block) | Confirm the relaunch happened AFTER this deploy; re-run `build_thomas.py` and check "directive_added"/the DictionaryPatch line is present; check the game log if reachable |
-| Thomas appears but **badly mispositioned** (off to one side, floating far away, only a sliver visible), OR the flight geometry just looks wrong for this arena's actual camera framing | THE FLIGHT v4 is a DESIGN built against an ASSUMED camera model (`viewspace_place.py`'s named FOV/aspect), not a measurement -- if the real per-frame render eye differs meaningfully from the static `CAM_POS`/`CAM_EULER_DEG` anchor (a confirmed-open possibility, see "THE FLIGHT v4" above's `render_camera_confirmed` note), every `VS_*` keyframe could be off by a consistent amount | Capture video (see above); retune `viewspace_place.DEFAULT_VFOV_DEG`/`DEFAULT_ASPECT` first (a global scale/shape fix), then individual `VS_*` keyframes, and rerun (recast-only, no relaunch) |
-| Thomas reads as **absurdly wide / clipped at the screen edges specifically during a REIGN piece** (P3-P7) | **Expected, named trade-off, see "THE FLIGHT v4" above**: at `YAW_BROADSIDE=90`, his ~2681-unit LENGTH sweeps world X (not Z) and only his ~926-unit WIDTH remains on Z -- at `REIGN_DEPTH≈2484` his half-length alone already exceeds the assumed frustum's horizontal half-extent, even though he's correctly sized to the requested frame-HEIGHT fill | Capture video of the reign pieces specifically; if it reads badly, retune `YAW_BROADSIDE` toward 0/180 (keeps the long axis on Z) or raise `TARGET_REIGN_FILL`'s effective depth (push `REIGN_DEPTH` out) |
-| Thomas still reads as **static / not "flying"** | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a piece's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 8 pieces (not 1, 3, 6, 11, or 13) via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
-| Thomas appears **on his side / rotated 90°**, or the broadside yaw looks wrong (facing away instead of showing his profile) during any reign | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR `YAW_BROADSIDE`'s sign is backwards for this camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try `YAW_BROADSIDE = -90` in `build_thomas.py`, rerun (recast-only) |
-| Thomas appears **tiny or absurdly, unusably huge** | `THOMAS_SCALE` (265) was miscalibrated for this arena's actual camera framing | Edit `THOMAS_SCALE` in `build_thomas.py`, rerun (recast-only) |
+| Thomas appears but **badly mispositioned or the wrong apparent size** at some point in the cast | The FLIGHT v7 depth/NDC solve for that keyframe was computed against `flight_v7_solve.py`'s own logged VIEW/PROJ for that frame -- if the engine's per-frame camera differs from the probe log this build was derived against (a different arena state, a stale/mismatched log), the solve would be off for that stretch. The drift-verification pass (61/61 segments, worst |ndc| 0.83) only guarantees the MEASURED log's own geometry, not a different session's | Capture video (see above); re-run `py flight_v7_solve.py` against a fresh `--calibrate` probe cast + re-paste `KEYFRAMES_V7` if the log has drifted; check specific keyframes' printed `ndc`/`height%`/depth against what's on screen at that frame |
+| Thomas reads as **too wide / clipped at the screen edges** during a big center-stage or fire-column keyframe | His broadside LENGTH (~2681 units at `THOMAS_SCALE=265`) can exceed the frame's horizontal extent even when correctly sized to the target HEIGHT fraction -- the same trade-off every prior FLIGHT version disclosed (a giant broadside train is wider than it is tall) | Capture video of the specific keyframe; if it reads badly, lower that keyframe's `height_frac` in `flight_v7_solve.BEATS` (pushes depth out) or reconsider `THOMAS_SCALE`, rerun both scripts |
+| Thomas still reads as **static / not "flying"** | Either this build didn't actually redeploy (rerun `build_thomas.py` and confirm the printed sha256 changed), or a piece's Duration is too short/subtle relative to what's actually visible during the donor's own blackout/flash windows | Capture video; check the deployed manifest's `Movement` array has 61 pieces via the printed sha256 or a direct read of `ef084/creature_manifest.sfxmodel` |
+| Thomas appears **on his side / rotated 90°**, or the broadside yaw looks wrong at some keyframe | The normalization step's core claim (baked, no runtime rotation needed) was wrong for this specific engine build, OR the per-keyframe yaw's `+90` choice (vs. `-90`) reads backwards for that particular camera angle -- re-open `blender_normalize.py`'s renders and the axis-verification table above | Compare against `view_front.png`/`view_top.png`/`view_side.png`; try flipping the `+90.0` in `flight_v7_solve.broadside_yaw_deg` to `-90.0`, rerun both scripts (recast-only) |
+| Thomas appears **tiny or absurdly, unusably huge** throughout | `THOMAS_SCALE` (265, must match between `build_thomas.py` and `flight_v7_solve.py`) was miscalibrated, or the two files' copies have drifted out of sync | Confirm both files' `THOMAS_SCALE` match; edit + rerun both (recast-only) |
 | The cast doesn't play at all / hangs | Something in the spliced `.seq` broke the DSL parser, or the background thread never resolves (`WaitSFXDone: SFX=84` blocking forever -- would only happen if `mesh.Begin()`/`Render()` threw before ever setting `ended`, an unhandled edge case) | `revert_thomas.py` immediately; the debug menu (`~`) may force past a stuck command state; worst case, full restart then revert |
 | The cinematic is missing beats / looks re-timed vs. the real Bahamut cast | The splice landed on the wrong anchor or duplicated `ef227/Sequence.seq`'s content (the `SkipSequence=True` guard failed) | Re-diff the deployed `ef084/PlayerSequence.seq` against the printed diff above; confirm no second `EffectPoint` pair fires (double damage numbers) |
 
