@@ -5,8 +5,12 @@
 #
 # WHY IT EXISTS: no stock FF9 field has a SILENT random battle -- every random-encounter field maps to
 # song 0 (the Battle Theme). This bench mints one via `battle_music = -1`, which emits `Battle: 67` /
-# `Music: -1` into BattlePatch.txt (BtlBgmPatcherMapper[67] = -1). With a FRESH warp (no resident field
-# BGM playing), the host's random battle plays NOTHING. It verifies the s40/s41 diorama BGM-carry's
+# `Music: -1` into BattlePatch.txt (BtlBgmPatcherMapper[67] = -1). `[music] stop = true` below makes the
+# FIELD SILENCE ITSELF on entry (RunSoundCode(265, 0xFFFF) == FF9SOUND_SONG_STOPCURRENT, prepended as
+# Main_Init's first instruction) -- so the bench no longer depends on a "warp in fresh, before any
+# resident BGM starts" precondition: it force-stops whatever was carried in (the host's own last field,
+# OR the guest's follow-warp source, e.g. Evil Forest's theme) every time, on ANY entry. With the carried
+# track killed, the random battle's `Music: -1` plays NOTHING. It verifies the s40/s41 diorama BGM-carry's
 # host-SILENT lane: the host wire ships sentinel 0xFFFE ("host audibly silent"), and the guest's battle
 # diorama must SUSPEND its own BGM and play nothing (NOT fall through to its local-BGM fallback, which
 # is the 0xFFFF "unknown" path). See BENCH.md.
@@ -48,11 +52,20 @@ z = 3000
 [player]
 spawn = [0, -837]
 
+# --- the field silences itself on ANY entry: no "warp in fresh" precondition needed ---
+# RunSoundCode(265, 0xFFFF) == FF9SOUND_SONG_STOPCURRENT(), prepended as Main_Init's first instruction --
+# the byte-true stock idiom (a census of all 818 real fields finds it used exactly this way, same 0xFFFF
+# sentinel, 3934 times) for unconditionally killing whatever BGM is currently resident, no song id needed.
+# See ff9mapkit/ff9mapkit/content/music.py (add_stop_current_music) + docs/FORMAT.md `[music] stop`.
+[music]
+stop = true
+
 # --- the whole point of the bench: random encounters that play NO battle music ---
 # scene 67 = Evil Forest / Trail, the game's FIRST and WEAKEST battles -- testers are not wiped mid-bench.
 # freq 200 (of 255; higher = more frequent) -> a fight fires within ~30 s of walking.
 # battle_music = -1 -> `Music: -1` (BtlBgmPatcherMapper[67] = -1) -> the encounter plays no special song;
-# warp in FRESH (before any resident BGM starts) and the battle is SILENT.
+# with [music] stop silencing whatever was carried in, the battle is SILENT on ANY entry (not just a
+# fresh warp).
 # The kit auto-adds the after-battle reinit handler this field needs (or the player freezes on return).
 [encounter]
 scene = 67

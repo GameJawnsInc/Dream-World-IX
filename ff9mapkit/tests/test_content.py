@@ -274,6 +274,31 @@ def test_music_on_entry_and_reinit():
     assert _ops(eb2, 0, 10)[0] == 0xC5               # RunSoundCode now first in tag-10
 
 
+def test_music_stop_current():
+    # RunSoundCode(265, 0xFFFF) -- FF9SOUND_SONG_STOPCURRENT() -- prepended as the literal FIRST
+    # instruction of Main_Init, unconditionally silencing whatever BGM is already resident.
+    out = music.add_stop_current_music(CLEAN)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                     # round-trips byte-exact
+    assert _ops(eb, 0, 0)[0] == 0xC5                 # RunSoundCode is the very first Main_Init opcode
+    mi = eb.entry(0).func_by_tag(0)
+    first = next(eb.instrs(mi))
+    assert (first.op, first.imm(0), first.imm(1)) == (0xC5, music.SONG_STOPCURRENT, 0xFFFF)
+    # byte-identical to the kit's OWN independently-verified warp idiom (content.event.WARP_SOUND --
+    # "the field-transition whoosh present byte-identically in EVERY real warp") -- same opcode+sentinel.
+    from ff9mapkit.content import event as _event
+    assert music.stop_current_music_bytes() == opcodes.run_sound_code(*_event.WARP_SOUND)
+    # composes with a field's OWN music: [music] stop THEN [music] song (build.py's real call order) --
+    # the stop stays the first Main_Init opcode, and the appended play is still wired via InitCode.
+    combo = music.add_field_music(music.add_stop_current_music(CLEAN), 9)
+    ceb = EbScript.from_bytes(combo)
+    assert ceb.to_bytes() == combo
+    assert _ops(ceb, 0, 0)[0] == 0xC5                 # stop still first...
+    assert 0x07 in _ops(ceb, 0, 0)                    # ...and the music entry's InitCode still activates
+    me = next(e for e in ceb.entries if not e.empty and e.type == 0 and e.index != 0)
+    assert _ops(ceb, me.index, 0)[0] == 0xC5          # the appended song-play entry itself intact
+
+
 def test_music_replace_field_music():
     # REPLACE the field BGM in place (the verbatim-fork rescore): every immediate field-BGM RunSoundCode --
     # the PLAY (code 0) AND the LOAD (code 1792) of the donor's song -> new, length-preserved, intact.

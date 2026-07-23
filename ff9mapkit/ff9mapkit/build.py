@@ -5722,6 +5722,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 pass
         eb = _reinit.add_reinit(eb, with_fade=True, prologue=_dr_prologue)
 
+    # [music] stop -- force-STOP whatever field/battle BGM is resident on room entry, unconditionally.
+    # Prepended LAST among Main_Init's rel_off=0 inserts (after [startup]/[party]/the walkmesh hotfix
+    # above), so its RunSoundCode(265, 0xFFFF) becomes the literal FIRST instruction Main_Init runs --
+    # no earlier code can let a carried-in resident song (from the previous field, or a battle) survive
+    # into this one. See content.music.add_stop_current_music for the byte-census grounding.
+    if project.raw.get("music", {}).get("stop"):
+        eb = _music.add_stop_current_music(eb)
+
     # field music (song is optional -- a [music] section with no song = no field music, skip it)
     if project.raw.get("music", {}).get("song") is not None:
         song = int(project.raw["music"]["song"])

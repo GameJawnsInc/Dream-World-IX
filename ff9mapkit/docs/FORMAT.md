@@ -1785,6 +1785,7 @@ rule this is not — a unit at 0 HP is dead before this check runs.
 | `file` | **your own track**: a path to an audio file (wav/mp3/ogg/flac/… — anything ffmpeg decodes), relative to this `field.toml`. The build transcodes it to Ogg Vorbis and **mints a brand-new song id** (≥ 1000) into the mod, then wires the field to play it. Needs `ffmpeg` on PATH (or `$FFMPEG`). Only consulted when `song` is **absent** — if both are set, `song` wins and `file` is ignored. Custom audio loads at game **startup**, so hear it after a restart (~ reload isn't enough). |
 | `loop_start` | with `file`: the loop point, in **samples**. Blank = the whole track loops. |
 | `loop_end` | with `file`: the loop end, in samples. Blank = the track's end. |
+| `stop` | **synthesize fields only.** `true` force-stops whatever field/battle BGM is currently resident on room entry — `RunSoundCode(265, 0xFFFF)` (`FF9SOUND_SONG_STOPCURRENT`), prepended as the literal first instruction of Main_Init. Kills the carried-in track from the *previous* field/battle unconditionally (no song id needed — it doesn't matter what was playing). Composes with `song`: `stop` fires first, then this field's own `song` (if any) starts on top. Without it, a field with no `song` of its own inherits whatever was already playing — FF9's normal resident-BGM behavior, which is usually what you want, but not for a field that must be silent (e.g. a `battle_music = -1` bench). |
 
 Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
 
