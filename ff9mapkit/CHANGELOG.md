@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — journey/campaign opens ~2x faster (the tomlcache seam)
+- **`tomlcache.load_toml`** — an mtime+size-keyed TOML parse cache at ONE seam: `campaign.load_campaign`,
+  `lint_campaign`'s member reads, and the Workspace flag-name annotator. A journey open was parsing
+  ~1850 tomls for ~890 distinct files (lint + overview + flag names each re-reading the same members);
+  repeats are now cheap private copies — every caller gets its OWN tree (lint's in-place flag-name
+  resolution can't poison the cache), an on-disk edit always re-parses (F5/build honesty), and
+  parse/IO errors propagate uncached. Bench (73-campaign arc, warm): open 1.18s → 0.79s, re-open
+  1.2s → 0.5s. `lint_campaign` also resolves the campaign dir once per lint instead of per member
+  (`_within(base_resolved=)` — `Path.resolve()` is syscall-priced on Windows).
+
 ### Added — THE MOGNET DONOR-FORK LANE (★ in-game proven): patch a real moogle field in place
 - **`tools/mognet_donor_patch.py` + `content/mognetdonor.py`** — the 42nd moogle becomes a full
   network citizen at a REAL donor field, generated from your own install at deploy time (nothing

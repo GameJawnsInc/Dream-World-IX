@@ -31,6 +31,7 @@ from . import chain
 from .flags import (CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, MOGNET_LOCK_HI, MOGNET_LOCK_LO,
                     READMAIL_PAYLOAD_HI, READMAIL_PAYLOAD_LO,
                     collect_flag_defs, resolve_project_flags)
+from .tomlcache import load_toml
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
 
@@ -457,8 +458,8 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
 def load_campaign(path) -> CampaignPlan:
     """Parse a campaign.toml back into a CampaignPlan (the inverse of render_campaign_toml). Members keep
     their FINAL ids + retargeted gateways (those live in the member field.tomls, not here)."""
-    with open(path, "rb") as fh:
-        data = tomllib.load(fh)
+    data = load_toml(path)   # mtime+size-cached: a journey open loads the same campaign.toml several times
+    #                          (lint + overview + flag names); an on-disk edit still re-parses
     if "campaign" not in data:
         raise CampaignError(f"{path}: not a campaign manifest (no [campaign] table)")
     c = data["campaign"]
@@ -772,17 +773,18 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                             f"campaign's edge; fork the next zone, or accept it as the boundary.")
 
     member_raw = {}                               # (e) member field.toml exists, within the campaign folder
+    base = manifest_dir.resolve()                 # once for the whole member loop (a journey lints 800+ members)
     for m in plan.members:
         p = manifest_dir / m.toml_rel
-        if not _within(manifest_dir, p):          # a crafted toml_rel ('../..') must not read outside
+        if not _within(base, p, base_resolved=True):   # a crafted toml_rel ('../..') must not read outside
             errors.append(f"member {m.name}: field.toml path escapes the campaign folder ({m.toml_rel})")
             continue
         if not p.is_file():
             errors.append(f"member {m.name}: field.toml not found at {p}")
             continue
         try:
-            with open(p, "rb") as fh:
-                member_raw[m.name] = tomllib.load(fh)
+            # cached parse, private copy -- (h) resolve_project_flags rewrites this dict in place
+            member_raw[m.name] = load_toml(p)
         except (OSError, tomllib.TOMLDecodeError) as ex:
             errors.append(f"member {m.name}: field.toml unreadable ({ex})")
 
@@ -1113,10 +1115,14 @@ def _next_member_id(plan: CampaignPlan) -> int:
     return max((m.new_id for m in plan.members), default=plan.id_base - 1) + 1
 
 
-def _within(base, path) -> bool:
+def _within(base, path, *, base_resolved=False) -> bool:
     """True if ``path`` resolves to ``base`` itself or somewhere inside it -- the guard that keeps a
-    crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign."""
-    base, path = Path(base).resolve(), Path(path).resolve()
+    crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign.
+    ``base_resolved=True``: ``base`` is already ``Path.resolve()``d -- a caller checking many members
+    against ONE base resolves it once instead of per member (``resolve()`` is syscall-priced on Windows)."""
+    if not base_resolved:
+        base = Path(base).resolve()
+    path = Path(path).resolve()
     return path == base or base in path.parents
 
 
