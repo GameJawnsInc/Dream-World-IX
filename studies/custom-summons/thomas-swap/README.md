@@ -189,7 +189,38 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
-### THE FLIGHT v8 -- 2026-07-23, HYBRID: real entrance + constructed reign (CURRENT, supersedes v7)
+### THE FLIGHT v9 -- 2026-07-23, MEASURED (CURRENT, supersedes v8) -- the creature's REAL screen path
+
+**The breakthrough.** The s53 probe (PROBE.md §11) + the FORMAT round found why v5/v7/v8 all failed: the
+creature projects through the plugin's own **native GTE** (world→view matrix `M` @0x1C1DC8 + OFX=160/OFY=120/H),
+NOT the managed Unity VIEW/PROJ (retracted — it failed 88.7% of frames). Reading out one s53 cast
+(`disasm/FORMAT.md` §5.4) settled it and, for the first time, **measured the creature's true per-frame screen
+position** — reproject its composed node-0 (`*(DATA+0x38)`) through `M` + the GTE:
+- the creature IS the single summon slot (`hasMotion=1` on `kind=S` only, 0 eff slots) — settled empirically;
+- the reprojection lands ON-SCREEN with **ZERO false positives** (every on-screen frame also has the body mesh
+  drawn) and **DEAD CENTER through the float/charge** (f288 ndc `(+0.00,-0.01)`, f300 `(0,0)`) — the exact
+  phase v8 had Thomas *absent* for.
+
+**v9 (`flight_v9_solve.py`, 334 keyframes):** for each reliable frame (82–412) it takes the creature's measured
+native screen NDC and **back-projects it through the MANAGED camera** (the one that renders Thomas, a managed
+Unity object) at `HEIGHT_FRAC=0.55` size — so Thomas lands where the real dragon was on screen, at a controlled
+size. **One keyframe per frame** in the measured window (the creature's world position back-projects to a
+different spot at each of the ~15 camera hard-cuts; interpolating across a cut is what swung the sparse version
+111× off-frame — a keyframe/frame removes the interpolation, so cuts render as faithful 1-frame cuts). A
+constructed lead-in flies him in from off-frame top; after frame 412 the creature stops being drawn (the camera
+leaves for the fire column — the user's phase 4), so Thomas holds and drifts off. The measured window verifies
+clean (0 high-drift segments, full camera coverage); the only "drift" is the intended off-screen exit.
+
+**Caveat** (video-for-visual-bugs): this is the first flight built from a *measurement*, but the native→managed
+handoff assumes native-NDC ≈ managed-NDC for the same on-screen pixel (true when both fill the same screen;
+a 4:3-vs-widescreen mismatch would shift the horizontal — the centered float/charge is aspect-invariant either
+way). A fresh capture is the real check. Re-derive: edit `flight_v9_solve.py`'s `HEIGHT_FRAC`/`NDC_CLAMP`, run
+it, re-bake into `build_thomas.py`. Deployed 2026-07-23.
+
+<details>
+<summary>THE FLIGHT v8 -- 2026-07-23, HYBRID (superseded same day by v9 -- it was built on the RETRACTED +0x40 anchor + the managed VIEW/PROJ; kept for the record)</summary>
+
+### THE FLIGHT v8 -- 2026-07-23, HYBRID: real entrance + constructed reign (was CURRENT, supersedes v7)
 
 **What changed.** The s52 ROOT probe (PROBE.md §10) captured Bahamut's real per-frame world transform.
 `root_reproject.py` + a camera-aim diagnostic established that the creature is actively posed (live ROOT)
@@ -568,6 +599,8 @@ behind-camera (depth<=0):
   `THOMAS_END=580`; no `ShiftWorld` op present anywhere in the deployed `.seq` (not merely
   structurally-unreachable -- literally absent); no binary stock bytes committed to the repo (`*.fbx`
   gitignored, `.seq` in-repo is a splice-fragment-plus-documentation, never the full donor file).
+
+</details>
 
 </details>
 
