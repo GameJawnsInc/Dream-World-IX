@@ -1,0 +1,1730 @@
+[
+ {
+  "op": 0,
+  "handler_x64": 61138,
+  "fn_x64": 11472,
+  "fn_x86": 10624,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 1,
+  "handler_x64": 61227,
+  "fn_x64": 11552,
+  "fn_x86": 10704,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 2,
+  "handler_x64": 61316,
+  "fn_x64": 195712,
+  "fn_x86": 150032,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 3,
+  "handler_x64": 61447,
+  "fn_x64": 262976,
+  "fn_x86": 194608,
+  "arity": 12,
+  "name": null
+ },
+ {
+  "op": 4,
+  "handler_x64": 61765,
+  "fn_x64": 291424,
+  "fn_x86": 212640,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 5,
+  "handler_x64": 61794,
+  "fn_x64": 14800,
+  "fn_x86": 13728,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 6,
+  "handler_x64": 61896,
+  "fn_x64": 88944,
+  "fn_x86": 77312,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 7,
+  "handler_x64": 61950,
+  "fn_x64": 12144,
+  "fn_x86": 11328,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 8,
+  "handler_x64": 62110,
+  "fn_x64": 14880,
+  "fn_x86": 13808,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 9,
+  "handler_x64": 62212,
+  "fn_x64": 15536,
+  "fn_x86": 14656,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 10,
+  "handler_x64": 62352,
+  "fn_x64": 12880,
+  "fn_x86": 12000,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 11,
+  "handler_x64": 62445,
+  "fn_x64": 100656,
+  "fn_x86": 84032,
+  "arity": 2,
+  "name": "Hi_StopSummonTexAnim"
+ },
+ {
+  "op": 12,
+  "handler_x64": 62482,
+  "fn_x64": 100512,
+  "fn_x86": 83920,
+  "arity": 3,
+  "name": "Hi_StartSummonTexAnim"
+ },
+ {
+  "op": 13,
+  "handler_x64": 62531,
+  "fn_x64": 12928,
+  "fn_x86": 12048,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 14,
+  "handler_x64": 62606,
+  "fn_x64": 12688,
+  "fn_x86": 11776,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 15,
+  "handler_x64": 62671,
+  "fn_x64": 12752,
+  "fn_x86": 11840,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 16,
+  "handler_x64": 62736,
+  "fn_x64": 12816,
+  "fn_x86": 11904,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 17,
+  "handler_x64": 64236,
+  "fn_x64": 12960,
+  "fn_x86": 12080,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 18,
+  "handler_x64": 62821,
+  "fn_x64": 12464,
+  "fn_x86": 11616,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 19,
+  "handler_x64": 62968,
+  "fn_x64": 89392,
+  "fn_x86": 77648,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 20,
+  "handler_x64": 74481,
+  "fn_x64": 0,
+  "fn_x86": 0,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 21,
+  "handler_x64": 63108,
+  "fn_x64": 88768,
+  "fn_x86": 77184,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 22,
+  "handler_x64": 63162,
+  "fn_x64": 89120,
+  "fn_x86": 77456,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 23,
+  "handler_x64": 63268,
+  "fn_x64": 89824,
+  "fn_x86": 77952,
+  "arity": 2,
+  "name": "Hi_RegisterSummonModel"
+ },
+ {
+  "op": 24,
+  "handler_x64": 63335,
+  "fn_x64": 90448,
+  "fn_x86": 78288,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 25,
+  "handler_x64": 63450,
+  "fn_x64": 96016,
+  "fn_x86": 81120,
+  "arity": 5,
+  "name": "Hi_DrawSummonModel"
+ },
+ {
+  "op": 26,
+  "handler_x64": 63582,
+  "fn_x64": 96784,
+  "fn_x86": 81728,
+  "arity": 2,
+  "name": "Hi_SetSummonMotion"
+ },
+ {
+  "op": 27,
+  "handler_x64": 74481,
+  "fn_x64": 99008,
+  "fn_x86": 82912,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 28,
+  "handler_x64": 63624,
+  "fn_x64": 88384,
+  "fn_x86": 76800,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 29,
+  "handler_x64": 63682,
+  "fn_x64": 88608,
+  "fn_x86": 76992,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 30,
+  "handler_x64": 63724,
+  "fn_x64": 88560,
+  "fn_x86": 76960,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 31,
+  "handler_x64": 63750,
+  "fn_x64": 88736,
+  "fn_x86": 77152,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 32,
+  "handler_x64": 63769,
+  "fn_x64": 99024,
+  "fn_x86": 82928,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 33,
+  "handler_x64": 63854,
+  "fn_x64": 99136,
+  "fn_x86": 82992,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 34,
+  "handler_x64": 63939,
+  "fn_x64": 111488,
+  "fn_x86": 93072,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 35,
+  "handler_x64": 64007,
+  "fn_x64": 111776,
+  "fn_x86": 93264,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 36,
+  "handler_x64": 74481,
+  "fn_x64": 12240,
+  "fn_x86": 11408,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 37,
+  "handler_x64": 64051,
+  "fn_x64": 113328,
+  "fn_x86": 94320,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 38,
+  "handler_x64": 64060,
+  "fn_x64": 111792,
+  "fn_x86": 93280,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 39,
+  "handler_x64": 64099,
+  "fn_x64": 111968,
+  "fn_x86": 93424,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 40,
+  "handler_x64": 64124,
+  "fn_x64": 111168,
+  "fn_x86": 92848,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 41,
+  "handler_x64": 74481,
+  "fn_x64": 99008,
+  "fn_x86": 82912,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 42,
+  "handler_x64": 64163,
+  "fn_x64": 111376,
+  "fn_x86": 92912,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 43,
+  "handler_x64": 64206,
+  "fn_x64": 251488,
+  "fn_x86": 187120,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 44,
+  "handler_x64": 64236,
+  "fn_x64": 12960,
+  "fn_x86": 12080,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 45,
+  "handler_x64": 64269,
+  "fn_x64": 134096,
+  "fn_x86": 109248,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 46,
+  "handler_x64": 64317,
+  "fn_x64": 134144,
+  "fn_x86": 109296,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 47,
+  "handler_x64": 64373,
+  "fn_x64": 134224,
+  "fn_x86": 109376,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 48,
+  "handler_x64": 64488,
+  "fn_x64": 133424,
+  "fn_x86": 108464,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 49,
+  "handler_x64": 64520,
+  "fn_x64": 133456,
+  "fn_x86": 108496,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 50,
+  "handler_x64": 64562,
+  "fn_x64": 133504,
+  "fn_x86": 108560,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 51,
+  "handler_x64": 64626,
+  "fn_x64": 133328,
+  "fn_x86": 108368,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 52,
+  "handler_x64": 64671,
+  "fn_x64": 133552,
+  "fn_x86": 108624,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 53,
+  "handler_x64": 64694,
+  "fn_x64": 133664,
+  "fn_x86": 108736,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 54,
+  "handler_x64": 64755,
+  "fn_x64": 246032,
+  "fn_x86": 183792,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 55,
+  "handler_x64": 64814,
+  "fn_x64": 246560,
+  "fn_x86": 184144,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 56,
+  "handler_x64": 64929,
+  "fn_x64": 248240,
+  "fn_x86": 185040,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 57,
+  "handler_x64": 65012,
+  "fn_x64": 248320,
+  "fn_x86": 185120,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 58,
+  "handler_x64": 65073,
+  "fn_x64": 248544,
+  "fn_x86": 185296,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 59,
+  "handler_x64": 65115,
+  "fn_x64": 249056,
+  "fn_x86": 185520,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 60,
+  "handler_x64": 65214,
+  "fn_x64": 249648,
+  "fn_x86": 185952,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 61,
+  "handler_x64": 65357,
+  "fn_x64": 250224,
+  "fn_x86": 186320,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 62,
+  "handler_x64": 65418,
+  "fn_x64": 250912,
+  "fn_x86": 186720,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 63,
+  "handler_x64": 65624,
+  "fn_x64": 258240,
+  "fn_x86": 191616,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 64,
+  "handler_x64": 65663,
+  "fn_x64": 258432,
+  "fn_x86": 191680,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 65,
+  "handler_x64": 65751,
+  "fn_x64": 101200,
+  "fn_x86": 84512,
+  "arity": 4,
+  "name": "Hi_ModifySummonModelRGB"
+ },
+ {
+  "op": 66,
+  "handler_x64": 65808,
+  "fn_x64": 259824,
+  "fn_x86": 193328,
+  "arity": 13,
+  "name": null
+ },
+ {
+  "op": 67,
+  "handler_x64": 66186,
+  "fn_x64": 261232,
+  "fn_x86": 193904,
+  "arity": 12,
+  "name": null
+ },
+ {
+  "op": 68,
+  "handler_x64": 66499,
+  "fn_x64": 263984,
+  "fn_x86": 195088,
+  "arity": 8,
+  "name": null
+ },
+ {
+  "op": 69,
+  "handler_x64": 66740,
+  "fn_x64": 264656,
+  "fn_x86": 195472,
+  "arity": 9,
+  "name": null
+ },
+ {
+  "op": 70,
+  "handler_x64": 66977,
+  "fn_x64": 266128,
+  "fn_x86": 196400,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 71,
+  "handler_x64": 67076,
+  "fn_x64": 267184,
+  "fn_x86": 196960,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 72,
+  "handler_x64": 67219,
+  "fn_x64": 267888,
+  "fn_x86": 197376,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 73,
+  "handler_x64": 67375,
+  "fn_x64": 269184,
+  "fn_x86": 198064,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 74,
+  "handler_x64": 67515,
+  "fn_x64": 270720,
+  "fn_x86": 198992,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 75,
+  "handler_x64": 67655,
+  "fn_x64": 273376,
+  "fn_x86": 200448,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 76,
+  "handler_x64": 67795,
+  "fn_x64": 275632,
+  "fn_x86": 201728,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 77,
+  "handler_x64": 67911,
+  "fn_x64": 276480,
+  "fn_x86": 202704,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 78,
+  "handler_x64": 67951,
+  "fn_x64": 279904,
+  "fn_x86": 205296,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 79,
+  "handler_x64": 68029,
+  "fn_x64": 206064,
+  "fn_x86": 155968,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 80,
+  "handler_x64": 68089,
+  "fn_x64": 206144,
+  "fn_x86": 156096,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 81,
+  "handler_x64": 68131,
+  "fn_x64": 206320,
+  "fn_x86": 156144,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 82,
+  "handler_x64": 68157,
+  "fn_x64": 213808,
+  "fn_x86": 160944,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 83,
+  "handler_x64": 68198,
+  "fn_x64": 213888,
+  "fn_x86": 161040,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 84,
+  "handler_x64": 68278,
+  "fn_x64": 214800,
+  "fn_x86": 161904,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 85,
+  "handler_x64": 68339,
+  "fn_x64": 215072,
+  "fn_x86": 162048,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 86,
+  "handler_x64": 68381,
+  "fn_x64": 215136,
+  "fn_x86": 162128,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 87,
+  "handler_x64": 68426,
+  "fn_x64": 218256,
+  "fn_x86": 163856,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 88,
+  "handler_x64": 68449,
+  "fn_x64": 218336,
+  "fn_x86": 163920,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 89,
+  "handler_x64": 68491,
+  "fn_x64": 229568,
+  "fn_x86": 171088,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 90,
+  "handler_x64": 68571,
+  "fn_x64": 296960,
+  "fn_x86": 216448,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 91,
+  "handler_x64": 68581,
+  "fn_x64": 297152,
+  "fn_x86": 216528,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 92,
+  "handler_x64": 68621,
+  "fn_x64": 297744,
+  "fn_x86": 216768,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 93,
+  "handler_x64": 68696,
+  "fn_x64": 298608,
+  "fn_x86": 217440,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 94,
+  "handler_x64": 68709,
+  "fn_x64": 198528,
+  "fn_x86": 150832,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 95,
+  "handler_x64": 68751,
+  "fn_x64": 198560,
+  "fn_x86": 150864,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 96,
+  "handler_x64": 68847,
+  "fn_x64": 198784,
+  "fn_x86": 150960,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 97,
+  "handler_x64": 68869,
+  "fn_x64": 198960,
+  "fn_x86": 151024,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 98,
+  "handler_x64": 68891,
+  "fn_x64": 199280,
+  "fn_x86": 151216,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 99,
+  "handler_x64": 68916,
+  "fn_x64": 199632,
+  "fn_x86": 151440,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 100,
+  "handler_x64": 68941,
+  "fn_x64": 96880,
+  "fn_x86": 81808,
+  "arity": 2,
+  "name": "Hi_SetSummonMotFrame"
+ },
+ {
+  "op": 101,
+  "handler_x64": 68980,
+  "fn_x64": 296608,
+  "fn_x86": 216240,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 102,
+  "handler_x64": 68990,
+  "fn_x64": 251904,
+  "fn_x86": 187504,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 103,
+  "handler_x64": 69029,
+  "fn_x64": 252576,
+  "fn_x86": 187664,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 104,
+  "handler_x64": 69071,
+  "fn_x64": 252800,
+  "fn_x86": 187760,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 105,
+  "handler_x64": 69081,
+  "fn_x64": 252816,
+  "fn_x86": 187776,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 106,
+  "handler_x64": 69106,
+  "fn_x64": 252912,
+  "fn_x86": 187888,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 107,
+  "handler_x64": 69119,
+  "fn_x64": 253472,
+  "fn_x86": 188448,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 108,
+  "handler_x64": 69129,
+  "fn_x64": 201680,
+  "fn_x86": 152496,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 109,
+  "handler_x64": 69139,
+  "fn_x64": 201712,
+  "fn_x86": 152528,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 110,
+  "handler_x64": 69164,
+  "fn_x64": 202016,
+  "fn_x86": 152848,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 111,
+  "handler_x64": 69174,
+  "fn_x64": 251504,
+  "fn_x86": 187152,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 112,
+  "handler_x64": 69214,
+  "fn_x64": 251584,
+  "fn_x86": 187232,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 113,
+  "handler_x64": 69254,
+  "fn_x64": 251808,
+  "fn_x86": 187408,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 114,
+  "handler_x64": 69297,
+  "fn_x64": 251856,
+  "fn_x86": 187456,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 115,
+  "handler_x64": 69320,
+  "fn_x64": 198176,
+  "fn_x86": 150576,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 116,
+  "handler_x64": 69330,
+  "fn_x64": 198320,
+  "fn_x86": 150672,
+  "arity": 0,
+  "name": null
+ },
+ {
+  "op": 117,
+  "handler_x64": 69340,
+  "fn_x64": 198384,
+  "fn_x86": 150736,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 118,
+  "handler_x64": 69382,
+  "fn_x64": 198416,
+  "fn_x86": 150768,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 119,
+  "handler_x64": 69424,
+  "fn_x64": 198448,
+  "fn_x86": 150800,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 120,
+  "handler_x64": 69447,
+  "fn_x64": 281136,
+  "fn_x86": 206144,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 121,
+  "handler_x64": 69470,
+  "fn_x64": 296800,
+  "fn_x86": 216320,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 122,
+  "handler_x64": 69480,
+  "fn_x64": 296768,
+  "fn_x86": 216288,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 123,
+  "handler_x64": 69502,
+  "fn_x64": 281936,
+  "fn_x86": 206432,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 124,
+  "handler_x64": 69512,
+  "fn_x64": 281952,
+  "fn_x86": 206448,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 125,
+  "handler_x64": 69537,
+  "fn_x64": 282016,
+  "fn_x86": 206512,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 126,
+  "handler_x64": 69562,
+  "fn_x64": 282048,
+  "fn_x86": 206544,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 127,
+  "handler_x64": 69603,
+  "fn_x64": 282464,
+  "fn_x86": 206848,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 128,
+  "handler_x64": 69644,
+  "fn_x64": 282816,
+  "fn_x86": 207152,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 129,
+  "handler_x64": 69702,
+  "fn_x64": 282864,
+  "fn_x86": 207184,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 130,
+  "handler_x64": 69743,
+  "fn_x64": 287520,
+  "fn_x86": 210176,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 131,
+  "handler_x64": 69825,
+  "fn_x64": 283472,
+  "fn_x86": 207440,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 132,
+  "handler_x64": 69866,
+  "fn_x64": 283776,
+  "fn_x86": 207664,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 133,
+  "handler_x64": 74481,
+  "fn_x64": 283808,
+  "fn_x86": 207696,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 134,
+  "handler_x64": 69891,
+  "fn_x64": 284608,
+  "fn_x86": 208352,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 135,
+  "handler_x64": 69949,
+  "fn_x64": 285040,
+  "fn_x86": 208608,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 136,
+  "handler_x64": 69991,
+  "fn_x64": 285312,
+  "fn_x86": 208736,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 137,
+  "handler_x64": 70033,
+  "fn_x64": 286944,
+  "fn_x86": 209872,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 138,
+  "handler_x64": 70075,
+  "fn_x64": 290432,
+  "fn_x86": 212128,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 139,
+  "handler_x64": 70097,
+  "fn_x64": 257984,
+  "fn_x86": 191472,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 140,
+  "handler_x64": 70173,
+  "fn_x64": 290928,
+  "fn_x86": 212384,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 141,
+  "handler_x64": 70195,
+  "fn_x64": 257744,
+  "fn_x86": 191408,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 142,
+  "handler_x64": 70253,
+  "fn_x64": 293376,
+  "fn_x86": 214048,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 143,
+  "handler_x64": 70313,
+  "fn_x64": 257456,
+  "fn_x86": 191296,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 144,
+  "handler_x64": 70407,
+  "fn_x64": 293696,
+  "fn_x86": 214320,
+  "arity": 7,
+  "name": null
+ },
+ {
+  "op": 145,
+  "handler_x64": 70543,
+  "fn_x64": 94608,
+  "fn_x86": 80384,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 146,
+  "handler_x64": 70659,
+  "fn_x64": 294448,
+  "fn_x86": 214592,
+  "arity": 14,
+  "name": null
+ },
+ {
+  "op": 147,
+  "handler_x64": 71005,
+  "fn_x64": 101104,
+  "fn_x86": 84432,
+  "arity": 2,
+  "name": "Hi_ModifySummonModelAbr"
+ },
+ {
+  "op": 148,
+  "handler_x64": 71044,
+  "fn_x64": 296160,
+  "fn_x86": 216016,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 149,
+  "handler_x64": 71067,
+  "fn_x64": 99760,
+  "fn_x86": 83248,
+  "arity": 3,
+  "name": "Hi_GetSummonBonePos"
+ },
+ {
+  "op": 150,
+  "handler_x64": 71125,
+  "fn_x64": 252640,
+  "fn_x86": 187712,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 151,
+  "handler_x64": 71147,
+  "fn_x64": 88480,
+  "fn_x86": 76896,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 152,
+  "handler_x64": 71169,
+  "fn_x64": 113120,
+  "fn_x86": 94160,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 153,
+  "handler_x64": 71208,
+  "fn_x64": 258976,
+  "fn_x86": 192320,
+  "arity": 11,
+  "name": null
+ },
+ {
+  "op": 154,
+  "handler_x64": 71465,
+  "fn_x64": 100752,
+  "fn_x86": 84112,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 155,
+  "handler_x64": 71504,
+  "fn_x64": 100848,
+  "fn_x86": 84192,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 156,
+  "handler_x64": 71579,
+  "fn_x64": 112064,
+  "fn_x86": 93504,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 157,
+  "handler_x64": 71618,
+  "fn_x64": 100320,
+  "fn_x86": 83760,
+  "arity": 2,
+  "name": "Hi_ShowSummonModelMesh"
+ },
+ {
+  "op": 158,
+  "handler_x64": 71657,
+  "fn_x64": 100416,
+  "fn_x86": 83840,
+  "arity": 2,
+  "name": "Hi_HideSummonModelMesh"
+ },
+ {
+  "op": 159,
+  "handler_x64": 71696,
+  "fn_x64": 15024,
+  "fn_x86": 13968,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 160,
+  "handler_x64": 71719,
+  "fn_x64": 112848,
+  "fn_x86": 93952,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 161,
+  "handler_x64": 71758,
+  "fn_x64": 112752,
+  "fn_x86": 93872,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 162,
+  "handler_x64": 71783,
+  "fn_x64": 92144,
+  "fn_x86": 79184,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 163,
+  "handler_x64": 71859,
+  "fn_x64": 93376,
+  "fn_x86": 79840,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 164,
+  "handler_x64": 71978,
+  "fn_x64": 99888,
+  "fn_x86": 83360,
+  "arity": 3,
+  "name": "Hi_GetSummonBoneMatrix"
+ },
+ {
+  "op": 165,
+  "handler_x64": 72036,
+  "fn_x64": 12240,
+  "fn_x86": 11408,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 166,
+  "handler_x64": 72118,
+  "fn_x64": 12256,
+  "fn_x86": 11424,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 167,
+  "handler_x64": 72179,
+  "fn_x64": 86528,
+  "fn_x86": 75440,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 168,
+  "handler_x64": 72218,
+  "fn_x64": 284144,
+  "fn_x86": 207984,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 169,
+  "handler_x64": 72259,
+  "fn_x64": 284368,
+  "fn_x86": 208144,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 170,
+  "handler_x64": 72300,
+  "fn_x64": 283584,
+  "fn_x86": 207536,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 171,
+  "handler_x64": 72341,
+  "fn_x64": 89616,
+  "fn_x86": 77808,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 172,
+  "handler_x64": 72405,
+  "fn_x64": 247136,
+  "fn_x86": 184512,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 173,
+  "handler_x64": 72464,
+  "fn_x64": 247600,
+  "fn_x86": 184752,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 174,
+  "handler_x64": 72506,
+  "fn_x64": 285360,
+  "fn_x86": 208784,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 175,
+  "handler_x64": 72564,
+  "fn_x64": 286608,
+  "fn_x86": 209632,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 176,
+  "handler_x64": 72603,
+  "fn_x64": 289968,
+  "fn_x86": 211968,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 177,
+  "handler_x64": 72660,
+  "fn_x64": 99392,
+  "fn_x86": 83088,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 178,
+  "handler_x64": 72718,
+  "fn_x64": 99504,
+  "fn_x86": 83152,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 179,
+  "handler_x64": 72776,
+  "fn_x64": 245568,
+  "fn_x86": 183504,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 180,
+  "handler_x64": 72815,
+  "fn_x64": 205536,
+  "fn_x86": 155520,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 181,
+  "handler_x64": 72854,
+  "fn_x64": 205584,
+  "fn_x86": 155584,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 182,
+  "handler_x64": 72876,
+  "fn_x64": 205728,
+  "fn_x86": 155728,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 183,
+  "handler_x64": 72936,
+  "fn_x64": 288368,
+  "fn_x86": 210800,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 184,
+  "handler_x64": 72978,
+  "fn_x64": 12240,
+  "fn_x86": 11408,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 185,
+  "handler_x64": 73019,
+  "fn_x64": 100928,
+  "fn_x86": 84272,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 186,
+  "handler_x64": 73059,
+  "fn_x64": 286752,
+  "fn_x86": 209744,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 187,
+  "handler_x64": 73098,
+  "fn_x64": 113024,
+  "fn_x86": 94080,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 188,
+  "handler_x64": 73137,
+  "fn_x64": 288976,
+  "fn_x86": 211344,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 189,
+  "handler_x64": 73159,
+  "fn_x64": 296816,
+  "fn_x86": 216336,
+  "arity": 8,
+  "name": null
+ },
+ {
+  "op": 190,
+  "handler_x64": 73321,
+  "fn_x64": 281184,
+  "fn_x86": 206176,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 191,
+  "handler_x64": 73370,
+  "fn_x64": 97072,
+  "fn_x86": 81968,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 192,
+  "handler_x64": 73412,
+  "fn_x64": 12240,
+  "fn_x86": 11408,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 193,
+  "handler_x64": 73454,
+  "fn_x64": 96992,
+  "fn_x86": 81888,
+  "arity": 3,
+  "name": null
+ },
+ {
+  "op": 194,
+  "handler_x64": 74481,
+  "fn_x64": 99008,
+  "fn_x86": 82912,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 195,
+  "handler_x64": 73512,
+  "fn_x64": 12240,
+  "fn_x86": 11408,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 196,
+  "handler_x64": 73612,
+  "fn_x64": 98304,
+  "fn_x86": 82480,
+  "arity": 5,
+  "name": null
+ },
+ {
+  "op": 197,
+  "handler_x64": 73712,
+  "fn_x64": 101280,
+  "fn_x86": 84592,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 198,
+  "handler_x64": 73737,
+  "fn_x64": 101376,
+  "fn_x86": 84672,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 199,
+  "handler_x64": 73762,
+  "fn_x64": 91504,
+  "fn_x86": 78784,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 200,
+  "handler_x64": 73857,
+  "fn_x64": 101008,
+  "fn_x86": 84352,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 201,
+  "handler_x64": 73913,
+  "fn_x64": 201968,
+  "fn_x86": 152800,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 202,
+  "handler_x64": 73935,
+  "fn_x64": 111872,
+  "fn_x86": 93344,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 203,
+  "handler_x64": 73960,
+  "fn_x64": 113200,
+  "fn_x86": 94224,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 204,
+  "handler_x64": 73985,
+  "fn_x64": 245968,
+  "fn_x86": 183728,
+  "arity": 6,
+  "name": null
+ },
+ {
+  "op": 205,
+  "handler_x64": 74103,
+  "fn_x64": 244960,
+  "fn_x86": 182960,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 206,
+  "handler_x64": 74142,
+  "fn_x64": 291472,
+  "fn_x86": 212672,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 207,
+  "handler_x64": 74185,
+  "fn_x64": 288912,
+  "fn_x86": 211264,
+  "arity": 2,
+  "name": null
+ },
+ {
+  "op": 208,
+  "handler_x64": 74227,
+  "fn_x64": 291632,
+  "fn_x86": 212816,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 209,
+  "handler_x64": 74481,
+  "fn_x64": 99008,
+  "fn_x86": 82912,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 210,
+  "handler_x64": 74306,
+  "fn_x64": 206000,
+  "fn_x86": 155920,
+  "arity": 4,
+  "name": null
+ },
+ {
+  "op": 211,
+  "handler_x64": 74381,
+  "fn_x64": 287984,
+  "fn_x86": 210480,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 212,
+  "handler_x64": 74388,
+  "fn_x64": 205408,
+  "fn_x86": 155440,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 213,
+  "handler_x64": 74407,
+  "fn_x64": 287392,
+  "fn_x86": 210080,
+  "arity": 1,
+  "name": null
+ },
+ {
+  "op": 214,
+  "handler_x64": 74481,
+  "fn_x64": 99008,
+  "fn_x86": 82912,
+  "arity": null,
+  "name": null
+ },
+ {
+  "op": 215,
+  "handler_x64": 74426,
+  "fn_x64": 101600,
+  "fn_x86": 84752,
+  "arity": 1,
+  "name": null
+ }
+]
