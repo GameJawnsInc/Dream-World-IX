@@ -130,6 +130,83 @@ def test_jump_without_a_region_is_not_navigable():
     assert eventscan.scan_jumps(eb) == []                            # no region -> not extracted
 
 
+# --- the from-scratch generator (jump_arc_body) -------------------------------------------
+# The template is byte-grounded on field 301 (all 6 real arcs regenerate byte-identically from
+# their landing points -- verified against the install 2026-07-22); these tests pin the same
+# template with SYNTHETIC coords (provenance-clean).
+IC_TEMPLATE_OPS = [0x9B, 0x50, 0x9C, 0xC8, 0xE2, 0xDC, 0x42, 0xC8, 0x9D, 0x41]   # one hop
+IC_TAIL_OPS = [0xA8, 0x04]                                                        # SetPathing + RETURN
+
+
+def _ops(body: bytes) -> list:
+    from ff9mapkit.eb.disasm import read_code
+    out, pos = [], 0
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        out.append(ins.op)
+        pos = nxt
+    return out
+
+
+def test_generated_arc_matches_the_census_modal_template():
+    body = _jump.jump_arc_body((-301, -4548, 251))
+    assert _ops(body) == IC_TEMPLATE_OPS + IC_TAIL_OPS
+    # the hop's SetupJump carries the landing point (x, -y, z) at the default 11 steps
+    from ff9mapkit.eb.disasm import read_code
+    pos, found = 0, None
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        if ins.op == 0xE2:
+            found = ins.args
+        pos = nxt
+    s16 = lambda v: v - 65536 if v >= 32768 else v
+    x, ry, z, st = found
+    assert (s16(x), s16(ry), s16(z), st) == (-301, -251, -4548, 11)   # arg order (x, -y, z, steps)
+
+
+def test_generated_two_hop_arc_and_per_hop_steps():
+    body = _jump.jump_arc_body((-61, -1602, 1120), via=[(142, -2137, 863)], steps=[11, 8])
+    assert _ops(body) == IC_TEMPLATE_OPS * 2 + IC_TAIL_OPS
+    from ff9mapkit.eb.disasm import read_code
+    steps, pos = [], 0
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        if ins.op == 0xE2:
+            steps.append(ins.args[3])
+        pos = nxt
+    assert steps == [11, 8]
+
+
+def test_generated_arc_no_sfx():
+    body = _jump.jump_arc_body((100, 200), sfx=False)
+    assert 0xC8 not in _ops(body)
+    assert _ops(body) == [op for op in IC_TEMPLATE_OPS if op != 0xC8] + IC_TAIL_OPS
+
+
+def test_generated_steps_list_length_mismatch():
+    import pytest
+    with pytest.raises(ValueError, match="steps list"):
+        _jump.jump_arc_body((0, 0), via=[(1, 1)], steps=[5])
+
+
+def test_inject_generated_jump_roundtrips_and_scans_navigable():
+    # the generated arc is self-contained, so scan_jumps must extract it right back
+    eb = _jump.ensure_jump_animation(CLEAN)
+    eb, _ = _jump.inject_jump(eb, ZONE, to=(120, 240, 0), jump_tag=_jump.FIRST_JUMP_TAG)
+    out = eventscan.scan_jumps(eb)
+    assert len(out) == 1
+    assert bytes(out[0]["jump"]) == _jump.jump_arc_body((120, 240, 0))
+
+
+def test_inject_jump_requires_exactly_one_arc_source():
+    import pytest
+    eb = _jump.ensure_jump_animation(CLEAN)
+    with pytest.raises(ValueError, match="exactly one"):
+        _jump.inject_jump(eb, ZONE, _arc(), to=(1, 2))
+    with pytest.raises(ValueError, match="exactly one"):
+        _jump.inject_jump(eb, ZONE)
+
+
 # --- the built script parses + carries the player jump function ---------------------------
 def test_built_field_parses_and_has_player_jump_func():
     eb = _jump.ensure_jump_animation(CLEAN)
@@ -166,6 +243,46 @@ def test_build_field_with_jump(tmp_path):
     pe = find_player_entry(s)
     assert s.entry(pe).func_by_tag(_jump.FIRST_JUMP_TAG) is not None
     assert any(i.op == _jump.SET_JUMP_ANIM_OP for i in s.instrs(s.entry(pe).func_by_tag(0)))
+
+
+def test_build_field_with_generated_jump(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "g.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "G"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[jump]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nto = [120, 240]\nsteps = 8\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "jump" in x.lower()]   # lint clean
+    eb = build.build_script(proj, "us", {})
+    scanned = eventscan.scan_jumps(eb)
+    assert len(scanned) == 1
+    assert bytes(scanned[0]["jump"]) == _jump.jump_arc_body((120, 240), steps=8)
+
+
+def test_validate_flags_generated_jump_problems(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid = 4003\nname = "B"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\nfov = 42.2\n\n'
+            '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n')
+    zone = 'zone = [[10,-10],[50,-10],[50,-50],[10,-50]]\n'
+    # both jump= and to= -> exactly-one error
+    p = tmp_path / "both.field.toml"
+    p.write_text(base + '[[jump]]\n' + zone + 'jump = "j0.bin"\nto = [1, 2]\n', encoding="utf-8")
+    assert any("exactly one" in x for x in build.validate(build.FieldProject.load(p)))
+    # bad point shape + bad steps
+    p2 = tmp_path / "pts.field.toml"
+    p2.write_text(base + '[[jump]]\n' + zone + 'to = [1]\nsteps = 0\n', encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p2))
+    assert any("to/via points" in x for x in probs)
+    assert any("steps must be 1-255" in x for x in probs)
+    # per-hop steps list length mismatch
+    p3 = tmp_path / "st.field.toml"
+    p3.write_text(base + '[[jump]]\n' + zone + 'to = [1, 2]\nsteps = [5, 6]\n', encoding="utf-8")
+    assert any("steps list" in x for x in build.validate(build.FieldProject.load(p3)))
 
 
 def test_validate_flags_bad_jump(tmp_path):
