@@ -1192,6 +1192,39 @@ zone = [[-400, -900], [400, -900], [400, -500], [-400, -500]]
 
 ---
 
+### `[[synthesis_edit]]` — retune or remove a VANILLA synthesis recipe
+
+The engine merges `Synthesis.csv` by id **whole-row**, so a base recipe (ids 0-63 vanilla) can be **overridden**:
+the kit re-emits the base row with only the cells you change. `[[synthesis]]` *adds* recipes; `[[synthesis_edit]]`
+*changes* the 64 the game ships.
+
+```toml
+[[synthesis_edit]]
+recipe = "Butterfly Sword"        # the base recipe: its RESULT item's name, or the recipe's integer Id (0-63)
+price = 500                       # any of these four, each optional (at least one):
+ingredients = ["Dagger", "Dagger"]   # FULL replacement — duplicates matter (need 2 Daggers)
+result = "Mythril Sword"          # change what it produces
+shops = [37, 38]                  # FULL replacement of which synthesists list it (32..255)
+
+[[synthesis_edit]]
+recipe = "Pumice"                 # too strong for your campaign?
+remove = true                     # unlist it from EVERY synthesist (exclusive with the other keys)
+```
+
+- **Selector:** a **string** = the recipe's *result item* name (unambiguous in vanilla — each of the 64 recipes
+  produces a distinct item); an **integer** = the recipe's own `Id` column. Lint checks the selector against your
+  install's base file when reachable (unknown / ambiguous selectors are flagged).
+- **`remove` mechanism:** the override row ships an **empty `Shops` cell** — `CsvParser.Int32Array("")` parses to
+  an empty list and `ShopUI.InitializeMixList` only shows rows whose `Shops` contains the open shop's id, so no
+  synthesist offers it (the row itself stays defined — harmless to every other engine reader).
+- **`shops` values** must be synth ids (`32..255`): `0-31` are base buy shops and never open as Synthesis, and a
+  value that is also a `[[shop]]` id would open as a *buy* shop there (both linted). You may point a vanilla
+  recipe at your own custom synthesist — e.g. `shops = [40]` moves Save the Queen to *your* shop only.
+- **Edits coalesce:** the same recipe edited in several blocks/fields merges (later blocks win per key — warned).
+- Same footing as `[[synthesis]]`: mod-global CSV, **RELAUNCH to apply**, needs a reachable install at build time.
+
+---
+
 ## `[[weapon]]` / `[[armor]]` / `[[item]]` / `[[equip_bonus]]` — tune EXISTING item stats (optional, repeatable)
 
 **Rebalance gear** — change a weapon's power, an armor's defence, an item's price, or an item's **equip stat bonus**.

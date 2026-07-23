@@ -1811,6 +1811,96 @@ def validate(project: FieldProject) -> list[str]:
         z = b.get("zone")
         if z is not None and (not isinstance(z, (list, tuple)) or len(z) not in (4, 5)):
             problems.append(f"[[synthesis]] shop {sid} zone must have 4 or 5 points (the press area)")
+    # vanilla-recipe edits ([[synthesis_edit]]: retune/remove a base Synthesis.csv recipe via whole-row override).
+    # The selector check against the base file is best-effort (needs the install, like itemstats); the value
+    # checks are offline.
+    synth_edit_blocks = project.raw.get("synthesis_edit", [])
+    _synth_base = _synthesis.install_base_rows() if synth_edit_blocks else None
+    for i, b in enumerate(synth_edit_blocks):
+        if not isinstance(b, dict):
+            problems.append(f"[[synthesis_edit]] #{i} must be a table (recipe = ..., then "
+                            f"price/ingredients/result/shops or remove = true)")
+            continue
+        sel = b.get("recipe")
+        label = f"[[synthesis_edit]] #{i}"
+        if sel is None or isinstance(sel, bool) or not isinstance(sel, (int, str)):
+            problems.append(f"{label} needs `recipe` -- the base recipe's RESULT item name, or its integer Id")
+        else:
+            label = f"[[synthesis_edit]] recipe {sel!r}"
+            if isinstance(sel, str):
+                try:
+                    _items.resolve(sel)                     # the item NAME resolves offline
+                except (ValueError, IndexError, TypeError) as e:
+                    problems.append(f"{label}: {e}")
+                else:
+                    if _synth_base is not None:
+                        m = _synthesis.resolve_recipe_selector(sel, _synth_base)
+                        if not m:
+                            problems.append(f"{label} matches no base recipe (no vanilla recipe produces it)")
+                        elif len(m) > 1:
+                            problems.append(f"{label} is ambiguous (base recipe ids {', '.join(map(str, m))} "
+                                            f"all produce it) -- select by integer Id")
+            else:
+                if sel < 0:
+                    problems.append(f"{label}: a recipe Id cannot be negative")
+                elif _synth_base is not None and sel not in _synth_base:
+                    problems.append(f"{label} is not a base recipe Id (the base file has "
+                                    f"0..{max(_synth_base, default=-1)}; an integer selects the recipe's Id, "
+                                    f"a string its RESULT item's name)")
+        edits_present = [k for k in ("price", "ingredients", "result", "shops") if k in b]
+        rm = b.get("remove")
+        if rm is not None and not isinstance(rm, bool):
+            problems.append(f"{label} remove must be true/false, got {rm!r}")
+        if rm is True and edits_present:
+            problems.append(f"{label}: remove = true is exclusive -- drop {', '.join(edits_present)} "
+                            f"(a removed recipe's other cells are irrelevant)")
+        if not edits_present and not rm:
+            problems.append(f"{label} has nothing to change -- set price/ingredients/result/shops, "
+                            f"or remove = true")
+        price = b.get("price")
+        if price is not None:
+            if isinstance(price, bool) or not isinstance(price, int):
+                problems.append(f"{label} price must be an integer, got {price!r}")
+            elif price < 0:
+                problems.append(f"{label} price cannot be negative")
+        if "result" in b:
+            try:
+                if _items.resolve(b["result"]) == _synthesis.NO_ITEM:
+                    problems.append(f"{label} result is NoItem (255) -- use remove = true to retire the recipe")
+            except (ValueError, IndexError, TypeError) as e:
+                problems.append(f"{label} result: {e}")
+        ingr = b.get("ingredients")
+        if ingr is not None:
+            if not isinstance(ingr, (list, tuple)):         # a bare string iterates char-by-char -> guard first
+                problems.append(f"{label} ingredients must be a list of items")
+            elif not ingr:
+                problems.append(f"{label} ingredients cannot be empty (a recipe needs >= 1 real ingredient)")
+            else:
+                resolved = []
+                for it in ingr:
+                    try:
+                        resolved.append(_items.resolve(it))
+                    except (ValueError, IndexError, TypeError) as e:
+                        problems.append(f"{label} ingredients: {e}")
+                if resolved and all(x == _synthesis.NO_ITEM for x in resolved):
+                    problems.append(f"{label} ingredients are all NoItem (255)")
+        shops = b.get("shops")
+        if shops is not None:
+            if not isinstance(shops, (list, tuple)):
+                problems.append(f"{label} shops must be a list of synth-shop ids")
+            elif not shops:
+                problems.append(f"{label} shops = [] unlists the recipe everywhere -- say remove = true instead")
+            else:
+                for s in shops:
+                    if isinstance(s, bool) or not isinstance(s, int) \
+                            or not (_synthesis.FIRST_SYNTH_SHOP <= s <= _synthesis.MAX_SHOP_ID):
+                        problems.append(f"{label} shops entry {s!r} must be a shop id "
+                                        f"{_synthesis.FIRST_SYNTH_SHOP}..{_synthesis.MAX_SHOP_ID} "
+                                        f"(0-{_synthesis.FIRST_SYNTH_SHOP - 1} are base BUY shops and never "
+                                        f"open as Synthesis)")
+                    elif s in shop_ids_local:
+                        problems.append(f"{label} shops entry {s} is also a [[shop]] id -- it opens as a BUY "
+                                        f"shop, so the recipe would not show there")
     choice_npcs = {ch["npc"] for ch in project.raw.get("choice", []) if "npc" in ch}
     for i, n in enumerate(project.raw.get("npc", [])):     # a shopkeeper NPC ([[npc]] opens_shop = id)
         os_ = n.get("opens_shop")
@@ -7419,10 +7509,11 @@ def _emit_shops(projects, layout) -> list:
 
 def _emit_synthesis(projects, layout) -> list:
     """Emit the mod-GLOBAL synthesis-recipe delta (``Data/Items/Synthesis.csv``) from every built field's
-    ``[[synthesis]]`` blocks. Recipes are minted above the base max + merged by id, so any field may add its own.
-    A synth shop id (``Menu(2, id)``) must NOT also be a ``[[shop]]`` buy id -- an id present in ShopItems.csv
-    opens as a BUY shop, so the recipes would not show; warned. No ``[[synthesis]]`` anywhere -> no file written.
-    Reads the install's base ``Synthesis.csv``; no install -> warn + skip. Returns warnings."""
+    ``[[synthesis]]`` + ``[[synthesis_edit]]`` blocks. New recipes are minted above the base max; an edited
+    VANILLA recipe re-emits its base row with the changed cells (whole-row-wins merge by id). A synth shop id
+    (``Menu(2, id)``) must NOT also be a ``[[shop]]`` buy id -- an id present in ShopItems.csv opens as a BUY
+    shop, so the recipes would not show; warned. No blocks anywhere -> no file written. Reads the install's
+    base ``Synthesis.csv``; no install -> warn + skip. Returns warnings."""
     warnings: list = []
     shop_ids = set()
     for p in projects:
@@ -7444,11 +7535,14 @@ def _emit_synthesis(projects, layout) -> list:
                 warnings.append(f"[[synthesis]] shop {sid} is ALSO a [[shop]] buy id -- a shop id present in "
                                 f"ShopItems.csv opens as a BUY shop, so the recipes would NOT show (use a free id)")
             blocks.append(b)
-    if blocks:
+    edit_blocks = [b for p in projects for b in p.raw.get("synthesis_edit", []) if isinstance(b, dict)]
+    if blocks or edit_blocks:
+        notes: list = []                                    # edit-side skip/merge notes -> build warnings
         try:
-            _synthesis.write_synthesis(layout, blocks)
+            _synthesis.write_synthesis(layout, blocks, edit_blocks=edit_blocks, notes=notes)
         except ValueError as e:                             # e.g. no install to read the base Synthesis.csv
             warnings.append(f"synthesis recipes skipped: {e}")
+        warnings.extend(notes)
     return warnings
 
 
