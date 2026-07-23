@@ -1,0 +1,220 @@
+"""Fences for the World tab (:mod:`ff9mapkit.workspace.worlddoc`).
+
+The two laws this surface exists to keep are fenced FIRST, and both are the study's recurring
+diseases: construction/tab-show must do NO filesystem work (the startup-spend law), and nothing here
+may ever resolve the developer's real install (the round-9 isolation law) -- every game path in this
+file is a pinned tmp tree, and the doc's ``game_path_fn`` seam is how tests, snaps, and production
+share one code path. Width constants are never asserted (offscreen lies about width); counts, colours,
+states, and relationships only.
+"""
+
+from __future__ import annotations
+
+import os
+import struct
+
+import pytest
+
+pytest.importorskip("PySide6", reason="GUI extra not installed")
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
+
+from PySide6.QtWidgets import QApplication, QPushButton                        # noqa: E402
+
+from ff9mapkit import config                                                   # noqa: E402
+from ff9mapkit.editor.theme import pick_palette                                # noqa: E402
+from ff9mapkit.workspace import worldscan                                      # noqa: E402
+from ff9mapkit.workspace.worlddoc import AtlasCanvas, WorldDoc                 # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def app():
+    return QApplication.instance() or QApplication([])
+
+
+def _mesh_bytes(vcount=12, icount=12, *, salt=0):
+    out = bytearray(b"F9WM")
+    out += struct.pack("<iiii", 1, vcount, icount, 0)
+    for i in range(vcount):
+        out += struct.pack("<3f", float(i + salt), 0.0, float(i))
+    out += struct.pack("<%di" % icount, *([0] * icount))
+    return bytes(out)
+
+
+def _put(mod, bx, by, name, data, disc=1):
+    d = mod / "FF9_Data" / "WorldMap" / f"Disc{disc}" / "0_1" / f"r{by}"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"Block[{bx}][{by}] {name}"
+    p.write_bytes(data) if isinstance(data, bytes) else p.write_text(data, encoding="utf-8")
+    return p
+
+
+def _fake_game(tmp_path):
+    """A pinned install: FF9CustomMap-world with two adjacent land blocks (one donor'd, one with a
+    stale Disc4 mirror) and one water-carry cell -- every visual state the atlas encodes, in three cells."""
+    game = tmp_path / "game"
+    mod = game / "FF9CustomMap-world"
+    t1 = _mesh_bytes(vcount=300, icount=2139)
+    _put(mod, 3, 17, "Terrain.ff9mesh", t1)
+    _put(mod, 3, 17, "Object.ff9mesh", _mesh_bytes(vcount=40, icount=366))
+    _put(mod, 3, 17, "Donor.txt", b"0,0")
+    _put(mod, 3, 17, "Terrain.ff9mesh", t1, disc=4)
+    _put(mod, 3, 17, "Object.ff9mesh", _mesh_bytes(vcount=40, icount=366), disc=4)
+    t2 = _mesh_bytes(vcount=200, icount=900, salt=5)
+    _put(mod, 4, 17, "Terrain.ff9mesh", t2)
+    stale = bytearray(t2)
+    stale[-1] ^= 0xFF                                        # same size, different bytes: the real trap
+    _put(mod, 4, 17, "Terrain.ff9mesh", bytes(stale), disc=4)
+    _put(mod, 11, 19, "Terrain.ff9mesh", _mesh_bytes(vcount=3, icount=3))     # the arming stub
+    _put(mod, 11, 19, "Sea4.ff9mesh", _mesh_bytes(vcount=8, icount=12))
+    _put(mod, 11, 19, "Sea4.ff9mesh", _mesh_bytes(vcount=8, icount=12), disc=4)
+    _put(mod, 11, 19, "Terrain.ff9mesh", _mesh_bytes(vcount=3, icount=3), disc=4)
+    return game
+
+
+def _cells_in_scene(canvas):
+    return [it for it in canvas.scene().items() if it.data(0) == "cell"]
+
+
+def test_construction_touches_no_filesystem_and_no_game_path(app, monkeypatch):
+    """THE STARTUP-SPEND LAW + THE ISOLATION LAW, fenced with tripwires a no-op satisfies and any
+    eager scan FAILS: building the doc (as the Workspace does at construction) must resolve no game
+    path and census no tree."""
+    def _boom(*a, **k):
+        raise AssertionError("WorldDoc touched the machine at construction")
+    monkeypatch.setattr(config, "find_game_path", _boom)
+    monkeypatch.setattr(worldscan, "scan_tree", _boom)
+    monkeypatch.setattr(worldscan, "find_world_trees", _boom)
+    doc = WorldDoc(pick_palette("dark"))
+    assert doc._stack.currentWidget() is doc._guide_page     # the front door, not the atlas
+
+
+def test_refresh_with_no_game_teaches_the_locate_path(app, tmp_path):
+    def _raise(explicit=None):
+        raise config.ConfigError("FF9 install not found (pinned)")
+    opened = []
+    doc = WorldDoc(pick_palette("dark"), on_setup=lambda: opened.append(1), game_path_fn=_raise)
+    doc.refresh(sync=True)
+    assert doc._guide_state[0] == "nogame"
+    btns = [b for b in doc._guide_page.findChildren(QPushButton)
+            if b.objectName() == "accent"]
+    assert btns and "Setup" in btns[0].text(), "the accent action is the Setup door"
+    btns[0].click()
+    assert opened == [1]
+
+
+def test_a_game_with_no_world_tree_says_so(app, tmp_path):
+    (tmp_path / "game" / "FF9CustomMap").mkdir(parents=True)   # a mod folder, but no WorldMap tree
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: tmp_path / "game")
+    doc.refresh(sync=True)
+    assert doc._guide_state[0] == "notrees"
+
+
+def test_scan_renders_cells_summary_and_crumb(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    assert doc._stack.currentWidget() is doc._atlas_page
+    assert len(_cells_in_scene(doc.canvas)) == 3
+    s = doc.summary_lbl.text()
+    assert "3 blocks" in s and "2 landmasses" in s
+    assert "1 stale" in s, "the stale mirror is named in the summary, not hidden in a tooltip"
+    assert doc.crumb_label() == "World — FF9CustomMap-world"
+    assert doc.folder_box.count() == 1 and doc.folder_box.currentText() == "FF9CustomMap-world"
+
+
+def test_select_fills_details_and_copy_hands_the_debug_menu_its_coords(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    assert not doc.copy_btn.isEnabled(), "no selection yet -> nothing to copy"
+    doc.canvas.select((3, 17))
+    assert "Block[3][17]" in doc.sel_title.text() and "land" in doc.sel_title.text()
+    assert "centre x 224, z -1120" in doc.sel_facts.text()   # island F's documented placement
+    assert "donor 0,0" in doc.sel_facts.text()
+    assert "Terrain 713 tris" in doc.sel_parts.text()
+    assert doc.copy_btn.isEnabled()
+    doc._copy_coords()
+    assert QApplication.clipboard().text() == "224 -1120"
+
+
+def test_the_stale_mirror_wears_warn_in_the_details(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((4, 17))
+    assert "stale" in doc.sel_chip.text() and "world-mirror" in doc.sel_chip.text()
+    assert doc.sel_chip.property("kind") == "warn" and doc.sel_chip.isVisibleTo(doc)
+    doc.canvas.select((3, 17))
+    assert "current" in doc.sel_chip.text()
+    assert doc.sel_chip.property("kind") == "good"           # the warn kind is LEFT, not latched
+
+
+def test_the_water_carry_names_its_arming_stub(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((11, 19))
+    assert "water" in doc.sel_title.text()
+    assert "arming stub" in doc.sel_parts.text()
+
+
+def test_the_dial_reaches_the_painted_canvas(app, tmp_path):
+    """CALIBRE: drive the REAL dial (doc.set_scale, the shell's own call) and read the derived font +
+    geometry -- a relationship between two readings of the same lever, offscreen-safe."""
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    f100, c100 = doc.canvas._font(8).pointSize(), doc.canvas.cell_px()
+    doc.set_scale(150)
+    assert doc.canvas._font(8).pointSize() > f100
+    assert doc.canvas.cell_px() > c100
+    assert len(_cells_in_scene(doc.canvas)) == 3             # the redraw survives the dial
+
+
+def test_arrow_keys_walk_the_deployed_blocks(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((3, 17))
+    doc.canvas._step_selection((1, 0))
+    assert doc._selected == (4, 17)
+    doc.canvas._step_selection((0, 1))                       # nearest deployed cell downward
+    assert doc._selected == (11, 19)
+
+
+def test_a_rescan_keeps_the_selection_when_the_cell_survives(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((3, 17))
+    doc.refresh(sync=True)
+    assert doc._selected == (3, 17)
+    assert "Block[3][17]" in doc.sel_title.text()
+
+
+def test_retheme_redraws_the_canvas_in_the_new_palette(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    light = pick_palette("light")
+    doc.retheme(light)
+    assert doc.canvas.pal is light
+    assert len(_cells_in_scene(doc.canvas)) == 3
+
+
+def test_the_async_lane_lands_on_the_gui_thread(app, tmp_path):
+    """The worker-thread scan (production's lane) must deliver through the signal and finish exactly
+    like the sync lane -- polled with real event processing, no sleep-and-hope."""
+    import time
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh()                                            # async: thread + signal
+    deadline = time.monotonic() + 10.0
+    while doc._busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert not doc._busy, "the scan never delivered"
+    assert doc._stack.currentWidget() is doc._atlas_page
+    assert len(_cells_in_scene(doc.canvas)) == 3
+    assert doc.rescan_btn.isEnabled() and doc.rescan_btn.text() == "Rescan"

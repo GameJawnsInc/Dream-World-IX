@@ -53,6 +53,7 @@ from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
+from .worlddoc import WorldDoc
 from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
@@ -680,6 +681,8 @@ class Workspace(QMainWindow):
             self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
         if getattr(self, "map", None) is not None:
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
+        if getattr(self, "world_doc", None) is not None:
+            self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
 
     def _apply_density(self, density):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
@@ -724,6 +727,8 @@ class Workspace(QMainWindow):
             self._lede.set_scale(self._text_scale)     # the card's mark is PAINTED -- see LedeCard._up
         if getattr(self, "map", None) is not None:
             self.map.set_scale(self._text_scale)       # the campaign map is a QGraphicsScene -- same story
+        if getattr(self, "world_doc", None) is not None:
+            self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1461,6 +1466,11 @@ class Workspace(QMainWindow):
         self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup,
                                 on_build=lambda: self.tabs.setCurrentWidget(self.build_deploy))
         self.tabs.addTab(self.coop_doc, "Co-op")
+        # the overworld pillar's front door: an atlas of the deployed Block[x][y] override tree
+        # (islands / mountains / water carries / donors / the Disc4 mirror). Scans ONLY on the user's
+        # own Scan click -- construction and tab-show touch no filesystem (the startup-spend law).
+        self.world_doc = WorldDoc(self.pal, on_setup=self._open_setup, scale=self._text_scale)
+        self.tabs.addTab(self.world_doc, "World")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1475,7 +1485,7 @@ class Workspace(QMainWindow):
             ("Author", [self.doc_scroll, self.map]),
             ("Assets", [self.import_field, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
-            ("Ship", [self.build_deploy, self.coop_doc]),
+            ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
         ]
         self._rail_busy = False
         rail = QWidget()
@@ -4345,6 +4355,9 @@ class Workspace(QMainWindow):
         elif w is self.models_doc:
             self.crumb.set([bc.Crumb("model", w.crumb_label())])
             self._set_chip("model")
+        elif w is self.world_doc:                  # the atlas names its scanned folder; no edit chip
+            self.crumb.set([bc.Crumb("world", w.crumb_label())])
+            self._set_chip(None)
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
@@ -4447,6 +4460,7 @@ class Workspace(QMainWindow):
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
+            ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
