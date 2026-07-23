@@ -23,7 +23,9 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 
 Pillars without a tutorial yet (reference docs instead):
 
-- **Overworld authoring** (`world-*` commands, terrain/coast/entrances) — [OVERWORLD_ENGINE.md](../OVERWORLD_ENGINE.md)
+- **Overworld authoring** (`world-*` commands, islands/terrain/coasts/entrances) — [OVERWORLD_ENGINE.md](../OVERWORLD_ENGINE.md)
 - **Custom playable characters** (`[[playable]]`) — `examples/thirteenth-character/` (worked example + README)
 - **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — `ff9mapkit audio-import -h`
+- **Two-player co-op** (experimental; `coop host` / `coop join`) — [FEATURES.md §Multiplayer](../FEATURES.md#multiplayer-experimental), `ff9mapkit coop -h`
+- **Items / equipment / saves** (`items-*`, `save-edit`, `[[item_text]]`) — [SETUP.md §7](../../../SETUP.md#7-cli-command-reference)
 - **SPS field particles** — [SPS.md](../SPS.md) · **ATEs** — [ATE_SYSTEM.md](../ATE_SYSTEM.md)

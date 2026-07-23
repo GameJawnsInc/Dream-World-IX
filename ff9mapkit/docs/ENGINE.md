@@ -41,18 +41,23 @@ encounters — works on **stock Memoria**. But FF9 hardcodes a number of behavio
 narrow-map letterbox masking, a few off-mesh / after-battle / per-actor fixes, the overworld→field
 entry redirect, and similar. They cannot be restored from script bytecode alone.
 
-The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s34`**
+The bundled fidelity patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s33`**
 wrap the hardcoded `fldMapNo` engine gates with an *effective field id* (and an *effective field name*)
 so they fire for a custom fork, and `s23` gives a forked narrow field the donor's exact tuned width.
-`s34` is the one patch in the range that isn't a field-fork wrap: a loose **overworld-mesh override**,
-required by the custom-overworld commands `world-reclaim` / `world-coast` / `world-entrance`. These
-patches are applied to a local Memoria build; the showcase opening ships with that custom Memoria. The
-disc-1 gates, the s30/s31 walk+occlusion and s33 menu-LOCATION fixes, and `s32` (proven in-game through
-the fork-verification harness) are verified; some `s29` sites and `s33` sibling sweeps remain unverified
-until those zones are forked and playtested. (The `s22` debug menu (~) also ships in the engine bundle —
-a user-facing tool with four context-adaptive tabs, **Go / Cheats / Flags / Time**, available in the
-field, in battle, and on the overworld — but it's not a fork-fidelity patch and isn't part of the
-upstream-candidate set.)
+These patches are applied to a local Memoria build; the showcase opening ships with that custom Memoria.
+The disc-1 gates, the s30/s31 walk+occlusion and s33 menu-LOCATION fixes, and `s32` (proven in-game
+through the fork-verification harness) are verified; some `s29` sites and `s33` sibling sweeps remain
+unverified until those zones are forked and playtested.
+
+The engine bundle carries more than the fidelity wraps: **`s34`** is a loose **overworld-mesh
+override** loader (a new capability, not a fork wrap) required by the custom-overworld mesh commands;
+**`s35`** is an overlay-texture decode cache (same pixels, smoother field loads and battle returns);
+**`s36`–`s41`** are the **netsync patches** behind the experimental two-player co-op (`coop`,
+[FEATURES §Multiplayer](FEATURES.md#multiplayer-experimental)); and the **`s22` debug menu (~)** is
+a user-facing in-game tool — context-adaptive tabs (**Go / Cheats / Flags**, with time control under
+Cheats, plus a **World** tab on the overworld) available in the field, in battle, and on the
+overworld. None of those four are fork-fidelity patches, and only the fidelity wraps are
+upstream candidates.
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md) (the per-site
@@ -63,9 +68,11 @@ file covers and folds, live vs dev-tool vs superseded vs upstream) is in
 ## Installing the custom engine
 
 A **forked** field needs this engine, and so does overworld mesh authoring — every command that
-emits loose mesh overrides (`world-terrain`, `world-reclaim`, `world-coast`, `world-water`,
-`world-entrance`, `world-deploy`, `world-mesh-build`) relies on the `s34` mesh-override loader;
-the atlas/texture, encounter, environment, and marker commands run on stock Memoria. A **novel**
+emits loose mesh overrides (`world-terrain`, `world-reclaim`, `world-coast`, `world-transplant`,
+`world-fuse`, `world-island`, `world-forest` / `world-hill` / `world-mountain`, `world-water`,
+`world-entrance`, `world-mirror`, `world-deploy`, `world-mesh-build`) relies on the `s34`
+mesh-override loader; the atlas/texture, encounter, environment, and marker commands run on stock
+Memoria. Two-player co-op (`coop`) needs it too (the `s36`–`s41` netsync patches). A **novel**
 field does not need it, and neither do the custom-models, battle-background, or audio pillars. Three ways to
 get it:
 
@@ -80,7 +87,9 @@ get it:
    The bundle is a compiled, **MIT-licensed** Memoria build (© Albeoris) plus the Dream World IX
    patches, and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
    newer Memoria and hit crashes, use option 3.
-3. **Build from source (version-robust).** Apply `memoria-patches/s23` + `s24` + `s29` + `s30` + `s31` + `s32` + `s33` + `s34` to a
+3. **Build from source (version-robust).** Apply the live patch series from
+   [`memoria-patches/`](../../memoria-patches/) (its README maps every file — which patches are
+   live, in what order, and which are dead history) to a
    [Memoria](https://github.com/Albeoris/Memoria) source clone and compile `Assembly-CSharp` with
    VS MSBuild; this matches whatever Memoria version you build against. The build replaces your
    install's `Assembly-CSharp.dll`.
@@ -92,15 +101,16 @@ wrap — so whether it belongs upstream is a separate decision.
 
 ## Optional engine polish (not required)
 
-Two small possible Memoria improvements would make the experience smoother; they are **not** needed
-for a field to work, and the project isn't actively upstreaming them:
+One small possible Memoria improvement would make the experience smoother; it is **not** needed
+for a field to work, and the project isn't actively upstreaming it:
 
-1. **Overlay texture cache** (`BGSCENE_DEF`): caches decoded overlay PNGs by path so field
-   loads / battle-returns don't re-decode them.
-2. **FieldCreatorScene PNG-path fix** (Memoria PR #1433, left as-is): the in-editor scene export writes overlay PNGs to the
-   game root instead of the field folder, which black-screens the editor. (This kit's CLI
-   pipeline doesn't use that editor, so the bug doesn't affect kit users — but fixing it
-   makes the official in-engine editor usable as an alternative authoring path.)
+- **FieldCreatorScene PNG-path fix** (Memoria PR #1433, left as-is): the in-editor scene export writes overlay PNGs to the
+  game root instead of the field folder, which black-screens the editor. (This kit's CLI
+  pipeline doesn't use that editor, so the bug doesn't affect kit users — but fixing it
+  makes the official in-engine editor usable as an alternative authoring path.)
+
+(An earlier item here — an overlay-texture decode cache — has since been built and ships in the
+engine bundle as `s35`.)
 
 ## Data provenance / redistribution
 

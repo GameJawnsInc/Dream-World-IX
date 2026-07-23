@@ -220,7 +220,7 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
 - **IMPOSSIBLE is the residual no mode can reconstruct on stock Memoria**, and it is *narrow*: almost entirely
   **engine tables keyed on the real `fldMapNo`/FBG-name** that a minted id (≥4000) is simply absent from, with **no
   `.eb` opcode reach**. For each, a DLL patch *would* solve it (the `s23` narrow-map
-  patch is the template) — and the shipped **`s23`–`s34` patch suite** (see below) now does exactly that for most of them.
+  patch is the template) — and the shipped **`s23`–`s33` patch suite** (see below) now does exactly that for most of them.
 - **Perspective movement arcs are NOT a genuine residual** (corrected 2026-06-15 — an earlier draft called ladder
   climb-arcs / jump parabolas / the save-Moogle pop-out "copy-only, never generated from scratch"; that was wrong).
   These arcs are authored in **world coordinates**, and the engine projects world→screen through the fixed camera
@@ -278,7 +278,7 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 ### IMPOSSIBLE on stock Memoria — the genuine engine residuals
 
 All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach — so they are
-impossible on a *stock* engine. The shipped **`s23`–`s34` fork-donor remap patch suite** (a custom Memoria build,
+impossible on a *stock* engine. The shipped **`s23`–`s33` fork-donor remap patch suite** (a custom Memoria build,
 bundled in the public engine zip) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
 effective-field-id; the `s22` debug menu (~) ships in the same bundle as a user-facing tool. (This table predates
 the patch-suite shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely

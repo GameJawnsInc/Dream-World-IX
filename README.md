@@ -9,8 +9,8 @@ dialogue, gateways, encounters, events, story branching, cutscenes — from a si
 their content carried faithfully. Around it: custom **3D battle backgrounds** and battle tuning,
 multi-field **campaigns** and **journeys** (New Game → a selectable arc of forked game slices),
 **items/equipment/shops**, custom **3D character models** (Blender round-trip), **custom playable
-characters**, **overworld** authoring (terrain, coastlines, entrances), custom **music/SFX**, and
-save/story-state tooling.
+characters**, **overworld** authoring (custom islands and terrain, coastlines, entrances),
+custom **music/SFX**, experimental two-player **co-op**, and save/story-state tooling.
 
 > **Public beta.** The engine work is in-game proven; expect rough edges in docs and tooling. Bug
 > reports and authoring questions: see [Contributing](CONTRIBUTING.md).
@@ -65,13 +65,15 @@ music/SFX. No engine patching required.
 
 A **forked** field also runs on stock Memoria for its *physical* layer (scene, walkmesh, camera,
 objects), but FF9 hardcodes some behaviors against the original field's id — narrow-map
-letterboxing, after-battle and off-mesh fixes — and those need the bundled engine patch set
-(`memoria-patches/`, `s23`–`s34`) for fork fidelity. Overworld mesh authoring (terrain, land
-reclaim, coasts, water, entrances) requires the `s34` mesh-override patch. The shipped engine
-bundle (`dwix-custom-memoria-*.zip`, installable via `ff9mapkit setup --install-engine`) contains
-these patches plus the **debug menu** (`s22`) — an in-game warp/cheat/flag/time tool available
-in fields, battles, and on the overworld, opened with the **`~` tilde/backquote key** (earlier
-bundles used F6; it moved because stock Memoria binds F6 to its LvMax cheat).
+letterboxing, after-battle and off-mesh fixes — and those need the bundled fidelity patch set
+(`memoria-patches/`, `s23`–`s33`) for fork fidelity. Overworld mesh authoring (terrain, land
+reclaim, coasts, islands, water, entrances) requires the `s34` mesh-override patch, and the
+experimental **co-op** requires the `s36`–`s41` netsync patches. The shipped engine bundle
+(`dwix-custom-memoria-*.zip`, installable via `ff9mapkit setup --install-engine`) contains all of
+these plus an overlay-load cache (`s35`) and the **debug menu** (`s22`) — an in-game
+warp/cheat/flag tool available in fields, battles, and on the overworld, opened with the
+**`~` tilde/backquote key** (earlier bundles used F6; it moved because stock Memoria binds F6 to
+its LvMax cheat).
 Details: **[ENGINE.md](ff9mapkit/docs/ENGINE.md)**.
 
 ## Legal & provenance
