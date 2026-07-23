@@ -17,8 +17,8 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen,
-                           QPixmap, QPolygonF)
+from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QLinearGradient, QPainter,
+                           QPainterPath, QPen, QPixmap, QPolygonF)
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QLabel
 
 from ..editor.graphview import compute_layout
@@ -82,6 +82,8 @@ class CampaignMap(QGraphicsView):
         self._graph = None
         self._layout = None
         self._current = None
+        self._hover = None                         # the card under the cursor (its ring brightens)
+        self._rings = {}                           # name -> (ring item, rest pen); rebuilt per draw
         self._use_thumbs = False
         self._scale = scale if scale in range(50, 301) else 100
         self._zoom = 1.0
@@ -271,6 +273,8 @@ class CampaignMap(QGraphicsView):
             self._draw_empty()
             return
         sc.clear()
+        self._rings = {}                                       # the cleared items are dead pointers
+        self._hover = None
         self._hint.show()                                      # a campaign is on screen -> teach the canvas
         self._place_hint()
         band = QFontMetrics(self._font(8)).height() + 22       # the legend strip above the map
@@ -282,28 +286,47 @@ class CampaignMap(QGraphicsView):
             seams.setdefault(s.frm, []).append(s.label)        # exits per field -- as labels they were the
         for n in lay.nodes:                                    # map's loudest clutter (user-reported)
             self._node(n, seams.get(n.name, ()))
+        orphans = [n for n in lay.nodes if not n.reachable]
+        if orphans:                                            # NAME the band, don't make red do the talking
+            top = min(n.y for n in orphans)
+            t = sc.addSimpleText("· not reachable from the entry ·", self._font(8))
+            t.setBrush(QBrush(QColor(pal["muted"])))
+            t.setPos((min(n.x for n in orphans)
+                      + max(n.x + n.w for n in orphans)) / 2 - t.boundingRect().width() / 2,
+                     top - t.boundingRect().height() - 6)
 
     def _draw_legend(self, y):
-        """A swatch legend along the top band so the pill/edge encoding is self-explanatory, ending with
-        the two interactions the canvas can't advertise on its own (zoom + fit)."""
+        """A swatch legend along the top band so the pill/edge encoding is self-explanatory -- grouped
+        on ONE quiet plate (the pill language the cards speak), not loose prose floating on the grid."""
         sc, pal = self._scene, self.pal
         font = self._font(8)
         fm = QFontMetrics(font)
         dot = 9
         dy = (fm.height() - dot) / 2
         x = 6
+        items = []
         for col, label in ((pal["success"], "entry"), (pal["warn"], "needs export"),
                            (pal["error"], "unreachable"), (pal["accent"], "open")):
-            sc.addEllipse(x, y + dy, dot, dot, QPen(QColor(col), 1), QBrush(QColor(col)))
+            items.append(sc.addEllipse(x, y + dy, dot, dot, QPen(QColor(col), 1), QBrush(QColor(col))))
             t = sc.addSimpleText(label, font)
             t.setBrush(QBrush(QColor(pal["muted"])))
             t.setPos(x + dot + 5, y)
+            items.append(t)
             x += dot + 5 + t.boundingRect().width() + 16
         for label in ("→ gateway", "↔ both ways", "– – gated", "⇢ leads elsewhere"):
             t = sc.addSimpleText(label, font)
             t.setBrush(QBrush(QColor(pal["muted"])))
             t.setPos(x, y)
+            items.append(t)
             x += t.boundingRect().width() + 16
+        plate = QColor(pal["surface_btn"])
+        plate.setAlpha(200)                        # the pill language the cards speak, one size up
+        h = fm.height() + 10
+        rr = QPainterPath()
+        rr.addRoundedRect(QRectF(-4, y - 5, x - 2, h), h / 2, h / 2)
+        sc.addPath(rr, QPen(Qt.PenStyle.NoPen), QBrush(plate)).setZValue(-0.1)
+        for it in items:
+            it.setZValue(0.1)                      # swatches + prose ride ABOVE the plate
         return x
 
     # -- edges --
@@ -532,12 +555,18 @@ class CampaignMap(QGraphicsView):
             else:                                  # art not cached yet: an honest quiet card
                 sc.addPath(rim, QPen(Qt.PenStyle.NoPen), QBrush(QColor(pal["surface_btn"])))
             scrim_h = fm_t.height() + fm_s.height() + 8
-            scrim = QPainterPath()
-            scrim.addRect(QRectF(n.x, n.y + n.h - scrim_h, n.w, scrim_h))
+            fade = 14                              # a short breath of gradient above the solid plate --
+            scrim = QPainterPath()                 # a hard top edge read as a bar taped over the art
+            scrim.addRect(QRectF(n.x, n.y + n.h - scrim_h - fade, n.w, scrim_h + fade))
             scrim = scrim.intersected(rim)         # keep the card's rounded feet
             ink = QColor(pal["surface"])
             ink.setAlpha(230)                      # title-on-scrim ≈ title-on-surface: the fenced pair
-            sc.addPath(scrim, QPen(Qt.PenStyle.NoPen), QBrush(ink))
+            clear = QColor(ink)
+            clear.setAlpha(0)
+            grad = QLinearGradient(0, n.y + n.h - scrim_h - fade, 0, n.y + n.h - scrim_h)
+            grad.setColorAt(0.0, clear)            # the fade lives ABOVE the text zone: every glyph
+            grad.setColorAt(1.0, ink)              # still sits on the full-strength (fenced) ground
+            sc.addPath(scrim, QPen(Qt.PenStyle.NoPen), QBrush(grad))
             ty = n.y + n.h - scrim_h + 3
             pill_y = n.y + 6
         else:
@@ -555,6 +584,7 @@ class CampaignMap(QGraphicsView):
         sub.setBrush(QBrush(QColor(sub_col)))
         sub.setPos(n.cx - sub.boundingRect().width() / 2, ty + fm_t.height() + 1)
         ring = sc.addPath(rim, QPen(QColor(outline), ow))      # the ring rides OVER art + scrim
+        self._rings[n.name] = (ring, QPen(ring.pen()))         # rest pen kept: hover lifts, leave restores
         tip = self._node_tooltip(n)
         for item in (title, sub, ring):
             item.setToolTip(tip)
@@ -610,11 +640,36 @@ class CampaignMap(QGraphicsView):
                 return n.name
         return None
 
+    def _set_hover(self, name):
+        """Move the hover lift from one card's ring to another's: a plain border ring brightens to
+        muted, a status/accent ring thickens a hair. The canvas answers the cursor -- without this the
+        map reads as a painting, not a surface."""
+        if name == self._hover:
+            return
+        prev = self._rings.get(self._hover)
+        if prev is not None:
+            prev[0].setPen(prev[1])
+        self._hover = name
+        cur = self._rings.get(name)
+        if cur is not None:
+            pen = QPen(cur[1])
+            if pen.widthF() <= 1:                          # a quiet border card lifts to the muted tier
+                pen.setColor(QColor(self.pal["muted"]))
+                pen.setWidthF(1.6)
+            else:                                          # a status/current ring just firms up
+                pen.setWidthF(pen.widthF() + 0.8)
+            cur[0].setPen(pen)
+
     def mouseMoveEvent(self, event):                       # noqa: N802 (Qt override)
         if not event.buttons():                            # plain hover (not a pan-drag): hint that nodes open
             over = self._node_at(event.position().toPoint())
+            self._set_hover(over)
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if over else Qt.CursorShape.OpenHandCursor)
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):                           # noqa: N802 (Qt override)
+        self._set_hover(None)
+        super().leaveEvent(event)
 
     def mouseDoubleClickEvent(self, event):                # noqa: N802 (Qt override)
         name = self._node_at(event.position().toPoint())
