@@ -374,7 +374,7 @@ does not touch any debug-menu file (`Ff9mkDebugMenu.cs`/`UIKeyTrigger.cs`) — o
 `memoria-patches/README.md`'s s48 row for the full patch description and gate method (round-trip byte-exact,
 `git apply --check` clean from the s47 tip — verified statically; **not yet compiled**).
 
-## 10. s52 — the SUMMON ROOT-TRANSFORM probe (the staging fix; AUTHORED + STAGED, **NOT YET BUILT**)
+## 10. s52 — the SUMMON ROOT-TRANSFORM probe (the staging fix; ★ BUILT + DEPLOYED 2026-07-22)
 
 The 2026-07-22 disasm round (`disasm/FINDINGS.md`) proved the thing every prior FLIGHT lacked: the summoned
 creature's TRUE per-frame world transform is live-readable from `FF9SpecialEffectPlugin.dll`'s own runtime
@@ -388,13 +388,17 @@ root `DATA+0x40`; x86 `recRVA 0x20869c` / active `+0x4c` / root `DATA+0x24`, sel
 ROOT transform ONLY — never the per-bone array (dumping that over a cast would reconstruct stock skeletal
 animation = out of bounds); it patches no DLL and calls no plugin export.
 
-**⚠ NOT YET COMPILED/DEPLOYED.** Same reason as s48/s50: the shared `C:\gd\FFIX\Memoria` tree carries unrelated
-in-flight edits and `AfterBuild` auto-deploys with no backup. The source edits are staged in that tree; the
-patch file is the durable record (round-trip byte-exact: `patch -p1` onto the s50-tip pristine of both files
-reproduces the live edits). **Build it** via the `building-the-memoria-engine` skill (back up both installed
-DLLs first, `tools/restore_memoria_dll.py` reads that naming convention) when the in-flight work lands.
+**★ BUILT + DEPLOYED 2026-07-22** (FF9 closed): `py tools/backup_memoria_dll.py pre-s52-root-probe` captured the
+full 3×2 DLL set (restore selector `20260722-234755`), then `msbuild Assembly-CSharp.csproj /t:Build
+/p:Configuration=Release /p:SolutionDir=C:\gd\FFIX\Memoria\ /m` — 0 errors, 186 pre-existing warnings, exit 0.
+The `AfterBuild` task auto-deployed `Assembly-CSharp.dll` to both `x64\` and `x86\` `FF9_Data\Managed\`; the
+deployed copies are byte-identical to `Output\Assembly-CSharp.dll` (sha256 `4343c3da…`), and `LogSummonRoot` /
+`CaptureRoot` / `GetModuleHandle` / the `"FF9SpecialEffectPlugin.dll"` + `"ROOT,{0},{1}"` literals are all
+present in the deployed metadata. Revert the whole engine to the pre-build state with
+`py tools/restore_memoria_dll.py 20260722-234755` (from the MAIN repo). The patch file
+`memoria-patches/s52-sfx-summon-root.patch` is the durable source record (round-trip byte-exact).
 
-### Arm it (once built)
+### Arm it
 
 ```ini
 [SfxProbe]
