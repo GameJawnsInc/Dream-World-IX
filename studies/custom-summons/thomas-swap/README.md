@@ -755,3 +755,57 @@ the battle-import precedent). Never ship a patched/redistributed DLL.
 - Back to the rung-7 resting state: `py studies/custom-summons/thomas-swap/revert_thomas.py`
 - Re-arm the probes: `Memoria.ini [SfxProbe] Enabled = 1` (+ `CapturePrims = 1` for the primitive
   stream) — **needs a game relaunch**, the flags are cached at process start.
+
+---
+
+## DISASM ROUND COMPLETE 2026-07-22 — the summon subsystem is decoded → `disasm/FINDINGS.md`
+
+The disasm pass the SESSION CLOSE queued **ran and closed** (a 10-agent Opus workflow over
+`FF9SpecialEffectPlugin.dll` + the open Memoria source, standing on the committed instrument
+`disasm/refkit.py`; 23 load-bearing claims adversarially re-derived, 1 corrected; every native claim
+cites `fn@rva`, every managed claim `file:line`). Full report: **`disasm/FINDINGS.md`**; per-slice
+trail: `disasm/{A1..A5,B1..B5}-*.md`; verification trail: `disasm/V-*.md`. **No stock bytes were
+extracted; the DLL was only read — provenance-clean.** Headline results:
+
+- **A stock summon is a software PS1-GTE renderer inside the DLL.** The whole `summonModels[]`
+  pipeline is decoded: a **one-slot** record array @RVA **0x220830** (stride **0x58**) → a `SummonData`
+  block (motion `+0x10`, **hide-mask `+0x20`**, per-bone WORLD matrices `+0x38`, **root world TRS
+  `+0x40`**, texanim `+0x70`), driven by a mega-interpreter @0xeea4 through a `.data` dispatch table.
+  Cross-checked byte-for-byte on the x86 build. The 12-fn `Hi_Summon*` roster is mapped to real
+  bodies (e.g. `Hi_GetSummonBoneMatrix` @**0x18630**, independently re-disassembled by the orchestrator).
+- **THE PRIZE IS RECOVERABLE — the staging problem is solvable.** The creature's true per-frame world
+  transform is **`SummonData+0x40`** (bone[0] of the `+0x38` array). It is **zero-on-disk** (no static
+  recovery) and crosses **no managed boundary**, but it is **live-readable by a passive memory read** of
+  the plugin's own runtime state: `moduleBase(FF9SpecialEffectPlugin) + 0x220830 → +0x00 → +0x40`.
+  No DLL patch, no P/Invoke-by-name, no asset bytes.
+- **The primitive-space puzzle is settled (and it VOIDS the old MESH-bounds premise).** `SFX_GetPrim`
+  returns **already-projected 2D screen pixels + an ordering-table sort key** (the perspective divide
+  happens inside the DLL, `idiv @0x4001b`); the metric transform never escapes. So every prior method
+  that read the probe's **MESH `cx,cy,cz` bounds as Bahamut's world position** was reading a
+  pool-polluted origin-anchored box (vertCount≡14000, origin in 100% of AABBs) — **that is why
+  `matrix_solve.py`'s "put Thomas at Bahamut's measured world position" scattered off-screen.** The
+  creature's per-frame **screen** trajectory *is* recoverable — from the un-pooled **`PRIM`** rows, not
+  MESH bounds. Deployed FLIGHT v7 (constructs coverage directly) is **not** invalidated.
+- **The camera is fully solved and retired as a blocker.** VIEW+PROJ cross the boundary cleanly every
+  frame; the zoom is a single near-Z scalar `H`; `resolve_position`'s K=4096.8 branch-A is re-confirmed.
+  The eye/anchor scratch buffer @0x220060 is runtime-only but **unneeded** — VIEW+PROJ + the root read
+  fully place a puppet (`screen = PROJ · VIEW · root`, same PS1-GTE world space).
+- **Native `Hide/ShowSummonModelMesh` (`DATA+0x20` ordinal bitmask) ≠ our `.seq HideMeshes=`
+  (SFXKey-hash filter after harvest)** — two different culling layers. The native op is exact and
+  emission-free but reaching it needs its `.seq` opcode number decoded (a next-step item).
+
+**THE SINGLE NEXT ACTION (recommended, not yet taken — needs the user's go-ahead):** land the **ROOT
+probe** — a ~45-line managed extension to `Memoria/Battle/SFX/SfxMeshProbe.cs` that reads `SummonData+0x40`
+each frame (gated on a new `[SfxProbe] CaptureRoot=1` flag) + a **reprojection-validation** pass (project
+the read root through the same frame's logged VIEW/PROJ, compare to the `PRIM` centroid). One instrumented
+cast then yields Bahamut's **real metric trajectory** to hang the rung-7 Thomas puppet on — closing the
+staging problem v7 left open. **Caveats:** it is on the `memoria-patches/` stack, so it is an **engine DLL
+rebuild (auto-deploys, no backup — the DANGEROUS lane) + a relaunch + a human playtest cast** to be useful;
+log the **root only** (dumping the per-bone `+0x38` array across a cast = extracting stock animation =
+BLOCKED). Runway after: re-stage FLIGHT on the captured ROOT curve → decode the native Show/Hide `.seq`
+opcode → the `.seq` summon-op linter/inspector (`disasm/FINDINGS.md` §6-7).
+
+*Round hygiene:* two map agents (A4 primitive-space, B5 x86-crosscheck) hit the structured-output retry
+cap but **wrote their `.md` artifacts first**, so their content is on the blackboard and was folded into
+`FINDINGS.md`; A3 returned a schema-stub as its structured claims but likewise wrote the real 19KB
+`A3-managed-boundary.md`. No content was lost.
