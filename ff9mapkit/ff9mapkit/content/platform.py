@@ -46,6 +46,74 @@ PLATFORM_START_Z = 6      # MAP.I16[6]: the captured boarding world-Z
 DEFAULT_DURATION = 32     # ride frames (for the relative `rise` mode -- linear, always terminates)
 DEFAULT_SPEED = 30        # world-units/frame for the absolute `land` mode (ride duration = distance/speed)
 
+# --- THE VISIBLE PLATFORM (the v1 follow-up: "a placed model driven in lockstep") ---------------------
+# A [[platform]] may name a MODEL (a lift disc, a crate, any GEO) that visibly rides with the player.
+# Mechanism: the model gets its own object entry whose tag-1 loop TRACKS THE PLAYER'S LIVE POSITION
+# (the 0x78 obj-var read, the same primitive the savepoint book uses to snap to its moogle) while a
+# per-platform MAP ride-bit is held; the player's ride function raises the bit right after it detaches
+# and clears it after the exact landing snap. Lockstep by construction -- no duration math, no easing
+# mirror, and ONE model serves a bidirectional zone pair (it simply tracks whichever ride holds the
+# bit, and rests wherever the last ride left it -- what a real elevator does).
+#   MAP.Bit[328+k] -- the ride-in-progress bit for [[platform]] block k. 328.. is bit-byte 41, clear of
+#   every other kit band (cutscene MAP 80+, field-init 144-159, the ACT's 322, the reveal's 323-326)
+#   AND of field 407's own donor cask bit 327 (a [[platform]] only builds on the synth path, but keep
+#   the byte clean anyway).
+PLATFORM_RIDE_BIT = 328
+PLATFORM_MAX_PER_FIELD = 4
+PLATFORM_MODEL_FLAGS = 7  # SetObjectFlags(7) = visible + BOTH collision exemptions (the 3345-use
+                          # shipping walk-through idiom -- the CFLAG SEMANTICS LAW): the player STANDS
+                          # ON the walkmesh, never collides with the platform he appears to ride
+
+
+def platform_ride_bit(index: int = 0) -> int:
+    """The per-platform ride bit (MAP.Bit[328+k]). Range-checked so a field can't silently overrun the
+    reserved band into whatever sits beyond it (the reveal-band precedent)."""
+    k = int(index)
+    if not 0 <= k < PLATFORM_MAX_PER_FIELD:
+        raise ValueError(f"[[platform]] index {k} is outside the reserved ride-bit band "
+                         f"(0..{PLATFORM_MAX_PER_FIELD - 1}); the kit reserves {PLATFORM_MAX_PER_FIELD} "
+                         f"visible-model platforms per field.")
+    return PLATFORM_RIDE_BIT + k
+
+
+def platform_prop_entry(*, model: int, animset: int, pose: int | None, x: int, z: int, y: int = 0,
+                        ride_bit: int, model_offset: int = 0) -> bytes:
+    """The visible platform's own object entry: an Init that places the model at its REST spot
+    ``(x, z, y)`` (walk-through flags 7 + detached from the walkmesh, so it can rest at any height and
+    is never floor-snapped), and a tag-1 loop that -- while ``Bit[ride_bit]`` is held -- pins the model
+    to the player's live position each frame (``MoveInstantXZY(player.x, player.y + offset, player.z)``
+    via 0x78 obj-var expression args). ``model_offset`` = how far BELOW the player's feet the model's
+    ORIGIN sits (world units, up-positive; e.g. a disc whose origin is its base rides at offset ~0, a
+    tall pedestal whose origin is its base needs its own height). When the bit clears the loop stops
+    writing and the model RESTS where the ride left it."""
+    from . import npc as _npc
+    init = b"".join([
+        _npc._d9_const(0, int(x)), _npc._d9_const(4, int(z)),
+        _npc._d9_const(6, 0), _npc._d9_const(2, int(y)),
+        opcodes.set_model(int(model), int(animset)),
+        _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
+        (opcodes.set_stand_animation(int(pose)) if pose is not None else b""),
+        opcodes.encode(0x93, PLATFORM_MODEL_FLAGS),
+        opcodes.set_pathing(0),
+        # the Init's CreateObject floor-places; re-assert the authored rest (incl. an off-floor y --
+        # an entry-mode platform rests at the hole bottom) now that pathing is off
+        opcodes.encode(0xA1, _arg(_const(int(x))), _arg(_const(-int(y))), _arg(_const(int(z))),
+                       arg_flags=0b111),
+        opcodes.RETURN])
+    off = int(model_offset)
+    y_arg = (_arg(_region.obj_var(PLAYER_UID, F_Y), _const(off), bytes([_region.T_PLUS])) if off
+             else _arg(_region.obj_var(PLAYER_UID, F_Y)))
+    track = opcodes.encode(0xA1, _arg(_region.obj_var(PLAYER_UID, 0)), y_arg,
+                           _arg(_region.obj_var(PLAYER_UID, 2)), arg_flags=0b111)
+    body = _region.if_block(_region.cond_truthy(_region.MAP_BOOL, int(ride_bit)), track) + opcodes.wait(1)
+    loop = body + bytes([0x01]) + struct.pack("<h", -(len(body) + 3))     # a permanent per-frame loop
+    return bytes([_npc.NPC_ENTRY_TYPE]) + _assemble_entry([(0, init), (1, loop)])[1:]
+
+
+def _ride_bit(bit: int | None, value: int) -> bytes:
+    """``Bit[bit] = value`` when a visible platform is bound (else nothing -- byte-identical v1)."""
+    return b"" if bit is None else _region.set_var(_region.MAP_BOOL, int(bit), int(value))
+
 
 def _scratch() -> bytes:
     """This frame's stepped selfY target (MAP.I16[PLATFORM_SCRATCH]); transient per-field."""
@@ -68,7 +136,7 @@ def _scratch_z() -> bytes:
 
 
 def _carry_land_body(land, *, speed: int, animation: int | None,
-                     warp_to: int | None, warp_entrance: int) -> bytes:
+                     warp_to: int | None, warp_entrance: int, ride_bit: int | None = None) -> bytes:
     """Ride the player from WHEREVER he boards to the absolute landing point ``land`` = ``(x, z, y)``, at
     ``speed`` world-units/frame, then re-attach to the walkmesh -- landing cleanly on the floor AT
     ``land`` (no end-of-ride floor-snap warp). RELATIVE start (captures the boarding position, no
@@ -95,6 +163,7 @@ def _carry_land_body(land, *, speed: int, animation: int | None,
 
     a = _Asm()
     a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0))   # grip + detach; NO teleport
+    a.raw(_ride_bit(ride_bit, 1))                       # the visible platform starts tracking
     if animation is not None:
         a.raw(opcodes.run_animation(int(animation)))
     # capture the boarding position (x, z, selfY) -- the ride interpolates FROM here
@@ -114,6 +183,8 @@ def _carry_land_body(land, *, speed: int, animation: int | None,
     a.jmp(_region.JMP_TRUE, "LOOP")
     a.label("LAND")
     a.raw(opcodes.encode(0xA1, _arg(_const(lx)), _arg(_const(lsy)), _arg(_const(lz)), arg_flags=0b111))  # exact landing
+    if ride_bit is not None:                            # one frame for the platform's loop to settle at
+        a.raw(opcodes.wait(1) + _ride_bit(ride_bit, 0))  # the landing spot, then it stops tracking
     if warp_to is not None:
         a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
               + _region.set_field_entrance(int(warp_entrance))
@@ -137,7 +208,8 @@ def _assemble_entry(funcs) -> bytes:
 
 def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
                duration: int = DEFAULT_DURATION, animation: int | None = None,
-               warp_to: int | None = None, warp_entrance: int = 0) -> bytes:
+               warp_to: int | None = None, warp_entrance: int = 0,
+               ride_bit: int | None = None) -> bytes:
     """The player's ride function, run in the player's context (the region RunScriptSync's it) so the
     moves move the PLAYER. Two modes:
 
@@ -156,7 +228,7 @@ def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED
     fade + ``Field()`` re-entry (an inter-floor elevator)."""
     if land is not None:
         return _carry_land_body(land, speed=speed, animation=animation,
-                                warp_to=warp_to, warp_entrance=warp_entrance)
+                                warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit)
     if rise is None:
         raise ValueError("carry_body needs land=[x,z,y] (ride to a floor) or rise=<units> (vertical lift)")
     rise = int(rise)
@@ -174,6 +246,7 @@ def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED
 
     a = _Asm()
     a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0))   # grip + detach; NO teleport
+    a.raw(_ride_bit(ride_bit, 1))                     # the visible platform starts tracking
     if animation is not None:
         a.raw(opcodes.run_animation(int(animation)))  # optional ride gesture (cosmetic; off by default)
     # capture the boarding selfY, then the destination = start - rise (UP decreases selfY). Ride from there.
@@ -188,6 +261,8 @@ def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED
     a.raw(_stmt(selfy(), _scratch(), bytes([test_tok])))           # selfY not yet at the target?
     a.jmp(_region.JMP_TRUE, "LOOP")
     a.raw(opcodes.encode(0xA1, _arg(selfx()), _arg(_scratch()), _arg(selfz()), arg_flags=0b111))  # exact final snap
+    if ride_bit is not None:                          # settle frame, then the platform stops tracking
+        a.raw(opcodes.wait(1) + _ride_bit(ride_bit, 0))
     if warp_to is not None:                           # ELEVATOR: ride then re-enter the destination floor
         a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
               + _region.set_field_entrance(int(warp_entrance))
@@ -220,17 +295,37 @@ def platform_region(zone, ride_tag: int, *, trigger: str = "action", bubble: boo
     return _assemble_entry(funcs)
 
 
+def inject_platform_model(data, *, model: int, animset: int, pose: int | None, rest,
+                          ride_bit: int, model_offset: int = 0):
+    """Inject the VISIBLE platform object (:func:`platform_prop_entry`) at its rest spot
+    ``rest = (x, z[, y])`` and arm it. Returns ``(new_bytes, slot)``. Injected BEFORE the ride/region
+    entries so slot prediction stays stable (the cask-first precedent)."""
+    rx, rz = int(rest[0]), int(rest[1])
+    ry = int(rest[2]) if len(rest) > 2 else 0
+    entry = platform_prop_entry(model=model, animset=animset, pose=pose, x=rx, z=rz, y=ry,
+                                ride_bit=ride_bit, model_offset=model_offset)
+    eb = EbScript.from_bytes(data)
+    slot = eb.first_free_slot()
+    data = edit.append_entry(data, slot, entry)
+    data = edit.activate(data, opcodes.init_object(slot, 0))
+    return data, slot
+
+
 def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
                     ride_tag: int = FIRST_PLATFORM_TAG,
                     duration: int = DEFAULT_DURATION, animation: int | None = None,
                     trigger: str = "action", bubble: bool = True, warp_to: int | None = None,
-                    warp_entrance: int = 0, player_uid: int = PLAYER_UID, activate: bool = True):
+                    warp_entrance: int = 0, player_uid: int = PLAYER_UID, activate: bool = True,
+                    ride_bit: int | None = None):
     """Inject one carry platform: graft the ride function (``ride_tag``) onto the player entry, append a
     boarding region that fires it, and arm the region. Pass ``land=[x,z,y]`` (ride from the boarding spot
-    to that landing floor) or ``rise=<units>`` (vertical lift). Returns ``(new_bytes, region_slot)``. For
-    multiple platforms pass a distinct ``ride_tag`` each (start at :data:`FIRST_PLATFORM_TAG`)."""
+    to that landing floor) or ``rise=<units>`` (vertical lift). ``ride_bit`` (from
+    :func:`platform_ride_bit`) binds a visible platform model injected separately via
+    :func:`inject_platform_model` -- the ride raises/clears the bit around the carry. Returns
+    ``(new_bytes, region_slot)``. For multiple platforms pass a distinct ``ride_tag`` each (start at
+    :data:`FIRST_PLATFORM_TAG`)."""
     body = carry_body(rise=rise, land=land, speed=speed, duration=duration, animation=animation,
-                      warp_to=warp_to, warp_entrance=warp_entrance)
+                      warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit)
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
     data = edit.add_function(data, pe, ride_tag, body)
@@ -248,7 +343,8 @@ RIDE_WARMUP = 2           # tiny warm-up after control is handed; the rise then 
                           # he emerges near the top -- the floor occlusion, not the fade, hides him)
 
 
-def entry_rise_body(*, land, rise: int, duration: int = DEFAULT_DURATION, animation: int | None = None) -> bytes:
+def entry_rise_body(*, land, rise: int, duration: int = DEFAULT_DURATION, animation: int | None = None,
+                    ride_bit: int | None = None) -> bytes:
     """The on-arrival elevator ride, ENTIRELY in the player's post-fade ride function (RunScriptSync
     controls the player reliably here -- a drop spliced into the player Init does NOT stick, the engine
     re-places him on the floor). One self-contained function:
@@ -272,6 +368,7 @@ def entry_rise_body(*, land, rise: int, duration: int = DEFAULT_DURATION, animat
 
     a = _Asm()
     a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0))      # detach; don't floor-snap
+    a.raw(_ride_bit(ride_bit, 1))                                                     # platform starts tracking
     a.raw(opcodes.encode(0xA1, _arg(_const(lx)), _arg(_const(bottom_selfy)), _arg(_const(lz)),
                          arg_flags=0b111))                                            # drop to the hole bottom (abs)
     if animation is not None:
@@ -285,6 +382,8 @@ def entry_rise_body(*, land, rise: int, duration: int = DEFAULT_DURATION, animat
     a.jmp(_region.JMP_TRUE, "LOOP")
     a.raw(opcodes.encode(0xA1, _arg(_const(lx)), _arg(_const(floor_selfy)), _arg(_const(lz)),
                          arg_flags=0b111))                                            # exact floor (abs)
+    if ride_bit is not None:                                                          # settle frame, then the
+        a.raw(opcodes.wait(1) + _ride_bit(ride_bit, 0))                               # platform stops tracking
     a.raw(opcodes.remove_character_attribute(LADDER_FLAG) + opcodes.set_pathing(1))   # land flush on the floor
     a.raw(opcodes.RETURN)
     return a.assemble()
@@ -292,7 +391,7 @@ def entry_rise_body(*, land, rise: int, duration: int = DEFAULT_DURATION, animat
 
 def inject_entry_rise(data, *, land, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
                       duration: int = DEFAULT_DURATION, animation: int | None = None,
-                      player_uid: int = PLAYER_UID):
+                      player_uid: int = PLAYER_UID, ride_bit: int | None = None):
     """The on-ARRIVAL elevator: graft the self-contained drop+rise (:func:`entry_rise_body`) onto the
     player and arm a post-control ``InitCode`` trigger that spins until ``usercontrol == 1`` then runs it
     synchronously. NO Init-drop splice (it doesn't stick) and NO dividing land-mode (it flung the player
@@ -302,7 +401,8 @@ def inject_entry_rise(data, *, land, rise: int, ride_tag: int = FIRST_PLATFORM_T
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     pe = find_player_entry(EbScript.from_bytes(out))
     out = edit.add_function(out, pe, ride_tag,
-                            entry_rise_body(land=(lx, lz, ly), rise=rise, duration=duration, animation=animation))
+                            entry_rise_body(land=(lx, lz, ly), rise=rise, duration=duration,
+                                            animation=animation, ride_bit=ride_bit))
     # post-control trigger: spin until usercontrol==1, a tiny warm-up, then run the ride synchronously
     a = _Asm()
     a.label("WAITCTL")

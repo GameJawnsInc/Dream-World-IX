@@ -226,3 +226,113 @@ def test_validate_scalar_zone_no_crash(tmp_path):
                  encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
     assert any("[[platform]] zone must have 3-5 points" in x for x in probs)
+
+
+# --- the VISIBLE platform model (v2: a placed model driven in lockstep) --------------------
+def _bit_token(bit: int) -> bytes:
+    """The long-index MAP_BOOL var token for a >0xFF bit index: 0xC5|0x20 + u16 LE (the engine's own
+    getVarOperation encoding -- see region._push_var)."""
+    import struct
+    return bytes([0xE5]) + struct.pack("<H", bit)
+
+
+def test_ride_bit_absent_leaves_v1_bytes_untouched():
+    """`ride_bit=None` (no visible model) must emit ZERO ride-bit machinery -- the v1 byte shape.
+    The bit band's var token must not appear anywhere in any mode."""
+    for body in (_platform.carry_body(rise=200, duration=32),
+                 _platform.carry_body(land=(100, 200, 300)),
+                 _platform.entry_rise_body(land=(0, 0, 300), rise=600)):
+        for k in range(_platform.PLATFORM_MAX_PER_FIELD):
+            assert _bit_token(_platform.platform_ride_bit(k)) not in body
+
+
+def test_ride_bit_set_after_detach_cleared_after_landing():
+    """With a bound ride bit: raised right after the detach (so the model tracks the whole ride),
+    cleared after the exact landing snap + one settle frame (so it rests at the destination)."""
+    bit = _platform.platform_ride_bit(0)
+    for body in (_platform.carry_body(rise=200, duration=32, ride_bit=bit),
+                 _platform.carry_body(land=(100, 200, 300), ride_bit=bit),
+                 _platform.entry_rise_body(land=(0, 0, 300), rise=600, ride_bit=bit)):
+        tok = _bit_token(bit)
+        first, last = body.find(tok), body.rfind(tok)
+        assert first != -1 and last != first                     # a set AND a clear
+        detach = body.find(opcodes.set_pathing(0))
+        assert detach != -1 and detach < first                   # raised after the detach
+        # the clear sits after the LAST MoveInstantXZY (the exact landing snap)
+        last_snap = max(ins.off for ins in iter_code(bytes(body), 0, len(body)) if ins.op == 0xA1)
+        assert last > last_snap
+
+
+def test_platform_ride_bit_band_range_checked():
+    import pytest
+    assert _platform.platform_ride_bit(0) == _platform.PLATFORM_RIDE_BIT
+    with pytest.raises(ValueError):
+        _platform.platform_ride_bit(_platform.PLATFORM_MAX_PER_FIELD)
+
+
+def test_platform_prop_entry_structure():
+    """The visible platform's entry: tag-0 Init (SetModel + walk-through flags 7 + detach + absolute
+    rest placement) and a tag-1 permanent loop gated on the ride bit that pins the model to the
+    player's live position (0x78 obj-var reads of uid 250's x/y/z)."""
+    bit = _platform.platform_ride_bit(0)
+    entry = _platform.platform_prop_entry(model=241, animset=93, pose=1904, x=10, z=-20, y=30,
+                                          ride_bit=bit, model_offset=40)
+    assert entry[0] != 0 and entry[1] == 2                        # a typed entry with two funcs
+    import struct
+    t0_tag, t0_off = struct.unpack_from("<HH", entry, 2)
+    t1_tag, t1_off = struct.unpack_from("<HH", entry, 6)
+    assert (t0_tag, t1_tag) == (0, 1)
+    init = entry[2 + t0_off:2 + t1_off]
+    loop = entry[2 + t1_off:]
+    ops_init = _ops(init)
+    assert 0x2F in ops_init                                       # SetModel
+    assert opcodes.encode(0x93, _platform.PLATFORM_MODEL_FLAGS) in init   # walk-through flags 7
+    assert opcodes.set_pathing(0) in init                         # detached (rests at any height)
+    assert ops_init[-1] == 0x04
+    # the tracker: gated on the ride bit, reads player x/y/z live, offset applied to y
+    assert _bit_token(bit) in loop
+    assert bytes([0x78, 0xFA, 0x00]) in loop                      # player.x   (uid 250 = 0xFA)
+    assert bytes([0x78, 0xFA, 0x01]) in loop                      # player.y
+    assert bytes([0x78, 0xFA, 0x02]) in loop                      # player.z
+    # permanent loop: ends in a backward 0x01 jump targeting the loop top (offset 0)
+    last = [ins for ins in iter_code(bytes(loop), 0, len(loop))][-1]
+    assert last.op == 0x01 and jump_target(last) == 0
+
+
+def test_build_field_with_platform_model(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "pm.field.toml"
+    p.write_text(_FIELD +
+                 '[[platform]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nrise = 200\n'
+                 'prop = "cask"\nmodel_offset = 40\n',
+                 encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "platform" in x.lower()]
+    eb = build.build_script(proj, "us", {})
+    assert not _new_errors(eb)
+    # the cask model (241) is placed by a new entry whose loop reads the player's live position
+    s = EbScript.from_bytes(eb)
+    found = False
+    for e in s.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            seg = s.data[f.abs_start:f.abs_end]
+            if bytes([0x78, 0xFA, 0x01]) in seg and _bit_token(_platform.platform_ride_bit(0)) in seg:
+                found = True
+    assert found
+
+
+def test_validate_platform_model_keys(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "pmv.field.toml"
+    p.write_text(_FIELD +
+                 '[[platform]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nrise = 200\n'
+                 'prop = "cask"\nmodel = "GEO_ACC_F0_CSK"\nmodel_offset = -3\n\n'
+                 '[[platform]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nrise = 100\n'
+                 'model_pos = [1, 2]\n',
+                 encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("not both" in x for x in probs)                    # prop + model together
+    assert any("model_offset" in x for x in probs)                # negative offset
+    assert any("model_pos/model_offset need" in x for x in probs)  # model_pos with no model

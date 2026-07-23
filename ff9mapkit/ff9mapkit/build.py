@@ -1532,6 +1532,23 @@ def validate(project: FieldProject) -> list[str]:
         wt = pf.get("warp_to")
         if wt is not None and not isinstance(wt, int):
             problems.append(f"[[platform]] warp_to must be a field id (int) if set, got {wt!r}")
+        if pf.get("prop") is not None and pf.get("model") is not None:
+            problems.append('[[platform]] takes prop = "<archetype>" OR model = "<id/GEO name>", not both')
+        mo = pf.get("model_offset", 0)
+        if not isinstance(mo, int) or mo < 0:
+            problems.append(f"[[platform]] model_offset must be a non-negative integer (world units the "
+                            f"model's origin sits below the player's feet), got {mo!r}")
+        mp = pf.get("model_pos")
+        if mp is not None and not (isinstance(mp, (list, tuple)) and len(mp) in (2, 3)
+                                   and all(isinstance(c, (int, float)) for c in mp)):
+            problems.append(f"[[platform]] model_pos must be [x, z] or [x, z, y] (the model's rest spot), got {mp!r}")
+        if mp is not None and pf.get("prop") is None and pf.get("model") is None:
+            problems.append("[[platform]] model_pos/model_offset need a prop = or model = to place")
+    _n_pmodels = sum(1 for pf in project.raw.get("platform", [])
+                     if pf.get("prop") is not None or pf.get("model") is not None)
+    if _n_pmodels > _platform.PLATFORM_MAX_PER_FIELD:
+        problems.append(f"[[platform]] at most {_platform.PLATFORM_MAX_PER_FIELD} visible-model platforms "
+                        f"per field (the reserved ride-bit band), got {_n_pmodels}")
     su = project.raw.get("startup")                     # story-state presets ([startup]: assert the beat)
     if su is not None:
         if not isinstance(su, dict):
@@ -5243,17 +5260,43 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # player, carrying him frame-by-frame (MoveInstantXZY) from board -> arrive, then handing control back
     # (or, with warp_to, fading + Field()-ing to the destination floor = an inter-floor elevator). The
     # carry is the navigable ladder climb minus the d-pad; each platform gets a distinct tag, clear of the
-    # ladder/jump climb tags above. v1 emits the carry only -- the visible platform is human-painted art
-    # (or a placed model driven in lockstep, a follow-up). project memory: moving-platforms-elevators.
+    # ladder/jump climb tags above. `model`/`prop` binds a VISIBLE platform driven in lockstep (a per-
+    # platform MAP ride-bit + a tracker loop pinning the model to the player's live position -- see
+    # content/platform.py "THE VISIBLE PLATFORM"). project memory: moving-platforms-elevators.
     platforms = project.raw.get("platform", [])
     if platforms:
         ptag = _platform.FIRST_PLATFORM_TAG
+        pbit_k = 0                                    # ride-bit indices: only model-carrying blocks consume one
         for pf in platforms:
+            rbit = None
+            pname = pf.get("prop") or pf.get("model")
+            if pname is not None:
+                rbit = _platform.platform_ride_bit(pbit_k)
+                pbit_k += 1
+                if pf.get("prop") is not None:
+                    mid, ppose = _prop_archetypes.resolve(pf["prop"])
+                else:
+                    mid = resolve_npc_model(pf["model"])
+                    ppose = _resolve_prop_pose(mid, pf.get("pose"))
+                panimset = _npc._npc_object_params(mid, None)[0]
+                if pf.get("model_pos") is not None:
+                    rest = tuple(int(v) for v in pf["model_pos"])
+                elif pf.get("entry"):                 # entry mode: rest at the hole bottom under the let-off
+                    _l = pf["land"]
+                    rest = (int(_l[0]), int(_l[1]),
+                            (int(_l[2]) if len(_l) > 2 else 0) - abs(int(pf["rise"])))
+                else:                                 # zone modes: rest at the boarding zone's centroid
+                    _zpts = pf["zone"]
+                    rest = (round(sum(p[0] for p in _zpts) / len(_zpts)),
+                            round(sum(p[1] for p in _zpts) / len(_zpts)))
+                eb, _ = _platform.inject_platform_model(
+                    eb, model=mid, animset=panimset, pose=ppose, rest=rest, ride_bit=rbit,
+                    model_offset=int(pf.get("model_offset", 0)))
             if pf.get("entry"):                       # ON-ARRIVAL rise: plays at field load, no zone/press
                 eb = _platform.inject_entry_rise(
                     eb, land=pf["land"], rise=int(pf["rise"]), ride_tag=ptag,
                     duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
-                    animation=pf.get("animation"))
+                    animation=pf.get("animation"), ride_bit=rbit)
                 ptag += 1
                 continue
             pz = pf["zone"]
@@ -5266,7 +5309,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 ride_tag=ptag, duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
                 animation=pf.get("animation"), trigger=pf.get("trigger", "action"),
                 bubble=pf.get("bubble", True), warp_to=pf.get("warp_to"),
-                warp_entrance=int(pf.get("warp_entrance", 0)))
+                warp_entrance=int(pf.get("warp_entrance", 0)), ride_bit=rbit)
             ptag += 1
 
     # save points: a press-to-interact region that opens the SAVE menu (Menu(4,0) -> OpenSaveMenu), the

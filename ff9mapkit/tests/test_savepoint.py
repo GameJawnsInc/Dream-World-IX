@@ -471,6 +471,39 @@ def test_reveal_state_loop_structure_two_arms_and_loops_back():
     assert jump_idxs[1] < hide_idx              # the stow's own ballistic jump lands BEFORE the hide
 
 
+def _pathing_args(body: bytes) -> list:
+    from ff9mapkit.eb import disasm
+    return [i.args[0] for i in disasm.iter_code(body, 0, len(body))
+            if disasm.op_name(i.op) == "SetPathing"]
+
+
+def test_act_pathing_detaches_off_floor_attaches_on_floor():
+    """THE 2026-07-19 LIVE BUG'S FIX (root-caused 2026-07-22 by the full 407 decode + walkmesh probe):
+    the donor act calls SetPathing(1) at BOTH lerp ends and survives the perch-side call only because
+    its cask corner has NO walkmesh triangle (verified against 407's .bgi). A kit cask usually sits ON
+    walkable ground, so re-attaching at the perch snapped the moogle down INTO the barrel after a save.
+    The kit now derives the pathing arg from each spot's own height: floor spot (y == 0) -> attach (1),
+    off-floor spot -> DETACH (0). Ground savepoints stay byte-identical."""
+    kw = dict(book_uid=20, feather_uid=21, pose_tag=30, release_tag=31)
+    # barrel_pop shape: rest = the perch (y=362), hop_to = the ground save spot (y=2 = container base)
+    body = _savepoint.act_save_body(rest=(-250, -571, 362), hop_to=(-150, -571, 0), **kw)
+    assert _pathing_args(body) == [1, 0]        # ground landing attaches; the perch return DETACHES
+    # plain ground savepoint: both spots on the floor -> both attach, exactly the pre-fix bytes
+    flat = _savepoint.act_save_body(rest=(-250, -571), hop_to=(-150, -571), **kw)
+    assert _pathing_args(flat) == [1, 1]
+    # hop-in-place at a perch (no hop_to): the single spot is off-floor at both sites
+    perch = _savepoint.act_save_body(rest=(-250, -571, 362), hop_to=None, **kw)
+    assert _pathing_args(perch) == [0, 0]
+
+
+def test_reveal_state_loop_pathing_detach_on_perch_reattach_on_stow():
+    """The pop arm lands OFF-floor (the container top) -> it must detach (SetPathing(0)) so nothing can
+    snap the perched moogle down into the container; the stow arm lands back ON the floor -> it
+    re-attaches (SetPathing(1)). Order within the loop: pop's detach first, stow's attach second."""
+    body = _savepoint.reveal_state_loop(container_pos=(-250, -571, 2), height=360, steps=10)
+    assert _pathing_args(body) == [0, 1]
+
+
 def test_reveal_init_tail_byte_exact():
     assert _savepoint.reveal_init_tail().hex() == "93000e"          # SetObjectFlags(14)
     assert _savepoint.reveal_init_tail() == opcodes.encode(0x93, _savepoint.REVEAL_HIDE_FLAGS)

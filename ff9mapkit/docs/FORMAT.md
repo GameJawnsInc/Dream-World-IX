@@ -592,6 +592,51 @@ two `[[jump]]` blocks (a zone + landing point per direction), exactly like the r
 
 ---
 
+## `[[platform]]` (optional, repeatable)
+
+A rideable **carry platform / lift** — FF9's Pandemonium-elevator mechanism (decoded from fields
+2712/2713): a boarding trigger locks control and carries the player frame-by-frame to the destination,
+then hands control back (or fades + warps to another field — an inter-floor elevator). Optionally a
+**visible platform model** rides with the player in lockstep.
+
+```toml
+[[platform]]
+zone = [[-200, -160], [200, -160], [200, -320], [-200, -320]]   # 3-5-point boarding trigger
+land = [0, 450, 300]        # ride to this landing floor [x, z, y]  (OR rise = <units> for a vertical lift)
+prop = "cask"               # OPTIONAL: a visible platform model that rides under the player
+# model = "GEO_..."         #   (or an explicit model id/GEO name instead of a prop archetype)
+# model_offset = 40         # world units the model's ORIGIN sits below the player's feet
+# trigger = "action"        # "action" (press, default) or "tread" (auto on walk-in)
+# warp_to = 4005            # end the ride in a fade + Field() warp (an inter-floor elevator)
+
+[[platform]]
+entry = true                # ON-ARRIVAL rise: plays at field load (an elevator you arrive ON)
+land = [0, 0, 300]          # the let-off floor
+rise = 600                  # the shaft depth below it (you rise up out of the hole)
+```
+
+| key | meaning |
+|---|---|
+| `zone` | the **boarding trigger** — `3`–`5` `(x,z)` corners (4 are auto-made IsInQuad-safe). Not used with `entry = true`. |
+| `land` | the landing floor `[x, z]` or `[x, z, y]` — ride from wherever the player boards to here. |
+| `rise` | alternative to `land`: lift the player `<units>` vertically in place (positive = up; needs a real floor at the top). With `entry = true`, the shaft depth below `land`. |
+| `speed` / `duration` | ride tuning: world-units/frame (`land` mode, default 30) / total frames (`rise` mode, default 32). |
+| `entry` | `true` = the **on-arrival elevator**: at field load the player drops to the hole bottom and rides up to `land`. No zone/press. |
+| `trigger` | `"action"` (default) = press to board (with the "!" bubble); `"tread"` = auto-board on walk-in. |
+| `warp_to` / `warp_entrance` | end the ride with a fade + `Field(warp_to)` (sets entrance `D8:2` first) — the inter-floor elevator, the way the real game changes floors. |
+| `prop` / `model` | OPTIONAL **visible platform**: a prop archetype (`"cask"`, `"vat"`, …) or an explicit model id/GEO name. The model is placed walk-through (collision comes from the walkmesh) and **tracks the player's live position** during the ride — perfect lockstep, and one model serves a bidirectional zone pair (it rests wherever the last ride left it). At most **4** per field. |
+| `model_offset` | world units the model's origin sits **below the player's feet** (default 0). |
+| `model_pos` | the model's rest spot `[x, z(, y)]` — defaults to the zone centroid (or the hole bottom with `entry = true`). |
+| `animation` | OPTIONAL ride gesture clip for the player (cosmetic). |
+
+⚠ **Visibility is engine-governed**: a LONG visible vertical ride pushes the player's `psxDepth` out of
+range on a pitched-down camera (he goes invisible mid-ride) and the scroll camera can't leave its
+authored band. Keep visible rides SHORT (small y, in-band) and do big floor changes with `warp_to` —
+exactly how the real game does it. For a tall faithful elevator, fork a real one `--verbatim`
+(Pandemonium 2712/2713, proven).
+
+---
+
 ## `[[savepoint]]` (optional, repeatable)
 
 A **synthesized save point** — a **visible save Moogle** (talk to it → the save menu, FF9's actual
