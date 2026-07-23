@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — from-scratch navigable jumps (`[[jump]] to =`): the copy-only gap closed
+### Added — from-scratch navigable jumps (`[[jump]] to =`): the copy-only gap closed (★ in-game proven)
 - **`content/jump.py jump_arc_body(to, via=, steps=)`** generates FF9's real ledge-hop arc from just the
   landing point(s) — no verbatim sidecar needed. Grounded in a full-game census (51 navigable hops over
   15 fields): the Ice Cavern hop template is the game-wide modal shape, and the generator reproduces

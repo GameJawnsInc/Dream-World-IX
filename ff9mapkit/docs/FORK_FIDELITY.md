@@ -232,12 +232,13 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
       mount/dismount) from just the **two world endpoints** — *"any new painted vine just supplies its own two
       points (read off the paint guide, same as walkmesh placement)."* Decoded byte-for-byte from field 706
       (Gizamaluke vine) and reproduces 706's loop verbatim for 706's endpoints. NOT copy-only.
-    - **Jumps — generated from scratch TODAY (2026-07-22).** `jump_arc_body(to, via=, steps=)`
+    - **Jumps — generated from scratch TODAY (★ IN-GAME PROVEN 2026-07-22).** `jump_arc_body(to, via=, steps=)`
       (`content/jump.py`) generates the census-modal Ice Cavern hop template from just the landing
       point(s) — grounded byte-for-byte (all 6 of field 301's real arcs regenerate identically from
       their coords; a 15-field/51-hop full-game census pinned the template + the leap/land sfx pair +
       the modal 11-frame duration). `[[jump]] to = [x, z, y]` is the authoring surface; `jump = "file"`
-      stays the faithful verbatim lane. NOT copy-only anymore.
+      stays the faithful verbatim lane. NOT copy-only anymore. ★ In-game proven same day (slot-4003
+      demo: single-hop both directions at 16/6 frames + a two-hop `via=` crossing — "good").
     - **Save-Moogle pop-out — copy-only TODAY, but unbuilt-not-impossible** (the same tractable
       generator class; the jump generator above is the template).
     - **The single genuine-eyeball residual: the off-floor height** (a jump's apex, a ladder's top, the moogle's
