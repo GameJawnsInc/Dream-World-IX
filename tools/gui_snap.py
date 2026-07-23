@@ -317,9 +317,40 @@ def _fake_world_install() -> Path:
     return game
 
 
+# The REAL install's stock land/sea grid, derived once via worldscan.derive_stock_grid (1.2s over
+# p0data) and baked here so the atlas snap shows the true FF9 geography deterministically on any
+# machine. Pure derived FACT (like the field manifest), zero SE bytes. L=land ~=coastal-water .=ocean;
+# regenerate: py -c "from ff9mapkit.workspace import worldscan as w; from ff9mapkit import config;
+# print(*w._rows_encode(w.derive_stock_grid(config.find_game_path(None))), sep='\n')"
+_STOCK_ROWS = [
+    "L......~LLL.~...........",
+    "......LLLLL...LLLL~.....",
+    ".....LLLLL...LLLLLL.....",
+    "....LLLLL....LLLLLLLL~..",
+    "....LLLL~..LLLLLLLLLL~..",
+    ".....~LL..LLLLLLLLLLL...",
+    "..LLLLLL.LL.LLLLLLLLL...",
+    "..LLLLLLLLL.LLLLLLLLL...",
+    "..LLLLLLL........~LLL...",
+    "..LLLLLL~.....LLLLLLLL..",
+    "..LLLLLLL...LLLLLLLLLL..",
+    "..LLLLLLL..LLLLLLLLLLLL.",
+    "...LLLLLL..LLLLLLLLLLLL.",
+    "...LLLLLLL.LLLLLLLLLLLL.",
+    "...LLLLLLL.~LLLLLLLLLLL.",
+    "...~LLLLL~.~LLLLLLLLLLL.",
+    ".....LLLL...LLLLLLLLLLL.",
+    "......~LLLL.LLLLL.......",
+    "........~LL..LLLL.......",
+    "........................",
+]
+
+
 class _pin_world_state:
     """Point WorldDoc's scan at a fake install -- or at a raising resolver for `nogame` (production
-    RAISES ConfigError; a pin returning None would fence an unreachable branch, the round-9 law)."""
+    RAISES ConfigError; a pin returning None would fence an unreachable branch, the round-9 law).
+    The atlas state also pins FF9MAPKIT_DATA at a scratch cache seeded with the baked stock grid, so
+    the geography layer renders without touching the developer's cache or bundles."""
 
     def __init__(self, state: str):
         self.state = state
@@ -327,6 +358,7 @@ class _pin_world_state:
     def __enter__(self):
         from ff9mapkit import config as _cfg
         self._cfg, self._orig = _cfg, _cfg.find_game_path
+        self._env = os.environ.get("FF9MAPKIT_DATA")
         if self.state == "nogame":
             def _raise(*_a, **_k):
                 raise _cfg.ConfigError("FF9 install not found (pinned surface)")
@@ -334,10 +366,20 @@ class _pin_world_state:
         else:
             game = _fake_world_install()
             _cfg.find_game_path = lambda *_a, **_k: game
+            cache = _SCRATCH / "world_cache"
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "worldstock.json").write_text(json.dumps(
+                {"version": 1, "game": str(game), "disc": 1, "rows": [r[:24] for r in _STOCK_ROWS]}),
+                encoding="utf-8")
+            os.environ["FF9MAPKIT_DATA"] = str(cache)
         return self
 
     def __exit__(self, *exc):
         self._cfg.find_game_path = self._orig
+        if self._env is None:
+            os.environ.pop("FF9MAPKIT_DATA", None)
+        else:
+            os.environ["FF9MAPKIT_DATA"] = self._env
         return False
 
 

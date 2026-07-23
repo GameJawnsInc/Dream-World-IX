@@ -101,6 +101,7 @@ class AtlasCanvas(QGraphicsView):
         self.pal = palette                         # RAW palette, direct indexing -- the mapview rule
         self.on_select = on_select
         self._census = None
+        self._stock = {}                           # (bx,by) -> "L"/"~": the real map's own geography
         self._selected = None
         self._cells = {}                           # (bx,by) -> the cell's ring item (selection repaint)
         self._scale = scale if scale in range(50, 301) else 100
@@ -155,12 +156,13 @@ class AtlasCanvas(QGraphicsView):
                         vp.height() - self._hint.height() - 8)
 
     # -- public --
-    def set_census(self, census):
+    def set_census(self, census, stock=None):
         if census is not self._census:
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True               # a NEW scan fits; a redraw keeps the user's view
         self._census = census
+        self._stock = stock or {}
         if self._selected is not None and (census is None or self._selected not in census.cells):
             self._selected = None
         self._draw()
@@ -228,6 +230,13 @@ class AtlasCanvas(QGraphicsView):
         col.setAlpha(_KIND_ALPHA[kind])
         return col
 
+    def stock_fill(self):
+        """The stock-land ground tint: the quietest fill on the canvas -- geography is CONTEXT here,
+        and the deployed cells must stay the loudest thing on their own map."""
+        col = QColor(self.pal["muted"])
+        col.setAlpha(58)
+        return col
+
     def _draw(self):
         sc, pal = self._scene, self.pal
         sc.clear()
@@ -249,6 +258,15 @@ class AtlasCanvas(QGraphicsView):
             t.setBrush(muted)
             t.setPos(-QFontMetrics(font_ix).horizontalAdvance(str(by)) - 12,
                      by * cell + cell / 2 - ix_h / 2)
+        deployed = set(self._census.cells) if self._census is not None else set()
+        fill = self.stock_fill()
+        for (bx, by), cls in self._stock.items():  # the REAL world's landmasses, under everything:
+            if cls != "L" or (bx, by) in deployed:  # a deployed block owns its pixel outright -- no
+                continue                            # stock tint bleeding through a translucent fill
+            it = sc.addRect(QRectF(bx * cell + 0.5, by * cell + 0.5, cell - 1, cell - 1),
+                            QPen(Qt.PenStyle.NoPen), QBrush(fill))
+            it.setData(0, "stock")
+            it.setZValue(-0.05)                    # ground: below every override plate
         for c in (self._census.cells.values() if self._census is not None else ()):
             self._block(c, cell)
         if self._census is not None and not self._census.cells:
@@ -370,7 +388,7 @@ class WorldDoc(QWidget):
     reads happen inside :meth:`refresh` (user-invoked, worker thread) -- never at construction, never on
     tab show."""
 
-    _scan_done = Signal(object, object)            # (census | None, error string | None)
+    _scan_done = Signal(object, object, object)    # (census | None, stock grid | None, error | None)
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None):
         super().__init__()
@@ -535,7 +553,9 @@ class WorldDoc(QWidget):
             lab = widgets.role_label(text, "caption")
             return lab
 
-        for kind, label in (("land", "land"), ("water", "water carry"), ("stub", "stub only")):
+        self._legend_lay.addWidget(dot(self.canvas.stock_fill(), self.pal["border"]))
+        self._legend_lay.addWidget(cap("stock land"))
+        for kind, label in (("land", "your land"), ("water", "water carry"), ("stub", "stub only")):
             self._legend_lay.addWidget(dot(self.canvas._kind_fill(kind), self.pal["border"]))
             self._legend_lay.addWidget(cap(label))
         self._legend_lay.addWidget(dot(None, self.pal["warn"], 2))
@@ -595,23 +615,26 @@ class WorldDoc(QWidget):
         self.rescan_btn.setText("Scanning…")
         if sync:
             try:
-                self._finish(worldscan.scan_tree(target), None)
+                self._finish(worldscan.scan_tree(target), worldscan.stock_context(game), None)
             except Exception as e:                 # noqa: BLE001 -- surfaced, never swallowed
-                self._finish(None, str(e))
+                self._finish(None, None, str(e))
             return
-        threading.Thread(target=self._worker, args=(target,), daemon=True).start()
+        threading.Thread(target=self._worker, args=(target, game), daemon=True).start()
 
-    def _worker(self, target):
+    def _worker(self, target, game):
         try:
-            census, err = worldscan.scan_tree(target), None
+            census = worldscan.scan_tree(target)
+            # The stock geography rides the same worker: first-ever call reads a p0data bundle
+            # (seconds), every later call is one cached JSON. None = underivable -> no layer.
+            stock, err = worldscan.stock_context(game), None
         except Exception as e:                     # noqa: BLE001 -- surfaced on the GUI thread
-            census, err = None, str(e)
+            census, stock, err = None, None, str(e)
         try:
-            self._scan_done.emit(census, err)      # RuntimeError-guarded: the doc may be dead by now
+            self._scan_done.emit(census, stock, err)   # RuntimeError-guarded: the doc may be dead
         except RuntimeError:
             pass
 
-    def _finish(self, census, err):
+    def _finish(self, census, stock, err):
         self._busy = False
         self.rescan_btn.setEnabled(True)
         self.rescan_btn.setText("Rescan")
@@ -620,7 +643,7 @@ class WorldDoc(QWidget):
             return
         self._census = census
         self._stack.setCurrentWidget(self._atlas_page)
-        self.canvas.set_census(census)
+        self.canvas.set_census(census, stock)
         n = len(census.cells)
         if n == 0:
             self.summary_lbl.setText("No Block[x][y] overrides in this folder.")

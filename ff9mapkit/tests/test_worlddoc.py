@@ -32,6 +32,14 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _isolate_data_dir(tmp_path, monkeypatch):
+    """Every refresh() consults the stock-context cache under provision.cache_dir(), which honours
+    $FF9MAPKIT_DATA -- pin it per-test so no test ever reads (or seeds) the developer's real cache
+    (the round-9 isolation law; the review's recurring best find is exactly this class)."""
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path / "data"))
+
+
 def _mesh_bytes(vcount=12, icount=12, *, salt=0):
     out = bytearray(b"F9WM")
     out += struct.pack("<iiii", 1, vcount, icount, 0)
@@ -191,6 +199,38 @@ def test_a_rescan_keeps_the_selection_when_the_cell_survives(app, tmp_path):
     doc.refresh(sync=True)
     assert doc._selected == (3, 17)
     assert "Block[3][17]" in doc.sel_title.text()
+
+
+def test_the_stock_layer_grounds_the_atlas_but_never_a_deployed_block(app, tmp_path):
+    """Seed a stock-context cache for the pinned install: stock land paints as the quiet ground layer,
+    EXCEPT under deployed blocks (an override owns its pixel -- no tint bleeding through), and the
+    legend names the new fill."""
+    import json
+    game = _fake_game(tmp_path)
+    stock = {(0, 0): "L", (1, 0): "L", (3, 17): "L", (11, 19): "~", (12, 12): "L"}
+    from ff9mapkit import provision
+    from ff9mapkit.workspace import worldscan as ws
+    root = provision.cache_dir()                             # = the pinned FF9MAPKIT_DATA dir
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ws.STOCK_CACHE_NAME).write_text(json.dumps(
+        {"version": 1, "game": str(game), "disc": 1, "rows": ws._rows_encode(stock)}),
+        encoding="utf-8")
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    stock_items = [it for it in doc.canvas.scene().items() if it.data(0) == "stock"]
+    # (0,0), (1,0), (12,12) paint; (3,17) is DEPLOYED so it must not; (11,19) is "~" -> never drawn.
+    assert len(stock_items) == 3
+    assert len(_cells_in_scene(doc.canvas)) == 3             # the override cells are untouched by it
+    caps = [w.text() for w in doc._legend_host.findChildren(type(doc.summary_lbl))]
+    assert any("stock land" in t for t in caps)
+
+
+def test_no_stock_cache_means_no_layer_and_no_failure(app, tmp_path):
+    game = _fake_game(tmp_path)                              # tmp install: underivable -> None
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    assert doc._stack.currentWidget() is doc._atlas_page
+    assert not [it for it in doc.canvas.scene().items() if it.data(0) == "stock"]
 
 
 def test_retheme_redraws_the_canvas_in_the_new_palette(app, tmp_path):
