@@ -229,7 +229,9 @@ def scan_story_writes(eb_bytes) -> list:
 # These live WHOLLY in the field `.eb`, so a `--verbatim` fork RUNS them (carries them byte-identically) but
 # a plain/synthesize fork DROPS them -- eventscan has no AddItem scanner, and there is no shop authoring. A
 # shop's `Menu(2, id)` carries too, but its STOCK comes from the base `ShopItems.csv` (a fork is parasitic on
-# it -- it can't change the inventory). The kit catalogs only the regular 0-255 item space, so a key/card id
+# it -- it can't change the inventory); an id ABSENT from ShopItems.csv opens as a SYNTHESIS shop instead
+# (ff9buy.FF9Buy_GetType -- vanilla synthesists are 32-39, recipes from the base `Synthesis.csv`), and the
+# report labels the two kinds apart. The kit catalogs only the regular 0-255 item space, so a key/card id
 # gets a generic label. (memory project-ff9-items-equipment; opcodes AddItem/AddGil/Menu in eb/opcodes.py.)
 ADD_ITEM_OP = 0x48         # AddItem(item_id, count) -- the real-chest / reward opcode (item_id 2B, count 1B)
 REMOVE_ITEM_OP = 0x49      # RemoveItem(item_id, count)
@@ -237,6 +239,7 @@ ADD_GIL_OP = 0xCE          # AddGil(amount) -- treasure gil (amount 3B, unsigned
 REMOVE_GIL_OP = 0xCF       # RemoveGil(amount)
 MENU_OP = 0x75             # Menu(menu_id, sub_id); menu_id 2 = SHOP (sub_id = shop id). 1=name 4=save 5=chocograph
 SHOP_MENU_ID = 2
+FIRST_SYNTH_SHOP = 32      # vanilla ShopItems.csv defines buy shops 0-31; the synthesists (32-39) are ABSENT from it
 NO_ITEM = 255              # the RegularItem empty sentinel -- not a real grant (filtered, like PARTY_NONE)
 GIL_CAP = 9_999_999        # the FF9 party-gil ceiling; a larger literal AddGil is a scripted sentinel, not treasure
 # The event `AddItem` operand is a POOL-ENCODED item id, classified by `id % 1000` (ff9item.FF9Item_Add_Generic):
@@ -873,9 +876,24 @@ def _story_writes_line(rep: ForkReport) -> str:
             "RUNS these (advances state); seed a DOWNSTREAM fork's [startup] flags from them")
 
 
+_BUY_IDS_MEMO: list = []   # [set|None] once probed; empty = unprobed (module-level -- one install read per run)
+
+
+def shop_is_synthesis(sid: int) -> bool:
+    """``Menu(2, sid)`` opens as SYNTHESIS iff ``sid`` is absent from ``ShopItems.csv``
+    (``ff9buy.FF9Buy_GetType``). Reads the install's base file when reachable (memoised); offline, the
+    vanilla split (buy = 0-31) -- exact for real donor fields, which only reference vanilla ids."""
+    if not _BUY_IDS_MEMO:
+        from .content import shop as _shopmod
+        _BUY_IDS_MEMO.append(_shopmod.install_buy_ids())
+    buy_ids = _BUY_IDS_MEMO[0]
+    return sid not in buy_ids if buy_ids is not None else sid >= FIRST_SYNTH_SHOP
+
+
 def _items_line(rep: ForkReport) -> str:
     """The 'Items' axis: the treasure / gil / shops the field grants. A --verbatim fork RUNS these (carries
-    them byte-identically); a plain/synthesize fork DROPS them (no item scanner). Empty when nothing is granted."""
+    them byte-identically); a plain/synthesize fork DROPS them (no item scanner). Empty when nothing is granted.
+    A shop id absent from ShopItems.csv is labeled a SYNTHESIS shop (the engine's own discriminator)."""
     if not (rep.item_gives or rep.item_var_give or rep.item_gil_any or rep.item_shops or rep.item_var_shop):
         return ""
     bits = []
@@ -890,14 +908,22 @@ def _items_line(rep: ForkReport) -> str:
         bits.append(f"up to {rep.item_gil_max} gil")
     elif rep.item_gil_any:
         bits.append("gil (scripted)")
-    if rep.item_shops:
-        ids = ", ".join("#%d" % s for s in rep.item_shops[:6])
-        more = f" +{len(rep.item_shops) - 6}" if len(rep.item_shops) > 6 else ""
-        bits.append(f"opens shop(s) {ids}{more}" + (" + a story-gated shop" if rep.item_var_shop else ""))
-    elif rep.item_var_shop:
+    buys = [s for s in rep.item_shops if not shop_is_synthesis(s)]
+    synths = [s for s in rep.item_shops if shop_is_synthesis(s)]
+    for label, ids_list in (("shop(s)", buys), ("SYNTHESIS shop(s)", synths)):
+        if ids_list:
+            ids = ", ".join("#%d" % s for s in ids_list[:6])
+            more = f" +{len(ids_list) - 6}" if len(ids_list) > 6 else ""
+            bits.append(f"opens {label} {ids}{more}")
+    if rep.item_var_shop:
         bits.append("opens a story-gated shop")
     tail = "  (--verbatim carries these; a plain/synthesize fork DROPS them"
-    tail += "; shop stock = base ShopItems.csv)" if (rep.item_shops or rep.item_var_shop) else ")"
+    stock = []
+    if buys or rep.item_var_shop:
+        stock.append("shop stock = base ShopItems.csv")
+    if synths:
+        stock.append("recipes = base Synthesis.csv")
+    tail += ("; " + ", ".join(stock) + ")") if stock else ")"
     return f"  Items         : {'; '.join(bits)}{tail}"
 
 
@@ -1340,8 +1366,12 @@ def _trace_interaction(eb, entry_idx, tag, entries, *, depth, visited, steps, pe
             steps.append((depth, "gil", "gil"))
         elif op == MENU_OP:
             mid = ins.imm(0)
-            steps.append((depth, "menu", "a shop" if mid == SHOP_MENU_ID
-                          else ("the save menu" if mid == SAVE_MENU_ID else f"menu #{mid}")))
+            if mid == SHOP_MENU_ID:
+                sid = ins.imm(1)                           # literal shop id (None = computed/story-gated)
+                steps.append((depth, "menu", "a synthesis shop"
+                              if sid is not None and shop_is_synthesis(sid) else "a shop"))
+            else:
+                steps.append((depth, "menu", "the save menu" if mid == SAVE_MENU_ID else f"menu #{mid}"))
         elif op in _RUNSCRIPT_OPS:
             uid, t = ins.imm(1), ins.imm(2)
             if uid is None or t is None:
