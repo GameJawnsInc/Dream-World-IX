@@ -685,3 +685,73 @@ dependency).
 - Deployed `6200.fbx` (101,084 bytes) + `Thomas_d.png` (94,533 bytes) under
   `FF9CustomMap/StreamingAssets/Assets/Resources/Models/3/6200/`, both sha256-verified byte-identical
   to their `C:/gd/SCRATCH/thomas/` sources on readback.
+
+---
+
+## SESSION CLOSE 2026-07-22 — state, verdicts, and THE NEXT ROUND
+
+**Paused here by the user.** Everything below is on `master`; the probe is disarmed
+(`Memoria.ini [SfxProbe] Enabled = 0`); the v7 Thomas swap is left DEPLOYED on bench field 30300.
+
+### What is PROVEN and shipped
+- **The native-visual suppression lever** — `PlaySFX ... HideMeshes=<hex keys>` hides exactly
+  Bahamut's 7 body meshes while every effect (swirl / flare / beam / fire column) still renders.
+  First use of the op anywhere. In-game proven.
+- **The creature substitution** — a third-party FBX (Thomas, GEO 6200) minted through the model
+  pillar and rendered mid-cast via the rung-7 `FileList.txt` route, coexisting with the native
+  donor effect in one cast. In-game proven.
+- **s48 + s50 engine probes** (default-OFF, permanent debug-class tools): per-frame mesh keys +
+  bounds, the decoded PS1 primitive stream, and the REAL per-frame camera (`worldToCameraMatrix` +
+  `projectionMatrix`).
+
+### What is FALSIFIED (do not retry as-is)
+- **Tracking Bahamut by mesh bounds** — the `MESH` bounds are pool-polluted; the far-corner Z
+  heuristic is *measurably* wrong (f142: real −7,688 vs estimated −18,800).
+- **Tracking Bahamut by the primitive stream** — no stable discriminator isolates the creature from
+  backdrop/effect geometry (independently reasoned methods disagree: 0/6, 0/10 vs 3/17; they latch
+  onto screen-filling backdrop planes). Worse, the two video-confirmed beats (swirl entrance, fire
+  column) contain **zero** body-key primitives — they fall outside the 82–417 body window entirely.
+
+### What is DECODED (durable wins)
+- **The primitive coordinate space**: a primitive's `(x0, y0, otz)` **IS** the mesh vertex the camera
+  consumes — `SFXMesh` builds each vertex as `(x0+drOffsetX, y0+drOffsetY, GzDepth)`, source-proven.
+- **The camera is real and moves**: VIEW pans/orbits, PROJ zooms vFOV 47°→24°. The `.transform` is a
+  decoy nothing writes per frame.
+- **15 CAMERA HARD CUTS** (single-frame eye jumps up to 18,960 world units) — this retroactively
+  explains most of the v4/v5/v6 wandering: any smooth world path is framed before a cut and stranded
+  after it.
+- The DLL is a soft RE target: `SFX_UpdateCamera`'s real body at RVA 0x1e80; the camera anchor
+  dispatch recovered byte-exact (`lookup_anchor` @ 0x1800148f0). Blocked only at a runtime-populated
+  PS1-emulator scratch buffer (RVA 0x220060, zero bytes on disk).
+
+### Current deployed state (v7) and its honest verdict
+`FLIGHT v7` places Thomas **in frame by construction** (choreograph in NDC → back-project through
+each frame's real VIEW/PROJ). Verified **100.00% on-screen coverage (551/551 camera frames)** vs the
+v5 baseline 2.7%. **User verdict: in-frame, but "doesn't really look good and some parts are
+missing."** So: coverage solved, *staging* not solved. v7 is a framing exercise, not a performance —
+it does not know what the creature was DOING (pose, scale intent, which beat it belongs to).
+
+### THE NEXT ROUND (user's stated intent): another disasm pass — how are these truly stored?
+The remaining prize is the one thing every data-side approach failed to recover: **the creature's
+real per-frame transform and geometry**. Concrete targets, in order:
+1. **The `Hi_Summon*` subsystem** inside `FF9SpecialEffectPlugin.dll` (~12 functions:
+   `Hi_RegisterSummonModel` / `Hi_SetSummonMotion` / `Hi_GetSummonBoneMatrix` / `Hi_DrawSummonModel`
+   / …). This is where the creature's model + motion actually live. Decoding
+   `Hi_GetSummonBoneMatrix` alone would give Bahamut's true per-frame transform — which is exactly
+   what tracking needs, and what neither mesh bounds nor primitives could supply.
+2. **The open puzzle worth solving first (cheap, and it gates interpretation):** why do the native
+   primitives NOT project sanely through the captured VIEW/PROJ, when the source says they are plain
+   mesh vertices under those matrices? Resolving this may show the effect renders through a second
+   path/space — and would validate or void every projection-based conclusion here.
+3. **Only then**: whether a creature can be swapped at the *source* level (feed our own model into
+   the summon pipeline) instead of the current hide-native + overlay-ours composition.
+
+**Provenance for that round:** reading the DLL to UNDERSTAND is sanctioned (PLAN §3A Route D). A
+committable format *parser* is fine; extracted stock creature geometry is NOT (gitignore/local only,
+the battle-import precedent). Never ship a patched/redistributed DLL.
+
+### Reproduce / revert
+- Rebuild + deploy v7: `py studies/custom-summons/thomas-swap/build_thomas.py`
+- Back to the rung-7 resting state: `py studies/custom-summons/thomas-swap/revert_thomas.py`
+- Re-arm the probes: `Memoria.ini [SfxProbe] Enabled = 1` (+ `CapturePrims = 1` for the primitive
+  stream) — **needs a game relaunch**, the flags are cached at process start.
