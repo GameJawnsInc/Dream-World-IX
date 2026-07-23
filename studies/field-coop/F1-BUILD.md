@@ -191,12 +191,19 @@ if (Memoria.Netsync.NetSyncField.TeleportKeyPressed())
    savepoint moogle talk being gated at the funnel; the opcode gate's real proof is two-machine
    (mirrored script). Mechanism-smoke only.
 
-## Two-machine boxes queued for the next laptop session
-Real-guest interaction block (bench green ≠ proof — GetUserControl reachability for a followed guest
-is needs-in-game) · gateway redirect + follow-allowance on the real link · manual/auto TP with a real
-host · snapshot leak end-to-end (Snapshot while mirroring → ramp → Restore refused → manual save
-writes OWN story) · the standing s41/s42 leftovers (tick numbers · Plant Brain · Feather Boots ·
-host-silent bench · a Workspace-tab session).
+## Two-machine boxes — RUN 2026-07-23 (desktop host + laptop guest, real link)
+
+★ PASS — real-guest interaction block (bench green ≠ proof — `GetUserControl` reachability for a
+followed guest is no longer needs-in-game, it's proven) · ★ PASS — gateway redirect + follow-allowance
+on the real link (new nuance: simultaneous same-door entry — see the session section below) ·
+★ PASS — manual TP, F11; **L3 (held ~0.7s, `JoystickButton8`) is STILL UNTESTED on the live pad**,
+carries forward as OPEN · ✗ FAILED ACCEPTANCE — auto-TP (intermittent fire + a session-drop crash
+window, see below; default-OFF pending a rework) · ★ PASS — snapshot leak end-to-end (Snapshot while
+mirroring → ramp → Restore refused → manual save writes OWN story) · the standing s41/s42 leftovers
+(tick numbers · Plant Brain · Feather Boots · host-silent bench · a Workspace-tab session) — NOT
+exercised this session, still queued.
+
+Full session narrative → **★★ TWO-MACHINE SESSION 2026-07-23** below.
 
 ## Verify-round outcomes (2026-07-20 — 7 skeptics `wf_e66632e8`, repairs re-verified `wf_7c682de1`)
 
@@ -277,3 +284,52 @@ door inside 20s spends the budget → a brief excursion the follow-warp yanks ba
 auto-transition corridor becomes a slow multi-field reload ping-pong (strictly better than the
 pre-budget infinite reload) · an off-mesh auto-TP drop onto a gateway quad reload-cycles at ~10s
 until the host moves (bounded by the cooldown, never lets the jump through).
+
+## ★★ TWO-MACHINE SESSION 2026-07-23 — desktop host + laptop guest, real link
+
+4 of the 6 queued boxes PROVEN; L3 carries forward untested; auto-TP FAILED ACCEPTANCE and surfaced a
+crash window that outranks it.
+
+1. **Real-guest interaction block** — ★ PASS. Confirm on a real followed guest (NPC/chest/save-moogle)
+   is a genuine no-op exactly as the solo bench predicted; `GetUserControl` reachability for a followed
+   guest is no longer needs-in-game — it's proven.
+2. **Gateway redirect + follow-allowance** — ★ PASS on the live link. New nuance worth keeping: when
+   host and guest walk into the SAME door at the same moment, the guest bounces ONCE — `LastHostField`
+   hasn't picked up the host's new destination yet at the instant the guest's own redirect evaluates —
+   then the follow-allowance/manual-teleport catches them up on the very next beat. Bounce-then-follow,
+   not a defect; matches the "one extra reload" consequence already accepted in THE GATEWAY REDIRECT
+   above.
+3. **Manual TP** — F11 ★ PASS. **L3 (held ~0.7s, `JoystickButton8`) is still UNTESTED on the live pad**
+   — carries forward as the one open item in this box.
+4. **Auto-TP** — ✗ FAILED ACCEPTANCE. Fires intermittently on the real link ("sometimes works,
+   sometimes doesn't" — the dwell/steering predicate isn't reliably tripping over the actual
+   transport; root cause not yet isolated, diagnosis in flight, no speculation past this line). Worse
+   than a bad leash: when it misfires the guest DROPS THE SESSION for ~1-3s, and a random battle
+   starting inside that unpaired window boots the guest into their OWN party — the game then CRASHES
+   on battle exit. Owner verdict: auto-TP as a concept is disliked unless the leash can be made
+   reliable → **default-OFF pending a rework** (tracked separately from the crash). The crash window
+   itself is a SEPARATE must-fix: ANY transient unpair — not just auto-TP's — can manufacture the same
+   battle-boots-with-a-solo-party state, so the fix belongs at the unpair boundary, not inside
+   `AutoTeleportTick`.
+5. **Snapshot leak end-to-end** — ★ PASS ("good, discarded": Snapshot while mirroring → ramp →
+   Restore refused → manual save writes the guest's OWN story, the exact closure design proves out
+   live).
+6. **MENU opcode / mirrored-cutscene sanity** — OBSERVED AS BUILT, not a lockstep proof: both sides can
+   accept dialogue and advance independently at F1's tier (doesn't hang, which is all this box was ever
+   scoped to show). Full host-driven confirm/choice lockstep stays the ratified **F3** round, unchanged
+   plan.
+7. **Standing s41/s42 leftovers** (tick numbers · Plant Brain · Feather Boots · host-silent bench · a
+   Workspace-tab session) — not exercised this session, still queued.
+
+**New findings this session (logged, not yet root-caused):**
+- Field 206: the guest heard a "horn" music variant while the host heard the normal Evil Forest theme
+  — suspected story-state divergence feeding the music pick; unreproduced, recon in flight.
+- **Follow-warp latency** (owner priority): the guest waits out the host's FULL field change before the
+  follow fires, landing ~1-3s behind. Fine for "eventually catches up," not a base for cutscene
+  lockstep. **F2 (the SectionIntent transition-intent lane, wire v11) is PROMOTED — next after the
+  crash-window fix, ahead of the rest of the build order.**
+
+**Status: F1 is two-machine proven on 4/6 boxes** (interaction gates · gateway redirect +
+follow-allowance · F11 manual TP · snapshot taint). Open: L3 on a live pad, auto-TP (failed
+acceptance, default-OFF pending rework), the battle-boots-solo-party crash window (must-fix,
+cross-cutting), and the F2 promotion for follow-warp latency.
