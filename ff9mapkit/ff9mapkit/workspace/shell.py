@@ -3558,18 +3558,16 @@ class Workspace(QMainWindow):
         never offset by a campaign/journey flag-window -- so this is a pure identity map (no offset math, the
         whole no-mislabel guarantee). Fail-safe: ANY error -> ``{}`` (no annotation rather than a wrong one).
         A cross-source index collision -> an ``<ambiguous>`` sentinel, never a silent pick."""
-        import tomllib
         from .. import flags as _flags
+        # mtime+size-cached parse: the journey branch below re-reads every member field.toml the lint
+        # pass just parsed (800+ files on a full arc) -- the cache turns those into cheap copies.
+        from ..tomlcache import load_toml as _read
         seen: dict = {}
 
         def _add(raw):
             for idx, name in _flags.project_flag_names(raw).items():
                 prev = seen.get(idx)
                 seen[idx] = name if prev in (None, name) else "<ambiguous>"
-
-        def _read(p):
-            with open(p, "rb") as fh:
-                return tomllib.load(fh)
 
         try:
             if self.manifest is not None and self.plan is None:        # JOURNEY: every member of every campaign
