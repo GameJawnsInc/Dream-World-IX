@@ -711,6 +711,8 @@ class Workspace(QMainWindow):
             self._hero.set_density(self._density, self._text_scale)
         if getattr(self, "_lede", None) is not None:
             self._lede.set_scale(self._text_scale)     # the card's mark is PAINTED -- see LedeCard._up
+        if getattr(self, "map", None) is not None:
+            self.map.set_scale(self._text_scale)       # the campaign map is a QGraphicsScene -- same story
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1413,7 +1415,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.doc_scroll, "Editor")
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
-                               thumbs=self.thumbs.cached)               # nodes show the real art when cached
+                               thumbs=self.thumbs.cached,               # nodes show the real art when cached
+                               scale=self._text_scale)                  # CALIBRE reaches painted text by hand
         self.map.setAccessibleName("Campaign map")       # a custom-painted canvas is a screen-reader void without this
         self.map.setAccessibleDescription("The open campaign's fields and the gateways between them")
         self.tabs.addTab(self.map, "Map")
@@ -3360,7 +3363,8 @@ class Workspace(QMainWindow):
         self._populate()
         g = C.campaign_graph(self.plan)
         self.map.render(g, g.entry or (self.plan.members[0].name if self.plan.members else None))
-        self._select_member(member.name)
+        self._prefetch_thumbs()                    # the NEW member's art: without this its card kept the
+        self._select_member(member.name)           # placeholder band until the campaign was reopened
         self.statusBar().showMessage(f"Added {member.name} (id {member.new_id}) to {self.plan.name}")
         return member
 
@@ -3771,12 +3775,7 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
-        warm = False
-        for m in plan.members:                     # prefetch every member's background thumbnail (async,
-            if self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id):   # cached, install-gated)
-                warm = True
-        if warm:                                   # the warm disk fast path answers WITHOUT a ready() emit,
-            self._thumb_rerender.start()           # and map.render ran above it -- kick the coalesced redraw
+        self._prefetch_thumbs()                    # after map.render: warm cache answers kick the redraw
         if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
             prefs.add_recent("campaign", path)     # already the recent entry
         self._refresh_deploy_btn()
@@ -6300,7 +6299,11 @@ class Workspace(QMainWindow):
         docs are NOT reloaded, so unsaved GUI edits are preserved (only the scene side is re-read from disk)."""
         if not self._commit_active_ck():               # fold a pending edit first; a bad open form blocks refresh
             return
-        self.thumbs.invalidate()                       # a repaint/re-import may have changed the art -> re-resolve
+        self.thumbs.invalidate()                       # a repaint/re-import may have changed the art...
+        self._prefetch_thumbs()                        # ...and someone must actually RE-RESOLVE it: without
+        # this line the invalidate stranded the map -- the next redraw probed an empty in-memory cache,
+        # found nothing, and nobody was left to request (the invalidate comment said "re-resolve" and no
+        # call site spent it -- a law in a comment is a wish).
         item = self.tree.currentItem()
         fa = self._ancestor_field(item) if item is not None else None
         sel = None
@@ -7540,6 +7543,22 @@ class Workspace(QMainWindow):
             except Exception:   # noqa: BLE001  (no install / no UnityPy) -> the picker shows no songs
                 pass
         threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
+
+    def _prefetch_thumbs(self):
+        """Request every open member's background thumbnail. Warm disk answers land in-memory INSTANTLY
+        but emit no ready() -- so any Map render that ran before this loop would stay artless without the
+        coalesced-redraw kick here (the REOPEN-HOLE class: a consumer of a thumb service must handle the
+        warm SYNCHRONOUS answer itself). Cold members stream through the worker and arrive via ready().
+        The ONE owner of the request loop: open_campaign, add-field, and the F5 scene refresh all spend
+        it, so an invalidate can never again strand the map with nobody re-resolving."""
+        if self.plan is None:
+            return
+        warm = False
+        for m in self.plan.members:
+            if self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id):
+                warm = True
+        if warm:
+            self._thumb_rerender.start()
 
     def _on_thumb_ready(self, member, _png):
         """A background thumbnail landed (queued from the worker): refresh the Inspector if that field is

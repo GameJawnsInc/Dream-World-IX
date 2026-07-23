@@ -1,7 +1,18 @@
-"""CampaignMap node art: the thumbnail band must render at the screen's device pixel ratio, the same
-idiom icons.pixmap() uses -- a DPR=1 pixmap stretched over a HiDPI logical footprint is visibly blurrier
-than the vector nodes/text around it. Headless-safe: devicePixelRatioF() is monkeypatched rather than
-relying on offscreen actually reporting a scaled screen."""
+"""CampaignMap rendering laws.
+
+* Node art must render at the screen's device pixel ratio, the same idiom icons.pixmap() uses -- a
+  DPR=1 pixmap stretched over a HiDPI logical footprint is visibly blurrier than the vector nodes/text
+  around it. Headless-safe: devicePixelRatioF() is monkeypatched rather than relying on offscreen
+  actually reporting a scaled screen.
+* A two-way connection (A->B plus B->A, the overwhelmingly common shape -- rooms connect both
+  directions) is ONE ribbon with a head at each end, not two stacked lines with four heads.
+* A rerender (thumb arrivals, highlight, retheme all funnel there) must NOT yank the user's zoom;
+  opening a DIFFERENT campaign must reset it.
+* The CALIBRE text dial reaches the map (it is a QGraphicsScene -- no QSS role can): node geometry
+  re-derives from the dial. Offscreen-safe because the width is pure arithmetic, not font metrics.
+
+Colour/geometry assertions only -- offscreen width-from-TEXT numbers are fiction (the study's law);
+nothing here reads a text item's metrics."""
 
 import os
 
@@ -12,8 +23,11 @@ pytest.importorskip("PySide6")
 pytest.importorskip("PIL")
 
 from PIL import Image                                   # noqa: E402
-from PySide6.QtWidgets import QApplication               # noqa: E402
+from PySide6.QtCore import Qt                            # noqa: E402
+from PySide6.QtWidgets import (QApplication, QGraphicsPathItem,   # noqa: E402
+                               QGraphicsPolygonItem)
 
+from ff9mapkit import campaign                           # noqa: E402
 from ff9mapkit.editor.graphview import LaidNode          # noqa: E402
 from ff9mapkit.workspace import mapview                  # noqa: E402
 
@@ -30,6 +44,65 @@ def app():
 def _node():
     return LaidNode(name="ROOM", new_id=4003, mode="borrow", x=0, y=0, w=176, h=138,
                      is_entry=True, reachable=True, dead_end=False, needs_export=False)
+
+
+def _two_room_graph(edges):
+    M = campaign.Member
+    members = [M(300, 30100, "ENT", "borrow", 11, "", "ENT/ent.field.toml", False),
+               M(301, 30101, "COR", "borrow", 11, "", "COR/cor.field.toml", False)]
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="M", id_base=30100,
+                                 flag_base=campaign.FIRST_SAFE_FLAG, flags_per_field=64,
+                                 entry_name="ENT", entry_entrance=0, members=members,
+                                 edges=edges, seams=[])
+    return campaign.campaign_graph(plan)
+
+
+def _ribbons(mv):
+    """The scene's EDGE paths: pen-only (node bodies / art seats / placeholders carry a fill brush)."""
+    return [it for it in mv._scene.items()
+            if isinstance(it, QGraphicsPathItem) and it.brush().style() == Qt.BrushStyle.NoBrush]
+
+
+def test_a_two_way_pair_is_one_ribbon_with_a_head_at_each_end(app):
+    g = _two_room_graph([{"frm": "ENT", "to": "COR", "entrance": 2},
+                         {"frm": "COR", "to": "ENT", "entrance": 0}])
+    mv = mapview.CampaignMap(dict(_PAL))
+    mv.render(g)
+    assert len(_ribbons(mv)) == 1, "A->B plus B->A must merge into ONE two-headed ribbon"
+    heads = [it for it in mv._scene.items() if isinstance(it, QGraphicsPolygonItem)]
+    assert len(heads) == 2, "the merged ribbon carries an arrowhead at EACH end"
+
+
+def test_a_one_way_edge_is_one_ribbon_with_one_head(app):
+    g = _two_room_graph([{"frm": "ENT", "to": "COR", "entrance": 2}])
+    mv = mapview.CampaignMap(dict(_PAL))
+    mv.render(g)
+    assert len(_ribbons(mv)) == 1
+    heads = [it for it in mv._scene.items() if isinstance(it, QGraphicsPolygonItem)]
+    assert len(heads) == 1, "a one-way gateway points one way"
+
+
+def test_a_rerender_keeps_the_zoom_but_a_new_campaign_resets_it(app):
+    g = _two_room_graph([{"frm": "ENT", "to": "COR", "entrance": 2}])
+    mv = mapview.CampaignMap(dict(_PAL))
+    mv.render(g)
+    mv.scale(1.5, 1.5)                                  # the user zoomed (Ctrl+scroll lands here)
+    mv._zoom = 1.5
+    mv.rerender()                                       # a thumbnail arrival redraw...
+    assert mv.transform().m11() == pytest.approx(1.5), \
+        "a rerender of the SAME campaign must not yank the user's zoom"
+    mv.render(_two_room_graph([{"frm": "ENT", "to": "COR", "entrance": 2}]))
+    assert mv.transform().m11() == pytest.approx(1.0), "a different campaign starts at 1:1"
+
+
+def test_the_text_dial_reaches_the_map(app):
+    g = _two_room_graph([{"frm": "ENT", "to": "COR", "entrance": 2}])
+    mv = mapview.CampaignMap(dict(_PAL), scale=100)
+    mv.render(g)
+    w100 = mv._layout.nodes[0].w
+    mv.set_scale(150)
+    assert mv._layout is not None and mv._layout.nodes[0].w > w100, \
+        "the CALIBRE dial must re-derive the map's node geometry (no QSS reaches a QGraphicsScene)"
 
 
 def test_thumbnail_pixmap_is_tagged_at_the_screen_dpr(app, tmp_path, monkeypatch):
