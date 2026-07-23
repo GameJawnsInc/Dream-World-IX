@@ -334,13 +334,14 @@ follow-allowance · F11 manual TP · snapshot taint). Open: L3 on a live pad, au
 acceptance, default-OFF pending rework), the battle-boots-solo-party crash window (must-fix,
 cross-cutting), and the F2 promotion for follow-warp latency.
 
-## F2 (wire v11) — BUILT 2026-07-23, solo bench + two-machine proof PENDING
+## F2 (wire v11) — ★ TWO-MACHINE PROVEN (headline boxes) 2026-07-23
 
 A read-only recon produced the implementation spec below; an adversarial pre-build review confirmed
 it, surfacing ONE real finding — the L1 pin-flag desync across a link blip (a latent stuck-controls
 freeze: a guest pinned mid-co-location that drops and regains the link before the release conditions
 fire never un-pins) — fixed before the build. Built + deployed to the desktop engine, DLL
-`588EBC3219F7DD17`.
+`588EBC3219F7DD17`. Solo bench and a same-evening two-machine session (2026-07-23) both ran off this
+build — results below.
 
 **Content:**
 1. **THE TRANSITION-INTENT LANE** — the host emits `SectionIntent` (state-lane section 4:
@@ -366,20 +367,38 @@ fire never un-pins) — fixed before the build. Built + deployed to the desktop 
 5. **The wire bump v10→v11** hard-splits mixed versions on both transports (single `Version` const,
    verified shared).
 
-**Solo bench recipes (not yet run):**
-1. **Inject intent → field N**: expect the fabricated-intent log, then
-   `[NetSync] intent: following the peer to field N (parallel)`, then fade+warp.
-2. **L1 toggle**: expect the co-locate/release log pair.
+**Solo bench recipes — ★ PASS 2026-07-23 (desktop):**
+1. **Inject intent → field N** — ★ PASS. The log ran the full expected sequence: the bench-gating
+   message when OFF, then `fabricated SectionIntent field 4005 nonce 1 -> fast-path` →
+   `intent: following the peer to field 4005 (parallel)` → field load → ghost spawn. (The
+   `EVT_MOGWAI.txt` asset line in the same log is benign — the 42nd-moogle animation lookup firing
+   on a custom field, unrelated to the intent path.)
+2. **L1 toggle** — ★ PASS. Clean `L1 released (event ended)` on release.
 
-**Two-machine boxes — QUEUED, not yet run** (F2 patch capture is pending in-game proof):
-1. Parallel-warp feel + latency vs the serial baseline.
-2. Strict nonce dedup.
-3. Chained transitions land on the final field with no double-fire.
-4. Host self-clear + no redundant serial warp.
-5. Same-door = at most F1's single bounce.
-6. L1 on a real mirrored cutscene.
-7. L1 vs the guest's own re-staged cutscene (restore only what we took).
-8. Scene-end-into-gateway control ownership (guest stays frozen through the fade).
-9. s56 blip during an intent (serial floor recovers, no stuck screen).
-10. v10↔v11 silent no-sync sanity.
-11. Edge-only logging (no per-frame spam).
+**Two-machine boxes — RUN 2026-07-23 evening** (desktop host + laptop guest, real link; F2 patch on
+top of the proven F1 build):
+1. **Parallel-warp feel + latency vs the serial baseline** — ★ PASS.
+2. **Strict nonce dedup** — OPEN, not explicitly exercised this session (a log-level box).
+3. **Chained transitions land on the final field with no double-fire** — ★ PASS (chained/fast
+   gateways — guest follows).
+4. **Host self-clear + no redundant serial warp** — OPEN, not explicitly exercised this session
+   (a log-level box).
+5. **Same-door = at most F1's single bounce** — ★ PASS (simultaneous same-door entry).
+6. **L1 on a real mirrored cutscene** — ★ PASS (guest dialogue snap + freeze).
+7. **L1 vs the guest's own re-staged cutscene (restore only what we took)** — OPEN, not explicitly
+   exercised — left OPEN, not closed.
+8. **Scene-end-into-gateway control ownership (guest stays frozen through the fade)** — OPEN, not
+   explicitly exercised — left OPEN, not closed.
+9. **s56 blip during an intent (serial floor recovers, no stuck screen)** — NOT TESTED, deferred:
+   the serial floor is structurally guaranteed, ruled non-gating for this session.
+10. **v10↔v11 silent no-sync sanity** — NOT TESTED, deferred: mixed-version sanity, ruled
+    non-gating for this session.
+11. **Edge-only logging (no per-frame spam)** — OPEN, not explicitly exercised this session
+    (a log-level box).
+
+**Status: F2 is two-machine proven on the 4 headline boxes** (parallel-warp / chained transitions /
+same-door single bounce / L1 co-location on a real mirrored cutscene), same evening as the build.
+Open: strict nonce dedup, host self-clear, edge-only logging (log-level boxes, not explicitly
+exercised) · L1-vs-own-cutscene and scene-end-into-gateway control ownership (behavior boxes, not
+explicitly exercised — left OPEN, not closed) · link-blip-during-intent and mixed-version sanity
+(deferred, non-gating: the serial floor is structurally guaranteed).
