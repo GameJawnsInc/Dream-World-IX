@@ -126,7 +126,7 @@ Setup & Health dialog.
 
 ```powershell
 pip install -e ".[dev]"
-py -m pytest -n 6        # ~2,850 offline golden-master tests
+py -m pytest -n 6        # ~4,400 offline golden-master tests
 ```
 
 ### 2.6 Updating & uninstalling
@@ -256,10 +256,12 @@ console:
 
 - **Tabs:** **Editor** (field/NPC/gateway/event/chest/flag/party/startup/cutscene/choice/SPS
   forms, catalog picker, live FF9-window dialogue wrap preview, undo/redo) · **Map** (campaign
-  graph) · **Story State** + **Item & Equip** (save editors) · **Battle** (encounter-first battle
-  tuning) · **Build & Deploy** (field/campaign/journey/battle, auto-detected; pack-to-zip; New
+  graph with field-art poster cards) · **Story State** + **Item & Equip** (save editors) ·
+  **Battle** (encounter-first battle tuning) · **Models** (3D-model browse + preview) ·
+  **Build & Deploy** (field/campaign/journey/battle, auto-detected; pack-to-zip; New
   Game wiring) · **Import** (fork + fork-report + pre-fork logic study + import-all archive +
-  custom-3D-models flow + native repaint).
+  custom-3D-models flow + native repaint) · **Co-op** (host/join a two-player session + the
+  Play-style panel) · **World** (an atlas of the deployed custom overworld).
 - **Chrome:** a Home screen with recent projects; **Ctrl-K** command palette; an **Info Hub**
   model/prop/creature library with ready-to-paste snippets; a **Setup & Health** page (install
   detection, template extraction, engine status); **F9** one-keystroke deploy; drag-and-drop
@@ -275,7 +277,7 @@ console:
 
 ## 7. CLI command reference
 
-114 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
+115 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
 `--game <path>`, `--mod-folder <name>`, `--version` — go **before** the subcommand
 (`ff9mapkit --game <path> doctor`). Commands that read FF9's asset bundles need the `assets`
 extra (UnityPy).
@@ -324,6 +326,7 @@ extra (UnityPy).
 | `logic-map <field>` | Read-only legible map of a real field's whole `.eb` (entries, call graph, effects). |
 | `lint-eb <field>` | Structurally lint a `.eb` — the offline soundness check for verbatim edits. |
 | `extract-field <ids…>` | Cache a real field's camera+walkmesh in the workspace cache. |
+| `chocobo-export <forest>` | Export a Chocobo Hot & Cold forest's dig prize pool + timer as an editable `[chocobo]` block. |
 
 **Campaigns / journeys**
 
@@ -350,6 +353,7 @@ extra (UnityPy).
 | `battle-seq <scene>` | Disassemble / lint / assemble attack choreography (`btlseq.raw17`). |
 | `battle-patch [toml]` | Preview the `BattlePatch.txt` a field emits (`--fields`). |
 | `battle-actions` | List shared player abilities + the scriptId formula catalog. |
+| `battle-telemetry` | Log every battle calc to a JSONL via the Scripts-DLL hook (`--off`, `--report`). |
 | `characters` / `ability-gems` | List stat / gem-cost tuning targets. |
 | `ability-features` | Preview the `AbilityFeatures.txt` a field emits (ability-effect DSL). |
 
@@ -407,12 +411,19 @@ encounter, environment, marker, and minimap commands are stock-engine)*
 | `audio-import <audio>` | Import a custom music/SFX track (any common format, transcoded to Ogg Vorbis): replace an id or mint a new one — DLL-free. |
 | `music-list` / `sfx-list` | List song/SFX id → ResourceID (what `audio-import` replaces). |
 
+**Multiplayer** *(experimental; needs the engine bundle's netsync patches)*
+
+| command | what it does |
+|---|---|
+| `coop host` / `coop join <code>` / `coop show` | Two-player co-op ghost sync: set up + run a session in one command (LAN or internet relay; `--guest-slots`, `--ghost-as`, `--follow-host`; a running game hot-reloads config changes). |
+
 **Catalogs / Info Hub**
 
 | command | what it does |
 |---|---|
 | `catalog <q>` | Search every reference catalog (models/items/scenes/fields). |
 | `models` / `animations` / `archetypes` / `items` / `scenes` / `flags` | Browse models / gestures / NPC archetypes / items / battle scenes / story flags by name. |
+| `encounters` | Browse battle *locations*: what fights happen in a real place, and where a monster appears. |
 | `sps` | List/decode/preview a field's SPS particle effects. |
 
 **Dialogue**
