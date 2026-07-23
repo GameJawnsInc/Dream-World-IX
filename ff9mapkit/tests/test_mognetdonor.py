@@ -168,11 +168,16 @@ def test_patch_donor_field_end_to_end():
     assert set(add) == {0} | {stock_max + k for k in range(1, 6)}
     assert add[stock_max + 1].text.startswith(md.SPEAKER_DRESS)  # the announce, speaker form
     assert "[CHOO]" in add[stock_max + 4].text                   # the offer prompt has REAL choice rows
-    # the talk tag now OPENS with the inbound give gate (give_available_cond on variant 57)
+    # the inbound give gate sits INSIDE the Mognet section -- immediately after the migration guard's
+    # Byte[1024] := 1 write (the round-2 playtest law: the offer must not fire on plain talk; the
+    # player has to choose Mognet)
     site = md.find_letter_display(patched)
     talk = EbScript.from_bytes(patched).entry(site["entry"]).func_by_tag(site["tag"])
-    head = patched[talk.abs_start:talk.abs_start + len(_mognet.give_available_cond(57))]
-    assert head == _mognet.give_available_cond(57)
+    at = patched.find(md._GUARD_SET_STMT, talk.abs_start, talk.abs_end)
+    assert at > talk.abs_start                                   # NOT at the talk head
+    after = patched[at + len(md._GUARD_SET_STMT):at + len(md._GUARD_SET_STMT)
+                    + len(_mognet.give_available_cond(57))]
+    assert after == _mognet.give_available_cond(57)
 
 
 @pytest.mark.skipif(_REAL is None, reason="no FF9 install reachable for field 1865")

@@ -476,9 +476,11 @@ LETTER_HEADER = ("[WDTH=0,55,6,1,6,0,-1][SPED=255][ICON=27][XTAB=0][YADD=16][ICO
 
 
 def letter_entry_text(body: str) -> str:
-    """A complete letter text entry: the stock header template + a blank line + the authored body
-    (author-controlled line breaks; the stock letters hand-break every line)."""
-    return LETTER_HEADER + "\n\n" + str(body)
+    """A complete letter text entry: the stock header template + TWO blank lines + the authored body
+    (author-controlled line breaks; the stock letters hand-break every line). The separator is the
+    stock ``\\n\\n\\n`` -- field 1865 @46 puts two blank lines between the From-line and the body; one
+    blank line renders the title cramped against the paragraph (playtest 2026-07-22)."""
+    return LETTER_HEADER + "\n\n\n" + str(body)
 
 
 def letter_display(letter_txid: int) -> bytes:

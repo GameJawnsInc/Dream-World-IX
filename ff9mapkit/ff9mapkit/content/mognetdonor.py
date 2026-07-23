@@ -141,13 +141,13 @@ def patch_recipient_letters(eb_bytes, triplets: dict) -> bytes:
     return out
 
 
-def inbound_give_prepend(variant: int, *, from_id: int, prompt_txid: int,
-                         give_txid: int | None = None, to_id: int = _mognet.NEW_MOOGLE_ID) -> bytes:
-    """The gated give-offer PREPENDED to the donor moogle's talk tag -- the donor becomes a SENDER of
-    a letter to our moogle. One-shot + free-slot gated (``give_available_cond``); the offer is a
-    confirm window whose Yes runs :func:`mognet.give_letter_body` (from = the DONOR's own roster id,
-    to = ours). Declining re-offers next talk; accepting sets the variant's give lock -- the stock
-    gives' own shape. No RETURN: control falls through into the donor's real talk flow either way."""
+def inbound_give_offer(variant: int, *, from_id: int, prompt_txid: int,
+                       give_txid: int | None = None, to_id: int = _mognet.NEW_MOOGLE_ID) -> bytes:
+    """The gated give-offer -- the donor becomes a SENDER of a letter to our moogle. One-shot +
+    free-slot gated (``give_available_cond``); the offer is a two-row choice window whose Yes runs
+    :func:`mognet.give_letter_body` (from = the DONOR's own roster id, to = ours). Declining
+    re-offers on the next Mognet open; accepting sets the variant's give lock. No RETURN: control
+    falls through into the donor's real Mognet flow either way."""
     offer = (opcodes.window_sync(_mognet.CHOICE_WINDOW, _mognet.CHOICE_FLAGS, int(prompt_txid))
              + _choice.switch_on_choice([
                  _mognet.give_letter_body(int(variant), int(to_id), from_id=int(from_id),
@@ -156,15 +156,34 @@ def inbound_give_prepend(variant: int, *, from_id: int, prompt_txid: int,
     return _region.if_block(_mognet.give_available_cond(int(variant)), offer)
 
 
+# the migration guard's own `Byte[1024] := 1` -- `05 F4 <1024 LE> 7D 01 00 2C 7F`. Every donor's
+# Mognet section writes exactly this (the wipe-guard invariant: 58 shipping fields, only ever
+# literal 1), making its FIRST occurrence a universal "the player chose Mognet and the guard has
+# run" anchor -- INSIDE the player-chosen Mognet branch, before the mail business.
+_GUARD_SET_STMT = (bytes([0x05, 0xF4]) + _mognet.GUARD_IDX.to_bytes(2, "little")
+                   + bytes([0x7D, 0x01, 0x00, 0x2C, 0x7F]))
+
+
 def patch_inbound_give(eb_bytes, *, variant: int, from_id: int, prompt_txid: int,
                        give_txid: int | None = None) -> bytes:
-    """Prepend the inbound give-offer onto the donor moogle's talk tag (located via the letter-display
-    scan -- the same function hosts the whole Mognet flow). A prepend is always jump-safe."""
+    """Splice the inbound give-offer INSIDE the donor's Mognet section -- right after the migration
+    guard's ``Byte[1024] := 1`` write. The first playtest proved the talk-tag PREPEND wrong: the offer
+    fired on every talk, before the moogle's own menu ("don't open directly to Mognet -- the player
+    has to choose to enter"). Anchored after the guard write, the offer runs only when the player
+    picked the Mognet row, and the donor's own exit cycle (back to the choice menu, the "I want mail,
+    kupo!" nothing-hint) is untouched."""
     site = find_letter_display(eb_bytes)
     if site is None:
         raise ValueError("no Mognet letter-display switch found -- not a recipient moogle field?")
-    frag = inbound_give_prepend(variant, from_id=from_id, prompt_txid=prompt_txid, give_txid=give_txid)
-    return edit.insert_in_function(eb_bytes, site["entry"], site["tag"], 0, frag)
+    eb = EbScript.from_bytes(eb_bytes)
+    f = eb.entry(site["entry"]).func_by_tag(site["tag"])
+    at = eb_bytes.find(_GUARD_SET_STMT, f.abs_start, f.abs_end)
+    if at < 0:
+        raise ValueError("no migration-guard write (Byte[1024] := 1) found in the Mognet function -- "
+                         "cannot anchor the inbound offer")
+    frag = inbound_give_offer(variant, from_id=from_id, prompt_txid=prompt_txid, give_txid=give_txid)
+    return edit.insert_in_function(eb_bytes, site["entry"], site["tag"],
+                                   at + len(_GUARD_SET_STMT) - f.abs_start, frag)
 
 
 def _re_emit_entry(entry, text: str) -> str:
