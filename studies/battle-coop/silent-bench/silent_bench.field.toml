@@ -1,0 +1,60 @@
+# SILENT BENCH -- a host-silent battle bench for the netsync battle-diorama BGM-carry test.
+# Compile with:  ff9mapkit build silent_bench.field.toml   (run from the ff9mapkit/ dir)
+# Deploy with:   py tools/deploy_field.py studies/battle-coop/silent-bench/silent_bench.field.toml \
+#                    --id 30112 --mod-folder FF9CustomMap
+#
+# WHY IT EXISTS: no stock FF9 field has a SILENT random battle -- every random-encounter field maps to
+# song 0 (the Battle Theme). This bench mints one via `battle_music = -1`, which emits `Battle: 67` /
+# `Music: -1` into BattlePatch.txt (BtlBgmPatcherMapper[67] = -1). With a FRESH warp (no resident field
+# BGM playing), the host's random battle plays NOTHING. It verifies the s40/s41 diorama BGM-carry's
+# host-SILENT lane: the host wire ships sentinel 0xFFFE ("host audibly silent"), and the guest's battle
+# diorama must SUSPEND its own BGM and play nothing (NOT fall through to its local-BGM fallback, which
+# is the 0xFFFF "unknown" path). See BENCH.md.
+#
+# The scene (camera / walkmesh / placeholder art) is cloned from the proven coopgate coop-band field
+# (studies/battle-coop/coopgate) -- a guaranteed-walkable flat floor. The art is the `ff9mapkit new`
+# placeholder (solid back + checkerboard floor); this is a BENCH, art appearance does not matter.
+
+[field]
+id = 30112               # THE COOP TEST BAND (30110-30200; 30110 twin altar, 30111 twin vault -- 30112 free)
+name = "SILENTBENCH"     # -> FBG_N11_SILENTBENCH (background) + EVT_SILENTBENCH.eb (script)
+area = 11                # must be >= 10 (BG area 0-9 black-screens)
+title = "SILENT BENCH"
+# text_block intentionally UNSET -- the kit derives it from the field id (30112) and auto-registers it
+# (MessageFile 30112). Do NOT pin 1073 or any real field's block (that overwrites shipping dialogue).
+
+[camera]
+pitch = 48.0             # downward tilt (degrees); real FF9 fields are <= ~48
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205               # painted-canvas rows the floor's back/front edges sit on
+front = 432
+
+[walkmesh]
+# TRUE world coords = where the painted floor is (frame = "world"): the player renders exactly on it.
+# `quad` = the floor's 4 corners. A big flat room (2440 x 2188 units) so a few seconds of walking
+# reliably trips the encounter counter.
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]               # background layers, back-to-front (z = depth; smaller = nearer)
+image = "art/back.png"   # PLACEHOLDER (solid slate) -- a bench needs no real art
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (perspective checkerboard)
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- the whole point of the bench: random encounters that play NO battle music ---
+# scene 67 = Evil Forest / Trail, the game's FIRST and WEAKEST battles -- testers are not wiped mid-bench.
+# freq 200 (of 255; higher = more frequent) -> a fight fires within ~30 s of walking.
+# battle_music = -1 -> `Music: -1` (BtlBgmPatcherMapper[67] = -1) -> the encounter plays no special song;
+# warp in FRESH (before any resident BGM starts) and the battle is SILENT.
+# The kit auto-adds the after-battle reinit handler this field needs (or the player freezes on return).
+[encounter]
+scene = 67
+freq = 200
+battle_music = -1
