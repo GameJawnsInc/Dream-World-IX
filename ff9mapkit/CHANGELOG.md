@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — synthesis recipes in the Info Hub item detail (+ fork-report labels synthesists)
+- **`itemstats` joins the base `Synthesis.csv`** (live from your install, cached, nothing committed —
+  the same provenance stance as the stat join): an item's Info Hub detail now shows **synthesize**
+  ("Dagger + MageMasher @ 300 gil (synth shops 32, 33, 34, 35, 38)") and **synth ingredient of**
+  (Ore → all eight gems + TinArmor). New `synthesis_of` / `synthesis_uses` / `recipe_desc` API;
+  degrades to nothing offline.
+- **fork-report** now tells a donor's shops apart: an id absent from `ShopItems.csv` opens as
+  SYNTHESIS (`ff9buy.FF9Buy_GetType`) — "opens SYNTHESIS shop(s) #38" + the recipes-caveat, and
+  `--explain` says "a synthesis shop".
+
+### Added — `[[synthesis_edit]]`: retune or remove a VANILLA synthesis recipe
+- **`[[synthesis_edit]] recipe = "Butterfly Sword"`** (or the recipe's integer Id) + any of
+  `price` / `ingredients` (full replacement, dups matter) / `result` / `shops` (which synthesists
+  list it, 32..255) — or **`remove = true`** to unlist it from every shop. The engine merges
+  `Synthesis.csv` by id whole-row, so the kit re-emits the base row with only the edited cells
+  changed; removal ships an **empty `Shops` cell** (`Int32Array("")` → `[]`; `ShopUI` only shows
+  rows whose `Shops` contains the open shop's id). Selector checked against the install's base
+  file at lint when reachable (unknown/ambiguous flagged); edits to one recipe coalesce across
+  blocks (later wins per key, warned). Same footing as `[[synthesis]]`: mod-global CSV delta,
+  RELAUNCH to apply, needs a reachable install at build.
+
 ### Changed — journey/campaign opens ~2x faster (the tomlcache seam)
 - **`tomlcache.load_toml`** — an mtime+size-keyed TOML parse cache at ONE seam: `campaign.load_campaign`,
   `lint_campaign`'s member reads, and the Workspace flag-name annotator. A journey open was parsing

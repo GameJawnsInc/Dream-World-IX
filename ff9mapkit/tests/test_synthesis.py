@@ -205,6 +205,136 @@ def test_emit_synthesis_no_install_warns_not_crashes(tmp_path, monkeypatch):
     assert any("skipped" in w for w in warns)
 
 
+# ---- [[synthesis_edit]] (vanilla-recipe overrides) --------------------------------------------
+def test_edit_rows_price_only_preserves_other_cells():
+    rows, notes = SY.edit_rows([{"recipe": "Butterfly Sword", "price": 500}], SYNTH_CSV)
+    assert notes == []
+    assert rows == [(0, f"Butterfly Sword;0;32, 38;500;{BSWORD};{DAGGER}, {MM}")]   # only Price changed
+
+
+def test_edit_rows_selector_by_recipe_id():
+    rows, notes = SY.edit_rows([{"recipe": 1, "price": 1}], SYNTH_CSV)
+    assert notes == [] and rows[0][0] == 1
+
+
+def test_edit_rows_remove_empties_shops():
+    # removal = an EMPTY Shops cell (Int32Array("") -> []; ShopUI only lists rows whose Shops contains the id)
+    rows, notes = SY.edit_rows([{"recipe": "The Ogre", "remove": True}], SYNTH_CSV)
+    assert notes == []
+    assert rows == [(1, f"The Ogre;1;;700;{OGRE};{MM}, {MM}")]
+
+
+def test_edit_rows_ingredients_full_replacement_dups_kept_noitem_dropped():
+    rows, _n = SY.edit_rows([{"recipe": 0, "ingredients": ["Dagger", "Dagger", 255]}], SYNTH_CSV)
+    assert rows[0][1].split(";")[5].strip() == f"{DAGGER}, {DAGGER}"
+
+
+def test_edit_rows_result_change_updates_comment():
+    rows, _n = SY.edit_rows([{"recipe": 0, "result": "Exploda"}], SYNTH_CSV)
+    parts = rows[0][1].split(";")
+    assert parts[4] == str(EXPLODA) and parts[0] == "Exploda"   # the cosmetic Comment follows the new result
+
+
+def test_edit_rows_shops_replacement():
+    rows, _n = SY.edit_rows([{"recipe": 0, "shops": [40, 41]}], SYNTH_CSV)
+    assert rows[0][1].split(";")[2] == "40, 41"
+
+
+def test_edit_rows_unknown_selectors_noted_and_skipped():
+    rows, notes = SY.edit_rows([{"recipe": "Definitely Not An Item", "price": 1},
+                                {"recipe": 99, "price": 1}], SYNTH_CSV)
+    assert rows == [] and len(notes) == 2
+    assert any("matches no base recipe" in n for n in notes)
+
+
+def test_edit_rows_ambiguous_result_noted_and_skipped():
+    # two base recipes producing the SAME result (never true of vanilla) -> ambiguous by-name selector
+    ambi = ("#! UseShopList\n# Comment;Id;Shops;Price;Result;Ingredients\n"
+            f"A;0;38;100;{BSWORD};{DAGGER}\n"
+            f"B;1;38;200;{BSWORD};{MM}\n")
+    rows, notes = SY.edit_rows([{"recipe": "Butterfly Sword", "price": 1}], ambi)
+    assert rows == [] and any("ambiguous" in n and "0, 1" in n for n in notes)
+
+
+def test_edit_rows_coalesce_later_wins_per_key():
+    rows, notes = SY.edit_rows([{"recipe": 0, "price": 100, "shops": [40]},
+                                {"recipe": "Butterfly Sword", "price": 200}], SYNTH_CSV)
+    assert len(rows) == 1
+    parts = rows[0][1].split(";")
+    assert parts[3] == "200" and parts[2] == "40"          # later price wins; earlier shops edit kept
+    assert any("more than once" in n for n in notes)
+
+
+def test_render_includes_edits_and_mints():
+    notes = []
+    out = SY.render_synthesis(
+        [{"shop": 40, "recipes": [{"result": "Exploda", "ingredients": ["Dagger"], "price": 50}]}],
+        SYNTH_CSV, [{"recipe": 0, "price": 999}], notes=notes)
+    _h, cols, _idc, rows = _rows(out)
+    assert 0 in rows and 2 in rows and 1 not in rows       # edited base row + the mint; untouched base absent
+    assert rows[0].split(";")[cols["Price"]] == "999"
+    assert notes == []
+
+
+# ---- validate ([[synthesis_edit]]) -------------------------------------------------------------
+def test_validate_synthesis_edit_needs_recipe_and_a_change(tmp_path):
+    probs = validate(_proj(BASE + '\n[[synthesis_edit]]\nprice = 5\n', tmp_path))
+    assert any("needs `recipe`" in p for p in probs)
+    probs = validate(_proj(BASE + '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\n', tmp_path))
+    assert any("has nothing to change" in p for p in probs)
+
+
+def test_validate_synthesis_edit_remove_exclusive(tmp_path):
+    toml = BASE + '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\nremove = true\nprice = 5\n'
+    probs = validate(_proj(toml, tmp_path))
+    assert any("remove = true is exclusive" in p for p in probs)
+
+
+def test_validate_synthesis_edit_value_guards(tmp_path):
+    toml = (BASE + '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\nprice = -5\n'
+            'ingredients = "Dagger"\nshops = [5]\n')
+    probs = validate(_proj(toml, tmp_path))
+    assert any("price cannot be negative" in p for p in probs)
+    assert any("ingredients must be a list" in p for p in probs)       # not per-char 'unknown item' noise
+    assert any("shops entry 5" in p and "BUY shops" in p for p in probs)
+
+
+def test_validate_synthesis_edit_shops_buy_collision_and_empty(tmp_path):
+    toml = (BASE + '\n[[shop]]\nid = 40\nsells = ["Potion"]\n'
+            '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\nshops = [40]\n'
+            '\n[[synthesis_edit]]\nrecipe = "The Ogre"\nshops = []\n')
+    probs = validate(_proj(toml, tmp_path))
+    assert any("shops entry 40 is also a [[shop]] id" in p for p in probs)
+    assert any("shops = [] unlists" in p and "remove = true" in p for p in probs)
+
+
+def test_validate_synthesis_edit_result_noitem(tmp_path):
+    toml = BASE + '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\nresult = 255\n'
+    probs = validate(_proj(toml, tmp_path))
+    assert any("result is NoItem" in p for p in probs)
+
+
+def test_validate_synthesis_edit_clean(tmp_path):
+    toml = (BASE + '\n[[synthesis_edit]]\nrecipe = "Butterfly Sword"\nprice = 500\n'
+            'ingredients = ["Dagger", "Dagger"]\n')
+    probs = validate(_proj(toml, tmp_path))
+    assert not any("[[synthesis_edit]]" in p for p in probs)
+
+
+def test_emit_synthesis_edit_no_install_warns_not_crashes(tmp_path, monkeypatch):
+    from ff9mapkit import config as _config
+
+    def _boom(game=None):
+        raise _config.ConfigError("no install")
+    monkeypatch.setattr(_config, "find_game_path", _boom)
+
+    class P:
+        raw = {"synthesis_edit": [{"recipe": "Butterfly Sword", "price": 500}]}
+        path = tmp_path / "f.toml"
+    warns = _emit_synthesis([P()], ModLayout(tmp_path / "mod"))   # must NOT raise ConfigError
+    assert any("skipped" in w for w in warns)
+
+
 # ---- install-gated end-to-end (reads the real base Synthesis.csv) -----------------------------
 @pytest.mark.skipif(not _itemstats.available(), reason="write_synthesis reads the install's base Synthesis.csv")
 def test_emit_synthesis_writes_delta(tmp_path):
@@ -224,6 +354,23 @@ def test_emit_synthesis_writes_delta(tmp_path):
     assert minted, "a recipe should be minted above the base max id"
     row = minted[0].split(";")
     assert row[cols["Shops"]] == "40" and row[cols["Price"]] == "1234" and row[cols["Result"]] == str(EXPLODA)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="reads the install's base Synthesis.csv")
+def test_emit_synthesis_edit_writes_override(tmp_path):
+    class P:
+        raw = {"synthesis_edit": [{"recipe": "Butterfly Sword", "price": 4321}]}
+        path = tmp_path / "f.toml"
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_synthesis([P()], layout)
+    assert not [w for w in warns if "skipped" in w]
+    text = layout.synthesis_csv.read_text(encoding="cp1252")
+    _h, cols, _idc, rows = _rows(text)
+    assert 0 in rows, "vanilla recipe 0 (Butterfly Sword) should be re-emitted as an override row"
+    row = rows[0].split(";")
+    assert row[cols["Price"]] == "4321"
+    assert row[cols["Result"]] == str(BSWORD)              # untouched cells carried from the real base row
+    assert 1 not in rows                                   # unedited base rows are NOT re-emitted
 
 
 @pytest.mark.skipif(not _itemstats.available(), reason="reads the install's base Synthesis.csv")

@@ -756,6 +756,36 @@ def test_format_report_items_line_for_var_give_or_var_shop_only():
     assert "story-gated shop" in line and "ShopItems.csv" in line
 
 
+def test_shop_is_synthesis_engine_discriminator(monkeypatch):
+    # ff9buy.FF9Buy_GetType: a Menu(2, id) opens as SYNTHESIS iff the id is ABSENT from ShopItems.csv.
+    # With the install's buy-id set: membership decides (even a custom id >= 32 added to ShopItems = buy).
+    monkeypatch.setattr(FR, "_BUY_IDS_MEMO", [set(range(32)) | {40}])
+    assert FR.shop_is_synthesis(7) is False
+    assert FR.shop_is_synthesis(38) is True               # a vanilla synthesist (absent from ShopItems)
+    assert FR.shop_is_synthesis(40) is False              # present in ShopItems -> buy, id band irrelevant
+    # offline (no install): the vanilla split -- exact for real donor fields (they only use vanilla ids)
+    monkeypatch.setattr(FR, "_BUY_IDS_MEMO", [None])
+    assert FR.shop_is_synthesis(7) is False and FR.shop_is_synthesis(38) is True
+
+
+def test_format_report_items_line_labels_synthesis_shops(monkeypatch):
+    monkeypatch.setattr(FR, "_BUY_IDS_MEMO", [set(range(32))])
+    rep = FR.ForkReport(field_id=24, fbg_name="x", roster_class="static-roster")
+    rep.n_objects = rep.n_talkable = 1
+    rep.safety = {"clean": 1}
+    rep.item_shops = [7, 38]                              # one buy shop + one synthesist
+    out = FR.format_report(rep)
+    out.encode("ascii")
+    line = next(l for l in out.splitlines() if l.strip().startswith("Items"))
+    assert "opens shop(s) #7" in line and "opens SYNTHESIS shop(s) #38" in line
+    assert "ShopItems.csv" in line and "Synthesis.csv" in line
+    # synthesis-only: the buy-stock caveat drops away, the recipe caveat stays
+    rep.item_shops = [38]
+    line = next(l for l in FR.format_report(rep).splitlines() if l.strip().startswith("Items"))
+    assert "SYNTHESIS shop(s) #38" in line and "Synthesis.csv" in line
+    assert "ShopItems.csv" not in line and "opens shop(s)" not in line
+
+
 # ---- fork-report --explain: NPC-interaction decoder (#14 closed -> read the quest, not the bits) ----
 def test_explain_eb_alex100_structure_only_degrades_without_text():
     # ALEX100 is the opening cutscene field -- 0 static NPCs (2 props), no .mes passed -> the decoder must
