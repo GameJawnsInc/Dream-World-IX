@@ -242,9 +242,10 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
     - **Save-Moogle pop-out — ALSO generated from scratch** (`reveal_style = "barrel_pop"`, 2026-07-19:
       the pop is a VERTICAL hop derived from the container's own spot + `reveal_height`, nothing
       hand-copied; the census-invariant airborne spine from the 4 canonical donors). The 2026-07-22
-      full-protocol decode closed its last live bug (the perch-side walkmesh snap — pathing now
-      per-spot: floor attaches, off-floor detaches). Nothing in this arc-generator class is copy-only
-      anymore.
+      full-protocol decode closed its last live bug ★ in-game proven (the perch-side walkmesh snap —
+      pathing now per-spot: floor attaches, off-floor detaches; the user identified the same snap as a
+      LATENT STOCK-GAME bug — the real 407 moogle can get stuck in its barrel, saved in situ only by
+      its off-mesh cask corner). Nothing in this arc-generator class is copy-only anymore.
     - **The single genuine-eyeball residual: the off-floor height** (a jump's apex, a ladder's top, the moogle's
       pop height). The floor walkmesh pins depth *at floor level*, but these mechanics leave the floor plane, so
       that one number is read off the painting + confirmed manually in the in-game playtest loop. An **authoring

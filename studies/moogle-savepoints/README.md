@@ -121,8 +121,11 @@ no build-time signal.
 
 ## Where this stopped — the frontier
 
-**1. After a SAVE the moogle lands *in* the barrel instead of *on* it. ★ ROOT-CAUSED + FIXED
-2026-07-22 (playtest pending).** The prescribed decode (the director end to end) was executed and
+**1. After a SAVE the moogle lands *in* the barrel instead of *on* it. ★★ ROOT-CAUSED + FIXED +
+IN-GAME PROVEN 2026-07-22** ("the moogle stays on top now, cycle works"). Bonus: the user identified
+this as **a latent bug in stock FF9 itself** — the real game's moogle can get stuck in the barrel,
+and the mechanism is exactly the donor's own perch-side `SetPathing(1)`, saved in situ only by its
+off-mesh cask corner. The kit's per-spot pathing rule fixes what stock merely survives. The prescribed decode (the director end to end) was executed and
 settled the suspect list: it was **(a)** — and *only* (a). The director **never re-places anything**
 (it is a one-shot load sequence; suspect (b) is refuted), and the donor's own act DOES call
 `SetPathing(1)` at the perch — surviving purely because its cask corner is **off the walkmesh** (no
