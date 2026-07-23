@@ -109,9 +109,10 @@ def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes
     rung-by-rung): prefer :func:`navigable_climb_body` for anything ladder-shaped. This auto-played,
     non-interruptible arc survives for what navigable can't do: it is the engine of
     :func:`inject_bidirectional_ladder`'s heighted case (a forced traversal that needs no Y difference,
-    where navigable REQUIRES one) and the algorithmic seed for a future from-scratch jump generator
-    (``docs/FORK_FIDELITY.md``, the jumps-copy-only note). Its own ``[[ladder]] arc_from/arc_to`` TOML
-    surface was RETIRED 2026-07-17 (never documented in FORMAT.md, zero users found)."""
+    where navigable REQUIRES one). (The from-scratch JUMP generator it once seeded now exists --
+    ``jump.jump_arc_body``, the census-grounded real hop template.) Its own ``[[ladder]]
+    arc_from/arc_to`` TOML surface was RETIRED 2026-07-17 (never documented in FORMAT.md, zero users
+    found)."""
     fx, fz = int(arc_from[0]), int(arc_from[1])
     fy = int(arc_from[2]) if len(arc_from) > 2 else 0
     tx, tz = int(arc_to[0]), int(arc_to[1])

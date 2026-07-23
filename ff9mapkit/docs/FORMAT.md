@@ -560,24 +560,35 @@ Two climb modes:
 ## `[[jump]]` (optional, repeatable)
 
 A navigable **ledge / gap hop** — FF9's Ice-Cavern-style jump (the ladder mechanism minus the climb
-loop). A trigger zone fires the player's **verbatim jump arc** (perspective-correct), grafted from a
-real field by `ff9mapkit import`.
+loop). A trigger zone fires the player's jump arc: either a **verbatim real arc** grafted from a real
+field by `ff9mapkit import`, or a **from-scratch generated arc** built from just the landing point
+(the census-modal Ice Cavern hop template — byte-identical to the real arcs for the same inputs).
 
 ```toml
 [[jump]]
 zone = [[9016,-16722],[9574,-17758],[9791,-17674]]   # 3-5-point take-off trigger
-jump = "MYFIELD.jump0.bin"                            # the real jump-arc sidecar (from `ff9mapkit import`)
+jump = "MYFIELD.jump0.bin"                            # FAITHFUL: the real jump-arc sidecar (from `ff9mapkit import`)
 # trigger = "action"                                  # "action" (press, default) or "tread" (auto on walk-in)
+
+[[jump]]                                              # FROM SCRATCH: generated from the landing point
+zone = [[-100,100],[100,100],[100,-100],[-100,-100]]
+to = [-301, -4548, 251]                               # landing point [x, z] or [x, z, y] (y = the landing floor's height)
+# via = [[142, -2137, 863]]                           # optional mid-ledge landing(s) for a multi-hop crossing
+# steps = 11                                          # frames per hop (or a per-hop list); tune to the gap like the real game (5-16)
 ```
 
 | key | meaning |
 |---|---|
 | `zone` | the **take-off trigger** — `3`–`5` `(x,z)` corners (4 are auto-made IsInQuad-safe). |
-| `jump` | a `"<name>.jumpN.bin"` sidecar holding the real jump arc — written by `ff9mapkit import` (the file must exist, else a build error). |
+| `jump` | a `"<name>.jumpN.bin"` sidecar holding the real jump arc — written by `ff9mapkit import` (the file must exist, else a build error). Exactly one of `jump` / `to`. |
+| `to` | the landing point `[x, z]` or `[x, z, y]` (`y` = the up-positive height of the landing **floor** — the engine floor-snaps after the arc, so it must land on the walkmesh). The engine arcs from the player's *current* position, so no take-off point is needed. |
+| `via` | optional list of intermediate landing points (same shape as `to`) — a multi-hop crossing, like the real two-hop Ice Cavern gaps. |
+| `steps` | jump duration in **frames per hop** (default `11`, the game-wide mode); a scalar or a per-hop list. Longer gaps read better with more frames (the real game uses 5–16). |
 | `trigger` | `"action"` (default) = stand on the zone and **press** to hop; `"tread"` = auto-hops the moment you walk in. |
 
 Like a `climb` ladder, the kit splices the player's jump animation in once and runs the arc in the
-player's own context via `RunScriptSync`. Author from scratch isn't supported — `jump` needs a real arc.
+player's own context via `RunScriptSync`. A jump is **one-way**; for a hop-across-and-back gap author
+two `[[jump]]` blocks (a zone + landing point per direction), exactly like the real Ice Cavern pairs.
 
 ---
 

@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — from-scratch navigable jumps (`[[jump]] to =`): the copy-only gap closed
+- **`content/jump.py jump_arc_body(to, via=, steps=)`** generates FF9's real ledge-hop arc from just the
+  landing point(s) — no verbatim sidecar needed. Grounded in a full-game census (51 navigable hops over
+  15 fields): the Ice Cavern hop template is the game-wide modal shape, and the generator reproduces
+  **all 6 of field 301's real arcs byte-for-byte** from their coords (single- and two-hop). Per hop:
+  turn + wait-turn + jump anim + leap sfx (1324) + `SetupJump`/`Jump` + landing sfx (2342) + land anim;
+  the engine arcs from the player's current position, so no take-off point is authored.
+- **`[[jump]]` gains `to = [x, z(, y)]`** (the generated lane; `y` = the landing floor's height),
+  `via = [[...]]` (intermediate landings — a multi-hop crossing like the real two-hop Ice Cavern gaps),
+  `steps` (frames per hop, default 11 = the census mode; scalar or per-hop list), and `sfx = false`.
+  `jump = "<file>"` stays the faithful verbatim lane; exactly one of the two is required (lint-enforced).
+  Closes `FORK_FIDELITY.md`'s "jumps are copy-only" note (the save-Moogle pop-out remains, same class).
+
 ### Added — the orphan-decal gate (`world-transplant` / `transplant_region`): a third carry-time census
 - **`world/orphangate.py` productizes the comp[1] fringe arc's proven rule set** (Round 10 of
   `studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md`, in-game proven across 3 redress

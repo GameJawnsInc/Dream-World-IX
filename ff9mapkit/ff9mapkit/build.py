@@ -1483,11 +1483,25 @@ def validate(project: FieldProject) -> list[str]:
         z = jp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
             problems.append(f"[[jump]] zone must have 3-5 points (the take-off trigger), got {_zone_desc(z)}")
-        jb = jp.get("jump")
-        if not jb:
-            problems.append('[[jump]] needs jump = "<file>" (a real jump arc, from `ff9mapkit import`)')
-        elif not project.path(jb).is_file():
+        jb, jto = jp.get("jump"), jp.get("to")
+        if (jb is None) == (jto is None):
+            problems.append('[[jump]] needs exactly one of jump = "<file>" (a real arc, from '
+                            '`ff9mapkit import`) or to = [x, z(, y)] (a generated from-scratch arc)')
+        elif jb is not None and not project.path(jb).is_file():
             problems.append(f"[[jump]] arc file not found: {jb}")
+        elif jto is not None:
+            hops = [list(p) for p in jp.get("via", [])] + [jto]
+            for pt in hops:
+                if not (isinstance(pt, (list, tuple)) and len(pt) in (2, 3)
+                        and all(isinstance(c, (int, float)) for c in pt)):
+                    problems.append(f"[[jump]] to/via points must be [x, z] or [x, z, y], got {pt!r}")
+            st = jp.get("steps", _jump.JUMP_STEPS_DEFAULT)
+            st_list = list(st) if isinstance(st, (list, tuple)) else [st]
+            if isinstance(st, (list, tuple)) and len(st_list) != len(hops):
+                problems.append(f"[[jump]] steps list has {len(st_list)} entries for {len(hops)} hop(s)")
+            for s in st_list:
+                if not (isinstance(s, int) and 1 <= s <= 255):
+                    problems.append(f"[[jump]] steps must be 1-255 frames per hop, got {s!r}")
         trig = jp.get("trigger", "action")
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
@@ -5204,10 +5218,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         tag += 1
 
     # jumps: FF9's navigable ledge/gap hops (Ice Cavern etc.) -- a region the player triggers ("!"+press
-    # for trigger="action", auto on walk-in for "tread") that RunScriptSyncs the player's verbatim jump
-    # arc (the perspective-tuned SetupJump/Jump parabola, copied byte-for-byte from import). The arc's
-    # RunJumpAnimation needs a clip, so splice the player's jump animation in once (Zidane's, the blank
-    # field's player). Each jump gets a distinct tag, clear of the ladder climb tags above.
+    # for trigger="action", auto on walk-in for "tread") that RunScriptSyncs the player's jump arc.
+    # FAITHFUL (jump = "<file>"): the perspective-tuned SetupJump/Jump parabola copied byte-for-byte
+    # from import. GENERATED (to = [x, z, y]): jump_arc_body emits the census-modal Ice Cavern hop
+    # template from the landing point(s) -- the from-scratch lane. The arc's RunJumpAnimation needs a
+    # clip, so splice the player's jump animation in once (Zidane's, the blank field's player). Each
+    # jump gets a distinct tag, clear of the ladder climb tags above.
     jumps = project.raw.get("jump", [])
     if jumps:
         eb = _jump.ensure_jump_animation(eb)
@@ -5216,8 +5232,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             jz = jp["zone"]
             if len(jz) == 4:
                 jz = _gw.quad_zone(jz)
-            jbytes = project.path(jp["jump"]).read_bytes()
-            eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, jump_tag=jtag,
+            jbytes = project.path(jp["jump"]).read_bytes() if jp.get("jump") else None
+            eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, to=jp.get("to"),
+                                      via=jp.get("via", ()), steps=jp.get("steps"), jump_tag=jtag,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
             jtag += 1
 
