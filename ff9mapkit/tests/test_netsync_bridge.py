@@ -1,12 +1,15 @@
 """ws->wss loopback bridge for co-op netsync (netsync_bridge.py) -- pure-stdlib unit tests for the URL/
 handshake primitives (parse_ws_url, ws_accept incl. the RFC 6455 vector, default_relay), an isolated test
-of pump() via a bare socketpair, and an end-to-end harness that runs the REAL bridge (run_server, bound to
-port 0) against a hand-rolled mock relay socket.
+of the frame reader (_FramedConn) via a bare socketpair, and an end-to-end harness that runs the REAL bridge
+(run_server, bound to port 0) against hand-rolled mock relay sockets.
 
-The mock relay is a loopback TCP listener that completes a WebSocket server handshake using the module's
-own ``read_http_headers``/``ws_accept`` primitives, then hands the raw accepted socket to the test so it
-can push/pull bytes and prove the bridge is byte-transparent (no frame rewriting) and terminates the HTTP
-handshake independently on each hop (its own upstream Sec-WebSocket-Key, not the game's).
+The mock relays are loopback TCP listeners that complete a WebSocket server handshake using the module's
+own ``read_http_headers``/``ws_accept`` primitives, then hand the raw accepted socket to the test so it can
+push/pull WS frames and prove the bridge forwards WHOLE frames verbatim (no rewriting) and terminates the
+HTTP handshake independently on each hop (its own upstream Sec-WebSocket-Key, not the game's). ``ScriptedRelay``
+additionally accepts a SEQUENCE of connections so the hop-decoupling contract can be exercised: an upstream
+drop must NOT kill the loopback hop -- the bridge redials and frames resume, a partial frame is never split
+across the drop, and only a permanent upstream (past the hard cap) closes the game hop.
 
 Every socket gets a timeout and every thread is joined with a timeout -- a hang here would wedge the whole
 suite (runs under ``pytest -n 6``); nothing here binds to a fixed port or touches anything but 127.0.0.1.
@@ -26,6 +29,31 @@ import pytest
 from ff9mapkit import netsync_bridge as NB
 
 TIMEOUT = 5
+
+
+def _ws_frame(payload, *, mask=False):
+    """Build one raw WebSocket frame (FIN + binary opcode) around `payload`. Client frames set the
+    mask bit + a 4-byte key (RFC 6455 requires masking client->server); server frames are unmasked.
+    The bridge forwards frames verbatim, so the exact bytes built here are what must arrive."""
+    payload = bytes(payload)
+    ln = len(payload)
+    out = bytearray([0x82])                       # FIN=1, opcode=2 (binary)
+    mbit = 0x80 if mask else 0x00
+    if ln < 126:
+        out.append(mbit | ln)
+    elif ln < 65536:
+        out.append(mbit | 126)
+        out += ln.to_bytes(2, "big")
+    else:
+        out.append(mbit | 127)
+        out += ln.to_bytes(8, "big")
+    if mask:
+        key = os.urandom(4)
+        out += key
+        out += bytes(payload[i] ^ key[i % 4] for i in range(ln))
+    else:
+        out += payload
+    return bytes(out)
 
 
 # --------------------------------------------------------------------------- 8: pure unit tests
@@ -67,22 +95,55 @@ def test_default_relay_is_a_ws_url():
     assert isinstance(port, int) and port > 0
 
 
-# --------------------------------------------------------------------------- pump() in isolation
+# --------------------------------------------------------------------------- _FramedConn in isolation
 
-def test_pump_copies_bytes_then_shuts_both_sides_down():
+def test_framed_conn_reassembles_whole_frames_across_tcp_segmentation():
+    # TCP is a stream: a recv may split a frame or hold several. The reader must return WHOLE frames
+    # regardless of where the byte boundaries fell. Covers 7-bit and 16-bit length encodings and both
+    # masked (client) and unmasked (server) header sizes.
     a, b = socket.socketpair()
-    c, d = socket.socketpair()
-    a.sendall(b"hello")
-    a.close()                        # b.recv() returns b"" next, ending the pump loop
-    NB.pump(b, d)                    # src=b, dst=d -- copies b's queued bytes onto d
-    assert c.recv(16) == b"hello"
-    with pytest.raises(OSError):     # pump's finally shuts down both src and dst
-        d.sendall(b"x")
-    for s in (a, b, c, d):
-        try:
-            s.close()
-        except OSError:
-            pass
+    reader = NB._FramedConn(b, NB._Activity(), threading.Event())
+    f1 = _ws_frame(b"alpha", mask=True)               # short, masked -> 2 + 4 + 5 bytes
+    f2 = _ws_frame(bytes(range(200)), mask=False)     # 200-byte payload -> 16-bit extended length
+    blob = f1 + f2
+    try:
+        # deliberately split the stream mid-frame in a couple of places
+        a.sendall(blob[:3])
+        time.sleep(0.03)
+        a.sendall(blob[3:len(f1) + 5])
+        time.sleep(0.03)
+        a.sendall(blob[len(f1) + 5:])
+        assert reader.read_frame() == f1
+        assert reader.read_frame() == f2
+    finally:
+        a.close()
+        b.close()
+
+
+def test_framed_conn_raises_closed_on_eof_flagging_mid_frame():
+    a, b = socket.socketpair()
+    reader = NB._FramedConn(b, NB._Activity(), threading.Event())
+    try:
+        # a lone partial header byte, then EOF -> _Closed with mid_frame=True (a byte was buffered)
+        a.sendall(_ws_frame(b"x")[:1])
+        a.close()
+        with pytest.raises(NB._Closed) as ei:
+            reader.read_frame()
+        assert ei.value.mid_frame is True
+    finally:
+        b.close()
+
+
+def test_framed_conn_clean_eof_at_boundary_is_not_mid_frame():
+    a, b = socket.socketpair()
+    reader = NB._FramedConn(b, NB._Activity(), threading.Event())
+    try:
+        a.close()                                     # EOF with an empty buffer -> at a frame boundary
+        with pytest.raises(NB._Closed) as ei:
+            reader.read_frame()
+        assert ei.value.mid_frame is False
+    finally:
+        b.close()
 
 
 # --------------------------------------------------------------------------- harness
@@ -229,6 +290,108 @@ def relay():
     r.close()
 
 
+class ScriptedRelay:
+    """A loopback WS relay that accepts a SEQUENCE of connections (for the upstream-redial contract).
+    Each accepted connection completes the server handshake, is appended to ``.conns`` in order, then
+    its matching ``handlers[i](self, conn)`` runs (a handler that leaves the conn OPEN just returns;
+    the accept loop keeps going with a short accept timeout). ``max_accepts`` closes the listener after
+    that many accepts, so further (redial) connects are REFUSED -- the permanent-outage case."""
+
+    def __init__(self, handlers=(), max_accepts=None):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.settimeout(0.5)
+        self.sock.listen(4)
+        self.port = self.sock.getsockname()[1]
+        self.url = "ws://127.0.0.1:%d" % self.port
+        self.handlers = list(handlers)
+        self.max_accepts = max_accepts
+        self.conns = []
+        self.accept_count = 0
+        self.errors = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def start(self):
+        self._thread.start()
+        return self
+
+    def _serve(self):
+        while not self._stop.is_set():
+            try:
+                conn, _addr = self.sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return  # listener closed (max_accepts, or close())
+            try:
+                conn.settimeout(TIMEOUT)
+                req = NB.read_http_headers(conn)
+                headers = {}
+                for line in req.split("\r\n")[1:]:
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        headers[k.strip().lower()] = v.strip()
+                accept = NB.ws_accept(headers.get("sec-websocket-key"))
+                conn.sendall(
+                    (
+                        "HTTP/1.1 101 Switching Protocols\r\n"
+                        "Upgrade: websocket\r\n"
+                        "Connection: Upgrade\r\n"
+                        "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
+                    ).encode("ascii")
+                )
+                idx = self.accept_count
+                self.accept_count += 1
+                self.conns.append(conn)
+                if self.max_accepts is not None and self.accept_count >= self.max_accepts:
+                    try:
+                        self.sock.close()  # refuse every further (redial) connect
+                    except OSError:
+                        pass
+                handler = self.handlers[idx] if idx < len(self.handlers) else None
+                if handler is not None:
+                    handler(self, conn)
+            except Exception as err:  # noqa: BLE001 -- surfaced to the test via .errors
+                self.errors.append(err)
+
+    def close(self):
+        self._stop.set()
+        for s in [self.sock] + self.conns:
+            try:
+                s.close()
+            except OSError:
+                pass
+        self._thread.join(timeout=TIMEOUT)
+
+
+def _h_send(*frames):
+    """Handler: send these frames, then RETURN leaving the connection open (stays in .conns)."""
+    def handler(relay, conn):
+        for f in frames:
+            conn.sendall(f)
+    return handler
+
+
+def _h_send_then_close(*frames):
+    """Handler: send these frames, then CLOSE the connection (a clean upstream drop)."""
+    def handler(relay, conn):
+        for f in frames:
+            conn.sendall(f)
+        conn.close()
+    return handler
+
+
+def _h_send_partial_then_close(frame, cut):
+    """Handler: send only the first `cut` bytes of `frame` (mid-frame), then CLOSE -- a drop that
+    orphans a partial frame the bridge must discard rather than forward."""
+    def handler(relay, conn):
+        conn.sendall(frame[:cut])
+        conn.close()
+    return handler
+
+
 # --------------------------------------------------------------------------- 1+2: handshake forwarding
 
 def test_handshake_forwards_path_and_terminates_both_hops(relay):
@@ -261,9 +424,11 @@ def test_handshake_forwards_path_and_terminates_both_hops(relay):
         bridge.close()
 
 
-# --------------------------------------------------------------------------- 3+4: byte pump both ways
+# --------------------------------------------------------------------------- 3+4: frame pump both ways
 
-def test_pump_game_to_relay_is_byte_verbatim(relay):
+def test_frames_game_to_relay_are_forwarded_verbatim(relay):
+    # The bridge is frame-aware now, so the game speaks in WS frames (masked, as a real WS client
+    # must). Each WHOLE frame must arrive at the relay byte-for-byte -- header, mask key, payload.
     bridge = Bridge(relay.url)
     try:
         game, _game_key = _connect_game(bridge.port)
@@ -271,20 +436,27 @@ def test_pump_game_to_relay_is_byte_verbatim(relay):
         assert relay.ready.wait(timeout=TIMEOUT)
         assert relay.conn is not None
 
-        chunks = [
-            b"hello co-op",
-            bytes(range(256)),          # full 0x00-0xFF binary sweep
-            b"\x00\x01\xff\xfe" * 10,
+        frames = [
+            _ws_frame(b"hello co-op", mask=True),
+            _ws_frame(bytes(range(256)), mask=True),          # 256-byte payload -> 16-bit ext length
+            _ws_frame(b"\x00\x01\xff\xfe" * 40, mask=True),
         ]
-        for chunk in chunks:
-            game.sendall(chunk)
-            assert _recv_exact(relay.conn, len(chunk)) == chunk
+        for f in frames:
+            game.sendall(f)
+            assert _recv_exact(relay.conn, len(f)) == f
+
+        # a frame split across two sends still arrives whole and verbatim (boundary reassembly)
+        big = _ws_frame(os.urandom(500), mask=True)
+        game.sendall(big[:7])
+        time.sleep(0.05)
+        game.sendall(big[7:])
+        assert _recv_exact(relay.conn, len(big)) == big
         game.close()
     finally:
         bridge.close()
 
 
-def test_pump_relay_to_game_is_byte_verbatim(relay):
+def test_frames_relay_to_game_are_forwarded_verbatim(relay):
     bridge = Bridge(relay.url)
     try:
         game, _game_key = _connect_game(bridge.port)
@@ -292,22 +464,30 @@ def test_pump_relay_to_game_is_byte_verbatim(relay):
         assert relay.ready.wait(timeout=TIMEOUT)
         assert relay.conn is not None
 
-        chunks = [
-            b"welcome to the relay",
-            bytes(range(255, -1, -1)),
-            b"\xde\xad\xbe\xef" * 8,
+        frames = [
+            _ws_frame(b"welcome to the relay"),                # server frames are unmasked
+            _ws_frame(bytes(range(255, -1, -1))),
+            _ws_frame(b"\xde\xad\xbe\xef" * 32),
         ]
-        for chunk in chunks:
-            relay.conn.sendall(chunk)
-            assert _recv_exact(game, len(chunk)) == chunk
+        for f in frames:
+            relay.conn.sendall(f)
+            assert _recv_exact(game, len(f)) == f
+
+        big = _ws_frame(os.urandom(600))
+        relay.conn.sendall(big[:5])
+        time.sleep(0.05)
+        relay.conn.sendall(big[5:])
+        assert _recv_exact(game, len(big)) == big
         game.close()
     finally:
         bridge.close()
 
 
-# --------------------------------------------------------------------------- 5: teardown propagation
+# --------------------------------------------------------------------------- 5: teardown contract
+# The hop-decoupling contract: a GAME-side close still ends the whole session (a quitting game
+# SHOULD tear down upstream), but an UPSTREAM close must NOT kill the game hop -- the bridge redials.
 
-def test_game_close_propagates_eof_to_relay(relay):
+def test_game_close_tears_down_upstream(relay):
     bridge = Bridge(relay.url)
     try:
         game, _game_key = _connect_game(bridge.port)
@@ -316,33 +496,146 @@ def test_game_close_propagates_eof_to_relay(relay):
         assert relay.conn is not None
 
         # prove the pipe is live before tearing it down
-        game.sendall(b"ping")
-        assert _recv_exact(relay.conn, 4) == b"ping"
+        ping = _ws_frame(b"ping", mask=True)
+        game.sendall(ping)
+        assert _recv_exact(relay.conn, len(ping)) == ping
 
         game.close()
-        # the relay side must observe EOF (b"") within the timeout, not hang.
+        # the relay side must observe EOF (b"") within the timeout, not hang -- the game quit.
         relay.conn.settimeout(TIMEOUT)
         assert relay.conn.recv(4096) == b""
     finally:
         bridge.close()
 
 
-def test_relay_close_propagates_eof_to_game(relay):
+def test_upstream_close_does_not_kill_game_hop_bridge_redials():
+    # THE contract inversion (was test_relay_close_propagates_eof_to_game): a single upstream drop
+    # used to tear down the healthy loopback hop, forcing the engine's full ~2.5-3s re-pair. Now the
+    # bridge redials and the SAME game socket keeps serving frames -- both ways.
+    first = _ws_frame(b"before-drop")
+    after = _ws_frame(b"after-redial")
+    relay = ScriptedRelay(handlers=[
+        _h_send_then_close(first),           # conn #1: deliver a frame, then DROP the upstream
+        _h_send(after),                      # conn #2 (the redial): deliver another frame, stay open
+    ]).start()
     bridge = Bridge(relay.url)
     try:
         game, _game_key = _connect_game(bridge.port)
         NB.read_http_headers(game)
-        assert relay.ready.wait(timeout=TIMEOUT)
-        assert relay.conn is not None
 
-        relay.conn.sendall(b"pong")
-        assert _recv_exact(game, 4) == b"pong"
+        # frame from conn #1 arrives, then conn #1 drops -- the game hop must NOT close.
+        assert _recv_exact(game, len(first)) == first
+        # the redial's frame reaches the SAME game socket (never reconnected).
+        assert _recv_exact(game, len(after)) == after
 
-        relay.conn.close()
-        game.settimeout(TIMEOUT)
-        assert game.recv(4096) == b""
+        # and the hop is still bidirectional: a game frame reaches the redialed upstream (conn #2),
+        # proving the writer picked up the new upstream socket too.
+        deadline = time.monotonic() + TIMEOUT
+        while len(relay.conns) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert len(relay.conns) >= 2, "bridge never redialed a second upstream connection"
+        up = _ws_frame(b"up-after-redial", mask=True)
+        game.sendall(up)
+        assert _recv_exact(relay.conns[1], len(up)) == up
+        game.close()
     finally:
         bridge.close()
+        relay.close()
+
+
+# --------------------------------------------------------------------------- 5b: redial correctness
+
+def test_upstream_drop_midstream_local_hop_stays_open_and_frames_resume():
+    # (a) An upstream drop AFTER frames were already flowing: the loopback hop stays open, the bridge
+    # redials a fresh upstream, and frames flow again in both directions.
+    a1 = _ws_frame(b"pre-drop-server")
+    a2 = _ws_frame(b"post-redial-server")
+    relay = ScriptedRelay(handlers=[
+        _h_send_then_close(a1),
+        _h_send(a2),
+    ]).start()
+    bridge = Bridge(relay.url)
+    try:
+        game, _game_key = _connect_game(bridge.port)
+        NB.read_http_headers(game)
+
+        # a frame flowed both ways BEFORE the drop
+        assert _recv_exact(game, len(a1)) == a1
+        # after the drop the bridge redials and the next server frame still arrives
+        assert _recv_exact(game, len(a2)) == a2
+
+        # bidirectional liveness after the redial
+        deadline = time.monotonic() + TIMEOUT
+        while len(relay.conns) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert len(relay.conns) >= 2
+        g = _ws_frame(b"game-after-redial", mask=True)
+        game.sendall(g)
+        assert _recv_exact(relay.conns[1], len(g)) == g
+        game.close()
+    finally:
+        bridge.close()
+        relay.close()
+
+
+def test_frame_split_across_the_drop_is_never_delivered_partially():
+    # (b) The WS-frame-boundary guarantee: a partial frame from a dying upstream must NEVER reach the
+    # game (its reader would desync). conn #1 sends only a PREFIX of a frame then drops; the game must
+    # see ONLY the whole frame the redial (conn #2) delivers -- never the orphaned prefix.
+    doomed = _ws_frame(b"PARTIAL-NEVER-SEEN")
+    cut = len(doomed) - 5                              # send all but the last 5 bytes -> mid-frame
+    complete = _ws_frame(b"WHOLE-FRAME-AFTER-REDIAL")
+    relay = ScriptedRelay(handlers=[
+        _h_send_partial_then_close(doomed, cut),
+        _h_send(complete),
+    ]).start()
+    bridge = Bridge(relay.url)
+    try:
+        game, _game_key = _connect_game(bridge.port)
+        NB.read_http_headers(game)
+
+        # the FIRST bytes the game ever receives are the complete post-redial frame, exactly.
+        got = _recv_exact(game, len(complete))
+        assert got == complete
+        assert b"PARTIAL" not in got                   # the orphaned prefix never leaked through
+        game.close()
+    finally:
+        bridge.close()
+        relay.close()
+
+
+def test_upstream_permanently_gone_closes_game_hop_after_hard_cap(monkeypatch):
+    # (c) The hard cap: if the upstream never comes back, the bridge keeps the game hop alive while it
+    # retries, then closes it once UPSTREAM_REDIAL_HARD_CAP elapses (shrunk here for test speed).
+    monkeypatch.setattr(NB, "UPSTREAM_REDIAL_HARD_CAP", 2.0)
+    first = _ws_frame(b"one-then-gone")
+    # max_accepts=1: after the first upstream connection the listener closes, so every redial is
+    # REFUSED (fast ConnectionRefused on loopback) -- the upstream is permanently unreachable.
+    relay = ScriptedRelay(handlers=[_h_send_then_close(first)], max_accepts=1).start()
+    bridge = Bridge(relay.url)
+    try:
+        game, _game_key = _connect_game(bridge.port)
+        NB.read_http_headers(game)
+        assert _recv_exact(game, len(first)) == first  # the pre-drop frame arrived
+
+        game.settimeout(TIMEOUT + 3)
+        start = time.monotonic()
+        try:
+            reaped = (game.recv(4096) == b"")
+        except (ConnectionResetError, ConnectionAbortedError):
+            reaped = True
+        except socket.timeout:
+            reaped = False
+        elapsed = time.monotonic() - start
+
+        assert reaped, "game hop was never closed after the upstream became permanently unreachable"
+        # NOT instant (proves the bridge tried to redial rather than tearing down on the first drop,
+        # the old both-hops-die bug) and bounded near the hard cap.
+        assert 0.5 <= elapsed <= 6.0, "hard-cap close timing off: %.2fs" % elapsed
+        game.close()
+    finally:
+        bridge.close()
+        relay.close()
 
 
 # --------------------------------------------------------------------------- 6: relay unreachable
@@ -642,19 +935,22 @@ def test_one_quiet_direction_is_not_reaped(relay, monkeypatch):
         # the game keeps talking (like the engine's ~30Hz keepalive) while the relay stays
         # silent, for LONGER than the patched 2.0s IDLE_TIMEOUT -- a ~10x margin between the
         # 0.2s send interval and the 2.0s reap window (vs the old 4x), so a scheduling hiccup
-        # under -n 6 would need to stall >1.8s to false-reap.
+        # under -n 6 would need to stall >1.8s to false-reap. Each keepalive is a real WS frame
+        # (the bridge only forwards whole frames), and receiving it touches the shared idle clock.
+        keepalive = _ws_frame(b"k", mask=True)
         sent = 0
         start = time.monotonic()
         while time.monotonic() - start < 2.6:
-            game.sendall(b"k")
+            game.sendall(keepalive)
             sent += 1
             time.sleep(0.2)
 
-        assert _recv_exact(relay.conn, sent) == b"k" * sent
+        assert _recv_exact(relay.conn, len(keepalive) * sent) == keepalive * sent
 
         # the session is still alive both ways.
-        relay.conn.sendall(b"x")
-        assert _recv_exact(game, 1) == b"x"
+        pong = _ws_frame(b"x")
+        relay.conn.sendall(pong)
+        assert _recv_exact(game, len(pong)) == pong
     finally:
         bridge.close()
 
