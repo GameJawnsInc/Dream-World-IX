@@ -71,20 +71,47 @@ promoted into an invented default again:
 
 ## The cycle (field 407, the reference donor)
 
-The moogle never reveals itself — it's a puppet on two shared MAP bytes plus a **director**:
+The moogle never reveals itself — it's a puppet on two shared MAP vars (**★ 2026-07-22: decoded END
+TO END** — the director's full 44 instrs, the moogle's whole tag-1 switch, the cask's tags 29+30, and
+the act's close-out tail; this section is now the complete decoded truth):
+
+**The handshake**: any writer raises `MAP.Bit[327]` + writes `MAP.Byte[32]`; the moogle's tag-1 loop
+consumes the state and clears BOTH every pass (its epilogue @rel 351). A writer's "wait" polls
+`while (Bit[327] == 1)` — i.e. waits for the moogle's ack.
+
+**The director is a ONE-SHOT LOAD SEQUENCE, not a post-save actor.** Entry-0 tag-1 issues
+`1 (show) → 4 (disarm: moogle selfvar0 = 0) → 102 (stow: MoveInstantXZY into the cask + shrink to
+(8,8,1))` back-to-back at field load, sets the background color, and dies at its RETURN — tag-1
+functions run **once**; the moogle's loop persists only because it ends in an explicit jump back to
+rel 0. (The earlier "the director walks 1→4→102 *after the save*" framing was wrong.)
 
 ```
-load        hidden INSIDE the cask                       (cask at x=-250, y=-2, z=-571)
-press cask  cask tag 30 writes state 101
+load        director: show → disarm → STOW into the cask  (cask at x=-250, y=-2, z=-571;
+            the moogle ends SHOWN but concealed inside the cask mesh, size (8,8,1))
+press cask  cask tag 30: lock control, state=101
               -> moogle case 101 jumps STRAIGHT UP onto the cask (-250, -362, -571)
                  SAME x/z, only the height differs -- the hop is VERTICAL, nothing is hand-placed
-press again the interact target has SWITCHED: the moogle answers, opening its menu
-Save        leaps OFF to a ground spot, book + save there, leaps back UP onto the cask
-Cancel      hops back down INTO the cask  (case 102: MoveInstantXZY to the cask's own spot + shrink)
+                 (+ sets Int16[43]=1, the "moogle is out" latch)
+            then state=3 -> case 3: selfvar0 = 1 = ARM the act (tag 3's head gates on it)
+            then the cask SHRINKS its own press zone (1,50,50) -> (14,14,22): the moogle takes over
+press again the moogle answers, opening its menu
+Save        the ACT (tag 3): leaps OFF to a ground spot, book + save there, leaps back UP onto the
+            cask; the act's OWN menu loop (@6590) redisplays the menu -- no director involved
+Cancel      the act's CLOSE-OUT TAIL (@6593): turn + an ANIMATED dive back INTO the cask
+            (RunJumpAnimation + SetupJump(-250, -2, -571, 10) + land), size restored, then
+            RunScriptSync(cask tag 29) = RE-ARM: press zone back to (1,50,50), Int16[43] cleared
+            -- the whole cycle is re-pressable
 ```
 
-State writers, whole-field: entry 0 tag 1 (**the director**) writes `1 → 4 → 102`; the moogle's Init
-writes `MAP.Byte[38] = 200`; the cask's tag 30 writes `101` then `3`.
+**Why the donor survives `SetPathing(1)` at the perch (the live bug's root cause):** the act calls it
+at BOTH lerp ends (@538 ground, @761 the cask top) — and the perch call is inert **only by geometry**:
+the cask corner `(-250, -571)` has **no walkmesh triangle** under it (verified against 407's `.bgi`;
+nearest walkable is `(0, -400)`). A kit field's cask on walkable ground gets snapped down into the
+barrel by the same call. The kit now derives the pathing arg per spot: floor → attach, off-floor →
+detach (`act_save_body` + `reveal_state_loop`, 2026-07-22).
+
+State writers, whole-field: entry 0 tag 1 (**the director**, load only) writes `1 → 4 → 102`; the
+moogle's Init writes `MAP.Byte[38] = 200`; the cask's tag 30 writes `101` then `3`.
 
 ⚠ **Coordinate convention.** The kit's emitters take `y` as height with **UP = POSITIVE** and negate on
 encode. The donor's raw `-362` is kit `+362`. Getting this backwards puts the moogle underground with
@@ -94,27 +121,17 @@ no build-time signal.
 
 ## Where this stopped — the frontier
 
-**1. After a SAVE the moogle lands *in* the barrel instead of *on* it.** Still open; two attempted fixes
-did not resolve it. Ruled out by inspecting the built field: the act's return lerp is correct
-(barrel-top → ground → barrel-top), and the reopen jump lands on an instruction boundary (that fix was
-real, but it fixed the post-save *cancel softlock*, a different symptom). Suspects, in order:
-
-- **(a)** `act_save_body`'s `SetPathing(1)`, which runs *after* the return lerp and may snap the actor
-  onto the walkmesh, off its perch — the donor calls it too, but its moogle may be re-placed afterwards
-  by the director.
-- **(b)** the donor's post-save state walk — the director drives `1 → 4 → 102`, and case 102 *is* the
-  stow, so the kit may simply be missing the re-place step.
-- **(c)** the act's `_self_angle_flip` / head-focus close-out.
-
-> **NEXT MOVE: decode field 407's entry-0 tag-1 director end to end.**
->
-> ```
-> cd ff9mapkit
-> py ../studies/moogle-savepoints/ebload.py 407 --disasm 0:1
-> ```
->
-> It is 222 bytes and is the one piece of this cycle never fully read. Three attempts
-> synthesized *around* it instead; that is why the shape kept coming out wrong.
+**1. After a SAVE the moogle lands *in* the barrel instead of *on* it. ★ ROOT-CAUSED + FIXED
+2026-07-22 (playtest pending).** The prescribed decode (the director end to end) was executed and
+settled the suspect list: it was **(a)** — and *only* (a). The director **never re-places anything**
+(it is a one-shot load sequence; suspect (b) is refuted), and the donor's own act DOES call
+`SetPathing(1)` at the perch — surviving purely because its cask corner is **off the walkmesh** (no
+triangle to snap to; probed against 407's `.bgi`). The kit's demo cask sat ON walkable ground, so the
+re-attach snapped the perched moogle down into the barrel. Fix: the pathing arg is now derived from
+each spot's height (floor → `SetPathing(1)`, off-floor → `SetPathing(0)`), in `act_save_body`'s two
+sites + the reveal loop's pop (detach on the perch) and stow (re-attach at ground) arms. Ground
+savepoints are byte-identical. The lesson the frontier note predicted held exactly: three rounds
+synthesized around the undecoded piece, and the 44-instruction read settled it in one.
 
 **2. The menu carries no speaker name.** Field 407's Init seeds **`MAP.Byte[37] = 8`** (Kumop's roster
 id) and every window renders it through **`[TEXT=0,0]`**. The kit does exactly this — but only when

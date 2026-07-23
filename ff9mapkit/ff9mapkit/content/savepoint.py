@@ -424,6 +424,17 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
     rest3 = None if rest is None else (tuple(int(v) for v in rest) + (0,))[:3]
     hop3 = None if hop_to is None else (tuple(int(v) for v in hop_to) + (0,))[:3]
     traverse = hop3 is not None and rest3 is not None
+    # ⚠ PATHING IS PER-SPOT: attach (1) on the floor, DETACH (0) off it. The donor act calls
+    # SetPathing(1) at BOTH lerp ends (field 407 tag 3 @538 ground, @761 the cask-top perch) and gets
+    # away with the perch call only by GEOMETRY: its cask spot (-250,-571) has NO walkmesh triangle
+    # under it (verified against 407's .bgi -- the whole cask corner is off-mesh), so the attach has
+    # nothing to snap to. A kit field's cask usually sits ON walkable ground, and re-attaching there
+    # snapped the perched moogle down INTO the barrel (the 2026-07-19 live bug, two failed fixes that
+    # synthesized around the donor instead of decoding it). The kit states the donor's INTENT
+    # explicitly: an off-floor spot (y != 0) detaches; a floor spot attaches. Ground savepoints
+    # (y == 0 everywhere) emit byte-identical SetPathing(1) as before.
+    _out_spot_y = (hop3 if traverse else rest3 or (0, 0, 0))[2]      # where the OUT hop lands
+    _rest_spot_y = (rest3 or (0, 0, 0))[2]                            # where the RETURN hop lands
     out = opcodes.encode(0x99, ACT_TURN_SPEED)                       # SetTurnSpeed(32)
     out += opcodes.encode(0x47, 0)                                    # EnableHeadFocus(0)
     out += opcodes.run_animation(ACT_HOP_CLIP)
@@ -432,7 +443,8 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
     if traverse:
         out += _lerp_frames(rest3, hop3)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(pose_tag))
-    out += opcodes.set_pathing(1) + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation()
+    out += (opcodes.set_pathing(0 if _out_spot_y else 1)
+            + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation())
     if traverse:
         out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)  # the landing 180° spin
     out += opcodes.turn_toward_object(PLAYER_UID, ACT_TURN_SPEED) + opcodes.wait_turn()
@@ -456,7 +468,8 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
         out += _lerp_frames(hop3, rest3)
     out += _region.set_var(_region.MAP_BOOL, ACT_HANDSHAKE_BIT, 1)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(release_tag))
-    out += opcodes.set_pathing(1) + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation()
+    out += (opcodes.set_pathing(0 if _rest_spot_y else 1)
+            + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation())
     out += opcodes.encode(0x47, 3)                                    # EnableHeadFocus(3) -- donor close
     if traverse:
         out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)
@@ -711,16 +724,25 @@ def inject_savepoints(data, savepoints, *, activate: bool = True, dispatches=Non
 REVEAL_STYLES = ("instant", "barrel_pop")     # "instant" = today's behaviour (moogle visible from Init)
 REVEAL_STATE_IDX = 32          # MAP.Byte[32] -- the donor's own reveal-state slot (GLOB_UINT8 = Map+Byte,
                                # transient per-field; reset to 0 on every load, so "idle" needs no write)
-# THE CYCLE (field 407, decoded end to end -- the moogle is a PUPPET on two shared MAP bytes, driven by
-# the cask and by the field's entry-0 tag-1 DIRECTOR; playtest-confirmed against the real room):
-#   load          the moogle is hidden INSIDE the cask
-#   press cask    cask tag 30 writes state=101 -> the moogle's case 101 jumps STRAIGHT UP onto the cask
-#                 and turns to the player. NO dialogue opens.
-#   press again   the interact target has SWITCHED: the moogle (now on top) answers, opening its menu
-#   Save          the act -- leap off, book, save screen
-#   after save    the DIRECTOR walks state 1 -> 4 -> 102: back onto the cask, and the menu REOPENS by itself
-#   Cancel        the moogle hops back down INTO the cask (case 102 = MoveInstantXZY to the cask's own
-#                 position + SetObjectLogicalSize(8,8,1), i.e. shrink its collision away)
+# THE CYCLE (field 407, decoded end to end -- the moogle is a PUPPET on two shared MAP vars; every
+# writer raises MAP.Bit[327] + the state, and the moogle's own tag-1 loop consumes the state and clears
+# BOTH each pass. ⚠ 2026-07-22 FULL-DIRECTOR DECODE (entry-0 tag-1, all 44 instrs): the DIRECTOR is a
+# ONE-SHOT LOAD SEQUENCE, not a post-save actor -- it walks 1 (show) -> 4 (disarm, selfvar0=0) -> 102
+# (stow: MoveInstantXZY into the cask + shrink) back-to-back at field load, then dies at its RETURN
+# (tag-1 funcs run ONCE; the moogle's loop persists only via its own explicit back-jump). An earlier
+# note put the 1->4->102 walk "after the save" -- wrong: post-save behavior is all in the ACT itself):
+#   load          director stows the shown moogle INSIDE the cask (shown-but-concealed, size 8/8/1)
+#   press cask    cask tag 30 locks control, writes state=101 -> the moogle's case 101 jumps STRAIGHT UP
+#                 onto the cask + turns to the player (NO dialogue opens); then state=3 ARMS the act
+#                 (selfvar0=1 -- the act's head gates on it) and the cask SHRINKS its own press zone
+#                 (1,50,50) -> (14,14,22) so the moogle takes over as the interact target
+#   press again   the moogle (on top) answers, opening its menu
+#   Save          the act -- leap off (lerp to ground), book, save screen, lerp back up; the act's OWN
+#                 menu loop redisplays (tag 3 @6590 jumps back to the menu) -- no director involved
+#   Cancel        the act's CLOSE-OUT TAIL (tag 3 @6593): turn + an ANIMATED dive back INTO the cask
+#                 (RunJumpAnimation + SetupJump to ground + land), size restored (14,14,22), then
+#                 RunScriptSync(cask tag 29) = RE-ARM: the cask's press zone back to (1,50,50) + the
+#                 Int16[43] "moogle is out" latch cleared -- the whole cycle is re-pressable
 # ⚠ THE HOP IS VERTICAL. Field 407's cask sits at (-250, -2, -571) and case 101 jumps to
 # (-250, -362, -571) -- the SAME x/z, only the height differs. So there is NO hand-placed landing
 # coordinate here at all (an earlier pass wrongly made one REQUIRED): the landing is the container's own
@@ -903,6 +925,11 @@ def reveal_state_loop(*, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
     pop = (opcodes.encode(0x93, REVEAL_SHOW_FLAGS)
            + reveal_spine_body(jump_to=(cx, cz, top_y), face_to=(cx, cz),
                                steps=steps, sfx=sfx, blend=blend)
+           # DETACH while perched: the landing is off-floor, and a walkmesh attach here snaps the
+           # moogle down INTO the container on any field whose cask sits on walkable ground (the donor
+           # never re-attaches at height either -- see act_save_body's pathing note: its perch-side
+           # SetPathing(1) is inert only because its cask corner is off-mesh).
+           + opcodes.set_pathing(0)
            + reveal_landing_dressing(player_uid)
            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_OUT))
     # The stow is a REAL ballistic jump back down, not a teleport: the donor does
@@ -913,6 +940,8 @@ def reveal_state_loop(*, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
             + opcodes.run_jump_animation() + opcodes.wait_animation()
             + opcodes.setup_jump(cx, cz, cy, int(steps)) + opcodes.jump()
             + opcodes.run_land_animation() + opcodes.wait_animation()
+            + opcodes.set_pathing(1)                         # back on the floor: re-attach (undoes the
+                                                             # pop's perch detach; safe at ground level)
             + opcodes.encode(0x4B, *REVEAL_IN_LOGICAL_SIZE)  # collision shrunk away (case 102's own)
             + opcodes.encode(0x93, REVEAL_HIDE_FLAGS)
             + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IN))
@@ -998,10 +1027,13 @@ def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
         state = HIDE_REQ              -- Cancel is BODILESS, so falling through IS the cancel signal:
                                          the moogle hops back down into its container
 
-    In field 407 this is the entry-0 tag-1 DIRECTOR's job (it walks state 1 -> 4 -> 102 after the save,
-    which is why the menu reappears and why cancelling stows him). A synthesized field has no director, so
-    the moogle's own talk handler owns the cycle -- same result, one less moving part. Cancel staying
-    bodiless is a correctness requirement, not a shortcut (:func:`_row0_only`)."""
+    In field 407 this whole cycle lives in the ACT itself (tag 3): its own menu loop jumps back to the
+    redisplay (@6590), and the Cancel fall-through runs the close-out tail (@6593 -- the animated dive
+    into the cask + the cask re-arm via its tag 29). The entry-0 tag-1 DIRECTOR plays no part (the
+    2026-07-22 full decode: it is a one-shot LOAD sequence -- show/disarm/stow -- dead after its
+    RETURN; an earlier note wrongly credited it with the post-save walk). So the kit's talk handler
+    owning the cycle IS the donor's shape, not a simplification. Cancel staying bodiless is a
+    correctness requirement, not a shortcut (:func:`_row0_only`)."""
     state_idx, reopen_bit = reveal_vars(index)
     # ⚠ THE MENU BODY ENDS IN A RETURN. Every dispatch in this module closes with
     # `ENABLE_MENU + ENABLE_MOVE + RETURN`, so anything appended AFTER it is unreachable -- the first
