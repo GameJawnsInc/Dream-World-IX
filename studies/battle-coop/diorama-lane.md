@@ -752,9 +752,10 @@ into a boot (F6 again from the loaded diorama settles it); fence-1's classificat
 6. `SelfTestOffset = "0,250"` hot-reload: the mirror moves from +x to +z in ~2 s; restore after.
 7. Regression: one REAL battle (co-op off) — swirl, BGM, rewards all vanilla.
 **Two-machine boxes:** host music heard on the guest's diorama (incl. a BattlePatch `Music:`
-fork field) · poison/regen tick numbers pop on the guest · the panel/fallback swap · opt-out
-sticks across lane blips. **Then emit the arc as s41** (patch regen AFTER solo proof, per the
-cadence).
+fork field — **the host-silent case is ★★ PROVEN 2026-07-23, see the dated note at the end of this
+file; the audible-theme leg is still open**) · poison/regen tick numbers pop on the guest · the
+panel/fallback swap · opt-out sticks across lane blips. **Then emit the arc as s41** (patch regen
+AFTER solo proof, per the cadence).
 
 ### ★ SOLO ROUND 1 (2026-07-16, same day) — 5 of 7 boxes pass; the two "failures" were the checklist's own prose
 
@@ -796,3 +797,21 @@ before the implementation agent ran): forward `git apply` onto the snapshots == 
 6 files · GNU `patch -R -p1 --dry-run -F0` clean on the live tree · forward dry-run clean on the
 pre-tree · stored `i/lf w/crlf` like the rest of the stack. Deployed DLL `0537BC580F0D68C7` ==
 base + s22..s41 (the standing FieldMapActorController exclusion unchanged).
+
+## ★★ Lane 1 (host-silent BGM carry) TWO-MACHINE PROVEN + CLOSED (2026-07-23)
+
+The reliability-round session (bridge hop-decoupling + jawn-relay v2 rejoin-grace + s56
+blip-grace) ran the silent bench (field 30112, `silent-bench/BENCH.md`) two-machine: the host's
+random battle was silent for BOTH players (host truly silent + the guest's diorama honoring the
+`0xFFFE` sentinel — no carried theme, no local fallback), and warping back to field 250 afterward
+resumed the field music for BOTH players cleanly (stop-not-suspend — no stacking, no double
+copies, the exact defect the bench exists to catch). Closed via **s54** on the guest engine side,
+not a change to the s41 wire lane above: the guest previously folded `0xFFFE` into the
+keep-field-BGM path; s54 gave it a true-silence branch plus a stop-not-suspend path at boot. The
+s41 sampling/sentinel/override design was correct host-side all along. Full writeup and the recipe
+→ `b36-round.md` (Lane 1) and `silent-bench/BENCH.md`.
+
+**Also changed, same session (s56):** the diorama's blip behavior — B3.3's watcher above notes
+"LEAVE on lane staleness; nonce change = come home then re-boot"; a mid-battle link blip now
+instead HOLDS the scene frozen for up to 8 s and resumes on the SAME nonce, rather than tearing
+down and re-booting.

@@ -13,6 +13,18 @@
 
 ## Lane 1 — the swirl + BGM carry (wire v10: songId on the type-1 boot block)
 
+**★★ TWO-MACHINE PROVEN + CLOSED 2026-07-23** (the reliability-round session, silent-bench field
+30112 — `silent-bench/BENCH.md`): the host's silent battle (`Music: -1` + `[music] stop`) was
+silent for BOTH players — the guest's diorama honored the `0xFFFE` host-silent sentinel, no
+carried theme, no local fallback — and warping back to field 250 afterward resumed the field music
+for BOTH players cleanly. Closed via the engine's **s54** fix, not a change to this lane's own wire
+design: the guest previously folded `0xFFFE` into the keep-field-BGM path (letting the resident
+track ride through the fight instead of suspending it); s54 gave `0xFFFE` its own true-silence
+branch plus a stop-not-suspend path at boot, closing the stacking/double-copy defect on the return
+warp. **The s41 wire lane below — the sampling, the sentinel, the guest override at both
+BattleSwirl branch heads — was correct host-side all along.** The audible-theme A/B leg (hearing an
+actual non-silent host theme) is still open.
+
 # B3.6 swirl + BGM carry — verified recipe (wire v10)
 
 ## 0. What the CURRENT diorama sounds like (baseline — CONFIRMED)
@@ -70,14 +82,14 @@ else songid = FF9SndMetaData.GetMusicForBattle(...);   // existing line, untouch
 ## Playtest boxes (I cannot see the game)
 1. Solo wire bench: swirl visual + 636/635/634 + wire song over a bench diorama; leave clean; field BGM resumes on return (the suspend/resume seam is the one untested audio edge).
 2. Real selftest battle: spectate panel shows boot block + song id (encode proof).
-3. Two-machine: guest hears the HOST's theme; A/B a BattlePatch `Music:` override and an s33 fork-id field on the host — guest must follow both.
+3. Two-machine: guest hears the HOST's theme; A/B a BattlePatch `Music:` override and an s33 fork-id field on the host — guest must follow both. **The host-silent half (`Music: -1`) is ★★ PROVEN 2026-07-23** (silent-bench field 30112, both players silent, both players' field music resumed on return to 250 — closed via s54); the audible-theme A/B leg is still open.
 4. F6 Leave taken DURING the swirl window (exercises fences 2+3).
 
 ## Wire cost
 +2 B per type-1 frame at ~150 ms cadence ≈ 13 B/s during a battle; version byte 9→10 (no size change); +2 B in the F6 bench frame. No other frame types change.
 
 ## Risks (standing)
-1) Swirl×BattleMapDebug pairing in-game untested (SFX_Rush is GPU/render code) — hence DioramaSwirl lever + fences 1-3. 2) Suspend/resume symmetry on Leave→FieldMap unproven — playtest box. 3) Mid-battle host music changes (btlseq Music ops) not tracked — entry song only, accepted gap. 4) v10 rejects v9 peers — update both machines (standing law; NOTE over the relay a mismatch is SILENT, NetSyncRelay.cs:317-322). 5) gMode∉{1,3} at swirl Awake → no BGM (stock behavior) — unreachable via the watcher (FieldHUD gate, NetSyncClient.cs:802-807); flagged, not fenced.
+1) Swirl×BattleMapDebug pairing in-game untested (SFX_Rush is GPU/render code) — hence DioramaSwirl lever + fences 1-3. 2) Suspend/resume symmetry on Leave→FieldMap — **★ PROVEN 2026-07-23** (both players' field music resumed cleanly on the warp back to field 250; closed via s54, see Lane 1's header note). 3) Mid-battle host music changes (btlseq Music ops) not tracked — entry song only, accepted gap. 4) v10 rejects v9 peers — update both machines (standing law; NOTE over the relay a mismatch is SILENT, NetSyncRelay.cs:317-322). 5) gMode∉{1,3} at swirl Awake → no BGM (stock behavior) — unreachable via the watcher (FieldHUD gate, NetSyncClient.cs:802-807); flagged, not fenced.
 
 ### Implementation checklist
 
