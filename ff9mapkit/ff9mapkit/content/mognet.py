@@ -744,7 +744,11 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
                    + _choice.switch_on_choice(
                        [accept_arm,
                         read_mail_body(rows, read_prompt_txid, letter_txids or {}),
-                        b""])
+                        # Cancel SPEAKS: the moogle's "I want mail!  Kupo!" bubble fires on the
+                        # submenu's exit too, not only when no submenu exists -- the stock closing
+                        # beat of every Mognet visit (playtest 2026-07-22: after the accept, the
+                        # submenu's Cancel went silent; Kupo's never does)
+                        nothing_arm])
                    + (_region.if_block(give_available_cond(give[0]), give_arm) if give is not None else b""))
         dispatch = arrivals + avail + _region.if_else(gate, submenu, els)
     else:
