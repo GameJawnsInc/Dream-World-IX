@@ -189,6 +189,131 @@ is a single constant -- change it and rerun to retune.
 
 ## Placement + timing
 
+> ## ⛔ THE FLIGHT ARC IS CLOSED (2026-07-23) — the puppet-overlay approach has a ceiling; PIVOT to a source-level transplant
+>
+> **What we tried (v1→v10.1):** hide the native creature's body meshes (`HideMeshes`) and overlay Thomas as a
+> separate rigid FBX whose per-frame world transform we choreograph. The s52/s53 probes + the FORMAT round
+> made this as good as it can get: we RECOVERED the creature's true per-frame screen position (native GTE
+> reprojection, zero false positives) AND its real apparent size (BONES AABB), and drove Thomas from that
+> measurement (v9 position, v10 size, v10.1 world-smoothing).
+>
+> **Why it's closed (playtest verdicts, 2026-07-23):** "much better coverage ... doesn't scale down like a
+> dragon flying down ... hard corners are jarring ... missing for much of the swooping." Matching a **rigid
+> train's** on-screen position + size to the dragon is fundamentally a 2D billboard composited over the real
+> cinematic — it can't reproduce a creature *flying down, banking, shrinking, and rolling vertical→horizontal*
+> through the swoops, and back-projecting a measured screen path through a cutting camera turns every camera
+> move into a world jump (softened, but never a real swoop). **The overlay is a dead end for FIDELITY; the
+> mechanisms it proved (HideMeshes, the FileList FBX render, the s52/s53 probes) are permanent wins.**
+>
+> **THE PIVOT (user's call):** stop puppeteering. Pursue a **faithful source-level transplant** — put OUR OWN
+> model where the real creature renders so it inherits the dragon's actual animation + camera — and a **Blender
+> round-trip** of the summon format (the FORMAT round already decoded geometry + motion + camera + sequence).
+> The most promising lever the probes opened: we can now READ the creature's real per-frame bone matrices
+> (`Hi_GetSummonBoneMatrix` / the summon bone array `*(DATA+0x38)`), so we could **pose our own skinned model
+> with the stock per-frame skeleton** — our mesh, the dragon's actual motion — instead of overlaying a rigid
+> prop. See the research round opened 2026-07-23 (`disasm/TRANSPLANT.md` when it lands) and `disasm/FORMAT.md`
+> §4 (TIER R/W roadmap). The v10.1 build stays deployed as the resting state; it is NOT the destination.
+
+<details>
+<summary>THE FLIGHT v1→v10.1 history (CLOSED 2026-07-23 -- kept for the record; the recovered measurements + the s52/s53 probes are the durable wins, the puppet placement is not the path to fidelity)</summary>
+
+### THE FLIGHT v10 -- 2026-07-23, MEASURED POSITION + SIZE (CURRENT, supersedes v9)
+
+v9 placed Thomas at the creature's real per-frame screen POSITION but at a CONSTANT size; playtest ("much
+better coverage ... he doesn't scale down during the swoop ... tweens around into place"). Both symptoms are
+the missing depth cue -- a constant-size Thomas translating reads as a flat 2D tween, not a creature moving
+through 3D. **v10 adds the creature's real per-frame SIZE.** The s53 `BONES` row gives its node-cloud AABB;
+its apparent on-screen height is `WORLD_H * native_H / depth` (apparent size ∝ 1/depth -- robust, unlike
+projecting the AABB's 8 corners, whose near-camera members spike to 750×). Measured, the dragon shrinks to
+~**0.21×** frame height during the far swoop (f176) and swells to 5-9× up close during the charge. v10 sets
+Thomas's per-frame apparent height to that (smoothed; clamped `[0.18, 0.70]` so the giant charge frames stay
+near v9's proven ~0.55 size instead of overflowing as a wall-of-train). This (a) makes him **scale down during
+the swoop** and (b) varies his placement DEPTH per frame → real 3D motion, not a flat tween. Position and the
+every-frame keyframes are unchanged from v9. `flight_v10_solve.py`, 334 keyframes; retune `FRAC_MIN`/`FRAC_MAX`
+/`SMOOTH_WIN`. Deployed 2026-07-23.
+
+**v10.1 (smoothness, same day).** Playtest: "better but still not very smooth on the swoops." The measured path
+is sampled at the native ~15fps and the manifest interpolates LINEARLY, so every keyframe is a velocity CORNER;
+on the fast swoops (1000-1300 world-units/frame, plus camera moves that jump the back-projected world by
+2000-22000 units at a cut) that reads as jerky. Fix: low-pass the final WORLD path with a moving average
+(`WSMOOTH=3`) -- this softens BOTH the within-shot jitter AND the hard camera cuts into smooth fast glides
+(max frame-to-frame world delta 29,285→4,293). A small trade of exact-screen-position for smoothness. (Open:
+Thomas's own ORIENTATION is still camera-broadside, not the dragon's actual vertical→horizontal roll through
+the swoop -- the `MODEL` row logs the creature's real rotation `m00..m22` if a later pass wants it.)
+
+<details>
+<summary>THE FLIGHT v9 -- 2026-07-23, MEASURED (superseded same day by v10 -- right position, constant size; kept for the record)</summary>
+
+### THE FLIGHT v9 -- 2026-07-23, MEASURED (was CURRENT, supersedes v8) -- the creature's REAL screen path
+
+**The breakthrough.** The s53 probe (PROBE.md §11) + the FORMAT round found why v5/v7/v8 all failed: the
+creature projects through the plugin's own **native GTE** (world→view matrix `M` @0x1C1DC8 + OFX=160/OFY=120/H),
+NOT the managed Unity VIEW/PROJ (retracted — it failed 88.7% of frames). Reading out one s53 cast
+(`disasm/FORMAT.md` §5.4) settled it and, for the first time, **measured the creature's true per-frame screen
+position** — reproject its composed node-0 (`*(DATA+0x38)`) through `M` + the GTE:
+- the creature IS the single summon slot (`hasMotion=1` on `kind=S` only, 0 eff slots) — settled empirically;
+- the reprojection lands ON-SCREEN with **ZERO false positives** (every on-screen frame also has the body mesh
+  drawn) and **DEAD CENTER through the float/charge** (f288 ndc `(+0.00,-0.01)`, f300 `(0,0)`) — the exact
+  phase v8 had Thomas *absent* for.
+
+**v9 (`flight_v9_solve.py`, 334 keyframes):** for each reliable frame (82–412) it takes the creature's measured
+native screen NDC and **back-projects it through the MANAGED camera** (the one that renders Thomas, a managed
+Unity object) at `HEIGHT_FRAC=0.55` size — so Thomas lands where the real dragon was on screen, at a controlled
+size. **One keyframe per frame** in the measured window (the creature's world position back-projects to a
+different spot at each of the ~15 camera hard-cuts; interpolating across a cut is what swung the sparse version
+111× off-frame — a keyframe/frame removes the interpolation, so cuts render as faithful 1-frame cuts). A
+constructed lead-in flies him in from off-frame top; after frame 412 the creature stops being drawn (the camera
+leaves for the fire column — the user's phase 4), so Thomas holds and drifts off. The measured window verifies
+clean (0 high-drift segments, full camera coverage); the only "drift" is the intended off-screen exit.
+
+**Caveat** (video-for-visual-bugs): this is the first flight built from a *measurement*, but the native→managed
+handoff assumes native-NDC ≈ managed-NDC for the same on-screen pixel (true when both fill the same screen;
+a 4:3-vs-widescreen mismatch would shift the horizontal — the centered float/charge is aspect-invariant either
+way). A fresh capture is the real check. Re-derive: edit `flight_v9_solve.py`'s `HEIGHT_FRAC`/`NDC_CLAMP`, run
+it, re-bake into `build_thomas.py`. Deployed 2026-07-23.
+
+<details>
+<summary>THE FLIGHT v8 -- 2026-07-23, HYBRID (superseded same day by v9 -- it was built on the RETRACTED +0x40 anchor + the managed VIEW/PROJ; kept for the record)</summary>
+
+### THE FLIGHT v8 -- 2026-07-23, HYBRID: real entrance + constructed reign (was CURRENT, supersedes v7)
+
+**What changed.** The s52 ROOT probe (PROBE.md §10) captured Bahamut's real per-frame world transform.
+`root_reproject.py` + a camera-aim diagnostic established that the creature is actively posed (live ROOT)
+for frames **82-301 (~43% of the cast** -- matching the user's own recollection of ~40% and a clean
+4-phase structure: fly-down, swoop-by, float+charge with the camera ON him, then the camera pans OFF to
+follow the fire column), then parks for the fire column. **But only the swoop-in (82-100) has a clean,
+camera-VALIDATED ROOT→screen mapping** (camera aimed straight at it, `fwd·dir ≈ +0.97`, projects
+on-screen). From ~108 on, the summon-model ROOT diverges hard from where the visible creature is drawn
+(at the charge it sits ~40,000 units below/behind the camera) -- the FINDINGS §4 puzzle (a different draw
+path, or a large draw-time world offset the probe can't see), so it is NOT a trustworthy placement source
+there.
+
+**The hybrid (`flight_v8_solve.py`, 27 keyframes, frames 0-580):**
+- **Entrance (82-100): the REAL ROOT world positions** -- Thomas traces Bahamut's actual descent, growing
+  naturally 18%→65% of frame as he approaches (measured, camera-validated). Trimmed at 100, not the full
+  107, because the real creature swoops so close by 107 that Thomas would fill 167% of frame (a wall of
+  train); a constructed lead-in brings him in from off-frame top ("flying down"). Push `ENTRANCE_REAL`
+  toward 107 for a deliberately overwhelming close pass.
+- **Swoop-by + float/charge (130-300): CONSTRUCTED** via v7's proven NDC back-projection to the user's
+  4-phase spec -- a visible lateral swoop-by, then a BIG (62-66% frame) center-stage float held through
+  the charge (the beat the user wants Thomas present for). Drift-verified in-frame (21/21 segments,
+  worst |ndc| 0.70).
+- **Fire column (340-580): world-HOLD** -- Thomas holds his phase-3 world position and the camera pans
+  away onto the fire column, carrying him out of frame naturally (faithful "the camera moves off him";
+  deliberately not drift-guaranteed -- he is meant to exit).
+
+Yaw is per-keyframe broadside to each frame's real camera (his side/"1" panel to the lens), unwrapped for
+continuity -- unchanged from v7. `THOMAS_SCALE=265` throughout (apparent size is controlled by the
+per-keyframe depth/height solve, and by the real depth in the measured entrance). **Caveat** (this
+project's video-for-visual-bugs law): this is a DESIGN verified against the real camera log's geometry
+plus the user's own description of the cinematic -- a fresh capture of an actual cast is the real next
+check. Re-derive/retune: edit `flight_v8_solve.py`'s `ENTRANCE_REAL`/`BEATS_AFTER`/`PHASE4_FRAMES`, run
+`py flight_v8_solve.py`, and re-bake into `build_thomas.py` (the constant is generated, not hand-typed).
+Deployed 2026-07-23.
+
+<details>
+<summary>THE FLIGHT v7 -- 2026-07-22, IN-FRAME BY CONSTRUCTION (superseded 2026-07-23 by v8 -- pure construction, no real data; its NDC back-projection + drift machinery is REUSED by v8; kept for the record)</summary>
+
 ### THE FLIGHT v7 -- 2026-07-22, IN-FRAME BY CONSTRUCTION (THE FINAL PRAGMATIC ROUND, supersedes v1-v5)
 
 **The pivot -- user-accepted trade.** FLIGHT v5 (below, collapsed) was internally SOUND: Thomas is an
@@ -534,9 +659,17 @@ behind-camera (depth<=0):
 
 </details>
 
+</details>
+
+</details>
+
+</details>
+
 No `Animations` array (Thomas is rigid, zero clips) -- confirmed safe by source: an FBX entry with an
 absent `Animations` key renders the bind pose, no error (`SFXDataMesh.cs:976-977,809-810`); `Movement`
 alone is sufficient to give a moving prop a well-defined enter/hold/exit window.
+
+</details>
 
 ## Files in this directory
 
@@ -755,3 +888,57 @@ the battle-import precedent). Never ship a patched/redistributed DLL.
 - Back to the rung-7 resting state: `py studies/custom-summons/thomas-swap/revert_thomas.py`
 - Re-arm the probes: `Memoria.ini [SfxProbe] Enabled = 1` (+ `CapturePrims = 1` for the primitive
   stream) — **needs a game relaunch**, the flags are cached at process start.
+
+---
+
+## DISASM ROUND COMPLETE 2026-07-22 — the summon subsystem is decoded → `disasm/FINDINGS.md`
+
+The disasm pass the SESSION CLOSE queued **ran and closed** (a 10-agent Opus workflow over
+`FF9SpecialEffectPlugin.dll` + the open Memoria source, standing on the committed instrument
+`disasm/refkit.py`; 23 load-bearing claims adversarially re-derived, 1 corrected; every native claim
+cites `fn@rva`, every managed claim `file:line`). Full report: **`disasm/FINDINGS.md`**; per-slice
+trail: `disasm/{A1..A5,B1..B5}-*.md`; verification trail: `disasm/V-*.md`. **No stock bytes were
+extracted; the DLL was only read — provenance-clean.** Headline results:
+
+- **A stock summon is a software PS1-GTE renderer inside the DLL.** The whole `summonModels[]`
+  pipeline is decoded: a **one-slot** record array @RVA **0x220830** (stride **0x58**) → a `SummonData`
+  block (motion `+0x10`, **hide-mask `+0x20`**, per-bone WORLD matrices `+0x38`, **root world TRS
+  `+0x40`**, texanim `+0x70`), driven by a mega-interpreter @0xeea4 through a `.data` dispatch table.
+  Cross-checked byte-for-byte on the x86 build. The 12-fn `Hi_Summon*` roster is mapped to real
+  bodies (e.g. `Hi_GetSummonBoneMatrix` @**0x18630**, independently re-disassembled by the orchestrator).
+- **THE PRIZE IS RECOVERABLE — the staging problem is solvable.** The creature's true per-frame world
+  transform is **`SummonData+0x40`** (bone[0] of the `+0x38` array). It is **zero-on-disk** (no static
+  recovery) and crosses **no managed boundary**, but it is **live-readable by a passive memory read** of
+  the plugin's own runtime state: `moduleBase(FF9SpecialEffectPlugin) + 0x220830 → +0x00 → +0x40`.
+  No DLL patch, no P/Invoke-by-name, no asset bytes.
+- **The primitive-space puzzle is settled (and it VOIDS the old MESH-bounds premise).** `SFX_GetPrim`
+  returns **already-projected 2D screen pixels + an ordering-table sort key** (the perspective divide
+  happens inside the DLL, `idiv @0x4001b`); the metric transform never escapes. So every prior method
+  that read the probe's **MESH `cx,cy,cz` bounds as Bahamut's world position** was reading a
+  pool-polluted origin-anchored box (vertCount≡14000, origin in 100% of AABBs) — **that is why
+  `matrix_solve.py`'s "put Thomas at Bahamut's measured world position" scattered off-screen.** The
+  creature's per-frame **screen** trajectory *is* recoverable — from the un-pooled **`PRIM`** rows, not
+  MESH bounds. Deployed FLIGHT v7 (constructs coverage directly) is **not** invalidated.
+- **The camera is fully solved and retired as a blocker.** VIEW+PROJ cross the boundary cleanly every
+  frame; the zoom is a single near-Z scalar `H`; `resolve_position`'s K=4096.8 branch-A is re-confirmed.
+  The eye/anchor scratch buffer @0x220060 is runtime-only but **unneeded** — VIEW+PROJ + the root read
+  fully place a puppet (`screen = PROJ · VIEW · root`, same PS1-GTE world space).
+- **Native `Hide/ShowSummonModelMesh` (`DATA+0x20` ordinal bitmask) ≠ our `.seq HideMeshes=`
+  (SFXKey-hash filter after harvest)** — two different culling layers. The native op is exact and
+  emission-free but reaching it needs its `.seq` opcode number decoded (a next-step item).
+
+**THE SINGLE NEXT ACTION (recommended, not yet taken — needs the user's go-ahead):** land the **ROOT
+probe** — a ~45-line managed extension to `Memoria/Battle/SFX/SfxMeshProbe.cs` that reads `SummonData+0x40`
+each frame (gated on a new `[SfxProbe] CaptureRoot=1` flag) + a **reprojection-validation** pass (project
+the read root through the same frame's logged VIEW/PROJ, compare to the `PRIM` centroid). One instrumented
+cast then yields Bahamut's **real metric trajectory** to hang the rung-7 Thomas puppet on — closing the
+staging problem v7 left open. **Caveats:** it is on the `memoria-patches/` stack, so it is an **engine DLL
+rebuild (auto-deploys, no backup — the DANGEROUS lane) + a relaunch + a human playtest cast** to be useful;
+log the **root only** (dumping the per-bone `+0x38` array across a cast = extracting stock animation =
+BLOCKED). Runway after: re-stage FLIGHT on the captured ROOT curve → decode the native Show/Hide `.seq`
+opcode → the `.seq` summon-op linter/inspector (`disasm/FINDINGS.md` §6-7).
+
+*Round hygiene:* two map agents (A4 primitive-space, B5 x86-crosscheck) hit the structured-output retry
+cap but **wrote their `.md` artifacts first**, so their content is on the blackboard and was folded into
+`FINDINGS.md`; A3 returned a schema-stub as its structured claims but likewise wrote the real 19KB
+`A3-managed-boundary.md`. No content was lost.

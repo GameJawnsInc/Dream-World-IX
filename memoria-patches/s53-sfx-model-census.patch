@@ -1,0 +1,376 @@
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -76,6 +76,23 @@
+         // by default -- a normal install never does the native memory read. See LogSummonRoot().
+         public static readonly Boolean CaptureRoot = LoadCaptureRoot();
+ 
++        // s53 -- arms LogModels(): the per-frame identity + COMPOSED world transform of EVERY candidate
++        // native model (all 32 Eff-model slots AND the 1-slot summon array) PLUS the native GTE camera
++        // (PSXCAM row: the world->view matrix M @0x1C1DC8 + OFX/OFY/H). This is the s52 CORRECTION -- s52's
++        // ROOT row logs only the draw ANCHOR (DATA+0x40); the drawn transform is node 0 of *(DATA+0x38),
++        // and the projection is the native GTE, not the managed VIEW/PROJ (disasm/FORMAT.md sec 1). Requires
++        // Enabled=1. Off by default -- a normal install never does the native memory read. See LogModels().
++        public static readonly Boolean CaptureModels = LoadCaptureModels();
++        // s53 -- volume gate for LogModels(). 1 (default): a MODEL row only for active slots + one edge row
++        // when a slot's active flag CHANGES (the census survives at ~zero cost). 0: all 33 slots every frame.
++        public static readonly Boolean ModelsActiveOnly = LoadModelsActiveOnly();
++        // s53 -- hard lifetime cap on MODEL/BONES rows (PrimCap contract: one truncation marker, then drop).
++        public static readonly Int32 ModelsRowCap = LoadModelsRowCap();
++        // s53 -- OPTIONAL summon-slot bone-cloud AABB (0=off). The node count is not directly readable
++        // (u8[geom+2] behind a PSX->host decode), so it is supplied here; ef227/Bahamut = 93 (decoded
++        // offline). Emits ONE aggregate BONES row/frame (centroid + AABB), never per-bone data. Clamped 128.
++        public static readonly Int32 ModelsBoneCount = LoadModelsBoneCount();
++
+         private static StreamWriter _writer;
+         private static Boolean _writerInitTried;
+ 
+@@ -143,6 +160,62 @@
+             }
+         }
+ 
++        private static Boolean LoadCaptureModels()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "CaptureModels", "0").Trim() == "1";
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        private static Boolean LoadModelsActiveOnly()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "ModelsActiveOnly", "1").Trim() != "0";
++            }
++            catch
++            {
++                return true;
++            }
++        }
++
++        private static Int32 LoadModelsRowCap()
++        {
++            try
++            {
++                String raw = IniFile.MemoriaIni.GetSetting("SfxProbe", "ModelsCap", "120000").Trim();
++                Int32 cap;
++                if (Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out cap) && cap > 0)
++                    return cap;
++                return 120000;
++            }
++            catch
++            {
++                return 120000;
++            }
++        }
++
++        private static Int32 LoadModelsBoneCount()
++        {
++            try
++            {
++                String raw = IniFile.MemoriaIni.GetSetting("SfxProbe", "ModelsBoneCount", "0").Trim();
++                Int32 n;
++                if (Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) && n > 0)
++                    return n > 128 ? 128 : n;
++                return 0;
++            }
++            catch
++            {
++                return 0;
++            }
++        }
++
+         private static StreamWriter Writer
+         {
+             get
+@@ -161,6 +234,10 @@
+                         _writer.WriteLine("# STATE,effectId,frame,index,code,label");
+                         _writer.WriteLine("# PRIMSUM,effectId,frame,count,minX,minY,maxX,maxY");
+                         _writer.WriteLine("# ROOT,effectId,frame,active,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz  (rotation 1/4096 fixed, translation world units)");
++                        _writer.WriteLine("# MODEL,effectId,frame,kind,slot,active,hasMotion,hasParent,aux0,aux1,aux2,ax,ay,az,wx,wy,wz,m00,m01,m02,m10,m11,m12,m20,m21,m22,bones32  [s53]");
++                        _writer.WriteLine("#   kind S = summon slot (aux0=motion frame counter); kind E = eff slot (aux0=shadeMode,aux1=drawOffset,aux2=sliceValue). ax,ay,az=draw ANCHOR translation; wx,wy,wz+m00..m22=COMPOSED matrix fed to the GTE (node 0 of *(DATA+0x38)); bones32=low32 of the node-matrix ptr (0=never drawn)");
++                        _writer.WriteLine("# PSXCAM,effectId,frame,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz,ofx,ofy,h,psxPtr  [s53, x64] -- the native world->view MATRIX M @0x1C1DC8 + GTE screen params; psxPtr=PsxCtx[+0x14] tamper check (constant across cast == M read is fresh)");
++                        _writer.WriteLine("# BONES,effectId,frame,n,cx,cy,cz,minX,minY,minZ,maxX,maxY,maxZ  [s53, ModelsBoneCount>0] -- summon node-translation AABB + centroid, aggregate only");
+                         _writer.Flush();
+                     }
+                     catch
+@@ -365,6 +442,260 @@
+             }
+         }
+ 
++        // s53 -- THE MODEL CENSUS + THE TRUE PER-FRAME TRANSFORM + THE NATIVE CAMERA. Requires
++        // [SfxProbe] Enabled=1 AND CaptureModels=1 (both default 0). Per frame it logs:
++        //   PSXCAM (x64 only) -- the native world->view MATRIX M @0x1C1DC8 the plugin composes with every
++        //     bone this tick, plus the GTE screen params OFX=160/OFY=120/H. This is the s52 CORRECTION:
++        //     the creature projects through the NATIVE GTE, not the managed Unity VIEW/PROJ (which was
++        //     retracted -- it failed 88.7% of frames). Reprojection is then a zero-free-parameter identity:
++        //       p_view = M.R*bones[0].t + M.t ; SX = OFX + ((sat16(p_view.x)*((H<<16)/p_view.z))>>16).
++        //   MODEL (both arches) -- one row per candidate native model:
++        //     kind 'S' = the summon slot (RVA x64 0x220830 / x86 0x20869c, LENGTH 1) -- the creature; the
++        //       ONLY model that can carry a motion clip (hence the only animated creature).
++        //     kind 'E' = the 32-slot eff array (x64 0x220230 / x86 0x20819c) -- the beams/props, structurally
++        //       RIGID (all five Register*EffModel null DATA+motion), often hard-parented to a creature bone
++        //       by Hi_DrawEffModelByBone. The rows turn M1/M5's static "creature==summon slot" into an
++        //       EMPIRICAL check: hasMotion must be 1 on kind 'S' rows only; a kind 'E' with hasMotion==1
++        //       re-opens the subsystem question (a stop-work finding).
++        //   BONES (optional, ModelsBoneCount>0) -- the summon node-translation AABB + centroid (aggregate).
++        //
++        // THE TWO TRANSFORMS. ax,ay,az = the DRAW ANCHOR (DATA+0x40, pose_eval@0x186a0) -- what s52 logs,
++        // only HALF. wx,wy,wz + m00..m22 = the COMPOSED matrix actually fed to the GTE: node 0 of *(DATA+0x38),
++        // rebuilt every Draw by the node builder @0x7820 as bone0 = anchor composed with clip[frame]. The
++        // composed translation is a <=740-unit REFINEMENT of the anchor, NOT a rescue for the ~40k-unit
++        // authored fly-by; the real fix is projecting through M (above), not swapping +0x40 for +0x38.
++        //
++        // SAFETY: model_prepare@0x7120:0x71f7 zeroes the bones pointer at register time, so bones==0 is a
++        // GUARANTEED "never drawn" signal -- the probe never reads arena garbage for a never-drawn slot.
++        //
++        // PROVENANCE: identities + flags + world transforms = STAGING/CHOREOGRAPHY (same class as the camera
++        // track logged since s48 and the root logged since s52). NO geometry is read (DATA+0x08 is a PSX
++        // address never decoded here); NO per-bone matrices are emitted -- WriteBoneAabb reduces 93x3 -> 6
++        // in-loop and writes only the aggregate. No DLL patched, no export called.
++
++        private static readonly Boolean Arch64 = (IntPtr.Size == 8);
++
++        // Summon array -- LENGTH 1 (the creature). x64 0x15f01 / x86 0x135b8.
++        private static readonly Int64 SummonRecRva = Arch64 ? 0x220830L : 0x20869cL;
++        private static readonly Int32 SummonActiveOff = Arch64 ? 0x50 : 0x4c;   // x64 0x168f5 / x86 0x135be
++        private static readonly Int32 SummonMotFrameOff = Arch64 ? 0x54 : 0x50; // x64 0x17888 / x86 0x13e33
++        // Eff array -- 32 slots (the props). x64 0x15acc / x86 0x12d84.
++        private static readonly Int64 EffArrRva = Arch64 ? 0x220230L : 0x20819cL;
++        private static readonly Int32 EffStride = Arch64 ? 0x30 : 0x28;         // x64 0x15add / x86 0x12d97
++        private static readonly Int32 EffActiveOff = Arch64 ? 0x20 : 0x1c;      // x64 0x15ad5 / x86 0x12d90
++        private static readonly Int32 EffShadeOff = Arch64 ? 0x24 : 0x20;       // x64 0x15afd / x86 0x12db6
++        private static readonly Int32 EffDrawOffOff = Arch64 ? 0x26 : 0x22;
++        private static readonly Int32 EffSliceOff = Arch64 ? 0x28 : 0x24;       // x64 0x18abb / x86 0x12db9
++        private const Int32 EffSlotCount = 32;                                  // cmp eax,0x20 -- x64 0x15ae1
++        // Shared ModelData block (pointer-size-shifted).
++        private static readonly Int32 DataMotionOff = Arch64 ? 0x10 : 0x0c;     // x64 0x7846 / x86 0x70d5
++        private static readonly Int32 DataParentOff = Arch64 ? 0x30 : 0x1c;     // x64 0x784f / x86 0x70eb
++        private static readonly Int32 DataBonesOff = Arch64 ? 0x38 : 0x20;      // x64 0x7842 / x86 0x70e0
++        private static readonly Int32 DataRootOff = Arch64 ? 0x40 : 0x24;       // x64 0x186b2 / x86 0x14610
++        // A PSX MATRIX is 32 B on both arches: 3x3 s16 fp12 @+0x00, s32 translation @+0x14.
++        private const Int32 MatrixStride = 0x20;
++        private const Int32 MatrixTransOff = 0x14;
++        // The native GTE camera (x64 RVAs only -- x86 equivalents not derived; PSXCAM is x64-gated).
++        private const Int64 CamMatrixRva = 0x1C1DC8L;  // SFX_Update@0x13c4 copies the installed camera here every tick (0x150c)
++        private const Int64 OfxRva = 0x211FA0L;        // =160 seeded 0x14f8; consumed by the GTE 0x3e80
++        private const Int64 OfyRva = 0x211FA4L;        // =120 seeded 0x1502
++        private const Int64 HRva = 0x211FA8L;          // projection distance, rewritten by the camera stepper 0x13ac7
++        private const Int64 PsxCtxPtrRva = 0x66C68L;   // qword -> PsxCtx; dword PsxCtx[+0x14] = the tamper check
++
++        private static Int32 _modelRowCount;
++        private static Boolean _modelCapWarned;
++        private static Byte _lastSummonActive = 0xFF;
++        private static readonly Byte[] _lastEffActive = new Byte[EffSlotCount];
++        private static Boolean _effActiveSeeded;
++
++        public static void LogModels()
++        {
++            if (!Enabled || !CaptureModels)
++                return;
++            StreamWriter w = Writer;
++            if (w == null)
++                return;
++            try
++            {
++                IntPtr baseAddr = PluginBase();
++                if (baseAddr == IntPtr.Zero)
++                    return;
++                if (_modelRowCount >= ModelsRowCap)
++                {
++                    if (!_modelCapWarned)
++                    {
++                        _modelCapWarned = true;
++                        w.WriteLine("# MODEL CAPTURE TRUNCATED at " + ModelsRowCap.ToString(CultureInfo.InvariantCulture) +
++                            " rows (raise [SfxProbe] ModelsCap=<N>, or leave ModelsActiveOnly=1 for the bounded mode)");
++                        w.Flush();
++                    }
++                    return;
++                }
++                if (!_effActiveSeeded)
++                {
++                    _effActiveSeeded = true;
++                    for (Int32 i = 0; i < EffSlotCount; i++)
++                        _lastEffActive[i] = 0xFF; // force one edge row per slot on the first tick
++                }
++                Int32 frame = SFX.frameIndex;
++                Int32 effectId = (Int32)SFX.currentEffectID;
++                Int64 modBase = baseAddr.ToInt64();
++                Boolean wrote = false;
++
++                // ---- the NATIVE GTE camera (PSXCAM) -- x64 only ----
++                if (Arch64)
++                {
++                    WriteNativeCamera(w, effectId, frame, modBase);
++                    wrote = true;
++                }
++
++                // ---- the SUMMON slot (length 1) -- the creature ----
++                IntPtr rec = new IntPtr(modBase + SummonRecRva);
++                Byte sActive = Marshal.ReadByte(rec, SummonActiveOff);
++                if (!ModelsActiveOnly || sActive != 0 || sActive != _lastSummonActive)
++                {
++                    IntPtr sData = (sActive == 0) ? IntPtr.Zero : Marshal.ReadIntPtr(rec);
++                    Int32 motFrame = (UInt16)Marshal.ReadInt16(rec, SummonMotFrameOff);
++                    WriteModelRow(w, effectId, frame, 'S', 0, sActive, sData, motFrame, 0, 0);
++                    if (sData != IntPtr.Zero && ModelsBoneCount > 0)
++                        WriteBoneAabb(w, effectId, frame, sData);
++                    wrote = true;
++                }
++                _lastSummonActive = sActive;
++
++                // ---- the 32 EFF slots -- the props ----
++                for (Int32 i = 0; i < EffSlotCount; i++)
++                {
++                    IntPtr slot = new IntPtr(modBase + EffArrRva + (Int64)i * EffStride);
++                    Byte eActive = Marshal.ReadByte(slot, EffActiveOff);
++                    Boolean edge = (eActive != _lastEffActive[i]);
++                    _lastEffActive[i] = eActive;
++                    if (ModelsActiveOnly && eActive == 0 && !edge)
++                        continue;
++                    IntPtr eData = (eActive == 0) ? IntPtr.Zero : Marshal.ReadIntPtr(slot);
++                    Int32 shade = (UInt16)Marshal.ReadInt16(slot, EffShadeOff);
++                    Int32 drawOff = (UInt16)Marshal.ReadInt16(slot, EffDrawOffOff);
++                    Int32 slice = (UInt16)Marshal.ReadInt16(slot, EffSliceOff);
++                    WriteModelRow(w, effectId, frame, 'E', i, eActive, eData, shade, drawOff, slice);
++                    wrote = true;
++                }
++                if (wrote)
++                    w.Flush();
++            }
++            catch
++            {
++                // A probe must never take the real battle render down with it -- least of all one doing
++                // raw native memory reads. Any bad read/state just skips this frame's MODEL rows.
++            }
++        }
++
++        // The native world->view MATRIX M (@0x1C1DC8, PSX MATRIX layout) + the GTE screen params, plus the
++        // raw PsxCtx[+0x14] tamper check (constant across the cast == the M read is fresh; if it changes the
++        // effect program re-pointed the view and M is stale). x64 only.
++        private static void WriteNativeCamera(StreamWriter w, Int32 effectId, Int32 frame, Int64 modBase)
++        {
++            IntPtr m = new IntPtr(modBase + CamMatrixRva);
++            Int32 ofx = Marshal.ReadInt32(new IntPtr(modBase + OfxRva));
++            Int32 ofy = Marshal.ReadInt32(new IntPtr(modBase + OfyRva));
++            Int32 h = Marshal.ReadInt32(new IntPtr(modBase + HRva));
++            Int32 psxPtr = 0;
++            IntPtr psxCtx = Marshal.ReadIntPtr(new IntPtr(modBase + PsxCtxPtrRva));
++            if (psxCtx != IntPtr.Zero)
++                psxPtr = Marshal.ReadInt32(psxCtx, 0x14);
++            w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                "PSXCAM,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17:X8}",
++                effectId, frame,
++                Marshal.ReadInt16(m, 0), Marshal.ReadInt16(m, 2), Marshal.ReadInt16(m, 4),
++                Marshal.ReadInt16(m, 6), Marshal.ReadInt16(m, 8), Marshal.ReadInt16(m, 10),
++                Marshal.ReadInt16(m, 12), Marshal.ReadInt16(m, 14), Marshal.ReadInt16(m, 16),
++                Marshal.ReadInt32(m, MatrixTransOff), Marshal.ReadInt32(m, MatrixTransOff + 4),
++                Marshal.ReadInt32(m, MatrixTransOff + 8), ofx, ofy, h, psxPtr));
++            _modelRowCount++;
++        }
++
++        // ONE MODEL row. Reads only: the two pointer FLAGS (motion/parent, as booleans -- never the pointees),
++        // the anchor translation, and node 0 of the composed matrix array. No geometry, no bone loop.
++        private static void WriteModelRow(StreamWriter w, Int32 effectId, Int32 frame, Char kind, Int32 slot,
++            Byte active, IntPtr data, Int32 aux0, Int32 aux1, Int32 aux2)
++        {
++            Int32 hasMotion = 0, hasParent = 0;
++            Int32 ax = 0, ay = 0, az = 0;
++            Int32 wx = 0, wy = 0, wz = 0;
++            Int32 m00 = 0, m01 = 0, m02 = 0, m10 = 0, m11 = 0, m12 = 0, m20 = 0, m21 = 0, m22 = 0;
++            UInt32 bones32 = 0u;
++            if (data != IntPtr.Zero)
++            {
++                hasMotion = (Marshal.ReadIntPtr(data, DataMotionOff) != IntPtr.Zero) ? 1 : 0;
++                hasParent = (Marshal.ReadIntPtr(data, DataParentOff) != IntPtr.Zero) ? 1 : 0;
++                IntPtr anchor = new IntPtr(data.ToInt64() + DataRootOff);
++                ax = Marshal.ReadInt32(anchor, MatrixTransOff);
++                ay = Marshal.ReadInt32(anchor, MatrixTransOff + 4);
++                az = Marshal.ReadInt32(anchor, MatrixTransOff + 8);
++                // bones == 0 is GUARANTEED for a model that has never been drawn (model_prepare zeroes it
++                // at register time, x64 0x71f7 / x86 0x69cc) -- so this is never a garbage read.
++                IntPtr bones = Marshal.ReadIntPtr(data, DataBonesOff);
++                if (bones != IntPtr.Zero)
++                {
++                    bones32 = (UInt32)(bones.ToInt64() & 0xFFFFFFFFL);
++                    m00 = Marshal.ReadInt16(bones, 0);
++                    m01 = Marshal.ReadInt16(bones, 2);
++                    m02 = Marshal.ReadInt16(bones, 4);
++                    m10 = Marshal.ReadInt16(bones, 6);
++                    m11 = Marshal.ReadInt16(bones, 8);
++                    m12 = Marshal.ReadInt16(bones, 10);
++                    m20 = Marshal.ReadInt16(bones, 12);
++                    m21 = Marshal.ReadInt16(bones, 14);
++                    m22 = Marshal.ReadInt16(bones, 16);
++                    wx = Marshal.ReadInt32(bones, MatrixTransOff);
++                    wy = Marshal.ReadInt32(bones, MatrixTransOff + 4);
++                    wz = Marshal.ReadInt32(bones, MatrixTransOff + 8);
++                }
++            }
++            w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                "MODEL,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23},{24},{25:X8}",
++                effectId, frame, kind, slot, active, hasMotion, hasParent, aux0, aux1, aux2,
++                ax, ay, az, wx, wy, wz,
++                m00, m01, m02, m10, m11, m12, m20, m21, m22, bones32));
++            _modelRowCount++;
++        }
++
++        // The OPTIONAL framing datum: one AGGREGATE row per frame over the summon model's node-translation
++        // cloud -- centroid + AABB, nothing else (node 0 is the skeleton root, NOT the silhouette centre).
++        // The node COUNT is an ini parameter, not a runtime read, so this probe never points at the geometry
++        // blob (the count lives at u8[geom+2] behind a PSX->host decode). An over-large count reads adjacent
++        // arena bytes -> an absurd offline AABB, the intended self-check. Per-bone matrices NEVER emitted.
++        private static void WriteBoneAabb(StreamWriter w, Int32 effectId, Int32 frame, IntPtr data)
++        {
++            Int32 n = ModelsBoneCount;
++            if (n <= 0)
++                return;
++            IntPtr bones = Marshal.ReadIntPtr(data, DataBonesOff);
++            if (bones == IntPtr.Zero)
++                return;
++            Int64 bb = bones.ToInt64();
++            Int64 sx = 0L, sy = 0L, sz = 0L;
++            Int32 minX = Int32.MaxValue, minY = Int32.MaxValue, minZ = Int32.MaxValue;
++            Int32 maxX = Int32.MinValue, maxY = Int32.MinValue, maxZ = Int32.MinValue;
++            for (Int32 k = 0; k < n; k++)
++            {
++                IntPtr mm = new IntPtr(bb + (Int64)k * MatrixStride);
++                Int32 x = Marshal.ReadInt32(mm, MatrixTransOff);
++                Int32 y = Marshal.ReadInt32(mm, MatrixTransOff + 4);
++                Int32 z = Marshal.ReadInt32(mm, MatrixTransOff + 8);
++                sx += x; sy += y; sz += z;
++                if (x < minX) minX = x;
++                if (x > maxX) maxX = x;
++                if (y < minY) minY = y;
++                if (y > maxY) maxY = y;
++                if (z < minZ) minZ = z;
++                if (z > maxZ) maxZ = z;
++            }
++            w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                "BONES,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}",
++                effectId, frame, n, sx / n, sy / n, sz / n, minX, minY, minZ, maxX, maxY, maxZ));
++            _modelRowCount++;
++        }
++
+         // s48 -- raw native-primitive capture (Memoria.ini [SfxProbe] CapturePrims=1). Hooked at
+         // the TOP of SFXRender.Add() (Global/SFXRender/SFXRender.cs:208) -- the single funnel
+         // every decoded PS1 GPU primitive returned by the native SFX_GetPrim loop
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+@@ -651,6 +651,12 @@
+                 // with the VIEW/PROJ rows above -- the offline reprojection check joins them on frame.
+                 // Self-gated on [SfxProbe] CaptureRoot=1 (off by default); no-op on non-summon casts.
+                 SfxMeshProbe.LogSummonRoot();
++                // s53 -- the full per-frame model census (all 32 eff slots + the summon slot, each with its
++                // identity flags + COMPOSED world matrix) + the native GTE camera (PSXCAM: the world->view
++                // matrix M + OFX/OFY/H). Read here, after this frame's native Draw has run, so every row
++                // shares this SFX.frameIndex with the VIEW/PROJ rows above -- the offline reprojection joins
++                // on frame. Self-gated on [SfxProbe] CaptureModels=1 (off by default); no-op otherwise.
++                SfxMeshProbe.LogModels();
+             }
+             for (Int32 i = 0; i < SFXRender.commandBuffer.Count; i++)
+             {

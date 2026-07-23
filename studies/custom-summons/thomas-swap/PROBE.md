@@ -373,3 +373,122 @@ does not touch any debug-menu file (`Ff9mkDebugMenu.cs`/`UIKeyTrigger.cs`) — o
 `Memoria/Battle/SFX/{SfxMeshProbe.cs,SFXDataMesh.cs,SFXDataCamera.cs}` and `Global/SFXRender/SFXRender.cs`. See
 `memoria-patches/README.md`'s s48 row for the full patch description and gate method (round-trip byte-exact,
 `git apply --check` clean from the s47 tip — verified statically; **not yet compiled**).
+
+## 10. s52 — the SUMMON ROOT-TRANSFORM probe (the staging fix; ★ BUILT + DEPLOYED 2026-07-22)
+
+The 2026-07-22 disasm round (`disasm/FINDINGS.md`) proved the thing every prior FLIGHT lacked: the summoned
+creature's TRUE per-frame world transform is live-readable from `FF9SpecialEffectPlugin.dll`'s own runtime
+state. `memoria-patches/s52-sfx-summon-root.patch` adds `SfxMeshProbe.LogSummonRoot()` (called from
+`SFXDataMesh.cs Runtime.Render()`, co-located with `LogFrame`/`LogCamera`, same `SFX.frameIndex`) to log it as
+a `ROOT` row. It reads the plugin's one-slot summon-model record → `SummonData` block → root world MATRIX
+(a 32-byte libgte MATRIX: 3×3 s16 rotation `/4096`, s32 world translation), rebuilt every `Hi_DrawSummonModel`.
+**Arch-correct** (both shipped builds, adversarially cross-checked): x64 `recRVA 0x220830` / active `+0x50` /
+root `DATA+0x40`; x86 `recRVA 0x20869c` / active `+0x4c` / root `DATA+0x24`, selected at runtime by
+`IntPtr.Size`. Module base via `GetModuleHandle("FF9SpecialEffectPlugin.dll")` (HMODULE == base). It reads the
+ROOT transform ONLY — never the per-bone array (dumping that over a cast would reconstruct stock skeletal
+animation = out of bounds); it patches no DLL and calls no plugin export.
+
+**★ BUILT + DEPLOYED 2026-07-22** (FF9 closed): `py tools/backup_memoria_dll.py pre-s52-root-probe` captured the
+full 3×2 DLL set (restore selector `20260722-234755`), then `msbuild Assembly-CSharp.csproj /t:Build
+/p:Configuration=Release /p:SolutionDir=C:\gd\FFIX\Memoria\ /m` — 0 errors, 186 pre-existing warnings, exit 0.
+The `AfterBuild` task auto-deployed `Assembly-CSharp.dll` to both `x64\` and `x86\` `FF9_Data\Managed\`; the
+deployed copies are byte-identical to `Output\Assembly-CSharp.dll` (sha256 `4343c3da…`), and `LogSummonRoot` /
+`CaptureRoot` / `GetModuleHandle` / the `"FF9SpecialEffectPlugin.dll"` + `"ROOT,{0},{1}"` literals are all
+present in the deployed metadata. Revert the whole engine to the pre-build state with
+`py tools/restore_memoria_dll.py 20260722-234755` (from the MAIN repo). The patch file
+`memoria-patches/s52-sfx-summon-root.patch` is the durable source record (round-trip byte-exact).
+
+### Arm it
+
+```ini
+[SfxProbe]
+Enabled=1
+CaptureRoot=1
+```
+
+`CaptureRoot` needs `Enabled=1` too — the ROOT rows are only useful next to the VIEW/PROJ rows they are
+reprojected against, and `LogSummonRoot` is called from inside the `Enabled`-gated block. Relaunch (ini is
+read once per process), then cast a **summon** and let the whole cast play through. `ROOT` rows land in the
+same `<game>\sfxmeshprobe.log` as the other row types (a non-summon effect logs none — the native `active`
+flag gates it). Row format:
+
+```
+ROOT,effectId,frame,active,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz
+```
+
+`tx,ty,tz` = the creature's world translation (s32 world units — the load-bearing datum); `m00..m22` = the
+3×3 rotation in raw `1/4096` fixed-point (facing); all correlate with the `VIEW`/`PROJ`/`MESH`/`PRIM` rows on
+`frame`.
+
+### Read it — `root_reproject.py`
+
+```
+py studies/custom-summons/thomas-swap/root_reproject.py --csv roots.csv
+```
+
+Three outputs over the one cast: (1) **EXTRACT** — the ROOT world trajectory (frame → `tx,ty,tz` + an
+approximate heading), the metric path FLIGHT re-stages Thomas on (`--csv` writes it for `build_thomas.py` /
+`flight_v7_solve.py`); (2) **VALIDATE** — projects each ROOT through the same frame's `VIEW*PROJ` (reusing
+`matrix_solve`'s proven primitives) and reports on-screen coverage + the NDC path — a **coherent path with
+jumps only at the ~15 known camera hard-cuts** is the pass (the real cinematic deliberately swoops off-screen
+at points, so <100% on-screen is faithful, not a bug); (3) **CROSS-CHECK** — how far the OLD MESH-bounds proxy
+sat from the true ROOT each frame, quantifying the pool pollution (`FINDINGS.md` §4) that made every prior
+FLIGHT scatter. Then re-stage: feed the real ROOT curve into `flight_v7_solve.py` in place of v7's constructed
+NDC beats, and the Thomas-swap staging problem is closed.
+
+### Provenance
+
+Reads the ROOT transform ONLY (choreography/staging — the same class of data as the camera track s47/s50
+already log), never the per-bone array; patches no DLL, extracts no asset bytes. `root_reproject.py` is pure
+analysis over the user's own log. Off by default (`CaptureRoot=0`), zero cost when off (one cached-bool read).
+
+## 11. s53 — the MODEL census + the COMPOSED transform + the NATIVE camera (the s52 CORRECTION; ★ BUILT + DEPLOYED 2026-07-23)
+
+The FORMAT round (`disasm/FORMAT.md`) found why every flight (v5/v7/v8) failed: **the creature projects
+through the plugin's own GTE with a native world→view matrix `M`, not the managed Unity VIEW/PROJ** (which
+was retracted — it fails 88.7% of frames), and the drawn transform is **node 0 of `*(SummonData+0x38)`**, not
+the `+0x40` root s52 logs. `memoria-patches/s53-sfx-model-census.patch` (two files, `SfxMeshProbe.cs` +
+`SFXDataMesh.cs`, built on top of s52) adds `LogModels()`, gated on a new `[SfxProbe] CaptureModels=1`
+(+`Enabled=1`). Per frame it logs three new row types:
+
+- **`PSXCAM`** (x64 only) — the native world→view matrix `M` @RVA `0x1C1DC8` + the GTE screen params
+  **OFX=160 @0x211FA0, OFY=120 @0x211FA4, H @0x211FA8**, plus `PsxCtx[+0x14]` as a tamper check (constant
+  across the cast ⇒ the `M` read is fresh). All RVAs independently re-verified against `SFX_Update`'s work
+  body `fn[0x13c4..0x1610]` and the GTE consumer `fn[0x3e80..0x40c1]`.
+- **`MODEL`** (both arches) — one row per candidate native model: the summon slot (`kind S`) and all 32
+  eff-model slots (`kind E`), each with `hasMotion`/`hasParent` flags, the draw **anchor** (`ax,ay,az` =
+  `DATA+0x40`), and the **composed** matrix actually fed to the GTE (`wx,wy,wz`+`m00..m22` = node 0 of
+  `*(DATA+0x38)`), plus `bones32` (0 = never drawn). `ModelsActiveOnly=1` (default) emits active slots +
+  activation edges only.
+- **`BONES`** (optional, `ModelsBoneCount>0`) — the summon node-translation AABB + centroid (aggregate
+  only, an irreversible 93×3→6 reduction; `ModelsBoneCount=93` = Bahamut/ef227's node count).
+
+**The reprojection is now a zero-free-parameter identity** (no sign-convention search):
+`p_view = M.R·bones[0].t + M.t` (fp12), then `SX = OFX + ((sat16(p_view.x)·((H<<16)/p_view.z))>>16)`, same
+for `SY`. **Falsifiable prediction:** on the ~40% of frames where the creature is framed, `(SX,SY)` lands
+inside the creature's own `PRIM` screen AABB — at which point the creature's exact per-frame screen path is
+known for the first time, and inverting the *managed* `PROJ·VIEW` at that screen point gives the Unity world
+point to hang a rung-7 puppet on (what FLIGHT has never had). Full read-out protocol (6 steps, each a
+prediction that can fail): **`disasm/FORMAT.md` §5.4 + `disasm/D1-creature-id-probe.md` §4.**
+
+### Arm it (already set on this install 2026-07-23)
+
+```ini
+[SfxProbe]
+Enabled = 1
+CaptureRoot = 1          ; keep — the ROOT anchor half, parsed by existing tooling
+CaptureModels = 1        ; NEW — the s53 census + composed transform + PSXCAM
+ModelsActiveOnly = 1     ; NEW — active slots + activation edges only (default)
+ModelsCap = 120000       ; NEW
+ModelsBoneCount = 93     ; NEW — 93 = Bahamut/ef227's node count; 0 disables the BONES row
+```
+
+Relaunch → cast the summon → the log gains `PSXCAM`/`MODEL`/`BONES` rows alongside the existing ones.
+
+**Build record:** FF9 closed, full DLL backup `20260723-110746`
+(`py tools/restore_memoria_dll.py 20260723-110746` reverts the engine), `msbuild … /p:SolutionDir=C:\gd\FFIX\Memoria\ /m`
+→ 0 errors, deployed both arches (sha `3cca581c…`), `LogModels`/`CaptureModels`/`WriteNativeCamera` + the
+`PSXCAM`/`MODEL`/`BONES` literals verified in the deployed metadata. Patch round-trips byte-exact onto the
+s52-tip. **Provenance:** identities + flags + world transforms = staging/choreography (same class as the camera
+track); NO geometry read, NO per-bone matrices emitted (`WriteBoneAabb` reduces in-loop); no DLL modified.
+Off by default (`CaptureModels=0`), zero cost when off.

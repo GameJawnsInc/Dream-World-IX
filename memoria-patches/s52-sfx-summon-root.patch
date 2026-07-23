@@ -1,0 +1,187 @@
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -3,6 +3,7 @@
+ using System.Collections.Generic;
+ using System.Globalization;
+ using System.IO;
++using System.Runtime.InteropServices;
+ using UnityEngine;
+ 
+ namespace Memoria
+@@ -25,6 +26,7 @@
+     //   - SFXDataMesh.cs, Runtime.Render() (co-located with LogFrame, same call) -> LogCamera(Camera). [s48 -- moved from SFXDataCamera.cs, see LogCamera()'s own doc comment for why]
+     //   - SFXRender.cs, Add() (every decoded native primitive, BEFORE mesh-batching) -> LogPrim(). [s48]
+     //   - SFXDataMesh.cs, Runtime.End() (effect-lifecycle end, flushes a pending PRIMSUM row) -> FlushPrimSummary(). [s48]
++    //   - SFXDataMesh.cs, Runtime.Render() (co-located with LogFrame/LogCamera) -> LogSummonRoot(). [s52 -- the native summon's true root world transform, via a passive read of the plugin's own runtime state]
+     //
+     // ZERO-COST WHEN DISABLED: each call site guards on its own cached bool (a single static
+     // field read, set once from Memoria.ini at first touch) before calling in; nothing is
+@@ -37,6 +39,7 @@
+     //   PRIM,<effectId>,<frame>,<index>,<code>,<vertHint>,<otz>,<x>,<y>            [s48, drawable tags]
+     //   STATE,<effectId>,<frame>,<index>,<code>,<label>                           [s48, DR_* tags]
+     //   PRIMSUM,<effectId>,<frame>,<count>,<minX>,<minY>,<maxX>,<maxY>            [s48, PrimSummary=1 mode]
++    //   ROOT,<effectId>,<frame>,<active>,<m00..m22>,<tx>,<ty>,<tz>                [s52, CaptureRoot=1 -- the native summon creature's root world transform]
+     // effectId = (Int32)SFX.currentEffectID (the SpecialEffect enum, cast to its underlying int);
+     // frame = SFX.frameIndex (the native plugin's own frame counter -- shared by every row type,
+     // so all streams correlate on that column); index (MESH) = the mesh's position in
+@@ -67,6 +70,12 @@
+         // PrimSummary mode, which is already bounded to 1 row/frame). See LogPrim().
+         public static readonly Int32 PrimRowCap = LoadPrimRowCap();
+ 
++        // s52 -- arms LogSummonRoot() (the native summon creature's per-frame ROOT world transform).
++        // Requires Enabled=1 as well (ROOT rows are only useful alongside the VIEW/PROJ rows they are
++        // reprojected against, and LogSummonRoot is called from inside the Enabled-gated block). Off
++        // by default -- a normal install never does the native memory read. See LogSummonRoot().
++        public static readonly Boolean CaptureRoot = LoadCaptureRoot();
++
+         private static StreamWriter _writer;
+         private static Boolean _writerInitTried;
+ 
+@@ -122,6 +131,18 @@
+             }
+         }
+ 
++        private static Boolean LoadCaptureRoot()
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxProbe", "CaptureRoot", "0").Trim() == "1";
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
+         private static StreamWriter Writer
+         {
+             get
+@@ -139,6 +160,7 @@
+                         _writer.WriteLine("# PRIM,effectId,frame,index,code,vertHint,otz,x,y");
+                         _writer.WriteLine("# STATE,effectId,frame,index,code,label");
+                         _writer.WriteLine("# PRIMSUM,effectId,frame,count,minX,minY,maxX,maxY");
++                        _writer.WriteLine("# ROOT,effectId,frame,active,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz  (rotation 1/4096 fixed, translation world units)");
+                         _writer.Flush();
+                     }
+                     catch
+@@ -243,6 +265,106 @@
+             }
+         }
+ 
++        // s52 -- THE SUMMON ROOT-TRANSFORM PROBE (Memoria.ini [SfxProbe] CaptureRoot=1; also needs
++        // Enabled=1 -- it is called from inside the Enabled-gated block, and a ROOT row is only useful
++        // alongside the VIEW/PROJ rows LogCamera writes for the same frame). Logs the summoned
++        // creature's TRUE per-frame WORLD transform -- the one thing neither the MESH bounds
++        // (pool-polluted to the origin, vertCount==14000) nor the PRIM stream (already screen-projected
++        // by the plugin's own GTE) could recover.
++        //
++        // WHERE IT LIVES (decoded 2026-07-22 -- studies/custom-summons/thomas-swap/disasm/FINDINGS.md):
++        // a stock summon (Bahamut/etc) is rendered entirely inside FF9SpecialEffectPlugin.dll as a
++        // software PS1-GTE pass. The disasm round decoded its ONE-slot summon-model record array and the
++        // runtime SummonData block it points to; the creature's root world MATRIX (a classic 32-byte
++        // libgte MATRIX -- 3x3 s16 rotation in 1/4096 fixed, then s32 world translation) is rebuilt every
++        // Hi_DrawSummonModel by the plugin's pose evaluator. It is zero-on-disk (native heap scratch) and
++        // crosses NO managed/DllImport boundary -- but once the layout is known it is a plain, mapped
++        // memory read of the plugin's own already-computed runtime state, exactly as an external debugger
++        // would do. The round confirmed the layout on BOTH shipped arches (adversarially, x64 + x86):
++        //
++        //   record base RVA : x64 0x220830  | x86 0x20869c   (module-base-relative; the array is length 1 -> slot 0)
++        //   active-flag off : x64 rec+0x50  | x86 rec+0x4c   (u8; 0 => no summon registered this frame)
++        //   DATA ptr off    : rec+0x00 (both)                (-> the SummonData block; native guarantees != 0 when active)
++        //   root MATRIX off : x64 DATA+0x40 | x86 DATA+0x24  (pose_eval writes it here every Draw)
++        //   within the MATRIX: rot 9x s16 @ +0x00..+0x10 ; s32 translation @ +0x14/+0x18/+0x1c (both arches)
++        //
++        // PROVENANCE: reads the ROOT transform ONLY -- choreography/staging, the same category of data
++        // as the camera track already logged. It never dumps the per-bone matrix array (DATA+0x38) over
++        // a cast (that would reconstruct the stock skeletal animation = extracting packaged SE content =
++        // out of bounds). It patches no DLL and calls no plugin export; it only reads state the plugin
++        // itself just computed. The offline reprojection check (studies/custom-summons/thomas-swap/)
++        // projects each ROOT translation through the SAME frame's VIEW*PROJ and compares to that frame's
++        // PRIM screen centroid -- a built-in faithfulness validator turning a v7-style constructed flight
++        // into a measured one.
++        //   ROOT,<effectId>,<frame>,<active>,<m00,m01,m02,m10,m11,m12,m20,m21,m22>,<tx>,<ty>,<tz>
++        //   (rotation raw 1/4096 fixed-point ints; translation raw s32 world units -- interpreted offline)
++        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = false)]
++        private static extern IntPtr GetModuleHandle(String lpModuleName);
++
++        private static IntPtr _pluginBase = IntPtr.Zero;
++
++        // HMODULE of a normally-loaded DLL IS its in-memory base address (Win32 contract). The plugin
++        // is loaded by the time any SFX renders; return Zero (and retry next frame) until then, then
++        // cache for the process lifetime. One cheap syscall, and only while CaptureRoot=1.
++        private static IntPtr PluginBase()
++        {
++            if (_pluginBase == IntPtr.Zero)
++            {
++                try
++                {
++                    _pluginBase = GetModuleHandle("FF9SpecialEffectPlugin.dll");
++                }
++                catch
++                {
++                    _pluginBase = IntPtr.Zero;
++                }
++            }
++            return _pluginBase;
++        }
++
++        public static void LogSummonRoot()
++        {
++            if (!Enabled || !CaptureRoot)
++                return;
++            StreamWriter w = Writer;
++            if (w == null)
++                return;
++            try
++            {
++                IntPtr baseAddr = PluginBase();
++                if (baseAddr == IntPtr.Zero)
++                    return;
++                Boolean x64 = (IntPtr.Size == 8);
++                Int64 recRva = x64 ? 0x220830L : 0x20869cL;
++                Int32 activeOff = x64 ? 0x50 : 0x4c;
++                Int32 rootOff = x64 ? 0x40 : 0x24;
++                // rec + active flag: always mapped (the loaded plugin's own .data). 0 => no summon this frame.
++                IntPtr rec = new IntPtr(baseAddr.ToInt64() + recRva);
++                Byte active = Marshal.ReadByte(rec, activeOff);
++                if (active == 0)
++                    return;
++                // rec+0x00 -> SummonData; the native accessors all guarantee this is non-null when active.
++                IntPtr data = Marshal.ReadIntPtr(rec);
++                if (data == IntPtr.Zero)
++                    return;
++                // root MATRIX: 3x3 s16 rotation (1/4096 fixed) at +0x00..+0x10, s32 translation at +0x14/+0x18/+0x1c.
++                IntPtr root = new IntPtr(data.ToInt64() + rootOff);
++                w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                    "ROOT,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14}",
++                    (Int32)SFX.currentEffectID, SFX.frameIndex, active,
++                    Marshal.ReadInt16(root, 0), Marshal.ReadInt16(root, 2), Marshal.ReadInt16(root, 4),
++                    Marshal.ReadInt16(root, 6), Marshal.ReadInt16(root, 8), Marshal.ReadInt16(root, 10),
++                    Marshal.ReadInt16(root, 12), Marshal.ReadInt16(root, 14), Marshal.ReadInt16(root, 16),
++                    Marshal.ReadInt32(root, 0x14), Marshal.ReadInt32(root, 0x18), Marshal.ReadInt32(root, 0x1c)));
++                w.Flush();
++            }
++            catch
++            {
++                // A probe must never take the real battle render down with it -- least of all one doing
++                // raw native memory reads. Any bad read/state just skips this frame's ROOT row.
++            }
++        }
++
+         // s48 -- raw native-primitive capture (Memoria.ini [SfxProbe] CapturePrims=1). Hooked at
+         // the TOP of SFXRender.Add() (Global/SFXRender/SFXRender.cs:208) -- the single funnel
+         // every decoded PS1 GPU primitive returned by the native SFX_GetPrim loop
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+@@ -646,6 +646,11 @@
+                 // via the same Camera.main-or-"Battle Camera" fallback the old SFXDataCamera.cs
+                 // hook needed but never had -- no second lookup, no repeat of that dead-hook bug.
+                 SfxMeshProbe.LogCamera(camera);
++                // s52 -- the native summon creature's true per-frame ROOT world transform, read here
++                // (after this frame's native Draw has run) so its own row shares this SFX.frameIndex
++                // with the VIEW/PROJ rows above -- the offline reprojection check joins them on frame.
++                // Self-gated on [SfxProbe] CaptureRoot=1 (off by default); no-op on non-summon casts.
++                SfxMeshProbe.LogSummonRoot();
+             }
+             for (Int32 i = 0; i < SFXRender.commandBuffer.Count; i++)
+             {

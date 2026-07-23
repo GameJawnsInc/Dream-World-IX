@@ -3,443 +3,2240 @@
     {
       "Path": "GEO_MON_B0_M200",
       "Start": "0",
-      "End": "580",
+      "End": "520",
       "Movement": [
         {
-          "Duration": "1",
-          "OriginX": "3530",
-          "OriginY": "202",
-          "OriginZ": "-844",
-          "DestinationX": "3434",
-          "DestinationY": "204",
-          "DestinationZ": "-827"
-        },
-        {
-          "Duration": "1",
-          "DestinationX": "3341",
-          "DestinationY": "207",
-          "DestinationZ": "-810"
-        },
-        {
-          "Duration": "1",
-          "DestinationX": "3250",
-          "DestinationY": "209",
-          "DestinationZ": "-793"
-        },
-        {
-          "Duration": "1",
-          "DestinationX": "3162",
-          "DestinationY": "211",
-          "DestinationZ": "-777"
-        },
-        {
-          "Duration": "1",
-          "DestinationX": "3075",
-          "DestinationY": "214",
-          "DestinationZ": "-761"
-        },
-        {
-          "Duration": "2",
-          "DestinationX": "2908",
-          "DestinationY": "218",
-          "DestinationZ": "-730"
-        },
-        {
-          "Duration": "8",
-          "DestinationX": "2308",
-          "DestinationY": "234",
+          "Duration": "82",
+          "OriginX": "866",
+          "OriginY": "2181",
+          "OriginZ": "-2853",
+          "DestinationX": "-1473",
+          "DestinationY": "2122",
           "DestinationZ": "-620"
         },
         {
-          "Duration": "15",
-          "DestinationX": "1417",
-          "DestinationY": "258",
-          "DestinationZ": "-456"
-        },
-        {
-          "Duration": "25",
-          "DestinationX": "404",
-          "DestinationY": "367",
-          "DestinationZ": "-501"
-        },
-        {
-          "Duration": "25",
-          "DestinationX": "91",
-          "DestinationY": "1834",
-          "DestinationZ": "-24"
-        },
-        {
-          "Duration": "35",
-          "DestinationX": "197",
-          "DestinationY": "1920",
-          "DestinationZ": "-210"
-        },
-        {
-          "Duration": "8",
-          "DestinationX": "145",
-          "DestinationY": "1881",
-          "DestinationZ": "-122"
-        },
-        {
-          "Duration": "4",
-          "DestinationX": "124",
-          "DestinationY": "1861",
-          "DestinationZ": "-85"
+          "Duration": "1",
+          "DestinationX": "-1407",
+          "DestinationY": "2125",
+          "DestinationZ": "-612"
         },
         {
           "Duration": "1",
-          "DestinationX": "63",
-          "DestinationY": "404",
-          "DestinationZ": "464"
+          "DestinationX": "-1323",
+          "DestinationY": "2129",
+          "DestinationZ": "-614"
         },
         {
           "Duration": "1",
-          "DestinationX": "54",
-          "DestinationY": "425",
-          "DestinationZ": "469"
+          "DestinationX": "-1246",
+          "DestinationY": "2133",
+          "DestinationZ": "-617"
         },
         {
-          "Duration": "3",
-          "DestinationX": "140",
-          "DestinationY": "910",
-          "DestinationZ": "449"
+          "Duration": "1",
+          "DestinationX": "-1123",
+          "DestinationY": "2139",
+          "DestinationZ": "-597"
         },
         {
-          "Duration": "18",
-          "DestinationX": "311",
-          "DestinationY": "2203",
+          "Duration": "1",
+          "DestinationX": "-990",
+          "DestinationY": "2145",
+          "DestinationZ": "-595"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-845",
+          "DestinationY": "2152",
+          "DestinationZ": "-581"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-690",
+          "DestinationY": "2159",
+          "DestinationZ": "-556"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-577",
+          "DestinationY": "2164",
+          "DestinationZ": "-537"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-493",
+          "DestinationY": "2168",
+          "DestinationZ": "-508"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-421",
+          "DestinationY": "2172",
+          "DestinationZ": "-471"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-375",
+          "DestinationY": "2174",
+          "DestinationZ": "-445"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-334",
+          "DestinationY": "2176",
+          "DestinationZ": "-414"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-300",
+          "DestinationY": "2177",
+          "DestinationZ": "-383"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-278",
+          "DestinationY": "2178",
+          "DestinationZ": "-356"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-260",
+          "DestinationY": "2179",
+          "DestinationZ": "-332"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-247",
+          "DestinationY": "2179",
+          "DestinationZ": "-303"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-238",
+          "DestinationY": "2180",
+          "DestinationZ": "-280"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-227",
+          "DestinationY": "2180",
+          "DestinationZ": "-256"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-220",
+          "DestinationY": "2180",
+          "DestinationZ": "-233"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-219",
+          "DestinationY": "2180",
+          "DestinationZ": "-211"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-217",
+          "DestinationY": "2180",
+          "DestinationZ": "-186"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-216",
+          "DestinationY": "2180",
+          "DestinationZ": "-161"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-215",
+          "DestinationY": "2180",
+          "DestinationZ": "-139"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-213",
+          "DestinationY": "2180",
+          "DestinationZ": "-118"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-212",
+          "DestinationY": "2180",
+          "DestinationZ": "-97"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-211",
+          "DestinationY": "2180",
           "DestinationZ": "-74"
         },
         {
-          "Duration": "17",
-          "DestinationX": "-2063",
-          "DestinationY": "1015",
-          "DestinationZ": "3297"
-        },
-        {
-          "Duration": "9",
-          "DestinationX": "-2186",
-          "DestinationY": "1062",
-          "DestinationZ": "3165"
+          "Duration": "1",
+          "DestinationX": "-208",
+          "DestinationY": "2180",
+          "DestinationZ": "-54"
         },
         {
           "Duration": "1",
-          "DestinationX": "-2199",
-          "DestinationY": "1067",
-          "DestinationZ": "3151"
+          "DestinationX": "-203",
+          "DestinationY": "2180",
+          "DestinationZ": "-35"
         },
         {
           "Duration": "1",
-          "DestinationX": "918",
-          "DestinationY": "8251",
-          "DestinationZ": "19938"
-        },
-        {
-          "Duration": "2",
-          "DestinationX": "604",
-          "DestinationY": "8878",
-          "DestinationZ": "20024"
-        },
-        {
-          "Duration": "5",
-          "DestinationX": "-547",
-          "DestinationY": "10875",
-          "DestinationZ": "20310"
-        },
-        {
-          "Duration": "15",
-          "DestinationX": "-4091",
-          "DestinationY": "14683",
-          "DestinationZ": "21222"
-        },
-        {
-          "Duration": "3",
-          "DestinationX": "-4757",
-          "DestinationY": "15061",
-          "DestinationZ": "21400"
-        },
-        {
-          "Duration": "2",
-          "DestinationX": "444",
-          "DestinationY": "20870",
-          "DestinationZ": "15128"
-        },
-        {
-          "Duration": "2",
-          "DestinationX": "515",
-          "DestinationY": "21144",
-          "DestinationZ": "14996"
-        },
-        {
-          "Duration": "8",
-          "DestinationX": "531",
-          "DestinationY": "22253",
-          "DestinationZ": "14796"
-        },
-        {
-          "Duration": "17",
-          "DestinationX": "828",
-          "DestinationY": "23991",
-          "DestinationZ": "14748"
-        },
-        {
-          "Duration": "9",
-          "DestinationX": "304",
-          "DestinationY": "24023",
-          "DestinationZ": "19083"
-        },
-        {
-          "Duration": "9",
-          "DestinationX": "-1221",
-          "DestinationY": "24842",
-          "DestinationZ": "17606"
-        },
-        {
-          "Duration": "40",
-          "DestinationX": "1671",
-          "DestinationY": "23131",
-          "DestinationZ": "15240"
-        },
-        {
-          "Duration": "10",
-          "DestinationX": "1813",
-          "DestinationY": "22939",
-          "DestinationZ": "14891"
+          "DestinationX": "-197",
+          "DestinationY": "2181",
+          "DestinationZ": "-17"
         },
         {
           "Duration": "1",
-          "DestinationX": "1801",
-          "DestinationY": "22934",
-          "DestinationZ": "14880"
+          "DestinationX": "-191",
+          "DestinationY": "2181",
+          "DestinationZ": "2"
         },
         {
           "Duration": "1",
-          "DestinationX": "681",
-          "DestinationY": "6520",
-          "DestinationZ": "-4816"
-        },
-        {
-          "Duration": "3",
-          "DestinationX": "631",
-          "DestinationY": "7126",
-          "DestinationZ": "-5040"
-        },
-        {
-          "Duration": "5",
-          "DestinationX": "540",
-          "DestinationY": "8403",
-          "DestinationZ": "-5456"
-        },
-        {
-          "Duration": "20",
-          "DestinationX": "-90",
-          "DestinationY": "12744",
-          "DestinationZ": "-6483"
-        },
-        {
-          "Duration": "35",
-          "DestinationX": "1128",
-          "DestinationY": "12979",
-          "DestinationZ": "-8439"
-        },
-        {
-          "Duration": "17",
-          "DestinationX": "1462",
-          "DestinationY": "13211",
-          "DestinationZ": "-9025"
+          "DestinationX": "-184",
+          "DestinationY": "2172",
+          "DestinationZ": "19"
         },
         {
           "Duration": "1",
-          "DestinationX": "61",
-          "DestinationY": "14565",
-          "DestinationZ": "-6682"
+          "DestinationX": "-173",
+          "DestinationY": "2104",
+          "DestinationZ": "33"
         },
         {
           "Duration": "1",
-          "DestinationX": "62",
-          "DestinationY": "14561",
-          "DestinationZ": "-6678"
+          "DestinationX": "-157",
+          "DestinationY": "1977",
+          "DestinationZ": "44"
         },
         {
-          "Duration": "2",
-          "DestinationX": "63",
-          "DestinationY": "14554",
-          "DestinationZ": "-6671"
+          "Duration": "1",
+          "DestinationX": "-139",
+          "DestinationY": "1795",
+          "DestinationZ": "55"
         },
         {
-          "Duration": "5",
-          "DestinationX": "67",
-          "DestinationY": "14929",
-          "DestinationZ": "-7401"
+          "Duration": "1",
+          "DestinationX": "-118",
+          "DestinationY": "1561",
+          "DestinationZ": "63"
         },
         {
-          "Duration": "9",
-          "DestinationX": "75",
-          "DestinationY": "13944",
-          "DestinationZ": "-7170"
+          "Duration": "1",
+          "DestinationX": "-95",
+          "DestinationY": "1280",
+          "DestinationZ": "67"
         },
         {
-          "Duration": "3",
-          "DestinationX": "228",
-          "DestinationY": "13771",
-          "DestinationZ": "-7177"
+          "Duration": "1",
+          "DestinationX": "-69",
+          "DestinationY": "957",
+          "DestinationZ": "68"
         },
         {
-          "Duration": "4",
-          "DestinationX": "1153",
-          "DestinationY": "10564",
-          "DestinationZ": "-5145"
+          "Duration": "1",
+          "DestinationX": "-45",
+          "DestinationY": "607",
+          "DestinationZ": "66"
         },
         {
-          "Duration": "8",
-          "DestinationX": "342",
-          "DestinationY": "7623",
-          "DestinationZ": "-1284"
+          "Duration": "1",
+          "DestinationX": "-21",
+          "DestinationY": "289",
+          "DestinationZ": "62"
         },
         {
-          "Duration": "3",
-          "DestinationX": "-2236",
-          "DestinationY": "7479",
-          "DestinationZ": "-1844"
-        },
-        {
-          "Duration": "4",
-          "DestinationX": "-3303",
-          "DestinationY": "1677",
-          "DestinationZ": "-2522"
-        },
-        {
-          "Duration": "4",
-          "DestinationX": "-3263",
-          "DestinationY": "998",
-          "DestinationZ": "-2506"
-        },
-        {
-          "Duration": "4",
-          "DestinationX": "-3283",
-          "DestinationY": "1002",
-          "DestinationZ": "-2527"
-        },
-        {
-          "Duration": "40",
-          "DestinationX": "-889",
-          "DestinationY": "2229",
-          "DestinationZ": "-6155"
-        },
-        {
-          "Duration": "40",
+          "Duration": "1",
           "DestinationX": "0",
-          "DestinationY": "2085",
-          "DestinationZ": "-6106"
+          "DestinationY": "9",
+          "DestinationZ": "58"
         },
         {
           "Duration": "1",
-          "DestinationX": "-972",
-          "DestinationY": "1199",
-          "DestinationZ": "-861"
+          "DestinationX": "16",
+          "DestinationY": "-215",
+          "DestinationZ": "54"
         },
         {
-          "Duration": "2",
-          "DestinationX": "-949",
-          "DestinationY": "1175",
-          "DestinationZ": "-836"
+          "Duration": "1",
+          "DestinationX": "31",
+          "DestinationY": "-388",
+          "DestinationZ": "45"
         },
         {
-          "Duration": "4",
-          "DestinationX": "-901",
-          "DestinationY": "1123",
-          "DestinationZ": "-789"
+          "Duration": "1",
+          "DestinationX": "32",
+          "DestinationY": "-174",
+          "DestinationZ": "78"
         },
         {
-          "Duration": "8",
-          "DestinationX": "-804",
-          "DestinationY": "1022",
-          "DestinationZ": "-688"
+          "Duration": "1",
+          "DestinationX": "31",
+          "DestinationY": "84",
+          "DestinationZ": "108"
         },
         {
-          "Duration": "15",
-          "DestinationX": "413",
-          "DestinationY": "1566",
-          "DestinationZ": "2618"
+          "Duration": "1",
+          "DestinationX": "23",
+          "DestinationY": "394",
+          "DestinationZ": "133"
         },
         {
-          "Duration": "20",
-          "DestinationX": "-186",
-          "DestinationY": "17",
-          "DestinationZ": "-1613"
+          "Duration": "1",
+          "DestinationX": "10",
+          "DestinationY": "756",
+          "DestinationZ": "142"
         },
         {
-          "Duration": "20",
-          "DestinationX": "-532",
-          "DestinationY": "-442",
-          "DestinationZ": "-3044"
+          "Duration": "1",
+          "DestinationX": "-2",
+          "DestinationY": "1161",
+          "DestinationZ": "134"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-15",
+          "DestinationY": "1587",
+          "DestinationZ": "108"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-31",
+          "DestinationY": "2032",
+          "DestinationZ": "68"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-39",
+          "DestinationY": "2139",
+          "DestinationZ": "-25"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-47",
+          "DestinationY": "2236",
+          "DestinationZ": "-125"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-49",
+          "DestinationY": "2312",
+          "DestinationZ": "-223"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-52",
+          "DestinationY": "2360",
+          "DestinationZ": "-311"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-55",
+          "DestinationY": "2383",
+          "DestinationZ": "-387"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-58",
+          "DestinationY": "2383",
+          "DestinationZ": "-447"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-61",
+          "DestinationY": "2364",
+          "DestinationZ": "-493"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-62",
+          "DestinationY": "2343",
+          "DestinationZ": "-527"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-64",
+          "DestinationY": "2328",
+          "DestinationZ": "-553"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-67",
+          "DestinationY": "2318",
+          "DestinationZ": "-573"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-69",
+          "DestinationY": "2305",
+          "DestinationZ": "-584"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-73",
+          "DestinationY": "2286",
+          "DestinationZ": "-584"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-76",
+          "DestinationY": "2260",
+          "DestinationZ": "-577"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-79",
+          "DestinationY": "2227",
+          "DestinationZ": "-560"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-84",
+          "DestinationY": "2185",
+          "DestinationZ": "-533"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-89",
+          "DestinationY": "2133",
+          "DestinationZ": "-496"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-95",
+          "DestinationY": "2070",
+          "DestinationZ": "-448"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-104",
+          "DestinationY": "2000",
+          "DestinationZ": "-389"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-166",
+          "DestinationY": "1916",
+          "DestinationZ": "480"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-229",
+          "DestinationY": "1941",
+          "DestinationZ": "1348"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-293",
+          "DestinationY": "1975",
+          "DestinationZ": "2207"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-355",
+          "DestinationY": "2019",
+          "DestinationZ": "3056"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-429",
+          "DestinationY": "2072",
+          "DestinationZ": "3882"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-739",
+          "DestinationY": "2059",
+          "DestinationZ": "4497"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1154",
+          "DestinationY": "2022",
+          "DestinationZ": "5002"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1540",
+          "DestinationY": "2009",
+          "DestinationZ": "4514"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1942",
+          "DestinationY": "1898",
+          "DestinationZ": "3834"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2361",
+          "DestinationY": "1792",
+          "DestinationZ": "2969"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2799",
+          "DestinationY": "1689",
+          "DestinationZ": "1917"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3241",
+          "DestinationY": "1590",
+          "DestinationZ": "692"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3463",
+          "DestinationY": "1571",
+          "DestinationZ": "-519"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3564",
+          "DestinationY": "1595",
+          "DestinationZ": "-1799"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3630",
+          "DestinationY": "1621",
+          "DestinationZ": "-3066"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3665",
+          "DestinationY": "1648",
+          "DestinationZ": "-4305"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3682",
+          "DestinationY": "1670",
+          "DestinationZ": "-5359"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3680",
+          "DestinationY": "1690",
+          "DestinationZ": "-6227"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3661",
+          "DestinationY": "1704",
+          "DestinationZ": "-6909"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3626",
+          "DestinationY": "1717",
+          "DestinationZ": "-7406"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3602",
+          "DestinationY": "1725",
+          "DestinationZ": "-7741"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3590",
+          "DestinationY": "1730",
+          "DestinationZ": "-7915"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3591",
+          "DestinationY": "1730",
+          "DestinationZ": "-7929"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3591",
+          "DestinationY": "1730",
+          "DestinationZ": "-7941"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3591",
+          "DestinationY": "1729",
+          "DestinationZ": "-7954"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3010",
+          "DestinationY": "2711",
+          "DestinationZ": "-3944"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2436",
+          "DestinationY": "3709",
+          "DestinationZ": "76"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1889",
+          "DestinationY": "4762",
+          "DestinationZ": "4108"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1369",
+          "DestinationY": "5870",
+          "DestinationZ": "8153"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-877",
+          "DestinationY": "7032",
+          "DestinationZ": "12210"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-414",
+          "DestinationY": "8246",
+          "DestinationZ": "16278"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "18",
+          "DestinationY": "9514",
+          "DestinationZ": "20357"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-161",
+          "DestinationY": "9847",
+          "DestinationZ": "20424"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-365",
+          "DestinationY": "10212",
+          "DestinationZ": "20493"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-573",
+          "DestinationY": "10568",
+          "DestinationZ": "20559"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-787",
+          "DestinationY": "10913",
+          "DestinationZ": "20623"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1004",
+          "DestinationY": "11246",
+          "DestinationZ": "20685"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1227",
+          "DestinationY": "11566",
+          "DestinationZ": "20744"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1452",
+          "DestinationY": "11872",
+          "DestinationZ": "20804"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1680",
+          "DestinationY": "12166",
+          "DestinationZ": "20862"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1912",
+          "DestinationY": "12446",
+          "DestinationZ": "20919"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2144",
+          "DestinationY": "12712",
+          "DestinationZ": "20976"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2378",
+          "DestinationY": "12964",
+          "DestinationZ": "21033"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2609",
+          "DestinationY": "13201",
+          "DestinationZ": "21089"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2842",
+          "DestinationY": "13425",
+          "DestinationZ": "21147"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3074",
+          "DestinationY": "13636",
+          "DestinationZ": "21205"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3305",
+          "DestinationY": "13833",
+          "DestinationZ": "21263"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3535",
+          "DestinationY": "14017",
+          "DestinationZ": "21320"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3764",
+          "DestinationY": "14187",
+          "DestinationZ": "21376"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3993",
+          "DestinationY": "14345",
+          "DestinationZ": "21432"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-4224",
+          "DestinationY": "14491",
+          "DestinationZ": "21486"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-4437",
+          "DestinationY": "14638",
+          "DestinationZ": "21529"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3832",
+          "DestinationY": "15542",
+          "DestinationZ": "20649"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3192",
+          "DestinationY": "16444",
+          "DestinationZ": "19751"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-2516",
+          "DestinationY": "17348",
+          "DestinationZ": "18840"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1804",
+          "DestinationY": "18251",
+          "DestinationZ": "17912"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1061",
+          "DestinationY": "19156",
+          "DestinationZ": "16974"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-285",
+          "DestinationY": "20067",
+          "DestinationZ": "16024"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "507",
+          "DestinationY": "20969",
+          "DestinationZ": "15074"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "512",
+          "DestinationY": "21111",
+          "DestinationZ": "15038"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "513",
+          "DestinationY": "21254",
+          "DestinationZ": "15009"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "509",
+          "DestinationY": "21397",
+          "DestinationZ": "14985"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "500",
+          "DestinationY": "21542",
+          "DestinationZ": "14969"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "490",
+          "DestinationY": "21691",
+          "DestinationZ": "14958"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "477",
+          "DestinationY": "21838",
+          "DestinationZ": "14951"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "464",
+          "DestinationY": "21985",
+          "DestinationZ": "14947"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "451",
+          "DestinationY": "22118",
+          "DestinationZ": "14945"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "437",
+          "DestinationY": "22250",
+          "DestinationZ": "14947"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "422",
+          "DestinationY": "22378",
+          "DestinationZ": "14952"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "407",
+          "DestinationY": "22502",
+          "DestinationZ": "14959"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "393",
+          "DestinationY": "22621",
+          "DestinationZ": "14968"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "379",
+          "DestinationY": "22735",
+          "DestinationZ": "14978"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "365",
+          "DestinationY": "22844",
+          "DestinationZ": "14990"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "351",
+          "DestinationY": "22958",
+          "DestinationZ": "15002"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "337",
+          "DestinationY": "23064",
+          "DestinationZ": "15015"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "324",
+          "DestinationY": "23164",
+          "DestinationZ": "15029"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "311",
+          "DestinationY": "23256",
+          "DestinationZ": "15043"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "300",
+          "DestinationY": "23342",
+          "DestinationZ": "15056"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "288",
+          "DestinationY": "23417",
+          "DestinationZ": "15068"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "278",
+          "DestinationY": "23485",
+          "DestinationZ": "15080"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "268",
+          "DestinationY": "23543",
+          "DestinationZ": "15091"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "262",
+          "DestinationY": "23591",
+          "DestinationZ": "15100"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "256",
+          "DestinationY": "23629",
+          "DestinationZ": "15108"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "252",
+          "DestinationY": "23657",
+          "DestinationZ": "15115"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "311",
+          "DestinationY": "23525",
+          "DestinationZ": "15544"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "372",
+          "DestinationY": "23385",
+          "DestinationZ": "15972"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "434",
+          "DestinationY": "23240",
+          "DestinationZ": "16399"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "498",
+          "DestinationY": "23100",
+          "DestinationZ": "16826"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "560",
+          "DestinationY": "22968",
+          "DestinationZ": "17253"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "624",
+          "DestinationY": "22835",
+          "DestinationZ": "17678"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "685",
+          "DestinationY": "22709",
+          "DestinationZ": "18104"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "668",
+          "DestinationY": "22757",
+          "DestinationZ": "18110"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "632",
+          "DestinationY": "22838",
+          "DestinationZ": "18115"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "570",
+          "DestinationY": "22954",
+          "DestinationZ": "18110"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "484",
+          "DestinationY": "23095",
+          "DestinationZ": "18084"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "376",
+          "DestinationY": "23255",
+          "DestinationZ": "18023"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "254",
+          "DestinationY": "23432",
+          "DestinationZ": "17920"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "130",
+          "DestinationY": "23607",
+          "DestinationZ": "17766"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "23",
+          "DestinationY": "23753",
+          "DestinationZ": "17552"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-61",
+          "DestinationY": "23869",
+          "DestinationZ": "17314"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-108",
+          "DestinationY": "23928",
+          "DestinationZ": "17024"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-116",
+          "DestinationY": "23924",
+          "DestinationZ": "16690"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-89",
+          "DestinationY": "23867",
+          "DestinationZ": "16345"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-43",
+          "DestinationY": "23788",
+          "DestinationZ": "16033"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "13",
+          "DestinationY": "23697",
+          "DestinationZ": "15762"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "74",
+          "DestinationY": "23609",
+          "DestinationZ": "15538"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "137",
+          "DestinationY": "23514",
+          "DestinationZ": "15331"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "194",
+          "DestinationY": "23435",
+          "DestinationZ": "15178"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "241",
+          "DestinationY": "23380",
+          "DestinationZ": "15084"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "279",
+          "DestinationY": "23345",
+          "DestinationZ": "15030"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "318",
+          "DestinationY": "23311",
+          "DestinationZ": "14980"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "357",
+          "DestinationY": "23278",
+          "DestinationZ": "14933"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "398",
+          "DestinationY": "23245",
+          "DestinationZ": "14890"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "433",
+          "DestinationY": "23214",
+          "DestinationZ": "14846"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "476",
+          "DestinationY": "23183",
+          "DestinationZ": "14806"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "511",
+          "DestinationY": "23152",
+          "DestinationZ": "14764"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "554",
+          "DestinationY": "23121",
+          "DestinationZ": "14724"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "590",
+          "DestinationY": "23090",
+          "DestinationZ": "14683"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "629",
+          "DestinationY": "23060",
+          "DestinationZ": "14643"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "663",
+          "DestinationY": "23029",
+          "DestinationZ": "14601"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "704",
+          "DestinationY": "22999",
+          "DestinationZ": "14562"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "735",
+          "DestinationY": "22968",
+          "DestinationZ": "14520"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "773",
+          "DestinationY": "22938",
+          "DestinationZ": "14481"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "805",
+          "DestinationY": "22912",
+          "DestinationZ": "14440"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "845",
+          "DestinationY": "22888",
+          "DestinationZ": "14404"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "882",
+          "DestinationY": "22866",
+          "DestinationZ": "14368"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "923",
+          "DestinationY": "22846",
+          "DestinationZ": "14336"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "965",
+          "DestinationY": "22831",
+          "DestinationZ": "14304"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1009",
+          "DestinationY": "22817",
+          "DestinationZ": "14276"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1054",
+          "DestinationY": "22805",
+          "DestinationZ": "14249"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1098",
+          "DestinationY": "22792",
+          "DestinationZ": "14223"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1141",
+          "DestinationY": "22781",
+          "DestinationZ": "14196"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1185",
+          "DestinationY": "22770",
+          "DestinationZ": "14170"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1227",
+          "DestinationY": "22759",
+          "DestinationZ": "14144"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1270",
+          "DestinationY": "22746",
+          "DestinationZ": "14120"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1312",
+          "DestinationY": "22734",
+          "DestinationZ": "14095"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1353",
+          "DestinationY": "22723",
+          "DestinationZ": "14072"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1395",
+          "DestinationY": "22711",
+          "DestinationZ": "14049"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1435",
+          "DestinationY": "22698",
+          "DestinationZ": "14027"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1475",
+          "DestinationY": "22685",
+          "DestinationZ": "14005"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1514",
+          "DestinationY": "22671",
+          "DestinationZ": "13984"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1553",
+          "DestinationY": "22659",
+          "DestinationZ": "13963"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1591",
+          "DestinationY": "22646",
+          "DestinationZ": "13942"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1628",
+          "DestinationY": "22631",
+          "DestinationZ": "13921"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1664",
+          "DestinationY": "22616",
+          "DestinationZ": "13900"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1700",
+          "DestinationY": "22601",
+          "DestinationZ": "13879"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1732",
+          "DestinationY": "22586",
+          "DestinationZ": "13858"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1759",
+          "DestinationY": "22572",
+          "DestinationZ": "13842"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1882",
+          "DestinationY": "22744",
+          "DestinationZ": "13820"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1777",
+          "DestinationY": "20684",
+          "DestinationZ": "11211"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1736",
+          "DestinationY": "18640",
+          "DestinationZ": "8599"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1760",
+          "DestinationY": "16633",
+          "DestinationZ": "5977"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1850",
+          "DestinationY": "14663",
+          "DestinationZ": "3344"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1749",
+          "DestinationY": "12732",
+          "DestinationZ": "708"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1605",
+          "DestinationY": "10835",
+          "DestinationZ": "-1938"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1339",
+          "DestinationY": "8790",
+          "DestinationZ": "-4583"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1288",
+          "DestinationY": "9013",
+          "DestinationZ": "-4647"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1162",
+          "DestinationY": "9259",
+          "DestinationZ": "-4715"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "961",
+          "DestinationY": "9505",
+          "DestinationZ": "-4778"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "687",
+          "DestinationY": "9740",
+          "DestinationZ": "-4849"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "595",
+          "DestinationY": "9951",
+          "DestinationZ": "-4961"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "537",
+          "DestinationY": "10141",
+          "DestinationZ": "-5102"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "495",
+          "DestinationY": "10317",
+          "DestinationZ": "-5266"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "455",
+          "DestinationY": "10479",
+          "DestinationZ": "-5448"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "418",
+          "DestinationY": "10627",
+          "DestinationZ": "-5644"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "379",
+          "DestinationY": "10768",
+          "DestinationZ": "-5852"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "339",
+          "DestinationY": "10910",
+          "DestinationZ": "-6053"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "301",
+          "DestinationY": "11065",
+          "DestinationZ": "-6224"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "266",
+          "DestinationY": "11234",
+          "DestinationZ": "-6372"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "230",
+          "DestinationY": "11407",
+          "DestinationZ": "-6500"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "196",
+          "DestinationY": "11586",
+          "DestinationZ": "-6613"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "161",
+          "DestinationY": "11768",
+          "DestinationZ": "-6713"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "128",
+          "DestinationY": "11947",
+          "DestinationZ": "-6802"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "95",
+          "DestinationY": "12130",
+          "DestinationZ": "-6882"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "63",
+          "DestinationY": "12312",
+          "DestinationZ": "-6955"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "31",
+          "DestinationY": "12491",
+          "DestinationZ": "-7019"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "2",
+          "DestinationY": "12671",
+          "DestinationZ": "-7077"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-28",
+          "DestinationY": "12848",
+          "DestinationZ": "-7129"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-54",
+          "DestinationY": "13021",
+          "DestinationZ": "-7175"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-80",
+          "DestinationY": "13193",
+          "DestinationZ": "-7217"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-105",
+          "DestinationY": "13352",
+          "DestinationZ": "-7253"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-125",
+          "DestinationY": "13491",
+          "DestinationZ": "-7283"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-142",
+          "DestinationY": "13611",
+          "DestinationZ": "-7306"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-155",
+          "DestinationY": "13708",
+          "DestinationZ": "-7323"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-164",
+          "DestinationY": "13782",
+          "DestinationZ": "-7333"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-132",
+          "DestinationY": "13630",
+          "DestinationZ": "-7258"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-107",
+          "DestinationY": "13452",
+          "DestinationZ": "-7187"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-87",
+          "DestinationY": "13253",
+          "DestinationZ": "-7138"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-73",
+          "DestinationY": "13046",
+          "DestinationZ": "-7110"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-60",
+          "DestinationY": "12832",
+          "DestinationZ": "-7103"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-47",
+          "DestinationY": "12614",
+          "DestinationZ": "-7112"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-31",
+          "DestinationY": "12396",
+          "DestinationZ": "-7137"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-51",
+          "DestinationY": "12380",
+          "DestinationZ": "-7254"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-55",
+          "DestinationY": "12368",
+          "DestinationZ": "-7374"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-46",
+          "DestinationY": "12362",
+          "DestinationZ": "-7475"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-28",
+          "DestinationY": "12360",
+          "DestinationZ": "-7558"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-3",
+          "DestinationY": "12363",
+          "DestinationZ": "-7624"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "25",
+          "DestinationY": "12367",
+          "DestinationZ": "-7674"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "52",
+          "DestinationY": "12370",
+          "DestinationZ": "-7709"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "79",
+          "DestinationY": "12376",
+          "DestinationZ": "-7733"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "100",
+          "DestinationY": "12383",
+          "DestinationZ": "-7747"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "118",
+          "DestinationY": "12389",
+          "DestinationZ": "-7753"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "131",
+          "DestinationY": "12393",
+          "DestinationZ": "-7758"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "142",
+          "DestinationY": "12397",
+          "DestinationZ": "-7765"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "153",
+          "DestinationY": "12400",
+          "DestinationZ": "-7776"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "162",
+          "DestinationY": "12405",
+          "DestinationZ": "-7791"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "171",
+          "DestinationY": "12407",
+          "DestinationZ": "-7813"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "184",
+          "DestinationY": "12410",
+          "DestinationZ": "-7839"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "195",
+          "DestinationY": "12414",
+          "DestinationZ": "-7872"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "210",
+          "DestinationY": "12419",
+          "DestinationZ": "-7907"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "226",
+          "DestinationY": "12424",
+          "DestinationZ": "-7942"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "241",
+          "DestinationY": "12430",
+          "DestinationZ": "-7976"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "257",
+          "DestinationY": "12434",
+          "DestinationZ": "-8011"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "273",
+          "DestinationY": "12440",
+          "DestinationZ": "-8045"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "290",
+          "DestinationY": "12446",
+          "DestinationZ": "-8080"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "307",
+          "DestinationY": "12452",
+          "DestinationZ": "-8114"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "324",
+          "DestinationY": "12456",
+          "DestinationZ": "-8150"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "340",
+          "DestinationY": "12460",
+          "DestinationZ": "-8187"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "355",
+          "DestinationY": "12463",
+          "DestinationZ": "-8226"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "369",
+          "DestinationY": "12467",
+          "DestinationZ": "-8266"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "380",
+          "DestinationY": "12470",
+          "DestinationZ": "-8308"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "390",
+          "DestinationY": "12472",
+          "DestinationZ": "-8351"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "397",
+          "DestinationY": "12473",
+          "DestinationZ": "-8395"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "403",
+          "DestinationY": "12473",
+          "DestinationZ": "-8440"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "407",
+          "DestinationY": "12471",
+          "DestinationZ": "-8488"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "412",
+          "DestinationY": "12468",
+          "DestinationZ": "-8537"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "416",
+          "DestinationY": "12463",
+          "DestinationZ": "-8589"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "423",
+          "DestinationY": "12460",
+          "DestinationZ": "-8642"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "431",
+          "DestinationY": "12456",
+          "DestinationZ": "-8696"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "444",
+          "DestinationY": "12444",
+          "DestinationZ": "-8748"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "386",
+          "DestinationY": "12597",
+          "DestinationZ": "-8621"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "328",
+          "DestinationY": "12751",
+          "DestinationZ": "-8485"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "269",
+          "DestinationY": "12907",
+          "DestinationZ": "-8341"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "208",
+          "DestinationY": "13063",
+          "DestinationZ": "-8189"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "153",
+          "DestinationY": "13241",
+          "DestinationZ": "-7985"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "100",
+          "DestinationY": "13441",
+          "DestinationZ": "-7779"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "41",
+          "DestinationY": "13666",
+          "DestinationZ": "-7593"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "53",
+          "DestinationY": "13745",
+          "DestinationZ": "-7581"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "65",
+          "DestinationY": "13839",
+          "DestinationZ": "-7577"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "79",
+          "DestinationY": "13940",
+          "DestinationZ": "-7572"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "92",
+          "DestinationY": "14039",
+          "DestinationZ": "-7571"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "99",
+          "DestinationY": "14108",
+          "DestinationZ": "-7612"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "103",
+          "DestinationY": "14143",
+          "DestinationZ": "-7647"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "109",
+          "DestinationY": "14146",
+          "DestinationZ": "-7653"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "114",
+          "DestinationY": "14107",
+          "DestinationZ": "-7653"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "117",
+          "DestinationY": "14030",
+          "DestinationZ": "-7636"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "117",
+          "DestinationY": "13916",
+          "DestinationZ": "-7608"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "112",
+          "DestinationY": "13773",
+          "DestinationZ": "-7560"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "101",
+          "DestinationY": "13601",
+          "DestinationZ": "-7489"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "91",
+          "DestinationY": "13435",
+          "DestinationZ": "-7420"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "95",
+          "DestinationY": "13297",
+          "DestinationZ": "-7369"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "120",
+          "DestinationY": "13191",
+          "DestinationZ": "-7332"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "9",
+          "DestinationY": "12927",
+          "DestinationZ": "-7222"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-89",
+          "DestinationY": "12697",
+          "DestinationZ": "-7157"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-102",
+          "DestinationY": "12473",
+          "DestinationZ": "-7167"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "-1",
+          "DestinationY": "12219",
+          "DestinationZ": "-7156"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "201",
+          "DestinationY": "11922",
+          "DestinationZ": "-7067"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "478",
+          "DestinationY": "11562",
+          "DestinationZ": "-6863"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "800",
+          "DestinationY": "11156",
+          "DestinationZ": "-6533"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1298",
+          "DestinationY": "10876",
+          "DestinationZ": "-6148"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1610",
+          "DestinationY": "10715",
+          "DestinationZ": "-6006"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "1937",
+          "DestinationY": "10526",
+          "DestinationZ": "-5726"
+        },
+        {
+          "Duration": "1",
+          "DestinationX": "2236",
+          "DestinationY": "10356",
+          "DestinationZ": "-5384"
+        },
+        {
+          "Duration": "58",
+          "DestinationX": "2236",
+          "DestinationY": "10356",
+          "DestinationZ": "-5384"
+        },
+        {
+          "Duration": "50",
+          "DestinationX": "2236",
+          "DestinationY": "10356",
+          "DestinationZ": "-5384"
         }
       ],
       "Rotation": [
         {
-          "Duration": "1",
+          "Duration": "82",
           "OriginY": "240.42",
-          "DestinationY": "240.42",
+          "DestinationY": "185.27",
           "OriginZ": "0",
           "DestinationZ": "0"
         },
         {
           "Duration": "1",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "1",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "1",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "1",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "2",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "8",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "15",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "25",
-          "DestinationY": "240.42",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "25",
           "DestinationY": "185.27",
           "DestinationZ": "0"
         },
         {
-          "Duration": "35",
+          "Duration": "1",
           "DestinationY": "185.27",
           "DestinationZ": "0"
         },
         {
-          "Duration": "8",
+          "Duration": "1",
           "DestinationY": "185.27",
           "DestinationZ": "0"
         },
         {
-          "Duration": "4",
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "185.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "185.27",
           "DestinationZ": "0"
         },
@@ -454,22 +2251,237 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "3",
-          "DestinationY": "92.64",
+          "Duration": "1",
+          "DestinationY": "90.45",
           "DestinationZ": "0"
         },
         {
-          "Duration": "18",
-          "DestinationY": "103.54",
+          "Duration": "1",
+          "DestinationY": "91.54",
           "DestinationZ": "0"
         },
         {
-          "Duration": "17",
+          "Duration": "1",
+          "DestinationY": "92.65",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "93.73",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "94.76",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "95.80",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "96.76",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "97.63",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "98.47",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "99.19",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "99.85",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "100.42",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "100.88",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "101.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "101.49",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "101.63",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "101.83",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "102.21",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "102.63",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "103.06",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "103.53",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "104.02",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "104.57",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "230.60",
           "DestinationZ": "0"
         },
         {
-          "Duration": "9",
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "230.60",
           "DestinationZ": "0"
         },
@@ -484,62 +2496,612 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "2",
+          "Duration": "1",
+          "DestinationY": "235.64",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "235.32",
           "DestinationZ": "0"
         },
         {
-          "Duration": "5",
-          "DestinationY": "233.70",
+          "Duration": "1",
+          "DestinationY": "235.02",
           "DestinationZ": "0"
         },
         {
-          "Duration": "15",
+          "Duration": "1",
+          "DestinationY": "234.67",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "234.34",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "234.05",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "233.71",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "233.36",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "233.04",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "232.74",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "232.39",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "232.08",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "231.78",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "231.43",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "231.11",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.80",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.46",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "230.15",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "229.83",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "229.49",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "229.14",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "228.83",
           "DestinationZ": "0"
         },
         {
-          "Duration": "3",
-          "DestinationY": "227.91",
+          "Duration": "1",
+          "DestinationY": "228.54",
           "DestinationZ": "0"
         },
         {
-          "Duration": "2",
+          "Duration": "1",
+          "DestinationY": "228.18",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "227.89",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "227.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "231.68",
           "DestinationZ": "0"
         },
         {
-          "Duration": "2",
+          "Duration": "1",
+          "DestinationY": "232.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "234.03",
           "DestinationZ": "0"
         },
         {
-          "Duration": "8",
+          "Duration": "1",
+          "DestinationY": "235.17",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "236.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "237.20",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "238.18",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "239.20",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "240.00",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "240.86",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "241.77",
           "DestinationZ": "0"
         },
         {
-          "Duration": "17",
-          "DestinationY": "249.85",
+          "Duration": "1",
+          "DestinationY": "242.56",
           "DestinationZ": "0"
         },
         {
-          "Duration": "9",
+          "Duration": "1",
+          "DestinationY": "243.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "243.95",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "244.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "245.00",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "245.56",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "246.09",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "246.57",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "247.14",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "247.64",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "248.05",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "248.39",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "248.78",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "249.13",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "249.33",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "249.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "249.84",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "249.99",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "250.07",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "250.15",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "250.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "106.87",
           "DestinationZ": "0"
         },
         {
-          "Duration": "9",
+          "Duration": "1",
+          "DestinationY": "106.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.87",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.57",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "103.91",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "100.62",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "96.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "92.54",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "88.61",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "84.92",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "81.74",
           "DestinationZ": "0"
         },
         {
-          "Duration": "40",
-          "DestinationY": "48.78",
+          "Duration": "1",
+          "DestinationY": "79.00",
           "DestinationZ": "0"
         },
         {
-          "Duration": "10",
+          "Duration": "1",
+          "DestinationY": "78.17",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "75.98",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "74.13",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "72.41",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "70.70",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "69.21",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "67.83",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "66.48",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "65.10",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "63.97",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "62.84",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "61.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "60.86",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "60.04",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "59.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "58.58",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "57.93",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "57.43",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "57.02",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "56.68",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "56.38",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "56.21",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "56.12",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "55.86",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "55.17",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "54.55",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "53.93",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "53.33",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "52.74",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "52.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "51.70",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "51.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "50.83",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "50.38",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "49.98",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "49.65",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "49.32",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "49.05",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "48.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "48.53",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "48.29",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "48.11",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.97",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.88",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.80",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.71",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.68",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "47.74",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "47.74",
           "DestinationZ": "0"
         },
@@ -554,27 +3116,402 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "3",
-          "DestinationY": "92.04",
+          "Duration": "1",
+          "DestinationY": "90.81",
           "DestinationZ": "0"
         },
         {
-          "Duration": "5",
-          "DestinationY": "95.26",
+          "Duration": "1",
+          "DestinationY": "91.41",
           "DestinationZ": "0"
         },
         {
-          "Duration": "20",
+          "Duration": "1",
+          "DestinationY": "92.03",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "92.68",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "93.35",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "93.96",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "94.57",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "95.23",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "95.90",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "96.52",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "97.14",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "97.73",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "98.42",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "99.07",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "99.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "100.31",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "100.95",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "101.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "102.26",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "102.85",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "103.46",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "104.10",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "104.74",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "105.42",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.00",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "106.63",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "107.35",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "107.98",
           "DestinationZ": "0"
         },
         {
-          "Duration": "35",
+          "Duration": "1",
+          "DestinationY": "108.55",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.20",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "109.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "285.52",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "283.97",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "279.57",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "275.11",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "270.74",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "266.37",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "262.22",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "258.31",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "254.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "251.63",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "248.93",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "246.62",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "244.78",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "243.38",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "242.46",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.98",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.85",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.84",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.83",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "241.80",
           "DestinationZ": "0"
         },
         {
-          "Duration": "17",
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.82",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.80",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "241.81",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
           "DestinationY": "241.84",
           "DestinationZ": "0"
         },
@@ -589,103 +3526,158 @@
           "DestinationZ": "0"
         },
         {
-          "Duration": "2",
+          "Duration": "1",
           "DestinationY": "258.76",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "5",
-          "DestinationY": "258.76",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "9",
-          "DestinationY": "251.45",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "3",
-          "DestinationY": "227.35",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "4",
-          "DestinationY": "181.53",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "8",
-          "DestinationY": "97.06",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "3",
-          "DestinationY": "128.14",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "4",
-          "DestinationY": "133.23",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "4",
-          "DestinationY": "133.30",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "4",
-          "DestinationY": "133.18",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "40",
-          "DestinationY": "96.33",
-          "DestinationZ": "0"
-        },
-        {
-          "Duration": "40",
-          "DestinationY": "90.00",
           "DestinationZ": "0"
         },
         {
           "Duration": "1",
-          "DestinationY": "120.78",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "2",
-          "DestinationY": "120.58",
+          "Duration": "1",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "4",
-          "DestinationY": "120.01",
+          "Duration": "1",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "8",
-          "DestinationY": "118.90",
+          "Duration": "1",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "15",
-          "DestinationY": "95.64",
+          "Duration": "1",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "20",
-          "DestinationY": "240.42",
+          "Duration": "1",
+          "DestinationY": "258.76",
           "DestinationZ": "0"
         },
         {
-          "Duration": "20",
-          "DestinationY": "240.42",
+          "Duration": "1",
+          "DestinationY": "258.64",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "258.25",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "257.62",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "256.66",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "255.60",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "254.53",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "253.45",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "252.44",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "251.53",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "250.72",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "238.77",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "227.35",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "215.92",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "204.42",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "192.98",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "181.53",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "170.08",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "158.65",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "147.21",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "135.79",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "1",
+          "DestinationY": "124.27",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "58",
+          "DestinationY": "96.38",
+          "DestinationZ": "0"
+        },
+        {
+          "Duration": "50",
+          "DestinationY": "119.60",
           "DestinationZ": "0"
         }
       ],
       "Scaling": {
-        "Duration": "580",
+        "Duration": "520",
         "OriginX": "265",
         "OriginY": "265",
         "OriginZ": "265",

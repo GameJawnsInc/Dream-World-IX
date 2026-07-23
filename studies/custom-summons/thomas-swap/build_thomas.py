@@ -41,7 +41,7 @@ at rung 3's private folder ``ef084`` (``Unused_84`` -- never a real FF9 effect).
      vanilla Garnet/Eiko cast through it) is NEVER touched.
   4. Deploys ``ef084/FileList.txt`` (reused byte-identical from ``rung7-creature/FileList.txt`` -- same
      ``Model creature_manifest.sfxmodel`` line) and a GENERATED ``thomas_manifest.sfxmodel`` (built from
-     the ``KEYFRAMES_V7`` constant below by ``build_manifest_json()`` -- an IN-FRAME-BY-CONSTRUCTION
+     the ``KEYFRAMES_V10`` constant below by ``build_manifest_json()`` -- an IN-FRAME-BY-CONSTRUCTION
      flight solved against the real per-frame camera, see THE FLIGHT v7 below; the repo copy is kept in
      sync so it stays git-diffable) -> that same filename (OVERWRITING rung 7's own Iviv-clone manifest
      at that path -- ``--restore`` puts rung 7's back).
@@ -107,8 +107,13 @@ sys.path.insert(0, str(HERE))
 from ff9mapkit import config, fsutil          # noqa: E402
 from ff9mapkit.models import export as mexport  # noqa: E402
 from ff9mapkit.models import mint as mmint      # noqa: E402
-# THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION) bakes KEYFRAMES_V7 below as constants; the tool that DERIVED
-# them from the s50 probe log is flight_v7_solve.py (this dir, imports matrix_solve.py for the shared
+# THE FLIGHT v10 (MEASURED POSITION + SIZE, 2026-07-23) bakes KEYFRAMES_V10 below; the tool that DERIVED them
+# is flight_v10_solve.py (this dir). v9 gave the creature's real per-frame screen POSITION; v10 adds its real
+# per-frame SIZE (apparent height WORLD_H*native_H/depth from the s53 BONES AABB -> Thomas scales down during
+# the swoop). The s53 probe + FORMAT round recovered the creature's REAL per-frame screen
+# position (reproject its composed node-0 through the NATIVE GTE M+OFX/OFY/H); v9 places Thomas at that screen
+# position, back-projected through the MANAGED camera (one keyframe/frame). -- see the README's FLIGHT v9
+# section + PROBE.md sec 10). flight_v7_solve.py remains the reused machinery (imports matrix_solve.py for the shared
 # projection primitives). build-time needs no game log or either superseded v3/v4 module.
 
 RUNG7_DIR = REPO / "studies" / "custom-summons" / "rung7-creature"
@@ -282,75 +287,350 @@ THOMAS_SCALE = 265                            # see README.md "Scale reasoning"
 # next check -- this is a DESIGN verified against the real camera log's OWN geometry (matrix_solve.py's
 # projection math + flight_v7_solve.py's drift check), not a claim to have watched it play.
 
-# --- KEYFRAMES_V7: (frame, (world X, Y, Z), yaw_deg) -- flight_v7_solve.py's adaptive path, 62 keyframes,
-# --- frames 0..580. Labels kept in a parallel tuple (not in the hot data -- keeps this literal pasteable
-# --- verbatim from the solver's own printed table). ---
-KEYFRAMES_V7: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
-    (   0, (  3530,    202,    -844),  +240.42),  # entrance origin (off-frame edge, swooping in)
-    (   1, (  3434,    204,    -827),  +240.42),  # (auto -- drift insert)
-    (   2, (  3341,    207,    -810),  +240.42),  # (auto -- drift insert)
-    (   3, (  3250,    209,    -793),  +240.42),  # (auto -- drift insert)
-    (   4, (  3162,    211,    -777),  +240.42),  # (auto -- drift insert)
-    (   5, (  3075,    214,    -761),  +240.42),  # (auto -- drift insert)
-    (   7, (  2908,    218,    -730),  +240.42),  # (auto -- drift insert)
-    (  15, (  2308,    234,    -620),  +240.42),  # (auto -- drift insert)
-    (  30, (  1417,    258,    -456),  +240.42),  # swoop continues
-    (  55, (   404,    367,    -501),  +240.42),  # arriving
-    (  80, (    91,   1834,     -24),  +185.27),  # center-stage begin
-    ( 115, (   197,   1920,    -210),  +185.27),  # reign bob (up)
-    ( 123, (   145,   1881,    -122),  +185.27),  # (auto -- drift insert)
-    ( 127, (   124,   1861,     -85),  +185.27),  # (auto -- drift insert)
-    ( 128, (    63,    404,     464),   +90.00),  # (auto -- drift insert)
-    ( 129, (    54,    425,     469),   +90.00),  # (auto -- drift insert)
-    ( 132, (   140,    910,     449),   +92.64),  # (auto -- drift insert)
-    ( 150, (   311,   2203,     -74),  +103.54),  # reign bob (down)
-    ( 167, ( -2063,   1015,    3297),  +230.60),  # (auto -- drift insert)
-    ( 176, ( -2186,   1062,    3165),  +230.60),  # (auto -- drift insert)
-    ( 177, ( -2199,   1067,    3151),  +230.60),  # (auto -- drift insert)
-    ( 178, (   918,   8251,   19938),  +235.78),  # (auto -- drift insert)
-    ( 180, (   604,   8878,   20024),  +235.32),  # (auto -- drift insert)
-    ( 185, (  -547,  10875,   20310),  +233.70),  # charge windup
-    ( 200, ( -4091,  14683,   21222),  +228.83),  # (auto -- drift insert)
-    ( 203, ( -4757,  15061,   21400),  +227.91),  # (auto -- drift insert)
-    ( 205, (   444,  20870,   15128),  +231.68),  # (auto -- drift insert)
-    ( 207, (   515,  21144,   14996),  +234.03),  # (auto -- drift insert)
-    ( 215, (   531,  22253,   14796),  +241.77),  # charge peak
-    ( 232, (   828,  23991,   14748),  +249.85),  # (auto -- drift insert)
-    ( 241, (   304,  24023,   19083),  +106.87),  # (auto -- drift insert)
-    ( 250, ( -1221,  24842,   17606),   +81.74),  # lateral pass (left)
-    ( 290, (  1671,  23131,   15240),   +48.78),  # lateral pass (right)
-    ( 300, (  1813,  22939,   14891),   +47.74),  # (auto -- drift insert)
-    ( 301, (  1801,  22934,   14880),   +47.74),  # (auto -- drift insert)
-    ( 302, (   681,   6520,   -4816),   +90.59),  # (auto -- drift insert)
-    ( 305, (   631,   7126,   -5040),   +92.04),  # (auto -- drift insert)
-    ( 310, (   540,   8403,   -5456),   +95.26),  # (auto -- drift insert)
-    ( 330, (   -90,  12744,   -6483),  +107.98),  # return toward center
-    ( 365, (  1128,  12979,   -8439),  +241.80),  # (auto -- drift insert)
-    ( 382, (  1462,  13211,   -9025),  +241.84),  # (auto -- drift insert)
-    ( 383, (    61,  14565,   -6682),  +258.76),  # (auto -- drift insert)
-    ( 384, (    62,  14561,   -6678),  +258.76),  # (auto -- drift insert)
-    ( 386, (    63,  14554,   -6671),  +258.76),  # (auto -- drift insert)
-    ( 391, (    67,  14929,   -7401),  +258.76),  # (auto -- drift insert)
-    ( 400, (    75,  13944,   -7170),  +251.45),  # settle, approach fire column
-    ( 403, (   228,  13771,   -7177),  +227.35),  # (auto -- drift insert)
-    ( 407, (  1153,  10564,   -5145),  +181.53),  # (auto -- drift insert)
-    ( 415, (   342,   7623,   -1284),   +97.06),  # (auto -- drift insert)
-    ( 418, ( -2236,   7479,   -1844),  +128.14),  # (auto -- drift insert)
-    ( 422, ( -3303,   1677,   -2522),  +133.23),  # (auto -- drift insert)
-    ( 426, ( -3263,    998,   -2506),  +133.30),  # (auto -- drift insert)
-    ( 430, ( -3283,   1002,   -2527),  +133.18),  # fire column ignition -- BIG
-    ( 470, (  -889,   2229,   -6155),   +96.33),  # fire column continues -- stay BIG
-    ( 510, (     0,   2085,   -6106),   +90.00),  # aftermath -- still present
-    ( 511, (  -972,   1199,    -861),  +120.78),  # (auto -- drift insert)
-    ( 513, (  -949,   1175,    -836),  +120.58),  # (auto -- drift insert)
-    ( 517, (  -901,   1123,    -789),  +120.01),  # (auto -- drift insert)
-    ( 525, (  -804,   1022,    -688),  +118.90),  # (auto -- drift insert)
-    ( 540, (   413,   1566,    2618),   +95.64),  # aftermath settle
-    ( 560, (  -186,     17,   -1613),  +240.42),  # exit begin
-    ( 580, (  -532,   -442,   -3044),  +240.42),  # exit end
+# --- KEYFRAMES_V10: (frame,(worldX,Y,Z),yaw) -- flight_v10_solve.py's MEASURED POSITION + SIZE, 334 keyframes.
+# --- v9 nailed the creature's real per-frame SCREEN POSITION; v10 adds its real per-frame SIZE (apparent
+# --- height = WORLD_H*native_H/depth from the s53 BONES AABB): Thomas shrinks to ~0.2x during the far swoop
+# --- and fills the frame up close, capped [0.18,0.70]. v10.1 low-passes the WORLD path (WSMOOTH) so the fast
+# --- swoops + hard camera cuts read as smooth glides, not jerks. Position/every-frame keyframes from v9.
+# --- Generated -- re-run flight_v10_solve.py; see README FLIGHT v10. ---
+KEYFRAMES_V10: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
+    (   0, (    866,    2181,    -2853), +240.42),  # lead-in (flying down)
+    (  82, (  -1473,    2122,     -620), +185.27),  # measured f82
+    (  83, (  -1407,    2125,     -612), +185.27),  # measured f83
+    (  84, (  -1323,    2129,     -614), +185.27),  # measured f84
+    (  85, (  -1246,    2133,     -617), +185.27),  # measured f85
+    (  86, (  -1123,    2139,     -597), +185.27),  # measured f86
+    (  87, (   -990,    2145,     -595), +185.27),  # measured f87
+    (  88, (   -845,    2152,     -581), +185.27),  # measured f88
+    (  89, (   -690,    2159,     -556), +185.27),  # measured f89
+    (  90, (   -577,    2164,     -537), +185.27),  # measured f90
+    (  91, (   -493,    2168,     -508), +185.27),  # measured f91
+    (  92, (   -421,    2172,     -471), +185.27),  # measured f92
+    (  93, (   -375,    2174,     -445), +185.27),  # measured f93
+    (  94, (   -334,    2176,     -414), +185.27),  # measured f94
+    (  95, (   -300,    2177,     -383), +185.27),  # measured f95
+    (  96, (   -278,    2178,     -356), +185.27),  # measured f96
+    (  97, (   -260,    2179,     -332), +185.27),  # measured f97
+    (  98, (   -247,    2179,     -303), +185.27),  # measured f98
+    (  99, (   -238,    2180,     -280), +185.27),  # measured f99
+    ( 100, (   -227,    2180,     -256), +185.27),  # measured f100
+    ( 101, (   -220,    2180,     -233), +185.27),  # measured f101
+    ( 102, (   -219,    2180,     -211), +185.27),  # measured f102
+    ( 103, (   -217,    2180,     -186), +185.27),  # measured f103
+    ( 104, (   -216,    2180,     -161), +185.27),  # measured f104
+    ( 105, (   -215,    2180,     -139), +185.27),  # measured f105
+    ( 106, (   -213,    2180,     -118), +185.27),  # measured f106
+    ( 107, (   -212,    2180,      -97), +185.27),  # measured f107
+    ( 108, (   -211,    2180,      -74), +185.27),  # measured f108
+    ( 109, (   -208,    2180,      -54), +185.27),  # measured f109
+    ( 110, (   -203,    2180,      -35), +185.27),  # measured f110
+    ( 111, (   -197,    2181,      -17), +185.27),  # measured f111
+    ( 112, (   -191,    2181,        2), +185.27),  # measured f112
+    ( 113, (   -184,    2172,       19), +185.27),  # measured f113
+    ( 114, (   -173,    2104,       33), +185.27),  # measured f114
+    ( 115, (   -157,    1977,       44), +185.27),  # measured f115
+    ( 116, (   -139,    1795,       55), +185.27),  # measured f116
+    ( 117, (   -118,    1561,       63), +185.27),  # measured f117
+    ( 118, (    -95,    1280,       67), +185.27),  # measured f118
+    ( 119, (    -69,     957,       68), +185.27),  # measured f119
+    ( 120, (    -45,     607,       66), +185.27),  # measured f120
+    ( 121, (    -21,     289,       62), +185.27),  # measured f121
+    ( 122, (      0,       9,       58), +185.27),  # measured f122
+    ( 123, (     16,    -215,       54), +185.27),  # measured f123
+    ( 124, (     31,    -388,       45), +185.27),  # measured f124
+    ( 125, (     32,    -174,       78), +185.27),  # measured f125
+    ( 126, (     31,      84,      108), +185.27),  # measured f126
+    ( 127, (     23,     394,      133), +185.27),  # measured f127
+    ( 128, (     10,     756,      142),  +90.00),  # measured f128
+    ( 129, (     -2,    1161,      134),  +90.00),  # measured f129
+    ( 130, (    -15,    1587,      108),  +90.45),  # measured f130
+    ( 131, (    -31,    2032,       68),  +91.54),  # measured f131
+    ( 132, (    -39,    2139,      -25),  +92.65),  # measured f132
+    ( 133, (    -47,    2236,     -125),  +93.73),  # measured f133
+    ( 134, (    -49,    2312,     -223),  +94.76),  # measured f134
+    ( 135, (    -52,    2360,     -311),  +95.80),  # measured f135
+    ( 136, (    -55,    2383,     -387),  +96.76),  # measured f136
+    ( 137, (    -58,    2383,     -447),  +97.63),  # measured f137
+    ( 138, (    -61,    2364,     -493),  +98.47),  # measured f138
+    ( 139, (    -62,    2343,     -527),  +99.19),  # measured f139
+    ( 140, (    -64,    2328,     -553),  +99.85),  # measured f140
+    ( 141, (    -67,    2318,     -573), +100.42),  # measured f141
+    ( 142, (    -69,    2305,     -584), +100.88),  # measured f142
+    ( 143, (    -73,    2286,     -584), +101.23),  # measured f143
+    ( 144, (    -76,    2260,     -577), +101.49),  # measured f144
+    ( 145, (    -79,    2227,     -560), +101.63),  # measured f145
+    ( 146, (    -84,    2185,     -533), +101.83),  # measured f146
+    ( 147, (    -89,    2133,     -496), +102.21),  # measured f147
+    ( 148, (    -95,    2070,     -448), +102.63),  # measured f148
+    ( 149, (   -104,    2000,     -389), +103.06),  # measured f149
+    ( 150, (   -166,    1916,      480), +103.53),  # measured f150
+    ( 151, (   -229,    1941,     1348), +104.02),  # measured f151
+    ( 152, (   -293,    1975,     2207), +104.57),  # measured f152
+    ( 153, (   -355,    2019,     3056), +230.60),  # gap f153
+    ( 154, (   -429,    2072,     3882), +230.60),  # gap f154
+    ( 155, (   -739,    2059,     4497), +230.60),  # gap f155
+    ( 156, (  -1154,    2022,     5002), +230.60),  # measured f156
+    ( 157, (  -1540,    2009,     4514), +230.60),  # measured f157
+    ( 158, (  -1942,    1898,     3834), +230.60),  # measured f158
+    ( 159, (  -2361,    1792,     2969), +230.60),  # measured f159
+    ( 160, (  -2799,    1689,     1917), +230.60),  # measured f160
+    ( 161, (  -3241,    1590,      692), +230.60),  # measured f161
+    ( 162, (  -3463,    1571,     -519), +230.60),  # measured f162
+    ( 163, (  -3564,    1595,    -1799), +230.60),  # measured f163
+    ( 164, (  -3630,    1621,    -3066), +230.60),  # measured f164
+    ( 165, (  -3665,    1648,    -4305), +230.60),  # measured f165
+    ( 166, (  -3682,    1670,    -5359), +230.60),  # measured f166
+    ( 167, (  -3680,    1690,    -6227), +230.60),  # measured f167
+    ( 168, (  -3661,    1704,    -6909), +230.60),  # measured f168
+    ( 169, (  -3626,    1717,    -7406), +230.60),  # measured f169
+    ( 170, (  -3602,    1725,    -7741), +230.60),  # measured f170
+    ( 171, (  -3590,    1730,    -7915), +230.60),  # measured f171
+    ( 172, (  -3591,    1730,    -7929), +230.60),  # measured f172
+    ( 173, (  -3591,    1730,    -7941), +230.60),  # measured f173
+    ( 174, (  -3591,    1729,    -7954), +230.60),  # measured f174
+    ( 175, (  -3010,    2711,    -3944), +230.60),  # measured f175
+    ( 176, (  -2436,    3709,       76), +230.60),  # measured f176
+    ( 177, (  -1889,    4762,     4108), +230.60),  # measured f177
+    ( 178, (  -1369,    5870,     8153), +235.78),  # measured f178
+    ( 179, (   -877,    7032,    12210), +235.64),  # measured f179
+    ( 180, (   -414,    8246,    16278), +235.32),  # measured f180
+    ( 181, (     18,    9514,    20357), +235.02),  # measured f181
+    ( 182, (   -161,    9847,    20424), +234.67),  # measured f182
+    ( 183, (   -365,   10212,    20493), +234.34),  # measured f183
+    ( 184, (   -573,   10568,    20559), +234.05),  # measured f184
+    ( 185, (   -787,   10913,    20623), +233.71),  # measured f185
+    ( 186, (  -1004,   11246,    20685), +233.36),  # measured f186
+    ( 187, (  -1227,   11566,    20744), +233.04),  # measured f187
+    ( 188, (  -1452,   11872,    20804), +232.74),  # measured f188
+    ( 189, (  -1680,   12166,    20862), +232.39),  # measured f189
+    ( 190, (  -1912,   12446,    20919), +232.08),  # measured f190
+    ( 191, (  -2144,   12712,    20976), +231.78),  # measured f191
+    ( 192, (  -2378,   12964,    21033), +231.43),  # measured f192
+    ( 193, (  -2609,   13201,    21089), +231.11),  # measured f193
+    ( 194, (  -2842,   13425,    21147), +230.80),  # measured f194
+    ( 195, (  -3074,   13636,    21205), +230.46),  # measured f195
+    ( 196, (  -3305,   13833,    21263), +230.15),  # measured f196
+    ( 197, (  -3535,   14017,    21320), +229.83),  # measured f197
+    ( 198, (  -3764,   14187,    21376), +229.49),  # measured f198
+    ( 199, (  -3993,   14345,    21432), +229.14),  # measured f199
+    ( 200, (  -4224,   14491,    21486), +228.83),  # measured f200
+    ( 201, (  -4437,   14638,    21529), +228.54),  # measured f201
+    ( 202, (  -3832,   15542,    20649), +228.18),  # measured f202
+    ( 203, (  -3192,   16444,    19751), +227.89),  # measured f203
+    ( 204, (  -2516,   17348,    18840), +227.79),  # measured f204
+    ( 205, (  -1804,   18251,    17912), +231.68),  # measured f205
+    ( 206, (  -1061,   19156,    16974), +232.87),  # measured f206
+    ( 207, (   -285,   20067,    16024), +234.03),  # measured f207
+    ( 208, (    507,   20969,    15074), +235.17),  # measured f208
+    ( 209, (    512,   21111,    15038), +236.23),  # measured f209
+    ( 210, (    513,   21254,    15009), +237.20),  # measured f210
+    ( 211, (    509,   21397,    14985), +238.18),  # measured f211
+    ( 212, (    500,   21542,    14969), +239.20),  # measured f212
+    ( 213, (    490,   21691,    14958), +240.00),  # measured f213
+    ( 214, (    477,   21838,    14951), +240.86),  # measured f214
+    ( 215, (    464,   21985,    14947), +241.77),  # measured f215
+    ( 216, (    451,   22118,    14945), +242.56),  # measured f216
+    ( 217, (    437,   22250,    14947), +243.27),  # measured f217
+    ( 218, (    422,   22378,    14952), +243.95),  # measured f218
+    ( 219, (    407,   22502,    14959), +244.23),  # measured f219
+    ( 220, (    393,   22621,    14968), +245.00),  # measured f220
+    ( 221, (    379,   22735,    14978), +245.56),  # measured f221
+    ( 222, (    365,   22844,    14990), +246.09),  # measured f222
+    ( 223, (    351,   22958,    15002), +246.57),  # measured f223
+    ( 224, (    337,   23064,    15015), +247.14),  # measured f224
+    ( 225, (    324,   23164,    15029), +247.64),  # measured f225
+    ( 226, (    311,   23256,    15043), +248.05),  # measured f226
+    ( 227, (    300,   23342,    15056), +248.39),  # measured f227
+    ( 228, (    288,   23417,    15068), +248.78),  # measured f228
+    ( 229, (    278,   23485,    15080), +249.13),  # measured f229
+    ( 230, (    268,   23543,    15091), +249.33),  # measured f230
+    ( 231, (    262,   23591,    15100), +249.60),  # measured f231
+    ( 232, (    256,   23629,    15108), +249.84),  # measured f232
+    ( 233, (    252,   23657,    15115), +249.99),  # measured f233
+    ( 234, (    311,   23525,    15544), +250.07),  # measured f234
+    ( 235, (    372,   23385,    15972), +250.15),  # measured f235
+    ( 236, (    434,   23240,    16399), +250.23),  # measured f236
+    ( 237, (    498,   23100,    16826), +106.87),  # measured f237
+    ( 238, (    560,   22968,    17253), +106.87),  # measured f238
+    ( 239, (    624,   22835,    17678), +106.87),  # measured f239
+    ( 240, (    685,   22709,    18104), +106.87),  # measured f240
+    ( 241, (    668,   22757,    18110), +106.87),  # measured f241
+    ( 242, (    632,   22838,    18115), +106.87),  # measured f242
+    ( 243, (    570,   22954,    18110), +106.57),  # measured f243
+    ( 244, (    484,   23095,    18084), +103.91),  # measured f244
+    ( 245, (    376,   23255,    18023), +100.62),  # measured f245
+    ( 246, (    254,   23432,    17920),  +96.66),  # measured f246
+    ( 247, (    130,   23607,    17766),  +92.54),  # measured f247
+    ( 248, (     23,   23753,    17552),  +88.61),  # measured f248
+    ( 249, (    -61,   23869,    17314),  +84.92),  # measured f249
+    ( 250, (   -108,   23928,    17024),  +81.74),  # measured f250
+    ( 251, (   -116,   23924,    16690),  +79.00),  # measured f251
+    ( 252, (    -89,   23867,    16345),  +78.17),  # measured f252
+    ( 253, (    -43,   23788,    16033),  +75.98),  # measured f253
+    ( 254, (     13,   23697,    15762),  +74.13),  # measured f254
+    ( 255, (     74,   23609,    15538),  +72.41),  # measured f255
+    ( 256, (    137,   23514,    15331),  +70.70),  # measured f256
+    ( 257, (    194,   23435,    15178),  +69.21),  # measured f257
+    ( 258, (    241,   23380,    15084),  +67.83),  # measured f258
+    ( 259, (    279,   23345,    15030),  +66.48),  # measured f259
+    ( 260, (    318,   23311,    14980),  +65.10),  # measured f260
+    ( 261, (    357,   23278,    14933),  +63.97),  # measured f261
+    ( 262, (    398,   23245,    14890),  +62.84),  # measured f262
+    ( 263, (    433,   23214,    14846),  +61.82),  # measured f263
+    ( 264, (    476,   23183,    14806),  +60.86),  # measured f264
+    ( 265, (    511,   23152,    14764),  +60.04),  # measured f265
+    ( 266, (    554,   23121,    14724),  +59.27),  # measured f266
+    ( 267, (    590,   23090,    14683),  +58.58),  # measured f267
+    ( 268, (    629,   23060,    14643),  +57.93),  # measured f268
+    ( 269, (    663,   23029,    14601),  +57.43),  # measured f269
+    ( 270, (    704,   22999,    14562),  +57.02),  # measured f270
+    ( 271, (    735,   22968,    14520),  +56.68),  # measured f271
+    ( 272, (    773,   22938,    14481),  +56.38),  # measured f272
+    ( 273, (    805,   22912,    14440),  +56.21),  # measured f273
+    ( 274, (    845,   22888,    14404),  +56.12),  # measured f274
+    ( 275, (    882,   22866,    14368),  +55.86),  # measured f275
+    ( 276, (    923,   22846,    14336),  +55.17),  # measured f276
+    ( 277, (    965,   22831,    14304),  +54.55),  # measured f277
+    ( 278, (   1009,   22817,    14276),  +53.93),  # measured f278
+    ( 279, (   1054,   22805,    14249),  +53.33),  # measured f279
+    ( 280, (   1098,   22792,    14223),  +52.74),  # measured f280
+    ( 281, (   1141,   22781,    14196),  +52.23),  # measured f281
+    ( 282, (   1185,   22770,    14170),  +51.70),  # measured f282
+    ( 283, (   1227,   22759,    14144),  +51.27),  # measured f283
+    ( 284, (   1270,   22746,    14120),  +50.83),  # measured f284
+    ( 285, (   1312,   22734,    14095),  +50.38),  # measured f285
+    ( 286, (   1353,   22723,    14072),  +49.98),  # measured f286
+    ( 287, (   1395,   22711,    14049),  +49.65),  # measured f287
+    ( 288, (   1435,   22698,    14027),  +49.32),  # measured f288
+    ( 289, (   1475,   22685,    14005),  +49.05),  # measured f289
+    ( 290, (   1514,   22671,    13984),  +48.79),  # measured f290
+    ( 291, (   1553,   22659,    13963),  +48.53),  # measured f291
+    ( 292, (   1591,   22646,    13942),  +48.29),  # measured f292
+    ( 293, (   1628,   22631,    13921),  +48.11),  # measured f293
+    ( 294, (   1664,   22616,    13900),  +47.97),  # measured f294
+    ( 295, (   1700,   22601,    13879),  +47.88),  # measured f295
+    ( 296, (   1732,   22586,    13858),  +47.80),  # measured f296
+    ( 297, (   1759,   22572,    13842),  +47.71),  # measured f297
+    ( 298, (   1882,   22744,    13820),  +47.68),  # measured f298
+    ( 299, (   1777,   20684,    11211),  +47.74),  # measured f299
+    ( 300, (   1736,   18640,     8599),  +47.74),  # measured f300
+    ( 301, (   1760,   16633,     5977),  +47.74),  # gap f301
+    ( 302, (   1850,   14663,     3344),  +90.59),  # gap f302
+    ( 303, (   1749,   12732,      708),  +90.81),  # gap f303
+    ( 304, (   1605,   10835,    -1938),  +91.41),  # gap f304
+    ( 305, (   1339,    8790,    -4583),  +92.03),  # measured f305
+    ( 306, (   1288,    9013,    -4647),  +92.68),  # measured f306
+    ( 307, (   1162,    9259,    -4715),  +93.35),  # measured f307
+    ( 308, (    961,    9505,    -4778),  +93.96),  # measured f308
+    ( 309, (    687,    9740,    -4849),  +94.57),  # measured f309
+    ( 310, (    595,    9951,    -4961),  +95.23),  # measured f310
+    ( 311, (    537,   10141,    -5102),  +95.90),  # measured f311
+    ( 312, (    495,   10317,    -5266),  +96.52),  # measured f312
+    ( 313, (    455,   10479,    -5448),  +97.14),  # measured f313
+    ( 314, (    418,   10627,    -5644),  +97.73),  # measured f314
+    ( 315, (    379,   10768,    -5852),  +98.42),  # measured f315
+    ( 316, (    339,   10910,    -6053),  +99.07),  # measured f316
+    ( 317, (    301,   11065,    -6224),  +99.66),  # measured f317
+    ( 318, (    266,   11234,    -6372), +100.31),  # measured f318
+    ( 319, (    230,   11407,    -6500), +100.95),  # measured f319
+    ( 320, (    196,   11586,    -6613), +101.60),  # measured f320
+    ( 321, (    161,   11768,    -6713), +102.26),  # measured f321
+    ( 322, (    128,   11947,    -6802), +102.85),  # measured f322
+    ( 323, (     95,   12130,    -6882), +103.46),  # measured f323
+    ( 324, (     63,   12312,    -6955), +104.10),  # measured f324
+    ( 325, (     31,   12491,    -7019), +104.74),  # measured f325
+    ( 326, (      2,   12671,    -7077), +105.42),  # measured f326
+    ( 327, (    -28,   12848,    -7129), +106.00),  # measured f327
+    ( 328, (    -54,   13021,    -7175), +106.63),  # measured f328
+    ( 329, (    -80,   13193,    -7217), +107.35),  # measured f329
+    ( 330, (   -105,   13352,    -7253), +107.98),  # measured f330
+    ( 331, (   -125,   13491,    -7283), +108.55),  # measured f331
+    ( 332, (   -142,   13611,    -7306), +109.20),  # measured f332
+    ( 333, (   -155,   13708,    -7323), +109.66),  # measured f333
+    ( 334, (   -164,   13782,    -7333), +109.66),  # measured f334
+    ( 335, (   -132,   13630,    -7258), +109.66),  # measured f335
+    ( 336, (   -107,   13452,    -7187), +109.66),  # measured f336
+    ( 337, (    -87,   13253,    -7138), +109.66),  # measured f337
+    ( 338, (    -73,   13046,    -7110), +285.52),  # measured f338
+    ( 339, (    -60,   12832,    -7103), +283.97),  # measured f339
+    ( 340, (    -47,   12614,    -7112), +279.57),  # measured f340
+    ( 341, (    -31,   12396,    -7137), +275.11),  # measured f341
+    ( 342, (    -51,   12380,    -7254), +270.74),  # measured f342
+    ( 343, (    -55,   12368,    -7374), +266.37),  # measured f343
+    ( 344, (    -46,   12362,    -7475), +262.22),  # measured f344
+    ( 345, (    -28,   12360,    -7558), +258.31),  # measured f345
+    ( 346, (     -3,   12363,    -7624), +254.79),  # measured f346
+    ( 347, (     25,   12367,    -7674), +251.63),  # measured f347
+    ( 348, (     52,   12370,    -7709), +248.93),  # measured f348
+    ( 349, (     79,   12376,    -7733), +246.62),  # measured f349
+    ( 350, (    100,   12383,    -7747), +244.78),  # measured f350
+    ( 351, (    118,   12389,    -7753), +243.38),  # measured f351
+    ( 352, (    131,   12393,    -7758), +242.46),  # measured f352
+    ( 353, (    142,   12397,    -7765), +241.98),  # measured f353
+    ( 354, (    153,   12400,    -7776), +241.85),  # measured f354
+    ( 355, (    162,   12405,    -7791), +241.84),  # measured f355
+    ( 356, (    171,   12407,    -7813), +241.82),  # measured f356
+    ( 357, (    184,   12410,    -7839), +241.82),  # measured f357
+    ( 358, (    195,   12414,    -7872), +241.82),  # measured f358
+    ( 359, (    210,   12419,    -7907), +241.82),  # measured f359
+    ( 360, (    226,   12424,    -7942), +241.82),  # measured f360
+    ( 361, (    241,   12430,    -7976), +241.82),  # measured f361
+    ( 362, (    257,   12434,    -8011), +241.82),  # measured f362
+    ( 363, (    273,   12440,    -8045), +241.83),  # measured f363
+    ( 364, (    290,   12446,    -8080), +241.82),  # measured f364
+    ( 365, (    307,   12452,    -8114), +241.81),  # measured f365
+    ( 366, (    324,   12456,    -8150), +241.80),  # measured f366
+    ( 367, (    340,   12460,    -8187), +241.81),  # measured f367
+    ( 368, (    355,   12463,    -8226), +241.81),  # measured f368
+    ( 369, (    369,   12467,    -8266), +241.82),  # measured f369
+    ( 370, (    380,   12470,    -8308), +241.81),  # measured f370
+    ( 371, (    390,   12472,    -8351), +241.81),  # measured f371
+    ( 372, (    397,   12473,    -8395), +241.82),  # measured f372
+    ( 373, (    403,   12473,    -8440), +241.82),  # measured f373
+    ( 374, (    407,   12471,    -8488), +241.81),  # measured f374
+    ( 375, (    412,   12468,    -8537), +241.81),  # measured f375
+    ( 376, (    416,   12463,    -8589), +241.82),  # measured f376
+    ( 377, (    423,   12460,    -8642), +241.81),  # measured f377
+    ( 378, (    431,   12456,    -8696), +241.80),  # measured f378
+    ( 379, (    444,   12444,    -8748), +241.79),  # measured f379
+    ( 380, (    386,   12597,    -8621), +241.79),  # measured f380
+    ( 381, (    328,   12751,    -8485), +241.81),  # measured f381
+    ( 382, (    269,   12907,    -8341), +241.84),  # measured f382
+    ( 383, (    208,   13063,    -8189), +258.76),  # measured f383
+    ( 384, (    153,   13241,    -7985), +258.76),  # measured f384
+    ( 385, (    100,   13441,    -7779), +258.76),  # measured f385
+    ( 386, (     41,   13666,    -7593), +258.76),  # measured f386
+    ( 387, (     53,   13745,    -7581), +258.76),  # measured f387
+    ( 388, (     65,   13839,    -7577), +258.76),  # measured f388
+    ( 389, (     79,   13940,    -7572), +258.76),  # measured f389
+    ( 390, (     92,   14039,    -7571), +258.76),  # measured f390
+    ( 391, (     99,   14108,    -7612), +258.76),  # measured f391
+    ( 392, (    103,   14143,    -7647), +258.64),  # measured f392
+    ( 393, (    109,   14146,    -7653), +258.25),  # measured f393
+    ( 394, (    114,   14107,    -7653), +257.62),  # measured f394
+    ( 395, (    117,   14030,    -7636), +256.66),  # measured f395
+    ( 396, (    117,   13916,    -7608), +255.60),  # measured f396
+    ( 397, (    112,   13773,    -7560), +254.53),  # measured f397
+    ( 398, (    101,   13601,    -7489), +253.45),  # measured f398
+    ( 399, (     91,   13435,    -7420), +252.44),  # measured f399
+    ( 400, (     95,   13297,    -7369), +251.53),  # measured f400
+    ( 401, (    120,   13191,    -7332), +250.72),  # measured f401
+    ( 402, (      9,   12927,    -7222), +238.77),  # measured f402
+    ( 403, (    -89,   12697,    -7157), +227.35),  # measured f403
+    ( 404, (   -102,   12473,    -7167), +215.92),  # measured f404
+    ( 405, (     -1,   12219,    -7156), +204.42),  # measured f405
+    ( 406, (    201,   11922,    -7067), +192.98),  # measured f406
+    ( 407, (    478,   11562,    -6863), +181.53),  # measured f407
+    ( 408, (    800,   11156,    -6533), +170.08),  # measured f408
+    ( 409, (   1298,   10876,    -6148), +158.65),  # measured f409
+    ( 410, (   1610,   10715,    -6006), +147.21),  # measured f410
+    ( 411, (   1937,   10526,    -5726), +135.79),  # measured f411
+    ( 412, (   2236,   10356,    -5384), +124.27),  # measured f412
+    ( 470, (   2236,   10356,    -5384),  +96.38),  # fire column (camera off him, f470)
+    ( 520, (   2236,   10356,    -5384), +119.60),  # fire column (camera off him, f520)
 )
 
-THOMAS_END = KEYFRAMES_V7[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
+THOMAS_END = KEYFRAMES_V10[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -417,50 +697,50 @@ def _pt(xyz: "tuple[int, int, int]") -> dict:
     """Split an (X, Y, Z) absolute-world tuple into the 3 ``Destination*`` JSON keys as plain numeric
     NCalc constants (a bare literal like ``"-17860"`` parses via NCalc exactly as well as an expression
     -- no ``CasterPosition*`` anchor needed under the absolute-world-coordinate design; these XYZ values
-    are ``KEYFRAMES_V7``'s own back-projected world positions, solved to hit an authored on-screen target
+    are ``KEYFRAMES_V10``'s own back-projected world positions, solved to hit an authored on-screen target
     under each frame's real camera -- see THE FLIGHT v7 comment block above)."""
     x, y, z = xyz
     return {"DestinationX": str(x), "DestinationY": str(y), "DestinationZ": str(z)}
 
 
 def build_manifest_json() -> dict:
-    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v7 (IN-FRAME BY CONSTRUCTION)
-    ``KEYFRAMES_V7`` constant above (schema verified against ``ParametricMovement.LoadFromJSON``,
+    """Generate ``thomas_manifest.sfxmodel``'s JSON from the FLIGHT v10 (MEASURED position + size -- the creature's real path)
+    ``KEYFRAMES_V10`` constant above (schema verified against ``ParametricMovement.LoadFromJSON``,
     Memoria/Battle/SFX/ParametricMovement.cs:58-136 -- an array of pieces, ``Duration`` + per-axis
     ``Origin*``/``Destination*``/``InterpolationType*``; an absent ``Origin*`` on piece i>0 CHAINS from
     the prior piece's own ``Destination*``; an absent ``InterpolationType*`` defaults to ``Linear``,
     l.254).
 
-    Movement is one Linear piece per consecutive ``KEYFRAMES_V7`` transition (61 pieces for 62
+    Movement is one Linear piece per consecutive ``KEYFRAMES_V10`` transition (61 pieces for 62
     keyframes) -- deliberately ALL Linear, no Sinus/SinusIn/SinusOut anywhere: the drift verification in
     ``flight_v7_solve.py`` (every segment's real-camera projection stays within margin) was performed
     assuming Linear interpolation between consecutive keyframes, so using anything else here would let
     the DEPLOYED runtime path diverge from the path that was actually checked. Rotation mirrors the same
     piece/duration structure, holding ``DestinationY`` = each keyframe's own per-frame broadside yaw
     (``DestinationZ`` always ``"0"`` -- no roll, per the README axis-verification). Scaling is one
-    constant piece (``THOMAS_SCALE`` -- must match ``flight_v7_solve.THOMAS_SCALE``, both currently 265).
+    constant piece (``THOMAS_SCALE`` -- must match ``flight_v10_solve.THOMAS_SCALE``, both currently 265).
     All piece durations sum to ``THOMAS_END`` on every axis (asserted below)."""
     movement = [
         {   # first piece needs an explicit Origin -- every later piece chains from the prior Destination
-            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
-            "OriginX": str(KEYFRAMES_V7[0][1][0]), "OriginY": str(KEYFRAMES_V7[0][1][1]), "OriginZ": str(KEYFRAMES_V7[0][1][2]),
-            **_pt(KEYFRAMES_V7[1][1]),
+            "Duration": str(KEYFRAMES_V10[1][0] - KEYFRAMES_V10[0][0]),
+            "OriginX": str(KEYFRAMES_V10[0][1][0]), "OriginY": str(KEYFRAMES_V10[0][1][1]), "OriginZ": str(KEYFRAMES_V10[0][1][2]),
+            **_pt(KEYFRAMES_V10[1][1]),
         },
     ]
-    prev_frame = KEYFRAMES_V7[1][0]
-    for frame, xyz, _yaw in KEYFRAMES_V7[2:]:
+    prev_frame = KEYFRAMES_V10[1][0]
+    for frame, xyz, _yaw in KEYFRAMES_V10[2:]:
         movement.append({"Duration": str(frame - prev_frame), **_pt(xyz)})   # Linear default
         prev_frame = frame
 
     rotation = [
         {
-            "Duration": str(KEYFRAMES_V7[1][0] - KEYFRAMES_V7[0][0]),
-            "OriginY": f"{KEYFRAMES_V7[0][2]:.2f}", "DestinationY": f"{KEYFRAMES_V7[1][2]:.2f}",
+            "Duration": str(KEYFRAMES_V10[1][0] - KEYFRAMES_V10[0][0]),
+            "OriginY": f"{KEYFRAMES_V10[0][2]:.2f}", "DestinationY": f"{KEYFRAMES_V10[1][2]:.2f}",
             "OriginZ": "0", "DestinationZ": "0",
         },
     ]
-    prev_frame = KEYFRAMES_V7[1][0]
-    for frame, _xyz, yaw in KEYFRAMES_V7[2:]:
+    prev_frame = KEYFRAMES_V10[1][0]
+    for frame, _xyz, yaw in KEYFRAMES_V10[2:]:
         rotation.append({
             "Duration": str(frame - prev_frame),
             "DestinationY": f"{yaw:.2f}", "DestinationZ": "0",
@@ -470,7 +750,7 @@ def build_manifest_json() -> dict:
     # invariant: every axis's piece durations sum to THOMAS_END (the cast length)
     assert sum(int(p["Duration"]) for p in movement) == THOMAS_END, "movement durations != THOMAS_END"
     assert sum(int(p["Duration"]) for p in rotation) == THOMAS_END, "rotation durations != THOMAS_END"
-    assert len(movement) == len(KEYFRAMES_V7) - 1 == len(rotation), "piece count != KEYFRAMES_V7 transitions"
+    assert len(movement) == len(KEYFRAMES_V10) - 1 == len(rotation), "piece count != KEYFRAMES_V10 transitions"
     scaling = {
         "Duration": str(THOMAS_END),
         "OriginX": str(THOMAS_SCALE), "OriginY": str(THOMAS_SCALE), "OriginZ": str(THOMAS_SCALE),
@@ -739,14 +1019,14 @@ def main() -> int:
         print(f"                  height%, solved to a real-camera depth and back-projected to world via that")
         print(f"                  frame's real VIEW+PROJ (flight_v7_solve.py); segments whose real-camera drift")
         print(f"                  would leave the frame are recursively bisected with extra keyframes until every")
-        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V7)} keyframes, {len(KEYFRAMES_V7)-1} Linear")
+        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V10)} keyframes, {len(KEYFRAMES_V10)-1} Linear")
         print(f"                  pieces (no easing -- keeps the deployed path == the verified path).")
         print(f"  yaw           : per-keyframe, derived from that frame's own camera forward vector (broadside")
         print(f"                  presentation to the ACTUAL camera at that moment, not a fixed world angle).")
         print()
-        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V7)} total,")
-        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V7)} incl. 18 authored beats + adaptive drift-inserts:")
-        for frame, xyz, yaw in KEYFRAMES_V7:
+        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V10)} total,")
+        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V10)} incl. 18 authored beats + adaptive drift-inserts:")
+        for frame, xyz, yaw in KEYFRAMES_V10:
             print(f"    f{frame:<4d} = {xyz}  yaw={yaw:+.1f}")
         print()
         m = result["mint"]
