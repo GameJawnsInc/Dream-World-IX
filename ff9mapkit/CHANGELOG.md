@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE MOGNET DONOR-FORK LANE (★ in-game proven): patch a real moogle field in place
+- **`tools/mognet_donor_patch.py` + `content/mognetdonor.py`** — the 42nd moogle becomes a full
+  network citizen at a REAL donor field, generated from your own install at deploy time (nothing
+  SE-derived is shipped; all 7 languages; revert script emitted). Three faces, all proven on
+  Kupo/field 1865: the **42nd roster row** (a stock field renders "from Kupo to Mogwai"), **letter
+  content** for our variants (guarded arms spliced at ALL FOUR of the donor's letter switches —
+  read-mail display + delivery announce/display/thanks, the per-letter txid triplet), and the
+  **inbound give** (the donor offers a letter to our moogle inside its own Mognet flow, anchored
+  after the migration guard's `Byte[1024] := 1` — the universal donor invariant).
+- **Jump-table-aware `edit.insert_in_function`** — the enabling primitive: straddling jumps and
+  0x06/0x0B jump tables are now FIXED on insert (crossing targets grow; a target exactly at the
+  insert point flows into the fragment — the convergence-splice donor patches ride on).
+- **`[savepoint.mognet]` fidelity pass** (the donor playtests' laws): Mognet is a SUBMENU — the
+  moogle's menu reopens after every Mognet exit; the no-mail line is FF9's own invariant bubble
+  "I want mail!  Kupo!" spoken by the moogle (the 2nd documented game-text exception,
+  `docs/PROVENANCE.md`) and closes every visit including the submenu's Cancel; the letter
+  header-body separator is the stock two blank lines.
+
 ### Added — the visible `[[platform]]` model (★ in-game proven) + the block documented
 - **`[[platform]]` gains `prop`/`model` (+ `model_offset`, `model_pos`)** — a visible platform that
   rides with the player in lockstep: the model gets its own walk-through, walkmesh-detached object
