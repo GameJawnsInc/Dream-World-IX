@@ -37,6 +37,13 @@ FRAC_MIN = 0.18            # Thomas never shrinks below this (still visible duri
 FRAC_MAX = 0.70            # cap the giant charge frames (dragon hits 9x) near v9's proven ~0.55 charge size
                           # -- the goal is the SWOOP SHRINK (0.21), not a frame-overflowing wall-of-train
 SMOOTH_WIN = 2            # +/- frames median-smoothing of the size (depth is noisy frame-to-frame)
+# v10.1 -- SMOOTHNESS. The measured path is sampled at the native ~15fps and the manifest interpolates
+# LINEARLY, so every keyframe is a velocity CORNER -- on the fast swoops (1000-1300 world-units/frame, and
+# camera moves that jump the back-projected world by 2000-22000 units/frame) that reads as jerky. Fix: low-pass
+# the final WORLD path with a moving average (WSMOOTH). This softens BOTH the within-shot jitter AND the hard
+# camera cuts into smooth fast glides -- a small trade of exact-screen-position for the smoothness the playtest
+# asked for ("still not very smooth on the swoops"). Applied only to the measured window (not the lead-in/exit).
+WSMOOTH = 3              # +/- frames moving-average of the world X/Y/Z of the measured keyframes
 LEADIN_NDC = (0.10, 1.10)  # off-frame top, descending in ("flying down")
 LEADIN_FRAC = 0.34
 EXIT_HOLD_FRAMES = (470, 520)
@@ -98,6 +105,19 @@ def _clamp(x: float, y: float) -> Tuple[float, float]:
     return (max(-NDC_CLAMP, min(NDC_CLAMP, x)), max(-NDC_CLAMP, min(NDC_CLAMP, y)))
 
 
+def _smooth_world(nodes: List[KeyframeNode], win: int) -> List[KeyframeNode]:
+    """Moving-average the world X/Y/Z of a run of keyframes (softens jitter + hard cuts into glides)."""
+    if win <= 0 or len(nodes) < 3:
+        return nodes
+    out = []
+    for i, n in enumerate(nodes):
+        lo, hi = max(0, i - win), min(len(nodes), i + win + 1)
+        w = [nodes[j].world for j in range(lo, hi)]
+        avg = (sum(p[0] for p in w) / len(w), sum(p[1] for p in w) / len(w), sum(p[2] for p in w) / len(w))
+        out.append(n._replace(world=avg))
+    return out
+
+
 def build_flight(log: ProbeLog, ndc: Dict[int, Tuple[float, float]], frac: Dict[int, float]) -> List[KeyframeNode]:
     meas = sorted(f for f in ndc if log.has_camera(f))
     f0, f1 = meas[0], meas[-1]
@@ -105,14 +125,17 @@ def build_flight(log: ProbeLog, ndc: Dict[int, Tuple[float, float]], frac: Dict[
     nxs = np.array([ndc[f][0] for f in meas]); nys = np.array([ndc[f][1] for f in meas])
     fmx = np.array([f for f in meas if f in frac], dtype=np.float64)
     fvs = np.array([frac[f] for f in meas if f in frac])
-    nodes: List[KeyframeNode] = [make_node(log, 0, LEADIN_NDC[0], LEADIN_NDC[1], LEADIN_FRAC, "lead-in (flying down)")]
-    for f in range(f0, f1 + 1):
-        if not log.has_camera(f):
-            continue
+    # dense every-frame measured nodes (screen position + size), then low-pass the WORLD path for smoothness
+    dense = [f for f in range(f0, f1 + 1) if log.has_camera(f)]
+    meas_nodes: List[KeyframeNode] = []
+    for f in dense:
         nx, ny = _clamp(float(np.interp(f, mx, nxs)), float(np.interp(f, mx, nys)))
-        hf = float(np.interp(f, fmx, fvs))                       # per-frame measured apparent size
+        hf = float(np.interp(f, fmx, fvs))
         tag = f"measured f{f}" if f in ndc else f"gap f{f}"
-        nodes.append(make_node(log, f, nx, ny, hf, tag))
+        meas_nodes.append(make_node(log, f, nx, ny, hf, tag))
+    meas_nodes = _smooth_world(meas_nodes, WSMOOTH)
+    nodes: List[KeyframeNode] = [make_node(log, 0, LEADIN_NDC[0], LEADIN_NDC[1], LEADIN_FRAC, "lead-in (flying down)")]
+    nodes.extend(meas_nodes)
     hold = nodes[-1].world
     hold_hf = nodes[-1].height_frac
     for f in EXIT_HOLD_FRAMES:

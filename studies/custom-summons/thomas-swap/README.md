@@ -202,8 +202,16 @@ Thomas's per-frame apparent height to that (smoothed; clamped `[0.18, 0.70]` so 
 near v9's proven ~0.55 size instead of overflowing as a wall-of-train). This (a) makes him **scale down during
 the swoop** and (b) varies his placement DEPTH per frame → real 3D motion, not a flat tween. Position and the
 every-frame keyframes are unchanged from v9. `flight_v10_solve.py`, 334 keyframes; retune `FRAC_MIN`/`FRAC_MAX`
-/`SMOOTH_WIN`. Deployed 2026-07-23. (Open: Thomas's own ORIENTATION is still camera-broadside, not the dragon's
-actual vertical→horizontal roll through the swoop -- a later pass if the size fix isn't enough.)
+/`SMOOTH_WIN`. Deployed 2026-07-23.
+
+**v10.1 (smoothness, same day).** Playtest: "better but still not very smooth on the swoops." The measured path
+is sampled at the native ~15fps and the manifest interpolates LINEARLY, so every keyframe is a velocity CORNER;
+on the fast swoops (1000-1300 world-units/frame, plus camera moves that jump the back-projected world by
+2000-22000 units at a cut) that reads as jerky. Fix: low-pass the final WORLD path with a moving average
+(`WSMOOTH=3`) -- this softens BOTH the within-shot jitter AND the hard camera cuts into smooth fast glides
+(max frame-to-frame world delta 29,285→4,293). A small trade of exact-screen-position for smoothness. (Open:
+Thomas's own ORIENTATION is still camera-broadside, not the dragon's actual vertical→horizontal roll through
+the swoop -- the `MODEL` row logs the creature's real rotation `m00..m22` if a later pass wants it.)
 
 <details>
 <summary>THE FLIGHT v9 -- 2026-07-23, MEASURED (superseded same day by v10 -- right position, constant size; kept for the record)</summary>
