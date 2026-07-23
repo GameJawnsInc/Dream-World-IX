@@ -2122,3 +2122,57 @@ Scripts: `studies/overworld-topography/contract_gd_composition.py` (the census),
 Artifacts: `out/contract_gd_composition.json`, `out/mixed_biome_mint.json`,
 `out/mixed_biome_mint/renders/` (7 files incl. `mixed_eye_review.json`). Read-only throughout; zero
 writes to the game install, zero deploys, zero disc-4 mirror invocations, zero commits.
+
+## Rung D — rebuild the horseshoe ensemble bench with grass|desert composition designed in — REJECTED, zero playtest cost (2026-07-2x)
+
+### Recap: what Rung D was
+
+The horseshoe ensemble carry (Daguerreo massif + hanging river bowl + twin animated falls + aux parts riding the rigid map, donor (5-6,15-16)) was in-game proven 2026-07-15 on an r72 bench, 713+122 tris, 10-block span — then lost in the 2026-07-19 install reset (its blocks now host the comp[1] dunes carry). Rung D's brief: rebuild it at a fresh site, but this time with the grass|desert composition (Rung C's failed pillar) designed in from the start rather than bolted on after. The key insight going in: stock always terminates a desert|grass boundary line into the SAME rock mass at both ends, and a horseshoe massif is exactly that shape of feature — one large rock perimeter that could in principle absorb both line termini, with a thin topo-16 desert apron nestled between the line and the rock flank. The massif as terminus, not as an obstacle needing its own clearance radius — a direct answer to Rung C's COMPOSITION FOOTPRINT finding (two point-anchors' clearance radii ate a 128u line).
+
+### Reused machinery (all reproduced live this session, not re-typed from an old report)
+
+- `ff9mapkit.world.island.build_landmass` (the `world-island` CLI mechanism) — r72, seed 42, lobes=1, patches=0, centered (170.0, -1152.0).
+- `ff9mapkit.world.interior.carve_mountain` (the `world-mountain --donor` mechanism) — donor rect (5,15)(6,15)(5,16)(6,16), the same horseshoe donor as 2026-07-15.
+- `ff9mapkit.world.orphangate.orphan_decal_gate`, `ff9mapkit.world.transplant.wang_carry_gate` + `_mod_overwrite_gate` — the Uaho-frozen ensemble-carry gate suite.
+- `mixed_biome_mint.py`'s `generate_partition_line` / `sector_retile` / `build_dressing` / `make_context_provider` / `_mint_sea4` — imported unchanged from the Rung C build, the shared composition layer both rungs stack on top of the carry.
+
+**Reproduction check vs the recorded 2026-07-15 deploy** (re-run live, not trusted from memory): blob_tris 713/713, ensemble_tris 122/122, rock_rigid_pct 0.84%/0.84%, apron_slope 9.2/9.2deg, zip_rise 2.13/2.13u, r_rim 54.3/54.3u, n_span_blocks 10/10 — every figure matches to <0.5 tolerance. The carry machinery is not in question; the failure is entirely in the composition layer stacked on top of it.
+
+### The full 9-gate plumbing suite: 0 failures
+
+byte-diff confinement (UV+idall-only mutation, asserted not claimed) · THE ORPHAN GATE (0 orphans / 0 ambiguous over 218 checked tri-corners, ring-true against real stock neighbourhood — all 10 footprint blocks are open ocean) · wang-carry gate (0 incoherent) · MOD-OVERWRITE gate, formal disk read (0/10 existing, 0 redeploys) · GRID-BOUNDS · THE FLAT-MESH INVARIANT (extended to ensemble aux parts this session) · THE SEA-LAYER LAW · hidden/blanked-sea STUB_Y_FLOOR convention · gd_seam_dress engine self-test (converges on null-cluster targets within 3 points at N=4000). Site-level gates (stage0) also all green: OPEN-OCEAN TARGET, MOD-OVERWRITE, GRID-BOUNDS, verify_landmass CLEAN (0 cracks/holes/open-edges/down-facing/grass_over_8u, perimeter 489.8u).
+
+**None of this is disputed. The plumbing is sound. The composition design is not.**
+
+### What failed — three independent lines of evidence agree
+
+**1. Coast standoff — structural, not tunable.** `stage5_coast_standoff` (rung_d_build.json): `line_min_dist_to_coast = 32.0u`, `body_min_dist_to_coast = 16.4u`. The contract's own measured floor across the whole real map is 39.95u (the closest any stock desert|grass boundary has ever been found to a coast); the recommended target is 64u. This site's own physical ceiling — the best possible single rim point — is 45.0u, which is *itself* below the 64u target. The OPEN-OCEAN TARGET gate is satisfied trivially by sitting close to water, but that is exactly what pulls the footprint into coast-adjacent territory the composition language never actually uses.
+
+**2. The dressing ratio, corrected and unit-consistent, is WORSE than Rung C's own rejected number.** `ratio_corrected` (rung_d_build.json): body=81 tris, planned=110, writes=218 → writes:body = **2.6914**. Rung C's own same-code result (out/mixed_biome_mint.json, re-read live) = 240:96 = **2.5000**. The local real-stock comparator (out/rung_d/renders/rung_d_eye_review.json `stock_gd_fam_counts`: desert=210, strip=392) gives 392/210 = wait — corrected as `local_stock_ratio = 1.8667` (desert=210, strip stock ≈392 read against the correct denominator) with a +25% tolerance band, max 2.3333. **2.6914 is out of band, and higher (worse) than Rung C, not lower.** The design report's "54% less severe than Rung C, in-band" claim does not survive this consistent-units re-derivation — that specific number is dropped in favor of the corrected one.
+
+**3. Visual / label-blind confirmation.** `rung_d_eye_wide_planview.png` (re-read this session): a green grass island (1427 tris), gray rock massif (957 tris) in the center, and magenta dressing (207 tris in this crop) that is NOT a thin line following the partition boundary — it directly overlaps the rock mass at both marked termini (A near block (3,17), B near block (2,17)) and forms a separate blob further west that touches neither the line nor the retiled desert body. Independent reviewer re-measurement (UV-geometry decal detection, not trusting topo ids) found 100% (11/11) of desert tiles that physically touch rock carry a grass|desert ecotone decal — the contract explicitly documents stock OMITS this decal at rock terminations (plain mains hand off to rock instead) — and the realized decal row-distribution is skewed vs stock's own shape (row0 57% realized vs stock's 20%). Both are genuine defects with no corresponding gate in the 9-gate suite.
+
+### Quartile density (informational, not gated — method mismatch)
+
+Rung D realizes [10.7%, 0%, 24.0%, 38.4%] dressing density across the four line quartiles (601 dressing-eligible cells, `quartile_density` in rung_d_build.json) vs stock's real [90%, 40%, 80%, 90%]. This uses a different cell graph than the contract's own BFS-diameter walkmesh-path census (Rung D bins all straddle+fringe cells by projected line position; the contract walks the stock line's own cell path), so it is reported side-by-side, not gated — but it is a second independent signal pointing the same direction as the ratio and the render: Rung D's dressing reads thin and unevenly distributed relative to stock's real pattern.
+
+### Verdict
+
+**REJECTED, zero playtest spent.** Two independent adversarial reviews both land on REJECT; my own re-derivation of the headline ratio and my own read of the rendered planview corroborate both. The carry machinery (world-island → carve_mountain --donor) carries forward unchanged and proven. The single-massif "both termini into one rock complex" composition hypothesis does not.
+
+### THE COMPOSITION FOOTPRINT LAW — a corollary grows
+
+Rung C minted: grass|desert composition has a MINIMUM FOOTPRINT — a short line squeezed by point-anchor clearance radii makes the dressing the majority of the desert body (240 writes / 96 tris).
+
+Rung D adds: **routing both line termini into a single rim-shaped massif does not escape the footprint minimum — it just relocates the same failure from "two circles overlapping" to "one circle grazing itself."** A rim of radius r_rim produces a chord between two termini on that rim that is bounded by ~2×r_rim; when the chord is only marginally longer than r_rim itself (this rung: chord 60.79u vs r_rim 54.3u), the corridor available for a plain-mains desert apron between the ecotone decal band and the rock is squeezed at BOTH ends simultaneously, in exactly the geometry the design intended to avoid. The fix implied is the same shape as Rung C's own prescription: a materially larger footprint — either a bigger bench so the termini can be sited farther apart on the same rim, or a donor with a smaller r_rim so the same chord clears proportionally more of the rim's radius — combined with siting that clears the coast-standoff floor on its own terms rather than via the cheap open-ocean-gate solution.
+
+### What's reusable for a Rung E
+
+- The world-island → carve_mountain --donor horseshoe reproduction (byte-exact to the 2026-07-15 proven deploy).
+- The 9-gate plumbing suite, including the 4 gates added this session (byte-diff confinement, formal mod-overwrite disk check, ensemble-extended flat-mesh invariant, sea-layer law).
+- Two NEW gates this rung's postmortem specifies but does not yet build: (a) a hard writes:body ratio ceiling gated against the local real-stock band, not just reported; (b) a dressing connected-component check (every patch must touch the line or the retiled body) that would have caught the floating (3,17)/(3,18) patch without a render. A third worth adding: a rock-termination decal check mirroring stock's own omission.
+- `out/rung_d/` (site_scan.json, rung_d_layout.json, rung_d_build.json, rung_d_build_manifest.json, renders/*.png, rung_d_eye_review.json) as the record of this rejection — dry-run only, zero writes to the live install, --apply never invoked.
+
+### CLAUDE.md frontier-line candidate (one line, for whoever next touches the milestones section)
+
+> Rung D (the single-massif "both termini into one rock complex" redesign, mirroring the proven 2026-07-15 horseshoe carry at a fresh r72 bench) ALSO REJECTED at zero playtest cost — two independent reviews + live re-derivation: writes:body 2.6914 (worse than Rung C's own rejected 2.5000, out of the local real-stock band <=2.3333), coast standoff structurally unreachable at this site (45.0u physical ceiling vs a 39.95u contract floor / 64u target), independent label-blind decal detection found 100% rock-contact ecotone contamination + a disconnected floating dressing patch the 9-gate plumbing suite has no check for — THE COMPOSITION FOOTPRINT LAW grows a corollary: routing both termini into one massif relocates the clearance-radius failure (one rim grazing itself) rather than solving it; a Rung E needs a bigger bench or smaller-r_rim donor so the realized chord clears the rim radius by more than this rung's margin, sited clear of the open-ocean gate's cheap water-adjacent solution.
