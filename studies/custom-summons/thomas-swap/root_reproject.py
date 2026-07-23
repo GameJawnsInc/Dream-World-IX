@@ -61,7 +61,7 @@ class RootTrack:
                 if not line or line[0] == "#" or not line.startswith("ROOT,"):
                     continue
                 p = line.rstrip("\n").split(",")
-                if len(p) < 17:
+                if len(p) < 16:  # ROOT tag + effectId,frame,active + 9 rot + 3 trans = 16 fields
                     continue
                 try:
                     eff = int(p[1]); frame = int(p[2]); active = int(p[3])
