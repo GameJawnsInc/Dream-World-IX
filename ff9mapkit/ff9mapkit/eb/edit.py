@@ -262,7 +262,9 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     # analysis is needed only then. This is what lets [startup]/activate prepend onto the ~11% of
     # fields whose Main_Init switches on the ScenarioCounter via a 0x06 jump table (e.g. field 206,
     # the interactive-ATE hub) -- exactly the case inject_startup's docstring already promises is safe.
+    table_fixups = []                                       # (abs byte offset of a u16 reloffset, new value)
     if abs_ins > f.abs_start:
+        from .disasm import decode_switch
         for j in eb.instrs(f):                              # the function's own relative jumps
             if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
                 raw = j.imm(0)
@@ -270,19 +272,62 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
                     tgt = j.end + raw
                 else:
                     tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)  # JMP / JMP_IF: signed int16
-                # The insert keeps a relative jump valid only if BOTH its endpoints shift by the same amount, i.e.
-                # the jump and its target are on the same side of abs_ins (a boundary-aware test -- the old
-                # `min<abs_ins<max` was blind to an endpoint landing EXACTLY on abs_ins, silently corrupting a jump
-                # whose end or target coincides with the insert). The one exception is tgt == abs_ins: the jump then
-                # lands on the FIRST inserted instruction, which (the fragment having no terminator) flows on into
-                # the original target -- the intended "insert before instruction X" semantics for every path
-                # reaching X, so it is allowed.
+                # A jump whose endpoints sit on the SAME side of abs_ins shifts as a block (both or
+                # neither move) -- valid untouched. tgt == abs_ins keeps the convergence semantics: the
+                # jump lands on the FIRST inserted instruction and flows on into the original target
+                # ("insert before instruction X" for every path reaching X) -- also untouched. A jump
+                # STRADDLING the insert (endpoints on opposite sides, target not at the boundary) is
+                # FIXED: exactly one endpoint shifts by len(ins), so the displacement grows by len(ins)
+                # (forward: target shifted; backward: origin shifted -- same sign either way, since the
+                # displacement's magnitude grows in both). The old code refused these; donor-field
+                # patching (the Mognet letter-content splice) inserts into real functions whose head
+                # guard legitimately jumps across the whole body.
                 if (j.off >= abs_ins) != (tgt >= abs_ins) and tgt != abs_ins:
-                    raise ValueError(f"insert at {abs_ins} straddles jump {j.off}->{tgt} in func {func_tag}")
-            elif j.op == 0x06:
-                raise ValueError(f"func {func_tag} has a jump table (0x06); mid-function insert "
-                                 f"unsupported (a prepend at the function start IS supported)")
+                    if j.op == 0x02:                        # unsigned forward-only
+                        newraw = raw + len(ins)
+                        if newraw > 0xFFFF:
+                            raise ValueError(f"insert at {abs_ins}: fixed jump {j.off}->{tgt} "
+                                             f"overflows the u16 displacement")
+                    else:                                   # signed: forward grows +, backward grows -
+                        disp = raw - 0x10000 if raw >= 0x8000 else raw
+                        disp += len(ins) if tgt > abs_ins else -len(ins)
+                        if not -0x8000 <= disp <= 0x7FFF:
+                            raise ValueError(f"insert at {abs_ins}: fixed jump {j.off}->{tgt} "
+                                             f"overflows the i16 displacement")
+                        newraw = disp & 0xFFFF
+                    # the displacement i16 sits at j.off+1 (jump ops carry no argflag byte); the site
+                    # itself shifts when the jump's own origin is at/after the insert point
+                    site = j.off + 1 + (len(ins) if j.off >= abs_ins else 0)
+                    table_fixups.append((site, newraw))
+            elif j.op in (0x06, 0x0B, 0x0D):
+                # A jump TABLE straddled by the insert is FIXABLE (unlike an ordinary straddling jump,
+                # which is refused above as ambiguous intent): every reloffset is unsigned forward-only
+                # (engine EBin.cs; decode_switch is validated 100% boundary-aligned over all 5563
+                # shipping switches), so a table whose anchor sits BEFORE the insert point simply grows
+                # each reloffset whose target lands at/after it by len(ins). A target EXACTLY at
+                # abs_ins keeps the ordinary-jump convergence semantics (it flows into the inserted
+                # fragment first) and stays unchanged -- that is precisely how a guarded arm is
+                # spliced into a switch's convergence point (the Mognet letter-content donor patch).
+                info = decode_switch(j)
+                if info is None:
+                    raise ValueError(f"func {func_tag} has a jump table (op {j.op:#x}) with non-immediate "
+                                     f"operands; mid-function insert unsupported")
+                anchor = j.off + (4 if j.op == 0x06 else (2 if j.op == 0x0D else 1))
+                if anchor >= abs_ins:
+                    continue                                # whole table shifts as a block; offsets stay valid
+                # operand k's u16 sits at j.off + 2 + 2k (flat 2-byte operands after op + count byte).
+                # 0x06: reloffsets are operand 0 (default) + operands 2, 4, ... (each pair's second);
+                # 0x0B/0x0D: operand 0 is the selector base -> reloffsets are operands 1..end.
+                n_ops = len(j.args)
+                rel_idx = ([0] + [2 + 2 * k for k in range((n_ops - 1) // 2)]) if j.op == 0x06 \
+                    else list(range(1, n_ops))
+                for k in rel_idx:
+                    tgt = anchor + j.args[k]
+                    if tgt > abs_ins:                       # target shifts, anchor doesn't -> grow the offset
+                        table_fixups.append((j.off + 2 + 2 * k, j.args[k] + len(ins)))
     out = bytearray(insert_bytes(data, abs_ins, bytes(ins)))   # grows entry + later entries; fpos NOT fixed
+    for off, val in table_fixups:                           # sites already adjusted for the shift where the
+        set_u16(out, off, val)                              # owning instruction sits at/after abs_ins
     so = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
     es = ENTRY_TABLE_OFF + u16(out, so)
     fc = out[es + 1]

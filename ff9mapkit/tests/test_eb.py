@@ -173,20 +173,30 @@ def test_prepend_into_jump_table_field_preserves_table():
     assert eb1.to_bytes() == out                                     # round-trips
 
 
-def test_mid_function_insert_into_jump_table_still_raises():
-    """A genuine MID-function insert into a 0x06 jump-table function is still refused (its case offsets can't
-    be analysed) -- only the boundary prepend is proven safe."""
+def test_mid_function_insert_into_jump_table_now_fixes_it():
+    """A MID-function insert into a 0x06 jump-table function is no longer refused: the case offsets ARE
+    analysable (disasm.decode_switch, validated over all 5563 shipping switches), so the insert either
+    shifts the table wholesale (insert before it) or grows the crossing reloffsets (insert past its
+    anchor) -- the Mognet donor-fork patches splice through real jump tables this way (2026-07-22).
+    Here the insert lands BEFORE the table: it must shift as a block, every edge intact."""
     raw = _eb_with_op06()
-    with pytest.raises(ValueError, match="jump table"):
-        edit.insert_in_function(raw, 0, 0, 3, bytes([0x00]))         # rel_off 3 = after Wait(5), before op_06
+    table = bytes([0x06, 0x02, 0x7A, 0x00, 0xD0, 0x07, 0x06, 0x00, 0xDD, 0x07, 0x08, 0x00])
+    assert raw.find(table) != -1                                     # the fixture really has the table
+    patched = edit.insert_in_function(raw, 0, 0, 3, bytes([0x00]))   # rel_off 3 = after Wait(5), before op_06
+    assert len(patched) == len(raw) + 1
+    # the table sits AFTER the insert point -> it shifts wholesale with every operand byte UNCHANGED
+    # (offsets are anchor-relative; anchor and targets moved together)
+    assert patched.find(table) == raw.find(table) + 1
 
 
-def test_insert_in_function_straddle_check_reads_jmp_ifnot_unsigned():
+def test_insert_in_function_straddle_fix_reads_jmp_ifnot_unsigned():
     """Engine truth (disasm.jump_target / relative_jumps): JMP_IFNOT (0x02) reads its 2-byte immediate
     UNSIGNED, forward-only -- so a raw >= 0x8000 is a legitimate far-forward skip, not a backward signed
-    offset. insert_in_function's own inline straddle scan must agree, or a raw >= 0x8000 JMP_IFNOT lets a
-    straddling insert through uncaught (silently corrupting the .eb). Self-contained (mirrors
-    _eb_with_op06) so it runs without install data."""
+    offset. insert_in_function's straddle handling (now a FIX, not a refusal -- 2026-07-22) must agree:
+    read UNSIGNED, the target is far FORWARD past the insert, so the displacement grows by len(ins).
+    A signed misread would call the target backward (same side as the origin) and leave the
+    displacement untouched -- exactly what this pins against. Self-contained (mirrors _eb_with_op06)
+    so it runs without install data."""
     code = bytes([
         0x02, 0x00, 0x80,   # +0: JMP_IFNOT raw=0x8000 (unsigned) -> real target = end(+3) + 0x8000, far forward
         0x00,               # +3: NOP filler -- a valid mid-function insert point, after the jump
@@ -195,8 +205,9 @@ def test_insert_in_function_straddle_check_reads_jmp_ifnot_unsigned():
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code  # type, funcCount=1, (tag0, fpos=4), code
     slot = struct.pack("<HHBBH", 8, len(entry), 0, 0, 0)           # off=8 (after the 1-slot table), size
     raw = b"EV" + bytes([0x00, 1]) + bytes(0x2C - 4) + bytes(84) + slot + entry
-    with pytest.raises(ValueError, match="straddles jump"):
-        edit.insert_in_function(raw, 0, 0, 4, bytes([0xAA]))
+    patched = edit.insert_in_function(raw, 0, 0, 4, bytes([0xAA]))
+    j = patched.find(bytes([0x02]))                                # the JMP_IFNOT survives at its offset
+    assert struct.unpack_from("<H", patched, j + 1)[0] == 0x8001   # unsigned displacement grew by len(ins)
 
 
 def test_encoders_known_bytes():
