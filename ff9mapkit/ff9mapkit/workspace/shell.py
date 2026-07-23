@@ -66,6 +66,12 @@ from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 _LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
+_THUMB_QUIET_MS = 600                              # thumb workers stay paused this long after an open settles
+_THUMB_QUIET_STARTUP_MS = 3000                     # the CONSTRUCTION hold's grace: main()'s show()/
+                                                   # processEvents()/update-flow window pumps timer events
+                                                   # BEFORE restore_last_session, so a short grace released
+                                                   # the workers into the restore (measured: 0.9s -> 1.7s);
+                                                   # any open re-arms down to the short grace anyway
 _DEFAULT_CONSOLE_SPLIT = [560, 220]                # [documents, console] px when nothing is persisted
 _DEFAULT_CENTRAL_SPLIT = [300, 640, 240]           # [tree, documents, inspector] px when nothing is persisted
 
@@ -557,6 +563,11 @@ class Workspace(QMainWindow):
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
         self.thumbs.ready.connect(self._on_thumb_ready)
+        # HOLD both workers before any tab can enqueue a build (ModelsDoc's construction-time refill
+        # queues its top-of-list batch RIGHT NOW on a cold cache), with the LONG startup grace: main()
+        # pumps events (show/update-flow) before restore_last_session, so a short grace would release
+        # the workers into the restore. The restore's own open re-arms down to the short grace.
+        self._thumbs_quiet(ms=_THUMB_QUIET_STARTUP_MS)
         self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
         self._thumb_rerender.setSingleShot(True)
         self._thumb_rerender.setInterval(250)
@@ -2319,6 +2330,7 @@ class Workspace(QMainWindow):
         you drill into any campaign to edit it (the journey stays remembered)."""
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()
         path = Path(path)
         try:
@@ -3628,6 +3640,7 @@ class Workspace(QMainWindow):
         can be edited directly. Mirrors the tkinter editor opening a lone file."""
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         self.thumbs.invalidate()                   # same-named fields across projects (see open_campaign)
         path = Path(path)
@@ -3736,6 +3749,7 @@ class Workspace(QMainWindow):
     def open_campaign(self, path, *, keep_journey=False) -> bool:
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         self.thumbs.invalidate()                   # member NAMES recur across projects (same-FBG forks) --
         path = Path(path)                          # never show the previous project's art; re-resolution is
@@ -7541,6 +7555,31 @@ class Workspace(QMainWindow):
             except Exception:   # noqa: BLE001  (no install / no UnityPy) -> the picker shows no songs
                 pass
         threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
+
+    def _thumbs_quiet(self, ms=_THUMB_QUIET_MS):
+        """Pause BOTH thumb workers' builds until the current GUI-thread interval settles (a single-shot
+        timer releases them ``ms`` after the event loop next idles -- it cannot fire while an open still
+        runs, because opens are synchronous on the GUI thread). The cold-cache sibling of the a13acf8
+        startup fix: requests still answer warm cache hits instantly and cold members still QUEUE, but
+        the workers' UnityPy import + bundle loads no longer race a journey/campaign open for the GIL
+        (measured: a ~0.9s warm open inflated to ~3-4s cold). Called at construction (with the long
+        startup grace -- see ``_THUMB_QUIET_STARTUP_MS``) and at the top of every project open;
+        re-arming while already held replaces the remaining grace with ``ms``."""
+        t = getattr(self, "_thumb_quiet_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._thumbs_resume)
+            self._thumb_quiet_timer = t
+        if not t.isActive():                       # one hold per armed timer -- timeout releases it
+            self.thumbs.hold()
+            self.model_thumbs.hold()
+        t.setInterval(ms)
+        t.start()                                  # (re)arm: every open gets the full settle grace
+
+    def _thumbs_resume(self):
+        self.thumbs.release()
+        self.model_thumbs.release()
 
     def _prefetch_thumbs(self):
         """Request every open member's background thumbnail. Warm disk answers land in-memory INSTANTLY

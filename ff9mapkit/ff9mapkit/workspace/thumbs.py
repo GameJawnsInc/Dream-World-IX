@@ -164,10 +164,33 @@ class ThumbService(QObject):
         self._gen = 0                            # bumped by invalidate(): in-flight results older than the
         self._lock = threading.Lock()            # bump are DROPPED (they may have read pre-refresh art)
         self._worker = None
+        self._holds = 0                          # hold()/release() depth -- builds pause while > 0
+        self._gate = threading.Event()           # cleared while held; _drain blocks on it between builds
+        self._gate.set()
 
     # ---- GUI-thread API ----
     def cached(self, member) -> str | None:
         return self._done.get(member)
+
+    def hold(self):
+        """Pause BUILDS (counted -- pair with :meth:`release`). While held, request() still answers warm
+        cache hits instantly and still enqueues cold members, but the worker neither starts nor picks up
+        the next build -- so a long GUI-thread interval (a journey/campaign open) is not taxed for the
+        GIL by UnityPy/PIL work on this thread. An already-IN-FLIGHT build finishes (bounded: one)."""
+        with self._lock:
+            self._holds += 1
+            self._gate.clear()
+
+    def release(self):
+        """Undo one hold(); at depth 0 resume builds, starting the worker if requests queued meanwhile.
+        A hold with no matching release parks the queue forever -- callers pair via a timer they own."""
+        with self._lock:
+            self._holds = max(0, self._holds - 1)
+            if self._holds == 0:
+                self._gate.set()
+                if self._worker is None and not self._q.empty():
+                    self._worker = threading.Thread(target=self._drain, name="ff9-thumbs", daemon=True)
+                    self._worker.start()
 
     def request(self, member, project_toml, real_id) -> str | None:
         """The cached path (instant) or None; a None ENQUEUES a background build unless it's a known miss."""
@@ -190,7 +213,7 @@ class ThumbService(QObject):
                 return None
             self._pending.add(member)
             self._q.put((member, str(project_toml) if project_toml else None, real_id))
-            if self._worker is None:
+            if self._worker is None and self._holds == 0:   # held: release() starts the worker instead
                 self._worker = threading.Thread(target=self._drain, name="ff9-thumbs", daemon=True)
                 self._worker.start()
         return None
@@ -221,8 +244,9 @@ class ThumbService(QObject):
                         self._worker = None       # published before death -> the next request starts fresh
                         return
                 continue                          # a put landed in the gap -> keep draining
-            with self._lock:
-                gen = self._gen
+            self._gate.wait()                     # held (a project open in progress) -> pause between
+            with self._lock:                      # builds; gen snapshots AFTER the wait, so an invalidate
+                gen = self._gen                   # during the pause still yields a fresh-enough build
             try:
                 png = build_thumb(toml, real_id)
             except Exception:   # noqa: BLE001  (no install / bad art / anything) -> a remembered miss
@@ -265,9 +289,32 @@ class ModelThumbService(QObject):
         self._gen = 0
         self._lock = threading.Lock()
         self._worker = None
+        self._holds = 0                          # hold()/release() depth -- builds pause while > 0
+        self._gate = threading.Event()           # cleared while held; _drain blocks on it between builds
+        self._gate.set()
         self._ctx = {}                           # p0data bundle cache; touched ONLY by the worker thread
 
     # ---- GUI-thread API ----
+    def hold(self):
+        """Pause RENDERS (counted -- same contract as :meth:`ThumbService.hold`). The one that matters
+        most here: the Models tab enqueues its top-of-list batch at Workspace CONSTRUCTION, so on a cold
+        cache the first render's UnityPy import + p0data bundle loads (~2s of GIL-heavy work) used to
+        race the startup journey open and inflate it ~3x."""
+        with self._lock:
+            self._holds += 1
+            self._gate.clear()
+
+    def release(self):
+        """Undo one hold(); at depth 0 resume renders (same contract as :meth:`ThumbService.release`)."""
+        with self._lock:
+            self._holds = max(0, self._holds - 1)
+            if self._holds == 0:
+                self._gate.set()
+                if self._worker is None and not self._q.empty():
+                    self._worker = threading.Thread(target=self._drain, name="ff9-model-thumbs",
+                                                    daemon=True)
+                    self._worker.start()
+
     def cached(self, name) -> str | None:
         """The ready preview path -- in-memory, or the WARM DISK cache (one stat, memoized both ways).
         Without the disk read, every prior session's renders re-queued through the worker before a
@@ -299,7 +346,7 @@ class ModelThumbService(QObject):
                 return None
             self._pending.add(name)
             self._q.put(name)
-            if self._worker is None:
+            if self._worker is None and self._holds == 0:   # held: release() starts the worker instead
                 self._worker = threading.Thread(target=self._drain, name="ff9-model-thumbs", daemon=True)
                 self._worker.start()
         return None
@@ -329,7 +376,8 @@ class ModelThumbService(QObject):
                         self._worker = None
                         return
                 continue
-            with self._lock:
+            self._gate.wait()                     # held (a project open in progress) -> pause between
+            with self._lock:                      # renders; gen snapshots AFTER the wait (see ThumbService)
                 gen = self._gen
             try:
                 png = build_model_thumb(name, self._ctx)
