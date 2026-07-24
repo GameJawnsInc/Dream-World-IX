@@ -360,19 +360,19 @@ def test_m1b_byte_identity_acceptance(tmp_path):
 
 def test_revert_script_survives_hostile_plan_values(tmp_path):
     """The reverttmpl hardening class (44fcf794): a plan value containing triple quotes or
-    backslash-quote soup must not break out of the generated revert script's code."""
+    backslash-quote soup must not break out of the generated revert script's code. (Windows
+    can't create such paths, so the hostile value is injected at the plan seam directly --
+    the TEMPLATE's codegen is what's under test.)"""
+    import json as _json
     from ff9mapkit.summons.deploy import _Ledger
 
-    led = _Ledger()
-    hostile = tmp_path / 'evil """ dir \\" x' / "victim.txt"
-    hostile.parent.mkdir(parents=True)
-    hostile.write_text("hi", encoding="utf-8")
-    led.record_created(hostile)
+    led = _Ledger(tmp_path / "bk")
+    hostile = r'C:\evil """ dir \" x\victim.txt'
+    led.files.append((hostile, None))
     script_path = led.write_revert_script(tmp_path, "hostile")
     src = script_path.read_text(encoding="utf-8")
     compile(src, str(script_path), "exec")  # must be valid Python despite the hostile value
-    import json as _json
-    lit = src.split("PLAN = json.loads(", 1)[1]
-    # the injected literal is a repr'd str; eval of just that literal is safe + must round-trip
-    plan = _json.loads(eval(lit[: lit.rindex(")")]))
-    assert str(hostile) in [f for f, _ in plan["files"]]
+    # the injected literal is a single-line repr'd str; eval just that literal and round-trip it
+    line = src.split("PLAN = json.loads(", 1)[1].splitlines()[0]
+    plan = _json.loads(eval(line[: line.rindex(")")]))
+    assert hostile in [f for f, _ in plan["files"]]
