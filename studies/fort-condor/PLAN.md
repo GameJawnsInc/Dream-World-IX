@@ -1,18 +1,29 @@
 # Fort Condor in FF9 — a real-time lane-defense minigame (study)
 
-> **⏸ PAUSED 2026-07-24 (owner call) — resumes on the BEHAVIOR-TREE `.eb` substrate.**
-> The owner opened a separate session to build a behavior-tree `.eb` implementation;
-> Fort Condor resumes AFTER it lands and REBASES unit AI on it (the hand-rolled referee
-> has been converging on a BT interpreter one playtest at a time — playtests 4/5/9/10
-> each grew it another node type). State at pause: rungs 0-2 ★ CLOSED; rung 3
-> placement/economy ★ PROVEN in-game (button menu anywhere / gil / spawn-at-feet /
-> recruits fight); **OPEN BUG (playtest 11): after the mutual-combat rework, dueling
-> units "just stare at each other"** — suspects: (a) mutual 30-frame damage ticks with
-> ZERO swing theater may read as staring even while working (duels now last 3+ silent
-> seconds), (b) a referee-rewrite regression in the resets-before-dispatch interplay.
-> Undiagnosed — first task on resume (or moot if the BT rebase replaces the layer).
-> The bench stays DEPLOYED on 30400 (revert: `tools/scroll_out/revert_deploy_30400.py`;
-> rebuild: `swarm_bench.py gen` + `deploy`). The recruit button = SELECT (the ATE key).
+> **▶ THE MIGRATION IS DONE (2026-07-24) — unit AI now runs on the behavior-tree
+> compiler.** The behavior-trees study completed its ladder (rungs 0-4 all ★, incl. the
+> `[behavior]` TOML product surface — `studies/behavior-trees/PLAN.md`,
+> `docs/BEHAVIOR.md`), and this study's bench is REBASED on it: `swarm_bench.py` now
+> emits the whole bench (the 40-chaser tier swarm + the rung-2 skirmish, playtest-6
+> staging preserved, MUTUAL duels) as `[behavior]` TOML and deploys via plain
+> `deploy_field` — **the ~500-line hand-rolled referee/fight/patch machinery is
+> DELETED; the compiler subsumes it** (proven by the behavior study's regression bench
+> 30411 and the BTRAID showcase parity). Deployed on 30400; ⚠ THE MIGRATION PARITY
+> PLAYTEST IS PENDING (the deploy printout lists the 3 checks; one intended change:
+> chasers RING the player at the compiler's 140u standoff instead of stacking into a
+> point). **Removed with the referee, by design:** (a) the rung-3 placement/economy
+> LAYER — its mechanisms (SPECIAL-button poller / gil purchase via `B_SYSVAR[6]` +
+> RemoveGil / runtime `InitObject` + `MoveInstantEx` spawn-at-feet, all ★ in-game
+> proven, recipes in the rung-3 entry below) return as COMPILER VOCABULARY
+> (pooled/runtime-ACTIVATED units — the v1 compiler forbids `requires_flag` on units,
+> so a hire-pool needs a new activation lane); (b) playtest 11's staring-duel bug —
+> MOOT, that referee no longer exists; (c) the generic-timer probe (claim ★ proven in
+> playtest 2; rung 4 re-adds timers as wave machinery).
+> **THE RESUME LADDER (next session):** 1. the migration parity playtest → 2. pooled-
+> unit vocabulary in the compiler (runtime activation + spawn-at-feet as a behavior/kit
+> lane) → 3. placement/economy rebuilt on it (now with MUTUAL recruit combat free) →
+> 4. rung 4 waves + win/loss (below) on tree-driven units. Read
+> [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.
 
 **Goal:** emulate FFVII's Fort Condor minigame (real-time lane defense: place units for gil,
 enemy waves advance, units auto-engage, a breach falls back to a real boss battle) as an FF9
