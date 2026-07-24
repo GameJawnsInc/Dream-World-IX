@@ -164,3 +164,27 @@ Log = 1
 
 `Log=1` is deliberate for this first cast only (per the task brief) — set it back to `0` after a
 successful capture to avoid per-launch log spam on subsequent casts.
+
+## M1b CAST VERDICT — 2026-07-24 ★★ THE FAITHFUL TRANSPLANT IS IN-GAME PROVEN
+
+User, after the `--m1b-bench` recast (the overlay Thomas removed, s54 the only renderer):
+**"it works. thomas flies with the dragon's motion."** Our skinned mesh wearing a stock Eidolon's
+real per-frame skeleton + staging + camera, live in battle — the first faithful source-level summon
+transplant anywhere. ("Looks horrifying" = the chosen rigid-train-on-dragon-bones aesthetic; levers
+below.)
+
+**The deconfounded depth gate** (this cast ran under the NATIVE mask — PRIM volume halved 549k→264k,
+body prims truly absent; archive `sfxmeshprobe.20260724-103926.log`): the mid-cast phases collapsed
+to HYBRID-OK (P5→P6 and P7→P8 front/straddle 4-5%→**0%** — that content WAS body skin, the
+verifier's confound confirmed), while the entrance swirl (P1→P2 67%/67%) and the ground-reign climax
+(P8→P9 38%/28%) keep genuine effect interleave. **Final Bahamut verdict: MIXED on content — but no
+mis-layering was reported in the live cast**, so the wholesale-sort residual does not visibly bite
+for this donor at this polish bar; the native slot (M3/T2) remains the per-summon escalation if a
+future eye says otherwise.
+
+**Aesthetic levers (all cheap):** (a) re-bind Thomas at a FLIGHT pose instead of the neutral rest —
+one edit in `m1b/skin_thomas.py` (bind at e.g. clip6's mid-flap) + re-run + redeploy: whole-train
+mid-flight, chunks at rest instead; (b) any properly-articulated creature mesh skinned onto the same
+`summon-rig-ref` rig replaces Thomas with zero engine work; (c) `HideMask`/texture/material polish
+per the s46 render-rig lessons. Resting state: `--m1b-bench` deployed, s54 armed, everything hot
+except engine/ini changes.
