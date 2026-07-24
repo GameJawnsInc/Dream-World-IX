@@ -128,9 +128,21 @@ runtime tree switching beyond blackboard-driven branches.
   described" — RUNG 2 CLOSED. THE COMPILER OFFICIALLY SUBSUMES THE HAND-ROLLED
   REFEREE**; fort-condor's migration gate is OPEN, and mutual N×M combat (the condor
   rung-3 debt) ships as a free property of trees.
-- **Rung 3 — THE SHOWCASE.** A scene only the system makes writable: e.g. guards with
-  patrol shifts + an alarm behavior that regroups them + flee-at-low-HP + a captain
-  rallying — layered, interruptible, readable.
+- **Rung 3 — THE SHOWCASE (next; prep notes for the post-compaction session).** A scene
+  only the system makes writable: guards with patrol shifts + an alarm that regroups
+  them + flee-at-low-HP + a captain rallying — layered, interruptible, readable.
+  KNOWN VOCABULARY GAPS to grow first (the showcase's real purpose — stress the DSL
+  before rung 4 freezes it): (a) **a FLEE/retreat feed** (pursuit-only today; flee =
+  walk AWAY from a mirror — target = own + (own − threat) clamped, needs sign math in
+  RPN or a simpler "run to the farthest of N home points" form — decide there);
+  (b) possibly `Wander` (random-ish idle drift) — stock Code1/2 tile-loops used
+  GetRandom, exprasm has no RNG token yet (check B_SYSVAR/GetRandom's expr encoding in
+  a stock disasm first); (c) unit walk-SPEED tuning was deferred from rung 1 ("don't
+  really gain on them" — chases feel fair but escapes are slow; consider per-action
+  speed overrides). BENCH FACTS: 30410 = the five-demo bench (`bt_bench.py`),
+  30411 = the war bench (`btwar_bench.py`), both hot-reload via ~ Reload, reverts
+  `revert_deploy_3041{0,1}.py`; next free bench id = 30412; both bench scripts carry
+  the reusable lattice/discovery/txid helpers (dedupe into the kit at rung 4).
 - **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
   the GUI section as its own later round.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
