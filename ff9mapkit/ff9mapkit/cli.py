@@ -336,6 +336,16 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pursuit_extent(wmesh) -> float:
+    """The walkmesh's larger XZ extent -- the radius an UNGATED chase's pursuit family
+    spans (its quarry can be anywhere on the field)."""
+    wv = wmesh.world_verts()
+    if not wv:
+        return 0.0
+    return float(max(max(v[0] for v in wv) - min(v[0] for v in wv),
+                     max(v[2] for v in wv) - min(v[2] for v in wv)))
+
+
 def _cmd_behavior(args: argparse.Namespace) -> int:
     """behavior compile|lint|view <field.toml> -- the [behavior] tree surface, offline.
 
@@ -345,7 +355,10 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     walkability SWEEP of every route a patrol/march/flee references (the layout
     probe's sweep -- a leg that leaves the mesh stalls its walker in-game); a
     route="auto" patrol/march is judged on its ROUTED line (what the build compiles)
-    and each auto-routed leg is reported as such, not as a jam. view: compile, then
+    and each auto-routed leg is reported as such, not as a jam. lint also sweeps the
+    DYNAMIC feeds (chase/wander), which have no authored line to route: for each it
+    tests the family of pursuit legs its branch's own near radius admits and warns
+    with the blocked fraction + the worst position pair. view: compile, then
     disassemble every generated body (the ticker, each duty walk, each dispatch/nudge
     function) -- the bytecode the trees became."""
     from . import build as _build
@@ -425,6 +438,43 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
                 warnings.append('hint: patrol/march accept route = "auto" -- the build '
                                 're-routes jammed legs through the walkmesh pathfinder '
                                 '(clear legs stay as authored)')
+            # THE PURSUIT SWEEP: chase/wander have no authored line to route (their
+            # target is a runtime position -- the Path-B study), so sweep the FAMILY of
+            # legs each branch's own engagement gate admits. WARNINGS only: a dynamic
+            # jam is probabilistic (it needs the quarry to stand on a bad spot), unlike
+            # a static route's off-mesh leg, which jams every lap.
+            extent = _pursuit_extent(wmesh)
+            pursuit_hint = False
+            pseen = set()
+            for ref in BT.pursuit_refs(raw):
+                radius = ref["radius"]
+                ungated = radius is None
+                if ungated:
+                    radius = extent            # no near gate -> the whole field
+                dk = (ref["verb"], radius, ref["standoff"], ref["source_box"],
+                      ref["target_box"])
+                if dk in pseen:
+                    continue                   # identical families (the raid's twin
+                pseen.add(dk)                  # guards) report once
+                res = _routes.sweep_pursuit(wmesh, radius, standoff=ref["standoff"],
+                                            bedges=bedges,
+                                            source_box=ref["source_box"],
+                                            target_box=ref["target_box"])
+                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
+                         f"branch #{ref['bi']})")
+                if ungated:
+                    label += " [UNGATED: no near/any_near row bounds this target, so the "
+                    label += f"family is the whole field ({extent:.0f}u)]"
+                probs = _routes.describe_pursuit_problems(label, res)
+                warnings += probs
+                if probs and res["blocked"]:
+                    pursuit_hint = True
+            if pursuit_hint:
+                warnings.append('hint: a dynamic chase cannot be auto-routed (no '
+                                'build-time leg origin) -- tighten the branch\'s near '
+                                'radius so it engages only where the line is clear, or '
+                                'add a march route = "auto" approach leg and chase from '
+                                'close range')
         for p in problems:
             print(f"error: {p}")
         for w in warnings:

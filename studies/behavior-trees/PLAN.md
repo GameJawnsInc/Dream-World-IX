@@ -412,12 +412,32 @@ runtime tree switching beyond blackboard-driven branches.
   natural head of any future "real data structures in `.eb`" rung. Prove it on
   something far simpler than a roadmap first.
 
-  **WHAT IS WORTH DOING INSTEAD (cheap, offline, no runtime cost):** the
-  decomposition is a build-time artifact, so `behavior lint` can WARN when a
-  `chase`/`wander` target area is not straight-line reachable from the unit's post
-  and hint a `march`/`patrol` `route = "auto"` approach leg — the Path-A cure
-  applied to the Path-B symptom, using `pathb/roadmap.py` as written. Not built
-  here (it is a separate scoped change), but it is the residual worth carrying.
+  **WHAT WAS DONE INSTEAD — THE PURSUIT SWEEP (★ BUILT 2026-07-24, offline, no
+  runtime cost).** The Path-A cure applied to the Path-B symptom: `behavior lint`
+  now sweeps the dynamic feeds as well. The insight is §6's — a chase has no
+  authored line, but its branch's own `near` radius bounds a knowable FAMILY of
+  lines, and the jam rate is a function of that radius. `scene.routes.sweep_pursuit`
+  tests every pair of OCCUPIABLE positions inside the compiler's Chebyshev box
+  (standoff pairs excluded, legs truncated at the standoff ring) and reports the
+  blocked fraction + worst pairs as coordinates; `behaviortoml.pursuit_refs` reads
+  the binding radius from the TIGHTEST `near`/`any_near` row naming the target
+  (branch rows are ANDed), maps `near_point` to a source box, models `wander` as its
+  own box at twice the radius, and flags a chase no row bounds as **UNGATED**.
+  Warnings, never errors (a dynamic jam needs the quarry to stand on a bad spot).
+  Calibration held across the four benches that carry a `[behavior]` table: silent on
+  BTROUTE (patrol-only), **5.1%** on the raid's 900u guard chase, 3.4%/2.0% on the
+  pool bench, and the swarm's 40 chases flagged UNGATED. (BTREE/BTWAR predate the TOML
+  surface and have no table to lint.) Two FALSE-CLEAN bugs were caught by its own tests en route — sizing
+  the sampling off an ungated radius instead of off the floor that exists (a ~4000u
+  endpoint grid on a 1600u mesh), and picking endpoints by `gi % stride == 0`, a
+  modulus on ABSOLUTE grid indices that can match no cell at all; both reported "0
+  pairs tested" as CLEAN, the worst possible answer for a lint. Sources are now
+  BUCKETED and every sizing decision is clamped to the occupiable extent; the leg
+  grain is pinned at the collision radius and the sampling spacing is always printed
+  (the rate is a floor, not a ceiling). 16 tests, suite 4923 green.
+  ⚠ Noted, NOT touched (pre-existing, out of this scope): `autoroute_plan` takes
+  **~44s** on the 60-unit swarm bench, which dominates both `behavior lint` and
+  every deploy of that field — the pursuit sweep itself is ~0.2s.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,
