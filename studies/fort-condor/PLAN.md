@@ -1,5 +1,19 @@
 # Fort Condor in FF9 — a real-time lane-defense minigame (study)
 
+> **⏸ PAUSED 2026-07-24 (owner call) — resumes on the BEHAVIOR-TREE `.eb` substrate.**
+> The owner opened a separate session to build a behavior-tree `.eb` implementation;
+> Fort Condor resumes AFTER it lands and REBASES unit AI on it (the hand-rolled referee
+> has been converging on a BT interpreter one playtest at a time — playtests 4/5/9/10
+> each grew it another node type). State at pause: rungs 0-2 ★ CLOSED; rung 3
+> placement/economy ★ PROVEN in-game (button menu anywhere / gil / spawn-at-feet /
+> recruits fight); **OPEN BUG (playtest 11): after the mutual-combat rework, dueling
+> units "just stare at each other"** — suspects: (a) mutual 30-frame damage ticks with
+> ZERO swing theater may read as staring even while working (duels now last 3+ silent
+> seconds), (b) a referee-rewrite regression in the resets-before-dispatch interplay.
+> Undiagnosed — first task on resume (or moot if the BT rebase replaces the layer).
+> The bench stays DEPLOYED on 30400 (revert: `tools/scroll_out/revert_deploy_30400.py`;
+> rebuild: `swarm_bench.py gen` + `deploy`). The recruit button = SELECT (the ATE key).
+
 **Goal:** emulate FFVII's Fort Condor minigame (real-time lane defense: place units for gil,
 enemy waves advance, units auto-engage, a breach falls back to a real boss battle) as an FF9
 field minigame built with ff9mapkit. Learn-first mandate: every mechanic gets grounded in
