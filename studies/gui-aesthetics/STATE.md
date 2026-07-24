@@ -1,5 +1,85 @@
 # GUI aesthetics — state + next steps
 
+> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ⚠ PLAYTEST PENDING
+>
+> **The weak area is named in the brief's own loudest law:** *"One change per in-game test. When a build
+> breaks, we need to know which edit did it."* — and **nothing in the toolkit could answer *which edit*.**
+> The deploy path already records a successful deploy's target, id, destination and revertibility, but only
+> in memory (`_proc_done`), so the moment you keep editing, "what is in the game" is something you hold in
+> your head. Obeying the project's hardest process rule was a memory exercise.
+>
+> One mechanism — a **parsed project snapshot taken at deploy time** — three surfaces: a status-bar **drift
+> chip** (`game: in sync` / `game: 3 ahead`), a **change list** (Ctrl-K → "What changed since my last
+> deploy?"), and the **law itself** stated in the tooltip/dialog once there is more than one change under a
+> test. New: `editor/tomldiff.py` (pure), `editor/deploysnap.py`, `gui_snap console:*`→ plus `drift:*`.
+>
+> **NO NEW MODAL, and that was a constraint rather than a preference.** The obvious home for a
+> one-change-per-test warning is an F9 confirm — but **ASK #1 deliberately removed exactly that confirm**
+> ("make F9 a true one-key loop"), so putting one back would undo a ratified decision. An always-visible
+> chip costs zero clicks and says it earlier.
+>
+> **★ THE DESIGN'S REAL CONTENT IS ARRAY IDENTITY.** A field.toml is mostly arrays of tables (~38 kinds).
+> Matched by INDEX, deleting `[[npc]]` #0 reports *"npc[0] changed, npc[1] changed, npc[2] removed"* — three
+> rows for one edit, a text diff wearing a schema's clothes. Matched by identity it reports one removal.
+> **The first design was an ordered list of candidate key fields, and the corpus killed it:** measured over
+> every kit toml in the repo it missed `requires_flag` (the only thing separating two gateways to the same
+> field) and `give_folklore` (five events distinguished only by their payload) — *because a gating list rots,
+> and this kit grows a new block most weeks.* The fix inverts it: **every field present on every entry is
+> ELIGIBLE; the preference list only RANKS what already works; the smallest unique key wins.** Census: 27 kit
+> tomls / 34 array kinds / 41 multi-entry arrays → **37 of 41 identified (90.2%), zero ambiguity**, and the
+> only remainder is `cutscene.steps` — an ordered script, where **a beat's identity IS its position** and
+> index is the right answer. Composite keys were measured too and rescue exactly one case (`edge` → to+from).
+>
+> **The key is derived from the UNION of both sides**, because the same census found `gateway` keyed by `to`
+> in one file and `requires_flag` in another: a key unique on the old side can collide on the new one.
+>
+> **Two truths, deliberately not conflated** — the snapshot records **disk** (what the subprocess actually
+> deployed), the live count reads the **open doc** (what you are looking at, unsaved edits included).
+> Conflating them either hides unsaved work from the count or records edits that never reached the game. And
+> the capture happens **at launch, not on success**: a build takes seconds, and a save landing mid-run would
+> otherwise be recorded as "already deployed" — the very edit under test would vanish from the next compare.
+>
+> **Why not a text diff, fenced rather than asserted:** the kit's serializer preserves neither comments nor
+> key order (its contract is round-trip *value* equality), so the first GUI save of a hand-written toml
+> rewrites the document. `test_a_text_diff_would_report_a_rewrite_where_this_reports_nothing` measures both
+> halves — **>20 changed text lines, zero changed meaning.** And **not a rollback**: this repo has git and
+> its owner uses it; the scarce thing at a playtest is attention, not storage.
+>
+> **Defects found by driving it, not reading it:**
+> 1. **A multi-file diff lost its file prefix on array rows** — `_label` rebuilt the string from the array's
+>    own name and discarded every parent segment. `Change.file` is now separate from `Change.where`, which
+>    also lets the UI **group rows by member** (a campaign's changes read per room).
+> 2. **The last job… er, the last FILE's final character was chopped** — `end - 1` drops the newline that
+>    belongs to the next file's header, and the last one has no such newline. Measured on a traceback's
+>    closing quote.
+> 3. **`QMessageBox(self).exec()` is an INSTANCE, not a static** — gui_snap's static stubs could not see the
+>    unsaved-changes prompt, so `drift:ahead` (which deliberately leaves unsaved edits) hung the harness with
+>    **no output at all**. `faulthandler.dump_traceback_later` is the tool for a silent hang; the guard now
+>    stubs both kinds, to **Discard** (a snap must never *write* the user's project).
+> 4. **I broke the shared harness with a one-line env var.** Redirecting the snapshot cache via
+>    `FF9MAPKIT_DATA` also redirects **`provision.data_dir()` — the templates dir** — so every surface's
+>    template lookup pointed at an empty directory and the first snap hung. **One knob, two meanings:** the
+>    redirect is now scoped to `deploysnap.snap_dir` alone.
+> 5. **The chip reported "in sync" about a project the user had just closed** — it was keyed on the Build
+>    tab's path box, which *deliberately* survives a close (round 10 persists the destination). Gated on the
+>    same `_current_target()` predicate Home's guide uses.
+> 6. **`setProperty("mono", True)` on a QListWidget styles nothing** — style.py's rule is
+>    `QLabel[mono="true"], QLineEdit[mono="true"]`. Dropped rather than extended: the rows are a dotted path
+>    *and* a line of dialogue at once, and the kit's own DICTION rule is "mono on a sentence reads as a bug".
+> 7. **The list is a `QListWidget`, not a `QPlainTextEdit`** — because `fit_dialog` sizes a populated list
+>    from real content while a text box's sizeHint is a fixed ~256×192 whatever is in it. The first cut opened
+>    **368px tall for three rows**; using the mechanism that already exists also bought keyboard nav and
+>    per-row tooltips carrying the unelided values.
+>
+> **And one of my own fences tested the wrong `except` clause:** the "never load-bearing" check used a NUL
+> byte in the path, which raises `ValueError`, not `OSError` — a situation no machine is ever in. The code was
+> right (the project's convention, stated in `deploylog.py`, is to swallow *filesystem* errors only, because
+> "a silent swallow of a TypeError is how a guard rots"); **the unrealistic failure mechanism was the bug.**
+> Re-fenced with a file sitting where the directory should be.
+>
+> All three sabotage runs (index matching / ignore `from_disk` / drop the open-project gate) go red on exactly
+> the right fences. Suite **4229** (+35 new). ⚠ Nothing here has been seen in the running app by a human.
+
 > ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ⚠ PLAYTEST PENDING
 >
 > **The weak area, stated precisely: there was no find ANYWHERE in this app.** `Ctrl+F` was unbound

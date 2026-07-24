@@ -17,7 +17,9 @@ import html
 import os
 import sys
 import threading
+import contextlib
 import time
+import tomllib
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
@@ -40,9 +42,11 @@ from .. import provision
 from .. import save as _save
 from .. import update_check
 from ..editor import breadcrumb as bc
+from ..editor import deploysnap
 from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
+from ..editor import tomldiff
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from .battledoc import BattleDoc
@@ -584,6 +588,7 @@ class Workspace(QMainWindow):
         self._build_console()
         self.statusBar().showMessage("Open a journey, campaign, or field to begin.")
         self._build_mode_chip()
+        self._build_drift_chip()
         self._build_version_label()
         self._restore_layout()                     # window/splitters/console from last session (best-effort)
 
@@ -617,6 +622,225 @@ class Workspace(QMainWindow):
             if guided else
             "Beginner mode: Full — every field and expert drawer is shown. Click to change in Preferences.")
         chip.setAccessibleName("Beginner mode: " + ("Guided" if guided else "Full"))
+
+    # ---- the DRIFT chip: is what I am looking at what the game is running? ----
+    def _build_drift_chip(self):
+        """A quiet status-bar chip answering the question the brief's loudest law depends on.
+
+        *"One change per in-game test. When a build breaks, we need to know which edit did it."* -- and until
+        now nothing in the toolkit could say WHICH edit, so obeying it meant holding the list in your head
+        across an edit session. This chip carries the count; clicking it lists them.
+
+        NO NEW MODAL, deliberately. The obvious placement for a one-change-per-test warning is a confirm on
+        F9 -- but ASK #1 removed exactly that confirm on purpose ("make F9 a true one-key loop"), so putting
+        one back would undo a ratified decision. An always-visible chip costs zero clicks and says the same
+        thing earlier. Same tier/keyboard treatment as the mode chip beside it.
+        """
+        self.drift_chip = QToolButton()
+        self.drift_chip.setObjectName("modeChip")          # the quiet chip tier, already styled + dial-proof
+        self.drift_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.drift_chip.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.drift_chip.clicked.connect(self._open_drift)
+        self.statusBar().addPermanentWidget(self.drift_chip)
+        # Recomputing means parsing the project's tomls, and the edit funnel (_refresh_dirty_marks) is
+        # documented as "free to call per keystroke" -- so the chip is coalesced behind a timer rather than
+        # computed inline. Same shape as the find bar's restat timer.
+        self._drift_timer = QTimer(self)
+        self._drift_timer.setSingleShot(True)
+        self._drift_timer.setInterval(350)
+        self._drift_timer.timeout.connect(self._refresh_drift_chip)
+        self._drift_snapshot = None                        # cached snapshot payload for the open project
+        self._refresh_drift_chip()
+
+    def _drift_files(self, *, from_disk=False):
+        """``{label: parsed_toml}`` for the current deploy target -- the project's own comparable content.
+
+        ``from_disk`` picks WHICH truth: the snapshot taken at deploy time must record what was DEPLOYED (the
+        bytes on disk that the subprocess read), while the live comparison must reflect what the user is
+        LOOKING at (the open doc's in-memory data, unsaved edits included). Those differ, and conflating them
+        would either hide unsaved work from the count or record edits that never reached the game.
+        """
+        t = self._deploy_target()
+        if not t:
+            return {}
+        target = Path(t)
+        out = {}
+
+        def parse(path, label):
+            if not from_disk:
+                for m, doc in getattr(self, "_docs", {}).items():         # prefer the LIVE doc when open
+                    if getattr(doc, "path", None) and Path(doc.path) == path:
+                        out[label] = doc.data
+                        return
+            try:
+                out[label] = tomllib.loads(path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                pass                       # an unreadable member is simply absent -- never a crash here
+        parse(target, target.name)
+        # A campaign's edits live in its MEMBER field.tomls, so a campaign snapshot that covered only
+        # campaign.toml would report "no changes" after a day of editing rooms. `member_paths` is the shell's
+        # own name -> path map, already built on open.
+        if self.plan is not None and self.campaign_path is not None:
+            for name, p in sorted(getattr(self, "member_paths", {}).items()):
+                with contextlib.suppress(OSError):
+                    parse(Path(p), f"{name}")
+        return out
+
+    def _drift_changes(self):
+        """``(snapshot, changes)`` for the open project. ``snapshot`` is None before its first deploy.
+
+        GATED ON SOMETHING BEING OPEN, via the same ``_current_target()`` predicate Home's guide uses -- not on
+        the Build tab's path box. Closing a project deliberately LEAVES that box set (round 10 persists the
+        destination choice), so a chip keyed on it alone went on reporting "in sync" about a project the user
+        had just closed. The chip describes what you have open; nothing open, nothing to say.
+        """
+        if self._current_target()[0] is None:
+            return None, []
+        t = self._deploy_target()
+        if not t:
+            return None, []
+        if self._drift_snapshot is None or self._drift_snapshot.get("project") != str(t):
+            self._drift_snapshot = deploysnap.read(t) or {"project": str(t), "absent": True}
+        snap = self._drift_snapshot
+        if snap.get("absent"):
+            return None, []
+        return snap, deploysnap.changes(snap, self._drift_files())
+
+    def _drift_reset(self):
+        """A different project is open: the cached snapshot describes the old one. Drop it and re-read."""
+        self._drift_snapshot = None
+        self._refresh_drift_chip()
+
+    def _refresh_drift_chip(self):
+        """Re-label the chip from the live state. Hidden entirely when it has nothing true to say."""
+        chip = getattr(self, "drift_chip", None)
+        if chip is None:
+            return
+        try:
+            snap, changes = self._drift_changes()
+        except Exception:                                  # noqa: BLE001 -- diagnostics must never break the UI
+            chip.setVisible(False)
+            return
+        if snap is None:
+            # No project open, or this one has never been deployed from here. There is no drift to report and
+            # a chip reading "0 changes" would imply the game is running something. THE GOES-AWAY LAW.
+            chip.setVisible(False)
+            return
+        chip.setVisible(True)
+        n = len(changes)
+        ago = deploysnap.age_str(snap)
+        if not n:
+            chip.setText("game: in sync")
+            chip.setToolTip(f"The project matches what you deployed {ago}. Click for details.")
+        else:
+            chip.setText(f"game: {n} ahead")
+            law = ("" if n == 1 else
+                   "  ⚠ More than one change is under this test — if it breaks, you will not know which edit "
+                   "did it.")
+            chip.setToolTip(f"{tomldiff.summarize(changes)} since the deploy {ago}."
+                            f"{law}  Click to list them.")
+        chip.setAccessibleName(f"Changes since the last deploy: {tomldiff.summarize(changes)}")
+
+    def _note_drift(self):
+        """Ask for a chip refresh (coalesced). Safe to call per keystroke."""
+        if getattr(self, "_drift_timer", None) is not None:
+            self._drift_timer.start()
+
+    def _open_drift(self):
+        """The change list: what is different between this project and the last thing you deployed."""
+        snap, changes = self._drift_changes()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Since your last deploy")
+        lay = QVBoxLayout(dlg)
+        if snap is None:
+            lay.addWidget(widgets.role_label(
+                "Nothing has been deployed from this project yet, so there is nothing to compare against.\n"
+                "Deploy once (F9) and this will list every edit you make afterwards.", "body"))
+        else:
+            head = widgets.role_label(tomldiff.summarize(changes) + f" since the deploy {deploysnap.age_str(snap)}",
+                                      "head")
+            lay.addWidget(head)
+            where = snap.get("dest")
+            now = self.build_deploy.deploy_dest_key() if getattr(self, "build_deploy", None) else None
+            sub = f"That deploy went to {self._dest_phrase(where)}."
+            if where and now and list(now) != list(where):
+                # The snapshot is keyed by PROJECT, not by destination (see deploysnap.write) -- so say it
+                # plainly rather than silently comparing across two different places.
+                sub += f"  You are now aimed at {self._dest_phrase(now)}."
+            lay.addWidget(widgets.caption(sub))
+            if len(changes) > 1:
+                lay.addWidget(widgets.notice(
+                    "More than one change is under this test. If it breaks, you will not know which edit did "
+                    "it — the project's own rule is one change per in-game test.", kind="warn"))
+            # A LIST, not a QPlainTextEdit, and that is fit_dialog's OWN mechanism rather than a new one:
+            # it sizes a populated QListWidget from real content (longest row, up to `list_rows`), while a
+            # text box's sizeHint is a fixed ~256x192 whatever is in it -- which is exactly why the first
+            # cut opened 368px tall for three rows. The list also brings keyboard navigation and a per-row
+            # tooltip carrying the UNELIDED values for free.
+            box = PlaceholderListWidget("The project matches what is deployed.", self.pal["muted"])
+            # NO mono property here, and the first cut's was a silent no-op anyway: style.py's rule is
+            # `QLabel[mono="true"], QLineEdit[mono="true"]` -- setting it on a QListWidget styles nothing.
+            # Proportional is also the RIGHT call by the kit's own DICTION rule (widgets.kv: mono is for
+            # machine tokens, never prose, because "mono on a sentence reads as a bug"). These rows are both
+            # at once -- a dotted path AND a line of dialogue -- so the prose half wins.
+            box.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+            last = None
+            for c in changes:
+                if c.file and c.file != last:              # GROUP by file: a campaign's rows read per room
+                    hdr = QListWidgetItem(c.file)
+                    hdr.setFlags(Qt.ItemFlag.NoItemFlags)  # a heading is not a row you can pick
+                    hf = hdr.font()
+                    hf.setBold(True)
+                    hdr.setFont(hf)
+                    box.addItem(hdr)
+                    last = c.file
+                it = QListWidgetItem(("   " if c.file else "") + c.render(with_file=False))
+                if c.kind == tomldiff.CHANGED:             # the full values, unelided, on hover
+                    it.setToolTip(f"was: {c.old!r}\nnow: {c.new!r}")
+                box.addItem(it)
+            lay.addWidget(box, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=86, lines=max(4, min(len(changes) + 2, 20)))
+        dlg.exec()
+
+    def _capture_deploy_snapshot(self):
+        """Called when a deploy LAUNCHES: remember what is being deployed, from disk.
+
+        AT LAUNCH, NOT ON SUCCESS. A build takes seconds and the user keeps working -- read the files after
+        the subprocess returns and a save landed mid-run would be recorded as "already deployed", so the very
+        edit under test would vanish from the next comparison. Captured here, promoted only if it succeeded.
+        """
+        t = self._deploy_target()
+        self._pending_snapshot = (t, self._drift_files(from_disk=True)) if t else None
+
+    def _commit_deploy_snapshot(self):
+        """A deploy SUCCEEDED: promote the pending capture, so "since the last deploy" now means this one."""
+        pend = getattr(self, "_pending_snapshot", None)
+        self._pending_snapshot = None
+        if not pend or not pend[1]:
+            return
+        t, files = pend
+        bd = getattr(self, "build_deploy", None)
+        deploysnap.write(t, files, dest=bd.deploy_dest_key() if bd is not None else None,
+                         field_id=getattr(self, "_deployed_field_id", None))
+        self._drift_snapshot = None                        # force a re-read on the next chip refresh
+        self._refresh_drift_chip()
+
+    _DEST_PHRASE = {"test": "the shared test slot", "install": "your game (Install to game)",
+                    "inplace": "in place, over its donor", "own": "its own field id",
+                    "campaign": "a campaign deploy", "journey": "a journey deploy", "battle": "a battle deploy"}
+
+    def _dest_phrase(self, dest) -> str:
+        """A deploy destination as English. ``deploy_dest_key()`` returns a tuple whose first element is the
+        kind and whose second (when present) is the donor/id -- readable to the code, not to a reader."""
+        if not dest:
+            return "an unknown destination"
+        head = str(dest[0])
+        tail = next((str(x) for x in list(dest)[1:] if x not in (None, "")), "")
+        return self._DEST_PHRASE.get(head, head) + (f" ({tail})" if tail else "")
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -2553,6 +2777,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._fork_queue = []                      # a fresh journey -> no stale fork chain can re-drain
         self._reset_history()
@@ -3221,6 +3446,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._reset_history()
         self.tree.clear()
@@ -3864,6 +4090,7 @@ class Workspace(QMainWindow):
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
         self._touched = set()                      # fresh open -> nothing in-progress
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # same-named member as a prior project -> don't reuse its map
         self._reset_history()                      # a different file -> drop the old undo history
         self._seed_undo_base(name)
@@ -3975,6 +4202,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member NAMES recur across projects (same-FBG forks)
         self._reset_history()                      # a different campaign -> drop the old undo history
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
@@ -4356,6 +4584,7 @@ class Workspace(QMainWindow):
         self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
         self._refresh_spine()                          # dirty state feeds the cohesion spine's next action
+        self._note_drift()                             # ...and the status-bar drift chip (coalesced)
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -4644,6 +4873,7 @@ class Workspace(QMainWindow):
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
             ("Fork FF9 regions…", "command", self._fork_ff9_regions),
+            ("What changed since my last deploy?", "command", self._open_drift),
             ("Find in Output (Ctrl+F)", "command", lambda: self._open_find()),
             ("Copy the last job's output", "command", self._copy_last_job),
             ("Undo", "command", self._undo),
@@ -8546,6 +8776,10 @@ class Workspace(QMainWindow):
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
         # Clear button still exists for when you actually want it.
+        # A deploy's project state is captured HERE, at launch, from disk -- see _capture_deploy_snapshot
+        # for why on-success would be wrong. Same subject test _proc_done's success branch uses.
+        if "deploy" in subject.lower() or "install to game" in subject.lower():
+            self._capture_deploy_snapshot()
         stamp = time.strftime("%H:%M:%S")
         head = f"[{stamp}] {subject}"
         # ...and THAT accumulation is what the Jobs menu indexes. Recorded here, at the one site that writes a
@@ -8691,6 +8925,7 @@ class Workspace(QMainWindow):
             bd = getattr(self, "build_deploy", None)
             self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
             self._deployed_revertible = bool(bd is not None and bd.revert_available())
+            self._commit_deploy_snapshot()                  # "since the last deploy" now means THIS deploy
             first_ever = not prefs.has_deployed()           # read BEFORE the latch below eats the fact
             prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
