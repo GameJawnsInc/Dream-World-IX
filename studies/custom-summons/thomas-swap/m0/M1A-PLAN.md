@@ -412,3 +412,26 @@ motionless in world space) visibly changes apparent size/position/framing as the
 his effects (swirl/charge/fire column/beam) render normally around the static model. **FAILURE** — Thomas
 stays pixel-static through a cut that visibly reframes the arena/background (camera inheritance isn't
 free after all), or renders through a visibly different, non-cinematic camera pass entirely.
+
+## M1a CAST READOUT — 2026-07-24 ★ CAMERA INHERITANCE PROVEN IN-GAME
+
+The user deployed `--m1a` and cast. Report: *"thomas not follow at all... back to like 10% screen
+time"* — **that IS the world-fixed success signature, now measured**: projecting the M1a static point
+(132.5, 511.5, −1568) through the cast's own logged managed VIEW·PROJ predicts the point visible on
+**3.3%** of camera frames (one window, f383–401; archived log
+`C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-085556.log`) — the observed ~10% is the
+same signature widened by the model's physical extent. The FAILURE mode (screen-glued model, no
+camera inheritance) predicts **100%** screen time and is decisively ruled out. **The hybrid's core
+premise — a managed object rides the native per-frame camera — is in-game proven.**
+
+**The depth-gate half did NOT deconfound, and now we know why for certain:** the body-hidden cast's
+gate table is IDENTICAL to the body-visible one (P8→P9 39/28/69 exact; in-band medians 621–1464
+prims/frame) and the raw PRIM volume barely moved (549,216 vs 548,045) — behavioral proof of the
+round-2 trace (CAST-PROTOCOL §4a): **the managed `HideMeshes=` suppresses only the final
+`DrawMeshNow`, never primitive generation/logging.** The FRONT-class body-skin confound therefore
+survives every `.seq`-level cast; the unconfounded depth verdict requires the NATIVE mask
+(`SummonData+0x20`) — i.e. **the depth decision folds into M1b (s54 `HideNative`)**. Standing
+verdict stays NATIVE-LEANING-BUT-UNPROVEN (DEPTH-GATE.md VERIFICATION).
+
+Bench restored to v10.1 (`build_thomas.py`, live manifest sha 87140e02 re-verified) — the resting
+state until the s54 go/no-go.
