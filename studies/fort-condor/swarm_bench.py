@@ -95,8 +95,11 @@ POOL_GUARD_FLAG = 8849                      # never set — [[npc]] requires_fla
 PLACED_FLAGS = [8850, 8851, 8852, 8853]     # GLOB Bit per recruit: deployed
 DEAD_FLAGS = [8846, 8847]                   # GLOB Bit per attacker: die-dispatch latched (harass kills)
 ATTACKER_DIE_TAG = 16                       # added attacker function: TerminateEntry
+ATTACKER_VS_RECRUIT_TAGS = [17, 18, 19, 20]  # attacker fight fns vs recruit 0-3 (MUTUAL combat)
 RECRUIT_FIGHT_TAGS = [15, 16]               # recruit fight vs attacker A / attacker B
 RECRUIT_STATE = [1140, 1141, 1142, 1143]    # GLOB Byte: 0 free / 1 fighting A / 2 fighting B
+# STATE_BYTES (per attacker, playtest-10 mutual-combat rework): 0 free / 1 dueling the
+# lane defender / 2+r dueling recruit r — ONE duel at a time, other contacts queue.
 RECRUIT_HP = [1136, 1137, 1138, 1139]       # preset 3 (untargeted in v1 — harass is one-sided)
 RECRUIT_TIMER = [1194, 1195, 1196, 1197]
 RECRUIT_POST_X = [1146, 1150, 1154, 1158]   # Int16 pairs: where the recruit was placed
@@ -394,26 +397,26 @@ def poller_body(choice_uid: int, recruit_slots: list[int]) -> bytes:
 
 def referee_body(attackers: list[int], defenders: list[int],
                  posts: list[tuple[int, int]], recruits: list[int]) -> bytes:
-    """The conductor: per frame (armed only) — mirror living units' positions into GLOB
-    Int16s (HP-gated obj() reads, the only place unit objects are referenced), dispatch
-    both lane units into their tag-15 FIGHT at contact (RunScriptAsync level 4 — field
-    574's exact walking-actor redirect idiom), reset the lane state when a fight ends,
-    and feed each defender's walk target (enemy mirror inside ACQUIRE_R, else its post).
-    Rung 3 adds: recruit mirrors (PLACED-gated — an unspawned pool entry is a dead uid),
-    the attacker HARASS-DEATH sweep (a recruit's one-sided chip can zero an attacker
-    OUTSIDE any fight of its own, so nobody would run its TerminateEntry — the referee
-    latches DEAD_FLAGS and dispatches the added die tag at level 5; gated on
-    lane_state==0 so an attacker in its OWN fight dies by its own fight fn, never a REQ
-    on a maybe-terminated object), and per-recruit dispatch/reset/target-feed (state 0
-    free / 1 fighting A / 2 fighting B; feed priority A-then-B inside ACQUIRE_R, else
-    the placement post)."""
+    """The conductor: per frame (armed only) — position mirrors into GLOB Int16s (the
+    ONLY place unit objects are referenced; gated alive, and for recruits placed+alive),
+    fight dispatch (RunScriptAsync level 4 — field 574's walking-actor redirect idiom),
+    engagement bookkeeping, the death sweep, and walk-target feeds.
+
+    MUTUAL COMBAT (playtest 10 — one-sided harass read as "the Fang ignores the
+    soldiers"): every contact dispatches BOTH sides. Per-attacker state = 0 free / 1
+    dueling its lane defender / 2+r dueling recruit r — one duel at a time; extra
+    contacts queue until the state resets (either party dead). Recruits are MORTAL now:
+    their mirrors/dispatch gate on placed AND alive (a dead recruit is a dead uid — the
+    firewall extends), and their pool slot stays consumed (casualties do not respawn;
+    ~ Reload resets everything). The death sweep (level-5 die tag, state==0-gated so a
+    unit in its own fight dies by its own fn) covers kills landed outside a duel."""
     uids = [attackers[0], defenders[0], attackers[1], defenders[1]]
     blocks: list = [
         ("label", "top"),
         expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
         (JMP_IFNOT, "wait"),
     ]
-    for u, uid in enumerate(uids):                          # position mirrors
+    for u, uid in enumerate(uids):                          # lane-unit position mirrors
         blocks += [
             expr_stmt(f"Global.Byte[{HP_BYTES[u]}] const(0) B_GT B_EXPR_END"),
             (JMP_IFNOT, f"skip_mirror{u}"),
@@ -421,33 +424,122 @@ def referee_body(attackers: list[int], defenders: list[int],
             expr_stmt(f"Global.Int16[{MIRROR_Z[u]}] obj(uid={uid}).f[2] B_LET B_EXPR_END"),
             ("label", f"skip_mirror{u}"),
         ]
+    for r, uid in enumerate(recruits):                      # recruit mirrors: placed AND alive
+        blocks += [
+            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+            (JMP_IFNOT, f"rskipm{r}"),
+            expr_stmt(f"Global.Byte[{RECRUIT_HP[r]}] const(0) B_GT B_EXPR_END"),
+            (JMP_IFNOT, f"rskipm{r}"),
+            expr_stmt(f"Global.Int16[{RECRUIT_MIR_X[r]}] obj(uid={uid}).f[0] B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_MIR_Z[r]}] obj(uid={uid}).f[2] B_LET B_EXPR_END"),
+            ("label", f"rskipm{r}"),
+        ]
+    # ---- engagement RESETS (before dispatch, so a freed unit can re-engage same frame) ----
     for lane in (0, 1):
-        a, d = lane * 2, lane * 2 + 1                       # unit indices in HP/mirror order
-        ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
-        dx, dz = f"Global.Int16[{MIRROR_X[d]}]", f"Global.Int16[{MIRROR_Z[d]}]"
-        alive_a = f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT"
-        alive_d = f"Global.Byte[{HP_BYTES[d]}] const(0) B_GT"
-        blocks += [                                         # contact -> dispatch the fight
+        a = lane * 2
+        st = f"Global.Byte[{STATE_BYTES[lane]}]"
+        blocks += [                                         # lane duel over?
+            expr_stmt(f"{st} const(1) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"lrst{lane}"),
+            expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT "
+                      f"Global.Byte[{HP_BYTES[a + 1]}] const(0) B_GT B_ANDAND B_EXPR_END"),
+            (JMP_IF, f"lrst{lane}"),
+            set_byte_stmt(STATE_BYTES[lane], 0),
+            ("label", f"lrst{lane}"),
+        ]
+        for r in range(len(recruits)):                      # recruit duel over?
+            blocks += [
+                expr_stmt(f"{st} const({2 + r}) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"arst{lane}_{r}"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT "
+                          f"Global.Byte[{RECRUIT_HP[r]}] const(0) B_GT B_ANDAND B_EXPR_END"),
+                (JMP_IF, f"arst{lane}_{r}"),
+                set_byte_stmt(STATE_BYTES[lane], 0),
+                ("label", f"arst{lane}_{r}"),
+            ]
+    for r in range(len(recruits)):
+        st = f"Global.Byte[{RECRUIT_STATE[r]}]"
+        blocks += [                                         # recruit dead -> state 0
+            expr_stmt(f"Global.Byte[{RECRUIT_HP[r]}] const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"rrstd{r}"),
+            set_byte_stmt(RECRUIT_STATE[r], 0),
+            ("label", f"rrstd{r}"),
+        ]
+        for lane in (0, 1):                                 # its attacker dead -> state 0
+            blocks += [
+                expr_stmt(f"{st} const({lane + 1}) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rrst{r}_{lane}"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[lane * 2]}] const(0) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rrst{r}_{lane}"),
+                set_byte_stmt(RECRUIT_STATE[r], 0),
+                ("label", f"rrst{r}_{lane}"),
+            ]
+    # ---- the death sweep (kills landed outside the victim own fight) ----
+    for lane in (0, 1):
+        blocks += [
+            expr_stmt(f"Global.Byte[{HP_BYTES[lane * 2]}] const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"adie{lane}"),
+            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] B_EXPR_END"),
+            (JMP_IF, f"adie{lane}"),
             expr_stmt(f"Global.Byte[{STATE_BYTES[lane]}] const(0) B_EQ B_EXPR_END"),
-            (JMP_IFNOT, f"endfight{lane}"),
-            expr_stmt(f"{alive_a} {alive_d} B_ANDAND B_EXPR_END"),
-            (JMP_IFNOT, f"feed{lane}"),
+            (JMP_IFNOT, f"adie{lane}"),                     # in a duel: its own fn owns death
+            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] const(1) B_LET B_EXPR_END"),
+            opcodes.run_script_async(5, attackers[lane], ATTACKER_DIE_TAG),
+            ("label", f"adie{lane}"),
+        ]
+    # ---- fight DISPATCH: lane duels first, then recruit duels ----
+    for lane in (0, 1):
+        a = lane * 2
+        st = f"Global.Byte[{STATE_BYTES[lane]}]"
+        ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
+        dx, dz = f"Global.Int16[{MIRROR_X[a + 1]}]", f"Global.Int16[{MIRROR_Z[a + 1]}]"
+        blocks += [
+            expr_stmt(f"{st} const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"ldisp{lane}"),
+            expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT "
+                      f"Global.Byte[{HP_BYTES[a + 1]}] const(0) B_GT B_ANDAND B_EXPR_END"),
+            (JMP_IFNOT, f"ldisp{lane}"),
             _box_check(ax, az, dx, dz, CONTACT_R),
-            (JMP_IFNOT, f"feed{lane}"),
+            (JMP_IFNOT, f"ldisp{lane}"),
             set_byte_stmt(STATE_BYTES[lane], 1),
             opcodes.run_script_async(4, attackers[lane], FIGHT_TAG),
             opcodes.run_script_async(4, defenders[lane], FIGHT_TAG),
-            (JMP, f"feed{lane}"),
-            ("label", f"endfight{lane}"),                   # state==1: fight over on a death
-            expr_stmt(f"{alive_a} {alive_d} B_ANDAND B_EXPR_END"),
-            (JMP_IF, f"feed{lane}"),
-            set_byte_stmt(STATE_BYTES[lane], 0),
-            ("label", f"feed{lane}"),                       # defender walk-target feed
+            ("label", f"ldisp{lane}"),
+        ]
+        for r in range(len(recruits)):
+            rx = f"Global.Int16[{RECRUIT_MIR_X[r]}]"
+            rz = f"Global.Int16[{RECRUIT_MIR_Z[r]}]"
+            blocks += [
+                expr_stmt(f"{st} const(0) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rdisp{lane}_{r}"),
+                expr_stmt(f"Global.Byte[{RECRUIT_STATE[r]}] const(0) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rdisp{lane}_{r}"),
+                expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+                (JMP_IFNOT, f"rdisp{lane}_{r}"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT "
+                          f"Global.Byte[{RECRUIT_HP[r]}] const(0) B_GT B_ANDAND B_EXPR_END"),
+                (JMP_IFNOT, f"rdisp{lane}_{r}"),
+                _box_check(rx, rz, ax, az, CONTACT_R),
+                (JMP_IFNOT, f"rdisp{lane}_{r}"),
+                set_byte_stmt(STATE_BYTES[lane], 2 + r),
+                set_byte_stmt(RECRUIT_STATE[r], lane + 1),
+                opcodes.run_script_async(4, attackers[lane], ATTACKER_VS_RECRUIT_TAGS[r]),
+                opcodes.run_script_async(4, recruits[r], RECRUIT_FIGHT_TAGS[lane]),
+                ("label", f"rdisp{lane}_{r}"),
+            ]
+    # ---- walk-target feeds ----
+    for lane in (0, 1):
+        a = lane * 2
+        ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
+        alive_a = f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT"
+        alive_d = f"Global.Byte[{HP_BYTES[a + 1]}] const(0) B_GT"
+        blocks += [
             expr_stmt(f"{alive_d} B_EXPR_END"),
             (JMP_IFNOT, f"done{lane}"),
             expr_stmt(f"{alive_a} B_EXPR_END"),
             (JMP_IFNOT, f"post{lane}"),
-            _box_check(ax, az, dx, dz, ACQUIRE_R),
+            _box_check(ax, az, f"Global.Int16[{MIRROR_X[a + 1]}]",
+                       f"Global.Int16[{MIRROR_Z[a + 1]}]", ACQUIRE_R),
             (JMP_IFNOT, f"post{lane}"),
             expr_stmt(f"Global.Int16[{TARGET_X[lane]}] {ax} B_LET B_EXPR_END"),
             expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] {az} B_LET B_EXPR_END"),
@@ -457,70 +549,15 @@ def referee_body(attackers: list[int], defenders: list[int],
             expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] const({posts[lane][1]}) B_LET B_EXPR_END"),
             ("label", f"done{lane}"),
         ]
-    # ---- rung 3: recruit mirrors (PLACED-gated) ----
-    for r, uid in enumerate(recruits):
-        blocks += [
-            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
-            (JMP_IFNOT, f"rskipm{r}"),
-            expr_stmt(f"Global.Int16[{RECRUIT_MIR_X[r]}] obj(uid={uid}).f[0] B_LET B_EXPR_END"),
-            expr_stmt(f"Global.Int16[{RECRUIT_MIR_Z[r]}] obj(uid={uid}).f[2] B_LET B_EXPR_END"),
-            ("label", f"rskipm{r}"),
-        ]
-    # ---- rung 3: the attacker harass-death sweep ----
-    for lane in (0, 1):
-        a = lane * 2
-        blocks += [
-            expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_EQ B_EXPR_END"),
-            (JMP_IFNOT, f"adie{lane}"),
-            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] B_EXPR_END"),
-            (JMP_IF, f"adie{lane}"),
-            expr_stmt(f"Global.Byte[{STATE_BYTES[lane]}] const(0) B_EQ B_EXPR_END"),
-            (JMP_IFNOT, f"adie{lane}"),                    # in its own fight: its fn owns death
-            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] const(1) B_LET B_EXPR_END"),
-            opcodes.run_script_async(5, attackers[lane], ATTACKER_DIE_TAG),
-            ("label", f"adie{lane}"),
-        ]
-    # ---- rung 3: per-recruit dispatch / reset / target feed ----
     for r in range(len(recruits)):
         rx, rz = f"Global.Int16[{RECRUIT_MIR_X[r]}]", f"Global.Int16[{RECRUIT_MIR_Z[r]}]"
-        st = f"Global.Byte[{RECRUIT_STATE[r]}]"
         blocks += [
             expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
             (JMP_IFNOT, f"rdone{r}"),
-            expr_stmt(f"{st} const(0) B_EQ B_EXPR_END"),
-            (JMP_IFNOT, f"rreset{r}"),
-        ]
-        for lane in (0, 1):                                # dispatch vs attacker A then B
-            a = lane * 2
-            ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
-            nxt = f"rdisp{r}_{lane + 1}" if lane == 0 else f"rfeed{r}"
-            blocks += [
-                ("label", f"rdisp{r}_{lane}"),
-                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT B_EXPR_END"),
-                (JMP_IFNOT, nxt),
-                _box_check(rx, rz, ax, az, CONTACT_R),
-                (JMP_IFNOT, nxt),
-                set_byte_stmt(RECRUIT_STATE[r], lane + 1),
-                opcodes.run_script_async(4, recruits[r], RECRUIT_FIGHT_TAGS[lane]),
-                (JMP, f"rfeed{r}"),
-            ]
-        blocks += [
-            ("label", f"rdisp{r}_2"),                      # (label parity for the chain)
-            (JMP, f"rfeed{r}"),
-            ("label", f"rreset{r}"),
+            expr_stmt(f"Global.Byte[{RECRUIT_HP[r]}] const(0) B_GT B_EXPR_END"),
+            (JMP_IFNOT, f"rdone{r}"),
         ]
         for lane in (0, 1):
-            a = lane * 2
-            blocks += [
-                expr_stmt(f"{st} const({lane + 1}) B_EQ B_EXPR_END"),
-                (JMP_IFNOT, f"rrst{r}_{lane}"),
-                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_EQ B_EXPR_END"),
-                (JMP_IFNOT, f"rrst{r}_{lane}"),
-                set_byte_stmt(RECRUIT_STATE[r], 0),
-                ("label", f"rrst{r}_{lane}"),
-            ]
-        blocks += [("label", f"rfeed{r}")]
-        for lane in (0, 1):                                # feed: A then B, else post
             a = lane * 2
             ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
             nxt = f"rfeed{r}_b" if lane == 0 else f"rfeedpost{r}"
@@ -780,6 +817,10 @@ def patch_eb(data: bytes) -> bytes:
             enemy_uid=d_idx, my_hp=a_hp, enemy_hp=d_hp, my_timer=TIMER_BYTES[lane * 2]))
         out = eb_edit.add_function(out, a_idx, ATTACKER_DIE_TAG,
                                    opcodes.terminate_entry(255) + opcodes.RETURN)
+        for r, r_idx in enumerate(recruits):   # MUTUAL combat: the attacker fights back
+            out = eb_edit.add_function(out, a_idx, ATTACKER_VS_RECRUIT_TAGS[r], fight_body(
+                enemy_uid=r_idx, my_hp=a_hp, enemy_hp=RECRUIT_HP[r],
+                my_timer=TIMER_BYTES[lane * 2]))
         out = eb_edit.add_function(out, d_idx, FIGHT_TAG, fight_body(
             enemy_uid=a_idx, my_hp=d_hp, enemy_hp=a_hp, my_timer=TIMER_BYTES[lane * 2 + 1]))
     for r, r_idx in enumerate(recruits):
