@@ -25,12 +25,19 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   declarative `[[choice]]` tier lever at spawn (GLOB 8800-8803 → arm 10/20/30/40), a
   Main_Init flag-clear (=> ~ Reload resets the bench) + the generic-timer probe
   (`ChangeTimerTime(600)/ShowTimer(1)/RunTimer(1)` — the Hunt's start triplet on a custom
-  id). Every chaser also evaluates a `B_PTR(250) B_DISTANCEA` poll per frame, OR-1'd
-  truthy — poll cost rides ALL tiers constantly, so tier deltas isolate pure MOVER cost.
+  id). Each ARMED chaser also evaluates a `B_PTR(250) B_DISTANCEA` poll per frame
+  (OR-1'd truthy, consumed by a fall-through 0x02) — poll cost scales with the tier.
   En route: the carried 576 dressing includes 5 stock Mu-model objects (chaser detection
-  keys on model + the kit standby-loop signature, never model alone). NEEDS: relaunch →
-  ~ → Warp → 30400. Measure: clock visible? frame feel at each tier? chasers converge on
-  the player? Revert: `tools/scroll_out/revert_deploy_30400.py`.
+  keys on model + the kit standby-loop signature, never model alone); and playtest 1's
+  black screen minted **THE PLAYER-REF EVAL LAW** — `B_PTR`/`B_DISTANCEA` hard-cast to
+  Actor (EBin.cs:1161-73) and resolve alias 250 to the CONTROLLED object, so evaluating
+  them before a controlled Actor exists throws InvalidCast INSIDE the 0x05 eval → the
+  next 0x02 pops an EMPTY CalcStack → permanent per-frame desync (8287 log errors, stuck
+  black screen). Player-referencing expressions only ever run behind a player-alive gate
+  (stock corollary: the Hunt's 552 poller starts only after the player is staged).
+  Fix deployed same day; ⚠ playtest 2 pending (~ → Reload field — no relaunch needed).
+  Measure: clock visible? frame feel per tier? chasers converge? Revert:
+  `tools/scroll_out/revert_deploy_30400.py`.
 - **Rung 2 — TWO-LANE SKIRMISH.** One attacker marches a lane, one defender intercepts
   (chase loop, engagement radius); combat resolved script-side (HP in flags, swing anims,
   death + `TerminateEntry`) — no player battles. Proves the auto-battler core loop.

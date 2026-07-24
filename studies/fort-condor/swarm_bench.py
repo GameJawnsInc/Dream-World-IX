@@ -75,20 +75,33 @@ def clear_flag_stmt(idx: int) -> bytes:
 
 
 def arm_condition(band: int) -> bytes:
-    """(tier flag OR any higher tier) ANDAND (distance-poll term OR 1).
+    """(tier flag OR any higher tier). Flags only — NO player-referencing terms.
 
-    The distance term B_PTR(250) B_DISTANCEA (field 552 @19129's op5F/op61 pair, pointed at
-    the controlled-player alias) is evaluated EVERY frame on EVERY chaser, then forced
-    truthy with const(1) B_OR — a pure cost probe with zero behavioral reach."""
+    THE PLAYER-REF EVAL LAW (minted by this bench's first playtest, 2026-07-24): a
+    B_PTR/B_DISTANCEA expression hard-casts the resolved objects to Actor
+    (EBin.cs:1161-1173) and GetObjUID(250) resolves the CONTROLLED alias — evaluating it
+    before a controlled Actor exists throws InvalidCastException INSIDE the 0x05
+    evaluation, nothing is pushed, and the following 0x02 pops an empty CalcStack =
+    permanent per-frame desync (8287 CalcStack.pop errors, stuck black screen). Stock
+    corollary: the Hunt's DistanceWithEntry poller (552 entry 17) only STARTS after the
+    player is staged. So: player-referencing expressions only ever run behind a
+    player-alive gate — here, the armed branch (arming requires the lever = a player)."""
     toks = []
-    flags = TIER_FLAGS[band:]
-    for i, f in enumerate(flags):
+    for i, f in enumerate(TIER_FLAGS[band:]):
         toks.append(f"Global.Bit[{f}]")
         if i:
             toks.append("B_OROR")
-    toks += ["B_PTR(250)", "B_DISTANCEA", "const(32000)", "B_LT",
-             "const(1)", "B_OR", "B_ANDAND", "B_EXPR_END"]
+    toks.append("B_EXPR_END")
     return bytes([0x05]) + exprasm.assemble(" ".join(toks))
+
+
+def poll_condition() -> bytes:
+    """The DistanceWithEntry cost probe — ARMED-ONLY (see the law above). OR-1'd truthy
+    so it cannot affect behavior; its value is consumed by a 0x02 that falls through
+    either way. Poll cost therefore scales WITH the armed tier (the honest composite —
+    a real unit polls only while it exists and acts)."""
+    return bytes([0x05]) + exprasm.assemble(
+        "B_PTR(250) B_DISTANCEA const(32000) B_LT const(1) B_OR B_EXPR_END")
 
 
 # --------------------------------------------------------------- bytecode blocks
@@ -96,7 +109,10 @@ def chase_loop_body(band: int) -> bytes:
     """The per-chaser Loop (tag 1) body — the Mu chase loop generalized:
 
         top:  SetObjectFlags(7); SetWalkSpeed(50); SetPathing(1); SetWalkTurnSpeed(16)
-              if (armed) { InitWalk(); Walk(player.x, player.z) }
+              if (armed) {                       # flags only — player-safe
+                  (distance-poll, consumed)      # armed-only: player exists
+                  InitWalk(); Walk(player.x, player.z)
+              }
         wait: Wait(1); JMP top
     """
     px = exprasm.assemble("obj(uid=250).f[0] B_EXPR_END")
@@ -107,10 +123,15 @@ def chase_loop_body(band: int) -> bytes:
              + opcodes.set_walk_turn_speed(16))
     cond = arm_condition(band)
     chase = opcodes.init_walk() + opcodes.encode(OP_WALK, px, pz, arg_flags=0b11)
-    gate = bytes([JMP_IFNOT]) + struct.pack("<H", len(chase))     # skip chase when unarmed
+    poll = poll_condition()
+    # the poll's value is consumed by a fall-through-either-way 0x02 (offset 0 = its own
+    # end); OR-1 makes it always-true so the chase always runs when armed
+    poll_sink = bytes([JMP_IFNOT]) + struct.pack("<H", 0)
+    armed_block = poll + poll_sink + chase
+    gate = bytes([JMP_IFNOT]) + struct.pack("<H", len(armed_block))   # skip when unarmed
     wait = opcodes.wait(1)
-    upto = setup + cond + gate + chase + wait
-    jback = bytes([JMP]) + struct.pack("<h", -(len(upto) + 3))    # offset from instr END
+    upto = setup + cond + gate + armed_block + wait
+    jback = bytes([JMP]) + struct.pack("<h", -(len(upto) + 3))        # offset from instr END
     return upto + jback + opcodes.RETURN
 
 
