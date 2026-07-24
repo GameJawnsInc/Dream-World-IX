@@ -63,12 +63,26 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
 
 - **Per-action `speed=`** changes are visible immediately, even mid-walk — a fleeing civilian
   genuinely bolts (80) compared to her stroll (30).
-- **Walkers do not pathfind.** They walk STRAIGHT at the target and slide on contact; a convex
-  obstacle (a round monument) they slide around, but a concave notch WEDGES them. So any
+- **Walkers do not pathfind at runtime.** They walk STRAIGHT at the target and slide on contact;
+  a convex obstacle (a round monument) they slide around, but a concave notch WEDGES them. So any
   multi-point route belongs in a `[[marker]]` with `path = [[x,z], ...]` — the layout probe
   (`tools/field_layout_probe.py`) and `behavior lint` both **sweep those legs offline** and name
   the exact spot a walker would jam. Author the route once, verify it once, then reference it
   by name from `patrol` / `march`. The `laying-out-ff9-fields` skill carries the placement laws.
+- **…but `patrol` / `march` can auto-route at BUILD time.** Add `route = "auto"` to the verb and
+  any leg the sweep finds off-mesh is re-routed through the kit's walkmesh A* (the same
+  pathfinder cutscene walks use) with the detour waypoints spliced in — **clear legs stay exactly
+  as authored**, so opting in changes nothing until a leg actually jams (`patrol` routes its wrap
+  leg too, since it always cycles). `behavior lint` then judges the ROUTED line and reports each
+  auto-routed leg instead of calling it a jam. Honest limits: routing avoids **walls only** —
+  other units move, so build-time character obstacles would be stale guesses (engine collision
+  slides units past each other anyway); waypoint advancement still uses `arrive_r`, so a unit
+  turns toward the next detour point from up to that far away (the same slack hand-authored
+  routes have); and the spliced total must still fit the verb's **8-point ceiling** or the build
+  fails naming the leg — split the route or relay the jamming leg by hand. `walk_to` / `hold` /
+  `flee` can't auto-route: their walks start wherever the unit happens to be when the branch
+  selects (there is no build-time origin to route from), and spliced flee points would become
+  extra *refuges*, not waypoints.
 
 `patrol` loops its points forever; `march` walks them once and holds the last (a raid column,
 an escape run). `flee` is deliberately not vector math: you give it **refuge points in priority
@@ -139,10 +153,75 @@ Until activation the unit simply isn't there — every `active`/`near` gate in o
 already treats it as absent. (`hold_post` also works on a normal boot-spawned unit, where the
 post is just its own spawn point.)
 
+### Price and the buy-anywhere button
+
+A `[[behavior.pool]]` row adds the economy:
+
+```toml
+[[behavior.pool]]
+name = "recruits"
+price = 300                # gil gate + RemoveGil, compiled into the activation block
+button = true              # a press-SELECT-anywhere hire poller (or a PSX button mask)
+request_flag = 8848        # explicit GLOB bit (required with button; outside the
+                           # blackboard band — the parked menu below must set it)
+```
+
+`price` charges **only when a soldier actually spawns** — a request with too little gil, or
+against an empty pool, is consumed without charging (gil is real save state; a field reload
+does not refund). `button` seats a poller entry (the in-game-proven Fort-Condor shape: a
+per-frame button poll, an announce blip, then the hire menu) — author the menu as a **parked
+zone choice** (a `[[choice]]` whose zone sits far off-mesh so walking never triggers it; the
+poller dispatches it remotely) with a Hire row that does `set_flag = [<request_flag>, 1]`:
+
+```toml
+[[choice]]
+zone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]   # parked: never walked into
+prompt = "Deploy a soldier HERE for 300 gil?"
+instant = true
+  [[choice.options]]
+  text = "Hire (300 gil)"
+  reply = "Deployed!  Hold this ground!"
+  set_flag = [8848, 1]
+  [[choice.options]]
+  text = "Not now."
+```
+
+The build matches the menu to the pool by that flag (exactly one zone choice must set it) and
+wires the poller automatically. `price` also works without `button` — an NPC-talk or walk-in
+hire menu pays the same way, since the gate lives in the activation block, not the menu.
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:
 flags, HP, corpses, clocks, latches.
+
+## The clock, waves, and real battles
+
+Field-level **`timer = <seconds>`** starts FF9's own countdown HUD on entry (the Festival
+of the Hunt's clock; `~ → Reload` resets it), and two condition verbs read it:
+**`time_below = N`** / **`time_above = N`** (remaining seconds). Gate different units'
+march branches on descending bands and you have **timed waves** — the Hunt's own
+scheduling shape:
+
+```toml
+[behavior]
+timer = 180
+
+  # wave 1 marches at 2:50, wave 2 at 1:30 — same tree shape, different bands
+  [[behavior.unit.branch]]
+  when = [{ time_below = 170 }, { not_flag = "lost" }]
+  do = { march = [[x1, z1], [gx, gz]], route = "auto" }
+```
+
+**`battle = <scene id>`** fires a REAL battle (the engine's swirl, the actual fight, the
+return to the field). It is **one-shot per field load by construction** — a compiled latch
+gates the dispatch, so the reactive tree re-selecting the branch after you return can't
+re-fire it. The build automatically installs the after-battle Main_Reinit machinery (and
+the field-BGM resume) whenever a behavior compiles a battle — no `[encounter]` block
+needed. Use a **stock scene id** (the donor's own battles are the safe pick) and no
+BattlePatch line is needed either. The Fort Condor loss shape: the gate is a unit with
+`hp`; raiders `swing_at` it; its `hp_le 0` branch fires the boss battle and raises
+`"lost"`; a `time_below = 1` branch on a surviving gate announces the win.
 
 ## Limits (v1)
 

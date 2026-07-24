@@ -1948,16 +1948,22 @@ speed = 40                                     # default walk speed
 = another's) · `near` / `not_near` (`[target, r]`; target = a unit or `"player"`; Chebyshev) ·
 `near_point` / `not_near_point` (`[point, r]`) · `flag` / `not_flag` / `any_flag` · `active` /
 `not_active` (a unit lives) · `any_near` (`[[units...], r]` — the watcher idiom, actives gated) ·
-`any_active` (`[units...]`).
+`any_active` (`[units...]`) · `time_below` / `time_above` (remaining seconds on the field-level
+`timer = <seconds>` countdown HUD — timed wave bands).
 
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
 `patrol` (loops its points) / `march` (walks them ONCE and holds the last; both: a route-marker
-name or an inline point list; `arrive_r`, `speed`) · `flee` (threat; `to` = refuge points in
+name or an inline point list; `arrive_r`, `speed`, and `route = "auto"` — at build time any leg
+the walkability sweep finds off-mesh is re-routed through the walkmesh pathfinder, detours
+spliced in, clear legs untouched; walls-only, 8-point ceiling — see
+[BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
-`damage`, `interval`) · `die` · `announce` (a text line, minted into the field's `.mes`) /
-`announce_npc` (reuse that NPC's own `dialogue` line).
+`damage`, `interval`) · `die` · `battle` (a battle SCENE id — a REAL fight, one-shot per
+field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
+resume; use a stock scene = no BattlePatch) · `announce` (a text line, minted into the
+field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
 
 **Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
 through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior
@@ -1991,6 +1997,15 @@ pool = "recruits"                              # spawn-request flag index prints
   [[behavior.unit.branch]]
   do = { hold_post = true }                    # hold wherever the player placed me
 ```
+
+**Pool economy (`[[behavior.pool]]`):** `name` (a pooled unit's pool) + optional `price`
+(gil-gated hires: `RemoveGil` compiles into the activation block and charges ONLY on an
+actual spawn — broke or pool-empty consumes the request free) + optional `button = true`
+(or a PSX button-mask int): a press-anywhere hire poller. `button` requires an explicit
+`request_flag = N` (a GLOB bit outside the behavior blackboard band) and a PARKED zone
+`[[choice]]` — its zone far off-mesh, its Hire row `set_flag = [N, 1]` — which the build
+matches by that flag and the poller opens remotely. See
+[BEHAVIOR.md § Price and the buy-anywhere button](BEHAVIOR.md#price-and-the-buy-anywhere-button).
 
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 

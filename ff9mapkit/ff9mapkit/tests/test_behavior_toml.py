@@ -290,6 +290,152 @@ def test_pooled_installs_in_built_eb(tmp_path):
     assert again == plain
 
 
+# ------------------------------------------------------------------ waves + win/loss
+def test_timer_battle_toml_surface():
+    raw = {**RAW, "behavior": {**RAW["behavior"], "timer": 180, "unit": [
+        {"npc": "guard", "hp": 6, "branch": [
+            {"when": [{"flag": "lost"}], "do": {"die": True}},
+            {"when": [{"hp_le": 0}], "do": {"battle": 35}, "raise_flags": ["lost"]},
+            {"when": [{"time_below": 1}], "do": {"announce": "We held!"},
+             "raise_flags": ["won"], "once": "wincry"},
+            {"do": {"hold": "post"}},
+        ]},
+        {"npc": "beast", "hp": 4, "branch": [
+            {"when": [{"hp_le": 0}], "do": {"die": True}},
+            {"when": [{"time_below": 170}, {"not_flag": "lost"}],
+             "do": {"walk_to": "post"}},
+            {"do": {"hold": [500, 500]}},
+        ]},
+    ]}}
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"guard": 2, "beast": 3},
+                  behavior_txids={(0, 2): 700})
+    assert fb.timer == 180 and fb.has_battle_actions()
+    _verify_all(fb.compile())
+    # negatives: time cond without timer / bad battle scene / bad timer
+    bad = {**raw, "behavior": {**raw["behavior"]}}
+    del bad["behavior"]["timer"]
+    bad["behavior"] = {k: v for k, v in raw["behavior"].items() if k != "timer"}
+    assert any("needs field-level" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"], "unit": [
+        {"npc": "guard", "branch": [{"do": {"battle": "zaghnol"}},
+                                    {"do": {"hold": "post"}}]}]}}
+    assert any("battle takes a battle SCENE id" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"], "timer": 999999}}
+    assert any("timer must be" in p for p in BT.validate(bad))
+
+
+def test_battle_installs_reinit_in_built_eb(tmp_path):
+    """Product path: a [behavior] battle action makes the build install the entry-0
+    tag-10 Main_Reinit (the after-battle resume law) without any [encounter] block."""
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+
+    toml = (
+        '[field]\nid = 30002\nname = "BHW"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Hold!"\n'
+        "\n[behavior]\nwarmup = 30\ntimer = 120\n"
+        '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
+        "\n[[behavior.unit.branch]]\n"
+        'when = [{ hp_le = 0 }]\ndo = { battle = 35 }\n'
+        "\n[[behavior.unit.branch]]\n"
+        "do = { hold = [0, -300] }\n"
+    )
+    f = tmp_path / "bhw.field.toml"
+    f.write_text(toml, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    assert BLD.validate(p) == []
+    plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501})
+    eb = EbScript.from_bytes(plain)
+    assert eb.entry(0).func_by_tag(10) is not None     # the after-battle Main_Reinit
+    battle_ops = [ins for i in range(eb.entry_count) if eb.entry(i).size > 0
+                  for fn in eb.entry(i).funcs
+                  for ins in D.iter_code(plain, fn.abs_start, fn.abs_end)
+                  if ins.op == 0x2A]
+    assert len(battle_ops) == 1 and int(battle_ops[0].imm(1)) == 35
+    again = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501})
+    assert again == plain
+
+
+# ------------------------------------------------------------------ pool economy
+def test_pool_rows_parse_and_validate():
+    raw = {**POOLED_RAW, "behavior": {**POOLED_RAW["behavior"],
+                                      "pool": [{"name": "recruits", "price": 300,
+                                                "button": True, "request_flag": 8848}]},
+           "choice": [{"zone": [[9000, 9000], [9200, 9000], [9200, 8800], [9000, 8800]],
+                       "prompt": "Deploy a soldier?", "instant": True,
+                       "options": [{"text": "Hire (300 gil)", "set_flag": [8848, 1]},
+                                   {"text": "Not now."}]}]}
+    assert BT.validate(raw) == []
+    specs = BT.pool_specs(raw)
+    assert specs[0].price == 300 and specs[0].request_flag == 8848
+    assert specs[0].button == B.DEFAULT_HIRE_BUTTONS   # true -> the default mask
+    ci, n = BT.pool_menu_choice(raw, 8848)
+    assert (ci, n) == (0, 1)
+    fb = BT.build(raw, npc_slots={"pest": 2, "r0": 3, "r1": 4})
+    assert fb.pool_flags["recruits"] == 8848
+    # negatives
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "recruits", "button": True}]}}
+    assert any("request_flag" in p for p in BT.validate(bad))
+    bad = {**raw, "choice": []}                        # button but no parked menu
+    assert any("no zone [[choice]]" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "ghost", "price": 1}]}}
+    assert any("no pooled unit" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "recruits", "prize": 3}]}}
+    assert any("unknown key" in p for p in BT.validate(bad))
+
+
+def test_button_pool_installs_in_built_eb(tmp_path):
+    """Product path: price + button pool -> the poller entry is seated (RunScriptSync
+    at the parked choice's slot), RemoveGil rides the ticker, explicit request flag."""
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+
+    toml = (
+        '[field]\nid = 30001\nname = "BHE"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "r0"\npreset = "vivi"\npos = [400, -300]\ndialogue = "Hired!"\n'
+        "\n[behavior]\nwarmup = 30\n"
+        '\n[[behavior.pool]]\nname = "recruits"\nprice = 300\nbutton = true\n'
+        "request_flag = 8848\n"
+        '\n[[behavior.unit]]\nnpc = "r0"\npooled = true\npool = "recruits"\n'
+        'branch = [{ do = { hold_post = true } }]\n'
+        '\n[[choice]]\nzone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]\n'
+        'prompt = "Deploy a soldier?"\ninstant = true\n'
+        '\n[[choice.options]]\ntext = "Hire (300 gil)"\nset_flag = [8848, 1]\n'
+        '\n[[choice.options]]\ntext = "Not now."\n'
+    )
+    f = tmp_path / "bhe.field.toml"
+    f.write_text(toml, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    assert BLD.validate(p) == []
+    CT = {0: {"prompt": 502, "replies": {}}}           # the parked hire menu's txids
+    plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, choice_txids=CT)
+    eb = EbScript.from_bytes(plain)
+    gil_ops, sync_targets = 0, []
+    for i in range(eb.entry_count):
+        e = eb.entry(i)
+        if e.size <= 0:
+            continue
+        for fn in e.funcs:
+            for ins in D.iter_code(plain, fn.abs_start, fn.abs_end):
+                if ins.op == 0xCF:
+                    gil_ops += 1
+                if ins.op == 0x14:                     # RunScriptSync(level, uid, tag)
+                    sync_targets.append((int(ins.imm(0)), int(ins.imm(1)), int(ins.imm(2))))
+    assert gil_ops == 1                                # one spawn site -> one RemoveGil
+    pollers = [t for t in sync_targets if t[0] == 4 and t[2] == 3]
+    assert len(pollers) == 1                           # the poller -> the parked menu
+    choice_slot = pollers[0][1]
+    assert eb.entry(choice_slot).size > 0              # ...which is a real seated entry
+    again = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, choice_txids=CT)
+    assert again == plain
+
+
 # ------------------------------------------------------------------ the built .eb
 def test_behavior_installs_in_built_eb(tmp_path):
     """End-to-end through the PRODUCT PATH: a field.toml with a [behavior] table ->
@@ -352,3 +498,57 @@ def test_sweep_polyline_core():
     assert warns and "OFF-MESH" in warns[0]
     clean = R.sweep_polyline([(0, 0), (900, 0)], FakeMesh(), bedges=[])
     assert not clean[0]["spans"]
+
+
+def test_mesh_boundary_edges_seam_aware():
+    """Cross-floor SEAMS (disjoint per-floor vertex sets, linked by tri neighbors)
+    are NOT walls: the sweep must not warn on a clear route crossing one, while a
+    real wall still warns. The 30414/30412 phantom "passes Nu from a walkmesh
+    edge" bug: the raw one-triangle edge count called every seam a wall."""
+    from types import SimpleNamespace as NS
+
+    from ff9mapkit.scene import routes as R
+
+    # two 1000x1000 floors side by side; the x=1000 seam verts are DUPLICATED
+    # (floor A owns 0-3, floor B owns 4-7 -- the multi-floor .bgi convention)
+    verts = [(0, 0, 0), (1000, 0, 0), (1000, 0, 1000), (0, 0, 1000),
+             (1000, 0, 0), (2000, 0, 0), (2000, 0, 1000), (1000, 0, 1000)]
+    # slot k edge = SLOT_PAIRS[k] = [(0,2),(0,1),(1,2)] of the tri's local verts
+    tris = [NS(vtx=(0, 1, 2), nbr=[1, -1, 3]),    # s2=(1,2) = the seam -> T3
+            NS(vtx=(0, 2, 3), nbr=[-1, 0, -1]),
+            NS(vtx=(4, 5, 6), nbr=[3, -1, -1]),
+            NS(vtx=(4, 6, 7), nbr=[0, 2, -1])]    # s0=(4,7) = the seam -> T0
+
+    class TwoFloorMesh:
+        def world_verts(self):
+            return verts
+
+        def __init__(self):
+            self.tris = tris
+
+        def point_on_walkmesh(self, x, z):
+            return 0 if 0 <= x <= 2000 and 0 <= z <= 1000 else None
+
+    wm = TwoFloorMesh()
+    bedges = R.mesh_boundary_edges(wm)
+    assert len(bedges) == 6                        # 4 outer walls as 6 segments, NO seam
+    assert all(not (a[0] == b[0] == 1000) for a, b in bedges)   # the seam edge is gone
+    # the raw count DOES call the seam a wall -- the exact defect guarded here
+    raw = R.boundary_edges_xz(verts, [t.vtx for t in tris])
+    assert any(a[0] == b[0] == 1000 for a, b in raw)
+
+    # a mid-strip route across the seam: clear (500u from the real walls), no warning
+    legs = R.sweep_polyline([(200, 500), (1800, 500)], wm, bedges)
+    assert not R.describe_leg_problems("seam", legs)
+    assert legs[0]["minwall"] > R.WALL_CLEARANCE_W
+    # ...but the same route against raw edges would have phantom-warned
+    assert R.describe_leg_problems("seam", R.sweep_polyline([(200, 500), (1800, 500)], wm, raw))
+
+    # a real wall still warns: hugging z=0 at 30u < the 48u clearance
+    hug = R.sweep_polyline([(200, 30), (1800, 30)], wm, bedges)
+    warns = R.describe_leg_problems("hug", hug)
+    assert warns and "passes" in warns[0] and "walkmesh edge" in warns[0]
+
+    # tris without neighbor data fall back to the raw vertex-pair count
+    bare = NS(world_verts=lambda: verts, tris=[NS(vtx=t.vtx) for t in tris])
+    assert sorted(R.mesh_boundary_edges(bare)) == sorted(raw)

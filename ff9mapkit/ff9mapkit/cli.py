@@ -342,10 +342,12 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     compile: dry-compile (placeholder entry slots -- the real ones bind at build) and
     print the report: blackboard map (the ~ Flags live trace), per-unit action ids,
     public-flag indices for [[choice]] set_flag wiring. lint: the static checks plus a
-    walkability SWEEP of every route marker a patrol/march/flee references (the layout
-    probe's sweep -- a leg that leaves the mesh stalls its walker in-game). view:
-    compile, then disassemble every generated body (the ticker, each duty walk, each
-    dispatch/nudge function) -- the bytecode the trees became."""
+    walkability SWEEP of every route a patrol/march/flee references (the layout
+    probe's sweep -- a leg that leaves the mesh stalls its walker in-game); a
+    route="auto" patrol/march is judged on its ROUTED line (what the build compiles)
+    and each auto-routed leg is reported as such, not as a jam. view: compile, then
+    disassemble every generated body (the ticker, each duty walk, each dispatch/nudge
+    function) -- the bytecode the trees became."""
     from . import build as _build
     from .content import behavior as B
     from .content import behaviortoml as BT
@@ -358,41 +360,85 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         return 2
     problems = BT.validate(raw, verbatim="verbatim_eb" in raw)
 
+    wmesh = None
+    wmesh_err = None
+    try:
+        wmesh = _build.behavior_walkmesh(project)
+    except Exception as e:
+        wmesh_err = str(e)
+    plan = {}
+    plan_err = None
+    if BT.wants_autoroute(raw):
+        try:                                       # wmesh None -> the plan's own error
+            plan = BT.autoroute_plan(raw, wmesh)
+        except BT.BehaviorTomlError as e:
+            plan_err = str(e)
+
     if args.action == "lint":
         warnings = []
+        routed_lines = BT.describe_autoroute(plan, raw)
+        if plan_err:
+            problems.append(plan_err)
         mpaths = BT.marker_paths(raw)
-        wmesh = None
-        try:
-            from .scene import bgi as _bgi
-            wm_cfg = raw.get("walkmesh", {}) or {}
-            ref = wm_cfg.get("bgi") or wm_cfg.get("reference")
-            wm_bytes = (project.path(ref).read_bytes() if ref
-                        else _build.resolve_walkmesh(project, _build.resolve_cameras(project)[0]))
-            wmesh = _bgi.BgiWalkmesh.from_bytes(wm_bytes)
-        except Exception as e:
-            warnings.append(f"(no walkmesh resolved -- route sweeps skipped: {e})")
-        if wmesh is not None:
+        if wmesh is None:
+            warnings.append(f"(no walkmesh resolved -- route sweeps skipped: {wmesh_err})")
+        else:
             from .scene import routes as _routes
             bedges = _routes.mesh_boundary_edges(wmesh)
-            for name in sorted(BT.route_names(raw)):
-                if name not in mpaths:
-                    continue                       # unknown-marker errors come from validate
-                pts, closed = mpaths[name]
+            positions = BT._npc_marker_positions(raw)
+            seen = set()
+            jam_hint = False
+            for ref in BT.movement_route_refs(raw):
+                # sweep what the walker actually walks: patrol always CYCLES (wrap leg
+                # included), march never does; flee keeps the marker's own closed flag
+                # (threat-gone retargets make any refuge pair a plausible leg)
+                key = (ref["ui"], ref["bi"])
+                if ref["autoroute"] and key in plan:
+                    pts = plan[key]["points"]      # the ROUTED line is what compiles --
+                    closed = ref["verb"] == "patrol"   # lint judges it, not the authored one
+                    name = f"{ref['verb']} {BT._route_label(ref['value'])} ({ref['unit']!r})"
+                elif ref["autoroute"]:
+                    continue                       # plan errored -- already a problem
+                else:
+                    try:
+                        pts = BT._resolve_route(ref["value"], positions, mpaths,
+                                                ref["unit"] or "?")
+                    except BT.BehaviorTomlError:
+                        continue                   # unresolvable -> validate reported it
+                    closed = (ref["verb"] == "patrol" or
+                              (ref["verb"] == "flee" and isinstance(ref["value"], str)
+                               and mpaths.get(ref["value"], ((), False))[1]))
+                    name = (ref["value"] if isinstance(ref["value"], str)
+                            else f"{ref['unit']}#{ref['bi']} {ref['verb']}")
+                dk = (tuple(map(tuple, pts)), closed)
+                if dk in seen:
+                    continue
+                seen.add(dk)
                 legs = _routes.sweep_polyline(pts, wmesh, bedges, closed=closed)
                 probs = _routes.describe_leg_problems(name, legs)
                 offmesh = [p for p in probs if "OFF-MESH" in p]
                 problems += offmesh                # a jammed walker = an error
                 warnings += [p for p in probs if p not in offmesh]
+                if offmesh and ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
+                    jam_hint = True
+            if jam_hint:
+                warnings.append('hint: patrol/march accept route = "auto" -- the build '
+                                're-routes jammed legs through the walkmesh pathfinder '
+                                '(clear legs stay as authored)')
         for p in problems:
             print(f"error: {p}")
         for w in warnings:
             print(f"warning: {w}")
+        for r in routed_lines:
+            print(f"routed: {r}")
         if not problems and not warnings:
-            print("behavior lint: clean")
+            print("behavior lint: clean" + (" (auto-routing applied)" if routed_lines else ""))
         elif not problems:
             print("behavior lint: no errors")
         return 1 if problems else 0
 
+    if plan_err:
+        problems.append(plan_err)
     if problems:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
@@ -402,7 +448,8 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     fb = BT.build(raw, npc_slots=slots,
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
                                      if n.get("name") and "dialogue" in n},
-                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)})
+                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
+                  routed=plan)
     try:
         cb = fb.compile()
     except B.BehaviorError as e:
@@ -420,6 +467,11 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
               "never-spawned pooled unit spawns at the player):")
         for nm, idx in fb.pool_flags.items():
             print(f"  {nm} -> Global.Bit[{idx}]  (set_flag = [{idx}, 1])")
+    routed_lines = BT.describe_autoroute(plan, raw)
+    if routed_lines:
+        print('\nauto-routed legs (route = "auto"; clear legs stay as authored):')
+        for r in routed_lines:
+            print(f"  {r}")
     print(f"\nstable hash {cb.stable_hash()}  (entry slots shown are PLACEHOLDERS; "
           f"announce txids bind at build)")
     if args.action == "view":

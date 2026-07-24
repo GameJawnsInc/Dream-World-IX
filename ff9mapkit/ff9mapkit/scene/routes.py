@@ -32,9 +32,32 @@ def boundary_edges_xz(verts, tris) -> list:
 
 
 def mesh_boundary_edges(wmesh) -> list:
-    """``boundary_edges_xz`` straight from a :class:`BgiWalkmesh`."""
+    """Collision-WALL edges of a :class:`BgiWalkmesh` as ((x,z),(x,z)) world pairs.
+
+    SEAM-AWARE: an edge with a triangle neighbor across it (``t.nbr[k] >= 0``) is
+    an interior edge or a cross-floor SEAM the walker crosses freely -- the same
+    authority :meth:`BgiWalkmesh.distance_to_boundary` uses. Multi-floor meshes
+    keep DISJOINT per-floor vertex sets, so the raw exactly-one-triangle count
+    (:func:`boundary_edges_xz`) calls every seam a wall and the sweep emits
+    phantom near-edge warnings on clear routes. Falls back to the raw count for
+    meshes that carry no neighbor data."""
+    from .bgi import SLOT_PAIRS
     wv = wmesh.world_verts()
-    return boundary_edges_xz(wv, [tuple(t.vtx) for t in wmesh.tris])
+    tris = list(wmesh.tris)
+    if not all(len(getattr(t, "nbr", ()) or ()) >= 3 for t in tris):
+        return boundary_edges_xz(wv, [tuple(t.vtx) for t in tris])
+    n = len(wv)
+    edges = []
+    for t in tris:
+        for k in range(3):
+            if t.nbr[k] >= 0:                    # neighbor across this edge -> not a wall
+                continue
+            i, j = SLOT_PAIRS[k]
+            a, b = int(t.vtx[i]), int(t.vtx[j])
+            if a == b or not (0 <= a < n and 0 <= b < n):
+                continue
+            edges.append(((wv[a][0], wv[a][2]), (wv[b][0], wv[b][2])))
+    return edges
 
 
 def seg_dist_xz(px, pz, a, b) -> float:
