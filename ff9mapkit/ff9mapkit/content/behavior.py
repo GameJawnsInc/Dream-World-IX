@@ -85,6 +85,7 @@ class Blackboard:
                  flag_base: int = 8860, flag_end: int = 9080):
         self._next_byte, self._byte_end = byte_base, byte_end
         self._next_flag, self._flag_end = flag_base, flag_end
+        self.flag_band = (flag_base, flag_end)   # for EXPLICIT-index collision checks
         self._names: dict[str, tuple[str, int]] = {}
 
     def _take(self, name: str, kind: str, width: int) -> int:
@@ -339,6 +340,32 @@ class Announce(Action):
     window: int = 0
 
 
+DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
+                                         # ("Special never fires on this user's binding")
+
+
+@dataclass
+class PoolSpec:
+    """Economy/UX config for one POOL (its ``name`` matches pooled units' ``pool``).
+
+    ``price``: the activation block gains a gil gate (``B_SYSVAR[6] >= price``, the
+    inn-553 idiom) at its head and a ``RemoveGil`` at the SPAWN site — a request with
+    insufficient gil (or an empty pool) is consumed WITHOUT charging.
+    ``button``: emit a BUY-ANYWHERE POLLER entry (the rung-3 in-game-proven shape:
+    Wait(1) poll on ``const4(mask) B_KEYON`` AND usercontrol, the Hunt's announce blip,
+    then ``RunScriptSync(4, <parked choice>, 3)``; the Wait(12) debounce comes ONLY
+    after a menu round — the eaten-button lesson). A PSX button mask int, or pass
+    ``DEFAULT_HIRE_BUTTONS``.
+    ``request_flag``: an EXPLICIT GLOB bit index for this pool's spawn request instead
+    of a blackboard allocation — REQUIRED with ``button`` (the parked hire [[choice]]'s
+    row must ``set_flag`` a concrete index) and it must sit OUTSIDE the blackboard
+    flag band."""
+    name: str
+    price: int | None = None
+    button: int | None = None
+    request_flag: int | None = None
+
+
 # ------------------------------------------------------------------ unit spec
 @dataclass
 class UnitSpec:
@@ -402,7 +429,7 @@ class FieldBehavior:
     """The per-field behavior compilation unit: a roster of units + one tree each."""
 
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
-                 tick: int = 1, warmup: int = 45):
+                 tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = ()):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
@@ -454,11 +481,37 @@ class FieldBehavior:
                 self.bb.int16(f"{u.name}.px")            # the placement post (press-time pos)
                 self.bb.int16(f"{u.name}.pz")
                 self._pools.setdefault(u.pool, []).append(u.name)
+        # pool ECONOMY/UX specs (price / buy-anywhere button / explicit request flag)
+        self.pool_specs: dict[str, PoolSpec] = {}
+        for ps in pools:
+            if ps.name not in self._pools:
+                raise BehaviorError(f"[behavior] pool spec {ps.name!r}: no pooled unit "
+                                    f"declares pool = {ps.name!r}")
+            if ps.name in self.pool_specs:
+                raise BehaviorError(f"[behavior] pool spec {ps.name!r} given twice")
+            if ps.price is not None and not 0 <= int(ps.price) <= 0xFFFFFF:
+                raise BehaviorError(f"pool {ps.name!r}: price must be 0..16777215 (24-bit gil)")
+            if ps.button is not None and ps.request_flag is None:
+                raise BehaviorError(f"pool {ps.name!r}: button needs an explicit "
+                                    f"request_flag = N (the parked hire [[choice]] row "
+                                    f"must set_flag a concrete index)")
+            if ps.request_flag is not None:
+                lo, hi = self.bb.flag_band
+                if lo <= int(ps.request_flag) <= hi:
+                    raise BehaviorError(f"pool {ps.name!r}: request_flag "
+                                        f"{ps.request_flag} sits inside the behavior "
+                                        f"blackboard band {lo}-{hi} — pick one outside it")
+            self.pool_specs[ps.name] = ps
         # one spawn-request flag per pool — SET FROM OUTSIDE (a Hire [[choice]] row's
-        # set_flag); consumed by the ticker's activation block, reset on ~ Reload
+        # set_flag); consumed by the ticker's activation block, reset on ~ Reload.
+        # An explicit PoolSpec.request_flag wins over blackboard allocation.
         self.pool_flags: dict[str, int] = {}
         for pname in self._pools:
-            idx = self.bb.flag(f"pool.{pname}.spawn")
+            ps = self.pool_specs.get(pname)
+            if ps is not None and ps.request_flag is not None:
+                idx = int(ps.request_flag)
+            else:
+                idx = self.bb.flag(f"pool.{pname}.spawn")
             self.pool_flags[pname] = idx
             self._reset_flags.append(idx)
 
@@ -827,7 +880,14 @@ class FieldBehavior:
         pmz = f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}]"
         for pname, unames in self._pools.items():
             req = self.pool_flags[pname]
+            price = getattr(self.pool_specs.get(pname), "price", None)
             cd_blocks += [_stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
+            if price:
+                # the gil gate (the inn-553 idiom): broke -> consume the request,
+                # charge NOTHING (RemoveGil sits at the SPAWN site below, so an
+                # exhausted pool never charges either)
+                cd_blocks += [_stmt(f"B_SYSVAR[6] const({int(price)}) B_GE"),
+                              (JMP_IFNOT, f"pl_{pname}_done")]
             for i, un in enumerate(unames):
                 pu = self.units[un]
                 spawned = self.bb.flag(f"{un}.spawned")
@@ -836,6 +896,7 @@ class FieldBehavior:
                 nxt = f"pl_{pname}_t{i + 1}" if i + 1 < len(unames) else f"pl_{pname}_done"
                 cd_blocks += [
                     _stmt(f"Global.Bit[{spawned}]"), (JMP_IF, nxt),
+                ] + ([opcodes.remove_gil(int(price))] if price else []) + [
                     # the placement post = the press-time player position
                     _stmt(f"Global.Int16[{upx}] {pmx} B_LET"),
                     _stmt(f"Global.Int16[{upz}] {pmz} B_LET"),
@@ -874,9 +935,17 @@ class FieldBehavior:
         ticker += [label("wait"), opcodes.wait(self.tick), (JMP, "top"), opcodes.RETURN]
         pools_txt = ""
         if self._pools:
+            def _pdesc(p):
+                ps = self.pool_specs.get(p)
+                extra = ""
+                if ps is not None and ps.price:
+                    extra += f", price {ps.price} gil"
+                if ps is not None and ps.button is not None:
+                    extra += f", hire button mask 0x{ps.button:X}"
+                return (f"  {p}: spawn-request flag {self.pool_flags[p]}{extra}, "
+                        f"units [{', '.join(self._pools[p])}]")
             pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
-                + "\n".join(f"  {p}: spawn-request flag {self.pool_flags[p]}, units "
-                            f"[{', '.join(us)}]" for p, us in self._pools.items())
+                + "\n".join(_pdesc(p) for p in self._pools)
         return CompiledBehavior(
             ticker_body=asm(ticker),
             duty_bodies=duty_bodies,
@@ -1144,13 +1213,40 @@ class FieldBehavior:
             out = eb_edit.insert_in_function(out, i, 0, rel, announce)
         return out
 
-    def install(self, eb_bytes: bytes, compiled: CompiledBehavior | None = None) -> bytes:
+    def _poller_body(self, mask: int, choice_slot: int) -> bytes:
+        """The buy-anywhere BUTTON POLLER (rung-3 in-game-proven shape, verbatim):
+        poll ``const4(mask) B_KEYON AND usercontrol`` at Wait(1) — a button TRIGGER
+        lasts ONE frame, so the poll cadence must be every frame (the playtest-7
+        eaten-button lesson); on press: the Hunt's announce blip, then
+        ``RunScriptSync(4, <parked choice>, 3)`` pops the hire menu (the zone trigger
+        is bypassed — the kit dispatch body is self-contained); the Wait(12) debounce
+        runs ONLY after a menu round."""
+        return asm([
+            label("top"),
+            _stmt(f"const4({int(mask)}) B_KEYON B_SYSVAR[{STAGE_SYSVAR}] B_ANDAND"),
+            (JMP_IFNOT, "wait"),
+            opcodes.encode(0xC8, 53248, 683, 0, 128, 125),   # the Hunt's announce blip
+            opcodes.run_script_sync(DISPATCH_LEVEL, choice_slot, 3),
+            opcodes.wait(12),                                # post-menu debounce ONLY
+            (JMP, "top"),
+            label("wait"),
+            opcodes.wait(1),                                 # the stock poll cadence
+            (JMP, "top"),
+            opcodes.RETURN,
+        ])
+
+    def install(self, eb_bytes: bytes, compiled: CompiledBehavior | None = None,
+                choice_slots: dict | None = None) -> bytes:
         """Install a compiled behavior into a BUILT field's `.eb` (the generalized
         `swarm_bench.patch_eb` shape): announce the player binding (the staged-latch
         existence source), replace each unit's tag-1 with its duty body,
         `add_function` the dispatch tags, seat + activate the ticker (the coop
         inject_hold entry pattern), prepend the Main_Init reset, and gate on an eblint
-        BASELINE DIFF (pre-existing issues pass; a NEW error fails the install)."""
+        BASELINE DIFF (pre-existing issues pass; a NEW error fails the install).
+
+        ``choice_slots``: pool name -> the entry slot of that pool's PARKED hire
+        [[choice]] region — required for every pool whose spec has ``button`` (the
+        poller entry RunScriptSyncs the menu by slot)."""
         from .. import eblint
         from ..eb import edit as eb_edit
         from . import object as _object
@@ -1164,6 +1260,21 @@ class FieldBehavior:
         ticker_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + cb.ticker_body)
         out, slot = _object.seat_entry(out, ticker_entry)
         out = eb_edit.activate_block(out, opcodes.init_code(slot, 0))
+        # buy-anywhere pollers (one seated entry per button pool)
+        for pname, ps in self.pool_specs.items():
+            if ps.button is None:
+                continue
+            cslot = (choice_slots or {}).get(pname)
+            if cslot is None:
+                raise BehaviorError(
+                    f"pool {pname!r} has a hire button but no parked-choice slot was "
+                    f"given — author a zone [[choice]] (parked far off-mesh) whose Hire "
+                    f"row does set_flag = [{self.pool_flags[pname]}, 1], and pass its "
+                    f"entry slot via choice_slots")
+            pentry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4)
+                      + self._poller_body(ps.button, int(cslot)))
+            out, pslot = _object.seat_entry(out, pentry)
+            out = eb_edit.activate_block(out, opcodes.init_code(pslot, 0))
         out = eb_edit.insert_in_function(out, 0, 0, 0, cb.main_init)
         fresh = [p for p in eblint.lint_eb(out)
                  if getattr(p, "severity", "error") == "error" and str(p) not in baseline]

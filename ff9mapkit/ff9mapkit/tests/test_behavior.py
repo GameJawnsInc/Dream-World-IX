@@ -187,6 +187,59 @@ def test_pool_name_charset_refused():
                                     pooled=True, pool="bad name!")])
 
 
+# ------------------------------------------------------------------ pool economy
+def economy_field() -> B.FieldBehavior:
+    fb = B.FieldBehavior(
+        [B.UnitSpec("pest", entry=2, spawn=(500, 500), hp=3),
+         B.UnitSpec("r0", entry=3, spawn=(0, 0), hp=4, pooled=True, pool="recruits"),
+         B.UnitSpec("r1", entry=4, spawn=(0, 0), hp=4, pooled=True, pool="recruits")],
+        pools=[B.PoolSpec("recruits", price=300, button=B.DEFAULT_HIRE_BUTTONS,
+                          request_flag=8848)])
+    fb.units["pest"].tree = B.Selector(
+        B.Sequence(fb.hp_le("pest", 0), B.Do(B.Die())),
+        B.Do(B.Wander((500, 500), radius=300)))
+    for r in ("r0", "r1"):
+        fb.units[r].tree = B.Selector(
+            B.Sequence(fb.hp_le(r, 0), B.Do(B.Die())),
+            B.Sequence(fb.active("pest"), fb.near(r, "pest", 250),
+                       B.Do(B.SwingAt("pest"))),
+            B.Do(B.HoldPost()))
+    return fb
+
+
+def test_pool_economy_compiles():
+    fb = economy_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    assert fb.pool_flags["recruits"] == 8848           # explicit request flag wins
+    ops = _ticker_ops(cb)
+    assert ops.count(0xCF) == 2                        # RemoveGil at each SPAWN site
+    assert "price 300 gil" in cb.report and "0x80001" in cb.report
+    assert fb.compile().stable_hash() == economy_field().compile().stable_hash()
+
+
+def test_poller_body_shape():
+    """The rung-3 proven poller shape: poll stmt, blip (0xC8), RunScriptSync (0x14),
+    post-menu debounce + Wait(1) cadence."""
+    fb = economy_field()
+    body = fb._poller_body(B.DEFAULT_HIRE_BUTTONS, 21)
+    _verify_body(body)
+    ops = [ins.op for ins in D.iter_code(body, 0, len(body))]
+    assert 0xC8 in ops and 0x14 in ops and ops.count(0x22) == 2
+
+
+def test_pool_spec_negatives():
+    u = [B.UnitSpec("u", entry=2, spawn=(0, 0), pooled=True, pool="p")]
+    with pytest.raises(B.BehaviorError, match="request_flag"):
+        B.FieldBehavior(list(u), pools=[B.PoolSpec("p", button=1)])
+    with pytest.raises(B.BehaviorError, match="blackboard band"):
+        B.FieldBehavior(list(u), pools=[B.PoolSpec("p", request_flag=8900)])
+    with pytest.raises(B.BehaviorError, match="no pooled unit"):
+        B.FieldBehavior(list(u), pools=[B.PoolSpec("ghost")])
+    with pytest.raises(B.BehaviorError, match="twice"):
+        B.FieldBehavior(list(u), pools=[B.PoolSpec("p"), B.PoolSpec("p")])
+
+
 # ------------------------------------------------------------------ rung-3 vocabulary
 def test_flee_compiles_and_verifies():
     fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0), hp=4)])

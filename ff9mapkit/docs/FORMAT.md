@@ -1989,6 +1989,15 @@ pool = "recruits"                              # spawn-request flag index prints
   do = { hold_post = true }                    # hold wherever the player placed me
 ```
 
+**Pool economy (`[[behavior.pool]]`):** `name` (a pooled unit's pool) + optional `price`
+(gil-gated hires: `RemoveGil` compiles into the activation block and charges ONLY on an
+actual spawn — broke or pool-empty consumes the request free) + optional `button = true`
+(or a PSX button-mask int): a press-anywhere hire poller. `button` requires an explicit
+`request_flag = N` (a GLOB bit outside the behavior blackboard band) and a PARKED zone
+`[[choice]]` — its zone far off-mesh, its Hire row `set_flag = [N, 1]` — which the build
+matches by that flag and the poller opens remotely. See
+[BEHAVIOR.md § Price and the buy-anywhere button](BEHAVIOR.md#price-and-the-buy-anywhere-button).
+
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 
 Re-author the **Chocobo Hot & Cold** minigame's dig **prize pool** and **timer** on a **verbatim fork

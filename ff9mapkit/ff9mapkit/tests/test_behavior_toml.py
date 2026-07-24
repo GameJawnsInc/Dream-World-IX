@@ -290,6 +290,84 @@ def test_pooled_installs_in_built_eb(tmp_path):
     assert again == plain
 
 
+# ------------------------------------------------------------------ pool economy
+def test_pool_rows_parse_and_validate():
+    raw = {**POOLED_RAW, "behavior": {**POOLED_RAW["behavior"],
+                                      "pool": [{"name": "recruits", "price": 300,
+                                                "button": True, "request_flag": 8848}]},
+           "choice": [{"zone": [[9000, 9000], [9200, 9000], [9200, 8800], [9000, 8800]],
+                       "prompt": "Deploy a soldier?", "instant": True,
+                       "options": [{"text": "Hire (300 gil)", "set_flag": [8848, 1]},
+                                   {"text": "Not now."}]}]}
+    assert BT.validate(raw) == []
+    specs = BT.pool_specs(raw)
+    assert specs[0].price == 300 and specs[0].request_flag == 8848
+    assert specs[0].button == B.DEFAULT_HIRE_BUTTONS   # true -> the default mask
+    ci, n = BT.pool_menu_choice(raw, 8848)
+    assert (ci, n) == (0, 1)
+    fb = BT.build(raw, npc_slots={"pest": 2, "r0": 3, "r1": 4})
+    assert fb.pool_flags["recruits"] == 8848
+    # negatives
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "recruits", "button": True}]}}
+    assert any("request_flag" in p for p in BT.validate(bad))
+    bad = {**raw, "choice": []}                        # button but no parked menu
+    assert any("no zone [[choice]]" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "ghost", "price": 1}]}}
+    assert any("no pooled unit" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"],
+                               "pool": [{"name": "recruits", "prize": 3}]}}
+    assert any("unknown key" in p for p in BT.validate(bad))
+
+
+def test_button_pool_installs_in_built_eb(tmp_path):
+    """Product path: price + button pool -> the poller entry is seated (RunScriptSync
+    at the parked choice's slot), RemoveGil rides the ticker, explicit request flag."""
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+
+    toml = (
+        '[field]\nid = 30001\nname = "BHE"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "r0"\npreset = "vivi"\npos = [400, -300]\ndialogue = "Hired!"\n'
+        "\n[behavior]\nwarmup = 30\n"
+        '\n[[behavior.pool]]\nname = "recruits"\nprice = 300\nbutton = true\n'
+        "request_flag = 8848\n"
+        '\n[[behavior.unit]]\nnpc = "r0"\npooled = true\npool = "recruits"\n'
+        'branch = [{ do = { hold_post = true } }]\n'
+        '\n[[choice]]\nzone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]\n'
+        'prompt = "Deploy a soldier?"\ninstant = true\n'
+        '\n[[choice.options]]\ntext = "Hire (300 gil)"\nset_flag = [8848, 1]\n'
+        '\n[[choice.options]]\ntext = "Not now."\n'
+    )
+    f = tmp_path / "bhe.field.toml"
+    f.write_text(toml, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    assert BLD.validate(p) == []
+    CT = {0: {"prompt": 502, "replies": {}}}           # the parked hire menu's txids
+    plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, choice_txids=CT)
+    eb = EbScript.from_bytes(plain)
+    gil_ops, sync_targets = 0, []
+    for i in range(eb.entry_count):
+        e = eb.entry(i)
+        if e.size <= 0:
+            continue
+        for fn in e.funcs:
+            for ins in D.iter_code(plain, fn.abs_start, fn.abs_end):
+                if ins.op == 0xCF:
+                    gil_ops += 1
+                if ins.op == 0x14:                     # RunScriptSync(level, uid, tag)
+                    sync_targets.append((int(ins.imm(0)), int(ins.imm(1)), int(ins.imm(2))))
+    assert gil_ops == 1                                # one spawn site -> one RemoveGil
+    pollers = [t for t in sync_targets if t[0] == 4 and t[2] == 3]
+    assert len(pollers) == 1                           # the poller -> the parked menu
+    choice_slot = pollers[0][1]
+    assert eb.entry(choice_slot).size > 0              # ...which is a real seated entry
+    again = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, choice_txids=CT)
+    assert again == plain
+
+
 # ------------------------------------------------------------------ the built .eb
 def test_behavior_installs_in_built_eb(tmp_path):
     """End-to-end through the PRODUCT PATH: a field.toml with a [behavior] table ->

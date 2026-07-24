@@ -14,6 +14,15 @@ Field **30400** ("SWARM", the 559 Zaghnol-arena donor) rebuilt entirely on the k
     swings at ~1 dmg/s; HP 3/5 vs 5/3 so lane A's defender wins and lane B's attacker
     breaches (the herald's line pops once, a sticky-Once announce). Deaths vanish;
     the winner resumes.
+  * PLACEMENT + ECONOMY (the rung-3 REBUILD on compiler vocabulary, 2026-07-24):
+    press SELECT (or Special) ANYWHERE -> the parked hire menu -> "Hire (300 gil)"
+    -> gil gate + RemoveGil ride the compiled activation block -> the next of FOUR
+    POOLED soldiers materializes AT YOUR FEET and holds that post; within 700 of an
+    armed attacker it acquires/chases/duels — and combat is MUTUAL both ways (the
+    old one-sided-harass debt is gone: attackers swing back at recruits via plain
+    branches). Broke or pool-empty = silent refusal (v1 parity). The demo: arm the
+    skirmish, let lane B breach once; reload, arm again, drop 1-2 recruits on lane
+    B's path — the breach is stopped.
 
 WHAT THE MIGRATION REMOVED (all recorded in PLAN.md): the ~500-line hand-rolled
 referee/fight-function/patch machinery (the compiler subsumes it — proven by the
@@ -61,6 +70,10 @@ ACQUIRE_R = 700                              # defender aggro radius (fights sta
 HP_PRESET = {"attacker0": 3, "defender0": 5, "attacker1": 5, "defender1": 3}
 FIGHT_CENTER = (-1225, -827)                 # owner-called visible town square (playtest 4)
 TIER_FLAGS = ["tier10", "tier20", "tier30", "tier40"]
+N_POOL = 4                                   # the hireable soldier pool (rung-3 parity)
+RECRUIT_COST = 300                           # gil per soldier (the old bench's price)
+HIRE_FLAG = 8848                             # the old bench's own request flag, explicit
+RECRUIT_HP = 4
 
 
 # --------------------------------------------------------------- layout
@@ -145,9 +158,10 @@ def behavior_toml(chaser_posts: list, lay: dict) -> str:
     parts = ["\n[behavior]\nwarmup = 45\n"
              f"public_flags = {_t(TIER_FLAGS + ['skirmish'])}\n"]
 
-    def unit(name, hp=None, speed=50):
+    def unit(name, hp=None, speed=50, pooled_in=None):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\n'
-                     + (f"hp = {hp}\n" if hp is not None else "") + f"speed = {speed}\n")
+                     + (f"hp = {hp}\n" if hp is not None else "") + f"speed = {speed}\n"
+                     + (f'pooled = true\npool = "{pooled_in}"\n' if pooled_in else ""))
 
     # THE SWARM: band b arms when ANY tier >= its size is pulled (picking "20 movers"
     # releases bands 0+1 — the original lever semantics)
@@ -161,12 +175,18 @@ def behavior_toml(chaser_posts: list, lay: dict) -> str:
     # THE SKIRMISH: the playtest-6 staging as trees (the behavior study's rung-2
     # regression proved this exact translation on bench 30411)
     armed = {"flag": "skirmish"}
+    recruits = [f"recruit{r}" for r in range(N_POOL)]
     for lane in (0, 1):
         a, d = f"attacker{lane}", f"defender{lane}"
         unit(a, hp=HP_PRESET[a], speed=40)
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
         parts.append(_branch(when=[armed, {"active": d}, {"near": [d, CONTACT_R]}],
                              do={"swing_at": d}))
+        # MUTUAL combat vs hired recruits (the rung-3 one-sided-harass debt, closed
+        # by plain branches — priority above the march, below the defender duel)
+        for r in recruits:
+            parts.append(_branch(when=[armed, {"active": r}, {"near": [r, CONTACT_R]}],
+                                 do={"swing_at": r}))
         parts.append(_branch(when=[armed, {"near_point": ["goal", 220]}],
                              do={"announce_npc": "herald"}, once=f"breach{lane}"))
         parts.append(_branch(when=[armed], do={"walk_to": "goal", "speed": 40}))
@@ -178,6 +198,23 @@ def behavior_toml(chaser_posts: list, lay: dict) -> str:
         parts.append(_branch(when=[armed, {"active": a}, {"near": [a, ACQUIRE_R]}],
                              do={"chase": a}))
         parts.append(_branch(do={"hold": list(lay["defenders"][lane])}))
+    # THE RECRUIT POOL (rung-3 rebuilt as compiler vocabulary): pooled soldiers,
+    # hired ANYWHERE via the SELECT/Special poller + the parked menu below; each
+    # holds the spot it was placed on (hold_post) and defends it A-then-B priority
+    parts.append(f'\n[[behavior.pool]]\nname = "recruits"\nprice = {RECRUIT_COST}\n'
+                 f"button = true\nrequest_flag = {HIRE_FLAG}\n")
+    for r in recruits:
+        unit(r, hp=RECRUIT_HP, speed=50, pooled_in="recruits")
+        parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
+        for lane in (0, 1):
+            a = f"attacker{lane}"
+            parts.append(_branch(when=[armed, {"active": a}, {"near": [a, CONTACT_R]}],
+                                 do={"swing_at": a}))
+        for lane in (0, 1):
+            a = f"attacker{lane}"
+            parts.append(_branch(when=[armed, {"active": a}, {"near": [a, ACQUIRE_R]}],
+                                 do={"chase": a}))
+        parts.append(_branch(do={"hold_post": True}))
     return "".join(parts)
 
 
@@ -209,6 +246,13 @@ def gen() -> None:
     parts.append(f'\n[[npc]]\nname = "herald"\nmodel = "{HERALD_MODEL}"\n'
                  f'pos = [{hx}, {hz}]\n'
                  f'dialogue = "The beasts broke through!  The gate is lost!"\n')
+    # the recruit POOL (never boot-spawned; parked by the goal — the 2-frame
+    # pre-DPOS flash lands out of the action, the old bench's park idiom)
+    gx0, gz0 = lay["goal"]
+    for r in range(N_POOL):
+        parts.append(f'\n[[npc]]\nname = "recruit{r}"\nmodel = "{DEFENDER_MODEL}"\n'
+                     f'pos = [{gx0 + 80 * (r + 1)}, {gz0 + 80}]\n'
+                     f'dialogue = "Holding this ground, sir!"\n')
     gx, gz = lay["goal"]
     parts.append(f'\n[[marker]]\nname = "goal"\npos = [{gx}, {gz}]\n')
     # the march lines, probe-sweepable (informational — the staging is playtest-6-proven)
@@ -217,6 +261,17 @@ def gen() -> None:
                      f"path = [[{ax}, {az}], [{gx}, {gz}]]\nclosed = false\n")
 
     parts.append(behavior_toml(chaser_posts, lay))
+
+    # THE PARKED HIRE MENU must precede validation (the pool row's button check
+    # looks for the zone choice that sets its request flag). Rung-3 idiom: parked
+    # far off-mesh — the walk trigger never fires; the poller RunScriptSyncs it.
+    parts.append(
+        f'\n[[choice]]\nzone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]\n'
+        f'prompt = "Deploy a soldier HERE for {RECRUIT_COST} gil?"\ninstant = true\n'
+        f'\n[[choice.options]]\ntext = "Hire ({RECRUIT_COST} gil)"\n'
+        f'reply = "Deployed!  Hold this ground!"\n'
+        f"set_flag = [{HIRE_FLAG}, 1]\n"
+        f'\n[[choice.options]]\ntext = "Not now."\n')
 
     # the lever wires to the behavior's public flags (deterministic allocation)
     import tomllib
@@ -246,9 +301,11 @@ def gen() -> None:
         f'prompt = "Swarm bench: release how many movers?"\ninstant = true\n'
         f'{rows}\n[[choice.options]]\ntext = "None for now."\n')
     SWARM_TOML.write_text("".join(parts), encoding="utf-8")
-    print(f"wrote {SWARM_TOML}  ({N_CHASERS} chasers + the 2-lane skirmish, all [behavior])")
+    print(f"wrote {SWARM_TOML}  ({N_CHASERS} chasers + the 2-lane skirmish + the "
+          f"{N_POOL}-soldier hire pool @{RECRUIT_COST} gil, all [behavior])")
     print(f"  lanes: attackers {lay['attackers']}  posts {lay['defenders']}"
-          f"  goal {lay['goal']}  herald {lay['herald']}\n  flags {fidx}")
+          f"  goal {lay['goal']}  herald {lay['herald']}\n  flags {fidx}"
+          f"  hire flag {HIRE_FLAG}")
 
 
 def deploy() -> None:
@@ -270,15 +327,21 @@ def deploy() -> None:
                       "slots/txids)\n", encoding="utf-8")
     print(f"\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (THE MIGRATION PARITY CHECK — the same bench, zero hand-rolled bytecode):
+PLAYTEST (THE PLACEMENT/ECONOMY REBUILD — rung 3 on compiler vocabulary):
   ~ -> Reload field on {FIELD_ID} (RELAUNCH only if never registered), then:
-  1 TIERS: lever "10/20/30/40 movers" -> that many Mus converge; they now RING you at
-    ~140u (the compiler's standoff) instead of stacking into your exact point — the
-    intended change; everything else should feel like rung-1 playtest 3.
-  2 SKIRMISH (lever row 5): the playtest-6 show — attackers march the goal, defenders
-    step out and duel; lane A's defender wins, lane B's attacker breaches (the
-    herald's line ONCE) — and duels are MUTUAL now (both sides swing).
-  3 Chasers + skirmish coexist; ~ Reload resets everything.
+  1 REGRESSION: tiers + skirmish exactly as the parity check (ring at 140u, lane A
+    defender wins, lane B breaches once, ~ Reload resets).
+  2 HIRE ANYWHERE: press SELECT (or Special) anywhere -> blip + the menu ->
+    "Hire ({RECRUIT_COST} gil)" -> gil drops by {RECRUIT_COST} (check the pause menu)
+    and a soldier appears AT YOUR FEET, holding that spot. NOTE: gil is REAL save
+    state — spend knowingly; ~ Reload does NOT refund.
+  3 THE DEFENSE: arm the skirmish, then drop 1-2 recruits on lane B's march path
+    (between its start and the goal) -> they acquire within {ACQUIRE_R}, duel the
+    Fang MUTUALLY (it fights back), and lane B's breach is STOPPED; survivors walk
+    back to their posts.
+  4 LIMITS: 5th hire = silent nothing (pool of {N_POOL}); hire with < {RECRUIT_COST}
+    gil = menu works, pick Hire, nothing spawns and NOTHING is charged.
+  5 ~ Reload: recruits despawn, pool refills, skirmish resets (gil stays spent).
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

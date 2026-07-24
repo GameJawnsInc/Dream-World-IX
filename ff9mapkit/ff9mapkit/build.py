@@ -5143,6 +5143,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     #     ever); once=false resets in Init (once per visit). GLOB flag only (the 80-byte MAP array
     #     can't hold a high index -> crash). NOTE: a "walk" decline still consumes it for that arming.
     choice_flag_counter = 0
+    zone_choice_slots = {}   # raw choice index -> region entry slot (behavior hire pollers)
     for c, ch in enumerate(project.raw.get("choice", [])):
         if "zone" not in ch:
             continue
@@ -5173,6 +5174,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = None
             eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
+            zone_choice_slots[c] = _slot
         else:
             if (_auto.base is not None and "flag" not in ch
                     and choice_flag_counter >= getattr(project, "flags_per_field", 64) - 1 - EVENTS_PER_FIELD):
@@ -5187,6 +5189,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
+            zone_choice_slots[c] = _slot
 
     # [[coop]] gates (netsync V2, engine s37): field content designed for TWO players, compiled to
     # regions reading the engine-broadcast peer presence/position cells. mode="once" (default) =
@@ -5910,7 +5913,19 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    for i, n in enumerate(project.raw.get("npc", []))
                                    if n.get("name") and i in dialogue_txids},
                 behavior_txids=behavior_txids)
-            eb = fb.install(eb)
+            # button pools: resolve each pool's PARKED hire [[choice]] (matched by the
+            # option that set_flags its request flag) to the region slot injected above
+            pool_choice_slots = {}
+            for pname, ps in fb.pool_specs.items():
+                if ps.button is None:
+                    continue
+                ci, n = _behaviortoml.pool_menu_choice(project.raw, fb.pool_flags[pname])
+                if ci is None or n != 1 or ci not in zone_choice_slots:
+                    raise BuildError(f"[behavior] pool {pname!r}: expected exactly one "
+                                     f"injected zone [[choice]] setting request flag "
+                                     f"{fb.pool_flags[pname]} (found {n})")
+                pool_choice_slots[pname] = zone_choice_slots[ci]
+            eb = fb.install(eb, choice_slots=pool_choice_slots)
             if warnings is not None:
                 pf = [f"{nm} -> flag {fb.bb.flag(nm)}"
                       for nm in (project.raw["behavior"].get("public_flags") or [])]
