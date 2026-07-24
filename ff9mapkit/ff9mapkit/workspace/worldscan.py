@@ -119,26 +119,49 @@ class WorldCensus:
     disc4_only: list[tuple[int, int]] = field(default_factory=list)   # cells the mirror has, Disc1 lacks
     strays: list[str] = field(default_factory=list)                   # off-grid / unparseable Block files
     total_bytes: int = 0
+    names: dict[tuple[int, int], str] = field(default_factory=dict)   # atlas-names.json, deployed keys only
 
-    @property
-    def landmasses(self) -> int:
-        """Connected components over the deployed cells (4-adjacency) -- 'how many islands'."""
+    def components(self) -> list[frozenset]:
+        """Connected components over the deployed cells (4-adjacency) -- the landmasses."""
         seen: set[tuple[int, int]] = set()
-        n = 0
-        for start in self.cells:
+        out: list[frozenset] = []
+        for start in sorted(self.cells):
             if start in seen:
                 continue
-            n += 1
+            comp: set[tuple[int, int]] = set()
             stack = [start]
             while stack:
                 cx, cy = stack.pop()
                 if (cx, cy) in seen:
                     continue
                 seen.add((cx, cy))
+                comp.add((cx, cy))
                 for nb in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
                     if nb in self.cells and nb not in seen:
                         stack.append(nb)
-        return n
+            out.append(frozenset(comp))
+        return out
+
+    @property
+    def landmasses(self) -> int:
+        return len(self.components())
+
+    def component_of(self, key) -> frozenset | None:
+        for comp in self.components():
+            if key in comp:
+                return comp
+        return None
+
+    def name_for(self, key) -> str | None:
+        """The landmass name covering ``key`` -- the first (sorted) named member's entry, so a merged
+        component answers deterministically even if two historical names survive in the file."""
+        comp = self.component_of(key)
+        if comp is None:
+            return None
+        for member in sorted(comp):
+            if member in self.names:
+                return self.names[member]
+        return None
 
     @property
     def stale_cells(self) -> list[tuple[int, int]]:
@@ -242,7 +265,54 @@ def scan_tree(mod_root: Path) -> WorldCensus:
             cell.mirror, cell.pins = _compare_cell(mesh_only, d4_cell)
         census.cells[key] = cell
     census.disc4_only = sorted(k for k in d4_files if k not in d1_files)
-    return census
+    raw = _load_names(mod_root)
+    census.names = {k: v for k, v in raw.items() if k in census.cells}   # a name whose landmass is
+    return census                                  # gone stays in the FILE (it may come back) but
+    #                                                never draws a plate over empty water
+
+
+# ------------------------------------------------------------------------------ landmass NAMEPLATES
+# User-authored names for deployed landmasses, stored IN the mod folder (they describe its content
+# and travel with it): <mod>/atlas-names.json = {"version": 1, "names": {"bx,by": "name"}}. Inert to
+# the engine (Memoria resolves specific asset paths; it never enumerates a mod folder's root).
+
+NAMES_FILE = "atlas-names.json"
+
+
+def _load_names(mod_root: Path) -> dict[tuple[int, int], str]:
+    try:
+        d = json.loads((Path(mod_root) / NAMES_FILE).read_text(encoding="utf-8"))
+        out = {}
+        for k, v in d.get("names", {}).items():
+            bx, by = (int(t) for t in k.split(","))
+            if block_in_grid(bx, by) and isinstance(v, str) and v.strip():
+                out[(bx, by)] = v.strip()
+        return out
+    except (OSError, ValueError, KeyError, AttributeError):
+        return {}                                  # absent / malformed: no names, never a failed scan
+
+
+def set_landmass_name(census: WorldCensus, key, name: str) -> None:
+    """Name (or, with an empty ``name``, un-name) the landmass containing ``key``, updating BOTH the
+    census in memory and ``atlas-names.json`` in the mod folder (atomic write). One entry per
+    component: renaming through any member updates the component's existing entry rather than
+    accumulating one per clicked block; un-naming clears every member entry."""
+    from .. import fsutil
+    comp = census.component_of(key)
+    if comp is None:
+        return
+    raw = _load_names(census.root)                 # full file view (incl. names off this scan)
+    name = (name or "").strip()
+    anchor = next((m for m in sorted(comp) if m in raw), min(comp))   # reuse the existing entry's
+    for member in comp:                                               # key -- resolved BEFORE the
+        raw.pop(member, None)                                         # clear below empties it
+        census.names.pop(member, None)
+    if name:
+        raw[anchor] = name
+        census.names[anchor] = name
+    payload = {"version": 1,
+               "names": {f"{bx},{by}": v for (bx, by), v in sorted(raw.items())}}
+    fsutil.atomic_write_text(Path(census.root) / NAMES_FILE, json.dumps(payload, indent=1))
 
 
 # ------------------------------------------------------------------------- the STOCK context layer

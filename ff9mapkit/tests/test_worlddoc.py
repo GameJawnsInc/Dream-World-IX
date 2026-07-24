@@ -298,6 +298,31 @@ def test_no_stock_cache_means_no_layer_and_no_failure(app, tmp_path):
     assert not [it for it in doc.canvas.scene().items() if it.data(0) == "stock"]
 
 
+def _plates(doc):
+    return [it for it in doc.canvas.scene().items() if it.data(0) == "plate"]
+
+
+def test_double_click_names_a_landmass_and_the_plate_appears(app, tmp_path):
+    game = _fake_game(tmp_path)
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    assert not _plates(doc)
+    doc._ask_name = lambda current: ("The Bench", True)      # the modal seam -- never a real dialog
+    doc._name_landmass((3, 17))
+    assert len(_plates(doc)) == 1
+    assert "The Bench" in doc.sel_title.text(), "naming selects + retitles the strip"
+    assert (game / "FF9CustomMap-world" / "atlas-names.json").is_file()
+    doc.refresh(sync=True)                                   # the name survives a rescan (file-backed)
+    assert len(_plates(doc)) == 1
+    doc._ask_name = lambda current: ("ignored", False)       # cancel changes nothing
+    doc._name_landmass((4, 17))
+    assert len(_plates(doc)) == 1
+    doc._ask_name = lambda current: ("", True)               # empty via the OTHER member un-names
+    doc._name_landmass((4, 17))
+    assert not _plates(doc)
+    assert "“" not in doc.sel_title.text()
+
+
 def test_retheme_redraws_the_canvas_in_the_new_palette(app, tmp_path):
     game = _fake_game(tmp_path)
     doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)

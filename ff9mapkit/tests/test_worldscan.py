@@ -237,6 +237,42 @@ def test_the_real_installs_stock_grid_reads_sane(tmp_path):
     assert 50 <= land <= 400, f"implausible stock land count {land}"
 
 
+def test_landmass_names_write_resolve_and_never_accumulate(tmp_path):
+    for bx, by in ((3, 17), (4, 17), (11, 19)):
+        _put(tmp_path, bx, by, "Terrain.ff9mesh", _mesh_bytes())
+    census = worldscan.scan_tree(tmp_path)
+    assert census.name_for((3, 17)) is None
+    worldscan.set_landmass_name(census, (4, 17), "Twin Isles")
+    assert census.name_for((3, 17)) == "Twin Isles", "any member of the component resolves the name"
+    assert census.name_for((11, 19)) is None, "the other landmass is untouched"
+    census2 = worldscan.scan_tree(tmp_path)                  # the FILE round-trips through a rescan
+    assert census2.name_for((4, 17)) == "Twin Isles"
+    worldscan.set_landmass_name(census2, (3, 17), "Ember Isles")   # rename via the OTHER member
+    raw = json.loads((tmp_path / worldscan.NAMES_FILE).read_text(encoding="utf-8"))
+    assert list(raw["names"].values()) == ["Ember Isles"], "one entry per component, updated in place"
+    worldscan.set_landmass_name(census2, (4, 17), "")         # empty = un-name
+    assert worldscan.scan_tree(tmp_path).names == {}
+
+
+def test_a_gone_landmasss_name_stays_in_the_file_never_the_census(tmp_path):
+    """A name whose blocks were reverted keeps its file entry (the island may come back) but never
+    draws over empty water -- and a later save of ANOTHER landmass preserves it."""
+    _put(tmp_path, 2, 2, "Terrain.ff9mesh", _mesh_bytes())
+    (tmp_path / worldscan.NAMES_FILE).write_text(
+        json.dumps({"version": 1, "names": {"2,2": "Here", "9,9": "Ghost Isle"}}), encoding="utf-8")
+    census = worldscan.scan_tree(tmp_path)
+    assert census.names == {(2, 2): "Here"}
+    worldscan.set_landmass_name(census, (2, 2), "Renamed")
+    raw = json.loads((tmp_path / worldscan.NAMES_FILE).read_text(encoding="utf-8"))
+    assert raw["names"] == {"2,2": "Renamed", "9,9": "Ghost Isle"}
+
+
+def test_malformed_names_json_never_fails_a_scan(tmp_path):
+    _put(tmp_path, 2, 2, "Terrain.ff9mesh", _mesh_bytes())
+    (tmp_path / worldscan.NAMES_FILE).write_text("{not json", encoding="utf-8")
+    assert worldscan.scan_tree(tmp_path).names == {}
+
+
 def test_find_world_trees_prefers_the_world_folder(tmp_path):
     for name, has_tree in (("FF9CustomMap", True), ("FF9CustomMap-world", True),
                            ("SomeOtherMod", False), ("x64", False)):

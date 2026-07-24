@@ -30,8 +30,8 @@ import threading
 from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel,
-    QPushButton, QStackedLayout, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
+    QGraphicsView, QHBoxLayout, QLabel, QPushButton, QStackedLayout, QVBoxLayout, QWidget,
 )
 
 from .. import config
@@ -96,10 +96,11 @@ class AtlasCanvas(QGraphicsView):
     Ctrl+0 refits, Ctrl+1 is 1:1. All the interaction grammar is the campaign map's, so the two
     canvases feel like one instrument."""
 
-    def __init__(self, palette, *, on_select=None, scale=100):
+    def __init__(self, palette, *, on_select=None, on_name=None, scale=100):
         super().__init__()
         self.pal = palette                         # RAW palette, direct indexing -- the mapview rule
         self.on_select = on_select
+        self.on_name = on_name                     # double-click on a deployed block -> name its landmass
         self._census = None
         self._stock = {}                           # (bx,by) -> "L"/"~": the real map's own geography
         self._selected = None
@@ -224,7 +225,7 @@ class AtlasCanvas(QGraphicsView):
             bits.append(" · ".join(reals) + (f" · {blanks} blanked" if blanks else ""))
         if c.mirror and c.mirror != "current":
             bits.append(f"⚠ Disc4 mirror {c.mirror} — rerun world-mirror")
-        bits.append("Click for details.")
+        bits.append("Click for details. Double-click to name this landmass.")
         return "\n".join(bits)
 
     def _kind_fill(self, kind):
@@ -279,10 +280,46 @@ class AtlasCanvas(QGraphicsView):
             pen = QPen(QColor(pal["accent"]), 3)
             pen.setCosmetic(True)
             sc.addPath(rim, pen).setData(0, "sel")
+        if self._census is not None:
+            self._plates(cell)
         if self._census is not None and not self._census.cells:
             t = self._ignore_zoom(sc.addSimpleText("No overrides in this folder.", self._font(9)))
             t.setBrush(muted)
             t.setPos(w / 2, h / 2)
+
+    def _plates(self, cell):
+        """Landmass NAMEPLATES: one screen-sized pill per NAMED component, anchored above its top
+        edge. The anchor item ignores the zoom and the pill/text are its children in SCREEN px --
+        so plates stay readable at any zoom AND stay centred (the axis-label trick, plus geometry)."""
+        sc, pal = self._scene, self.pal
+        font = self._font(8, bold=True)
+        fm = QFontMetrics(font)
+        for comp in self._census.components():
+            name = self._census.name_for(min(comp))
+            if not name:
+                continue
+            top = min(by for _bx, by in comp)
+            xs = [bx for bx, by in comp if by == top]          # centre over the TOP row's span
+            ax = (min(xs) + max(xs) + 1) / 2 * cell
+            anchor = QGraphicsRectItem(0, 0, 0, 0)
+            anchor.setPen(QPen(Qt.PenStyle.NoPen))
+            anchor.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setPos(ax, top * cell)
+            anchor.setZValue(0.2)
+            anchor.setData(0, "plate")
+            sc.addItem(anchor)
+            text = fm.elidedText(name, Qt.TextElideMode.ElideRight, 170)
+            tw = fm.horizontalAdvance(text)
+            th = fm.height()
+            plate = QColor(pal["surface"])
+            plate.setAlpha(230)                               # the poster scrim's fenced ground
+            pill = QGraphicsRectItem(-tw / 2 - 6, -th - 9, tw + 12, th + 5, anchor)
+            pill.setPen(QPen(Qt.PenStyle.NoPen))
+            pill.setBrush(QBrush(plate))
+            t = QGraphicsSimpleTextItem(text, anchor)
+            t.setFont(font)
+            t.setBrush(QBrush(QColor(pal["text"])))
+            t.setPos(-tw / 2, -th - 7)
 
     def _block(self, c, cell):
         sc, pal = self._scene, self.pal
@@ -341,6 +378,15 @@ class AtlasCanvas(QGraphicsView):
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if over
                                       else Qt.CursorShape.OpenHandCursor)
         super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self, event):        # noqa: N802 (Qt override) -- name a landmass
+        key = self._block_at(event.position().toPoint())
+        if (key is not None and self.on_name and self._census is not None
+                and key in self._census.cells):
+            self.on_name(key)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event):                   # noqa: N802 (Qt override)
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -407,6 +453,7 @@ class WorldDoc(QWidget):
         self._trees = []
         self._busy = False
         self._guide_state = ("scan", "")
+        self._ask_name = self._ask_name_dialog     # the modal seam: tests/snaps inject, prod asks
         self._scan_done.connect(self._finish)
         self._stack = QStackedLayout(self)
         self._stack.setContentsMargins(0, 0, 0, 0)
@@ -476,7 +523,8 @@ class WorldDoc(QWidget):
         self.summary_lbl.setAccessibleName("Scan summary")
         head.addWidget(self.summary_lbl, 1)
         v.addLayout(head)
-        self.canvas = AtlasCanvas(self.pal, on_select=self._on_select, scale=self._scale)
+        self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
+                                  on_name=self._name_landmass, scale=self._scale)
         v.addWidget(self.canvas, 1)
         self._legend_host = QWidget()
         self._legend_lay = QHBoxLayout(self._legend_host)
@@ -713,7 +761,8 @@ class WorldDoc(QWidget):
             return
         self._swap_site(False)                     # a deployed block's strip is the census, not siting
         cx, cz = worldscan.block_center(c.bx, c.by)
-        self.sel_title.setText(f"Block[{c.bx}][{c.by}] — {c.kind}")
+        nm = self._census.name_for(key)
+        self.sel_title.setText(f"Block[{c.bx}][{c.by}] — {c.kind}" + (f" · “{nm}”" if nm else ""))
         facts = [f"centre x {cx:g}, z {cz:g}"]
         if c.donor_raw:
             facts.append(f"donor {c.donor_raw}")
@@ -777,6 +826,32 @@ class WorldDoc(QWidget):
             self._set_chip("free site", "good")
             self._swap_site(True)
             self.site_btn.setEnabled(True)
+
+    # -- nameplates --
+    def _ask_name_dialog(self, current):
+        """An INSTANCE QInputDialog, never the static getText: the statics exec in C++ where no
+        harness/test patch can see them (the round-8 QMessageBox law). Returns (text, accepted)."""
+        from PySide6.QtWidgets import QDialog, QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Name this landmass")
+        dlg.setLabelText("Shown as a nameplate over the landmass on the atlas.\n"
+                         "Leave empty to remove the name.")
+        dlg.setTextValue(current)
+        ok = dlg.exec() == QDialog.DialogCode.Accepted
+        return dlg.textValue(), ok
+
+    def _name_landmass(self, key):
+        """Double-click on a deployed block: name (or rename / un-name) its whole landmass. Writes
+        atlas-names.json IN the scanned mod folder -- the name describes that folder's content and
+        travels with it."""
+        if self._census is None or key not in self._census.cells:
+            return
+        current = self._census.name_for(key) or ""
+        text, ok = self._ask_name(current)
+        if not ok or text.strip() == current:
+            return
+        worldscan.set_landmass_name(self._census, key, text)
+        self.canvas.select(key)                    # redraw (plates) + refresh the strip's title
 
     def _copy_site_cmd(self):
         if self._selected is None or self._census is None:

@@ -314,6 +314,8 @@ def _fake_world_install() -> Path:
     put(11, 19, "Sea4.ff9mesh", mesh(vcount=8, icount=12, salt=7), disc=4)
     put(11, 19, "Donor.txt", b"0,0")
     put(6, 18, "Terrain.ff9mesh.bak-20260719-093929", mesh(salt=42))       # an --in-place backup
+    (mod / "atlas-names.json").write_text(json.dumps(                      # landmass nameplates
+        {"version": 1, "names": {"4,17": "Twin Isles", "18,17": "The Bench"}}), encoding="utf-8")
     return game
 
 
