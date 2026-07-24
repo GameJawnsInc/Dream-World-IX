@@ -84,6 +84,19 @@ def _cells_in_scene(canvas):
     return [it for it in canvas.scene().items() if it.data(0) == "cell"]
 
 
+def _seed_stock(game, stock):
+    """Write a stock-context cache for the pinned install under the pinned FF9MAPKIT_DATA (see
+    _isolate_data_dir) -- the same file a real derive would leave behind."""
+    import json
+    from ff9mapkit import provision
+    from ff9mapkit.workspace import worldscan as ws
+    root = provision.cache_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ws.STOCK_CACHE_NAME).write_text(json.dumps(
+        {"version": 1, "game": str(game), "disc": 1, "rows": ws._rows_encode(stock)}),
+        encoding="utf-8")
+
+
 def test_construction_touches_no_filesystem_and_no_game_path(app, monkeypatch):
     """THE STARTUP-SPEND LAW + THE ISOLATION LAW, fenced with tripwires a no-op satisfies and any
     eager scan FAILS: building the doc (as the Workspace does at construction) must resolve no game
@@ -180,15 +193,75 @@ def test_the_dial_reaches_the_painted_canvas(app, tmp_path):
     assert len(_cells_in_scene(doc.canvas)) == 3             # the redraw survives the dial
 
 
-def test_arrow_keys_walk_the_deployed_blocks(app, tmp_path):
+def test_arrow_keys_walk_the_grid_one_block_at_a_time(app, tmp_path):
+    """Plain chart-cursor steps (every block answers now), clamped at the map edge."""
     game = _fake_game(tmp_path)
     doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
     doc.refresh(sync=True)
     doc.canvas.select((3, 17))
     doc.canvas._step_selection((1, 0))
-    assert doc._selected == (4, 17)
-    doc.canvas._step_selection((0, 1))                       # nearest deployed cell downward
-    assert doc._selected == (11, 19)
+    assert doc._selected == (4, 17)                          # onto the neighbouring deployed block
+    doc.canvas._step_selection((0, 1))
+    assert doc._selected == (4, 18)                          # onto an EMPTY block -- also selectable
+    assert "Block[4][18]" in doc.sel_title.text()
+    doc.canvas.select((0, 19))
+    doc.canvas._step_selection((0, 1))
+    assert doc._selected == (0, 19), "the map edge clamps"
+
+
+def test_an_empty_ocean_block_is_a_free_site_with_a_paste_ready_command(app, tmp_path):
+    """The siting ENHANCEMENT: a clean open-ocean block (stock says nothing, the folder says nothing)
+    earns the free-site chip + a runnable world-island command; the selection ring draws even though
+    no census cell exists there."""
+    game = _fake_game(tmp_path)
+    _seed_stock(game, {(12, 12): "L", (13, 12): "~"})
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((3, 17))                               # deployed first: measure the strip
+    strip = doc.site_btn.parentWidget()
+    h_deployed = strip.sizeHint().height()
+    doc.canvas.select((2, 2))                                # not stock, not deployed -> clean ocean
+    assert "open ocean" in doc.sel_title.text()
+    assert doc.sel_chip.text() == "free site" and doc.sel_chip.property("kind") == "good"
+    assert doc.site_btn.isVisibleTo(doc._atlas_page)
+    assert not doc.open_btn.isVisibleTo(doc._atlas_page), "the site button REPLACES the folder slot"
+    assert strip.sizeHint().height() == h_deployed, \
+        "a strip that grows on selection shrinks the canvas out from under its own fit"
+    assert doc.copy_btn.isEnabled()
+    assert [it for it in doc.canvas.scene().items() if it.data(0) == "sel"], \
+        "an empty block's selection draws its own ring"
+    doc._copy_site_cmd()
+    assert QApplication.clipboard().text() == \
+        "py -m ff9mapkit world-island --mod-folder FF9CustomMap-world --cell 2,2"
+    doc._copy_coords()                                       # centre coords work for ANY block
+    assert QApplication.clipboard().text() == "160 -160"
+
+
+def test_stock_land_and_coastal_water_never_offer_the_command(app, tmp_path):
+    game = _fake_game(tmp_path)
+    _seed_stock(game, {(12, 12): "L", (13, 12): "~"})
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((12, 12))
+    assert "stock land" in doc.sel_title.text()
+    assert not doc.site_btn.isVisibleTo(doc._atlas_page)
+    doc.canvas.select((13, 12))
+    assert "coastal water" in doc.sel_title.text()
+    assert not doc.site_btn.isVisibleTo(doc._atlas_page)
+    doc.canvas.select((3, 17))                               # a deployed block hides it too
+    assert not doc.site_btn.isVisibleTo(doc._atlas_page)
+
+
+def test_unknown_geography_never_certifies_a_free_site(app, tmp_path):
+    """No stock cache and an underivable install: the honest answer is 'unknown', never 'free' --
+    a siting affordance that guesses is worse than none."""
+    game = _fake_game(tmp_path)                              # no seeded stock -> derive fails -> None
+    doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
+    doc.refresh(sync=True)
+    doc.canvas.select((2, 2))
+    assert "stock world" in doc.sel_title.text()
+    assert "unknown" in doc.sel_parts.text()
+    assert not doc.site_btn.isVisibleTo(doc._atlas_page)
 
 
 def test_a_rescan_keeps_the_selection_when_the_cell_survives(app, tmp_path):
@@ -205,16 +278,8 @@ def test_the_stock_layer_grounds_the_atlas_but_never_a_deployed_block(app, tmp_p
     """Seed a stock-context cache for the pinned install: stock land paints as the quiet ground layer,
     EXCEPT under deployed blocks (an override owns its pixel -- no tint bleeding through), and the
     legend names the new fill."""
-    import json
     game = _fake_game(tmp_path)
-    stock = {(0, 0): "L", (1, 0): "L", (3, 17): "L", (11, 19): "~", (12, 12): "L"}
-    from ff9mapkit import provision
-    from ff9mapkit.workspace import worldscan as ws
-    root = provision.cache_dir()                             # = the pinned FF9MAPKIT_DATA dir
-    root.mkdir(parents=True, exist_ok=True)
-    (root / ws.STOCK_CACHE_NAME).write_text(json.dumps(
-        {"version": 1, "game": str(game), "disc": 1, "rows": ws._rows_encode(stock)}),
-        encoding="utf-8")
+    _seed_stock(game, {(0, 0): "L", (1, 0): "L", (3, 17): "L", (11, 19): "~", (12, 12): "L"})
     doc = WorldDoc(pick_palette("dark"), game_path_fn=lambda explicit=None: game)
     doc.refresh(sync=True)
     stock_items = [it for it in doc.canvas.scene().items() if it.data(0) == "stock"]

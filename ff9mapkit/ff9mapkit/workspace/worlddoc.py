@@ -163,13 +163,15 @@ class AtlasCanvas(QGraphicsView):
             self._fit_pending = True               # a NEW scan fits; a redraw keeps the user's view
         self._census = census
         self._stock = stock or {}
-        if self._selected is not None and (census is None or self._selected not in census.cells):
-            self._selected = None
-        self._draw()
+        if census is None:
+            self._selected = None                  # an EMPTY selected block survives a rescan: any
+        self._draw()                               # in-grid block is a real place, deployed or not
 
     def select(self, key):
-        """Programmatic selection (tests, keyboard) -- repaints rings + fires on_select."""
-        if self._census is None or (key is not None and key not in self._census.cells):
+        """Programmatic selection (tests, keyboard) -- repaints rings + fires on_select. ANY in-grid
+        block is selectable: a deployed cell shows its census, an empty one its stock geography and
+        (on clean ocean) its worth as a build site -- the click that used to be dead."""
+        if self._census is None or (key is not None and not worldscan.block_in_grid(*key)):
             key = None
         self._selected = key
         self._draw()
@@ -269,6 +271,14 @@ class AtlasCanvas(QGraphicsView):
             it.setZValue(-0.05)                    # ground: below every override plate
         for c in (self._census.cells.values() if self._census is not None else ()):
             self._block(c, cell)
+        if (self._selected is not None and self._census is not None
+                and self._selected not in self._census.cells):
+            bx, by = self._selected                # an EMPTY block's selection ring (deployed cells
+            rim = QPainterPath()                   # draw their own inside _block)
+            rim.addRoundedRect(QRectF(bx * cell + 1.5, by * cell + 1.5, cell - 3, cell - 3), 3.0, 3.0)
+            pen = QPen(QColor(pal["accent"]), 3)
+            pen.setCosmetic(True)
+            sc.addPath(rim, pen).setData(0, "sel")
         if self._census is not None and not self._census.cells:
             t = self._ignore_zoom(sc.addSimpleText("No overrides in this folder.", self._font(9)))
             t.setBrush(muted)
@@ -309,24 +319,25 @@ class AtlasCanvas(QGraphicsView):
             it.setToolTip(tip)
 
     # -- interaction --
-    def _cell_at(self, view_pos):
+    def _block_at(self, view_pos):
+        """The grid block under the cursor -- ANY block, deployed or not; None off the 24x20 map."""
         if self._census is None:
             return None
         sp = self.mapToScene(view_pos)
         cell = self.cell_px()
         bx, by = math.floor(sp.x() / cell), math.floor(sp.y() / cell)
-        return (bx, by) if (bx, by) in self._census.cells else None
+        return (bx, by) if worldscan.block_in_grid(bx, by) else None
 
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if event.button() == Qt.MouseButton.LeftButton:
-            hit = self._cell_at(event.position().toPoint())
+            hit = self._block_at(event.position().toPoint())
             if hit is not None and hit != self._selected:
                 self.select(hit)
         super().mousePressEvent(event)             # ScrollHandDrag panning still owns the drag
 
     def mouseMoveEvent(self, event):               # noqa: N802 (Qt override)
         if not event.buttons():
-            over = self._cell_at(event.position().toPoint())
+            over = self._block_at(event.position().toPoint())
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if over
                                       else Qt.CursorShape.OpenHandCursor)
         super().mouseMoveEvent(event)
@@ -355,31 +366,24 @@ class AtlasCanvas(QGraphicsView):
                 return
         step = {Qt.Key.Key_Left: (-1, 0), Qt.Key.Key_Right: (1, 0),
                 Qt.Key.Key_Up: (0, -1), Qt.Key.Key_Down: (0, 1)}.get(event.key())
-        if step is not None and self._census is not None and self._census.cells:
+        if step is not None and self._census is not None:
             self._step_selection(step)
             event.accept()
             return
         super().keyPressEvent(event)
 
     def _step_selection(self, step):
-        """Arrow keys walk the DEPLOYED blocks: the nearest deployed cell in that direction (keyboard
-        parity with the click -- a canvas the keyboard cannot enter is a mouse-only surface)."""
-        cells = self._census.cells
+        """Arrow keys walk the GRID one block at a time (keyboard parity with the click -- every
+        block answers now, so plain chart-cursor steps are the honest semantics), clamped at the
+        map edge. No selection yet -> start on the first deployed block, else the map's middle."""
         if self._selected is None:
-            self.select(min(cells))
+            cells = self._census.cells
+            self.select(min(cells) if cells else (worldscan.GRID_COLS // 2, worldscan.GRID_ROWS // 2))
             return
-        sx, sy = self._selected
-        dx, dy = step
-        best, best_d = None, None
-        for (bx, by) in cells:
-            vx, vy = bx - sx, by - sy
-            if (vx, vy) == (0, 0) or (dx and (vx * dx <= 0)) or (dy and (vy * dy <= 0)):
-                continue
-            d = (vx * vx + vy * vy, abs(vy) if dx else abs(vx))   # nearest, then straightest
-            if best_d is None or d < best_d:
-                best, best_d = (bx, by), d
-        if best is not None:
-            self.select(best)
+        bx = min(worldscan.GRID_COLS - 1, max(0, self._selected[0] + step[0]))
+        by = min(worldscan.GRID_ROWS - 1, max(0, self._selected[1] + step[1]))
+        if (bx, by) != self._selected:
+            self.select((bx, by))
 
 
 class WorldDoc(QWidget):
@@ -397,6 +401,8 @@ class WorldDoc(QWidget):
         self._game_path_fn = game_path_fn          # None -> config.find_game_path, resolved at CALL time
         self._scale = scale
         self._census = None
+        self._stock_grid = {}                      # the real map's land/sea, once a scan derived it
+        self._stock_known = False                  # False = geography unreadable: never claim "free"
         self._selected = None
         self._trees = []
         self._busy = False
@@ -521,6 +527,18 @@ class WorldDoc(QWidget):
         self.open_btn.clicked.connect(self._open_folder)
         self.open_btn.setEnabled(False)
         brow.addWidget(self.open_btn)
+        # The siting ENHANCEMENT: on a clean open-ocean block (stock says no geometry, this folder
+        # says no overrides) the strip offers a paste-ready world-island command for exactly that
+        # block. Quiet tier, and it REPLACES the folder button (an empty block never has a folder)
+        # rather than stacking under it -- a strip that grows on selection shrinks the canvas out
+        # from under its own fit (snap-caught: scrollbars + a clipped bottom row).
+        self.site_btn = QPushButton("Copy world-island command")
+        self.site_btn.setProperty("role", "quiet")
+        self.site_btn.setToolTip("Copy a ready-to-run world-island command targeting this open-ocean "
+                                 "block (paste into a terminal at the kit root).")
+        self.site_btn.clicked.connect(self._copy_site_cmd)
+        self.site_btn.hide()
+        brow.addWidget(self.site_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
         return page
@@ -642,6 +660,8 @@ class WorldDoc(QWidget):
             self._show_guide("error", err)
             return
         self._census = census
+        self._stock_grid = stock or {}
+        self._stock_known = stock is not None
         self._stack.setCurrentWidget(self._atlas_page)
         self.canvas.set_census(census, stock)
         n = len(census.cells)
@@ -660,9 +680,8 @@ class WorldDoc(QWidget):
             if census.strays:
                 bits.append(f"{len(census.strays)} stray files")
             self.summary_lbl.setText(" · ".join(bits))
-        if self._selected is not None and self._selected not in census.cells:
-            self._selected = None
-        self._on_select(self._selected)
+        self._on_select(self._selected)            # re-derive the strip: the block may have changed
+        #                                            class (deployed <-> empty) across the rescan
 
     # -- selection / details --
     def _set_chip(self, text, kind):
@@ -679,15 +698,20 @@ class WorldDoc(QWidget):
 
     def _on_select(self, key):
         self._selected = key
-        c = self._census.cells.get(key) if (self._census is not None and key is not None) else None
-        if c is None:
+        if key is None or self._census is None:
             self.sel_title.setText("No block selected")
             self.sel_facts.setText("Click a block on the atlas — or arrow-key through them.")
             self.sel_parts.setText("")
             self._set_chip("", "info")
             self.copy_btn.setEnabled(False)
+            self._swap_site(False)
             self.open_btn.setEnabled(False)
             return
+        c = self._census.cells.get(key)
+        if c is None:
+            self._select_empty(key)
+            return
+        self._swap_site(False)                     # a deployed block's strip is the census, not siting
         cx, cz = worldscan.block_center(c.bx, c.by)
         self.sel_title.setText(f"Block[{c.bx}][{c.by}] — {c.kind}")
         facts = [f"centre x {cx:g}, z {cz:g}"]
@@ -712,6 +736,56 @@ class WorldDoc(QWidget):
             self._set_chip(f"Disc4 {c.mirror} — rerun world-mirror", "warn")
         self.copy_btn.setEnabled(True)
         self.open_btn.setEnabled(c.dirpath is not None)
+
+    def _swap_site(self, siting):
+        """ONE of the two quiet buttons occupies the strip's second slot -- swapping keeps the strip's
+        height (and therefore the canvas's fit) constant across every selection."""
+        self.site_btn.setVisible(siting)
+        self.open_btn.setVisible(not siting)
+
+    def _select_empty(self, key):
+        """The strip for an UNDEPLOYED block: its stock geography, its centre, and -- only when the
+        verdict is certain clean ocean -- the free-site call + the paste-ready world-island command."""
+        bx, by = key
+        cx, cz = worldscan.block_center(bx, by)
+        self.sel_facts.setText(f"centre x {cx:g}, z {cz:g} · nothing deployed here")
+        self.copy_btn.setEnabled(True)
+        self.open_btn.setEnabled(False)
+        cls = self._stock_grid.get(key)
+        if not self._stock_known:
+            self.sel_title.setText(f"Block[{bx}][{by}] — stock world")
+            self.sel_parts.setText("Stock geography unknown (the install's assets couldn't be read), "
+                                   "so this block can't be certified as a free site.")
+            self._set_chip("", "info")
+            self._swap_site(False)
+        elif cls == "L":
+            self.sel_title.setText(f"Block[{bx}][{by}] — stock land")
+            self.sel_parts.setText("The real map owns this block. The atlas only charts it — "
+                                   "reshaping stock land goes through the world verbs' own gates.")
+            self._set_chip("stock land", "info")
+            self._swap_site(False)
+        elif cls == "~":
+            self.sel_title.setText(f"Block[{bx}][{by}] — stock coastal water")
+            self.sel_parts.setText("The real map ships sea meshes here (a coastal shelf block) — "
+                                   "not a clean island site.")
+            self._set_chip("stock water", "info")
+            self._swap_site(False)
+        else:
+            self.sel_title.setText(f"Block[{bx}][{by}] — open ocean")
+            self.sel_parts.setText("No stock geometry and no overrides in this folder: "
+                                   "world-island can build here.")
+            self._set_chip("free site", "good")
+            self._swap_site(True)
+            self.site_btn.setEnabled(True)
+
+    def _copy_site_cmd(self):
+        if self._selected is None or self._census is None:
+            return
+        bx, by = self._selected
+        cmd = f"py -m ff9mapkit world-island --mod-folder {self._census.root.name} --cell {bx},{by}"
+        QApplication.clipboard().setText(cmd)
+        self.site_btn.setText("Copied ✓")
+        QTimer.singleShot(1400, lambda: self.site_btn.setText("Copy world-island command"))
 
     def _copy_coords(self):
         if self._selected is None:

@@ -400,6 +400,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             win.world_doc.canvas.select((19, 18))  # the showpiece cell: donor + buildings + details card
         _settle()
         _grab(ctx, f"world-{state}", win)
+        if state == "atlas":                       # the siting enhancement: a clean ocean block's
+            win.world_doc.canvas.select((14, 19))  # free-site strip + world-island command button
+            _settle()
+            _grab(ctx, "world-atlas-site", win)
         _close(win)
 
 
