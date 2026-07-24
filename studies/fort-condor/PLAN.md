@@ -50,9 +50,22 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   O(n²)-collision concern does not bite at 40 (flags-7 movers). Rung 1 is CLOSED; the
   bench stays deployed on 30400 as the standing swarm harness. Revert:
   `tools/scroll_out/revert_deploy_30400.py`.
-- **Rung 2 — TWO-LANE SKIRMISH.** One attacker marches a lane, one defender intercepts
-  (chase loop, engagement radius); combat resolved script-side (HP in flags, swing anims,
-  death + `TerminateEntry`) — no player battles. Proves the auto-battler core loop.
+- **Rung 2 — TWO-LANE SKIRMISH: BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending.**
+  Lives ON the swarm bench (30400) as lever row 5 "Skirmish demo" (flag 8804). Cast: 2
+  Fang attackers (north plaza) march on a goal post by the spawn (an Elite-Soldier herald
+  stands there), 2 City-Soldier defenders posted ~55% down each lane. Per-unit tag-1
+  state machine (label-assembled, disasm-verified jump-by-jump): armed gate → HP-death
+  gate (`TerminateEntry`) → enemy-alive gate → contact<150 = FIGHT (TurnTowardObject +
+  30-frame swing timer, −1 enemy HP/swing, GLOB bytes 1102-1109) → else defender
+  acquires <1500 and chases the attacker's live `obj(uid)` position / attacker marches
+  the goal; goal-box arrival = the BREACH (once-flag 8805 + the herald's line as a
+  popup). HP 3/5 vs 5/3: lane A defender wins, lane B attacker breaches. SAFETY: every
+  enemy-referencing eval sits structurally behind the enemy-HP gate as separate
+  statement+jump (RPN has no short-circuit — the player-ref eval law generalized to dead
+  uids); a corpse's HP hits 0 a tick before its self-terminate, so peers never poll a
+  dead object. Assumes unit uid == entry index (stock convention) — the units engaging
+  IS the in-game verification. Measure: defenders intercept? both fight outcomes? the
+  lane-B breach popup? chasers + skirmish coexist? ~ Reload = full reset (HP re-preset).
 - **Rung 3 — PLACEMENT + ECONOMY.** Walk-and-place: confirm at a spot → unit-type choice
   menu (dialogue choices) → gil spend → runtime `InitObject` from a pre-authored pool
   (Ice Cavern 303 is the stock runtime-spawn precedent; entries are fixed at build → pool
