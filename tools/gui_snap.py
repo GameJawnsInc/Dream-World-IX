@@ -563,6 +563,60 @@ def snap_home(ctx: _Ctx, state: str) -> None:
         _close(win)
 
 
+CONSOLE_STATES = ("log", "find", "miss", "jobs")
+
+
+def _seed_console(win) -> list[dict]:
+    """A realistic MULTI-JOB session log + its job index, pinned -- never this machine's real jobs.
+
+    Written through ``win._log`` in the same four registers ``run_job`` uses (head / echo / body / trace) so
+    the snap records the real ink, and the head strings are built the same way run_job builds them. Fixed
+    timestamps: a random clock would break pixel-diffing the most prominent line in the panel (round 9's
+    mkdtemp lesson).
+    """
+    session = [("09:41:02", "Build field 4003", 0,
+                ["scene: camera k=14 ok", "wrote build/4003/scene.bgx", "wrote build/4003/field.eb"]),
+               ("09:41:20", "Deploy field 4003", 0,
+                ["copying to FF9CustomMap/StreamingAssets", "wrote revert_deploy_4003.py", "deploy ok"]),
+               ("09:42:07", "Import field 354", 1,
+                ["reading p0data7.bin", "Traceback (most recent call last):",
+                 "  File \"ff9mapkit/import.py\", line 88, in scan", "KeyError: 'walkmesh'"])]
+    idx = []
+    for stamp, subject, code, lines in session:
+        head = f"[{stamp}] {subject}"
+        idx.append({"head": head, "time": stamp, "subject": subject, "code": code, "stopped": False})
+        win._log(head, "head")
+        win._log(f"$ -m ff9mapkit {subject.split()[0].lower()} examples/showcase", "echo")
+        for ln in lines:
+            win._log(ln, "trace" if win._TRACE_ANCHOR in ln else "body")
+    win._job_index = idx
+    return idx
+
+
+def snap_console(ctx: _Ctx, state: str) -> None:
+    """The console read as a DOCUMENT: the multi-job log, the find bar's two highlight tiers, the no-match
+    state, and the Jobs menu."""
+    if state not in CONSOLE_STATES:
+        raise ValueError(f"unknown console state {state!r} (know: {', '.join(CONSOLE_STATES)})")
+    win = _make_win(ctx)
+    _seed_console(win)
+    win._raise_console()
+    if state == "find":
+        win._open_find("wrote")
+    elif state == "miss":
+        win._open_find("walkmsh")            # a typo'd needle -> the 'no matches' tier
+    _settle(8)
+    if state == "jobs":
+        win._fill_jobs_menu()
+        _grab(ctx, "console-jobs-menu", win._jobs_menu)
+    # The console body is the subject, so grab IT as well as the window: the panel is ~200px of a 850px
+    # shot and a highlight tier judged from the downscaled whole is the 'sample the button, don't squint at
+    # the screenshot' mistake this study already paid for.
+    _grab(ctx, f"console-{state}", win)
+    _grab(ctx, f"console-{state}-panel", win.console_panel)
+    _close(win)
+
+
 def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "coop":
         # tab:coop unpinned rendered THIS machine's real [Netsync] state -- including the developer's
@@ -687,7 +741,8 @@ DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-f
 def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
-            + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES])
+            + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
+            + [f"console:{s}" for s in CONSOLE_STATES])
 
 
 def main() -> None:
@@ -727,6 +782,8 @@ def main() -> None:
                 snap_map(ctx, rest)
             elif kind == "world":
                 snap_world(ctx, rest)
+            elif kind == "console":
+                snap_console(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

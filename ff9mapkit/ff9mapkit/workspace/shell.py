@@ -58,6 +58,7 @@ from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
+from . import logfind
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
@@ -683,6 +684,9 @@ class Workspace(QMainWindow):
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
         if getattr(self, "world_doc", None) is not None:
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
+        if getattr(self, "_find_bar", None) is not None:
+            self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
+                                                              # QPainter-side, so the sheet cannot reach them
 
     def _apply_density(self, density):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
@@ -1288,6 +1292,7 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_field)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: self._open_find())
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
         QShortcut(QKeySequence(Qt.Key_F9), self, activated=self._deploy_now)   # save-all + deploy the target
@@ -1693,6 +1698,23 @@ class Workspace(QMainWindow):
         out_head = QHBoxLayout()
         out_head.addWidget(self._panel_header("Output"))
         out_head.addStretch(1)
+        # THE JOB INDEX. run_job stopped clearing the console on purpose ("a separator with nothing above it
+        # separates nothing"), which made this a MULTI-JOB DOCUMENT -- and nothing spent its structure. The
+        # head lines are that structure, and the GUI writes them itself, so this list is certain rather than
+        # sniffed. Built on demand so a jump is never offered to a job the 5000-block cap has eaten.
+        self._jobs_btn = QToolButton()
+        self._jobs_btn.setObjectName("consoleHeadBtn")
+        # "Jobs", not "Jobs ▾": an InstantPopup QToolButton draws its OWN menu indicator, so a typed caret
+        # renders a SECOND arrow beside Qt's (measured in the 150% snap -- two carets on one button).
+        self._jobs_btn.setText("Jobs")
+        self._jobs_btn.setToolTip("Jump to a job's output in this session's log")
+        self._jobs_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._jobs_menu = QMenu(self._jobs_btn)
+        self._jobs_menu.aboutToShow.connect(self._fill_jobs_menu)
+        self._jobs_btn.setMenu(self._jobs_menu)
+        self._out_find = QPushButton("Find")
+        self._out_find.setToolTip("Find in the output (Ctrl+F)")
+        self._out_find.clicked.connect(lambda: self._open_find())
         self._out_wrap = QPushButton("Wrap")
         self._out_wrap.setCheckable(True)
         self._out_wrap.setToolTip("Toggle line wrapping (long deploy lines vs a horizontal scroll)")
@@ -1700,11 +1722,16 @@ class Workspace(QMainWindow):
             lambda on: self.output.setLineWrapMode(
                 QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap))
         out_copy = QPushButton("Copy")
-        out_copy.setToolTip("Copy the whole console to the clipboard")
-        out_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.output.toPlainText()))
+        # SELECTION FIRST, and that is the job index paying for the old control rather than adding one. When
+        # the log held a single job, "copy everything" WAS "copy this job"; accumulation silently turned it
+        # into "copy the whole session" -- the wrong granularity for pasting one failure into a report. A
+        # Jobs row selects that job's span, so Copy right after it copies exactly that job.
+        out_copy.setToolTip("Copy the selection — or the whole console when nothing is selected")
+        out_copy.clicked.connect(self._copy_output)
         out_clear = QPushButton("Clear")
-        out_clear.clicked.connect(lambda: self.output.clear())
-        for b in (self._out_wrap, out_copy, out_clear):
+        out_clear.clicked.connect(self._clear_output)
+        out_head.addWidget(self._jobs_btn)
+        for b in (self._out_find, self._out_wrap, out_copy, out_clear):
             # The height pin is QSS now (style.py's #consoleHeadBtn, keyed to style.CONSOLE_H) rather than
             # a setFixedHeight(24) here. A Python pin is invisible to the text-size dial: audited, these
             # labels outgrow a frozen 24 at 125%, and setFixedHeight clips rather than grows. In QSS one
@@ -1722,6 +1749,11 @@ class Workspace(QMainWindow):
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
+        # Find-in-Output: hidden until asked for, below the log so opening it never reflows the head row.
+        self._find_bar = logfind.FindBar(self.output, self.pal)
+        self._find_bar.closed.connect(lambda: self._grow_console_for_find(-1))
+        self._find_split = None                      # the split WE set for the bar (see _grow_console_for_find)
+        ov.addWidget(self._find_bar)
 
         split.addWidget(prob_page)
         split.addWidget(out_page)
@@ -1798,6 +1830,151 @@ class Workspace(QMainWindow):
         make sure the console itself is expanded -- e.g. if the user collapsed it."""
         if getattr(self, "console_panel", None) is not None:
             self._toggle_console(expand=True)
+
+    # ---- find in Output + the session job index (see workspace/logfind.py for the why) ----
+    def _open_find(self, seed=""):
+        """Ctrl+F / the Output head's Find button: expand the console, show the bar, take focus.
+
+        The console can be collapsed to its header strip, so raising it FIRST is load-bearing -- a find bar
+        inside a hidden body takes focus the user cannot see and swallows every keystroke."""
+        if getattr(self, "_find_bar", None) is None:
+            return
+        self._raise_console()
+        was_open = self._find_bar.isVisible()
+        self._find_bar.open_for(seed)
+        if not was_open:
+            self._grow_console_for_find(+1)
+
+    # px of DOCUMENTS the find bar may never take the pane below. A plain px is right here and not a TAILOR
+    # violation: this bounds a PANE, not text -- the height being moved is itself read from the bar's own
+    # sizeHint, so the amount taken already tracks the dial even though the floor does not.
+    _FIND_DOCS_FLOOR = 220
+
+    def _grow_console_for_find(self, sign):
+        """Make room for the find bar out of the DOCUMENTS pane, not out of the log.
+
+        THE BAR MUST NOT PAY FOR ITSELF. Measured in the snaps: the console opens ~152px tall, so adding a
+        ~40px bar inside it left the log ONE visible line and clipped the next mid-height -- the squeeze law
+        ("a squeezed thing does not shrink, it overpaints") in the panel that exists to be read while you
+        search it. So the pane grows by exactly the bar's height and shrinks back by the same amount.
+
+        AND GIVING IT BACK IS CONDITIONAL, because a value the user chose outranks one we did: if the split
+        no longer reads as the one we set, they dragged the divider while searching, and round 7's law cuts
+        the other way here -- restoring blindly would discard a real preference. We only undo our own edit.
+        """
+        sizes = self._vsplit.sizes()
+        if len(sizes) != 2:
+            return
+        h = self._find_bar.sizeHint().height() + 4          # + the layout's top margin
+        if sign > 0:
+            take = min(h, max(0, sizes[0] - self._FIND_DOCS_FLOOR))
+            if take <= 0:
+                return                                       # no room to give -- leave the split alone
+            new = [sizes[0] - take, sizes[1] + take]
+        else:
+            if sizes != getattr(self, "_find_split", None):   # the user moved it: their value wins
+                self._find_split = None
+                return
+            give = min(h, max(0, sizes[1] - self._console_head_h()))
+            new = [sizes[0] + give, sizes[1] - give]
+        self._vsplit.setSizes(new)
+        self._find_split = self._vsplit.sizes() if sign > 0 else None
+
+    def _copy_output(self):
+        """Copy the SELECTION when there is one, else the whole console. See the Copy button's comment: the
+        log accumulates across jobs now, so 'everything' stopped being the granularity anyone wants, and a
+        Jobs-menu jump leaves exactly one job selected."""
+        cur = self.output.textCursor()
+        if cur.hasSelection():
+            # Read the RANGE out of the plain text rather than QTextCursor.selectedText(), which joins
+            # blocks with U+2029 (PARAGRAPH SEPARATOR) instead of a newline -- paste that into a bug
+            # report or a terminal and a 40-line failure arrives as ONE unbroken line. Documented Qt
+            # behaviour, easy to miss. Slicing by OFFSET fixes it without putting a U+2029 literal in
+            # this file -- which matters beyond taste: str.splitlines() SPLITS on U+2029, so the literal
+            # form makes every line-based reader of shell.py see a broken line (it broke this edit).
+            lo, hi = sorted((cur.selectionStart(), cur.selectionEnd()))
+            text = self.output.toPlainText()[lo:hi]
+        else:
+            text = self.output.toPlainText()
+        QApplication.clipboard().setText(text)
+
+    def _clear_output(self):
+        """Clear the log AND the index that describes it -- a job index outliving its document would offer
+        jumps to lines that no longer exist (every row would simply disable, which is worse than empty)."""
+        self.output.clear()
+        self._job_index = []
+        if getattr(self, "_find_bar", None) is not None and self._find_bar.isVisible():
+            self._find_bar.close_bar()
+
+    _JOB_GLYPH = {None: "·", 0: "✓"}          # running / ok; anything else is a failure -> below
+
+    def _fill_jobs_menu(self):
+        """Rebuild the Jobs menu from this session's index, newest first.
+
+        VERDICT BY SHAPE, NOT BY COLOUR (WCAG 1.4.1): a glyph, since a QMenu row's text colour is the one
+        thing the menu QSS owns. A job whose head has been trimmed off the front of the 5000-block log is
+        DISABLED and says so rather than jumping somewhere wrong -- the whole reason a job is remembered by
+        its head TEXT and not by a block number."""
+        m = self._jobs_menu
+        m.clear()
+        idx = getattr(self, "_job_index", [])
+        if not idx:
+            act = m.addAction("No jobs yet in this session")
+            act.setEnabled(False)
+            return
+        # ONE pass for every row (job_spans, not job_span per row -- the latter rescans the whole document
+        # each call, so a 200-job session would scan a 5000-block log 200 times to open a menu).
+        spans = logfind.job_spans(self.output.toPlainText(), [r["head"] for r in idx])
+        for i in range(len(idx) - 1, -1, -1):
+            rec = idx[i]
+            glyph = self._JOB_GLYPH.get(rec["code"], "✗")
+            if rec["code"] is not None and rec.get("stopped"):
+                glyph = "⏹"
+            span = spans[i]
+            act = m.addAction(f"{glyph}  {rec['time']}   {rec['subject']}")
+            if span is None:
+                act.setEnabled(False)
+                act.setText(act.text() + "   (scrolled out of the log)")
+            else:
+                act.triggered.connect(lambda _c=False, _i=i: self._goto_job(_i))
+        m.addSeparator()
+        last = m.addAction("Copy the last job's output")
+        last.setToolTip("The whole of the most recent job — for pasting into a bug report")
+        last.triggered.connect(lambda _c=False: self._copy_job(len(idx) - 1))
+
+    def _job_span(self, i):
+        """``(start, end)`` of job ``i`` in the live document, or ``None`` if trimmed away."""
+        idx = getattr(self, "_job_index", [])
+        return logfind.job_span(self.output.toPlainText(), [r["head"] for r in idx], i)
+
+    def _goto_job(self, i):
+        """Scroll to job ``i`` and SELECT its span, so Copy right after this yields exactly that job."""
+        span = self._job_span(i)
+        if span is None:
+            return
+        self._raise_console()
+        # SELECT BACKWARD -- anchor at the job's end, cursor at its HEAD. ensureCursorVisible scrolls to
+        # the cursor POSITION, so a forward selection reveals the job's LAST line and scrolls its header
+        # off the top: you end up looking at the end of the thing you asked to see. The selection is
+        # identical either way, so the direction is free -- and only one of the two is right.
+        cur = self.output.textCursor()
+        cur.setPosition(span[1])
+        cur.setPosition(span[0], QTextCursor.MoveMode.KeepAnchor)
+        self.output.setTextCursor(cur)
+        self.output.ensureCursorVisible()
+
+    def _copy_job(self, i):
+        span = self._job_span(i)
+        if span is None:
+            return
+        QApplication.clipboard().setText(self.output.toPlainText()[span[0]:span[1]])
+
+    def _copy_last_job(self):
+        """The Ctrl-K route to the high-value case: paste the most recent job -- and only it -- into a report.
+        No-op with an empty index rather than silently copying the whole console."""
+        idx = getattr(self, "_job_index", [])
+        if idx:
+            self._copy_job(len(idx) - 1)
 
     def _welcome(self):
         """The 'Start here' HOME (do-now #4): a live front door that names every entry point in hierarchy
@@ -4467,6 +4644,8 @@ class Workspace(QMainWindow):
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
             ("Fork FF9 regions…", "command", self._fork_ff9_regions),
+            ("Find in Output (Ctrl+F)", "command", lambda: self._open_find()),
+            ("Copy the last job's output", "command", self._copy_last_job),
             ("Undo", "command", self._undo),
             ("Redo", "command", self._redo),
             ("Save All fields", "command", self._save_all),
@@ -8367,7 +8546,14 @@ class Workspace(QMainWindow):
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
         # Clear button still exists for when you actually want it.
-        self._log(f"[{time.strftime('%H:%M:%S')}] {subject}", "head")
+        stamp = time.strftime("%H:%M:%S")
+        head = f"[{stamp}] {subject}"
+        # ...and THAT accumulation is what the Jobs menu indexes. Recorded here, at the one site that writes a
+        # head line, so the index cannot drift from the document: same string, same moment. The head TEXT is
+        # the locator (never a block number -- the 5000-block cap shifts those; see logfind's docstring).
+        self._job_index = (getattr(self, "_job_index", []) + [
+            {"head": head, "time": stamp, "subject": subject, "code": None, "stopped": False}])[-200:]
+        self._log(head, "head")
         self._log(f"$ {' '.join(str(a) for a in argv[1:])}", "echo")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
@@ -8474,6 +8660,9 @@ class Workspace(QMainWindow):
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
+        if getattr(self, "_job_index", None):           # stamp the verdict onto the Jobs-menu row (✓ / ✗ / ⏹)
+            self._job_index[-1]["code"] = code          # the last row IS this job: one QProcess, one at a time
+            self._job_index[-1]["stopped"] = bool(self._stopped)
         subject, ok_headline, ok_next, fail_hint, on_finished, field_id = getattr(
             self, "_job", ("Job", None, "", "See the Output panel.", None, None))
         if self._stopped:                               # a Stop kill -> the verdict names it plainly

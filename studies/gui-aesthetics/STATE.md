@@ -1,5 +1,90 @@
 # GUI aesthetics — state + next steps
 
+> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ⚠ PLAYTEST PENDING
+>
+> **The weak area, stated precisely: there was no find ANYWHERE in this app.** `Ctrl+F` was unbound
+> app-wide, and the surface that needed it most is the one the app streams every build, deploy, lint and
+> import into. An earlier round made `run_job` stop clearing the console on purpose — *"the header is a
+> SEPARATOR, and a separator with nothing above it separates nothing"* — which turned Output into a
+> **multi-job document** of up to 5000 blocks and left it with a drain's three controls: Wrap,
+> Copy-everything, Clear. Its own structure (the `[HH:MM:SS] subject` head lines, which the GUI writes
+> **itself** and therefore knows with certainty) was spent by nothing.
+>
+> One mechanism — the head-line index — three affordances: **find** (Ctrl+F, incremental, match count,
+> Enter/Shift+Enter, wrap, highlight-all, Esc), **jump to a job** (a `Jobs` menu, newest first, ✓/✗/⏹ by
+> shape not colour), and **copy just that job** (a jump selects the span, so the OLD Copy button becomes
+> per-job — the new mechanism pays for the existing control instead of adding one).
+>
+> **★ THE MEASUREMENT KILLED THE NAIVE BUILD BEFORE IT SHIPPED — the NINTH-GROUND LAW, on the one surface
+> that had no ground but its own.** A find highlight is a *third* colour painted under the log's text, so
+> `contrast(log_fg, log_bg) >= 4.5` says nothing about it. Probed across all 8 palettes
+> (`evidence/probe_find_ground.py`): letting the log's own ink ride an accent highlight measures
+> **1.16 (solarized-dark) to 3.43 (nord) — sub-AA in EIGHT of eight**, i.e. the current match would have
+> been the *least readable line in the log*, in every palette. The quiet tier was sub-AA in solarized-light
+> too (4.42). So the loud tier reuses the **authored** `accent`/`accent_fg` pair (already fenced) and the
+> quiet tier gets two derived tokens, `find_bg` (`_find_token`) + `find_fg` (the existing `_fg_token` rule).
+>
+> **`selection_bg` was the obvious reuse and it was wrong** — it is derived against `surface`/`hover`, the
+> *tree's* ground. The console's ground is `log_bg`, a different and deeper fill in every palette. Reusing it
+> would have been this study's most-repeated defect: a fence set on the wrong ground.
+>
+> **And `_selection_token`'s 20/255 floor was also wrong here, which is the round's transferable bit.** At 20
+> the mist render *painted* the quiet match correctly — **339 measured px of the token, so the mechanism was
+> right** — and it still read as a smudge, not a mark, on a near-black well. Same delta, less perceived.
+> `FIND_TINT_FLOOR = 44`, swept at 4× nearest-neighbour on both extremes (mist's deepest well, cream
+> solarized-light) via `evidence/shot_find_tier.py`: 20 reads as an artifact, 32 as a mark, 44 unambiguously.
+> **A visibility floor is calibrated per GROUND; it does not transfer between tokens.** The ceiling is
+> numeric, not taste: 44 keeps the derived ink ≥4.77:1 in all 8 and every palette ≥60 raw channels from the
+> accent. **And the sweep corroborated the ink token independently: `contrast(log_fg, find_bg)` FALLS as the
+> floor rises** (solarized-dark 4.52 → 3.55) — visibility and inherited legibility pull in *opposite*
+> directions, so no floor exists at which the naive build is both visible and legible. The two tokens are the
+> only shape that works.
+>
+> **Seven live defects, each caught by driving the thing rather than reading it:**
+> 1. **`QPlainTextEdit.ExtraSelection` does not exist in PySide6** (it is `QTextEdit`'s) — an AttributeError
+>    on the first keystroke of the first search.
+> 2. **`self.pal` is the RAW palette**, so `pal["find_bg"]` KeyErrors — the trap `Workspace._derived` exists
+>    to document, hit again by a new module.
+> 3. **The last job's span chopped its final character** (`end - 1` with no next head to trim) — measured on
+>    a traceback's closing quote.
+> 4. **Two jobs sharing a head string both resolved to the first occurrence.** A head is `[HH:MM:SS] subject`,
+>    so two Checks in the same second are byte-identical; the spans are now built cumulatively, in order.
+> 5. **Shift+Enter never fired.** It lived on a QShortcut hosted by a hidden zero-size QPushButton — Qt
+>    disables shortcuts owned by an invisible widget — while the ▲ button's tooltip advertised the key.
+>    Measured: 1/3 → **2/3**, i.e. `returnPressed` won. Esc would likewise have been eaten by
+>    `setClearButtonEnabled`. Both keys now live on a `QLineEdit` subclass that owns them.
+> 6. **The find bar paid for itself out of the log.** The console opens ~152px, so a ~46px bar inside it left
+>    ONE readable line and clipped the next mid-height — the squeeze law in the panel that exists to be read
+>    *while you search it*. The height now comes from the DOCUMENTS pane, and is given back **only if the
+>    split still reads as the one we set** (round 7's law cutting the other way: a divider the user dragged
+>    while searching is a preference, and restoring blindly would discard it).
+> 7. **Two dropdown arrows on the Jobs button** — an InstantPopup QToolButton draws its own indicator, so the
+>    typed `▾` was a second caret. Visible only in the 150% snap.
+>
+> **Two of my own fences were set at the wrong bar, and the second one is the sharper lesson:**
+> - `test_the_find_highlight_cannot_inherit_the_logs_own_ink` first demanded `find_fg` beat `log_fg` in every
+>   palette and went **red on dracula, where the two are byte-identical** (`#f8f8f2` is that palette's
+>   `log_fg` *and* its `text`, and `_fg_token` returns its input unchanged wherever the palette already
+>   clears AA). That is the rule working as designed. A fence at "strictly better everywhere" would have
+>   forced a pointless second hex into dracula; the honest contract is *never worse* per palette **plus**
+>   *load-bearing at least once* across them.
+> - The miss state's fence asserted `count.property("state") == "error"` — **a property is not a rendered
+>   colour.** The counter also carries `role="muted"`, and `style.py`'s own `QLabel[role="muted"][state="warn"]`
+>   two-attribute rule exists precisely because that cascade did not go the obvious way for warn. Re-measured
+>   from pixels: hit → `#9fadc4` (`muted`), miss → `#ff6b6b` (`error_text`). The error rule does win — and the
+>   fence now says so from pixels.
+>
+> **Not capped, because it was measured, not guessed:** at full log depth (5000 blocks / 179k chars) a
+> refresh+repaint is 27ms for 5,000 matches and 58ms for 10,000 (the single letter `o`), against a 180ms
+> coalescing window. A cap would have to either lie in the counter or announce itself; neither is worth
+> buying at 58ms.
+>
+> All three sabotage runs (naive ink / no tint / merged tiers) go red on the right fence with the right
+> message. `gui_snap` grew **`console:log|find|miss|jobs`** (a pinned 3-job session with fixed timestamps — a
+> random clock breaks pixel-diffing the panel's most prominent line) and grabs the console panel *as well as*
+> the window, because a highlight tier judged from a downscaled 850px shot is the "sample the button, don't
+> squint at the screenshot" mistake. Suite **4194** (+28 new fences, 263 skips = this worktree's un-extracted byte-level templates, none of them GUI).
+
 > ## ROUND 9 — THE CO-OP TAB, and the trap that unfilled every button  ·  branch `claude/gui-coop-tab-round9`
 >
 > The first round driven end-to-end by the snap loop: `gui_snap` grew pinned **co-op machine states**
