@@ -8,10 +8,13 @@
 > staging preserved, MUTUAL duels) as `[behavior]` TOML and deploys via plain
 > `deploy_field` — **the ~500-line hand-rolled referee/fight/patch machinery is
 > DELETED; the compiler subsumes it** (proven by the behavior study's regression bench
-> 30411 and the BTRAID showcase parity). Deployed on 30400; ⚠ THE MIGRATION PARITY
-> PLAYTEST IS PENDING (the deploy printout lists the 3 checks; one intended change:
-> chasers RING the player at the compiler's 140u standoff instead of stacking into a
-> point). **Removed with the referee, by design:** (a) the rung-3 placement/economy
+> 30411 and the BTRAID showcase parity). Deployed on 30400; **★ THE MIGRATION PARITY
+> PLAYTEST PASSED (2026-07-24 — "all three good")**: tiers converge with the chasers
+> RINGING the player at the compiler's 140u standoff (the intended change), the
+> skirmish replays playtest-6 (both lane outcomes + the one-shot breach popup, duels
+> now MUTUAL), chasers + skirmish coexist and ~ Reload resets. The owner's one flagged
+> regression — the hire-soldiers-for-gil menu — is the DESIGNED removal in (a) below,
+> returning as compiler vocabulary. **Removed with the referee, by design:** (a) the rung-3 placement/economy
 > LAYER — its mechanisms (SPECIAL-button poller / gil purchase via `B_SYSVAR[6]` +
 > RemoveGil / runtime `InitObject` + `MoveInstantEx` spawn-at-feet, all ★ in-game
 > proven, recipes in the rung-3 entry below) return as COMPILER VOCABULARY
@@ -19,10 +22,10 @@
 > so a hire-pool needs a new activation lane); (b) playtest 11's staring-duel bug —
 > MOOT, that referee no longer exists; (c) the generic-timer probe (claim ★ proven in
 > playtest 2; rung 4 re-adds timers as wave machinery).
-> **THE RESUME LADDER (next session):** 1. the migration parity playtest → 2. pooled-
-> unit vocabulary in the compiler (runtime activation + spawn-at-feet as a behavior/kit
-> lane) → 3. placement/economy rebuilt on it (now with MUTUAL recruit combat free) →
-> 4. rung 4 waves + win/loss (below) on tree-driven units. Read
+> **THE RESUME LADDER (the parity playtest ★ done):** 1. pooled-unit vocabulary in the
+> compiler (runtime activation + spawn-at-feet as a behavior/kit lane) → 2. placement/
+> economy rebuilt on it (now with MUTUAL recruit combat free) → 3. rung 4 waves +
+> win/loss (below) on tree-driven units. Read
 > [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.
 
 **Goal:** emulate FFVII's Fort Condor minigame (real-time lane defense: place units for gil,
