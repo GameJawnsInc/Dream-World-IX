@@ -99,7 +99,8 @@ def test_decorators_compile():
     )
     cb = fb.compile()
     _verify_all(cb)
-    assert "u.once.greet" in cb.report and "u.cd" in cb.report
+    assert "u.once.greet" in cb.report and "u.onceeng.greet" in cb.report
+    assert "u.cd" in cb.report and "u.cdeng" in cb.report   # sticky engagement flags
 
 
 def test_patrol_waypoint_state_resets():
@@ -164,6 +165,53 @@ def test_unknown_units_and_reserved_name():
     fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
     with pytest.raises(B.BehaviorError, match="unknown unit"):
         fb.near("u", "ghost", 100)
+
+
+# ------------------------------------------------------------------ install (game-gated)
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_install_on_a_real_field_eb():
+    """Structural end-to-end: install a behavior onto real field 559's .eb (two real
+    NPC entries drafted as units) — the lint baseline-diff must pass, the ticker entry
+    must be seated, and every touched function must still walk clean."""
+    from ff9mapkit.extract import EventBundle
+    from ff9mapkit.eb.model import EbScript
+
+    data = EventBundle().eb_for_id(559)
+    eb = EbScript.from_bytes(data)
+    hosts = [i for i in range(1, eb.entry_count)
+             if eb.entry(i).func_by_tag(0) is not None
+             and eb.entry(i).func_by_tag(1) is not None
+             and eb.entry(i).func_by_tag(15) is None][:2]
+    assert len(hosts) == 2
+    fb = B.FieldBehavior([
+        B.UnitSpec("a", entry=hosts[0], spawn=(0, 0)),
+        B.UnitSpec("b", entry=hosts[1], spawn=(100, 100), hp=3),
+    ])
+    fb.units["a"].tree = B.Selector(
+        B.Sequence(fb.near("a", B.PLAYER, 300), B.Do(B.Chase(B.PLAYER))),
+        B.Do(B.Hold((0, 0))),
+    )
+    fb.units["b"].tree = B.Selector(
+        B.Sequence(fb.hp_le("b", 0), B.Do(B.Die())),
+        B.Do(B.Patrol([(0, 0), (200, 0)])),
+    )
+    out = fb.install(data)
+    eb2 = EbScript.from_bytes(out)
+
+    def used(e):
+        return sum(1 for i in range(e.entry_count) if e.entry(i).size > 0)
+    assert used(eb2) == used(eb) + 1                   # the seated ticker (a free slot)
+    assert eb2.entry(hosts[0]).func_by_tag(1) is not None
+    assert eb2.entry(hosts[1]).func_by_tag(B.FIRST_ACTION_TAG) is not None
 
 
 # ------------------------------------------------------------------ blackboard

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import struct
 from dataclasses import dataclass
 
 from ..eb import exprasm, opcodes
@@ -298,6 +299,7 @@ class FieldBehavior:
         self.tick = int(tick)
         self._cooldowns: list[tuple[str, int]] = []      # (timer name, frames)
         self._reset_bytes: list[int] = []                # extra bytes Main_Init zeroes
+        self._reset_flags: list[int] = []                # extra flags Main_Init clears
         self._label_ctr = 0                              # unique labels for feed effects
         # per-unit allocations (the player pseudo-unit gets mirrors + the staged latch)
         self._staged = self.bb.flag("player.staged")
@@ -533,6 +535,8 @@ class FieldBehavior:
             main_init += _set_byte(self.bb.byte(name), 0)
         for idx in self._reset_bytes:
             main_init += _set_byte(idx, 0)
+        for idx in self._reset_flags:
+            main_init += _set_flag(idx, 0)
 
         ticker += [label("wait"), opcodes.wait(self.tick), (JMP, "top"), opcodes.RETURN]
         return CompiledBehavior(
@@ -571,17 +575,42 @@ class FieldBehavior:
         if isinstance(node, Invert):
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
-            f = self.bb.flag(f"{u.name}.once.{node.name}")
-            extra = (on_select or []) + [_set_flag(f, 1)]
-            return ([_stmt(f"Global.Bit[{f}]"), (JMP_IF, fail)]
-                    + self._compile_tree(u, node.child, ids, fail, _ctr, extra))
+            # STICKY semantics (rung-1 design fix): a reactive ticker re-selects every
+            # tick, so a select-time latch would fire for ONE tick. Instead: selecting
+            # the child ENGAGES; while engaged the gate is bypassed (the child's own
+            # conditions keep deciding); the first child-FAIL while engaged disengages
+            # and latches — "chase me while I'm near, never again once I escape".
+            latch = self.bb.flag(f"{u.name}.once.{node.name}")
+            eng = self.bb.flag(f"{u.name}.onceeng.{node.name}")
+            self._reset_flags += [latch, eng]
+            myfail = f"{me}_dfail"
+            ff = f"{me}_dff"
+            extra = (on_select or []) + [_set_flag(eng, 1)]
+            return ([_stmt(f"Global.Bit[{latch}]"), (JMP_IF, myfail)]
+                    + self._compile_tree(u, node.child, ids, myfail, _ctr, extra)
+                    + [label(myfail),
+                       _stmt(f"Global.Bit[{eng}]"), (JMP_IFNOT, ff),
+                       _set_flag(eng, 0), _set_flag(latch, 1),
+                       label(ff), (JMP, fail)])
         if isinstance(node, Cooldown):
+            # sticky like Once: engage on select, and start the TIMER at DISENGAGE
+            # (the child failing while engaged), so the cooldown measures time since
+            # the behavior ENDED, not since it began.
             name = f"{u.name}.cd{_ctr[0]}"
             t = self.bb.byte(name)
+            eng = self.bb.flag(f"{u.name}.cdeng{_ctr[0]}")
             self._cooldowns.append((name, node.frames))
-            extra = (on_select or []) + [_set_byte(t, node.frames)]
-            return ([_stmt(f"Global.Byte[{t}] const(0) B_EQ"), (JMP_IFNOT, fail)]
-                    + self._compile_tree(u, node.child, ids, fail, _ctr, extra))
+            self._reset_flags.append(eng)
+            myfail = f"{me}_dfail"
+            ff = f"{me}_dff"
+            extra = (on_select or []) + [_set_flag(eng, 1)]
+            return ([_stmt(f"Global.Byte[{t}] const(0) B_EQ Global.Bit[{eng}] B_OROR"),
+                     (JMP_IFNOT, fail)]
+                    + self._compile_tree(u, node.child, ids, myfail, _ctr, extra)
+                    + [label(myfail),
+                       _stmt(f"Global.Bit[{eng}]"), (JMP_IFNOT, ff),
+                       _set_flag(eng, 0), _set_byte(t, node.frames),
+                       label(ff), (JMP, fail)])
         if isinstance(node, Do):
             aid = ids[id(node.action)]
             sel = self.bb.byte(f"{u.name}.selected")
@@ -632,6 +661,33 @@ class FieldBehavior:
             out += [_set_byte(wp, 0), label(f"{p}_end")]
             return out
         return []                                        # dispatch actions: no feed
+
+    def install(self, eb_bytes: bytes, compiled: CompiledBehavior | None = None) -> bytes:
+        """Install a compiled behavior into a BUILT field's `.eb` (the generalized
+        `swarm_bench.patch_eb` shape): replace each unit's tag-1 with its duty body,
+        `add_function` the dispatch tags, seat + activate the ticker (the coop
+        inject_hold entry pattern), prepend the Main_Init reset, and gate on an eblint
+        BASELINE DIFF (pre-existing issues pass; a NEW error fails the install)."""
+        from .. import eblint
+        from ..eb import edit as eb_edit
+        from . import object as _object
+        cb = compiled or self.compile()
+        baseline = {str(p) for p in eblint.lint_eb(bytes(eb_bytes))}
+        out = bytes(eb_bytes)
+        for u in self.units.values():
+            out = eb_edit.replace_function_body(out, u.entry, 1, cb.duty_bodies[u.name])
+            for tag, body in cb.action_funcs[u.name]:
+                out = eb_edit.add_function(out, u.entry, tag, body)
+        ticker_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + cb.ticker_body)
+        out, slot = _object.seat_entry(out, ticker_entry)
+        out = eb_edit.activate_block(out, opcodes.init_code(slot, 0))
+        out = eb_edit.insert_in_function(out, 0, 0, 0, cb.main_init)
+        fresh = [p for p in eblint.lint_eb(out)
+                 if getattr(p, "severity", "error") == "error" and str(p) not in baseline]
+        if fresh:
+            raise BehaviorError("install produced NEW lint errors:\n"
+                                + "\n".join(map(str, fresh)))
+        return out
 
     def _dispatch_body(self, u: UnitSpec, a: Action, aid: int, sel: int, run: int) -> bytes:
         head: list = [_set_byte(run, aid), label("loop"),

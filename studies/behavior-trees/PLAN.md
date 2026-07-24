@@ -96,10 +96,21 @@ runtime tree switching beyond blackboard-driven branches.
   protocol, the player STAGED-LATCH, the Instance-var correction (ticker-visible state
   must be GLOB), reactive-only v1 semantics, the static-fallback lint. `install()`
   (into a host .eb) deliberately moved to rung 1's head.
-- **Rung 1 — THE FIRST TREE IN-GAME.** A fresh bench field (own scratch id — NOT 30400;
-  the studies stay decoupled): one unit running `patrol(waypoints) → notice the player
-  (proximity) → approach → return to patrol`. A behavior the fort-condor bench never
-  had, chosen because it exercises Sequence, Selector, Cond, two actions, and resume.
+- **Rung 1 — BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending: THE FIRST TREES
+  IN-GAME.** `bt_bench.py` → field **30410** ("BTREE", a fresh 559 native fork), FIVE
+  compiled units, zero hand-written bytecode: the patroller (ring patrol → notice →
+  chase → resume), the AUTONOMOUS DUEL (veteran hp6 holds vs Fang hp4 patrolling into
+  contact — mutual SwingAt, Die, the survivor resumes post), the greeter (STICKY Once —
+  chases while near, latches forever the first time you escape) and the stalker (STICKY
+  Cooldown 150 — re-engages only ~2.5s after you escape). En route, rung 1's design
+  fix: reactive re-selection made select-time-latching decorators fire ONE tick —
+  Once/Cooldown are now STICKY (engage on select; the gate bypassed while the child's
+  own conditions hold; latch/timer starts at DISENGAGE), + `install()` shipped
+  (seat/replace/add/prepend + the eblint baseline-diff gate, tested against real 559)
+  and the decorator/reset flags joined the Main_Init reset. The compile report
+  (blackboard map + action ids = the ~ Flags live trace) auto-saves to the bench dir.
+  RELAUNCH → ~ → Warp → 30410; ~ Reload = the full reset. Revert:
+  `tools/scroll_out/revert_deploy_30410.py`.
 - **Rung 2 — THE REGRESSION PROOF.** Re-express the fort-condor skirmish (lanes, duels,
   recruits, breach) as trees; identical in-game behavior = the compiler subsumes the
   hand-rolled referee. Fort-condor migrates here if (and only if) this passes.
