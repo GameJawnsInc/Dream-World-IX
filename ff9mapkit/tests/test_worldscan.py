@@ -7,9 +7,21 @@ touch -- a real install. The blank-part law is calibrated against the kit's own 
 
 from __future__ import annotations
 
+import json
 import struct
 
+import pytest
+
+from ff9mapkit import config
 from ff9mapkit.workspace import worldscan
+
+
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
 
 
 def _mesh_bytes(vcount=12, icount=12, *, salt=0):
@@ -160,6 +172,69 @@ def test_landmasses_are_four_adjacency_components(tmp_path):
         _put(tmp_path, bx, by, "Terrain.ff9mesh", _mesh_bytes())
     census = worldscan.scan_tree(tmp_path)
     assert census.landmasses == 2
+
+
+def test_stock_context_is_cache_first_and_keyed_to_the_install(tmp_path, monkeypatch):
+    """One derive per install: the first call reads the bundles and writes the JSON, every later call
+    answers from it -- and a cache written for a DIFFERENT game path re-derives instead of serving
+    another install's geography."""
+    calls = []
+
+    def _fake_derive(game_path, disc=1):
+        calls.append(str(game_path))
+        return {(0, 0): "L", (1, 0): "~", (5, 9): "L"}
+    monkeypatch.setattr(worldscan, "derive_stock_grid", _fake_derive)
+    cache = tmp_path / "cache"
+    g1 = worldscan.stock_context(tmp_path / "gameA", cache_root=cache)
+    assert g1 == {(0, 0): "L", (1, 0): "~", (5, 9): "L"} and len(calls) == 1
+    assert (cache / worldscan.STOCK_CACHE_NAME).is_file()
+    g2 = worldscan.stock_context(tmp_path / "gameA", cache_root=cache)
+    assert g2 == g1 and len(calls) == 1, "the second call must answer from the cache"
+    worldscan.stock_context(tmp_path / "gameB", cache_root=cache)
+    assert len(calls) == 2, "another install's cache is not this install's geography"
+    worldscan.stock_context(tmp_path / "gameA", cache_root=cache, refresh=True)
+    assert len(calls) == 3
+
+
+def test_stock_context_underivable_is_none_and_writes_nothing(tmp_path, monkeypatch):
+    def _boom(game_path, disc=1):
+        raise RuntimeError("no UnityPy / no install")
+    monkeypatch.setattr(worldscan, "derive_stock_grid", _boom)
+    cache = tmp_path / "cache"
+    assert worldscan.stock_context(tmp_path / "game", cache_root=cache) is None
+    assert not (cache / worldscan.STOCK_CACHE_NAME).exists()
+
+
+def test_stock_rows_round_trip_and_reject_a_wrong_shape():
+    grid = {(0, 0): "L", (23, 19): "~", (11, 8): "L"}
+    rows = worldscan._rows_encode(grid)
+    assert len(rows) == 20 and all(len(r) == 24 for r in rows)
+    assert worldscan._rows_decode(rows) == grid
+    with pytest.raises(ValueError):
+        worldscan._rows_decode(rows[:-1])                    # 19 rows is not the engine's grid
+
+
+def test_a_malformed_stock_cache_falls_through_to_derive(tmp_path, monkeypatch):
+    monkeypatch.setattr(worldscan, "derive_stock_grid", lambda g, disc=1: {(2, 2): "L"})
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / worldscan.STOCK_CACHE_NAME).write_text(json.dumps({"version": 1, "rows": ["xx"]}),
+                                                    encoding="utf-8")
+    assert worldscan.stock_context(tmp_path / "game", cache_root=cache) == {(2, 2): "L"}
+
+
+# ---------------------------------------------------------------------------------------- game-gated ---
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_the_real_installs_stock_grid_reads_sane(tmp_path):
+    """Derived from the actual install (read-only, cached to a TMP root -- never the dev's cache):
+    Uaho island (0,0) -- the kit's DEFAULT_DONOR -- must be land, every key on the 24x20 grid, and
+    the land count in a plausible continent range."""
+    grid = worldscan.stock_context(config.find_game_path(None), cache_root=tmp_path / "c")
+    assert grid is not None
+    assert grid.get((0, 0)) == "L", "Uaho island is the kit's default donor -- it had better be land"
+    assert all(worldscan.block_in_grid(*k) for k in grid)
+    land = sum(1 for v in grid.values() if v == "L")
+    assert 50 <= land <= 400, f"implausible stock land count {land}"
 
 
 def test_find_world_trees_prefers_the_world_folder(tmp_path):

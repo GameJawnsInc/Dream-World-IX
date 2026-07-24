@@ -25,13 +25,16 @@ Instrument notes (why the readings can be trusted):
 
 from __future__ import annotations
 
+import json
 import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # Light imports only: this module sits on the Workspace's construction path (THE STARTUP SPEND law) --
-# world.mesh / world.discmirror are struct+pathlib modules, verified import-light.
+# world.mesh / world.discmirror are struct+pathlib modules, verified import-light (UnityPy loads lazily
+# inside extract's functions, never at import).
+from .. import provision
 from ..world.discmirror import _BLOCK_RE as BLOCK_RE          # THE authoritative cell-file parser
 from ..world.mesh import GRID_COLS, GRID_ROWS, block_in_grid
 
@@ -240,6 +243,76 @@ def scan_tree(mod_root: Path) -> WorldCensus:
         census.cells[key] = cell
     census.disc4_only = sorted(k for k in d4_files if k not in d1_files)
     return census
+
+
+# ------------------------------------------------------------------------- the STOCK context layer
+# The atlas's ground truth for "where the real world's land is": without it, deployed blocks float in
+# a void the eye reads as ocean when it only means UNTOUCHED. Classes per block:
+#   "L" -- stock land (the real map ships a Terrain mesh for the block)
+#   "~" -- coastal water (per-block sea/beach assets, no Terrain)
+#   "." -- open ocean (no per-block assets at all; the engine's generic SeaBlockPrefab)
+# Derived ONCE from the user's own install (UnityPy over p0data -- seconds), then cached as JSON under
+# provision.cache_dir() ($FF9MAPKIT_DATA overrides -- the same isolation lever the thumb caches use).
+# The stock map never changes, so the cache is keyed only by game path + disc.
+
+STOCK_CACHE_NAME = "worldstock.json"
+
+
+def derive_stock_grid(game_path, disc: int = 1) -> dict[tuple[int, int], str]:
+    """Classify every real block by reading the install's asset container (the same census
+    discmirror's free-ride pins are built on). SLOW-ish (a bundle load) -- call through
+    :func:`stock_context`, which caches. Raises on a missing install / missing UnityPy."""
+    from ..world.discmirror import _real_parts
+    parts = _real_parts(disc, game=game_path)
+    out: dict[tuple[int, int], str] = {}
+    for key, names in parts.items():
+        if block_in_grid(*key):
+            out[key] = "L" if "terrain" in names else "~"
+    return out
+
+
+def _rows_encode(grid: dict[tuple[int, int], str]) -> list[str]:
+    return ["".join(grid.get((bx, by), ".") for bx in range(GRID_COLS))
+            for by in range(GRID_ROWS)]
+
+
+def _rows_decode(rows) -> dict[tuple[int, int], str]:
+    grid: dict[tuple[int, int], str] = {}
+    if len(rows) != GRID_ROWS or any(len(r) != GRID_COLS for r in rows):
+        raise ValueError("worldstock rows are not a 24x20 grid")
+    for by, row in enumerate(rows):
+        for bx, ch in enumerate(row):
+            if ch in ("L", "~"):
+                grid[(bx, by)] = ch
+    return grid
+
+
+def stock_context(game_path, *, disc: int = 1, cache_root=None,
+                  refresh: bool = False) -> dict[tuple[int, int], str] | None:
+    """The stock land/sea grid, cache-first. Returns ``None`` when it cannot be derived (no install,
+    no UnityPy, unreadable bundles) -- the atlas draws without the layer rather than failing the scan.
+    A cache written for a DIFFERENT game path re-derives instead of lying about this install."""
+    root = Path(cache_root) if cache_root is not None else provision.cache_dir()
+    cache = root / STOCK_CACHE_NAME
+    game_key = str(Path(game_path))
+    if not refresh:
+        try:
+            d = json.loads(cache.read_text(encoding="utf-8"))
+            if d.get("version") == 1 and d.get("game") == game_key and d.get("disc") == disc:
+                return _rows_decode(d["rows"])
+        except (OSError, ValueError, KeyError):
+            pass                                   # absent / stale-shaped cache: fall through to derive
+    try:
+        grid = derive_stock_grid(game_path, disc)
+    except Exception:                              # noqa: BLE001 -- underivable is a supported state
+        return None
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"version": 1, "game": game_key, "disc": disc,
+                                     "rows": _rows_encode(grid)}, indent=1), encoding="utf-8")
+    except OSError:
+        pass                                       # a read-only cache dir costs the cache, not the layer
+    return grid
 
 
 def find_world_trees(game_path: Path) -> list[Path]:
