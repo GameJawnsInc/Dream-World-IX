@@ -4154,10 +4154,27 @@ def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
+def _npc_needs_default_talk(project: FieldProject, n: dict) -> bool:
+    """True when this ``[[npc]]`` keeps the DEFAULT ``WindowSync`` talk func with no authored text behind
+    it: no ``dialogue``, no author-directed ``text_id``, and nothing REPLACING the plain talk (no attached
+    ``[[choice]]``, no ``opens_shop``). Such an NPC must be allocated its OWN `.mes` line
+    (:data:`content.text.DEFAULT_SILENT_TALK`) -- pointing its talk at the raw allocation base instead
+    made it render whichever entry allocated that txid first (the fort-condor swarm bench: 40 silent NPCs
+    all opened the [[choice]] prompt, dead menu rows included, with no GetChoose dispatch behind them).
+    Shared by the synth (:func:`collect_text`) and verbatim (:func:`_verbatim_npc_messages`) channels so
+    both allocate identically."""
+    if "dialogue" in n or n.get("text_id") is not None or n.get("opens_shop") is not None:
+        return False
+    name = n.get("name")
+    return not (name and any(ch.get("npc") == name for ch in (project.raw.get("choice") or [])))
+
+
 def _verbatim_npc_message_count(project: FieldProject) -> int:
-    """How many ``[[npc]]`` carry dialogue (the size of the verbatim NPC appended-text block, so the
-    ``[[event]]`` block can sit above it)."""
-    return sum(1 for n in (project.raw.get("npc", []) or []) if n.get("dialogue"))
+    """How many `.mes` lines the verbatim NPC appended-text block holds -- one per ``[[npc]]`` with
+    dialogue plus one per dialogue-less default-talk NPC (its silent line; the same predicate
+    :func:`_verbatim_npc_messages` allocates by) -- so the ``[[event]]`` block can sit above it."""
+    return sum(1 for n in (project.raw.get("npc", []) or [])
+               if n.get("dialogue") or _npc_needs_default_talk(project, n))
 
 
 def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
@@ -4475,21 +4492,28 @@ def _logic_add_message_count(project: FieldProject) -> int:
 
 
 def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
-    """For a verbatim fork's authored ``[[npc]]`` dialogue: give each voiced NPC's talk line a txid ABOVE the
+    """For a verbatim fork's authored ``[[npc]]`` talk text: give each voiced NPC's dialogue line -- and
+    each dialogue-less default-talk NPC's silent line (:func:`_npc_needs_default_talk`) -- a txid ABOVE the
     donor `.mes` + the ``[[on_entry]]`` and ``[[logic_add]]`` message blocks (all disjoint), plus the
     per-language `.mes` lines to append. The injected NPC's ``_SpeakBTN`` ``WindowSync`` resolves into the
-    appended entry, so it speaks. Returns ``(txid_by_npc_index, suffix_by_lang)`` keyed by the index into
-    ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` carries dialogue. Single-block (the same text for
-    every language, like the other appenders -- the `.eb` is injected once, language-identical)."""
-    voiced = [(i, n) for i, n in enumerate(project.raw.get("npc", []) or []) if n.get("dialogue")]
-    if not voiced:
+    appended entry, so it speaks (a silent NPC shows its own "..."). Returns ``(txid_by_npc_index,
+    suffix_by_lang)`` keyed by the index into ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` needs a
+    line. Single-block (the same text for every language, like the other appenders -- the `.eb` is injected
+    once, language-identical)."""
+    npcs = project.raw.get("npc", []) or []
+    voiced = [(i, n) for i, n in enumerate(npcs) if n.get("dialogue")]
+    # a dialogue-less DEFAULT-TALK NPC rides the same channel (its own silent line), appended AFTER the
+    # voiced block so an existing fork's voiced txids stay byte-stable. The old fallback (txid 500)
+    # landed INSIDE the donor's own `.mes` band (real donor text reaches 863) = a random donor line.
+    silent = [(i, n) for i, n in enumerate(npcs) if _npc_needs_default_talk(project, n)]
+    if not (voiced or silent):
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project))
     wrap = _wrap_width(project)
     lines, tails, txid_by_idx = [], [], {}
-    for j, (i, n) in enumerate(voiced):
-        line = _text.with_speaker(n.get("speaker"), n["dialogue"])
+    for j, (i, n) in enumerate(voiced + silent):
+        line = _text.with_speaker(n.get("speaker"), n.get("dialogue") or _text.DEFAULT_SILENT_TALK)
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
         lines.append(line)
@@ -6288,7 +6312,9 @@ def collect_text(project: FieldProject):
     (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
     ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
     {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
-    one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box.
+    one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box. A dialogue-less default-talk
+    ``[[npc]]`` (:func:`_npc_needs_default_talk`) allocates its OWN silent line, added LAST -- its talk
+    never points at the bare allocation base (which rendered whichever entry allocated txid 500 first).
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
@@ -6603,6 +6629,15 @@ def collect_text(project: FieldProject):
             if wrap is not None:
                 al = _text.wrap_text(al, wrap)[0]
             act_pos[k] = _add_raw("[IMME]" + al + "[TIME=20]", sp.get("tail"))
+    # dialogue-less [[npc]] default talk: an NPC with NO dialogue (and nothing replacing the plain talk --
+    # no attached [[choice]], no opens_shop, no explicit text_id) still keeps a WindowSync talk func, and
+    # that WindowSync needs a txid the NPC OWNS. Pointing it at the allocation BASE (500) rendered whichever
+    # entry allocated 500 first (the fort-condor swarm bench: 40 silent NPCs all opened the [[choice]]
+    # prompt, dead menu rows included). Each gets its own silent "..." line instead. Added LAST so a field
+    # with none keeps the previous text layout byte-identical.
+    for i, n in enumerate(project.raw.get("npc", [])):
+        if i not in npc_pos and _npc_needs_default_talk(project, n):
+            npc_pos[i] = _add(n, _text.DEFAULT_SILENT_TALK)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)

@@ -54,6 +54,36 @@ def _build_zone_choice(tmp_path, build, extra=""):
     return EbScript.from_bytes(eb), eb
 
 
+def test_dialogueless_npc_talk_txid_differs_from_choice_prompt(tmp_path):
+    """THE FORT-CONDOR SWARM BUG, end-to-end: a dialogue-less [[npc]] + a zone [[choice]]. The NPC's
+    default talk used to be WindowSync(1,128,500) -- 500 is the mes allocation BASE, not a line the NPC
+    owns -- and the choice prompt allocated txid 500 first, so talking to the silent NPC opened the
+    choice menu, dead rows included, with no GetChoose dispatch behind them. The built .eb's talk must
+    now point at the NPC's OWN silent line, never the bare base."""
+    from ff9mapkit import build
+    p = tmp_path / "fc.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "FC"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "swarm"\npreset = "vivi"\npos = [-80, 0]\n\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Which way?"\n'
+        '[[choice.options]]\ntext = "Left"\n'
+        '[[choice.options]]\ntext = "Right"\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, npc_txids, _e, _cs, ctx, _o, _a, _ch, _gw, _co, _sp = build.collect_text(proj)
+    assert 0 in npc_txids and npc_txids[0] != ctx[0]["prompt"]     # the NPC owns a DISTINCT line
+    assert f"[TXID={npc_txids[0]}]" in mes and text.DEFAULT_SILENT_TALK in mes
+    s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, choice_txids=ctx))
+    # the NPC's default talk is the exact WindowSync(1, 128, <its own txid>) -- present byte-for-byte
+    assert opcodes.window_sync(1, 128, npc_txids[0]) in s.data
+    # and the OLD bug shape -- a bare default talk (WindowSync + RETURN) pointing at the allocation
+    # base, which here is the choice prompt's txid -- is gone from the script entirely (the choice
+    # region's own prompt window is followed by its option dispatch, never a bare RETURN)
+    assert opcodes.window_sync(1, 128, ctx[0]["prompt"]) + opcodes.RETURN not in s.data
+
+
 def test_zone_choice_action_is_a_press_interact_region(tmp_path):
     # default trigger="action": a tag-3 (press-action) region with NO tread (tag 2) and NO gate flag
     # -> edge-triggered by the button, can't loop, re-usable, "decline" non-destructive.
