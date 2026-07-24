@@ -1,0 +1,32 @@
+{
+  "n_scanned": 818,
+  "n_spans": 4796,
+  "n_spans_struct(rng/timing)": 293,
+  "n_spans_l2(input/choice)": 631,
+  "n_spans_struct_clean": 4503,
+  "n_spans_fully_clean": 2,
+  "locked_windows_total": 10187,
+  "locked_win_in_struct_clean_span": 5709,
+  "locked_win_in_fully_clean_span": 0,
+  "locked_win_class": {
+    "MAP": 4276,
+    "UNGUARDED": 1442,
+    "INPUT": 1424,
+    "CHOICE": 1264,
+    "MIRRORED": 991,
+    "SCRIPT-LOCAL": 694,
+    "RNG": 91,
+    "POSITION": 3,
+    "PARTY-DERIVED": 2
+  },
+  "locked_win_class_struct_clean": {
+    "UNGUARDED": 1416,
+    "CHOICE": 1264,
+    "MAP": 1148,
+    "MIRRORED": 986,
+    "SCRIPT-LOCAL": 690,
+    "INPUT": 200,
+    "POSITION": 3,
+    "PARTY-DERIVED": 2
+  }
+}

@@ -1,0 +1,576 @@
+{
+  "stats": {
+    "n_fields_total": 818,
+    "n_fields_with_eb": 818,
+    "n_fields_scanned": 818,
+    "cond_branches": 129814,
+    "cond_branches_with_push": 129814,
+    "n_windows": 28678,
+    "n_windows_guarded": 22971,
+    "n_windows_locked": 10187,
+    "battledialog": 0,
+    "win_ate_flagged": 1001,
+    "textid_expr": 0,
+    "stv_total": 10129,
+    "stv_expr": 5819,
+    "win_timing_gated": 97,
+    "mesn_noblock": 11645,
+    "guard_missing_cond": 0,
+    "ate_total": 1040
+  },
+  "win_by_op": {
+    "0x1F": 12665,
+    "0x20": 11326,
+    "0x95": 4368,
+    "0x96": 319
+  },
+  "win_block": {
+    "noblock": 11645,
+    "block": 17033
+  },
+  "win_class": {
+    "MAP": 10921,
+    "MIRRORED": 7135,
+    "UNGUARDED": 5775,
+    "CHOICE": 1759,
+    "INPUT": 1485,
+    "SCRIPT-LOCAL": 1151,
+    "RNG": 344,
+    "TIMING": 97,
+    "PARTY-DERIVED": 8,
+    "POSITION": 3
+  },
+  "win_class_locked": {
+    "MAP": 4276,
+    "UNGUARDED": 1442,
+    "INPUT": 1424,
+    "CHOICE": 1264,
+    "MIRRORED": 991,
+    "SCRIPT-LOCAL": 694,
+    "RNG": 91,
+    "POSITION": 3,
+    "PARTY-DERIVED": 2
+  },
+  "win_cat_hits": {
+    "glob": 12803,
+    "map": 11248,
+    "choice": 5342,
+    "instance": 5146,
+    "sysvar": 2847,
+    "keyon": 2381,
+    "item": 1849,
+    "rng": 344,
+    "objspec": 271,
+    "gil": 236,
+    "timer": 97,
+    "position": 47,
+    "key": 12,
+    "party": 6
+  },
+  "textid_expr_cats": {},
+  "stv_expr_cats": {
+    "glob": 4148,
+    "map": 1422,
+    "instance": 150,
+    "item": 62,
+    "sysvar": 20,
+    "gil": 19,
+    "choice": 1
+  },
+  "ate_class": {
+    "MAP": 771,
+    "MIRRORED": 179,
+    "CHOICE": 57,
+    "UNGUARDED": 31,
+    "SCRIPT-LOCAL": 2
+  },
+  "per_field_top": [
+    [
+      652,
+      311,
+      298,
+      {
+        "MIRRORED": 9,
+        "MAP": 238,
+        "CHOICE": 60,
+        "UNGUARDED": 4
+      }
+    ],
+    [
+      1607,
+      199,
+      168,
+      {
+        "MIRRORED": 8,
+        "INPUT": 1,
+        "CHOICE": 5,
+        "MAP": 150,
+        "UNGUARDED": 23,
+        "SCRIPT-LOCAL": 12
+      }
+    ],
+    [
+      600,
+      165,
+      160,
+      {
+        "MIRRORED": 2,
+        "MAP": 160,
+        "UNGUARDED": 3
+      }
+    ],
+    [
+      1865,
+      151,
+      133,
+      {
+        "MIRRORED": 14,
+        "INPUT": 1,
+        "CHOICE": 25,
+        "MAP": 103,
+        "RNG": 1,
+        "UNGUARDED": 4,
+        "SCRIPT-LOCAL": 3
+      }
+    ],
+    [
+      563,
+      161,
+      126,
+      {
+        "MIRRORED": 29,
+        "MAP": 92,
+        "INPUT": 5,
+        "CHOICE": 4,
+        "UNGUARDED": 6,
+        "SCRIPT-LOCAL": 3,
+        "RNG": 16,
+        "TIMING": 6
+      }
+    ],
+    [
+      352,
+      141,
+      121,
+      {
+        "MIRRORED": 6,
+        "INPUT": 13,
+        "CHOICE": 14,
+        "UNGUARDED": 14,
+        "MAP": 72,
+        "RNG": 22
+      }
+    ],
+    [
+      1254,
+      161,
+      117,
+      {
+        "MIRRORED": 16,
+        "MAP": 25,
+        "CHOICE": 42,
+        "UNGUARDED": 28,
+        "SCRIPT-LOCAL": 38,
+        "INPUT": 12
+      }
+    ],
+    [
+      1600,
+      147,
+      117,
+      {
+        "MIRRORED": 8,
+        "INPUT": 1,
+        "CHOICE": 6,
+        "UNGUARDED": 22,
+        "MAP": 110
+      }
+    ],
+    [
+      611,
+      134,
+      117,
+      {
+        "MIRRORED": 3,
+        "MAP": 99,
+        "UNGUARDED": 14,
+        "INPUT": 13,
+        "CHOICE": 4,
+        "RNG": 1
+      }
+    ],
+    [
+      1663,
+      120,
+      116,
+      {
+        "MIRRORED": 4,
+        "MAP": 115,
+        "RNG": 1
+      }
+    ],
+    [
+      1605,
+      124,
+      115,
+      {
+        "MIRRORED": 5,
+        "MAP": 115,
+        "UNGUARDED": 4
+      }
+    ],
+    [
+      2456,
+      133,
+      113,
+      {
+        "MIRRORED": 11,
+        "UNGUARDED": 9,
+        "CHOICE": 21,
+        "MAP": 87,
+        "RNG": 1,
+        "SCRIPT-LOCAL": 4
+      }
+    ],
+    [
+      1911,
+      129,
+      112,
+      {
+        "MIRRORED": 9,
+        "UNGUARDED": 8,
+        "CHOICE": 5,
+        "MAP": 104,
+        "SCRIPT-LOCAL": 3
+      }
+    ],
+    [
+      115,
+      122,
+      111,
+      {
+        "MIRRORED": 9,
+        "MAP": 100,
+        "UNGUARDED": 2,
+        "RNG": 1,
+        "CHOICE": 9,
+        "SCRIPT-LOCAL": 1
+      }
+    ],
+    [
+      2950,
+      229,
+      110,
+      {
+        "MIRRORED": 88,
+        "UNGUARDED": 31,
+        "SCRIPT-LOCAL": 9,
+        "MAP": 84,
+        "CHOICE": 14,
+        "TIMING": 1,
+        "INPUT": 2
+      }
+    ],
+    [
+      1608,
+      114,
+      110,
+      {
+        "MIRRORED": 3,
+        "MAP": 90,
+        "INPUT": 20,
+        "UNGUARDED": 1
+      }
+    ],
+    [
+      706,
+      113,
+      109,
+      {
+        "MIRRORED": 4,
+        "MAP": 108,
+        "RNG": 1
+      }
+    ],
+    [
+      911,
+      120,
+      108,
+      {
+        "MIRRORED": 8,
+        "MAP": 104,
+        "UNGUARDED": 4,
+        "SCRIPT-LOCAL": 3,
+        "CHOICE": 1
+      }
+    ],
+    [
+      1861,
+      135,
+      102,
+      {
+        "MIRRORED": 25,
+        "INPUT": 1,
+        "CHOICE": 5,
+        "MAP": 90,
+        "UNGUARDED": 8,
+        "SCRIPT-LOCAL": 6
+      }
+    ],
+    [
+      1606,
+      122,
+      100,
+      {
+        "MIRRORED": 14,
+        "MAP": 84,
+        "UNGUARDED": 8,
+        "SCRIPT-LOCAL": 4,
+        "INPUT": 12
+      }
+    ],
+    [
+      206,
+      117,
+      97,
+      {
+        "MIRRORED": 9,
+        "MAP": 89,
+        "INPUT": 1,
+        "CHOICE": 5,
+        "UNGUARDED": 11,
+        "RNG": 1,
+        "SCRIPT-LOCAL": 1
+      }
+    ],
+    [
+      1315,
+      99,
+      97,
+      {
+        "MIRRORED": 2,
+        "MAP": 97
+      }
+    ],
+    [
+      150,
+      107,
+      95,
+      {
+        "MIRRORED": 12,
+        "MAP": 86,
+        "SCRIPT-LOCAL": 8,
+        "RNG": 1
+      }
+    ],
+    [
+      1205,
+      99,
+      94,
+      {
+        "MIRRORED": 4,
+        "MAP": 93,
+        "RNG": 1,
+        "UNGUARDED": 1
+      }
+    ],
+    [
+      1807,
+      98,
+      94,
+      {
+        "MIRRORED": 2,
+        "MAP": 94,
+        "UNGUARDED": 2
+      }
+    ],
+    [
+      354,
+      124,
+      89,
+      {
+        "MIRRORED": 15,
+        "INPUT": 1,
+        "CHOICE": 19,
+        "MAP": 63,
+        "UNGUARDED": 20,
+        "SCRIPT-LOCAL": 6
+      }
+    ],
+    [
+      1110,
+      109,
+      89,
+      {
+        "MIRRORED": 17,
+        "MAP": 87,
+        "UNGUARDED": 3,
+        "SCRIPT-LOCAL": 2
+      }
+    ],
+    [
+      1652,
+      91,
+      86,
+      {
+        "MIRRORED": 4,
+        "MAP": 85,
+        "RNG": 1,
+        "UNGUARDED": 1
+      }
+    ],
+    [
+      554,
+      89,
+      86,
+      {
+        "MIRRORED": 2,
+        "MAP": 80,
+        "INPUT": 1,
+        "CHOICE": 4,
+        "RNG": 1,
+        "UNGUARDED": 1
+      }
+    ],
+    [
+      764,
+      97,
+      85,
+      {
+        "MIRRORED": 7,
+        "MAP": 57,
+        "RNG": 1,
+        "UNGUARDED": 5,
+        "PARTY-DERIVED": 1,
+        "CHOICE": 20,
+        "SCRIPT-LOCAL": 6
+      }
+    ],
+    [
+      1418,
+      123,
+      84,
+      {
+        "MIRRORED": 29,
+        "SCRIPT-LOCAL": 3,
+        "CHOICE": 23,
+        "UNGUARDED": 10,
+        "MAP": 57,
+        "RNG": 1
+      }
+    ],
+    [
+      1106,
+      108,
+      81,
+      {
+        "MIRRORED": 17,
+        "UNGUARDED": 10,
+        "SCRIPT-LOCAL": 6,
+        "MAP": 54,
+        "RNG": 1,
+        "CHOICE": 20
+      }
+    ],
+    [
+      2161,
+      160,
+      80,
+      {
+        "MIRRORED": 9,
+        "INPUT": 13,
+        "CHOICE": 10,
+        "UNGUARDED": 71,
+        "MAP": 56,
+        "RNG": 1
+      }
+    ],
+    [
+      551,
+      114,
+      80,
+      {
+        "MIRRORED": 28,
+        "UNGUARDED": 6,
+        "SCRIPT-LOCAL": 3,
+        "MAP": 51,
+        "RNG": 16,
+        "TIMING": 6,
+        "INPUT": 4
+      }
+    ],
+    [
+      1603,
+      89,
+      80,
+      {
+        "MIRRORED": 2,
+        "INPUT": 13,
+        "CHOICE": 5,
+        "MAP": 49,
+        "SCRIPT-LOCAL": 13,
+        "UNGUARDED": 7
+      }
+    ],
+    [
+      503,
+      86,
+      79,
+      {
+        "MIRRORED": 3,
+        "MAP": 79,
+        "UNGUARDED": 4
+      }
+    ],
+    [
+      1109,
+      130,
+      78,
+      {
+        "MIRRORED": 19,
+        "UNGUARDED": 33,
+        "SCRIPT-LOCAL": 23,
+        "MAP": 54,
+        "RNG": 1
+      }
+    ],
+    [
+      1102,
+      87,
+      76,
+      {
+        "MIRRORED": 10,
+        "MAP": 54,
+        "RNG": 1,
+        "CHOICE": 20,
+        "UNGUARDED": 1,
+        "SCRIPT-LOCAL": 1
+      }
+    ],
+    [
+      2504,
+      100,
+      75,
+      {
+        "MIRRORED": 5,
+        "INPUT": 18,
+        "MAP": 56,
+        "RNG": 1,
+        "UNGUARDED": 20
+      }
+    ],
+    [
+      2259,
+      90,
+      75,
+      {
+        "MIRRORED": 8,
+        "MAP": 48,
+        "RNG": 1,
+        "CHOICE": 20,
+        "UNGUARDED": 7,
+        "INPUT": 6
+      }
+    ]
+  ]
+}
