@@ -422,3 +422,109 @@ def test_source_stamp_auto_detected_from_gltf():
     # a truly foreign glTF -> nothing
     _gltf_io.write_glb({"asset": {"version": "2.0"}, **common}, buf.blob, path)
     assert gltf.source_from_gltf(path) == (None, None)
+
+
+# ------------------------------------------------- the emit_model_gltf factor-out (p0data-free emission core)
+# emit_model_gltf(model, clips, buf, out) is the pure emission body export_gltf delegates to, so a non-p0data
+# source (a custom summon built from local ef### bytes) can reuse the proven writer by feeding PRE-DECODED
+# clips. These lock its contract offline; the byte-for-byte behavior-preservation vs the public export_gltf is
+# the game-gated test below.
+
+def _synthetic_animated_model():
+    """A minimal 2-bone / 1-part / untextured model struct (the shape extract.read_model yields) -- enough to
+    exercise emit_model_gltf with zero install data."""
+    bones = [
+        {"name": "bone000", "parent": None, "pos": [0.0, 0.0, 0.0], "rot": [0.0, 0.0, 0.0, 1.0],
+         "scale": [1.0, 1.0, 1.0]},
+        {"name": "bone001", "parent": "bone000", "pos": [0.0, -10.0, 0.0], "rot": [0.0, 0.0, 0.0, 1.0],
+         "scale": [1.0, 1.0, 1.0]},
+    ]
+    meshes = [{"name": "mesh0", "verts": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+               "normals": None, "uvs": [[0.0, 0.0]] * 3,
+               "submeshes": [{"material_idx": 0, "tris": [[0, 1, 2]]}],
+               "weights": [[(0, 1.0)], [(1, 1.0)], [(0, 1.0)]]}]
+    return {"geo": "GEO_MON_B3_TEST", "geo_id": 9999, "root_bone": "bone000", "prefab_id": 9999,
+            "bones": bones, "meshes": meshes, "materials": [{"name": "m0", "texture": None}], "textures": {}}
+
+
+def _synthetic_clip():
+    """A read_clip-shaped struct: one rotating bone (a 90deg yaw over 0.5s)."""
+    return {"name": "idle", "sample_rate": 30.0, "length": 0.5,
+            "bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0)),
+                                                     (0.5, (0.0, 0.70710678, 0.0, 0.70710678))]}}}
+
+
+def test_emit_model_gltf_embeds_predecoded_clips_without_p0data(tmp_path):
+    """The summons contract: emit_model_gltf writes a valid skinned .glb + embeds an animation from a
+    PRE-DECODED (label, key, folder, clip) tuple -- no read_model / _select_anim_keys / read_clip / p0data."""
+    out = tmp_path / "synth.glb"
+    model = _synthetic_animated_model()
+    clips = [("idle", 77, model["geo_id"], _synthetic_clip())]          # folder == geo_id -> not a donor clip
+    man = gltf.emit_model_gltf(model, clips, _gltf_io.GltfBuffer(), out, bone_labels=False)
+    assert man["anims"] == ["idle"] and man["donor_anims"] == []
+    g, _ = _gltf_io.read_glb(out)
+    assert len(g["skins"][0]["joints"]) == 2 and len(g["meshes"]) == 1  # skeleton + mesh still emitted
+    assert len(g["animations"]) == 1
+    a0 = g["animations"][0]
+    assert a0["name"] == "idle" and a0["extras"]["ff9_anim_key"] == 77
+    assert [c["target"]["path"] for c in a0["channels"]] == ["rotation"]  # a 2-key constant pos is skipped
+    assert a0["channels"][0]["target"]["node"] == 0                       # rotation drives bone000 (node 0)
+
+
+def test_emit_model_gltf_none_clip_is_skipped_like_an_unresolved_read(tmp_path):
+    """A None clip in the list is skipped (parity with read_clip returning None before the factor-out); an
+    empty clip list -> no animations block at all."""
+    model = _synthetic_animated_model()
+    a = gltf.emit_model_gltf(model, [("gone", 5, 9999, None)], _gltf_io.GltfBuffer(), tmp_path / "a.glb",
+                             bone_labels=False)
+    assert a["anims"] == []
+    g, _ = _gltf_io.read_glb(tmp_path / "a.glb")
+    assert "animations" not in g
+    b = gltf.emit_model_gltf(model, [], _gltf_io.GltfBuffer(), tmp_path / "b.glb", bone_labels=False)
+    assert b["anims"] == []
+
+
+def test_emit_model_gltf_label_overrides_and_donor_folder(tmp_path):
+    """label_overrides[key] renames the Action; a clip whose folder != model geo_id is reported as a DONOR
+    clip in the manifest (both behaviors carried verbatim from export_gltf's emission loop)."""
+    out = tmp_path / "donor.glb"
+    model = _synthetic_animated_model()
+    clips = [("idle", 77, 4242, _synthetic_clip())]                     # folder 4242 != geo_id 9999 -> donor
+    man = gltf.emit_model_gltf(model, clips, _gltf_io.GltfBuffer(), out,
+                               label_overrides={77: "23_attack"}, bone_labels=False)
+    assert man["anims"] == ["23_attack"]
+    assert [d["folder"] for d in man["donor_anims"]] == [4242]
+    assert man["donor_anims"][0]["labels"] == ["23_attack"]
+    g, _ = _gltf_io.read_glb(out)
+    assert g["animations"][0]["name"] == "23_attack"
+    assert g["animations"][0]["extras"]["ff9_anim_label"] == "23_attack"
+
+
+def test_export_gltf_equals_emit_from_predecoded_clips(tmp_path):
+    """THE seam (game-gated): the public export_gltf(token) must be BYTE-IDENTICAL to emit_model_gltf(model,
+    clips, buf) fed clips resolved the exact way the wrapper resolves them (read_model + p0data5
+    _select_anim_keys + read_clip). Proves the p0data factor-out is behavior-preserving on a real, animated
+    model. Skips cleanly without the install."""
+    pytest.importorskip("UnityPy")
+    from ff9mapkit import config
+    from ff9mapkit.models import extract
+    try:
+        game = config.find_game_path()
+    except config.ConfigError:
+        pytest.skip("no FF9 install configured")
+    if not all((game / "StreamingAssets" / n).exists() for n in ("p0data4.bin", "p0data5.bin")):
+        pytest.skip("FF9 install missing StreamingAssets/p0data4.bin or p0data5.bin")
+
+    token, anims = "GEO_MAIN_F0_ZDN", "auto"
+    # (A) the factored core, fed clips resolved identically to export_gltf's wrapper (sites 1-3, by hand)
+    model = extract.read_model(token)
+    env5 = extract._unitypy().load(str(game / "StreamingAssets" / "p0data5.bin"))
+    selected = gltf._select_anim_keys(model["geo"], model["geo_id"], anims, env5)
+    clips = [(lbl, key, folder, _gltf_io.read_clip(env5, folder, key)) for lbl, key, folder in selected]
+    a = tmp_path / "core.glb"
+    man_a = gltf.emit_model_gltf(model, clips, _gltf_io.GltfBuffer(), a)
+    # (B) the public path
+    b = tmp_path / "public.glb"
+    man_b = gltf.export_gltf(token, b, anims=anims)
+    assert a.read_bytes() == b.read_bytes()                            # byte-identical -> the seam preserves it
+    assert man_a["anims"] == man_b["anims"] and len(man_a["anims"]) >= 1   # and the clip path was exercised

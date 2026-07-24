@@ -1,0 +1,87 @@
+# camera_match.py  log=C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\sfxmeshprobe.log
+# sessions parsed: 5
+  session 0: PSXCAM 551 frames [11..561], MODEL-S 513 (480 drawn), VIEW 551, PROJ 551
+  session 1: PSXCAM 444 frames [11..560], MODEL-S 406 (373 drawn), VIEW 444, PROJ 444
+  session 2: PSXCAM 551 frames [11..561], MODEL-S 513 (480 drawn), VIEW 551, PROJ 551
+  session 3: PSXCAM 551 frames [11..561], MODEL-S 513 (480 drawn), VIEW 551, PROJ 551
+  session 4: PSXCAM 551 frames [11..561], MODEL-S 513 (480 drawn), VIEW 551, PROJ 551
+
+==============================================================================
+PART (b) -- VIEW == PsxMatrix2UnityMatrix(M) ?  (fixed conversion, zero free params)
+==============================================================================
+  ALL 2648 frames: max|VIEW.R - DL.(M/4096).DR| = 5.646556e-01  (fp12 floor 1/4096 = 2.44e-04)
+  2580 CAMERA-COHERENT frames (97.4%): max residual = 1.983434e-02  -- i.e. VIEW == PsxMatrix2UnityMatrix(M) to the fp12 floor
+  the 68 others are cut-transition frames (VIEW managed-clock vs M native-tick, <=1 tick apart)
+  translation-co-sampled frames (843, |VIEW.m03-T0|<2 & |m13+T1|<2 -- VIEW.T & M.T same tick):
+    cameraOffset (-m23-T2): mean=+0.5098  range [-4.56, +19.60]  (== SFX.cameraOffset, ~0 => no Z shift)
+  (on the fast fly-by the probe slips VIEW vs M by <=1 tick -> VIEW.T deviates up to ~500u while VIEW.R still matches;
+   that slip folds into part (a)'s measured screen delta, the honest end-to-end number)
+  near(=110*PROJ11) vs H on coherent frames: max|near-H| = 0.0001  (== -> managed focal == native focal)
+  VIEW-vs-M residual by camera-frame offset (rotation mean/max/n) -- 0 is best:
+    offset -1: mean=0.043669  max=1.904053  n=2589
+    offset +0: mean=0.003633  max=0.564656  n=2648
+    offset +1: mean=0.036935  max=1.904053  n=2589
+
+==============================================================================
+PART (a) -- managed puppet at PsxToUnity(creature) vs native GTE screen position
+==============================================================================
+  drawn frames: 1612 total  |  1573 camera-coherent (VIEW==PsxToUnity(M))  |  39 cut-transition (probe caught VIEW/M >1 tick apart at a hard cut)
+  fitted PsxToUnity (robust, coherent frames): signs=(1, -1, 1)  scale=1.00009  median-radial=1.0761 px
+    source-predicted (zero-param) signs=(1,-1,1) scale=1.0 -> median-radial = 1.1007 px
+  camera-frame phase-lead test (median-radial px, source map (1,-1,1),1.0, COHERENT frames):
+    offset -1: median=1.1144 px  n=1563
+    offset +0: median=1.1007 px  n=1573
+    offset +1: median=1.1414 px  n=1573
+
+  --- CAMERA-COHERENT frames (the real answer) (1573 frames) ---
+  session | band             |    n | axis |    mean  median     p95       max
+        0 | creature 82-412  |  323 |    X |   1.479   0.759   2.988    163.31
+          |                  |      |    Y |  14.955   0.686   8.996   3722.46
+        1 | creature 82-412  |  284 |    X |   3.678   0.902   4.959    539.84
+          |                  |      |    Y |  61.285   0.920  17.048  12552.27
+        2 | creature 82-412  |  323 |    X |   1.364   0.750   3.305    123.73
+          |                  |      |    Y |  11.898   0.663   9.428   2806.61
+        3 | creature 82-412  |  323 |    X |   1.499   0.750   3.261    160.89
+          |                  |      |    Y |  14.862   0.662   9.996   3666.06
+        4 | creature 82-412  |  320 |    X |   1.498   0.746   3.070    163.25
+          |                  |      |    Y |  15.099   0.668   8.888   3720.58
+  TOTAL X: mean=1.860 median=0.778 p95=3.436 max=539.84 px (n=1573)
+  TOTAL Y: mean=22.702 median=0.744 p95=11.014 max=12552.27 px
+  radial : mean=23.115 median=1.101 p95=11.676 max=12563.87 px
+
+  --- CUT-TRANSITION frames (probe VIEW/M phase slip -- NOT a live-hybrid error) (39 frames) ---
+  session | band             |    n | axis |    mean  median     p95       max
+        0 | creature 82-412  |    1 |    X |   2.641   2.641   2.641      2.64
+          |                  |      |    Y |   0.259   0.259   0.259      0.26
+        1 | creature 82-412  |   32 |    X |   2.801   0.918   9.146      9.91
+          |                  |      |    Y |   5.274   1.337  24.131     26.77
+        2 | creature 82-412  |    1 |    X |   1.585   1.585   1.585      1.59
+          |                  |      |    Y |   7.142   7.142   7.142      7.14
+        3 | creature 82-412  |    1 |    X |   2.124   2.124   2.124      2.12
+          |                  |      |    Y |   0.396   0.396   0.396      0.40
+        4 | creature 82-412  |    4 |    X |   2.053   2.192   2.739      2.76
+          |                  |      |    Y |   5.383   4.955  11.294     11.58
+  TOTAL X: mean=2.671 median=1.150 p95=8.750 max=9.91 px (n=39)
+  TOTAL Y: mean=5.080 median=1.314 p95=23.718 max=26.77 px
+  radial : mean=7.053 median=5.369 p95=23.736 max=26.78 px
+
+  ON-SCREEN subset: 1256 of 1573 coherent frames have the creature framed (|ndc|<1)
+    signed bias: mean dX=+0.786  mean dY=-0.762 px  (near 0 => no systematic offset, just fp12 quantization noise)
+    X : mean=0.943 median=0.714 p95=2.956 max=9.77 px
+    Y : mean=1.643 median=0.697 p95=7.164 max=34.07 px
+    rad mean=2.044 median=1.045 p95=7.646 max=35.44 px
+
+  >>> VERDICT input (on-screen, coherent): horizontal p95 = 2.956 px, vertical p95 = 7.164 px  (of a 320x240 native frame)
+
+  (all-coherent-frames incl. off-screen swoop: horiz p95 = 3.436, vert p95 = 11.014 px)
+
+  worst 8 cut-transition frames (confirm they are shot changes: incoherence + H):
+    sess.frame |   incoh |     H |   near |       dX |        dY
+           341 |   0.078 |   512 |  512.0 |    -9.77 |     -1.94
+           340 |   0.076 |   512 |  512.0 |    -8.54 |     -2.10
+           343 |   0.074 |   512 |  512.0 |    -9.91 |     -1.52
+           344 |   0.069 |   512 |  512.0 |    -8.64 |     -0.59
+           342 |   0.058 |   512 |  512.0 |    -7.64 |     -1.57
+           346 |   0.056 |   512 |  512.0 |    -6.71 |     -1.21
+           339 |   0.055 |   512 |  512.0 |    -5.88 |     -0.75
+           347 |   0.047 |   512 |  512.0 |    -5.22 |     -1.26

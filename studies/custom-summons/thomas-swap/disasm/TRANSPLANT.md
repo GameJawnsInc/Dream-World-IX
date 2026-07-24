@@ -167,6 +167,17 @@ parameters, not a search (D3 already reconstructs the offline pose to ~1% on 2 o
 scale sweep is already inside the `+0x38` columns, so it reproduces automatically — the exact term
 `root_reproject.py:43/75` silently discarded in FLIGHT.
 
+> **M0 UPDATE 2026-07-23:** the guessed `(tx,-ty,-tz)/scale` map above is REFUTED — it reprojects 88×
+> worse than the correct map on real bytes. The verified calibration (zero free parameters, DERIVED from
+> `SFX.cs:1603` + `PsxCamera.cs:103-120`, then validated on 5 logged casts): `PsxToUnityPos(tx,ty,tz) =
+> (tx,-ty,tz)`, **scale exactly 1** (no `/256`/`×256` — pinned to 1.0 within ±10% by an adversarial
+> re-derivation); rotation = `B·R·B` with `B=diag(1,-1,1)` (a *world* basis change, not the view-matrix's
+> extra Z-flip). ~7.5% of frames (the ~3.0× climax hold, f153-177, 25 frames, reproduced on every session)
+> store an intrinsically IMPROPER matrix (det<0) — a real reflection in the PSX data, not a bug — so
+> `PsxToUnityRot` needs a `det<0` guard before quaternion extraction. See `m0/CALIBRATION.md` (§6 states
+> the refutation numerically) + `m0/VERIFY_CALIBRATION.md` (independent re-derivation, HIGH confidence,
+> not refuted).
+
 ### 2.2 The shared prerequisite — same-skeleton rig conformance (BOTH paths need it)
 
 Every faithful path — hybrid, native, or baked-clip — needs **our mesh skinned to a rig that reproduces the
@@ -183,6 +194,16 @@ bind by bone name). **Topology caveat (SPECULATIVE — DESIGN risk, flag to the 
 authoring is pleasant only for a creature whose silhouette suits a 93-node long-necked flyer (another
 dragon/quadruped/serpent). A humanoid Thomas on a dragon rig may pose correctly and still look wrong — an art
 decision, not an engine failure, surface it before the user invests in skinning.
+
+> **M0 UPDATE 2026-07-23:** the FBX-path recon landed — the complete hop-by-hop `FileList.txt` →
+> `.sfxmodel` → FBX/clip resolution chain is now pinned file:line, incl. the load-bearing
+> **donor-FileList replacement law**: writing `FileList.txt` (or a `Model` line) into a real donor's OWN
+> `ef{donorId:D3}/` folder silently replaces the ENTIRE native cast with our JSON mesh (`SFXData.cs:156-181`,
+> an `if (mesh != null) return` fires before `loadingQueue.Enqueue` ever runs) — fatal to the hybrid, which
+> needs the native engine actually running so `+0x38` has real data. The rule: custom `FileList.txt` content
+> must live on a SEPARATE, PRIVATE effect id only, never the donor's own folder — exactly rung 7 /
+> `build_thomas.py`'s existing convention (`ef084`), now derived from source rather than just precedent.
+> See `m0/FBX-PATHS.md`.
 
 ### 2.3 The kit surface — a managed `[[summon]]` lane, kept SEPARATE from the native family
 
@@ -205,6 +226,18 @@ pixel-equality left open in §1.1); (b) confirm managed `VIEW` == native `PSXCAM
 lead beyond the ≤1-step residual); (c) fix the PSX→Unity scale/sign from the `BONES`/`PRIM` AABB; (d) scan
 whether any effect `PRIM` occupies the creature's screen region at a nearer depth (the hybrid-vs-native decision
 per summon). *Cost: LOW, read-only, provenance-clean. Unblocks everything below.*
+
+> **M0 UPDATE 2026-07-23:** items (a)+(b)+(c) are DONE and adversarially verified — CONFIRMED, not refuted.
+> (a)+(b): a managed object at `PsxToUnity(creature world point)` projected through the logged `Camera.main`
+> lands within p95 2.96px horizontal / 7.16px vertical / 7.65px radial of the native creature (320×240
+> frame) — the horizontal/widescreen axis turns out to be the *tighter* axis, not the looser one this
+> section worried about; the D4 camera-track fallback is NOT needed. (c): the PSX→Unity map is
+> `(tx,-ty,tz)` scale 1, `B·R·B` rotation (§2.1's update above). See `m0/CAMERA-MATCH.md` +
+> `m0/CALIBRATION.md`, both independently re-verified (`m0/VERIFY-CAMERA-MATCH.md` +
+> `m0/VERIFY_CALIBRATION.md`). Item (d) — the depth gate — is PENDING: it needs a cast with
+> `[SfxProbe] CapturePrims=1` armed (not yet armed on any captured log); the arming protocol is written
+> and ready to execute → `m0/CAST-PROTOCOL.md`. Also carried forward from risk #4 below: the
+> ≤1-native-substep VIEW/M sampling residual remains the thing to watch on the M1a cast, not yet retired.
 
 **Milestone 1a — our model rides the dragon's CAMERA (reuse rung-7 verbatim, ZERO new engine code).** FileList a
 proven rung-7 FBX into a Bahamut donor cast and hide the native body with the managed `HideMeshes=` split. Our
@@ -286,6 +319,13 @@ frames, and a spot check confirmed `composed = anchor · (proper rotation)` to w
 with a free, airtight validator — zero playtests.** (The validation reads bone 0 ONLY; dumping `bones[1..92]` is
 BLOCKED — that reconstructs the stock skeletal animation as a redistributable asset.)
 
+> **M0 UPDATE 2026-07-23:** the residual determinations flagged above are now CLOSED. `R_local =
+> Rz(az)·Ry(ay)·Rx(ax)`, STANDARD cos/sin (cos on the diagonal), angles × `2π/4096`, composed by
+> PRE-multiplication, no transpose — confirmed two independent ways (a >1000× log-margin discrimination
+> over 1072 matched frames across all 8 candidate conventions, AND direct disasm of `0x37a0`/`0x3850`/
+> `0x3910`/`0x3450`/`0x7d8a-0x7daa`). `transplant_spike.py::_rotmat` is now fully verified correct
+> verbatim — adopt as-is. See `m0/EULER.md` (incl. the closed-form inverse decompose the exporter needs).
+
 ### 3.3 The exporter — "`model-gltf` for summons" (T3-5, CORRECTED)
 
 The forward tool reuses the kit's proven glTF machinery. The honest scope (per the T3-5 correction): it reuses
@@ -316,6 +356,12 @@ resolves every curve with **zero remap** (independently re-derived from the DLL-
 caveat (does not refute):** "rung-7 proven" means an animated custom FBX renders in a live battle via FileList —
 it does NOT mean "the dragon's decoded clip on a retargeted mesh in a summon cast" has literally run; that
 composition still owes the §3.2 decode + a first cast (M0/M1b gate it offline first).
+
+> **M0 UPDATE 2026-07-23:** the exact FBX/clip path-resolution chain this return path rides on is now
+> fully pinned (`m0/FBX-PATHS.md`, hop-by-hop, file:line) — closing risk #7 below's open item. Confirms the
+> `Model {name}` (bare, no `/`) / `Animations[].Path` grammar, and that **the `.sfxmodel`+`FileList.txt`
+> must live on a PRIVATE effect id, never the donor's own `ef{donorId:D3}/` folder** (writing it there
+> silently swaps out the whole native cast — the donor-FileList replacement law, §2.2's update above).
 
 ### 3.5 The staging layer — say it out loud so no playtest is wasted (T3-7, CONFIRMED PROVEN)
 
@@ -353,6 +399,10 @@ Ranked risks (each stated with its falsifier and its fix path):
    horizontal is aspect-scaled and **must be measured at M0**. Falsifier: managed `VIEW·PROJ` ≠ native `PSXCAM`
    on a control point. Fix if it fails: drive `Camera.main` from the decoded native camera track (D4's camera
    authoring lane is fully specced — `camera_codec.py` already round-trips the format byte-exact).
+   > **M0 UPDATE 2026-07-23:** MEASURED, CONFIRMED — horizontal p95 2.96px, in fact the *tighter* axis of the
+   > two (vertical p95 7.16px, attributable to the creature's larger vertical excursion on this cast, not to
+   > `PROJ12` per se — both axes algebraically reduce to the same `110·PROJ11==H` condition). D4 fallback
+   > not needed. See `m0/CAMERA-MATCH.md`.
 3. **P5 — topology / DESIGN risk (SPECULATIVE).** A humanoid mesh on a 93-node dragon rig may look wrong even
    when posed correctly. Not an engine failure — **flag before the user skins.** No engine falsifier; it is an
    art call.
@@ -361,9 +411,16 @@ Ranked risks (each stated with its falsifier and its fix path):
    saves/restores `worldToCameraMatrix` (`:130/:135`, `Runtime.Render` `:636/:678`)? T4 §1.4 argues no race
    (both settle to the final tick). The one thing to confirm on the M1a cast. Falsifier: our model lags/leads
    the effects by a visible step.
+   > **M0 UPDATE 2026-07-23:** a related residual was measured (not this exact race, but its sibling): the
+   > probe's VIEW/M sampling shows a ≤1-native-tick slip at the ~15 hard cuts (up to ~500 world units on
+   > translation; rotation still matches to fp12) — a probe-sampling artifact, not a broken relation, but
+   > still the thing to watch for on the M1a cast per this risk's own falsifier. See `m0/CAMERA-MATCH.md`
+   > Part (b).
 5. **The exporter's final Euler bits (PLAUSIBLE, bounded).** cos-vs-sin thunk + pre/post-multiply in `0x3450`.
    Free bone-0 validation against the existing log; a mismatch names the wrong axis. Blocks only the DCC→clip
    *exporter*, not the live hybrid.
+   > **M0 UPDATE 2026-07-23:** CLOSED, zero playtests — `Rz·Ry·Rx`, standard cos/sin, pre-multiply, confirmed
+   > by log discrimination (>1000× margin over 8 candidate conventions) + direct disasm. See `m0/EULER.md`.
 6. **P6 — W0 native load-gate (PLAUSIBLE, only matters if native is needed).** Does a mod-folder `ef###.bytes`
    override load? Source-plausible, never run. $0 2-cast test. Only gates the T2 reserve path.
 7. **`.sfxmodel`/SpecialEffects slot path (PLAUSIBLE, MED — the one Blender-lane unknown to pin before coding

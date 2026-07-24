@@ -1,0 +1,510 @@
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -507,6 +507,7 @@
+     <Compile Include="Memoria\Battle\SFX\SFXDataCamera.cs" />
+     <Compile Include="Memoria\Battle\SFX\SFXDataMesh.cs" />
+     <Compile Include="Memoria\Battle\SFX\SFXDataMeshConverter.cs" />
++    <Compile Include="Memoria\Battle\SFX\SfxHybridDrive.cs" />
+     <Compile Include="Memoria\Battle\SFX\SfxMeshProbe.cs" />
+     <Compile Include="Memoria\Battle\SFX\UnifiedBattleSequencer.cs" />
+     <Compile Include="Memoria\Configuration\Access\Mod.cs" />
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SFXDataMesh.cs
+@@ -658,6 +658,14 @@
+                 // on frame. Self-gated on [SfxProbe] CaptureModels=1 (off by default); no-op otherwise.
+                 SfxMeshProbe.LogModels();
+             }
++            // s54 -- THE HYBRID DRIVE (owner go/no-go FEATURE: RENDERS content + performs one runtime
++            // write into plugin state -- NOT a passive probe). Co-located right after the s53 probe
++            // block: this frame's native Draw has run, so *(SummonData+0x38) holds this frame's world
++            // matrices and `camera` (:635) is the resolved SFX_PLUGIN camera -- our SkinnedMeshRenderer
++            // poses to the live native skeleton and renders through the same Camera.main. INDEPENDENT of
++            // [SfxProbe] (outside the Enabled block above); self-gated on [SfxHybrid] Enabled=1 (def 0).
++            if (SfxHybridDrive.Enabled)
++                SfxHybridDrive.Drive();
+             for (Int32 i = 0; i < SFXRender.commandBuffer.Count; i++)
+             {
+                 if (SFXRender.commandBuffer[i] is SFXMesh)
+@@ -687,6 +695,10 @@
+             // never reaches the log); no-op unless [SfxProbe] CapturePrims=1 AND PrimSummary=1.
+             if (SfxMeshProbe.CapturePrims)
+                 SfxMeshProbe.FlushPrimSummary();
++            // s54 -- HYBRID DRIVE teardown: release our posed model when this cast ends. Drive's own
++            // active==0 release cannot fire if no SFX renders after the cast (Render() stops), so without
++            // this the creature would linger frozen. Self-gated on [SfxHybrid] Enabled; no-op otherwise.
++            SfxHybridDrive.EndCast();
+             if (SFX.isRunning && SFX.currentEffectID == effNum)
+             {
+                 SFXData.BattleCallbackDummyLoadImages = false;
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxHybridDrive.cs
+@@ -0,0 +1,469 @@
++using System;
++using System.Globalization;
++using System.IO;
++using System.Runtime.InteropServices;
++using UnityEngine;
++
++namespace Memoria
++{
++    // s54 -- THE SFX HYBRID DRIVE. An owner GO/NO-GO FEATURE, one step past the passive s47/s48/s52/s53
++    // probes: it RENDERS CONTENT (a custom SkinnedMeshRenderer posed to the native summon's live skeleton)
++    // and performs ONE runtime WRITE into the plugin's own state (the native body-hide mask). It is NOT a
++    // probe -- say that in the commit message, and treat any build/deploy as a deliberate owner decision.
++    // Default OFF (Memoria.ini [SfxHybrid] Enabled=0); a normal install never creates a model, never reads
++    // or writes plugin memory, and pays only one cached-bool check at the single per-frame call site.
++    //
++    // WHAT IT DOES (the custom-summon "Thomas swap", studies/custom-summons/thomas-swap/):
++    // a stock summon (Bahamut/etc) renders entirely inside FF9SpecialEffectPlugin.dll as a software PS1-GTE
++    // pass. This feature lets the user's OWN retargeted creature ride the donor's real per-frame MOTION and
++    // CAMERA. Each frame, after the native Draw has run, it reads the plugin's freshly-composed per-node
++    // WORLD matrices (*(SummonData+0x38), the 93 libgte MATRIXes the GTE just consumed), converts each into
++    // Unity world space, and writes it onto our model's corresponding bone Transform -- so our mesh flaps,
++    // banks, shrinks and flies with the dragon's actual articulation, through the same Camera.main all Unity
++    // battle content uses (SFX.UpdateCamera stamps it every tick from the native camera; m0/CAMERA-MATCH.md
++    // measures a managed point at PsxToUnity(world) landing on the native creature to the fp12 floor). The
++    // native creature body is hidden (the +0x20 hide mask) so only our mesh + the swirl/beam/fire props
++    // (bone-parented to the still-computing native skeleton) render. This is Milestone 1b of TRANSPLANT.md.
++    //
++    // HOOKS (SFXDataMesh.cs): Runtime.Render(), right after SfxMeshProbe.LogModels() -> Drive() (by that
++    // point this frame's native Draw has run, *(SummonData+0x38) holds this frame's matrices, `camera`
++    // (:635) is the resolved SFX_PLUGIN camera); Runtime.End(), after FlushPrimSummary() -> EndCast() (the
++    // teardown Drive's own active==0 release cannot reach when no SFX renders after the cast). The Render()
++    // call site is OUTSIDE the [SfxProbe] Enabled block -- this feature is independent of the probe.
++    //
++    // THE PSX->UNITY CALIBRATION (m0/CALIBRATION.md + m0/VERIFY_CALIBRATION.md, DERIVED from SFX.cs:1603 +
++    // cameraOffset=0 + PsxCamera.cs:103-120, VALIDATED on 5 casts, ZERO free parameters):
++    //   position = (tx, -ty, tz), scale EXACTLY 1  -- negate Y only. (NOT the (x,-y,-z)/scale TRANSPLANT.md
++    //     2.1 first guessed; that reprojects 88x worse, CALIBRATION.md 6.)
++    //   rotation = B*R*B, B = diag(1,-1,1) (a WORLD basis change, not the view matrix's extra Z flip),
++    //     columns NORMALIZED -- the creature's SIZE arrives via the node POSITION spread (CALIBRATION.md 5),
++    //     so we do NOT write localScale by default (that DOUBLES the creature). ~7.5% of frames (the ~3.0x
++    //     climax hold, f153-177) store an intrinsically IMPROPER matrix (det<0, a real PSX reflection);
++    //     guarded before quaternion extraction.
++    //
++    // NATIVE LAYOUT: mirrors the s52/s53 probe reads verbatim (arch split by IntPtr.Size), decoded in
++    // studies/custom-summons/thomas-swap/disasm/{FINDINGS.md, FORMAT.md, D4-native-hide-and-camera.md}.
++    // Passive Marshal reads + the ONE documented +0x20 write; no P/Invoke into the plugin by name, no
++    // export called. Hard try/catch isolation: on the first fault the feature self-disables for the process
++    // (logs once) and releases anything half-built -- a go/no-go render feature must never take the real
++    // battle render down with it, least of all one doing raw native memory reads and a write.
++    //
++    // PROVENANCE: this is engine CODE; it ships no stock content. The user's retargeted creature model is
++    // loaded by path from their own mod folder, exactly like every other SFX FBX (SFXDataMesh.Begin -> :769).
++    public static class SfxHybridDrive
++    {
++        // ---- ini config ([SfxHybrid], read once at first touch, cached for the process; a relaunch after
++        // editing Memoria.ini is the same rule every other engine-side toggle follows) ----
++
++        // The master gate. OFF => the call site never calls Drive(); nothing is created/read/written.
++        public static readonly Boolean Enabled = LoadBool("Enabled", false);
++        // The donor effect id to drive (the SpecialEffect enum's int; e.g. 227 = Bahamut). Only THIS cast
++        // poses the puppet; any other effect releases it.
++        public static readonly Int32 EffectId = LoadInt("EffectId", 227);
++        // The replacement model: a FileList-style GEO name (e.g. GEO_..., resolved through ModelFactory) or
++        // a Data/-rooted .fbx path. It MUST live on a private effect/model slot, NEVER in the donor's own
++        // ef{id}/ folder -- a FileList in the donor folder replaces the whole native cast (the mesh!=null
++        // early-return, SFXData.cs:156-181, m0/FBX-PATHS.md) and the hybrid needs the native engine running.
++        public static readonly String ModelPath = LoadString("ModelPath", "");
++        // Hide the native creature body via the plugin's own hide mask (default on). If off, our mesh renders
++        // ON TOP of the visible native body (the "safer first cut" is the managed HideMeshes SFXKey split,
++        // Milestone 1a -- this native write is the go/no-go step).
++        public static readonly Boolean HideNative = LoadBool("HideNative", true);
++        // The hide-mask value written to SummonData+0x20 (x64)/+0x14 (x86). meshCount lives at geom+0x03
++        // behind a PSX->host decode (M4 2, ef_container.parse_geom) -- NOT runtime-readable here -- so the
++        // value is supplied, not derived. Default 0x3 = Bahamut's 2 meshes ((1<<2)-1). A census of all 24
++        // creature effects found meshCount in {2,3} (max 3), and bits above meshCount are inert, so 0x7
++        // covers a 3-mesh donor and 0xFFFFFFFF is a safe universal total-hide (D4 1.3/1.6). Hex.
++        public static readonly Int32 HideMask = LoadHex("HideMask", 0x3);
++        // How many native nodes to drive (the donor's bone count; Bahamut/ef227 = 93, decoded offline). Not
++        // runtime-readable (same geom-decode wall), so supplied. We drive min(model.bones.Length, this) by
++        // node index -- never reading past the native array. Set per donor via summon-inspect.
++        public static readonly Int32 NodeCount = LoadNodeCount();
++        // ESCAPE HATCH (default OFF). TRANSPLANT.md 2.1's brief asked to also set bones[k].localScale to the
++        // per-column matrix norms. CALIBRATION.md 5 (M0-VERIFIED) proves the node POSITION spread ALREADY
++        // carries the authored 0.02->3.0 scale sweep, so applying localScale DOUBLES the creature -- hence
++        // OFF by default. Kept only for the owner to A/B at M1b if a donor's summon-rig-ref bind pose is not
++        // a clean scale-1 rest. Do NOT enable without a visual check.
++        public static readonly Boolean ApplyColumnScale = LoadBool("ApplyColumnScale", false);
++        // Debug log (./sfxhybriddrive.log, fresh per launch). Off by default. Lifecycle + fault lines only;
++        // never per-frame per-bone spam.
++        public static readonly Boolean Log = LoadBool("Log", false);
++
++        private static Boolean LoadBool(String key, Boolean dflt)
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxHybrid", key, dflt ? "1" : "0").Trim() == "1";
++            }
++            catch
++            {
++                return dflt;
++            }
++        }
++
++        private static Int32 LoadInt(String key, Int32 dflt)
++        {
++            try
++            {
++                String raw = IniFile.MemoriaIni.GetSetting("SfxHybrid", key, dflt.ToString(CultureInfo.InvariantCulture)).Trim();
++                Int32 v;
++                if (Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out v))
++                    return v;
++                return dflt;
++            }
++            catch
++            {
++                return dflt;
++            }
++        }
++
++        private static String LoadString(String key, String dflt)
++        {
++            try
++            {
++                return IniFile.MemoriaIni.GetSetting("SfxHybrid", key, dflt).Trim();
++            }
++            catch
++            {
++                return dflt;
++            }
++        }
++
++        private static Int32 LoadHex(String key, Int32 dflt)
++        {
++            try
++            {
++                String raw = IniFile.MemoriaIni.GetSetting("SfxHybrid", key, "0x" + dflt.ToString("X", CultureInfo.InvariantCulture)).Trim();
++                if (raw.StartsWith("0x") || raw.StartsWith("0X"))
++                    raw = raw.Substring(2);
++                Int32 v;
++                if (Int32.TryParse(raw, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v))
++                    return v;
++                return dflt;
++            }
++            catch
++            {
++                return dflt;
++            }
++        }
++
++        private static Int32 LoadNodeCount()
++        {
++            Int32 n = LoadInt("NodeCount", 93);
++            if (n < 1)
++                return 1;
++            if (n > 256)
++                return 256; // arena-safety clamp; a real donor is <=93, this only bounds a fat-fingered ini
++            return n;
++        }
++
++        // ---- native layout (arch split by IntPtr.Size, exactly as SfxMeshProbe s52/s53) ----
++        private static readonly Boolean Arch64 = (IntPtr.Size == 8);
++        // summonModels[] -- LENGTH 1 (the creature). Hi_RegisterSummonModel@0x15ee0.
++        private static readonly Int64 SummonRecRva = Arch64 ? 0x220830L : 0x20869cL;
++        private static readonly Int32 SummonActiveOff = Arch64 ? 0x50 : 0x4c;   // u8; 0 => no summon this frame
++        private static readonly Int32 DataBonesOff = Arch64 ? 0x38 : 0x20;      // -> the 93 composed world MATRIXes
++        private static readonly Int32 DataHideMaskOff = Arch64 ? 0x20 : 0x14;   // u32 body-hide mask (D4 1.2)
++        // A PSX MATRIX is 32 B on both arches: 3x3 s16 fp12 @+0x00, s32 translation @+0x14.
++        private const Int32 MatrixStride = 0x20;
++        private const Int32 MatrixTransOff = 0x14;
++        private const Single Fp12 = 4096f;
++        // Stale-arena sanity bound (VERIFY_CALIBRATION.md C6). Legitimate node translations are <=~16k PSX
++        // units (the 3.0x climax BONES-AABB diagonal ~15543u; the clean ROOT anchor ~12k); recycled-arena
++        // garbage on a stale cast-tail frame is >=5.2e8. 1<<24 (~16.8M) sits ~1000x above legit and far below
++        // the garbage -- a node whose translation exceeds it is a dead-arena frame to skip.
++        private const Int32 SaneMaxTrans = 1 << 24;
++
++        // HMODULE of a normally-loaded DLL IS its in-memory base address (Win32 contract). Cache once.
++        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = false)]
++        private static extern IntPtr GetModuleHandle(String lpModuleName);
++
++        private static IntPtr _pluginBase = IntPtr.Zero;
++
++        private static IntPtr PluginBase()
++        {
++            if (_pluginBase == IntPtr.Zero)
++            {
++                try
++                {
++                    _pluginBase = GetModuleHandle("FF9SpecialEffectPlugin.dll");
++                }
++                catch
++                {
++                    _pluginBase = IntPtr.Zero;
++                }
++            }
++            return _pluginBase;
++        }
++
++        // ---- runtime state ----
++        private static Boolean _disabled;              // self-disable latch, tripped by the first fault
++        private static GameObject _model;              // our loaded creature (null when no cast is active)
++        private static SkinnedMeshRenderer _smr;
++        private static Transform[] _bones;
++        private static Boolean _boneMismatchLogged;
++        private static Boolean _staleFrameLogged;      // once-log latch for a skipped recycled-arena frame
++        private static readonly Int16[] _mtx = new Int16[9]; // reused per node (no per-frame allocation)
++        private static StreamWriter _log;
++        private static Boolean _logInitTried;
++
++        // Per-frame, from SFXDataMesh.Runtime.Render() while [SfxHybrid] Enabled=1. No-op unless the
++        // configured donor cast (EffectId) is playing AND its native summon slot is active AND its node
++        // matrices exist this frame.
++        public static void Drive()
++        {
++            if (!Enabled || _disabled)
++                return;
++            try
++            {
++                // Only our configured donor cast drives the puppet; any other effect releases it.
++                if ((Int32)SFX.currentEffectID != EffectId)
++                {
++                    ReleaseModel();
++                    return;
++                }
++                IntPtr baseAddr = PluginBase();
++                if (baseAddr == IntPtr.Zero)
++                    return;
++                IntPtr rec = new IntPtr(baseAddr.ToInt64() + SummonRecRva);
++                Byte active = Marshal.ReadByte(rec, SummonActiveOff);
++                if (active == 0)
++                {
++                    // Cast ended (or not yet begun) -- tear the puppet down so a stale model never lingers.
++                    ReleaseModel();
++                    return;
++                }
++                IntPtr sData = Marshal.ReadIntPtr(rec);
++                if (sData == IntPtr.Zero)
++                    return;
++                IntPtr bones = Marshal.ReadIntPtr(sData, DataBonesOff);
++                if (bones == IntPtr.Zero)
++                    return; // node builder hasn't written the matrices yet this cast -- nothing to pose
++
++                if (!EnsureModel())
++                    return;
++
++                // THE ONE PLUGIN-STATE WRITE (the go/no-go step). Assert the total-hide mask so the native
++                // body vanishes; the swirl/beam/fire props stay (bone-parented to the skeleton, which keeps
++                // computing under a hidden body). The mask is re-read on every mesh of every frame
++                // (D4 0x17910), so writing it here (after this frame's Draw) hides from the NEXT draw on --
++                // a single possible frame-0 flash of the native body, accepted (the managed HideMeshes split
++                // is the flash-free alternative; see S54-DRAFT.md).
++                if (HideNative)
++                    Marshal.WriteInt32(sData, DataHideMaskOff, HideMask);
++
++                // Pose each node. Iterate 0..N-1 (root-first): FF9 node arrays are hierarchy-ordered, so a
++                // child's absolute-world write always lands after its parent's -- no runtime hierarchy walk
++                // (TRANSPLANT 2.1 / T1 2.a). A donor that violated root-first order could lag a leaf one
++                // frame; confirm at M1b.
++                Int32 count = (_bones.Length < NodeCount) ? _bones.Length : NodeCount;
++                Int64 bb = bones.ToInt64();
++                // Stale-arena guard (VERIFY_CALIBRATION.md C6). An ef227 cast keeps active!=0 for its whole
++                // span, but once the creature is choreographically gone the composed *(SummonData+0x38) nodes
++                // are recycled-arena garbage (f512: node-0 world = (-5.2e8,6.4e7,2.0e9) while active is still
++                // set). Posing from that flings our mesh ~2e9 units offscreen -- the native creature is
++                // unaffected (its hidden polys are skipped) but our Unity mesh is not gated by the native draw.
++                // node-0 is the analyst's sane_model sentinel: if its translation leaves the band the whole
++                // arena is stale, so hold the last good pose this frame rather than fling. (M1b: a hide-on-
++                // stale may read better than a held pose -- measure the visual extent; see S54-DRAFT.md sec 5.)
++                IntPtr m0 = new IntPtr(bb + MatrixTransOff);
++                Int32 t0x = Marshal.ReadInt32(m0, 0);
++                Int32 t0y = Marshal.ReadInt32(m0, 4);
++                Int32 t0z = Marshal.ReadInt32(m0, 8);
++                if (t0x > SaneMaxTrans || t0x < -SaneMaxTrans || t0y > SaneMaxTrans ||
++                    t0y < -SaneMaxTrans || t0z > SaneMaxTrans || t0z < -SaneMaxTrans)
++                {
++                    if (!_staleFrameLogged)
++                    {
++                        _staleFrameLogged = true;
++                        LogLine("stale-arena node-0 out of band -- holding last pose (cast-tail; C6/f512 class)");
++                    }
++                    return;
++                }
++                for (Int32 k = 0; k < count; k++)
++                {
++                    Transform b = _bones[k];
++                    if (b == null)
++                        continue;
++                    IntPtr m = new IntPtr(bb + (Int64)k * MatrixStride);
++                    _mtx[0] = Marshal.ReadInt16(m, 0);
++                    _mtx[1] = Marshal.ReadInt16(m, 2);
++                    _mtx[2] = Marshal.ReadInt16(m, 4);
++                    _mtx[3] = Marshal.ReadInt16(m, 6);
++                    _mtx[4] = Marshal.ReadInt16(m, 8);
++                    _mtx[5] = Marshal.ReadInt16(m, 10);
++                    _mtx[6] = Marshal.ReadInt16(m, 12);
++                    _mtx[7] = Marshal.ReadInt16(m, 14);
++                    _mtx[8] = Marshal.ReadInt16(m, 16);
++                    Int32 tx = Marshal.ReadInt32(m, MatrixTransOff);
++                    Int32 ty = Marshal.ReadInt32(m, MatrixTransOff + 4);
++                    Int32 tz = Marshal.ReadInt32(m, MatrixTransOff + 8);
++                    b.position = PsxToUnityPos(tx, ty, tz);
++                    b.rotation = PsxToUnityRot(_mtx);
++                    if (ApplyColumnScale) // OFF by default (CALIBRATION.md 5); escape hatch only
++                        b.localScale = ColumnScale(_mtx);
++                }
++            }
++            catch (Exception ex)
++            {
++                // First fault: self-disable for the process, log once, release anything half-built. The
++                // real battle render continues untouched.
++                _disabled = true;
++                LogLine("DISABLED after exception: " + ex.Message);
++                try { ReleaseModel(); }
++                catch { }
++            }
++        }
++
++        // From SFXDataMesh.Runtime.End(). Releases our posed model when a cast ends -- the lifecycle
++        // complement to Drive's per-frame active==0 release, which cannot fire when no SFX renders after
++        // the cast (Render() stops being called), leaving the creature frozen at its last pose otherwise.
++        public static void EndCast()
++        {
++            if (!Enabled)
++                return;
++            try
++            {
++                if (_model != null)
++                    ReleaseModel();
++                _boneMismatchLogged = false;
++                _staleFrameLogged = false;
++            }
++            catch
++            {
++            }
++        }
++
++        // Lazy-load our creature once per cast. Returns false (and self-disables) on any unrecoverable
++        // config/model problem, so a bad ModelPath fails safe instead of spamming.
++        private static Boolean EnsureModel()
++        {
++            if (_model != null)
++                return _bones != null;
++            if (String.IsNullOrEmpty(ModelPath))
++            {
++                LogLine("no [SfxHybrid] ModelPath configured");
++                _disabled = true;
++                return false;
++            }
++            // The same loader the SFX system's own FBX models use (SFXDataMesh.Begin -> :769), same texture
++            // filter mode, so our creature shades like a native SFX model.
++            _model = ModelFactory.CreateModel(ModelPath, false, true, Configuration.Graphics.SFXSmoothTexture);
++            if (_model == null)
++            {
++                LogLine("ModelFactory.CreateModel returned null for '" + ModelPath + "'");
++                _disabled = true;
++                return false;
++            }
++            // Our drive loop owns the pose every frame -- the model's own clip must not fight it.
++            Animation anim = _model.GetComponent<Animation>();
++            if (anim != null)
++                anim.enabled = false;
++            _smr = _model.GetComponentInChildren<SkinnedMeshRenderer>();
++            if (_smr == null)
++            {
++                LogLine("model '" + ModelPath + "' has no SkinnedMeshRenderer");
++                ReleaseModel();
++                _disabled = true;
++                return false;
++            }
++            _bones = _smr.bones;
++            if (_bones == null || _bones.Length == 0)
++            {
++                LogLine("SkinnedMeshRenderer has no bones");
++                ReleaseModel();
++                _disabled = true;
++                return false;
++            }
++            // The bones fly thousands of units from the renderer's own origin each frame; without this the
++            // stale local AABB frustum-culls the whole creature (the s46 render-rig culling law).
++            _smr.updateWhenOffscreen = true;
++            if (_bones.Length != NodeCount && !_boneMismatchLogged)
++            {
++                _boneMismatchLogged = true;
++                LogLine("model has " + _bones.Length.ToString(CultureInfo.InvariantCulture) +
++                    " bones, native NodeCount=" + NodeCount.ToString(CultureInfo.InvariantCulture) +
++                    "; driving min(n,NodeCount) by node index");
++            }
++            LogLine("loaded '" + ModelPath + "' for effect " + EffectId.ToString(CultureInfo.InvariantCulture) +
++                " (" + _bones.Length.ToString(CultureInfo.InvariantCulture) + " bones)");
++            return true;
++        }
++
++        private static void ReleaseModel()
++        {
++            if (_model != null)
++            {
++                UnityEngine.Object.Destroy(_model);
++                _model = null;
++            }
++            _smr = null;
++            _bones = null;
++        }
++
++        // PSX battle-world -> Unity world. NEGATE Y only; scale EXACTLY 1 (PSX unit == Unity unit). DERIVED
++        // from SFX.cs:1603 + cameraOffset=0 + PsxCamera.cs:103-120; VALIDATED on 5 casts (m0/CALIBRATION.md,
++        // m0/VERIFY_CALIBRATION.md). tx,ty,tz = the s32 translation at (MATRIX+0x14) of node k.
++        private static Vector3 PsxToUnityPos(Int32 tx, Int32 ty, Int32 tz)
++        {
++            return new Vector3(tx, -ty, tz);
++        }
++
++        // R_unity = B * R_psx * B, B = diag(1,-1,1) (B == B^-1): column j -> s[j]*(x,-y,z), s=(+1,-1,+1).
++        // m = the node's row-major s16 3x3 (/4096); columns are NORMALIZED (scale is carried by the node
++        // POSITION spread, CALIBRATION.md 5 -- do NOT apply localScale unless ApplyColumnScale). ~7.5% of
++        // frames store an intrinsically IMPROPER matrix (det<0, a real PSX reflection, the ~3.0x climax
++        // hold); a reflection is not a Unity rotation, so guard it: if det<0 flip the FORWARD (column 2, the
++        // local Z) to make it proper before extraction. WHICH column is not screen-observable offline;
++        // column 2 is the reference choice (CALIBRATION.md 2/7) -- confirm the visual at M1b.
++        // Quaternion.LookRotation(forward, up) is the Unity-5.2 replication of Matrix4x4.rotation (which does
++        // not exist until 2017.1); it rebuilds right from (up, forward), so the flip only reorients.
++        private static Quaternion PsxToUnityRot(Int16[] m)
++        {
++            Vector3 c0 = new Vector3(m[0], m[3], m[6]).normalized; // columns of R_psx (object->world)
++            Vector3 c1 = new Vector3(m[1], m[4], m[7]).normalized;
++            Vector3 c2 = new Vector3(m[2], m[5], m[8]).normalized;
++            Vector3 right = new Vector3(c0.x, -c0.y, c0.z);
++            Vector3 up = new Vector3(-c1.x, c1.y, -c1.z);
++            Vector3 forward = new Vector3(c2.x, -c2.y, c2.z);
++            Single det = Vector3.Dot(right, Vector3.Cross(up, forward)); // = det[right up forward]
++            if (det < 0f)
++                forward = -forward;
++            return Quaternion.LookRotation(forward, up);
++        }
++
++        // The per-column norms (in fp12 units) = the authored scale sweep (CALIBRATION.md 5). Used ONLY when
++        // the ApplyColumnScale escape hatch is on; normally the position spread already carries this.
++        private static Vector3 ColumnScale(Int16[] m)
++        {
++            Single s0 = new Vector3(m[0], m[3], m[6]).magnitude / Fp12;
++            Single s1 = new Vector3(m[1], m[4], m[7]).magnitude / Fp12;
++            Single s2 = new Vector3(m[2], m[5], m[8]).magnitude / Fp12;
++            return new Vector3(s0, s1, s2);
++        }
++
++        private static void LogLine(String s)
++        {
++            if (!Log)
++                return;
++            try
++            {
++                if (_log == null && !_logInitTried)
++                {
++                    _logInitTried = true;
++                    Stream stream = new FileStream("./sfxhybriddrive.log", FileMode.Create, FileAccess.Write, FileShare.Read);
++                    _log = new StreamWriter(stream);
++                    _log.WriteLine("# ff9mapkit s54 sfx-hybrid-drive");
++                }
++                if (_log != null)
++                {
++                    _log.WriteLine(String.Format(CultureInfo.InvariantCulture, "[f{0}] {1}", SFX.frameIndex, s));
++                    _log.Flush();
++                }
++            }
++            catch
++            {
++            }
++        }
++    }
++}

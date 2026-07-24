@@ -1608,6 +1608,54 @@ def _cmd_model_anim_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_summon_export(args: argparse.Namespace) -> int:
+    """Export a stock summon creature's ef###.bytes -> a Blender-openable .glb (rig + skin + clips).
+    Output is LOCAL-ONLY by design (a stock-creature export is Square-Enix content -- see summons/export.py)."""
+    from pathlib import Path
+
+    from .summons import export as sx
+    geo = args.geo or f"SUMMON_{Path(args.ef).stem.upper()}"
+    out = args.out or str(sx.default_out(args.ef))
+    try:
+        man = sx.export_summon_glb(args.ef, out, geo=geo, geo_id=args.id, anims=args.anims,
+                                   scale=args.scale, rest=args.rest, fps=args.fps)
+    except (sx.SummonExportError, RuntimeError, FileNotFoundError, OSError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    cr = man["creature"]
+    print(f"exported {man['geo']} -> {man['path']}")
+    print(f"  {man['bones']} bones / {cr['meshes']} mesh part(s) / {man['verts']} verts / "
+          f"rest={man['rest']} / clips: {len(man['clip_frames'])} {man['clip_frames'] or '(none)'}")
+    print("LOCAL-ONLY by design: a stock summon export is Square-Enix content -- it stays under "
+          f"{sx.DEFAULT_OUT_DIR} (never the repo / a mod folder / the install).")
+    print("Open in Blender: File > Import > glTF 2.0 (rigged; switch to Animation + pick an Action to scrub "
+          "a clip). Model is Y-up, ~scale 0.01 of FF9 units.")
+    return 0
+
+
+def _cmd_summon_rig_ref(args: argparse.Namespace) -> int:
+    """Export ONLY a summon's rig reference -> a .glb skeleton (bone000..bone09N, no mesh, no clips) to skin
+    your own mesh onto. Output is LOCAL-ONLY by design (still stock-derived -- see summons/export.py)."""
+    from pathlib import Path
+
+    from .summons import export as sx
+    geo = args.geo or f"SUMMON_{Path(args.ef).stem.upper()}"
+    out = args.out or str(sx.default_out(args.ef, rig=True))
+    try:
+        man = sx.export_rig_ref(args.ef, out, geo=geo, geo_id=args.id, rest=args.rest)
+    except (sx.SummonExportError, RuntimeError, FileNotFoundError, OSError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"exported rig reference {man['geo']} -> {man['path']}")
+    print(f"  {man['bones']} bones (bone000..bone{man['bones'] - 1:03d}), rest={man['rest']}, no mesh, "
+          f"no clips -- the armature to skin your mesh onto")
+    print("LOCAL-ONLY by design: the rig is derived from a stock creature -- it stays under "
+          f"{sx.DEFAULT_OUT_DIR} (never the repo / a mod folder / the install).")
+    print("Open in Blender, skin your mesh onto these bones (KEEP the boneNNN names + hierarchy), then it "
+          "binds the dragon's motion by bone name for the transplant.")
+    return 0
+
+
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
     from pathlib import Path
@@ -5585,6 +5633,44 @@ def build_parser() -> argparse.ArgumentParser:
                      help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
     man.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     man.set_defaults(func=_cmd_model_anim_new)
+
+    se = sub.add_parser("summon-export",
+                        help="export a stock summon creature's ef###.bytes -> a Blender-openable .glb "
+                             "(rig + skin + motion clips). Output LOCAL-ONLY by design")
+    se.add_argument("ef", help="a local ef###.bytes summon-creature container (extracted from YOUR install, "
+                               "kept under C:/gd/SCRATCH/...), e.g. ef227 (Bahamut) / ef261 (Odin)")
+    se.add_argument("--out", default=None,
+                    help="output .glb path (default: <DEFAULT_OUT_DIR>/<ef-stem>.glb). REFUSED if inside the "
+                         "repo, a mod folder (StreamingAssets), or the FF9 install -- a stock export is "
+                         "Square-Enix content and must stay local (there is no --force)")
+    se.add_argument("--anims", default="all",
+                    help="which motion clips to embed: 'all' (default), 'none', or a comma/space list of clip "
+                         "INDICES (0-based, file order)")
+    se.add_argument("--rest", choices=["identity", "clip0"], default="identity",
+                    help="rest pose: 'identity' (default) or 'clip0' (clip 0 frame 0 -- a recognizable posed "
+                         "creature instead of the straight skeleton)")
+    se.add_argument("--scale", type=float, default=0.01,
+                    help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few metres)")
+    se.add_argument("--fps", type=float, default=15.0,
+                    help="clip playback rate for Blender preview (default 15; a preview knob, not a measured "
+                         "tick -- topology/skeleton are unaffected)")
+    se.add_argument("--geo", default=None, help="GEO name to stamp (default: SUMMON_<ef-stem>)")
+    se.add_argument("--id", type=int, default=0, help="geo id to stamp in the manifest (default 0)")
+    se.set_defaults(func=_cmd_summon_export)
+
+    sr = sub.add_parser("summon-rig-ref",
+                        help="export ONLY a summon's rig reference -> a .glb skeleton (bone000..bone09N, no "
+                             "mesh, no clips) to skin your own mesh onto. Output LOCAL-ONLY by design")
+    sr.add_argument("ef", help="a local ef###.bytes summon-creature container (as in summon-export)")
+    sr.add_argument("--out", default=None,
+                    help="output .glb path (default: <DEFAULT_OUT_DIR>/<ef-stem>_rig.glb). REFUSED inside the "
+                         "repo / a mod folder (StreamingAssets) / the FF9 install -- the rig is stock-derived "
+                         "and must stay local (there is no --force)")
+    sr.add_argument("--rest", choices=["identity", "clip0"], default="identity",
+                    help="rest pose the armature is posed in: 'identity' (default) or 'clip0'")
+    sr.add_argument("--geo", default=None, help="GEO name to stamp (default: SUMMON_<ef-stem>)")
+    sr.add_argument("--id", type=int, default=0, help="geo id to stamp in the manifest (default 0)")
+    sr.set_defaults(func=_cmd_summon_rig_ref)
 
     imf = sub.add_parser("image-field",
                          help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "

@@ -157,15 +157,20 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 
 # ---------------------------------------------------------------- exporter
 
-def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None,
-                label_overrides=None, bone_labels: bool = True, _model=None) -> dict:
-    """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims).
-    ``bone_labels`` decorates each bone NODE NAME with its plain-language anatomical guess
-    (``bone012`` -> ``bone012_R_hand``, the baked family consensus -- see models/bone_labels.py) so the
-    Blender outliner is legible; purely cosmetic (the raw number stays in the name + ``ff9_bone_num``
-    extras, and every return path parses either form). Pass False for raw ``boneNNN`` names.
-    ``_model`` is an internal hook to pass a pre-read struct (bulk sweeps) and skip the p0data4 read."""
-    model = _model if _model is not None else extract.read_model(token, game=game)
+def emit_model_gltf(model: dict, clips, buf, out, *, scale: float = DEFAULT_SCALE,
+                    label_overrides=None, bone_labels: bool = True) -> dict:
+    """Emit a ``.glb`` for an ALREADY-READ model struct + PRE-DECODED animation clips -- the p0data-free core
+    of :func:`export_gltf`. Factored out so a non-p0data source (e.g. a custom summon built from local ef###
+    bytes) can reuse the kit's proven glTF writer without touching ``extract.read_model`` /
+    ``_select_anim_keys`` / ``_gltf_io.read_clip``. Writes ``out`` and returns the manifest
+    :func:`export_gltf` returns.
+
+    ``clips`` is a list of ``(action_label, anim_key, folder_id, clip)`` tuples where ``clip`` is a decoded
+    :func:`ff9mapkit.models._gltf_io.read_clip` struct (or None -- skipped, exactly as an unresolved clip was
+    before this factor-out); ``folder_id != model['geo_id']`` marks a DONOR-folder clip in the manifest.
+    ``buf`` is a fresh :class:`~ff9mapkit.models._gltf_io.GltfBuffer` (the caller creates it so the
+    accessor/bufferView emission order is wholly this function's). ``scale`` / ``label_overrides`` /
+    ``bone_labels`` behave exactly as in :func:`export_gltf`."""
     bones = model["bones"]
     meshes = model["meshes"]
     materials = model["materials"]
@@ -194,8 +199,6 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         local = _mat_trs(_cpos(b["pos"], s), _cquat(b["rot"]), b["scale"])
         _wcache[name] = local if b["parent"] is None else _mat_mul(world(b["parent"]), local)
         return _wcache[name]
-
-    buf = GltfBuffer()
 
     # --- skin: joints + inverseBindMatrices ---
     ibm_flat: list = []
@@ -316,16 +319,11 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
                                  "ff9_scale": s, "ff9_mesh": part}})
         mesh_nodes.append(node_idx)
 
-    # --- animations (skip the p0data5 load entirely when no clips are wanted) ---
-    selected = []
-    if anims not in (None, "none", "off"):
-        env5 = extract._unitypy().load(str(config.find_game_path(game) / "StreamingAssets" / "p0data5.bin"))
-        selected = _select_anim_keys(model["geo"], model["geo_id"], anims, env5)
+    # --- animations (clips are pre-resolved + decoded by the caller -- no p0data touched here) ---
     gltf_anims: list = []
     anim_labels: list = []
     donor_anims: dict = {}                                     # folder_id -> [labels] embedded from a DONOR folder
-    for label, key, folder in selected:
-        clip = _gltf_io.read_clip(env5, folder, key)
+    for label, key, folder, clip in clips:
         if not clip or not clip["bones"]:
             continue
         samplers, channels = [], []
@@ -401,7 +399,7 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
     if gltf_anims:
         gltf["animations"] = gltf_anims
 
-    out = Path(out_path)
+    out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     _gltf_io.write_glb(gltf, buf.blob, out)
     return {"geo": model["geo"], "geo_id": model["geo_id"], "path": str(out),
@@ -414,6 +412,30 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             # keyed by folder, with the folder-owning GEO name for the CLI's provenance note)
             "donor_anims": [{"folder": f, "model": (catalog.model(f).name if catalog.model(f) else None),
                              "labels": labels} for f, labels in sorted(donor_anims.items())]}
+
+
+def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None,
+                label_overrides=None, bone_labels: bool = True, _model=None) -> dict:
+    """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims).
+    ``bone_labels`` decorates each bone NODE NAME with its plain-language anatomical guess
+    (``bone012`` -> ``bone012_R_hand``, the baked family consensus -- see models/bone_labels.py) so the
+    Blender outliner is legible; purely cosmetic (the raw number stays in the name + ``ff9_bone_num``
+    extras, and every return path parses either form). Pass False for raw ``boneNNN`` names.
+    ``_model`` is an internal hook to pass a pre-read struct (bulk sweeps) and skip the p0data4 read.
+
+    The p0data-coupled half only: read the model (p0data4), resolve + decode the requested clips (p0data5),
+    then hand both to the pure :func:`emit_model_gltf`. ``anims`` = 'auto' / 'all' / 'none' / a comma-space
+    list (see :func:`_select_anim_keys`)."""
+    model = _model if _model is not None else extract.read_model(token, game=game)
+    buf = GltfBuffer()
+    clips: list = []
+    if anims not in (None, "none", "off"):
+        env5 = extract._unitypy().load(str(config.find_game_path(game) / "StreamingAssets" / "p0data5.bin"))
+        selected = _select_anim_keys(model["geo"], model["geo_id"], anims, env5)
+        clips = [(label, key, folder, _gltf_io.read_clip(env5, folder, key))
+                 for label, key, folder in selected]
+    return emit_model_gltf(model, clips, buf, out_path, scale=scale,
+                           label_overrides=label_overrides, bone_labels=bone_labels)
 
 
 # ================================================================ RETURN path: glTF -> kit Model struct

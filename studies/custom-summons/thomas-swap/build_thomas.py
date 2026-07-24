@@ -65,8 +65,13 @@ every mint):
     py studies/custom-summons/thomas-swap/build_thomas.py                        # deploy w/ default HIDE_KEYS
     py studies/custom-summons/thomas-swap/build_thomas.py --hide-keys 0097BD01,0098BD0E  # round-2 candidate test
     py studies/custom-summons/thomas-swap/build_thomas.py --calibrate            # no HideMeshes at all
+    py studies/custom-summons/thomas-swap/build_thomas.py --m1a      # M1a static-hold -- camera-inheritance
+                                                                      # isolation test, see m0/M1A-PLAN.md sec 2
     py studies/custom-summons/thomas-swap/build_thomas.py --restore   # back to rung 7's resting state
                                                                         # + Thomas's mint fully removed
+    py studies/custom-summons/thomas-swap/build_thomas.py --m1a --dry-run   # stage M1a's artifacts locally
+                                                                             # (see DRY_RUN_ROOT) -- nothing
+                                                                             # deployed, safe to inspect
 
 See README.md for the full test procedure, the failure-mode table, the HideMeshes surgical-key-list
 section, and the local-only provenance note. See PROBE.md for the mesh-probe key classification and
@@ -630,7 +635,11 @@ KEYFRAMES_V10: "tuple[tuple[int, tuple[int, int, int], float], ...]" = (
     ( 520, (   2236,   10356,    -5384), +119.60),  # fire column (camera off him, f520)
 )
 
-THOMAS_END = KEYFRAMES_V10[-1][0]          # 580 -- donor's WaitSFXDone-gated cast length, unchanged
+# THOMAS_END = 520 (KEYFRAMES_V10[-1][0], the last tuple's own frame): the donor's WaitSFXDone-gated
+# cast length. This comment used to read "580" -- stale documentation drift against the actual last
+# KEYFRAMES_V10 tuple (frame 520); the code and the deployed artifact have always agreed at 520, only
+# the inline comment disagreed with both. Fixed 2026-07-23 per m0/M1A-PLAN.md sec 2.2's flagged note.
+THOMAS_END = KEYFRAMES_V10[-1][0]
 
 # Third-party asset sources -- OUTSIDE the repo, never committed (CLAUDE.md provenance law; the repo's
 # blanket *.fbx gitignore already makes an accidental commit structurally impossible, this is belt-
@@ -638,6 +647,16 @@ THOMAS_END = KEYFRAMES_V10[-1][0]          # 580 -- donor's WaitSFXDone-gated ca
 SCRATCH_DIR = Path(r"C:\gd\SCRATCH\thomas")
 THOMAS_FBX_SRC = SCRATCH_DIR / "blender_out" / "thomas_normalized.fbx"   # produced by blender_normalize.py
 THOMAS_TEX_SRC = SCRATCH_DIR / "Thomas_d.png"                            # the original, untouched
+
+# --dry-run staging root -- CLAUDE.md's provenance law applies here too: the spliced PlayerSequence.seq
+# a dry run produces is a DERIVATIVE of stock ef227's real Square-Enix bytes (it's built by splicing our
+# own delta into a verified-byte-identical copy of the donor's own file), so a staged/inspectable copy of
+# it belongs under the same C:/gd/SCRATCH/ tree every other extracted-stock-content output in this study
+# uses -- never under studies/.../out/ (that's still inside the repo; `studies/*/out/` is gitignored but
+# only one path segment deep, and in any case "gitignored" isn't the bar here, "not in the repo tree at
+# all" is). `--dry-run` mirrors the mod folder's own relative layout one level under here so paths stay
+# directly comparable to a real deploy's own <mod_root>/... paths.
+DRY_RUN_ROOT = Path(r"C:\gd\SCRATCH\summon-transplant") / "m1a_dry_run"
 
 
 class ThomasAssetError(RuntimeError):
@@ -770,12 +789,87 @@ def build_manifest_json() -> dict:
     }
 
 
-def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None") -> str:
+# --------------------------------------------------------------------------- M1a (2026-07-23, m0/M1A-PLAN.md sec 2) -- camera-inheritance isolation build
+# M1a swaps the FLIGHT v10 KEYFRAMES_V10 flight (above) for ONE static Movement/Rotation piece spanning
+# the whole cast, holding Thomas fixed in WORLD space while the real cinematic camera cuts/dollies/zooms
+# around him -- isolating "does camera inheritance work at all" (TRANSPLANT.md sec 1.1's "for free" claim)
+# from "does our own flight match the real one" (what KEYFRAMES_V10 is solved for). See M1A-PLAN.md sec 3
+# for the full success/failure read.
+#
+# The point is not invented: it is PROBE.md's own "P1 dest (entrance settle)" row -- the median, across
+# Bahamut's 7 real body-mesh keys (HIDE_KEYS above), of his own on-screen world position at frame 82, the
+# exact instant the real creature first becomes visible and the camera settles on him after the
+# cave-entrance swoop. M1A-PLAN.md sec 2.2 states the caveat plainly: Bahamut's own trajectory revisits
+# roughly this neighborhood at several other beats and diverges wildly during the sky-charge excursion --
+# a single static point reading near-frame at some beats and off-frame at others is the EXPECTED,
+# informative M1a result, not a defect to fix.
+M1A_STATIC_POINT: "tuple[float, float, float]" = (132.5, 511.5, -1568)
+
+
+def _num(v: float) -> str:
+    """Render a coordinate the same way ``KEYFRAMES_V10``'s literal tuples do when passed through
+    ``str()``: a whole number renders bare (``"-1568"``, not ``"-1568.0"``), a fractional value keeps
+    its decimal (``"132.5"``)."""
+    return str(int(v)) if float(v).is_integer() else str(v)
+
+
+def build_manifest_json_m1a() -> dict:
+    """Generate the M1a static-hold manifest (schema per ``ParametricMovement.LoadFromJSON``, same as
+    ``build_manifest_json()`` above -- see M1A-PLAN.md sec 2.2 for the literal JSON this reproduces and
+    the reasoning behind every value):
+
+    - ONE ``Movement`` piece and ONE ``Rotation`` piece, each spanning ``[0, THOMAS_END)`` -- Origin ==
+      Destination on every axis (a zero-length move: Thomas never travels in world space).
+    - Held at ``M1A_STATIC_POINT`` -- genuine Unity world space (PROBE.md's own measurement, not a guess
+      -- see the module comment above).
+    - Rotation ``OriginY=DestinationY=0`` -- an explicit non-claim, not a measured facing (nothing in
+      this study has measured Bahamut's own body facing at frame 82; ``0`` matches
+      ``blender_normalize.py``'s own normalized-facing convention). ``*Z`` stays ``"0"`` -- no roll,
+      same as every ``KEYFRAMES_V10`` piece.
+    - No ``"Animations"`` key -- Thomas's raw FBX is fully rigid (no skeleton, no clips), same reason
+      ``build_manifest_json()`` above never emits one.
+    - ``Scaling`` unchanged at ``THOMAS_SCALE`` -- keeps the same physical scale v10.1 already uses, so a
+      before/after against the currently-deployed FLIGHT v10.1 build isolates exactly one variable
+      (motion vs. no motion), not two (motion and size)."""
+    x, y, z = M1A_STATIC_POINT
+    movement = [{
+        "Duration": str(THOMAS_END),
+        "OriginX": _num(x), "OriginY": _num(y), "OriginZ": _num(z),
+        "DestinationX": _num(x), "DestinationY": _num(y), "DestinationZ": _num(z),
+    }]
+    rotation = [{
+        "Duration": str(THOMAS_END),
+        "OriginY": "0", "DestinationY": "0",
+        "OriginZ": "0", "DestinationZ": "0",
+    }]
+    scaling = {
+        "Duration": str(THOMAS_END),
+        "OriginX": str(THOMAS_SCALE), "OriginY": str(THOMAS_SCALE), "OriginZ": str(THOMAS_SCALE),
+        "DestinationX": str(THOMAS_SCALE), "DestinationY": str(THOMAS_SCALE), "DestinationZ": str(THOMAS_SCALE),
+    }
+    return {
+        "FBX": [
+            {
+                "Path": THOMAS_GEO_NAME,
+                "Start": "0",
+                "End": str(THOMAS_END),
+                "Movement": movement,
+                "Rotation": rotation,
+                "Scaling": scaling,
+            }
+        ]
+    }
+
+
+def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None",
+                    include_overlay: bool = True) -> str:
     """Insert the Thomas delta block immediately before ANCHOR_LINE, and replace ANCHOR_LINE itself
     with ``patched_line(hide_keys)`` (the HideMeshes-augmented form, or -- ``hide_keys=None`` -- the
-    bare unmodified anchor text, i.e. CALIBRATE mode). Raises DriftError if ANCHOR_LINE isn't found
-    (the donor's shape changed since this script's splice point was derived -- abort rather than
-    guess)."""
+    bare unmodified anchor text, i.e. CALIBRATE mode). ``include_overlay=False`` (the --m1b-bench
+    mode) skips the delta block entirely: only the anchor-line replacement is applied, so NOTHING
+    ever loads SFXData(84) and no JSON overlay Thomas spawns -- the s54 hybrid drive is then the
+    only Thomas renderer in the cast. Raises DriftError if ANCHOR_LINE isn't found (the donor's
+    shape changed since this script's splice point was derived -- abort rather than guess)."""
     lines = donor_text.splitlines(keepends=True)
     try:
         idx = lines.index(ANCHOR_LINE)
@@ -784,6 +878,8 @@ def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None") -> str
             f"expected line {ANCHOR_LINE!r} not found in the donor copy -- its shape has changed "
             "since this script's splice point was derived; abort rather than guess"
         ) from None
+    if not include_overlay:
+        return "".join(lines[:idx] + [patched_line(hide_keys)] + lines[idx + 1:])
     delta_text = THOMAS_SEQ_DELTA_PATH.read_text(encoding="utf-8")
     # The committed delta file's own leading `//` comment block is documentation for a human reader --
     # only the actual StartThread...EndThread block (the last 6 non-comment, non-blank lines) is
@@ -864,11 +960,20 @@ def unmint_thomas(mod_root: Path) -> dict:
             "directive": directive}
 
 
-def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | None" = HIDE_KEYS) -> dict:
+def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | None" = HIDE_KEYS,
+                  manifest_fn=build_manifest_json, dry_run: bool = False,
+                  include_overlay: bool = True) -> dict:
+    """``manifest_fn`` (default ``build_manifest_json``, the FLIGHT v10.1 flight) is the single knob
+    M1a adds -- pass ``build_manifest_json_m1a`` for the static-hold build instead; every other step
+    (the .seq splice, FileList.txt, the mint) is reused verbatim regardless of which manifest is built,
+    per M1A-PLAN.md sec 2.3 ("reuse rung-7 verbatim, ZERO new engine code"). The committed
+    ``thomas_manifest.sfxmodel`` repo copy is synced ONLY for the FLIGHT build (``manifest_fn is
+    build_manifest_json``) and never on ``dry_run`` -- an ``--m1a`` / custom-``manifest_fn`` build leaves the
+    committed v10.1 flight source-of-truth intact (see that write's own comment for why)."""
     donor_bytes, donor_text = _read_verified(
         game_path / DONOR_REL_DIR / PLAYER_SEQ_NAME, EXPECTED_DONOR_SHA256, "stock ef227/PlayerSequence.seq"
     )
-    out_text = splice_sequence(donor_text, hide_keys)
+    out_text = splice_sequence(donor_text, hide_keys, include_overlay=include_overlay)
     out_bytes = out_text.encode("utf-8")
 
     seq_dest = mod_root / FRESH_REL_DIR / PLAYER_SEQ_NAME
@@ -886,8 +991,15 @@ def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | 
 
     # Generated from the named FLIGHT constants above (not hand-typed JSON) -- the repo file stays the
     # committed, git-diffable source of truth, but the Python constants are the single point of edit.
-    manifest_bytes = (json.dumps(build_manifest_json(), indent=2) + "\n").encode("utf-8")
-    _write(THOMAS_MANIFEST_REPO_PATH, manifest_bytes)   # keep the committed copy in sync
+    manifest_bytes = (json.dumps(manifest_fn(), indent=2) + "\n").encode("utf-8")
+    # Sync the committed repo copy ONLY on a FLIGHT (--thomas) build. THOMAS_MANIFEST_REPO_PATH is the git
+    # source-of-truth for the DEPLOYED v10.1 flight; an --m1a run builds the 791-byte static-hold JSON, which
+    # must NOT overwrite it (a later commit would silently drop v10.1 from HEAD). Gating on the FLIGHT
+    # manifest_fn makes this match main()'s printed guarantee ("only a --thomas build syncs it") and the
+    # --m1a runbook's "the repo's thomas_manifest.sfxmodel is left untouched". --dry-run never touches it
+    # either (a dry run's whole point is generate-and-inspect, nothing written outside its own staging area).
+    if not dry_run and manifest_fn is build_manifest_json:
+        _write(THOMAS_MANIFEST_REPO_PATH, manifest_bytes)   # keep the committed FLIGHT copy in sync
     manifest_dest = mod_root / CREATURE_MANIFEST_REL
     manifest_sha256 = _write(manifest_dest, manifest_bytes)
 
@@ -934,7 +1046,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--thomas", action="store_true",
-                        help="deploy the Thomas swap (DEFAULT if no flag given)")
+                        help="deploy the Thomas swap, FLIGHT v10.1 (DEFAULT if no flag given)")
+    group.add_argument("--m1a", action="store_true",
+                        help="deploy the M1a static-hold manifest instead of the FLIGHT v10 KEYFRAMES_V10 "
+                             "flight -- one fixed Movement/Rotation piece spanning the whole cast, no "
+                             "Animations array (Thomas has no clips). Same .seq splice, same HIDE_KEYS, "
+                             "same mint as --thomas. Isolates camera-inheritance from flight-matching. "
+                             "See m0/M1A-PLAN.md sec 2.")
+    group.add_argument("--m1b-bench", action="store_true",
+                        help="deploy the M1b viewing bench: the donor cast WITHOUT the overlay-Thomas "
+                             "thread (no StartThread splice, so no JSON Thomas ever spawns) -- the s54 "
+                             "hybrid-driven skinned Thomas is the only Thomas in the cast. HideMeshes "
+                             "keys are kept as defense-in-depth under s54's own HideNative mask. "
+                             "Recast-only (no relaunch).")
     group.add_argument("--restore", action="store_true",
                         help="undo the Thomas swap -- back to rung 7's own proven resting state, and "
                              "Thomas's GEO mint fully removed")
@@ -951,11 +1075,25 @@ def main() -> int:
                                 "byte-identical to the stock donor's own PlaySFX line, so Bahamut's real "
                                 "mesh renders completely unsuppressed. For recording a clean composition-"
                                 "reference video/log. Mutually exclusive with --hide-keys.")
+    parser.add_argument("--dry-run", action="store_true",
+                         help="stage every artifact under a local folder "
+                              f"({DRY_RUN_ROOT}\\<mod folder>\\...) instead of writing into the real game "
+                              "install's mod folder, and skip the thomas_manifest.sfxmodel repo-copy sync "
+                              "-- generate + inspect only, nothing is deployed. The real stock "
+                              "ef227/PlayerSequence.seq is still READ (never written) to build the "
+                              "spliced output. Works with --thomas, --m1a, and --restore alike.")
     args = parser.parse_args()
-    mode = "restore" if args.restore else "thomas"
+    if args.restore:
+        mode = "restore"
+    elif args.m1a:
+        mode = "m1a"
+    elif args.m1b_bench:
+        mode = "m1b-bench"
+    else:
+        mode = "thomas"
 
     if mode == "restore" and (args.hide_keys or args.calibrate):
-        parser.error("--hide-keys/--calibrate only apply to a Thomas-swap deploy, not --restore")
+        parser.error("--hide-keys/--calibrate only apply to a Thomas-swap or --m1a deploy, not --restore")
 
     if args.calibrate:
         hide_keys = None
@@ -977,12 +1115,24 @@ def main() -> int:
 
     game_path = config.find_game_path()
     mod_root = config.find_mod_root(game_path)
+    if args.dry_run:
+        import shutil
+        mod_root = DRY_RUN_ROOT / mod_root.name
+        if mod_root.exists():
+            shutil.rmtree(mod_root)
 
     print(f"game install : {game_path}")
-    print(f"mod folder   : {mod_root}")
+    print(f"mod folder   : {mod_root}" + ("  *** DRY RUN -- staged locally, real mod folder NOT touched ***"
+                                           if args.dry_run else ""))
     print(f"private id   : ef{FRESH_EF_ID:03d} (rung 3/7's fresh-id folder -- reused, not re-minted)")
-    print(f"mode         : {'THOMAS SWAP' if mode == 'thomas' else 'RESTORE (rung-7 resting state)'}")
-    if mode == "thomas":
+    mode_label = {
+        "thomas": "THOMAS SWAP (FLIGHT v10.1)",
+        "m1a": "M1A STATIC HOLD (camera-inheritance isolation test, m0/M1A-PLAN.md sec 2)",
+        "m1b-bench": "M1B VIEWING BENCH (no overlay thread -- the s54 hybrid Thomas is the only Thomas)",
+        "restore": "RESTORE (rung-7 resting state)",
+    }[mode]
+    print(f"mode         : {mode_label}")
+    if mode in ("thomas", "m1a", "m1b-bench"):
         if hide_keys is None:
             print("hide keys    : CALIBRATE -- no HideMeshes argument at all (Bahamut renders unsuppressed)")
         else:
@@ -990,15 +1140,20 @@ def main() -> int:
     print()
 
     try:
-        if mode == "thomas":
-            result = build_thomas(mod_root, game_path, hide_keys)
+        if mode in ("thomas", "m1a", "m1b-bench"):
+            # m1b-bench: the manifest is never LOADED (nothing PlaySFXes SFX=84), but the m1a
+            # static-hold JSON is written anyway -- it is inert AND it is not the FLIGHT manifest,
+            # so the committed v10.1 repo copy is never synced by this mode.
+            manifest_fn = build_manifest_json if mode == "thomas" else build_manifest_json_m1a
+            result = build_thomas(mod_root, game_path, hide_keys, manifest_fn=manifest_fn,
+                                  dry_run=args.dry_run, include_overlay=(mode != "m1b-bench"))
         else:
             result = restore(mod_root, game_path)
     except (DriftError, ThomasAssetError) as e:
         print(f"REFUSING TO BUILD:\n  {e}", file=sys.stderr)
         return 1
 
-    if mode == "thomas":
+    if mode in ("thomas", "m1a", "m1b-bench"):
         print(f"=== {PLAYER_SEQ_REL} ===")
         print(f"written  : {result['seq_dest']}")
         print(f"  sha256 : {result['seq_sha256']}")
@@ -1010,24 +1165,37 @@ def main() -> int:
         print(f"written  : {result['filelist_dest']}")
         print(f"  sha256 : {result['filelist_sha256']}")
         print()
-        print(f"=== {CREATURE_MANIFEST_REL} (GENERATED thomas_manifest.sfxmodel -- overwrites rung 7's Iviv-clone one) ===")
+        manifest_label = ("GENERATED thomas_manifest.sfxmodel (FLIGHT v10.1)" if mode == "thomas"
+                           else "GENERATED M1a static-hold manifest, m0/M1A-PLAN.md sec 2.2")
+        print(f"=== {CREATURE_MANIFEST_REL} ({manifest_label} -- overwrites rung 7's Iviv-clone one) ===")
         print(f"written  : {result['manifest_dest']}")
         print(f"  sha256 : {result['manifest_sha256']}")
-        print(f"(repo copy kept in sync at {THOMAS_MANIFEST_REPO_PATH})")
-        print("THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION, 2026-07-22):")
-        print(f"  method        : each of 18 authored story beats gets a target on-screen (ndc_x,ndc_y) + apparent")
-        print(f"                  height%, solved to a real-camera depth and back-projected to world via that")
-        print(f"                  frame's real VIEW+PROJ (flight_v7_solve.py); segments whose real-camera drift")
-        print(f"                  would leave the frame are recursively bisected with extra keyframes until every")
-        print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V10)} keyframes, {len(KEYFRAMES_V10)-1} Linear")
-        print(f"                  pieces (no easing -- keeps the deployed path == the verified path).")
-        print(f"  yaw           : per-keyframe, derived from that frame's own camera forward vector (broadside")
-        print(f"                  presentation to the ACTUAL camera at that moment, not a fixed world angle).")
-        print()
-        print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V10)} total,")
-        print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V10)} incl. 18 authored beats + adaptive drift-inserts:")
-        for frame, xyz, yaw in KEYFRAMES_V10:
-            print(f"    f{frame:<4d} = {xyz}  yaw={yaw:+.1f}")
+        if mode == "thomas":
+            if not args.dry_run:
+                print(f"(repo copy kept in sync at {THOMAS_MANIFEST_REPO_PATH})")
+            print("THE FLIGHT v7 (IN-FRAME BY CONSTRUCTION, 2026-07-22):")
+            print(f"  method        : each of 18 authored story beats gets a target on-screen (ndc_x,ndc_y) + apparent")
+            print(f"                  height%, solved to a real-camera depth and back-projected to world via that")
+            print(f"                  frame's real VIEW+PROJ (flight_v7_solve.py); segments whose real-camera drift")
+            print(f"                  would leave the frame are recursively bisected with extra keyframes until every")
+            print(f"                  segment verifies in-frame. All {len(KEYFRAMES_V10)} keyframes, {len(KEYFRAMES_V10)-1} Linear")
+            print(f"                  pieces (no easing -- keeps the deployed path == the verified path).")
+            print(f"  yaw           : per-keyframe, derived from that frame's own camera forward vector (broadside")
+            print(f"                  presentation to the ACTUAL camera at that moment, not a fixed world angle).")
+            print()
+            print(f"  keyframes baked into the manifest (frame, world XYZ, yaw deg) -- {len(KEYFRAMES_V10)} total,")
+            print(f"  {sum(1 for _f, _p, _y in KEYFRAMES_V10)} incl. 18 authored beats + adaptive drift-inserts:")
+            for frame, xyz, yaw in KEYFRAMES_V10:
+                print(f"    f{frame:<4d} = {xyz}  yaw={yaw:+.1f}")
+        else:
+            print("M1a STATIC HOLD -- NOT a flight (see m0/M1A-PLAN.md sec 2 for the full design + sec 3 for")
+            print("the success/failure read); the repo's thomas_manifest.sfxmodel is left untouched (only a")
+            print("--thomas build syncs it):")
+            print(f"  ONE Movement/Rotation piece, Start=0 / End={THOMAS_END}, held fixed at world point")
+            print(f"  {M1A_STATIC_POINT} -- PROBE.md's P1 dest ('entrance settle'), the median across")
+            print("  Bahamut's 7 real body-mesh keys of his own screen position at frame 82. No Animations")
+            print("  array (Thomas has no skeleton/clips). Thomas never moves -- any apparent on-screen")
+            print("  motion is the real cinematic camera cutting/dollying/zooming around him.")
         print()
         m = result["mint"]
         print(f"=== Thomas GEO mint: id={m['id']} name={m['name']} type_int={m['type_int']} ===")
@@ -1038,7 +1206,11 @@ def main() -> int:
         print(f"directive: {m['directive']}  ({'ADDED this run' if m['directive_added'] else 'already present'})")
         print(f"  -> {m['dictionary_patch']}")
         print()
-        if m["directive_added"]:
+        if args.dry_run:
+            print("*** DRY RUN -- nothing above was written into the real game install or the repo's own")
+            print(f"*** {THOMAS_MANIFEST_REPO_PATH.name}. Inspect the staged files under {mod_root}, then")
+            print("*** re-run without --dry-run to actually deploy (see the '## M1a' runbook in M1A-PLAN.md).")
+        elif m["directive_added"]:
             print("*** NEW GEO ID -- RELAUNCH FF9 to register it (3DModel is load-time-only). ***")
             print("*** After that ONE relaunch, ef084/*.seq / FileList.txt / .sfxmodel edits above are")
             print("*** already live -- no further relaunch or redeploy needed for those.")
@@ -1062,8 +1234,12 @@ def main() -> int:
         print()
         print("ef084/ is back to rung 7's own proven resting state (FileList.txt + creature_manifest.sfxmodel")
         print("= rung 7's Iviv-clone content, PlayerSequence.seq = rung 7's 29-line sequence). Thomas's mint")
-        print("is fully removed. A relaunch clears the now-unregistered GEO id from FF9BattleDB.GEO's runtime")
-        print("dict (harmless either way -- nothing references it once removed).")
+        if args.dry_run:
+            print(f"is fully removed under the staged {mod_root} -- *** DRY RUN, the real game install was")
+            print("*** never touched. ***")
+        else:
+            print("is fully removed. A relaunch clears the now-unregistered GEO id from FF9BattleDB.GEO's runtime")
+            print("dict (harmless either way -- nothing references it once removed).")
     return 0
 
 

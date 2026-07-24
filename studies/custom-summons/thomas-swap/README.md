@@ -942,3 +942,37 @@ opcode → the `.seq` summon-op linter/inspector (`disasm/FINDINGS.md` §6-7).
 cap but **wrote their `.md` artifacts first**, so their content is on the blackboard and was folded into
 `FINDINGS.md`; A3 returned a schema-stub as its structured claims but likewise wrote the real 19KB
 `A3-managed-boundary.md`. No content was lost.
+
+---
+
+## MILESTONE 0 COMPLETE 2026-07-23
+
+The M0 round (`disasm/TRANSPLANT.md` §2.4) closed items (a)+(b)+(c) offline, adversarially re-verified, zero
+playtests spent — full detail in `m0/`:
+
+- **Camera match CONFIRMED.** A managed object at `PsxToUnity(creature world point)`, projected through the
+  logged `Camera.main` VIEW·PROJ, lands within p95 2.96 px horizontal / 7.16 px vertical / 7.65 px radial of
+  the native creature (320×240 frame) — horizontal, the axis this study worried about most, is in fact the
+  *tighter* one. The D4 camera-track fallback is not needed. → `m0/CAMERA-MATCH.md`.
+- **Calibration DERIVED, zero free parameters, and TRANSPLANT §2.1's guess REFUTED.** `PsxToUnityPos(tx,ty,tz)
+  = (tx,-ty,tz)`, scale exactly 1 (not the guessed `-tz`/unknown-scale); rotation = `B·R·B`,
+  `B=diag(1,-1,1)`. ~25 climax-hold frames per cast store an intrinsically improper (det<0) matrix — a real
+  reflection in the PSX data — so the rotation build needs a det<0 guard. → `m0/CALIBRATION.md`.
+- **Euler convention CLOSED.** `R_local = Rz(az)·Ry(ay)·Rx(ax)`, standard cos/sin, pre-multiply, no
+  transpose — confirmed both by log discrimination (>1000× margin) and direct disasm.
+  `transplant_spike.py::_rotmat` is verified correct as-is. → `m0/EULER.md`.
+- **FBX-path recon landed.** The full `FileList.txt`→`.sfxmodel`→FBX/clip resolution chain is pinned
+  file:line, incl. the donor-FileList replacement law: writing `FileList.txt` into a real donor's own
+  `ef{id:D3}/` folder silently swaps out the whole native cast — custom content must live on a private
+  effect id only (the existing `ef084` convention, now derived from source). → `m0/FBX-PATHS.md`.
+
+**Still owed:** item (d), the depth gate (does any effect `PRIM` occupy the creature's screen region at a
+nearer depth than our puppet would sit?). It needs one cast with `[SfxProbe] CapturePrims=1` armed — no DLL
+rebuild required (already-deployed s53 build), just an ini edit + relaunch. The full arming protocol is
+written and ready to run → `m0/CAST-PROTOCOL.md`.
+
+Every M0 claim above was independently re-derived by an adversarial pass (`m0/VERIFY-CAMERA-MATCH.md`,
+`m0/VERIFY_CALIBRATION.md`) — **not refuted**, with two wording corrections folded back into the source docs
+(the camera-match signed bias, and the vertical-vs-horizontal mechanism). All of it is read-only analysis
+over the user's own probe log + open-source `Assembly-CSharp`; no stock bytes were extracted, nothing was
+deployed or built this round.
