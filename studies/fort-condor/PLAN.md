@@ -17,11 +17,20 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   opcodes (chase loop, engagement radius, contact→battle, score economy, wave bands,
   generic countdown HUD); engine ceilings are ~250 objects / 255 entries (way above need);
   the binding risk is O(n²) collision perf with many MOVERS, unproven past stock's ~23.
-- **Rung 1 — THE SWARM BENCH.** A scratch field (30000-band slot) that spawns N
-  walk-through actors (`SetObjectFlags(7)`) chasing waypoints/each other via the Hunt's
-  chase loop. Measure in-game feel at N = 10/20/30/40 (human playtest + `game_snap`).
-  Probe: per-frame `Walk(GetEntryPosX(uid),…)` cost at N movers; `DistanceWithEntry`
-  polling cadence (stagger checks across frames). Deliverable: THE PROVEN ACTOR BUDGET.
+- **Rung 1 — THE SWARM BENCH: BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending.**
+  `swarm_bench.py` (gen/deploy) → field **30400** ("SWARM", FF9CustomMap), a native fork
+  of the Festival square (576) carrying **40 kit `[[npc]]` Mu chasers** whose Loop bodies
+  are replaced post-deploy with the stock chase idiom (byte-verified vs field 552:
+  `SetObjectFlags(7)` + `SetPathing(1)` + per-frame `Walk(obj(250).x, obj(250).z)`), a
+  declarative `[[choice]]` tier lever at spawn (GLOB 8800-8803 → arm 10/20/30/40), a
+  Main_Init flag-clear (=> ~ Reload resets the bench) + the generic-timer probe
+  (`ChangeTimerTime(600)/ShowTimer(1)/RunTimer(1)` — the Hunt's start triplet on a custom
+  id). Every chaser also evaluates a `B_PTR(250) B_DISTANCEA` poll per frame, OR-1'd
+  truthy — poll cost rides ALL tiers constantly, so tier deltas isolate pure MOVER cost.
+  En route: the carried 576 dressing includes 5 stock Mu-model objects (chaser detection
+  keys on model + the kit standby-loop signature, never model alone). NEEDS: relaunch →
+  ~ → Warp → 30400. Measure: clock visible? frame feel at each tier? chasers converge on
+  the player? Revert: `tools/scroll_out/revert_deploy_30400.py`.
 - **Rung 2 — TWO-LANE SKIRMISH.** One attacker marches a lane, one defender intercepts
   (chase loop, engagement radius); combat resolved script-side (HP in flags, swing anims,
   death + `TerminateEntry`) — no player battles. Proves the auto-battler core loop.
