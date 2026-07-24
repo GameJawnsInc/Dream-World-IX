@@ -72,5 +72,9 @@ def test_message_file_line_is_carried_into_the_live_dictionary_patch():
     # ORDER MATTERS: DataPatchers reads the file top-down, so the registration must precede the FieldScene
     # line that depends on it passing the MesDB gate.
     assert _SRC.index("dp += message_file_lines") < _SRC.index('dp.append(info["dictionary"][0])')
-    # and the revert must drop its OWN block (scoped by block, so a co-resident folder's line survives)
-    assert "_MES_BLOCKS" in _SRC and "text_blocks=_MES_BLOCKS" in _SRC
+    # and the revert must drop its OWN block (scoped by block, so a co-resident folder's line survives) --
+    # that scoping now lives in ff9mapkit.reverttmpl.build_revert_script; assert on its rendered output.
+    from ff9mapkit.reverttmpl import build_revert_script
+    _rev = build_revert_script(kit="k", backup_dir="b", stamp="s", mod_folder="FF9CustomMap", fid=4003,
+                               name="TESTROOM", fbg="FBG", text_block=1073, repo="r", mes_blocks=[1073])
+    assert "_MES_BLOCKS" in _rev and "text_blocks=_MES_BLOCKS" in _rev

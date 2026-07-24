@@ -180,6 +180,13 @@ def _find_scene(field_path: Path, base: dict):
         return tomllib.load(fh)
 
 
+class PathTraversalError(ValueError):
+    """A ``field.toml`` asset reference resolved OUTSIDE its own directory -- an absolute path or a ``..``
+    escape. Raised by :meth:`FieldProject.path` so an untrusted/shared field.toml can't make the build read an
+    arbitrary file off the builder's disk (and bake its bytes into the shared mod). A ``ValueError`` subclass so
+    existing ``except ValueError`` handlers still catch it."""
+
+
 @dataclass
 class FieldProject:
     raw: dict
@@ -249,7 +256,18 @@ class FieldProject:
         return fbg_name(self.area, self.name)
 
     def path(self, rel: str) -> Path:
-        return (self.base_dir / rel).resolve()
+        # Confine every field.toml-supplied asset ref to the toml's OWN directory: an absolute `rel` wins the
+        # `/` join outright and `..` can climb out -- either way an untrusted/shared field.toml could otherwise
+        # make the build read an arbitrary file (portrait/image/obj/bin/...) off the builder's disk and bake
+        # its bytes into the mod. resolve() BOTH sides (base_dir may be relative or hold `..`) then require
+        # containment; a path is relative-to itself so an empty/"." rel (== base_dir) still passes.
+        base = self.base_dir.resolve()
+        p = (base / rel).resolve()
+        if not p.is_relative_to(base):
+            raise PathTraversalError(
+                f"asset path {rel!r} escapes the field directory {base} -- field.toml asset paths must stay "
+                f"under the toml's own directory (no absolute paths, no '..' climbing out)")
+        return p
 
     def carry_text_plan(self):
         """The faithful text-carry plan (a ``list[content.textcarry.CarriedEntry]``) from this project's
