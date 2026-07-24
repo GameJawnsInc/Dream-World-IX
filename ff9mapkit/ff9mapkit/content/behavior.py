@@ -331,6 +331,23 @@ class Die(Action):
 
 
 @dataclass
+class Battle(Action):
+    """Fire a REAL battle — ``Battle(0, scene)``, the donor-grounded shape (field
+    559's tread battles: a usercontrol gate, then the bare op; the ENGINE owns the
+    swirl/fade). ONE-SHOT PER FIELD LOAD by construction: a compiled latch flag gates
+    the dispatch and the body sets it first, so a reactive tree re-selecting the
+    branch after the battle returns can never re-fire it (~ Reload re-arms). The
+    build ensures the entry-0 tag-10 Main_Reinit (the after-battle resume law —
+    without it `EnterBattleEnd` suspends every object forever) whenever a behavior
+    compiles a Battle. Use a STOCK scene id to avoid new BattlePatch lines."""
+    scene: int
+
+    def __post_init__(self):
+        if not 0 <= int(self.scene) <= 0xFFFF:
+            raise BehaviorError("Battle scene must be 0..65535")
+
+
+@dataclass
 class Announce(Action):
     """Open a dialogue window ONCE per engagement (a breach popup, a war cry). The body
     shows the window then idles while selected — re-dispatch (and window spam) can't
@@ -429,13 +446,17 @@ class FieldBehavior:
     """The per-field behavior compilation unit: a roster of units + one tree each."""
 
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
-                 tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = ()):
+                 tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = (),
+                 timer: int | None = None):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
         the framerate and stretched the settle to ~5-6s)."""
         self.bb = blackboard or Blackboard()
         self.warmup = max(1, int(warmup))
+        if timer is not None and not 1 <= int(timer) <= 30000:
+            raise BehaviorError("timer must be 1..30000 seconds (the countdown HUD)")
+        self.timer = int(timer) if timer is not None else None
         self.units = {u.name: u for u in units}
         if PLAYER in self.units:
             raise BehaviorError(f"{PLAYER!r} is the reserved pseudo-unit name")
@@ -602,6 +623,19 @@ class FieldBehavior:
                 toks.append("B_ANDAND")
         return Cond(" ".join(toks), _trusted=True)
 
+    def time_below(self, seconds: int) -> Cond:
+        """True once the countdown HUD (``B_SYSVAR[17]`` = TimerUI.Time, remaining
+        seconds) has dropped below ``seconds`` — the Hunt's wave-band shape
+        (``GetTimerTime > 600/540/480/…`` inverted). Needs ``timer=`` on the field."""
+        if not 0 <= int(seconds) <= 30000:
+            raise BehaviorError("time_below seconds must be 0..30000")
+        return Cond(f"B_SYSVAR[17] const({int(seconds)}) B_LT", _trusted=True)
+
+    def time_above(self, seconds: int) -> Cond:
+        if not 0 <= int(seconds) <= 30000:
+            raise BehaviorError("time_above seconds must be 0..30000")
+        return Cond(f"B_SYSVAR[17] const({int(seconds)}) B_GT", _trusted=True)
+
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
         shifts, work rotations). Registered once per name; returns the flag Cond
@@ -663,6 +697,13 @@ class FieldBehavior:
                     f"{unit.name}: the tree needs an unconditional Do fallback "
                     f"(got {type(node).__name__})")
 
+    def has_battle_actions(self) -> bool:
+        """True when any unit's tree fires a :class:`Battle` — the build must then
+        ensure the entry-0 tag-10 Main_Reinit (the after-battle resume law)."""
+        return any(isinstance(a, Battle)
+                   for u in self.units.values() if u.tree is not None
+                   for a in self._collect_actions(u))
+
     def compile(self) -> CompiledBehavior:
         for u in self.units.values():
             if u.tree is None:
@@ -718,6 +759,12 @@ class FieldBehavior:
         main_init += _set_flag(self._staged, 0)
         main_init += _set_flag(self._pbound, 0)
         main_init += _set_byte(wu, self.warmup)
+        if self.timer is not None:
+            # the countdown HUD — the Hunt's exact start triplet (★ proven on a
+            # custom id, fort-condor playtest 2); re-runs on ~ Reload = clock reset
+            main_init += (opcodes.encode(0x69, self.timer)   # ChangeTimerTime(sec)
+                          + opcodes.encode(0x8D, 1)          # ShowTimer(1)
+                          + opcodes.encode(0x7D, 1))         # RunTimer(1)
         report: list[str] = []
 
         for u in self.units.values():
@@ -788,12 +835,18 @@ class FieldBehavior:
             # ---- dispatch-action bodies (tags 15+) + the per-unit tree in the ticker
             funcs: list = []
             dispatch_tag: dict[int, int] = {}
+            battle_latch: dict[int, int] = {}            # aid -> one-shot latch flag
             for a in actions:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
                     continue
                 tag = FIRST_ACTION_TAG + len(funcs)
                 dispatch_tag[aid] = tag
+                if isinstance(a, Battle):
+                    li = self.bb.flag(f"{u.name}.battled{aid}")
+                    battle_latch[aid] = li
+                    if li not in self._reset_flags:
+                        self._reset_flags.append(li)
                 funcs.append((tag, self._dispatch_body(u, a, aid, sel, run)))
             # the SPEED NUDGE (always the last tag): MSPEED from the speed GLOB, then
             # record it applied. Straight-line at level 4 — preempts a mid-flight
@@ -825,6 +878,13 @@ class FieldBehavior:
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
                     _stmt(f"Global.Byte[{run}] const(0) B_EQ"),
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
+                ]
+                if aid in battle_latch:                  # a Battle fires ONCE per load:
+                    ticker += [                          # the latch gates re-dispatch
+                        _stmt(f"Global.Bit[{battle_latch[aid]}]"),
+                        (JMP_IF, f"t_{u.name}_d{aid}"),
+                    ]
+                ticker += [
                     opcodes.run_script_async(DISPATCH_LEVEL, u.entry, tag),
                     label(f"t_{u.name}_d{aid}"),
                 ]
@@ -1293,6 +1353,15 @@ class FieldBehavior:
             return asm([
                 _set_flag(self.bb.flag(f"{u.name}.active"), 0),   # mirrors stop first
                 opcodes.terminate_entry(255),
+                opcodes.RETURN,
+            ])
+        if isinstance(a, Battle):
+            latch = self.bb.flag(f"{u.name}.battled{aid}")
+            return asm([
+                _set_flag(latch, 1),                     # one-shot: set BEFORE the
+                _set_byte(run, 255),                     # suspend, so a return can
+                opcodes.encode(0x2A, 0, int(a.scene)),   # never re-fire it. Battle(0,
+                _set_byte(run, 0),                       # scene) = 559's tread shape.
                 opcodes.RETURN,
             ])
         if isinstance(a, Announce):

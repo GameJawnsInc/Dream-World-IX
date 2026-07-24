@@ -1945,7 +1945,8 @@ speed = 40                                     # default walk speed
 = another's) · `near` / `not_near` (`[target, r]`; target = a unit or `"player"`; Chebyshev) ·
 `near_point` / `not_near_point` (`[point, r]`) · `flag` / `not_flag` / `any_flag` · `active` /
 `not_active` (a unit lives) · `any_near` (`[[units...], r]` — the watcher idiom, actives gated) ·
-`any_active` (`[units...]`).
+`any_active` (`[units...]`) · `time_below` / `time_above` (remaining seconds on the field-level
+`timer = <seconds>` countdown HUD — timed wave bands).
 
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
@@ -1956,8 +1957,10 @@ spliced in, clear legs untouched; walls-only, 8-point ceiling — see
 [BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
-`damage`, `interval`) · `die` · `announce` (a text line, minted into the field's `.mes`) /
-`announce_npc` (reuse that NPC's own `dialogue` line).
+`damage`, `interval`) · `die` · `battle` (a battle SCENE id — a REAL fight, one-shot per
+field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
+resume; use a stock scene = no BattlePatch) · `announce` (a text line, minted into the
+field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
 
 **Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
 through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior

@@ -52,6 +52,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
   30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
 
+### Added — `[behavior]` waves + win/loss: the countdown clock and REAL battles
+- **`timer = <seconds>`** (field-level): starts FF9's own countdown HUD on field entry —
+  the Festival of the Hunt's exact start triplet (`ChangeTimerTime`/`ShowTimer`/`RunTimer`,
+  in-game proven on a custom id); `~ → Reload` resets the clock. Two condition verbs read
+  it: **`time_below` / `time_above`** (remaining seconds) — gate march branches on
+  descending bands for TIMED WAVES (the Hunt's `GetTimerTime` scheduling shape).
+- **`battle = <scene id>`** action verb: fire a REAL battle — `Battle(0, scene)`, the
+  donor-grounded shape (559's tread battles; the engine owns the swirl). **One-shot per
+  field load by construction**: a compiled latch gates the dispatch so the reactive tree
+  can't re-fire it after the return. The build auto-installs the **entry-0 tag-10
+  Main_Reinit** (the after-battle resume law) + the field-BGM resume whenever a behavior
+  compiles a battle — no `[encounter]` block needed; a stock scene id needs no BattlePatch.
+- Together with pooled units + the hire economy this completes the Fort Condor core loop:
+  bench 30400 = THE SIEGE (3:00 clock, two waves × two lanes with `route = "auto"`
+  marches, the herald as the hp'd GATE, breach → 559's own boss battle, survive → the
+  win cry). 5 new tests (incl. a built-`.eb` e2e asserting the tag-10 installs); suite
+  green.
+
 ### Added — `[behavior]` pool ECONOMY: price + the buy-anywhere hire button
 - **`[[behavior.pool]]`** rows configure a pool: `price` compiles a gil gate
   (`B_SYSVAR[6] >= price`, the inn-553 idiom) into the activation block with `RemoveGil` at

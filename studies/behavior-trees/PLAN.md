@@ -296,6 +296,19 @@ runtime tree switching beyond blackboard-driven branches.
   naive (jams, the disease live) vs `clever` route="auto" (an 8/8-point routed
   circuit, byte-verified in the deployed `.eb`). RELAUNCH → ~ → Warp → 30414.
   Revert: `tools/scroll_out/revert_deploy_30414.py`.
+- **POST-LADDER — THE CLOCK + REAL BATTLES (fort-condor rung 4's vocabulary,
+  2026-07-24): BUILT, ⚠ bench playtest pending.** Field-level `timer = <seconds>`
+  (the Hunt's HUD start triplet in Main_Init — 0x69/0x8D/0x7D, the custom-id claim
+  ★ proven long ago) + `time_below`/`time_above` conds (B_SYSVAR[17] remaining
+  seconds — timed WAVE bands) + the `battle = <scene>` action: `Battle(0, scene)`
+  verbatim from 559's tread battles, ONE-SHOT per field load BY CONSTRUCTION (a
+  compiled latch gates the dispatch — a reactive tree re-selecting the branch after
+  the battle returns cannot re-fire it; the naive Once-decorator route would have
+  looped, sticky-engagement holds the branch selected forever on a dead gate) + the
+  build auto-installing `content.reinit.add_reinit` (entry-0 tag-10) + the BGM
+  resume whenever a behavior compiles a battle (the after-battle resume law as a
+  build invariant). 6 new tests incl. the built-.eb tag-10 e2e. The proof bench =
+  fort-condor 30400 "THE SIEGE" (its PLAN rung 4).
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,

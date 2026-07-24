@@ -58,6 +58,7 @@ COND_VERBS = {
     "hp_le": (), "hp_gt": (), "near": (), "not_near": (), "near_point": (),
     "not_near_point": (), "flag": (), "not_flag": (), "any_flag": (),
     "active": (), "not_active": (), "any_near": (), "any_active": (),
+    "time_below": (), "time_above": (),
 }
 ACTION_VERBS = {
     "walk_to": ("speed",),
@@ -70,12 +71,13 @@ ACTION_VERBS = {
     "wander": ("radius", "every", "speed"),
     "swing_at": ("damage", "interval"),
     "die": (),
+    "battle": (),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
-FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool"}
+FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
 
 
@@ -335,6 +337,10 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
         return B.Invert(c) if verb == "not_flag" else c
     if verb == "any_flag":
         return fb.any_flag(*[str(n) for n in v])
+    if verb == "time_below":
+        return fb.time_below(int(v))
+    if verb == "time_above":
+        return fb.time_above(int(v))
     if verb == "any_near":
         # THE WATCHER IDIOM: any of these units within r of me, each behind its own
         # active gate -- any_of(all_of(active(t), near(me, t, r)), ...)
@@ -394,6 +400,8 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
                          damage=int(d.get("damage", 1)))
     if verb == "die":
         return B.Die()
+    if verb == "battle":
+        return B.Battle(int(v))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -442,7 +450,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                 pooled=bool(u.get("pooled", False)),
                                 pool=str(u.get("pool", "pool"))))
     fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
-                         pools=pool_specs(raw))
+                         pools=pool_specs(raw),
+                         timer=(int(b["timer"]) if b.get("timer") is not None else None))
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
     for alt in b.get("alternators", []) or []:
@@ -517,6 +526,10 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     extra = set(b) - FIELD_KEYS
     if extra:
         problems.append(f"[behavior]: unknown key(s) {sorted(extra)}")
+    if b.get("timer") is not None and (not isinstance(b["timer"], int)
+                                       or not 1 <= b["timer"] <= 30000):
+        problems.append("[behavior]: timer must be an int 1..30000 (seconds — the "
+                        "countdown HUD)")
     npc_names = {n.get("name") for n in raw.get("npc", []) or [] if n.get("name")}
     unit_names = []
     positions = _npc_marker_positions(raw)
@@ -652,6 +665,18 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if verb == "hold_post" and v is not True:
                     problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
                                     f"own placement post)")
+                if verb == "battle":
+                    if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
+                        problems.append(f"{ctx}: battle takes a battle SCENE id int "
+                                        f"(0..65535; a STOCK scene needs no BattlePatch)")
+                for c in (br.get("when") or []):
+                    _cv = _one_verb(c, COND_VERBS, ctx)
+                    if _cv in ("time_below", "time_above"):
+                        if b.get("timer") is None:
+                            problems.append(f"{ctx}: {_cv} needs field-level "
+                                            f"`timer = <seconds>` (the countdown HUD)")
+                        if not isinstance(c[_cv], int) or not 0 <= c[_cv] <= 30000:
+                            problems.append(f"{ctx}: {_cv} takes seconds 0..30000")
                 if verb == "announce_npc":
                     npc = next((n for n in raw.get("npc", []) or []
                                 if n.get("name") == str(v)), None)

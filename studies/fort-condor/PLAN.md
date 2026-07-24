@@ -157,9 +157,23 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   Playtest (~ Reload): button menu anywhere? spawn at feet? gil deducted (pause menu)?
   recruits chase+chip? lane B saved? pool caps at 4? reload resets (gil NOT refunded —
   gil is real save state, spend knowingly).
-- **Rung 4 — WAVES + WIN/LOSS.** Timer-band wave scheduling (the Hunt's
-  `GetTimerTime > 600/540/480/…` table shape), a base-HP flag, the faithful Fort Condor
-  loss fallback: breach → real `Battle()` boss (the Zaghnol pattern at field 559).
+- **Rung 4 — WAVES + WIN/LOSS: BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending.**
+  All three mechanisms as COMPILER VOCABULARY (behavior study post-ladder): field-level
+  `timer = <seconds>` (the Hunt's exact HUD start triplet — ChangeTimerTime 0x69 /
+  ShowTimer 0x8D / RunTimer 0x7D — ★ the custom-id claim was proven back in playtest 2)
+  + `time_below`/`time_above` conds (B_SYSVAR[17] = remaining seconds; the Hunt's
+  GetTimerTime band shape) + the `battle = <scene>` action (`Battle(0, scene)` —
+  559's OWN tread-battle byte shape, scene 35 = the arena's stock fight so no
+  BattlePatch; ONE-SHOT per load by construction via a compiled latch that gates the
+  dispatch; the build auto-installs the entry-0 tag-10 Main_Reinit + BGM resume — the
+  after-battle resume law — whenever a battle compiles). THE SIEGE on 30400: 3:00
+  clock, wave 1 (Fangs hp 3/5) at 2:50 + wave 2 (hp 5/5) at 1:30 on `route="auto"`
+  marches (the owner's pathfinder lane, dogfooded), the herald = THE GATE (hp 6,
+  attackers swing him; his cry once at any_near), gate down → the loss battle →
+  return → the gate falls + the siege stands down (`lost`); survive to 0:00 →
+  the minted win announce (`won`). Measure: the wave cadence, the gate fight, the
+  loss battle firing ONCE with a clean after-battle return (no softlock, BGM back),
+  the win path, recruits + defenders + economy unchanged, ~ Reload = full round reset.
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.
