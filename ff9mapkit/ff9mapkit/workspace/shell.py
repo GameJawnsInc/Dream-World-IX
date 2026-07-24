@@ -1032,6 +1032,15 @@ class Workspace(QMainWindow):
                                "campaign/journey deploys always confirm.")
         confirm_rev.setChecked(prefs.confirm_reversible_deploys())
         lay.addWidget(confirm_rev)
+        # ASK #16 (raise/flash only -- the chair killed the synthetic tilde-tap). Opt-in, default OFF:
+        # focus-stealing is intrusive as a default. Windows-only by mechanism; elsewhere it no-ops.
+        raise_chk = QCheckBox("Bring the FF9 window to the front after a deploy")
+        raise_chk.setObjectName("raise_game_chk")
+        raise_chk.setToolTip("After a successful deploy, raise the running game so ~ (tilde) is one "
+                             "keypress away. Off (default): the Workspace keeps focus. If Windows "
+                             "refuses the raise, the game's taskbar button flashes instead.")
+        raise_chk.setChecked(prefs.raise_game_after_deploy())
+        lay.addWidget(raise_chk)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
             chk.setObjectName("update_chk")
@@ -1063,6 +1072,7 @@ class Workspace(QMainWindow):
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
             prefs.set_confirm_reversible_deploys(confirm_rev.isChecked())
+            prefs.set_raise_game_after_deploy(raise_chk.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -1122,9 +1132,10 @@ class Workspace(QMainWindow):
 
     def _show_concept_map(self):
         """Open the 'How it all fits' concept map -- a diagram of how a project nests (journey ▸ campaign ▸
-        field ▸ contents), each box opening its plain-language card."""
+        field ▸ contents), each box opening its plain-language card. The map is a QGraphicsScene, so the
+        CALIBRE dial has to be THREADED (no stylesheet reaches painted text -- the mapview law)."""
         from .conceptmap import show_concept_map
-        show_concept_map(self, self.pal, self._show_concept).exec()
+        show_concept_map(self, self.pal, self._show_concept, scale=self._text_scale).exec()
 
     def _open_about(self):
         """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
@@ -1526,7 +1537,11 @@ class Workspace(QMainWindow):
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
         self.insp_title.setProperty("role", "head")
-        self.insp_body = QLabel("Select something on the left.")
+        # The empty-state is TAB-AWARE (ask-user #14's low-risk half) and set by _refresh_insp_empty
+        # below once the tabs exist -- a construction literal here would ship the false instruction.
+        self.insp_body = QLabel("")
+        self._insp_empty = True                    # True until the first card mounts (never reset -- a
+                                                   # mounted card outlives its project, as it always has)
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
         self.insp_body.setTextFormat(Qt.TextFormat.RichText)        # the file line is a copy-to-clipboard link
@@ -1536,6 +1551,7 @@ class Workspace(QMainWindow):
         self._inspect_path = None
         self.insp_body.setProperty("role", "muted")   # re-tints via QSS -> retheme's insp_body re-tint was dropped
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._refresh_insp_empty()                 # seed the tab-aware empty-state (tabs + tree exist by here)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
         # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
@@ -4268,6 +4284,7 @@ class Workspace(QMainWindow):
         kind, label, _key = p
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")
+        self._insp_empty = False                   # a card is mounting -- the empty-state's watch ends
         self._inspect_path = None
         self._content_crumbs = self._journey_crumbs(item)     # full hub▸journey▸campaign trail to THIS node
         self.crumb.set(self._content_crumbs)
@@ -4365,6 +4382,7 @@ class Workspace(QMainWindow):
                 self._refresh_home_status()
         if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
             self._sync_rail()
+        self._refresh_insp_empty()                  # the untouched inspector's empty-state is tab-aware (#14)
 
     def _activate_group(self, gi, *, switch=True):
         """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
@@ -7099,14 +7117,59 @@ class Workspace(QMainWindow):
             QApplication.clipboard().setText(self._inspect_path)
             self.statusBar().showMessage(f"Copied path: {self._inspect_path}", 4000)
 
+    def _insp_empty_text(self):
+        """The inspector's EMPTY-state line, tab-aware (ask-user #14 -- the chair's low-risk half).
+        'Select something on the left.' is an instruction, and it is only TRUE where following it keeps
+        you in place: the tree-driven Editor tab with a populated tree. On a self-contained tab
+        (Build/Import/Battle/Save/Co-op/...) a tree click JUMPS you to the Editor, and over an empty
+        tree there is nothing to select -- both showed a FALSE instruction. Those get a thin muted
+        rule instead: presence, not advice. (The full per-tab context card stays an owner decision --
+        studies/gui-ux/PROPOSALS.md ASK #14.)"""
+        if self.tree.topLevelItemCount() and self.tabs.currentWidget() is self.doc_scroll:
+            return "Select something on the left."
+        return self._muted("⸻")
+
+    def _refresh_insp_empty(self):
+        """Re-derive the empty-state (construction + every tab change) -- only while nothing has ever
+        been inspected. A mounted card is CONTENT and stays put across tabs, as it always has; this
+        exists solely so the never-touched inspector cannot show its instruction where it is false.
+        getattr, not attribute reads: the rail's construction-time setTabVisible can fire a tab change
+        before the inspector block has built either attribute."""
+        if getattr(self, "_insp_empty", False) and getattr(self, "insp_body", None) is not None:
+            self.insp_body.setText(self._insp_empty_text())
+
+    def _goto_tree_section(self, member, sect):
+        """A CONTENTS-rollup tally -> its own tree row (ask-user #7, the tree half -- the call-site law:
+        the jump mechanism existed in _reveal_after_undo and the rollup named content without spending
+        it). Lists land their group header (NPCs (3)); singles (music/encounter/cutscene) their section
+        node; a row the lazy tree hasn't built falls back to the member row -- never a dead click."""
+        node = None
+        if sect in _LIST_DEFAULTS:
+            node = self._object_item(member, sect, kind="group")
+        elif sect in dict(_SINGLE):
+            node = self._object_item(member, sect, kind="object")
+        if node is None:
+            node = getattr(self, "_member_items", {}).get(member)
+        if node is None:
+            return
+        self.tabs.setCurrentWidget(self.doc_scroll)
+        if self.tree.currentItem() is node:
+            self._on_select()                         # selection unchanged -> mount manually (no signal fires)
+        else:
+            self.tree.setCurrentItem(node)
+
     def _inspect_link(self, href):
         """Inspector hyperlink dispatch: 'copy' -> copy the file path; 'goto:battle:<id>' -> jump to the
-        Battle tab for an encounter's scene; 'goto:<member>' -> select that field; 'jseed:'/'jtuning:<id>' ->
-        the journey seed / tuning editors (the same callbacks the journey button row + right-click bind)."""
+        Battle tab for an encounter's scene; 'goto:tree:<member>:<sect>' -> that section's tree row (the
+        rollup tallies); 'goto:<member>' -> select that field; 'jseed:'/'jtuning:<id>' -> the journey
+        seed / tuning editors (the same callbacks the journey button row + right-click bind)."""
         if href == "copy":
             self._copy_inspect_path("copy")
         elif href.startswith("goto:battle:"):
             self._goto_battle_scene(href[len("goto:battle:"):])
+        elif href.startswith("goto:tree:"):
+            member, _, sect = href[len("goto:tree:"):].rpartition(":")   # member names carry no ':' (validated)
+            self._goto_tree_section(member, sect)
         elif href.startswith("goto:"):
             self._select_member(href[len("goto:"):])
         elif href.startswith("jseed:"):
@@ -7173,6 +7236,7 @@ class Workspace(QMainWindow):
         kind, label, key = payload
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
+        self._insp_empty = False                            # a card is mounting -- the empty-state's watch ends
         self._inspect_path = None
         if kind in _LOGIC_KINDS or kind == "chocobo_root":  # a logic-map node / the chocobo entry -> its detail
             detail = item.data(0, _DETAIL) or []
@@ -7653,7 +7717,7 @@ class Workspace(QMainWindow):
             ident.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
                          + self._link("openparent", "Open the campaign (full context)"))
         if doc is not None:
-            contents.append(self._rollup(doc.data))
+            contents.append(self._rollup(doc.data, name))
             contents += self._battle_party_lines(doc.data)  # encounter scene / [party] / [startup] read-only detail
             if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
                 contents.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
@@ -7672,27 +7736,33 @@ class Workspace(QMainWindow):
                          f'file: {Path(path).name}  ⧉ copy</a>')
         return [("Identity", ident), ("Contents", contents), ("Connections", conn)]
 
-    def _rollup(self, data):
-        """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
+    def _rollup(self, data, member):
+        """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts.
+        Every tally is a LINK to its own tree row (ask-user #7, the tree half): the jump mechanism existed
+        (_reveal_after_undo's node resolve) and this line named the content without spending it -- the
+        call-site law, again. 'encounter' got a goto:battle link while 'BGM' sat inert beside it."""
+        def seg(sect, label):
+            return self._link(f"goto:tree:{member}:{sect}", label)
         bits = []
         for sect, sing in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"),
                            ("chest", "chest"), ("marker", "marker"), ("choice", "choice")):
             n = len(data.get(sect, []) or [])
             if n:
-                bits.append(f"{n} {sing}{'' if n == 1 else 's'}")
+                bits.append(seg(sect, f"{n} {sing}{'' if n == 1 else 's'}"))
         if data.get("cutscene"):
             _c = data.get("cutscene")
             _blocks = _c if isinstance(_c, list) else [_c]     # [[cutscene]] dispatch or the legacy singleton
             steps = sum(len(b.get("steps", []) or []) for b in _blocks if isinstance(b, dict))
             n_cs = sum(1 for b in _blocks if isinstance(b, dict))
             head = "cutscene" if n_cs <= 1 else f"{n_cs} cutscenes"
-            bits.append(f"{head} ({steps} step{'' if steps == 1 else 's'})")
+            bits.append(seg("cutscene", f"{head} ({steps} step{'' if steps == 1 else 's'})"))
         if data.get("encounter"):
-            bits.append("encounters")
+            bits.append(seg("encounter", "encounters"))
         if data.get("music"):
-            bits.append("BGM")
-        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header
-        return self._muted(", ".join(bits) if bits else "empty")
+            bits.append(seg("music", "BGM"))
+        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header; the muted
+        # separators keep the LINE quiet while each tally carries the link tier
+        return self._muted(", ").join(bits) if bits else self._muted("empty")
 
     def _battle_party_lines(self, data):
         """Read-only battle/party summary lines for a field's Inspector card: the encounter scene (id + its
@@ -8374,6 +8444,33 @@ class Workspace(QMainWindow):
             self._last_output_ms = self._elapsed.elapsed()   # reset the stall clock: real output arrived
             self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
+    def _celebrate_first_deploy(self, field_id):
+        """The first-ever deploy is the milestone the whole edit -> deploy -> ~ loop exists to reach --
+        and it used to surface as a Problems verdict line visually identical to a lint pass (ask-user
+        #19 / MERGE A, the restraint-safe vehicle). One small card, ONCE per install: the gate is the
+        has_deployed latch itself, read pre-latch in _proc_done -- no second pref to drift out of sync.
+        Non-blocking (``open()``, never ``exec()``): a modal wait here would hang the smoke and every
+        headless _proc_done test (the round-8 modal law). Palette-only, no gold: SIGNET keeps the
+        signature off everything that is not the front door."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("It's in your game")
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        lay = QVBoxLayout(dlg)
+        head = QLabel("Your first deploy is in.")
+        head.setProperty("role", "head")
+        lay.addWidget(head)
+        walk = (f"press ~ (tilde) → Warp to field → {field_id}" if field_id is not None
+                else "press ~ (tilde) → Reload field")
+        body = QLabel(f"In the game, {walk} to walk it. From here the loop is edit → Deploy (F9) → ~. "
+                      "Revert on Build & Deploy undoes a test deploy in one click.")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=52)
+        dlg.open()
+
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
@@ -8405,8 +8502,19 @@ class Workspace(QMainWindow):
             bd = getattr(self, "build_deploy", None)
             self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
             self._deployed_revertible = bool(bd is not None and bd.revert_available())
+            first_ever = not prefs.has_deployed()           # read BEFORE the latch below eats the fact
             prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
+            if first_ever:
+                # ASK #19 via MERGE A's restraint-safe vehicle: a once-EVER card, keyed off the same
+                # latch read at the same site (no second pref to drift), palette-only -- never gold on a
+                # work surface. It replaces the game-raise this one time: the card needs the focus.
+                self._celebrate_first_deploy(field_id)
+            elif prefs.raise_game_after_deploy():
+                # ASK #16 (opt-in, default OFF): the F9 -> ~ loop's alt-tab, raised for the user. Lazy
+                # import + fail-soft -- a convenience must never break the deploy verdict it decorates.
+                from . import gamewin
+                gamewin.raise_game()
         if on_finished:
             on_finished(code)
 
