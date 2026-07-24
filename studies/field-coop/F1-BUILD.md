@@ -402,3 +402,79 @@ Open: strict nonce dedup, host self-clear, edge-only logging (log-level boxes, n
 exercised) · L1-vs-own-cutscene and scene-end-into-gateway control ownership (behavior boxes, not
 explicitly exercised — left OPEN, not closed) · link-blip-during-intent and mixed-version sanity
 (deferred, non-gating: the serial floor is structurally guaranteed).
+
+## F3 (wire v12) — ★ BUILT + DEPLOYED + ADVERSARIALLY REVIEWED 2026-07-23, solo + two-machine PENDING
+
+A read-only recon produced the dialogue-L2 implementation spec; the census synthesis
+(`dialogue-census/DIFFICULTY-VERDICT.md` — three byte-grounded lanes over all 818 real field scripts,
+joined with the F3 engine recon) repriced the ratified design cheaper before a line of code was
+written (below). A pre-build adversarial review then found **NO ship-blockers**; four non-blocking
+findings recorded (below). Built + deployed to the desktop engine (both arches), DLL
+`3AD3585285335D84` (backup `pre-f3` `20260723-221351`); laptop package
+`FF9Coop-laptop-update-20260723e` (carries the standing wire-bump warning). **Solo bench and
+two-machine proof are both PENDING — this section records the BUILD only; F3 patch capture (in-game
+proof) is the next milestone.**
+
+**Content:**
+1. **THE TypeDialog=7 FIFO LANE** — the type-6 precedent, both transports, 8-byte frames
+   `[fld u16][winnum u8][textId u16][kind u8][choiceIndex u8][seq u8]`.
+2. **The host tap** at `Dialog.OnKeyConfirm`'s two confirm-driven Hide sites — `IsClosedByScript`-
+   filtered; fast-forward/AutoHide/scripted closes never emit; the emit helper role-gates before
+   touching the dialog and never throws (vanilla dialogue provably unchanged).
+3. **The guest pump `ServiceDialogLockstep`** — peek-until-match FIFO over a one-slot pending holder:
+   match@Complete → `TrySetCurrentChoice` (a NEW bounds-checked `Dialog` method — the unguarded
+   `SetCurrentChoice` is unreachable with a bad index) + direct per-window `OnKeyConfirm` (`go` arg
+   verified unused); match@printing → fast-forward + hold, no double-advance; unmatched → held with
+   the 8000ms `DialogWaitMs` timeout.
+4. **The `UIKeyTrigger` suppress guard** — one static read, false on vanilla.
+5. **Selftest benches** — inject advance / inject choice / the B5 unmatched-frame timeout proof.
+6. **The wire bump v11→v12** at the single const (both transports verified sharing the parse).
+
+**THE SOFTLOCK-ESCAPE INVARIANT** (enumerated, review-verified): suppress is set only on first-match
+or lockstep-hold; released by every non-engaged tick (link staleness ~2s, host flag fall, field
+leave, follow-warp, co-location loss), window close, the 8s timeout, and session reset — no stuck
+interleaving found.
+
+**Ratified scope + census grounding** (`dialogue-census/DIFFICULTY-VERDICT.md`): engage only under L1
+· solo dialogue stays fully local (falls out of L1 for free) · engage-on-first-match suppress arming
+(kills the R4 softlock class) · per-page pacing (tap `OnKeyConfirm`, page rate = line rate — 8-byte
+frames make volume a non-issue) · scripted closes filtered, never emitted (the free 17%) · **NO MAP
+mirror** — the census's repricing: MAP state is DERIVED not root, zeroed at every field entry and a
+deterministic function of the mirrored GLOB snapshot + the script itself, so under L1 MAP-gated
+windows align on their own (93.9% of locked cutscene spans read no structural root and replay in
+perfect lockstep) — building one would be wasted engineering · same-language sessions documented, not
+special-cased (7 engine-hardcoded language-conditional fields diverge cross-language: fields
+1060/1650/1652/1657/1659/1850/2172/2209).
+
+**Pre-build adversarial review — NO ship-blockers.** Four non-blocking findings recorded:
+- **(A)** the ratified S3 first-advance race: a guest mashing Confirm can advance one window ahead of
+  the host's first frame; harmless/self-healing; boxed for two-machine feel-testing with a known
+  in-spec tightening (engage-from-window-open) if wanted as a follow-up F3.1.
+- **(B)** the `UIKeyTrigger` guard also swallows Pause/Menu — broader than spec, benign-to-better.
+- **(C)** voiced choice windows close voice-paced on the guest — self-healing; boxed.
+- **(D)** timeout-drain semantics as ratified.
+
+**Solo bench recipes (built, queued — not yet run):**
+1. **Inject advance** — fabricate a TypeDialog=7 "advance" frame through the real codec into the real
+   guest pump (`ServiceDialogLockstep`) with no live host; proves the match@Complete path fires.
+2. **Inject choice** — same, tagged as a choice frame; proves `TrySetCurrentChoice` + the forced
+   confirm.
+3. **The B5 unmatched-frame timeout proof** — withhold a matching frame; proves the 8000ms
+   `DialogWaitMs` hold releases cleanly with no stuck interleaving.
+
+**Two-machine boxes — QUEUED, none run yet** (desktop host + laptop guest, real link; F3 patch on top
+of the proven F1+F2 build) — the 8 boxes from the laptop package README, plus the standing L3 item
+carried forward from F1:
+1. Lockstep cutscene
+2. Multi-page cadence
+3. Choice, incl. voiced
+4. The S3 mash test
+5. Host-kill un-freeze
+6. Blip un-freeze
+7. Scene-into-gateway
+8. v11-v12 sanity
+9. (carried forward from F1, still open) L3 held-teleport on a live pad
+
+**Status: F3 is BUILT + DEPLOYED + ADVERSARIALLY REVIEWED, 2026-07-23.** Solo bench and two-machine
+proof are both PENDING — F3 patch capture (in-game proof) is the next milestone before the round can
+be marked proven.
