@@ -268,8 +268,10 @@ runtime tree switching beyond blackboard-driven branches.
   lane is CLOSED: dormant pool / spawn-at-feet + hold_post / intercept-duel-resume /
   the NEW-GAME entry (the staged-latch fix's regression box) / silent exhaustion /
   reload refill, all in-game.
-- **POST-LADDER — STATIC-FEED AUTO-ROUTE (PATH A): BUILT + DEPLOYED (2026-07-24),
-  ⚠ playtest pending.** `route = "auto"` on `patrol`/`march` re-routes any leg the
+- **POST-LADDER — STATIC-FEED AUTO-ROUTE (PATH A): ★ PLAYTEST PROVEN (2026-07-24,
+  bench 30414: "the wedge clumsily rams into walls and walks into them until he
+  slowly slides back to a navigable place, while the clever dodges walls" — the
+  routed unit clean, and the naive control is the slide law live).** `route = "auto"` on `patrol`/`march` re-routes any leg the
   walkability sweep finds OFF-MESH through the cutscene builder's walkmesh A*
   (`pathfind.route_polyline` — the sweep is the jam oracle, so what's routed ==
   what lint reports) and splices the detours in at build time — the concave-notch
