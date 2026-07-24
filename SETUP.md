@@ -368,6 +368,8 @@ extra (UnityPy).
 | `model-deployed <mod>` | List (or `--revert` one of) a mod folder's loose model overrides / reskins / mints / anim overrides. |
 | `model-export <model>` | Export a raw skinned FBX (the non-glTF path). |
 | `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
+| `summon-export <ef>` | *Experimental:* export a stock summon creature's `ef###.bytes` → a Blender-openable glTF (rig + skin + motion clips; `--anims`, `--rest`). Output is **local-only by design** (a stock export is Square-Enix content — it refuses a repo / mod-folder / install path, no `--force`). |
+| `summon-rig-ref <ef>` | *Experimental:* export ONLY a summon's rig reference (`bone000..bone09N`, no mesh, no clips) to skin your own mesh onto. Output is **local-only by design** (same refusal — the rig is stock-derived). |
 
 **Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
 `world-transplant`, `world-fuse`, `world-island`, `world-forest`, `world-hill`,
