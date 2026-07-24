@@ -79,7 +79,7 @@ TARGET_X = [1126, 1130]                     # Int16 walk targets fed to defender
 TARGET_Z = [1128, 1132]
 STATE_BYTES = [1134, 1135]                  # per-LANE: 0 = maneuvering, 1 = fighting
 HP_PRESET = [3, 5, 5, 3]                    # lane A: defender wins; lane B: attacker breaches
-CONTACT_R = 150                             # fight range (the Hunt's battle radius was 300)
+CONTACT_R = 200                             # fight range (150 missed moving pairs; Hunt battle radius = 300)
 ACQUIRE_R = 700                             # defender aggro radius (small = fights stay in view)
 SWING_FRAMES = 30                           # ~1 damage/second
 FIGHT_TAG = 15                              # the added per-unit fight function (stock's redirect family)
@@ -265,7 +265,7 @@ def attacker_duty_body(goal: tuple[int, int], herald_txid: int) -> bytes:
     return asm([
         ("label", "top"),
         opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(40)
-        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(255),
         expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
         (JMP_IFNOT, "wait"),
         opcodes.init_walk() + opcodes.encode(OP_WALK, gx, gz),
@@ -289,7 +289,7 @@ def defender_duty_body(lane: int) -> bytes:
     return asm([
         ("label", "top"),
         opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(55)
-        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(255),
         expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
         (JMP_IFNOT, "wait"),
         opcodes.init_walk()
@@ -312,7 +312,7 @@ def recruit_duty_body(r: int) -> bytes:
     return asm([
         ("label", "top"),
         opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(50)
-        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(255),
         expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
         (JMP_IFNOT, "wait"),
         opcodes.init_walk()
