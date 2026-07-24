@@ -221,8 +221,8 @@ runtime tree switching beyond blackboard-driven branches.
   9 new tests (`test_behavior_toml.py` incl. a built-.eb e2e); suite **4721** green.
   The playtest = a PARITY check: the redeployed 30412 must play exactly like the
   rung-3 proof. GUI section deliberately deferred (the GUI study's call-site law).
-- **POST-LADDER — POOLED UNITS (runtime activation): BUILT + DEPLOYED (2026-07-24),
-  ⚠ playtest pending.** The fort-condor resume ladder's step 1, as compiler vocabulary:
+- **POST-LADDER — POOLED UNITS (runtime activation): ★ IN-GAME PROVEN (2026-07-24,
+  3 rounds — "all good now").** The fort-condor resume ladder's step 1, as compiler vocabulary:
   `pooled = true` / `pool = "name"` on a `[[behavior.unit]]` seats the NPC's entry
   DORMANT (new `inject_npc(boot_spawn=False)` — no InitObject call site, no reveal-flag
   hack), excludes it from the warm-up wake, and emits a per-pool ACTIVATION BLOCK in the
@@ -256,8 +256,18 @@ runtime tree switching beyond blackboard-driven branches.
   (bound AND usercontrol) OR latched; no 0x2C = install REFUSED. Flag allocation
   shifted +1 → bench re-gen re-wired the hire flag (8868→8869); 30413 redeployed.
   ⚠ Benches 30410-12 + 30400 still carry the old latch as deployed (Warp-entry safe;
-  fix rides their next redeploy). ⚠ round-2 playtest pending (incl. the New-Game
-  entry box).
+  fix rides their next redeploy).
+  **ROUND 3 (same day): THE ONE-CONFIRM-RECEIVER LESSON** — round 2's "hire popup
+  only from certain positions": the QM's plain-dialogue talk arc (near+facing) and
+  the action zone around him were TWO stacked Confirm receivers, and the talk EATS
+  the press inside its arc. Never park a talky NPC inside an action zone — bind the
+  menu to the TALK (`[[choice]] npc =`, talk → menu → branch). Zone choices deleted;
+  the quartermaster's talk IS the hire menu.
+  **★ ROUND-3 PLAYTEST: ALL BOXES PROVEN** ("all good now — hires work from anywhere,
+  pest intercept still good, new game good, silent 4th, reload refill") — the pooled
+  lane is CLOSED: dormant pool / spawn-at-feet + hold_post / intercept-duel-resume /
+  the NEW-GAME entry (the staged-latch fix's regression box) / silent exhaustion /
+  reload refill, all in-game.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,
