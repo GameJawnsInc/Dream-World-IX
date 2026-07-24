@@ -4941,6 +4941,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     npc_slots = {}           # npc name -> entry slot (so a [[prop]] can attach_to it)
+    _pooled_bh = _behaviortoml.pooled_npcs(project.raw)   # pooled behavior units: seat DORMANT
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -4982,8 +4983,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        greeting_txid=txid if n.get("dialogue") else None)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
-                             appears_scenario_max=smax, speak_body=sb, **kwargs)
-        if gf is not None:
+                             appears_scenario_max=smax, speak_body=sb,
+                             boot_spawn=(n.get("name") not in _pooled_bh), **kwargs)
+        if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
             npc_slots[n["name"]] = slot
@@ -5915,6 +5917,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 if pf:
                     warnings.append("[behavior] public flags (wire your [[choice]] "
                                     "set_flag rows to these): " + ", ".join(pf))
+                pl = [f"{nm} -> flag {idx}" for nm, idx in fb.pool_flags.items()]
+                if pl:
+                    warnings.append("[behavior] pool spawn-request flags (a [[choice]] "
+                                    "set_flag row spawns the next pooled unit at the "
+                                    "player): " + ", ".join(pl))
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 

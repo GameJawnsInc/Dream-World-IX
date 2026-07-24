@@ -59,6 +59,7 @@ COND_VERBS = {
 ACTION_VERBS = {
     "walk_to": ("speed",),
     "hold": ("speed",),
+    "hold_post": ("speed",),
     "chase": ("standoff", "speed"),
     "patrol": ("arrive_r", "speed"),
     "march": ("arrive_r", "speed"),
@@ -70,7 +71,7 @@ ACTION_VERBS = {
     "announce_npc": ("window",),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
-UNIT_KEYS = {"npc", "hp", "speed", "branch"}
+UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit"}
 
 
@@ -127,6 +128,13 @@ def _resolve_route(v, positions: dict, marker_paths: dict, ctx: str) -> list:
     if isinstance(v, (list, tuple)):
         return [_resolve_point(p, positions, ctx) for p in v]
     raise BehaviorTomlError(f"{ctx}: route {v!r} is not a marker name or a point list")
+
+
+def pooled_npcs(raw: dict) -> set:
+    """Names of [[npc]]s bound to POOLED behavior units — the build seats their entry
+    but SKIPS the boot ``InitObject`` (``inject_npc(boot_spawn=False)``); the compiled
+    ticker spawns them at runtime when their pool's request flag is set."""
+    return {str(u.get("npc")) for u in units(raw) if u.get("pooled")}
 
 
 def marker_paths(raw: dict) -> dict:
@@ -206,6 +214,11 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         return B.WalkTo(_resolve_point(v, positions, ctx), speed=spd)
     if verb == "hold":
         return B.Hold(_resolve_point(v, positions, ctx), speed=spd)
+    if verb == "hold_post":
+        if v is not True:
+            raise BehaviorTomlError(f"{ctx}: hold_post takes `true` (it holds the unit's "
+                                    f"own placement post — no point argument)")
+        return B.HoldPost(speed=spd)
     if verb == "chase":
         return B.Chase(str(v), standoff=int(d.get("standoff", 140)), speed=spd)
     if verb == "patrol":
@@ -267,7 +280,9 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         specs.append(B.UnitSpec(name, int(npc_slots[name]),
                                 spawn=(int(pos[0]), int(pos[1])),
                                 hp=(int(u["hp"]) if u.get("hp") is not None else None),
-                                walk_speed=int(u.get("speed", 50))))
+                                walk_speed=int(u.get("speed", 50)),
+                                pooled=bool(u.get("pooled", False)),
+                                pool=str(u.get("pool", "pool"))))
     fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)))
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
@@ -366,7 +381,24 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                              ("scenario_max", "scenario gating conflicts with the warm-up wake")):
             if npc.get(bad_key) is not None:
                 problems.append(f"{ctx}: npc {name!r} has `{bad_key}` — {why}; not supported "
-                                f"on a behavior unit")
+                                f"on a behavior unit"
+                                + (" (a pooled unit needs NO flag — the build itself skips "
+                                   "its boot spawn)" if bad_key == "requires_flag"
+                                   and u.get("pooled") else ""))
+        if u.get("pooled") is not None and not isinstance(u.get("pooled"), bool):
+            problems.append(f"{ctx}: pooled must be true/false")
+        if u.get("pool") is not None:
+            if not u.get("pooled"):
+                problems.append(f"{ctx}: `pool =` needs `pooled = true`")
+            import re as _re
+            if not _re.fullmatch(r"[A-Za-z0-9_]+", str(u.get("pool"))):
+                problems.append(f"{ctx}: pool name {u.get('pool')!r} must be [A-Za-z0-9_]+")
+        if u.get("pooled"):
+            att = [p.get("prop") or p.get("model") for p in raw.get("prop", []) or []
+                   if p.get("attach_to") == name]
+            if att:
+                problems.append(f"{ctx}: prop(s) {att} attach_to pooled npc {name!r} — a "
+                                f"boot-spawned prop cannot bind to a not-yet-spawned unit")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene
@@ -405,6 +437,9 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     _resolve_route(do["to"], positions, mpaths, ctx)
                 if verb in ("walk_to", "hold", "wander"):
                     _resolve_point(v, positions, ctx)
+                if verb == "hold_post" and v is not True:
+                    problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
+                                    f"own placement post)")
                 if verb == "announce_npc":
                     npc = next((n for n in raw.get("npc", []) or []
                                 if n.get("name") == str(v)), None)

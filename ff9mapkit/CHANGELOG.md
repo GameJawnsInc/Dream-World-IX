@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` pooled units: runtime activation ("hire a soldier at your feet")
+- **`pooled = true` / `pool = "name"` on a `[[behavior.unit]]`**: the unit's NPC is seated
+  DORMANT at boot (no spawn, no reveal flag — `inject_npc` gains `boot_spawn=False`) and joins a
+  named pool. Each pool allocates a **spawn-request flag** (printed at build + `behavior
+  compile`); a `[[choice]]` row's `set_flag = [<index>, 1]` makes the next never-spawned unit
+  **materialize at the player's feet**, the press-time position becoming its *placement post*.
+  The activation block rides the compiled ticker and is the fort-condor rung-3 in-game-proven
+  byte shape verbatim: runtime `InitObject` → 2-frame settle → `MoveInstantEx` (the new
+  `opcodes.move_instant_ex`, DPOS 0xBF) to the captured post, mirrors seeded before the unit's
+  first tree tick (law-clean: no object read precedes its spawn). One spawn per request;
+  exhausted pools consume silently; a dead pooled unit stays consumed; reload refills.
+- **New action verb `hold_post = true`** (valid unconditional fallback): hold MY placement
+  post — with chase/swing branches this is the **placement defender** (the Fort Condor unit).
+  On a boot-spawned unit the post is its own spawn.
+- Fields with no pooled units and no `hold_post` compile **byte-identical** to before (guarded
+  by test). 8 new tests across `test_behavior.py`/`test_behavior_toml.py` (activation-lane
+  instruction walks, allocation hygiene, TOML negatives, a built-`.eb` e2e proving the pooled
+  entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
+  30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
+
 ### Added — `[[summon]]`: transplant your own model onto a stock summon's real cast *(experimental)*
 - **The productized custom-summon kit surface** (Milestone 2 of the summon-transplant arc —
   `studies/custom-summons/thomas-swap/m2/DESIGN.md`, the binding module plan): a declarative

@@ -305,6 +305,17 @@ class Wander(Action):
 
 
 @dataclass
+class HoldPost(Action):
+    """Hold at MY placement post — the per-unit ``px``/``pz`` GLOBs. For a pooled unit
+    the post is written at ACTIVATION (the player's press-time position = where it was
+    placed); for a boot-spawned unit the post presets to its own spawn (equivalent to
+    ``Hold(spawn)``). The placement-defender idiom: fallback ``hold_post`` + chase/swing
+    branches gated on proximity = a unit that guards wherever you drop it."""
+    speed: int | None = None
+    feed = True
+
+
+@dataclass
 class SwingAt(Action):
     """Melee ticks against another unit's HP byte (the proven fight-body shape,
     minus death policy — death is a TREE branch, e.g. Cond(hp==0) -> Do(Die()))."""
@@ -337,6 +348,8 @@ class UnitSpec:
     hp: int | None = None            # allocate + preset an HP byte when set
     walk_speed: int = 50
     tree: Node | None = None
+    pooled: bool = False             # not boot-spawned; activated by a pool request
+    pool: str = "pool"               # request-lane name (pooled units only)
 
 
 # ------------------------------------------------------------------ the compiler
@@ -412,6 +425,7 @@ class FieldBehavior:
         self._staged = self.bb.flag("player.staged")
         self.bb.int16(f"{PLAYER}.mx")
         self.bb.int16(f"{PLAYER}.mz")
+        self._pools: dict[str, list[str]] = {}           # pool name -> pooled units, roster order
         for u in units:
             if not 1 <= int(u.walk_speed) <= 255:
                 raise BehaviorError(f"{u.name}: walk_speed must be 1..255")
@@ -426,6 +440,21 @@ class FieldBehavior:
             self.bb.int16(f"{u.name}.tz")
             if u.hp is not None:
                 self.bb.byte(f"{u.name}.hp")
+            if u.pooled:                                 # the runtime-activation lane
+                if not re.fullmatch(r"[A-Za-z0-9_]+", u.pool or ""):
+                    raise BehaviorError(f"{u.name}: pool name {u.pool!r} must be "
+                                        f"[A-Za-z0-9_]+ (it becomes jump labels)")
+                self.bb.flag(f"{u.name}.spawned")        # consumed-once latch (v1: no respawn)
+                self.bb.int16(f"{u.name}.px")            # the placement post (press-time pos)
+                self.bb.int16(f"{u.name}.pz")
+                self._pools.setdefault(u.pool, []).append(u.name)
+        # one spawn-request flag per pool — SET FROM OUTSIDE (a Hire [[choice]] row's
+        # set_flag); consumed by the ticker's activation block, reset on ~ Reload
+        self.pool_flags: dict[str, int] = {}
+        for pname in self._pools:
+            idx = self.bb.flag(f"pool.{pname}.spawn")
+            self.pool_flags[pname] = idx
+            self._reset_flags.append(idx)
 
     # ---------------- perception / condition helpers (mirror-safe by construction)
     def _mx(self, unit: str) -> str:
@@ -563,12 +592,13 @@ class FieldBehavior:
             elif isinstance(node, Do):
                 a = node.action
                 # every feed with a STATIC first target qualifies (Main_Init can
-                # preset the duty walk): Patrol/March/Flee -> points[0], Wander -> center
-                if isinstance(a, (WalkTo, Hold, Patrol, March, Flee, Wander)):
+                # preset the duty walk): Patrol/March/Flee -> points[0], Wander ->
+                # center, HoldPost -> the unit's own spawn (its post preset)
+                if isinstance(a, (WalkTo, Hold, Patrol, March, Flee, Wander, HoldPost)):
                     return a
                 raise BehaviorError(
                     f"{unit.name}: the fallback action must be a static feed "
-                    f"(WalkTo/Hold/Patrol/March/Flee/Wander), not {type(a).__name__}")
+                    f"(WalkTo/Hold/Patrol/March/Flee/Wander/HoldPost), not {type(a).__name__}")
             else:
                 raise BehaviorError(
                     f"{unit.name}: the tree needs an unconditional Do fallback "
@@ -597,6 +627,8 @@ class FieldBehavior:
                         _stmt(f"Global.Byte[{wu}] const(0) B_EQ"),
                         (JMP_IFNOT, "wait")]
         for u in self.units.values():                    # warm-up expiry: wake everyone
+            if u.pooled:                                 # ...except pooled units — they
+                continue                                 # wake at ACTIVATION only
             ticker.append(_set_flag(self.bb.flag(f"{u.name}.active"), 1))
         ticker += [(JMP, "wait"), label("run")]
         # the player mirror (staged is guaranteed on the run path)
@@ -650,12 +682,21 @@ class FieldBehavior:
                 px, pz = fallback.points[0]
             elif isinstance(fallback, Wander):
                 px, pz = fallback.center
+            elif isinstance(fallback, HoldPost):
+                px, pz = u.spawn
             else:
                 px, pz = fallback.point
             main_init += _set_int16(tx, int(px))
             main_init += _set_int16(tz, int(pz))
             if u.hp is not None:
                 main_init += _set_byte(self.bb.byte(f"{u.name}.hp"), int(u.hp))
+            if u.pooled or any(isinstance(a, HoldPost) for a in actions):
+                # the placement post: presets to the unit's own spawn; a pooled
+                # activation overwrites it with the press-time position
+                main_init += _set_int16(self.bb.int16(f"{u.name}.px"), int(u.spawn[0]))
+                main_init += _set_int16(self.bb.int16(f"{u.name}.pz"), int(u.spawn[1]))
+            if u.pooled:
+                main_init += _set_flag(self.bb.flag(f"{u.name}.spawned"), 0)
 
             # ---- the duty body (universal blocked walk on the target GLOBs); the
             # speed op reads the unit's speed GLOB so per-action speed applies at
@@ -764,6 +805,49 @@ class FieldBehavior:
                 _stmt(f"Global.Bit[{f}] Global.Bit[{f}] const(1) B_XOR B_LET"),
                 label(f"alt_{t}_end"),
             ]
+        # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
+        # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
+        # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
+        # press-time position. Sits on the run path AFTER the mirrors (player.mx/mz
+        # fresh) and BEFORE the tree blocks (the new unit ticks with seeded mirrors
+        # the same pass). Law-clean: InitObject precedes every obj-referencing token;
+        # the 2-frame settle between InitObject and the DPOS is the proven recipe.
+        pmx = f"Global.Int16[{self.bb.int16(f'{PLAYER}.mx')}]"
+        pmz = f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}]"
+        for pname, unames in self._pools.items():
+            req = self.pool_flags[pname]
+            cd_blocks += [_stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
+            for i, un in enumerate(unames):
+                pu = self.units[un]
+                spawned = self.bb.flag(f"{un}.spawned")
+                upx = self.bb.int16(f"{un}.px")
+                upz = self.bb.int16(f"{un}.pz")
+                nxt = f"pl_{pname}_t{i + 1}" if i + 1 < len(unames) else f"pl_{pname}_done"
+                cd_blocks += [
+                    _stmt(f"Global.Bit[{spawned}]"), (JMP_IF, nxt),
+                    # the placement post = the press-time player position
+                    _stmt(f"Global.Int16[{upx}] {pmx} B_LET"),
+                    _stmt(f"Global.Int16[{upz}] {pmz} B_LET"),
+                    opcodes.init_object(pu.entry, 0),
+                    opcodes.wait(2),                     # let the pooled Init complete
+                    opcodes.move_instant_ex(
+                        pu.entry,
+                        exprasm.assemble(f"Global.Int16[{upx}] B_EXPR_END"),
+                        exprasm.assemble(f"Global.Int16[{upz}] B_EXPR_END")),
+                    # seed the unit's mirrors (its tree ticks THIS pass) + wake it
+                    _stmt(f"Global.Int16[{self.bb.int16(f'{un}.mx')}] "
+                          f"Global.Int16[{upx}] B_LET"),
+                    _stmt(f"Global.Int16[{self.bb.int16(f'{un}.mz')}] "
+                          f"Global.Int16[{upz}] B_LET"),
+                    _set_flag(spawned, 1),
+                    _set_flag(self.bb.flag(f"{un}.active"), 1),
+                    (JMP, f"pl_{pname}_done"),
+                ]
+                if i + 1 < len(unames):
+                    cd_blocks.append(label(nxt))
+            cd_blocks += [label(f"pl_{pname}_done"),     # exhausted pool falls through
+                          _set_flag(req, 0),             # here too: consume the request
+                          label(f"pl_{pname}_end")]
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:
             main_init += _set_byte(self.bb.byte(name), 0)
@@ -777,12 +861,17 @@ class FieldBehavior:
             main_init += _set_int16(idx, v)
 
         ticker += [label("wait"), opcodes.wait(self.tick), (JMP, "top"), opcodes.RETURN]
+        pools_txt = ""
+        if self._pools:
+            pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
+                + "\n".join(f"  {p}: spawn-request flag {self.pool_flags[p]}, units "
+                            f"[{', '.join(us)}]" for p, us in self._pools.items())
         return CompiledBehavior(
             ticker_body=asm(ticker),
             duty_bodies=duty_bodies,
             action_funcs=action_funcs,
             main_init=bytes(main_init),
-            report=self.bb.report() + "\nunits:\n" + "\n".join(report),
+            report=self.bb.report() + "\nunits:\n" + "\n".join(report) + pools_txt,
         )
 
     # ---------------- tree → ticker blocks
@@ -892,6 +981,11 @@ class FieldBehavior:
             x, z = a.point
             return [_stmt(f"Global.Int16[{tx}] const({int(x)}) B_LET"),
                     _stmt(f"Global.Int16[{tz}] const({int(z)}) B_LET")]
+        if isinstance(a, HoldPost):
+            upx = self.bb.int16(f"{u.name}.px")
+            upz = self.bb.int16(f"{u.name}.pz")
+            return [_stmt(f"Global.Int16[{tx}] Global.Int16[{upx}] B_LET"),
+                    _stmt(f"Global.Int16[{tz}] Global.Int16[{upz}] B_LET")]
         if isinstance(a, Chase):
             self._check_unit(a.target)
             gate = (f"Global.Bit[{self._staged}]" if a.target == PLAYER

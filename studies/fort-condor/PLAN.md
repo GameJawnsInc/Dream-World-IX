@@ -23,7 +23,10 @@
 > MOOT, that referee no longer exists; (c) the generic-timer probe (claim ★ proven in
 > playtest 2; rung 4 re-adds timers as wave machinery).
 > **THE RESUME LADDER (the parity playtest ★ done):** 1. pooled-unit vocabulary in the
-> compiler (runtime activation + spawn-at-feet as a behavior/kit lane) → 2. placement/
+> compiler (runtime activation + spawn-at-feet as a behavior/kit lane) — **BUILT +
+> DEPLOYED 2026-07-24, ⚠ bench 30413 playtest pending** (`pooled`/`pool`/`hold_post` in
+> `[behavior]` + the per-pool spawn-request flag; the rung-3 recipes returned as compiler
+> vocabulary — behavior study PLAN §POST-LADDER) → 2. placement/
 > economy rebuilt on it (now with MUTUAL recruit combat free) → 3. rung 4 waves +
 > win/loss (below) on tree-driven units. Read
 > [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.

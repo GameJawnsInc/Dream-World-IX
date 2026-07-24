@@ -238,6 +238,17 @@ def move_instant_xzy(x: int, z: int, y: int = 0) -> bytes:   # 0xA1 (POS3) argsi
     return encode(0xA1, x, -y, z)
 
 
+def move_instant_ex(uid: int, x, z) -> bytes:        # 0xBF (DPOS) argsize [1, 2, 2]
+    """MoveInstantEx(uid, x, z): instantly move ANOTHER object (by uid) to world (x, z) —
+    x/z only, no height math (the engine re-grounds on the walkmesh). ``x``/``z`` take an
+    int immediate or a pre-encoded expression blob (``exprasm.assemble(... B_EXPR_END)``).
+    The fort-condor rung-3 spawn-at-feet shape, in-game proven: runtime ``InitObject`` +
+    a 2-frame settle Wait + this op reading the captured position GLOBs."""
+    flags = (0b010 if isinstance(x, (bytes, bytearray)) else 0) \
+        | (0b100 if isinstance(z, (bytes, bytearray)) else 0)
+    return encode(0xBF, uid, x, z, arg_flags=flags)
+
+
 def run_animation(anim: int) -> bytes:               # 0x40 (ANIM) argsize [2]
     """RunAnimation(anim): play an animation on the executing actor (async; pair WaitAnimation)."""
     return encode(0x40, anim)
