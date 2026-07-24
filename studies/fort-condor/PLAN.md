@@ -42,8 +42,14 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   everywhere, no dispatch — kit-fix chip filed). Round 2 re-homes the bench on **field
   559, the Hunt's own Zaghnol arena (pitch 68.8, near-top-down)**, gives every chaser an
   own "Kweh!" line, puts the lever zone ON the spawn, strips the real-field gateways.
-  ⚠ playtest 3 pending — RELAUNCH required (ForkDonorPatch 30400 → 559). Measure: frame
-  feel per tier? chasers converge? Revert: `tools/scroll_out/revert_deploy_30400.py`.
+  **★ PLAYTEST 3 PROVEN (2026-07-24): "no performance issues whatsoever" at ALL tiers,
+  and the swarm converges on the player ("eventually converge into a single point" —
+  the walk-through no-pile-up design working as intended). THE ACTOR BUDGET IS PROVEN
+  AT 40 CONCURRENT MOVERS** — ~2x stock's 23-model ceiling, with 40 per-frame
+  `Walk(player.x, player.z)` re-targets + armed-tier distance polls live. The rung-0
+  O(n²)-collision concern does not bite at 40 (flags-7 movers). Rung 1 is CLOSED; the
+  bench stays deployed on 30400 as the standing swarm harness. Revert:
+  `tools/scroll_out/revert_deploy_30400.py`.
 - **Rung 2 — TWO-LANE SKIRMISH.** One attacker marches a lane, one defender intercepts
   (chase loop, engagement radius); combat resolved script-side (HP in flags, swing anims,
   death + `TerminateEntry`) — no player battles. Proves the auto-battler core loop.

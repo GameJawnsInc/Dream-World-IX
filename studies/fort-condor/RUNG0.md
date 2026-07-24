@@ -123,10 +123,14 @@ Exemplar: Mu at Main Street 552 (`test2_130`, entries 15–17).
 | `312` marker + `Battle()` + `Main_Reinit` award path | breach → REAL boss battle (Zaghnol pattern) |
 | `AttachObject` composites, Sin/Cos `MoveInstantXZY` flight | artillery arcs, flyers, mounts |
 
-## 8. Open questions → rung 1
+## 8. Open questions → rung 1 (ANSWERED where marked — the swarm bench, ★ 2026-07-24)
 
-1. Frame-rate envelope at 30–40 movers (stock max 23; O(n²) collision; does flags-7 skip
-   the scan?). 2. N simultaneous per-frame `Walk()` re-targets (stock ships ONE chaser).
-3. Distance-poll cadence budget (stagger pairs across frames). 4. Model memory at 10+
-   distinct models vs instancing (Fang ×5 proven). 5. Persistent funds readout beyond
-   popups/timer (probably fine without; s-patch only if the design demands it).
+1. ★ Frame-rate envelope: **40 movers = no felt degradation** (playtest 3, field 30400,
+   top-down 559 fork). The O(n²) concern does not bite at 40 flags-7 movers.
+2. ★ 40 simultaneous per-frame `Walk()` re-targets: fine (same playtest).
+3. Distance-poll cadence: 40 armed-tier polls/frame fine; UNGATED polls are a CRASH, not
+   a cost — **THE PLAYER-REF EVAL LAW** (B_PTR/B_DISTANCEA hard-cast to Actor,
+   EBin.cs:1161-73; evaluate only behind a player-alive gate; playtest 1's black screen).
+4. ★ Model instancing ×40 (one model): fine. 10+ DISTINCT models still unprobed.
+5. Persistent funds readout: still open (popups + the ★-proven generic timer HUD may
+   suffice; s-patch only if the design demands it).
