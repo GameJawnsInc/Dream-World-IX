@@ -191,12 +191,19 @@ if (Memoria.Netsync.NetSyncField.TeleportKeyPressed())
    savepoint moogle talk being gated at the funnel; the opcode gate's real proof is two-machine
    (mirrored script). Mechanism-smoke only.
 
-## Two-machine boxes queued for the next laptop session
-Real-guest interaction block (bench green ≠ proof — GetUserControl reachability for a followed guest
-is needs-in-game) · gateway redirect + follow-allowance on the real link · manual/auto TP with a real
-host · snapshot leak end-to-end (Snapshot while mirroring → ramp → Restore refused → manual save
-writes OWN story) · the standing s41/s42 leftovers (tick numbers · Plant Brain · Feather Boots ·
-host-silent bench · a Workspace-tab session).
+## Two-machine boxes — RUN 2026-07-23 (desktop host + laptop guest, real link)
+
+★ PASS — real-guest interaction block (bench green ≠ proof — `GetUserControl` reachability for a
+followed guest is no longer needs-in-game, it's proven) · ★ PASS — gateway redirect + follow-allowance
+on the real link (new nuance: simultaneous same-door entry — see the session section below) ·
+★ PASS — manual TP, F11; **L3 (held ~0.7s, `JoystickButton8`) is STILL UNTESTED on the live pad**,
+carries forward as OPEN · ✗ FAILED ACCEPTANCE — auto-TP (intermittent fire + a session-drop crash
+window, see below; default-OFF pending a rework) · ★ PASS — snapshot leak end-to-end (Snapshot while
+mirroring → ramp → Restore refused → manual save writes OWN story) · the standing s41/s42 leftovers
+(tick numbers · Plant Brain · Feather Boots · host-silent bench · a Workspace-tab session) — NOT
+exercised this session, still queued.
+
+Full session narrative → **★★ TWO-MACHINE SESSION 2026-07-23** below.
 
 ## Verify-round outcomes (2026-07-20 — 7 skeptics `wf_e66632e8`, repairs re-verified `wf_7c682de1`)
 
@@ -277,3 +284,197 @@ door inside 20s spends the budget → a brief excursion the follow-warp yanks ba
 auto-transition corridor becomes a slow multi-field reload ping-pong (strictly better than the
 pre-budget infinite reload) · an off-mesh auto-TP drop onto a gateway quad reload-cycles at ~10s
 until the host moves (bounded by the cooldown, never lets the jump through).
+
+## ★★ TWO-MACHINE SESSION 2026-07-23 — desktop host + laptop guest, real link
+
+4 of the 6 queued boxes PROVEN; L3 carries forward untested; auto-TP FAILED ACCEPTANCE and surfaced a
+crash window that outranks it.
+
+1. **Real-guest interaction block** — ★ PASS. Confirm on a real followed guest (NPC/chest/save-moogle)
+   is a genuine no-op exactly as the solo bench predicted; `GetUserControl` reachability for a followed
+   guest is no longer needs-in-game — it's proven.
+2. **Gateway redirect + follow-allowance** — ★ PASS on the live link. New nuance worth keeping: when
+   host and guest walk into the SAME door at the same moment, the guest bounces ONCE — `LastHostField`
+   hasn't picked up the host's new destination yet at the instant the guest's own redirect evaluates —
+   then the follow-allowance/manual-teleport catches them up on the very next beat. Bounce-then-follow,
+   not a defect; matches the "one extra reload" consequence already accepted in THE GATEWAY REDIRECT
+   above.
+3. **Manual TP** — F11 ★ PASS. **L3 (held ~0.7s, `JoystickButton8`) is still UNTESTED on the live pad**
+   — carries forward as the one open item in this box.
+4. **Auto-TP** — ✗ FAILED ACCEPTANCE. Fires intermittently on the real link ("sometimes works,
+   sometimes doesn't" — the dwell/steering predicate isn't reliably tripping over the actual
+   transport; root cause not yet isolated, diagnosis in flight, no speculation past this line). Worse
+   than a bad leash: when it misfires the guest DROPS THE SESSION for ~1-3s, and a random battle
+   starting inside that unpaired window boots the guest into their OWN party — the game then CRASHES
+   on battle exit. Owner verdict: auto-TP as a concept is disliked unless the leash can be made
+   reliable → **default-OFF pending a rework** (tracked separately from the crash). The crash window
+   itself is a SEPARATE must-fix: ANY transient unpair — not just auto-TP's — can manufacture the same
+   battle-boots-with-a-solo-party state, so the fix belongs at the unpair boundary, not inside
+   `AutoTeleportTick`.
+5. **Snapshot leak end-to-end** — ★ PASS ("good, discarded": Snapshot while mirroring → ramp →
+   Restore refused → manual save writes the guest's OWN story, the exact closure design proves out
+   live).
+6. **MENU opcode / mirrored-cutscene sanity** — OBSERVED AS BUILT, not a lockstep proof: both sides can
+   accept dialogue and advance independently at F1's tier (doesn't hang, which is all this box was ever
+   scoped to show). Full host-driven confirm/choice lockstep stays the ratified **F3** round, unchanged
+   plan.
+7. **Standing s41/s42 leftovers** (tick numbers · Plant Brain · Feather Boots · host-silent bench · a
+   Workspace-tab session) — not exercised this session, still queued.
+
+**New findings this session (logged, not yet root-caused):**
+- Field 206: the guest heard a "horn" music variant while the host heard the normal Evil Forest theme
+  — suspected story-state divergence feeding the music pick; unreproduced, recon in flight.
+- **Follow-warp latency** (owner priority): the guest waits out the host's FULL field change before the
+  follow fires, landing ~1-3s behind. Fine for "eventually catches up," not a base for cutscene
+  lockstep. **F2 (the SectionIntent transition-intent lane, wire v11) is PROMOTED — next after the
+  crash-window fix, ahead of the rest of the build order.**
+
+**Status: F1 is two-machine proven on 4/6 boxes** (interaction gates · gateway redirect +
+follow-allowance · F11 manual TP · snapshot taint). Open: L3 on a live pad, auto-TP (failed
+acceptance, default-OFF pending rework), the battle-boots-solo-party crash window (must-fix,
+cross-cutting), and the F2 promotion for follow-warp latency.
+
+## F2 (wire v11) — ★ TWO-MACHINE PROVEN (headline boxes) 2026-07-23
+
+A read-only recon produced the implementation spec below; an adversarial pre-build review confirmed
+it, surfacing ONE real finding — the L1 pin-flag desync across a link blip (a latent stuck-controls
+freeze: a guest pinned mid-co-location that drops and regains the link before the release conditions
+fire never un-pins) — fixed before the build. Built + deployed to the desktop engine, DLL
+`588EBC3219F7DD17`. Solo bench and a same-evening two-machine session (2026-07-23) both ran off this
+build — results below.
+
+**Content:**
+1. **THE TRANSITION-INTENT LANE** — the host emits `SectionIntent` (state-lane section 4:
+   `[destField u16][nonce u8]`) at the MAPJUMP opcode's commit point, which the recon proved is the
+   ONLY decidably field→field funnel. The ratified DESIGN.md idea of hooking `SetNextMap` directly was
+   REJECTED: WMAPJUMP (world-map exit, a frontier) flows through the same call with mode still 1 —
+   hooking there would emit intents for overworld exits too. A fired host transition has no abort
+   path, so an intent is a reliable promise. The guest fast path (`ServiceIntentFollow`) fires the
+   same proven warp body via a shared `StartFollowWarp` helper, skipping the 1200ms debounce (the
+   intent IS the debounce). The serial `FollowHostTick` path stays byte-intact underneath as a
+   guaranteed fallback floor. The `_followWarpedTo` latch gives free dedup. Handled: second-intent-
+   mid-load, mid-diorama deferral, and blip loss (30Hz latest-slot re-send).
+2. **DIALOGUE L1 CO-LOCATION** — `SectionEvent` (section 5: `[flag u8][nonce u8]`). Host detection =
+   `!GetUserControl()` corroborated by `UIManager.Dialogs.Visible` (a bare usercontrol check
+   false-positives on gateway walks). Guest snaps via the proven `SnapToHost` + pins
+   (`SetUserControl(false)` ONLY if the guest still HAD control — its own re-staged cutscene keeps
+   its own), releases on flag-fall / field-leave / session-drop / pending-warp. Explicitly NOT
+   choice/pacing sync — that stays the ratified F3/L2 round.
+3. **THE R2 SAME-DOOR INTERLOCK — DEFERRED** to an F2.1 polish (orchestrator decision):
+   `RedirectGuestFieldJump` is untouched; F1's proven bounce-then-follow stands.
+4. **Selftest benches** shipped in the ~ Go tab: an intent injector (fabricates a section through the
+   REAL codec into the REAL fast path) and an L1 flag toggle (snap+freeze on the selftest mirror).
+5. **The wire bump v10→v11** hard-splits mixed versions on both transports (single `Version` const,
+   verified shared).
+
+**Solo bench recipes — ★ PASS 2026-07-23 (desktop):**
+1. **Inject intent → field N** — ★ PASS. The log ran the full expected sequence: the bench-gating
+   message when OFF, then `fabricated SectionIntent field 4005 nonce 1 -> fast-path` →
+   `intent: following the peer to field 4005 (parallel)` → field load → ghost spawn. (The
+   `EVT_MOGWAI.txt` asset line in the same log is benign — the 42nd-moogle animation lookup firing
+   on a custom field, unrelated to the intent path.)
+2. **L1 toggle** — ★ PASS. Clean `L1 released (event ended)` on release.
+
+**Two-machine boxes — RUN 2026-07-23 evening** (desktop host + laptop guest, real link; F2 patch on
+top of the proven F1 build):
+1. **Parallel-warp feel + latency vs the serial baseline** — ★ PASS.
+2. **Strict nonce dedup** — OPEN, not explicitly exercised this session (a log-level box).
+3. **Chained transitions land on the final field with no double-fire** — ★ PASS (chained/fast
+   gateways — guest follows).
+4. **Host self-clear + no redundant serial warp** — OPEN, not explicitly exercised this session
+   (a log-level box).
+5. **Same-door = at most F1's single bounce** — ★ PASS (simultaneous same-door entry).
+6. **L1 on a real mirrored cutscene** — ★ PASS (guest dialogue snap + freeze).
+7. **L1 vs the guest's own re-staged cutscene (restore only what we took)** — OPEN, not explicitly
+   exercised — left OPEN, not closed.
+8. **Scene-end-into-gateway control ownership (guest stays frozen through the fade)** — OPEN, not
+   explicitly exercised — left OPEN, not closed.
+9. **s56 blip during an intent (serial floor recovers, no stuck screen)** — NOT TESTED, deferred:
+   the serial floor is structurally guaranteed, ruled non-gating for this session.
+10. **v10↔v11 silent no-sync sanity** — NOT TESTED, deferred: mixed-version sanity, ruled
+    non-gating for this session.
+11. **Edge-only logging (no per-frame spam)** — OPEN, not explicitly exercised this session
+    (a log-level box).
+
+**Status: F2 is two-machine proven on the 4 headline boxes** (parallel-warp / chained transitions /
+same-door single bounce / L1 co-location on a real mirrored cutscene), same evening as the build.
+Open: strict nonce dedup, host self-clear, edge-only logging (log-level boxes, not explicitly
+exercised) · L1-vs-own-cutscene and scene-end-into-gateway control ownership (behavior boxes, not
+explicitly exercised — left OPEN, not closed) · link-blip-during-intent and mixed-version sanity
+(deferred, non-gating: the serial floor is structurally guaranteed).
+
+## F3 (wire v12) — ★ BUILT + DEPLOYED + ADVERSARIALLY REVIEWED 2026-07-23, solo + two-machine PENDING
+
+A read-only recon produced the dialogue-L2 implementation spec; the census synthesis
+(`dialogue-census/DIFFICULTY-VERDICT.md` — three byte-grounded lanes over all 818 real field scripts,
+joined with the F3 engine recon) repriced the ratified design cheaper before a line of code was
+written (below). A pre-build adversarial review then found **NO ship-blockers**; four non-blocking
+findings recorded (below). Built + deployed to the desktop engine (both arches), DLL
+`3AD3585285335D84` (backup `pre-f3` `20260723-221351`); laptop package
+`FF9Coop-laptop-update-20260723e` (carries the standing wire-bump warning). **Solo bench and
+two-machine proof are both PENDING — this section records the BUILD only; F3 patch capture (in-game
+proof) is the next milestone.**
+
+**Content:**
+1. **THE TypeDialog=7 FIFO LANE** — the type-6 precedent, both transports, 8-byte frames
+   `[fld u16][winnum u8][textId u16][kind u8][choiceIndex u8][seq u8]`.
+2. **The host tap** at `Dialog.OnKeyConfirm`'s two confirm-driven Hide sites — `IsClosedByScript`-
+   filtered; fast-forward/AutoHide/scripted closes never emit; the emit helper role-gates before
+   touching the dialog and never throws (vanilla dialogue provably unchanged).
+3. **The guest pump `ServiceDialogLockstep`** — peek-until-match FIFO over a one-slot pending holder:
+   match@Complete → `TrySetCurrentChoice` (a NEW bounds-checked `Dialog` method — the unguarded
+   `SetCurrentChoice` is unreachable with a bad index) + direct per-window `OnKeyConfirm` (`go` arg
+   verified unused); match@printing → fast-forward + hold, no double-advance; unmatched → held with
+   the 8000ms `DialogWaitMs` timeout.
+4. **The `UIKeyTrigger` suppress guard** — one static read, false on vanilla.
+5. **Selftest benches** — inject advance / inject choice / the B5 unmatched-frame timeout proof.
+6. **The wire bump v11→v12** at the single const (both transports verified sharing the parse).
+
+**THE SOFTLOCK-ESCAPE INVARIANT** (enumerated, review-verified): suppress is set only on first-match
+or lockstep-hold; released by every non-engaged tick (link staleness ~2s, host flag fall, field
+leave, follow-warp, co-location loss), window close, the 8s timeout, and session reset — no stuck
+interleaving found.
+
+**Ratified scope + census grounding** (`dialogue-census/DIFFICULTY-VERDICT.md`): engage only under L1
+· solo dialogue stays fully local (falls out of L1 for free) · engage-on-first-match suppress arming
+(kills the R4 softlock class) · per-page pacing (tap `OnKeyConfirm`, page rate = line rate — 8-byte
+frames make volume a non-issue) · scripted closes filtered, never emitted (the free 17%) · **NO MAP
+mirror** — the census's repricing: MAP state is DERIVED not root, zeroed at every field entry and a
+deterministic function of the mirrored GLOB snapshot + the script itself, so under L1 MAP-gated
+windows align on their own (93.9% of locked cutscene spans read no structural root and replay in
+perfect lockstep) — building one would be wasted engineering · same-language sessions documented, not
+special-cased (7 engine-hardcoded language-conditional fields diverge cross-language: fields
+1060/1650/1652/1657/1659/1850/2172/2209).
+
+**Pre-build adversarial review — NO ship-blockers.** Four non-blocking findings recorded:
+- **(A)** the ratified S3 first-advance race: a guest mashing Confirm can advance one window ahead of
+  the host's first frame; harmless/self-healing; boxed for two-machine feel-testing with a known
+  in-spec tightening (engage-from-window-open) if wanted as a follow-up F3.1.
+- **(B)** the `UIKeyTrigger` guard also swallows Pause/Menu — broader than spec, benign-to-better.
+- **(C)** voiced choice windows close voice-paced on the guest — self-healing; boxed.
+- **(D)** timeout-drain semantics as ratified.
+
+**Solo bench recipes (built, queued — not yet run):**
+1. **Inject advance** — fabricate a TypeDialog=7 "advance" frame through the real codec into the real
+   guest pump (`ServiceDialogLockstep`) with no live host; proves the match@Complete path fires.
+2. **Inject choice** — same, tagged as a choice frame; proves `TrySetCurrentChoice` + the forced
+   confirm.
+3. **The B5 unmatched-frame timeout proof** — withhold a matching frame; proves the 8000ms
+   `DialogWaitMs` hold releases cleanly with no stuck interleaving.
+
+**Two-machine boxes — QUEUED, none run yet** (desktop host + laptop guest, real link; F3 patch on top
+of the proven F1+F2 build) — the 8 boxes from the laptop package README, plus the standing L3 item
+carried forward from F1:
+1. Lockstep cutscene
+2. Multi-page cadence
+3. Choice, incl. voiced
+4. The S3 mash test
+5. Host-kill un-freeze
+6. Blip un-freeze
+7. Scene-into-gateway
+8. v11-v12 sanity
+9. (carried forward from F1, still open) L3 held-teleport on a live pad
+
+**Status: F3 is BUILT + DEPLOYED + ADVERSARIALLY REVIEWED, 2026-07-23.** Solo bench and two-machine
+proof are both PENDING — F3 patch capture (in-game proof) is the next milestone before the round can
+be marked proven.

@@ -123,6 +123,20 @@ def inject_shop_regions(data, shops, *, activate: bool = True):
 
 # --- inventory CSV ---------------------------------------------------------------------------------
 
+def install_buy_ids(game=None):
+    """The base install's ``ShopItems.csv`` shop ids as a set, or ``None`` when no install is reachable.
+    The engine opens ``Menu(2, id)`` as a BUY shop iff ``id`` is present in ``ShopItems.csv``
+    (``ff9buy.FF9Buy_GetType`` -- an absent id opens as SYNTHESIS), so this set is the buy-vs-synthesis
+    discriminator (vanilla = ids 0-31; the synthesists 32-39 are deliberately absent)."""
+    from ..config import find_game_path, ConfigError
+    from .itemdata import read_base_csv, _read_text
+    try:
+        base = find_game_path(game) / "StreamingAssets" / "Data" / "Items" / "ShopItems.csv"
+        return set(read_base_csv(_read_text(base))[3])
+    except (OSError, ConfigError):
+        return None
+
+
 def safe_comment(text: str, sid: int) -> str:
     """Make the CSV column-0 label delimiter-safe. The comment is free author text but column 0 of a
     semicolon-delimited row whose Id is column 1, so a stray delimiter mis-parses or DROPS the shop:

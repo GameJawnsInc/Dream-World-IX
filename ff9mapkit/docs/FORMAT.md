@@ -1192,6 +1192,39 @@ zone = [[-400, -900], [400, -900], [400, -500], [-400, -500]]
 
 ---
 
+### `[[synthesis_edit]]` — retune or remove a VANILLA synthesis recipe
+
+The engine merges `Synthesis.csv` by id **whole-row**, so a base recipe (ids 0-63 vanilla) can be **overridden**:
+the kit re-emits the base row with only the cells you change. `[[synthesis]]` *adds* recipes; `[[synthesis_edit]]`
+*changes* the 64 the game ships.
+
+```toml
+[[synthesis_edit]]
+recipe = "Butterfly Sword"        # the base recipe: its RESULT item's name, or the recipe's integer Id (0-63)
+price = 500                       # any of these four, each optional (at least one):
+ingredients = ["Dagger", "Dagger"]   # FULL replacement — duplicates matter (need 2 Daggers)
+result = "Mythril Sword"          # change what it produces
+shops = [37, 38]                  # FULL replacement of which synthesists list it (32..255)
+
+[[synthesis_edit]]
+recipe = "Pumice"                 # too strong for your campaign?
+remove = true                     # unlist it from EVERY synthesist (exclusive with the other keys)
+```
+
+- **Selector:** a **string** = the recipe's *result item* name (unambiguous in vanilla — each of the 64 recipes
+  produces a distinct item); an **integer** = the recipe's own `Id` column. Lint checks the selector against your
+  install's base file when reachable (unknown / ambiguous selectors are flagged).
+- **`remove` mechanism:** the override row ships an **empty `Shops` cell** — `CsvParser.Int32Array("")` parses to
+  an empty list and `ShopUI.InitializeMixList` only shows rows whose `Shops` contains the open shop's id, so no
+  synthesist offers it (the row itself stays defined — harmless to every other engine reader).
+- **`shops` values** must be synth ids (`32..255`): `0-31` are base buy shops and never open as Synthesis, and a
+  value that is also a `[[shop]]` id would open as a *buy* shop there (both linted). You may point a vanilla
+  recipe at your own custom synthesist — e.g. `shops = [40]` moves Save the Queen to *your* shop only.
+- **Edits coalesce:** the same recipe edited in several blocks/fields merges (later blocks win per key — warned).
+- Same footing as `[[synthesis]]`: mod-global CSV, **RELAUNCH to apply**, needs a reachable install at build time.
+
+---
+
 ## `[[weapon]]` / `[[armor]]` / `[[item]]` / `[[equip_bonus]]` — tune EXISTING item stats (optional, repeatable)
 
 **Rebalance gear** — change a weapon's power, an armor's defence, an item's price, or an item's **equip stat bonus**.
@@ -1785,6 +1818,7 @@ rule this is not — a unit at 0 HP is dead before this check runs.
 | `file` | **your own track**: a path to an audio file (wav/mp3/ogg/flac/… — anything ffmpeg decodes), relative to this `field.toml`. The build transcodes it to Ogg Vorbis and **mints a brand-new song id** (≥ 1000) into the mod, then wires the field to play it. Needs `ffmpeg` on PATH (or `$FFMPEG`). Only consulted when `song` is **absent** — if both are set, `song` wins and `file` is ignored. Custom audio loads at game **startup**, so hear it after a restart (~ reload isn't enough). |
 | `loop_start` | with `file`: the loop point, in **samples**. Blank = the whole track loops. |
 | `loop_end` | with `file`: the loop end, in samples. Blank = the track's end. |
+| `stop` | **synthesize fields only.** `true` force-stops whatever field/battle BGM is currently resident on room entry — `RunSoundCode(265, 0xFFFF)` (`FF9SOUND_SONG_STOPCURRENT`), prepended as the literal first instruction of Main_Init. Kills the carried-in track from the *previous* field/battle unconditionally (no song id needed — it doesn't matter what was playing). Composes with `song`: `stop` fires first, then this field's own `song` (if any) starts on top. Without it, a field with no `song` of its own inherits whatever was already playing — FF9's normal resident-BGM behavior, which is usually what you want, but not for a field that must be silent (e.g. a `battle_music = -1` bench). |
 
 Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
 

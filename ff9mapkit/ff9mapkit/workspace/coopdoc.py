@@ -257,16 +257,15 @@ class CoopDoc(QWidget):
         # option() splits it the way the rest of the app already does -- the NAME you tick, the consequence
         # in a capped caption beneath it -- and carries the consequence into the accessible description, so
         # a screen reader still reads what it used to say.
+        # (The "Boot into the host's battles (diorama)" checkbox lived here until s42: the knob is
+        # gone from the engine -- a following guest's screen always boots the host's battles, F6
+        # "Leave diorama" opts out per fight, and the text panel auto-falls-back when a boot can't
+        # happen. Its ini toggle was also the trigger of the config-teardown defect.)
         self.cb_follow = QCheckBox("Follow the host between screens")
         widgets.option(self.cb_follow,
-                       "Joining side: my game auto-warps to their field and my random encounters pause.",
-                       pv)
-
-        self.cb_diorama = QCheckBox("Boot into the host's battles (diorama)")
-        self.cb_diorama.setChecked(True)                   # the engine default (s40): on
-        widgets.option(self.cb_diorama,
-                       "Joining side: when the host fights, my screen boots the same battle live "
-                       "(render-only — my own save is never touched). Untick for the text spectate panel.",
+                       "Joining side: my game auto-warps to their field, my random encounters pause, "
+                       "and when the host fights my screen boots the same battle live (render-only — "
+                       "my own save is never touched).",
                        pv)
 
         apply_row = QHBoxLayout()
@@ -389,9 +388,10 @@ class CoopDoc(QWidget):
         widgets.set_state(self.lbl_game, "")
         # The engine generation, from the SHARED derivation (health.netsync_generation) -- the same
         # source Setup's "Co-op engine" health row reads, so the two can never disagree on the
-        # s36/s37/s40 boundary. The booleans below still drive the door / Play-style / diorama gates.
+        # s36/s37 boundary. The boolean below still drives the door / Play-style gates. (The diorama
+        # is always-on for a follower since the s42 engine; its old s40 gate/knob is gone kit-wide.)
         gen = health.netsync_generation(self._game)
-        has_s37, has_s40 = gen["s37"], gen["s40"]
+        has_s37 = gen["s37"]
         self.lbl_engine.setText(gen["summary"])
         widgets.set_state(self.lbl_engine, "" if gen["level"] == "ok" else "warn")
         # The door keys on the SAME predicate as the amber state one line up (not has_s37). Its first
@@ -400,9 +400,6 @@ class CoopDoc(QWidget):
         # (review finding). Setup & health owns the remedy either way ("Install engine patches…").
         self.btn_setup.setVisible(self._on_setup is not None and not has_s37)
         self.style_box.setEnabled(has_s37)
-        # The diorama checkbox alone keys on s40: greyed on an s37-only engine so Apply/Start
-        # never write a key the engine can't read (None -> the flag is simply not passed).
-        self.cb_diorama.setEnabled(has_s40)
         folder = coop.find_registered_field(self._game, coop.COOP_FIELD)
         self.lbl_room.setText(f"field {coop.COOP_FIELD} registered ({folder})"
                               if folder else
@@ -447,14 +444,12 @@ class CoopDoc(QWidget):
         idx = self.combo_ghost.findData(ghost)
         self.combo_ghost.setCurrentIndex(idx if idx >= 0 else 0)
         self.cb_follow.setChecked((coop.read_ini_key(ini_text, "Netsync", "FollowHost") or "") == "1")
-        # Diorama defaults ON in the engine (s40): an absent key reads as checked.
-        self.cb_diorama.setChecked((coop.read_ini_key(ini_text, "Netsync", "Diorama") or "1") != "0")
         # Comes-back rule: if this machine already carries a non-default battle/visitor setting -- a party
         # slot granted (GuestSlots), a visitor outfit (GhostAs), or follow-host -- open the Advanced drawer
         # so the setting is visible rather than buried. Only opens; a manual expand is never forced shut,
         # and the default state (no slots, own model, no follow) leaves a collapsed drawer collapsed. Wait
-        # and diorama are excluded on purpose: both have non-empty engine defaults, so they aren't a signal
-        # that the user chose anything.
+        # is excluded on purpose: it has a non-empty engine default, so it isn't a signal that the user
+        # chose anything.
         if self._has_nondefault_playstyle():
             self.style_drawer.toggle_button.setChecked(True)
 
@@ -462,8 +457,8 @@ class CoopDoc(QWidget):
         """True when this machine already carries a non-default battle/visitor knob -- a granted party slot
         (GuestSlots), a visitor outfit (GhostAs), or follow-host. This is the computed auto-expand OVERRIDE:
         it opens the drawer in _load_playstyle (comes-back rule) AND wins over the beginner-mode default in
-        apply_guided, so a configured knob is never hidden even in Guided mode (chair ruling). Wait/diorama
-        are excluded on purpose: both have non-empty engine defaults, so they aren't a chose-it signal."""
+        apply_guided, so a configured knob is never hidden even in Guided mode (chair ruling). Wait is
+        excluded on purpose: it has a non-empty engine default, so it isn't a chose-it signal."""
         return (any(cb.isChecked() for cb in self.cb_slots)
                 or self.combo_ghost.currentIndex() > 0
                 or self.cb_follow.isChecked())
@@ -475,13 +470,11 @@ class CoopDoc(QWidget):
         self.style_drawer.toggle_button.setChecked(self._has_nondefault_playstyle() or not guided)
 
     def _playstyle_state(self):
-        """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow, diorama) --
-        the same human-level values the CLI flags take. ``diorama`` is None when the engine
-        predates s40 (the checkbox is greyed) so nothing downstream writes the key."""
+        """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow) --
+        the same human-level values the CLI flags take."""
         slots = [str(i + 1) for i, cb in enumerate(self.cb_slots) if cb.isChecked()]
         return (",".join(slots) or "none", self.spin_wait.value(),
-                self.combo_ghost.currentData() or "off", self.cb_follow.isChecked(),
-                self.cb_diorama.isChecked() if self.cb_diorama.isEnabled() else None)
+                self.combo_ghost.currentData() or "off", self.cb_follow.isChecked())
 
     def _refresh_bridge_row(self):
         running = self._thread is not None and self._thread.is_alive()
@@ -527,7 +520,7 @@ class CoopDoc(QWidget):
                 # new code back into the field.
                 self._append_log(f"{e} -- it came from Memoria.ini, minting a new one")
                 code = ""
-        style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host", "diorama"),
+        style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
                                     lan=("" if hosting else self.lan_ip.text().strip()) if lan else None,
@@ -584,9 +577,9 @@ class CoopDoc(QWidget):
         from .. import coop
         if self._game is None:
             return
-        slots, wait, ghost, follow, diorama = self._playstyle_state()
+        slots, wait, ghost, follow = self._playstyle_state()
         try:
-            updates = coop.playstyle_updates(slots, wait, ghost, follow, diorama)
+            updates = coop.playstyle_updates(slots, wait, ghost, follow)
             coop.write_netsync(self._game, updates, out=self._append_log)
         except (ValueError, OSError, FileNotFoundError) as e:
             self._append_log(f"could not apply the play style: {e}")

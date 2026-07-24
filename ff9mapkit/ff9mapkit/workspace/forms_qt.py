@@ -18,7 +18,7 @@ import html
 import threading
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtGui import QCursor, QFontMetricsF, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QToolButton, QVBoxLayout,
@@ -659,7 +659,6 @@ class CatalogLibrary(QDialog):
     def __init__(self, parent, plan, palette, sps_context=None):
         super().__init__(parent)
         self.setWindowTitle("Info Hub — catalog library")
-        self.resize(900, 580)
         self.plan = plan
         # DERIVE AT THE DOOR. The shell hands us its RAW palette (`CatalogLibrary(self, self.plan,
         # self.pal, ...)`), so a derived key -- `help_fg`, below -- is simply not in it and would raise.
@@ -679,8 +678,7 @@ class CatalogLibrary(QDialog):
         root.addWidget(split)
 
         self.cats = QListWidget()                          # col 1: category sidebar (kinds + counts)
-        self.cats.setMaximumWidth(200)
-        self.cats.currentRowChanged.connect(self._on_category)
+        self.cats.currentRowChanged.connect(self._on_category)   # (width capped in the TAILOR block below)
         split.addWidget(self.cats)
 
         mid = QWidget()                                    # col 2: search + result list
@@ -761,10 +759,36 @@ class CatalogLibrary(QDialog):
         rv.addLayout(bar)
         split.addWidget(right)
 
-        split.setSizes([190, 320, 390])
         self._build_categories()
         self.cats.setCurrentRow(0)                         # land on 'All'
         self.q.setFocus()
+
+        # TAILOR (widgets.fit_dialog's law, applied to a 3-pane browser): resize(900, 580) +
+        # setMaximumWidth(200) + setSizes([190, 320, 390]) were one font at one scale -- px constants
+        # the CALIBRE dial cannot reach (round 8's last deliberate skip). The same composition is now
+        # DERIVED from the dialog's own polished body font (the QSS base rule puts $type_body on every
+        # QWidget, so a dialog parented into the Workspace hears the dial), clamped to the screen.
+        # fit_dialog itself stays un-called on purpose: its ch-width becomes a MINIMUM, which would pin
+        # a freely-resizable browser open, and its per-list fitting fights the splitter that owns these
+        # panes. 140ch x 30 lines reproduce the shipped 900x580 at 100% on the native font; the sidebar
+        # asks for its own LONGEST ROW (fit_dialog's list rule -- the first cut's 21%-ratio pane clipped
+        # 'Battle scenes (68)' in the snap), capped at ~34ch so a runaway label can't eat the browser.
+        # Runs AFTER _build_categories so the sidebar content it measures exists.
+        self.ensurePolished()
+        fm = QFontMetricsF(self.font())
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        w = round(fm.averageCharWidth() * 140)
+        h = round(fm.height() * 30)
+        if avail is not None:
+            w, h = min(w, int(avail.width() * 0.92)), min(h, int(avail.height() * 0.85))
+        self.resize(w, h)
+        frame = 2 * self.cats.frameWidth()
+        cat_w = min(self.cats.sizeHintForColumn(0) + frame + self.cats.verticalScrollBar().sizeHint().width() + 8,
+                    round(fm.averageCharWidth() * 34))
+        self.cats.setMaximumWidth(cat_w)
+        # the shipped 320:390 middle:detail ratio, applied to what the sidebar leaves over
+        split.setSizes([cat_w, round((w - cat_w) * 0.45), round((w - cat_w) * 0.55)])
 
     def _build_categories(self):
         """One browse over the cached catalogs -> per-kind counts -> the sidebar sections (only non-empty

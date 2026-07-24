@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -268,6 +269,146 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
         _close(win)
 
 
+# --------------------------------------------------------------------------------------- world states
+WORLD_STATES = ("guide", "nogame", "atlas")
+
+
+def _fake_world_install() -> Path:
+    """A fake install whose FF9CustomMap-world tree exercises every mark the atlas draws: two
+    landmasses (one with buildings), a donor'd water-only carry, a STALE Disc4 mirror cell, and an
+    --in-place .bak sibling. Stable path (the coop lesson: mkdtemp randomness breaks pixel-diffing);
+    real write_ff9mesh header bytes, so the census reads it exactly like a shipped tree."""
+    import struct
+
+    def mesh(vcount=120, icount=210, salt=0):
+        out = bytearray(b"F9WM") + struct.pack("<iiii", 1, vcount, icount, 0)
+        for i in range(vcount):
+            out += struct.pack("<3f", float(i + salt), 0.0, float(i))
+        return bytes(out + struct.pack("<%di" % icount, *([0] * icount)))
+
+    game = Path(tempfile.gettempdir()) / "ff9_gui_snap" / "game_world"
+    mod = game / "FF9CustomMap-world"
+    if mod.exists():
+        shutil.rmtree(mod)
+
+    def put(bx, by, name, data, disc=1):
+        d = mod / "FF9_Data" / "WorldMap" / f"Disc{disc}" / "0_1" / f"r{by}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"Block[{bx}][{by}] {name}").write_bytes(data)
+
+    west = ((4, 17), (5, 17), (4, 18), (5, 18), (6, 18))     # island-E-ish: an L of land
+    east = tuple((bx, by) for bx in (18, 19, 20) for by in (17, 18, 19))   # the v4 3x3 massif bench
+    for i, (bx, by) in enumerate(west + east):
+        t = mesh(salt=i)
+        put(bx, by, "Terrain.ff9mesh", t)
+        put(bx, by, "Terrain.ff9mesh", t, disc=4)
+    put(19, 18, "Object.ff9mesh", mesh(vcount=60, icount=90, salt=99))     # the ensemble's buildings
+    put(19, 18, "Object.ff9mesh", mesh(vcount=60, icount=90, salt=99), disc=4)
+    put(19, 18, "Donor.txt", b"5,15")                        # the horseshoe donor, as deployed
+    stale = bytearray(mesh(salt=3))
+    stale[-1] ^= 0xFF                                        # same size, different bytes -> STALE ring
+    put(4, 18, "Terrain.ff9mesh", bytes(stale), disc=4)
+    put(11, 19, "Terrain.ff9mesh", mesh(vcount=3, icount=3))               # the water-only arming stub
+    put(11, 19, "Sea4.ff9mesh", mesh(vcount=8, icount=12, salt=7))
+    put(11, 19, "Terrain.ff9mesh", mesh(vcount=3, icount=3), disc=4)
+    put(11, 19, "Sea4.ff9mesh", mesh(vcount=8, icount=12, salt=7), disc=4)
+    put(11, 19, "Donor.txt", b"0,0")
+    put(6, 18, "Terrain.ff9mesh.bak-20260719-093929", mesh(salt=42))       # an --in-place backup
+    (mod / "atlas-names.json").write_text(json.dumps(                      # landmass nameplates
+        {"version": 1, "names": {"4,17": "Twin Isles", "18,17": "The Bench"}}), encoding="utf-8")
+    return game
+
+
+# The REAL install's stock land/sea grid, derived once via worldscan.derive_stock_grid (1.2s over
+# p0data) and baked here so the atlas snap shows the true FF9 geography deterministically on any
+# machine. Pure derived FACT (like the field manifest), zero SE bytes. L=land ~=coastal-water .=ocean;
+# regenerate: py -c "from ff9mapkit.workspace import worldscan as w; from ff9mapkit import config;
+# print(*w._rows_encode(w.derive_stock_grid(config.find_game_path(None))), sep='\n')"
+_STOCK_ROWS = [
+    "L......~LLL.~...........",
+    "......LLLLL...LLLL~.....",
+    ".....LLLLL...LLLLLL.....",
+    "....LLLLL....LLLLLLLL~..",
+    "....LLLL~..LLLLLLLLLL~..",
+    ".....~LL..LLLLLLLLLLL...",
+    "..LLLLLL.LL.LLLLLLLLL...",
+    "..LLLLLLLLL.LLLLLLLLL...",
+    "..LLLLLLL........~LLL...",
+    "..LLLLLL~.....LLLLLLLL..",
+    "..LLLLLLL...LLLLLLLLLL..",
+    "..LLLLLLL..LLLLLLLLLLLL.",
+    "...LLLLLL..LLLLLLLLLLLL.",
+    "...LLLLLLL.LLLLLLLLLLLL.",
+    "...LLLLLLL.~LLLLLLLLLLL.",
+    "...~LLLLL~.~LLLLLLLLLLL.",
+    ".....LLLL...LLLLLLLLLLL.",
+    "......~LLLL.LLLLL.......",
+    "........~LL..LLLL.......",
+    "........................",
+]
+
+
+class _pin_world_state:
+    """Point WorldDoc's scan at a fake install -- or at a raising resolver for `nogame` (production
+    RAISES ConfigError; a pin returning None would fence an unreachable branch, the round-9 law).
+    The atlas state also pins FF9MAPKIT_DATA at a scratch cache seeded with the baked stock grid, so
+    the geography layer renders without touching the developer's cache or bundles."""
+
+    def __init__(self, state: str):
+        self.state = state
+
+    def __enter__(self):
+        from ff9mapkit import config as _cfg
+        self._cfg, self._orig = _cfg, _cfg.find_game_path
+        self._env = os.environ.get("FF9MAPKIT_DATA")
+        if self.state == "nogame":
+            def _raise(*_a, **_k):
+                raise _cfg.ConfigError("FF9 install not found (pinned surface)")
+            _cfg.find_game_path = _raise
+        else:
+            game = _fake_world_install()
+            _cfg.find_game_path = lambda *_a, **_k: game
+            cache = _SCRATCH / "world_cache"
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "worldstock.json").write_text(json.dumps(
+                {"version": 1, "game": str(game), "disc": 1, "rows": [r[:24] for r in _STOCK_ROWS]}),
+                encoding="utf-8")
+            os.environ["FF9MAPKIT_DATA"] = str(cache)
+        return self
+
+    def __exit__(self, *exc):
+        self._cfg.find_game_path = self._orig
+        if self._env is None:
+            os.environ.pop("FF9MAPKIT_DATA", None)
+        else:
+            os.environ["FF9MAPKIT_DATA"] = self._env
+        return False
+
+
+def snap_world(ctx: _Ctx, state: str) -> None:
+    if state not in WORLD_STATES:
+        raise ValueError(f"unknown world state {state!r} (know: {', '.join(WORLD_STATES)})")
+    if state == "guide":                           # the pre-scan front door: NO pin needed, because the
+        win = _make_win(ctx)                       # doc does no I/O until the user's own Scan click --
+        win.tabs.setCurrentWidget(win.world_doc)   # which is itself the contract this surface records
+        _grab(ctx, "world-guide", win)
+        _close(win)
+        return
+    with _pin_world_state(state):
+        win = _make_win(ctx)
+        win.tabs.setCurrentWidget(win.world_doc)
+        win.world_doc.refresh(sync=True)           # the deterministic lane; production scans on a worker
+        if state == "atlas":
+            win.world_doc.canvas.select((19, 18))  # the showpiece cell: donor + buildings + details card
+        _settle()
+        _grab(ctx, f"world-{state}", win)
+        if state == "atlas":                       # the siting enhancement: a clean ocean block's
+            win.world_doc.canvas.select((14, 19))  # free-site strip + world-island command button
+            _settle()
+            _grab(ctx, "world-atlas-site", win)
+        _close(win)
+
+
 # ---------------------------------------------------------------------------------------- map states
 MAP_STATES = ("empty", "plain", "art")
 
@@ -429,6 +570,9 @@ def snap_tab(ctx: _Ctx, tab: str) -> None:
         # surfaces own this tab with every input pinned.
         print("  tab:coop is pinned-only -- use coop:<state> (see --list)")
         return
+    if tab == "world":
+        print("  tab:world is owned by world:<state> (guide | nogame | atlas -- see --list)")
+        return
     attr = {"build": "build_deploy", "import": "import_field",
             "models": "models_doc", "battle": "battle", "story": "story_state",
             "items": "item_equip"}[tab]
@@ -543,7 +687,7 @@ DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-f
 def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
-            + [f"map:{s}" for s in MAP_STATES])
+            + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES])
 
 
 def main() -> None:
@@ -581,6 +725,8 @@ def main() -> None:
                 snap_coop(ctx, rest)
             elif kind == "map":
                 snap_map(ctx, rest)
+            elif kind == "world":
+                snap_world(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

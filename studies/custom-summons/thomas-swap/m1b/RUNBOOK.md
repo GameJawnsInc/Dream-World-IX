@@ -1,3 +1,8 @@
+> **RENUMBERED s54 -> s58 (2026-07-24 master merge):** this feature was authored, built, and
+> proven as "s54"; a concurrent netsync reliability round had already claimed s54-s57 on
+> master, so the patch file is "s58-sfx-hybrid-drive.patch". Every "s54" below and in the
+> m0/m1b study docs refers to THIS feature; the ini section/keys ([SfxHybrid]) are unchanged.
+
 # M1b RUNBOOK — the Thomas skin, live on the dragon rig, via s54
 
 **Status: ARMED, cast not yet executed.** Everything below the line is verified in place (DLL sha,

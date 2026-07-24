@@ -50,6 +50,48 @@ def test_trunk_edges_outweigh_field_children(app):
     assert conceptmap._W_SPINE > conceptmap._W_CHILD, "the trunk pen must be heavier than a field-child"
 
 
+def test_the_map_hears_the_text_dial(app):
+    """CALIBRE reaches painted text only when THREADED (the mapview law -- no stylesheet reaches a
+    QGraphicsScene): at 150% the view's minimum, the drawn glyphs, AND the click targets must all grow
+    in one frame. The px-constant map this converts was deaf by construction."""
+    from PySide6.QtWidgets import QGraphicsSimpleTextItem
+
+    small = _view()
+    big = conceptmap.ConceptMapView(dict(_PAL), on_concept=lambda t: None, scale=150)
+    assert big.minimumWidth() > small.minimumWidth()
+    assert big.minimumHeight() > small.minimumHeight()
+
+    def title_pt(v):
+        return max(it.font().pointSize() for it in v._scene.items()
+                   if isinstance(it, QGraphicsSimpleTextItem))
+
+    assert title_pt(big) > title_pt(small), "the glyphs must grow, not just the frame"
+    # hit-test coords live in the SAME frame as the drawn boxes -- a scale that moved the art but not
+    # the click targets would leave every box dead at 150%.
+    assert big._boxes[0][0] == pytest.approx(small._boxes[0][0] * 1.5)
+    assert big._scene.sceneRect().width() > small._scene.sceneRect().width()
+
+
+def test_the_shell_threads_the_dial_through_the_door():
+    """THE CALL-SITE LAW: a scale param nobody passes is a mechanism in a box. The shell's opener must
+    hand its live _text_scale to show_concept_map -- asserted on the AST (a docstring naming the kwarg
+    must not satisfy a fence about code)."""
+    import ast
+    import inspect
+    import textwrap
+
+    from ff9mapkit.workspace import shell
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(shell.Workspace._show_concept_map)))
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and getattr(n.func, "id", getattr(n.func, "attr", "")) == "show_concept_map"]
+    assert calls, "the opener no longer calls show_concept_map"
+    kw = {k.arg: k.value for c in calls for k in c.keywords}
+    v = kw.get("scale")
+    assert isinstance(v, ast.Attribute) and v.attr == "_text_scale", \
+        "the opener must pass scale=self._text_scale (the call-site law)"
+
+
 def test_plinth_is_a_quiet_band_painted_under_the_spine(app):
     v = _view()
     items = v._scene.items()                                # top-of-stack first

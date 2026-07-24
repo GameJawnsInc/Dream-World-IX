@@ -1,3 +1,8 @@
+> **RENUMBERED s54 -> s58 (2026-07-24 master merge):** this feature was authored, built, and
+> proven as "s54"; a concurrent netsync reliability round had already claimed s54-s57 on
+> master, so the patch file is "s58-sfx-hybrid-drive.patch". Every "s54" below and in the
+> m0/m1b study docs refers to THIS feature; the ini section/keys ([SfxHybrid]) are unchanged.
+
 # S54-DRAFT.md — the HYBRID DRIVE engine feature (★ BUILT + DEPLOYED 2026-07-24)
 
 > **Status: BUILT + DEPLOYED 2026-07-24 (owner GO given: "build s54, skin thomas onto the dragon rig").**

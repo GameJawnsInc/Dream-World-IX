@@ -1,5 +1,12 @@
 # GUI-UX design-lens review — chair's decision
 
+> **Build status (2026-07-24).** BUILD-NOW 1-12 shipped in the design-lens wave (`66cdbd3`); the owner's
+> picked wave built ASK 1-5, 8-10, 12-13, 18 (`5839fb9`) and the final four built ASK 6, 11, 15, 22
+> (`42bdc31`). **The 2026-07-24 remainder wave built ASK 7 (tree half), 14 (low-risk half), 16
+> (raise/flash only), and 19 (MERGE A's fit_dialog vehicle)** — each per its chair ruling; the deferred
+> halves are noted inline below. Still unbuilt: ASK 17 (deploy-on-save, ~L), 20, 21, plus #7's
+> form-scroll tokens and #14's full per-tab context card.
+
 **Surface:** the ff9mapkit Workspace (PySide6). **Phase:** RESEARCH — proposals only, no app code edited.
 **Inputs:** 36 lens proposals across 8 lenses (first-run, veteran-loop, wayfinding, feedback-progress,
 identity-delight, disclosure, prevention-recovery, consistency) + three independent judge scorecards
@@ -243,6 +250,8 @@ form-scroll half is the cost.** Emitting tree-group focus links is easy; "BGM/en
 that section" needs a new `focus:<section_key>` href **and** forms_qt to expose section-header widgets by key
 for `ensureWidgetVisible` — plumbing the M tag under-weights. **Recommendation:** approve; consider shipping the
 tree-navigation tokens first and the form-scroll tokens as a follow-on.
+**→ BUILT 2026-07-24 (tree half):** every rollup tally is a `goto:tree:<member>:<sect>` link landing its
+group/section row (`shell._rollup` + `_goto_tree_section`); the form-scroll tokens remain the follow-on.
 
 ### 8. Structured failure: extract the error into a Problems row + Jump-to-error  ·  score 33  ·  M / med
 **Lens:** feedback-progress. **Evidence:** `_proc_done` posts `_show_problems(v, [])` with an **empty** list on
@@ -313,6 +322,9 @@ stateful across tabs, and the regression surface is exactly the Author-return pa
 tree-driven card verbatim) — the shared-panel-lifecycle class that bit rounds 7-9. **Recommendation:** the
 low-risk half (collapse the false "Select something on the left" to a thin muted rule on self-contained tabs) is
 clearly right and could be split out; the full context card needs the owner's appetite for the restore path.
+**→ BUILT 2026-07-24 (low-risk half):** the untouched inspector's empty-state is tab-aware
+(`shell._insp_empty_text`) — the instruction shows only on the Editor tab over a populated tree; everywhere
+else (and over an empty tree) a thin muted rule. The full per-tab context card remains an owner decision.
 
 ### 15. One machine-health readout shared by Setup and the Co-op status card  ·  score 31  ·  M / med
 **Lens:** consistency. **Evidence:** Setup renders `health.health_report()` as a colored triage grid
@@ -331,6 +343,9 @@ J2 ask · J3 ask (unanimous ask). **Chair ruling: ASK-USER — opt-in and inert,
 `SetForegroundWindow` focus-stealing is refused on Windows without the FlashWindowEx fallback dance, it is
 win32-only, and the stretch SendInput tilde-tap is a synthetic keystroke that could land mid-load. **Recommendation:**
 if approved, ship only the raise/flash (opt-in, default off); leave the tilde-tap out.
+**→ BUILT 2026-07-24 (as ruled):** `workspace/gamewin.py` (toolhelp PID scan + EnumWindows, restore →
+SetForegroundWindow → FlashWindowEx fallback, fail-soft), `prefs.raise_game_after_deploy` default OFF with a
+Preferences row; fires from `_proc_done`'s deploy-success branch, yielding to the first-deploy card. No tilde-tap.
 
 ### 17. Deploy-on-save: watch the aimed field.toml and re-deploy  ·  score 30  ·  M / med
 **Lens:** veteran-loop. **Evidence:** no `QFileSystemWatcher` exists anywhere in `workspace/`, so a hand-edit in
@@ -360,6 +375,9 @@ vehicle is REJECTED (see below).** A once-per-install warmth moment is defensibl
 ink on the ratified-flat work surface. **Note:** BUILD-NOW #4 (copy-warp) and ASK #6 (undo) already give the
 post-deploy moment *functional* weight — the owner may decide the functional affordances are enough and the
 celebration is optional.
+**→ BUILT 2026-07-24 (MERGE A's vehicle):** `shell._celebrate_first_deploy` — a once-ever palette-only
+fit_dialog card ("It's in your game" + the ~ walk with the warp id), gated by the has_deployed latch read
+pre-latch (no second pref), `.open()`-non-blocking (the modal law). No gold, no animation.
 
 ### 20. Bridge the two "flags" — authored [[flag]] defs and a save's story bits  ·  score 29  ·  M / low
 **Lens:** wayfinding. **Evidence:** "flags" names two things — the tree's authored `[[flag]]` definitions and

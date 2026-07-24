@@ -1811,6 +1811,96 @@ def validate(project: FieldProject) -> list[str]:
         z = b.get("zone")
         if z is not None and (not isinstance(z, (list, tuple)) or len(z) not in (4, 5)):
             problems.append(f"[[synthesis]] shop {sid} zone must have 4 or 5 points (the press area)")
+    # vanilla-recipe edits ([[synthesis_edit]]: retune/remove a base Synthesis.csv recipe via whole-row override).
+    # The selector check against the base file is best-effort (needs the install, like itemstats); the value
+    # checks are offline.
+    synth_edit_blocks = project.raw.get("synthesis_edit", [])
+    _synth_base = _synthesis.install_base_rows() if synth_edit_blocks else None
+    for i, b in enumerate(synth_edit_blocks):
+        if not isinstance(b, dict):
+            problems.append(f"[[synthesis_edit]] #{i} must be a table (recipe = ..., then "
+                            f"price/ingredients/result/shops or remove = true)")
+            continue
+        sel = b.get("recipe")
+        label = f"[[synthesis_edit]] #{i}"
+        if sel is None or isinstance(sel, bool) or not isinstance(sel, (int, str)):
+            problems.append(f"{label} needs `recipe` -- the base recipe's RESULT item name, or its integer Id")
+        else:
+            label = f"[[synthesis_edit]] recipe {sel!r}"
+            if isinstance(sel, str):
+                try:
+                    _items.resolve(sel)                     # the item NAME resolves offline
+                except (ValueError, IndexError, TypeError) as e:
+                    problems.append(f"{label}: {e}")
+                else:
+                    if _synth_base is not None:
+                        m = _synthesis.resolve_recipe_selector(sel, _synth_base)
+                        if not m:
+                            problems.append(f"{label} matches no base recipe (no vanilla recipe produces it)")
+                        elif len(m) > 1:
+                            problems.append(f"{label} is ambiguous (base recipe ids {', '.join(map(str, m))} "
+                                            f"all produce it) -- select by integer Id")
+            else:
+                if sel < 0:
+                    problems.append(f"{label}: a recipe Id cannot be negative")
+                elif _synth_base is not None and sel not in _synth_base:
+                    problems.append(f"{label} is not a base recipe Id (the base file has "
+                                    f"0..{max(_synth_base, default=-1)}; an integer selects the recipe's Id, "
+                                    f"a string its RESULT item's name)")
+        edits_present = [k for k in ("price", "ingredients", "result", "shops") if k in b]
+        rm = b.get("remove")
+        if rm is not None and not isinstance(rm, bool):
+            problems.append(f"{label} remove must be true/false, got {rm!r}")
+        if rm is True and edits_present:
+            problems.append(f"{label}: remove = true is exclusive -- drop {', '.join(edits_present)} "
+                            f"(a removed recipe's other cells are irrelevant)")
+        if not edits_present and not rm:
+            problems.append(f"{label} has nothing to change -- set price/ingredients/result/shops, "
+                            f"or remove = true")
+        price = b.get("price")
+        if price is not None:
+            if isinstance(price, bool) or not isinstance(price, int):
+                problems.append(f"{label} price must be an integer, got {price!r}")
+            elif price < 0:
+                problems.append(f"{label} price cannot be negative")
+        if "result" in b:
+            try:
+                if _items.resolve(b["result"]) == _synthesis.NO_ITEM:
+                    problems.append(f"{label} result is NoItem (255) -- use remove = true to retire the recipe")
+            except (ValueError, IndexError, TypeError) as e:
+                problems.append(f"{label} result: {e}")
+        ingr = b.get("ingredients")
+        if ingr is not None:
+            if not isinstance(ingr, (list, tuple)):         # a bare string iterates char-by-char -> guard first
+                problems.append(f"{label} ingredients must be a list of items")
+            elif not ingr:
+                problems.append(f"{label} ingredients cannot be empty (a recipe needs >= 1 real ingredient)")
+            else:
+                resolved = []
+                for it in ingr:
+                    try:
+                        resolved.append(_items.resolve(it))
+                    except (ValueError, IndexError, TypeError) as e:
+                        problems.append(f"{label} ingredients: {e}")
+                if resolved and all(x == _synthesis.NO_ITEM for x in resolved):
+                    problems.append(f"{label} ingredients are all NoItem (255)")
+        shops = b.get("shops")
+        if shops is not None:
+            if not isinstance(shops, (list, tuple)):
+                problems.append(f"{label} shops must be a list of synth-shop ids")
+            elif not shops:
+                problems.append(f"{label} shops = [] unlists the recipe everywhere -- say remove = true instead")
+            else:
+                for s in shops:
+                    if isinstance(s, bool) or not isinstance(s, int) \
+                            or not (_synthesis.FIRST_SYNTH_SHOP <= s <= _synthesis.MAX_SHOP_ID):
+                        problems.append(f"{label} shops entry {s!r} must be a shop id "
+                                        f"{_synthesis.FIRST_SYNTH_SHOP}..{_synthesis.MAX_SHOP_ID} "
+                                        f"(0-{_synthesis.FIRST_SYNTH_SHOP - 1} are base BUY shops and never "
+                                        f"open as Synthesis)")
+                    elif s in shop_ids_local:
+                        problems.append(f"{label} shops entry {s} is also a [[shop]] id -- it opens as a BUY "
+                                        f"shop, so the recipe would not show there")
     choice_npcs = {ch["npc"] for ch in project.raw.get("choice", []) if "npc" in ch}
     for i, n in enumerate(project.raw.get("npc", [])):     # a shopkeeper NPC ([[npc]] opens_shop = id)
         os_ = n.get("opens_shop")
@@ -4064,10 +4154,27 @@ def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
+def _npc_needs_default_talk(project: FieldProject, n: dict) -> bool:
+    """True when this ``[[npc]]`` keeps the DEFAULT ``WindowSync`` talk func with no authored text behind
+    it: no ``dialogue``, no author-directed ``text_id``, and nothing REPLACING the plain talk (no attached
+    ``[[choice]]``, no ``opens_shop``). Such an NPC must be allocated its OWN `.mes` line
+    (:data:`content.text.DEFAULT_SILENT_TALK`) -- pointing its talk at the raw allocation base instead
+    made it render whichever entry allocated that txid first (the fort-condor swarm bench: 40 silent NPCs
+    all opened the [[choice]] prompt, dead menu rows included, with no GetChoose dispatch behind them).
+    Shared by the synth (:func:`collect_text`) and verbatim (:func:`_verbatim_npc_messages`) channels so
+    both allocate identically."""
+    if "dialogue" in n or n.get("text_id") is not None or n.get("opens_shop") is not None:
+        return False
+    name = n.get("name")
+    return not (name and any(ch.get("npc") == name for ch in (project.raw.get("choice") or [])))
+
+
 def _verbatim_npc_message_count(project: FieldProject) -> int:
-    """How many ``[[npc]]`` carry dialogue (the size of the verbatim NPC appended-text block, so the
-    ``[[event]]`` block can sit above it)."""
-    return sum(1 for n in (project.raw.get("npc", []) or []) if n.get("dialogue"))
+    """How many `.mes` lines the verbatim NPC appended-text block holds -- one per ``[[npc]]`` with
+    dialogue plus one per dialogue-less default-talk NPC (its silent line; the same predicate
+    :func:`_verbatim_npc_messages` allocates by) -- so the ``[[event]]`` block can sit above it."""
+    return sum(1 for n in (project.raw.get("npc", []) or [])
+               if n.get("dialogue") or _npc_needs_default_talk(project, n))
 
 
 def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
@@ -4385,21 +4492,28 @@ def _logic_add_message_count(project: FieldProject) -> int:
 
 
 def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
-    """For a verbatim fork's authored ``[[npc]]`` dialogue: give each voiced NPC's talk line a txid ABOVE the
+    """For a verbatim fork's authored ``[[npc]]`` talk text: give each voiced NPC's dialogue line -- and
+    each dialogue-less default-talk NPC's silent line (:func:`_npc_needs_default_talk`) -- a txid ABOVE the
     donor `.mes` + the ``[[on_entry]]`` and ``[[logic_add]]`` message blocks (all disjoint), plus the
     per-language `.mes` lines to append. The injected NPC's ``_SpeakBTN`` ``WindowSync`` resolves into the
-    appended entry, so it speaks. Returns ``(txid_by_npc_index, suffix_by_lang)`` keyed by the index into
-    ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` carries dialogue. Single-block (the same text for
-    every language, like the other appenders -- the `.eb` is injected once, language-identical)."""
-    voiced = [(i, n) for i, n in enumerate(project.raw.get("npc", []) or []) if n.get("dialogue")]
-    if not voiced:
+    appended entry, so it speaks (a silent NPC shows its own "..."). Returns ``(txid_by_npc_index,
+    suffix_by_lang)`` keyed by the index into ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` needs a
+    line. Single-block (the same text for every language, like the other appenders -- the `.eb` is injected
+    once, language-identical)."""
+    npcs = project.raw.get("npc", []) or []
+    voiced = [(i, n) for i, n in enumerate(npcs) if n.get("dialogue")]
+    # a dialogue-less DEFAULT-TALK NPC rides the same channel (its own silent line), appended AFTER the
+    # voiced block so an existing fork's voiced txids stay byte-stable. The old fallback (txid 500)
+    # landed INSIDE the donor's own `.mes` band (real donor text reaches 863) = a random donor line.
+    silent = [(i, n) for i, n in enumerate(npcs) if _npc_needs_default_talk(project, n)]
+    if not (voiced or silent):
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project))
     wrap = _wrap_width(project)
     lines, tails, txid_by_idx = [], [], {}
-    for j, (i, n) in enumerate(voiced):
-        line = _text.with_speaker(n.get("speaker"), n["dialogue"])
+    for j, (i, n) in enumerate(voiced + silent):
+        line = _text.with_speaker(n.get("speaker"), n.get("dialogue") or _text.DEFAULT_SILENT_TALK)
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
         lines.append(line)
@@ -5722,6 +5836,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 pass
         eb = _reinit.add_reinit(eb, with_fade=True, prologue=_dr_prologue)
 
+    # [music] stop -- force-STOP whatever field/battle BGM is resident on room entry, unconditionally.
+    # Prepended LAST among Main_Init's rel_off=0 inserts (after [startup]/[party]/the walkmesh hotfix
+    # above), so its RunSoundCode(265, 0xFFFF) becomes the literal FIRST instruction Main_Init runs --
+    # no earlier code can let a carried-in resident song (from the previous field, or a battle) survive
+    # into this one. See content.music.add_stop_current_music for the byte-census grounding.
+    if project.raw.get("music", {}).get("stop"):
+        eb = _music.add_stop_current_music(eb)
+
     # field music (song is optional -- a [music] section with no song = no field music, skip it)
     if project.raw.get("music", {}).get("song") is not None:
         song = int(project.raw["music"]["song"])
@@ -6190,7 +6312,9 @@ def collect_text(project: FieldProject):
     (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
     ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
     {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
-    one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box.
+    one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box. A dialogue-less default-talk
+    ``[[npc]]`` (:func:`_npc_needs_default_talk`) allocates its OWN silent line, added LAST -- its talk
+    never points at the bare allocation base (which rendered whichever entry allocated txid 500 first).
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
@@ -6505,6 +6629,15 @@ def collect_text(project: FieldProject):
             if wrap is not None:
                 al = _text.wrap_text(al, wrap)[0]
             act_pos[k] = _add_raw("[IMME]" + al + "[TIME=20]", sp.get("tail"))
+    # dialogue-less [[npc]] default talk: an NPC with NO dialogue (and nothing replacing the plain talk --
+    # no attached [[choice]], no opens_shop, no explicit text_id) still keeps a WindowSync talk func, and
+    # that WindowSync needs a txid the NPC OWNS. Pointing it at the allocation BASE (500) rendered whichever
+    # entry allocated 500 first (the fort-condor swarm bench: 40 silent NPCs all opened the [[choice]]
+    # prompt, dead menu rows included). Each gets its own silent "..." line instead. Added LAST so a field
+    # with none keeps the previous text layout byte-identical.
+    for i, n in enumerate(project.raw.get("npc", [])):
+        if i not in npc_pos and _npc_needs_default_talk(project, n):
+            npc_pos[i] = _add(n, _text.DEFAULT_SILENT_TALK)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
@@ -7411,10 +7544,11 @@ def _emit_shops(projects, layout) -> list:
 
 def _emit_synthesis(projects, layout) -> list:
     """Emit the mod-GLOBAL synthesis-recipe delta (``Data/Items/Synthesis.csv``) from every built field's
-    ``[[synthesis]]`` blocks. Recipes are minted above the base max + merged by id, so any field may add its own.
-    A synth shop id (``Menu(2, id)``) must NOT also be a ``[[shop]]`` buy id -- an id present in ShopItems.csv
-    opens as a BUY shop, so the recipes would not show; warned. No ``[[synthesis]]`` anywhere -> no file written.
-    Reads the install's base ``Synthesis.csv``; no install -> warn + skip. Returns warnings."""
+    ``[[synthesis]]`` + ``[[synthesis_edit]]`` blocks. New recipes are minted above the base max; an edited
+    VANILLA recipe re-emits its base row with the changed cells (whole-row-wins merge by id). A synth shop id
+    (``Menu(2, id)``) must NOT also be a ``[[shop]]`` buy id -- an id present in ShopItems.csv opens as a BUY
+    shop, so the recipes would not show; warned. No blocks anywhere -> no file written. Reads the install's
+    base ``Synthesis.csv``; no install -> warn + skip. Returns warnings."""
     warnings: list = []
     shop_ids = set()
     for p in projects:
@@ -7436,11 +7570,14 @@ def _emit_synthesis(projects, layout) -> list:
                 warnings.append(f"[[synthesis]] shop {sid} is ALSO a [[shop]] buy id -- a shop id present in "
                                 f"ShopItems.csv opens as a BUY shop, so the recipes would NOT show (use a free id)")
             blocks.append(b)
-    if blocks:
+    edit_blocks = [b for p in projects for b in p.raw.get("synthesis_edit", []) if isinstance(b, dict)]
+    if blocks or edit_blocks:
+        notes: list = []                                    # edit-side skip/merge notes -> build warnings
         try:
-            _synthesis.write_synthesis(layout, blocks)
+            _synthesis.write_synthesis(layout, blocks, edit_blocks=edit_blocks, notes=notes)
         except ValueError as e:                             # e.g. no install to read the base Synthesis.csv
             warnings.append(f"synthesis recipes skipped: {e}")
+        warnings.extend(notes)
     return warnings
 
 

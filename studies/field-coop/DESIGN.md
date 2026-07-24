@@ -233,7 +233,18 @@ cutscene-sync research note from the memory.
   asymmetry rule applies: update both machines anyway).
 - **Round F2 — wire v11:** the transition-intent lane + dialogue L1 (co-location) — L1 needs the
   host's in-event broadcast, so it shares the bump.
-- **Round F3:** dialogue L2 (confirm/choice mirror) — full lockstep per the ratified decision.
+  - **F2: ★ PROVEN (headline boxes) 2026-07-23** — the `SetNextMap` emit-point idea above was
+    corrected to the MAPJUMP handler (the WMAPJUMP conflation); the same evening's solo bench +
+    two-machine session proved the transition-intent lane + L1 co-location on the four headline
+    boxes (log-level and behavior boxes left OPEN, not closed); detail → `F1-BUILD.md`'s F2
+    section.
+- **Round F3 — wire v12:** dialogue L2 (confirm/choice mirror) — full lockstep per the ratified
+  decision.
+  - **F3: ★ BUILT 2026-07-23** (censused, ratified scope, reviewed) — the census synthesis
+    (`dialogue-census/DIFFICULTY-VERDICT.md`) repriced the ratified design cheaper before build:
+    **no MAP mirror** (MAP state is derived, not root — the design delta) + same-language sessions
+    documented, not special-cased; the pre-build adversarial review found no ship-blockers; solo
+    bench + two-machine proof are PENDING; detail → `F1-BUILD.md`'s F3 section.
 - Each gate ships with its selftest bench arm (see The frame) and one-line decline telemetry (the
   B3.3b every-gate-logs law). Sequencing vs the outstanding netsync queue: the s42 fixes are
   deployed-unproven and the B3.6 two-machine boxes are still open — F1 should not land in the same

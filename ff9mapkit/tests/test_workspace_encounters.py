@@ -68,6 +68,46 @@ def _select_encounter(lib):
     return idx
 
 
+# ---------------------------------------------------------------- TAILOR: the library hears the dial ---
+def test_the_library_box_is_a_function_of_its_font(app):
+    """TAILOR's last deliberate skip, converted: resize(900, 580) was one font at one scale. The box,
+    the sidebar cap, and the pane split must now DERIVE from the dialog's own polished font -- asserted
+    as formula equality (the same inputs on both sides, so offscreen's inflated advances cancel out)."""
+    from PySide6.QtGui import QFontMetricsF
+
+    lib = CatalogLibrary(None, None, pick_palette("dark"))
+    fm = QFontMetricsF(lib.font())
+    screen = lib.screen() or QApplication.primaryScreen()
+    avail = screen.availableGeometry()
+    assert lib.width() == min(round(fm.averageCharWidth() * 140), int(avail.width() * 0.92))
+    assert lib.height() == min(round(fm.height() * 30), int(avail.height() * 0.85))
+    frame = 2 * lib.cats.frameWidth()
+    want = min(lib.cats.sizeHintForColumn(0) + frame + lib.cats.verticalScrollBar().sizeHint().width() + 8,
+               round(fm.averageCharWidth() * 34))
+    assert lib.cats.maximumWidth() == want, "the sidebar asks for its own longest row, ch-capped"
+
+
+def test_the_library_grows_with_its_font(app):
+    """The relationship half: a bigger base font must widen the sidebar's cap. The cap is the proxy on
+    purpose -- the outer box hits the screen clamp on offscreen's ~800px fake screen (fit_dialog's own
+    documented trap: growth fences need a measure the clamp can't eat). The app font is restored in a
+    finally so this test never pollutes the worker's later modules (the round-9 disease)."""
+    from PySide6.QtGui import QFont
+
+    inst = QApplication.instance()
+    base = QFont(inst.font())
+    small = CatalogLibrary(None, None, pick_palette("dark")).cats.maximumWidth()
+    big_font = QFont(base)
+    ps = base.pointSize()
+    big_font.setPointSize((ps if ps > 0 else 12) * 2)
+    inst.setFont(big_font)
+    try:
+        big = CatalogLibrary(None, None, pick_palette("dark")).cats.maximumWidth()
+    finally:
+        inst.setFont(base)
+    assert big > small, "the sidebar cap must hear the font it caps"
+
+
 # ------------------------------------------------------------------------- (a) the Encounters section ---
 def test_library_has_an_encounters_section_even_cold(app):
     # picker-only kind -> the sidebar count comes from the build-free encounter_entries(), so the section is

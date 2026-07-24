@@ -6,6 +6,11 @@ Field music plays via ``RunSoundCode(0, songId)`` (``ff9fldsnd_song_play``); e.g
     activates it from Main_Init (plays on room entry) — same shift-free mechanism as encounters.
   * :func:`add_music_to_reinit` inserts the same call into the entry-0 tag-10 handler so the
     track resumes after a battle (otherwise the field is silent on battle-return).
+
+A field that wants no music of its own (a silent bench, a hush beat) needs a THIRD thing:
+:func:`add_stop_current_music` force-stops whatever BGM is already resident (carried in from the
+previous field, or a battle) — see ``SONG_STOPCURRENT`` below for the byte-grounding. Wired by
+``[music] stop = true``.
 """
 
 from __future__ import annotations
@@ -24,10 +29,47 @@ SONG_PLAY = 0       # FF9SOUND_SONG_PLAY
 SONG_LOAD = 1792    # FF9SOUND_SONG_LOAD (0x0700)
 _BGM_CODES = (SONG_PLAY, SONG_LOAD)
 
+# FF9SOUND_SONG_STOPCURRENT (Memoria FF9Snd.cs FF9AllSoundDispatch case 265) unconditionally stops
+# WHATEVER song is currently resident -- no song id needed, unlike FF9SOUND_SONG_STOP (256) which
+# stops one NAMED song. The ObjNo argument is ignored by this dispatch case (SoundLib logs it and
+# calls FF9SOUND_SONG_STOPCURRENT() with no args), so the byte-true stock idiom always passes a
+# sentinel: a byte census of every one of the 818 shipping field ``.eb`` scripts finds
+# ``RunSoundCode(265, 0xFFFF)`` used 3934 times, ALWAYS with this exact 0xFFFF ObjNo (never any
+# other value) -- the game's own "kill whatever's playing, I don't care what it is" idiom, mostly at
+# cutscene/ATE music transitions. (Field 70 -- the New-Game/title-override field -- is the one stock
+# field that fires it at the very top of Main_Init, gated on a story check.) This is the SAME
+# opcode+sentinel pair the kit already ships as :data:`ff9mapkit.content.event.WARP_SOUND` -- "the
+# field-transition whoosh present byte-identically in EVERY real warp" -- independently verified
+# there against the airship/Dali-innkeeper/Gargan-Roo talk handlers; a second, unrelated grounding
+# of the same bytes.
+SONG_STOPCURRENT = 265
+_STOPCURRENT_OBJNO = 0xFFFF
+
 
 def _music_entry(song: int) -> bytes:
     code = opcodes.run_sound_code(0, song) + opcodes.RETURN
     return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code
+
+
+def stop_current_music_bytes() -> bytes:
+    """``RunSoundCode(265, 0xFFFF)`` -- ``FF9SOUND_SONG_STOPCURRENT()``, the byte-true stock idiom for
+    unconditionally silencing whatever field/battle BGM is currently resident (see ``SONG_STOPCURRENT``
+    above for the census grounding)."""
+    return opcodes.run_sound_code(SONG_STOPCURRENT, _STOPCURRENT_OBJNO)
+
+
+def add_stop_current_music(eb_bytes) -> bytes:
+    """Force-stop whatever BGM is resident on room entry, unconditionally. Prepended to the very start
+    of Main_Init (entry 0, tag 0) via ``insert_in_function(..., rel_off=0)`` -- a prepend is ALWAYS safe
+    (even past a 0x06 scenario jump table, see :func:`ff9mapkit.eb.edit.insert_in_function`) and, applied
+    LAST among Main_Init's rel_off-0 inserts (i.e. after ``[startup]``/``[party]``/the walkmesh hotfix in
+    :func:`build_script`), becomes the literal FIRST instruction the field runs -- so no earlier code path
+    can let a carried-in resident song (from the previous field, or a battle) survive into this one.
+    Wired by ``[music] stop = true`` (docs/FORMAT.md); needs no song id at all, unlike
+    :func:`add_field_music` (adds a new song) or :func:`replace_field_music` (swaps a known one) --
+    exactly what a field with no ``[music] song`` of its own needs to guarantee REAL silence instead of
+    inheriting whatever was already playing."""
+    return edit.insert_in_function(eb_bytes, 0, 0, 0, stop_current_music_bytes())
 
 
 def add_field_music(eb_bytes, song: int, *, slot: int | None = None, spawn_wait_n: int = 2,

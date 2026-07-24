@@ -53,6 +53,7 @@ from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
+from .worlddoc import WorldDoc
 from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
@@ -66,6 +67,12 @@ from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 _LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
+_THUMB_QUIET_MS = 600                              # thumb workers stay paused this long after an open settles
+_THUMB_QUIET_STARTUP_MS = 3000                     # the CONSTRUCTION hold's grace: main()'s show()/
+                                                   # processEvents()/update-flow window pumps timer events
+                                                   # BEFORE restore_last_session, so a short grace released
+                                                   # the workers into the restore (measured: 0.9s -> 1.7s);
+                                                   # any open re-arms down to the short grace anyway
 _DEFAULT_CONSOLE_SPLIT = [560, 220]                # [documents, console] px when nothing is persisted
 _DEFAULT_CENTRAL_SPLIT = [300, 640, 240]           # [tree, documents, inspector] px when nothing is persisted
 
@@ -557,6 +564,11 @@ class Workspace(QMainWindow):
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
         self.thumbs.ready.connect(self._on_thumb_ready)
+        # HOLD both workers before any tab can enqueue a build (ModelsDoc's construction-time refill
+        # queues its top-of-list batch RIGHT NOW on a cold cache), with the LONG startup grace: main()
+        # pumps events (show/update-flow) before restore_last_session, so a short grace would release
+        # the workers into the restore. The restore's own open re-arms down to the short grace.
+        self._thumbs_quiet(ms=_THUMB_QUIET_STARTUP_MS)
         self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
         self._thumb_rerender.setSingleShot(True)
         self._thumb_rerender.setInterval(250)
@@ -669,6 +681,8 @@ class Workspace(QMainWindow):
             self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
         if getattr(self, "map", None) is not None:
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
+        if getattr(self, "world_doc", None) is not None:
+            self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
 
     def _apply_density(self, density):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
@@ -713,6 +727,8 @@ class Workspace(QMainWindow):
             self._lede.set_scale(self._text_scale)     # the card's mark is PAINTED -- see LedeCard._up
         if getattr(self, "map", None) is not None:
             self.map.set_scale(self._text_scale)       # the campaign map is a QGraphicsScene -- same story
+        if getattr(self, "world_doc", None) is not None:
+            self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1016,6 +1032,15 @@ class Workspace(QMainWindow):
                                "campaign/journey deploys always confirm.")
         confirm_rev.setChecked(prefs.confirm_reversible_deploys())
         lay.addWidget(confirm_rev)
+        # ASK #16 (raise/flash only -- the chair killed the synthetic tilde-tap). Opt-in, default OFF:
+        # focus-stealing is intrusive as a default. Windows-only by mechanism; elsewhere it no-ops.
+        raise_chk = QCheckBox("Bring the FF9 window to the front after a deploy")
+        raise_chk.setObjectName("raise_game_chk")
+        raise_chk.setToolTip("After a successful deploy, raise the running game so ~ (tilde) is one "
+                             "keypress away. Off (default): the Workspace keeps focus. If Windows "
+                             "refuses the raise, the game's taskbar button flashes instead.")
+        raise_chk.setChecked(prefs.raise_game_after_deploy())
+        lay.addWidget(raise_chk)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
             chk.setObjectName("update_chk")
@@ -1047,6 +1072,7 @@ class Workspace(QMainWindow):
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
             prefs.set_confirm_reversible_deploys(confirm_rev.isChecked())
+            prefs.set_raise_game_after_deploy(raise_chk.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -1106,9 +1132,10 @@ class Workspace(QMainWindow):
 
     def _show_concept_map(self):
         """Open the 'How it all fits' concept map -- a diagram of how a project nests (journey ▸ campaign ▸
-        field ▸ contents), each box opening its plain-language card."""
+        field ▸ contents), each box opening its plain-language card. The map is a QGraphicsScene, so the
+        CALIBRE dial has to be THREADED (no stylesheet reaches painted text -- the mapview law)."""
         from .conceptmap import show_concept_map
-        show_concept_map(self, self.pal, self._show_concept).exec()
+        show_concept_map(self, self.pal, self._show_concept, scale=self._text_scale).exec()
 
     def _open_about(self):
         """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
@@ -1450,6 +1477,11 @@ class Workspace(QMainWindow):
         self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup,
                                 on_build=lambda: self.tabs.setCurrentWidget(self.build_deploy))
         self.tabs.addTab(self.coop_doc, "Co-op")
+        # the overworld pillar's front door: an atlas of the deployed Block[x][y] override tree
+        # (islands / mountains / water carries / donors / the Disc4 mirror). Scans ONLY on the user's
+        # own Scan click -- construction and tab-show touch no filesystem (the startup-spend law).
+        self.world_doc = WorldDoc(self.pal, on_setup=self._open_setup, scale=self._text_scale)
+        self.tabs.addTab(self.world_doc, "World")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1464,7 +1496,7 @@ class Workspace(QMainWindow):
             ("Author", [self.doc_scroll, self.map]),
             ("Assets", [self.import_field, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
-            ("Ship", [self.build_deploy, self.coop_doc]),
+            ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
         ]
         self._rail_busy = False
         rail = QWidget()
@@ -1505,7 +1537,11 @@ class Workspace(QMainWindow):
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
         self.insp_title.setProperty("role", "head")
-        self.insp_body = QLabel("Select something on the left.")
+        # The empty-state is TAB-AWARE (ask-user #14's low-risk half) and set by _refresh_insp_empty
+        # below once the tabs exist -- a construction literal here would ship the false instruction.
+        self.insp_body = QLabel("")
+        self._insp_empty = True                    # True until the first card mounts (never reset -- a
+                                                   # mounted card outlives its project, as it always has)
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
         self.insp_body.setTextFormat(Qt.TextFormat.RichText)        # the file line is a copy-to-clipboard link
@@ -1515,6 +1551,7 @@ class Workspace(QMainWindow):
         self._inspect_path = None
         self.insp_body.setProperty("role", "muted")   # re-tints via QSS -> retheme's insp_body re-tint was dropped
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._refresh_insp_empty()                 # seed the tab-aware empty-state (tabs + tree exist by here)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
         # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
@@ -2319,6 +2356,7 @@ class Workspace(QMainWindow):
         you drill into any campaign to edit it (the journey stays remembered)."""
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()
         path = Path(path)
         try:
@@ -3558,18 +3596,16 @@ class Workspace(QMainWindow):
         never offset by a campaign/journey flag-window -- so this is a pure identity map (no offset math, the
         whole no-mislabel guarantee). Fail-safe: ANY error -> ``{}`` (no annotation rather than a wrong one).
         A cross-source index collision -> an ``<ambiguous>`` sentinel, never a silent pick."""
-        import tomllib
         from .. import flags as _flags
+        # mtime+size-cached parse: the journey branch below re-reads every member field.toml the lint
+        # pass just parsed (800+ files on a full arc) -- the cache turns those into cheap copies.
+        from ..tomlcache import load_toml as _read
         seen: dict = {}
 
         def _add(raw):
             for idx, name in _flags.project_flag_names(raw).items():
                 prev = seen.get(idx)
                 seen[idx] = name if prev in (None, name) else "<ambiguous>"
-
-        def _read(p):
-            with open(p, "rb") as fh:
-                return tomllib.load(fh)
 
         try:
             if self.manifest is not None and self.plan is None:        # JOURNEY: every member of every campaign
@@ -3630,6 +3666,7 @@ class Workspace(QMainWindow):
         can be edited directly. Mirrors the tkinter editor opening a lone file."""
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         self.thumbs.invalidate()                   # same-named fields across projects (see open_campaign)
         path = Path(path)
@@ -3738,6 +3775,7 @@ class Workspace(QMainWindow):
     def open_campaign(self, path, *, keep_journey=False) -> bool:
         if not self._maybe_prompt_unsaved():
             return False
+        self._thumbs_quiet()                       # a mid-churn worker must not tax this open for the GIL
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         self.thumbs.invalidate()                   # member NAMES recur across projects (same-FBG forks) --
         path = Path(path)                          # never show the previous project's art; re-resolution is
@@ -4246,6 +4284,7 @@ class Workspace(QMainWindow):
         kind, label, _key = p
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")
+        self._insp_empty = False                   # a card is mounting -- the empty-state's watch ends
         self._inspect_path = None
         self._content_crumbs = self._journey_crumbs(item)     # full hub▸journey▸campaign trail to THIS node
         self.crumb.set(self._content_crumbs)
@@ -4333,6 +4372,9 @@ class Workspace(QMainWindow):
         elif w is self.models_doc:
             self.crumb.set([bc.Crumb("model", w.crumb_label())])
             self._set_chip("model")
+        elif w is self.world_doc:                  # the atlas names its scanned folder; no edit chip
+            self.crumb.set([bc.Crumb("world", w.crumb_label())])
+            self._set_chip(None)
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
@@ -4340,6 +4382,7 @@ class Workspace(QMainWindow):
                 self._refresh_home_status()
         if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
             self._sync_rail()
+        self._refresh_insp_empty()                  # the untouched inspector's empty-state is tab-aware (#14)
 
     def _activate_group(self, gi, *, switch=True):
         """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
@@ -4435,6 +4478,7 @@ class Workspace(QMainWindow):
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
+            ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
@@ -7073,14 +7117,59 @@ class Workspace(QMainWindow):
             QApplication.clipboard().setText(self._inspect_path)
             self.statusBar().showMessage(f"Copied path: {self._inspect_path}", 4000)
 
+    def _insp_empty_text(self):
+        """The inspector's EMPTY-state line, tab-aware (ask-user #14 -- the chair's low-risk half).
+        'Select something on the left.' is an instruction, and it is only TRUE where following it keeps
+        you in place: the tree-driven Editor tab with a populated tree. On a self-contained tab
+        (Build/Import/Battle/Save/Co-op/...) a tree click JUMPS you to the Editor, and over an empty
+        tree there is nothing to select -- both showed a FALSE instruction. Those get a thin muted
+        rule instead: presence, not advice. (The full per-tab context card stays an owner decision --
+        studies/gui-ux/PROPOSALS.md ASK #14.)"""
+        if self.tree.topLevelItemCount() and self.tabs.currentWidget() is self.doc_scroll:
+            return "Select something on the left."
+        return self._muted("⸻")
+
+    def _refresh_insp_empty(self):
+        """Re-derive the empty-state (construction + every tab change) -- only while nothing has ever
+        been inspected. A mounted card is CONTENT and stays put across tabs, as it always has; this
+        exists solely so the never-touched inspector cannot show its instruction where it is false.
+        getattr, not attribute reads: the rail's construction-time setTabVisible can fire a tab change
+        before the inspector block has built either attribute."""
+        if getattr(self, "_insp_empty", False) and getattr(self, "insp_body", None) is not None:
+            self.insp_body.setText(self._insp_empty_text())
+
+    def _goto_tree_section(self, member, sect):
+        """A CONTENTS-rollup tally -> its own tree row (ask-user #7, the tree half -- the call-site law:
+        the jump mechanism existed in _reveal_after_undo and the rollup named content without spending
+        it). Lists land their group header (NPCs (3)); singles (music/encounter/cutscene) their section
+        node; a row the lazy tree hasn't built falls back to the member row -- never a dead click."""
+        node = None
+        if sect in _LIST_DEFAULTS:
+            node = self._object_item(member, sect, kind="group")
+        elif sect in dict(_SINGLE):
+            node = self._object_item(member, sect, kind="object")
+        if node is None:
+            node = getattr(self, "_member_items", {}).get(member)
+        if node is None:
+            return
+        self.tabs.setCurrentWidget(self.doc_scroll)
+        if self.tree.currentItem() is node:
+            self._on_select()                         # selection unchanged -> mount manually (no signal fires)
+        else:
+            self.tree.setCurrentItem(node)
+
     def _inspect_link(self, href):
         """Inspector hyperlink dispatch: 'copy' -> copy the file path; 'goto:battle:<id>' -> jump to the
-        Battle tab for an encounter's scene; 'goto:<member>' -> select that field; 'jseed:'/'jtuning:<id>' ->
-        the journey seed / tuning editors (the same callbacks the journey button row + right-click bind)."""
+        Battle tab for an encounter's scene; 'goto:tree:<member>:<sect>' -> that section's tree row (the
+        rollup tallies); 'goto:<member>' -> select that field; 'jseed:'/'jtuning:<id>' -> the journey
+        seed / tuning editors (the same callbacks the journey button row + right-click bind)."""
         if href == "copy":
             self._copy_inspect_path("copy")
         elif href.startswith("goto:battle:"):
             self._goto_battle_scene(href[len("goto:battle:"):])
+        elif href.startswith("goto:tree:"):
+            member, _, sect = href[len("goto:tree:"):].rpartition(":")   # member names carry no ':' (validated)
+            self._goto_tree_section(member, sect)
         elif href.startswith("goto:"):
             self._select_member(href[len("goto:"):])
         elif href.startswith("jseed:"):
@@ -7147,6 +7236,7 @@ class Workspace(QMainWindow):
         kind, label, key = payload
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
+        self._insp_empty = False                            # a card is mounting -- the empty-state's watch ends
         self._inspect_path = None
         if kind in _LOGIC_KINDS or kind == "chocobo_root":  # a logic-map node / the chocobo entry -> its detail
             detail = item.data(0, _DETAIL) or []
@@ -7544,6 +7634,31 @@ class Workspace(QMainWindow):
                 pass
         threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
 
+    def _thumbs_quiet(self, ms=_THUMB_QUIET_MS):
+        """Pause BOTH thumb workers' builds until the current GUI-thread interval settles (a single-shot
+        timer releases them ``ms`` after the event loop next idles -- it cannot fire while an open still
+        runs, because opens are synchronous on the GUI thread). The cold-cache sibling of the a13acf8
+        startup fix: requests still answer warm cache hits instantly and cold members still QUEUE, but
+        the workers' UnityPy import + bundle loads no longer race a journey/campaign open for the GIL
+        (measured: a ~0.9s warm open inflated to ~3-4s cold). Called at construction (with the long
+        startup grace -- see ``_THUMB_QUIET_STARTUP_MS``) and at the top of every project open;
+        re-arming while already held replaces the remaining grace with ``ms``."""
+        t = getattr(self, "_thumb_quiet_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._thumbs_resume)
+            self._thumb_quiet_timer = t
+        if not t.isActive():                       # one hold per armed timer -- timeout releases it
+            self.thumbs.hold()
+            self.model_thumbs.hold()
+        t.setInterval(ms)
+        t.start()                                  # (re)arm: every open gets the full settle grace
+
+    def _thumbs_resume(self):
+        self.thumbs.release()
+        self.model_thumbs.release()
+
     def _prefetch_thumbs(self):
         """Request every open member's background thumbnail. Warm disk answers land in-memory INSTANTLY
         but emit no ready() -- so any Map render that ran before this loop would stay artless without the
@@ -7602,7 +7717,7 @@ class Workspace(QMainWindow):
             ident.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
                          + self._link("openparent", "Open the campaign (full context)"))
         if doc is not None:
-            contents.append(self._rollup(doc.data))
+            contents.append(self._rollup(doc.data, name))
             contents += self._battle_party_lines(doc.data)  # encounter scene / [party] / [startup] read-only detail
             if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
                 contents.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
@@ -7621,27 +7736,33 @@ class Workspace(QMainWindow):
                          f'file: {Path(path).name}  ⧉ copy</a>')
         return [("Identity", ident), ("Contents", contents), ("Connections", conn)]
 
-    def _rollup(self, data):
-        """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
+    def _rollup(self, data, member):
+        """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts.
+        Every tally is a LINK to its own tree row (ask-user #7, the tree half): the jump mechanism existed
+        (_reveal_after_undo's node resolve) and this line named the content without spending it -- the
+        call-site law, again. 'encounter' got a goto:battle link while 'BGM' sat inert beside it."""
+        def seg(sect, label):
+            return self._link(f"goto:tree:{member}:{sect}", label)
         bits = []
         for sect, sing in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"),
                            ("chest", "chest"), ("marker", "marker"), ("choice", "choice")):
             n = len(data.get(sect, []) or [])
             if n:
-                bits.append(f"{n} {sing}{'' if n == 1 else 's'}")
+                bits.append(seg(sect, f"{n} {sing}{'' if n == 1 else 's'}"))
         if data.get("cutscene"):
             _c = data.get("cutscene")
             _blocks = _c if isinstance(_c, list) else [_c]     # [[cutscene]] dispatch or the legacy singleton
             steps = sum(len(b.get("steps", []) or []) for b in _blocks if isinstance(b, dict))
             n_cs = sum(1 for b in _blocks if isinstance(b, dict))
             head = "cutscene" if n_cs <= 1 else f"{n_cs} cutscenes"
-            bits.append(f"{head} ({steps} step{'' if steps == 1 else 's'})")
+            bits.append(seg("cutscene", f"{head} ({steps} step{'' if steps == 1 else 's'})"))
         if data.get("encounter"):
-            bits.append("encounters")
+            bits.append(seg("encounter", "encounters"))
         if data.get("music"):
-            bits.append("BGM")
-        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header
-        return self._muted(", ".join(bits) if bits else "empty")
+            bits.append(seg("music", "BGM"))
+        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header; the muted
+        # separators keep the LINE quiet while each tally carries the link tier
+        return self._muted(", ").join(bits) if bits else self._muted("empty")
 
     def _battle_party_lines(self, data):
         """Read-only battle/party summary lines for a field's Inspector card: the encounter scene (id + its
@@ -8323,6 +8444,33 @@ class Workspace(QMainWindow):
             self._last_output_ms = self._elapsed.elapsed()   # reset the stall clock: real output arrived
             self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
+    def _celebrate_first_deploy(self, field_id):
+        """The first-ever deploy is the milestone the whole edit -> deploy -> ~ loop exists to reach --
+        and it used to surface as a Problems verdict line visually identical to a lint pass (ask-user
+        #19 / MERGE A, the restraint-safe vehicle). One small card, ONCE per install: the gate is the
+        has_deployed latch itself, read pre-latch in _proc_done -- no second pref to drift out of sync.
+        Non-blocking (``open()``, never ``exec()``): a modal wait here would hang the smoke and every
+        headless _proc_done test (the round-8 modal law). Palette-only, no gold: SIGNET keeps the
+        signature off everything that is not the front door."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("It's in your game")
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        lay = QVBoxLayout(dlg)
+        head = QLabel("Your first deploy is in.")
+        head.setProperty("role", "head")
+        lay.addWidget(head)
+        walk = (f"press ~ (tilde) → Warp to field → {field_id}" if field_id is not None
+                else "press ~ (tilde) → Reload field")
+        body = QLabel(f"In the game, {walk} to walk it. From here the loop is edit → Deploy (F9) → ~. "
+                      "Revert on Build & Deploy undoes a test deploy in one click.")
+        body.setWordWrap(True)
+        lay.addWidget(body)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=52)
+        dlg.open()
+
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
@@ -8354,8 +8502,19 @@ class Workspace(QMainWindow):
             bd = getattr(self, "build_deploy", None)
             self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
             self._deployed_revertible = bool(bd is not None and bd.revert_available())
+            first_ever = not prefs.has_deployed()           # read BEFORE the latch below eats the fact
             prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
+            if first_ever:
+                # ASK #19 via MERGE A's restraint-safe vehicle: a once-EVER card, keyed off the same
+                # latch read at the same site (no second pref to drift), palette-only -- never gold on a
+                # work surface. It replaces the game-raise this one time: the card needs the focus.
+                self._celebrate_first_deploy(field_id)
+            elif prefs.raise_game_after_deploy():
+                # ASK #16 (opt-in, default OFF): the F9 -> ~ loop's alt-tab, raised for the user. Lazy
+                # import + fail-soft -- a convenience must never break the deploy verdict it decorates.
+                from . import gamewin
+                gamewin.raise_game()
         if on_finished:
             on_finished(code)
 
@@ -8575,28 +8734,15 @@ def _smoke(win):
     cd.spin_wait.setValue(30)
     cd.combo_ghost.setCurrentIndex(cd.combo_ghost.findData("auto"))
     cd.cb_follow.setChecked(True)
-    # Force the diorama checkbox's enablement both ways so the assert never reads THIS machine's
-    # DLL (an environment-dependent smoke is how the last one rotted): enabled -> a real bool,
-    # disabled (s37-only engine) -> None, meaning the key is never written.
     cd.style_box.setEnabled(True)
-    cd.cb_diorama.setEnabled(True)
-    cd.cb_diorama.setChecked(False)
     _pstate = cd._playstyle_state()
-    assert _pstate == ("2", 30, "auto", True, False), _pstate
-    cd.cb_diorama.setEnabled(False)
-    assert cd._playstyle_state()[4] is None
-    cd.cb_diorama.setEnabled(True)
-    cd.cb_diorama.setChecked(True)
-    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True,
-                 diorama=False)
+    assert _pstate == ("2", 30, "auto", True), _pstate
+    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True)
     assert "--guest-slots" in _argv and _argv[_argv.index("--follow-host") + 1] == "on"
-    assert _argv[_argv.index("--diorama") + 1] == "off"
-    assert "--diorama" not in _csa("host", guest_slots="2")     # None -> flag omitted
+    assert "--diorama" not in _argv          # the knob is GONE (s42) -- never emitted
     from .. import coop as _coop
     assert _coop.playstyle_updates("2", 30, "auto", True) == {
         "GuestSlots": "2", "GuestWaitMs": "30000", "GhostAs": "auto", "FollowHost": "1"}
-    assert _coop.playstyle_updates(diorama=True) == {"Diorama": "1"}
-    assert _coop.playstyle_updates(diorama=False) == {"Diorama": "0"}
     for cb in cd.cb_slots:
         cb.setChecked(False)
     cd.cb_follow.setChecked(False)
@@ -10384,12 +10530,18 @@ def main(argv=None):
     # there. The --smoke path returns above and never reaches this, so it still gets instant end-states.
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.show()
+    app.processEvents()                            # deliver the expose/paint NOW: restoring a big journey
+                                                   # below can take seconds, and until exec() nothing else
+                                                   # paints -- the app must LOOK started before it loads
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # default ON: pick up where the last session left off
+        app.setOverrideCursor(Qt.CursorShape.WaitCursor)   # the painted-but-frozen restore window is WORKING
         try:
             win.restore_last_session()             # no-ops on an empty recent list -> newcomers untouched
         except Exception:                          # noqa: BLE001  (a broken project must not block launch)
             pass
+        finally:
+            app.restoreOverrideCursor()
     sys.exit(app.exec())
 
 

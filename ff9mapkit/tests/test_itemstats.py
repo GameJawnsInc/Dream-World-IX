@@ -97,6 +97,72 @@ def test_empty_effect_row_shows_no_use_effect_line():
     assert "use-effect" not in dict(S.facts(96))
 
 
+# ---- synthesis recipes (the Synthesis.csv join) ---------------------------------------------------
+SYNTH_FIXTURE = (
+    "#! UseShopList\n"
+    "# Comment;Id;Shops;Price;Result;Ingredients\n"
+    "# ;Int32;Int32[];UInt32;Int32;Int32[]\n"
+    "Butterfly Sword;0;32, 38;300;7;1, 2\n"
+    "The Ogre;1;38;700;8;2, 2\n"
+    "Unlisted;2;;500;9;1, 255\n"                                # empty Shops (removed) + a NoItem ingredient
+)
+
+
+def _fake_synth_install(tmp_path, monkeypatch, text=SYNTH_FIXTURE):
+    d = tmp_path / "StreamingAssets" / "Data" / "Items"
+    d.mkdir(parents=True)
+    (d / "Synthesis.csv").write_text(text, encoding="utf-8")
+    import ff9mapkit.config as cfg
+    monkeypatch.setattr(cfg, "find_game_path", lambda *a, **k: tmp_path)
+
+
+def test_synthesis_join_indexes_result_and_ingredients(tmp_path, monkeypatch):
+    _fake_synth_install(tmp_path, monkeypatch)
+    made = S.synthesis_of(7)                                    # Butterfly Sword <- Dagger + Mage Masher
+    assert len(made) == 1 and made[0].price == 300 and made[0].shops == [32, 38]
+    assert made[0].ingredients == [1, 2]
+    assert S.synthesis_of(8)[0].ingredients == [2, 2]           # dup ingredient kept (need 2 copies)
+    assert {r.result for r in S.synthesis_uses(2)} == {7, 8}    # a dup ingredient indexes its recipe ONCE
+    assert [r.result for r in S.synthesis_uses(1)] == [7, 9]
+    assert S.synthesis_of(9)[0].shops == []                     # an empty Shops cell = unlisted (removed)
+    assert S.synthesis_of(9)[0].ingredients == [1]              # the NoItem (255) ingredient dropped
+    assert S.synthesis_of(236) == [] and S.synthesis_uses(236) == []
+
+
+def test_recipe_desc_names_and_unlisted():
+    # names come from items.name_of -- the kit's PascalCase table names ("MageMasher"), as everywhere else
+    assert S.recipe_desc(S.SynthRecipe(0, [32, 38], 300, 7, [1, 2])) \
+        == "Dagger + MageMasher @ 300 gil (synth shops 32, 38)"
+    assert S.recipe_desc(S.SynthRecipe(1, [38], 700, 8, [2, 2])) \
+        == "MageMasher + MageMasher @ 700 gil (synth shop 38)"
+    assert "no shop (unlisted)" in S.recipe_desc(S.SynthRecipe(2, [], 500, 9, [1]))
+
+
+def test_facts_include_synthesis_lines(tmp_path, monkeypatch):
+    _fake_synth_install(tmp_path, monkeypatch)
+    S._CACHE = {7: S.ItemStat(id=7, name="Butterfly Sword", types=["weapon"], power=21),
+                2: S.ItemStat(id=2, name="Mage Masher", types=["weapon"], power=14)}
+    assert dict(S.facts(7))["synthesize"] == "Dagger + MageMasher @ 300 gil (synth shops 32, 38)"
+    assert dict(S.facts(2))["synth ingredient of"] == "ButterflySword, TheOgre"
+    assert "synth ingredient of" not in dict(S.facts(7))        # 7 is a result, never an ingredient here
+
+
+def test_synthesis_unavailable_degrades(monkeypatch):
+    import ff9mapkit.config as cfg
+    monkeypatch.setattr(cfg, "find_game_path", lambda *a, **k: Path("nonexistent_ff9_dir_xyz"))
+    assert S.synthesis_of(7) == [] and S.synthesis_uses(2) == []
+
+
+@pytest.mark.skipif(not S.available(), reason="needs the FF9 install (StreamingAssets/Data/Items/*.csv)")
+def test_synthesis_real_base_join():
+    made = S.synthesis_of(7)                                    # the real recipe 0: Butterfly Sword
+    assert made and made[0].price == 300 and 38 in made[0].shops
+    uses = {r.result for r in S.synthesis_uses(2)}              # Mage Masher feeds the thief-sword tree
+    assert 7 in uses and 8 in uses
+    facts = dict(S.facts(7))
+    assert "synthesize" in facts and "@ 300 gil" in facts["synthesize"]
+
+
 # ---- graceful degradation when the install isn't reachable ----------------------------------------
 def test_unavailable_install_degrades_to_none(monkeypatch):
     import ff9mapkit.config as cfg

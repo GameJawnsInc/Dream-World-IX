@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from . import chain
 # Safe GLOB story-flag allocation band -- single source of truth in ``flags`` (re-censused 2026-07-19
@@ -31,6 +31,7 @@ from . import chain
 from .flags import (CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, MOGNET_LOCK_HI, MOGNET_LOCK_LO,
                     READMAIL_PAYLOAD_HI, READMAIL_PAYLOAD_LO,
                     collect_flag_defs, resolve_project_flags)
+from .tomlcache import load_toml
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
 
@@ -457,8 +458,8 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
 def load_campaign(path) -> CampaignPlan:
     """Parse a campaign.toml back into a CampaignPlan (the inverse of render_campaign_toml). Members keep
     their FINAL ids + retargeted gateways (those live in the member field.tomls, not here)."""
-    with open(path, "rb") as fh:
-        data = tomllib.load(fh)
+    data = load_toml(path)   # mtime+size-cached: a journey open loads the same campaign.toml several times
+    #                          (lint + overview + flag names); an on-disk edit still re-parses
     if "campaign" not in data:
         raise CampaignError(f"{path}: not a campaign manifest (no [campaign] table)")
     c = data["campaign"]
@@ -772,17 +773,20 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                             f"campaign's edge; fork the next zone, or accept it as the boundary.")
 
     member_raw = {}                               # (e) member field.toml exists, within the campaign folder
+    base = manifest_dir.resolve()                 # once for the whole member loop (a journey lints 800+ members)
     for m in plan.members:
         p = manifest_dir / m.toml_rel
-        if not _within(manifest_dir, p):          # a crafted toml_rel ('../..') must not read outside
+        # a crafted toml_rel ('../..') must not read outside; the lexical screen answers the well-formed
+        # case syscall-free, and anything suspicious pays the resolve-based guard (see _rel_is_clean)
+        if not (_rel_is_clean(m.toml_rel) or _within(base, p, base_resolved=True)):
             errors.append(f"member {m.name}: field.toml path escapes the campaign folder ({m.toml_rel})")
             continue
         if not p.is_file():
             errors.append(f"member {m.name}: field.toml not found at {p}")
             continue
         try:
-            with open(p, "rb") as fh:
-                member_raw[m.name] = tomllib.load(fh)
+            # cached parse, private copy -- (h) resolve_project_flags rewrites this dict in place
+            member_raw[m.name] = load_toml(p)
         except (OSError, tomllib.TOMLDecodeError) as ex:
             errors.append(f"member {m.name}: field.toml unreadable ({ex})")
 
@@ -1113,11 +1117,31 @@ def _next_member_id(plan: CampaignPlan) -> int:
     return max((m.new_id for m in plan.members), default=plan.id_base - 1) + 1
 
 
-def _within(base, path) -> bool:
+def _within(base, path, *, base_resolved=False) -> bool:
     """True if ``path`` resolves to ``base`` itself or somewhere inside it -- the guard that keeps a
-    crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign."""
-    base, path = Path(base).resolve(), Path(path).resolve()
+    crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign.
+    ``base_resolved=True``: ``base`` is already ``Path.resolve()``d -- a caller checking many members
+    against ONE base resolves it once instead of per member (``resolve()`` is syscall-priced on Windows)."""
+    if not base_resolved:
+        base = Path(base).resolve()
+    path = Path(path).resolve()
     return path == base or base in path.parents
+
+
+def _rel_is_clean(rel) -> bool:
+    """A relative member path with NO upward step, drive, or absolute root joins INSIDE its base by
+    construction -- so ``_rel_is_clean(rel) or _within(base, base / rel)`` is the member-loop containment
+    check without a per-member ``Path.resolve()`` (a journey open realpathed 816 members = 15-19% of a
+    warm open, ~0.65 s of a cold one; measured 2026-07-24). ``resolve()`` can only disagree with the
+    lexical join through a symlink/junction planted inside the campaign tree -- which nothing in the
+    campaign format creates, and which on the READ paths that spend this (lint / fork-report) would
+    only redirect a parse-and-report on the user's own machine. Anything lexically suspicious returns
+    False and pays the full resolve-based ``_within``. Windows path rules are applied on every OS
+    (``PureWindowsPath`` sees both separators + drives), so the screen is conservative everywhere."""
+    # NOT is_absolute(): under Windows rules '/abs' has a root but no drive, is_absolute() says False,
+    # and joining it onto a base REPLACES the base's tail -- refuse a drive OR a root, each alone.
+    q = PureWindowsPath(str(rel))
+    return not q.drive and not q.root and ".." not in q.parts
 
 
 def _validate_member_name(name: str) -> str:

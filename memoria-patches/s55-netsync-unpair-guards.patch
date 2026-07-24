@@ -1,0 +1,222 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 8d32cfd..4a83e33 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -24,6 +24,9 @@ namespace Memoria.Netsync
+     //                                       my own random encounters pause while following, and the
+     //                                       host's battles boot as a live render-only diorama on my
+     //                                       screen (B3; F6 "Leave diorama" opts out per fight).
++    //   AutoTeleport= 0                     visitor mode (guest side): 1 = the AUTO recovery may snap me
++    //                                       to the host on real sustained separation. Default OFF (s55,
++    //                                       pending a leash rework). Manual F11/L3 teleport is unaffected.
+     //   (Diorama    = REMOVED s42           the old on/off knob is gone -- always-on for a follower;
+     //                                       a stray line in an old Memoria.ini is silently ignored.)
+     //
+@@ -72,6 +75,7 @@ namespace Memoria.Netsync
+         private static Int32 _guestSlots;                // battle co-op: party slots the peer commands (class comment)
+         private static String _ghostAs = "";             // visitor mode: dress the peer's ghost (class comment)
+         private static Boolean _followHost;              // visitor mode: auto-warp to the peer's field (class comment)
++        private static Boolean _autoTeleport;            // s55: AUTO teleport-to-host recovery; default OFF (manual F11/L3 TP is unaffected)
+         private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
+         private static String _sessionCode = "";
+         private static Boolean _insecureTls;
+@@ -244,6 +248,20 @@ namespace Memoria.Netsync
+                                                          //  TypeState and the story mirror never arms on any guest)
+         private Boolean _storyProofDone;                 // selftest: log the codec proof once
+         private const Int32 ExitRampDebounceMs = 3000;   // a relay blip must not yank the guest to Continue
++        // s55 SETTLE DEFERRAL: don't fire the exit ramp on the FIRST raw field frame of a battle-return
++        // reload -- ExitMirrorToOwnSave's Autoload + ReplaceLoadMap would race the return's own load
++        // (the guest-crash seam). Wait until the field hands control back to the player; bounded so a
++        // field that never yields control can't wedge the ramp forever.
++        private Int32 _exitRampSafeSince;                // 0 = not yet safe-to-load (sentinel; tick delta read only when != 0)
++        private const Int32 ExitRampSettleMaxMs = 10000; // past this much contiguous safeToLoad, fire on the old gate alone
++        // s55 ENCOUNTER-SUPPRESSION HYSTERESIS: a transport blip (IsConnected false ~1-3s on the relay)
++        // must NOT instantly re-enable a following guest's random encounters -- a local battle would boot
++        // on the guest's own party and the battle-return seam crashed the guest. Hold the suppression
++        // across a brief drop. Tick-baseline law: pre-expired so the grace only ever extends a REAL prior
++        // connection (a never-connected startup keeps vanilla encounters), and it is compared by delta only.
++        private Int32 _lastConnectedTick = Environment.TickCount - 100000;
++        private Boolean _encounterGraceLogged;           // one-shot: the held-through-a-blip line logs once per blip, not per frame
++        private const Int32 EncounterGraceMs = 5000;     // grace window after the last connected frame
+ 
+         // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
+         // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
+@@ -416,6 +434,7 @@ namespace Memoria.Netsync
+                     guestWait = n;
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+                 Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
++                Boolean autoTeleport = ini.GetSetting("Netsync", "AutoTeleport", "0").Trim() == "1";   // s55: default OFF
+                 // [Netsync] Diorama REMOVED (s42): the diorama is always-on for a follower. The knob's
+                 // only realized effect was this round's defect class (its toggle fired the full-teardown
+                 // path); both real needs it claimed to serve are covered elsewhere -- the spectate panel
+@@ -473,7 +492,7 @@ namespace Memoria.Netsync
+                               "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
+                 String bsig = field + "|" + guestSlots + "|" + guestWait + "|" + ghostAs +
+                               "|" + (followHost ? "1" : "0") + "|" + stDx + "," + stDz +
+-                              "|" + (dioramaSwirl ? "1" : "0");
++                              "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0");
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 Boolean tChanged = tsig != _cfgTransportSig;
+@@ -482,6 +501,7 @@ namespace Memoria.Netsync
+                     return 0;                     // e.g. an edit to some OTHER Memoria.ini section
+                 _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
+                 _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = followHost;
++                _autoTeleport = autoTeleport;                                       // s55: BEHAVIOR key, applies live
+                 _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure;
+                 _selfTestDx = stDx; _selfTestDz = stDz;                             // B3.6: committed before the sigs
+                 _cfgTransportSig = tsig;
+@@ -498,6 +518,7 @@ namespace Memoria.Netsync
+                             (_guestSlots != 0 ? " guestSlots=" + _guestSlots : "") +
+                             (_ghostAs.Length > 0 ? " ghostAs=" + _ghostAs : "") +
+                             (_followHost ? " followHost=1" : "") +
++                            (_autoTeleport ? " autoTeleport=1" : "") +
+                             (!dioramaSwirl ? " dioramaSwirl=0" : "") +
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+@@ -679,17 +700,44 @@ namespace Memoria.Netsync
+             if (_exitRampPending)
+             {
+                 Boolean safeToLoad = false;
++                Boolean settled = false;
+                 try
+                 {
+                     EventEngine e2 = PersistenSingleton<EventEngine>.Instance;
+                     safeToLoad = e2 != null && _followWarpPending < 0 &&
+                                  ((e2.gMode == 1 && e2.fieldmap != null) || e2.gMode == 3);
++                    // s55: don't fire on the FIRST raw frame of a battle-return FIELD load -- the
++                    // Autoload + ReplaceLoadMap would race the battle-return's own load (the guest-
++                    // crash seam). Require the field to have handed control back to the player (the
++                    // same "on a live field" idiom as the auto-teleport busy-check). The WORLD MAP
++                    // (gMode 3) has no FieldHUD to wait for and was never the crash seam -- keep its
++                    // old immediate fire. Bounded below so a FIELD that never returns control can't
++                    // wedge the ramp forever.
++                    if (safeToLoad)
++                    {
++                        settled = e2.gMode == 3;
++                        if (!settled)
++                        {
++                            UIManager ui = PersistenSingleton<UIManager>.Instance;
++                            settled = e2.GetUserControl() && ui != null && ui.State == UIManager.UIState.FieldHUD;
++                        }
++                    }
+                 }
+                 catch { }
+-                if (safeToLoad)
++                if (safeToLoad && _exitRampSafeSince == 0)
++                    _exitRampSafeSince = Environment.TickCount;   // start the settle-deferral clock (sentinel law)
++                else if (!safeToLoad)
++                    _exitRampSafeSince = 0;                        // lost safe -- the deferral counts only contiguous safe time
++                Boolean settleTimedOut = _exitRampSafeSince != 0 &&
++                                         Environment.TickCount - _exitRampSafeSince > ExitRampSettleMaxMs;
++                if (safeToLoad && (settled || settleTimedOut))
+                 {
++                    if (settleTimedOut && !settled)
++                        Log.Message("[NetSync] exit ramp: the field never returned control in "
++                                    + (ExitRampSettleMaxMs / 1000) + "s -- reloading the guest's own save anyway (fail-safe)");
+                     _exitRampPending = false;
+                     _exitRampSince = 0;
++                    _exitRampSafeSince = 0;         // s55: re-arm the settle clock for any future session
+                     _storyMirroring = false;
+                     _sameFieldKickDone = false;    // the autoload may land the guest ON the host's field
+                                                    // (both saves at the same place) -- the next live
+@@ -847,8 +895,27 @@ namespace Memoria.Netsync
+                 }
+ 
+                 // Visitor mode: my own random encounters pause while I'm FOLLOWING a connected host
+-                // (only their battles exist; I assist). Fail-safe by construction: link down -> normal.
+-                NetSyncVisitor.SuppressEncounters = _followHost && _socket.IsConnected;
++                // (only their battles exist; I assist). s55 HYSTERESIS: the old instant flip re-enabled
++                // my encounters the moment IsConnected blipped false (~1-3s on the relay) -> a local
++                // battle booted on my own party -> the battle-return seam crashed the guest. Hold the
++                // pause while connected OR within a ~5s grace of the last connected frame. The grace
++                // applies only while FOLLOWING (a free-roamer keeps vanilla encounters); a deliberate
++                // session end simply ages out in 5s. Fail-safe still holds: a real link loss un-pauses
++                // after the grace. Tick-baseline law: subtraction delta only, baseline pre-expired above.
++                Boolean connected = _socket.IsConnected;
++                if (connected)
++                {
++                    _lastConnectedTick = Environment.TickCount;
++                    _encounterGraceLogged = false;         // healthy link -> re-arm the one-shot for the next blip
++                }
++                Boolean withinGrace = Environment.TickCount - _lastConnectedTick < EncounterGraceMs;
++                Boolean suppress = _followHost && (connected || withinGrace);
++                if (suppress && !connected && !_encounterGraceLogged)
++                {
++                    _encounterGraceLogged = true;          // once per blip, not per frame
++                    Log.Message("[NetSync] link blip: encounter suppression held (grace)");
++                }
++                NetSyncVisitor.SuppressEncounters = suppress;
+ 
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
+                 LastHostField = rs.Valid ? rs.Field : -1;                // F1: the gateway redirect's follow allowance
+@@ -1392,6 +1459,27 @@ namespace Memoria.Netsync
+             return pc.SetPosition(target, true, true);
+         }
+ 
++        // s55 -- the AUTO path's NON-DESTRUCTIVE snap. The manual refloor fallback (SnapToHost) is proven
++        // good on narrow fields: when a human deliberately teleports and the target is off-mesh, landing
++        // at the walkmesh default spawn is acceptable. An AUTOMATIC recovery must NOT: the default spawn
++        // can sit on a gateway quad and reload-cycle, and the player never asked to move. There is no
++        // accessible non-destructive probe (FieldMapActorController.GetTriIdxAtPos is private), so capture
++        // the on-mesh position and restore it if SetPosition reports the target was off this walkmesh
++        // (its false verdict -- see SnapToHost's note -- comes AFTER the engine has already dumped the
++        // player at the default spawn). `before` is a known-good walkmesh point (the player was standing
++        // there), so re-SetPosition-ing it re-triangulates cleanly, restoring activeFloor/activeTri too.
++        private Boolean SnapToHostAuto(EventEngine ee, Vector3 target, Vector3 before)
++        {
++            FieldMapActorController pc = ee.fieldmap != null ? ee.fieldmap.playerController : null;
++            if (pc == null)
++                return false;
++            if (pc.SetPosition(target, true, true))
++                return true;
++            if (!pc.SetPosition(before, true, true))   // off-mesh: undo the default-spawn dump, back to where we were
++                pc.SetPosition(before, true, false);   // last resort: force the exact position back (no tri re-check)
++            return false;
++        }
++
+         // F1 AUTO-TELEPORT -- a RECOVERY, not a leash: fires only on real sustained separation and
+         // never interrupts ordinary nearby walking. Called from BOTH position sources (the selftest
+         // branch returns before the real-coop block, so a single call site would be structurally
+@@ -1402,8 +1490,11 @@ namespace Memoria.Netsync
+         {
+             try
+             {
++                // s55: the live-coop arm is gated on [Netsync] AutoTeleport (default OFF, pending a leash
++                // rework). The selftest bench arm stays INDEPENDENT of the knob so solo benches keep
++                // working with it off. Manual F11/L3 TeleportToHostImpl is a separate path, unaffected.
+                 Boolean scoped = benchArm ? (IsSelfTestRole && NetSyncField.BenchGates)
+-                                          : IsLiveFollowedSession;
++                                          : (IsLiveFollowedSession && _autoTeleport);
+                 if (!scoped || local == null || local.fieldMapActor == null || _followWarpPending >= 0)
+                 {
+                     _autoTpSeparated = false;
+@@ -1483,20 +1574,21 @@ namespace Memoria.Netsync
+                     return;
+                 if (Environment.TickCount - _autoTpLastFireTick < AutoTpCooldownMs)
+                     return;
+-                if (SnapToHost(ee, hostPos))
++                if (SnapToHostAuto(ee, hostPos, gp))
+                 {
+                     _autoTpLastFireTick = Environment.TickCount;
+                     Log.Message("[NetSync] auto-teleport: recovered to the host (sep was " + (Int32)sep + ")");
+                 }
+                 else
+                 {
+-                    // honest telemetry (EVERY-GATE-LOGS): the target was off this walkmesh -- the
+-                    // engine dumped us at the default spawn, NOT on the host. Stamp the cooldown
+-                    // anyway so a persistently off-mesh host position retries at ~10s, not 4.5s
+-                    // (each attempt moves the player; unbounded retries would thrash).
++                    // s55: the host's spot is off THIS walkmesh. Unlike the manual refloor, the AUTO
++                    // path does NOT move -- SnapToHostAuto restored our exact pre-snap position (the
++                    // default spawn can sit on a gateway quad and reload-cycle, and we never asked to
++                    // move). Stamp the cooldown anyway so a persistently off-mesh host position retries
++                    // at ~10s, not 4.5s (honest telemetry, EVERY-GATE-LOGS, one line per attempt).
+                     _autoTpLastFireTick = Environment.TickCount;
+-                    Log.Message("[NetSync] auto-teleport: the host's spot is off this walkmesh -- landed at"
+-                                + " the default spawn instead (will retry after the cooldown)");
++                    Log.Message("[NetSync] auto-teleport: the host's spot is off this walkmesh -- staying"
++                                + " put (will retry after the cooldown)");
+                 }
+                 _autoTpSeparated = false;      // fired (or missed): re-arm from scratch either way
+             }

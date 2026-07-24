@@ -10,10 +10,26 @@ game instead:
       -> the public relay (WebSocket over TLS)
 
 The bridge terminates the WebSocket HTTP handshake on both hops (the request
-path -- which carries the session code + role -- is forwarded verbatim), then
-pumps bytes unchanged in both directions: client->server frames are masked on
-both hops and server->client frames are unmasked on both hops, so no frame
-rewriting is needed.
+path -- which carries the session code + role -- is replayed verbatim onto the
+upstream GET), then forwards WebSocket frames in both directions. It owns the
+upstream handshake completely (its own Sec-WebSocket-Key, not the game's), so
+it can re-establish the upstream hop at any time without the game noticing.
+
+**The two hops are DECOUPLED.** The game<->bridge loopback hop stays alive across
+a momentary bridge<->relay wobble: on an upstream read/write error or EOF the
+bridge closes ONLY the upstream socket, redials it (immediate first try, then a
+short capped backoff, giving up only after a hard cap), and resumes -- the game
+never sees the ~2.5-3s disconnect/despawn/re-pair ritual a full teardown forced.
+The wire is latest-state at ~30Hz, so frames lost during the gap are harmless:
+game->relay frames are dropped while upstream is down (never queued), and nothing
+arrives relay->game during the outage.
+
+Forwarding is WS-frame-aware (not a raw byte pipe) precisely so a redial is safe:
+each hop forwards WHOLE frames, so a partial frame is never split across two
+upstream connections, and a partial frame from a dying upstream is never handed
+to the game (whose reader would desync). Frames are otherwise byte-transparent --
+masked client frames and unmasked server frames alike ride through untouched; the
+bridge reads only each frame's length header, it never unmasks or rewrites.
 
 Pure stdlib, no dependencies. This module is the canonical copy (the file in
 `tools/netsync-bridge/` is a standalone-friendly shim). Most users never run
@@ -61,6 +77,19 @@ MAX_CLIENTS = 32
 # means the game is gone, not quiet.
 HANDSHAKE_TIMEOUT = 20.0
 IDLE_TIMEOUT = 120.0
+
+# Upstream redial policy (the hop-decoupling contract). A momentary relay/Caddy wobble
+# (two-machine play saw upstream EOFs every 10-36s) must NOT tear down the healthy
+# loopback hop. On an upstream failure the upstream->game reader redials -- an IMMEDIATE
+# first attempt, then a short capped backoff after each subsequent failure -- and only
+# gives up (closing the game hop) after UPSTREAM_REDIAL_HARD_CAP seconds with no upstream.
+UPSTREAM_REDIAL_HARD_CAP = 45.0
+_REDIAL_BACKOFFS = (0.25, 0.5, 1.0, 2.0)   # sleep after the Nth *failed* dial; last value repeats
+
+# WS frame-length awareness. Forwarding whole frames is what makes a redial safe (see the
+# module docstring). netsync frames are a few KB; a header claiming more than this is
+# corruption we cannot resync from, so we abort rather than attempt an unbounded read.
+WS_MAX_FRAME = 1 << 20   # 1 MiB payload cap
 
 # Request-line tokens are re-emitted verbatim into the upstream GET (open_upstream)
 # and into log lines -- printable ASCII only, or an embedded bare LF becomes header
@@ -121,16 +150,36 @@ def ws_accept(key):
     return base64.b64encode(hashlib.sha1((key + _WS_GUID).encode("ascii")).digest()).decode("ascii")
 
 
-def open_upstream(relay, path, insecure):
-    """Dial the relay and complete a WebSocket client handshake for `path`."""
+_SSL_LOCK = threading.Lock()
+_SSL_CONTEXTS = {}
+
+
+def _ssl_context(insecure):
+    """One shared SSLContext per verification mode, reused across every (re)dial. Building a fresh
+    ssl.create_default_context() per dial reloads the system trust store each time -- wasteful when
+    a wobbly relay makes us redial often."""
+    with _SSL_LOCK:
+        ctx = _SSL_CONTEXTS.get(insecure)
+        if ctx is None:
+            ctx = ssl.create_default_context()
+            if insecure:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            _SSL_CONTEXTS[insecure] = ctx
+        return ctx
+
+
+def open_upstream(relay, path, insecure, ssl_ctx=None, connect_timeout=10):
+    """Dial the relay and complete a WebSocket client handshake for `path`. The bridge OWNS this
+    handshake (its own fresh Sec-WebSocket-Key), so calling it again -- on redial -- replays the
+    same upgrade for the same session code + role without ever touching the game's own WS session.
+    `connect_timeout` bounds the TCP connect so a redial cannot overshoot the hard cap on a
+    black-holed relay."""
     secure, host, port = parse_ws_url(relay)
-    sock = socket.create_connection((host, port), timeout=10)
+    sock = socket.create_connection((host, port), timeout=connect_timeout)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     if secure:
-        ctx = ssl.create_default_context()
-        if insecure:
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+        ctx = ssl_ctx or _ssl_context(insecure)
         sock = ctx.wrap_socket(sock, server_hostname=host)
     try:
         key = base64.b64encode(os.urandom(16)).decode("ascii")
@@ -191,39 +240,295 @@ def _patient_sendall(dst, data, patience):
             deadline = time.monotonic() + patience
 
 
-def pump(src, dst, activity=None):
-    """Copy bytes src->dst until either side dies, then tear both down. With `activity`
-    given, the session is reaped after IDLE_TIMEOUT of silence on BOTH directions -- the
-    clock is shared, since one quiet direction is normal (the relay sends nothing to a
-    host waiting for its peer to pair)."""
-    try:
-        while True:
-            if activity is not None:
-                src.settimeout(min(5.0, IDLE_TIMEOUT))
-                try:
-                    data = src.recv(4096)
-                except socket.timeout:
-                    if activity.idle_for() >= IDLE_TIMEOUT:
-                        log("session idle %.0fs on both directions, closing" % activity.idle_for())
-                        break
-                    continue
+# --------------------------------------------------------------------------- frame-aware pumping
+
+
+class _Closed(Exception):
+    """The socket this reader was reading hit EOF / reset (or the session was told to stop)."""
+
+    def __init__(self, mid_frame):
+        super().__init__("mid-frame" if mid_frame else "at frame boundary")
+        self.mid_frame = mid_frame
+
+
+class _IdleReap(Exception):
+    """Both directions have been silent for IDLE_TIMEOUT -- reap the session."""
+
+
+class _ProtocolError(Exception):
+    """A WS frame header claimed an implausible length -- cannot resync safely."""
+
+
+class _FramedConn:
+    """Reads WHOLE WebSocket frames off a socket, buffering any bytes read past a frame boundary
+    (TCP is a stream: one recv may hold several frames or a partial one). The socket is swappable
+    (upstream redial) via replace(), which DROPS the partial-frame buffer -- those bytes belonged to
+    the dead connection and must never reach the far side. Shares the session's activity clock
+    (touched on every recv) and stop event (set => reads raise _Closed so the pump unwinds promptly).
+
+    Frames are returned verbatim (header + payload, including any 4-byte mask key + masked payload):
+    the reader inspects only the length header to find the boundary, it never unmasks or rewrites."""
+
+    __slots__ = ("sock", "buf", "activity", "stop")
+
+    def __init__(self, sock, activity, stop):
+        self.sock = sock
+        self.buf = bytearray()
+        self.activity = activity
+        self.stop = stop
+
+    def replace(self, sock):
+        self.sock = sock
+        self.buf = bytearray()   # leftover belonged to the dead upstream connection -- discard
+
+    def _poll(self):
+        return min(5.0, IDLE_TIMEOUT)
+
+    def _pull(self):
+        """One recv with a poll-sized timeout. True if bytes arrived (and were buffered), False on
+        a poll timeout. Raises _Closed on EOF/reset. (socket.timeout is an OSError subclass, so it
+        is caught FIRST -- a real reset must fall through to _Closed.)"""
+        self.sock.settimeout(self._poll())
+        try:
+            chunk = self.sock.recv(4096)
+        except socket.timeout:
+            return False
+        except OSError:
+            raise _Closed(len(self.buf) > 0)
+        if not chunk:
+            raise _Closed(len(self.buf) > 0)
+        self.buf += chunk
+        self.activity.touch()
+        return True
+
+    def _ensure(self, n):
+        """Fill the buffer to at least n bytes. Honors stop (raises _Closed); does NOT idle-reap --
+        we are mid-frame here, which is a stalled peer, not an idle session."""
+        while len(self.buf) < n:
+            if self.stop.is_set():
+                raise _Closed(True)
+            self._pull()
+
+    def read_frame(self):
+        """Return one whole frame's raw bytes. Raises _Closed on EOF/stop, _IdleReap on a two-way
+        idle session, _ProtocolError on an implausibly large length."""
+        # Wait for the first 2 header bytes. This is the ONLY place idle-reaping applies: an empty
+        # buffer on a poll timeout means this direction is genuinely quiet at a frame boundary.
+        while len(self.buf) < 2:
+            if self.stop.is_set():
+                raise _Closed(len(self.buf) > 0)
+            if not self._pull():
+                if len(self.buf) == 0 and self.activity.idle_for() >= IDLE_TIMEOUT:
+                    raise _IdleReap()
+        b1 = self.buf[1]
+        n = b1 & 0x7F
+        hlen = 2 + (2 if n == 126 else 8 if n == 127 else 0) + (4 if (b1 & 0x80) else 0)
+        self._ensure(hlen)
+        if n == 126:
+            plen = int.from_bytes(self.buf[2:4], "big")
+        elif n == 127:
+            plen = int.from_bytes(self.buf[2:10], "big")
+        else:
+            plen = n
+        if plen > WS_MAX_FRAME:
+            raise _ProtocolError("ws frame payload %d exceeds the %d-byte cap" % (plen, WS_MAX_FRAME))
+        total = hlen + plen
+        self._ensure(total)
+        frame = bytes(self.buf[:total])
+        del self.buf[:total]
+        return frame
+
+
+def _redial_backoff(failed_attempts):
+    """Seconds to wait after the Nth failed dial (1-based). The last entry repeats forever."""
+    return _REDIAL_BACKOFFS[min(failed_attempts, len(_REDIAL_BACKOFFS)) - 1]
+
+
+class _Upstream:
+    """The redialable upstream hop, shared by a session's two pump threads. The upstream->game
+    reader OWNS redial (it is the thread that must block waiting for a fresh socket anyway); the
+    game->upstream writer only SIGNALS a write failure via mark_failed(), which flips the state and
+    shuts the socket so the reader's blocked recv returns and it redials. Exactly one thread ever
+    dials, so there is no dial race.
+
+    state: 'up' (sock live) | 'down' (failed, awaiting/undergoing redial) | 'dead' (hard cap hit)."""
+
+    def __init__(self, sock, relay, path, insecure, stop):
+        self.relay = relay
+        self.path = path
+        self.insecure = insecure
+        self.stop = stop
+        self._lock = threading.Lock()
+        self.sock = sock
+        self.gen = 0
+        self.state = "up"
+
+    def snapshot(self):
+        with self._lock:
+            return self.sock, self.gen, self.state
+
+    def mark_failed(self, gen):
+        """Signal (from the writer) that a send to generation `gen` failed. Flip up->down and shut
+        the socket so the reader's blocked recv returns EOF and it redials. Idempotent, and a no-op
+        once the reader has already moved past `gen` (so it never shuts a freshly redialed socket)."""
+        with self._lock:
+            if self.state == "up" and self.gen == gen:
+                self.state = "down"
+                doomed = self.sock
             else:
-                data = src.recv(4096)
-            if not data:
-                break
-            if activity is not None:
-                activity.touch()
-                _patient_sendall(dst, data, IDLE_TIMEOUT)
-            else:
-                dst.sendall(data)
-    except OSError:
-        pass
-    finally:
-        for s in (src, dst):
+                doomed = None
+        if doomed is not None:
             try:
-                s.shutdown(socket.SHUT_RDWR)
+                doomed.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+
+    def redial(self, gen):
+        """Called by the reader after upstream `gen` died. Close the old socket, then re-open the
+        upstream WS handshake (same relay/path/role, fresh key) -- an immediate first try, then a
+        capped backoff after each failure, until it succeeds or the hard cap elapses. Returns
+        (sock, gen); sock is None when the hard cap OR a session stop ended the attempt."""
+        with self._lock:
+            if self.state == "dead":
+                return None, self.gen
+            self.state = "down"
+            old = self.sock
+            self.sock = None
+        if old is not None:
+            try:
+                old.close()
+            except OSError:
+                pass
+        started = time.monotonic()
+        deadline = started + UPSTREAM_REDIAL_HARD_CAP
+        failed = 0
+        while not self.stop.is_set():
+            try:
+                # Bound each attempt's connect by the remaining budget so the hard cap is meaningful.
+                budget = max(0.25, deadline - time.monotonic())
+                new = open_upstream(self.relay, self.path, self.insecure,
+                                    connect_timeout=min(10.0, budget))
+            except Exception as err:            # noqa: BLE001 -- any dial/handshake failure retries
+                failed += 1
+                now = time.monotonic()
+                if now >= deadline:
+                    with self._lock:
+                        self.state = "dead"
+                    log("upstream hard cap reached (%.0fs, %d tries), closing session"
+                        % (UPSTREAM_REDIAL_HARD_CAP, failed))
+                    return None, gen
+                delay = min(_redial_backoff(failed), max(0.0, deadline - now))
+                log("upstream redial %d failed (%s), retrying in %.2fs" % (failed, err, delay))
+                self.stop.wait(delay)
+                continue
+            with self._lock:
+                self.sock = new
+                self.gen += 1
+                self.state = "up"
+                newgen = self.gen
+            log("upstream restored after %d ms (redial %d)"
+                % (int((time.monotonic() - started) * 1000), failed + 1))
+            return new, newgen
+        # stop was set mid-redial -- the session is ending for another reason.
+        with self._lock:
+            self.state = "dead"
+        return None, gen
+
+
+class _Session:
+    """Decoupled two-hop pump. The game<->bridge loopback hop stays alive across a bridge<->relay
+    wobble: on an upstream failure the upstream->game reader redials while the game->upstream writer
+    drops frames (harmless -- the wire is latest-state at ~30Hz). Only a game-side close, an upstream
+    hard cap, or a two-way idle timeout ends the whole session."""
+
+    def __init__(self, game, upstream_sock, relay, path, insecure):
+        self.game = game
+        self.path = path
+        self.activity = _Activity()
+        self.stop = threading.Event()
+        self.up = _Upstream(upstream_sock, relay, path, insecure, self.stop)
+
+    def current_upstream(self):
+        return self.up.snapshot()[0]
+
+    def _end(self, why):
+        newly = not self.stop.is_set()
+        self.stop.set()
+        if newly:
+            log("session %s closing: %s" % (self.path, why))
+        # Unblock both readers' recv()s by shutting their sockets down.
+        for s in (self.game, self.up.snapshot()[0]):
+            if s is not None:
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def _game_to_upstream(self):
+        conn = _FramedConn(self.game, self.activity, self.stop)
+        while not self.stop.is_set():
+            try:
+                frame = conn.read_frame()
+            except _IdleReap:
+                self._end("idle %.0fs on both directions" % IDLE_TIMEOUT)
+                return
+            except _Closed as end:
+                self._end("game hop closed (game->relay reader EOF %s)" % end)
+                return
+            except _ProtocolError as err:
+                self._end("game sent a malformed WS frame (game->relay): %s" % err)
+                return
+            sock, gen, state = self.up.snapshot()
+            if state == "dead":
+                self._end("upstream permanently gone (game->relay)")
+                return
+            if state != "up":
+                continue                                 # upstream down/redialing -> drop (newest wins)
+            try:
+                _patient_sendall(sock, frame, IDLE_TIMEOUT)
+            except OSError as err:
+                log("upstream write error (game->relay), dropping frame + redialing: %s" % err)
+                self.up.mark_failed(gen)                 # kick the reader to redial; frame dropped whole
+                continue                                 # -> the next frame starts at a boundary
+
+    def _upstream_to_game(self):
+        sock, gen, _ = self.up.snapshot()
+        conn = _FramedConn(sock, self.activity, self.stop)
+        while not self.stop.is_set():
+            try:
+                frame = conn.read_frame()
+            except _IdleReap:
+                self._end("idle %.0fs on both directions" % IDLE_TIMEOUT)
+                return
+            except (_Closed, _ProtocolError) as err:
+                if self.stop.is_set():
+                    return
+                if isinstance(err, _ProtocolError):
+                    log("upstream sent a malformed WS frame (relay->game): %s; redialing" % err)
+                else:
+                    log("upstream EOF %s (relay->game); redialing"
+                        % ("mid-frame" if err.mid_frame else "at boundary"))
+                sock, gen = self.up.redial(gen)
+                if sock is None:
+                    if not self.stop.is_set():
+                        self._end("upstream unreachable past the redial hard cap")
+                    return
+                conn.replace(sock)                       # the discarded partial frame never reaches the game
+                continue
+            try:
+                _patient_sendall(self.game, frame, IDLE_TIMEOUT)
+            except OSError as err:
+                self._end("game hop closed (relay->game write: %s)" % err)
+                return
+
+    def run(self):
+        writer = threading.Thread(target=self._game_to_upstream, daemon=True)
+        writer.start()
+        try:
+            self._upstream_to_game()
+        finally:
+            self._end("session teardown")
+            writer.join(timeout=5)
 
 
 def _refuse(client):
@@ -237,6 +542,7 @@ def _refuse(client):
 
 def handle_client(client, addr, relay, insecure):
     upstream = None
+    sess = None
     try:
         client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         req = read_http_headers(client)
@@ -275,16 +581,19 @@ def handle_client(client, addr, relay, insecure):
         client.settimeout(None)
         log("relay connected, pumping")
 
-        act = _Activity()
-        t = threading.Thread(target=pump, args=(client, upstream, act), daemon=True)
-        t.start()
-        pump(upstream, client, act)
-        t.join(timeout=5)
+        sess = _Session(client, upstream, relay, path, insecure)
+        sess.run()
         log("session %s closed" % path)
     except Exception as err:
         log("connection from %s failed: %s" % (addr[0], err))
     finally:
-        for s in (client, upstream):
+        # Close the game socket, the session's CURRENT (possibly redialed) upstream, and the
+        # original upstream. All idempotent -- a socket already closed by a redial double-closes safely.
+        closeables = [client]
+        if sess is not None:
+            closeables.append(sess.current_upstream())
+        closeables.append(upstream)
+        for s in closeables:
             if s is not None:
                 try:
                     s.close()

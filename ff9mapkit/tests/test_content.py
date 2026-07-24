@@ -54,6 +54,36 @@ def _build_zone_choice(tmp_path, build, extra=""):
     return EbScript.from_bytes(eb), eb
 
 
+def test_dialogueless_npc_talk_txid_differs_from_choice_prompt(tmp_path):
+    """THE FORT-CONDOR SWARM BUG, end-to-end: a dialogue-less [[npc]] + a zone [[choice]]. The NPC's
+    default talk used to be WindowSync(1,128,500) -- 500 is the mes allocation BASE, not a line the NPC
+    owns -- and the choice prompt allocated txid 500 first, so talking to the silent NPC opened the
+    choice menu, dead rows included, with no GetChoose dispatch behind them. The built .eb's talk must
+    now point at the NPC's OWN silent line, never the bare base."""
+    from ff9mapkit import build
+    p = tmp_path / "fc.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "FC"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "swarm"\npreset = "vivi"\npos = [-80, 0]\n\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Which way?"\n'
+        '[[choice.options]]\ntext = "Left"\n'
+        '[[choice.options]]\ntext = "Right"\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, npc_txids, _e, _cs, ctx, _o, _a, _ch, _gw, _co, _sp = build.collect_text(proj)
+    assert 0 in npc_txids and npc_txids[0] != ctx[0]["prompt"]     # the NPC owns a DISTINCT line
+    assert f"[TXID={npc_txids[0]}]" in mes and text.DEFAULT_SILENT_TALK in mes
+    s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, choice_txids=ctx))
+    # the NPC's default talk is the exact WindowSync(1, 128, <its own txid>) -- present byte-for-byte
+    assert opcodes.window_sync(1, 128, npc_txids[0]) in s.data
+    # and the OLD bug shape -- a bare default talk (WindowSync + RETURN) pointing at the allocation
+    # base, which here is the choice prompt's txid -- is gone from the script entirely (the choice
+    # region's own prompt window is followed by its option dispatch, never a bare RETURN)
+    assert opcodes.window_sync(1, 128, ctx[0]["prompt"]) + opcodes.RETURN not in s.data
+
+
 def test_zone_choice_action_is_a_press_interact_region(tmp_path):
     # default trigger="action": a tag-3 (press-action) region with NO tread (tag 2) and NO gate flag
     # -> edge-triggered by the button, can't loop, re-usable, "decline" non-destructive.
@@ -272,6 +302,31 @@ def test_music_on_entry_and_reinit():
     out2 = music.add_music_to_reinit(out2, 9)
     eb2 = EbScript.from_bytes(out2)
     assert _ops(eb2, 0, 10)[0] == 0xC5               # RunSoundCode now first in tag-10
+
+
+def test_music_stop_current():
+    # RunSoundCode(265, 0xFFFF) -- FF9SOUND_SONG_STOPCURRENT() -- prepended as the literal FIRST
+    # instruction of Main_Init, unconditionally silencing whatever BGM is already resident.
+    out = music.add_stop_current_music(CLEAN)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                     # round-trips byte-exact
+    assert _ops(eb, 0, 0)[0] == 0xC5                 # RunSoundCode is the very first Main_Init opcode
+    mi = eb.entry(0).func_by_tag(0)
+    first = next(eb.instrs(mi))
+    assert (first.op, first.imm(0), first.imm(1)) == (0xC5, music.SONG_STOPCURRENT, 0xFFFF)
+    # byte-identical to the kit's OWN independently-verified warp idiom (content.event.WARP_SOUND --
+    # "the field-transition whoosh present byte-identically in EVERY real warp") -- same opcode+sentinel.
+    from ff9mapkit.content import event as _event
+    assert music.stop_current_music_bytes() == opcodes.run_sound_code(*_event.WARP_SOUND)
+    # composes with a field's OWN music: [music] stop THEN [music] song (build.py's real call order) --
+    # the stop stays the first Main_Init opcode, and the appended play is still wired via InitCode.
+    combo = music.add_field_music(music.add_stop_current_music(CLEAN), 9)
+    ceb = EbScript.from_bytes(combo)
+    assert ceb.to_bytes() == combo
+    assert _ops(ceb, 0, 0)[0] == 0xC5                 # stop still first...
+    assert 0x07 in _ops(ceb, 0, 0)                    # ...and the music entry's InitCode still activates
+    me = next(e for e in ceb.entries if not e.empty and e.type == 0 and e.index != 0)
+    assert _ops(ceb, me.index, 0)[0] == 0xC5          # the appended song-play entry itself intact
 
 
 def test_music_replace_field_music():

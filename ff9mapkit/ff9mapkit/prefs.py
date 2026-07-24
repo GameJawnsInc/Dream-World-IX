@@ -252,6 +252,18 @@ def set_confirm_reversible_deploys(on: bool) -> None:
     put("confirm_reversible_deploys", bool(on))
 
 
+def raise_game_after_deploy() -> bool:
+    """Bring the running FF9 window to the front after a successful deploy (ask-user #16). Default
+    OFF -- focus-stealing is intrusive as a default; the veteran who lives in the F9 -> ~ loop opts in
+    via Preferences. Raise/flash only, never synthetic input (the chair's ruling). Type-disciplined:
+    only an explicit ``True`` opts in."""
+    return get("raise_game_after_deploy", False) is True
+
+
+def set_raise_game_after_deploy(on: bool) -> None:
+    put("raise_game_after_deploy", bool(on))
+
+
 def has_deployed() -> bool:
     """The sticky first-deploy marker: True once the user has ever deployed. Default False; latched True
     on the first successful deploy and never unset. The first-run READY spine reads it to stop pointing a

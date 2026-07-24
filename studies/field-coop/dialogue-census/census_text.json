@@ -1,0 +1,89 @@
+{
+  "sites_total": 28678,
+  "resolved": 28678,
+  "unresolved": 0,
+  "mechanism_overall": {
+    "CONFIRM": 23706,
+    "TIME_NEG1": 2803,
+    "CHOICE": 1407,
+    "TIMED": 762
+  },
+  "mechanism_by_opcode_class": {
+    "async_wait": {
+      "CONFIRM": 6845,
+      "TIMED": 109,
+      "CHOICE": 50,
+      "TIME_NEG1": 14
+    },
+    "fireforget": {
+      "TIMED": 193,
+      "TIME_NEG1": 134,
+      "CONFIRM": 89,
+      "CHOICE": 12
+    },
+    "sync_blocking": {
+      "CONFIRM": 15800,
+      "CHOICE": 1018,
+      "TIMED": 208,
+      "TIME_NEG1": 7
+    },
+    "async_close": {
+      "TIME_NEG1": 946,
+      "CONFIRM": 665,
+      "CHOICE": 319,
+      "TIMED": 7
+    },
+    "async_replaced": {
+      "TIME_NEG1": 1702,
+      "CONFIRM": 307,
+      "TIMED": 245,
+      "CHOICE": 8
+    }
+  },
+  "time_value_hist": {
+    "3": 9,
+    "4": 6,
+    "5": 1,
+    "7": 7,
+    "10": 31,
+    "12": 1,
+    "15": 43,
+    "18": 4,
+    "20": 188,
+    "25": 12,
+    "30": 182,
+    "35": 4,
+    "40": 25,
+    "45": 34,
+    "48": 1,
+    "49": 2,
+    "50": 19,
+    "55": 1,
+    "60": 48,
+    "69": 2,
+    "70": 17,
+    "75": 1,
+    "77": 1,
+    "79": 4,
+    "80": 20,
+    "85": 3,
+    "90": 18,
+    "100": 15,
+    "109": 2,
+    "110": 6,
+    "115": 1,
+    "120": 41,
+    "130": 3,
+    "140": 3,
+    "150": 4,
+    "180": 3
+  },
+  "page_windows": 37,
+  "imme_windows": 11841,
+  "choice_windows": 1407,
+  "f3_impact": {
+    "must_lockstep_confirm_or_choice": 23713,
+    "free_timed_or_buttoninhibited": 3565,
+    "free_script_closed_or_replaced": 1400
+  }
+}

@@ -166,6 +166,78 @@ def test_first_deploy_latches_the_marker(win):
     assert win._deployed_field_id == 4003, "and stashes the id for the Copy-warp receipt"
 
 
+def test_the_first_ever_deploy_gets_its_one_occasion(win, monkeypatch):
+    """Ask-user #19 (MERGE A's restraint-safe vehicle): the celebration fires on exactly the deploy that
+    latches has_deployed -- the gate IS the latch, read pre-latch, so there is no second pref to drift --
+    and never again. Observed at the method seam: the card itself is .open()'d non-blocking."""
+    fired = []
+    monkeypatch.setattr(win, "_celebrate_first_deploy", lambda fid: fired.append(fid))
+    win._deploy_target = lambda: "X.toml"
+    win._stopped = False
+    assert not prefs.has_deployed(), "the isolated prefs read as a fresh install"
+    win._job = ("Deploy to test field 4003", "ok", "", "hint", None, 4003)
+    win._proc_done(0, None)
+    assert fired == [4003], "the first real deploy celebrates, carrying the warp id"
+    win._job = ("Deploy to test field 4003", "ok", "", "hint", None, 4003)
+    win._proc_done(0, None)
+    assert fired == [4003], "the second deploy is silent -- once per install"
+
+
+def test_the_celebration_card_is_nonblocking_and_names_the_warp(win):
+    """The card itself: built and .open()'d -- this call RETURNING is the non-blocking contract (an
+    exec() here would hang every headless _proc_done test, the round-8 modal law) -- with the warp id
+    and the tilde walk in its body."""
+    from PySide6.QtWidgets import QDialog, QLabel
+    win._celebrate_first_deploy(4003)
+    dlg = next(d for d in win.findChildren(QDialog) if d.windowTitle() == "It's in your game")
+    labels = " ".join(lb.text() for lb in dlg.findChildren(QLabel))
+    assert "4003" in labels and "~" in labels, labels
+    dlg.close()
+
+
+def test_raise_game_is_opt_in_and_yields_to_the_celebration(win, monkeypatch):
+    """Ask-user #16: default OFF -- a deploy raises nothing. Opted in, a non-first deploy calls the
+    raiser once; the FIRST-ever deploy hands focus to its once-ever card instead (two things fighting
+    for the same focus is worse than either)."""
+    from ff9mapkit.workspace import gamewin
+    calls = []
+    monkeypatch.setattr(gamewin, "raise_game", lambda: calls.append(1) or True)
+    cele = []
+    monkeypatch.setattr(win, "_celebrate_first_deploy", lambda fid: cele.append(fid))
+    win._deploy_target = lambda: "X.toml"
+    win._stopped = False
+
+    prefs.set_raise_game_after_deploy(True)              # opted in, but this is the FIRST deploy...
+    win._job = ("Deploy to test field 4003", "ok", "", "hint", None, 4003)
+    win._proc_done(0, None)
+    assert cele == [4003] and not calls, "the first deploy celebrates INSTEAD of raising"
+
+    win._job = ("Deploy to test field 4003", "ok", "", "hint", None, 4003)
+    win._proc_done(0, None)
+    assert calls == [1], "a veteran's opted-in deploy raises the game"
+
+    prefs.set_raise_game_after_deploy(False)             # the default: no raise
+    win._job = ("Deploy to test field 4003", "ok", "", "hint", None, 4003)
+    win._proc_done(0, None)
+    assert calls == [1], "default OFF: the raiser never runs"
+
+
+def test_raise_game_is_fail_soft():
+    """gamewin's contract: ANY failure (no game, refused Win32 call, non-Windows platform) is a silent
+    False -- a convenience must never break the deploy verdict it decorates."""
+    from ff9mapkit.workspace import gamewin
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    orig = gamewin._game_pids
+    gamewin._game_pids = _boom
+    try:
+        assert gamewin.raise_game() is False
+    finally:
+        gamewin._game_pids = orig
+
+
 def test_dry_run_playbook_does_not_latch_the_first_run_marker(win):
     """A journey dry-run PRINTS a playbook and writes NOTHING to the game -- its subject carries 'deploy'
     ('Journey deploy playbook (dry-run)') but must not latch the sticky marker nor fake a just-deployed
