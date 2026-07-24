@@ -21,18 +21,29 @@ import math
 import numpy as np
 import mathutils
 
-argv = sys.argv[sys.argv.index("--") + 1:]
-SKINNED_GLB, BAHAMUT_GLB, OUT_DIR = argv[0], argv[1], argv[2]
+raw_argv = sys.argv[sys.argv.index("--") + 1:]
+# positional: <thomas_skinned.glb> <bahamut.glb> <out_dir>   (unchanged)
+# --flight-bind : the skinned glb was bound at a FLIGHT pose (skin_thomas.py --bind-clip). Its rest is NOT
+#   the actions' authoring rest, so REPLAYING an action on it would double-transform. Instead drive Thomas
+#   engine-faithfully: deformed = clipWorld[k] * inverseBind_flight[k] * v_bind, with clipWorld from the
+#   NEUTRAL-rest reference rig (bahamut) posed by the action, and inverseBind from the flight rest -- exactly
+#   what the s54 drive computes (it writes ABSOLUTE bone world matrices; skinning = boneWorld * inverseBind).
+_pos = [a for a in raw_argv if not a.startswith("--")]
+_fl = set(a for a in raw_argv if a.startswith("--"))
+SKINNED_GLB, BAHAMUT_GLB, OUT_DIR = _pos[0], _pos[1], _pos[2]
+FLIGHT = "--flight-bind" in _fl
+PREFIX = "flightbind" if FLIGHT else "m1b"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# (label, clip action name or None for rest, frame, draw ghost?)
+# (suffix, clip action name or None for rest, frame, draw ghost?) -- the SAME five poses either way
 POSES = [
-    ("m1b_rest",       None,    0,   False),  # bind pose -- Thomas whole (the fitted train)
-    ("m1b_clip0_f0",   "clip0", 0,   True),   # the dragon's neutral (== identity rest silhouette)
-    ("m1b_clip5_f53",  "clip5", 53,  True),   # mid wing-beat (spread wings)
-    ("m1b_clip6_f65",  "clip6", 65,  True),   # the long attack clip, mid
-    ("m1b_clip6_f110", "clip6", 110, True),   # the long attack clip, near climax
+    ("rest",       None,    0,   False),  # the BIND pose -- Thomas whole (neutral train / flight train)
+    ("clip0_f0",   "clip0", 0,   True),   # the dragon's neutral (whole for neutral bind; DISTORTED for flight)
+    ("clip5_f53",  "clip5", 53,  True),   # mid wing-beat (spread wings)
+    ("clip6_f65",  "clip6", 65,  True),   # the dominant flight clip, mid (near the flight bind frame f77)
+    ("clip6_f110", "clip6", 110, True),   # the dominant flight clip, near climax
 ]
+POSES = [(f"{PREFIX}_{suf}", clip, fr, gh) for (suf, clip, fr, gh) in POSES]
 
 
 def clear_shapes_and_icos(arm):
@@ -76,6 +87,43 @@ if A.animation_data is None:
     A.animation_data_create()
 if B.animation_data is None:
     B.animation_data_create()
+
+# ---- FLIGHT-BIND ENGINE-FAITHFUL DRIVE (numpy) ----
+# Thomas is rigid single-bone skinned; the s54 drive computes world_v = boneWorld[k] * inverseBind[k] * v.
+# We reproduce it exactly: inverseBind[k] from A's (flight) REST bind matrix, boneWorld[k] from B posed by
+# the clip (B keeps the NEUTRAL rest the actions author against, so its posed bones ARE clipWorld). We then
+# overwrite Thomas's verts directly (no armature modifier) so the existing framing/render/guard code runs
+# unchanged. At the bind frame clipWorld==A's rest => deformed==v_bind (whole); elsewhere it deforms.
+FLIGHT_BAKE = None
+if FLIGHT:
+    for _m in list(thomas.modifiers):
+        if _m.type == "ARMATURE":
+            thomas.modifiers.remove(_m)          # we drive the mesh ourselves; no double-deform
+    TW = thomas.matrix_world.copy()
+    TWi = TW.inverted()
+    VBIND = [TW @ v.co for v in thomas.data.vertices]          # world-space bind verts (immutable ref)
+    NV = len(VBIND)
+    # per-vertex single bone index (weight ~1.0)
+    _g2b = {g.name: int(g.name[-3:]) for g in thomas.vertex_groups}
+    VBONE = [0] * NV
+    for v in thomas.data.vertices:
+        gg = [g for g in v.groups if g.weight > 0.5]
+        VBONE[v.index] = _g2b[thomas.vertex_groups[gg[0].group].name]
+    # inverseBind[k] in WORLD space, from A's flight rest
+    IB = [(A.matrix_world @ A.data.bones[f"bone{k:03d}"].matrix_local).inverted() for k in range(93)]
+    print(f"[eye] FLIGHT-BIND drive armed: {NV} verts, {len(set(VBONE))} bones carry geometry")
+
+    def flight_bake(clip):
+        if clip is None:                                       # the bind pose itself -> whole
+            for i in range(NV):
+                thomas.data.vertices[i].co = TWi @ VBIND[i]
+        else:                                                  # deformed = clipWorld * inverseBind * v
+            BW = [B.matrix_world @ B.pose.bones[f"bone{k:03d}"].matrix for k in range(93)]
+            M = [BW[k] @ IB[k] for k in range(93)]
+            for i in range(NV):
+                thomas.data.vertices[i].co = TWi @ (M[VBONE[i]] @ VBIND[i])
+        thomas.data.update()
+    FLIGHT_BAKE = flight_bake
 
 
 def rest_extent():
@@ -150,9 +198,11 @@ def apply_pose(clip, frame):
 failures = []
 for label, clip, frame, ghost in POSES:
     apply_pose(clip, frame)
+    if FLIGHT_BAKE is not None:
+        FLIGHT_BAKE(clip)          # overwrite Thomas's verts with the engine-faithful flight-bind deform
     # diagnostic: confirm the clip actually moved a wing bone (bone039, the -Y wing tip)
-    wb = A.pose.bones.get("bone039")
-    wpos = tuple(round(v, 2) for v in (A.matrix_world @ wb.matrix).translation) if wb else None
+    wb = B.pose.bones.get("bone039")   # read from B: for flight, B carries the true clip pose (A is unused)
+    wpos = tuple(round(v, 2) for v in (B.matrix_world @ wb.matrix).translation) if wb else None
     print(f"[eye] {label}: bone039 posed world pos={wpos}")
     for m in ghost_meshes:
         m.hide_render = not ghost
