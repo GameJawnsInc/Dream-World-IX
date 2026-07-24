@@ -99,7 +99,45 @@ in other trees reacts the same tick).
   and latches when it ends (a war cry, a breach line); `cooldown` re-arms N ticks after the
   behavior ends (a stalker that needs a breather once you escape).
 
-## Watching it run
+## Pooled units — spawn reinforcements at your feet
+
+`pooled = true` takes a unit out of the field at boot: its entry is seated **dormant** (no
+spawn, no reveal-flag tricks) and it joins a named `pool`. Every pool gets a **spawn-request
+flag** — the index prints at build and in `behavior compile` — and setting that flag from any
+`[[choice]]` row (`set_flag = [<index>, 1]`) makes the next never-spawned unit of the pool
+**materialize at the player's feet**. Where you were standing becomes the unit's *placement
+post*, and the `hold_post` action holds it:
+
+```toml
+[[behavior.unit]]
+npc = "recruit0"
+hp = 4
+pooled = true
+pool = "recruits"
+
+  [[behavior.unit.branch]]
+  when = [{ hp_le = 0 }]
+  do = { die = true }
+
+  [[behavior.unit.branch]]
+  when = [{ active = "raider" }, { near = ["raider", 250] }]
+  do = { swing_at = "raider" }
+
+  [[behavior.unit.branch]]
+  when = [{ active = "raider" }, { near = ["raider", 700] }]
+  do = { chase = "raider", standoff = 160 }
+
+  [[behavior.unit.branch]]
+  do = { hold_post = true }                  # guard wherever the player dropped me
+```
+
+That tree is a **placement defender** — the Fort Condor unit: hire it anywhere, it holds that
+exact spot, intercepts what comes near, and walks back to its post after the fight. Rules:
+one spawn per request (set the flag again for the next unit); an exhausted pool consumes the
+request silently; a dead pooled unit doesn't respawn; `~ → Reload field` refills the pool.
+Until activation the unit simply isn't there — every `active`/`near` gate in other trees
+already treats it as absent. (`hold_post` also works on a normal boot-spawned unit, where the
+post is just its own spawn point.)
 
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's

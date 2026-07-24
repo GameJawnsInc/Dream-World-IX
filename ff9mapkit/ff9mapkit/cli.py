@@ -415,6 +415,11 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         print("\npublic flags (wire [[choice]] set_flag rows to these indices):")
         for nm, idx in pf:
             print(f"  {nm} -> Global.Bit[{idx}]  (set_flag = [{idx}, 1])")
+    if fb.pool_flags:
+        print("\npool spawn-request flags (a [[choice]] Hire row sets one; the next "
+              "never-spawned pooled unit spawns at the player):")
+        for nm, idx in fb.pool_flags.items():
+            print(f"  {nm} -> Global.Bit[{idx}]  (set_flag = [{idx}, 1])")
     print(f"\nstable hash {cb.stable_hash()}  (entry slots shown are PLACEHOLDERS; "
           f"announce txids bind at build)")
     if args.action == "view":

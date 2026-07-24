@@ -1961,6 +1961,34 @@ through one engagement then latches forever; `cooldown` re-arms N ticks after th
 *ends*), `raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
 A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
 
+**Pooled units (runtime activation):** `pooled = true` on a `[[behavior.unit]]` keeps its NPC
+**out of the field at boot** (the entry is seated dormant — no spawn, no reveal flag needed) and
+puts it in a named `pool` (default `"pool"`). Each pool gets a **spawn-request flag** (index
+printed at build + `behavior compile`): wire a `[[choice]]` row's `set_flag = [<index>, 1]` to
+it, and the next never-spawned unit of that pool **materializes at the player's feet** — the
+press-time position becomes its *placement post*. The companion action verb `hold_post = true`
+(a valid unconditional fallback) holds that post, so `pooled` + chase/swing branches +
+`hold_post` = a **placement defender**: it guards wherever you dropped it and returns there
+after a fight. One spawn per request; an exhausted pool consumes the request silently; a died
+pooled unit does not respawn; field reload refills the pool. A pooled unit's NPC may not carry
+`requires_flag` (the build owns its non-spawning) or be a prop `attach_to` target.
+
+```toml
+[[behavior.unit]]
+npc = "recruit0"
+hp = 4
+pooled = true
+pool = "recruits"                              # spawn-request flag index prints at build
+  [[behavior.unit.branch]]
+  when = [{ hp_le = 0 }]
+  do = { die = true }
+  [[behavior.unit.branch]]
+  when = [{ active = "raider" }, { near = ["raider", 250] }]
+  do = { swing_at = "raider" }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }                    # hold wherever the player placed me
+```
+
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 
 Re-author the **Chocobo Hot & Cold** minigame's dig **prize pool** and **timer** on a **verbatim fork

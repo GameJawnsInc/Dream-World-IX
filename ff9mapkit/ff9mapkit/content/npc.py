@@ -211,7 +211,8 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                appears_scenario_min: int | None = None, appears_scenario_max: int | None = None,
                intro: bytes | None = None, speak_body: bytes | None = None,
                init_tail: bytes | None = None, bare: bool = False,
-               reserve_party_band: bool = False, logical_size=None) -> bytes:
+               reserve_party_band: bool = False, logical_size=None,
+               boot_spawn: bool = True) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
@@ -289,6 +290,11 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     # can't fit a Wait filler, so it takes the fpos-fixing insert path).
     from . import object as _object
     out, slot = _object.seat_entry(data, entry_bytes, reserve_party_band=reserve_party_band, slot=slot)
+    if not boot_spawn:
+        # a POOLED behavior unit: the entry is seated DORMANT — no InitObject call site
+        # at all (not even a guarded one); the behavior ticker's activation block
+        # InitObjects it at runtime (the fort-condor rung-3 recipe, in-game proven).
+        return out
     guards = list(_startup.scenario_window_conds(appears_scenario_min, appears_scenario_max))
     if gate_flag is not None:
         guards.append((_region.cond_truthy(_region.GLOB_BOOL, int(gate_flag)), bool(gate_require_set)))

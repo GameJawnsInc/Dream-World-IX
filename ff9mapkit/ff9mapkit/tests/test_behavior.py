@@ -111,6 +111,80 @@ def test_patrol_waypoint_state_resets():
     assert "u.wp" in cb.report
 
 
+# ------------------------------------------------------------------ pooled units
+def pooled_field() -> B.FieldBehavior:
+    """One boot-spawned pest + two pooled recruits (pool 'recruits') — the
+    placement-defender reference: activate at the player, hold the post, intercept."""
+    fb = B.FieldBehavior([
+        B.UnitSpec("pest", entry=2, spawn=(500, 500), hp=3),
+        B.UnitSpec("r0", entry=3, spawn=(0, 0), hp=4, pooled=True, pool="recruits"),
+        B.UnitSpec("r1", entry=4, spawn=(0, 0), hp=4, pooled=True, pool="recruits"),
+    ])
+    fb.units["pest"].tree = B.Selector(
+        B.Sequence(fb.hp_le("pest", 0), B.Do(B.Die())),
+        B.Do(B.Wander((500, 500), radius=300)),
+    )
+    for r in ("r0", "r1"):
+        fb.units[r].tree = B.Selector(
+            B.Sequence(fb.hp_le(r, 0), B.Do(B.Die())),
+            B.Sequence(fb.active("pest"), fb.near(r, "pest", 250), B.Do(B.SwingAt("pest"))),
+            B.Sequence(fb.active("pest"), fb.near(r, "pest", 700),
+                       B.Do(B.Chase("pest", standoff=160))),
+            B.Do(B.HoldPost()),
+        )
+    return fb
+
+
+def _ticker_ops(cb: B.CompiledBehavior) -> list:
+    return [ins.op for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
+
+
+def test_pooled_units_compile_and_verify():
+    fb = pooled_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    ops = _ticker_ops(cb)
+    # the activation lane: one runtime InitObject (0x09) + one MoveInstantEx (0xBF)
+    # attempt per pooled unit, and NOWHERE else in the ticker
+    assert ops.count(0x09) == 2 and ops.count(0xBF) == 2
+    assert fb.pool_flags == {"recruits": fb.bb.flag("pool.recruits.spawn")}
+    assert "pool.recruits.spawn" in cb.report and "units [r0, r1]" in cb.report
+    # pooled allocations exist; the post pair presets in Main_Init
+    assert "r0.spawned" in cb.report and "r1.px" in cb.report
+
+
+def test_pooled_determinism():
+    assert pooled_field().compile().stable_hash() == pooled_field().compile().stable_hash()
+
+
+def test_holdpost_on_boot_spawned_unit():
+    """hold_post on a NON-pooled unit = hold at its own spawn (the post presets)."""
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(120, -80))])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.near("u", B.PLAYER, 300), B.Do(B.Chase(B.PLAYER))),
+        B.Do(B.HoldPost()),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "u.px" in cb.report and "u.pz" in cb.report
+    assert _ticker_ops(cb).count(0x09) == 0            # no pool -> no activation lane
+
+
+def test_unpooled_field_allocates_no_pool_names():
+    """Byte hygiene: a field with no pooled units and no HoldPost gets ZERO new
+    allocations from the pooled lane (existing fields rebuild byte-identical)."""
+    cb = guard_field().compile()
+    assert ".spawned" not in cb.report and "pool." not in cb.report \
+        and ".px" not in cb.report
+    assert _ticker_ops(cb).count(0x09) == 0 and _ticker_ops(cb).count(0xBF) == 0
+
+
+def test_pool_name_charset_refused():
+    with pytest.raises(B.BehaviorError, match="pool name"):
+        B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0),
+                                    pooled=True, pool="bad name!")])
+
+
 # ------------------------------------------------------------------ rung-3 vocabulary
 def test_flee_compiles_and_verifies():
     fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0), hp=4)])
