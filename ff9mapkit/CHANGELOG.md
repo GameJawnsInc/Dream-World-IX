@@ -5,6 +5,38 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[summon]]`: transplant your own model onto a stock summon's real cast *(experimental)*
+- **The productized custom-summon kit surface** (Milestone 2 of the summon-transplant arc —
+  `studies/custom-summons/thomas-swap/m2/DESIGN.md`, the binding module plan): a declarative
+  `field.toml` block for wearing a stock FF9 summon's real per-frame bones, native camera, and
+  damage timing with a user's own retargeted model, in place of the donor creature. Two lanes:
+  **hybrid** (default — the s58 `SfxHybridDrive` engine feature poses the model from the donor's
+  live bones; requires the custom `memoria-patches` engine build) and **overlay** (DLL-free —
+  baked `.anim` clips + authored or donor-nested staging, the rung-7 FileList/`.sfxmodel` route).
+  Emits assets + a printed engine-arm manifest, never `.eb` bytecode; the cast trigger pairs with
+  the existing ability `vfx1` lane (`battle/actiondelta.py:64`), unchanged.
+  **New `content/summon.py`** — the block-schema layer: resolves a `donor` SpecialEffect *name* to
+  its numeric id, enforces the field-schema requirements, and is registered into `ff9mapkit
+  build`/`lint` (unknown-key/lane/donor/`private_ef` checks + a `vfx1` cast-trigger reminder); it
+  delegates all structural normalization to `summons/deploy.py` rather than duplicating it.
+  **New `summons/deploy.py`** — the deploy/arm engine: the mint via `models/mint.py`, the private
+  stock-absent sequence host + host-`.seq` splice, `.anim` clips via
+  `models/anim.py:clip_to_anim_json`, the overlay `.sfxmodel`/`FileList.txt`, and the `[SfxHybrid]`
+  ini writer following `coop.py`'s `[Netsync]` pattern exactly (including the engine-string-probe
+  gate that refuses to arm the hybrid lane on a stock engine); every deploy writes a self-contained
+  `revert_summon_<id>.py`. **New CLI verbs `summon-import`** (the Blender return trip — a `.glb` or
+  `.fbx` in, validated + staged) **and `summon-deploy`** (standalone asset deploy + the explicit,
+  confirm-first `--arm` step) join the already-shipped `summon-export`/`summon-rig-ref`. Docs:
+  [`docs/SUMMONS.md`](docs/SUMMONS.md), [tutorial 11](docs/tutorials/11-summon-transplant.md),
+  [`FORMAT.md` — `[[summon]]`](docs/FORMAT.md#summon-optional-repeatable). Native read/fork
+  (`summon-inspect`/`summon-fork`) stays a separate, out-of-scope surface. 70 new tests
+  (`test_summon_block.py`/`test_summon_deploy.py` ×2/`test_summons_build.py`), pure-logic + an
+  install-gated byte-identity acceptance against the live M1b deployment (skips cleanly without an
+  install). Grounded in the in-game-proven hand-built pipeline (Milestone 1b, 2026-07-24 — a
+  skinned model flying live on a stock dragon's real 93-bone motion,
+  `studies/custom-summons/thomas-swap/m1b/RUNBOOK.md`); this productized surface is itself not yet
+  independently cast in-game.
+
 ### Added — synthesis recipes in the Info Hub item detail (+ fork-report labels synthesists)
 - **`itemstats` joins the base `Synthesis.csv`** (live from your install, cached, nothing committed —
   the same provenance stance as the stat join): an item's Info Hub detail now shows **synthesize**

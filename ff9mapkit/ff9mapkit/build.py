@@ -50,6 +50,7 @@ from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
 from .content import savepoint as _savepoint
 from .content import shop as _shop
+from .content import summon as _summon
 from .content import synthesis as _synthesis
 from .content import startup as _startup
 from .content import text as _text
@@ -1084,6 +1085,14 @@ def _validate_folklore(project: FieldProject, problems: list) -> None:
     problems += _folklore.validate_blocks(project.raw.get("folklore", []))
 
 
+def _validate_summon(project: FieldProject, problems: list) -> None:
+    """[[summon]] transplant blocks: schema (unknown keys, lane enum), the mint id band, donor sanity
+    (range + not a stock-absent id), private_ef in the absent set + != donor, and the model path (when it
+    resolves). Emits asset artifacts + a [SfxHybrid] ARM manifest, no .eb -- so validation is pure schema
+    (the compile/arm is the explicit summon-deploy step, DESIGN.md section 2.4)."""
+    problems += _summon.validate_blocks(project.raw.get("summon", []), base_dir=project.base_dir)
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -1094,6 +1103,7 @@ def validate(project: FieldProject) -> list[str]:
     _validate_sps_blocks(project, problems)
     _validate_music(project, problems)
     _validate_folklore(project, problems)
+    _validate_summon(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -3003,6 +3013,7 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
+    rep.logic.extend(_summon.lint_notes(project.raw.get("summon", [])))  # cast-trigger (vfx1) reminder + ignored cross-lane keys
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad

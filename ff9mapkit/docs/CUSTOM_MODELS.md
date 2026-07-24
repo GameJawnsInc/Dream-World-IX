@@ -11,6 +11,12 @@
 > `6b8bb2d5`) plus a source-level verification pass. Every
 > load-bearing engine claim carries a `file:line`. The "unknown until playtested" items are called
 > out explicitly — they require manual in-game verification.
+>
+> **A sibling surface:** wearing a *stock summon's* real bones/camera with your own retargeted
+> model (not an ordinary character/NPC model) is a separate, experimental pillar with its own
+> provenance rules and engine requirements — see [SUMMONS.md](SUMMONS.md) /
+> [tutorial 11](tutorials/11-summon-transplant.md). It reuses this pillar's `models/mint.py` and
+> `models/anim.py:clip_to_anim_json`, but is not documented here.
 
 ---
 

@@ -1656,6 +1656,130 @@ def _cmd_summon_rig_ref(args: argparse.Namespace) -> int:
     return 0
 
 
+def _summon_lanes():
+    from .summons.deploy import LANES
+    return LANES
+
+
+def _summon_block_from_args(args: argparse.Namespace) -> dict:
+    """Build a ``[[summon]]`` block dict from the shared summon CLI flags (donor/lane/id/name/... ).
+    A ``--from-toml`` overrides everything with the first ``[[summon]]`` table in a TOML file."""
+    if getattr(args, "from_toml", None):
+        try:
+            import tomllib
+        except ModuleNotFoundError as e:                     # pragma: no cover - py<3.11
+            raise SystemExit(f"--from-toml needs Python 3.11+ (tomllib): {e}")
+        from pathlib import Path as _P
+        doc = tomllib.loads(_P(args.from_toml).read_text(encoding="utf-8"))
+        blocks = doc.get("summon")
+        if not blocks:
+            raise SystemExit(f"{args.from_toml} has no [[summon]] block")
+        block = dict(blocks[0] if isinstance(blocks, list) else blocks)
+    else:
+        block = {"donor": args.donor, "lane": args.lane}
+        if getattr(args, "model", None):
+            block["model"] = args.model
+        if getattr(args, "textures", None):
+            block["textures"] = [t for t in args.textures.split(",") if t.strip()]
+        if args.id is not None:
+            block["id"] = args.id
+        if args.name:
+            block["name"] = args.name
+        if args.group:
+            block["group"] = args.group
+        if args.private_ef is not None:
+            block["private_ef"] = args.private_ef
+        if args.node_count is not None:
+            block["node_count"] = args.node_count
+        if args.hide_mask:
+            block["hide_mask"] = args.hide_mask
+        if getattr(args, "hide_meshes", None):
+            block["hide_meshes"] = [k for k in args.hide_meshes.split(",") if k.strip()]
+        if getattr(args, "clips", None):
+            block["clips"] = args.clips
+    # The deploy engine (summons.deploy) takes a NUMERIC donor only; a name ("Bahamut__Full") is the
+    # block-schema layer's to resolve (content.summon.resolve_donor). build/lint route through it, but
+    # these standalone deploy verbs otherwise call deploy.deploy()/stage_import() -> normalize_spec
+    # directly, so a DOCUMENTED name-donor block passes lint and then dies at deploy. Resolve it here.
+    if "donor" in block:
+        from .content import summon as _summon
+        try:
+            block["donor"], _ = _summon.resolve_donor(block["donor"])
+        except _summon.SummonBlockError as e:
+            raise SystemExit(str(e))
+    return block
+
+
+def _cmd_summon_import(args: argparse.Namespace) -> int:
+    """Package the user's OWN retargeted summon model (a Blender .glb from summon-rig-ref, or a ready .fbx)
+    into their mod folder -- the reverse of the export guard. Validates the bone000..092 rig, mints the
+    GEO id, deploys the host .seq (+ overlay clips/manifest for lane=overlay). Hybrid lane still needs the
+    explicit `summon-deploy --arm` step to write [SfxHybrid]."""
+    from . import config
+    from .summons import deploy as sd
+    block = _summon_block_from_args(args)
+    block.pop("model", None)                                  # the model is the positional arg here
+    try:
+        game = config.find_game_path(getattr(args, "game", None))
+        mod_root = config.find_mod_root(game, args.mod_folder)
+        res = sd.stage_import(args.model_file, block, game=str(game), mod_root=mod_root,
+                              dry_run=args.dry_run, scale=args.scale)
+    except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    spec = res["spec"]
+    print(f"summon-import: {res['imported_from']} -> {spec['name']} (id {spec['id']}), lane={res['lane']}"
+          + ("  *** DRY RUN (staged, live mod folder untouched) ***" if res["dry_run"] else ""))
+    print(f"  model    : {res['mint']['fbx_dest']}")
+    print(f"  host .seq: {res['seq']['seq_dest']}  (private ef{spec['private_ef']:03d}, donor {spec['donor']})")
+    if res["lane"] == "overlay":
+        print(f"  overlay  : {len(res['overlay']['clips'])} clip(s) + .sfxmodel + FileList.txt")
+    if res["mint"]["directive_added"]:
+        print("  *** NEW GEO id -- RELAUNCH FF9 to register the 3DModel line. ***")
+    if res["lane"] == "hybrid":
+        print("  next: `ff9mapkit summon-deploy --arm ...` to write [SfxHybrid] (needs the s58 engine), then "
+              "point a summon ability's vfx1 at the private ef.")
+    print(f"  revert   : {res['revert_script']}")
+    return 0
+
+
+def _cmd_summon_deploy(args: argparse.Namespace) -> int:
+    """Deploy a [[summon]] transplant (assets) and, with --arm, ARM Memoria.ini [SfxHybrid] (hybrid lane).
+    The asset emit is the same as a block build; the engine-arm is the confirm-first step (it mutates the
+    live Memoria.ini, needs the s58 SfxHybridDrive engine, and needs a relaunch). Standalone (flags or
+    --from-toml)."""
+    from . import config
+    from .summons import deploy as sd
+    block = _summon_block_from_args(args)
+    if not block.get("model"):
+        print("summon-deploy needs a model: pass --model <fbx> (or --from-toml a block with `model`)",
+              file=sys.stderr)
+        return 2
+    try:
+        game = config.find_game_path(getattr(args, "game", None))
+        mod_root = None if args.dry_run else config.find_mod_root(game, args.mod_folder)
+        res = sd.deploy(block, game=str(game), mod_root=mod_root, arm=args.arm, dry_run=args.dry_run)
+    except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    spec = res["spec"]
+    print(f"summon-deploy: {spec['name']} (id {spec['id']}), lane={res['lane']}, donor {spec['donor']}, "
+          f"private ef{spec['private_ef']:03d}"
+          + ("  *** DRY RUN (staged under SCRATCH) ***" if res["dry_run"] else ""))
+    print(f"  mod folder: {res['mod_root']}")
+    print(f"  model     : {res['mint']['fbx_dest']}")
+    print(f"  host .seq : {res['seq']['seq_dest']}")
+    if res["lane"] == "overlay":
+        print(f"  overlay   : {len(res['overlay']['clips'])} clip(s) + .sfxmodel + FileList.txt (DLL-free)")
+    if res.get("armed"):
+        print("  [SfxHybrid]: ARMED (Memoria.ini backed up) -- RELAUNCH to apply.")
+    if res["mint"]["directive_added"]:
+        print("  *** NEW GEO id -- RELAUNCH FF9 to register the 3DModel line. ***")
+    print("  Reminder: point a summon ability's vfx1 at the private ef (this verb never edits Actions.csv).")
+    print(f"  revert    : {res['revert_script']}")
+    return 0
+
+
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
     from pathlib import Path
@@ -5671,6 +5795,59 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--geo", default=None, help="GEO name to stamp (default: SUMMON_<ef-stem>)")
     sr.add_argument("--id", type=int, default=0, help="geo id to stamp in the manifest (default 0)")
     sr.set_defaults(func=_cmd_summon_rig_ref)
+
+    def _add_summon_lane_args(sp, *, with_model_flag: bool):
+        # shared [[summon]] block flags for summon-import / summon-deploy
+        sp.add_argument("--donor", type=int, default=227,
+                        help="the NUMERIC donor effect id whose live cast we wear (default 227 = Bahamut)")
+        sp.add_argument("--lane", choices=list(_summon_lanes()), default="hybrid",
+                        help="hybrid (s58 drive, needs the custom engine; DEFAULT) | overlay (DLL-free)")
+        if with_model_flag:
+            sp.add_argument("--model", default=None, help="the user's retargeted FBX (bone000..092 rig)")
+        sp.add_argument("--textures", default=None,
+                        help="comma-separated texture PNGs to deploy beside the FBX (default: PNGs beside it)")
+        sp.add_argument("--id", type=int, default=None, help="mint GEO id (default: next free >=6000)")
+        sp.add_argument("--name", default=None,
+                        help="mint GEO name GEO_<GRP>_<FORM>_<TOK> (default: derived from id + group)")
+        sp.add_argument("--group", default=None, help="silhouette family token (MON/MAIN/SUB...; default MON)")
+        sp.add_argument("--private-ef", dest="private_ef", type=int, default=None,
+                        help="the stock-ABSENT effect id hosting the cast .seq (default: auto-alloc; bench 84)")
+        sp.add_argument("--node-count", dest="node_count", type=int, default=None,
+                        help="[SfxHybrid] NodeCount = donor bone count (default 93)")
+        sp.add_argument("--hide-mask", dest="hide_mask", default=None,
+                        help="[SfxHybrid] HideMask (default 0x3 = Bahamut's 2 meshes)")
+        sp.add_argument("--hide-meshes", dest="hide_meshes", default=None,
+                        help="comma-separated mesh KEYS spliced as HideMeshes= on the host .seq (0x optional)")
+        sp.add_argument("--from-toml", dest="from_toml", default=None,
+                        help="read the first [[summon]] block from this TOML file instead of the flags")
+        sp.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
+                        help="mod folder name inside the install (default FF9CustomMap)")
+        sp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+        sp.add_argument("--dry-run", dest="dry_run", action="store_true",
+                        help="stage every artifact under a SCRATCH mirror; the live install is untouched")
+
+    si = sub.add_parser("summon-import",
+                        help="package YOUR retargeted summon model (a Blender .glb from summon-rig-ref, or a "
+                             ".fbx) into your mod folder -- validates the bone000..092 rig, mints + deploys")
+    si.add_argument("model_file", help="your retargeted .glb (from summon-rig-ref) or a ready .fbx")
+    _add_summon_lane_args(si, with_model_flag=False)
+    si.add_argument("--clips", default=None,
+                    help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
+    si.add_argument("--scale", type=float, default=None,
+                    help="glTF import scale (default 0.01, the summon-rig-ref export scale)")
+    si.set_defaults(func=_cmd_summon_import)
+
+    sd_ = sub.add_parser("summon-deploy",
+                         help="deploy a [[summon]] transplant (assets) and, with --arm, arm Memoria.ini "
+                              "[SfxHybrid] (hybrid lane needs the s58 engine; overlay is DLL-free)")
+    _add_summon_lane_args(sd_, with_model_flag=True)
+    sd_.add_argument("--clips", default=None,
+                     help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
+    sd_.add_argument("--arm", action="store_true",
+                     help="ALSO write Memoria.ini [SfxHybrid] (hybrid lane): backs the ini up, string-probes "
+                          "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
+                          "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
+    sd_.set_defaults(func=_cmd_summon_deploy)
 
     imf = sub.add_parser("image-field",
                          help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "

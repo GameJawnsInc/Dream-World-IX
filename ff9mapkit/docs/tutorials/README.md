@@ -20,6 +20,7 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 | 10 | [Edit a character model](10-custom-model.md) | Round-trip a model through Blender (mesh + textures) | Blender 4.2+ |
 | 11 | [Edit an animation](../ANIMATION_EDITING.md) | Keyframe-edit a real animation clip in Blender | Blender 4.2+ |
 | 12 | [Create a creature from scratch](12-creature-from-scratch.md) | An original mesh + rig + animset on a minted id, placed as an NPC | UnityPy |
+| 11 | [Transplant a model onto a summon](11-summon-transplant.md) | Wear a stock summon's real bones/camera with your own model (Blender round-trip) | Blender 4.2+; hybrid lane needs the custom engine bundle |
 
 Pillars without a tutorial yet (reference docs instead):
 

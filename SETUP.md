@@ -277,7 +277,7 @@ console:
 
 ## 7. CLI command reference
 
-115 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
+119 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
 `--game <path>`, `--mod-folder <name>`, `--version` — go **before** the subcommand
 (`ff9mapkit --game <path> doctor`). Commands that read FF9's asset bundles need the `assets`
 extra (UnityPy).
@@ -374,6 +374,10 @@ extra (UnityPy).
 | `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
 | `summon-export <ef>` | *Experimental:* export a stock summon creature's `ef###.bytes` → a Blender-openable glTF (rig + skin + motion clips; `--anims`, `--rest`). Output is **local-only by design** (a stock export is Square-Enix content — it refuses a repo / mod-folder / install path, no `--force`). |
 | `summon-rig-ref <ef>` | *Experimental:* export ONLY a summon's rig reference (`bone000..bone09N`, no mesh, no clips) to skin your own mesh onto. Output is **local-only by design** (same refusal — the rig is stock-derived). |
+| `summon-import <model_file>` | *Experimental:* package YOUR retargeted summon model (a Blender `.glb` from `summon-rig-ref`, or a ready `.fbx`) into your mod folder — validates the `bone000..bone09N` rig, mints the GEO id, deploys the host `.seq` (+ overlay clips/`.sfxmodel`/`FileList.txt` for `--lane overlay`). Flags: `--donor`, `--lane`, `--id`/`--name`/`--group`, `--private-ef`, `--node-count`, `--hide-mask`, `--hide-meshes`, `--clips` (overlay), `--scale`, `--from-toml`, `--mod-folder`, `--game`, `--dry-run`. Hybrid lane still needs `summon-deploy --arm` to write `[SfxHybrid]`. |
+| `summon-deploy` | *Experimental:* deploy a `[[summon]]` transplant's assets (same flags as `summon-import` plus `--model`) and, with `--arm`, ARM `Memoria.ini [SfxHybrid]` (hybrid lane) — backs the ini up, string-probes the DLL for `SfxHybridDrive`, prints the diff; **refuses** to arm on a stock engine. Confirm-first: omit `--arm` to stage the assets and print the `[SfxHybrid]` block without writing it. Standalone (flags or `--from-toml <field.toml>`), or `--dry-run` to stage everything under a SCRATCH mirror. |
+
+> **`[[summon]]` build status (2026-07-24):** schema + validation (`content/summon.py`, wired into `ff9mapkit build`/`lint`), the deploy engine (`summons/deploy.py`), and both CLI verbs above are landed and test-covered. See [`docs/SUMMONS.md`](ff9mapkit/docs/SUMMONS.md) for the full picture, including the hybrid-vs-overlay lane split and the engine-independence gate.
 
 **Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
 `world-transplant`, `world-fuse`, `world-island`, `world-forest`, `world-hill`,

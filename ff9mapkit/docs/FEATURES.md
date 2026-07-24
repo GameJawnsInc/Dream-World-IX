@@ -126,6 +126,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Animation editing: keyframe-edit real clips in Blender, loose `.anim` overrides (`model-anim`) | ✓ | [ANIMATION_EDITING](ANIMATION_EDITING.md) |
 | Custom-character animsets (`playable-anims`) | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
 | One-click add-on Import/Export FF9 Model | ✓ | [blender/README](../blender/README.md) |
+| **Summon transplants** (`[[summon]]`) — wear a stock summon's real bones/camera with your own model; `summon-export`/`summon-rig-ref`/`summon-import`/`summon-deploy` round-trip; hybrid (real motion, needs the custom engine) vs overlay (DLL-free, baked clips) lanes | ◐ *(experimental — the productized pipeline is offline-tested; the hand-built prototype it's built from is in-game proven)* | [SUMMONS](SUMMONS.md) |
 
 ## Overworld
 

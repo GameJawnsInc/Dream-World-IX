@@ -1732,6 +1732,87 @@ The lines are deduped by scene across the whole mod (the patch is scene-keyed an
 
 ---
 
+## `[[summon]]` (optional, repeatable)
+
+*Experimental — the **hybrid** lane needs the custom `memoria-patches` engine bundle (the s58
+`SfxHybridDrive` feature); `summon-deploy` refuses to arm it on stock Memoria. The **overlay** lane
+is DLL-free.* Wear a stock FF9 summon's real cast — its live bones, its native camera, its damage
+timing — with your **own** retargeted model, instead of the donor creature. Unlike every other
+block on this page, `[[summon]]` emits **no `.eb` bytecode** — it compiles to asset artifacts (the
+model, a private sequence host, optional baked clips) plus a printed engine-arm manifest. Full
+narrative + the Blender round-trip: [`docs/SUMMONS.md`](SUMMONS.md) /
+[tutorial 11](tutorials/11-summon-transplant.md).
+
+```toml
+[[summon]]
+# --- identity: which cast, which model, which lane ---
+donor      = 227                    # REQUIRED. numeric SpecialEffect id OR its name ("Bahamut__Full").
+                                    #   The native cast whose live bones/camera/staging we inherit.
+model      = "thomas_skinned.fbx"   # REQUIRED. your OWN retargeted mesh on the bone000..bone09N rig
+                                    #   summon-rig-ref exported (a path; a bare name resolves under
+                                    #   the field's asset dir).
+lane       = "hybrid"               # "hybrid" (the s58 drive, DEFAULT) | "overlay" (DLL-free)
+
+# --- the mint (reuses models/mint.py's band + validator; naming is this pillar's own) ---
+# id         = 6201                 # mint GEO id. default = next free id >= 6000 in your mod folder.
+# name       = "GEO_MON_B0_M201"    # GEO name. default = GEO_<group>_<form>_M<id-6000:03d>.
+# group      = "MON"                # silhouette-family token -> ModelType (MON=3, MAIN=2, SUB=5, ...). default MON.
+# form       = "B0"                 # the FORM token in the minted name (rarely need to change). default B0.
+# textures   = ["thomas_d.png"]     # explicit texture PNGs to deploy beside the FBX. default: every
+                                    #   *.png already sitting next to the model file.
+
+# --- the sequence host: a PRIVATE, stock-ABSENT effect id (never the donor's own folder) ---
+# private_ef = 84                   # default = auto-alloc the first stock-absent SpecialEffect id
+                                    #   with no ef{id:D3}/ folder in any stacked mod folder.
+
+# --- hybrid-lane engine knobs (map 1:1 onto [SfxHybrid] -- see SUMMONS.md) ---
+# hide_native        = true         # -> HideNative (default true)
+# hide_mask          = "0x3"        # -> HideMask (default "0x3" -- Bahamut's 2 meshes; raise for a
+                                    #   donor with a different mesh count, e.g. "0x7" for 3 meshes)
+# node_count         = 93           # -> NodeCount (default 93 -- Bahamut's bone count; set to your
+                                    #   donor's own bone count if it differs)
+# apply_column_scale = false        # -> ApplyColumnScale (default false -- writing it DOUBLES the
+                                    #   creature; the node-position spread already carries the scale)
+
+# --- optional data-path body hide (defense-in-depth for hybrid; the practical body hide for overlay) ---
+# hide_meshes = ["0033B990", "0033B9D0"]   # mesh KEYS spliced as HideMeshes=0x.. on the host .seq's
+                                    #   PlaySFX line. Default: omitted (hybrid's HideNative already
+                                    #   hides the body; overlay has no fallback, so set this there).
+
+# --- overlay-lane-only keys (ignored when lane = "hybrid") ---
+# clips   = "all"                   # which decoded donor clips to bake to .anim: "all"|"none"|index list
+# staging = "donor"                 # forward-compat knob; both values emit the same artifacts today
+                                    #   (the overlay host .seq always nests the donor cast for
+                                    #   camera+fly-by, and the .sfxmodel ships default anchor curves)
+```
+
+| key | meaning |
+|---|---|
+| `donor` | **required.** The stock summon whose cast you inherit — a numeric `SpecialEffect` id (`227` = Bahamut) or its enum name (`"Bahamut__Full"`); resolved through a verified name→id catalog (`content/summon.py:SUMMON_DONORS`). Must be a real donor with creature content — one of the 24 stock-absent ids (see `private_ef`) is refused. |
+| `model` | **required.** Your own retargeted FBX/glTF, skinned onto the `bone000..bone09N` rig `summon-rig-ref` exported for this donor (same names + hierarchy — renaming/reparenting breaks Unity's by-path clip binding). Smooth multi-bone weights are legal for *your* mesh (only the *donor* creature is rigid one-bone-per-vertex). |
+| `lane` | `"hybrid"` (default) — the s58 drive poses your model from the donor's live per-frame bones; needs the custom engine. `"overlay"` — DLL-free: your model plays the donor's motion clips, decoded once to loose `.anim` files in your mod folder, no live bone read. |
+| `id` / `name` / `group` / `form` | the mint identity, in the same ≥6000 band `[[mint]]` uses. `id` defaults to the next free id; `name` defaults to `GEO_<group>_<form>_M<offset:03d>` (reproduces `GEO_MON_B0_M201` for id 6201/group MON); `group` sets the silhouette-family token that drives `ModelType` (default `MON`); `form` is the form token, rarely changed (default `B0`). |
+| `textures` | explicit list of texture PNGs to deploy beside the model. Default: every `.png` file already sitting next to the model FBX. |
+| `private_ef` | the stock-**absent** `SpecialEffect` id that hosts the cast's `.seq` (and, overlay-only, the `.sfxmodel`/`FileList.txt`). **Never** the donor's own `ef{donor:D3}/` folder — a `FileList.txt`/`Model` line there silently replaces the WHOLE native cast (the donor-FileList replacement law), which is fatal to the hybrid lane. Default: auto-picked from the 24-id absent set; declare it explicitly to pin a value or to share one id across several `[[summon]]` blocks. Refused if it collides with `donor`, isn't actually absent, or already has real content. |
+| `hide_native` / `hide_mask` / `node_count` / `apply_column_scale` | **hybrid-only**, map 1:1 onto `[SfxHybrid]`'s `HideNative`/`HideMask`/`NodeCount`/`ApplyColumnScale` (see [SUMMONS.md](SUMMONS.md)). The `hide_mask`/`node_count` defaults (`0x3`/`93`) are Bahamut's own values — override them for a different donor. Leave `apply_column_scale` off unless your rig's bind pose is not a clean scale-1 rest — the node-position spread already carries the donor's authored scale sweep, so applying it again doubles the creature. |
+| `hide_meshes` | mesh **key** strings spliced onto the host `.seq`'s `PlaySFX` line as `HideMeshes=0x..`. Optional defense-in-depth for hybrid (`HideNative` already does the real hide); for overlay there's no engine feature to lean on, so this is the practical way to hide the donor's body. |
+| `clips` | **overlay-only.** Which decoded donor clips to bake to `.anim`: `"all"` (default), `"none"`, or an index list. |
+| `staging` | **overlay-only.** How the overlay lane gets camera + fly-by motion (the baked clip alone carries no meaningful root travel — every axis of every stock clip stays under ~250 units). The overlay host `.seq` always nests the donor cast (inheriting its camera/staging for free) and the emitted `.sfxmodel` ships sane world-origin anchor curves, so the deployed artifacts are the same for both values today. `staging` is accepted and validated (`"donor"` default \| `"curves"`) as a forward-compatibility knob for a future hand-authored-curve mode; it does not yet change what is emitted. |
+
+**Wiring the cast trigger is a separate, existing step.** `[[summon]]` does not touch
+`Actions.csv` — point the summoning ability's `vfx1` (kit key on `Actions.csv`'s `animationId1`
+column, `authoring-ff9-battles`) at this block's `private_ef` id. The build **reminds** you to do
+this (a lint note), never edits the ability for you.
+
+**`build`/`lint` only validate this block** (schema, lane, donor/`private_ef` sanity) — deploying
+the model + `.seq` + DictionaryPatch line, and (hybrid lane) arming `[SfxHybrid]`, is the separate
+`summon-deploy` CLI verb (`summons.deploy.deploy()`), which mutates the user's live `Memoria.ini`
+on arm and needs a relaunch, and **refuses** to arm unless the deployed engine actually contains
+the s58 `SfxHybridDrive` feature. See [SUMMONS.md](SUMMONS.md) for the full relaunch/recast law and
+the provenance rules.
+
+---
+
 ## `[difficulty]` (optional — enemy scaling / "hard mode")
 
 Scales every **enemy** once per battle, at battle init. Players are never touched. Compiles into the mod's

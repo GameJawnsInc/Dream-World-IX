@@ -47,7 +47,7 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 
 ## Commands
 
-115 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
+119 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
 [`SETUP.md` §7](../SETUP.md#7-cli-command-reference). The families:
 
 - **Setup** — `setup` · `doctor` · `extract-templates`
@@ -64,7 +64,8 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
   `ability-features`
 - **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-anim-new` /
   `model-preview` / `model-reskin` / `model-deployed` / `model-export` / `playable-anims` ·
-  `image-field`
+  `image-field` · summon transplants (experimental): `summon-export` / `summon-rig-ref` /
+  `summon-import` / `summon-deploy`
 - **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-transplant` /
   `world-water` / `world-island` / `world-forest` / `world-hill` / `world-mountain` /
   `world-entrance` / `world-encounters` and the rest of the `world-*` suite
