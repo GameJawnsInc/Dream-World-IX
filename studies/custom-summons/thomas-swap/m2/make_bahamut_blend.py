@@ -171,6 +171,64 @@ def _bind_slot(anim_data_owner, action):
         print(f"  slot-bind warn ({action.name}): {e}")
 
 
+# --------------------------------------------------------------------------- slot normalization
+# Blender 4.4+ actions are SLOTTED: the curves live in a channelbag keyed by an ActionSlot, and picking an
+# action in the Action Editor only animates anything if a slot gets bound to the ID. Blender auto-picks that
+# slot on assignment (measured on 5.1: it resolves via adt.last_slot_identifier, then an identifier matching
+# the ID's name, then a lone unused slot) -- so ONE clearly-named armature slot per action is the shape where
+# plain "pick the action" always works. The glTF importer already produces exactly that here (1 slot, 375
+# fcurves), but the slot is named after the object's IMPORT-TIME name ("Armature"), which goes stale the
+# moment this script renames the rig -- and if a future importer ever emits stray extra slots, the auto-pick
+# gets ambiguous. So: verify one-armature-slot-per-action, rename it to the rig, and refuse to guess if the
+# shape is ever different (never silently drop curve data).
+def _slot_fcurves(action, slot):
+    n = 0
+    for layer in action.layers:
+        for strip in layer.strips:
+            cb = strip.channelbag(slot)
+            if cb:
+                n += len(cb.fcurves)
+    return n
+
+
+def normalize_slots(action, owner):
+    """Reduce ``action`` to exactly one slot targeting ``owner`` and name it after ``owner``.
+
+    Returns the kept slot (or None). Empty stray slots are pruned; a stray that actually CARRIES curves is
+    only reported -- deleting real animation data to tidy a name is never the right trade.
+    """
+    slots = list(action.slots)
+    if not slots:
+        print(f"  ! {action.name}: no slots -- the Action Editor cannot bind this action to anything")
+        return None
+    counts = {s.identifier: _slot_fcurves(action, s) for s in slots}
+    keep = max(slots, key=lambda s: (getattr(s, "target_id_type", "") == "OBJECT", counts[s.identifier]))
+    for s in slots:
+        if s is keep:
+            continue
+        if counts[s.identifier]:
+            print(f"  ! {action.name}: extra slot {s.identifier!r} carries {counts[s.identifier]} fcurve(s) "
+                  f"-- KEEPING it (ambiguous slot auto-pick; inspect this clip by hand)")
+            continue
+        try:
+            action.slots.remove(s)
+            print(f"  {action.name}: pruned empty stray slot {s.identifier!r}")
+        except Exception as e:  # pragma: no cover -- Blender-version dependent API
+            print(f"  {action.name}: could not prune stray slot {s.identifier!r}: {e}")
+    try:
+        keep.name_display = owner.name  # identifier becomes 'OB' + owner.name for OBJECT-targeted slots
+    except Exception as e:  # pragma: no cover
+        print(f"  {action.name}: slot rename warn: {e}")
+    return keep
+
+
+print("[bahamut-blend] normalizing action slots (one armature slot per clip, named for the rig):")
+for _i in sorted(clip_actions):
+    _act = clip_actions[_i][0]
+    _slot = normalize_slots(_act, rig)
+    print(f"  {_act.name:22s} slot={_slot.identifier if _slot else None!r} "
+          f"({_slot_fcurves(_act, _slot) if _slot else 0} fcurves)")
+
 # the long flight clip (clip6) as the ACTIVE action -- open the file, hit spacebar, the dragon flies
 flight_act, flight_frames = clip_actions[6]
 rig.animation_data.action = flight_act
@@ -313,6 +371,29 @@ except Exception as e:
                 print(f"  pack warn {img.name}: {e2}")
 n_packed = sum(1 for img in bpy.data.images if img.packed_file is not None)
 print(f"[bahamut-blend] {n_packed}/{len(bpy.data.images)} image(s) packed")
+
+# --------------------------------------------------------------------------- leave the RIG active (THE
+# Action-Editor fix). The Action Editor always edits the ACTIVE OBJECT's animation data. bpy.ops.object.join()
+# above leaves the MESH ('Bahamut') active and sole-selected, so a file saved in that state opens with the
+# Action Editor pointed at the mesh: every clip the owner picks there gets assigned to the MESH -- whose
+# object-level animation data cannot resolve pose.bones[...] fcurves -- while the armature keeps evaluating
+# whatever action it already held (clip6). Reproduced headless: assigning all 8 clips to the mesh moves the
+# rig by exactly 0.0000, i.e. "every action shows the same motion". The slots were never the problem.
+# So: select + activate the armature, and leave the file in POSE mode -- pose mode also makes the fix DURABLE,
+# because clicking the dragon's body in the viewport then can't silently re-point the editor at the mesh.
+# All bones are left selected so the Action Editor's default "Only Show Selected" filter shows real channels
+# instead of an empty list.
+bpy.ops.object.select_all(action="DESELECT")
+rig.select_set(True)
+bpy.context.view_layer.objects.active = rig
+try:
+    bpy.ops.object.mode_set(mode="POSE")
+    for pb in rig.pose.bones:
+        pb.select = True  # Blender 5.x: selection lives on PoseBone (Bone.select is gone)
+except Exception as e:  # pragma: no cover -- headless context quirks
+    print(f"[bahamut-blend] ! could not enter pose mode ({e}); rig is active in object mode")
+print(f"[bahamut-blend] active object = {bpy.context.view_layer.objects.active.name!r} "
+      f"(mode={rig.mode}, {sum(1 for pb in rig.pose.bones if pb.select)}/{len(rig.pose.bones)} bones selected)")
 
 bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
 print(f"[bahamut-blend] saved -> {OUT_BLEND}")
