@@ -430,3 +430,57 @@ def test_sweep_polyline_core():
     assert warns and "OFF-MESH" in warns[0]
     clean = R.sweep_polyline([(0, 0), (900, 0)], FakeMesh(), bedges=[])
     assert not clean[0]["spans"]
+
+
+def test_mesh_boundary_edges_seam_aware():
+    """Cross-floor SEAMS (disjoint per-floor vertex sets, linked by tri neighbors)
+    are NOT walls: the sweep must not warn on a clear route crossing one, while a
+    real wall still warns. The 30414/30412 phantom "passes Nu from a walkmesh
+    edge" bug: the raw one-triangle edge count called every seam a wall."""
+    from types import SimpleNamespace as NS
+
+    from ff9mapkit.scene import routes as R
+
+    # two 1000x1000 floors side by side; the x=1000 seam verts are DUPLICATED
+    # (floor A owns 0-3, floor B owns 4-7 -- the multi-floor .bgi convention)
+    verts = [(0, 0, 0), (1000, 0, 0), (1000, 0, 1000), (0, 0, 1000),
+             (1000, 0, 0), (2000, 0, 0), (2000, 0, 1000), (1000, 0, 1000)]
+    # slot k edge = SLOT_PAIRS[k] = [(0,2),(0,1),(1,2)] of the tri's local verts
+    tris = [NS(vtx=(0, 1, 2), nbr=[1, -1, 3]),    # s2=(1,2) = the seam -> T3
+            NS(vtx=(0, 2, 3), nbr=[-1, 0, -1]),
+            NS(vtx=(4, 5, 6), nbr=[3, -1, -1]),
+            NS(vtx=(4, 6, 7), nbr=[0, 2, -1])]    # s0=(4,7) = the seam -> T0
+
+    class TwoFloorMesh:
+        def world_verts(self):
+            return verts
+
+        def __init__(self):
+            self.tris = tris
+
+        def point_on_walkmesh(self, x, z):
+            return 0 if 0 <= x <= 2000 and 0 <= z <= 1000 else None
+
+    wm = TwoFloorMesh()
+    bedges = R.mesh_boundary_edges(wm)
+    assert len(bedges) == 6                        # 4 outer walls as 6 segments, NO seam
+    assert all(not (a[0] == b[0] == 1000) for a, b in bedges)   # the seam edge is gone
+    # the raw count DOES call the seam a wall -- the exact defect guarded here
+    raw = R.boundary_edges_xz(verts, [t.vtx for t in tris])
+    assert any(a[0] == b[0] == 1000 for a, b in raw)
+
+    # a mid-strip route across the seam: clear (500u from the real walls), no warning
+    legs = R.sweep_polyline([(200, 500), (1800, 500)], wm, bedges)
+    assert not R.describe_leg_problems("seam", legs)
+    assert legs[0]["minwall"] > R.WALL_CLEARANCE_W
+    # ...but the same route against raw edges would have phantom-warned
+    assert R.describe_leg_problems("seam", R.sweep_polyline([(200, 500), (1800, 500)], wm, raw))
+
+    # a real wall still warns: hugging z=0 at 30u < the 48u clearance
+    hug = R.sweep_polyline([(200, 30), (1800, 30)], wm, bedges)
+    warns = R.describe_leg_problems("hug", hug)
+    assert warns and "passes" in warns[0] and "walkmesh edge" in warns[0]
+
+    # tris without neighbor data fall back to the raw vertex-pair count
+    bare = NS(world_verts=lambda: verts, tris=[NS(vtx=t.vtx) for t in tris])
+    assert sorted(R.mesh_boundary_edges(bare)) == sorted(raw)

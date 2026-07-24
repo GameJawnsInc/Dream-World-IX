@@ -202,10 +202,9 @@ def analyze(items, camera, wmesh, cw, ch, scrolling=False) -> tuple:
     canvas pans across a larger painting, so off-canvas content is NORMAL (the
     OFF-CANVAS check would flag everything beyond one static screen -- skip it)."""
     recs, warns = [], []
-    bedges = []
-    if wmesh is not None:
-        wv = wmesh.world_verts()
-        bedges = boundary_edges_xz(wv, [tuple(t.vtx) for t in wmesh.tris])
+    # seam-aware: cross-floor seams are NOT walls (multi-floor meshes have disjoint
+    # per-floor vertex sets, so the raw one-triangle edge count would flag them)
+    bedges = R.mesh_boundary_edges(wmesh) if wmesh is not None else []
     zones = [(it["type"], it.get("label", it["type"]), it["zone"])
              for it in items if it.get("footprint") == "zone" and it.get("zone")]
     pts = [it for it in items if it.get("footprint") == "point" and it.get("pos")]
@@ -586,10 +585,7 @@ def main() -> int:
               file=sys.stderr)
 
     routes = collect_routes(project.raw, scene_cfg)
-    bedges = []
-    if wmesh is not None:
-        wv = wmesh.world_verts()
-        bedges = boundary_edges_xz(wv, [tuple(t.vtx) for t in wmesh.tris])
+    bedges = R.mesh_boundary_edges(wmesh) if wmesh is not None else []   # seam-aware walls
     swept, route_warns = analyze_routes(routes, wmesh, bedges)
     warns += route_warns
 
