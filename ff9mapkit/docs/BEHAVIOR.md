@@ -195,6 +195,34 @@ report (and `behavior compile`) prints the full blackboard map, and the in-game 
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:
 flags, HP, corpses, clocks, latches.
 
+## The clock, waves, and real battles
+
+Field-level **`timer = <seconds>`** starts FF9's own countdown HUD on entry (the Festival
+of the Hunt's clock; `~ → Reload` resets it), and two condition verbs read it:
+**`time_below = N`** / **`time_above = N`** (remaining seconds). Gate different units'
+march branches on descending bands and you have **timed waves** — the Hunt's own
+scheduling shape:
+
+```toml
+[behavior]
+timer = 180
+
+  # wave 1 marches at 2:50, wave 2 at 1:30 — same tree shape, different bands
+  [[behavior.unit.branch]]
+  when = [{ time_below = 170 }, { not_flag = "lost" }]
+  do = { march = [[x1, z1], [gx, gz]], route = "auto" }
+```
+
+**`battle = <scene id>`** fires a REAL battle (the engine's swirl, the actual fight, the
+return to the field). It is **one-shot per field load by construction** — a compiled latch
+gates the dispatch, so the reactive tree re-selecting the branch after you return can't
+re-fire it. The build automatically installs the after-battle Main_Reinit machinery (and
+the field-BGM resume) whenever a behavior compiles a battle — no `[encounter]` block
+needed. Use a **stock scene id** (the donor's own battles are the safe pick) and no
+BattlePatch line is needed either. The Fort Condor loss shape: the gate is a unit with
+`hp`; raiders `swing_at` it; its `hp_le 0` branch fires the boss battle and raises
+`"lost"`; a `time_below = 1` branch on a surviving gate announces the win.
+
 ## Limits (v1)
 
 - Novel fields and `--native`/`--editable` forks only — a VERBATIM fork runs the donor's real

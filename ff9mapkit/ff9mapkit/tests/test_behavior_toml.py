@@ -290,6 +290,74 @@ def test_pooled_installs_in_built_eb(tmp_path):
     assert again == plain
 
 
+# ------------------------------------------------------------------ waves + win/loss
+def test_timer_battle_toml_surface():
+    raw = {**RAW, "behavior": {**RAW["behavior"], "timer": 180, "unit": [
+        {"npc": "guard", "hp": 6, "branch": [
+            {"when": [{"flag": "lost"}], "do": {"die": True}},
+            {"when": [{"hp_le": 0}], "do": {"battle": 35}, "raise_flags": ["lost"]},
+            {"when": [{"time_below": 1}], "do": {"announce": "We held!"},
+             "raise_flags": ["won"], "once": "wincry"},
+            {"do": {"hold": "post"}},
+        ]},
+        {"npc": "beast", "hp": 4, "branch": [
+            {"when": [{"hp_le": 0}], "do": {"die": True}},
+            {"when": [{"time_below": 170}, {"not_flag": "lost"}],
+             "do": {"walk_to": "post"}},
+            {"do": {"hold": [500, 500]}},
+        ]},
+    ]}}
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"guard": 2, "beast": 3},
+                  behavior_txids={(0, 2): 700})
+    assert fb.timer == 180 and fb.has_battle_actions()
+    _verify_all(fb.compile())
+    # negatives: time cond without timer / bad battle scene / bad timer
+    bad = {**raw, "behavior": {**raw["behavior"]}}
+    del bad["behavior"]["timer"]
+    bad["behavior"] = {k: v for k, v in raw["behavior"].items() if k != "timer"}
+    assert any("needs field-level" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"], "unit": [
+        {"npc": "guard", "branch": [{"do": {"battle": "zaghnol"}},
+                                    {"do": {"hold": "post"}}]}]}}
+    assert any("battle takes a battle SCENE id" in p for p in BT.validate(bad))
+    bad = {**raw, "behavior": {**raw["behavior"], "timer": 999999}}
+    assert any("timer must be" in p for p in BT.validate(bad))
+
+
+def test_battle_installs_reinit_in_built_eb(tmp_path):
+    """Product path: a [behavior] battle action makes the build install the entry-0
+    tag-10 Main_Reinit (the after-battle resume law) without any [encounter] block."""
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+
+    toml = (
+        '[field]\nid = 30002\nname = "BHW"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Hold!"\n'
+        "\n[behavior]\nwarmup = 30\ntimer = 120\n"
+        '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
+        "\n[[behavior.unit.branch]]\n"
+        'when = [{ hp_le = 0 }]\ndo = { battle = 35 }\n'
+        "\n[[behavior.unit.branch]]\n"
+        "do = { hold = [0, -300] }\n"
+    )
+    f = tmp_path / "bhw.field.toml"
+    f.write_text(toml, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    assert BLD.validate(p) == []
+    plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501})
+    eb = EbScript.from_bytes(plain)
+    assert eb.entry(0).func_by_tag(10) is not None     # the after-battle Main_Reinit
+    battle_ops = [ins for i in range(eb.entry_count) if eb.entry(i).size > 0
+                  for fn in eb.entry(i).funcs
+                  for ins in D.iter_code(plain, fn.abs_start, fn.abs_end)
+                  if ins.op == 0x2A]
+    assert len(battle_ops) == 1 and int(battle_ops[0].imm(1)) == 35
+    again = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501})
+    assert again == plain
+
+
 # ------------------------------------------------------------------ pool economy
 def test_pool_rows_parse_and_validate():
     raw = {**POOLED_RAW, "behavior": {**POOLED_RAW["behavior"],

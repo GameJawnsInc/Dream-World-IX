@@ -5926,6 +5926,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    for i, n in enumerate(project.raw.get("npc", []))
                                    if n.get("name") and i in dialogue_txids},
                 behavior_txids=behavior_txids, routed=routed)
+            # a behavior Battle action needs the after-battle machinery the encounter
+            # lane installs: the entry-0 tag-10 Main_Reinit (EnterBattleEnd suspends
+            # every object; the tag-10's return resumes them) + the field-BGM resume
+            if fb.has_battle_actions() and not has_encounter:
+                eb = _reinit.add_reinit(eb, with_fade=True)
+                _song = project.raw.get("music", {}).get("song")
+                if _song is not None:
+                    eb = _music.add_music_to_reinit(eb, int(_song))
             # button pools: resolve each pool's PARKED hire [[choice]] (matched by the
             # option that set_flags its request flag) to the region slot injected above
             pool_choice_slots = {}

@@ -240,6 +240,57 @@ def test_pool_spec_negatives():
         B.FieldBehavior(list(u), pools=[B.PoolSpec("p"), B.PoolSpec("p")])
 
 
+# ------------------------------------------------------------------ waves + win/loss
+def siege_field() -> B.FieldBehavior:
+    fb = B.FieldBehavior(
+        [B.UnitSpec("gate", entry=2, spawn=(0, 0), hp=6),
+         B.UnitSpec("raider", entry=3, spawn=(900, 900), hp=4)],
+        timer=180)
+    fb.units["gate"].tree = B.Selector(
+        B.Sequence(fb.flag("lost"), B.Do(B.Die())),
+        B.Sequence(fb.hp_le("gate", 0), B.Do(B.Battle(35), raise_flags=("lost",))),
+        B.Sequence(fb.time_below(1), B.Do(B.Announce(700), raise_flags=("won",))),
+        B.Do(B.Hold((0, 0))),
+    )
+    fb.units["raider"].tree = B.Selector(
+        B.Sequence(fb.hp_le("raider", 0), B.Do(B.Die())),
+        B.Sequence(fb.active("gate"), fb.near("raider", "gate", 250),
+                   B.Do(B.SwingAt("gate"))),
+        B.Sequence(fb.time_below(170), B.Invert(fb.flag("lost")),
+                   B.Do(B.WalkTo((0, 0)))),
+        B.Do(B.Hold((900, 900))),
+    )
+    return fb
+
+
+def test_timer_and_battle_compile():
+    fb = siege_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # the countdown triplet in Main_Init: ChangeTimerTime/ShowTimer/RunTimer
+    mi_ops = [ins.op for ins in D.iter_code(cb.main_init, 0, len(cb.main_init))]
+    assert 0x69 in mi_ops and 0x8D in mi_ops and 0x7D in mi_ops
+    # the Battle body exists and carries the 0x2A + the one-shot latch set
+    bodies = dict(cb.action_funcs["gate"])
+    battle_bodies = [b for b in bodies.values()
+                     if any(i.op == 0x2A for i in D.iter_code(b, 0, len(b)))]
+    assert len(battle_bodies) == 1
+    assert "gate.battled" in cb.report                 # the latch is allocated + visible
+    assert fb.has_battle_actions()
+    assert not guard_field().has_battle_actions()
+    assert siege_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_battle_scene_range_refused():
+    with pytest.raises(B.BehaviorError, match="scene"):
+        B.Battle(70000)
+    with pytest.raises(B.BehaviorError, match="timer"):
+        B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))], timer=0)
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    with pytest.raises(B.BehaviorError, match="time_below"):
+        fb.time_below(999999)
+
+
 # ------------------------------------------------------------------ rung-3 vocabulary
 def test_flee_compiles_and_verifies():
     fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0), hp=4)])
