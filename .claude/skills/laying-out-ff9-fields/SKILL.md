@@ -86,6 +86,32 @@ Workflow: author/edit the field.toml -> **probe** -> fix warnings + check the pi
 intent -> `ff9mapkit lint` -> deploy -> `tools/game_snap.ps1` / playtest. The probe is offline and
 instant; there is no excuse to deploy a layout you haven't looked at.
 
+## Routes -- scripted WALKS are segments, not points (probe them too)
+
+A `[[marker]]` may carry **`path = [[x,z], ...]`** (+ `closed = true` for a patrol ring): the
+polyline a scripted walker (patrol, march, flee line, cutscene walk) will actually travel. Markers
+stay build-inert; the probe DRAWS each route on both PNGs and **walkability-SWEEPS every leg**
+(~40u samples), warning with world coordinates on any off-mesh span (drawn in red) and on legs
+that pass under 48u from a walkmesh edge. Declare a route for EVERY scripted multi-point walk --
+the BTRAID bench shipped a patrol ring whose two off-mesh legs stalled guards in-game, invisible
+to point checks; the sweep finds that class offline in seconds.
+
+Movement facts the sweep encodes (engine: walkers move STRAIGHT at their target and slide on
+contact -- there is NO pathfinding):
+- **Convex obstacles are survivable; concave ones are not.** A walker clipping a round monument
+  slides around it (ugly but progresses); one entering a bay, notch, or spur WEDGES and stalls.
+  Off-mesh spans = must-fix; sub-48u grazes along a long PARALLEL wall = usually a tolerable
+  slide -- judge with the picture.
+- **Snap walk targets to points with real wall clearance (~100u+), not merely on-mesh.** A bare
+  point-in-triangle test happily accepts a 1u edge sliver; a unit sent there is shoved off it
+  and oscillates. When generating layouts programmatically, filter candidate points by
+  distance-to-boundary-edge before nearest-snapping.
+- Long walks across an irregular field usually need WAYPOINTS at the concavity mouths (necks,
+  gates); pick them from the probe's picture, then sweep the multi-leg route until clean.
+
+Scrolling fields ([camera.scroll] enabled): the probe auto-skips OFF-CANVAS warnings there --
+the viewport pans, so content beyond one static screen is normal, not a bug.
+
 Warning semantics: **spawn/arrival off-mesh = a real bug** (player strands). An NPC/prop off-mesh
 is often deliberate set dressing (vivi-hut's Vivi stands 100u behind the walkable edge, against the
 wall) -- confirm it is intentional, don't "fix" it reflexively.

@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
 from .content import ate as _ate
+from .content import behaviortoml as _behaviortoml
 from .content import camera as _camera
 from .content import choice as _choice
 from .content import coop as _coop
@@ -1114,6 +1115,8 @@ def _validate_summon(project: FieldProject, problems: list) -> None:
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
+    problems += _behaviortoml.validate(project.raw,
+                                       verbatim="verbatim_eb" in project.raw)
     _validate_logic_edits(project, problems)
     _validate_chocobo(project, problems)
     _validate_logic_adds(project, problems)
@@ -4866,7 +4869,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
                  gateway_txids: dict | None = None, coop_txids: dict | None = None,
-                 savepoint_txids: dict | None = None,
+                 savepoint_txids: dict | None = None, behavior_txids: dict | None = None,
                  warnings: list | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field. ``warnings``
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
@@ -4938,6 +4941,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     npc_slots = {}           # npc name -> entry slot (so a [[prop]] can attach_to it)
+    _pooled_bh = _behaviortoml.pooled_npcs(project.raw)   # pooled behavior units: seat DORMANT
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -4979,8 +4983,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        greeting_txid=txid if n.get("dialogue") else None)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
-                             appears_scenario_max=smax, speak_body=sb, **kwargs)
-        if gf is not None:
+                             appears_scenario_max=smax, speak_body=sb,
+                             boot_spawn=(n.get("name") not in _pooled_bh), **kwargs)
+        if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
             npc_slots[n["name"]] = slot
@@ -5890,6 +5895,36 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         used_cams, cvs = cam_restore
         eb = _camera.add_camera_restore(eb, used_cams, cvs)
 
+    # [behavior] -- compile the field's behavior trees (content.behavior) and install them
+    # LAST: each unit's tag-1 standby becomes its duty walk, dispatch/nudge bodies are added
+    # (slot indices stay stable), the central ticker is seated + activated, and Main_Init
+    # gains the blackboard reset. Installed after every other injection so nothing later
+    # reshapes the unit entries. Each language build constructs the SAME FieldBehavior
+    # (identical order -> identical GLOB allocation -> identical bytes across languages).
+    if _behaviortoml.table(project.raw):
+        from .content import behavior as _behavior
+        try:
+            fb = _behaviortoml.build(
+                project.raw, npc_slots=npc_slots,
+                npc_txids_by_name={n.get("name"): dialogue_txids[i]
+                                   for i, n in enumerate(project.raw.get("npc", []))
+                                   if n.get("name") and i in dialogue_txids},
+                behavior_txids=behavior_txids)
+            eb = fb.install(eb)
+            if warnings is not None:
+                pf = [f"{nm} -> flag {fb.bb.flag(nm)}"
+                      for nm in (project.raw["behavior"].get("public_flags") or [])]
+                if pf:
+                    warnings.append("[behavior] public flags (wire your [[choice]] "
+                                    "set_flag rows to these): " + ", ".join(pf))
+                pl = [f"{nm} -> flag {idx}" for nm, idx in fb.pool_flags.items()]
+                if pl:
+                    warnings.append("[behavior] pool spawn-request flags (a [[choice]] "
+                                    "set_flag row spawns the next pooled unit at the "
+                                    "player): " + ", ".join(pl))
+        except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
+            raise BuildError(f"[behavior]: {e}") from e
+
     return eb
 
 
@@ -6335,7 +6370,8 @@ def _wrap_width(project: FieldProject):
 
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-    chest_txids, gateway_txids, coop_txids). All field text (NPC dialogue, event messages, cutscene 'say'
+    chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids). All field text (NPC dialogue,
+    event messages, cutscene 'say'
     lines, choice prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE
     gateway titles, [[coop]] gate fire messages) shares one .mes block, in that order
     (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
@@ -6667,8 +6703,14 @@ def collect_text(project: FieldProject):
     for i, n in enumerate(project.raw.get("npc", [])):
         if i not in npc_pos and _npc_needs_default_talk(project, n):
             npc_pos[i] = _add(n, _text.DEFAULT_SILENT_TALK)
+    # [behavior] announce lines: each `do = { announce = "..." }` mints its own dialogue
+    # entry (unit-then-branch order -- behaviortoml.build consumes the same keys). Added
+    # LAST so a field with no [behavior] keeps the previous text layout byte-identical.
+    bh_pos = {}
+    for _ui, _bi, _br in _behaviortoml.announce_lines(project.raw):
+        bh_pos[(_ui, _bi)] = _add(_br, _br["do"]["announce"])
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     # a network moogle's field also ships text entry 0 = the ROSTER (install names + the new identity),
     # at its donor-fixed LOW txid -- legal only in this field's own minted block (validate enforces it)
@@ -6707,8 +6749,9 @@ def collect_text(project: FieldProject):
             {key: (v if key in _passthrough else mapping[v]) for key, v in d.items()})
     for k, p in act_pos.items():                          # the act's save-line txid
         savepoint_txids.setdefault(k, {})["act"] = mapping[p]
+    behavior_txids = {k: mapping[p] for k, p in bh_pos.items()}   # (unit, branch) -> announce txid
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-            chest_txids, gateway_txids, coop_txids, savepoint_txids)
+            chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -6976,7 +7019,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids, savepoint_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -7196,7 +7239,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
                               ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
                               coop_txids=coop_txids, savepoint_txids=savepoint_txids,
-                              warnings=warnings)
+                              behavior_txids=behavior_txids, warnings=warnings)
             base = mes_body or ""
             inplace = base
             suffix = ""

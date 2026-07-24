@@ -83,7 +83,7 @@ class _Stub:
 def test_collect_text_applies_speaker_and_tail():
     raw = {"npc": [{"name": "V", "dialogue": "Hello.", "speaker": "Vivi", "tail": "UPL"},
                    {"name": "W", "dialogue": "Yo."}]}             # second: defaults
-    body, npc_txids, _, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(_Stub(raw))
+    body, npc_txids, _, _, _, _, _, _, _gw9, _co10, _sp11, _bh12 = build.collect_text(_Stub(raw))
     assert "[TAIL=UPL]Vivi\n“Hello.”[ENDN]" in body
     assert "[TAIL=UPR]Yo.[ENDN]" in body                          # no speaker: no name line, no quotes
     assert npc_txids == {0: 500, 1: 501}
@@ -94,7 +94,7 @@ def test_collect_text_speaker_on_event_and_cutscene():
         "event": [{"name": "Sign", "message": "It reads...", "speaker": "Sign", "zone": [[0, 0]] * 4}],
         "cutscene": {"steps": [{"say": "I'm here.", "speaker": "[ZDNE]", "tail": "LOR"}]},
     }
-    body, _, ev_txids, cs_txids, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(_Stub(raw))
+    body, _, ev_txids, cs_txids, _, _, _, _, _gw9, _co10, _sp11, _bh12 = build.collect_text(_Stub(raw))
     assert "Sign\n“It reads...”[ENDN]" in body
     assert "[TAIL=LOR][ZDNE]\n“I'm here.”[ENDN]" in body
     assert ev_txids and cs_txids                                  # both got txids
@@ -109,7 +109,7 @@ def test_dialogueless_npc_owns_its_txid_not_the_choice_prompt():
     raw = {"npc": [{"name": "Swarm", "pos": [0, -100]}],           # no dialogue, no choice attached
            "choice": [{"zone": [[0, 0]] * 4, "prompt": "Which way?",
                        "options": [{"text": "Left"}, {"text": "Right"}]}]}
-    body, npc_txids, _, _, choice_txids, _, _, _, _, _, _ = build.collect_text(_Stub(raw))
+    body, npc_txids, _, _, choice_txids, _, _, _, _, _, _, _ = build.collect_text(_Stub(raw))
     assert 0 in npc_txids                                          # the silent NPC owns a line now
     assert npc_txids[0] != choice_txids[0]["prompt"]               # ...distinct from the choice prompt
     assert f"[TXID={npc_txids[0]}]" in body                        # and the line actually ships
@@ -198,7 +198,7 @@ def test_collect_text_wraps_long_dialogue_but_not_short():
     long_line = ("If you should ever find your way back to this little place, "
                  "know that you are always welcome here, old friend.")
     raw = {"npc": [{"name": "L", "dialogue": long_line}, {"name": "S", "dialogue": "Hi."}]}
-    body, _, _, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(_Stub(raw))
+    body, _, _, _, _, _, _, _, _gw9, _co10, _sp11, _bh12 = build.collect_text(_Stub(raw))
     assert body.count("\n") >= 2          # more than the single entry-separator -> the long line wrapped
     assert long_line not in body          # the long line was broken (not a contiguous run)
     assert "Hi.[ENDN]" in body            # the short line is verbatim, no inserted break
@@ -212,7 +212,7 @@ def test_dialogue_wrap_can_be_disabled(tmp_path):
         '[camera]\nborrow = "c.bgx"\n\n[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
         '[[npc]]\nname = "V"\npos = [0, 0]\ndialogue = "' + "word " * 40 + '"\n', encoding="utf-8")
     proj = FieldProject.load(p)
-    body, _, _, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
+    body, _, _, _, _, _, _, _, _gw9, _co10, _sp11, _bh12 = build.collect_text(proj)
     assert "\n" not in body.split("[ENDN]")[0]              # not wrapped (one giant line)
     assert any("wrap is off" in m for m in lint_logic(proj))
 

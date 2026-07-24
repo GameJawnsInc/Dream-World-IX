@@ -128,23 +128,119 @@ runtime tree switching beyond blackboard-driven branches.
   described" — RUNG 2 CLOSED. THE COMPILER OFFICIALLY SUBSUMES THE HAND-ROLLED
   REFEREE**; fort-condor's migration gate is OPEN, and mutual N×M combat (the condor
   rung-3 debt) ships as a free property of trees.
-- **Rung 3 — THE SHOWCASE (next; prep notes for the post-compaction session).** A scene
-  only the system makes writable: guards with patrol shifts + an alarm that regroups
-  them + flee-at-low-HP + a captain rallying — layered, interruptible, readable.
-  KNOWN VOCABULARY GAPS to grow first (the showcase's real purpose — stress the DSL
-  before rung 4 freezes it): (a) **a FLEE/retreat feed** (pursuit-only today; flee =
-  walk AWAY from a mirror — target = own + (own − threat) clamped, needs sign math in
-  RPN or a simpler "run to the farthest of N home points" form — decide there);
-  (b) possibly `Wander` (random-ish idle drift) — stock Code1/2 tile-loops used
-  GetRandom, exprasm has no RNG token yet (check B_SYSVAR/GetRandom's expr encoding in
-  a stock disasm first); (c) unit walk-SPEED tuning was deferred from rung 1 ("don't
-  really gain on them" — chases feel fair but escapes are slow; consider per-action
-  speed overrides). BENCH FACTS: 30410 = the five-demo bench (`bt_bench.py`),
-  30411 = the war bench (`btwar_bench.py`), both hot-reload via ~ Reload, reverts
-  `revert_deploy_3041{0,1}.py`; next free bench id = 30412; both bench scripts carry
-  the reusable lattice/discovery/txid helpers (dedupe into the kit at rung 4).
-- **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
-  the GUI section as its own later round.
+- **Rung 3 — ★ PLAYTEST PROVEN (2026-07-24, 3 rounds): THE SHOWCASE.** Final verdict:
+  "playtest good — the raid plays out as described now" — the full scene (shift-clock
+  ring trades, the one-time cry + alarm, the two-lane march with the second wave, the
+  panic bolt, mid-fight flees to the market, the captain's stand, the postwar reset)
+  runs as designed on bench 30412.
+  All three vocabulary gaps closed FIRST, each grounded in engine source before its
+  template shipped (verbatim-first):
+  * **`Flee(threat, points, avoid_r, speed)`** — the design fork resolved AWAY from
+    RPN vector math: PRIORITY REFUGES (run to the first author-picked walkable point
+    the threat is NOT within `avoid_r` of; all camped → the last). Targets always
+    on-mesh, emission = box-test chain, and it reads as gameplay ("fall back to the
+    keep; if it's overrun, the market").
+  * **`Wander(center, radius, hold, speed)`** — the RNG question answered from the
+    engine itself: **`B_SYSVAR[0]` = `Comn.random8()`** (EventEngine.GetSysvar case 0),
+    already encodable by exprasm; offset = `(rand−128)×radius/128` (B_MULT/B_DIV
+    exist; Int24-safe to radius 4000). Fresh target every `hold` ticks into a
+    persistent wtx/wtz pair; off-mesh rolls self-heal (shove the edge until reroll).
+  * **PER-ACTION `speed=`** (every feed) — grounded: the blocked walk calls
+    `MoveToward_mixed_ex(actor, actor.speed, ...)` EVERY frame (MoveToward.cs:12),
+    so a mid-walk `actor.speed` change applies instantly. Machinery: the duty head's
+    MSPEED reads a per-unit speed GLOB (expression arg), and a straight-line level-4
+    **SPEED-NUDGE body** (always the unit's last tag) applies changes MID-walk —
+    dispatched only when running==0 AND a FEED is selected (never two REQs on one
+    unit per tick, by construction).
+  * Plus: **`fb.alternator(name, frames)`** (a shift-clock flag that flips every N
+    ticks — Int16 timer + B_XOR flip, holds during warm-up, resets on Reload),
+    **`Do(..., raise_flags=/clear_flags=)`** (the alarm mechanism — flag writes ride
+    any action selection, auto-joining the Main_Init reset), **`fb.any_of(*conds)`**
+    (OR-composition: each Cond pushes exactly one stack value, so RPN concatenation +
+    B_OROR is structurally valid), and the **shared-Do dedupe** (the same action
+    object in 2+ Do sites compiles to ONE dispatch body — the watcher pattern:
+    one Announce fired from either notice branch). Re-compiling the same
+    FieldBehavior is now idempotent (the reset registries all dedup).
+  `btraid_bench.py` → field **30412** ("BTRAID", the 559 donor): THE RAID — 7 units:
+  watchman (notices either bandit → ONE cry raises "alarm" → sprints for the keep),
+  guard0/1 (opposite-phase patrol-shift rings via one alternator + Invert; alarm →
+  rally/chase/duel at 65; hp≤1 → Flee 75 to keep-else-market), captain (keep boss:
+  sticky-Once war cry drawn at 1000, double-damage duels), bandit0 hp4/bandit1 hp6
+  (lever-armed march at 55, mutual duels, once-gloat at the keep), civilian (Wander
+  30 around the market → alarm PANIC = Flee 80 past the player's spawn → ambles
+  again postwar). 21 tests (+7 rung-3), full suite 4700 green; 1244 compiled
+  instructions all jump-walked. RELAUNCH → ~ → Warp → 30412; ~ Reload resets.
+  Revert: `tools/scroll_out/revert_deploy_30412.py`.
+  **PLAYTEST ROUNDS 1-2 + THE LAYOUT-PROBE ROUND (2026-07-24):** round-1 "alarm at
+  field entry" = the notice box saw the DORMANT CAMP (fix: raid-gate the notice,
+  radius 450); round-2 "watchman spams the cry" = Announce re-dispatched on every
+  box re-entry (fix: the sticky Once I'd promised but not written) — and "guards
+  stuck in 1 of 2 places" = the outer ring's two legs crossed CONCAVE off-mesh
+  notches, which point probes can't see. The new `laying-out-ff9-fields` skill +
+  `tools/field_layout_probe.py` became the cure AND got improved from this field:
+  **ROUTE markers** (`[[marker]] path=/closed=` — polylines drawn on both PNGs +
+  walkability-SWEPT per leg, off-mesh spans in red with world coords) + scroll-aware
+  OFF-CANVAS suppression; the sweep then caught THREE MORE broken lines I'd shipped
+  blind (bandit march, panic run, watchman escape). Layout relaid from the probe's
+  eyes: routeA = THE MONUMENT CIRCUIT (the field is a donut; 6 corners, west detour
+  around the hole's waist bulge), THE TWO LANES (bandit1 west through the gatehouse,
+  bandit0 the long east lane = a SECOND WAVE), watchman/guards fall back to the
+  MARKET (every keep-bound flee line grazes the neck bay). Vocabulary grew again:
+  **`March`** (walk waypoints, HOLD the last — Patrol that stops; replaces chained
+  Once waypoint-latches), **`all_of`** (AND inside any_of), the shared-Do dedupe
+  exercised for real (one cry from two notice branches). LAWS MINTED (now in the
+  skill): walkers slide around CONVEX obstacles but WEDGE in concave notches;
+  snap walk targets to ≥100u wall clearance (1u edge slivers pass naive on-mesh
+  tests — the market sat on one); probe ROUTES, not just points. Bench lattice is
+  clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. **Round 3 ★ PROVEN**
+  ("playtest good — the raid plays out as described now").
+- **Rung 4 — ★ PLAYTEST PROVEN (2026-07-24, "parity check passed"): PRODUCTIZE.**
+  The TOML-built 30412 plays identically to the rung-3 proof — the product surface
+  reproduces the showcase exactly. THE LADDER IS COMPLETE (rungs 0-4 all ★).
+  The `[behavior]` TOML surface (`content/behaviortoml.py`): `[[behavior.unit]]`
+  binds to a named `[[npc]]`; PRIORITY-ordered `[[behavior.unit.branch]]` rows
+  (`when` = verb-keyed condition dicts, `do` = one action verb + options,
+  `once`/`cooldown`/`raise_flags`/`clear_flags`); field-level `warmup`/`tick`/
+  `alternators`/`public_flags`. 13 condition verbs (incl. `any_near` = the watcher
+  idiom and `any_active`) + 11 action verbs; unknown verbs/options/names are ERRORS
+  (the laws-as-invariants posture extends to the surface). WIRED INTO BUILD:
+  `collect_text` mints `announce` lines (12th txid channel; ~40 unpack sites
+  repointed), `build_script`'s tail compiles + installs (npc_slots from the build's
+  own injection map — no discovery; per-language builds are allocation-identical),
+  `validate` refuses verbatim forks / cutscene-cast overlap / gated units. CLI:
+  **`behavior compile|lint|view`** (report + public-flag indices / static checks +
+  route-marker SWEEPS / full body disassembly). The sweep core deduped into
+  **`scene/routes.py`** (the probe + lint share it verbatim). Docs: `docs/BEHAVIOR.md`
+  + FORMAT.md `[behavior]` + the route-marker reference + FEATURES row + CHANGELOG.
+  **THE PRODUCT-PATH PROOF:** `btraid_bench.py` rewritten — gen emits the ENTIRE
+  rung-3 raid as `[behavior]` TOML (patrol/march verbs referencing the probe-swept
+  route markers BY NAME; `announce_npc` reuses each speaker's dialogue; the lever's
+  set_flag index computed from the deterministic allocation) and deploy is plain
+  `deploy_field` — zero bench bytecode patching; the deployed `.eb`s verified (7
+  units off standby onto duty walks + dispatch/nudge tags, the ticker seated).
+  9 new tests (`test_behavior_toml.py` incl. a built-.eb e2e); suite **4721** green.
+  The playtest = a PARITY check: the redeployed 30412 must play exactly like the
+  rung-3 proof. GUI section deliberately deferred (the GUI study's call-site law).
+- **POST-LADDER — POOLED UNITS (runtime activation): BUILT + DEPLOYED (2026-07-24),
+  ⚠ playtest pending.** The fort-condor resume ladder's step 1, as compiler vocabulary:
+  `pooled = true` / `pool = "name"` on a `[[behavior.unit]]` seats the NPC's entry
+  DORMANT (new `inject_npc(boot_spawn=False)` — no InitObject call site, no reveal-flag
+  hack), excludes it from the warm-up wake, and emits a per-pool ACTIVATION BLOCK in the
+  ticker: request flag (allocated per pool, printed at build/compile — wire a
+  `[[choice]]` row's `set_flag`) → first never-spawned unit → capture the player's
+  press-time position as its post GLOBs → runtime `InitObject` → 2-frame settle →
+  `MoveInstantEx` to the post (the rung-3 referee's in-game-proven byte shape VERBATIM,
+  now emitted by the compiler; new `opcodes.move_instant_ex` 0xBF) → seed the unit's
+  mirrors → `spawned`+`active`. New feed verb **`hold_post = true`** (valid fallback):
+  hold MY placement post = the placement-defender idiom. v1 rules: one spawn per
+  request, exhausted pool consumes silently, no respawn after death, ~ Reload refills.
+  Allocation hygiene: a field with no pooled units compiles byte-identical (tested).
+  8 new tests (activation instruction-walks, TOML negatives, the built-.eb e2e: pooled
+  entry has NO boot InitObject, spawned exactly once by the ticker — also verified on
+  the deployed bench bytes). Bench **30413** "BTPOOL" (`btpool_bench.py`, pure product
+  path): a wandering/chasing Mu pest + 3 pooled soldiers + 3 quartermaster hire zones
+  (spawn-side/west/north, instant choices on the pool flag 8868). RELAUNCH → ~ → Warp
+  → 30413. Revert: `tools/scroll_out/revert_deploy_30413.py`.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,

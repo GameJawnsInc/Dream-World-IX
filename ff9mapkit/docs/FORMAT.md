@@ -1649,7 +1649,10 @@ Instead of typing coordinates, give a walk/teleport a **name** so you place the 
 or the toml) and reference it everywhere:
 
 - **`[[marker]]`** — a named point: `name = "fountain"`, `pos = [x, z]`. Pure authoring reference (no
-  in-game object). Place these visually in Blender, or list them in the toml.
+  in-game object). Place these visually in Blender, or list them in the toml. A marker may also carry
+  a **route**: `path = [[x,z], ...]` (+ `closed = true` for a ring) — the polyline a scripted walker
+  travels. The layout probe (`tools/field_layout_probe.py`) and `ff9mapkit behavior lint` **sweep**
+  route legs for walkability offline, and `[behavior]` `patrol`/`march` verbs reference them by name.
 - **`@player`** / **`@spawn`** — the player's spawn point.
 - **`@<npc name>`** (or just the name) — that NPC's position, or another marker.
 
@@ -1905,6 +1908,86 @@ Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
 
 - **Synthesize** (from-scratch field): appends a tiny init entry `{RunSoundCode(0, song); return}` and activates it on room entry (+ a tag-10 copy so it resumes after battle).
 - **Verbatim fork**: **REPLACES** the donor's own field BGM in place. Every immediate field-BGM `RunSoundCode` of the donor's song — both the **PLAY** (`code 0`) *and* the **LOAD** (`code 1792`), in Main_Init and any after-battle/tag-10 resume — is rewritten to `song`, a length-preserving operand swap. Rescoring the LOAD is essential: patch only the PLAY and the engine keeps the *old* song resident and keeps playing it. The new track replaces, never stacks. A call referencing a *different* song id (a cutscene track, an SFX) is untouched. If the donor is silent or scores its BGM by a computed value (no immediate `RunSoundCode(0, song)`), there is nothing to replace — the build errors and `lint` flags it (author a synthesized field to *add* music to a silent room).
+
+## `[behavior]` (optional — behavior TREES compiled to field bytecode)
+
+Give named `[[npc]]`s real AI — patrols, notice-and-chase, mutual combat, flee-at-low-HP,
+alarms, wandering — as **priority-ordered branches** compiled to pure field bytecode (zero DLL,
+runs on stock Memoria). Full guide: [BEHAVIOR.md](BEHAVIOR.md). Offline tools:
+`ff9mapkit behavior compile|lint|view <field.toml>`.
+
+```toml
+[behavior]
+warmup = 45                                    # frames after field entry before anyone wakes
+alternators = [{ name = "shift", frames = 400 }]   # a flag that FLIPS every N ticks (patrol shifts)
+public_flags = ["raid"]                        # set from OUTSIDE (a [[choice]] lever); indices
+                                               # print at build + `behavior compile`
+
+[[behavior.unit]]
+npc = "guard"                                  # binds to a named [[npc]]
+hp = 5                                         # optional: an HP byte (enables swing_at/die)
+speed = 40                                     # default walk speed
+
+  [[behavior.unit.branch]]                     # branches in PRIORITY order; each tick the
+  when = [{ hp_le = 0 }]                       # first branch whose conditions ALL hold
+  do = { die = true }                          # selects its action
+
+  [[behavior.unit.branch]]
+  when = [{ near = ["player", 400] }]
+  do = { chase = "player", speed = 65 }        # per-action speed applies MID-walk
+
+  [[behavior.unit.branch]]                     # the last branch: unconditional, a static feed
+  do = { patrol = "ringA" }                    # a [[marker]] with `path=` — the SAME route
+                                               # the layout probe sweeps for walkability
+```
+
+**Condition verbs** (each `when` row = one dict): `hp_le` / `hp_gt` (int = own HP, `["unit", n]`
+= another's) · `near` / `not_near` (`[target, r]`; target = a unit or `"player"`; Chebyshev) ·
+`near_point` / `not_near_point` (`[point, r]`) · `flag` / `not_flag` / `any_flag` · `active` /
+`not_active` (a unit lives) · `any_near` (`[[units...], r]` — the watcher idiom, actives gated) ·
+`any_active` (`[units...]`).
+
+**Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
+`chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
+`patrol` (loops its points) / `march` (walks them ONCE and holds the last; both: a route-marker
+name or an inline point list; `arrive_r`, `speed`) · `flee` (threat; `to` = refuge points in
+priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
+`radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
+`damage`, `interval`) · `die` · `announce` (a text line, minted into the field's `.mes`) /
+`announce_npc` (reuse that NPC's own `dialogue` line).
+
+**Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
+through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior
+*ends*), `raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
+A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
+
+**Pooled units (runtime activation):** `pooled = true` on a `[[behavior.unit]]` keeps its NPC
+**out of the field at boot** (the entry is seated dormant — no spawn, no reveal flag needed) and
+puts it in a named `pool` (default `"pool"`). Each pool gets a **spawn-request flag** (index
+printed at build + `behavior compile`): wire a `[[choice]]` row's `set_flag = [<index>, 1]` to
+it, and the next never-spawned unit of that pool **materializes at the player's feet** — the
+press-time position becomes its *placement post*. The companion action verb `hold_post = true`
+(a valid unconditional fallback) holds that post, so `pooled` + chase/swing branches +
+`hold_post` = a **placement defender**: it guards wherever you dropped it and returns there
+after a fight. One spawn per request; an exhausted pool consumes the request silently; a died
+pooled unit does not respawn; field reload refills the pool. A pooled unit's NPC may not carry
+`requires_flag` (the build owns its non-spawning) or be a prop `attach_to` target.
+
+```toml
+[[behavior.unit]]
+npc = "recruit0"
+hp = 4
+pooled = true
+pool = "recruits"                              # spawn-request flag index prints at build
+  [[behavior.unit.branch]]
+  when = [{ hp_le = 0 }]
+  do = { die = true }
+  [[behavior.unit.branch]]
+  when = [{ active = "raider" }, { near = ["raider", 250] }]
+  do = { swing_at = "raider" }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }                    # hold wherever the player placed me
+```
 
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 

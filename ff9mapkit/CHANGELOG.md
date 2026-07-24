@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` pooled units: runtime activation ("hire a soldier at your feet")
+- **`pooled = true` / `pool = "name"` on a `[[behavior.unit]]`**: the unit's NPC is seated
+  DORMANT at boot (no spawn, no reveal flag — `inject_npc` gains `boot_spawn=False`) and joins a
+  named pool. Each pool allocates a **spawn-request flag** (printed at build + `behavior
+  compile`); a `[[choice]]` row's `set_flag = [<index>, 1]` makes the next never-spawned unit
+  **materialize at the player's feet**, the press-time position becoming its *placement post*.
+  The activation block rides the compiled ticker and is the fort-condor rung-3 in-game-proven
+  byte shape verbatim: runtime `InitObject` → 2-frame settle → `MoveInstantEx` (the new
+  `opcodes.move_instant_ex`, DPOS 0xBF) to the captured post, mirrors seeded before the unit's
+  first tree tick (law-clean: no object read precedes its spawn). One spawn per request;
+  exhausted pools consume silently; a dead pooled unit stays consumed; reload refills.
+- **New action verb `hold_post = true`** (valid unconditional fallback): hold MY placement
+  post — with chase/swing branches this is the **placement defender** (the Fort Condor unit).
+  On a boot-spawned unit the post is its own spawn.
+- Fields with no pooled units and no `hold_post` compile **byte-identical** to before (guarded
+  by test). 8 new tests across `test_behavior.py`/`test_behavior_toml.py` (activation-lane
+  instruction walks, allocation hygiene, TOML negatives, a built-`.eb` e2e proving the pooled
+  entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
+  30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
+
 ### Added — `[[summon]]`: transplant your own model onto a stock summon's real cast *(experimental)*
 - **The productized custom-summon kit surface** (Milestone 2 of the summon-transplant arc —
   `studies/custom-summons/thomas-swap/m2/DESIGN.md`, the binding module plan): a declarative
@@ -36,6 +56,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   skinned model flying live on a stock dragon's real 93-bone motion,
   `studies/custom-summons/thomas-swap/m1b/RUNBOOK.md`); this productized surface is itself not yet
   independently cast in-game.
+### Added — `[behavior]`: behavior TREES compiled to field bytecode (NPC AI as content)
+- **`[behavior]` + `[[behavior.unit]]`** on any novel/native/editable field: give named `[[npc]]`s
+  priority-ordered AI branches — patrols with shift clocks (`alternators`), notice-and-chase
+  (`near`/`any_near`), MUTUAL combat with HP and deaths (`swing_at`/`die`), flee-at-low-HP with
+  priority refuges (`flee`), alarms (`raise_flags`), random wandering (`wander`), multi-leg
+  marches (`march`), sticky `once`/`cooldown` decorators, per-action `speed=` that applies
+  mid-walk — all compiled to pure `.eb` (zero DLL, stock-Memoria-safe) and installed by the
+  normal `build`. Docs: `docs/BEHAVIOR.md` + the FORMAT.md section.
+- **`ff9mapkit behavior compile|lint|view`**: dry-compile report (the blackboard map doubles as
+  the debug menu's live trace; public-flag indices for `[[choice]]` lever wiring), static checks
+  plus walkability SWEEPS of referenced route markers, and a full disassembly of the generated
+  bodies.
+- **Route markers**: a `[[marker]]` may carry `path = [[x,z], ...]` (+ `closed = true`) — the
+  polyline a scripted walker travels. `tools/field_layout_probe.py` draws and sweeps them
+  (off-mesh legs = a walker that jams, named with world coordinates), `behavior lint` runs the
+  same sweep (shared core: `ff9mapkit.scene.routes`), and `patrol`/`march` verbs reference them
+  by name — the route you verified is the route they walk. The probe also stops flagging
+  OFF-CANVAS content on scrolling fields (the viewport pans).
 
 ### Added — synthesis recipes in the Info Hub item detail (+ fork-report labels synthesists)
 - **`itemstats` joins the base `Synthesis.csv`** (live from your install, cached, nothing committed —
