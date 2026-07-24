@@ -150,6 +150,7 @@ The full technical detail this file only summarizes lives in the project-memory 
 - authoring-ff9-field-scripts — .eb bytecode, flags, gateways, encounters, cutscenes
 - forking-ff9-fields — import/verbatim/native/editable + object carry
 - authoring-ff9-scenes — camera/walkmesh/BG art from math
+- laying-out-ff9-fields — axes/cardinals/facing/scale + the offline layout probe (READ BEFORE placing content or narrating a direction)
 - authoring-ff9-overworld — world-* terrain/coast (READ LAWS FIRST — bricks saves)
 - authoring-ff9-battles — bg + tuning + Scripts-DLL + Overload
 - creating-ff9-characters — [[playable]] new party members + ability kits
