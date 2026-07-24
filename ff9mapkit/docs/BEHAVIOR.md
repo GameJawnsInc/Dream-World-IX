@@ -63,12 +63,26 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
 
 - **Per-action `speed=`** changes are visible immediately, even mid-walk — a fleeing civilian
   genuinely bolts (80) compared to her stroll (30).
-- **Walkers do not pathfind.** They walk STRAIGHT at the target and slide on contact; a convex
-  obstacle (a round monument) they slide around, but a concave notch WEDGES them. So any
+- **Walkers do not pathfind at runtime.** They walk STRAIGHT at the target and slide on contact;
+  a convex obstacle (a round monument) they slide around, but a concave notch WEDGES them. So any
   multi-point route belongs in a `[[marker]]` with `path = [[x,z], ...]` — the layout probe
   (`tools/field_layout_probe.py`) and `behavior lint` both **sweep those legs offline** and name
   the exact spot a walker would jam. Author the route once, verify it once, then reference it
   by name from `patrol` / `march`. The `laying-out-ff9-fields` skill carries the placement laws.
+- **…but `patrol` / `march` can auto-route at BUILD time.** Add `route = "auto"` to the verb and
+  any leg the sweep finds off-mesh is re-routed through the kit's walkmesh A* (the same
+  pathfinder cutscene walks use) with the detour waypoints spliced in — **clear legs stay exactly
+  as authored**, so opting in changes nothing until a leg actually jams (`patrol` routes its wrap
+  leg too, since it always cycles). `behavior lint` then judges the ROUTED line and reports each
+  auto-routed leg instead of calling it a jam. Honest limits: routing avoids **walls only** —
+  other units move, so build-time character obstacles would be stale guesses (engine collision
+  slides units past each other anyway); waypoint advancement still uses `arrive_r`, so a unit
+  turns toward the next detour point from up to that far away (the same slack hand-authored
+  routes have); and the spliced total must still fit the verb's **8-point ceiling** or the build
+  fails naming the leg — split the route or relay the jamming leg by hand. `walk_to` / `hold` /
+  `flee` can't auto-route: their walks start wherever the unit happens to be when the branch
+  selects (there is no build-time origin to route from), and spliced flee points would become
+  extra *refuges*, not waypoints.
 
 `patrol` loops its points forever; `march` walks them once and holds the last (a raid column,
 an escape run). `flee` is deliberately not vector math: you give it **refuge points in priority

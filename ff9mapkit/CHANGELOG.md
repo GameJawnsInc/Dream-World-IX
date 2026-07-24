@@ -5,6 +5,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` static-feed auto-routing: `route = "auto"` on `patrol`/`march`
+- **`route = "auto"`** on a `patrol`/`march` verb re-routes any leg the walkability sweep finds
+  OFF-MESH through the walkmesh A* (`content.pathfind.route_polyline`, the same pathfinder
+  cutscene walks use) and splices the detour waypoints in at build time — the concave-notch
+  wedge `behavior lint` could only *diagnose* is now *fixed* by the build. **Opt-in and
+  conservative:** a field without the key never resolves a walkmesh (byte-identical builds,
+  guarded by test), and within an opted-in route clear legs stay exactly as authored. `patrol`
+  routes its wrap leg too (it always cycles); routing avoids **walls only** (other units move —
+  build-time character obstacles would be stale guesses; the docs say so); the spliced total
+  must fit the verb's 8-point ceiling or the build fails naming the field/unit/branch/leg.
+  `walk_to`/`hold`/`flee` are refused with an explanation — their legs have no build-time
+  origin (and spliced flee points would become extra refuges), that's the dynamic-routing
+  problem, deliberately out of scope here.
+- **`behavior lint` stays truthful:** an auto-routed patrol/march is swept on its ROUTED line
+  (what the build compiles) and each detoured leg is reported as `routed:`, not as a jam; a jam
+  on a *non*-routed patrol/march now prints a `route = "auto"` hint. Lint sweeps also became
+  verb-aware: a `patrol` is swept CLOSED regardless of the marker's `closed` flag (the compiler
+  always cycles the wrap leg — previously a wrap-leg jam on an open marker went unswept), a
+  `march` open, and inline point lists are now swept too (previously only markers were).
+  `behavior compile`/`view` and the build report the same auto-routed-leg lines
+  (`describe_autoroute`), and `build_script` errors cleanly when `route = "auto"` has no
+  resolvable walkmesh. New shared resolver `build.behavior_walkmesh` keeps what lint checks ==
+  what the build compiles. 10 new tests (`test_behavior_autoroute.py`: detour-splice + re-sweep
+  clean + determinism, clear-leg byte identity, wrap-leg routing, ceiling error text,
+  off-mesh-waypoint/disconnected-floor refusals, TOML negatives, built-`.eb` byte identity).
+  Docs: [BEHAVIOR.md § Movement](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
+
 ### Added — `[behavior]` pooled units: runtime activation ("hire a soldier at your feet")
 - **`pooled = true` / `pool = "name"` on a `[[behavior.unit]]`**: the unit's NPC is seated
   DORMANT at boot (no spawn, no reveal flag — `inject_npc` gains `boot_spawn=False`) and joins a
