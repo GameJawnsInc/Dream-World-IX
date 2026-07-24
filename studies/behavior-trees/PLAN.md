@@ -128,21 +128,45 @@ runtime tree switching beyond blackboard-driven branches.
   described" — RUNG 2 CLOSED. THE COMPILER OFFICIALLY SUBSUMES THE HAND-ROLLED
   REFEREE**; fort-condor's migration gate is OPEN, and mutual N×M combat (the condor
   rung-3 debt) ships as a free property of trees.
-- **Rung 3 — THE SHOWCASE (next; prep notes for the post-compaction session).** A scene
-  only the system makes writable: guards with patrol shifts + an alarm that regroups
-  them + flee-at-low-HP + a captain rallying — layered, interruptible, readable.
-  KNOWN VOCABULARY GAPS to grow first (the showcase's real purpose — stress the DSL
-  before rung 4 freezes it): (a) **a FLEE/retreat feed** (pursuit-only today; flee =
-  walk AWAY from a mirror — target = own + (own − threat) clamped, needs sign math in
-  RPN or a simpler "run to the farthest of N home points" form — decide there);
-  (b) possibly `Wander` (random-ish idle drift) — stock Code1/2 tile-loops used
-  GetRandom, exprasm has no RNG token yet (check B_SYSVAR/GetRandom's expr encoding in
-  a stock disasm first); (c) unit walk-SPEED tuning was deferred from rung 1 ("don't
-  really gain on them" — chases feel fair but escapes are slow; consider per-action
-  speed overrides). BENCH FACTS: 30410 = the five-demo bench (`bt_bench.py`),
-  30411 = the war bench (`btwar_bench.py`), both hot-reload via ~ Reload, reverts
-  `revert_deploy_3041{0,1}.py`; next free bench id = 30412; both bench scripts carry
-  the reusable lattice/discovery/txid helpers (dedupe into the kit at rung 4).
+- **Rung 3 — BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending: THE SHOWCASE.**
+  All three vocabulary gaps closed FIRST, each grounded in engine source before its
+  template shipped (verbatim-first):
+  * **`Flee(threat, points, avoid_r, speed)`** — the design fork resolved AWAY from
+    RPN vector math: PRIORITY REFUGES (run to the first author-picked walkable point
+    the threat is NOT within `avoid_r` of; all camped → the last). Targets always
+    on-mesh, emission = box-test chain, and it reads as gameplay ("fall back to the
+    keep; if it's overrun, the market").
+  * **`Wander(center, radius, hold, speed)`** — the RNG question answered from the
+    engine itself: **`B_SYSVAR[0]` = `Comn.random8()`** (EventEngine.GetSysvar case 0),
+    already encodable by exprasm; offset = `(rand−128)×radius/128` (B_MULT/B_DIV
+    exist; Int24-safe to radius 4000). Fresh target every `hold` ticks into a
+    persistent wtx/wtz pair; off-mesh rolls self-heal (shove the edge until reroll).
+  * **PER-ACTION `speed=`** (every feed) — grounded: the blocked walk calls
+    `MoveToward_mixed_ex(actor, actor.speed, ...)` EVERY frame (MoveToward.cs:12),
+    so a mid-walk `actor.speed` change applies instantly. Machinery: the duty head's
+    MSPEED reads a per-unit speed GLOB (expression arg), and a straight-line level-4
+    **SPEED-NUDGE body** (always the unit's last tag) applies changes MID-walk —
+    dispatched only when running==0 AND a FEED is selected (never two REQs on one
+    unit per tick, by construction).
+  * Plus: **`fb.alternator(name, frames)`** (a shift-clock flag that flips every N
+    ticks — Int16 timer + B_XOR flip, holds during warm-up, resets on Reload),
+    **`Do(..., raise_flags=/clear_flags=)`** (the alarm mechanism — flag writes ride
+    any action selection, auto-joining the Main_Init reset), **`fb.any_of(*conds)`**
+    (OR-composition: each Cond pushes exactly one stack value, so RPN concatenation +
+    B_OROR is structurally valid), and the **shared-Do dedupe** (the same action
+    object in 2+ Do sites compiles to ONE dispatch body — the watcher pattern:
+    one Announce fired from either notice branch). Re-compiling the same
+    FieldBehavior is now idempotent (the reset registries all dedup).
+  `btraid_bench.py` → field **30412** ("BTRAID", the 559 donor): THE RAID — 7 units:
+  watchman (notices either bandit → ONE cry raises "alarm" → sprints for the keep),
+  guard0/1 (opposite-phase patrol-shift rings via one alternator + Invert; alarm →
+  rally/chase/duel at 65; hp≤1 → Flee 75 to keep-else-market), captain (keep boss:
+  sticky-Once war cry drawn at 1000, double-damage duels), bandit0 hp4/bandit1 hp6
+  (lever-armed march at 55, mutual duels, once-gloat at the keep), civilian (Wander
+  30 around the market → alarm PANIC = Flee 80 past the player's spawn → ambles
+  again postwar). 21 tests (+7 rung-3), full suite 4700 green; 1244 compiled
+  instructions all jump-walked. RELAUNCH → ~ → Warp → 30412; ~ Reload resets.
+  Revert: `tools/scroll_out/revert_deploy_30412.py`.
 - **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
   the GUI section as its own later round.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script

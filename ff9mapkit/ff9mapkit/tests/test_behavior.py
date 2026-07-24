@@ -68,8 +68,8 @@ def test_reference_compiles_and_verifies():
     _verify_all(cb)
     assert cb.ticker_body[0] == 0x05 or cb.ticker_body[0] in (0x01, 0x02, 0x03)
     assert len(cb.duty_bodies) == 2
-    assert len(cb.action_funcs["beast"]) == 2          # SwingAt + Die
-    assert cb.action_funcs["guard"] == []              # feeds only
+    assert len(cb.action_funcs["beast"]) == 3          # SwingAt + Die + speed nudge
+    assert len(cb.action_funcs["guard"]) == 1          # feeds only -> just the nudge
     assert "guard" in cb.report and "blackboard" in cb.report
 
 
@@ -109,6 +109,161 @@ def test_patrol_waypoint_state_resets():
     cb = fb.compile()
     _verify_all(cb)
     assert "u.wp" in cb.report
+
+
+# ------------------------------------------------------------------ rung-3 vocabulary
+def test_flee_compiles_and_verifies():
+    fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0), hp=4)])
+    fb.units["g"].tree = B.Selector(
+        B.Sequence(fb.hp_le("g", 1),
+                   B.Do(B.Flee(B.PLAYER, [(-2000, 900), (-600, 800)], speed=80))),
+        B.Do(B.Flee(B.PLAYER, [(0, 0), (100, 100), (200, 200), (300, 300)])),
+    )                                                  # flee doubles as the fallback
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "2=Flee" in cb.report
+
+
+def test_flee_validation():
+    with pytest.raises(B.BehaviorError, match="2..4 refuge"):
+        B.Flee(B.PLAYER, [(0, 0)])
+    with pytest.raises(B.BehaviorError, match="2..4 refuge"):
+        B.Flee(B.PLAYER, [(i, i) for i in range(5)])
+    with pytest.raises(B.BehaviorError, match="avoid_r"):
+        B.Flee(B.PLAYER, [(0, 0), (1, 1)], avoid_r=0)
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    fb.units["u"].tree = B.Do(B.Flee("ghost", [(0, 0), (1, 1)]))
+    with pytest.raises(B.BehaviorError, match="unknown unit"):
+        fb.compile()
+
+
+def test_wander_compiles_and_verifies():
+    fb = B.FieldBehavior([B.UnitSpec("w", entry=2, spawn=(-1400, 300))])
+    fb.units["w"].tree = B.Do(B.Wander((-1400, 300), radius=500, hold=120, speed=30))
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "w.wtx" in cb.report and "w.wtimer" in cb.report
+    with pytest.raises(B.BehaviorError, match="radius"):
+        B.Wander((0, 0), radius=0)
+    with pytest.raises(B.BehaviorError, match="hold"):
+        B.Wander((0, 0), hold=300)
+
+
+def test_per_action_speed_and_nudge():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), walk_speed=40)])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.near("u", B.PLAYER, 500), B.Do(B.Chase(B.PLAYER, speed=70))),
+        B.Do(B.Hold((0, 0))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert len(cb.action_funcs["u"]) == 1              # the nudge body (no dispatches)
+    assert cb.action_funcs["u"][0][0] == B.FIRST_ACTION_TAG
+    assert "spd@" in cb.report
+    bad = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    bad.units["u"].tree = B.Do(B.Hold((0, 0), speed=0))
+    with pytest.raises(B.BehaviorError, match="speed must be 1..255"):
+        bad.compile()
+    with pytest.raises(B.BehaviorError, match="walk_speed"):
+        B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), walk_speed=0)])
+
+
+def test_alternator():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    shift = fb.alternator("shift", 300)
+    assert isinstance(shift, B.Cond)
+    with pytest.raises(B.BehaviorError, match="already registered"):
+        fb.alternator("shift", 400)
+    with pytest.raises(B.BehaviorError, match="1..30000"):
+        fb.alternator("other", 0)
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(shift, B.Do(B.Patrol([(0, 0), (100, 0)]))),
+        B.Do(B.Patrol([(200, 200), (300, 200)])),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "shift.clock" in cb.report
+
+
+def test_do_raise_flags():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.near("u", B.PLAYER, 400),
+                   B.Do(B.Hold((0, 0)), raise_flags="alarm")),   # str coerces to tuple
+        B.Do(B.Hold((0, 0)), clear_flags=("alarm",)),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "alarm" in cb.report                        # allocated + visible in ~ Flags
+
+
+def test_any_of_and_shared_announce_dedupe():
+    """The watcher pattern: ONE Announce object selected from two notice branches
+    must compile to ONE dispatch body (one action id), and any_of ORs Conds."""
+    fb = B.FieldBehavior([
+        B.UnitSpec("w", entry=2, spawn=(0, 0)),
+        B.UnitSpec("b0", entry=3, spawn=(500, 0), hp=2),
+        B.UnitSpec("b1", entry=4, spawn=(0, 500), hp=2),
+    ])
+    for b in ("b0", "b1"):
+        fb.units[b].tree = B.Selector(
+            B.Sequence(fb.hp_le(b, 0), B.Do(B.Die())), B.Do(B.Hold((0, 0))))
+    cry = B.Announce(7)
+    fb.units["w"].tree = B.Selector(
+        B.Sequence(fb.active("b0"), fb.near("w", "b0", 600),
+                   B.Do(cry, raise_flags="alarm")),
+        B.Sequence(fb.active("b1"), fb.near("w", "b1", 600),
+                   B.Do(cry, raise_flags="alarm")),
+        B.Sequence(fb.any_of(fb.flag("alarm"), fb.near("w", B.PLAYER, 100)),
+                   B.Do(B.WalkTo((900, 900), speed=70))),
+        B.Do(B.Hold((0, 0))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert len(cb.action_funcs["w"]) == 2              # ONE Announce body + the nudge
+    assert cb.report.count("1=Announce") == 1
+    with pytest.raises(B.BehaviorError, match="2\\+ Conds"):
+        fb.any_of(fb.flag("alarm"))
+
+
+def test_showcase_shaped_integration():
+    """All rung-3 vocabulary composed in one field — the BTRAID shape in miniature."""
+    fb = B.FieldBehavior([
+        B.UnitSpec("guard", entry=2, spawn=(0, 0), hp=5, walk_speed=40),
+        B.UnitSpec("bandit", entry=3, spawn=(900, 900), hp=4),
+        B.UnitSpec("civ", entry=4, spawn=(400, 400)),
+    ])
+    shift = fb.alternator("shift", 300)
+    fb.units["guard"].tree = B.Selector(
+        B.Sequence(fb.hp_le("guard", 0), B.Do(B.Die())),
+        B.Sequence(fb.hp_le("guard", 1),
+                   B.Do(B.Flee("bandit", [(-500, -500), (0, -900)], speed=75))),
+        B.Sequence(fb.flag("alarm"), fb.active("bandit"),
+                   B.Selector(
+                       B.Sequence(fb.near("guard", "bandit", 300),
+                                  B.Do(B.SwingAt("bandit"))),
+                       B.Do(B.Chase("bandit", speed=65)))),
+        B.Sequence(shift, B.Do(B.Patrol([(0, 0), (400, 0)]))),
+        B.Do(B.Patrol([(0, 400), (400, 400)])),
+    )
+    fb.units["bandit"].tree = B.Selector(
+        B.Sequence(fb.hp_le("bandit", 0), B.Do(B.Die())),
+        B.Sequence(fb.near("bandit", "guard", 300), B.Do(B.SwingAt("guard")),
+                   ),
+        B.Do(B.WalkTo((0, 0), speed=55)),
+    )
+    fb.units["civ"].tree = B.Selector(
+        B.Sequence(fb.flag("alarm"),
+                   B.Do(B.Flee("bandit", [(-800, 0), (800, 0)], speed=80))),
+        B.Do(B.Wander((400, 400), radius=400, hold=90, speed=30)),
+    )
+    # the watcher pattern: raising the alarm rides any Do — here bandit's approach is
+    # noticed by the guard tree via raise_flags on a chase
+    fb.units["guard"].tree.children[2].children[2].children[1].raise_flags = ("alarm",)
+    cb = fb.compile()
+    _verify_all(cb)
+    h1, h2 = cb.stable_hash(), fb.compile().stable_hash()
+    assert h1 == h2
 
 
 # ------------------------------------------------------------------ the law lints
