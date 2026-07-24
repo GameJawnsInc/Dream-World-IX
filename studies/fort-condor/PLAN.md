@@ -84,8 +84,14 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   → return, and THE INTERRUPTED DUTY WALK RESUMES — the stock talk-an-NPC
   preempt-and-resume shape), and the defender target feed (enemy mirror inside
   ACQUIRE_R=700, else post). Fights staged at the owner-called visible square
-  (FIGHT_CENTER (-1225,-827); posts flank it, goal south). ⚠ playtest 6 pending
-  (~ Reload): smooth marches? ranged-stop melee? winner resumes? fights in view?
+  (FIGHT_CENTER (-1225,-827); posts flank it, goal south).
+  **★ PLAYTEST 6 (2026-07-24): "it was a bit sloppy but yeah it works" — RUNG 2 CLOSED.**
+  The auto-battler core is PROVEN end-to-end: march, acquire, intercept, ranged-stop
+  melee, death, winner-resumes, breach — all in stock opcodes on a custom field. The
+  "sloppy" = fight THEATER (deferred by design): no attack clips, no hit SFX, instant
+  vanish on death, stand-off spacing tuned by radius only. Polish backlog when a rung
+  needs it: attack/damage anims from the model catalog, hit sounds, a death anim before
+  TerminateEntry, per-model contact radii.
 - **Rung 3 — PLACEMENT + ECONOMY.** Walk-and-place: confirm at a spot → unit-type choice
   menu (dialogue choices) → gil spend → runtime `InitObject` from a pre-authored pool
   (Ice Cavern 303 is the stock runtime-spawn precedent; entries are fixed at build → pool
