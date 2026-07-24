@@ -35,9 +35,15 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   next 0x02 pops an EMPTY CalcStack → permanent per-frame desync (8287 log errors, stuck
   black screen). Player-referencing expressions only ever run behind a player-alive gate
   (stock corollary: the Hunt's 552 poller starts only after the player is staged).
-  Fix deployed same day; ⚠ playtest 2 pending (~ → Reload field — no relaunch needed).
-  Measure: clock visible? frame feel per tier? chasers converge? Revert:
-  `tools/scroll_out/revert_deploy_30400.py`.
+  Playtest 2 (same day): ★ the timer HUD renders on the custom id (the generic-clock
+  claim PROVEN) + 40 Mus render; but donor 576's ground-parallel camera (pitch -4.9 —
+  the lint warning was the tell) made the swarm unobservable, and the kit's
+  dialogue-less-NPC default talk collided with the [[choice]] prompt's txid (menu rows
+  everywhere, no dispatch — kit-fix chip filed). Round 2 re-homes the bench on **field
+  559, the Hunt's own Zaghnol arena (pitch 68.8, near-top-down)**, gives every chaser an
+  own "Kweh!" line, puts the lever zone ON the spawn, strips the real-field gateways.
+  ⚠ playtest 3 pending — RELAUNCH required (ForkDonorPatch 30400 → 559). Measure: frame
+  feel per tier? chasers converge? Revert: `tools/scroll_out/revert_deploy_30400.py`.
 - **Rung 2 — TWO-LANE SKIRMISH.** One attacker marches a lane, one defender intercepts
   (chase loop, engagement radius); combat resolved script-side (HP in flags, swing anims,
   death + `TerminateEntry`) — no player battles. Proves the auto-battler core loop.
