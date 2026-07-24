@@ -41,8 +41,22 @@ def _fresh(x):
 
 def load_toml(path) -> dict:
     """``tomllib.load(open(path, "rb"))``, memoized on the file's ``(st_mtime_ns, st_size)``.
-    Returns a private copy per call -- callers may mutate the result freely."""
+    Returns a private copy per call -- callers may mutate the result freely.
+
+    A warm hit is served STAT-FIRST: one ``os.stat``, no open. At journey scale (~1850 calls per
+    open, ~2/3 of them hits) the open+fstat handshake was the cache's own overhead (~80 ms/open,
+    measured 2026-07-24). A missing/unreadable file still raises OSError exactly like the open would
+    have. A miss (or a signature change) falls through to the open path, which re-checks the cache
+    against ``os.fstat`` of the very handle it parses -- so a cached tree always matches the bytes
+    it was parsed from, and the stat-first serve introduces no staleness the fstat path didn't have
+    (the one stale window remains an edit preserving BOTH mtime_ns and size)."""
     key = os.path.abspath(os.fspath(path))
+    with _lock:
+        hit = _cache.get(key)
+    if hit is not None:
+        st = os.stat(key)
+        if hit[0] == (st.st_mtime_ns, st.st_size):
+            return _fresh(hit[1])
     with open(key, "rb") as fh:
         st = os.fstat(fh.fileno())
         sig = (st.st_mtime_ns, st.st_size)

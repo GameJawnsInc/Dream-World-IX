@@ -85,6 +85,36 @@ def test_missing_file_raises(tmp_path):
         tomlcache.load_toml(tmp_path / "nope.toml")
 
 
+def test_a_warm_hit_is_served_stat_first_without_reopening(tmp_path, monkeypatch):
+    """The stat-first fast path: a warm, unchanged file is served on ONE os.stat with NO open (at
+    journey scale the open+fstat handshake was the cache's own overhead). Proven by shadowing the
+    module's ``open`` with a bomb: a hit that still opens goes red here."""
+    p = tmp_path / "a.toml"
+    p.write_text("[field]\nid = 1\n", encoding="utf-8")
+    assert tomlcache.load_toml(p)["field"]["id"] == 1
+
+    def _boom(*_a, **_k):
+        raise AssertionError("a warm unchanged hit must not open the file")
+
+    monkeypatch.setattr(tomlcache, "open", _boom, raising=False)
+    assert tomlcache.load_toml(p)["field"]["id"] == 1     # served from the cache, stat only
+    monkeypatch.undo()
+    p.write_text("[field]\nid = 2\n", encoding="utf-8")   # ...and the fast path must NOT eat an edit:
+    _bump(p)                                              # a changed signature falls through to a real
+    assert tomlcache.load_toml(p)["field"]["id"] == 2     # open+parse (F5 honesty, unchanged)
+
+
+def test_a_deleted_file_raises_even_when_the_cache_is_warm(tmp_path):
+    """The stat-first serve must never resurrect a deleted file from the cache -- os.stat raises the
+    same FileNotFoundError the open used to."""
+    p = tmp_path / "a.toml"
+    p.write_text("[field]\nid = 1\n", encoding="utf-8")
+    assert tomlcache.load_toml(p)["field"]["id"] == 1
+    p.unlink()
+    with pytest.raises(FileNotFoundError):
+        tomlcache.load_toml(p)
+
+
 # ---- the cache is transparent under the real consumers -----------------------------------
 def _mini_campaign(tmp_path):
     """A one-member campaign whose member gates on a NAMED flag -- the exact shape lint_campaign

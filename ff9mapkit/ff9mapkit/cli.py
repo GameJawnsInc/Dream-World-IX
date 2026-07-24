@@ -4620,7 +4620,8 @@ def _dialogue_campaign(args: argparse.Namespace, DLG) -> int:
     for m in plan.members:
         p = (base / m.toml_rel)
         label = f"{m.name} (id {m.new_id})"
-        if not campaign._within(base, p):              # a crafted/stale toml_rel must not read outside the set
+        # a crafted/stale toml_rel must not read outside the set (lexical screen first -- _rel_is_clean)
+        if not (campaign._rel_is_clean(m.toml_rel) or campaign._within(base, p)):
             members.append((label, None, f"field.toml path escapes the campaign folder ({m.toml_rel})"))
             continue
         try:

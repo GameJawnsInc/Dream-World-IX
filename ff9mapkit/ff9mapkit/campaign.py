@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from . import chain
 # Safe GLOB story-flag allocation band -- single source of truth in ``flags`` (re-censused 2026-07-19
@@ -776,7 +776,9 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     base = manifest_dir.resolve()                 # once for the whole member loop (a journey lints 800+ members)
     for m in plan.members:
         p = manifest_dir / m.toml_rel
-        if not _within(base, p, base_resolved=True):   # a crafted toml_rel ('../..') must not read outside
+        # a crafted toml_rel ('../..') must not read outside; the lexical screen answers the well-formed
+        # case syscall-free, and anything suspicious pays the resolve-based guard (see _rel_is_clean)
+        if not (_rel_is_clean(m.toml_rel) or _within(base, p, base_resolved=True)):
             errors.append(f"member {m.name}: field.toml path escapes the campaign folder ({m.toml_rel})")
             continue
         if not p.is_file():
@@ -1124,6 +1126,22 @@ def _within(base, path, *, base_resolved=False) -> bool:
         base = Path(base).resolve()
     path = Path(path).resolve()
     return path == base or base in path.parents
+
+
+def _rel_is_clean(rel) -> bool:
+    """A relative member path with NO upward step, drive, or absolute root joins INSIDE its base by
+    construction -- so ``_rel_is_clean(rel) or _within(base, base / rel)`` is the member-loop containment
+    check without a per-member ``Path.resolve()`` (a journey open realpathed 816 members = 15-19% of a
+    warm open, ~0.65 s of a cold one; measured 2026-07-24). ``resolve()`` can only disagree with the
+    lexical join through a symlink/junction planted inside the campaign tree -- which nothing in the
+    campaign format creates, and which on the READ paths that spend this (lint / fork-report) would
+    only redirect a parse-and-report on the user's own machine. Anything lexically suspicious returns
+    False and pays the full resolve-based ``_within``. Windows path rules are applied on every OS
+    (``PureWindowsPath`` sees both separators + drives), so the screen is conservative everywhere."""
+    # NOT is_absolute(): under Windows rules '/abs' has a root but no drive, is_absolute() says False,
+    # and joining it onto a base REPLACES the base's tail -- refuse a drive OR a root, each alone.
+    q = PureWindowsPath(str(rel))
+    return not q.drive and not q.root and ".." not in q.parts
 
 
 def _validate_member_name(name: str) -> str:

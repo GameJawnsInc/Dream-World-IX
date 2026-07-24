@@ -676,6 +676,31 @@ def test_lint_rejects_path_traversal(tmp_path):
     assert any("escapes" in e for e in campaign.lint_campaign(plan, tmp_path)[0])   # _within blocks the read
 
 
+def test_rel_is_clean_screens_every_escape_shape():
+    """The lexical screen behind the syscall-free member loop: every way a relative path can leave its
+    base must return False (and fall back to the resolve-based _within); plain member shapes pass."""
+    for ok in ("ENT/ENT.field.toml", "a\\b.toml", "x.toml", "", "./a/b.toml"):
+        assert campaign._rel_is_clean(ok), ok
+    for bad in ("../x", "..\\x", "a/../../x", "/abs/x", "\\abs\\x", "C:/x", "C:\\x", "C:x",
+                "//server/share/x", "\\\\server\\share\\x"):
+        assert not campaign._rel_is_clean(bad), bad
+
+
+def test_lint_containment_is_syscall_free_for_clean_members(tmp_path, monkeypatch):
+    """The perf half of the guard (measured 2026-07-24: 816 per-member resolves = 15-19% of a warm
+    journey open): a WELL-FORMED toml_rel must never reach the resolve-based _within. Re-run with the
+    short-circuit removed, this goes red -- it is the fence that keeps the `or` in that order."""
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+
+    def _boom(*_a, **_k):
+        raise AssertionError("a clean toml_rel paid a Path.resolve() containment check")
+
+    monkeypatch.setattr(campaign, "_within", _boom)
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert not any("escapes" in e for e in errors)
+
+
 def test_member_name_validation_rejects_separators(tmp_path):
     plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
     for bad in ("../x", "a/b", "a\\b", "  ", "."):
