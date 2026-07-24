@@ -199,10 +199,22 @@ Independently reproduced by `confirm_disasm()` in `euler_validate.py`.
 > Precision note from verification: the DLL's internal fixed-point factor is **4096.8** (build
 > ×4096.8 @0x4b6c8, matmul ÷4096.8 @0x4b6d8) — it cancels and column-norm strips it, so nothing
 > above changes, but raw fixed-matrix comparisons must use 4096.8, not 4096.0.
+>
+> **ADDENDUM 2026-07-24 — empirical leg RE-ESTABLISHED** on the archived cast
+> `C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-012109.log` (one Bahamut cast, effect
+> 227, frames 11..561; `py euler_validate.py --log <path>`, the script now takes `--log`). The table
+> reproduces: winner `cos/sin=std order=ZYX T=N` mean **0.0144** (216 clean matched frames; single
+> cast so fewer frames than round 1's 1072, same floor), next-distinct (T=Y) mean 0.7771 => margin
+> **x54.1** — matches round 1's own margin. The clip0 (-90°) and clip2 (multi-axis) sub-tables
+> reproduce to 4 decimal places (e.g. clip2 std-ZYX-T=N mean 0.0011, XYZ-post mean 1.3767, T=Y mean
+> 0.1574 — identical to §2.1, since the scripted cast replays the same clip angles every time). The
+> one outlier is the same f204 clip-transition-lag frame. Disasm confirmation reproduces unchanged
+> (reads the same installed DLL). Verdict unchanged; the log leg is no longer dead.
 
 ```
 cd studies/custom-summons/thomas-swap/m0
 py euler_validate.py            # log validation (5 casts) + focused sub-tables + disasm confirmation
+py euler_validate.py --log C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-012109.log
 ```
 
 Reads: the user's own `sfxmeshprobe.log`; the LOCAL `C:/gd/SCRATCH/summon-format/ef227.bytes` (Bahamut,

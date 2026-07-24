@@ -7,6 +7,16 @@ horizontal / widescreen axis** left open by the "OFY=120 by construction" argume
 
 **Reproduce:** `py m0/camera_match.py` (reads the log path from the `LOG` constant; full run captured in
 `m0/camera_match.out.txt`). `py m0/camera_match.py --recon` prints the session/frame facts only.
+`py m0/camera_match.py --log <path>` overrides the log (the script already took `--log`; use it to
+point at an archived snapshot).
+
+> **2026-07-24 — empirical leg RE-ESTABLISHED** on the archived single cast
+> `C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-012109.log` (effect 227, frames
+> 11..561). On-screen coherent-frame p95 reproduces in the same family: X 2.634 px / Y 6.303 px
+> (round 1: X 2.96 / Y 7.16), medians 0.694/0.647 px (round 1: 0.71/0.70). Fitted `PsxToUnity`
+> signs=(1,-1,1) scale=1.00008, matching the source-derived zero-param map. Part (b)'s
+> VIEW==PsxMatrix2UnityMatrix(M) identity holds on 98.9% of frames to the fp12 floor. Verdict
+> unchanged.
 
 **Log:** `…/FINAL FANTASY IX/sfxmeshprobe.log` (22 MB), one process, **5 complete Bahamut casts** (effect 227)
 segmented by the >50-frame reset rule. Lanes used: `PSXCAM` (native world→view `M` + OFX/OFY/H), `MODEL`

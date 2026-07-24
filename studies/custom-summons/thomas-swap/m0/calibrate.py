@@ -40,13 +40,22 @@ WHAT THIS SCRIPT VALIDATES ON THE LOG (zero fitting)
  3. SCALE SWEEP: column norms of the composed node-0 3x3 (and the ROOT +0x40 anchor 3x3) over the cast,
     min/max -- confirms the authored 0.02->3.0x scale is already inside the +0x38 columns (s54 inherits it).
 
-Log path is a constant below. Re-runnable, read-only. Segments the 5 appended casts and reports >=2.
+Log path is a constant below (override with --log). Re-runnable, read-only. Segments however many casts
+are appended in the log and reports the 2-3 densest.
+
+Run:  py calibrate.py                # live install log (default, for backward compat)
+      py calibrate.py --log <path>   # an ARCHIVED snapshot -- the documented command post-2026-07-24,
+                                      # since the live sfxmeshprobe.log is destroyed by the next relaunch
 """
 from __future__ import annotations
 
+import argparse
 import math
 from collections import defaultdict
+from pathlib import Path
 
+# NOTE: default only -- the LIVE install path, truncated to zero by any relaunch (CAST-PROTOCOL.md sec 1).
+# Pass --log <path> to point at an archived snapshot instead.
 LOG = r"C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/sfxmeshprobe.log"
 
 # ---- candidate PSX->Unity POSITION maps (sign triples applied to (x,y,z), scale factor) ----
@@ -462,8 +471,14 @@ def scale_sweep(sess, si):
 
 # ---------------------------------------------------------------- main
 def main():
-    sessions = parse(LOG)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--log", type=Path, default=Path(LOG),
+                    help="sfxmeshprobe.log to analyze (default: the LIVE install path -- pass an "
+                         "archived snapshot path to survive relaunches)")
+    args = ap.parse_args()
+    sessions = parse(args.log)
     print("=" * 96)
+    print(f"log: {args.log}")
     print(f"PARSED {len(sessions)} cast sessions from the log")
     for si, s in enumerate(sessions):
         fr = sorted(s["model"]) or sorted(s["psxcam"])

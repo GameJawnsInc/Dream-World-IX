@@ -33,9 +33,13 @@ numbers only; embeds no stock bytes.
 
 Run:  py euler_validate.py            # log validation (>=2 sessions) + disasm confirmation + verdict
       py euler_validate.py --no-disasm
+      py euler_validate.py --log <path>   # point at an ARCHIVED snapshot instead of the live install log
+                                           # (the DOCUMENTED command post-2026-07-24 is the archived path --
+                                           # the live sfxmeshprobe.log is destroyed by the next relaunch)
 """
 from __future__ import annotations
 
+import argparse
 import math
 import sys
 from pathlib import Path
@@ -50,6 +54,9 @@ import ef_container as efc                      # noqa: E402  (committable parse
 import transplant_spike as ts                  # noqa: E402  (committable clip decoder, M5)
 
 # ---- inputs (constants at top, per the task) --------------------------------------------------------
+# NOTE: this is the DEFAULT only, kept for backward compatibility -- it is the LIVE install path, which
+# a concurrent relaunch can truncate to zero at any time (CAST-PROTOCOL.md sec 1). Pass --log <path> to
+# point at an archived snapshot (e.g. under C:/gd/SCRATCH/summon-transplant/logs/) instead.
 LOG = Path(r"C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/sfxmeshprobe.log")
 EF = Path(r"C:/gd/SCRATCH/summon-format/ef227.bytes")     # LOCAL ONLY -- Bahamut, never copied to repo
 FRAME_COUNTS = [24, 30, 26, 48, 40, 68, 82, 28]           # ef227's 8 clips (M5 sec 3)
@@ -376,10 +383,18 @@ def _cfmt(c) -> str:
 
 
 def main() -> int:
-    no_disasm = "--no-disasm" in sys.argv
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--log", type=Path, default=LOG,
+                    help="sfxmeshprobe.log to analyze (default: the LIVE install path -- pass an "
+                         "archived snapshot path to survive relaunches)")
+    ap.add_argument("--no-disasm", action="store_true")
+    args, _unknown = ap.parse_known_args()
+    no_disasm = args.no_disasm or "--no-disasm" in sys.argv
+    log_path = args.log
     print("=" * 92)
     print("EULER CONVENTION VALIDATION -- Milestone 0 (TRANSPLANT.md sec 3.2)")
     print("=" * 92)
+    print(f"\nlog: {log_path}")
 
     clips, node0, tracked, nc = load_clip_node0(EF)
     print(f"\nef227: {nc} bones, {len(clips)} clips, frameCounts={[c.frame_count for c in clips]}")
@@ -389,7 +404,7 @@ def main() -> int:
         print(f"   clip{i} f0 node0 raw={a0} s16={tuple(_s16(v) for v in a0)} "
               f"deg={tuple(round(_s16(v)/4096*360,1) for v in a0)} track={tracked[i]}")
 
-    casts = parse_casts(LOG)
+    casts = parse_casts(log_path)
     print(f"\nparsed {len(casts)} cast sessions from the log")
     for ci, fr in enumerate(casts):
         drawn = [f for f, e in fr.items() if e["R_frame"] is not None]

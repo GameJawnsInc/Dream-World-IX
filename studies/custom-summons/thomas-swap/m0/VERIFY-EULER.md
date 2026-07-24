@@ -111,3 +111,13 @@ authority for pre/post.
   reproducible evidence, **RE-RUN the 5-cast Bahamut probe and PRESERVE the log** (copy to SCRATCH);
   the disasm alone already settles the convention, but the end-to-end pipeline check (live `R_frame` ==
   the built matrix) is only re-establishable with a fresh capture.
+
+---
+
+**POSTSCRIPT 2026-07-24 — the dead leg is live again.** A fresh instrumented Bahamut cast was archived
+to `C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-012109.log` and `py euler_validate.py
+--log <path>` (the script now accepts `--log`) reproduces the discrimination table on it: winner mean
+0.0144 (216 matched frames, single cast), margin x54.1 to the next-distinct convention — see EULER.md
+§5's addendum for the full numbers. This does not change this file's verdict (not refuted, medium
+confidence stands as written above) — it only retires the "currently unreproducible" complaint in
+Check 1: the `py euler_validate.py` command is reproducible again when pointed at an archived log.

@@ -243,4 +243,13 @@ the ~7.5% climax-hold frames' *orientation* — **position is unaffected and ful
 same as s48/s52) and the open-source `Assembly-CSharp` cites; it computes screen residuals and aggregate
 statistics, embeds no game bytes, and touches **bone 0 only** (the composed node-0 row + the irreversible
 `BONES` AABB) — never `bones[1..92]`. No DLL read, no asset extraction, nothing deployed. Reproduce:
-`py m0/calibrate.py` (log path is a constant at the top).
+`py m0/calibrate.py` (log path is a constant at the top, overridable with `--log <path>`).
+
+> **2026-07-24 — empirical leg RE-ESTABLISHED** on the archived single cast
+> `C:/gd/SCRATCH/summon-transplant/logs/sfxmeshprobe.20260724-012109.log` (effect 227, frames
+> 11..561; `py calibrate.py --log <path>`, the script now takes `--log`). §3b's numbers reproduce to
+> ≤0.1 px: pure-calib node-0 median \|dx\|=2.43/\|dy\|=0.58 (round 1: 2.4/0.58), AABB corners
+> median \|dx\|=29.66 (round 1: 29.6); real-hybrid node-0 median \|d\|=6.08 (round 1: 6.0). Candidate
+> A still wins with runner-up D at the same 4.9 px (node-0) / 270.5 px (corners) margins. The scale
+> sweep (0.0156x..2.9978x ROOT anchor, det<0 on the same f153..f177 climax-hold frames) reproduces
+> exactly. Candidate-A / sub-pixel-dy verdict unchanged.
