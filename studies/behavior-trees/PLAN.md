@@ -167,6 +167,29 @@ runtime tree switching beyond blackboard-driven branches.
   again postwar). 21 tests (+7 rung-3), full suite 4700 green; 1244 compiled
   instructions all jump-walked. RELAUNCH → ~ → Warp → 30412; ~ Reload resets.
   Revert: `tools/scroll_out/revert_deploy_30412.py`.
+  **PLAYTEST ROUNDS 1-2 + THE LAYOUT-PROBE ROUND (2026-07-24):** round-1 "alarm at
+  field entry" = the notice box saw the DORMANT CAMP (fix: raid-gate the notice,
+  radius 450); round-2 "watchman spams the cry" = Announce re-dispatched on every
+  box re-entry (fix: the sticky Once I'd promised but not written) — and "guards
+  stuck in 1 of 2 places" = the outer ring's two legs crossed CONCAVE off-mesh
+  notches, which point probes can't see. The new `laying-out-ff9-fields` skill +
+  `tools/field_layout_probe.py` became the cure AND got improved from this field:
+  **ROUTE markers** (`[[marker]] path=/closed=` — polylines drawn on both PNGs +
+  walkability-SWEPT per leg, off-mesh spans in red with world coords) + scroll-aware
+  OFF-CANVAS suppression; the sweep then caught THREE MORE broken lines I'd shipped
+  blind (bandit march, panic run, watchman escape). Layout relaid from the probe's
+  eyes: routeA = THE MONUMENT CIRCUIT (the field is a donut; 6 corners, west detour
+  around the hole's waist bulge), THE TWO LANES (bandit1 west through the gatehouse,
+  bandit0 the long east lane = a SECOND WAVE), watchman/guards fall back to the
+  MARKET (every keep-bound flee line grazes the neck bay). Vocabulary grew again:
+  **`March`** (walk waypoints, HOLD the last — Patrol that stops; replaces chained
+  Once waypoint-latches), **`all_of`** (AND inside any_of), the shared-Do dedupe
+  exercised for real (one cry from two notice branches). LAWS MINTED (now in the
+  skill): walkers slide around CONVEX obstacles but WEDGE in concave notches;
+  snap walk targets to ≥100u wall clearance (1u edge slivers pass naive on-mesh
+  tests — the market sat on one); probe ROUTES, not just points. Bench lattice is
+  clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. ⚠ playtest round 3
+  pending.
 - **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
   the GUI section as its own later round.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script

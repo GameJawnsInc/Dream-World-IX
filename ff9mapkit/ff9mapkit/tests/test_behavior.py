@@ -197,6 +197,27 @@ def test_do_raise_flags():
     assert "alarm" in cb.report                        # allocated + visible in ~ Flags
 
 
+def test_march_compiles_and_verifies():
+    """March = Patrol that stops: multi-leg one-way routes as one feed (minted by
+    the BTRAID showcase — straight WalkTo lines wedge in concave walkmesh notches)."""
+    fb = B.FieldBehavior([B.UnitSpec("b", entry=2, spawn=(0, -1600), hp=3)])
+    fb.units["b"].tree = B.Selector(
+        B.Sequence(fb.hp_le("b", 0), B.Do(B.Die())),
+        B.Sequence(fb.flag("go"),
+                   B.Do(B.March([(800, -850), (1100, 1150), (-1400, 900)],
+                                arrive_r=250, speed=55))),
+        B.Do(B.Hold((0, -1600))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "b.wp" in cb.report
+    with pytest.raises(B.BehaviorError, match="2..8 waypoints"):
+        B.March([(0, 0)])
+    fb2 = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+    fb2.units["u"].tree = B.Do(B.March([(0, 0), (500, 0)]))   # fallback-eligible
+    _verify_all(fb2.compile())
+
+
 def test_any_of_and_shared_announce_dedupe():
     """The watcher pattern: ONE Announce object selected from two notice branches
     must compile to ONE dispatch body (one action id), and any_of ORs Conds."""

@@ -87,22 +87,45 @@ def read_spawn() -> tuple[int, int]:
     return int(m.group(1)), int(m.group(2))
 
 
-def lattice() -> list[tuple[int, int]]:
+def lattice(min_clear: float = 100.0) -> list[tuple[int, int]]:
+    """On-mesh grid points at least ``min_clear`` from any walkmesh boundary edge —
+    probe round 2's lesson: a bare on-mesh test accepts 1u edge slivers (the market
+    landed on one), and walkers shoved by the 48u collision radius drift off any
+    line that hugs a wall. Snap targets only to CLEAR points."""
     mesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
     wv = mesh.world_verts()
-    tris = [tuple(wv[i] for i in t.vtx) for t in mesh.tris]
+    idx_tris = [tuple(t.vtx) for t in mesh.tris]
+    tris = [tuple(wv[i] for i in t) for t in idx_tris]
     xs, zs = [v[0] for v in wv], [v[2] for v in wv]
 
-    def on_mesh(x, z):
-        return any(_pt_in_tri_xz(x, z, a, b, c) for a, b, c in tris)
+    cnt: dict = {}
+    for a, b, c in idx_tris:
+        for u, v in ((a, b), (b, c), (c, a)):
+            k = (v, u) if u > v else (u, v)
+            cnt[k] = cnt.get(k, 0) + 1
+    bedges = [((wv[a][0], wv[a][2]), (wv[b][0], wv[b][2]))
+              for (a, b), n in cnt.items() if n == 1]
+
+    def seg_d(px, pz, e0, e1):
+        ax, az = e0
+        bx, bz = e1
+        dx, dz = bx - ax, bz - az
+        L2 = dx * dx + dz * dz
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
+        cx, cz = ax + t * dx, az + t * dz
+        return ((px - cx) ** 2 + (pz - cz) ** 2) ** 0.5
+
+    def clear(x, z):
+        return (any(_pt_in_tri_xz(x, z, a, b, c) for a, b, c in tris)
+                and min(seg_d(x, z, e0, e1) for e0, e1 in bedges) >= min_clear)
 
     pts = []
     for z in range(int(min(zs)) + 300, int(max(zs)) - 299, 250):
         for x in range(int(min(xs)) + 300, int(max(xs)) - 299, 250):
-            if on_mesh(x, z):
+            if clear(x, z):
                 pts.append((x, z))
     if len(pts) < 30:
-        raise SystemExit(f"only {len(pts)} lattice points")
+        raise SystemExit(f"only {len(pts)} clear lattice points")
     return pts
 
 
@@ -115,21 +138,33 @@ def layout() -> dict:
     lay = {
         "spawn": read_spawn(),
         "keep": nearest(pts, -2250, 2250),
-        "rally": nearest(pts, -1750, 1200),
+        # the GATEHOUSE = the neck between the plaza and the NW keep arm: every
+        # keep-bound walk routes THROUGH it (probe round 2: straight lines to the
+        # keep from anywhere south clip the bay west of the neck)
+        "gatehouse": nearest(pts, -1391, 900),
         "watch_post": nearest(pts, -1050, -1300),
         "camp0": nearest(pts, -450, -1750),
         "camp1": nearest(pts, -850, -1780),
-        "market": nearest(pts, -1500, 200),
-        "safehouse": nearest(pts, -2900, -2100),   # the spawn arm's mouth — a long,
-                                                   # readable sprint past the player
+        "market": nearest(pts, -1641, 150),
+        "safehouse": nearest(pts, -1891, -1600),   # sweep-picked: the ONE straight
+                                                   # market->SW line with no off-mesh
+                                                   # nick (7u parallel wall slide)
         "east_nook": nearest(pts, -500, 600),
+        # routeA = THE MONUMENT CIRCUIT (probe round 1: the old outer ring's west and
+        # north legs crossed off-mesh notches — guards stalled in 2 places; the field
+        # is a donut around the central monument, so the outer patrol IS the donut).
+        # Six corners: the hole bulges west to ~x-850 at its waist (probe round 2),
+        # so the west side detours through the court's clear column at x-1141.
         "routeA": [nearest(pts, *p) for p in
-                   [(-2250, 1600), (-950, 1600), (-950, -1000), (-2250, -1000)]],
-        "routeB": [nearest(pts, *p) for p in
-                   [(-1850, 900), (-1250, 900), (-1250, -450), (-1850, -450)]],
+                   [(-891, 1150), (1109, 1150), (1109, -850), (-891, -850),
+                    (-1141, -100), (-1141, 400)]],
+        # routeB = the west-court beat. The court's north half is cluttered (interior
+        # notches); the z=500 chord is the SWEPT best (14u) — raw sweep-verified
+        # points, deliberately NOT lattice-snapped
+        "routeB": [(-1641, 500), (-1141, 500), (-1141, -100), (-1891, -100)],
     }
     for ring in ("routeA", "routeB"):
-        if len(set(lay[ring])) != 4:
+        if len(set(lay[ring])) != len(lay[ring]):
             raise SystemExit(f"{ring} collapsed: {lay[ring]}")
     if lay["camp0"] == lay["camp1"]:
         raise SystemExit("bandit camps collapsed onto one lattice point")
@@ -162,29 +197,38 @@ def build_behavior(entries: dict[str, int], lay: dict,
         return B.Sequence(fb.active(foe), fb.near(me, foe, CONTACT),
                           B.Do(B.SwingAt(foe, damage=damage)))
 
-    # --- watchman: notice EITHER bandit -> ONE shared cry raises the alarm.
+    # --- watchman: notice EITHER bandit -> ONE cry raises the alarm, ONCE EVER.
     # RAID-gated (playtest-1 fix): the camps sit near the gate, so an ungated notice
-    # box "saw" the dormant camp at field entry — an alarm must be a consequence of
-    # the raid. 450 keeps the camps outside (camp1 is 500 off the post) while the
-    # march path passes ~94 units from the post: the cry lands AS they push the gate.
+    # box "saw" the dormant camp at field entry. STICKY-Once (playtest-2 fix): without
+    # it, every re-entry of a bandit into the notice box re-dispatched the Announce —
+    # the window spammed all battle. Once: he cries while they push the gate; the
+    # moment they pass out of 450 it latches forever, and the alarm branch sends him
+    # sprinting for the keep.
     cry = B.Announce(txids.get("watchman", 0))
+    notice = fb.any_of(
+        fb.all_of(fb.active("bandit0"), fb.near("watchman", "bandit0", 450)),
+        fb.all_of(fb.active("bandit1"), fb.near("watchman", "bandit1", 450)))
     fb.units["watchman"].tree = B.Selector(
-        B.Sequence(fb.flag("raid"), fb.active("bandit0"),
-                   fb.near("watchman", "bandit0", 450),
-                   B.Do(cry, raise_flags="alarm")),
-        B.Sequence(fb.flag("raid"), fb.active("bandit1"),
-                   fb.near("watchman", "bandit1", 450),
-                   B.Do(cry, raise_flags="alarm")),
-        B.Sequence(fb.flag("alarm"), B.Do(B.WalkTo(lay["keep"], speed=70))),
+        B.Once("cry", B.Sequence(fb.flag("raid"), notice,
+                                 B.Do(cry, raise_flags="alarm"))),
+        # falls back to the MARKET with the wounded (probe round 3: every keep-bound
+        # line from his post grazes the neck bay at 1-3u; the market route sweeps
+        # clean at 18u+). March = the multi-leg walk verb this scene minted.
+        B.Sequence(fb.flag("alarm"),
+                   B.Do(B.March([(-1141, -100), lay["market"]],
+                                arrive_r=250, speed=70))),
         B.Do(B.Hold(lay["watch_post"])),
     )
 
-    # --- guards: die -> flee at hp<=1 -> alarm combat -> patrol shifts
+    # --- guards: die -> flee at hp<=1 -> alarm combat -> patrol shifts.
+    # Flee refuges = market then east nook (probe round 2: any keep-bound flee line
+    # clips the neck bay, and a wounded guard parked at the gatehouse sits in the
+    # bandits' march lane -- he'd be finished at contact)
     for g, my_shift in (("guard0", shift), ("guard1", B.Invert(shift))):
         fb.units[g].tree = B.Selector(
             B.Sequence(fb.hp_le(g, 0), B.Do(B.Die())),
             B.Sequence(fb.hp_le(g, 1),
-                       B.Do(B.Flee("bandit1", [lay["keep"], lay["market"]],
+                       B.Do(B.Flee("bandit1", [lay["market"], lay["east_nook"]],
                                    avoid_r=600, speed=75))),
             B.Sequence(fb.flag("alarm"), bandits_up, B.Selector(
                 duel(g, "bandit0"),
@@ -193,7 +237,7 @@ def build_behavior(entries: dict[str, int], lay: dict,
                            B.Do(B.Chase("bandit0", standoff=STANDOFF, speed=65))),
                 B.Sequence(fb.active("bandit1"), fb.near(g, "bandit1", 900),
                            B.Do(B.Chase("bandit1", standoff=STANDOFF, speed=65))),
-                B.Do(B.WalkTo(lay["rally"], speed=65)),
+                B.Do(B.WalkTo(lay["gatehouse"], speed=65)),
             )),
             B.Sequence(my_shift, B.Do(B.Patrol(lay["routeA"], arrive_r=150))),
             B.Do(B.Patrol(lay["routeB"], arrive_r=150)),
@@ -214,7 +258,16 @@ def build_behavior(entries: dict[str, int], lay: dict,
         B.Do(B.Hold(lay["keep"])),
     )
 
-    # --- bandits: the raid — march the keep, fight through, gloat once
+    # --- bandits: THE TWO LANES (the field's own topology — two ways around the
+    # monument). bandit1 storms the short WEST lane through the gatehouse; bandit0
+    # swings the long EAST lane around the monument and arrives as a SECOND WAVE.
+    # March (minted here) walks each lane's probe-swept waypoints and holds the keep;
+    # duels preempt and the march resumes at the current waypoint.
+    lanes = {
+        "bandit0": [(859, -850), (1109, 1150), (-891, 1150),
+                    lay["gatehouse"], lay["keep"]],
+        "bandit1": [lay["gatehouse"], lay["keep"]],
+    }
     for i, b in enumerate(("bandit0", "bandit1")):
         fb.units[b].tree = B.Selector(
             B.Sequence(fb.hp_le(b, 0), B.Do(B.Die())),
@@ -225,7 +278,7 @@ def build_behavior(entries: dict[str, int], lay: dict,
                 B.Once(f"gloat{i}", B.Sequence(
                     fb.near_point(b, lay["keep"], 300),
                     B.Do(B.Announce(txids.get(b, 0))))),
-                B.Do(B.WalkTo(lay["keep"], speed=55)),
+                B.Do(B.March(lanes[b], arrive_r=250, speed=55)),
             )),
             B.Do(B.Hold(posts[b])),
         )
@@ -265,6 +318,29 @@ def gen() -> None:
         x, z = posts[name]
         parts.append(f'\n[[npc]]\nname = "{name}"\nmodel = "{geo}"\n'
                      f'pos = [{x}, {z}]\ndialogue = "{line}"\n')
+    # probe-visible spatial plan (build-inert): named points for every static target
+    # + ROUTE markers (`path`) for every scripted walk line, so the probe's sweep
+    # verifies straight-walk legality of the rings, the marches, and the flee lines
+    wp = {"keep": lay["keep"], "gatehouse": lay["gatehouse"], "market": lay["market"],
+          "safehouse": lay["safehouse"], "east_nook": lay["east_nook"]}
+    for name, (x, z) in wp.items():
+        parts.append(f'\n[[marker]]\nname = "{name}"\npos = [{x}, {z}]\n')
+
+    def route(name: str, points: list, closed: bool = False) -> str:
+        pp = ", ".join(f"[{x}, {z}]" for x, z in points)
+        x0, z0 = points[0]
+        return (f'\n[[marker]]\nname = "{name}"\npos = [{x0}, {z0}]\n'
+                f"path = [{pp}]\nclosed = {'true' if closed else 'false'}\n")
+
+    parts.append(route("ringA", lay["routeA"], closed=True))
+    parts.append(route("ringB", lay["routeB"], closed=True))
+    parts.append(route("march0", [posts["bandit0"], (859, -850), (1109, 1150),
+                                  (-891, 1150), lay["gatehouse"], lay["keep"]]))
+    parts.append(route("march1", [posts["bandit1"], lay["gatehouse"], lay["keep"]]))
+    parts.append(route("panic", [lay["market"], lay["safehouse"]]))
+    # representative flee line: a guard wounded at the ring's SW reach -> the market
+    parts.append(route("gflee", [lay["routeA"][4], lay["market"]]))
+    parts.append(route("watch_run", [lay["watch_post"], (-1141, -100), lay["market"]]))
     cx, cz = lay["spawn"]
     h = 220
     parts.append(
@@ -335,26 +411,27 @@ def deploy() -> None:
     REPORT.write_text(report + "\n", encoding="utf-8")
     print(f"\n{report}\n\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (RELAUNCH first — new id {FIELD_ID}): ~ -> Warp -> {FIELD_ID}
-  1 BEFORE THE RAID: the two soldiers walk DIFFERENT rings (one outer, one inner)
-    and every ~7s the shift clock flips — watch them TRADE rings (the alternator).
-    The old man ambles randomly around the center at a stroll (Wander + speed 30);
-    the watchman holds the south-east gate; the captain the north-west keep;
-    two Fangs camp beyond the gate, dormant.
-  2 THE LEVER (at spawn): "Begin the raid" -> the Fangs march for the keep (55).
-  3 THE ALARM: as they pass the gate the watchman's line pops ONCE ("Bandits at
-    the gate!") — then he sprints (70) for the keep. The old man PANICS: bolts
-    (80!) for the far-west safehouse. Both visibly faster than their idle gaits.
-  4 THE BATTLE: both guards abandon their rings, converge at speed 65, intercept,
-    duel. Expected: the small Fang (4hp) dies to guard A (5hp), who — at 1 hp —
-    turns and FLEES to the keep mid-field. Guard B (3hp) wounds the big Fang
-    (6hp), flees at 1 hp; the wounded Fang limps on to the keep, draws the
-    captain's war cry ("To arms!"), and dies to his double-damage blade.
-  5 AFTERMATH: with no bandit alive the old man wanders back to the market and
-    any guard who ended ABOVE 1 hp resumes his patrol ring; a guard at exactly
-    1 hp shelters at the keep forever (the flee branch outranks patrol — hp
-    doesn't regenerate). The alarm flag stays latched by design.
-  6 ~ -> Reload resets everything (flags, HP, corpses, the shift clock).
+PLAYTEST (layout probe-verified this round — every walk line sweeps ON-MESH):
+  ~ -> Warp -> {FIELD_ID}  (~ Reload picks up this redeploy; RELAUNCH only if first time)
+  1 BEFORE THE RAID: one soldier walks THE MONUMENT CIRCUIT (the big ring around
+    the central rotunda, dipping into the west court), the other a compact court
+    beat; every ~7s the shift clock flips and they TRADE routes. The old man
+    ambles around the market at a stroll; the watchman holds the south gate;
+    the captain the north-west keep; two Fangs camp south, dormant.
+  2 THE LEVER (at spawn): "Begin the raid" -> THE TWO LANES: the big Fang (6hp)
+    storms the short WEST lane through the gatehouse; the small Fang (4hp) swings
+    the long EAST lane around the monument — a SECOND WAVE (~30s behind).
+  3 THE ALARM: as they leave camp past the gate the watchman's line pops ONCE
+    (fixed — no more spam), then he falls back to the market (70). The old man
+    PANICS: bolts (80) south-west for the safehouse, right past your spawn.
+  4 THE BATTLE: the guards drop their routes, converge on the gatehouse at 65,
+    intercept, duel. A guard at 1 hp turns and FLEES mid-fight — to the market
+    (or the east nook if a bandit is camping the market). The wounded Fang that
+    breaks through draws the captain's war cry at the keep and dies to his
+    double-damage blade. Watch wave 2 arrive from the north-east afterwards.
+  5 AFTERMATH: no bandit alive -> the old man wanders back to the market; guards
+    above 1 hp resume their traded routes; 1-hp survivors shelter at the market.
+  6 ~ -> Reload resets everything (flags, HP, corpses, the shift clock, waves).
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

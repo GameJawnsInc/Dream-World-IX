@@ -247,6 +247,23 @@ class Patrol(Action):
 
 
 @dataclass
+class March(Action):
+    """Walk the waypoints in order and HOLD the last one — Patrol that stops.
+    Multi-leg one-way routes as ONE feed (probe-driven layouts route around
+    concave obstacles; a straight WalkTo would wedge in a notch). Interruptions
+    (a duel preempting) resume at the current waypoint."""
+    points: tuple
+    arrive_r: int = 150
+    speed: int | None = None
+    feed = True
+
+    def __post_init__(self):
+        self.points = tuple(tuple(p) for p in self.points)
+        if not 2 <= len(self.points) <= 8:
+            raise BehaviorError("March takes 2..8 waypoints (unrolled if-chain)")
+
+
+@dataclass
 class Flee(Action):
     """Retreat to the FIRST of ``points`` (priority order) the threat is NOT within
     ``avoid_r`` of; if the threat camps them all, the last. This is the deliberate
@@ -483,6 +500,20 @@ class FieldBehavior:
                 toks.append("B_OROR")
         return Cond(" ".join(toks), _trusted=True)
 
+    def all_of(self, *conds: Cond) -> Cond:
+        """AND-compose Conds into ONE Cond — for use INSIDE any_of (a Sequence is the
+        normal AND at branch level): any_of(all_of(active(a), near(w, a, r)), ...)."""
+        if len(conds) < 2:
+            raise BehaviorError("all_of takes 2+ Conds")
+        toks = []
+        for i, c in enumerate(conds):
+            if not isinstance(c, Cond):
+                raise BehaviorError("all_of takes Cond nodes")
+            toks.append(c.text)
+            if i:
+                toks.append("B_ANDAND")
+        return Cond(" ".join(toks), _trusted=True)
+
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
         shifts, work rotations). Registered once per name; returns the flag Cond
@@ -532,12 +563,12 @@ class FieldBehavior:
             elif isinstance(node, Do):
                 a = node.action
                 # every feed with a STATIC first target qualifies (Main_Init can
-                # preset the duty walk): Patrol/Flee -> points[0], Wander -> center
-                if isinstance(a, (WalkTo, Hold, Patrol, Flee, Wander)):
+                # preset the duty walk): Patrol/March/Flee -> points[0], Wander -> center
+                if isinstance(a, (WalkTo, Hold, Patrol, March, Flee, Wander)):
                     return a
                 raise BehaviorError(
                     f"{unit.name}: the fallback action must be a static feed "
-                    f"(WalkTo/Hold/Patrol/Flee/Wander), not {type(a).__name__}")
+                    f"(WalkTo/Hold/Patrol/March/Flee/Wander), not {type(a).__name__}")
             else:
                 raise BehaviorError(
                     f"{unit.name}: the tree needs an unconditional Do fallback "
@@ -615,7 +646,7 @@ class FieldBehavior:
             main_init += _set_flag(act_flag, 0)
             main_init += _set_byte(sel, 0) + _set_byte(run, 0)
             main_init += _set_byte(spd, u.walk_speed) + _set_byte(spdap, u.walk_speed)
-            if isinstance(fallback, (Patrol, Flee)):
+            if isinstance(fallback, (Patrol, March, Flee)):
                 px, pz = fallback.points[0]
             elif isinstance(fallback, Wander):
                 px, pz = fallback.center
@@ -927,6 +958,29 @@ class FieldBehavior:
                 _stmt(f"Global.Int16[{tx}] Global.Int16[{wtx}] B_LET"),
                 _stmt(f"Global.Int16[{tz}] Global.Int16[{wtz}] B_LET"),
             ]
+        if isinstance(a, March):
+            wp = self.bb.byte(f"{u.name}.wp")        # shared with Patrol: an
+            if wp not in self._reset_bytes:          # out-of-range wp resets to 0
+                self._reset_bytes.append(wp)
+            self._label_ctr += 1
+            p = f"t_{u.name}_m{self._label_ctr}"
+            out: list = []
+            n = len(a.points)
+            for i, (px, pz) in enumerate(a.points):
+                out += [_stmt(f"Global.Byte[{wp}] const({i}) B_EQ"),
+                        (JMP_IFNOT, f"{p}_w{i}")]
+                if i < n - 1:                        # advance on arrival, except last
+                    out += [_stmt(_box(self._mx(u.name), self._mz(u.name),
+                                       int(px), int(pz), a.arrive_r)),
+                            (JMP_IFNOT, f"{p}_f{i}"),
+                            _set_byte(wp, i + 1),
+                            (JMP, f"{p}_end"),
+                            label(f"{p}_f{i}")]
+                out += [_set_int16(tx, int(px)), _set_int16(tz, int(pz)),
+                        (JMP, f"{p}_end"),
+                        label(f"{p}_w{i}")]
+            out += [_set_byte(wp, 0), label(f"{p}_end")]
+            return out
         if isinstance(a, Patrol):
             wp = self.bb.byte(f"{u.name}.wp")
             if wp not in self._reset_bytes:
