@@ -296,6 +296,128 @@ runtime tree switching beyond blackboard-driven branches.
   naive (jams, the disease live) vs `clever` route="auto" (an 8/8-point routed
   circuit, byte-verified in the deployed `.eb`). RELAUNCH → ~ → Warp → 30414.
   Revert: `tools/scroll_out/revert_deploy_30414.py`.
+- **POST-LADDER — THE COMPILED ROADMAP (PATH B, dynamic navigation): ★ FALSIFIED
+  OFFLINE (2026-07-24, zero playtests spent).** Scripts + reproduction:
+  `pathb/` (`roadmap.py` decomposition, `emit.py` real-byte emission, `census.py`,
+  `worked_559.py`, `census.json`). **Recommendation: build NEITHER the roadmap nor
+  the engine opcode.** The decomposition, the table compression and the routing
+  QUALITY all work; what has no sound implementation is the *entry point* —
+  resolving a live `(x,z)` to a region on the `.eb` expression stack.
+
+  **1. Decomposition (works).** Connectivity comes from `BgiWalkmesh.tris[].nbr` —
+  the engine's own seam-aware navmesh graph, never re-derived from geometry
+  (`docs/WALKMESH_EDITING.md`'s law). Regions grow greedily + a merge pass under ONE
+  contract: *a unit anywhere in region A must walk STRAIGHT to any of A's portal
+  waypoints without leaving the mesh*, checked as sampled mutual visibility over the
+  **occupiable** point set (the region eroded by the 48u controller radius — corner
+  slivers a unit can never stand in constrain nothing). Regions never span floors.
+  Portals = shared cross-region edges; waypoint = the widest one's midpoint.
+  **Census (100 random real fields; all 674 `.bgi` extracted):** tris median 119 /
+  p90 243 / max 463; regions **R p25 9, median 16, p75 26, p90 39, max 64**.
+
+  **2. Cost (buildable, priced high).** Emitted through the SHIPPED emitters, so
+  these are measured bytes: the unrolled next-hop table costs a flat **24.4 B per
+  cell**. Field **559** (253 tris / 4 floors — the benches' own donut arena, p92 for
+  size): R=49, 130 directed portals, 1986 routable ordered pairs.
+  * naive chain 1986 cells ≈ 48 KB → **will not assemble**: `0x01` JMP carries a
+    SIGNED 16-bit offset, and `.eb` entry offsets/sizes are u16 (65535 ceiling).
+    6/100 census fields overflow outright; the p90 field emits 32,436 B.
+  * **THE INTERVAL COMPRESSION (a real credit):** number regions by DFS and the
+    per-source next-hop rows become piecewise constant — 1986 cells → **333
+    intervals → 236 range tests → 8,140 B** (0.17× the raw cells). This alone
+    brings essentially every field back inside the jump reach.
+  * waypoint chain 5,330 B per-portal, **1,584 B** keyed on next-region only;
+    membership 2,352 B (AABB rescan) / 2,499 B (stay-test) / 6,240 B (per-portal
+    incremental). Best-case whole stack ≈ **11–12 KB per field**.
+  * Scale: the ENTIRE rung-3 showcase (BTRAID, 7 units) compiles to 10,661 B
+    (ticker 7,802 B); `EVT_SWARM.eb` (40 movers) is 37,569 B against the 65,535
+    ceiling. So the roadmap roughly doubles a behavior-heavy field's `.eb`.
+  * **The table can only ever be CODE, not data**: `expr_varSpec` (EBin.cs:464)
+    reads a variable's array index from the INSTRUCTION STREAM, so
+    `Global.Byte[base + r*R + s]` does not exist. (See the discovery in §5.)
+
+  **3. Per-tick cost (not the blocker).** One pursuer served per tick (round-robin)
+  + incremental region tracking = ≤ 2R compares + out-degree (559: 98 + 8, worst
+  case). Comfortably inside a `Wait(1)` loop that already carries 40 movers.
+
+  **4. Quality (not the blocker either).** Simulated against the kit's own A* over
+  120 random pursuit chords on 559: length ratio **median 1.13×, p90 1.26×, max
+  1.89×**, median 3 portal hops, 1 unroutable. Corridor-following reads fine.
+
+  **5. THE FALSIFIER — membership has no sound expressible form.** The roadmap's
+  first act each tick is "which region is this position in?", and:
+  * Exact point-in-region = point-in-triangle = cross products. The CalcStack is
+    **26-bit signed** (`(t0 << 6) >> 6`, EBin.cs:1683 — the project's "Int24"
+    shorthand is conservative), so the worst-case delta product overflows on
+    **244/674 real fields (36%)**; where it fits it still costs O(tris) tests.
+  * The only overflow-safe primitive is the axis-aligned box — and AABB
+    first-match membership **misclassifies 20.8%** of occupiable points on 559
+    (9.2% of region AABB pairs overlap). A misroute is not cosmetic: it feeds a
+    waypoint on the wrong side of a wall.
+  * The escape hatch — incremental tracking by portal half-plane crossings — IS
+    expressible, but it is dead reckoning: it needs a correct seed, it silently
+    desyncs on any teleport (including `MoveInstantEx`, which the shipped
+    **pooled-unit** vocabulary fires on *every spawn*), and it has no sound
+    recovery test, because recovery needs exact membership.
+  * Compounding: **25/100** census fields have floors that OVERLAP in XZ, and the
+    ticker's position mirrors carry no floor id — so `(x,z)` is ambiguous there by
+    construction.
+
+  **6. THE MEASURED NEED IS SMALL.** Fraction of straight pursuit chords on 559
+  (the field chosen *because* its concave hole minted the wedge law) that leave the
+  walkmesh, by range: **0–600u 0.0%**, 600–900u 1.8%, 900–1200u 9.6%, 1200–1500u
+  19.9%, 2400u+ 82.3%. The shipped vocabulary engages at `Chase` standoff **140**
+  and the raid's notice radius **450** — i.e. the naive straight-line chase is
+  clean at every range the trees actually pursue at. Dynamic jamming is a
+  LONG-RANGE phenomenon, and the long-range approach leg is *static*, which
+  **Path A already routes**.
+
+  **7. THE ENGINE-OPCODE ALTERNATIVE — weighed, and caveat (a) is a BLOCKER, not
+  an unknown.** The mechanism is real and generic: `MoveNPC()`
+  (`FieldMapActorController.cs:875`) runs every frame for every non-player actor
+  and drains `movePaths` into `moveTarget` — it is not mouse-specific. But the
+  scripted walk (`MoveToward_mixed_ex`) writes `actorController.curPos += moveVec`
+  **directly** and never touches `hasTarget`/`moveTarget`/`movePaths`: both lanes
+  move `curPos` in the same frame, so they SUM. `PathTo(x,z)` therefore cannot be
+  additive — the duty body's blocking `Walk` must be REPLACED by a poll, which is a
+  restructure of the proven sync-walk core, and it costs:
+  * **per-action `speed=` (a shipped, proven feature)** — `MoveNPC` moves at
+    `this.speed`, hardcoded `30f` at construction (line 107) and refreshed only for
+    the player (line 211);
+  * **the walk animation** — the walk/idle auto-switch is inside
+    `if (FF9StateSystem.Field.isDebug)` (line 367); in normal play animation comes
+    from `PlayAnimationViaEventScript` (`originalActor.anim`), so a path-driven NPC
+    slides in whatever pose the script last set unless the compiler drives the clip;
+  * plus `HonoLateUpdate` clears `movePaths` after 30 still frames, and
+    `FindPathReversed` uses `List<Int32>.Contains` inside its expansion loop
+    (O(V·E)) with the only shipping call site running it TWICE plus
+    `SmoothPathsByForce` — never exercised beyond a single mouse click.
+  Caveat (b) stands as stated: it costs engine independence. **That is an OWNER
+  decision** — but on the evidence above it would be paid for a capability §6 says
+  is not currently needed, so this study does not ask for it.
+
+  **8. THE DISCOVERY (the rung's real dividend): stock Memoria already gives `.eb`
+  COMPUTED ARRAY INDEXING.** `flexible_varfunc` (expression token **`0xD3`**, then a
+  u16 command + u8 argc, args popped off the CalcStack — EBin.cs:331/351) exposes
+  **`VECTOR` (cmd 20) / `VECTOR_SIZE` (21) / `DICTIONARY` (22)**, backed by
+  `FF9StateSystem.EventState.gScriptVector` — `List<Int32>` indexed by a
+  **stack-supplied** value, save-persisted through `JsonParser`. Added upstream in
+  **`91e94a66` (2023-09-23)**, verified an ANCESTOR of our pinned base `6b8bb2d5`
+  ⇒ available on **stock Memoria at zero engine cost**, and `eb/exprasm.py` cannot
+  emit it yet. This is the primitive every branch of this analysis kept colliding
+  with (§2's "code, not data"): with vectors, tables become runtime data and
+  loops-over-arrays become expressible — a compiler could BFS a next-hop table at
+  `Main_Init` instead of unrolling it. It does NOT rescue this rung (§5 is a
+  correctness wall, not a size wall), but it is a genuine capability find and the
+  natural head of any future "real data structures in `.eb`" rung. Prove it on
+  something far simpler than a roadmap first.
+
+  **WHAT IS WORTH DOING INSTEAD (cheap, offline, no runtime cost):** the
+  decomposition is a build-time artifact, so `behavior lint` can WARN when a
+  `chase`/`wander` target area is not straight-line reachable from the unit's post
+  and hint a `march`/`patrol` `route = "auto"` approach leg — the Path-A cure
+  applied to the Path-B symptom, using `pathb/roadmap.py` as written. Not built
+  here (it is a separate scoped change), but it is the residual worth carrying.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,
