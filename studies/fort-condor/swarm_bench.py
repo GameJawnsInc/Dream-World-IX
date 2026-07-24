@@ -201,19 +201,28 @@ def unit_loop_body(*, role: str, enemy_uid: int, my_hp: int, enemy_hp: int,
              + opcodes.set_walk_speed(55 if role == "defender" else 40)
              + opcodes.set_pathing(1)
              + opcodes.set_walk_turn_speed(16))
-    chase_enemy = (opcodes.init_walk()
-                   + opcodes.encode(OP_WALK,
-                                    exprasm.assemble(f"obj(uid={enemy_uid}).f[0] B_EXPR_END"),
-                                    exprasm.assemble(f"obj(uid={enemy_uid}).f[2] B_EXPR_END"),
-                                    arg_flags=0b11))
-    walk_home = opcodes.init_walk() + opcodes.encode(OP_WALK, hx, hz)
+    # BARE Walk — no InitWalk. Engine truth (EventEngine.DoEventCode MOVE + CLRDIST +
+    # MoveToward): InitWalk sets actor.loopCount=255, which makes the NEXT Walk
+    # SYNCHRONOUS — stay() re-executes the Walk every frame until arrival AT THE TARGET,
+    # freezing the rest of the loop (rung-2 playtest 1: fighters walked into perfect
+    # overlap — arrival = the enemy's CENTER — then spun). A bare Walk executes ONE
+    # movement step and falls through, so the re-issued per-frame Walk keeps the whole
+    # state machine live: contact triggers at CONTACT_R BEFORE overlap, and stopping is
+    # free — fight mode just doesn't issue a Walk.
+    chase_enemy = opcodes.encode(OP_WALK,
+                                 exprasm.assemble(f"obj(uid={enemy_uid}).f[0] B_EXPR_END"),
+                                 exprasm.assemble(f"obj(uid={enemy_uid}).f[2] B_EXPR_END"),
+                                 arg_flags=0b11)
+    walk_home = opcodes.encode(OP_WALK, hx, hz)
     fight = [
-        opcodes.turn_toward_object(enemy_uid, 32),
+        # face the enemy only on the swing tick — a per-frame TurnTowardObject on a
+        # near-coincident target flip-flops the angle (the observed rapid spinning)
         expr_stmt(f"Global.Byte[{my_timer}] Global.Byte[{my_timer}] const(1) B_PLUS "
                   f"B_LET B_EXPR_END"),
         expr_stmt(f"Global.Byte[{my_timer}] const({SWING_FRAMES}) B_LT B_EXPR_END"),
         (JMP_IF, "wait"),
         set_byte_stmt(my_timer, 0),
+        opcodes.turn_toward_object(enemy_uid, 16),
         expr_stmt(f"Global.Byte[{enemy_hp}] Global.Byte[{enemy_hp}] const(1) B_MINUS "
                   f"B_LET B_EXPR_END"),
         (JMP, "wait"),
