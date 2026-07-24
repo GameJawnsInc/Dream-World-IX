@@ -276,20 +276,17 @@ def test_reconcile_only_counts_folders_in_the_foldernames_stack(tmp_path):
 # ---------------------------------------------------------------- the generated revert script
 
 def _render_revert_template():
-    """Render tools/deploy_field.py's embedded revert template with dummy values.
+    """Render the generated revert script with dummy values (via ff9mapkit.reverttmpl.build_revert_script).
 
     Pins the failure mode the ledger wiring could introduce: the generated script imports only a couple of
     ff9mapkit modules, and EVERY ordinary deploy runs the prior revert as its prelude -- so an unresolved
     name in that template does not break one revert, it breaks DEPLOYING. Nothing else in the suite renders
-    it, and a syntax/name error there is invisible until a real deploy."""
-    src = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_field.py").read_text(encoding="utf-8")
-    body = re.search(r"^revert = f'''(.*?)^'''$", src, re.S | re.M).group(1)
-    ns = dict(KIT=r"C:\kit", MOD_FOLDER="FF9CustomMap", STAMP="20260718-013000", BK=r"C:\bk", FID=4003,
-              _mint_ids_repr="[]", _mint_anim_keys_repr="[]", _mes_blocks_repr="[]",
-              FBG="FBG_N00_TESTROOM", name="TESTROOM",
-              text_block=1073, csv_revert_code="", bp_revert_code="", tp_revert_code="",
-              fork_revert_code="", _REPO=r"C:\gd\Dream-World-IX")
-    return eval("f'''" + body.replace("'''", r"\'\'\'") + "'''", {"__builtins__": {}}, ns)
+    it, and a syntax/name error there is invisible until a real deploy. (The template used to be an f-string
+    embedded in tools/deploy_field.py, scraped + eval'd here; it now lives in a real function we just call.)"""
+    from ff9mapkit.reverttmpl import build_revert_script
+    return build_revert_script(
+        kit=r"C:\kit", mod_folder="FF9CustomMap", stamp="20260718-013000", backup_dir=r"C:\bk", fid=4003,
+        fbg="FBG_N00_TESTROOM", name="TESTROOM", text_block=1073, repo=r"C:\gd\Dream-World-IX")
 
 
 def test_generated_revert_script_has_no_unresolved_names(tmp_path):
@@ -312,7 +309,8 @@ def test_generated_revert_records_a_retirement_for_its_own_id():
     # the tombstone half of the mechanism: a NEWLY generated revert says "this was on purpose". (The ~30
     # legacy scripts on disk say nothing -- reconcile() is what covers them.)
     rendered = _render_revert_template()
-    assert '_dlog.record(_GAME, _dlog.RETIRED, 4003, "FF9CustomMap"' in rendered
+    # (data is repr()-injected now, so the mod folder is single-quoted -- assert quote-agnostically)
+    assert "_dlog.record(_GAME, _dlog.RETIRED, 4003," in rendered and "FF9CustomMap" in rendered
 
 
 def test_battlescene_with_the_same_id_does_not_mask_a_lost_fieldscene(tmp_path):
