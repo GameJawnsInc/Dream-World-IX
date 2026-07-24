@@ -88,10 +88,14 @@ runtime tree switching beyond blackboard-driven branches.
 
 ## Rung ladder
 
-- **Rung 0 — DESIGN + THE GOLDEN COMPILE (offline).** The DSL shape, node/compile API,
-  blackboard allocation policy; compile a reference tree and verify by disasm
-  round-trip + eblint — no deploy. Deliverable: the `behavior.py` skeleton + a
-  byte-level golden test.
+- **Rung 0 — ★ DONE (2026-07-24, offline): DESIGN + THE GOLDEN COMPILE** → `RUNG0.md`.
+  `eb/labelasm.py` (the promoted assembler) + `content/behavior.py` (all v1 nodes,
+  feed/dispatch actions, mirror-safe perception helpers, the blackboard allocator, the
+  ticker compiler) + 12 tests (instruction-walk verification of every body, determinism,
+  the law negatives); full suite 4691 green. Locked en route: the SELECTED/RUNNING
+  protocol, the player STAGED-LATCH, the Instance-var correction (ticker-visible state
+  must be GLOB), reactive-only v1 semantics, the static-fallback lint. `install()`
+  (into a host .eb) deliberately moved to rung 1's head.
 - **Rung 1 — THE FIRST TREE IN-GAME.** A fresh bench field (own scratch id — NOT 30400;
   the studies stay decoupled): one unit running `patrol(waypoints) → notice the player
   (proximity) → approach → return to patrol`. A behavior the fort-condor bench never
