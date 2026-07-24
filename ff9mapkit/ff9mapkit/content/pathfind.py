@@ -78,6 +78,64 @@ def _nearest_free_cell(free_cell, gi, gj, span=6):
     return None
 
 
+class RouteLegError(ValueError):
+    """A polyline leg that jams and cannot be auto-routed (or an endpoint is off-mesh).
+    ``leg`` is the 0-based leg index; ``a``/``b`` its endpoints."""
+
+    def __init__(self, leg: int, a, b, reason: str):
+        self.leg, self.a, self.b, self.reason = leg, tuple(a), tuple(b), reason
+        super().__init__(f"leg {leg + 1} ({a[0]:.0f},{a[1]:.0f})->({b[0]:.0f},{b[1]:.0f}): {reason}")
+
+
+def route_polyline(wmesh, points, *, closed=False, obstacles=(), clearance=None):
+    """Insert detour waypoints wherever a straight leg of ``points`` leaves the walkmesh.
+
+    The jam oracle is the SAME sweep ``behavior lint`` and the layout probe run
+    (:func:`ff9mapkit.scene.routes.sweep_polyline`), so what's routed == what's reported.
+    Clear legs are left untouched (the authored points survive byte-for-byte); a jammed
+    leg gets :func:`route`'s interior waypoints spliced in and the result is re-swept as
+    a safety net. ``obstacles`` defaults to EMPTY: this is the static-feed router --
+    walls are the only build-time truth (characters move), so it routes around geometry
+    only. Returns ``(new_points, inserted)`` where ``inserted`` is
+    ``[(leg_index, [detour waypoints])]``. Raises :class:`RouteLegError` when an input
+    waypoint itself is off-mesh, a jammed leg has no route, or the routed polyline
+    still fails the sweep."""
+    from ..scene import routes as _routes
+    clearance = _routes.WALL_CLEARANCE_W if clearance is None else clearance
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    for i, (x, z) in enumerate(pts):
+        if wmesh.point_on_walkmesh(int(round(x)), int(round(z))) is None:
+            raise RouteLegError(max(0, i - 1), pts[i - 1] if i else pts[0], pts[i],
+                                f"waypoint {i + 1} ({x:.0f},{z:.0f}) is itself OFF the "
+                                f"walkmesh -- no route can fix an off-mesh target; move "
+                                f"the point onto the floor")
+    legs = _routes.sweep_polyline(pts, wmesh, [], closed=closed)   # spans only ([] skips
+    # the boundary-distance pass -- OFF-MESH detection is bedges-independent)
+    seq = pts + [pts[0]] if closed else pts             # seq[i]->seq[i+1] == legs[i]
+    out, inserted = [], []
+    for i, leg in enumerate(legs):
+        out.append(seq[i])
+        if not leg["spans"]:
+            continue
+        wps = route(wmesh, leg["a"], leg["b"], obstacles, clearance=clearance)
+        if not wps:
+            raise RouteLegError(i, leg["a"], leg["b"],
+                                "OFF-MESH and NO route exists around the gap (the two "
+                                "ends may be on disconnected floors)")
+        detour = [(float(x), float(z)) for (x, z) in wps[:-1]]   # interior only; the
+        out.extend(detour)                                       # authored goal stays
+        inserted.append((i, [(int(x), int(z)) for (x, z) in detour]))
+    if not closed:
+        out.append(seq[-1])
+    if inserted:                                        # verify: the routed line sweeps clean
+        for j, leg in enumerate(_routes.sweep_polyline(out, wmesh, [], closed=closed)):
+            if leg["spans"]:
+                raise RouteLegError(j, leg["a"], leg["b"],
+                                    "still OFF-MESH after routing (sweep/route sampling "
+                                    "disagree) -- reroute this leg by hand")
+    return [(int(round(x)), int(round(z))) for (x, z) in out], inserted
+
+
 def route(wmesh, start, goal, obstacles=(), *, cell=64.0, clearance=None, obstacle_r=None,
           max_expand=20000):
     """Waypoints routing ``start``->``goal`` around walls + obstacles, or ``None`` if unreachable.

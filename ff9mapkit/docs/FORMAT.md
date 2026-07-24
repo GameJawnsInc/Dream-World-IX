@@ -1950,7 +1950,10 @@ speed = 40                                     # default walk speed
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
 `patrol` (loops its points) / `march` (walks them ONCE and holds the last; both: a route-marker
-name or an inline point list; `arrive_r`, `speed`) · `flee` (threat; `to` = refuge points in
+name or an inline point list; `arrive_r`, `speed`, and `route = "auto"` — at build time any leg
+the walkability sweep finds off-mesh is re-routed through the walkmesh pathfinder, detours
+spliced in, clear legs untouched; walls-only, 8-point ceiling — see
+[BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
 `damage`, `interval`) · `die` · `announce` (a text line, minted into the field's `.mes`) /
