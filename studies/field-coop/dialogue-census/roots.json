@@ -1,0 +1,20 @@
+{
+  "n_scanned": 818,
+  "total_win": 28678,
+  "fields_with_root_read": {
+    "input": 568,
+    "choice": 392,
+    "rng": 323,
+    "timing": 243
+  },
+  "fields_rng": 323,
+  "fields_timing": 243,
+  "fields_input": 568,
+  "fields_choice": 392,
+  "fields_l1l2_clean(zero rng+timing)": 359,
+  "fields_l1_clean(zero rng+timing+input+choice)": 134,
+  "map_win_total": 10921,
+  "map_win_in_l1l2_clean_field": 2248,
+  "map_win_in_l1_clean_field": 302,
+  "all_win_in_l1l2_clean_field": 8009
+}

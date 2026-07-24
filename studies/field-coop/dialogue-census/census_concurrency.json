@@ -1,0 +1,219 @@
+{
+  "wait_idiom": {
+    "inline_sync_blocking (MES/MESA opcode itself waits)": 17033,
+    "async_then_waitmes (MESN/MESAN + WAITMES same winnum)": 7018,
+    "waitmes_total": 7235,
+    "waitmes_orphan_cross_thread (no in-func open of that winnum)": 127,
+    "waitmes_expr_winnum": 0,
+    "winnum255_sentinel_windows": 0,
+    "orphan_examples (fid,entry,tag,winnum)": [
+      [
+        51,
+        6,
+        1,
+        5
+      ],
+      [
+        51,
+        13,
+        1,
+        5
+      ],
+      [
+        66,
+        11,
+        1,
+        0
+      ],
+      [
+        107,
+        12,
+        30,
+        3
+      ],
+      [
+        116,
+        21,
+        1,
+        3
+      ],
+      [
+        153,
+        3,
+        1,
+        1
+      ],
+      [
+        153,
+        3,
+        1,
+        4
+      ],
+      [
+        153,
+        7,
+        1,
+        4
+      ],
+      [
+        153,
+        31,
+        1,
+        4
+      ],
+      [
+        202,
+        6,
+        3,
+        0
+      ],
+      [
+        300,
+        9,
+        11,
+        1
+      ],
+      [
+        300,
+        12,
+        25,
+        1
+      ],
+      [
+        300,
+        12,
+        27,
+        1
+      ],
+      [
+        301,
+        23,
+        16,
+        1
+      ],
+      [
+        302,
+        20,
+        31,
+        0
+      ],
+      [
+        303,
+        23,
+        38,
+        0
+      ],
+      [
+        303,
+        24,
+        36,
+        0
+      ],
+      [
+        304,
+        22,
+        32,
+        0
+      ],
+      [
+        306,
+        19,
+        26,
+        0
+      ],
+      [
+        312,
+        5,
+        12,
+        0
+      ],
+      [
+        312,
+        5,
+        12,
+        1
+      ],
+      [
+        312,
+        5,
+        20,
+        1
+      ],
+      [
+        312,
+        5,
+        20,
+        1
+      ],
+      [
+        312,
+        7,
+        41,
+        1
+      ],
+      [
+        312,
+        8,
+        17,
+        2
+      ]
+    ]
+  },
+  "concurrency_uniqueness": {
+    "fields_same_winnum_opened_from_multiple_entries": 571,
+    "total_(field,winnum)_reused_across_entries": 1175,
+    "fields_ate_and_plain_from_different_entries": 150,
+    "max_distinct_entries_with_windows_in_a_field": 20,
+    "max_distinct_winnums_in_a_field": 8
+  },
+  "multipage": {
+    "separate_window_reopen_runs (len>=2 consecutive same-winnum)": {
+      "2": 2680,
+      "3": 566,
+      "4": 390,
+      "5": 254,
+      "6": 653,
+      "7": 105,
+      "8": 186,
+      "9": 113,
+      "10": 64,
+      "11": 48,
+      "12": 43,
+      "13": 25,
+      "14": 33,
+      "15": 25,
+      "16": 23,
+      "17": 26,
+      "18": 26,
+      "19": 13,
+      "20": 5,
+      "21": 11,
+      "22": 10,
+      "23": 9,
+      "24": 11,
+      "25": 11,
+      "26": 3,
+      "27": 4,
+      "28": 2,
+      "29": 4,
+      "30": 16,
+      "31": 1,
+      "32": 3,
+      "33": 4,
+      "34": 5,
+      "35": 2,
+      "36": 1,
+      "38": 1,
+      "39": 1,
+      "40": 2,
+      "44": 1,
+      "46": 1,
+      "47": 1,
+      "48": 4,
+      "58": 1,
+      "59": 1,
+      "71": 1
+    },
+    "total_reopen_runs": 5389
+  }
+}

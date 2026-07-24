@@ -1,0 +1,72 @@
+==============================================================================
+CHOICE CENSUS -- all real FF9 fields (F3 dialogue-lockstep, CHOICES lane)
+==============================================================================
+fields scanned .............................. 818
+fields with >=1 GetChoose read .............. 392 (48%)
+total GetChoose (B_SYSVAR[9]) reads ......... 2134
+functions containing a choice read .......... 864
+EnableDialogChoices (0x7C) setup ops ........ 412
+
+--- Q1  read host opcode (where the GetChoose token sits) ---
+    op_05                2131
+    SetTextVariable      1
+    RemoveItem           1
+    EnableDialogChoices  1
+
+--- Q1/Q3  consumption class per read ---
+    SWITCH     643  (30.1%)
+    IF        1157  (54.2%)
+    STORE      330  (15.5%)
+    OTHER        4  (0.2%)
+    IF compare ops: {'==': 711, '?': 325, '<': 117, '!=': 4}
+    STORE target scope: {'INST': 296, 'MAP': 28, 'GLOB': 6}
+
+--- Q2  dispatch SITES + row counts ---
+    switch-dispatch sites ....... 643
+      rows -> #sites: {1: 41, 2: 156, 3: 161, 4: 40, 5: 66, 6: 78, 7: 10, 8: 2, 9: 3, 10: 84, 11: 1, 16: 1}
+    if-chain sites (grouped) .... 759
+      rows -> #sites: {1: 541, 2: 159, 3: 1, 5: 53, 6: 5}
+    total branch sites .......... 1402
+    EnableDialogChoices default row dist: {0: 322, 1: 6, 8: 2}
+    0x7C mask with bit15 set (sign-extend risk): 37
+    0x7C default >= 16: 0
+
+--- Q2  softlock family: Menu(0x75) opcode arg0 (id 4 = party-change) ---
+    Menu arg0 dist: {0: 23, 1: 17, 2: 130, 4: 65, 5: 5}
+    fields opening Menu(4,*) party-change: 65
+    big dialog menus (>=10 rows) examples: [(104, 7, 1, 11), (115, 2, 3, 10), (150, 10, 3, 10), (206, 19, 3, 10), (253, 4, 3, 10), (300, 3, 3, 10), (306, 13, 3, 10), (351, 8, 3, 10), (407, 5, 3, 10), (554, 7, 3, 10), (602, 8, 3, 10), (611, 10, 3, 10)]
+
+--- Q3/Q5  consequence bucket per BRANCH site (arms delimited from the .eb) ---
+    GLOB_only     90  (6.4%)
+    WARP           0  (0.0%)
+    ITEM_MENU     13  (0.9%)
+    INERT        197  (14.1%)
+    DIV_GLOB     726  (51.8%)
+    DIV_ONLY     376  (26.8%)
+    (by kind) switch : {'DIV_GLOB': 498, 'INERT': 17, 'GLOB_only': 21, 'DIV_ONLY': 99, 'ITEM_MENU': 8}
+    (by kind) ifchain: {'DIV_ONLY': 277, 'INERT': 180, 'DIV_GLOB': 228, 'GLOB_only': 69, 'ITEM_MENU': 5}
+    OVERLAPPING arm attributes (a site may have several): {'any_transient': 1102, 'any_glob': 816, 'warp': 236, 'menu': 159, 'item': 127, 'scenario': 12}
+
+--- Q3/Q5  consequence bucket per STORE read (target scope) ---
+    GLOB_only      6  (1.8%)
+    DIVERGENT    324  (98.2%)
+
+--- Q4  nesting / chaining / ATE ---
+    functions with >1 branch site (sequence) ... 123
+    branch sites whose arms contain a choice ... 219
+    choice functions co-located with AICON(ATE)  22
+
+--- Q5  F3 headline: cosmetically-free vs must-force ---
+    story-safe (GLOB mirrors / WARP follows / ITEM local / INERT): 300 (21.4%)
+    DIV_GLOB (transient presentation differs, but a GLOB flag in the arm still mirrors the story): 726 (51.8%)
+    DIV_ONLY (transient MAP/INST only, NO glob -- per-visit divergence, wiped on field reload): 376 (26.8%)
+    => story state is NEVER permanently divergent (all GLOB writes mirror); the F3 cost of a free guest pick is per-visit VISIBLE branch divergence on 1102 sites
+    STORE reads: GLOB(mirrored)=6  MAP/INST(divergent)=324
+
+--- Q5  field-level F3 scoping ---
+    fields with choices ......................... 392
+    fields where EVERY choice is story-safe ..... 176 (guest picks entirely free)
+    fields with >=1 purely-transient (DIV_ONLY/INST-store) choice: 216 (the F3 special-handling set)
+    >=10-row switch menus by func tag: {3: 59, 1: 26, 2: 1}
+==============================================================================
+top fields by #reads: [(1254, 33), (1106, 25), (115, 23), (802, 23), (810, 23), (1509, 23), (1865, 23), (2714, 23), (150, 22), (351, 22), (602, 22), (706, 22)]
