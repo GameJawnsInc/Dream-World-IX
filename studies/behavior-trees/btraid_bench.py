@@ -162,12 +162,18 @@ def build_behavior(entries: dict[str, int], lay: dict,
         return B.Sequence(fb.active(foe), fb.near(me, foe, CONTACT),
                           B.Do(B.SwingAt(foe, damage=damage)))
 
-    # --- watchman: notice EITHER bandit -> ONE shared cry raises the alarm
+    # --- watchman: notice EITHER bandit -> ONE shared cry raises the alarm.
+    # RAID-gated (playtest-1 fix): the camps sit near the gate, so an ungated notice
+    # box "saw" the dormant camp at field entry — an alarm must be a consequence of
+    # the raid. 450 keeps the camps outside (camp1 is 500 off the post) while the
+    # march path passes ~94 units from the post: the cry lands AS they push the gate.
     cry = B.Announce(txids.get("watchman", 0))
     fb.units["watchman"].tree = B.Selector(
-        B.Sequence(fb.active("bandit0"), fb.near("watchman", "bandit0", 600),
+        B.Sequence(fb.flag("raid"), fb.active("bandit0"),
+                   fb.near("watchman", "bandit0", 450),
                    B.Do(cry, raise_flags="alarm")),
-        B.Sequence(fb.active("bandit1"), fb.near("watchman", "bandit1", 600),
+        B.Sequence(fb.flag("raid"), fb.active("bandit1"),
+                   fb.near("watchman", "bandit1", 450),
                    B.Do(cry, raise_flags="alarm")),
         B.Sequence(fb.flag("alarm"), B.Do(B.WalkTo(lay["keep"], speed=70))),
         B.Do(B.Hold(lay["watch_post"])),
