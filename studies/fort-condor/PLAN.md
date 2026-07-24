@@ -27,15 +27,21 @@
 > at-feet + hold_post + pool + the New-Game staged-latch fix; `pooled`/`pool`/`hold_post`
 > in `[behavior]` + the per-pool spawn-request flag; the rung-3 recipes returned as
 > compiler vocabulary — behavior study PLAN §POST-LADDER) → 2. placement/economy —
-> **BUILT + DEPLOYED on 30400 (2026-07-24), ⚠ playtest pending**: `[[behavior.pool]]`
+> **★ IN-GAME PROVEN on 30400 (2026-07-24, "good")**: `[[behavior.pool]]`
 > price 300 (gil gate + RemoveGil in the activation block, charge only on spawn) +
 > `button = true` (the SELECT/Special buy-anywhere poller, rung-3 shape verbatim:
 > Wait(1) `B_KEYON` poll / blip / `RunScriptSync(4, menu, 3)`) + the parked hire
 > [[choice]] matched by request_flag 8848; 4 pooled recruits with hold_post posts and
 > MUTUAL attacker↔recruit combat via plain branches (the v1 one-sided-harass debt
-> gone); deployed bytes verified (4 runtime-only spawns / 4 RemoveGil sites / 1
-> poller) → 3. rung 4 waves +
-> win/loss (below) on tree-driven units. Read
+> gone). Proven: broke-hire correctly refuses (no spawn, no charge) and the pool cap
+> holds. **POLISH DEBT (cosmetic, owner-noted): the menu's "Deployed!" reply plays
+> even on a refused hire** — the reply is baked into the choice row while the real
+> transaction happens in the ticker. Fix design (queued): the compiler publishes
+> per-pool `affordable`/`exhausted` flags (2 writes/tick, cheap) and the hire menu
+> gates its rows on them via the existing option requires_flag machinery ("Hire"
+> visible only when affordable+available; a greyed "(need 300 gil)" row otherwise)
+> → 3. rung 4 waves +
+> win/loss (below) on tree-driven units — **IN PROGRESS**. Read
 > [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.
 
 **Goal:** emulate FFVII's Fort Condor minigame (real-time lane defense: place units for gil,
