@@ -72,7 +72,8 @@ ACTION_VERBS = {
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
-FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit"}
+FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool"}
+POOL_KEYS = {"name", "price", "button", "request_flag"}
 
 
 class BehaviorTomlError(ValueError):
@@ -135,6 +136,44 @@ def pooled_npcs(raw: dict) -> set:
     but SKIPS the boot ``InitObject`` (``inject_npc(boot_spawn=False)``); the compiled
     ticker spawns them at runtime when their pool's request flag is set."""
     return {str(u.get("npc")) for u in units(raw) if u.get("pooled")}
+
+
+def pool_specs(raw: dict) -> list:
+    """The parsed ``[[behavior.pool]]`` rows as :class:`behavior.PoolSpec` — the
+    economy/UX config (price / buy-anywhere button / explicit request flag). A
+    ``button = true`` resolves to :data:`behavior.DEFAULT_HIRE_BUTTONS`."""
+    b = table(raw)
+    out = []
+    for row in (b.get("pool", []) if b else []) or []:
+        btn = row.get("button")
+        if btn is True:
+            btn = B.DEFAULT_HIRE_BUTTONS
+        elif btn is False:
+            btn = None
+        out.append(B.PoolSpec(
+            name=str(row.get("name", "")),
+            price=(int(row["price"]) if row.get("price") is not None else None),
+            button=(int(btn) if btn is not None else None),
+            request_flag=(int(row["request_flag"])
+                          if row.get("request_flag") is not None else None)))
+    return out
+
+
+def pool_menu_choice(raw: dict, request_flag: int):
+    """The index of the ZONE [[choice]] whose options set this pool's request flag —
+    the parked hire menu a button poller RunScriptSyncs. Returns (index, count):
+    ``count`` != 1 is a validate error for a button pool (0 = no menu authored,
+    2+ = ambiguous)."""
+    hits = []
+    for c, ch in enumerate(raw.get("choice", []) or []):
+        if "zone" not in ch:
+            continue
+        for o in ch.get("options", []) or []:
+            sf = o.get("set_flag")
+            if isinstance(sf, (list, tuple)) and sf and int(sf[0]) == int(request_flag):
+                hits.append(c)
+                break
+    return (hits[0] if hits else None), len(hits)
 
 
 def marker_paths(raw: dict) -> dict:
@@ -283,7 +322,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                 walk_speed=int(u.get("speed", 50)),
                                 pooled=bool(u.get("pooled", False)),
                                 pool=str(u.get("pool", "pool"))))
-    fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)))
+    fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
+                         pools=pool_specs(raw))
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
     for alt in b.get("alternators", []) or []:
@@ -399,6 +439,46 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
             if att:
                 problems.append(f"{ctx}: prop(s) {att} attach_to pooled npc {name!r} — a "
                                 f"boot-spawned prop cannot bind to a not-yet-spawned unit")
+    # [[behavior.pool]] rows: economy/UX config per pool
+    declared_pools = {str(u.get("pool", "pool")) for u in b.get("unit", [])
+                      if u.get("pooled")}
+    seen_pool_rows = set()
+    for pi, row in enumerate(b.get("pool", []) or []):
+        ctx = f"[[behavior.pool]] #{pi}"
+        extra = set(row) - POOL_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = row.get("name")
+        if not nm:
+            problems.append(f"{ctx}: needs `name = ` (a pooled unit's pool)")
+            continue
+        if nm not in declared_pools:
+            problems.append(f"{ctx}: no pooled unit declares pool = {nm!r}")
+        if nm in seen_pool_rows:
+            problems.append(f"{ctx}: pool {nm!r} configured twice")
+        seen_pool_rows.add(nm)
+        if row.get("price") is not None and (not isinstance(row["price"], int)
+                                             or not 0 <= row["price"] <= 0xFFFFFF):
+            problems.append(f"{ctx}: price must be an int 0..16777215 (24-bit gil)")
+        btn = row.get("button")
+        if btn is not None and not isinstance(btn, (bool, int)):
+            problems.append(f"{ctx}: button must be true or a PSX button-mask int")
+        rf = row.get("request_flag")
+        if rf is not None and not isinstance(rf, int):
+            problems.append(f"{ctx}: request_flag must be a GLOB bit index int")
+        if btn:
+            if rf is None:
+                problems.append(f"{ctx}: button needs an explicit request_flag = N "
+                                f"(the parked hire [[choice]] row must set_flag it)")
+            else:
+                _idx, n = pool_menu_choice(raw, rf)
+                if n == 0:
+                    problems.append(f"{ctx}: no zone [[choice]] sets flag {rf} — author "
+                                    f"the parked hire menu (a zone choice parked far "
+                                    f"off-mesh; its Hire row set_flag = [{rf}, 1])")
+                elif n > 1:
+                    problems.append(f"{ctx}: {n} zone [[choice]]s set flag {rf} — the "
+                                    f"hire menu match must be unique")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene

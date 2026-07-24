@@ -139,6 +139,43 @@ Until activation the unit simply isn't there — every `active`/`near` gate in o
 already treats it as absent. (`hold_post` also works on a normal boot-spawned unit, where the
 post is just its own spawn point.)
 
+### Price and the buy-anywhere button
+
+A `[[behavior.pool]]` row adds the economy:
+
+```toml
+[[behavior.pool]]
+name = "recruits"
+price = 300                # gil gate + RemoveGil, compiled into the activation block
+button = true              # a press-SELECT-anywhere hire poller (or a PSX button mask)
+request_flag = 8848        # explicit GLOB bit (required with button; outside the
+                           # blackboard band — the parked menu below must set it)
+```
+
+`price` charges **only when a soldier actually spawns** — a request with too little gil, or
+against an empty pool, is consumed without charging (gil is real save state; a field reload
+does not refund). `button` seats a poller entry (the in-game-proven Fort-Condor shape: a
+per-frame button poll, an announce blip, then the hire menu) — author the menu as a **parked
+zone choice** (a `[[choice]]` whose zone sits far off-mesh so walking never triggers it; the
+poller dispatches it remotely) with a Hire row that does `set_flag = [<request_flag>, 1]`:
+
+```toml
+[[choice]]
+zone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]   # parked: never walked into
+prompt = "Deploy a soldier HERE for 300 gil?"
+instant = true
+  [[choice.options]]
+  text = "Hire (300 gil)"
+  reply = "Deployed!  Hold this ground!"
+  set_flag = [8848, 1]
+  [[choice.options]]
+  text = "Not now."
+```
+
+The build matches the menu to the pool by that flag (exactly one zone choice must set it) and
+wires the poller automatically. `price` also works without `button` — an NPC-talk or walk-in
+hire menu pays the same way, since the gate lives in the activation block, not the menu.
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:

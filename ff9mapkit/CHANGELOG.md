@@ -25,6 +25,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
   30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
 
+### Added — `[behavior]` pool ECONOMY: price + the buy-anywhere hire button
+- **`[[behavior.pool]]`** rows configure a pool: `price` compiles a gil gate
+  (`B_SYSVAR[6] >= price`, the inn-553 idiom) into the activation block with `RemoveGil` at
+  the SPAWN site — a broke or pool-empty request is consumed **without charging**; works for
+  every request source (button, NPC-talk menu, walk-in zone). `button = true` (or a PSX
+  button-mask int; default Special|Select) seats a **buy-anywhere POLLER** entry — the
+  fort-condor rung-3 in-game-proven shape verbatim: a Wait(1) `B_KEYON` poll (debounce only
+  after a menu round), the Hunt's announce blip, then `RunScriptSync(4, <menu>, 3)` opening a
+  **parked zone [[choice]]** (zone far off-mesh; its Hire row `set_flag`s the pool's
+  `request_flag`, which `button` requires explicit and outside the blackboard band — the
+  build matches menu→pool by that flag). 5 new tests; suite 4868. Bench: 30400 (the
+  fort-condor placement/economy rebuild — 4 recruits @300 gil, mutual attacker↔recruit
+  combat via plain branches).
+
 ### Fixed — `[behavior]` staged latch: the New-Game entry NullRef (playtest-caught)
 - **Every compiled behavior's staged latch now requires proof the player object is BOUND**, not
   just `B_SYSVAR[2]` (usercontrol): on the New-Game auto-warp entry path usercontrol is set

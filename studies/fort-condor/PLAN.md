@@ -26,8 +26,15 @@
 > compiler — **★ IN-GAME PROVEN 2026-07-24, bench 30413, 3 rounds** ("all good": spawn-
 > at-feet + hold_post + pool + the New-Game staged-latch fix; `pooled`/`pool`/`hold_post`
 > in `[behavior]` + the per-pool spawn-request flag; the rung-3 recipes returned as
-> compiler vocabulary — behavior study PLAN §POST-LADDER) → 2. placement/
-> economy rebuilt on it (now with MUTUAL recruit combat free) → 3. rung 4 waves +
+> compiler vocabulary — behavior study PLAN §POST-LADDER) → 2. placement/economy —
+> **BUILT + DEPLOYED on 30400 (2026-07-24), ⚠ playtest pending**: `[[behavior.pool]]`
+> price 300 (gil gate + RemoveGil in the activation block, charge only on spawn) +
+> `button = true` (the SELECT/Special buy-anywhere poller, rung-3 shape verbatim:
+> Wait(1) `B_KEYON` poll / blip / `RunScriptSync(4, menu, 3)`) + the parked hire
+> [[choice]] matched by request_flag 8848; 4 pooled recruits with hold_post posts and
+> MUTUAL attacker↔recruit combat via plain branches (the v1 one-sided-harass debt
+> gone); deployed bytes verified (4 runtime-only spawns / 4 RemoveGil sites / 1
+> poller) → 3. rung 4 waves +
 > win/loss (below) on tree-driven units. Read
 > [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.
 
