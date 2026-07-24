@@ -1,0 +1,93 @@
+// FF9CustomMap/StreamingAssets/Data/SpecialEffects/ef091/PlayerSequence.seq
+// RUNG 8 -- NIMBRA, the composed epic. 100% hand-authored; no donor, no LoadSFX of any stock id, no
+// native ef###.bytes anywhere in the chain. Binding contract: rung8-epic/STORYBOARD.md (Appendix A).
+//
+// Clock: BattleTPS=15 -> 1 tick = 1/15 s. Total ~485 ticks ~= 32.3 s.
+// THE PHASE-LOCK RULE (STORYBOARD 3): after PlaySFX every wait is a fixed `Wait` -- never a clip-bound
+// WaitAnimation/WaitMove/WaitTurn. The ONE clip-bound wait sits before PlaySFX, where its slack shifts
+// everything uniformly and never touches the two-clock alignment.
+//
+// Every op here is on the OUR-OPS executor-derived whitelist (summons/seqlint.py); `Reflect` is the
+// universal per-op gate read at UnifiedBattleSequencer.cs:191, legal on any op.
+// PlayCamera and ShiftWorld appear NOWHERE, by proof, not by taste (STORYBOARD 2):
+//   * PlayCamera `break`s at Configuration.Battle.Speed >= 3 in PHASE_NORMAL (UnifiedBattleSequencer.cs:
+//     828-829) and the live Memoria.ini is [Battle] Speed = 5 -- a hard no-op on this install.
+//   * ShiftWorld moves only battlebg.btlRoot (the actors are NOT parented to it, battlebg.cs:411-424)
+//     and has no automatic restore (UnshiftWorld has zero callers).
+// The linter REFUSES both ops outright with those citations.
+
+// ---- P0  THE HUSH  (t 0 -> 55) -------------------------------------------------------------------
+// The title plate, the chant, the summon aura, the drone, the slow slide to black, the floor pall.
+WaitAnimation: Char=Caster
+Message: Text=[CastName] ; Priority=1 ; Title=True ; Reflect=True
+SetupReflect: Delay=SFXLoaded
+LoadSFX: SFX=91 ; Char=Caster ; Reflect=True ; UseCamera=False
+PlayAnimation: Char=Caster ; Anim=MP_IDLE_TO_CHANT
+WaitAnimation: Char=Caster
+PlayAnimation: Char=Caster ; Anim=MP_CHANT ; Loop=True
+Channel: Type=Summon
+PlaySound: Sound=100001 ; SoundType=SoundEffect ; Volume=0.55
+SetBackgroundIntensity: Intensity=0 ; Time=45
+CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistFloor.sfxmodel
+Wait: Time=45
+
+// ---- P1  THE MIST GATHERS  (t 55 -> 150) ---------------------------------------------------------
+// Full black. Six seconds of nothing but the pall, the wisps and the whisper swell. The dread beat is
+// allowed to be boring.
+CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistWisps.sfxmodel
+PlaySound: Sound=100002 ; SoundType=SoundEffect ; Volume=0.5
+Wait: Time=95
+
+// ---- P2  THE COALESCE  (t 150 -> 255)  MANIFEST FRAME 0 STARTS HERE -------------------------------
+// NIMBRA rises out of the mist over the enemy line, from below the frame. The manifest's Start=0 /
+// End=330 window therefore covers ticks 150 -> 480; WaitSFXDone (P5) resolves at 480.
+WaitSFXLoaded: SFX=91 ; Reflect=True
+PlaySFX: SFX=91 ; Reflect=True ; SkipSequence=True
+Wait: Time=105
+
+// ---- P3  THE DRIFT  (t 255 -> 345) ---------------------------------------------------------------
+// The aura dies, Iviv commits the cast gesture, and NIMBRA just hangs there at half speed. It has not
+// attacked. It is looking. The fixed Wait is THE PHASE-LOCK RULE in force (a WaitAnimation here would
+// slide the strike beat off the creature's own `strike` clip).
+StopChannel
+PlayAnimation: Char=Caster ; Anim=MP_MAGIC
+Wait: Time=90
+
+// ---- P4  THE STRIKE  (t 345 -> 405) --------------------------------------------------------------
+// Sting + flash + relight all on tick 345: the light returning IS the impact. The relight ramp (18) is
+// complete at t=363; both EffectPoints then fire in a fully LIT window -- THE FIGURE-VISIBILITY LAW.
+PlaySound: Sound=100003 ; SoundType=SoundEffect ; Volume=0.7
+CreateVisualEffect: Char=AllTargets ; SFXModel=Data/SpecialEffects/ef091/RiftFlash.sfxmodel
+SetBackgroundIntensity: Intensity=1 ; Time=18
+Wait: Time=30
+EffectPoint: Char=AllTargets ; Type=Effect
+Wait: Time=12
+EffectPoint: Char=Everyone ; Type=Figure
+Wait: Time=18
+
+// ---- P5  THE DISSOLVE + RELEASE  (t 405 -> 485) --------------------------------------------------
+// The wisps are spawned FIRST, at t=405, so they cover the Scaling dissolve (manifest frames 255-330 =
+// ticks 405-480) -- STORYBOARD 4.2 pins this spawn at "t = 405", and a 70-tick particle life then lands
+// at 475, just inside the creature's own 480. Appendix A's draft listed this line AFTER WaitSFXDone,
+// which would have fired it at 480 instead; see rung8-epic/README.md "THE ONE DEVIATION".
+// WaitSFXDone then holds until the instance drains at t=480, StopSound kills the drone on that tick,
+// and the cast closes on Anim=Idle -- THE ANIM=IDLE RELEASE LAW (the literal string "Idle" takes the
+// releaseCmdIdle branch at UnifiedBattleSequencer.cs:505).
+CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistWisps.sfxmodel
+WaitSFXDone: SFX=91 ; Reflect=True
+StopSound: Sound=100001 ; SoundType=SoundEffect
+ActivateReflect
+WaitReflect
+PlayAnimation: Char=Caster ; Anim=Idle
+Turn: Char=Caster ; BaseAngle=Default ; Time=5
+WaitTurn: Char=Caster
+
+// 37 operation lines (counted by summons/seqlint.py, which parses exactly as the engine does). Fixed
+// waits sum to 395 ticks -- STORYBOARD 3.1's own figure, re-derived independently. The two P0 clip-bound
+// waits are budgeted at ~10 and
+// are the only uncertainty in the cast (+-10 ticks) -- and they sit BEFORE PlaySFX, so that slack shifts
+// every phase uniformly and the .seq/manifest two-clock alignment is untouched.
+//
+// R15 (STORYBOARD 7.1): ef091/Sequence.seq is never written. SFXData.LoadSFX reads it unconditionally
+// (SFXData.cs:174) -- a missing file is a graceful null, a PRESENT one would thread in as a second,
+// duplicate-damage parallel thread. `SkipSequence=True` on PlaySFX is carried anyway, belt and braces.

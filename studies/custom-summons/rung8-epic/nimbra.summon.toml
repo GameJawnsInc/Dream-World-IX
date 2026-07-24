@@ -1,0 +1,113 @@
+# RUNG 8 -- the NIMBRA [[summon]] block, staging = "curves" (STORYBOARD section 6.4).
+#
+# THIS FILE IS THE BLOCK, NOT THE BENCH. Paste this whole `[[summon]]` (and its `[summon.staging]`
+# sub-tables) into `rung8.field.toml` -- the wiring lane owns that file, its `[[playable]]` rows, and the
+# "Nimbra" ability whose `vfx1`/`vfx2` point at private_ef 91. This block deliberately authors NO ability:
+# `[[summon]]` never edits Actions.csv (DESIGN section 1.4).
+#
+# It is ALSO directly consumable on its own:
+#     py -m ff9mapkit summon-deploy --from-toml nimbra.summon.toml --dry-run
+#     py build_rung8_stage.py            # the same thing, staged into ./stage/, with input stubs
+#
+# ---------------------------------------------------------------------------------------------------
+# ONE SCHEMA DEVIATION FROM STORYBOARD 6.4, AND IT WAS FORCED (see README.md "THE TWO DEVIATIONS"):
+# the storyboard's example writes BOTH `staging = "curves"` AND a `[summon.staging]` table. TOML cannot
+# express that -- one key cannot be a string and a table at once, and tomllib raises on the second
+# definition. The TABLE IS NOW CANONICAL: the presence of `[summon.staging]` selects curves mode. Every
+# other key, value and curve number below is exactly as the storyboard specifies.
+# ---------------------------------------------------------------------------------------------------
+
+[[summon]]
+lane       = "overlay"                     # DLL-free; runs on STOCK Memoria (no s58, no [SfxHybrid])
+model      = "nimbra/6400.fbx"             # <- the creature lane's artifact
+id         = 6400
+name       = "GEO_MON_B0_M400"
+group      = "MON"
+private_ef = 91                            # PINNED. 84 is the live Thomas/M1b bench and must stay
+                                           # bit-intact; auto-alloc would land on 18 ("apply effect
+                                           # instantly"), which is not what a 32-second cast wants.
+sequence   = "nimbra.seq"                  # K1 -- an AUTHORED cast. No `donor`: nothing stock is read,
+                                           # spliced, or drift-guarded anywhere in this block.
+manifest   = "nimbra_manifest.sfxmodel"    # the bare name FileList.txt reveals (STORYBOARD Appendix A)
+clips      = ["nimbra/emerge.anim", "nimbra/drift.anim", "nimbra/strike.anim"]     # K2
+particles  = ["MistFloor.sfxmodel", "MistWisps.sfxmodel", "RiftFlash.sfxmodel"]    # K3
+
+# --- K4: the staging curves (STORYBOARD section 3.3) -----------------------------------------------
+# anchor = "target_average" is LOAD-BEARING, not a preference. THE MULTI-TARGET NULL: SFXData.cs:149
+# passes a null target into SetupPositions whenever the cast has >1 target, so every TargetPosition*
+# would evaluate to 0 and NIMBRA would render at the world origin. TargetAveragePosition* is
+# BTL_VFX_REQ.trgcpos -- always valid -- and its vy is hard-set to 0 (BTL_VFX_REQ.cs:88), so the Y
+# offsets below are ABSOLUTE ground-plane heights, not heights above the enemy line.
+[summon.staging]
+anchor = "target_average"
+start  = 0
+end    = 330            # PINNED, not auto-derived: nimbra.seq's WaitSFXDone beat is authored against it
+                        # (PlaySFX at tick 150 + 330 = the instance drains at 480).
+
+# Movement: rise from below the frame, then a barely-there continued lift through the whole hang.
+[[summon.staging.move]]
+duration = 45
+from = [0, -900, 0]
+to   = [0,  120, 0]
+ease = ["Linear", "SinusOut", "Linear"]
+[[summon.staging.move]]
+duration = 285          # `from` omitted -> the engine inherits the previous piece's Destination BY
+to   = [0, 190, 0]      # EXPRESSION REFERENCE (ParametricMovement.cs:88-105). Do not helpfully re-emit
+ease = ["Linear", "Sinus", "Linear"]      # it: that would double-evaluate the NCalc.
+
+# Rotation: ABSOLUTE euler, applied raw to eulerAngles with no battle-actor base (SFXDataMesh.cs:844)
+# -- THE ROTATION BASELINE LAW. (0,180,180) is rung 7's proven facing.
+# THE ONE KNOB THAT MAY COST A CAST: NIMBRA stands enemy-side, the mirror of rung 7's caster-side
+# staging. If cast 1 shows it facing away, flip every Y between 180 and 0 (and 168 -> 12). One line,
+# recast-only, no re-export, no relaunch.
+[[summon.staging.turn]]
+duration = 45
+from = [0, 180, 180]
+to   = [0, 180, 180]
+[[summon.staging.turn]]
+duration = 180
+to   = [0, 168, 180]
+ease = ["Constant", "Sinus", "Constant"]
+[[summon.staging.turn]]
+duration = 105
+to   = [0, 180, 180]
+ease = ["Constant", "SinusOut", "Constant"]
+
+# Scaling: the approach (an approach without a camera move), the hold, then THE DISSOLVE -- the body
+# thins to a thread while stretching upward, which reads as vapour venting.
+[[summon.staging.scale]]
+duration = 45
+from = [0.15, 0.15, 0.15]
+to   = [1.0, 1.0, 1.0]
+ease = ["SinusOut", "SinusOut", "SinusOut"]
+[[summon.staging.scale]]
+duration = 210
+to   = [1.0, 1.0, 1.0]
+ease = ["Constant", "Constant", "Constant"]
+[[summon.staging.scale]]
+duration = 75
+to   = [0.02, 1.70, 0.02]
+ease = ["SinusIn", "SinusOut", "SinusIn"]
+
+# The playlist. THE ANIMATION-PLAYLIST LAW: entries chain each clip ONCE and then FREEZE -- there is no
+# loop flag and no blending, so `repeat` expands to N identical entries and every clip must open and
+# close on the shared `drift` rest pose. Speed is a DIVISOR of the clip's frame count
+# (animMaxFrame = ceil(numFrames / speed), SFXDataMesh.cs:852), so at BattleTPS=15 a 30fps clip plays at
+# HALF speed with speed = 1: speed 2 restores authored tempo (emerge/strike), speed 1 is the deliberate
+# eerie half-speed (drift).
+# Total playlist ticks 45 + 75 + 75 + 30 + 75 + 75 = 375 >= the 330-tick window, so the playlist is
+# never exhausted and never freezes on a last frame.
+[[summon.staging.play]]
+clip = "emerge"
+speed = 2
+[[summon.staging.play]]
+clip = "drift"
+speed = 1
+repeat = 2
+[[summon.staging.play]]
+clip = "strike"
+speed = 2
+[[summon.staging.play]]
+clip = "drift"
+speed = 1
+repeat = 2

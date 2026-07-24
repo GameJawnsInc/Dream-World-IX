@@ -43,6 +43,10 @@ KNOWN_KEYS = frozenset({
     "donor", "model", "lane", "id", "name", "group", "form", "private_ef",
     "hide_native", "hide_mask", "node_count", "apply_column_scale", "hide_meshes",
     "textures", "clips", "staging",
+    # --- the ORIGINAL-summon (rung-8) keys: an authored cast with no donor at all ------------------
+    "sequence",    # K1: an authored PlayerSequence.seq, copied verbatim (makes `donor` optional)
+    "particles",   # K3: authored sprite .sfxmodel files, copied into the private ef folder
+    "manifest",    # the bare .sfxmodel file name FileList.txt reveals (default creature_manifest.sfxmodel)
 })
 
 
@@ -134,15 +138,18 @@ def numeric_block(block: dict) -> dict:
     if unknown:
         raise SummonBlockError(
             f"[[summon]] has unknown key(s) {sorted(unknown)} -- valid keys: {sorted(KNOWN_KEYS)}")
-    if "donor" not in block:
+    if "donor" not in block and not block.get("sequence"):
         raise SummonBlockError("[[summon]] needs a `donor` (an effect id like 227, or a name like "
-                               "\"Bahamut__Full\") -- the native cast whose bones/camera/staging to wear")
+                               "\"Bahamut__Full\") -- the native cast whose bones/camera/staging to wear. "
+                               "An ORIGINAL summon has no donor: give it `sequence = \"<file>.seq\"` (an "
+                               "authored cast) instead, and `donor` becomes optional.")
     if "model" not in block:
         raise SummonBlockError("[[summon]] needs a `model` (a path to your retargeted FBX on the "
                                "bone000..092 rig -- see `summon-rig-ref`)")
-    donor_id, _name = resolve_donor(block["donor"])
     nb = dict(block)
-    nb["donor"] = donor_id
+    if "donor" in block:
+        donor_id, _name = resolve_donor(block["donor"])
+        nb["donor"] = donor_id
     return nb
 
 
@@ -155,17 +162,47 @@ def resolve_spec(block: dict) -> dict:
 
 def _model_path_problem(spec: dict, base_dir) -> str | None:
     """The build-time model-path existence check (the deploy engine only checks at emit). ``None`` = OK."""
-    model = spec.get("model")
-    if not model or base_dir is None:
-        return None
+    return next(iter(_path_problems(spec, base_dir, ("model",))), None)
+
+
+def _path_problems(spec: dict, base_dir, keys=("model", "sequence", "clips", "particles")) -> list[str]:
+    """Build-time existence checks for every FILE-PATH key (the deploy engine only checks at emit, by
+    which point half the mod folder is already written). ``clips`` is skipped when it carries the donor's
+    index selector rather than authored paths."""
+    if base_dir is None:
+        return []
     from pathlib import Path
-    p = Path(model)
-    if not p.is_absolute():
-        p = Path(base_dir) / p
-    if not p.is_file():
-        return (f"[[summon]] `model` file not found: {p} "
-                f"(a bare name resolves under the field's asset dir {base_dir})")
-    return None
+
+    from ..summons import deploy as dep
+
+    def one(label, raw):
+        p = Path(str(raw))
+        if not p.is_absolute():
+            p = Path(base_dir) / p
+        if not p.is_file():
+            return (f"[[summon]] `{label}` file not found: {p} "
+                    f"(a bare name resolves under the field's asset dir {base_dir})")
+        return None
+
+    problems: list[str] = []
+    for key in keys:
+        val = spec.get(key)
+        if not val:
+            continue
+        if key == "clips":
+            val = dep.authored_clip_paths(val)
+            if not val:
+                continue
+        if isinstance(val, (list, tuple)):
+            for i, item in enumerate(val):
+                msg = one(f"{key}[{i}]", item)
+                if msg:
+                    problems.append(msg)
+        else:
+            msg = one(key, val)
+            if msg:
+                problems.append(msg)
+    return problems
 
 
 def _reprefix(msg: str, tag: str) -> str:
@@ -187,8 +224,7 @@ def validate_block(block, *, base_dir=None, tag: str = "[[summon]]") -> list[str
         _check_group(block, dep)              # deploy defers group->ModelType until a name is derived
     except (SummonBlockError, dep.SummonDeployError, ValueError) as e:
         return [_reprefix(str(e), tag)]
-    problem = _model_path_problem(spec, base_dir)
-    return [_reprefix(problem, tag)] if problem else []
+    return [_reprefix(p, tag) for p in _path_problems(spec, base_dir)]
 
 
 def _check_group(block: dict, dep) -> None:
@@ -234,8 +270,15 @@ def lint_notes(blocks) -> list[str]:
         notes.append(f"{tag}: this block does NOT author the cast -- point an ability's `vfx1` at "
                      f"private_ef={pef} to fire it (see the authoring-ff9-battles skill / "
                      f"battle/actiondelta.py; the block MUST NOT edit Actions.csv).")
+        if block.get("sequence") and block.get("private_ef") is None:
+            # THE AUTO-ALLOC TRAP: alloc_private_ef walks the absent set ASCENDING and lands on 18, whose
+            # documented legacy semantics are "Would apply effect instantly" -- not what an authored
+            # 30-second cast wants. An original summon should pin its host id.
+            notes.append(f"{tag}: an authored `sequence` with no `private_ef` will auto-allocate the "
+                         f"FIRST free stock-absent id (18). Pin `private_ef` explicitly -- the mild "
+                         f"'would run casting animation & apply effect' ids are 80 / 84 / 91.")
         if lane == "hybrid":
-            stray = sorted(k for k in ("clips", "staging") if k in block)
+            stray = sorted(k for k in ("clips", "staging", "particles", "manifest") if k in block)
             if stray:
                 notes.append(f"{tag}: overlay-only key(s) {stray} are ignored on the hybrid lane.")
         elif lane == "overlay":

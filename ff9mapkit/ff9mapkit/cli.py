@@ -1769,6 +1769,38 @@ def _summon_lanes():
     return LANES
 
 
+def _rebase_summon_paths(block: dict, base_dir) -> dict:
+    """Resolve a ``--from-toml`` block's RELATIVE file paths against the TOML's own directory.
+
+    The block-schema layer already documents this rule ("a bare name resolves under the field's asset
+    dir" -- ``content/summon.py:_path_problems``), and ``ff9mapkit lint``/``build`` honour it via
+    ``base_dir``. The standalone deploy verbs read the same block and hand it to
+    ``deploy.normalize_spec``, which takes paths VERBATIM -- so before this, a block that linted green
+    died at emit ("model FBX not found") the moment the caller's cwd was not the TOML's folder. Absolute
+    paths are left alone; ``clips`` is only rebased when it carries authored paths rather than the donor
+    index selector."""
+    from pathlib import Path as _P
+
+    from .summons import deploy as _sd
+
+    base = _P(base_dir)
+
+    def one(v):
+        p = _P(str(v))
+        return str(p if p.is_absolute() else base / p)
+
+    out = dict(block)
+    for key in ("model", "sequence"):
+        if out.get(key):
+            out[key] = one(out[key])
+    for key in ("particles", "textures"):
+        if out.get(key):
+            out[key] = [one(v) for v in out[key]]
+    if _sd.authored_clip_paths(out.get("clips")) is not None and out.get("clips"):
+        out["clips"] = [one(v) for v in out["clips"]]
+    return out
+
+
 def _summon_block_from_args(args: argparse.Namespace) -> dict:
     """Build a ``[[summon]]`` block dict from the shared summon CLI flags (donor/lane/id/name/... ).
     A ``--from-toml`` overrides everything with the first ``[[summon]]`` table in a TOML file."""
@@ -1778,11 +1810,13 @@ def _summon_block_from_args(args: argparse.Namespace) -> dict:
         except ModuleNotFoundError as e:                     # pragma: no cover - py<3.11
             raise SystemExit(f"--from-toml needs Python 3.11+ (tomllib): {e}")
         from pathlib import Path as _P
-        doc = tomllib.loads(_P(args.from_toml).read_text(encoding="utf-8"))
+        src = _P(args.from_toml)
+        doc = tomllib.loads(src.read_text(encoding="utf-8"))
         blocks = doc.get("summon")
         if not blocks:
             raise SystemExit(f"{args.from_toml} has no [[summon]] block")
         block = dict(blocks[0] if isinstance(blocks, list) else blocks)
+        block = _rebase_summon_paths(block, src.resolve().parent)
     else:
         block = {"donor": args.donor, "lane": args.lane}
         if getattr(args, "model", None):
@@ -1839,7 +1873,10 @@ def _cmd_summon_import(args: argparse.Namespace) -> int:
     print(f"summon-import: {res['imported_from']} -> {spec['name']} (id {spec['id']}), lane={res['lane']}"
           + ("  *** DRY RUN (staged, live mod folder untouched) ***" if res["dry_run"] else ""))
     print(f"  model    : {res['mint']['fbx_dest']}")
-    print(f"  host .seq: {res['seq']['seq_dest']}  (private ef{spec['private_ef']:03d}, donor {spec['donor']})")
+    # Same honesty fix as _cmd_summon_deploy below: an AUTHORED (`sequence=`) block normalizes
+    # `donor = None` (Finding 8) -- print that, not a bare "donor None".
+    origin = "authored cast (no donor)" if spec.get("sequence") else f"donor {spec['donor']}"
+    print(f"  host .seq: {res['seq']['seq_dest']}  (private ef{spec['private_ef']:03d}, {origin})")
     if res["lane"] == "overlay":
         print(f"  overlay  : {len(res['overlay']['clips'])} clip(s) + .sfxmodel + FileList.txt")
     if res["mint"]["directive_added"]:
@@ -1871,7 +1908,10 @@ def _cmd_summon_deploy(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     spec = res["spec"]
-    print(f"summon-deploy: {spec['name']} (id {spec['id']}), lane={res['lane']}, donor {spec['donor']}, "
+    # An AUTHORED cast has no donor at all -- `spec['donor']` is only ever the schema default there, and
+    # printing "donor 227" on a 100%-original summon receipt is a lie the reader would act on.
+    origin = "authored cast (no donor)" if spec.get("sequence") else f"donor {spec['donor']}"
+    print(f"summon-deploy: {spec['name']} (id {spec['id']}), lane={res['lane']}, {origin}, "
           f"private ef{spec['private_ef']:03d}"
           + ("  *** DRY RUN (staged under SCRATCH) ***" if res["dry_run"] else ""))
     print(f"  mod folder: {res['mod_root']}")
@@ -1886,6 +1926,45 @@ def _cmd_summon_deploy(args: argparse.Namespace) -> int:
     print("  Reminder: point a summon ability's vfx1 at the private ef (this verb never edits Actions.csv).")
     print(f"  revert    : {res['revert_script']}")
     return 0
+
+
+def _cmd_summon_seq_lint(args: argparse.Namespace) -> int:
+    """Lint a hand-authored SFX .seq (and any .sfxmodel beside it) -- THE SILENT-SKIP GUARD. The engine
+    drops an unknown operation and ignores an unknown argument key with no log at all, so a typo in a cast
+    is invisible until a playtest. Also checks the study's mechanically-expressible laws (PHASE-LOCK,
+    FIGURE-VISIBILITY, INTENSITY, ANIM=IDLE RELEASE) and refuses PlayCamera/ShiftWorld."""
+    from pathlib import Path
+
+    from .summons import seqlint as sl
+    particles = [p for p in (args.particles or "").split(",") if p.strip()]
+    rc = 0
+    for raw in args.files:
+        p = Path(raw)
+        try:
+            if p.suffix.lower() == ".sfxmodel":
+                problems = [f"ERROR: {m}" for m in sl.lint_sfxmodel_file(p)]
+                ticks = None
+            else:
+                rep = sl.lint_seq_file(p, private_ef=args.private_ef, particles=particles or None)
+                problems = [str(x) for x in rep.problems]
+                ticks = rep
+        except sl.SeqLintError as e:
+            print(str(e), file=sys.stderr)
+            rc = 2
+            continue
+        errs = [m for m in problems if m.startswith("ERROR")]
+        print(f"{p}: {len(errs)} error(s), {len(problems) - len(errs)} warning(s)"
+              + (f", {len(ticks.lines)} op line(s), {ticks.total_ticks} fixed-Wait ticks "
+                 f"(>= {ticks.total_ticks / 15.0:.1f}s at BattleTPS=15; excludes "
+                 f"{ticks.clip_bound_waits} clip-bound and any SFX-bound wait)"
+                 if ticks is not None else ""))
+        for m in problems:
+            print(f"  {m}")
+        if errs:
+            rc = 2
+    if rc == 0:
+        print("clean -- no operation or argument would be silently dropped.")
+    return rc
 
 
 def _cmd_image_field(args: argparse.Namespace) -> int:
@@ -5970,6 +6049,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
                           "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
     sd_.set_defaults(func=_cmd_summon_deploy)
+
+    ssl = sub.add_parser("summon-seq-lint",
+                         help="lint a hand-authored SFX .seq / .sfxmodel -- THE SILENT-SKIP GUARD (the "
+                              "engine drops an unknown op or arg key with no log at all)")
+    ssl.add_argument("files", nargs="+", help="the .seq and/or .sfxmodel files to lint")
+    ssl.add_argument("--private-ef", dest="private_ef", type=int, default=None,
+                     help="cross-check every LoadSFX/PlaySFX/WaitSFX* `SFX=` id against this private "
+                          "effect id (a cast must never LoadSFX a stock id from a private host folder)")
+    ssl.add_argument("--particles", default=None,
+                     help="comma-separated particle .sfxmodel file names that WILL be staged beside the "
+                          "sequence; every `SFXModel=` path must resolve into this set")
+    ssl.set_defaults(func=_cmd_summon_seq_lint)
 
     imf = sub.add_parser("image-field",
                          help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "
