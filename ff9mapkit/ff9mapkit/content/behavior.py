@@ -202,7 +202,10 @@ class Hold(Action):
 
 @dataclass
 class Chase(Action):
+    """Pursue a unit's live mirror — stopping at ``standoff`` (playtest-1 lesson:
+    walk-through pursuers otherwise phase onto the target's exact position)."""
     target: str
+    standoff: int = 140
     feed = True
 
 
@@ -289,8 +292,13 @@ class FieldBehavior:
     """The per-field behavior compilation unit: a roster of units + one tree each."""
 
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
-                 tick: int = 1):
+                 tick: int = 1, warmup: int = 45):
+        """``warmup``: frames after the player is staged before ANY unit activates —
+        the field loads dead-still (no walking, no pathing) while the engine settles
+        the camera (rung-1 playtest: five actors pathing during entry-settle dragged
+        the framerate and stretched the settle to ~5-6s)."""
         self.bb = blackboard or Blackboard()
+        self.warmup = max(1, int(warmup))
         self.units = {u.name: u for u in units}
         if PLAYER in self.units:
             raise BehaviorError(f"{PLAYER!r} is the reserved pseudo-unit name")
@@ -408,20 +416,30 @@ class FieldBehavior:
 
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
+        wu = self.bb.byte("warmup")
         ticker: list = [label("top"), _stmt(f"B_SYSVAR[{STAGE_SYSVAR}] "
                                             f"Global.Bit[{self._staged}] B_OROR"),
-                        (JMP_IFNOT, "mirrors"),
+                        (JMP_IFNOT, "wait"),
                         _set_flag(self._staged, 1),
-                        label("mirrors")]
-        # the player mirror, behind the staged latch (the player-ref eval law)
+                        # THE WARM-UP GATE: after the player stages, count down before
+                        # activating ANYONE — the field loads dead-still while the
+                        # engine settles (rung-1 playtest: actors pathing during the
+                        # entry-settle dragged the framerate for ~5-6s)
+                        _stmt(f"Global.Byte[{wu}] const(0) B_GT"),
+                        (JMP_IFNOT, "run"),
+                        _stmt(f"Global.Byte[{wu}] Global.Byte[{wu}] const(1) "
+                              f"B_MINUS B_LET"),
+                        _stmt(f"Global.Byte[{wu}] const(0) B_EQ"),
+                        (JMP_IFNOT, "wait")]
+        for u in self.units.values():                    # warm-up expiry: wake everyone
+            ticker.append(_set_flag(self.bb.flag(f"{u.name}.active"), 1))
+        ticker += [(JMP, "wait"), label("run")]
+        # the player mirror (staged is guaranteed on the run path)
         ticker += [
-            _stmt(f"Global.Bit[{self._staged}]"),
-            (JMP_IFNOT, "m_player_skip"),
             _stmt(f"Global.Int16[{self.bb.int16(f'{PLAYER}.mx')}] "
                   f"obj(uid={PLAYER_UID}).f[0] B_LET"),
             _stmt(f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}] "
                   f"obj(uid={PLAYER_UID}).f[2] B_LET"),
-            label("m_player_skip"),
         ]
         for u in self.units.values():                    # unit mirrors, active-gated
             ticker += [
@@ -438,6 +456,7 @@ class FieldBehavior:
 
         main_init = bytearray()
         main_init += _set_flag(self._staged, 0)
+        main_init += _set_byte(wu, self.warmup)
         report: list[str] = []
 
         for u in self.units.values():
@@ -454,8 +473,9 @@ class FieldBehavior:
             tx = self.bb.int16(f"{u.name}.tx")
             tz = self.bb.int16(f"{u.name}.tz")
 
-            # ---- main_init: activate, reset protocol bytes, preset the duty target
-            main_init += _set_flag(act_flag, 1)
+            # ---- main_init: units start INACTIVE (the ticker's warm-up wakes them),
+            # reset protocol bytes, preset the duty target
+            main_init += _set_flag(act_flag, 0)
             main_init += _set_byte(sel, 0) + _set_byte(run, 0)
             px, pz = (fallback.points[0] if isinstance(fallback, Patrol)
                       else fallback.point)
@@ -616,7 +636,17 @@ class FieldBehavior:
             sel = self.bb.byte(f"{u.name}.selected")
             out = list(on_select or [])
             out.append(_set_byte(sel, aid))
-            out += self._feed_effect(u, node.action)
+            if node.action.feed:
+                out += self._feed_effect(u, node.action)
+            else:
+                # selecting a DISPATCH action HALTS the duty walk the same tick (feed
+                # own mirror) — otherwise the stale target keeps pulling the unit for
+                # the tick(s) until the body preempts (rung-1 playtest: duelists
+                # carried momentum into near-overlap)
+                tx = self.bb.int16(f"{u.name}.tx")
+                tz = self.bb.int16(f"{u.name}.tz")
+                out += [_stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
+                        _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET")]
             out.append((JMP, f"t_{u.name}_selected"))
             return out
         raise BehaviorError(f"unknown node {type(node).__name__}")
@@ -634,7 +664,17 @@ class FieldBehavior:
                     else f"Global.Bit[{self.bb.flag(f'{a.target}.active')}]")
             self._label_ctr += 1
             skip = f"t_{u.name}_ch{self._label_ctr}"
+            near_lbl = f"t_{u.name}_chs{self._label_ctr}"
             return [_stmt(gate), (JMP_IFNOT, skip),
+                    # inside standoff: hold ground (feed own mirror) — pursuers must
+                    # never occupy the target's tile (rung-1 playtest: phasing)
+                    _stmt(_box(self._mx(u.name), self._mz(u.name),
+                               self._mx(a.target), self._mz(a.target), int(a.standoff))),
+                    (JMP_IFNOT, near_lbl),
+                    _stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
+                    _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET"),
+                    (JMP, skip),
+                    label(near_lbl),
                     _stmt(f"Global.Int16[{tx}] {self._mx(a.target)} B_LET"),
                     _stmt(f"Global.Int16[{tz}] {self._mz(a.target)} B_LET"),
                     label(skip)]

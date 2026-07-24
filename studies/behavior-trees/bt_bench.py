@@ -125,13 +125,13 @@ def build_behavior(entries: dict[str, int], lay: dict) -> B.FieldBehavior:
     )
     fb.units["veteran"].tree = B.Selector(
         B.Sequence(fb.hp_le("veteran", 0), B.Do(B.Die())),
-        B.Sequence(fb.active("beast"), fb.near("veteran", "beast", 250),
+        B.Sequence(fb.active("beast"), fb.near("veteran", "beast", 300),
                    B.Do(B.SwingAt("beast"))),
         B.Do(B.Hold(lay["vet_post"])),
     )
     fb.units["beast"].tree = B.Selector(
         B.Sequence(fb.hp_le("beast", 0), B.Do(B.Die())),
-        B.Sequence(fb.active("veteran"), fb.near("beast", "veteran", 250),
+        B.Sequence(fb.active("veteran"), fb.near("beast", "veteran", 300),
                    B.Do(B.SwingAt("veteran"))),
         B.Do(B.Patrol([lay["beast_north"], lay["vet_post"]], arrive_r=150)),
     )
