@@ -147,6 +147,86 @@ def boundary_edges_xz(verts, tris) -> list:
             for (a, b), c in count.items() if c == 1 and 0 <= a < n and 0 <= b < n]
 
 
+# --- routes (a [[marker]] with `path`): scripted-walk polylines, swept for walkability ------
+ROUTE_COLORS = [(255, 170, 60), (90, 200, 255), (190, 120, 255), (120, 230, 140),
+                (255, 120, 160), (230, 220, 90)]
+
+
+def collect_routes(field_cfg: dict, scene_cfg: dict | None) -> list:
+    """[[marker]] entries carrying ``path = [[x,z], ...]`` (optional ``closed = true`` for a
+    patrol ring) -- the polylines a scripted walker (Patrol ring, march, flee line) will
+    actually walk. Build-inert like all markers; the probe draws + SWEEPS them."""
+    routes = []
+    for src in (field_cfg.get("marker", []) or [], (scene_cfg or {}).get("marker", []) or []):
+        for m in src:
+            path = m.get("path")
+            if not path or len(path) < 2:
+                continue
+            routes.append({"name": m.get("name") or f"route{len(routes)}",
+                           "path": [(float(p[0]), float(p[1])) for p in path],
+                           "closed": bool(m.get("closed", False)),
+                           "color": ROUTE_COLORS[len(routes) % len(ROUTE_COLORS)]})
+    return routes
+
+
+def sweep_route(route: dict, wmesh, bedges, step: float = 40.0) -> list:
+    """Sample every leg of the route ~every ``step`` units. FF9 walkers move STRAIGHT at
+    their target and slide/stall on walkmesh boundaries (no pathfinding around concave
+    holes) -- so a leg that leaves the mesh is a walker that jams mid-route. Returns
+    per-leg dicts: {a, b, len, spans: [(t0, t1)], minwall}."""
+    pts = list(route["path"]) + ([route["path"][0]] if route["closed"] else [])
+    legs = []
+    for i in range(len(pts) - 1):
+        a, b = pts[i], pts[i + 1]
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        n = max(2, int(L / step))
+        spans, cur, minwall = [], None, None
+        for k in range(n + 1):
+            t = k / n
+            x, z = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
+            on = wmesh is not None and wmesh.point_on_walkmesh(x, z) is not None
+            if not on:
+                cur = [t, t] if cur is None else [cur[0], t]
+            else:
+                if cur is not None:
+                    spans.append(tuple(cur))
+                    cur = None
+                if bedges:
+                    d = min(seg_dist(x, z, e0, e1) for e0, e1 in bedges)
+                    minwall = d if minwall is None else min(minwall, d)
+        if cur is not None:
+            spans.append(tuple(cur))
+        legs.append({"a": a, "b": b, "len": L, "spans": spans, "minwall": minwall})
+    return legs
+
+
+def analyze_routes(routes: list, wmesh, bedges) -> tuple:
+    """(per-route legs, warnings). The sweep is the stuck-walker catcher: a Patrol/march
+    leg with an off-mesh span WILL stall its unit against the boundary in-game."""
+    swept, warns = {}, []
+    for rt in routes:
+        legs = sweep_route(rt, wmesh, bedges)
+        swept[rt["name"]] = legs
+        for i, leg in enumerate(legs):
+            ax, az = leg["a"]; bx, bz = leg["b"]
+            for t0, t1 in leg["spans"]:
+                mid_t = (t0 + t1) / 2
+                mx = ax + (bx - ax) * mid_t
+                mz = az + (bz - az) * mid_t
+                span = max((t1 - t0) * leg["len"], 40.0)
+                warns.append(
+                    f"route '{rt['name']}' leg {i + 1} ({ax:.0f},{az:.0f})->({bx:.0f},{bz:.0f}): "
+                    f"OFF-MESH for ~{span:.0f}u around ({mx:.0f},{mz:.0f}) -- a walker moves "
+                    f"STRAIGHT and slides/stalls on the boundary (no pathfinding); reroute this leg")
+            if not leg["spans"] and leg["minwall"] is not None \
+                    and leg["minwall"] < C.COLLISION_RADIUS_W:
+                warns.append(
+                    f"route '{rt['name']}' leg {i + 1} ({ax:.0f},{az:.0f})->({bx:.0f},{bz:.0f}): "
+                    f"passes {leg['minwall']:.0f}u from a walkmesh edge -- collision radius "
+                    f"(~{C.COLLISION_RADIUS_W:.0f}u) shoves walkers off this line")
+    return swept, warns
+
+
 # --- the compass (EMPIRICAL: measured through to_canvas, so borrowed .bgx cameras are exact) --
 def compass(camera, ref_xz) -> dict:
     rx, rz = ref_xz
@@ -176,8 +256,10 @@ def compass(camera, ref_xz) -> dict:
 
 
 # --- analysis ------------------------------------------------------------------------------
-def analyze(items, camera, wmesh, cw, ch) -> tuple:
-    """Per-item records + warnings. Returns (records, warnings)."""
+def analyze(items, camera, wmesh, cw, ch, scrolling=False) -> tuple:
+    """Per-item records + warnings. Returns (records, warnings). ``scrolling``: the
+    canvas pans across a larger painting, so off-canvas content is NORMAL (the
+    OFF-CANVAS check would flag everything beyond one static screen -- skip it)."""
     recs, warns = [], []
     bedges = []
     if wmesh is not None:
@@ -192,7 +274,7 @@ def analyze(items, camera, wmesh, cw, ch) -> tuple:
         cx, cy = C.to_canvas((x, 0.0, z), camera)
         _, _, depth = C.project((x, 0.0, z), camera)
         r = {"item": it, "canvas": (cx, cy), "depth": abs(depth), "flags": []}
-        if not (0 <= cx < cw and 0 <= cy < ch):
+        if not scrolling and not (0 <= cx < cw and 0 <= cy < ch):
             r["flags"].append("OFF-CANVAS")
             warns.append(f"{it['label']}: anchor projects OFF the canvas at ({cx:.0f},{cy:.0f})")
         if wmesh is not None:
@@ -245,7 +327,7 @@ def analyze(items, camera, wmesh, cw, ch) -> tuple:
 
 
 # --- top-down render -----------------------------------------------------------------------
-def render_topdown(path, items, camera, wmesh, comp):
+def render_topdown(path, items, camera, wmesh, comp, routes=(), swept=None):
     xs, zs = [], []
     wv = wmesh.world_verts() if wmesh is not None else []
     for v in wv:
@@ -254,6 +336,9 @@ def render_topdown(path, items, camera, wmesh, comp):
         if it.get("footprint") == "point" and it.get("pos"):
             xs.append(it["pos"][0]); zs.append(it["pos"][1])
         for p in it.get("zone") or []:
+            xs.append(p[0]); zs.append(p[1])
+    for rt in routes:
+        for p in rt["path"]:
             xs.append(p[0]); zs.append(p[1])
     if not xs:
         xs, zs = [-1000, 1000], [-1000, 1000]
@@ -295,6 +380,27 @@ def render_topdown(path, items, camera, wmesh, comp):
         dr.polygon(ring, outline=tuple(col[:3]), fill=tuple(col[:3]) + (36,))
         cx = sum(p[0] for p in ring) / len(ring); cy = sum(p[1] for p in ring) / len(ring)
         dr.text((cx + 3, cy - 6), f"{it['label']} [{it['type']}]", fill=tuple(col[:3]), font=font)
+
+    for rt in routes:                                   # routes under points, over zones
+        col = rt["color"]
+        legs = (swept or {}).get(rt["name"], [])
+        pts = list(rt["path"]) + ([rt["path"][0]] if rt["closed"] else [])
+        for i in range(len(pts) - 1):
+            a, b = px(*pts[i]), px(*pts[i + 1])
+            dr.line([a, b], fill=col + (200,), width=3)
+            mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2   # arrowhead at mid-leg
+            ang = math.atan2(b[1] - a[1], b[0] - a[0])
+            for s in (0.5, -0.5):
+                dr.line([(mx, my), (mx - 11 * math.cos(ang - s), my - 11 * math.sin(ang - s))],
+                        fill=col, width=3)
+            if i < len(legs):                           # off-mesh spans over-drawn in red
+                (ax, az), (bx, bz) = legs[i]["a"], legs[i]["b"]
+                for t0, t1 in legs[i]["spans"]:
+                    p0 = px(ax + (bx - ax) * t0, az + (bz - az) * t0)
+                    p1 = px(ax + (bx - ax) * t1, az + (bz - az) * t1)
+                    dr.line([p0, p1], fill=(255, 70, 70), width=6)
+        lp = px(*rt["path"][0])
+        dr.text((lp[0] + 5, lp[1] + 5), f"~{rt['name']}", fill=col, font=font)
 
     for it in items:
         if it.get("footprint") != "point" or not it.get("pos"):
@@ -348,7 +454,7 @@ def render_topdown(path, items, camera, wmesh, comp):
 
 
 # --- camera-view render --------------------------------------------------------------------
-def render_camview(path, items, camera, wmesh, comp, scale=2):
+def render_camview(path, items, camera, wmesh, comp, scale=2, routes=()):
     cw = int(camera.range[0]) or 384
     ch = int(camera.range[1]) or 448
     W, H = cw * scale, ch * scale
@@ -375,6 +481,14 @@ def render_camview(path, items, camera, wmesh, comp, scale=2):
         dr.polygon(ring, outline=col, fill=col + (30,))
         cx = sum(p[0] for p in ring) / len(ring); cy = sum(p[1] for p in ring) / len(ring)
         dr.text((cx + 2, cy - 6), it["label"], fill=col, font=font)
+
+    for rt in routes:
+        col = rt["color"]
+        pts = list(rt["path"]) + ([rt["path"][0]] if rt["closed"] else [])
+        proj = [cvs(x, 0, z) for x, z in pts]
+        for i in range(len(proj) - 1):
+            dr.line([proj[i], proj[i + 1]], fill=col + (180,), width=2)
+        dr.text((proj[0][0] + 4, proj[0][1] + 4), f"~{rt['name']}", fill=col, font=font)
 
     for it in items:
         if it.get("footprint") != "point" or not it.get("pos"):
@@ -403,7 +517,8 @@ def render_camview(path, items, camera, wmesh, comp, scale=2):
 
 
 # --- report --------------------------------------------------------------------------------
-def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, items_all):
+def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, items_all,
+                 routes=(), swept=None):
     L = []
     L.append(f"FIELD LAYOUT PROBE -- {field}")
     L.append(f"camera {cam_idx}/{ncams}: pitch {C.pitch_deg(camera):.1f} deg, yaw {C.yaw_deg(camera):.1f} deg, "
@@ -444,6 +559,16 @@ def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, 
             cvx, cvy = C.to_canvas((cx, 0.0, cz), camera)
             L.append(f"  {it['label']:<20} {it['type']:<9} world x[{min(xs)},{max(xs)}] "
                      f"z[{min(zs)},{max(zs)}] -> canvas centre ({cvx:.0f},{cvy:.0f})")
+    if routes:
+        L.append("")
+        L.append("ROUTES (markers with `path` -- swept for straight-walk legality):")
+        for rt in routes:
+            legs = (swept or {}).get(rt["name"], [])
+            total = sum(lg["len"] for lg in legs)
+            bad = sum(1 for lg in legs for _ in lg["spans"])
+            status = "ALL LEGS ON-MESH" if not bad else f"{bad} OFF-MESH SPAN(S) -- see warnings"
+            shape = "closed ring" if rt["closed"] else "open path"
+            L.append(f"  ~{rt['name']:<18} {shape}, {len(legs)} legs, {total:.0f}u total -- {status}")
     if wmesh is None:
         L.append("  (no walkmesh resolved -- off-mesh / wall checks skipped)")
     L.append("")
@@ -513,12 +638,26 @@ def main() -> int:
     comp = compass(camera, ref_xz)
     cw = int(camera.range[0]) or 384
     ch = int(camera.range[1]) or 448
-    recs, warns = analyze(items, camera, wmesh, cw, ch)
+    scrolling = build.is_scrolling(project)
+    recs, warns = analyze(items, camera, wmesh, cw, ch, scrolling=scrolling)
+    if scrolling:
+        print("note: scrolling field -- OFF-CANVAS checks skipped (the viewport pans)",
+              file=sys.stderr)
 
-    render_topdown(os.path.join(out, "topdown.png"), items, camera, wmesh, comp)
-    render_camview(os.path.join(out, "camview.png"), items, camera, wmesh, comp, scale=args.scale)
+    routes = collect_routes(project.raw, scene_cfg)
+    bedges = []
+    if wmesh is not None:
+        wv = wmesh.world_verts()
+        bedges = boundary_edges_xz(wv, [tuple(t.vtx) for t in wmesh.tris])
+    swept, route_warns = analyze_routes(routes, wmesh, bedges)
+    warns += route_warns
+
+    render_topdown(os.path.join(out, "topdown.png"), items, camera, wmesh, comp,
+                   routes=routes, swept=swept)
+    render_camview(os.path.join(out, "camview.png"), items, camera, wmesh, comp,
+                   scale=args.scale, routes=routes)
     txt = write_report(os.path.join(out, "report.txt"), args.field, camera, args.camera, len(cams),
-                       comp, recs, warns, wmesh, items)
+                       comp, recs, warns, wmesh, items, routes=routes, swept=swept)
     print(txt)
     print(f"wrote: {out}\\topdown.png  {out}\\camview.png  {out}\\report.txt")
     return 0
