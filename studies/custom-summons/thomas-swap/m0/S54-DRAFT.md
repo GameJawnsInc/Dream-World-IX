@@ -1,11 +1,18 @@
-# S54-DRAFT.md — the HYBRID DRIVE engine feature (DRAFT patch, NOT built, NOT deployed)
+# S54-DRAFT.md — the HYBRID DRIVE engine feature (★ BUILT + DEPLOYED 2026-07-24)
 
-> **Status: DRAFT — owner GO/NO-GO.** The patch `memoria-patches/s54-sfx-hybrid-drive.patch` is authored and
-> **dry-run validated only** (`git apply --check`). It is **NOT applied to the Memoria tree, NOT built, NOT
-> deployed.** It renders content *and* performs one runtime write into plugin state, so it is an owner
-> feature decision, not a passive probe. This file is the spec + the build checklist + the go/no-go gates +
-> the honest risk list. When the owner approves the build, the README row at the bottom moves into
-> `memoria-patches/README.md` and the build checklist runs.
+> **Status: BUILT + DEPLOYED 2026-07-24 (owner GO given: "build s54, skin thomas onto the dragon rig").**
+> The patch `memoria-patches/s54-sfx-hybrid-drive.patch` was applied to the clone (`git apply --binary`, the
+> 3 expected paths), compile-checked with `DWIXNoDeploy=true` (0 errors, 186 pre-existing warnings), then
+> built + auto-deployed to BOTH arches. `Output\Assembly-CSharp.dll` == both deployed `x64`/`x86` copies,
+> sha256 `2A9C8B148824FF82C0350C492FDE150C54A744C2D822EBE23A080C05B6BB23CE` (all three identical). Pre-build
+> full DLL backup `20260724-091433` (`py tools/restore_memoria_dll.py 20260724-091433` reverts the whole
+> engine); the s54-only undo is `git -C C:/gd/FFIX/Memoria apply --reverse --binary
+> memoria-patches/s54-sfx-hybrid-drive.patch`. Symbols verified present in both deployed arches
+> (`SfxHybridDrive`/`EndCast` + the `[SfxHybrid]` ini literals); the s53/s52/s47 probe symbols still present
+> (the stack composes). The README row is now live in `memoria-patches/README.md` (Dev-tooling table).
+> **The engine ships INERT — `Memoria.ini [SfxHybrid] Enabled=0` (untouched here; the arming agent owns it).
+> NOT yet cast in-game; the M1b playtest (§4/§5 go/no-go + risk list) is the remaining step.** This file
+> stays the spec + the build record + the go/no-go gates + the honest risk list.
 
 Milestone: **1b of `disasm/TRANSPLANT.md` §2.4** ("THE FAITHFUL MVP: our model + the dragon's real MOTION").
 Grounded entirely in the M0-verified numbers (`m0/CALIBRATION.md`, `m0/CAMERA-MATCH.md`, `m0/FBX-PATHS.md`)
