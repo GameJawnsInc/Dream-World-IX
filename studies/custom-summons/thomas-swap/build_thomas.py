@@ -861,12 +861,15 @@ def build_manifest_json_m1a() -> dict:
     }
 
 
-def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None") -> str:
+def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None",
+                    include_overlay: bool = True) -> str:
     """Insert the Thomas delta block immediately before ANCHOR_LINE, and replace ANCHOR_LINE itself
     with ``patched_line(hide_keys)`` (the HideMeshes-augmented form, or -- ``hide_keys=None`` -- the
-    bare unmodified anchor text, i.e. CALIBRATE mode). Raises DriftError if ANCHOR_LINE isn't found
-    (the donor's shape changed since this script's splice point was derived -- abort rather than
-    guess)."""
+    bare unmodified anchor text, i.e. CALIBRATE mode). ``include_overlay=False`` (the --m1b-bench
+    mode) skips the delta block entirely: only the anchor-line replacement is applied, so NOTHING
+    ever loads SFXData(84) and no JSON overlay Thomas spawns -- the s54 hybrid drive is then the
+    only Thomas renderer in the cast. Raises DriftError if ANCHOR_LINE isn't found (the donor's
+    shape changed since this script's splice point was derived -- abort rather than guess)."""
     lines = donor_text.splitlines(keepends=True)
     try:
         idx = lines.index(ANCHOR_LINE)
@@ -875,6 +878,8 @@ def splice_sequence(donor_text: str, hide_keys: "tuple[str, ...] | None") -> str
             f"expected line {ANCHOR_LINE!r} not found in the donor copy -- its shape has changed "
             "since this script's splice point was derived; abort rather than guess"
         ) from None
+    if not include_overlay:
+        return "".join(lines[:idx] + [patched_line(hide_keys)] + lines[idx + 1:])
     delta_text = THOMAS_SEQ_DELTA_PATH.read_text(encoding="utf-8")
     # The committed delta file's own leading `//` comment block is documentation for a human reader --
     # only the actual StartThread...EndThread block (the last 6 non-comment, non-blank lines) is
@@ -956,7 +961,8 @@ def unmint_thomas(mod_root: Path) -> dict:
 
 
 def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | None" = HIDE_KEYS,
-                  manifest_fn=build_manifest_json, dry_run: bool = False) -> dict:
+                  manifest_fn=build_manifest_json, dry_run: bool = False,
+                  include_overlay: bool = True) -> dict:
     """``manifest_fn`` (default ``build_manifest_json``, the FLIGHT v10.1 flight) is the single knob
     M1a adds -- pass ``build_manifest_json_m1a`` for the static-hold build instead; every other step
     (the .seq splice, FileList.txt, the mint) is reused verbatim regardless of which manifest is built,
@@ -967,7 +973,7 @@ def build_thomas(mod_root: Path, game_path: Path, hide_keys: "tuple[str, ...] | 
     donor_bytes, donor_text = _read_verified(
         game_path / DONOR_REL_DIR / PLAYER_SEQ_NAME, EXPECTED_DONOR_SHA256, "stock ef227/PlayerSequence.seq"
     )
-    out_text = splice_sequence(donor_text, hide_keys)
+    out_text = splice_sequence(donor_text, hide_keys, include_overlay=include_overlay)
     out_bytes = out_text.encode("utf-8")
 
     seq_dest = mod_root / FRESH_REL_DIR / PLAYER_SEQ_NAME
@@ -1047,6 +1053,12 @@ def main() -> int:
                              "Animations array (Thomas has no clips). Same .seq splice, same HIDE_KEYS, "
                              "same mint as --thomas. Isolates camera-inheritance from flight-matching. "
                              "See m0/M1A-PLAN.md sec 2.")
+    group.add_argument("--m1b-bench", action="store_true",
+                        help="deploy the M1b viewing bench: the donor cast WITHOUT the overlay-Thomas "
+                             "thread (no StartThread splice, so no JSON Thomas ever spawns) -- the s54 "
+                             "hybrid-driven skinned Thomas is the only Thomas in the cast. HideMeshes "
+                             "keys are kept as defense-in-depth under s54's own HideNative mask. "
+                             "Recast-only (no relaunch).")
     group.add_argument("--restore", action="store_true",
                         help="undo the Thomas swap -- back to rung 7's own proven resting state, and "
                              "Thomas's GEO mint fully removed")
@@ -1075,6 +1087,8 @@ def main() -> int:
         mode = "restore"
     elif args.m1a:
         mode = "m1a"
+    elif args.m1b_bench:
+        mode = "m1b-bench"
     else:
         mode = "thomas"
 
@@ -1114,10 +1128,11 @@ def main() -> int:
     mode_label = {
         "thomas": "THOMAS SWAP (FLIGHT v10.1)",
         "m1a": "M1A STATIC HOLD (camera-inheritance isolation test, m0/M1A-PLAN.md sec 2)",
+        "m1b-bench": "M1B VIEWING BENCH (no overlay thread -- the s54 hybrid Thomas is the only Thomas)",
         "restore": "RESTORE (rung-7 resting state)",
     }[mode]
     print(f"mode         : {mode_label}")
-    if mode in ("thomas", "m1a"):
+    if mode in ("thomas", "m1a", "m1b-bench"):
         if hide_keys is None:
             print("hide keys    : CALIBRATE -- no HideMeshes argument at all (Bahamut renders unsuppressed)")
         else:
@@ -1125,16 +1140,20 @@ def main() -> int:
     print()
 
     try:
-        if mode in ("thomas", "m1a"):
-            manifest_fn = build_manifest_json_m1a if mode == "m1a" else build_manifest_json
-            result = build_thomas(mod_root, game_path, hide_keys, manifest_fn=manifest_fn, dry_run=args.dry_run)
+        if mode in ("thomas", "m1a", "m1b-bench"):
+            # m1b-bench: the manifest is never LOADED (nothing PlaySFXes SFX=84), but the m1a
+            # static-hold JSON is written anyway -- it is inert AND it is not the FLIGHT manifest,
+            # so the committed v10.1 repo copy is never synced by this mode.
+            manifest_fn = build_manifest_json if mode == "thomas" else build_manifest_json_m1a
+            result = build_thomas(mod_root, game_path, hide_keys, manifest_fn=manifest_fn,
+                                  dry_run=args.dry_run, include_overlay=(mode != "m1b-bench"))
         else:
             result = restore(mod_root, game_path)
     except (DriftError, ThomasAssetError) as e:
         print(f"REFUSING TO BUILD:\n  {e}", file=sys.stderr)
         return 1
 
-    if mode in ("thomas", "m1a"):
+    if mode in ("thomas", "m1a", "m1b-bench"):
         print(f"=== {PLAYER_SEQ_REL} ===")
         print(f"written  : {result['seq_dest']}")
         print(f"  sha256 : {result['seq_sha256']}")
