@@ -1,49 +1,33 @@
-"""Rung 3 — THE SHOWCASE (behavior-trees study): a scene only the system makes writable.
+"""Rung 4 — THE SHOWCASE ON THE PRODUCT SURFACE (behavior-trees study).
 
-Field **30412** ("BTRAID", the proven 559 top-down donor): a walled COMPOUND under
-bandit raid — layered, interruptible, readable, and exercising every rung-3 verb:
+The SAME raid that rung 3 proved (field **30412** "BTRAID"), re-expressed entirely as
+the kit's **[behavior] TOML** — this bench no longer patches bytecode at all:
 
-  watchman (soldier, the gate)   Notices EITHER bandit within 600 -> his cry (Announce,
-                                 ONE shared body via the dedupe) RAISES "alarm"
-                                 (Do raise_flags); once they push past, he sprints
-                                 (speed 70) for the keep. No hp — a herald, not a fighter.
-  guard0/guard1 (soldiers)       PATROL SHIFTS: one alternator clock (400 ticks) flips
-                                 "shift"; guard0 walks the OUTER ring on shift, the
-                                 INNER otherwise — guard1 the exact opposite (Invert),
-                                 so they visibly TRADE rings when the clock flips.
-                                 On alarm: converge on the rally point at speed 65,
-                                 chase bandits (standoff 180), duel at contact.
-                                 At hp<=1: FLEE (speed 75) — priority refuges: the
-                                 keep; if a bandit camps it (avoid_r 600), the market.
-  captain (elite, hp 6, dmg 2)   Holds the keep. On alarm, a bandit within 1000 draws
-                                 his war cry (sticky Once -> Announce; the closing
-                                 bandit's CONTACT duel preempts the idle), then he
-                                 duels at DOUBLE damage — the keep's boss.
-  bandit0 (hp 4) / bandit1 (hp 6) Camp outside until the LEVER raises "raid": march
-                                 the keep at speed 55, duel whoever meets them
-                                 (MUTUAL), gloat ONCE if they reach the keep.
-  civilian (old man, the market) WANDER: random drift (B_SYSVAR[0] RNG) around the
-                                 market at speed 30, fresh target every ~110 ticks.
-                                 On alarm (while bandits live): PANIC — Flee at
-                                 speed 80 to the safehouse (or the east nook if a
-                                 bandit camps the safehouse). War over -> ambles again.
+    gen    -> writes BTRAID.field.toml with a [behavior] table (units bind to the
+              [[npc]] rows by name; patrol/march verbs reference the SAME probe-swept
+              [[marker]] path= routes the layout probe verifies; announce_npc reuses
+              each speaker's own dialogue line)
+    deploy -> plain tools/deploy_field.py — `ff9mapkit build` compiles + installs the
+              trees natively (build_script's [behavior] tail). No discovery, no
+              post-patch, no bench-only machinery: WHAT SHIPS IS THE PRODUCT PATH.
 
-The expected STORY (hp math, damage 1 per 30-tick swing unless noted): the lever arms
-the raid -> the watchman cries + alarm -> guards break patrol and converge -> guard0
-(hp 5) duels bandit0 (hp 4): bandit0 dies as guard0 hits 1 -> guard0 FLEES to the keep;
-guard1 (hp 3) duels bandit1 (hp 6): at hp 1 guard1 flees mid-duel -> bandit1 (wounded)
-resumes the march -> the captain's war cry, then kills it in 2 swings (damage 2).
-Aftermath: alarm stays latched but with no bandit alive the guards RESUME their patrol
-shifts, the civilian ambles back to the market, the wounded rest at the keep.
+The scene (identical to the rung-3 proof): patrol-shift guards trading the monument
+circuit and the west-court beat on one alternator clock; the gate watchman whose
+once-ever cry raises "alarm" when EITHER bandit closes (the any_near watcher verb);
+the two-lane bandit march (west gatehouse rush + the long east second wave, as
+March verbs on the swept route markers); mid-fight flees to the market at 1 hp; the
+captain's war cry + double-damage stand at the keep; the panicking Wander/Flee
+civilian. The lever arms `raid` (a [behavior] public flag — its allocated index is
+computed at gen and wired into the [[choice]] set_flag row).
 
 Usage (repo root):  py studies/behavior-trees/btraid_bench.py gen | deploy
-First deploy of 30412 needs a RELAUNCH. Revert: tools/scroll_out/revert_deploy_30412.py
+After a deploy: ~ -> Reload field (RELAUNCH only if 30412 was never registered).
+Revert: py tools/scroll_out/revert_deploy_30412.py
 """
 from __future__ import annotations
 
 import argparse
 import re
-import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -51,8 +35,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "ff9mapkit"))
 
-from ff9mapkit.content import behavior as B                       # noqa: E402
-from ff9mapkit.eb.model import EbScript                           # noqa: E402
+from ff9mapkit.content import behaviortoml as BT                  # noqa: E402
 from ff9mapkit.scene.bgi import BgiWalkmesh, _pt_in_tri_xz        # noqa: E402
 
 BENCH = Path("C:/gd/_btraid_bench")
@@ -62,24 +45,21 @@ REPORT = BENCH / "behavior-report.txt"
 FIELD_ID = 30412
 FIELD_NAME = "BTRAID"
 MOD_FOLDER = "FF9CustomMap"
-GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
 DONOR = "fbg_n11_ldbm_map158_lb_plz_0"
 
-# toml order; duplicate models resolved by ORDER within each model group
 CAST = [
-    ("watchman", "GEO_NPC_F0_CSO", 217, "Bandits at the gate!  Sound the alarm!"),
-    ("guard0",   "GEO_NPC_F0_CSO", 217, "Patrol shift's almost done."),
-    ("guard1",   "GEO_NPC_F0_CSO", 217, "Keep to your route."),
-    ("captain",  "GEO_NPC_F2_CSO", 218, "To arms!  Not one step past the keep!"),
-    ("bandit0",  "GEO_MON_F0_FFG", 247, "The keep is ours!"),
-    ("bandit1",  "GEO_MON_F0_FFG", 247, "Nothing left to stop us!"),
-    ("civilian", "GEO_NPC_F0_JJY", 117, "Oh dear, oh dear..."),
+    ("watchman", "GEO_NPC_F0_CSO", "Bandits at the gate!  Sound the alarm!"),
+    ("guard0",   "GEO_NPC_F0_CSO", "Patrol shift's almost done."),
+    ("guard1",   "GEO_NPC_F0_CSO", "Keep to your route."),
+    ("captain",  "GEO_NPC_F2_CSO", "To arms!  Not one step past the keep!"),
+    ("bandit0",  "GEO_MON_F0_FFG", "The keep is ours!"),
+    ("bandit1",  "GEO_MON_F0_FFG", "Nothing left to stop us!"),
+    ("civilian", "GEO_NPC_F0_JJY", "Oh dear, oh dear..."),
 ]
-STANDBY = bytes([0x22, 0x00, 0x01, 0x01, 0xFA, 0xFF])
 CONTACT, STANDOFF = 300, 180
 
 
-# --------------------------------------------------------------- helpers
+# --------------------------------------------------------------- layout (probe-driven)
 def read_spawn() -> tuple[int, int]:
     m = re.search(r"(?m)^spawn = \[(-?\d+), (-?\d+)\]", BASE_TOML.read_text(encoding="utf-8"))
     if not m:
@@ -92,32 +72,17 @@ def lattice(min_clear: float = 100.0) -> list[tuple[int, int]]:
     probe round 2's lesson: a bare on-mesh test accepts 1u edge slivers (the market
     landed on one), and walkers shoved by the 48u collision radius drift off any
     line that hugs a wall. Snap targets only to CLEAR points."""
+    from ff9mapkit.scene import routes as R
     mesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
     wv = mesh.world_verts()
     idx_tris = [tuple(t.vtx) for t in mesh.tris]
     tris = [tuple(wv[i] for i in t) for t in idx_tris]
     xs, zs = [v[0] for v in wv], [v[2] for v in wv]
-
-    cnt: dict = {}
-    for a, b, c in idx_tris:
-        for u, v in ((a, b), (b, c), (c, a)):
-            k = (v, u) if u > v else (u, v)
-            cnt[k] = cnt.get(k, 0) + 1
-    bedges = [((wv[a][0], wv[a][2]), (wv[b][0], wv[b][2]))
-              for (a, b), n in cnt.items() if n == 1]
-
-    def seg_d(px, pz, e0, e1):
-        ax, az = e0
-        bx, bz = e1
-        dx, dz = bx - ax, bz - az
-        L2 = dx * dx + dz * dz
-        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
-        cx, cz = ax + t * dx, az + t * dz
-        return ((px - cx) ** 2 + (pz - cz) ** 2) ** 0.5
+    bedges = R.boundary_edges_xz(wv, idx_tris)
 
     def clear(x, z):
         return (any(_pt_in_tri_xz(x, z, a, b, c) for a, b, c in tris)
-                and min(seg_d(x, z, e0, e1) for e0, e1 in bedges) >= min_clear)
+                and min(R.seg_dist_xz(x, z, e0, e1) for e0, e1 in bedges) >= min_clear)
 
     pts = []
     for z in range(int(min(zs)) + 300, int(max(zs)) - 299, 250):
@@ -173,124 +138,112 @@ def layout() -> dict:
 
 def spawn_of(lay: dict) -> dict:
     # visual start = each unit's initial duty (shift flag starts 0: guard0 walks the
-    # INNER ring first, guard1 — Invert — the outer)
+    # INNER ring first, guard1 — not_flag — the outer)
     return {"watchman": lay["watch_post"], "guard0": lay["routeB"][0],
             "guard1": lay["routeA"][0], "captain": lay["keep"],
             "bandit0": lay["camp0"], "bandit1": lay["camp1"],
             "civilian": lay["market"]}
 
 
-# --------------------------------------------------------------- the trees
-def build_behavior(entries: dict[str, int], lay: dict,
-                   txids: dict[str, int] | None = None) -> B.FieldBehavior:
-    txids = txids or {}
-    posts = spawn_of(lay)
-    hp = {"guard0": 5, "guard1": 3, "captain": 6, "bandit0": 4, "bandit1": 6}
-    fb = B.FieldBehavior(
-        [B.UnitSpec(n, entries[n], spawn=posts[n], hp=hp.get(n), walk_speed=40)
-         for n in posts])
-    fb.public_flag("raid")                             # the lever arms the raid
-    shift = fb.alternator("shift", 400)                # the patrol-shift clock
-    bandits_up = fb.any_flag("bandit0.active", "bandit1.active")
+# --------------------------------------------------------------- the [behavior] TOML
+def _t(v) -> str:
+    """A TOML value: point tuples/lists nest, strings quote, dicts inline."""
+    if isinstance(v, str):
+        return f'"{v}"'
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_t(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_t(x)}" for k, x in v.items()) + " }"
+    return str(v)
 
-    def duel(me: str, foe: str, damage: int = 1) -> B.Sequence:
-        return B.Sequence(fb.active(foe), fb.near(me, foe, CONTACT),
-                          B.Do(B.SwingAt(foe, damage=damage)))
 
-    # --- watchman: notice EITHER bandit -> ONE cry raises the alarm, ONCE EVER.
-    # RAID-gated (playtest-1 fix): the camps sit near the gate, so an ungated notice
-    # box "saw" the dormant camp at field entry. STICKY-Once (playtest-2 fix): without
-    # it, every re-entry of a bandit into the notice box re-dispatched the Announce —
-    # the window spammed all battle. Once: he cries while they push the gate; the
-    # moment they pass out of 450 it latches forever, and the alarm branch sends him
-    # sprinting for the keep.
-    cry = B.Announce(txids.get("watchman", 0))
-    notice = fb.any_of(
-        fb.all_of(fb.active("bandit0"), fb.near("watchman", "bandit0", 450)),
-        fb.all_of(fb.active("bandit1"), fb.near("watchman", "bandit1", 450)))
-    fb.units["watchman"].tree = B.Selector(
-        B.Once("cry", B.Sequence(fb.flag("raid"), notice,
-                                 B.Do(cry, raise_flags="alarm"))),
-        # falls back to the MARKET with the wounded (probe round 3: every keep-bound
-        # line from his post grazes the neck bay at 1-3u; the market route sweeps
-        # clean at 18u+). March = the multi-leg walk verb this scene minted.
-        B.Sequence(fb.flag("alarm"),
-                   B.Do(B.March([(-1141, -100), lay["market"]],
-                                arrive_r=250, speed=70))),
-        B.Do(B.Hold(lay["watch_post"])),
-    )
+def _branch(when=None, do=None, **keys) -> str:
+    out = ["\n  [[behavior.unit.branch]]"]
+    if when:
+        out.append("  when = [" + ", ".join(_t(c) for c in when) + "]")
+    out.append("  do = " + _t(do))
+    for k, v in keys.items():
+        out.append(f"  {k} = {_t(v)}")
+    return "\n".join(out) + "\n"
 
-    # --- guards: die -> flee at hp<=1 -> alarm combat -> patrol shifts.
-    # Flee refuges = market then east nook (probe round 2: any keep-bound flee line
-    # clips the neck bay, and a wounded guard parked at the gatehouse sits in the
-    # bandits' march lane -- he'd be finished at contact)
-    for g, my_shift in (("guard0", shift), ("guard1", B.Invert(shift))):
-        fb.units[g].tree = B.Selector(
-            B.Sequence(fb.hp_le(g, 0), B.Do(B.Die())),
-            B.Sequence(fb.hp_le(g, 1),
-                       B.Do(B.Flee("bandit1", [lay["market"], lay["east_nook"]],
-                                   avoid_r=600, speed=75))),
-            B.Sequence(fb.flag("alarm"), bandits_up, B.Selector(
-                duel(g, "bandit0"),
-                duel(g, "bandit1"),
-                B.Sequence(fb.active("bandit0"), fb.near(g, "bandit0", 900),
-                           B.Do(B.Chase("bandit0", standoff=STANDOFF, speed=65))),
-                B.Sequence(fb.active("bandit1"), fb.near(g, "bandit1", 900),
-                           B.Do(B.Chase("bandit1", standoff=STANDOFF, speed=65))),
-                B.Do(B.WalkTo(lay["gatehouse"], speed=65)),
-            )),
-            B.Sequence(my_shift, B.Do(B.Patrol(lay["routeA"], arrive_r=150))),
-            B.Do(B.Patrol(lay["routeB"], arrive_r=150)),
-        )
 
-    # --- captain: the keep's boss — war cry, then double-damage duels
-    fb.units["captain"].tree = B.Selector(
-        B.Sequence(fb.hp_le("captain", 0), B.Do(B.Die())),
-        B.Sequence(fb.flag("alarm"), bandits_up, B.Selector(
-            duel("captain", "bandit0", damage=2),
-            duel("captain", "bandit1", damage=2),
-            B.Once("warcry", B.Sequence(
-                fb.any_of(fb.near("captain", "bandit0", 1000),
-                          fb.near("captain", "bandit1", 1000)),
-                B.Do(B.Announce(txids.get("captain", 0))))),
-            B.Do(B.Hold(lay["keep"])),
-        )),
-        B.Do(B.Hold(lay["keep"])),
-    )
+def behavior_toml(lay: dict) -> str:
+    """The whole raid as the kit's [behavior] surface — the rung-3-proven trees,
+    branch for branch (flat priority form; the nested alarm selector distributes
+    into per-branch condition prefixes)."""
+    alarm = {"flag": "alarm"}
+    raid = {"flag": "raid"}
+    bandits_up = {"any_active": ["bandit0", "bandit1"]}
+    parts = ['\n[behavior]\nwarmup = 45\n'
+             'alternators = [{ name = "shift", frames = 400 }]\n'
+             'public_flags = ["raid"]\n']
 
-    # --- bandits: THE TWO LANES (the field's own topology — two ways around the
-    # monument). bandit1 storms the short WEST lane through the gatehouse; bandit0
-    # swings the long EAST lane around the monument and arrives as a SECOND WAVE.
-    # March (minted here) walks each lane's probe-swept waypoints and holds the keep;
-    # duels preempt and the march resumes at the current waypoint.
-    lanes = {
-        "bandit0": [(859, -850), (1109, 1150), (-891, 1150),
-                    lay["gatehouse"], lay["keep"]],
-        "bandit1": [lay["gatehouse"], lay["keep"]],
-    }
+    def unit(name, hp=None, speed=40):
+        parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\n'
+                     + (f"hp = {hp}\n" if hp is not None else "") + f"speed = {speed}\n")
+
+    # watchman: the once-ever cry (raid-gated any_near notice) -> fall back to market
+    unit("watchman")
+    parts.append(_branch(when=[raid, {"any_near": [["bandit0", "bandit1"], 450]}],
+                         do={"announce_npc": "watchman"},
+                         once="cry", raise_flags=["alarm"]))
+    parts.append(_branch(when=[alarm],
+                         do={"march": "watch_run", "arrive_r": 250, "speed": 70}))
+    parts.append(_branch(do={"hold": "watch_post"}))
+
+    # guards: die -> flee at 1 hp -> alarm combat -> the traded patrol shifts
+    for g, shift_cond in (("guard0", {"flag": "shift"}), ("guard1", {"not_flag": "shift"})):
+        unit(g, hp=(5 if g == "guard0" else 3))
+        parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
+        parts.append(_branch(when=[{"hp_le": 1}],
+                             do={"flee": "bandit1", "to": ["market", "east_nook"],
+                                 "avoid_r": 600, "speed": 75}))
+        for b in ("bandit0", "bandit1"):
+            parts.append(_branch(when=[alarm, {"active": b}, {"near": [b, CONTACT]}],
+                                 do={"swing_at": b}))
+        for b in ("bandit0", "bandit1"):
+            parts.append(_branch(when=[alarm, {"active": b}, {"near": [b, 900]}],
+                                 do={"chase": b, "standoff": STANDOFF, "speed": 65}))
+        parts.append(_branch(when=[alarm, bandits_up],
+                             do={"walk_to": "gatehouse", "speed": 65}))
+        parts.append(_branch(when=[shift_cond], do={"patrol": "ringA", "arrive_r": 150}))
+        parts.append(_branch(do={"patrol": "ringB", "arrive_r": 150}))
+
+    # captain: the keep's boss — double-damage duels; the war cry drawn at 1000
+    unit("captain", hp=6)
+    parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
+    for b in ("bandit0", "bandit1"):
+        parts.append(_branch(when=[alarm, {"active": b}, {"near": [b, CONTACT]}],
+                             do={"swing_at": b, "damage": 2}))
+    parts.append(_branch(when=[alarm, bandits_up,
+                               {"any_near": [["bandit0", "bandit1"], 1000]}],
+                         do={"announce_npc": "captain"}, once="warcry"))
+    parts.append(_branch(do={"hold": "keep"}))
+
+    # bandits: THE TWO LANES — March on the probe-swept route markers (each starts
+    # at its own camp, so waypoint 0 is an instant arrival)
     for i, b in enumerate(("bandit0", "bandit1")):
-        fb.units[b].tree = B.Selector(
-            B.Sequence(fb.hp_le(b, 0), B.Do(B.Die())),
-            B.Sequence(fb.flag("raid"), B.Selector(
-                duel(b, "captain"),
-                duel(b, "guard0"),
-                duel(b, "guard1"),
-                B.Once(f"gloat{i}", B.Sequence(
-                    fb.near_point(b, lay["keep"], 300),
-                    B.Do(B.Announce(txids.get(b, 0))))),
-                B.Do(B.March(lanes[b], arrive_r=250, speed=55)),
-            )),
-            B.Do(B.Hold(posts[b])),
-        )
+        unit(b, hp=(4 if b == "bandit0" else 6))
+        parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
+        for foe in ("captain", "guard0", "guard1"):
+            parts.append(_branch(when=[raid, {"active": foe}, {"near": [foe, CONTACT]}],
+                                 do={"swing_at": foe}))
+        parts.append(_branch(when=[raid, {"near_point": ["keep", 300]}],
+                             do={"announce_npc": b}, once=f"gloat{i}"))
+        parts.append(_branch(when=[raid],
+                             do={"march": f"march{i}", "arrive_r": 250, "speed": 55}))
+        parts.append(_branch(do={"hold": f"camp{i}"}))
 
-    # --- civilian: ambles (Wander) -> panics (Flee) -> ambles again
-    fb.units["civilian"].tree = B.Selector(
-        B.Sequence(fb.flag("alarm"), bandits_up,
-                   B.Do(B.Flee("bandit0", [lay["safehouse"], lay["east_nook"]],
-                               avoid_r=600, speed=80))),
-        B.Do(B.Wander(lay["market"], radius=500, hold=110, speed=30)),
-    )
-    return fb
+    # civilian: ambles (Wander) -> panics (Flee) -> ambles again postwar
+    unit("civilian", speed=40)
+    parts.append(_branch(when=[alarm, bandits_up],
+                         do={"flee": "bandit0", "to": ["safehouse", "east_nook"],
+                             "avoid_r": 600, "speed": 80}))
+    parts.append(_branch(do={"wander": "market", "radius": 500, "every": 110,
+                             "speed": 30}))
+    return "".join(parts)
 
 
 # --------------------------------------------------------------- gen / deploy
@@ -309,21 +262,18 @@ def gen() -> None:
 
     lay = layout()
     posts = spawn_of(lay)
-    # flag indices must match deploy-time compilation: same construction order
-    fb = build_behavior({n: 0 for n in posts}, lay)
-    raid = fb.public_flag("raid")
-
-    parts = [text, "\n# ---- BT RAID BENCH (generated by btraid_bench.py) ----\n"]
-    for name, geo, _mid, line in CAST:
+    parts = [text, "\n# ---- BT RAID BENCH (generated by btraid_bench.py; rung 4 = "
+                   "the [behavior] TOML surface) ----\n"]
+    for name, geo, line in CAST:
         x, z = posts[name]
         parts.append(f'\n[[npc]]\nname = "{name}"\nmodel = "{geo}"\n'
                      f'pos = [{x}, {z}]\ndialogue = "{line}"\n')
-    # probe-visible spatial plan (build-inert): named points for every static target
-    # + ROUTE markers (`path`) for every scripted walk line, so the probe's sweep
-    # verifies straight-walk legality of the rings, the marches, and the flee lines
-    wp = {"keep": lay["keep"], "gatehouse": lay["gatehouse"], "market": lay["market"],
-          "safehouse": lay["safehouse"], "east_nook": lay["east_nook"]}
-    for name, (x, z) in wp.items():
+
+    # named points + probe-swept ROUTE markers — patrol/march verbs reference these
+    # by name, so the swept line IS the deployed behavior data
+    for name in ("keep", "gatehouse", "market", "safehouse", "east_nook",
+                 "watch_post", "camp0", "camp1"):
+        x, z = lay[name]
         parts.append(f'\n[[marker]]\nname = "{name}"\npos = [{x}, {z}]\n')
 
     def route(name: str, points: list, closed: bool = False) -> str:
@@ -338,9 +288,23 @@ def gen() -> None:
                                   (-891, 1150), lay["gatehouse"], lay["keep"]]))
     parts.append(route("march1", [posts["bandit1"], lay["gatehouse"], lay["keep"]]))
     parts.append(route("panic", [lay["market"], lay["safehouse"]]))
-    # representative flee line: a guard wounded at the ring's SW reach -> the market
     parts.append(route("gflee", [lay["routeA"][4], lay["market"]]))
     parts.append(route("watch_run", [lay["watch_post"], (-1141, -100), lay["market"]]))
+
+    parts.append(behavior_toml(lay))
+
+    # the lever wires to the behavior's `raid` public flag — its index is
+    # deterministic (allocation order = the unit roster), computed by a dry build
+    import tomllib
+    raw = tomllib.loads("".join(parts))
+    problems = BT.validate(raw)
+    if problems:
+        raise SystemExit("behavior validate:\n  " + "\n  ".join(problems))
+    fb = BT.build(raw, npc_slots={n: i + 2 for i, (n, _g, _l) in enumerate(CAST)},
+                  npc_txids_by_name={n: 0 for n, _g, _l in CAST},
+                  behavior_txids={})
+    raid = fb.public_flag("raid")
+
     cx, cz = lay["spawn"]
     h = 220
     parts.append(
@@ -354,36 +318,6 @@ def gen() -> None:
     print(f"wrote {BENCH_TOML}\n  layout {lay}\n  raid flag {raid}")
 
 
-def discover(data: bytes) -> dict[str, int]:
-    eb = EbScript.from_bytes(data)
-    by_model: dict[int, list[int]] = {}
-    for idx in range(eb.entry_count):
-        e = eb.entry(idx)
-        f0, f1 = e.func_by_tag(0), e.func_by_tag(1)
-        if f0 is None or f1 is None:
-            continue
-        if bytes(data[f1.abs_start:f1.abs_end]) != STANDBY:
-            continue
-        for _n, _g, mid, _l in CAST:
-            if bytes([0x2F, 0x00]) + struct.pack("<H", mid) in bytes(data[f0.abs_start:f0.abs_end]):
-                by_model.setdefault(mid, []).append(idx)
-                break
-    out: dict[str, int] = {}
-    for name, _geo, mid, _line in CAST:                # toml order within a model group
-        group = by_model.get(mid, [])
-        if not group:
-            raise SystemExit(f"unit {name!r}: no entry left for model {mid}")
-        out[name] = group.pop(0)
-    return out
-
-
-def _talk_txid(data: bytes, eb: EbScript, idx: int) -> int:
-    f3 = eb.entry(idx).func_by_tag(3)
-    body = bytes(data[f3.abs_start:f3.abs_end])
-    at = body.index(bytes([0x1F, 0x00]))
-    return struct.unpack_from("<H", body, at + 4)[0]
-
-
 def deploy() -> None:
     if not BENCH_TOML.exists():
         gen()
@@ -392,46 +326,22 @@ def deploy() -> None:
                         "--text-block", str(FIELD_ID), "--mod-folder", MOD_FOLDER])
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
-    lay = layout()
-    ebs = [p for p in sorted((GAME / MOD_FOLDER).rglob(f"*{FIELD_NAME}*.eb*"))
-           if p.suffix in (".eb", ".bytes")]
-    if not ebs:
-        raise SystemExit("no deployed .eb found")
-    report = None
-    for p in ebs:
-        data = p.read_bytes()
-        entries = discover(data)
-        eb = EbScript.from_bytes(data)
-        txids = {n: _talk_txid(data, eb, entries[n])
-                 for n in ("watchman", "captain", "bandit0", "bandit1")}
-        fb = build_behavior(entries, lay, txids)
-        cb = fb.compile()
-        p.write_bytes(fb.install(data, cb))
-        report = cb.report
-    REPORT.write_text(report + "\n", encoding="utf-8")
+    # the report (the ~ Flags watch map) from a dry compile of the same toml
+    import tomllib
+    raw = tomllib.loads(BENCH_TOML.read_text(encoding="utf-8"))
+    fb = BT.build(raw, npc_slots={n: i + 2 for i, (n, _g, _l) in enumerate(CAST)},
+                  npc_txids_by_name={n: 0 for n, _g, _l in CAST},
+                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)})
+    report = fb.compile().report
+    REPORT.write_text(report + "\n(entry slots + txids here are dry-run placeholders; "
+                      "the deployed build bound the real ones)\n", encoding="utf-8")
     print(f"\n{report}\n\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (layout probe-verified this round — every walk line sweeps ON-MESH):
-  ~ -> Warp -> {FIELD_ID}  (~ Reload picks up this redeploy; RELAUNCH only if first time)
-  1 BEFORE THE RAID: one soldier walks THE MONUMENT CIRCUIT (the big ring around
-    the central rotunda, dipping into the west court), the other a compact court
-    beat; every ~7s the shift clock flips and they TRADE routes. The old man
-    ambles around the market at a stroll; the watchman holds the south gate;
-    the captain the north-west keep; two Fangs camp south, dormant.
-  2 THE LEVER (at spawn): "Begin the raid" -> THE TWO LANES: the big Fang (6hp)
-    storms the short WEST lane through the gatehouse; the small Fang (4hp) swings
-    the long EAST lane around the monument — a SECOND WAVE (~30s behind).
-  3 THE ALARM: as they leave camp past the gate the watchman's line pops ONCE
-    (fixed — no more spam), then he falls back to the market (70). The old man
-    PANICS: bolts (80) south-west for the safehouse, right past your spawn.
-  4 THE BATTLE: the guards drop their routes, converge on the gatehouse at 65,
-    intercept, duel. A guard at 1 hp turns and FLEES mid-fight — to the market
-    (or the east nook if a bandit is camping the market). The wounded Fang that
-    breaks through draws the captain's war cry at the keep and dies to his
-    double-damage blade. Watch wave 2 arrive from the north-east afterwards.
-  5 AFTERMATH: no bandit alive -> the old man wanders back to the market; guards
-    above 1 hp resume their traded routes; 1-hp survivors shelter at the market.
-  6 ~ -> Reload resets everything (flags, HP, corpses, the shift clock, waves).
+PLAYTEST (rung 4: the SAME raid, now built from [behavior] TOML by `ff9mapkit build`
+— zero bench bytecode patching): ~ -> Reload field, then the rung-3 script:
+  patrol-shift ring trades -> lever -> two-lane march -> the one-time cry + panic ->
+  the gatehouse battle, 1-hp flees to the market -> the captain's stand -> aftermath.
+  If ANYTHING differs from round 3, that's a product-surface bug — report it.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

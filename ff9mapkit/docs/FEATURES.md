@@ -67,6 +67,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Dialogue choices (`[[choice]]`) — NPC or zone triggered, item/gil/flag effects | ✓ | [FORMAT](FORMAT.md) |
 | Gateways (round-trip doors, walk-out direction), ladders, jumps (`[[jump]]`, from-scratch `to=` hops) | ✓ | [FORMAT](FORMAT.md) |
 | Moving platforms / elevators — carried on verbatim forks, or authored declaratively (`[[platform]]`) | ✓ | [FORMAT](FORMAT.md) |
+| Behavior trees (`[behavior]`) — NPC AI compiled to field bytecode: patrols/shifts, chase, mutual combat, flee, alarms, wander; `behavior compile\|lint\|view` | ✓ | [BEHAVIOR](BEHAVIOR.md) |
 | Save points (`[[savepoint]]`) — the real moogle menu (Save / Tent / Mognet / Mog Shop / Switch party); save→reload works | ✓ | [SAVEPOINT](SAVEPOINT.md) |
 | Mognet: the save moogle joins FF9's real letter network as a new identity (`[savepoint.mognet]` — outbound, accepts, read-mail) | ✓ | [SAVEPOINT](SAVEPOINT.md) |
 | Random encounters (+ battle music, + after-battle reinit) | ✓ | [FORMAT](FORMAT.md) |

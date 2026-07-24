@@ -596,13 +596,13 @@ def _built(tmp_path, toml=_FIELD):
     probs = [x for x in build.validate(proj) if "mognet" in x.lower() or "savepoint" in x.lower()]
     assert not probs, probs
     ct = build.collect_text(proj)
-    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[10])
     return proj, ct, eb
 
 
 def test_build_ships_the_roster_and_the_three_row_menu(tmp_path, fake_roster):
     _proj, ct, _eb = _built(tmp_path)
-    mes, sp_txids = ct[0], ct[-1]
+    mes, sp_txids = ct[0], ct[10]
     assert mes.startswith("_[TXID=0][STRT=10,1][TBLE=")            # the roster IS entry 0
     roster_line = mes.split("\n\n")[0] if "\n\n" in mes else mes
     assert mes.count("Mogwai") >= 1
@@ -672,7 +672,7 @@ def test_built_field_moogle_runs_the_whole_network_act(tmp_path, fake_roster):
 def test_zone_region_carries_the_same_mognet_dispatch(tmp_path, fake_roster):
     _proj, ct, eb = _built(tmp_path)
     # both interact points (zone action + moogle talk) open the 3-row prompt: count its WindowSync
-    t = ct[-1][0]
+    t = ct[10][0]
     pat = bytes([0x1F, 0x00, 0x02, 0x08]) + int(t["prompt"]).to_bytes(2, "little")
     assert eb.count(pat) == 2
 
@@ -763,7 +763,7 @@ _LETTER_FIELD = _FIELD.replace(
 
 def test_build_ships_the_letter_and_the_display(tmp_path, fake_roster):
     _proj, ct, eb = _built(tmp_path, _LETTER_FIELD)
-    mes, sp_txids = ct[0], ct[-1]
+    mes, sp_txids = ct[0], ct[10]
     t = sp_txids[0]
     assert "letter55" in t
     entry = [ln for ln in mes.split("_[TXID=") if ln.startswith(str(t["letter55"]))][0]
@@ -821,7 +821,7 @@ def test_status_entry_texts_reference_the_loaded_value_slots():
 def test_built_status_entries_carry_the_stock_geometry(tmp_path, fake_roster):
     """The .mes must ship [STRT=<stock>][TAIL=LOL] on every status entry -- the text alone centers."""
     _proj, ct, _eb = _built(tmp_path)
-    mes, t = ct[0], ct[-1][0]
+    mes, t = ct[0], ct[10][0]
     for si, strt in enumerate(((100, 1), (160, 1), (160, 2), (160, 3))):
         entry = [ln for ln in mes.split("_[TXID=") if ln.startswith(str(t[f"status{si}"]))][0]
         assert f"[STRT={strt[0]},{strt[1]}]" in entry, f"status{si} lost its STRT"
@@ -860,7 +860,7 @@ def test_letter_display_yields_the_status_box_first():
 
 def test_built_field_shows_the_status_box(tmp_path, fake_roster):
     _proj, ct, eb = _built(tmp_path)
-    t = ct[-1][0]
+    t = ct[10][0]
     assert {"status0", "status1", "status2", "status3"} <= set(t)
     body = _moogle_talk_body(eb)
     # one held letter addressed elsewhere: the 1-letter status entry shows under the menus. This field
@@ -958,7 +958,7 @@ _ROWS_FIELD = _FIELD.replace(
 
 def test_built_six_row_menu_dispatches_every_row(tmp_path, fake_roster):
     _proj, ct, eb = _built(tmp_path, _ROWS_FIELD)
-    mes, t = ct[0], ct[-1][0]
+    mes, t = ct[0], ct[10][0]
     assert "[PCHC=6,5]" in mes                            # 6 rows, cancel last
     for label in ("Save", "Tent", "Mognet", "Mogshop", "Switch party members", "Cancel"):
         assert label in mes
@@ -1126,7 +1126,7 @@ _RM_FIELD = (
 
 def test_built_read_mail_text_ships_the_two_menus(tmp_path, fake_roster):
     _proj, ct, _eb = _built(tmp_path, _RM_FIELD)
-    mes, t = ct[0], ct[-1][0]
+    mes, t = ct[0], ct[10][0]
     assert {"menu_prompt", "read_prompt", "arrive", "letter55", "letter57",
             "read_rows_meta", "received_meta"} <= set(t)
     assert "[PCHM=3,2]" in mes and "Give Mogwai a letter" in mes and "Read mail" in mes
@@ -1141,7 +1141,7 @@ def test_built_read_mail_full_lifecycle(tmp_path, fake_roster):
     is STILL reachable in the same talk (cancel out of the submenu -> the offer -- the flow bug the
     naive accept>read priority chain would have had)."""
     _proj, ct, eb = _built(tmp_path, _RM_FIELD)
-    t = ct[-1][0]
+    t = ct[10][0]
     body = _moogle_talk_body(eb)
     # ---- visit 1: nothing known, flag clear -> the v1 give-offer path (decline it) ----
     wins = []
@@ -1257,7 +1257,7 @@ def test_give_offer_is_one_shot_through_the_submenu(tmp_path, fake_roster):
     """The review proved give_available_cond was removable from the submenu's trailing offer without
     a failure. Accept the give once; the offer must never come back."""
     _proj, ct, eb = _built(tmp_path, _RM_FIELD)
-    t = ct[-1][0]
+    t = ct[10][0]
     body = _moogle_talk_body(eb)
     G = bytearray(2048)
     G[8720 >> 3] |= 1 << (8720 & 7)                                # the arrival -> the submenu exists
@@ -1283,7 +1283,7 @@ def test_built_ungated_and_scenario_arrivals_with_bespoke_announce(tmp_path, fak
         'letter = "The bells rang twice today, kupo.", requires_scenario = 2500, '
         'announce = "A bell-stamped letter, kupo!" }]')
     _proj, ct, eb = _built(tmp_path, toml)
-    t = ct[-1][0]
+    t = ct[10][0]
     body = _moogle_talk_body(eb)
     wins = []
     G = run(body, choices=[1, 2, 1, 2], windows=wins)              # first open: 57 arrives, 58 waits
