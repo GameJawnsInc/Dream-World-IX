@@ -492,8 +492,11 @@ class _Ledger:
     def write_revert_script(self, out_dir: Path, name: str) -> Path:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        # repr()-inject the plan (the reverttmpl hardening class, 44fcf794): repr of a str is always
+        # a valid, fully-escaped Python literal, so no plan value can break out of the generated code
+        # (a raw triple-quoted splice dies on any value containing three quotes).
         plan = json.dumps(self.revert_plan(), indent=2)
-        script = _REVERT_TEMPLATE.replace("__PLAN__", plan)
+        script = _REVERT_TEMPLATE.replace("__PLAN__", repr(plan))
         specific = out_dir / f"revert_summon_{name}.py"
         fsutil.atomic_write_text(specific, script, encoding="utf-8", newline="\n")
         fsutil.atomic_write_text(out_dir / "revert_summon.py", script, encoding="utf-8", newline="\n")
@@ -509,7 +512,7 @@ Idempotent: safe to run more than once."""
 import json, shutil
 from pathlib import Path
 
-PLAN = json.loads(r"""__PLAN__""")
+PLAN = json.loads(__PLAN__)
 
 for dest, backup in PLAN["files"]:
     dest = Path(dest)

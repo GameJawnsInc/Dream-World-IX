@@ -356,3 +356,23 @@ def test_m1b_byte_identity_acceptance(tmp_path):
     assert not (ef084 / "FileList.txt").exists()
     assert not list(ef084.glob("*.sfxmodel"))
     assert not (mod / "StreamingAssets/Assets/Resources/Models/3/6200").exists()
+
+
+def test_revert_script_survives_hostile_plan_values(tmp_path):
+    """The reverttmpl hardening class (44fcf794): a plan value containing triple quotes or
+    backslash-quote soup must not break out of the generated revert script's code."""
+    from ff9mapkit.summons.deploy import _Ledger
+
+    led = _Ledger()
+    hostile = tmp_path / 'evil """ dir \\" x' / "victim.txt"
+    hostile.parent.mkdir(parents=True)
+    hostile.write_text("hi", encoding="utf-8")
+    led.record_created(hostile)
+    script_path = led.write_revert_script(tmp_path, "hostile")
+    src = script_path.read_text(encoding="utf-8")
+    compile(src, str(script_path), "exec")  # must be valid Python despite the hostile value
+    import json as _json
+    lit = src.split("PLAN = json.loads(", 1)[1]
+    # the injected literal is a repr'd str; eval of just that literal is safe + must round-trip
+    plan = _json.loads(eval(lit[: lit.rindex(")")]))
+    assert str(hostile) in [f for f, _ in plan["files"]]
