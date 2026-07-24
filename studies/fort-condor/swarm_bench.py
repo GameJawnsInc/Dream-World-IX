@@ -73,10 +73,17 @@ ATTACKER_MODEL, DEFENDER_MODEL, HERALD_MODEL = \
 # GLOB BYTES (bits 8816+ region; distinct from the 8800-8805 bits in byte 1100):
 HP_BYTES = [1102, 1103, 1104, 1105]         # attackerA, defenderA, attackerB, defenderB
 TIMER_BYTES = [1106, 1107, 1108, 1109]      # per-unit swing timers
+MIRROR_X = [1110, 1114, 1118, 1122]         # Int16 mirrors of each unit's live x (referee-fed)
+MIRROR_Z = [1112, 1116, 1120, 1124]         # ... and z (unit order = HP_BYTES order)
+TARGET_X = [1126, 1130]                     # Int16 walk targets fed to defender A / B
+TARGET_Z = [1128, 1132]
+STATE_BYTES = [1134, 1135]                  # per-LANE: 0 = maneuvering, 1 = fighting
 HP_PRESET = [3, 5, 5, 3]                    # lane A: defender wins; lane B: attacker breaches
 CONTACT_R = 150                             # fight range (the Hunt's battle radius was 300)
-ACQUIRE_R = 1500                            # defender aggro radius
+ACQUIRE_R = 700                             # defender aggro radius (small = fights stay in view)
 SWING_FRAMES = 30                           # ~1 damage/second
+FIGHT_TAG = 15                              # the added per-unit fight function (stock's redirect family)
+FIGHT_CENTER = (-1225, -827)                # owner-called visible town square (playtest 4)
 SKIRMISH_JSON = BENCH / "skirmish.json"
 
 
@@ -188,35 +195,28 @@ def set_byte_stmt(idx: int, value: int) -> bytes:
     return expr_stmt(f"Global.Byte[{idx}] const({value}) B_LET B_EXPR_END")
 
 
-def unit_loop_body(*, role: str, enemy_uid: int, my_hp: int, enemy_hp: int,
-                   my_timer: int, home: tuple[int, int], herald_txid: int = 0) -> bytes:
-    """The rung-2 unit state machine (attacker marches on `home`=goal / defender holds
-    `home`=post). SAFETY SHAPE (the player-ref eval law generalized to DEAD UIDS): every
-    B_PTR(enemy)/obj(enemy) evaluation sits STRUCTURALLY behind the enemy-HP>0 gate as a
-    separate statement + jump — never ANDAND'd (RPN has no short-circuit; both operands
-    would evaluate and a terminated uid casts/derefs to a crash). A dead unit's HP hits 0
-    one tick before its self-TerminateEntry, so a live peer's HP gate always wins the race."""
-    hx, hz = home
-    setup = (opcodes.encode(OP_SET_OBJECT_FLAGS, 7)
-             + opcodes.set_walk_speed(55 if role == "defender" else 40)
-             + opcodes.set_pathing(1)
-             + opcodes.set_walk_turn_speed(16))
-    # BARE Walk — no InitWalk. Engine truth (EventEngine.DoEventCode MOVE + CLRDIST +
-    # MoveToward): InitWalk sets actor.loopCount=255, which makes the NEXT Walk
-    # SYNCHRONOUS — stay() re-executes the Walk every frame until arrival AT THE TARGET,
-    # freezing the rest of the loop (rung-2 playtest 1: fighters walked into perfect
-    # overlap — arrival = the enemy's CENTER — then spun). A bare Walk executes ONE
-    # movement step and falls through, so the re-issued per-frame Walk keeps the whole
-    # state machine live: contact triggers at CONTACT_R BEFORE overlap, and stopping is
-    # free — fight mode just doesn't issue a Walk.
-    chase_enemy = opcodes.encode(OP_WALK,
-                                 exprasm.assemble(f"obj(uid={enemy_uid}).f[0] B_EXPR_END"),
-                                 exprasm.assemble(f"obj(uid={enemy_uid}).f[2] B_EXPR_END"),
-                                 arg_flags=0b11)
-    walk_home = opcodes.encode(OP_WALK, hx, hz)
-    fight = [
-        # face the enemy only on the swing tick — a per-frame TurnTowardObject on a
-        # near-coincident target flip-flops the angle (the observed rapid spinning)
+def _box_check(ax_var: str, az_var: str, bx_var: str, bz_var: str, r: int) -> bytes:
+    """One 0x05 statement: |a-b| < r on both axes, Chebyshev via two-sided compares on
+    GLOB mirrors (pure 16-bit math — no squares, no overflow, no object references)."""
+    return expr_stmt(
+        f"{ax_var} {bx_var} const({r}) B_MINUS B_GT "
+        f"{ax_var} {bx_var} const({r}) B_PLUS B_LT B_ANDAND "
+        f"{az_var} {bz_var} const({r}) B_MINUS B_GT B_ANDAND "
+        f"{az_var} {bz_var} const({r}) B_PLUS B_LT B_ANDAND B_EXPR_END")
+
+
+def fight_body(*, enemy_uid: int, my_hp: int, enemy_hp: int, my_timer: int) -> bytes:
+    """The added tag-15 FIGHT function — dispatched by the referee at level 4, preempting
+    the unit's blocked duty Walk (the stock talk-an-NPC preempt-and-resume shape). Loops
+    swing ticks until a death: mine = self-TerminateEntry; the enemy's = plain return
+    (the interrupted duty walk RESUMES — the winner walks on). Enemy references
+    (TurnTowardObject) sit behind the enemy-alive gate; a dead enemy exits first."""
+    return asm([
+        ("label", "top"),
+        expr_stmt(f"Global.Byte[{my_hp}] const(0) B_GT B_EXPR_END"),
+        (JMP_IFNOT, "die"),
+        expr_stmt(f"Global.Byte[{enemy_hp}] const(0) B_GT B_EXPR_END"),
+        (JMP_IFNOT, "out"),
         expr_stmt(f"Global.Byte[{my_timer}] Global.Byte[{my_timer}] const(1) B_PLUS "
                   f"B_LET B_EXPR_END"),
         expr_stmt(f"Global.Byte[{my_timer}] const({SWING_FRAMES}) B_LT B_EXPR_END"),
@@ -225,53 +225,121 @@ def unit_loop_body(*, role: str, enemy_uid: int, my_hp: int, enemy_hp: int,
         opcodes.turn_toward_object(enemy_uid, 16),
         expr_stmt(f"Global.Byte[{enemy_hp}] Global.Byte[{enemy_hp}] const(1) B_MINUS "
                   f"B_LET B_EXPR_END"),
-        (JMP, "wait"),
-    ]
-    blocks = [
+        ("label", "wait"),
+        opcodes.wait(1),
+        (JMP, "top"),
+        ("label", "die"),
+        opcodes.terminate_entry(255),
+        ("label", "out"),
+        opcodes.RETURN,
+    ])
+
+
+def attacker_duty_body(goal: tuple[int, int], herald_txid: int) -> bytes:
+    """Tag-1 duty: ONE smooth synchronous march on the goal (InitWalk arms stay() — the
+    engine's own continuous walk, live for preemption by the referee's level-4 fight
+    dispatch and resumed after a won fight). Post-Walk code IS the arrival: the breach."""
+    gx, gz = goal
+    return asm([
         ("label", "top"),
-        setup,
+        opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(40)
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
         expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
         (JMP_IFNOT, "wait"),
-        expr_stmt(f"Global.Byte[{my_hp}] const(0) B_GT B_EXPR_END"),
-        (JMP_IFNOT, "death"),
-        expr_stmt(f"Global.Byte[{enemy_hp}] const(0) B_GT B_EXPR_END"),
-        (JMP_IFNOT, "free"),                               # enemy dead -> free movement
-        expr_stmt(f"B_PTR({enemy_uid}) B_DISTANCEA const({CONTACT_R}) B_LT B_EXPR_END"),
-        (JMP_IFNOT, "approach"),
-        *fight,
-        ("label", "approach"),                             # enemy ALIVE, out of contact
+        opcodes.init_walk() + opcodes.encode(OP_WALK, gx, gz),
+        expr_stmt(f"Global.Bit[{BREACH_FLAG}] B_EXPR_END"),   # arrived: breach (once)
+        (JMP_IF, "wait"),
+        expr_stmt(f"Global.Bit[{BREACH_FLAG}] const(1) B_LET B_EXPR_END"),
+        opcodes.window_async(0, 128, herald_txid),
+        ("label", "wait"),
+        opcodes.wait(1),
+        (JMP, "top"),
+        opcodes.RETURN,
+    ])
+
+
+def defender_duty_body(lane: int) -> bytes:
+    """Tag-1 duty: ONE smooth synchronous walk on a REFEREE-FED GLOB target (post or the
+    live enemy position — stay() re-reads the expression operands every frame, so the
+    chase retargets live with the engine's own walk). The GLOB indirection is the
+    dead-uid firewall: this function never references the enemy object at all."""
+    tx, tz = TARGET_X[lane], TARGET_Z[lane]
+    return asm([
+        ("label", "top"),
+        opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(55)
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
+        expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
+        (JMP_IFNOT, "wait"),
+        opcodes.init_walk()
+        + opcodes.encode(OP_WALK,
+                         exprasm.assemble(f"Global.Int16[{tx}] B_EXPR_END"),
+                         exprasm.assemble(f"Global.Int16[{tz}] B_EXPR_END"),
+                         arg_flags=0b11),
+        ("label", "wait"),
+        opcodes.wait(1),
+        (JMP, "top"),
+        opcodes.RETURN,
+    ])
+
+
+def referee_body(attackers: list[int], defenders: list[int],
+                 posts: list[tuple[int, int]]) -> bytes:
+    """The conductor: per frame (armed only) — mirror living units' positions into GLOB
+    Int16s (HP-gated obj() reads, the only place unit objects are referenced), dispatch
+    both lane units into their tag-15 FIGHT at contact (RunScriptAsync level 4 — field
+    574's exact walking-actor redirect idiom), reset the lane state when a fight ends,
+    and feed each defender's walk target (enemy mirror inside ACQUIRE_R, else its post)."""
+    uids = [attackers[0], defenders[0], attackers[1], defenders[1]]
+    blocks: list = [
+        ("label", "top"),
+        expr_stmt(f"Global.Bit[{SKIRMISH_FLAG}] B_EXPR_END"),
+        (JMP_IFNOT, "wait"),
     ]
-    if role == "defender":
+    for u, uid in enumerate(uids):                          # position mirrors
         blocks += [
-            expr_stmt(f"B_PTR({enemy_uid}) B_DISTANCEA const({ACQUIRE_R}) B_LT B_EXPR_END"),
-            (JMP_IFNOT, "home"),
-            chase_enemy,
-            (JMP, "wait"),
-            ("label", "free"),
-            ("label", "home"),
-            walk_home,
-            (JMP, "wait"),
+            expr_stmt(f"Global.Byte[{HP_BYTES[u]}] const(0) B_GT B_EXPR_END"),
+            (JMP_IFNOT, f"skip_mirror{u}"),
+            expr_stmt(f"Global.Int16[{MIRROR_X[u]}] obj(uid={uid}).f[0] B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{MIRROR_Z[u]}] obj(uid={uid}).f[2] B_LET B_EXPR_END"),
+            ("label", f"skip_mirror{u}"),
         ]
-    else:                                                  # attacker: march on the goal
-        gx0, gx1, gz0, gz1 = hx - CONTACT_R, hx + CONTACT_R, hz - CONTACT_R, hz + CONTACT_R
-        blocks += [
-            ("label", "free"),
-            expr_stmt(f"obj(uid=255).f[0] const({gx0}) B_GT obj(uid=255).f[0] const({gx1}) "
-                      f"B_LT B_ANDAND obj(uid=255).f[2] const({gz0}) B_GT B_ANDAND "
-                      f"obj(uid=255).f[2] const({gz1}) B_LT B_ANDAND B_EXPR_END"),
-            (JMP_IFNOT, "march"),
-            expr_stmt(f"Global.Bit[{BREACH_FLAG}] B_EXPR_END"),      # at the goal: breach once
-            (JMP_IF, "wait"),
-            expr_stmt(f"Global.Bit[{BREACH_FLAG}] const(1) B_LET B_EXPR_END"),
-            opcodes.window_async(0, 128, herald_txid),
-            (JMP, "wait"),
-            ("label", "march"),
-            walk_home,
-            (JMP, "wait"),
+    for lane in (0, 1):
+        a, d = lane * 2, lane * 2 + 1                       # unit indices in HP/mirror order
+        ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
+        dx, dz = f"Global.Int16[{MIRROR_X[d]}]", f"Global.Int16[{MIRROR_Z[d]}]"
+        alive_a = f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT"
+        alive_d = f"Global.Byte[{HP_BYTES[d]}] const(0) B_GT"
+        blocks += [                                         # contact -> dispatch the fight
+            expr_stmt(f"Global.Byte[{STATE_BYTES[lane]}] const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"endfight{lane}"),
+            expr_stmt(f"{alive_a} {alive_d} B_ANDAND B_EXPR_END"),
+            (JMP_IFNOT, f"feed{lane}"),
+            _box_check(ax, az, dx, dz, CONTACT_R),
+            (JMP_IFNOT, f"feed{lane}"),
+            set_byte_stmt(STATE_BYTES[lane], 1),
+            opcodes.run_script_async(4, attackers[lane], FIGHT_TAG),
+            opcodes.run_script_async(4, defenders[lane], FIGHT_TAG),
+            (JMP, f"feed{lane}"),
+            ("label", f"endfight{lane}"),                   # state==1: fight over on a death
+            expr_stmt(f"{alive_a} {alive_d} B_ANDAND B_EXPR_END"),
+            (JMP_IF, f"feed{lane}"),
+            set_byte_stmt(STATE_BYTES[lane], 0),
+            ("label", f"feed{lane}"),                       # defender walk-target feed
+            expr_stmt(f"{alive_d} B_EXPR_END"),
+            (JMP_IFNOT, f"done{lane}"),
+            expr_stmt(f"{alive_a} B_EXPR_END"),
+            (JMP_IFNOT, f"post{lane}"),
+            _box_check(ax, az, dx, dz, ACQUIRE_R),
+            (JMP_IFNOT, f"post{lane}"),
+            expr_stmt(f"Global.Int16[{TARGET_X[lane]}] {ax} B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] {az} B_LET B_EXPR_END"),
+            (JMP, f"done{lane}"),
+            ("label", f"post{lane}"),
+            expr_stmt(f"Global.Int16[{TARGET_X[lane]}] const({posts[lane][0]}) B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] const({posts[lane][1]}) B_LET B_EXPR_END"),
+            ("label", f"done{lane}"),
         ]
     blocks += [
-        ("label", "death"),
-        opcodes.terminate_entry(255),
         ("label", "wait"),
         opcodes.wait(1),
         (JMP, "top"),
@@ -280,12 +348,18 @@ def unit_loop_body(*, role: str, enemy_uid: int, my_hp: int, enemy_hp: int,
     return asm(blocks)
 
 
-def main_init_prepend() -> bytes:
-    """Bench reset (tier + skirmish flags, HP presets, swing timers — so ~ -> Reload field
-    is the full reset) + the generic-timer probe (the Hunt's exact start triplet)."""
+def main_init_prepend(posts: list[tuple[int, int]]) -> bytes:
+    """Bench reset (tier + skirmish flags, HP presets, swing timers, lane states, and the
+    defender walk targets pre-seeded with their posts — so ~ -> Reload field is the full
+    reset) + the generic-timer probe (the Hunt's exact start triplet)."""
     out = b"".join(clear_flag_stmt(f) for f in TIER_FLAGS + [SKIRMISH_FLAG, BREACH_FLAG])
     out += b"".join(set_byte_stmt(b, v) for b, v in zip(HP_BYTES, HP_PRESET))
-    out += b"".join(set_byte_stmt(b, 0) for b in TIMER_BYTES)
+    out += b"".join(set_byte_stmt(b, 0) for b in TIMER_BYTES + STATE_BYTES)
+    for lane in (0, 1):
+        out += expr_stmt(f"Global.Int16[{TARGET_X[lane]}] const({posts[lane][0]}) "
+                         f"B_LET B_EXPR_END")
+        out += expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] const({posts[lane][1]}) "
+                         f"B_LET B_EXPR_END")
     out += opcodes.encode(OP_CHANGE_TIMER, TIMER_SECONDS)
     out += opcodes.encode(OP_SHOW_TIMER, 1)
     out += opcodes.encode(OP_RUN_TIMER, 1)
@@ -335,14 +409,16 @@ def nearest(pts, x, z):
 
 
 def skirmish_layout(pts, spawn) -> dict:
-    """Lane geometry from the on-mesh lattice: attackers at the far north (west + east),
-    the goal near the player spawn, each defender posted ~55% along its lane."""
-    goal = nearest(pts, spawn[0] + 400, spawn[1] + 600)
+    """Lane geometry from the on-mesh lattice. Playtest 4: the action must play out in
+    the VISIBLE town square around FIGHT_CENTER (owner-supplied coords) — defenders post
+    flanking it (fights happen at/near the posts, since ACQUIRE_R is small), the goal
+    sits just south of it, attackers still march in from the far north."""
+    fcx, fcz = FIGHT_CENTER
+    posts = [nearest(pts, fcx - 400, fcz + 150), nearest(pts, fcx + 400, fcz + 150)]
+    goal = nearest(pts, fcx, fcz - 900)
     zmax = max(p[1] for p in pts)
     north = [p for p in pts if p[1] >= zmax - 1000] or sorted(pts, key=lambda p: -p[1])[:2]
     atk = [min(north, key=lambda p: p[0]), max(north, key=lambda p: p[0])]
-    posts = [nearest(pts, a[0] + 0.55 * (goal[0] - a[0]), a[1] + 0.55 * (goal[1] - a[1]))
-             for a in atk]
     herald = nearest(pts, goal[0] + 350, goal[1])
     return {"attackers": atk, "defenders": posts, "goal": list(goal), "herald": list(herald)}
 
@@ -454,19 +530,28 @@ def patch_eb(data: bytes) -> bytes:
     out = bytes(data)
     for i, idx in enumerate(chaser_entries):
         out = eb_edit.replace_function_body(out, idx, 1, chase_loop_body(i // BAND))
-    # rung 2: unit uid == entry index (the stock convention: SetObjectSize(16,...) inside
-    # entry 16; Entry17's ObjectUID_24 = entry 24) — in-game verified by the units engaging.
+    # rung 2 v3 (the REFEREE architecture): unit uid == entry index (stock convention,
+    # in-game verified playtest 3). Units get smooth BLOCKED duty walks (tag 1) + an
+    # added tag-15 fight function; one seated referee code entry owns all cross-unit
+    # logic (mirrors, contact dispatch at level 4, defender target feed).
     for lane in (0, 1):
         a_idx, d_idx = attackers[lane], defenders[lane]
         a_hp, d_hp = HP_BYTES[lane * 2], HP_BYTES[lane * 2 + 1]
-        out = eb_edit.replace_function_body(out, a_idx, 1, unit_loop_body(
-            role="attacker", enemy_uid=d_idx, my_hp=a_hp, enemy_hp=d_hp,
-            my_timer=TIMER_BYTES[lane * 2], home=tuple(lay["goal"]),
-            herald_txid=herald_txid))
-        out = eb_edit.replace_function_body(out, d_idx, 1, unit_loop_body(
-            role="defender", enemy_uid=a_idx, my_hp=d_hp, enemy_hp=a_hp,
-            my_timer=TIMER_BYTES[lane * 2 + 1], home=tuple(lay["defenders"][lane])))
-    out = eb_edit.insert_in_function(out, 0, 0, 0, main_init_prepend())
+        out = eb_edit.replace_function_body(
+            out, a_idx, 1, attacker_duty_body(tuple(lay["goal"]), herald_txid))
+        out = eb_edit.replace_function_body(out, d_idx, 1, defender_duty_body(lane))
+        out = eb_edit.add_function(out, a_idx, FIGHT_TAG, fight_body(
+            enemy_uid=d_idx, my_hp=a_hp, enemy_hp=d_hp, my_timer=TIMER_BYTES[lane * 2]))
+        out = eb_edit.add_function(out, d_idx, FIGHT_TAG, fight_body(
+            enemy_uid=a_idx, my_hp=d_hp, enemy_hp=a_hp, my_timer=TIMER_BYTES[lane * 2 + 1]))
+    from ff9mapkit.content import object as _object
+    ref_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4)
+                 + referee_body(attackers, defenders,
+                                [tuple(p) for p in lay["defenders"]]))
+    out, ref_slot = _object.seat_entry(out, ref_entry)
+    out = eb_edit.activate_block(out, opcodes.init_code(ref_slot, 0))
+    out = eb_edit.insert_in_function(out, 0, 0, 0,
+                                     main_init_prepend([tuple(p) for p in lay["defenders"]]))
     fresh = [p for p in eblint.lint_eb(out)
              if getattr(p, "severity", "error") == "error" and str(p) not in baseline]
     if fresh:

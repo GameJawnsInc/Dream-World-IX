@@ -66,6 +66,26 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   dead object. Assumes unit uid == entry index (stock convention) — the units engaging
   IS the in-game verification. Measure: defenders intercept? both fight outcomes? the
   lane-B breach popup? chasers + skirmish coexist? ~ Reload = full reset (HP re-preset).
+  **Playtest 4 (same day): mechanism ★ PROVEN** ("works exactly as described, both
+  outcomes and the breach popup" — uid==entry-index confirmed) but melee READ wrong:
+  units overlapped + spun. Engine decode → **THE SYNC-WALK LAW**: `InitWalk` sets
+  `loopCount=255` making the next Walk SYNCHRONOUS — `stay()` re-executes it each frame
+  until arrival AT THE TARGET (freezing the unit's own state machine; live-expr target =
+  arrival at the enemy's CENTER = the overlap), while a BARE Walk executes ONE step and
+  falls through (v2 tried per-frame bare Walks → per-frame restart JITTER, playtest 5).
+  **v3 = THE REFEREE ARCHITECTURE (the stock shape all along):** units walk SMOOTHLY in
+  blocked synchronous Walks (attacker: goal; defender: a GLOB-target the referee feeds —
+  stay() re-reads expression operands per frame = live chase with the engine's own walk,
+  and the GLOB indirection is the dead-uid firewall); ONE seated referee code entry owns
+  all cross-unit logic per frame — HP-gated position mirrors into GLOB Int16s, Chebyshev
+  contact boxes on pure GLOB math (no squares/overflow), fight dispatch via
+  `RunScriptAsync(4, uid, 15)` (field 574's exact walking-actor redirect idiom) into an
+  added tag-15 fight function that self-exits on a death (mine → TerminateEntry; enemy's
+  → return, and THE INTERRUPTED DUTY WALK RESUMES — the stock talk-an-NPC
+  preempt-and-resume shape), and the defender target feed (enemy mirror inside
+  ACQUIRE_R=700, else post). Fights staged at the owner-called visible square
+  (FIGHT_CENTER (-1225,-827); posts flank it, goal south). ⚠ playtest 6 pending
+  (~ Reload): smooth marches? ranged-stop melee? winner resumes? fights in view?
 - **Rung 3 — PLACEMENT + ECONOMY.** Walk-and-place: confirm at a spot → unit-type choice
   menu (dialogue choices) → gil spend → runtime `InitObject` from a pre-authored pool
   (Ice Cavern 303 is the stock runtime-spawn precedent; entries are fixed at build → pool
