@@ -124,7 +124,10 @@ runtime tree switching beyond blackboard-driven branches.
   regression-purity bug: attacker militia-duels must gate on the militia flag or the
   march stops to beat an idle pacifist. Verdict = identical staging/outcomes to
   fort-condor playtest 6 ⇒ the compiler subsumes the referee and fort-condor can
-  migrate. RELAUNCH → ~ → Warp → 30411.
+  migrate. **★ PLAYTEST PROVEN (2026-07-24): "both variants work exactly as
+  described" — RUNG 2 CLOSED. THE COMPILER OFFICIALLY SUBSUMES THE HAND-ROLLED
+  REFEREE**; fort-condor's migration gate is OPEN, and mutual N×M combat (the condor
+  rung-3 debt) ships as a free property of trees.
 - **Rung 3 — THE SHOWCASE.** A scene only the system makes writable: e.g. guards with
   patrol shifts + an alarm behavior that regroups them + flee-at-low-HP + a captain
   rallying — layered, interruptible, readable.
