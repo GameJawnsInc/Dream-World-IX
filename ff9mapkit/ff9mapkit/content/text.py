@@ -22,6 +22,13 @@ import re
 # A safe starting index for mod-added dialogue (base field blocks don't use these).
 DEFAULT_BASE_TXID = 500
 
+# The DEFAULT talk line for a dialogue-less ``[[npc]]`` (the classic FF9 silent villager). A dialogue-less
+# NPC still keeps a talk func, and its ``WindowSync`` needs a txid the NPC OWNS: pointing it at the raw
+# allocation base (:data:`DEFAULT_BASE_TXID`) rendered whichever entry allocated that txid first (the
+# fort-condor swarm bench: 40 silent NPCs all opened the [[choice]] prompt, dead menu rows included) --
+# so the build allocates each one its own line of this through the normal text channel.
+DEFAULT_SILENT_TALK = "..."
+
 # The dialogue window's TAIL — the little pointer that aims at the speaker (FF9's "who's talking"
 # cue; there's no separate name-box). Codes map to Dialog.TailPosition (FFIXTextTag.GetTailPosition):
 #   UPR/UPL upper-right/left · LOR/LOL lower-right/left · UPC/LOC upper/lower-center

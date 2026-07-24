@@ -100,6 +100,56 @@ def test_collect_text_speaker_on_event_and_cutscene():
     assert ev_txids and cs_txids                                  # both got txids
 
 
+# --- the dialogue-less NPC default talk (the fort-condor swarm bug) ----------------------
+def test_dialogueless_npc_owns_its_txid_not_the_choice_prompt():
+    # THE FORT-CONDOR SWARM BUG: a dialogue-less [[npc]]'s default talk was WindowSync(1,128,500) --
+    # 500 is the mes allocation BASE, not a line the NPC owns. The [[choice]] prompt allocated txid 500
+    # first, so talking to every silent NPC opened the choice menu, dead rows included, with no
+    # GetChoose dispatch behind them. The default talk now allocates its OWN silent line.
+    raw = {"npc": [{"name": "Swarm", "pos": [0, -100]}],           # no dialogue, no choice attached
+           "choice": [{"zone": [[0, 0]] * 4, "prompt": "Which way?",
+                       "options": [{"text": "Left"}, {"text": "Right"}]}]}
+    body, npc_txids, _, _, choice_txids, _, _, _, _, _, _ = build.collect_text(_Stub(raw))
+    assert 0 in npc_txids                                          # the silent NPC owns a line now
+    assert npc_txids[0] != choice_txids[0]["prompt"]               # ...distinct from the choice prompt
+    assert f"[TXID={npc_txids[0]}]" in body                        # and the line actually ships
+    assert text.DEFAULT_SILENT_TALK in body
+    # the silent line is added LAST: the choice prompt keeps its old txid (500), so a field
+    # without a silent NPC keeps the previous layout byte-identical
+    assert choice_txids[0]["prompt"] == 500 and npc_txids[0] > choice_txids[0]["prompt"]
+
+
+def test_silent_default_only_for_npcs_that_keep_the_default_talk():
+    # dialogue, an attached [[choice]], opens_shop, and an explicit text_id all opt out of the silent
+    # default line -- so every existing field that uses only those stays byte-identical.
+    raw = {"npc": [{"name": "Talker", "dialogue": "Hi."},
+                   {"name": "Menu"},                               # choice-attached: talk IS the menu
+                   {"name": "Shop", "opens_shop": 0},              # talk -> Menu(2, id)
+                   {"name": "Donor", "text_id": 42}],              # author-directed txid (donor text)
+           "choice": [{"npc": "Menu", "prompt": "?", "options": [{"text": "A"}]}]}
+    body, npc_txids, *_ = build.collect_text(_Stub(raw))
+    assert npc_txids == {0: 500}                                   # only the voiced NPC allocates
+    assert text.DEFAULT_SILENT_TALK not in body
+
+
+def test_verbatim_silent_npc_rides_the_appended_channel_in_lockstep(tmp_path):
+    # the same bug on the verbatim path fell back to txid 500 -- INSIDE the donor's own .mes band (real
+    # donor text reaches 863), rendering a random donor line. The silent line now rides the appended-text
+    # channel AFTER the voiced block (voiced txids stay byte-stable), and every downstream appender's
+    # base counts it (no txid overlap).
+    raw = {"npc": [{"name": "Silent", "pos": [0, 0]},
+                   {"name": "V", "pos": [1, 1], "dialogue": "Hi."}],
+           "event": [{"name": "E", "zone": [[0, 0]] * 4, "message": "Found it."}]}
+    proj = build.FieldProject(raw, tmp_path)
+    npc_txids, npc_sfx = build._verbatim_npc_messages(proj, ["us"])
+    ev_txids, _ = build._verbatim_event_messages(proj, ["us"])
+    assert set(npc_txids) == {0, 1}
+    assert npc_txids[1] == 1000                        # the voiced NPC keeps the old base (byte-stable)
+    assert npc_txids[0] == 1001                        # the silent line appends AFTER the voiced block
+    assert text.DEFAULT_SILENT_TALK in npc_sfx["us"]
+    assert set(ev_txids.values()).isdisjoint(npc_txids.values())   # the count stayed in lockstep
+
+
 def test_invalid_tail_code_is_rejected(tmp_path):
     from ff9mapkit.build import FieldProject, validate
     p = tmp_path / "f.field.toml"
