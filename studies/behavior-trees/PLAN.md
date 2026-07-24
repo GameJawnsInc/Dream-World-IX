@@ -194,7 +194,9 @@ runtime tree switching beyond blackboard-driven branches.
   tests — the market sat on one); probe ROUTES, not just points. Bench lattice is
   clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. **Round 3 ★ PROVEN**
   ("playtest good — the raid plays out as described now").
-- **Rung 4 — ★ BUILT (2026-07-24), ⚠ the parity playtest pending: PRODUCTIZE.**
+- **Rung 4 — ★ PLAYTEST PROVEN (2026-07-24, "parity check passed"): PRODUCTIZE.**
+  The TOML-built 30412 plays identically to the rung-3 proof — the product surface
+  reproduces the showcase exactly. THE LADDER IS COMPLETE (rungs 0-4 all ★).
   The `[behavior]` TOML surface (`content/behaviortoml.py`): `[[behavior.unit]]`
   binds to a named `[[npc]]`; PRIORITY-ordered `[[behavior.unit.branch]]` rows
   (`when` = verb-keyed condition dicts, `do` = one action verb + options,
