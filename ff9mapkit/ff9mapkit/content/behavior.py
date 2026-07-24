@@ -235,6 +235,16 @@ class Die(Action):
     """Clear my active flag (mirrors stop — the dead-uid firewall), then TerminateEntry."""
 
 
+@dataclass
+class Announce(Action):
+    """Open a dialogue window ONCE per engagement (a breach popup, a war cry). The body
+    shows the window then idles while selected — re-dispatch (and window spam) can't
+    happen until the tree deselects and later re-selects the branch; wrap in Once for
+    a once-ever announcement."""
+    txid: int
+    window: int = 0
+
+
 # ------------------------------------------------------------------ unit spec
 @dataclass
 class UnitSpec:
@@ -362,6 +372,25 @@ class FieldBehavior:
 
     def flag(self, name: str) -> Cond:
         return Cond(f"Global.Bit[{self.bb.flag(name)}]", _trusted=True)
+
+    def any_flag(self, *names: str) -> Cond:
+        toks = []
+        for i, n in enumerate(names):
+            toks.append(f"Global.Bit[{self.bb.flag(n)}]")
+            if i:
+                toks.append("B_OROR")
+        return Cond(" ".join(toks), _trusted=True)
+
+    def public_flag(self, name: str) -> int:
+        """Allocate (or fetch) a flag meant to be SET FROM OUTSIDE the compiled system —
+        a kit `[[choice]]` lever row's `set_flag`, a gateway gate. It joins the
+        Main_Init reset (so ~ Reload clears it) and its INDEX is returned for the
+        external author. Deterministic across gen/deploy as long as the FieldBehavior
+        is constructed identically (same units, same tree-build order)."""
+        idx = self.bb.flag(name)
+        if idx not in self._reset_flags:
+            self._reset_flags.append(idx)
+        return idx
 
     def raw(self, text: str, *, unsafe_ok: bool = False) -> Cond:
         return Cond(text, _trusted=unsafe_ok)
@@ -741,6 +770,13 @@ class FieldBehavior:
                 opcodes.terminate_entry(255),
                 opcodes.RETURN,
             ])
+        if isinstance(a, Announce):
+            return asm(head[:1] + [opcodes.window_async(a.window, 128, int(a.txid))]
+                       + [label("loop"),
+                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          (JMP_IFNOT, "out"),
+                          opcodes.wait(1), (JMP, "loop"),
+                          label("out"), _set_byte(run, 0), opcodes.RETURN])
         if isinstance(a, SwingAt):
             self._check_unit(a.target)
             if a.target == PLAYER:

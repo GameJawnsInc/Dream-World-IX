@@ -111,9 +111,20 @@ runtime tree switching beyond blackboard-driven branches.
   (blackboard map + action ids = the ~ Flags live trace) auto-saves to the bench dir.
   RELAUNCH → ~ → Warp → 30410; ~ Reload = the full reset. Revert:
   `tools/scroll_out/revert_deploy_30410.py`.
-- **Rung 2 — THE REGRESSION PROOF.** Re-express the fort-condor skirmish (lanes, duels,
-  recruits, breach) as trees; identical in-game behavior = the compiler subsumes the
-  hand-rolled referee. Fort-condor migrates here if (and only if) this passes.
+- **Rung 2 — BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending: THE REGRESSION
+  PROOF.** `btwar_bench.py` → field **30411** ("BTWAR"): the fort-condor skirmish
+  re-expressed ENTIRELY as trees — 2 Fang attackers (hp 3/5) march a goal, 2 soldier
+  defenders (hp 5/3) acquire/intercept/duel, lane A defender wins, lane B attacker
+  breaches (a sticky-Once `Announce` of the herald's scraped txid), lever-armed via
+  `public_flag` rows (+ variant 2: two MILITIA soldiers with MUTUAL combat — the
+  fort-condor rung-3 one-sided-harass debt closed by trees for free; the beast dies
+  before the gate, no breach). New compiler surface: `Announce` (show-once-idle-while-
+  selected dispatch body), `any_flag`, `public_flag` (externally-set flags that join
+  the Main_Init reset; gen/deploy-deterministic allocation). Review caught the
+  regression-purity bug: attacker militia-duels must gate on the militia flag or the
+  march stops to beat an idle pacifist. Verdict = identical staging/outcomes to
+  fort-condor playtest 6 ⇒ the compiler subsumes the referee and fort-condor can
+  migrate. RELAUNCH → ~ → Warp → 30411.
 - **Rung 3 — THE SHOWCASE.** A scene only the system makes writable: e.g. guards with
   patrol shifts + an alarm behavior that regroups them + flee-at-low-HP + a captain
   rallying — layered, interruptible, readable.
