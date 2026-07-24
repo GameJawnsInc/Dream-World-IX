@@ -71,6 +71,8 @@ def test_reference_compiles_and_verifies():
     assert len(cb.action_funcs["beast"]) == 3          # SwingAt + Die + speed nudge
     assert len(cb.action_funcs["guard"]) == 1          # feeds only -> just the nudge
     assert "guard" in cb.report and "blackboard" in cb.report
+    # the staged latch's existence source (set by the player Init at install)
+    assert "player.bound" in cb.report
 
 
 def test_determinism_and_golden_stability():
