@@ -28,6 +28,11 @@ while you work (to judge silhouette/scale, not to copy its geometry), also pull 
 ff9mapkit summon-export ef227.bytes --out C:/gd/SCRATCH/summon-transplant/bahamut_full.glb --anims all
 ```
 
+That one is **textured**: the creature's own texture pages and palettes are decoded and embedded as
+one PNG per material part (Bahamut: 6), so what opens in Blender is the dragon as the game draws it
+— useful for judging your own art against the donor's. Pass `--no-textures` for geometry + rig only.
+The decoded pixels are stock content like the rest of the export: same local-only rule, no `--force`.
+
 ## 2. Skin your mesh in Blender
 
 Open `bahamut_rig.glb`. Skin your mesh onto its armature. Three rules carry the whole transplant;

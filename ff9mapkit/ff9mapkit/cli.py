@@ -1618,7 +1618,8 @@ def _cmd_summon_export(args: argparse.Namespace) -> int:
     out = args.out or str(sx.default_out(args.ef))
     try:
         man = sx.export_summon_glb(args.ef, out, geo=geo, geo_id=args.id, anims=args.anims,
-                                   scale=args.scale, rest=args.rest, fps=args.fps)
+                                   scale=args.scale, rest=args.rest, fps=args.fps,
+                                   textures=not args.no_textures)
     except (sx.SummonExportError, RuntimeError, FileNotFoundError, OSError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1626,6 +1627,10 @@ def _cmd_summon_export(args: argparse.Namespace) -> int:
     print(f"exported {man['geo']} -> {man['path']}")
     print(f"  {man['bones']} bones / {cr['meshes']} mesh part(s) / {man['verts']} verts / "
           f"rest={man['rest']} / clips: {len(man['clip_frames'])} {man['clip_frames'] or '(none)'}")
+    print(f"  textures: {man['textures']} page(s) decoded"
+          if cr.get("textured") else "  textures: none (untextured export)")
+    for w in man.get("warnings") or []:
+        print(f"  ! {w}")
     print("LOCAL-ONLY by design: a stock summon export is Square-Enix content -- it stays under "
           f"{sx.DEFAULT_OUT_DIR} (never the repo / a mod folder / the install).")
     print("Open in Blender: File > Import > glTF 2.0 (rigged; switch to Animation + pick an Action to scrub "
@@ -5778,6 +5783,11 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--fps", type=float, default=15.0,
                     help="clip playback rate for Blender preview (default 15; a preview knob, not a measured "
                          "tick -- topology/skeleton are unaffected)")
+    se.add_argument("--no-textures", action="store_true",
+                    help="skip the texture decode (geometry + rig + clips only). Textures are ON by default: "
+                         "the creature's id-4 texture pages + CLUTs are decoded to one RGBA PNG per material "
+                         "part and embedded in the .glb. A creature whose texture block is not the "
+                         "documented 8bpp layout falls back to untextured on its own, with a warning")
     se.add_argument("--geo", default=None, help="GEO name to stamp (default: SUMMON_<ef-stem>)")
     se.add_argument("--id", type=int, default=0, help="geo id to stamp in the manifest (default 0)")
     se.set_defaults(func=_cmd_summon_export)

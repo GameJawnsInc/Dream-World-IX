@@ -13,12 +13,15 @@ Modules:
     and the motion-clip payload offsets.
   * ``motion``    -- the motion-clip decoder (12-bit coarse+fine Euler) + the exact psyq rotation math
     (``build_rotation`` and its closed-form inverse ``decompose``), plus a self-validating entry point.
+  * ``texture``   -- the id-4 texture decode: the per-part 128x128 8bpp pages + their 256-entry BGR555
+    CLUT rows, and the UV V-offset bake that makes a pre-bake pool entry address the decoded pixels.
   * ``build``     -- the Model-struct adapter: turns a decoded ``Geom`` + motion clips into the exact dict
     shapes ``ff9mapkit.models.gltf``/``fbx_skin`` consume (rigid one-bone-per-vertex weights, bind-pose
-    verts baked via forward kinematics, dense per-frame rotation/root-translation clip curves).
+    verts baked via forward kinematics, dense per-frame rotation/root-translation clip curves, and
+    per-face-per-part materials when the texture pages are supplied).
 
-All three are pure (no I/O at import) and safe to import always.
+All four are pure (no I/O at import) and safe to import always.
 """
 from __future__ import annotations
 
-from . import build, container, motion  # noqa: F401
+from . import build, container, motion, texture  # noqa: F401

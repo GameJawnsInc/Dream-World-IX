@@ -29,11 +29,11 @@ from typing import List, Optional, Tuple
 from .. import config
 from ..models import gltf as _gltf
 from ..models._gltf_io import GltfBuffer
-from . import build, container, motion
+from . import build, container, motion, texture
 
 __all__ = [
     "SummonExportError", "DEFAULT_OUT_DIR", "DEFAULT_SCALE", "DEFAULT_FPS",
-    "assert_local_only", "default_out",
+    "assert_local_only", "default_out", "resolve_textures",
     "export_summon_glb", "export_rig_ref",
 ]
 
@@ -135,6 +135,24 @@ def _rest_angles(blob: bytes, g: "container.Geom", mp: "container.ModelPackage",
     raise SummonExportError(f"rest must be 'identity' or 'clip0' (got {rest!r})")
 
 
+def resolve_textures(blob: bytes, mp: "container.ModelPackage", textures: bool):
+    """The ``textures`` knob -> ``(part_images | None, notes)``. ON BY DEFAULT, but only when the package's
+    texture block actually satisfies the decode laws (:func:`ff9mapkit.summons.texture.texture_check`) --
+    an undecodable creature falls back to the untextured export and SAYS WHY in ``notes`` (which the
+    manifest carries as warnings). A wrongly-coloured dragon is worse than an untextured one, so this never
+    guesses: the only two outcomes are "the documented 8bpp page layout" or "no textures"."""
+    if not textures:
+        return None, []
+    chk = texture.texture_check(blob, mp)
+    if not chk["decodable"]:
+        return None, ["exported UNTEXTURED -- this creature's texture block is not the decoded 8bpp page "
+                      "layout: " + "; ".join(chk["reasons"])]
+    try:
+        return texture.decode_pages(blob, mp), []
+    except texture.TextureError as e:                            # e.g. Pillow missing
+        return None, [f"exported UNTEXTURED -- {e}"]
+
+
 def _select_clips(blob: bytes, mp: "container.ModelPackage", bone_count: int, geo_id: int, anims,
                   fps: float) -> list:
     """Which motion clips to embed -> the ``[(label, key, folder, clip)]`` tuple list
@@ -163,18 +181,23 @@ def _select_clips(blob: bytes, mp: "container.ModelPackage", bone_count: int, ge
 # --------------------------------------------------------------------------- the two exporters
 def export_summon_glb(ef_bytes_path, out_path, *, geo: str = "SUMMON", geo_id: int = 0, anims="all",
                       scale: float = DEFAULT_SCALE, rest: str = "identity", fps: float = DEFAULT_FPS,
-                      bone_labels: bool = False) -> dict:
+                      bone_labels: bool = False, textures: bool = True) -> dict:
     """Export a stock summon creature ``ef###.bytes`` -> a Blender-openable ``.glb`` (skeleton + skinned
-    mesh + motion clips). ``out_path`` is guarded LOCAL-ONLY (:func:`assert_local_only`). Returns the
-    :func:`~ff9mapkit.models.gltf.emit_model_gltf` manifest, extended with ``clip_frames`` / ``rest`` /
-    ``creature`` (``clip_frames`` and ``creature['clips']`` count only the clips actually EMBEDDED in the
-    ``.glb`` -- a 1-frame clip carries no animation channel and is dropped, so both agree with ``anims``).
-    ``anims`` = 'all' / 'none' / a clip-index list; ``rest`` = 'identity' / 'clip0';
-    ``bone_labels`` off by default (raw ``bone{NNN:D3}`` names the retarget binds by)."""
+    mesh + decoded textures + motion clips). ``out_path`` is guarded LOCAL-ONLY (:func:`assert_local_only`).
+    Returns the :func:`~ff9mapkit.models.gltf.emit_model_gltf` manifest, extended with ``clip_frames`` /
+    ``rest`` / ``creature`` (``clip_frames`` and ``creature['clips']`` count only the clips actually
+    EMBEDDED in the ``.glb`` -- a 1-frame clip carries no animation channel and is dropped, so both agree
+    with ``anims``). ``anims`` = 'all' / 'none' / a clip-index list; ``rest`` = 'identity' / 'clip0';
+    ``bone_labels`` off by default (raw ``bone{NNN:D3}`` names the retarget binds by); ``textures`` ON by
+    default -- the creature's id-4 pages + CLUTs are decoded and embedded as one PNG per material part,
+    falling back to the untextured export (with a manifest warning) on any creature whose texture block is
+    not the documented 8bpp layout (:func:`resolve_textures`)."""
     out = assert_local_only(out_path)
     blob, mp, g = _read_creature(ef_bytes_path)
     rest_angles = _rest_angles(blob, g, mp, rest)
-    model = build.adapt_model(blob, g, geo=geo, geo_id=geo_id, rest_angles=rest_angles)
+    part_images, tex_notes = resolve_textures(blob, mp, textures)
+    model = build.adapt_model(blob, g, geo=geo, geo_id=geo_id, rest_angles=rest_angles,
+                              part_images=part_images, v_offsets=mp.v_offset)
     clips = _select_clips(blob, mp, g.bone_count, geo_id, anims, fps)
     man = _gltf.emit_model_gltf(model, clips, GltfBuffer(), out, scale=scale, bone_labels=bone_labels)
     # emit_model_gltf DROPS any clip that yields no animation channel -- a rotation channel needs >=2 keys, so
@@ -188,7 +211,9 @@ def export_summon_glb(ef_bytes_path, out_path, *, geo: str = "SUMMON", geo_id: i
     man["clip_frames"] = [len(c["bones"]["bone000"]["rot"]) for c in kept]
     man["rest"] = "identity" if rest_angles is None else rest
     man["creature"] = {"bones": g.bone_count, "meshes": g.mesh_count,
-                       "verts": sum(m.n_vert for m in g.meshes), "clips": len(kept)}
+                       "verts": sum(m.n_vert for m in g.meshes), "clips": len(kept),
+                       "parts": mp.part_count, "textured": part_images is not None}
+    man["warnings"] = list(man.get("warnings") or []) + tex_notes
     return man
 
 

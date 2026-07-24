@@ -40,9 +40,17 @@ the live world-point hybrid (a different data path), not this offline bone-local
 transform is applied here; ``models/gltf.py`` applies its one uniform Y-negate + ``DEFAULT_SCALE`` bake at
 emit time, exactly as it does for every real FF9 model.
 
-Textures/materials are OUT OF SCOPE (TRANSPLANT.md's W3 texture/CLUT-reskin rung is a separate, deferred
-concern) -- every material here carries ``texture=None``; ``iter_primitives``'s ``part``/tpage/clut fields
-are intentionally never read.
+Textures: :func:`adapt_model` has TWO modes.
+
+  * ``part_images=None`` (the default) -- the original UNTEXTURED shape: one material per MESH carrying
+    ``texture=None``, one welded vertex per pool entry, UVs as raw ``/255`` pool bytes that no image ever
+    binds. Unchanged byte-for-byte from before the texture rung.
+  * ``part_images={part: PIL image}`` (from :func:`ff9mapkit.summons.texture.decode_pages`) -- the TEXTURED
+    shape. Texture binding in this format is **per-face-per-part**, not per-mesh (M4 section 5.3): every
+    textured face carries a ``part`` byte selecting one of the <=6 ``{tpage, clut}`` materials, so one mesh
+    mixes several pages. The adapter therefore groups a mesh's faces into one SUBMESH per part, splits any
+    vertex whose corners disagree on UV, and normalises UVs against the real 128x128 page with the
+    V-offset bake applied (``texture.uv_texcoord``).
 
 Pure logic (no I/O beyond a caller-supplied blob); embeds no game bytes and writes nothing (glTF WRITE is
 ``summons/export.py``, a later module).
@@ -53,10 +61,10 @@ import math
 import struct
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import container, motion
+from . import container, motion, texture
 
 __all__ = [
-    "DEFAULT_FPS", "mat3_to_quat", "rest_angles_from_clip",
+    "DEFAULT_FPS", "UNBOUND_PART", "mat3_to_quat", "rest_angles_from_clip",
     "adapt_model", "adapt_clip", "adapt_all_clips",
 ]
 
@@ -162,12 +170,105 @@ def _mesh_tris(blob: bytes, g: "container.Geom", mesh: "container.Mesh") -> List
     return tris
 
 
+UNBOUND_PART = -1
+"""The material bucket for a face that binds no decoded page: an untextured bucket (``G4``/``G3``/``F4``/
+``F3`` -- no UV indices at all), or a ``part`` byte past the package's ``partCount``. The latter is real
+stock data, not corruption: 6 of the 24 creature packages index past ``partCount`` and the engine's
+6-slot part table is zero-filled below it, so those faces render with ``tpage = clut = 0`` (D3 section 3.3)
+-- an unrelated corner of VRAM. Exporting them UNTEXTURED is the honest reading; inventing a page for them
+would be a guess."""
+
+
+def _skinned_vertex(src, bone_of, vi, R_world, t_world):
+    """One pool vertex -> its bind-pose world position + its single rigid weight (the run-length skin)."""
+    x, y, z, _w = src[vi]
+    b = bone_of[vi]
+    R, t = R_world[b], t_world[b]
+    return ([R[0][0] * x + R[0][1] * y + R[0][2] * z + t[0],
+             R[1][0] * x + R[1][1] * y + R[1][2] * z + t[1],
+             R[2][0] * x + R[2][1] * y + R[2][2] * z + t[2]], b)
+
+
+def _adapt_meshes_textured(blob: bytes, g: "container.Geom", R_world, t_world, geo: str,
+                           part_images: Dict[int, object],
+                           v_offsets: Sequence[int]) -> Tuple[list, list, dict]:
+    """The per-face-per-part build: ``(meshes, materials, textures)`` for the Model struct.
+
+    One material per USED part (model-wide, so a part shared by both meshes is one material and one embedded
+    image), one submesh per part inside each mesh, and a vertex split whenever two faces disagree on the UV
+    (or the V-offset) at a shared pool vertex -- FF9's pool has no per-vertex UV, so a seam vertex genuinely
+    carries several. UVs come out in the kit's bottom-left convention (``models/gltf.py`` re-flips them to
+    glTF's top-left origin at emit time), which is why the ``1.0 -`` appears here."""
+    def _part_of(prim):
+        p = prim.get("part", UNBOUND_PART) if prim.get("uv") else UNBOUND_PART
+        return p if p in part_images else UNBOUND_PART
+
+    used = sorted({_part_of(p) for m in g.meshes for p in container.iter_primitives(blob, g, m)})
+    mat_of = {p: i for i, p in enumerate(used)}
+    materials, textures = [], {}
+    for p in used:
+        img = part_images.get(p)
+        stem = f"{geo}_page{p}" if img is not None else None
+        if stem is not None:
+            textures[stem] = img
+        materials.append({"name": f"{geo}_part{p}" if p != UNBOUND_PART else f"{geo}_untextured",
+                          "texture": stem})
+
+    meshes = []
+    for mi, mesh in enumerate(g.meshes):
+        bone_of = container.bone_of_vertex(mesh)
+        src = list(container.vertices(blob, g, mesh))
+        pool = g.base + mesh.p_uv
+        remap: Dict[tuple, int] = {}
+        verts, uvs, weights = [], [], []
+        tris_by_part: Dict[int, list] = {}
+        for prim in container.iter_primitives(blob, g, mesh):
+            part = _part_of(prim)
+            uv_idx = prim.get("uv") if part != UNBOUND_PART else None
+            voff = v_offsets[part] if 0 <= part < len(v_offsets) else 0
+            corner = []
+            for n, vi in enumerate(prim["v"]):
+                ui = uv_idx[n] if uv_idx else None
+                # Key on the UV VALUE, not the pool index: FF9 stores one pool entry per face CORNER
+                # (uvCount == the 4/3/4/3-per-face sum), so keying on the index would split every shared
+                # edge. Keying on the resolved coordinate re-welds the corners that genuinely agree
+                # (ef227: 7331 pool entries -> 1921 verts over a 1439-vertex pool) while still splitting
+                # a real UV seam.
+                uv = (texture.uv_texcoord(struct.unpack_from("<H", blob, pool + 2 * ui)[0], voff)
+                      if ui is not None else None)
+                key = (vi, uv)
+                j = remap.get(key)
+                if j is None:
+                    j = len(verts)
+                    remap[key] = j
+                    pos, b = _skinned_vertex(src, bone_of, vi, R_world, t_world)
+                    verts.append(pos)
+                    uvs.append([0.0, 0.0] if uv is None else [uv[0], 1.0 - uv[1]])
+                    weights.append([(b, 1.0)])
+                corner.append(j)
+            tris = tris_by_part.setdefault(part, [])
+            tris.append([corner[0], corner[1], corner[2]])
+            if len(corner) == 4:
+                tris.append([corner[0], corner[2], corner[3]])
+        meshes.append({
+            "name": f"mesh{mi}", "verts": verts, "normals": None, "uvs": uvs,
+            "submeshes": [{"material_idx": mat_of[p], "tris": tris_by_part[p]}
+                          for p in sorted(tris_by_part)],
+            "weights": weights,
+        })
+    return meshes, materials, textures
+
+
 def adapt_model(blob: bytes, g: "container.Geom", *, geo: str = "SUMMON", geo_id: int = 0,
-               rest_angles: Optional[Sequence[Tuple[int, int, int]]] = None) -> dict:
+               rest_angles: Optional[Sequence[Tuple[int, int, int]]] = None,
+               part_images: Optional[Dict[int, object]] = None,
+               v_offsets: Sequence[int] = ()) -> dict:
     """The adapter: a decoded ``Geom`` -> the kit Model struct (module docstring). ``rest_angles`` is the
     per-node ``(ax, ay, az)`` 12-bit Euler REST rotation (e.g. :func:`rest_angles_from_clip`'s output);
     ``None`` (the default) means an IDENTITY rest pose -- "self-consistent design knob, not a gap"
-    (TRANSPLANT.md 3.1)."""
+    (TRANSPLANT.md 3.1). ``part_images`` (``{part: PIL image}`` from
+    :func:`ff9mapkit.summons.texture.decode_pages`) switches on the TEXTURED build; ``v_offsets`` is the
+    package's per-part texture V-offset array (``ModelPackage.v_offset``), needed for the UV bake."""
     parents = g.parents()
     lengths = g.lengths()
     n = g.bone_count
@@ -181,6 +282,12 @@ def adapt_model(blob: bytes, g: "container.Geom", *, geo: str = "SUMMON", geo_id
             "pos": [0.0, 0.0, float(lengths[k])], "rot": list(mat3_to_quat(motion.build_rotation(*angles[k]))),
             "scale": [1.0, 1.0, 1.0],
         })
+
+    if part_images is not None:
+        meshes, materials, textures = _adapt_meshes_textured(
+            blob, g, R_world, t_world, geo, part_images, v_offsets)
+        return {"geo": geo, "geo_id": geo_id, "type_int": None, "root_bone": "bone000",
+                "bones": bones, "meshes": meshes, "materials": materials, "textures": textures}
 
     materials: list = []
     meshes: list = []
