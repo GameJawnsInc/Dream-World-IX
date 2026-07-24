@@ -128,7 +128,11 @@ runtime tree switching beyond blackboard-driven branches.
   described" — RUNG 2 CLOSED. THE COMPILER OFFICIALLY SUBSUMES THE HAND-ROLLED
   REFEREE**; fort-condor's migration gate is OPEN, and mutual N×M combat (the condor
   rung-3 debt) ships as a free property of trees.
-- **Rung 3 — BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending: THE SHOWCASE.**
+- **Rung 3 — ★ PLAYTEST PROVEN (2026-07-24, 3 rounds): THE SHOWCASE.** Final verdict:
+  "playtest good — the raid plays out as described now" — the full scene (shift-clock
+  ring trades, the one-time cry + alarm, the two-lane march with the second wave, the
+  panic bolt, mid-fight flees to the market, the captain's stand, the postwar reset)
+  runs as designed on bench 30412.
   All three vocabulary gaps closed FIRST, each grounded in engine source before its
   template shipped (verbatim-first):
   * **`Flee(threat, points, avoid_r, speed)`** — the design fork resolved AWAY from
@@ -188,8 +192,8 @@ runtime tree switching beyond blackboard-driven branches.
   skill): walkers slide around CONVEX obstacles but WEDGE in concave notches;
   snap walk targets to ≥100u wall clearance (1u edge slivers pass naive on-mesh
   tests — the market sat on one); probe ROUTES, not just points. Bench lattice is
-  clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. ⚠ playtest round 3
-  pending.
+  clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. **Round 3 ★ PROVEN**
+  ("playtest good — the raid plays out as described now").
 - **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
   the GUI section as its own later round.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
