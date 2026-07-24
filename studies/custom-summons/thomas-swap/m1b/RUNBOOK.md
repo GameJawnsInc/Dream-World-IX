@@ -238,3 +238,12 @@ prior `6201.fbx` import for the session), then recast.
 **Expect visually:** with B deployed, Thomas holds together as a (tilted) whole train through the
 mid-flight beats of the cast and comes APART at the neutral bookends / entrance — the exact inverse of
 A, which is whole when the dragon is at rest and shatters while it flies.
+
+### A/B VERDICT — 2026-07-24: the NEUTRAL bind (v1) wins
+
+User compared both in-game: **"v1 was better."** The neutral bind is restored as the deployed
+resting state (live `6201.fbx` sha `0c300131…` == `thomas_skinned.fbx`, verified). The flight-bind
+variant (`thomas_skinned_flightbind.fbx`, bind clip6@f77) stays in SCRATCH with its switch command
+above if anyone ever wants it back. Reading: the neutral bind's whole-train-at-rest + shattering
+INTO motion apparently beats the flight bind's gathered-in-flight look — the shatter reads as part
+of the summon's violence rather than a defect. The aesthetic question is CLOSED by owner preference.
