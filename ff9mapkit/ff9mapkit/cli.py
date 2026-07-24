@@ -336,6 +336,104 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_behavior(args: argparse.Namespace) -> int:
+    """behavior compile|lint|view <field.toml> -- the [behavior] tree surface, offline.
+
+    compile: dry-compile (placeholder entry slots -- the real ones bind at build) and
+    print the report: blackboard map (the ~ Flags live trace), per-unit action ids,
+    public-flag indices for [[choice]] set_flag wiring. lint: the static checks plus a
+    walkability SWEEP of every route marker a patrol/march/flee references (the layout
+    probe's sweep -- a leg that leaves the mesh stalls its walker in-game). view:
+    compile, then disassemble every generated body (the ticker, each duty walk, each
+    dispatch/nudge function) -- the bytecode the trees became."""
+    from . import build as _build
+    from .content import behavior as B
+    from .content import behaviortoml as BT
+
+    project = _build.FieldProject.load(args.field)
+    raw = project.raw
+    if not BT.table(raw):
+        print("no [behavior] table (with [[behavior.unit]] rows) in this field.toml",
+              file=sys.stderr)
+        return 2
+    problems = BT.validate(raw, verbatim="verbatim_eb" in raw)
+
+    if args.action == "lint":
+        warnings = []
+        mpaths = BT.marker_paths(raw)
+        wmesh = None
+        try:
+            from .scene import bgi as _bgi
+            wm_cfg = raw.get("walkmesh", {}) or {}
+            ref = wm_cfg.get("bgi") or wm_cfg.get("reference")
+            wm_bytes = (project.path(ref).read_bytes() if ref
+                        else _build.resolve_walkmesh(project, _build.resolve_cameras(project)[0]))
+            wmesh = _bgi.BgiWalkmesh.from_bytes(wm_bytes)
+        except Exception as e:
+            warnings.append(f"(no walkmesh resolved -- route sweeps skipped: {e})")
+        if wmesh is not None:
+            from .scene import routes as _routes
+            bedges = _routes.mesh_boundary_edges(wmesh)
+            for name in sorted(BT.route_names(raw)):
+                if name not in mpaths:
+                    continue                       # unknown-marker errors come from validate
+                pts, closed = mpaths[name]
+                legs = _routes.sweep_polyline(pts, wmesh, bedges, closed=closed)
+                probs = _routes.describe_leg_problems(name, legs)
+                offmesh = [p for p in probs if "OFF-MESH" in p]
+                problems += offmesh                # a jammed walker = an error
+                warnings += [p for p in probs if p not in offmesh]
+        for p in problems:
+            print(f"error: {p}")
+        for w in warnings:
+            print(f"warning: {w}")
+        if not problems and not warnings:
+            print("behavior lint: clean")
+        elif not problems:
+            print("behavior lint: no errors")
+        return 1 if problems else 0
+
+    if problems:
+        for p in problems:
+            print(f"error: {p}", file=sys.stderr)
+        return 1
+    units = BT.units(raw)
+    slots = {str(u["npc"]): i + 2 for i, u in enumerate(units)}   # placeholders (build binds real ones)
+    fb = BT.build(raw, npc_slots=slots,
+                  npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
+                                     if n.get("name") and "dialogue" in n},
+                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)})
+    try:
+        cb = fb.compile()
+    except B.BehaviorError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    b = raw["behavior"]
+    print(cb.report)
+    pf = [(nm, fb.bb.flag(str(nm))) for nm in (b.get("public_flags") or [])]
+    if pf:
+        print("\npublic flags (wire [[choice]] set_flag rows to these indices):")
+        for nm, idx in pf:
+            print(f"  {nm} -> Global.Bit[{idx}]  (set_flag = [{idx}, 1])")
+    print(f"\nstable hash {cb.stable_hash()}  (entry slots shown are PLACEHOLDERS; "
+          f"announce txids bind at build)")
+    if args.action == "view":
+        from .eb import disasm as D
+
+        def dump(label, body):
+            print(f"\n--- {label} ({len(body)} bytes)")
+            for ins in D.iter_code(body, 0, len(body)):
+                print(f"    {ins}")
+        dump("ticker (the seated brain entry)", cb.ticker_body)
+        dump("Main_Init prepend (the blackboard reset)", cb.main_init)
+        for name, body in cb.duty_bodies.items():
+            dump(f"{name}: tag-1 duty walk", body)
+        for name, funcs in cb.action_funcs.items():
+            for tag, body in funcs:
+                dump(f"{name}: tag-{tag} body", body)
+    return 0
+
+
 def _cmd_camera(args: argparse.Namespace) -> int:
     from .scene import bgx, cam
     scene = bgx.BgxScene.from_file(args.bgx)
@@ -5201,6 +5299,15 @@ def build_parser() -> argparse.ArgumentParser:
                          "INSTALLING into a shipping mod folder that holds other fields (without it, a "
                          "build that would unregister them refuses)")
     bd.set_defaults(func=_cmd_build)
+
+    bh = sub.add_parser("behavior", help="the [behavior] tree surface: dry-compile + report, lint with "
+                                         "route sweeps, or view the generated bytecode")
+    bh.add_argument("action", choices=["compile", "lint", "view"],
+                    help="compile = report (blackboard/actions/public flags); lint = static checks + "
+                         "walkability sweeps of referenced route markers; view = compile + disassemble "
+                         "every generated body")
+    bh.add_argument("field", help="path to the field.toml")
+    bh.set_defaults(func=_cmd_behavior)
 
     ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "
                         "validator (schema, story/flag logic, reserved flag bands, walkmesh geometry + "

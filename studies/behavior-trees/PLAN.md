@@ -194,8 +194,31 @@ runtime tree switching beyond blackboard-driven branches.
   tests — the market sat on one); probe ROUTES, not just points. Bench lattice is
   clearance-filtered; all 7 routes sweep ON-MESH; suite 4712. **Round 3 ★ PROVEN**
   ("playtest good — the raid plays out as described now").
-- **Rung 4 — PRODUCTIZE.** `[[behavior]]` TOML + CLI verbs + FORMAT.md/docs + tests;
-  the GUI section as its own later round.
+- **Rung 4 — ★ BUILT (2026-07-24), ⚠ the parity playtest pending: PRODUCTIZE.**
+  The `[behavior]` TOML surface (`content/behaviortoml.py`): `[[behavior.unit]]`
+  binds to a named `[[npc]]`; PRIORITY-ordered `[[behavior.unit.branch]]` rows
+  (`when` = verb-keyed condition dicts, `do` = one action verb + options,
+  `once`/`cooldown`/`raise_flags`/`clear_flags`); field-level `warmup`/`tick`/
+  `alternators`/`public_flags`. 13 condition verbs (incl. `any_near` = the watcher
+  idiom and `any_active`) + 11 action verbs; unknown verbs/options/names are ERRORS
+  (the laws-as-invariants posture extends to the surface). WIRED INTO BUILD:
+  `collect_text` mints `announce` lines (12th txid channel; ~40 unpack sites
+  repointed), `build_script`'s tail compiles + installs (npc_slots from the build's
+  own injection map — no discovery; per-language builds are allocation-identical),
+  `validate` refuses verbatim forks / cutscene-cast overlap / gated units. CLI:
+  **`behavior compile|lint|view`** (report + public-flag indices / static checks +
+  route-marker SWEEPS / full body disassembly). The sweep core deduped into
+  **`scene/routes.py`** (the probe + lint share it verbatim). Docs: `docs/BEHAVIOR.md`
+  + FORMAT.md `[behavior]` + the route-marker reference + FEATURES row + CHANGELOG.
+  **THE PRODUCT-PATH PROOF:** `btraid_bench.py` rewritten — gen emits the ENTIRE
+  rung-3 raid as `[behavior]` TOML (patrol/march verbs referencing the probe-swept
+  route markers BY NAME; `announce_npc` reuses each speaker's dialogue; the lever's
+  set_flag index computed from the deterministic allocation) and deploy is plain
+  `deploy_field` — zero bench bytecode patching; the deployed `.eb`s verified (7
+  units off standby onto duty walks + dispatch/nudge tags, the ticker seated).
+  9 new tests (`test_behavior_toml.py` incl. a built-.eb e2e); suite **4721** green.
+  The playtest = a PARITY check: the redeployed 30412 must play exactly like the
+  rung-3 proof. GUI section deliberately deferred (the GUI study's call-site law).
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,

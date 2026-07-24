@@ -272,7 +272,7 @@ def _built(tmp_path, toml=_FIELD):
     probs = [x for x in build.validate(proj) if "savepoint" in x.lower()]
     assert not probs, probs
     ct = build.collect_text(proj)
-    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[10])
     return proj, ct, eb
 
 
@@ -291,7 +291,7 @@ def _entry_with_model(eb_bytes, model):
 
 def test_build_injects_the_act_cluster(tmp_path):
     _proj, ct, eb = _built(tmp_path)
-    t = ct[-1][0]
+    t = ct[10][0]
     assert "act" in t                                            # the save line was minted
     books, feathers = _entry_with_model(eb, 133), _entry_with_model(eb, 134)
     assert len(books) == 1 and len(feathers) == 1
@@ -348,7 +348,7 @@ def test_build_region_dispatch_stays_actless(tmp_path):
 def test_build_act_false_opts_out(tmp_path):
     _proj, ct, eb = _built(tmp_path, _FIELD.replace(
         "[[savepoint]]\n", "[[savepoint]]\nact = false\n"))
-    assert "act" not in (ct[-1][0] or {})
+    assert "act" not in (ct[10][0] or {})
     assert not _entry_with_model(eb, 133) and not _entry_with_model(eb, 134)
     m = _entry_with_model(eb, 220)[0]
     f3 = m.func_by_tag(3)
@@ -422,14 +422,14 @@ def test_mognet_moogle_speaks_as_its_roster_identity(tmp_path):
     # the roster speaker + stock's menu head, byte for byte (field 300 txid 3's own shape)
     assert ("[WDTH=0,2,6,0,-1][IMME][FEED=2][TEXT=0,0]\n[FEED=4]“What would you like to do?”") in mes
     assert "Mogwai\n“What would you like to do?”" not in mes      # NOT a baked literal name
-    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[10])
     # SetTextVariable(0, 41) leads the talk body (0x66, slot 0, the new-moogle id)
     seed = opcodes.set_text_variable(0, _mg.NEW_MOOGLE_ID)
     assert seed in eb
     m = _entry_with_model(eb, 220)[0]
     f3 = m.func_by_tag(3)
     body = eb[f3.abs_start:f3.abs_end]
-    assert body.index(seed) < body.index(opcodes.window_sync(2, 8, ct[-1][0]["prompt"]))
+    assert body.index(seed) < body.index(opcodes.window_sync(2, 8, ct[10][0]["prompt"]))
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (sources the Mognet roster)")
@@ -523,8 +523,8 @@ def test_roster_speaker_and_its_seed_stay_in_lockstep(tmp_path):
         p.write_text(toml, encoding="utf-8")
         proj = build.FieldProject.load(p)
         ct = build.collect_text(proj)
-        eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
-        prompt_txid = ct[-1][0]["prompt"]
+        eb = build.build_script(proj, "us", {}, savepoint_txids=ct[10])
+        prompt_txid = ct[10][0]["prompt"]
         prompt_entry = ct[0].split(f"[TXID={prompt_txid}]")[1].split("[ENDN]")[0]
         if _mg.VAR_SPEAKER not in prompt_entry:
             continue                                   # a literal name needs no seed to render

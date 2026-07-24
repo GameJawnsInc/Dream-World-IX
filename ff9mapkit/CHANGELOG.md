@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]`: behavior TREES compiled to field bytecode (NPC AI as content)
+- **`[behavior]` + `[[behavior.unit]]`** on any novel/native/editable field: give named `[[npc]]`s
+  priority-ordered AI branches — patrols with shift clocks (`alternators`), notice-and-chase
+  (`near`/`any_near`), MUTUAL combat with HP and deaths (`swing_at`/`die`), flee-at-low-HP with
+  priority refuges (`flee`), alarms (`raise_flags`), random wandering (`wander`), multi-leg
+  marches (`march`), sticky `once`/`cooldown` decorators, per-action `speed=` that applies
+  mid-walk — all compiled to pure `.eb` (zero DLL, stock-Memoria-safe) and installed by the
+  normal `build`. Docs: `docs/BEHAVIOR.md` + the FORMAT.md section.
+- **`ff9mapkit behavior compile|lint|view`**: dry-compile report (the blackboard map doubles as
+  the debug menu's live trace; public-flag indices for `[[choice]]` lever wiring), static checks
+  plus walkability SWEEPS of referenced route markers, and a full disassembly of the generated
+  bodies.
+- **Route markers**: a `[[marker]]` may carry `path = [[x,z], ...]` (+ `closed = true`) — the
+  polyline a scripted walker travels. `tools/field_layout_probe.py` draws and sweeps them
+  (off-mesh legs = a walker that jams, named with world coordinates), `behavior lint` runs the
+  same sweep (shared core: `ff9mapkit.scene.routes`), and `patrol`/`march` verbs reference them
+  by name — the route you verified is the route they walk. The probe also stops flagging
+  OFF-CANVAS content on scrolling fields (the viewport pans).
+
 ### Added — synthesis recipes in the Info Hub item detail (+ fork-report labels synthesists)
 - **`itemstats` joins the base `Synthesis.csv`** (live from your install, cached, nothing committed —
   the same provenance stance as the stat join): an item's Info Hub detail now shows **synthesize**

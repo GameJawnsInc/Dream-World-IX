@@ -33,6 +33,7 @@ sys.path.insert(0, KIT)
 
 from ff9mapkit import build  # noqa: E402
 from ff9mapkit.scene import bgi, cam as C, paint  # noqa: E402
+from ff9mapkit.scene import routes as R  # noqa: E402  (the shared sweep core)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -123,28 +124,8 @@ def point_in_poly(x, z, poly) -> bool:
     return inside
 
 
-def seg_dist(px, pz, a, b) -> float:
-    ax, az, bx, bz = a[0], a[1], b[0], b[1]
-    dx, dz = bx - ax, bz - az
-    L2 = dx * dx + dz * dz
-    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
-    cx, cz = ax + t * dx, az + t * dz
-    return math.hypot(px - cx, pz - cz)
-
-
-def boundary_edges_xz(verts, tris) -> list:
-    """Walkmesh boundary edges (edges on exactly one triangle) as ((x,z),(x,z)) world pairs."""
-    count = {}
-    for tri in tris:
-        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
-        for u, v in ((a, b), (b, c), (c, a)):
-            if u == v:
-                continue
-            key = (v, u) if u > v else (u, v)
-            count[key] = count.get(key, 0) + 1
-    n = len(verts)
-    return [((verts[a][0], verts[a][2]), (verts[b][0], verts[b][2]))
-            for (a, b), c in count.items() if c == 1 and 0 <= a < n and 0 <= b < n]
+seg_dist = R.seg_dist_xz               # shared package core (ff9mapkit.scene.routes)
+boundary_edges_xz = R.boundary_edges_xz
 
 
 # --- routes (a [[marker]] with `path`): scripted-walk polylines, swept for walkability ------
@@ -170,34 +151,9 @@ def collect_routes(field_cfg: dict, scene_cfg: dict | None) -> list:
 
 
 def sweep_route(route: dict, wmesh, bedges, step: float = 40.0) -> list:
-    """Sample every leg of the route ~every ``step`` units. FF9 walkers move STRAIGHT at
-    their target and slide/stall on walkmesh boundaries (no pathfinding around concave
-    holes) -- so a leg that leaves the mesh is a walker that jams mid-route. Returns
-    per-leg dicts: {a, b, len, spans: [(t0, t1)], minwall}."""
-    pts = list(route["path"]) + ([route["path"][0]] if route["closed"] else [])
-    legs = []
-    for i in range(len(pts) - 1):
-        a, b = pts[i], pts[i + 1]
-        L = math.hypot(b[0] - a[0], b[1] - a[1])
-        n = max(2, int(L / step))
-        spans, cur, minwall = [], None, None
-        for k in range(n + 1):
-            t = k / n
-            x, z = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
-            on = wmesh is not None and wmesh.point_on_walkmesh(x, z) is not None
-            if not on:
-                cur = [t, t] if cur is None else [cur[0], t]
-            else:
-                if cur is not None:
-                    spans.append(tuple(cur))
-                    cur = None
-                if bedges:
-                    d = min(seg_dist(x, z, e0, e1) for e0, e1 in bedges)
-                    minwall = d if minwall is None else min(minwall, d)
-        if cur is not None:
-            spans.append(tuple(cur))
-        legs.append({"a": a, "b": b, "len": L, "spans": spans, "minwall": minwall})
-    return legs
+    """Sweep one route dict's legs — thin wrapper over the shared package core
+    (:func:`ff9mapkit.scene.routes.sweep_polyline`, which behavior lint also runs)."""
+    return R.sweep_polyline(route["path"], wmesh, bedges, closed=route["closed"], step=step)
 
 
 def analyze_routes(routes: list, wmesh, bedges) -> tuple:
@@ -207,23 +163,8 @@ def analyze_routes(routes: list, wmesh, bedges) -> tuple:
     for rt in routes:
         legs = sweep_route(rt, wmesh, bedges)
         swept[rt["name"]] = legs
-        for i, leg in enumerate(legs):
-            ax, az = leg["a"]; bx, bz = leg["b"]
-            for t0, t1 in leg["spans"]:
-                mid_t = (t0 + t1) / 2
-                mx = ax + (bx - ax) * mid_t
-                mz = az + (bz - az) * mid_t
-                span = max((t1 - t0) * leg["len"], 40.0)
-                warns.append(
-                    f"route '{rt['name']}' leg {i + 1} ({ax:.0f},{az:.0f})->({bx:.0f},{bz:.0f}): "
-                    f"OFF-MESH for ~{span:.0f}u around ({mx:.0f},{mz:.0f}) -- a walker moves "
-                    f"STRAIGHT and slides/stalls on the boundary (no pathfinding); reroute this leg")
-            if not leg["spans"] and leg["minwall"] is not None \
-                    and leg["minwall"] < C.COLLISION_RADIUS_W:
-                warns.append(
-                    f"route '{rt['name']}' leg {i + 1} ({ax:.0f},{az:.0f})->({bx:.0f},{bz:.0f}): "
-                    f"passes {leg['minwall']:.0f}u from a walkmesh edge -- collision radius "
-                    f"(~{C.COLLISION_RADIUS_W:.0f}u) shoves walkers off this line")
+        warns += R.describe_leg_problems(rt["name"], legs,
+                                         wall_clearance=C.COLLISION_RADIUS_W)
     return swept, warns
 
 

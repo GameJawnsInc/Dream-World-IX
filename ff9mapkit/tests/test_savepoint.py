@@ -240,7 +240,7 @@ def test_build_savepoint_ships_the_menu_text_and_the_prompted_flow(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     # prompt + confirm + the ACT's save line (the act ships by default since the choreography landed)
     assert sp_txids == {0: {"prompt": 500, "confirm": 501, "act": 502}}
     assert mes.count("[CHOO]") == 2                       # the option menu + the Yes/No confirm
@@ -268,7 +268,7 @@ def test_savepoint_dialogue_false_falls_back_to_the_bare_save(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     mes, *_rest = build.collect_text(proj)
-    assert _rest[-1] == {}                                # no menu text emitted
+    assert _rest[9] == {}                                # no menu text emitted
     assert "[CHOO]" not in mes
 
 
@@ -733,7 +733,7 @@ def test_act_and_barrel_pop_compose_init_tails_in_donor_order(tmp_path):
     p.write_text(_field_toml('reveal_style = "barrel_pop"\nact = true\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     assert s.to_bytes() == eb
@@ -768,7 +768,7 @@ def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
     # collect_text for real dialogue txids, matching how the production build pipeline always calls this
     # (see test_act_and_barrel_pop_compose_init_tails_in_donor_order, this test's sibling, right above).
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     assert s.to_bytes() == eb
@@ -827,7 +827,7 @@ def test_cask_one_shot_guard_present_in_built_field(tmp_path):
     # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
     # (fix 2) then rejects; the production pipeline always resolves txids first.
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     cask_entries = [e.index for e in s.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
@@ -885,7 +885,7 @@ def test_two_barrel_pop_savepoints_do_not_share_vars(tmp_path):
     # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
     # (fix 2) then rejects; the production pipeline always resolves txids first.
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)   # 3-element reveal_from must NOT crash
     assert _savepoint.cask_trigger_body(0) in eb            # each cask carries its OWN rendezvous pair
     assert _savepoint.cask_trigger_body(1) in eb
@@ -921,7 +921,7 @@ def test_barrel_pop_gates_the_press_zone_but_instant_does_not(tmp_path):
     # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
     # (fix 2) then rejects; the production pipeline always resolves txids first.
     mes, *_rest = build.collect_text(proj)
-    sp_txids = _rest[-1]
+    sp_txids = _rest[9]
     assert gate in build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     # the "instant" (non-barrel_pop) sibling never touches reveal_menu_cycle at all, so it still builds
     # fine bare (no text collected) -- unchanged from before the fixes.
@@ -945,7 +945,7 @@ def test_reveal_menu_cycle_reopen_jump_lands_on_the_loop_top(tmp_path):
     p.write_text(_field_toml('reveal_style = "barrel_pop"\nact_hop_to = [-300, -900]\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
     _mes, *rest = build.collect_text(proj)
-    eb = build.build_script(proj, "us", {}, savepoint_txids=rest[-1])
+    eb = build.build_script(proj, "us", {}, savepoint_txids=rest[9])
     s = EbScript.from_bytes(eb)
     # the save moogle is the entry carrying the reveal state loop (tags 0/1/3)
     moogle = [e for e in s.entries
