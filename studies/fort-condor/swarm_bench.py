@@ -335,20 +335,25 @@ def poller_body(choice_uid: int, recruit_slots: list[int]) -> bytes:
     RemoveGil, then spawn the first free recruit: runtime InitObject (the Ice Cavern
     precedent) + a settle Wait + DPOS it to the purchase position + seed its post/target
     GLOBs + the placed bit. Broke or pool-empty = silent refusal (bench-noted)."""
-    button = (f"const4({RECRUIT_BUTTON}) B_KEYON B_SYSVAR[2] B_ANDAND B_EXPR_END")
+    # Special OR Select (a binding hedge: 0x80000 | 0x1). PLAYTEST-7 LESSON: a button
+    # TRIGGER lasts one frame — the poll loop must Wait(1) like every stock poller (559
+    # Code6); the old bottom-of-loop Wait(8) "debounce" ate ~7 of 8 presses. The debounce
+    # belongs AFTER a menu round only ("cool").
+    button = (f"const4({RECRUIT_BUTTON | 1}) B_KEYON B_SYSVAR[2] B_ANDAND B_EXPR_END")
     blocks: list = [
         ("label", "top"),
-        expr_stmt(button),                                 # 559 Code6's exact poll shape
+        expr_stmt(button),
         (JMP_IFNOT, "wait"),
-        opcodes.run_script_sync(4, choice_uid, 3),         # menu opens; returns when closed
+        opcodes.encode(0xC8, 53248, 683, 0, 128, 125),     # the Hunt's announce blip — an
+        opcodes.run_script_sync(4, choice_uid, 3),         # audible button-probe, then the menu
         expr_stmt(f"Global.Bit[{REQUEST_FLAG}] B_EXPR_END"),
-        (JMP_IFNOT, "wait"),
+        (JMP_IFNOT, "cool"),
         clear_flag_stmt(REQUEST_FLAG),
         expr_stmt(" ".join(f"Global.Bit[{f}]" for f in PLACED_FLAGS)
                   + " B_ANDAND B_ANDAND B_ANDAND B_EXPR_END"),
-        (JMP_IF, "wait"),                                  # all four placed: pool empty
+        (JMP_IF, "cool"),                                  # all four placed: pool empty
         expr_stmt(f"B_SYSVAR[6] const({RECRUIT_COST}) B_GE B_EXPR_END"),
-        (JMP_IFNOT, "wait"),                               # can't afford
+        (JMP_IFNOT, "cool"),                               # can't afford
         opcodes.remove_gil(RECRUIT_COST),
         expr_stmt(f"Global.Int16[{DEPLOY_X}] obj(uid=250).f[0] B_LET B_EXPR_END"),
         expr_stmt(f"Global.Int16[{DEPLOY_Z}] obj(uid=250).f[2] B_LET B_EXPR_END"),
@@ -357,7 +362,7 @@ def poller_body(choice_uid: int, recruit_slots: list[int]) -> bytes:
         blocks += [
             ("label", f"try{r}"),
             expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
-            (JMP_IF, f"try{r + 1}" if r + 1 < len(recruit_slots) else "wait"),
+            (JMP_IF, f"try{r + 1}" if r + 1 < len(recruit_slots) else "cool"),
             opcodes.init_object(slot, 0),
             opcodes.wait(2),                               # let the pooled Init complete
             opcodes.encode(OP_MOVE_INSTANT_EX, slot,
@@ -373,11 +378,14 @@ def poller_body(choice_uid: int, recruit_slots: list[int]) -> bytes:
             expr_stmt(f"Global.Int16[{RECRUIT_TGT_Z[r]}] Global.Int16[{DEPLOY_Z}] "
                       f"B_LET B_EXPR_END"),
             expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] const(1) B_LET B_EXPR_END"),
-            (JMP, "wait"),
+            (JMP, "cool"),
         ]
     blocks += [
+        ("label", "cool"),
+        opcodes.wait(12),                                  # post-menu debounce only
+        (JMP, "top"),
         ("label", "wait"),
-        opcodes.wait(8),                                   # debounce
+        opcodes.wait(1),                                   # the stock poll cadence
         (JMP, "top"),
         opcodes.RETURN,
     ]
@@ -738,17 +746,20 @@ def patch_eb(data: bytes) -> bytes:
                          f"{soldiers} heralds {heralds}")
     defenders, recruits = soldiers[:2], soldiers[2:]
     herald_txid = _talk_txid(data, eb, heralds[0])
-    # the two [[choice]] region entries (tag-3 with a GetChoose read): lever first,
-    # the parked recruit menu second (toml order)
-    choice_entries = []
+    # the recruit [[choice]] entry, identified STRUCTURALLY: the dispatch arm that writes
+    # REQUEST_FLAG (playtest 8: order-based pick grabbed the LEVER — gen() appends the
+    # recruit menu BEFORE the lever, the opposite of the assumed toml order)
+    req_write = bytes([0x05]) + exprasm.assemble(
+        f"Global.Bit[{REQUEST_FLAG}] const(1) B_LET B_EXPR_END")
+    recruit_choice_uid = None
     for idx in range(eb.entry_count):
         f3 = eb.entry(idx).func_by_tag(3)
-        if f3 is not None and bytes([0x7A, 0x09]) in bytes(data[f3.abs_start:f3.abs_end]) \
-                and eb.entry(idx).func_by_tag(1) is None:
-            choice_entries.append(idx)
-    if len(choice_entries) != 2:
-        raise SystemExit(f"expected 2 choice entries, found {choice_entries}")
-    recruit_choice_uid = choice_entries[1]
+        if f3 is not None and eb.entry(idx).func_by_tag(1) is None \
+                and req_write in bytes(data[f3.abs_start:f3.abs_end]):
+            recruit_choice_uid = idx
+            break
+    if recruit_choice_uid is None:
+        raise SystemExit("no choice entry writes REQUEST_FLAG — recruit menu not found")
     lay = json.loads(SKIRMISH_JSON.read_text(encoding="utf-8"))
 
     baseline = {str(p) for p in eblint.lint_eb(bytes(data))}
