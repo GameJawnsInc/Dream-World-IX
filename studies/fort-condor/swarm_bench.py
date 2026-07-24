@@ -86,6 +86,28 @@ FIGHT_TAG = 15                              # the added per-unit fight function 
 FIGHT_CENTER = (-1225, -827)                # owner-called visible town square (playtest 4)
 SKIRMISH_JSON = BENCH / "skirmish.json"
 
+# ---- rung 3: placement + economy (press SPECIAL anywhere -> buy -> spawn at your feet) ----
+N_RECRUITS = 4
+RECRUIT_COST = 300                          # gil per soldier
+RECRUIT_BUTTON = 524288                     # the Special/Moogle logical bit (H&C's dig poll)
+REQUEST_FLAG = 8848                         # GLOB Bit: the menu's "Hire" row was picked
+POOL_GUARD_FLAG = 8849                      # never set — [[npc]] requires_flag keeps the pool unspawned
+PLACED_FLAGS = [8850, 8851, 8852, 8853]     # GLOB Bit per recruit: deployed
+DEAD_FLAGS = [8846, 8847]                   # GLOB Bit per attacker: die-dispatch latched (harass kills)
+ATTACKER_DIE_TAG = 16                       # added attacker function: TerminateEntry
+RECRUIT_FIGHT_TAGS = [15, 16]               # recruit fight vs attacker A / attacker B
+RECRUIT_STATE = [1140, 1141, 1142, 1143]    # GLOB Byte: 0 free / 1 fighting A / 2 fighting B
+RECRUIT_HP = [1136, 1137, 1138, 1139]       # preset 3 (untargeted in v1 — harass is one-sided)
+RECRUIT_TIMER = [1194, 1195, 1196, 1197]
+RECRUIT_POST_X = [1146, 1150, 1154, 1158]   # Int16 pairs: where the recruit was placed
+RECRUIT_POST_Z = [1148, 1152, 1156, 1160]
+RECRUIT_TGT_X = [1178, 1182, 1186, 1190]    # referee-fed walk targets
+RECRUIT_TGT_Z = [1180, 1184, 1188, 1192]
+RECRUIT_MIR_X = [1200, 1204, 1208, 1212]    # referee position mirrors (placed-gated)
+RECRUIT_MIR_Z = [1202, 1206, 1210, 1214]
+DEPLOY_X, DEPLOY_Z = 1170, 1172             # Int16 scratch: the purchase position
+OP_MOVE_INSTANT_EX = 0xBF                   # DPOS: move ANOTHER object to (x, z) — no height
+
 
 def asm(blocks) -> bytes:
     """Two-pass label assembler for jump-bearing bodies. Items: raw bytes, ("label", name),
@@ -282,13 +304,101 @@ def defender_duty_body(lane: int) -> bytes:
     ])
 
 
+def recruit_duty_body(r: int) -> bytes:
+    """Tag-1 duty for pooled recruit r: identical shape to the defender duty — a smooth
+    blocked walk on OWN GLOB targets the referee feeds. The placed gate is belt+braces
+    (an unspawned entry runs nothing at all; the poller sets placed AFTER positioning)."""
+    tx, tz = RECRUIT_TGT_X[r], RECRUIT_TGT_Z[r]
+    return asm([
+        ("label", "top"),
+        opcodes.encode(OP_SET_OBJECT_FLAGS, 7) + opcodes.set_walk_speed(50)
+        + opcodes.set_pathing(1) + opcodes.set_walk_turn_speed(16),
+        expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+        (JMP_IFNOT, "wait"),
+        opcodes.init_walk()
+        + opcodes.encode(OP_WALK,
+                         exprasm.assemble(f"Global.Int16[{tx}] B_EXPR_END"),
+                         exprasm.assemble(f"Global.Int16[{tz}] B_EXPR_END"),
+                         arg_flags=0b11),
+        ("label", "wait"),
+        opcodes.wait(1),
+        (JMP, "top"),
+        opcodes.RETURN,
+    ])
+
+
+def poller_body(choice_uid: int, recruit_slots: list[int]) -> bytes:
+    """The recruit-button poller (seated code entry): press SPECIAL anywhere ->
+    remote-dispatch the parked [[choice]] menu (RunScriptSync on its tag 3 — the zone
+    trigger is bypassed, the dispatch body is self-contained) -> on the Hire row
+    (REQUEST_FLAG): pool-availability gate, gil gate (B_SYSVAR[6], the inn-553 idiom),
+    RemoveGil, then spawn the first free recruit: runtime InitObject (the Ice Cavern
+    precedent) + a settle Wait + DPOS it to the purchase position + seed its post/target
+    GLOBs + the placed bit. Broke or pool-empty = silent refusal (bench-noted)."""
+    button = (f"const4({RECRUIT_BUTTON}) B_KEYON B_SYSVAR[2] B_ANDAND B_EXPR_END")
+    blocks: list = [
+        ("label", "top"),
+        expr_stmt(button),                                 # 559 Code6's exact poll shape
+        (JMP_IFNOT, "wait"),
+        opcodes.run_script_sync(4, choice_uid, 3),         # menu opens; returns when closed
+        expr_stmt(f"Global.Bit[{REQUEST_FLAG}] B_EXPR_END"),
+        (JMP_IFNOT, "wait"),
+        clear_flag_stmt(REQUEST_FLAG),
+        expr_stmt(" ".join(f"Global.Bit[{f}]" for f in PLACED_FLAGS)
+                  + " B_ANDAND B_ANDAND B_ANDAND B_EXPR_END"),
+        (JMP_IF, "wait"),                                  # all four placed: pool empty
+        expr_stmt(f"B_SYSVAR[6] const({RECRUIT_COST}) B_GE B_EXPR_END"),
+        (JMP_IFNOT, "wait"),                               # can't afford
+        opcodes.remove_gil(RECRUIT_COST),
+        expr_stmt(f"Global.Int16[{DEPLOY_X}] obj(uid=250).f[0] B_LET B_EXPR_END"),
+        expr_stmt(f"Global.Int16[{DEPLOY_Z}] obj(uid=250).f[2] B_LET B_EXPR_END"),
+    ]
+    for r, slot in enumerate(recruit_slots):
+        blocks += [
+            ("label", f"try{r}"),
+            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+            (JMP_IF, f"try{r + 1}" if r + 1 < len(recruit_slots) else "wait"),
+            opcodes.init_object(slot, 0),
+            opcodes.wait(2),                               # let the pooled Init complete
+            opcodes.encode(OP_MOVE_INSTANT_EX, slot,
+                           exprasm.assemble(f"Global.Int16[{DEPLOY_X}] B_EXPR_END"),
+                           exprasm.assemble(f"Global.Int16[{DEPLOY_Z}] B_EXPR_END"),
+                           arg_flags=0b110),
+            expr_stmt(f"Global.Int16[{RECRUIT_POST_X[r]}] Global.Int16[{DEPLOY_X}] "
+                      f"B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_POST_Z[r]}] Global.Int16[{DEPLOY_Z}] "
+                      f"B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_TGT_X[r]}] Global.Int16[{DEPLOY_X}] "
+                      f"B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_TGT_Z[r]}] Global.Int16[{DEPLOY_Z}] "
+                      f"B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] const(1) B_LET B_EXPR_END"),
+            (JMP, "wait"),
+        ]
+    blocks += [
+        ("label", "wait"),
+        opcodes.wait(8),                                   # debounce
+        (JMP, "top"),
+        opcodes.RETURN,
+    ]
+    return asm(blocks)
+
+
 def referee_body(attackers: list[int], defenders: list[int],
-                 posts: list[tuple[int, int]]) -> bytes:
+                 posts: list[tuple[int, int]], recruits: list[int]) -> bytes:
     """The conductor: per frame (armed only) — mirror living units' positions into GLOB
     Int16s (HP-gated obj() reads, the only place unit objects are referenced), dispatch
     both lane units into their tag-15 FIGHT at contact (RunScriptAsync level 4 — field
     574's exact walking-actor redirect idiom), reset the lane state when a fight ends,
-    and feed each defender's walk target (enemy mirror inside ACQUIRE_R, else its post)."""
+    and feed each defender's walk target (enemy mirror inside ACQUIRE_R, else its post).
+    Rung 3 adds: recruit mirrors (PLACED-gated — an unspawned pool entry is a dead uid),
+    the attacker HARASS-DEATH sweep (a recruit's one-sided chip can zero an attacker
+    OUTSIDE any fight of its own, so nobody would run its TerminateEntry — the referee
+    latches DEAD_FLAGS and dispatches the added die tag at level 5; gated on
+    lane_state==0 so an attacker in its OWN fight dies by its own fight fn, never a REQ
+    on a maybe-terminated object), and per-recruit dispatch/reset/target-feed (state 0
+    free / 1 fighting A / 2 fighting B; feed priority A-then-B inside ACQUIRE_R, else
+    the placement post)."""
     uids = [attackers[0], defenders[0], attackers[1], defenders[1]]
     blocks: list = [
         ("label", "top"),
@@ -339,6 +449,91 @@ def referee_body(attackers: list[int], defenders: list[int],
             expr_stmt(f"Global.Int16[{TARGET_Z[lane]}] const({posts[lane][1]}) B_LET B_EXPR_END"),
             ("label", f"done{lane}"),
         ]
+    # ---- rung 3: recruit mirrors (PLACED-gated) ----
+    for r, uid in enumerate(recruits):
+        blocks += [
+            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+            (JMP_IFNOT, f"rskipm{r}"),
+            expr_stmt(f"Global.Int16[{RECRUIT_MIR_X[r]}] obj(uid={uid}).f[0] B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_MIR_Z[r]}] obj(uid={uid}).f[2] B_LET B_EXPR_END"),
+            ("label", f"rskipm{r}"),
+        ]
+    # ---- rung 3: the attacker harass-death sweep ----
+    for lane in (0, 1):
+        a = lane * 2
+        blocks += [
+            expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"adie{lane}"),
+            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] B_EXPR_END"),
+            (JMP_IF, f"adie{lane}"),
+            expr_stmt(f"Global.Byte[{STATE_BYTES[lane]}] const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"adie{lane}"),                    # in its own fight: its fn owns death
+            expr_stmt(f"Global.Bit[{DEAD_FLAGS[lane]}] const(1) B_LET B_EXPR_END"),
+            opcodes.run_script_async(5, attackers[lane], ATTACKER_DIE_TAG),
+            ("label", f"adie{lane}"),
+        ]
+    # ---- rung 3: per-recruit dispatch / reset / target feed ----
+    for r in range(len(recruits)):
+        rx, rz = f"Global.Int16[{RECRUIT_MIR_X[r]}]", f"Global.Int16[{RECRUIT_MIR_Z[r]}]"
+        st = f"Global.Byte[{RECRUIT_STATE[r]}]"
+        blocks += [
+            expr_stmt(f"Global.Bit[{PLACED_FLAGS[r]}] B_EXPR_END"),
+            (JMP_IFNOT, f"rdone{r}"),
+            expr_stmt(f"{st} const(0) B_EQ B_EXPR_END"),
+            (JMP_IFNOT, f"rreset{r}"),
+        ]
+        for lane in (0, 1):                                # dispatch vs attacker A then B
+            a = lane * 2
+            ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
+            nxt = f"rdisp{r}_{lane + 1}" if lane == 0 else f"rfeed{r}"
+            blocks += [
+                ("label", f"rdisp{r}_{lane}"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT B_EXPR_END"),
+                (JMP_IFNOT, nxt),
+                _box_check(rx, rz, ax, az, CONTACT_R),
+                (JMP_IFNOT, nxt),
+                set_byte_stmt(RECRUIT_STATE[r], lane + 1),
+                opcodes.run_script_async(4, recruits[r], RECRUIT_FIGHT_TAGS[lane]),
+                (JMP, f"rfeed{r}"),
+            ]
+        blocks += [
+            ("label", f"rdisp{r}_2"),                      # (label parity for the chain)
+            (JMP, f"rfeed{r}"),
+            ("label", f"rreset{r}"),
+        ]
+        for lane in (0, 1):
+            a = lane * 2
+            blocks += [
+                expr_stmt(f"{st} const({lane + 1}) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rrst{r}_{lane}"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_EQ B_EXPR_END"),
+                (JMP_IFNOT, f"rrst{r}_{lane}"),
+                set_byte_stmt(RECRUIT_STATE[r], 0),
+                ("label", f"rrst{r}_{lane}"),
+            ]
+        blocks += [("label", f"rfeed{r}")]
+        for lane in (0, 1):                                # feed: A then B, else post
+            a = lane * 2
+            ax, az = f"Global.Int16[{MIRROR_X[a]}]", f"Global.Int16[{MIRROR_Z[a]}]"
+            nxt = f"rfeed{r}_b" if lane == 0 else f"rfeedpost{r}"
+            blocks += [
+                ("label", f"rfeed{r}_b" if lane == 1 else f"rfeed{r}_a"),
+                expr_stmt(f"Global.Byte[{HP_BYTES[a]}] const(0) B_GT B_EXPR_END"),
+                (JMP_IFNOT, nxt),
+                _box_check(rx, rz, ax, az, ACQUIRE_R),
+                (JMP_IFNOT, nxt),
+                expr_stmt(f"Global.Int16[{RECRUIT_TGT_X[r]}] {ax} B_LET B_EXPR_END"),
+                expr_stmt(f"Global.Int16[{RECRUIT_TGT_Z[r]}] {az} B_LET B_EXPR_END"),
+                (JMP, f"rdone{r}"),
+            ]
+        blocks += [
+            ("label", f"rfeedpost{r}"),
+            expr_stmt(f"Global.Int16[{RECRUIT_TGT_X[r]}] Global.Int16[{RECRUIT_POST_X[r]}] "
+                      f"B_LET B_EXPR_END"),
+            expr_stmt(f"Global.Int16[{RECRUIT_TGT_Z[r]}] Global.Int16[{RECRUIT_POST_Z[r]}] "
+                      f"B_LET B_EXPR_END"),
+            ("label", f"rdone{r}"),
+        ]
     blocks += [
         ("label", "wait"),
         opcodes.wait(1),
@@ -352,9 +547,12 @@ def main_init_prepend(posts: list[tuple[int, int]]) -> bytes:
     """Bench reset (tier + skirmish flags, HP presets, swing timers, lane states, and the
     defender walk targets pre-seeded with their posts — so ~ -> Reload field is the full
     reset) + the generic-timer probe (the Hunt's exact start triplet)."""
-    out = b"".join(clear_flag_stmt(f) for f in TIER_FLAGS + [SKIRMISH_FLAG, BREACH_FLAG])
+    out = b"".join(clear_flag_stmt(f) for f in TIER_FLAGS + [SKIRMISH_FLAG, BREACH_FLAG]
+                   + [REQUEST_FLAG] + PLACED_FLAGS + DEAD_FLAGS)
     out += b"".join(set_byte_stmt(b, v) for b, v in zip(HP_BYTES, HP_PRESET))
-    out += b"".join(set_byte_stmt(b, 0) for b in TIMER_BYTES + STATE_BYTES)
+    out += b"".join(set_byte_stmt(b, 3) for b in RECRUIT_HP)
+    out += b"".join(set_byte_stmt(b, 0)
+                    for b in TIMER_BYTES + STATE_BYTES + RECRUIT_STATE + RECRUIT_TIMER)
     for lane in (0, 1):
         out += expr_stmt(f"Global.Int16[{TARGET_X[lane]}] const({posts[lane][0]}) "
                          f"B_LET B_EXPR_END")
@@ -457,6 +655,21 @@ def gen() -> None:
     parts.append(f'\n[[npc]]\nname = "herald"\nmodel = "{HERALD_MODEL}"\n'
                  f'pos = [{hx}, {hz}]\n'
                  f'dialogue = "The beasts broke through!  The gate is lost!"\n')
+    # ---- rung 3: the recruit pool (never boot-spawned: requires_flag stays clear) +
+    # the purchase menu, zone-PARKED far off-mesh — the button poller remote-dispatches
+    # its tag 3, so the zone trigger itself is never used ----
+    gx, gz = lay["goal"]
+    for r in range(N_RECRUITS):
+        parts.append(f'\n[[npc]]\nname = "recruit{r}"\nmodel = "{DEFENDER_MODEL}"\n'
+                     f'pos = [{gx + 80 * (r + 1)}, {gz + 80}]\n'
+                     f'requires_flag = {POOL_GUARD_FLAG}\n'
+                     f'dialogue = "At your service!"\n')
+    parts.append(
+        f'\n[[choice]]\nzone = [[9000,9000],[9200,9000],[9200,8800],[9000,8800]]\n'
+        f'prompt = "Deploy a soldier HERE for {RECRUIT_COST} gil?"\ninstant = true\n'
+        f'\n[[choice.options]]\ntext = "Hire ({RECRUIT_COST} gil)"\n'
+        f'reply = "Deployed!  Hold this ground!"\nset_flag = [{REQUEST_FLAG}, 1]\n'
+        f'\n[[choice.options]]\ntext = "Never mind."\n')
     SKIRMISH_JSON.write_text(json.dumps(lay), encoding="utf-8")
 
     cx, cz = spawn                         # the lever zone CONTAINS the spawn point
@@ -518,12 +731,24 @@ def patch_eb(data: bytes) -> bytes:
         raise SystemExit(f"expected {N_CHASERS} chaser entries (SetModel {CHASER_MODEL_ID}), "
                          f"found {len(chaser_entries)}: {chaser_entries}")
     attackers = _kit_npcs_by_model(data, eb, ATTACKER_MODEL_ID)
-    defenders = _kit_npcs_by_model(data, eb, DEFENDER_MODEL_ID)
+    soldiers = _kit_npcs_by_model(data, eb, DEFENDER_MODEL_ID)   # defenders THEN recruits (toml order)
     heralds = _kit_npcs_by_model(data, eb, HERALD_MODEL_ID)
-    if len(attackers) != 2 or len(defenders) != 2 or len(heralds) != 1:
-        raise SystemExit(f"skirmish cast mismatch: attackers {attackers} defenders "
-                         f"{defenders} heralds {heralds}")
+    if len(attackers) != 2 or len(soldiers) != 2 + N_RECRUITS or len(heralds) != 1:
+        raise SystemExit(f"skirmish cast mismatch: attackers {attackers} soldiers "
+                         f"{soldiers} heralds {heralds}")
+    defenders, recruits = soldiers[:2], soldiers[2:]
     herald_txid = _talk_txid(data, eb, heralds[0])
+    # the two [[choice]] region entries (tag-3 with a GetChoose read): lever first,
+    # the parked recruit menu second (toml order)
+    choice_entries = []
+    for idx in range(eb.entry_count):
+        f3 = eb.entry(idx).func_by_tag(3)
+        if f3 is not None and bytes([0x7A, 0x09]) in bytes(data[f3.abs_start:f3.abs_end]) \
+                and eb.entry(idx).func_by_tag(1) is None:
+            choice_entries.append(idx)
+    if len(choice_entries) != 2:
+        raise SystemExit(f"expected 2 choice entries, found {choice_entries}")
+    recruit_choice_uid = choice_entries[1]
     lay = json.loads(SKIRMISH_JSON.read_text(encoding="utf-8"))
 
     baseline = {str(p) for p in eblint.lint_eb(bytes(data))}
@@ -542,14 +767,26 @@ def patch_eb(data: bytes) -> bytes:
         out = eb_edit.replace_function_body(out, d_idx, 1, defender_duty_body(lane))
         out = eb_edit.add_function(out, a_idx, FIGHT_TAG, fight_body(
             enemy_uid=d_idx, my_hp=a_hp, enemy_hp=d_hp, my_timer=TIMER_BYTES[lane * 2]))
+        out = eb_edit.add_function(out, a_idx, ATTACKER_DIE_TAG,
+                                   opcodes.terminate_entry(255) + opcodes.RETURN)
         out = eb_edit.add_function(out, d_idx, FIGHT_TAG, fight_body(
             enemy_uid=a_idx, my_hp=d_hp, enemy_hp=a_hp, my_timer=TIMER_BYTES[lane * 2 + 1]))
+    for r, r_idx in enumerate(recruits):
+        out = eb_edit.replace_function_body(out, r_idx, 1, recruit_duty_body(r))
+        for lane in (0, 1):                    # one-sided harass: recruits are untargeted v1
+            out = eb_edit.add_function(out, r_idx, RECRUIT_FIGHT_TAGS[lane], fight_body(
+                enemy_uid=attackers[lane], my_hp=RECRUIT_HP[r],
+                enemy_hp=HP_BYTES[lane * 2], my_timer=RECRUIT_TIMER[r]))
     from ff9mapkit.content import object as _object
     ref_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4)
                  + referee_body(attackers, defenders,
-                                [tuple(p) for p in lay["defenders"]]))
+                                [tuple(p) for p in lay["defenders"]], recruits))
     out, ref_slot = _object.seat_entry(out, ref_entry)
     out = eb_edit.activate_block(out, opcodes.init_code(ref_slot, 0))
+    pol_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4)
+                 + poller_body(recruit_choice_uid, recruits))
+    out, pol_slot = _object.seat_entry(out, pol_entry)
+    out = eb_edit.activate_block(out, opcodes.init_code(pol_slot, 0))
     out = eb_edit.insert_in_function(out, 0, 0, 0,
                                      main_init_prepend([tuple(p) for p in lay["defenders"]]))
     fresh = [p for p in eblint.lint_eb(out)

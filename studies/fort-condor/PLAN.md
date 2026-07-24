@@ -92,10 +92,27 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   vanish on death, stand-off spacing tuned by radius only. Polish backlog when a rung
   needs it: attack/damage anims from the model catalog, hit sounds, a death anim before
   TerminateEntry, per-model contact radii.
-- **Rung 3 — PLACEMENT + ECONOMY.** Walk-and-place: confirm at a spot → unit-type choice
-  menu (dialogue choices) → gil spend → runtime `InitObject` from a pre-authored pool
-  (Ice Cavern 303 is the stock runtime-spawn precedent; entries are fixed at build → pool
-  + recycle).
+- **Rung 3 — PLACEMENT + ECONOMY: BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending.**
+  Press **SPECIAL/Moogle anywhere** (the H&C dig button; 559 Code6's exact
+  `const4(mask) B_KEYON B_SYSVAR[2]` poll shape) → a seated POLLER code entry
+  remote-dispatches the zone-PARKED recruit `[[choice]]` via `RunScriptSync(4, uid, 3)`
+  (the zone trigger is bypassed — the kit dispatch body is self-contained) → on "Hire
+  (300 gil)": pool gate → gil gate (`B_SYSVAR[6] >= 300`, the inn-553 idiom) →
+  `RemoveGil` → runtime `InitObject` of the first free pooled recruit (4 soldiers,
+  `requires_flag` keeps them un-boot-spawned) + **`MoveInstantEx` (DPOS 0xBF — moves
+  ANOTHER object, x/z only, no height math) to the player's position** + post/target
+  GLOB seeding + the placed bit. Recruits run defender-shaped duty loops on own GLOB
+  targets; the referee gains placed-gated recruit mirrors, per-recruit dispatch/reset/
+  feed (state 0/1/2 = free/fighting-A/fighting-B, A-then-B priority, ACQUIRE_R=700,
+  else hold the placement post), and **the harass-death sweep** (one-sided recruit chip
+  can zero an attacker OUTSIDE any fight — the referee latches DEAD_FLAGS + dispatches
+  an added die tag at level 5, gated on lane_state==0 so an attacker in its own fight
+  dies by its own fn, never a REQ on a maybe-dead object). v1 debts (recorded): recruits
+  are UNTARGETED (one-sided harass — mutual N×M = rung 4), broke/pool-empty = silent
+  refusal. THE DEMO: lane B breaches unaided; 1-2 recruits placed on lane B stop it.
+  Playtest (~ Reload): button menu anywhere? spawn at feet? gil deducted (pause menu)?
+  recruits chase+chip? lane B saved? pool caps at 4? reload resets (gil NOT refunded —
+  gil is real save state, spend knowingly).
 - **Rung 4 — WAVES + WIN/LOSS.** Timer-band wave scheduling (the Hunt's
   `GetTimerTime > 600/540/480/…` table shape), a base-HP flag, the faithful Fort Condor
   loss fallback: breach → real `Battle()` boss (the Zaghnol pattern at field 559).
