@@ -193,3 +193,57 @@ mid-flight, chunks at rest instead; (b) any properly-articulated creature mesh s
 `summon-rig-ref` rig replaces Thomas with zero engine work; (c) `HideMask`/texture/material polish
 per the s46 render-rig lessons. Resting state: `--m1b-bench` deployed, s54 armed, everything hot
 except engine/ini changes.
+
+## FLIGHT-POSE REBIND (A/B)  — built 2026-07-24, DEPLOYED as B
+
+Lever (a) above, built. Two skinned FBX variants now exist; the s54 drive is identical for both —
+only the FBX bind pose differs. The drive writes ABSOLUTE bone world matrices and Unity skins
+`world_v = boneWorld[k] * inverseBind[k] * v`, so Thomas reads WHOLE at whatever pose he was BOUND at
+and deforms everywhere else.
+
+- **A = NEUTRAL bind** (`thomas_skinned.fbx`, sha256 `0c300131…a39e2fe5`): whole at the dragon's neutral
+  rest, shatters during flight (most of the cast). The originally-proven variant.
+- **B = FLIGHT bind** (`thomas_skinned_flightbind.fbx`, sha256 `d9074a98…f548487a`): whole during
+  flight, distorted at neutral instead. **Currently deployed** (over `…/Models/3/6201/6201.fbx`; the
+  deployed file's pre-switch sha was byte-identical to A, so the switch-back below is exact).
+
+**Chosen bind frame: clip6 @ f77** (`skin_thomas.py --bind-clip 6 --bind-frame 77`). Rationale, from the
+baked clip curves (not vibes): clip6 is the dominant flight clip (longest baked action, glb frames
+0..130; its native window f301-381 dominates framed screen time per `m0/EULER.md` §3). Within it the
+wing tip (bone039) sweeps monotonically from folded (Z≈-9.2 around f42-54) up to spread (Z≈+0.9); f77
+is the exact MIDPOINT of that vertical travel (Z≈-4.3) and near the clip's temporal middle — a
+representative *wings-mid-flap* pose, not a folded/spread extreme, so it minimizes average deviation
+across the flight window. The fit was re-derived against the POSED skeleton (Thomas's long axis laid
+along the posed head→tail body spine, same FIT_SPAN_FRAC scale law; neutral scale 3.42 → flight scale
+2.61 because the reared flight pose is more compact along its spine). Offline eye (`renders/flightbind_*.png`)
+confirms the inversion: rest ratio 1.00, clip6_f65 0.96 / clip6_f110 1.05 (near-whole in flight) vs
+clip0 neutral 1.17 / clip5 1.43 (distorted) — the mirror image of the neutral bind's numbers.
+
+**Switch A ⇄ B** (just overwrite the deployed FBX; texture/DictionaryPatch/ini/engine all unchanged):
+
+```
+:: -> B  (FLIGHT bind, whole in flight)   [currently deployed]
+copy /Y "C:\gd\SCRATCH\summon-transplant\thomas_skinned_flightbind.fbx" ^
+        "C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\FF9CustomMap\StreamingAssets\Assets\Resources\Models\3\6201\6201.fbx"
+
+:: -> A  (NEUTRAL bind, whole at rest)    [the original]
+copy /Y "C:\gd\SCRATCH\summon-transplant\thomas_skinned.fbx" ^
+        "C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\FF9CustomMap\StreamingAssets\Assets\Resources\Models\3\6201\6201.fbx"
+```
+
+Then RECAST Bahamut Cinema (field 30300, id 194). A hot recast usually shows the new bind immediately;
+**if a recast still shows the OLD shape, relaunch once** to clear the model cache (Unity may hold the
+prior `6201.fbx` import for the session), then recast.
+
+**Expect visually:** with B deployed, Thomas holds together as a (tilted) whole train through the
+mid-flight beats of the cast and comes APART at the neutral bookends / entrance — the exact inverse of
+A, which is whole when the dragon is at rest and shatters while it flies.
+
+### A/B VERDICT — 2026-07-24: the NEUTRAL bind (v1) wins
+
+User compared both in-game: **"v1 was better."** The neutral bind is restored as the deployed
+resting state (live `6201.fbx` sha `0c300131…` == `thomas_skinned.fbx`, verified). The flight-bind
+variant (`thomas_skinned_flightbind.fbx`, bind clip6@f77) stays in SCRATCH with its switch command
+above if anyone ever wants it back. Reading: the neutral bind's whole-train-at-rest + shattering
+INTO motion apparently beats the flight bind's gathered-in-flight look — the shatter reads as part
+of the summon's violence rather than a defect. The aesthetic question is CLOSED by owner preference.

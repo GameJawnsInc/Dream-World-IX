@@ -34,11 +34,32 @@ import math
 import numpy as np
 import mathutils
 
-argv = sys.argv[sys.argv.index("--") + 1:]
-RIG_GLB, THOMAS_FBX, OUT_GLB, OUT_FBX = argv[0], argv[1], argv[2], argv[3]
+raw_argv = sys.argv[sys.argv.index("--") + 1:]
+# positional: <rig.glb> <thomas_normalized.fbx> <out_glb> <out_fbx>  (unchanged)
+# optional flags (default = the original NEUTRAL behavior, so the proven invocation is byte-unchanged):
+#   --bind-clip N   pose the rig to clipN@frame and bind Thomas to THAT flight pose as the rest
+#   --bind-frame F  the clip frame to bind at (default 0)
+#   --bahamut PATH  the glb carrying the 8 baked clip actions (default = the SCRATCH ef227 bahamut)
+_pos, _flags = [], {}
+_i = 0
+while _i < len(raw_argv):
+    _a = raw_argv[_i]
+    if _a.startswith("--"):
+        if _i + 1 < len(raw_argv) and not raw_argv[_i + 1].startswith("--"):
+            _flags[_a] = raw_argv[_i + 1]; _i += 2
+        else:
+            _flags[_a] = "1"; _i += 1
+    else:
+        _pos.append(_a); _i += 1
+RIG_GLB, THOMAS_FBX, OUT_GLB, OUT_FBX = _pos[0], _pos[1], _pos[2], _pos[3]
+BIND_CLIP = _flags.get("--bind-clip")            # None -> neutral (identity rest); "6" -> flight bind
+BIND_FRAME = int(_flags.get("--bind-frame", "0"))
+BAHAMUT_GLB = _flags.get("--bahamut", r"C:/gd/SCRATCH/summon-transplant/ef227_bahamut.glb")
+FLIGHT = BIND_CLIP is not None
 
 # ---- FIT KNOBS (documented, tunable) --------------------------------------------------------------
-FIT_SPAN_FRAC = 0.82     # Thomas length as a fraction of the skeleton's spine (Y) extent
+FIT_SPAN_FRAC = 0.82     # Thomas length as a fraction of the skeleton's spine extent (Y for neutral;
+#                          the posed head->tail body axis for the flight bind)
 NOSE_TOWARD_PLUS_Y = True  # rotate 180 about Z so Thomas's face (-Y normalized) points to the dense
 #                            body/head end (+Y, the root cluster). Flip to False to face the tail.
 RAW_SCALE = 100.0        # rig.glb native = FF9*0.01; x100 -> raw FF9 units for the engine FBX
@@ -47,6 +68,64 @@ N_BONES = 93
 
 def log(*a):
     print("[skin]", *a)
+
+
+# ------------------------------------------------------------------------------------------------
+# FLIGHT-POSE REBIND (the A/B variant). WHY it is just "bake a clip frame as the rest":
+#   The s54 hybrid drive writes each bone[k]'s ABSOLUTE world matrix (the plugin's composed clip
+#   matrix) every frame; Unity skins world_v = boneWorld[k] * inverseBind[k] * v_export, and
+#   inverseBind[k] is the bone's world matrix AT BIND TIME (the FBX bind pose). So Thomas reads
+#   WHOLE at whatever pose we bind at (there boneWorld == bindWorld -> the transforms cancel) and
+#   deforms everywhere else. Binding at the NEUTRAL rest (the shipped behavior) => whole at neutral,
+#   shatters in flight. Binding at a FLIGHT frame => whole in flight, shatters at neutral -- the
+#   requested inversion. bahamut.glb's baked clip actions pose THIS identical rig to the same world
+#   matrices the plugin composes (the offline_eye.py premise, inspect_pose.py: rest diff 0.0), so
+#   posing to clip{N}@frame and APPLYING that as the rest makes the rig's rest == the flight pose;
+#   everything downstream (fit against the rest, nearest-bone skin against the rest, export at the
+#   rest) then binds Thomas to the flight shape with zero further change.
+def bake_flight_rest(arm, bahamut_glb, clip_idx, frame):
+    clip = f"clip{clip_idx}"
+    before_objs = set(o.name for o in bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=bahamut_glb)
+    new_objs = [o for o in bpy.data.objects if o.name not in before_objs]
+    act = bpy.data.actions.get(clip)
+    assert act is not None, f"clip action {clip!r} not found in {bahamut_glb}"
+    fr0, fr1 = act.frame_range
+    assert fr0 <= frame <= fr1, f"{clip} frame {frame} outside baked range {fr0:.0f}..{fr1:.0f}"
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    ad = arm.animation_data
+    ad.action = act
+    # Blender 5.x slotted actions: bind the (single) armature slot so channels retarget by bone name
+    try:
+        slots = list(act.slots)
+        if slots:
+            ad.action_slot = slots[0]
+    except Exception as e:
+        log("slot-bind warn:", e)
+    bpy.context.scene.frame_set(int(frame))
+    bpy.context.view_layer.update()
+    wtip = arm.pose.bones[39]  # bone039 = a wing tip (X=0 at rest); a real pose lifts it off that plane
+    log(f"flight pose {clip}@{frame}: bone039 world="
+        f"{tuple(round(v, 2) for v in (arm.matrix_world @ wtip.matrix).translation)}")
+    # APPLY the evaluated pose as the new REST pose
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    bpy.ops.pose.select_all(action="SELECT")
+    bpy.ops.pose.armature_apply(selected=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    ad.action = None                              # rest now HOLDS the flight pose; drop the clip
+    for pb in arm.pose.bones:
+        pb.matrix_basis = mathutils.Matrix.Identity(4)
+    for o in list(new_objs):                      # purge the whole bahamut import (keep only OUR rig)
+        if o.name in bpy.data.objects:
+            bpy.data.objects.remove(bpy.data.objects[o.name], do_unlink=True)
+    for m in [m for m in bpy.data.meshes if m.users == 0]:
+        bpy.data.meshes.remove(m)
+    bpy.context.view_layer.update()
+    log(f"baked {clip}@{frame} as REST; purged {len(new_objs)} bahamut import object(s)")
 
 
 # =================================================================== 1. IMPORT rig + Thomas
@@ -73,7 +152,19 @@ assert bone_names == expect, f"bone name/order mismatch: {bone_names[:5]}... != 
 for b in arm.data.bones:
     b.use_deform = True
 
-# rest skeleton geometry in ARMATURE space (arm.matrix_world is identity -- asserted)
+# capture the NEUTRAL rest head-Y BEFORE any flight bake -- used to name the head vs tail bone clusters
+# for the flight fit (the neutral nose points +Y: head/root cluster near Y=0, tail+wing tips near -Y).
+mw = arm.matrix_world
+H_rest_neutral = np.array([tuple(mw @ b.head_local) for b in arm.data.bones], dtype=np.float64)
+
+# FLIGHT bind: pose the rig to the chosen clip frame and APPLY it as the rest, so H/T/skin/export below
+# all bind to the flight shape. Neutral (default): skipped entirely -> identity rest, byte-unchanged path.
+if FLIGHT:
+    log(f"FLIGHT BIND requested: clip{BIND_CLIP}@{BIND_FRAME} from {BAHAMUT_GLB}")
+    bake_flight_rest(arm, BAHAMUT_GLB, int(BIND_CLIP), BIND_FRAME)
+
+# rest skeleton geometry in ARMATURE space (arm.matrix_world is identity -- asserted). After a flight
+# bake this REST == the flight pose, so H/T are the posed skeleton the fit + skin work against.
 assert (arm.matrix_world - mathutils.Matrix.Identity(4)).median_scale < 1e-9 or True
 mw = arm.matrix_world
 H = np.array([tuple(mw @ b.head_local) for b in arm.data.bones], dtype=np.float64)  # (93,3)
@@ -131,20 +222,60 @@ log(f"Thomas bbox min={tmin.round(3)} max={tmax.round(3)} dims={tdims.round(3)} 
 thomas_len = tdims[1]  # length is along Y
 
 # =================================================================== 2. FIT
-# scale so Thomas length spans FIT_SPAN_FRAC of the dragon spine
-scale = (spine_y_extent * FIT_SPAN_FRAC) / thomas_len
-# rotation: identity (already length+Y up+Z) or 180 about Z to face +Y
-rot = mathutils.Matrix.Rotation(math.pi, 4, "Z") if NOSE_TOWARD_PLUS_Y else mathutils.Matrix.Identity(4)
-# transform in mesh-data space: move Thomas center to origin, rotate, scale, then to skeleton centroid
 to_origin = mathutils.Matrix.Translation(-mathutils.Vector(tcenter))
-S = mathutils.Matrix.Scale(scale, 4)
 to_centroid = mathutils.Matrix.Translation(mathutils.Vector(scentroid))
-M = to_centroid @ S @ rot @ to_origin
+
+if not FLIGHT:
+    # ---- NEUTRAL FIT (UNCHANGED): spine along +Y, scale to the Y extent, nose to the +Y dense end ----
+    scale = (spine_y_extent * FIT_SPAN_FRAC) / thomas_len
+    rot = mathutils.Matrix.Rotation(math.pi, 4, "Z") if NOSE_TOWARD_PLUS_Y else mathutils.Matrix.Identity(4)
+    S = mathutils.Matrix.Scale(scale, 4)
+    M = to_centroid @ S @ rot @ to_origin
+    log(f"FIT (neutral) scale={scale:.4f} nose_toward_+Y={NOSE_TOWARD_PLUS_Y}")
+else:
+    # ---- FLIGHT FIT: lay Thomas's long axis along the POSED head->tail body spine (re-derived, not the
+    # neutral Y). The spine axis is the vector from the posed head/root cluster to the posed tail cluster;
+    # the symmetric wing tips in the tail cluster cancel in X, leaving the true body tail. Nose -> head.
+    ry = H_rest_neutral[:, 1]
+    hi = np.quantile(ry, 0.85)               # head/root cluster (rest Y near 0)
+    lo = np.quantile(ry, 0.15)               # tail + wing-tip cluster (rest Y near -42)
+    head_idx = np.where(ry >= hi)[0]
+    tail_idx = np.where(ry <= lo)[0]
+    head_c = H[head_idx].mean(0)             # POSED positions (flight rest)
+    tail_c = H[tail_idx].mean(0)
+    spine = head_c - tail_c                  # points toward the head (nose direction)
+    u = spine / (np.linalg.norm(spine) + 1e-12)
+    proj = (skel_pts - scentroid) @ u
+    spine_extent = float(proj.max() - proj.min())
+    scale = (spine_extent * FIT_SPAN_FRAC) / thomas_len
+    # build a proper rotation mapping Thomas's frame -> the posed spine frame (right = forward x up):
+    #   source (normalized Thomas): nose=-Y, up=+Z    target: nose=u, up=world-Z orthogonalized to u
+    up_ref = np.array([0.0, 0.0, 1.0])
+    if abs(float(np.dot(up_ref, u))) > 0.95:  # spine nearly vertical -> use +Y as the up reference
+        up_ref = np.array([0.0, 1.0, 0.0])
+    u_up = up_ref - np.dot(up_ref, u) * u
+    u_up /= (np.linalg.norm(u_up) + 1e-12)
+
+    def frame_basis(fwd, up):
+        r = np.cross(fwd, up)
+        return np.column_stack([fwd, up, r])
+    Tgt = frame_basis(u, u_up)
+    Src = frame_basis(np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.0, 1.0]))
+    R3 = Tgt @ Src.T                          # proper rotation (both bases same handedness) -> det +1
+    assert abs(np.linalg.det(R3) - 1.0) < 1e-6, f"flight rotation not proper (det={np.linalg.det(R3):.4f})"
+    rot = mathutils.Matrix.Identity(4)
+    for _r in range(3):
+        for _c in range(3):
+            rot[_r][_c] = float(R3[_r][_c])
+    S = mathutils.Matrix.Scale(scale, 4)
+    M = to_centroid @ S @ rot @ to_origin
+    log(f"FIT (flight) spine_axis={u.round(3)} spine_extent={spine_extent:.2f} scale={scale:.4f} "
+        f"head_cluster={len(head_idx)}b tail_cluster={len(tail_idx)}b centroid={scentroid.round(2)}")
+
 thomas.data.transform(M)
 thomas.data.update()
 
 tmin2, tmax2 = obj_bbox(thomas)
-log(f"FIT scale={scale:.4f} nose_toward_+Y={NOSE_TOWARD_PLUS_Y}")
 log(f"Thomas post-fit bbox min={tmin2.round(3)} max={tmax2.round(3)} dims={(tmax2-tmin2).round(3)}")
 
 # =================================================================== 3. SKIN (rigid nearest-bone-SEGMENT)
