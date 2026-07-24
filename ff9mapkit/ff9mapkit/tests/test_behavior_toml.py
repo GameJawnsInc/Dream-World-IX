@@ -269,6 +269,22 @@ def test_pooled_installs_in_built_eb(tmp_path):
     pooled_only = [s for s in set(all_inits) if s not in boot_inits]
     assert len(pooled_only) == 1                       # exactly one runtime-only spawn
     assert all_inits.count(pooled_only[0]) == 1        # ...issued once, by the ticker
+    # THE STAGED-LATCH EXISTENCE FIX: every DefinePlayerCharacter (0x2C) in a tag-0
+    # is immediately followed by the player.bound announce (a 0x05 statement) — the
+    # ticker may not deref obj(250) before the player's own Init has confirmed it
+    bind_sites = 0
+    for i in range(eb.entry_count):
+        e = eb.entry(i)
+        if e.size <= 0 or e.func_by_tag(0) is None:
+            continue
+        fn = e.func_by_tag(0)
+        instrs = list(D.iter_code(plain, fn.abs_start, fn.abs_end))
+        for k, ins in enumerate(instrs):
+            if ins.op == 0x2C:
+                bind_sites += 1
+                assert k + 1 < len(instrs) and instrs[k + 1].op == 0x05, \
+                    "0x2C not followed by the player.bound announce"
+    assert bind_sites >= 1
     # determinism
     again = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501})
     assert again == plain

@@ -25,6 +25,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
   30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
 
+### Fixed — `[behavior]` staged latch: the New-Game entry NullRef (playtest-caught)
+- **Every compiled behavior's staged latch now requires proof the player object is BOUND**, not
+  just `B_SYSVAR[2]` (usercontrol): on the New-Game auto-warp entry path usercontrol is set
+  before `DefinePlayerCharacter` runs, so the first ticker pass deref'd `obj(250)` on a null
+  object → `NullReferenceException` → CalcStack desync → the whole behavior system dead for the
+  session (bench-30413 playtest + Memoria.log). `install()` now inserts a `player.bound`
+  flag-set immediately after every `DefinePlayerCharacter` (0x2C) in a tag-0 Init (the
+  `insert_in_function` docstring's own blessed pattern) and the latch is
+  `(bound AND usercontrol) OR latched`; an `.eb` with no 0x2C anywhere is refused (obj(250)
+  could never be safe). Flag allocation shifts by one for ALL compiled behaviors — re-run any
+  bench `gen` so `[[choice]]` `set_flag` indices re-bind. Benches 30410–30412/30400 remain
+  deployed on the old latch (safe via ~ Warp entry); they pick the fix up on their next redeploy.
+
 ### Added — `[[summon]]`: transplant your own model onto a stock summon's real cast *(experimental)*
 - **The productized custom-summon kit surface** (Milestone 2 of the summon-transplant arc —
   `studies/custom-summons/thomas-swap/m2/DESIGN.md`, the binding module plan): a declarative

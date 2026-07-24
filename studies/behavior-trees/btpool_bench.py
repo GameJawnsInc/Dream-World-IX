@@ -12,10 +12,10 @@ The demo — placement defenders:
                          any quartermaster spawns the next one AT YOUR FEET (the
                          press-time position becomes its post): die -> swing pest ->
                          chase pest (acquire 700) -> hold_post.
-  qm0/qm1/qm2            static quartermasters marking the three hire zones (spawn /
-                         west / north) — each zone is an instant [[choice]] wired to
-                         the pool's spawn-request flag (index printed at gen; the
-                         allocation is deterministic).
+  qm0/qm1/qm2            quartermasters at three posts (spawn / west / north) — each
+                         one's TALK is an npc-bound [[choice]] wired to the pool's
+                         spawn-request flag (talk -> hire menu -> soldier at your
+                         feet; index printed at gen, allocation deterministic).
 
 Usage (repo root):   py studies/behavior-trees/btpool_bench.py gen | deploy
 First deploy of 30413 needs a RELAUNCH; then ~ -> Reload field = the full reset
@@ -176,9 +176,12 @@ def gen() -> None:
         parts.append(f'\n[[npc]]\nname = "r{r}"\nmodel = "{RECRUIT_MODEL}"\n'
                      f'pos = [{kx + 60 * r}, {kz}]\ndialogue = "Holding this ground, sir!"\n')
     for i, (qx, qz) in enumerate(lay["qm"]):
+        # NO plain `dialogue` — each quartermaster's TALK is the hire [[choice]]
+        # itself (round-2 lesson: a talky NPC inside an action zone = two competing
+        # Confirm receivers; near+facing him his line EATS the press and the zone
+        # menu never shows). The npc-bound choice makes talk->menu ONE receiver.
         parts.append(f'\n[[npc]]\nname = "qm{i}"\nmodel = "{QM_MODEL}"\n'
-                     f'pos = [{qx}, {qz}]\n'
-                     f'dialogue = "Need a soldier?  Step up and say the word."\n')
+                     f'pos = [{qx}, {qz}]\n')
 
     parts.append(behavior_toml(lay))
 
@@ -194,19 +197,18 @@ def gen() -> None:
                   behavior_txids={})
     hire_flag = fb.pool_flags["recruits"]
 
-    h = 220
-    for i, (qx, qz) in enumerate(lay["qm"]):
+    for i, (_qx, _qz) in enumerate(lay["qm"]):
         parts.append(
-            f'\n[[choice]]\nzone = [[{qx - h},{qz + h}],[{qx + h},{qz + h}],'
-            f'[{qx + h},{qz - h}],[{qx - h},{qz - h}]]\n'
-            f'prompt = "Quartermaster: deploy a soldier?"\ninstant = true\n'
-            f'\n[[choice.options]]\ntext = "Hire — he holds THIS spot."\n'
+            f'\n[[choice]]\nnpc = "qm{i}"\nspeaker = "Quartermaster"\n'
+            f'prompt = "Need a soldier?  He will hold the very spot you stand on."\n'
+            f'instant = true\n'
+            f'\n[[choice.options]]\ntext = "Hire — post him right here."\n'
             f'reply = "Deployed!  He will hold this ground."\n'
             f"set_flag = [{hire_flag}, 1]\n"
             f'\n[[choice.options]]\ntext = "Not now."\n')
     BENCH_TOML.write_text("".join(parts), encoding="utf-8")
     print(f"wrote {BENCH_TOML}  (1 pest + {N_RECRUITS} POOLED recruits; hire flag "
-          f"{hire_flag} wired to {len(lay['qm'])} quartermaster zones)")
+          f"{hire_flag} wired to {len(lay['qm'])} quartermaster TALK menus)")
     print(f"  layout: {lay}")
 
 
@@ -229,17 +231,21 @@ def deploy() -> None:
                       "slots/txids)\n", encoding="utf-8")
     print(f"\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (RELAUNCH first — new id {FIELD_ID}): ~ -> Warp -> {FIELD_ID}
+PLAYTEST (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
+  0 ENTRY PATHS: BOTH ~ Warp AND New Game now work (the staged-latch existence fix
+    — New-Game entry used to kill the whole behavior system at load).
   1 THE PEST: a Mu wanders mid-arena; come near -> it chases you (140u ring).
     NO soldiers exist anywhere at boot (the pool is dormant).
-  2 HIRE AT YOUR FEET: stand by any quartermaster (spawn-side / west / north) ->
-    the menu pops on entry -> "Hire" -> a soldier MATERIALIZES AT YOUR FEET and
-    holds that exact spot. Step out and back in to hire again.
+  2 HIRE AT YOUR FEET: TALK to any quartermaster (Confirm, like any NPC) -> his
+    talk IS the hire menu now (round-2 fix: no more separate zone eating the
+    press) -> "Hire" -> a soldier MATERIALIZES AT YOUR FEET and holds that spot.
+    Talk again for the next one ({N_RECRUITS} total). Hire at DIFFERENT
+    quartermasters to see placement matter.
   3 THE INTERCEPT: lure the pest past a posted soldier (within ~{ACQUIRE_R}) -> the
     soldier acquires, chases, and duels it (MUTUAL: the pest fights back) -> pest
     dies -> the soldier walks BACK TO ITS POST.
-  4 POOL EXHAUSTED: after {N_RECRUITS} hires, further Hire rows do nothing (silent,
-    v1 semantics — the request is consumed).
+  4 POOL EXHAUSTED: after {N_RECRUITS} hires total, further Hire picks do nothing
+    (silent, v1 semantics — the request is consumed).
   5 ~ -> Reload field: soldiers despawn, the pool refills, the pest returns.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

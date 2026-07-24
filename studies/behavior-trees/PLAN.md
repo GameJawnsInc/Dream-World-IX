@@ -221,8 +221,8 @@ runtime tree switching beyond blackboard-driven branches.
   9 new tests (`test_behavior_toml.py` incl. a built-.eb e2e); suite **4721** green.
   The playtest = a PARITY check: the redeployed 30412 must play exactly like the
   rung-3 proof. GUI section deliberately deferred (the GUI study's call-site law).
-- **POST-LADDER — POOLED UNITS (runtime activation): BUILT + DEPLOYED (2026-07-24),
-  ⚠ playtest pending.** The fort-condor resume ladder's step 1, as compiler vocabulary:
+- **POST-LADDER — POOLED UNITS (runtime activation): ★ IN-GAME PROVEN (2026-07-24,
+  3 rounds — "all good now").** The fort-condor resume ladder's step 1, as compiler vocabulary:
   `pooled = true` / `pool = "name"` on a `[[behavior.unit]]` seats the NPC's entry
   DORMANT (new `inject_npc(boot_spawn=False)` — no InitObject call site, no reveal-flag
   hack), excludes it from the warm-up wake, and emits a per-pool ACTIVATION BLOCK in the
@@ -239,8 +239,35 @@ runtime tree switching beyond blackboard-driven branches.
   entry has NO boot InitObject, spawned exactly once by the ticker — also verified on
   the deployed bench bytes). Bench **30413** "BTPOOL" (`btpool_bench.py`, pure product
   path): a wandering/chasing Mu pest + 3 pooled soldiers + 3 quartermaster hire zones
-  (spawn-side/west/north, instant choices on the pool flag 8868). RELAUNCH → ~ → Warp
-  → 30413. Revert: `tools/scroll_out/revert_deploy_30413.py`.
+  (spawn-side/west/north, Confirm-press action choices on the pool flag). ~ → Warp
+  → 30413 (or New Game). Revert: `tools/scroll_out/revert_deploy_30413.py`.
+  **ROUND 1 (2026-07-24): beats 1-3 ★ PROVEN** ("good" ×3 — dormant pool, hire at feet
+  + hold, intercept/mutual-duel/resume-post). Beat 4's report ("worked a couple times,
+  too many on the first spawn, then stopped — and it persists through relaunches/new
+  games") decomposed into: (a) the action-trigger choice is a REUSABLE Confirm lever
+  (each press = one hire; round 1's checklist wrongly said re-entry — the pool simply
+  drained) and (b) **THE NEW-GAME STAGED-LATCH BUG (Memoria.log-proven, FIXED same
+  day):** on the New-Game auto-warp entry, `B_SYSVAR[2]` (usercontrol — NOT existence)
+  passes before uid 250 binds → the first run pass's `obj(250)` mirror NullRefs → the
+  CalcStack desyncs → the whole behavior system dead for the session ("persists" =
+  every re-entry was a New Game; nothing was ever save-persistent). THE FIX (the law
+  made structural): `install()` inserts a `player.bound` flag-set right after every
+  `DefinePlayerCharacter` (0x2C, the insert_in_function-blessed site); the latch =
+  (bound AND usercontrol) OR latched; no 0x2C = install REFUSED. Flag allocation
+  shifted +1 → bench re-gen re-wired the hire flag (8868→8869); 30413 redeployed.
+  ⚠ Benches 30410-12 + 30400 still carry the old latch as deployed (Warp-entry safe;
+  fix rides their next redeploy).
+  **ROUND 3 (same day): THE ONE-CONFIRM-RECEIVER LESSON** — round 2's "hire popup
+  only from certain positions": the QM's plain-dialogue talk arc (near+facing) and
+  the action zone around him were TWO stacked Confirm receivers, and the talk EATS
+  the press inside its arc. Never park a talky NPC inside an action zone — bind the
+  menu to the TALK (`[[choice]] npc =`, talk → menu → branch). Zone choices deleted;
+  the quartermaster's talk IS the hire menu.
+  **★ ROUND-3 PLAYTEST: ALL BOXES PROVEN** ("all good now — hires work from anywhere,
+  pest intercept still good, new game good, silent 4th, reload refill") — the pooled
+  lane is CLOSED: dormant pool / spawn-at-feet + hold_post / intercept-duel-resume /
+  the NEW-GAME entry (the staged-latch fix's regression box) / silent exhaustion /
+  reload refill, all in-game.
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,
