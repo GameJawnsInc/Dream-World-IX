@@ -239,8 +239,25 @@ runtime tree switching beyond blackboard-driven branches.
   entry has NO boot InitObject, spawned exactly once by the ticker — also verified on
   the deployed bench bytes). Bench **30413** "BTPOOL" (`btpool_bench.py`, pure product
   path): a wandering/chasing Mu pest + 3 pooled soldiers + 3 quartermaster hire zones
-  (spawn-side/west/north, instant choices on the pool flag 8868). RELAUNCH → ~ → Warp
-  → 30413. Revert: `tools/scroll_out/revert_deploy_30413.py`.
+  (spawn-side/west/north, Confirm-press action choices on the pool flag). ~ → Warp
+  → 30413 (or New Game). Revert: `tools/scroll_out/revert_deploy_30413.py`.
+  **ROUND 1 (2026-07-24): beats 1-3 ★ PROVEN** ("good" ×3 — dormant pool, hire at feet
+  + hold, intercept/mutual-duel/resume-post). Beat 4's report ("worked a couple times,
+  too many on the first spawn, then stopped — and it persists through relaunches/new
+  games") decomposed into: (a) the action-trigger choice is a REUSABLE Confirm lever
+  (each press = one hire; round 1's checklist wrongly said re-entry — the pool simply
+  drained) and (b) **THE NEW-GAME STAGED-LATCH BUG (Memoria.log-proven, FIXED same
+  day):** on the New-Game auto-warp entry, `B_SYSVAR[2]` (usercontrol — NOT existence)
+  passes before uid 250 binds → the first run pass's `obj(250)` mirror NullRefs → the
+  CalcStack desyncs → the whole behavior system dead for the session ("persists" =
+  every re-entry was a New Game; nothing was ever save-persistent). THE FIX (the law
+  made structural): `install()` inserts a `player.bound` flag-set right after every
+  `DefinePlayerCharacter` (0x2C, the insert_in_function-blessed site); the latch =
+  (bound AND usercontrol) OR latched; no 0x2C = install REFUSED. Flag allocation
+  shifted +1 → bench re-gen re-wired the hire flag (8868→8869); 30413 redeployed.
+  ⚠ Benches 30410-12 + 30400 still carry the old latch as deployed (Warp-entry safe;
+  fix rides their next redeploy). ⚠ round-2 playtest pending (incl. the New-Game
+  entry box).
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,

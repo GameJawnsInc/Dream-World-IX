@@ -229,17 +229,21 @@ def deploy() -> None:
                       "slots/txids)\n", encoding="utf-8")
     print(f"\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (RELAUNCH first — new id {FIELD_ID}): ~ -> Warp -> {FIELD_ID}
+PLAYTEST (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
+  0 ENTRY PATHS: BOTH ~ Warp AND New Game now work (the staged-latch existence fix
+    — New-Game entry used to kill the whole behavior system at load).
   1 THE PEST: a Mu wanders mid-arena; come near -> it chases you (140u ring).
     NO soldiers exist anywhere at boot (the pool is dormant).
-  2 HIRE AT YOUR FEET: stand by any quartermaster (spawn-side / west / north) ->
-    the menu pops on entry -> "Hire" -> a soldier MATERIALIZES AT YOUR FEET and
-    holds that exact spot. Step out and back in to hire again.
+  2 HIRE AT YOUR FEET: stand in a quartermaster's zone and PRESS CONFIRM -> the
+    menu -> "Hire" -> a soldier MATERIALIZES AT YOUR FEET and holds that spot.
+    The lever is REUSABLE: every Confirm+Hire = ONE more soldier (that is the
+    "several at once" from round 1 — each press spent one of the {N_RECRUITS}).
+    Hire at DIFFERENT spots to see placement matter.
   3 THE INTERCEPT: lure the pest past a posted soldier (within ~{ACQUIRE_R}) -> the
     soldier acquires, chases, and duels it (MUTUAL: the pest fights back) -> pest
     dies -> the soldier walks BACK TO ITS POST.
-  4 POOL EXHAUSTED: after {N_RECRUITS} hires, further Hire rows do nothing (silent,
-    v1 semantics — the request is consumed).
+  4 POOL EXHAUSTED: after {N_RECRUITS} hires total, further Hire picks do nothing
+    (silent, v1 semantics — the request is consumed).
   5 ~ -> Reload field: soldiers despawn, the pool refills, the pest returns.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

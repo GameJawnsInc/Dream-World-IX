@@ -423,6 +423,12 @@ class FieldBehavior:
         self._label_ctr = 0                              # unique labels for feed effects
         # per-unit allocations (the player pseudo-unit gets mirrors + the staged latch)
         self._staged = self.bb.flag("player.staged")
+        # THE EXISTENCE SOURCE: set by the player's OWN Init right after
+        # DefinePlayerCharacter (install() inserts it) — B_SYSVAR[2] (usercontrol)
+        # alone does NOT prove uid 250 is bound (the New-Game auto-warp entry has
+        # usercontrol set before the player binds → obj(250) NullRef → CalcStack
+        # desync, the bench-30413 log). The latch requires BOTH.
+        self._pbound = self.bb.flag("player.bound")
         self.bb.int16(f"{PLAYER}.mx")
         self.bb.int16(f"{PLAYER}.mz")
         self._pools: dict[str, list[str]] = {}           # pool name -> pooled units, roster order
@@ -612,8 +618,12 @@ class FieldBehavior:
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
         wu = self.bb.byte("warmup")
-        ticker: list = [label("top"), _stmt(f"B_SYSVAR[{STAGE_SYSVAR}] "
-                                            f"Global.Bit[{self._staged}] B_OROR"),
+        ticker: list = [label("top"),
+                        # latch = (player BOUND and usercontrol) or already latched —
+                        # bound proves obj(250) resolves; usercontrol keeps the proven
+                        # wake timing (movement enabled = the field has settled)
+                        _stmt(f"Global.Bit[{self._pbound}] B_SYSVAR[{STAGE_SYSVAR}] "
+                              f"B_ANDAND Global.Bit[{self._staged}] B_OROR"),
                         (JMP_IFNOT, "wait"),
                         _set_flag(self._staged, 1),
                         # THE WARM-UP GATE: after the player stages, count down before
@@ -653,6 +663,7 @@ class FieldBehavior:
 
         main_init = bytearray()
         main_init += _set_flag(self._staged, 0)
+        main_init += _set_flag(self._pbound, 0)
         main_init += _set_byte(wu, self.warmup)
         report: list[str] = []
 
@@ -1099,9 +1110,44 @@ class FieldBehavior:
             return out
         return []                                        # dispatch actions: no feed
 
+    def _announce_player_bound(self, data: bytes) -> bytes:
+        """THE STAGED-LATCH EXISTENCE FIX: insert a ``player.bound`` flag-set
+        immediately after EVERY ``DefinePlayerCharacter`` (0x2C) in a tag-0 Init —
+        the player's own entry announces that uid 250 resolves, and the ticker's
+        latch requires the announcement (insert_in_function's docstring pattern:
+        right after 0x2C is the blessed safe insert point). No 0x2C anywhere =
+        no player can ever bind = the ticker's obj(250) reads can never be safe →
+        refuse the install."""
+        from ..eb import disasm as D
+        from ..eb import edit as eb_edit
+        from ..eb.model import EbScript
+        eb = EbScript.from_bytes(data)
+        announce = _set_flag(self._pbound, 1)
+        sites = []                               # (entry, rel offset AFTER the 0x2C)
+        for i in range(eb.entry_count):
+            e = eb.entry(i)
+            if e.size <= 0:
+                continue
+            f0 = e.func_by_tag(0)
+            if f0 is None:
+                continue
+            for ins in D.iter_code(data, f0.abs_start, f0.abs_end):
+                if ins.op == 0x2C:
+                    sites.append((i, ins.end - f0.abs_start))
+        if not sites:
+            raise BehaviorError(
+                "behavior install: no DefinePlayerCharacter (0x2C) in any Init — a "
+                "behavior field needs a bound player (the ticker reads obj(250); "
+                "without a binding the staged latch could never safely pass)")
+        out = bytes(data)
+        for i, rel in sorted(sites, key=lambda s: (s[0], -s[1])):  # per-entry descending
+            out = eb_edit.insert_in_function(out, i, 0, rel, announce)
+        return out
+
     def install(self, eb_bytes: bytes, compiled: CompiledBehavior | None = None) -> bytes:
         """Install a compiled behavior into a BUILT field's `.eb` (the generalized
-        `swarm_bench.patch_eb` shape): replace each unit's tag-1 with its duty body,
+        `swarm_bench.patch_eb` shape): announce the player binding (the staged-latch
+        existence source), replace each unit's tag-1 with its duty body,
         `add_function` the dispatch tags, seat + activate the ticker (the coop
         inject_hold entry pattern), prepend the Main_Init reset, and gate on an eblint
         BASELINE DIFF (pre-existing issues pass; a NEW error fails the install)."""
@@ -1110,7 +1156,7 @@ class FieldBehavior:
         from . import object as _object
         cb = compiled or self.compile()
         baseline = {str(p) for p in eblint.lint_eb(bytes(eb_bytes))}
-        out = bytes(eb_bytes)
+        out = self._announce_player_bound(bytes(eb_bytes))
         for u in self.units.values():
             out = eb_edit.replace_function_body(out, u.entry, 1, cb.duty_bodies[u.name])
             for tag, body in cb.action_funcs[u.name]:
