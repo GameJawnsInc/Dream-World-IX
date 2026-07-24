@@ -319,6 +319,16 @@ copy `Output\Assembly-CSharp.dll` to both `x64\FF9_Data\Managed\` and `x86\FF9_D
 above already documents. Round-2 note: round 1's `--calibrate` cast (§8) pre-dates s48 entirely — a fresh
 cast is needed to actually exercise any of the below.
 
+> **M0 UPDATE 2026-07-23: this "CODED, NOT YET BUILT" heading is STALE.** s48 is BUILT + DEPLOYED — confirmed
+> by direct inspection of the live install, not just the changelog: the deployed x64
+> `Assembly-CSharp.dll` sha256 `3CCA581C…` matches `memoria-patches/README.md`'s recorded **s53** build
+> (s53 is sequentially built on top of s48/s52), and the `CapturePrims` identifier string is present in the
+> deployed DLL's metadata alongside `LogPrim`/`PrimSummary`/`CaptureModels`/`LogModels`/`ModelsBoneCount`
+> (ASCII, `#Strings` heap) and `PrimCap`/`PSXCAM`/`PRIM CAPTURE TRUNCATED`/`ModelsCap` (UTF-16 literals, `#US`
+> heap). Arming `CapturePrims=1` is a pure `Memoria.ini` edit + relaunch, **not** an engine rebuild — see
+> `m0/CAST-PROTOCOL.md` §2 for the full re-verification + the arming protocol for the still-outstanding depth-
+> gate cast (TRANSPLANT.md §2.4 Milestone 0 item (d)).
+
 **Item 1 — the CAM-hook fix.** §8's round-1 cast measured **19,456 MESH rows / 0 CAM rows** even with
 `Enabled=1` (the "confirmed, out of scope" defect called out there). Root-caused to two compounding bugs, not
 one: (a) `Camera.main` is routinely **null** during native SFX battle playback — s47's `LogCamera()` read it
