@@ -859,3 +859,23 @@ def test_award_negatives():
     )
     with pytest.raises(B.BehaviorError, match="wrapped in Once"):
         fb.compile()
+
+
+def test_hold_ground_pin():
+    """The PIN: a dispatch action whose selection halts the walk and whose body
+    idles while selected — no window, no writes, resumes on deselect."""
+    fb = B.FieldBehavior([B.UnitSpec("r", 2, spawn=(0, 0), hp=3)])
+    fb.units["r"].tree = B.Selector(
+        B.Sequence(fb.near("r", B.PLAYER, 240), B.Do(B.HoldGround())),
+        B.Do(B.Hold((500, 500))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    bodies = [b for _t, b in cb.action_funcs["r"]]
+    pin = bodies[0]                                   # first dispatch tag
+    ops = [i.op for i in D.iter_code(pin, 0, len(pin))]
+    assert 0x22 in ops and 0x20 not in ops            # idles; opens no window
+    with pytest.raises(B.BehaviorError, match="fallback"):
+        bad = B.FieldBehavior([B.UnitSpec("u", 2, spawn=(0, 0))])
+        bad.units["u"].tree = B.Do(B.HoldGround())    # not a static feed
+        bad.compile()

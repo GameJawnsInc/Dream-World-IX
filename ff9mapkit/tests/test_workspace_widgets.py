@@ -635,3 +635,31 @@ def test_no_control_carries_prose_as_its_own_label(app):
         "minimumSizeHint is the whole sentence and it pins its card's width open. Use widgets.option(): "
         f"the NAME you tick, the consequence in a capped caption beneath it. {offenders}"
     )
+
+
+def test_region_catalog_counts_one_field_in_the_singular(app):
+    """'(seed 506 · 1 fields)' shipped on every 1-field region row -- a list a user scans."""
+    from types import SimpleNamespace
+    arcs = [SimpleNamespace(key="cargo_fnrl", name="Cargo Ship [fnrl]", seed=506, members=[506], note="")]
+    lst = widgets.region_catalog_list(SimpleNamespace(title="t", arcs=arcs), show_counts=True)
+    assert "1 field)" in lst.item(0).text()
+    assert "1 fields" not in lst.item(0).text()
+
+
+def test_elide_button_yields_with_an_honest_ellipsis(app):
+    """QPushButton has no elide -- under-allocated it CHOPS the paint (the toolbar search read
+    'Search anything (C' at the default window). ElideButton elides instead, keeps the full string
+    in accessibleName, and PINS sizeHint to the full text so eliding can never re-trigger layout
+    (NameLabel's documented trap)."""
+    full = "Search anything  (Ctrl-K)"
+    b = widgets.ElideButton(full)
+    b.show()
+    b.resize(b.sizeHint())
+    QApplication.processEvents()
+    assert b.text() == full, "at its own hint the full label shows"
+    hint_before = b.sizeHint().width()
+    b.setFixedWidth(90)
+    QApplication.processEvents()
+    assert b.text() != full and b.text().endswith("…"), "squeezed: an honest elide, never a chop"
+    assert b.accessibleName() == full, "the full string survives for a11y"
+    assert b.sizeHint().width() == hint_before, "the hint is pinned -- eliding must not move the layout"

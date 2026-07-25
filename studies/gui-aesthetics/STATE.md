@@ -1,6 +1,55 @@
 # GUI aesthetics — state + next steps
 
-> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ⚠ PLAYTEST PENDING
+> ## ROUND 13 — THE SQUEEZE, THREE PANES DEEP (the detailed UX pass)  ·  ★ PLAYTESTED 2026-07-25
+>
+> A full-surface sweep (all 45 pinned surfaces × 100/150%, every PNG read) against the current master.
+> **The round's one theme is round 7's law reaching INSIDE the docs: a pane that cannot get its content's
+> width must degrade honestly (wrap, elide, scroll, or a visible door) — three shipped surfaces silently
+> CLIPPED instead.**
+>
+> 1. **The Inspector card clipped its own text wherever a thumbnail rendered.** `_inspect_field` baked
+>    `<img width="300">` into the rich text; a rich-text img is ATOMIC, so 300 became `insp_body`'s
+>    minimum, the widgetResizable host laid the WHOLE card out at ~320 in the 240px default pane, and —
+>    with the h-bar off — Qt CLIPS, text and all (map:art read "2 cutscenes (8 ste"). It looked healthy
+>    on home:open only because the harness had no thumb there — **on any thumb-warm machine every field
+>    card clipped.** Fix: `_thumb_img_attr(w, h, avail)` (pure, fenced) sizes the img from the PANE at
+>    render, and a coalesced 200ms refit re-bakes on pane resize (the `_on_thumb_ready` re-render
+>    precedent). The rendered-width invariant `(h_attr·w)//h ≤ avail` is fenced for the tall branch too.
+> 2. **The Models tab's right editor pane clipped mid-glyph at the DEFAULT window** ("Copy [[npc]] snip",
+>    "Deploy r", "Min" — and at 150% it was a sliver). Two causes, one deficit: the one-row filter strip
+>    (combo + two checkboxes; a checkbox's label IS its minimum) put a ~450px floor under the LEFT pane,
+>    and the right scroll area's h-bar was `AlwaysOff` — which under widgetResizable means CLIP, not
+>    scroll, exactly against its own "never clip sideways" comment. Filters now stack two rows; the bar
+>    is `AsNeeded`; fenced by driving the splitter to a squeeze and asserting the bar actually appears.
+> 3. **The squeezed toolbar's overflow door was INVISIBLE.** At 150% (or ≤~900px at 100%) Qt folds
+>    Refresh/Lint/Info Hub/**Search**/Settings into the extension button — whose Fusion arrow painted
+>    invisibly at 12px wide. The probe chain mattered: a widget `setMinimumWidth(28)` left the button
+>    hanging 9px OFF the window edge, because **`PM_ToolBarExtensionExtent` both sizes and places the
+>    button** — the fix is `_DwixStyle(QProxyStyle)` overriding that one metric (28) + the themed
+>    chevron icon + an a11y name, pixel-verified at 860px and 150%.
+> 4. **The search button chopped its own teaching** ("Search anything (C" at the default 1280 window —
+>    QPushButton has no elide). `widgets.ElideButton`: an honest …, full string kept in accessibleName,
+>    and the sizeHint PINNED to the full text — NameLabel's documented relayout trap, applied to a button.
+> 5. **New Campaign's "First field id" was the LONE id box outside the band lesson** (BUILD-NOW #6 missed
+>    it): a plain `QLineEdit("4000")`, no caption, `int()` straight into `new_campaign` — a real-band 100
+>    sailed through. Now `widgets.id_field` + `pack.check_custom_id(what="first field id")`, fenced in
+>    the wave2 file's exact voice-assert shape.
+> 6. **Strings a user scans:** "(seed 506 · 1 fields)" → "1 field" (region catalog); "300 match(es)" →
+>    real plurals (CatalogPicker + field cards); the realfield picker dropped the per-row "[realfield]"
+>    chip (noise in a single-kind list) and now shows the id — twin names ("Interior" ×4) were
+>    indistinguishable, and the id is the very value the pick fills in; "Fork battle…" / "Fork a
+>    battle…" unified; the drift dialog's "no changes since the deploy…" heading capitalized.
+>
+> **Read but NOT built (owner territory):** the hero's dead right half (ASK #18, already queued), the
+> RECENT rows' noisy worktree paths, Models list row height with previews off, Info Hub song ordering,
+> and the Battle tab's duplicated header/empty-state verbs (labels unified; the duplication kept — the
+> header pair persists once a map is open).
+>
+> Suite 4454 → green + the new fences; every touched surface re-snapped and READ (models 100/150,
+> map:art, new-campaign, fork-regions, drift-synced, battle, home 100/150/860px). ★ PLAYTESTED
+> 2026-07-25 — the owner cleared rounds 11, 12 and 13 in one session; all three are on master.
+
+> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ★ PLAYTESTED 2026-07-25
 >
 > **The weak area is named in the brief's own loudest law:** *"One change per in-game test. When a build
 > breaks, we need to know which edit did it."* — and **nothing in the toolkit could answer *which edit*.**
@@ -78,9 +127,9 @@
 > Re-fenced with a file sitting where the directory should be.
 >
 > All three sabotage runs (index matching / ignore `from_disk` / drop the open-project gate) go red on exactly
-> the right fences. Suite **4229** (+35 new). ⚠ Nothing here has been seen in the running app by a human.
+> the right fences. Suite **4229** (+35 new). ★ PLAYTESTED 2026-07-25 (with rounds 11 + 13).
 
-> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ⚠ PLAYTEST PENDING
+> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ★ PLAYTESTED 2026-07-25
 >
 > **The weak area, stated precisely: there was no find ANYWHERE in this app.** `Ctrl+F` was unbound
 > app-wide, and the surface that needed it most is the one the app streams every build, deploy, lint and

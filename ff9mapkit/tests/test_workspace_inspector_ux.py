@@ -118,3 +118,47 @@ def test_a_rollup_link_is_never_a_dead_click(win, app, tmp_path):
     win._inspect_link("goto:tree:GONE:npc")              # a member that no longer exists
     app.processEvents()
     assert win.tree.currentItem() is before, "a stale href changes nothing (and crashes nothing)"
+
+
+# ------------------------------------------------------------------ the card fits its pane
+def test_thumb_img_attr_fences_the_rendered_width_to_the_pane():
+    """A rich-text <img> is atomic: its declared width floors the whole card's wrap width, and the
+    inspector's h-bar-off scroll host CLIPS past the viewport. So the attr must be a function of the
+    pane, never a constant (width="300" in the 240px default pane was the shipped clip)."""
+    import re
+    from ff9mapkit.workspace.shell import Workspace
+    f = Workspace._thumb_img_attr
+    assert f(400, 300, 220) == 'width="220"', "landscape squeezed: the pane wins over the 300 cap"
+    assert f(400, 300, 900) == 'width="300"', "landscape roomy: the historical cap holds"
+    assert f(0, 0, 220) == 'width="220"', "a null pixmap still fences to the pane"
+    for w, h, avail in [(300, 600, 150), (300, 600, 220), (256, 1024, 200)]:
+        m = re.fullmatch(r'height="(\d+)"', f(w, h, avail))
+        assert m, "a tall room caps by height"
+        hh = int(m.group(1))
+        assert hh <= 380 and (hh * w) // h <= avail, "the rendered width never exceeds the pane"
+
+
+def test_the_inspector_thumbnail_bakes_the_pane_width_and_refits_on_resize(win, app, tmp_path):
+    """The bake must follow the pane at render time, and a pane resize must arm the coalesced re-bake --
+    otherwise the card keeps wrapping at the old width and the pane clips it (the '2 cutscenes (8 ste'
+    rollup). Relationship asserts only: the html quotes the SAME width the pane reports, this run."""
+    from PySide6.QtGui import QPixmap
+    png = tmp_path / "thumb.png"
+    pm = QPixmap(400, 200)
+    pm.fill()                                          # an uninitialized pixmap saves garbage
+    assert pm.save(str(png))
+    win.thumbs.request = lambda *a, **k: str(png)      # the warm-cache answer, no install touched
+    win._insp_scroll.setFixedWidth(320)                # a known-wide pane first: offscreen's default is
+    app.processEvents()                                # cramped enough to sit ON the 160 floor already
+    _open_test_field(win, tmp_path, app)
+    avail = win._insp_avail()
+    assert f'width="{min(300, avail)}"' in win.insp_body.text(), \
+        "the baked img width is the pane's own, not a constant"
+    win._insp_scroll.setFixedWidth(210)                # squeeze the pane (still above the 160 floor)
+    app.processEvents()
+    assert win._insp_refit.isActive(), "a pane resize arms the coalesced refit timer"
+    win._refit_inspector()
+    new_avail = win._insp_avail()
+    assert new_avail < avail
+    assert f'width="{min(300, new_avail)}"' in win.insp_body.text(), \
+        "after a squeeze the card re-bakes to the new width instead of clipping at the old one"

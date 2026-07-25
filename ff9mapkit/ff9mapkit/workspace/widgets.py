@@ -369,6 +369,52 @@ class NameLabel(QLabel):
         super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
 
 
+class ElideButton(QPushButton):
+    """A button whose label yields with the pane instead of clipping mid-glyph.
+
+    QPushButton has no elide: under-allocated it CHOPS the paint -- the toolbar's flexible search button
+    shipped reading 'Search anything (C' at the default window width, teaching half a keystroke. This
+    elides with an honest … and keeps the full string in ``accessibleName`` (the tooltip carries the
+    depth per the help-affordance policy). Same trap + cure as :class:`NameLabel` above: ``sizeHint`` is
+    PINNED to the full string so eliding can never re-trigger the layout that caused it.
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self._full = text
+        super().setText(text)
+        self.setAccessibleName(text)
+
+    def setText(self, text):                  # keep the full string authoritative through any relabel
+        self._full = text
+        self.setAccessibleName(text)
+        self._elide()
+        self.updateGeometry()
+
+    def _pad(self):
+        ic = self.iconSize().width() if not self.icon().isNull() else 0
+        return ic + 34                        # icon + QSS button padding + the icon/label gap
+
+    def sizeHint(self):                       # pinned to the FULL string (NameLabel's law)
+        sh = super().sizeHint()
+        fm = self.fontMetrics()
+        return QSize(int(fm.horizontalAdvance(self._full)) + self._pad(), sh.height())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._elide()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() == QEvent.Type.FontChange:   # CALIBRE re-metrics the elide (the GAUGE pattern)
+            self._elide()
+
+    def _elide(self):
+        fm = self.fontMetrics()
+        w = max(0, self.width() - self._pad())
+        super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
+
+
 def nameplate(kicker: str, name: str, note: str = "", *, parent=None):
     """A screen's crown: a quiet KICKER, the subject's NAME at display size, and an optional note.
 
@@ -807,7 +853,8 @@ def region_catalog_list(arcset, *, exclude=frozenset(), show_counts=False):
     lst = QListWidget()
     for a in arcset.arcs:
         excluded = a.key in exclude
-        count = f"  ·  {len(a.members)} fields" if show_counts and a.members else ""
+        count = (f"  ·  {len(a.members)} field{'' if len(a.members) == 1 else 's'}"
+                 if show_counts and a.members else "")
         tag = "   ✓ in arc" if excluded else ""
         it = QListWidgetItem(f"{a.name}   (seed {a.seed}{count}){tag}")
         it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)

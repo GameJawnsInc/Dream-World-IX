@@ -226,6 +226,20 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   — the east bay was, and the route planner rightly refused an anchor there) +
   a ~120u wall-clearance filter + a height band that keeps the street arms but
   drops the balcony class.
+  **ROUND 1 PLAYTEST (2026-07-25): the ECONOMY LANE ★ ("the stipend and reward
+  pay out" — the award verb's in-game proof); two design defects + one ask:**
+  (1) raiders jogged away from their attackers (single-minded was a budget trim)
+  → **`hold_ground` — THE PIN** (new dispatch action: selection halts the walk
+  via the dispatch-halt clause, body idles while selected; raiders pin on
+  any_near(soldiers, 240), resume the march on release; at the depot the
+  swing-base branch outranks the pin so the grinder duel stays a duel);
+  (2) the north/south watch split read as nonsense with manual placement (it
+  was the ticker-budget hack it looked like) → ONE Soldier pool; (3) 1-minute
+  tuning runs → timer 60, sched [55, 40, 20], waves 2 NW / 2 SW / 2 heavies.
+  **ROUND 2 ⚠ DEPLOYED** — 14 allies (6 Soldier / 4 Shooter / 4 Defender,
+  ratified prices; ticker 25.6KB). The ratified 20-cap AND raider
+  COUNTER-damage both wait on the labelasm LONG-JUMP RELAXATION PASS (the
+  ~32KB signed-16 jump ceiling) — the queued next compiler task.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates

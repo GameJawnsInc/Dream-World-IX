@@ -433,12 +433,20 @@ class CatalogPicker(QDialog):
             except Exception:                          # noqa: BLE001 -- a catalog needing data we lack
                 self._entries = []
         self.lst.clear()
+        # a single-kind picker repeats no [kind] chip -- every row is the same kind and the info line
+        # already names it; the width goes to the NAME instead (the realfield rows were clipping)
+        single = self.kinds is not None and len(self.kinds) == 1
         for e in self._entries:
-            self.lst.addItem(f"{e.name}    [{e.kind}]")
+            if e.kind == "realfield" and e.ident is not None:
+                row = f"{e.name}    ·  {e.ident}"     # twin names ('Interior' ×4) are told apart by the
+            else:                                     # id -- the very value this pick fills in
+                row = e.name
+            self.lst.addItem(row if single else f"{row}    [{e.kind}]")
+        n = len(self._entries)
         where = f" in {', '.join(self.kinds)}" if self.kinds else ""
-        capped = self.limit is not None and len(self._entries) >= self.limit
+        capped = self.limit is not None and n >= self.limit
         note = " (capped — type to narrow)" if capped else ""
-        self.info.setText(f"{len(self._entries)} match(es){where}{note}")
+        self.info.setText(f"{n} match{'' if n == 1 else 'es'}{where}{note}")
 
     def _describe(self, row):
         if not (0 <= row < len(self._entries)):

@@ -317,6 +317,16 @@ class HoldPost(Action):
 
 
 @dataclass
+class HoldGround(Action):
+    """Stand and take the fight: a dispatch action whose SELECTION halts the duty
+    walk (the dispatch-halt clause feeds the unit its own mirror) and whose body
+    just idles while selected — THE PIN. A marcher gated on
+    ``any_near(interceptors)`` stops mid-route while engaged instead of jogging
+    away from its attackers (the condor round-1 feedback), and resumes its march
+    at the current waypoint when the branch deselects."""
+
+
+@dataclass
 class SwingAt(Action):
     """Melee ticks against another unit's HP byte (the proven fight-body shape,
     minus death policy — death is a TREE branch, e.g. Cond(hp==0) -> Do(Die()))."""
@@ -1726,6 +1736,8 @@ class FieldBehavior:
                 _set_byte(run, 0),                       # scene) = 559's tread shape.
                 opcodes.RETURN,
             ])
+        if isinstance(a, HoldGround):
+            return asm(head + tail)                       # pure pin: idle while selected
         if isinstance(a, Award):
             if oneshot_latch is None:                     # unreachable (the map
                 raise BehaviorError(                      # refused it) — belt+braces

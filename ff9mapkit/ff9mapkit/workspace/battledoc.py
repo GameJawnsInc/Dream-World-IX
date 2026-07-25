@@ -185,7 +185,8 @@ class BattleDoc(QWidget):
         self.open_btn = QPushButton("Open battle.toml…")
         self.open_btn.clicked.connect(self.browse)
         top.addWidget(self.open_btn)
-        self.fork_btn = QPushButton("Fork battle…")
+        self.fork_btn = QPushButton("Fork a battle…")   # ONE label with the empty-state's card (they are
+                                                        # the same action; the drift read as two features)
         self.fork_btn.setToolTip("Fork a real FF9 battle background into a new editable battle.toml, then open it")
         self.fork_btn.clicked.connect(self._fork_dialog)
         self.fork_btn.setEnabled(self._run is not None and self.kit is not None)
