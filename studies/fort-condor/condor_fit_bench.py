@@ -85,12 +85,15 @@ STIPEND = 3000
 WIN_GIL = 2000
 WIN_ITEM = "Phoenix Down"
 
-# pools: name -> (count, price, request flag). Prices are the ratified band.
+# pools: name -> (count, price, request flag). Prices are the ratified band, and
+# THE RATIFIED 20-ALLY CAP IS BACK (round 3 shipped 14 because the unrolled pair
+# machinery blew the file wall; the group loop costs a fixed ~1.2KB per unit, so
+# 20 allies + full mutual combat now fit with room to spare).
 # Request flags sit OUTSIDE the blackboard band (8860+); the safe band starts 8712.
 POOLS = {
-    "soldiers":  (6, 300, 8840),
-    "shooters":  (4, 550, 8842),
-    "defenders": (4, 450, 8843),
+    "soldiers":  (8, 300, 8840),
+    "shooters":  (6, 550, 8842),
+    "defenders": (6, 450, 8843),
 }
 N_RAIDERS = {"n": 2, "s": 2, "h": 2}     # NW Mus / SW Mus / SW heavies
 
@@ -199,7 +202,12 @@ def layout() -> dict:
                      nearest(clear, -4700, -3400, used)],   # the heavies' own posts
         # dormant pooled seats: never spawned, but keep them on-mesh and spread
         # (~200u lattice pitch) so the probe stays quiet about them
-        "park": [nearest(pts, 2200 + 200 * (i % 5), 1400 + 200 * (i // 5), used)
+        # dormant pooled seats (never spawned there — a hire lands at the
+        # player's feet; the build seats them boot_spawn=False, which the
+        # layout probe does not model, so its "N u apart / near a wall"
+        # warnings for the park cluster are EXPECTED noise); picked from the
+        # CLEARANCE set anyway, so a future change of heart lands them clean
+        "park": [nearest(clear, 1400 + 400 * (i % 4), 800 + 400 * (i // 4), used)
                  for i in range(20)],
     }
     # lane waypoints (hand-picked off the probe, then SNAPPED to the clearance
@@ -247,10 +255,26 @@ ALL_ALLIES = (SOLDIERS + [f"sh{i}" for i in range(POOLS["shooters"][0])]
 
 def behavior_toml(lay: dict) -> str:
     bx, bz = lay["base"]
+    # ROUND 4 — THE GROUP RE-FIT. Two rosters (raiders / allies) carry every
+    # unit's position+alive+hp as table state, `engage nearest` replaces the
+    # whole unrolled pair apparatus (one branch + one indexed swing body per
+    # unit instead of one branch + one body per PAIR), alive_only scans publish
+    # the live headcounts, and the strip shows the economy.
     parts = [f"\n[behavior]\nwarmup = 45\ntimer = {SIEGE_SECONDS}\n"
-             f'counters = ["wave", "kills"]\n'
+             f'counters = ["wave", "kills", "troops", "raiders_up"]\n'
              f'\n[[behavior.table]]\nname = "sched"\nvalues = {_t(SCHED)}\n'
-             f'\n[[behavior.schedule]]\ncounter = "wave"\ntable = "sched"\n']
+             f'\n[[behavior.schedule]]\ncounter = "wave"\ntable = "sched"\n'
+             f'\n[[behavior.group]]\nname = "raiders"\nunits = {_t(ALL_RAIDERS)}\n'
+             f'\n[[behavior.group]]\nname = "allies"\nunits = {_t(ALL_ALLIES)}\n'
+             f'\n[[behavior.scan]]\nname = "raid_up"\ngroup = "raiders"\n'
+             f'count = "raiders_up"\nalive_only = true\n'
+             f'\n[[behavior.scan]]\nname = "troop_up"\ngroup = "allies"\n'
+             f'count = "troops"\nalive_only = true\n'
+             # the war-room strip: gil (6 digits), troops/raiders (2), depot hp (2)
+             f'\n[[behavior.hud]]\nwindow = 6\ndigits = [6, 2, 2, 2]\n'
+             f'values = ["gil", "troops", "raiders_up", "hp:base"]\n'
+             f'text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  '
+             f'RAIDERS [NUMB=2]  DEPOT [NUMB=3]"\n']
     for pname, (_n, price, rf) in POOLS.items():
         btn = "\nbutton = true" if pname == "soldiers" else ""
         parts.append(f'\n[[behavior.pool]]\nname = "{pname}"\nprice = {price}\n'
@@ -275,6 +299,17 @@ def behavior_toml(lay: dict) -> str:
                                          f" {WIN_GIL} gil and a {WIN_ITEM}."}))
     parts.append(_branch(when=[{"any_near": [ALL_RAIDERS, 500]}], once="alarm",
                          do={"announce": "They're through!  Protect the depot!"}))
+    # THE EARLY VICTORY (new — the alive_only wipe scan): clear the field of
+    # raiders before the clock and the siege ends there. Gated on wave 3 having
+    # spawned, so an empty field at 0:55 isn't a win.
+    parts.append(_branch(when=[{"counter_ge": ["wave", len(SCHED)]},
+                               {"counter_eq": ["raiders_up", 0]}], once="routed",
+                         do={"award": WIN_GIL, "item": WIN_ITEM}))
+    parts.append(_branch(when=[{"counter_ge": ["wave", len(SCHED)]},
+                               {"counter_eq": ["raiders_up", 0]}], once="routcry",
+                         do={"announce": f"THE RAID IS BROKEN — every raider is"
+                                         f" down!  The city pays {WIN_GIL} gil"
+                                         f" and a {WIN_ITEM}."}))
     parts.append(_branch(do={"hold": [bx, bz]}))
 
     # THE RAIDERS — march the lane, beat the depot, and FIGHT BACK (round-2
@@ -287,65 +322,59 @@ def behavior_toml(lay: dict) -> str:
     # table = a ~64KB WHOLE-FILE wall — the full 6×14 counter cross-product
     # (branches + dispatch bodies) does not fit beside 220 other functions.
     def raider(name, model, hp, stage, route, wave, dmg, ivl, speed,
-               counter=()):
+               engage_r=750):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = {hp}\nspeed = {speed}\n')
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": "kills"}))
+        # the depot outranks the escort fight: a leaker that reaches the base
+        # commits to it (the siege read), everything else is lane combat
         parts.append(_branch(when=[{"active": "base"}, {"near": ["base", 300]}],
                              do={"swing_at": "base", "damage": dmg, "interval": ivl}))
-        for a in counter:
-            parts.append(_branch(when=[{"active": a}, {"near": [a, 230]}],
-                                 do={"swing_at": a, "damage": dmg,
-                                     "interval": ivl + 8}))
+        # THE COUNTERATTACK, now ONE branch: fight the nearest ally within
+        # engage_r (a short leash — raiders divert to what blocks the lane, they
+        # don't chase the whole plaza), pursue it, strike in contact, re-acquire
+        # when it dies. Round 3 needed a hand-listed branch per (raider, ally)
+        # pair for this and still couldn't afford the full cross-product.
+        parts.append(_branch(do={"engage": "allies", "nearest": True,
+                                 "radius": engage_r, "contact": 210,
+                                 "damage": dmg, "interval": ivl + 8,
+                                 "speed": speed}))
         parts.append(_branch(when=[{"counter_ge": ["wave", wave]}],
                              do={"march": [list(stage)] + [list(p) for p in route],
                                  "route": "auto", "arrive_r": 180, "speed": speed}))
         parts.append(_branch(do={"hold": list(stage)}))
 
     nw, sw = lay["nw_route"], lay["sw_route"]
-    dfs = [f"df{i}" for i in range(POOLS["defenders"][0])]
-    raider("n0", RAIDER_MODEL, 3, lay["nw_stage"][0], nw, 1, 1, 30, 50,
-           counter=SOLDIERS)
-    raider("n1", RAIDER_MODEL, 3, lay["nw_stage"][1], nw, 1, 1, 30, 45,
-           counter=SOLDIERS)
-    raider("s0", RAIDER_MODEL, 3, lay["sw_stage"][0], sw, 2, 1, 30, 50,
-           counter=SOLDIERS)
-    raider("s1", RAIDER_MODEL, 3, lay["sw_stage"][1], sw, 2, 1, 30, 45,
-           counter=SOLDIERS)
-    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][2], sw, 3, 2, 26, 40,
-           counter=SOLDIERS + dfs)
-    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][3], sw, 3, 2, 26, 38,
-           counter=SOLDIERS + dfs)
+    raider("n0", RAIDER_MODEL, 3, lay["nw_stage"][0], nw, 1, 1, 30, 50)
+    raider("n1", RAIDER_MODEL, 3, lay["nw_stage"][1], nw, 1, 1, 30, 45)
+    raider("s0", RAIDER_MODEL, 3, lay["sw_stage"][0], sw, 2, 1, 30, 50)
+    raider("s1", RAIDER_MODEL, 3, lay["sw_stage"][1], sw, 2, 1, 30, 45)
+    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][2], sw, 3, 2, 26, 40)
+    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][3], sw, 3, 2, 26, 38)
 
-    # THE ARMY — 20 POOLED units, hired at your feet, each holding its post.
-    #   Soldier: chases + melees its WATCH's lane.  Shooter: stationary, shells
-    #   600u.  Defender: stationary grinder, damage 2 at 300u.
-    def ally(name, model, pool, targets, *, hp, chase_targets=(), reach=250,
-             dmg=1, ivl=25, speed=60):
+    # THE ARMY — the ratified 20, hired at your feet, each holding its post.
+    # One `engage` branch expresses each class; the STANCE is just its radius
+    # vs contact: a MOBILE unit has contact << radius (it pursues), a
+    # STATIONARY one has contact = radius - 1 (anything it can acquire is
+    # already in reach, so the pursue phase can never select — artillery that
+    # never leaves its post).
+    def ally(name, model, pool, *, hp, radius, contact, dmg=1, ivl=25, speed=60):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = {hp}\n'
                      f'pooled = true\npool = "{pool}"\nspeed = {speed}\n')
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
-        for r in targets:
-            parts.append(_branch(when=[{"active": r}, {"near": [r, reach]}],
-                                 do={"swing_at": r, "damage": dmg, "interval": ivl}))
-        for r in chase_targets:
-            parts.append(_branch(when=[{"active": r}, {"near": [r, 700]}],
-                                 do={"chase": r, "standoff": 170, "speed": 65}))
+        parts.append(_branch(do={"engage": "raiders", "nearest": True,
+                                 "radius": radius, "contact": contact,
+                                 "damage": dmg, "interval": ivl, "speed": speed}))
         parts.append(_branch(do={"hold_post": True}))
 
-    # Target lists are the TICKER-SIZE knob (the v1 central ticker is one .eb
-    # body; relative jumps are signed-16, so ~32KB is a hard span ceiling):
-    # soldiers chase the runners and melee everything; shooters shell all six;
-    # defenders grind the SW pressure (the heavies' lane) that reaches them.
-    runners = RAIDERS[0] + RAIDERS[1]                    # the chase-worthy Mus
-    for i, name in enumerate(SOLDIERS):
-        ally(name, SOLDIER_MODEL, "soldiers", ALL_RAIDERS, hp=4,
-             chase_targets=runners)
-    for i in range(POOLS["shooters"][0]):
-        ally(f"sh{i}", SHOOTER_MODEL, "shooters", ALL_RAIDERS, hp=3,
-             reach=600, ivl=15, speed=50)
-    for i in range(POOLS["defenders"][0]):
-        ally(f"df{i}", DEFENDER_MODEL, "defenders", RAIDERS[1] + RAIDERS[2], hp=8,
-             reach=300, dmg=2, ivl=30, speed=45)
+    for name in SOLDIERS:                       # chaser: hunts the nearest Mu
+        ally(name, SOLDIER_MODEL, "soldiers", hp=4, radius=2000, contact=170,
+             speed=65)
+    for i in range(POOLS["shooters"][0]):       # artillery: shells, never moves
+        ally(f"sh{i}", SHOOTER_MODEL, "shooters", hp=3, radius=600, contact=599,
+             ivl=15, speed=50)
+    for i in range(POOLS["defenders"][0]):      # grinder: heavy, holds the line
+        ally(f"df{i}", DEFENDER_MODEL, "defenders", hp=8, radius=340, contact=339,
+             dmg=2, ivl=30, speed=45)
     return "".join(parts)
 
 
@@ -358,6 +387,7 @@ def _dry_build(parts: list):
         raise SystemExit("behavior validate:\n  " + "\n  ".join(problems))
     all_units = [u["npc"] for u in raw["behavior"]["unit"]]
     txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in BT.announce_lines(raw)}
+    txids.update({("hud", hi): 890 + hi for hi, _h in BT.hud_lines(raw)})
     routed = None
     if BT.wants_autoroute(raw):
         wmesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
@@ -486,25 +516,29 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-PLAYTEST (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
-  0 BOOT: the plaza is YOURS now — the donor bystanders (the Zaghnol, red-hat
-    villager, little girl, noble woman + one) are GONE; only the depot,
-    quartermaster, and the staged raiders remain. Stipend lands as before.
-  1 HIRES: three rows, SELECT anywhere (round-2 confirmed — regression only).
-  2 THE COUNTERATTACK (this round's headline — "they don't fight back" is
-    fixed): close a Soldier on a Mu -> the Mu turns and TRADES BLOWS (its
-    counter-swing halts its march, so the round-2 pin behavior is preserved by
-    the fight itself). Soldiers have hp 4 and CAN DIE now — a lone soldier
-    against two Mus should lose the exchange and vanish.
-  3 THE HEAVIES (0:20, hp 6, depot hits for 2) also counter DEFENDERS — park a
-    Defender (hp 8, dmg 2) on them and the depot-side duel is MUTUAL; the
-    Defender should win 1v1 but bleed.
-  4 Shooters (hp 3) still shell from 600u and are NOT countered at range — a
-    raider only hits what stands in contact. A shooter parked ON the lane is
-    fair game.
-  5 Depot loss -> the boss battle, win at 0:00 -> the purse (both round-1/2
-    confirmed — regression only).
-  6 ~ -> Reload: full reset; one run is ONE MINUTE.
+PLAYTEST — ROUND 4, THE GROUP RE-FIT (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
+  The whole siege now runs on the proven v2 substrate. Same game, three things
+  the old build COULDN'T do — and the ratified design is finally whole:
+  1 THE WAR-ROOM STRIP (top-left, always up): GIL / TROOPS / RAIDERS / DEPOT,
+    live. Gil ticks the instant you hire, TROOPS counts your living units,
+    RAIDERS counts living attackers, DEPOT is the base's real hp. Check any
+    number against the field at any moment.
+  2 THE FULL 20 (8 Soldiers 300g / 6 Shooters 550g / 6 Defenders 450g) — the
+    ratified cap, restored: round 3 shipped 14 because the old per-pair
+    machinery blew the file wall. Hire deep and watch the frame rate too.
+  3 EVERY UNIT FIGHTS EVERY UNIT, nearest-first: any ally engages whichever
+    raider is CLOSEST (no more hand-listed pairs), and raiders now fight back
+    against whoever blocks them — with a short leash (750u), so they still
+    march their lane rather than chasing the plaza. Watch a Soldier finish a
+    Mu and immediately turn on the next nearest one.
+  4 CLASS STANCES, expressed as one verb: Soldiers hunt (2000u), Shooters
+    shell and NEVER move (600u), Defenders hold the line and never move
+    (340u, dmg 2). A Shooter parked on the lane is still fair game in melee.
+  5 THE ROUT (new win): kill every raider after wave 3 and the siege ends
+    early — "THE RAID IS BROKEN" + the purse, without waiting out the clock.
+  6 Regressions: stipend at boot, hire rows vanishing when unaffordable/sold
+    out, depot loss -> the boss battle, surviving to 0:00 -> the purse,
+    ~ -> Reload = a clean one-minute run.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

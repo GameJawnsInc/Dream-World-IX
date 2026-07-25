@@ -387,16 +387,22 @@ field-wide — ~70B of ticker per unit, four blackboard slots total).
 ```toml
 [[behavior.hud]]
 window = 6                                       # Dialog.WindowID 0..7
-values = ["kn_alive", "mu_alive", "fallen"]      # 1..8 counter names
-text = "[MPOS=8,8]Knights [NUMB=0]   Mus [NUMB=1]   Fallen [NUMB=2]"
+values = ["gil", "troops", "raiders_up", "hp:base"]   # 1..8 value sources
+digits = [6, 2, 2, 2]                            # per-slot width reserve
+text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  RAIDERS [NUMB=2]  DEPOT [NUMB=3]"
 ```
+
+A **value source** is a counter name, `"gil"` (the live purse), `"timer"` (the
+countdown HUD's remaining seconds), or `"hp:<unit>"` (a unit's hit points —
+the roster cell for a group member). Slots are written every pass; the engine
+itself re-renders only when a number actually changed.
 
 The stock substrate every PC minigame HUD uses (the hunt points, the auction
 bid, the jump-rope count — there is no number opcode in FF9): slot i's
-`[NUMB=i]` renders `values[i]`'s counter, fed by `SetTextVariable` with the
-cell as an expression arg, into a TRANSPARENT window (flags 16 — frameless
-floating text). The `.mes` line is minted like an announce and `[IMME]` is
-prepended when absent so the strip never types in.
+`[NUMB=i]` renders `values[i]`, fed by `SetTextVariable` with the source as an
+expression arg, into a TRANSPARENT window (flags 16 — frameless floating
+text). The `.mes` line is minted like an announce and `[IMME]` is prepended
+when absent so the strip never types in.
 
 Three engine facts shape the emitted code, each learned from a playtest:
 

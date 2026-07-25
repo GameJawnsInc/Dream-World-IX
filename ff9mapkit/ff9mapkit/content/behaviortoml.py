@@ -661,7 +661,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         fb.hud(str(h.get("text", "")), [str(v) for v in h.get("values", []) or []],
                window=int(h.get("window", 6)),
                txid=behavior_txids.get(("hud", hi)),
-               digits=int(h.get("digits", 2)))
+               digits=(list(h["digits"]) if isinstance(h.get("digits"), list)
+                       else int(h.get("digits", 2))))
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
@@ -1031,18 +1032,33 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         if not txt.strip():
             problems.append(f"{ctx}: needs `text = ` (the strip's .mes line — "
                             f"[NUMB=i] slots, [MPOS=x,y] to place it)")
-        dg = row.get("digits", 2)
-        if not isinstance(dg, int) or not 1 <= dg <= 7:
-            problems.append(f"{ctx}: digits must be an int 1..7 (the width "
-                            f"reserve — the widest value a slot will show)")
         vals = row.get("values")
+        dg = row.get("digits", 2)
+        if isinstance(dg, list):
+            if (not all(isinstance(d, int) and 1 <= d <= 7 for d in dg)
+                    or (isinstance(vals, list) and len(dg) != len(vals))):
+                problems.append(f"{ctx}: a digits LIST needs one int 1..7 per value")
+        elif not isinstance(dg, int) or not 1 <= dg <= 7:
+            problems.append(f"{ctx}: digits must be an int 1..7 (or a per-value "
+                            f"list) — the widest value a slot will show")
         if not isinstance(vals, list) or not 1 <= len(vals) <= 8:
-            problems.append(f"{ctx}: values must be 1..8 counter names (the "
-                            f"engine has 8 gMesValue slots)")
+            problems.append(f"{ctx}: values must be 1..8 sources (the engine has "
+                            f"8 gMesValue slots)")
         else:
             for v in vals:
-                if str(v) not in declared_counters:
-                    problems.append(f"{ctx}: value {v!r} is not in [behavior] counters")
+                s = str(v)
+                if s in ("gil", "timer"):
+                    continue
+                if s.startswith("hp:"):
+                    if s[3:] not in unit_names:
+                        problems.append(f"{ctx}: value {v!r} — {s[3:]!r} is not a "
+                                        f"[[behavior.unit]] npc")
+                    elif s[3:] not in _hp_units:
+                        problems.append(f"{ctx}: value {v!r} — {s[3:]!r} has no `hp`")
+                    continue
+                if s not in declared_counters:
+                    problems.append(f"{ctx}: value {v!r} is not a counter, "
+                                    f"'gil', 'timer', or 'hp:<unit>'")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "

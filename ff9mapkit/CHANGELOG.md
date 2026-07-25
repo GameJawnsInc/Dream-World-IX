@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — HUD value sources (`gil` / `timer` / `hp:<unit>`) + per-slot `digits`
+- A strip's `values` are now value SOURCES, not just counters: a counter name, `"gil"`
+  (the live purse, `B_SYSVAR[6]`), `"timer"` (the countdown HUD's remaining seconds), or
+  `"hp:<unit>"` (a unit's hit points — the roster cell for a group member). `digits`
+  takes a per-slot list so a 6-digit gil readout can share a strip with 2-digit
+  headcounts. The Int16 dirty mirrors are gone: slots are written every pass (a
+  `gMesValue` store is a bare array write and the ENGINE already re-renders only on a
+  real change), which also removes the Int16 ceiling a gil readout would have hit.
+
 ### Added — the substrate polish round: scan group form + `alive_only`, engage `nearest`, `[[behavior.hud]]`, extended opcodes
 - **Scan group form**: `[[behavior.scan]] group = "<roster>"` loops the group's OWN
   tables (no position copies), `point`/`radius` become optional (absent = a pure roster

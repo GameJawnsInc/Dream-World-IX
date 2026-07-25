@@ -904,8 +904,16 @@ def test_scoreboard_toml_negatives():
                mut(lambda b: b["hud"][0].update(window=9)))
     assert any("NUMB=7" in p for p in
                mut(lambda b: b["hud"][0].update(text="[NUMB=7]")))
-    assert any("not in [behavior] counters" in p for p in
+    assert any("is not a counter, 'gil', 'timer'" in p for p in
                mut(lambda b: b["hud"][0].update(values=["ghost"])))
+    assert any("has no `hp`" in p for p in                     # hp: source
+               mut(lambda b: b["hud"][0].update(values=["hp:crier"])))
+    assert any("digits LIST" in p for p in
+               mut(lambda b: b["hud"][0].update(digits=[2, 2])))
+    assert BT.validate({**SCOREBOARD_RAW, "behavior": {                 # sources OK
+        **SCOREBOARD_RAW["behavior"],
+        "hud": [{"window": 6, "values": ["gil", "timer", "fallen"],
+                 "digits": [6, 3, 2], "text": "[NUMB=0][NUMB=1][NUMB=2]"}]}}) == []
     assert any("already carries" in p for p in
                mut(lambda b: b["hud"].append({"window": 6, "values": ["fallen"],
                                               "text": "[NUMB=0]"})))
