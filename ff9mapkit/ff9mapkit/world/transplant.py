@@ -2441,6 +2441,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                allow_mod_overwrite: bool = False, allow_wang_seams: bool = False,
                enforce_wang_carry: bool = False, allow_orphan_decals: bool = False,
                enforce_orphan_decals: bool = False, redress_orphans: bool = False,
+               enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
                dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
@@ -2690,6 +2691,15 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         {(bx, by): meshes}, {(bx, by)}, enforce=enforce_orphan_decals,
         allow=allow_orphan_decals, redress=redress_orphans,
         mod_folder=mod_folder, disc=disc, lod=lod, game=game))
+    # THE TEXTURE + SEA GATES (the Rung-F UV/relief fold-back, 2026-07-25) -- same WARN-default
+    # shape as the two gates above, purely read-only, zero output-byte change.  Runs AFTER the
+    # orphan gate so a --redress-orphans mutation is judged in its POST state.  ``quad_ori`` is
+    # deliberately not supplied: a carry (GroundRetile included) TRANSLATES the donor's own free
+    # fractional windows rather than minting on the 2x2 quadrant lattice, so the ONE-WINDOW law is
+    # undefined here and its gate reports ``skipped`` -- see texgates' calibration docstring.
+    from . import texgates as TG
+    gates.extend(TG.texture_sea_gates({(bx, by): meshes}, {(bx, by)},
+                                      enforce=enforce_texture_gates, allow=allow_texture_gates))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -2884,6 +2894,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       allow_wang_seams: bool = False, enforce_wang_carry: bool = False,
                       allow_orphan_decals: bool = False, enforce_orphan_decals: bool = False,
                       redress_orphans: bool = False,
+                      enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
                       dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
@@ -3220,6 +3231,12 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         {tuple(cell_meta[(i, j)]["cell"]): mlist for (i, j), mlist in deploy_meshes.items()},
         orphan_region, enforce=enforce_orphan_decals, allow=allow_orphan_decals,
         redress=redress_orphans, mod_folder=mod_folder, disc=disc, lod=lod, game=game))
+    # THE TEXTURE + SEA GATES -- see the note at transplant()'s own call site (same shape, same
+    # WARN default, read-only; region-wide so sea predicate B actually has adjacent-block pairs).
+    from . import texgates as TG
+    gates.extend(TG.texture_sea_gates(
+        {tuple(cell_meta[(i, j)]["cell"]): mlist for (i, j), mlist in deploy_meshes.items()},
+        orphan_region, enforce=enforce_texture_gates, allow=allow_texture_gates))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
