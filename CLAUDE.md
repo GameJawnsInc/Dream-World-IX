@@ -262,7 +262,8 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Overworld interior topography — the two-ground landmass (Rung F) → `studies/overworld-topography/`
 - Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`
-- Behavior-tree data tables — bench 30415 playtest pending → `studies/behavior-trees/PLAN.md`
+- Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
+  → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
 
