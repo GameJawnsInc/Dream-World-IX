@@ -132,7 +132,8 @@ def demo_verbatim_eb(model_id: int = 0) -> bytes:
         [(0, _set_model(model_id) + RET), (1, RET),                    # NPC: model + loop +
          (3, _window(1) + _add_item(236) + _set_flag_long(8712) + RET)],   # talk: line/reward/kit flag
         [(0, _set_model(model_id) + RET), (3, _window(2) + RET)],      # DORMANT (never InitObject'd)
-        [(2, _field_warp(30101) + RET), (3, _battle(67) + RET)],       # triggers: a named warp + a battle
+        [(2, _field_warp(30101) + RET), (3, _battle(67) + RET)],       # invisible trigger: warp + battle
+        [(1, _set_flag_long(8714) + RET)],                             # script helper: a loop, no contact
     ])
 
 
@@ -232,3 +233,67 @@ def test_edit_panel_header_carries_the_routines_human_name(win, app, tmp_path):
     labels = [w.text() for w in win.findChildren(QLabel)]
     assert any("Talk handler" in t and "entry 2 / tag 3" in t for t in labels), \
         [t for t in labels if "entry 2" in t]
+
+
+# ------------------------------------------------------- the concepts round: the nouns get taught
+def test_entry_rows_split_the_logic_wall_into_trigger_and_helper(win, app, tmp_path):
+    """A real fork shows a WALL of 'entry N: logic' rows (Prima Vista: seven in a column). A model-less
+    entry with a contact/action handler is an INVISIBLE TRIGGER; one with only loops/helpers is a
+    SCRIPT HELPER -- and the word 'logic' appears on no row."""
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    grp = _script_group(win, app)
+    rows = list(_rows(grp))
+    assert any("invisible trigger" in r for r in rows), rows
+    assert any("script helper" in r for r in rows), rows
+    assert not any(": logic" in r for r in rows), rows
+
+
+def test_script_group_links_the_concept_card(win, app, tmp_path):
+    from ff9mapkit.workspace.shell import _DETAIL
+    from ff9mapkit.workspace import concepts
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    grp = _script_group(win, app)
+    det = "\n".join(grp.data(0, _DETAIL) or [])
+    assert 'href="concept:script-entries"' in det, det
+    # the card answers the exact words a user reaches for
+    for term in ("entries", "tags", "routines", "cases", "switch"):
+        c = concepts.resolve(term)
+        assert c is not None and c.term == "script-entries", term
+
+
+def test_entry_detail_annotates_the_conventional_tags(win, app, tmp_path):
+    from ff9mapkit.workspace.shell import _DETAIL
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    grp = _script_group(win, app)
+    dets = {grp.child(i).text(0): "\n".join(grp.child(i).data(0, _DETAIL) or [])
+            for i in range(grp.childCount())}
+    npc = next(v for k, v in dets.items() if k.startswith("entry 2"))
+    assert "0 (setup)" in npc and "1 (every frame)" in npc and "3 (action/talk)" in npc, npc
+    trig = next(v for k, v in dets.items() if "invisible trigger" in k)
+    assert "no model" in trig and "touches or examines" in trig, trig
+
+
+def test_the_routine_transcript_opens_by_default_and_links_the_card(win, app, tmp_path):
+    from PySide6.QtWidgets import QToolButton
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    _script_group(win, app)
+    win._open_editor("GLADE", "logic_node", "logic_n:2:3")
+    app.processEvents()
+    host = win.doc_scroll
+    btns = [b for b in host.findChildren(QToolButton) if b.text().startswith("This routine")]
+    assert btns and btns[0].isChecked(), "the transcript IS the explanation -- it must start expanded"
+    links = [w for w in host.findChildren(QLabel) if 'href="concept:script-entries"' in w.text()]
+    assert links, "the panel offers the entries/tags/routines card"
+
+
+def test_the_transcript_renders_quotes_not_entities(win, app, tmp_path):
+    """_collapsible escaped each line and the label rendered PLAIN -- the panel showed
+    'Says: &quot;Kupo!…' literally (hidden for a whole round because the block started collapsed;
+    the open_=True snap caught it)."""
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    _script_group(win, app)
+    win._open_editor("GLADE", "logic_node", "logic_n:2:3")
+    app.processEvents()
+    texts = [w.text() for w in win.doc_scroll.findChildren(QLabel)]
+    assert any('Says: "Kupo!' in t for t in texts), [t for t in texts if "Kupo" in t]
+    assert not any("&quot;" in t for t in texts), "no HTML entity ever reaches a plain-text label"

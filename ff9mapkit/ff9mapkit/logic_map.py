@@ -213,6 +213,37 @@ def kind_label(kind: str) -> str:
     return KIND_LABEL.get(kind, kind)
 
 
+def entry_label(e) -> str:
+    """The entry row's role WORD -- what this actor slot IS. The raw classifier's ``logic`` covered two
+    very different shapes and a real fork shows a WALL of them (Prima Vista: seven 'entry N: logic' rows in
+    a column): a model-less entry WITH a contact/action handler is an **invisible trigger** (the engine
+    still dispatches into it when the player touches or examines its spot), while one with only
+    setup/loops/helpers is a **script helper** other routines call into."""
+    if e.role == "logic":
+        return "invisible trigger" if any(t in (2, 3) for t in e.tags) else "script helper"
+    return e.role
+
+
+# The engine's event meaning of the CONVENTIONAL tag numbers, for annotating an entry's tag list
+# ("functions (tags): 0 (setup), 1 (every frame), 3 (action/talk)"). Non-conventional numbers are the
+# script's own helpers and stay bare.
+_TAG_NOTE = {0: "setup", 1: "every frame", 2: "contact", 3: "action/talk", 10: "after battle"}
+
+
+def tag_note(tag: int) -> str:
+    """'setup' / 'every frame' / 'contact' / 'action/talk' / 'after battle', or '' for a helper number."""
+    return _TAG_NOTE.get(tag, "")
+
+
+def fmt_tags(tags) -> str:
+    """An entry's tag list with each conventional number annotated: ``0 (setup), 1 (every frame), 29``."""
+    out = []
+    for t in tags:
+        note = tag_note(t)
+        out.append(f"{t} ({note})" if note else str(t))
+    return ", ".join(out)
+
+
 def flag_phrase(idx: int) -> str:
     """Name a GLOB story-flag index by its BAND, so a reader can tell the donor's own story flags from the
     bits this kit's tooling added. Truth = :mod:`ff9mapkit.flags` (the safe band 8712+ is where the kit
@@ -655,7 +686,7 @@ def format_logic_map(lm: LogicMap) -> str:
         glyph = _ROLE_GLYPH.get(e.role, " ")
         model = f"  {e.model_name or ('model ' + str(e.model_id))}" if e.model_id is not None else ""
         spawn = "" if e.role in ("main", "player") or e.spawns else "  (defined, not spawned)"
-        out.append(f"  {glyph} entry {e.index}: {e.role}{model}{spawn}")
+        out.append(f"  {glyph} entry {e.index}: {entry_label(e)}{model}{spawn}")
         for n in by_entry.get(e.index, []):
             lines = _fmt_node_lines(n)
             if not lines:

@@ -47,6 +47,27 @@
 > activates it); dialogue lines ended with a stray " /" (a trailing .mes newline rendered as a
 > separator to nothing — `_line_text` now rstrips it, real fields included). Suite green + new fences;
 > pixels read at 100%. ⚠ Not yet seen by a human in the running app.
+>
+> **PART 2 — THE NOUNS GET TAUGHT (owner feedback on a real Prima Vista fork: "still not really
+> understanding these entries/tags/routines/cases").** The labels were friendlier but the CONCEPTS were
+> untaught, and the real field showed the failure round 14's demo couldn't: a WALL of seven identical
+> "entry N: logic" rows. Four moves, each in a house mechanism:
+> 1. **A concept card** (`script-entries` — "Entries, tags & routines"): the cast-list model in plain
+>    words (entry = actor slot · tags = the engine's moments: 0 setup / 1 every frame / 2 contact /
+>    3 action / 10 after battle · routine = entry+tag · case = one path of a switch). Aliased to every
+>    word the owner reached for (entries/tags/routines/cases/switch → Ctrl-K answers them). Linked ⓘ
+>    from the Script group's detail AND the routine panel (the wave2 quiet-link pattern).
+> 2. **`entry_label` splits the logic wall**: a model-less entry with a tag-2/3 handler is an
+>    **invisible trigger** (the engine dispatches when the player touches/examines its spot); one with
+>    only loops/helpers is a **script helper**. The word "logic" appears on no row; the entry detail
+>    says what a model-less slot IS.
+> 3. **`fmt_tags`** annotates the conventional numbers in the entry detail ("functions (tags): 0
+>    (setup), 1 (every frame), 3 (action/talk), 29").
+> 4. **The routine transcript opens by default** — it IS the explanation — and opening it caught a
+>    pre-existing rendering bug on its FIRST rendered pixel: `_collapsible` escaped each line into a
+>    label that renders PLAIN, so the panel said `Says: &quot;Kupo!…` literally (invisible for a whole
+>    round because the block always started collapsed — a mechanism nobody renders is a mechanism
+>    nobody verifies). Raw text + forced PlainText now; fenced on the real quote and the absent entity.
 
 > ## ROUND 13 — THE SQUEEZE, THREE PANES DEEP (the detailed UX pass)  ·  ★ PLAYTESTED 2026-07-25
 >

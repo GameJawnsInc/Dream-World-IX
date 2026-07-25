@@ -425,3 +425,18 @@ def test_build_names_warp_destinations_from_field_names():
     assert n.warps[0]["to"] == 553 and n.warps[0]["name"] == "Dali/Inn"
     lm2 = LM.build_logic_map(eb)                                # no names -> None, never a crash
     assert next(n for n in lm2.nodes if n.warps).warps[0]["name"] is None
+
+
+def test_entry_label_splits_logic_into_trigger_and_helper():
+    E = LM.EntryInfo
+    assert LM.entry_label(E(6, "logic", tags=[0, 2])) == "invisible trigger"
+    assert LM.entry_label(E(7, "logic", tags=[3])) == "invisible trigger"
+    assert LM.entry_label(E(9, "logic", tags=[0, 1])) == "script helper"
+    assert LM.entry_label(E(2, "npc", tags=[0, 1, 3])) == "npc"          # modeled roles keep their word
+    assert LM.entry_label(E(0, "main", tags=[0])) == "main"
+
+
+def test_fmt_tags_annotates_the_conventional_numbers_only():
+    assert LM.fmt_tags([0, 1, 3, 29]) == "0 (setup), 1 (every frame), 3 (action/talk), 29"
+    assert LM.fmt_tags([10]) == "10 (after battle)"
+    assert LM.fmt_tags([]) == ""

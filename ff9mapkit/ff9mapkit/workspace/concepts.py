@@ -78,6 +78,19 @@ _CARDS = [
             "where its doors lead. The screen keeps all of its own real behaviour — story gating, NPCs, cutscenes.",
             "the truest fork mode; implies --native.",
             ("verbatim fork",)),
+    Concept("script-entries", "Entries, tags & routines",
+            "A screen's script is a cast list. Each ENTRY is one actor slot — the screen itself (entry 0), "
+            "the player, every NPC and object, plus invisible helpers with no model at all. An entry's "
+            "numbered TAGS are the moments the engine calls it: 0 runs once at setup, 1 runs every frame, "
+            "2 fires on contact, 3 fires when you press the action button there, 10 runs after a battle — "
+            "other numbers are the script's own helpers, called from other routines. One entry + one tag = "
+            "one ROUTINE, a single little function. Some routines pick one path from many with a switch: "
+            "each CASE is one path, chosen by a value — a story beat, your menu answer's row, or a script "
+            "variable — and 'default' runs when nothing matches.",
+            "the .eb entry table + per-entry function tags; a [[logic_edit]]/[[logic_add]] addresses a "
+            "routine as entry + tag, and switch_case retargets one case.",
+            ("entry", "entries", "tag", "tags", "routine", "routines", "case", "cases", "switch",
+             "switches", "script entry", "function tag")),
     Concept("native", "Native fork",
             "Ships the real background and a matching floor with no in-between files, drawn through the engine's "
             "seamless path. Handles screens the simpler 'borrow' can't.",

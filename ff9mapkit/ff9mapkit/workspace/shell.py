@@ -4352,6 +4352,7 @@ class Workspace(QMainWindow):
             return
         det = [
             f"{len([x for x in lm.entries if x.role != 'empty'])} entries, {len(lm.nodes)} routines",
+            self._muted("ⓘ ") + self._link("concept:script-entries", "What are entries, tags and routines?"),
             self._muted("a read-only view of the shipped .eb — edit it by opening a routine below, not here"),
             self._muted("'?' marks a target chosen at runtime (computed / dynamic-caller) — unresolvable offline")]
         if any(b.get("selector") == "scenario" for n in lm.nodes if n.entry == 0 for b in n.branches):
@@ -4386,7 +4387,10 @@ class Workspace(QMainWindow):
             # "defined, not spawned" was detail-only -- surface it on the ROW (a talk handler on an entry
             # Main_Init never InitObject()s is dormant content, worth seeing without a click)
             dormant = "  · not spawned" if e.role in ("npc", "object") and not e.spawns else ""
-            ehdr = self._mk("logic_entry", f"entry {e.index}: {e.role}{model}{dormant}", f"logic_e:{e.index}")
+            # entry_label, not e.role: a real fork shows a WALL of model-less 'logic' rows -- the split
+            # (invisible trigger vs script helper) is what tells the player-facing ones from the plumbing
+            ehdr = self._mk("logic_entry", f"entry {e.index}: {LM.entry_label(e)}{model}{dormant}",
+                            f"logic_e:{e.index}")
             ehdr.setData(0, _DETAIL, [_esc(s) for s in self._logic_entry_detail(e)])
             for n in nodes:
                 # the human name leads (Talk handler / Walk-in trigger / Field startup); the raw tag stays
@@ -4402,12 +4406,18 @@ class Workspace(QMainWindow):
 
     @staticmethod
     def _logic_entry_detail(e):
-        out = [f"role: {e.role}"]
+        from .. import logic_map as LM
+        out = [f"role: {LM.entry_label(e)}"]
+        if e.role == "logic":                       # say what a model-less slot IS, not just its word
+            out.append("no model — " + ("an unseen spot the engine still dispatches (contact/action "
+                                        "handlers fire when the player touches or examines it)"
+                                        if any(t in (2, 3) for t in e.tags)
+                                        else "script-only; other routines call into it"))
         if e.model_id is not None:
             out.append(f"model: {e.model_name or e.model_id}")
         if e.role not in ("main", "player"):
             out.append(f"spawned: {e.spawns}x" if e.spawns else "defined, not spawned")
-        out.append(f"functions (tags): {', '.join(str(t) for t in e.tags) or '—'}")
+        out.append(f"functions (tags): {LM.fmt_tags(e.tags) or '—'}")
         return out
 
     def _member_logic_inputs(self, member):
@@ -5497,12 +5507,20 @@ class Workspace(QMainWindow):
                      "In-place edits to the shipped .eb / .mes. Changing a value authors a [[logic_edit]] — "
                      "length-preserving + old-guarded; the read-only tree above still shows the donor's "
                      "original. Run Check, then Build & Deploy.")
+        concept_row = QLabel(self._muted("ⓘ ")
+                             + self._link("concept:script-entries", "What are entries, tags and routines?"))
+        concept_row.setProperty("role", "muted")        # the wave2 cross-link pattern: quiet + keyboard-reachable
+        concept_row.setTextFormat(Qt.TextFormat.RichText)
+        concept_row.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                            | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+        concept_row.linkActivated.connect(lambda _h: self._show_concept("script-entries"))
+        self.doc_host_lay.addWidget(concept_row)
         if node is not None:
             report = LM.node_report(node)
             summary = LM.node_summary(node)
-            if report:                                  # a collapsible friendly transcript (header = the one-liner)
+            if report:                                  # the transcript IS the explanation -- open by default
                 self.doc_host_lay.addWidget(self._collapsible(
-                    f"This routine {summary}" if summary else "What this routine does", report))
+                    f"This routine {summary}" if summary else "What this routine does", report, open_=True))
             elif summary:
                 self.doc_host_lay.addWidget(self._muted_label(f"This routine {summary}."))
         reason = protected_reason(self.member_paths[member])
@@ -5571,7 +5589,9 @@ class Workspace(QMainWindow):
         bl.setContentsMargins(16, 0, 0, 0)
         bl.setSpacing(1)
         for ln in lines:
-            bl.addWidget(self._muted_label(_esc(ln)))
+            lab = self._muted_label(ln)                 # RAW + PlainText: _esc here rendered '&quot;' LITERALLY
+            lab.setTextFormat(Qt.TextFormat.PlainText)  # (QLabel AutoText saw no markup) -- game text is DATA
+            bl.addWidget(lab)
         body.setVisible(open_)
 
         def _toggle(checked):
