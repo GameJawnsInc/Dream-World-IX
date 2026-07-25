@@ -10,3 +10,7 @@ memoria-patches/*.patch -text
 # tripped every guard -- never line-end convert them (2026-07-22).
 *.seq -text
 *.sfxmodel -text
+
+# Committed FBX (only minted-from-scratch exceptions escape the *.fbx ignore, e.g. NIMBRA's
+# 6400.fbx): binary, byte-exact — never line-end convert.
+*.fbx -text
