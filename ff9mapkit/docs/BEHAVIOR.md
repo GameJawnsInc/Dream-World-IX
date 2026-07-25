@@ -308,6 +308,35 @@ reads the kill tally with `counter_ge = ["kills", N]`. Bench: field 30415
 (`studies/behavior-trees/bttable_bench.py`) — the first in-game consumer of computed
 array indexing anywhere.
 
+## Scans — the vector loop (EXPERIMENTAL, v2 rung 0)
+
+```toml
+[[behavior.scan]]
+name = "shrine"                # [a-z][a-z0-9_]*
+units = ["m0", "m1", "m2"]     # roster (behavior units; <= 64)
+point = [1153, -200]           # the probe point
+radius = 300                   # Chebyshev box half-width, 1..30000
+count = "at_shrine"            # counter cell receiving the headcount
+flags = "near_shrine"          # optional: the per-unit 0/1 table's name
+```
+
+Each run pass the compiler copies the roster's position mirrors into internal
+px/pz tables, then runs a bounded LOOP whose reads **and** writes index vector
+cells by the live loop byte: each unit's inside-the-box flag lands in the flags
+table (a computed-index write), is read back and accumulated, and the total is
+published into `count` — trees gate on `counter_ge` as usual, and a named
+`flags` table is readable by the `table_*` conds (`table_eq = ["near_shrine",
+0, 1]` = "is roster member 0 in the box"). The count flows *through* the flag
+round-trip on purpose: a mis-indexed cell breaks the number rather than passing
+silently. Cost: ~400B of ticker for an 8-unit roster.
+
+Two caveats while the lane is rung-0: mirrors freeze when a unit deactivates
+(a dead unit still standing in the box keeps counting — scan rosters that stay
+alive, or gate consumers on `active`), and this is the first stone of the v2
+vector substrate (`studies/behavior-trees/PLAN.md`, THE THREE WALLS) — the
+group-loop proper (per-target logic without unrolled pair branches) builds on
+exactly this composition once it is in-game proven.
+
 ## Limits (v1)
 
 - **Size**: assembled bodies have NO practical jump ceiling (the label assembler relaxes

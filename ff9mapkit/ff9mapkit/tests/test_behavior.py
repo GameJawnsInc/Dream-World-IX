@@ -951,3 +951,75 @@ def test_swarm_stress_forty_units_relaxes_and_accounts():
     assert sum(n for _nm, n in s["ticker_segments"]) == s["ticker_content"]
     assert len(cb.ticker_body) >= s["ticker_content"]  # island overhead >= 0
     assert build().compile().stable_hash() == cb.stable_hash()
+
+
+# ------------------------------------------------------------------ the vector loop
+def scan_field() -> B.FieldBehavior:
+    fb = B.FieldBehavior(
+        [B.UnitSpec(f"p{i}", entry=2 + i, spawn=(i * 100, 0)) for i in range(3)],
+        counters=("at_shrine",))
+    for i in range(3):
+        fb.units[f"p{i}"].tree = B.Do(B.Hold((i * 100, 0)))
+    fb.scan("shrine", ["p0", "p1", "p2"], (500, 0), 300, "at_shrine",
+            flags="near_shrine")
+    return fb
+
+
+def test_scan_compiles_and_verifies():
+    fb = scan_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # the loop is a BACKWARD conditional jump in the ticker — the new shape
+    back_ifs = []
+    for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body)):
+        if ins.op == 0x03:
+            t = D.jump_target(ins)
+            if t is not None and t < ins.off:
+                back_ifs.append(ins.off)
+    assert back_ifs, "the scan loop must close with a backward JMP_IF"
+    # registered tables: px/pz internal + the user-named flags table
+    assert "scan.shrine.px" in fb.tables and "near_shrine" in fb.tables
+    assert "scan shrine" in cb.report and "at_shrine" in cb.report
+    # histogram: the scan has its own segment with real bytes in it
+    segs = dict(cb.sizes["ticker_segments"])
+    assert segs.get("scan shrine", 0) > 100
+    assert scan_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_scan_seeds_tables_in_main_init():
+    cb = scan_field().compile()
+    # three zero tables -> exactly two size statements each, no cell writes;
+    # cheap structural proxy: main_init walks clean and mentions nothing odd
+    _verify_body(cb.main_init)
+    # the seed wipes then grows every scan table (0xD3 appears in main_init)
+    assert bytes([0xD3]) in bytes(cb.main_init)
+
+
+def test_scan_negatives():
+    fb = scan_field()
+    with pytest.raises(B.BehaviorError, match="already registered"):
+        fb.scan("shrine", ["p0"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="unknown unit"):
+        fb.scan("ghost", ["nobody"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="unknown counter"):
+        fb.scan("badctr", ["p0"], (0, 0), 100, "missing")
+    with pytest.raises(B.BehaviorError, match="radius"):
+        fb.scan("badr", ["p0"], (0, 0), 0, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="duplicate"):
+        fb.scan("dup", ["p0", "p0"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="table cap"):
+        fb2 = B.FieldBehavior(
+            [B.UnitSpec("u", entry=2, spawn=(0, 0))], counters=("c",))
+        fb2.units["u"].tree = B.Do(B.Hold((0, 0)))
+        fb2.scan("big", ["u"] * 65, (0, 0), 100, "c")
+
+
+def test_scan_table_ids_are_deterministic():
+    """Scan tables allocate AFTER the ctor's autos + the counter table, in
+    declaration order — the allocation contract extends to scans."""
+    fb = scan_field()
+    ctr = fb._ctr_tid
+    px, _ = fb.tables["scan.shrine.px"]
+    pz, _ = fb.tables["scan.shrine.pz"]
+    fl, _ = fb.tables["near_shrine"]
+    assert (px, pz, fl) == (ctr + 1, ctr + 2, ctr + 3)
