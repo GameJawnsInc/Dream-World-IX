@@ -236,10 +236,28 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   (2) the north/south watch split read as nonsense with manual placement (it
   was the ticker-budget hack it looked like) → ONE Soldier pool; (3) 1-minute
   tuning runs → timer 60, sched [55, 40, 20], waves 2 NW / 2 SW / 2 heavies.
-  **ROUND 2 ⚠ DEPLOYED** — 14 allies (6 Soldier / 4 Shooter / 4 Defender,
-  ratified prices; ticker 25.6KB). The ratified 20-cap AND raider
-  COUNTER-damage both wait on the labelasm LONG-JUMP RELAXATION PASS (the
-  ~32KB signed-16 jump ceiling) — the queued next compiler task.
+  **ROUND 2 ★ (pin proven: "enemies stop when engaged"; loss battle ✓; 14-cap
+  accepted "for now"; owner asked: strip the donor bystanders + DIG INTO THE
+  LONG-JUMP RELAXATION — "making the compiler/language more robust is equally
+  as important if not moreso").**
+  **ROUND 3 ⚠ DEPLOYED — THE RELAXATION PASS SHIPPED + the counterattack:**
+  `labelasm.asm()` now relaxes out-of-range jumps through fall-through-safe
+  ISLANDS (nearest legal boundary strictly between source and target, fixpoint
+  iteration, chains past 64K spans; byte-identical when nothing overflows; no
+  island between a statement and its conditional; 11 tests incl. a 30-unit
+  40KB ticker). THE NEXT WALL FOUND THE SAME HOUR: the u16 ENTRY TABLE = a
+  ~64KB whole-FILE reach (engine-fixed) — the first 6×14 counter build wrapped
+  an entry offset into garbage tags because `set_u16` MASKED; set_u16 is now
+  STRICT and append_entry pre-checks. Measured budget on this donor: ~50-55KB
+  of compiled behavior bodies TOTAL; the full 20-ally × counter cross-product
+  exceeds the FILE (not the ticker) — so round 3 ships 14 allies with counters
+  scoped to the melee engagers: every raider counter-swings any SOLDIER in
+  contact (a counter-swing halts the march, so the hold_ground pin branch is
+  SUBSUMED and dropped), heavies also counter DEFENDERS (the depot duel is
+  mutual), allies have hp (soldier 4 / shooter 3 / defender 8) and die for
+  real. Donor bystanders (the 5 npc-kind carried [[object]]s — Zaghnol, the
+  red-hat villager, the little girl, the noble woman + one) stripped; the two
+  scenery props stay. Shipped .eb 55.4KB / 65.6KB reach.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates

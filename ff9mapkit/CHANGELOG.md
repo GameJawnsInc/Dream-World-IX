@@ -27,6 +27,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ceiling (~32KB — relative jumps are signed-16), which caps per-ally target lists; a
   long-jump relaxation pass in `labelasm` is the queued fix.
 
+### Added — LONG-JUMP RELAXATION in the label assembler (the ~32KB body ceiling, removed)
+- `.eb` signed jumps (0x01 JMP / 0x03 JMP_IF) reach ±32767, so any assembled body past
+  ~32KB used to die in `struct.pack` — a hard ceiling on how much behavior one ticker could
+  hold (the fort-condor rung-5 capacity finding). `labelasm.asm()` now RELAXES: an
+  out-of-range jump re-routes through an inserted ISLAND (`JMP skip; island: JMP target;
+  skip:` — 6 bytes, jumped over by fall-through, safe at any block boundary), placed at the
+  nearest legal boundary strictly BETWEEN source and target (the progress guarantee) and
+  iterated to a fixpoint; spans beyond two hops chain naturally. Invariants pinned by 11
+  tests: a body with no out-of-range jump assembles BYTE-IDENTICAL (golden stability), a
+  decoder-walk FOLLOWS every chain to its true target, no island ever splits an expression
+  statement from the conditional consuming it, and a 30-unit 40KB+ behavior compiles
+  deterministic and structurally sound. `JMP_IFNOT` (unsigned forward, 64K reach) keeps its
+  backward-refusal.
+- **The next wall is now LOUD:** the `.eb` entry table is u16-addressed (whole-file reach
+  ≈ 64KB, engine-fixed) and `binutils.set_u16` used to MASK — an oversized file registered a
+  silently-wrapped entry offset (garbage function tags, no error at the write site; caught
+  post-hoc by lint in the condor round-3 build). `set_u16` is now STRICT (raises with the
+  file-budget explanation) and `append_entry` pre-checks both offset and entry size. The
+  practical consequence, measured on the condor bench: relaxation frees the BODY, but a
+  donor fork's TOTAL behavior budget is ~50-55KB of compiled bodies — the roster/target
+  cross-product is now a file-budget decision, not a jump-span accident.
+
 ### Added — `[behavior]` `hold_ground` (THE PIN)
 - `do = { hold_ground = true }`: a dispatch action whose SELECTION halts the duty walk (the
   dispatch-halt clause) and whose body just idles while the branch holds — a marcher gated on

@@ -53,7 +53,16 @@ def pu32(v: int) -> bytes:
 # --- write (in place on a bytearray at an offset) ---
 
 def set_u16(b: bytearray, o: int, v: int) -> None:
-    struct.pack_into("<H", b, o, v & 0xFFFF)
+    """STRICT since the long-jump relaxation: masking (& 0xFFFF) let an
+    oversized value WRAP SILENTLY — for an `.eb` entry-table offset that is a
+    corrupted field with garbage function tags and no error at the write site
+    (the condor round-3 find: bodies can now legally exceed the old ~32KB body
+    wall, so the u16 FILE wall must fail loudly wherever it is hit)."""
+    if not 0 <= v <= 0xFFFF:
+        raise ValueError(f"set_u16: {v} does not fit u16 — for an .eb entry "
+                         f"offset this means the FILE passed the engine's "
+                         f"64KB entry-table reach; trim the biggest bodies")
+    struct.pack_into("<H", b, o, v)
 
 
 def set_i16(b: bytearray, o: int, v: int) -> None:
