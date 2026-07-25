@@ -586,6 +586,29 @@ def test_from_toml_rebases_relative_paths_against_the_toml_dir(tmp_path):
     assert cli._rebase_summon_paths({"clips": [0, 1]}, tmp_path)["clips"] == [0, 1]
 
 
+def test_from_toml_rebases_short_sequence_like_sequence(tmp_path):
+    """THE PAIR lane added ``short_sequence`` -- a second authored ``.seq``, exactly like ``sequence`` --
+    but ``_rebase_summon_paths`` was not taught it at first, so a relative ``short_sequence`` that
+    ``lint``/``build`` accepted died at emit ("short_sequence file not found") the moment the caller's
+    cwd was not the TOML's folder. Found assembling the rung-8 bench, whose build script had to hand-roll
+    the rebase in its own ``load_block()``."""
+    from ff9mapkit import cli
+    block = {"lane": "overlay", "sequence": "cast.seq", "short_sequence": "../nimbra_short.seq"}
+    out = cli._rebase_summon_paths(block, tmp_path)
+    assert out["sequence"] == str(tmp_path / "cast.seq")
+    assert out["short_sequence"] == str(tmp_path / "../nimbra_short.seq")
+    # an ABSOLUTE short_sequence is left alone, exactly like sequence
+    abs_seq = str(tmp_path / "abs_short.seq")
+    keep = cli._rebase_summon_paths({"short_sequence": abs_seq}, tmp_path)
+    assert keep["short_sequence"] == abs_seq
+    # manifest/short_manifest are bare FILE NAMES (resolved inside the donor bundle), never paths --
+    # they must NOT ride the rebase
+    names = cli._rebase_summon_paths(
+        {"manifest": "nimbra_manifest.sfxmodel", "short_manifest": "nimbra_manifest.sfxmodel"}, tmp_path)
+    assert names["manifest"] == "nimbra_manifest.sfxmodel"
+    assert names["short_manifest"] == "nimbra_manifest.sfxmodel"
+
+
 @pytest.mark.skipif(not (_STUDY / "bench" / "rung8.field.toml").is_file(),
                     reason="the rung-8 study artifacts are not in this checkout")
 def test_the_bench_toml_block_survives_the_real_from_toml_path(tmp_path):
