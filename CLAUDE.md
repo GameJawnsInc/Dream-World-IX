@@ -266,8 +266,8 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER R — the id-3 effect-PROGRAM decode ladder (MIPS+GTE disassembler → inspector)
-  → `studies/custom-summons/tier-r/PLAN.md`
+- Summons TIER W — edit stock summons in place; the camera lever is the `.seq`, NOT the program, and the
+  two clocks must be retimed together → `studies/custom-summons/tier-r/EF227-CHOREOGRAPHY.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 
