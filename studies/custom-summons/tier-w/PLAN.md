@@ -56,6 +56,13 @@ declarative surface, with the stock install revertible at every step.
   the 798 blocks; the id-2 directory sits AFTER the extra-sector region; the Code `frame` word
   carries flags in its top 3 bits), and the two-clocks law is now a number: the authored cut LEADS
   the beat by 1/1/0 ticks and the runtime install lags by a constant 2.
-- W2 — next; read W1-READOUT §6 first (the block-size ceiling is the directory delta, and half the
-  corpus's blocks carry three genuinely different alternate takes).
-- W3–W4 — pending W2.
+- **W2 — ★ BUILT, awaiting the cast** (`W2-RESCORE.md`, `rescore.py`, `bahamut_rescore.toml`,
+  `test_rescore.py`, `w2_gates.py`; 6/6 gates, 34 tests). **ef227 shot A's opening keyframe reframed
+  in 4 BYTES of an 823,296-byte container** — yaw, roll and the projection distance, all in place.
+  Every duration byte, every frame word, all 83 other sub-files and the whole id-2 directory are
+  byte-identical, and the patched container still round-trips byte-exact through the unmodified W1
+  path. The op-146 probe row is settled ahead of it (op 146 WRITES `gteOFX`/`gteOFY` but restores
+  them before its single `ret`, and only READS `gteH`; 121/122 have no corpus call site) — so no
+  effect program sets zoom and a rescore is a sequence/camera-data edit, as W1 assumed. STAGED only,
+  under `C:\gd\SCRATCH\summon-format\rescore-w2\`; the cast protocol is `W2-RESCORE.md` §6.
+- W3–W4 — pending the W2 cast.

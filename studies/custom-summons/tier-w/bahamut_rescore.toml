@@ -1,0 +1,56 @@
+# TIER W rung 2 -- THE CONTENT RESCORE.  Stock Bahamut (ef227), reframed, durations UNCHANGED.
+#
+# The vocabulary is W1's read-out, one-for-one:
+#   shot / chunk / subfile   the shot letter and the (chunk, id-2 sub-file) pair `summon_camera.py
+#                            read 227` prints for it.  Both are checked -- if they disagree, the
+#                            read-out this spec was written against is not the effect in front of us.
+#   sequence                 which of the block's declared tracks (THE THREE-SEQUENCE TRAP, W1 s4.1).
+#                            ef227's three shots each declare exactly ONE, so there is no alternate
+#                            take here for the bit-3 selector to pick instead of ours.
+#   frame                    the keyframe's LOCAL frame, as printed (`f1`, `f71`, ...).
+#   camera / target          the 6-byte pose: code, flags, pitch, orientation, roll, distance.
+#   focal.distance           H, THE PROJECTION DISTANCE -- the independent zoom lever, and the only
+#                            camera value TIER R's in-game capture observed directly.
+#
+# WHAT W2 MAY NOT TOUCH, and the tool refuses rather than trusting this comment:
+#   * any DURATION (focal, camera_move, target_move) -- the two clocks stay aligned, W3 owns timing;
+#   * any FRAME word -- it carries undecoded marks in its top 3 bits (W1 s2.3);
+#   * anything that changes the block's BYTE LENGTH -- the id-2 directory delta is the ceiling and
+#     the slack is 0-2 bytes corpus-wide (W1 s6).  Every field below is an in-place overwrite.
+
+[rescore]
+effect = 227
+label  = "bahamut-w2-reframe"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.  If the install is patched, the build refuses instead of
+# splicing this delta into bytes it was never derived against.
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+
+# ---------------------------------------------------------------------------------------------
+# THE EDIT -- shot A's opening keyframe, the first frame of the whole cinematic.
+#
+# Shot A (chunk 0, sub-file 6) is the PLAY_CAMERA that installs at sequence tick 11 and governs
+# Bahamut's entrance; its frame-1 Code is the instant placement that TIER R's capture recorded as
+# `H -> 256 @ frame 58`.  It holds until shot A's next focal at f71, so the reframe runs for ~70
+# ticks and then SNAPS BACK to stock framing -- which makes the change self-evidencing: the
+# playtester sees the opening seconds re-framed and the rest of the cast exactly as they remember.
+#
+# Three levers, deliberately LARGE, because a mis-resolved override fails SILENTLY (SFX.Play passes
+# suppressMissingError = true) and "nothing changed" is the only symptom of every misresolution:
+#   roll        0 -> 128   the shot rolls half a turn.  128 is not invented: stock ef227 already
+#                          uses roll = 128 on later keyframes of this very effect, so it is a value
+#                          the engine's pose evaluator provably handles.
+#   orientation 17 -> 81   a large yaw swing -- the entrance is seen from a different side.
+#   focal H     256 -> 96  the projection distance pulled far back: a much WIDER opening frame.
+#                          (Chosen wide rather than tight on purpose -- a 3x zoom-IN can degenerate
+#                          into a screen of texture, which reads as "broken" instead of "different".)
+[[edit]]
+shot     = "A"
+chunk    = 0
+subfile  = 6
+sequence = 0
+frame    = 1
+
+camera = { orientation = 81, roll = 128 }
+focal  = { distance = 96 }

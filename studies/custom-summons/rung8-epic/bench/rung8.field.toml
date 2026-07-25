@@ -111,6 +111,17 @@ abilities = [
   #                      rho = -0.29 without Ark), so the 9.3 s runtime did not force this number -- it
   #                      is chosen on the power/MP line, which is a different axis.
   { name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 80, vfx2 = 91, type = 0, power = 34, element = ["Dark"], mp = 24 },
+  # --- TIER W2: casts STOCK Bahamut (ef227) so the camera-rescore override can be judged in-game.
+  #   vfx1 = vfx2 = 227  the STOCK effect. Our rescore ships as <mod>/FF9_Data/SpecialEffects/ef227
+  #                      (an extensionless whole-container override -- AssetManager's disc pass wins
+  #                      over Resources.Load, and LoadBytes re-reads EVERY cast, so camera edits are
+  #                      HOT: no relaunch for a re-rescore, only for this ability row.
+  #   APPENDED AT THE END on purpose -- ids 194 (Bahamut Cinema, the live M1b bench) and 195 (Nimbra,
+  #                      the roll's AbilityId discriminator) must not move. This row takes 196.
+  #   type = 0           THE TYPE-4 MP LAW again (stock Bahamut ships type=4; a scenario-zero save has
+  #                      GARNET_SUMMON_FLAG set, which would quadruple the cost).
+  #   power/mp 30/8      cheap: this row exists to be cast repeatedly, not to be balanced.
+  { name = "Stock Bahamut", from = "Bahamut", targets = "AllEnemy", vfx1 = 227, vfx2 = 227, type = 0, power = 30, mp = 8 },
 ]
 
 # --- the second custom character, unchanged from rung 3 (it proves the stack is not Vivi-specific) ---
