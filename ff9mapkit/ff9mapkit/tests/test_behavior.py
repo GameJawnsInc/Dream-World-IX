@@ -276,6 +276,9 @@ def test_timer_and_battle_compile():
                      if any(i.op == 0x2A for i in D.iter_code(b, 0, len(b)))]
     assert len(battle_bodies) == 1
     assert "gate.battled" in cb.report                 # the latch is allocated + visible
+    # the EDGE-LATCHED request (the siege round-1 clobber fix): selection sets breq;
+    # the dispatch fires on breq/!latch/run==0 independent of the CURRENT selection
+    assert "gate.breq" in cb.report
     assert fb.has_battle_actions()
     assert not guard_field().has_battle_actions()
     assert siege_field().compile().stable_hash() == cb.stable_hash()
