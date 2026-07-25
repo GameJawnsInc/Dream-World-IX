@@ -162,6 +162,64 @@ def test_behavior_compiles_far_past_the_old_ceiling():
     assert fb2.compile().stable_hash() == cb.stable_hash()
 
 
+def test_dense_same_target_long_jumps_reuse_one_island():
+    """The stress case a future generator could emit: thousands of long jumps
+    bailing to ONE far label. Without island reuse each would mint its own
+    island (6 bytes + a fixpoint round apiece) and blow the convergence cap;
+    with reuse the whole field shares a hop chain."""
+    stmt = bytes([0x05, 0x7D, 0x01, 0x00, 0x7F])
+    pairs = [x for _ in range(3000) for x in (stmt, (JMP_IF, "far"))]
+    filler = [NOP8] * 5000                     # 40KB between the field and the label
+    body = asm([*pairs, *filler, label("far"), bytes([0x04])])
+    content = 3000 * 8 + 5000 * 8 + 1
+    assert len(body) - content <= 10 * 6       # a handful of islands, not thousands
+    # first and last conditional both land on the terminator through the chain
+    assert body[_first_target(body, JMP_IF)] == 0x04
+    for ins in D.iter_code(body, 0, len(body)):
+        if ins.op == JMP_IF:
+            last = ins
+    (rel,) = struct.unpack_from("<h", body, last.off + 1)
+    assert body[_follow(body, last.off + 3 + rel)] == 0x04
+
+
+def test_many_distinct_far_targets_all_reach():
+    """300 long jumps to 300 DISTINCT far labels — no reuse possible, every one
+    needs its own island, and the fixpoint must converge with every target
+    reached. The tail labels sit exactly 8 bytes apart (islands cluster in the
+    filler, never in the tail), so landing offsets must be an exact 8-stride."""
+    n = 300
+    head = [(JMP, f"far{i}") for i in range(n)]
+    filler = [NOP8] * 5000
+    tail = []
+    for i in range(n - 1):
+        tail += [label(f"far{i}"), NOP8]
+    tail += [label(f"far{n - 1}"), bytes([0x04])]
+    body = asm([*head, *filler, *tail])
+    offs = [_follow(body, i * 3) for i in range(n)]
+    assert offs == [offs[0] + 8 * i for i in range(n)]
+    assert offs[-1] == len(body) - 1 and body[offs[-1]] == 0x04
+    for ins in D.iter_code(body, 0, len(body)):
+        assert ins.end <= len(body)
+
+
+def test_append_entry_boundary_at_255():
+    """The OTHER file wall: entry_count is a single header byte. The chunked
+    growth must not overshoot the 255 ceiling while slots still fit — and slot
+    255 itself must be refused loudly, never wrapped."""
+    from ff9mapkit.eb import edit as E
+
+    base = bytearray(128 + 80)
+    base[3] = 10
+    eb = bytes(base)
+    entry = bytes([2, 1]) + struct.pack("<HH", 0, 4) + bytes([0x04])
+    for slot in range(0, 255, 7):              # stride keeps the loop cheap; the
+        eb = E.append_entry(eb, slot, entry)   # grow path exercises every chunk
+    eb = E.append_entry(eb, 254, entry)        # the last slot still fits
+    assert eb[3] == 255                        # clamped exactly at the ceiling
+    with pytest.raises(ValueError, match="at most 255"):
+        E.append_entry(eb, 255, entry)
+
+
 def test_append_entry_refuses_u16_overflow():
     """The next wall after relaxation: entry-table offsets are u16 and set_u16
     MASKS — an oversized file must fail LOUDLY, never register a wrapped offset."""

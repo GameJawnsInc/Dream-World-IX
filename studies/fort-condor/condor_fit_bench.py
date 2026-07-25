@@ -369,6 +369,8 @@ def _dry_build(parts: list):
                   behavior_txids=txids, routed=routed)
     cb = fb.compile()                            # fails loudly on a jump overflow
     print(f"  ticker {len(cb.ticker_body)} B  main_init {len(cb.main_init)} B")
+    for line in cb.size_report().splitlines():
+        print(" ", line)
     return raw, fb
 
 

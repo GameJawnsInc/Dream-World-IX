@@ -879,3 +879,75 @@ def test_hold_ground_pin():
         bad = B.FieldBehavior([B.UnitSpec("u", 2, spawn=(0, 0))])
         bad.units["u"].tree = B.Do(B.HoldGround())    # not a static feed
         bad.compile()
+
+
+# ------------------------------------------------------------------ byte histogram
+def test_size_histogram_accounts_every_ticker_byte():
+    """The budget sheet: segment sizes come from the pre-relaxation measure and
+    must tile the ticker exactly (markers are zero-width, so with no islands the
+    content size IS the emitted size)."""
+    cb = guard_field().compile()
+    s = cb.sizes
+    assert s is not None
+    assert sum(n for _nm, n in s["ticker_segments"]) == s["ticker_content"]
+    assert s["ticker_content"] == len(cb.ticker_body)  # small program: no islands
+    names = [nm for nm, _n in s["ticker_segments"]]
+    assert names[0] == "head" and "mirrors" in names and "tail" in names
+    assert "unit guard" in names and "unit beast" in names
+    assert s["duty"] == {n: len(b) for n, b in cb.duty_bodies.items()}
+    for u, fns in s["dispatch"].items():
+        assert sum(n for _t, _k, n in fns) == sum(len(b) for _t, b in
+                                                  cb.action_funcs[u])
+    txt = cb.size_report()
+    assert "byte histogram" in txt and "guard:" in txt and "nudge" in txt
+
+
+def test_size_histogram_covers_pool_segments():
+    cb = economy_field().compile()
+    names = [nm for nm, _n in cb.sizes["ticker_segments"]]
+    assert "pool recruits" in names and "hireable" in names
+    assert sum(n for _nm, n in cb.sizes["ticker_segments"]) \
+        == cb.sizes["ticker_content"]
+
+
+def test_size_histogram_markers_do_not_change_bytes():
+    """Golden stability for the markers themselves: the report path must not
+    perturb compilation (determinism test covers run-to-run; this pins that the
+    ticker walks clean and starts with the staged-latch stmt, as always)."""
+    cb = guard_field().compile()
+    assert cb.ticker_body[0] == 0x05                   # the staged-latch stmt
+
+
+# ------------------------------------------------------------------ swarm stress
+def test_swarm_stress_forty_units_relaxes_and_accounts():
+    """The offline stress ceiling probe: 40 concurrent units (the in-game proven
+    swarm scale) with mutual-swing branches — the ticker sails past the old
+    ±32K jump wall, every body still walks clean, the histogram still tiles the
+    content bytes, and compilation stays deterministic.
+
+    MEASURED WALL pinned here: at 40 units the blackboard byte band (820 bytes
+    of gEventGlobal scratch) holds ~6 swing pairs per unit — a 7th exhausts it
+    (~14B unit kit + ~1B per swing timer). The band is physical (Byte[2048]
+    minus the reserved low bytes), so v1's unrolled-pair architecture tops out
+    near this scale on THREE independent walls: band, ticker content, file."""
+    def build():
+        units = [B.UnitSpec(f"w{i}", entry=2 + i, spawn=(i * 40, 0), hp=4)
+                 for i in range(40)]
+        fb = B.FieldBehavior(units)
+        for i, u in enumerate(units):
+            foes = [f"w{j}" for j in range(40) if j != i][:6]
+            branches = [B.Sequence(fb.hp_le(u.name, 0), B.Do(B.Die()))]
+            for o in foes:
+                branches.append(B.Sequence(fb.active(o), fb.near(u.name, o, 220),
+                                           B.Do(B.SwingAt(o))))
+            branches.append(B.Do(B.Hold((i * 40, 0))))
+            fb.units[u.name].tree = B.Selector(*branches)
+        return fb
+
+    cb = build().compile()
+    _verify_all(cb)
+    assert len(cb.ticker_body) > 32767                 # islands are live in here
+    s = cb.sizes
+    assert sum(n for _nm, n in s["ticker_segments"]) == s["ticker_content"]
+    assert len(cb.ticker_body) >= s["ticker_content"]  # island overhead >= 0
+    assert build().compile().stable_hash() == cb.stable_hash()

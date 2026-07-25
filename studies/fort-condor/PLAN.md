@@ -264,10 +264,17 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   regressions clean. NOTE for precision: this ticker is 30.2KB (back under the
   old wall after the file-budget trims), so the ISLAND bytes themselves have
   not yet run in-game — the relaxation is offline-proven and will get its live
-  crossing whenever content next exceeds ~32KB of one body. OPEN rung-5 items:
+  crossing whenever content next exceeds ~32KB of one body. (2026-07-25: that
+  crossing now has its OWN bench — ISLES 30416, the 14-unit brawl,
+  `studies/behavior-trees/island_bench.py`, deployed, playtest pending.)
+  OPEN rung-5 items:
   the tuning pass toward the FFVII feel (owner-driven, 1-minute clock stays
   until then), restore the real 4:00 clock when tuned, the 20-cap-vs-counters
-  FILE-budget trade (owner's call), win/lose presentation polish, then the
+  FILE-budget trade (owner's call — and the scoped VECTOR-substrate v2 would
+  dissolve it: studies/behavior-trees/PLAN.md §THE THREE WALLS), win/lose
+  presentation polish + a REAL HUD row (Gil | Units | Depot hp) via the stock
+  live-counter substrate — the UI census settled how: SetTextVariable +
+  transparent WindowAsync, no DLL (`studies/minigame-ui/SURVEY.md`), then the
   `[minigame]`/`[condor]` productization decision.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits

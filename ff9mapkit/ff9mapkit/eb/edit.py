@@ -102,14 +102,16 @@ def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     """
     b = bytearray(_as_bytes(data))
     if slot >= b[3]:                                  # table full -> grow (chunked) to fit this slot
-        b = bytearray(grow_entry_table(b, max(slot + 1, b[3] + ENTRY_GROW_CHUNK)))
+        want = max(slot + 1, b[3] + ENTRY_GROW_CHUNK)
+        if slot + 1 <= ENTRY_TABLE_MAX:               # clamp the CHUNK, not the ask: near the
+            want = min(want, ENTRY_TABLE_MAX)         # 255 ceiling the chunk must not overshoot
+        b = bytearray(grow_entry_table(b, want))      # a slot that actually fits
     so = ENTRY_TABLE_OFF + slot * ENTRY_SLOT_SIZE
     if u16(b, so + 2) != 0:
         raise ValueError(f"entry slot {slot} is not empty (size={u16(b, so + 2)})")
     new_off = len(b) - ENTRY_TABLE_OFF
-    # the entry table is u16-addressed and set_u16 MASKS (& 0xFFFF) — an
-    # oversized file would otherwise register a silently-WRAPPED offset (a
-    # black-screen generator now that long-jump relaxation permits huge bodies)
+    # the entry table is u16-addressed; set_u16 is strict (raises), but THIS
+    # check fires first with the budget-level message the author needs
     if new_off > 0xFFFF:
         raise ValueError(
             f"entry slot {slot}: the file is too large — this entry would start at "
