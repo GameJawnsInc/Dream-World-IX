@@ -117,22 +117,33 @@ def test_cue_render_shape_duration_and_peak(mod, expect_channels):
 
 
 def test_drone_third_partial_absent_before_entry_and_present_after():
+    """The 110 Hz layer must be absent before ``F3_ENTRY_S`` and present after the ramp completes.
+
+    Derived from the module's own constants, NOT hardcoded seconds: the retime (STORYBOARD §11) moved
+    the drone from 34.0 s to 8.0 s and the old literal `x[12*SR:]` sampled past the end of the file --
+    a test that reads its subject's constants survives a re-cut, one that retypes them does not.
+
+    The measurement is a RATIO against the 55 Hz fundamental in the SAME window, so the whole-mix fade
+    envelope (which differs a lot between the two windows in a short cue) divides out."""
     x = drone_mod.render(sr=SR)
     n = len(x)
-    t = np.arange(n) / SR
-    # crude spectral-energy-near-110Hz probe over short windows before vs. well after the entry ramp
+
     def band_energy(sig, lo, hi):
         spec = np.fft.rfft(sig)
         freqs = np.fft.rfftfreq(len(sig), d=1.0 / SR)
         m = (freqs >= lo) & (freqs <= hi)
         return float(np.sum(np.abs(spec[m]) ** 2))
 
-    win = int(1.0 * SR)
-    before = x[int(2 * SR):int(2 * SR) + win]                 # well before the t=8s entry
-    after = x[int(12 * SR):int(12 * SR) + win]                # well after the entry ramp completes
-    e_before = band_energy(before, 105, 115)
-    e_after = band_energy(after, 105, 115)
-    assert e_after > e_before * 3                              # the 110Hz layer is clearly stronger once entered
+    def octave_ratio(a_s, b_s):
+        seg = x[int(a_s * SR):min(n, int(b_s * SR))]
+        return band_energy(seg, 105, 115) / (band_energy(seg, 50, 60) + 1e-12)
+
+    entry, ramp = drone_mod.F3_ENTRY_S, drone_mod.F3_RAMP_S
+    win = min(0.8, max(0.4, entry - 0.2))                      # a window that fits before the entry
+    before = octave_ratio(entry - win, entry)                  # ends ON the entry -- 110 Hz still muted
+    after_start = entry + ramp + 0.3                           # clear of the ramp
+    after = octave_ratio(after_start, min(after_start + win, drone_mod.DURATION_S))
+    assert after > before * 3                                  # clearly stronger once entered
 
 
 def test_whispers_bursts_are_hard_panned_alternately():

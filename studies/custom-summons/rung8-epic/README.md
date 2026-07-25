@@ -5,6 +5,11 @@
 > real file. It does not re-litigate anything — every number and every law lives in the documents it
 > links to. If you are looking for the CREATIVE + TECHNICAL CONTRACT, stop here and go read
 > [`STORYBOARD.md`](STORYBOARD.md); this page is a map, not a substitute.
+>
+> **▶ The cast was RETIMED on 2026-07-24** (first playtest → stock-duration census → 140 ticks /
+> 9.3 s, power 34). Read [`STORYBOARD.md` §11](STORYBOARD.md) before anything else on this page:
+> §§1-10 of the storyboard are the original build record and are deliberately unrewritten, so the
+> two disagree on every tick figure and **§11 is the shipped one**.
 
 ---
 
@@ -66,7 +71,8 @@ In one line each:
 2. **The P5 `MistWisps` spawn moves before `WaitSFXDone`, not after.** STORYBOARD Appendix A's *draft*
    sequence text lists it after `WaitSFXDone` (which resolves at t = 480); §4.2's own prose pins the
    spawn at t = 405. `nimbra.seq` follows §4.2 — a one-line, zero-tick reordering (`CreateVisualEffect`
-   is fire-and-forget).
+   is fire-and-forget). **Superseded by the retime**: the dissolve spawn now sits at **t = 113**,
+   inside P4, on the tick the Scaling dissolve is already running (STORYBOARD §11.1/§11.3).
 
 ## THE ONE DEVIATION
 

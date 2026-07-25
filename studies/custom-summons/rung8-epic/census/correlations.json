@@ -1,0 +1,110 @@
+{
+  "full": {
+    "duration_vs_power": {
+      "n": 12,
+      "pearson_r": 0.788,
+      "r_squared": 0.621,
+      "spearman_rho": 0.8406,
+      "p_two_sided": 0.00233,
+      "fit_intercept_s": -6.226,
+      "fit_slope_s_per_unit": 0.8135
+    },
+    "duration_vs_mp": {
+      "n": 16,
+      "pearson_r": 0.8678,
+      "r_squared": 0.7531,
+      "spearman_rho": 0.86,
+      "p_two_sided": 1e-05,
+      "fit_intercept_s": -10.581,
+      "fit_slope_s_per_unit": 1.2328
+    },
+    "duration_vs_mp_damage_only": {
+      "n": 12,
+      "pearson_r": 0.8445,
+      "r_squared": 0.7132,
+      "spearman_rho": 0.7895,
+      "p_two_sided": 0.00055,
+      "fit_intercept_s": -8.927,
+      "fit_slope_s_per_unit": 1.204
+    },
+    "duration_vs_power_no_ark": {
+      "n": 11,
+      "pearson_r": 0.7046,
+      "r_squared": 0.4964,
+      "spearman_rho": 0.7927,
+      "p_two_sided": 0.01549,
+      "fit_intercept_s": 20.243,
+      "fit_slope_s_per_unit": 0.2004
+    },
+    "duration_vs_mp_no_ark": {
+      "n": 15,
+      "pearson_r": 0.7353,
+      "r_squared": 0.5406,
+      "spearman_rho": 0.8291,
+      "p_two_sided": 0.00179,
+      "fit_intercept_s": 11.23,
+      "fit_slope_s_per_unit": 0.4863
+    },
+    "_band_no_ark": {
+      "n": 15,
+      "min_s": 17.33,
+      "max_s": 36.47,
+      "median_s": 28.13,
+      "ark_s": 113.2
+    }
+  },
+  "short": {
+    "duration_vs_power": {
+      "n": 12,
+      "pearson_r": 0.6308,
+      "r_squared": 0.3979,
+      "spearman_rho": 0.0105,
+      "p_two_sided": 0.02787,
+      "fit_intercept_s": 1.387,
+      "fit_slope_s_per_unit": 0.1555
+    },
+    "duration_vs_mp": {
+      "n": 16,
+      "pearson_r": 0.8071,
+      "r_squared": 0.6515,
+      "spearman_rho": 0.5984,
+      "p_two_sided": 0.00016,
+      "fit_intercept_s": -1.436,
+      "fit_slope_s_per_unit": 0.2811
+    },
+    "duration_vs_mp_damage_only": {
+      "n": 12,
+      "pearson_r": 0.7695,
+      "r_squared": 0.5921,
+      "spearman_rho": 0.4561,
+      "p_two_sided": 0.00343,
+      "fit_intercept_s": -0.34,
+      "fit_slope_s_per_unit": 0.262
+    },
+    "duration_vs_power_no_ark": {
+      "n": 11,
+      "pearson_r": -0.0137,
+      "r_squared": 0.0002,
+      "spearman_rho": -0.287,
+      "p_two_sided": 0.96773,
+      "fit_intercept_s": 8.188,
+      "fit_slope_s_per_unit": -0.002
+    },
+    "duration_vs_mp_no_ark": {
+      "n": 15,
+      "pearson_r": 0.461,
+      "r_squared": 0.2126,
+      "spearman_rho": 0.5106,
+      "p_two_sided": 0.08369,
+      "fit_intercept_s": 3.202,
+      "fit_slope_s_per_unit": 0.1224
+    },
+    "_band_no_ark": {
+      "n": 15,
+      "min_s": 3.8,
+      "max_s": 12.47,
+      "median_s": 7.4,
+      "ark_s": 26.4
+    }
+  }
+}

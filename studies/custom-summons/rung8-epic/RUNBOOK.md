@@ -8,8 +8,17 @@
 > which law broke.
 >
 > **Staged state: 49/49 integration checks green** (`stage/final/BENCH-REPORT.json`).
-> Nothing is committed. The live install is untouched: `FF9CustomMap/…/SpecialEffects/` still holds only
-> `ef084` (the Thomas/M1b bench).
+>
+> ### ▶ RETIMED 2026-07-24 — READ [`STORYBOARD.md` §11](STORYBOARD.md#11-the-retime--2026-07-24-post-playtest-re-composition) FIRST
+> NIMBRA has had its first successful cast. The owner's verdict — *"some of the cinematic beats hold for
+> too long which reads as laggy/buggy"* — sent the round to a census of all 33 stock summon sequences
+> (`census/DURATION-CENSUS.md`), which found the real defect: NIMBRA has **no short variant**, so it pays
+> its full cinematic on **every** cast where a stock summon rolls short ~90 % of the time. Measured
+> per-cast, stock runs 5.2–14.4 s; NIMBRA ran 29.3 s.
+>
+> **The cast is now ~140 ticks / 9.3 s and the ability is power 34 / MP 24** (was 485-then-440 ticks and
+> power 62). Every number below is the retimed one. §11 has the full ledger of what was cut versus what
+> was overlapped, and §11.7 has the redeploy/relaunch split for this specific round.
 
 ---
 
@@ -19,8 +28,8 @@
 |---|---|
 | **What** | **NIMBRA**, an original Mist-born eidolon — the first fully-original FF9 summon. Zero Square-Enix bytes: mesh, rig, 3 clips, atlas, 3 particle models, 3 audio cues and the whole `.seq` are authored. |
 | **Where** | field **30301** (`bench/rung8.field.toml`, internal name `MISTBENCH`, toml id 4814). |
-| **How to cast** | Iviv → **Spark** → **Nimbra** (24 MP, AllEnemy). |
-| **Runtime** | ~485 ticks ≈ **32.3 s** at `BattleTPS = 15`. |
+| **How to cast** | Iviv → **Spark** → **Nimbra** (24 MP, AllEnemy, power 34). |
+| **Runtime** | ~140 ticks ≈ **9.3 s** at `BattleTPS = 15` — the stock expected-per-cast median (9.0 s). |
 | **Lane** | DLL-free overlay — private `ef091/` + a minted `GEO_MON_B0_M400` (6400). **Runs on stock Memoria.** No `[SfxHybrid]`, no s58, no engine patch, no `--arm`. |
 | **Needs a RELAUNCH** | **YES — once, before the first cast.** Three reasons at once (§2). |
 | **Blast radius** | one new field slot, one new GEO id, one new effect folder, three new sfx ids, two new `Actions.csv` rows. `ef084` is never opened. |
@@ -62,6 +71,21 @@ Face-Atlas portrait, and — for the `[[playable]]` recruit to exist at all — 
 **What is NOT launch-gated:** the `.seq`, the `.sfxmodel` manifest, the particle models and the `.anim`
 clips. All four are **recast-only** — edit, re-run step 2, cast again, no relaunch. That is the iteration
 loop for every tuning knob in §6.
+
+### 2.1 THE RETIME REDEPLOY specifically (STORYBOARD §11.7)
+
+If NIMBRA is already deployed and you are pushing the 2026-07-24 re-composition onto it:
+
+| Artifact | Changed | What it needs |
+|---|---|---|
+| `PlayerSequence.seq`, `nimbra_manifest.sfxmodel`, `MistFloor.sfxmodel`, `MistWisps.sfxmodel` | yes | **step 2 only — recast-only.** `~` → cast. No relaunch. |
+| `.anim` clips — `60000` (`emerge`) + `60002` (`strike`) **re-cut**, `60003` (`driftlook`) **NEW** | yes (STORYBOARD **§11.9**) | **step 2 only — recast-only.** The SFX route loads clips by literal asset path, so there is still **no `3DModelAnimation` line** and no relaunch (§1.7). Re-run `creature/make_nimbra_anims.py` first if you are rebuilding from source. |
+| `6400.fbx`, `6400.png`, `RiftFlash.sfxmodel`, `.anim` `60001` (`drift`) | **no — byte-identical** | nothing; step 2 rewrites them harmlessly |
+| **`Actions.csv`** (`power` 62 → 34) | yes | **step 1 + RELAUNCH** — the battle CSVs load at launch |
+| **the three `.ogg` cues** (all re-rendered: 8.0 / 4.0 / 2.0 s) | yes, **content only** — the ids are already registered | **step 3, and assume a RELAUNCH.** §5.2 proved *registration* is launch-gated and explicitly left *content replacement at an already-registered id* **UNPROVEN**. It costs nothing to be safe here because `Actions.csv` forces a relaunch anyway — and it is a free chance to settle the question: deploy step 3 alone, cast without relaunching, and note whether the drone runs 8 s or 34 s. |
+
+**So: run all three steps, then relaunch.** A recast-only loop is available for pure choreography
+iteration afterwards (steps 2 only).
 
 ---
 
@@ -118,8 +142,9 @@ the 49 checks. It is the rehearsal, not a model of one.
    multi-enemy formation** — `AllEnemy` with more than one target is exactly the case THE MULTI-TARGET
    NULL would have broken, so a 2+ enemy fight is the real test, not the easy one.
 5. Iviv's turn → **Spark** → **Nimbra** (24 MP). Iviv boots **80/80 MP** = **three casts per fight**.
-6. **Watch it all the way through, once, without touching anything.** It is 32 seconds; the last beat
-   (the dissolve, §5 P5) is the one most likely to reveal a curve problem.
+6. **Watch it all the way through, once, without touching anything.** It is 9.3 seconds now — then
+   **cast it twice more in the same fight** (Iviv's 80 MP buys exactly three). The complaint this round
+   answers was a *repeat* complaint, so one cast cannot settle it.
 7. If you can, capture video — the eight phase checks in §5 are much easier to judge on a replay, and
    `tools/game_snap.ps1` can grab stills for the agent to read.
 
@@ -129,26 +154,32 @@ the 49 checks. It is the rehearsal, not a model of one.
 
 Tick 0 = the cast starting. 15 ticks = 1 s. **Judge each phase against its own row** — "it looked cool"
 is not a result, and a beat landing at the wrong *time* is a different bug from a beat not landing.
+**Retimed table (STORYBOARD §11.1).** P1 is gone as its own phase; its content fires inside P0.
 
 | Phase | Ticks | Sec | It worked if… | It did not if… |
 |---|---|---|---|---|
-| **P0 — THE HUSH** | 0→55 | 0.0–3.7 | A title plate reads **"Nimbra"**. Iviv bows into the chant loop. The **summon** aura kindles (not the blue Spell aura). A low drone fades in *under* the music. The arena dims **gradually** over ~3 s. A thin pale grey-green haze settles at everyone's feet. | Plate says something else / no plate (the ability name or `Message` op). Arena snaps to black instantly (the ramp `Time` was dropped). No haze (see F3). |
-| **P1 — THE GATHERS** | 55→150 | 3.7–10.0 | **Full black.** Only the chanting caster, the pall crawling at floor level, and slow wisps peeling upward off it on separate orbits. A whisper swell rises and never resolves. **Six seconds where nothing else happens** — this is the dread beat and it is *supposed* to feel long. | Not fully black (Intensity ≠ 0 exactly). Wisps all rise on one identical path (the `Parameter0` orbit randomization died — F7). Visible stutter (R13: halve `MistFloor`'s 12 emission entries). |
-| **P2 — THE COALESCE** | 150→255 | 10.0–17.0 | **NIMBRA rises out of the mist over the ENEMY line**, from below the frame, growing from a smudge to full height as the veil unfurls and the mask lifts to level. It **floats** — no legs, the veil frays into vapour and never touches the floor. | Nothing appears (F1/F2). It appears in the middle of the arena / off-screen (F4). It appears at full size instantly (the Scaling curve). It **faces away** — see R4, §6 knob 1: one line, recast-only. |
-| **P3 — THE DRIFT** | 255→345 | 17.0–23.0 | The aura dies, Iviv commits the cast gesture, and NIMBRA simply **hangs there** — swaying at conspicuously **half** the speed of everything else, ribbons rippling, mask turning ~12° and back. **It has not attacked. It is looking.** | It freezes mid-air (the playlist ran out — but staged coverage is 375 ticks over a 330 window, so suspect a clip that failed to load). Visible **pops** at clip seams (R7 — the shared rest-pose rule). It drifts at battle tempo (a `speed` edit). |
-| **P4 — THE STRIKE** | 345→405 | 23.0–27.0 | Arms draw back, mask tips down, both points drive forward. On **one tick**: the sting hits, a pale rift-flash blooms **on every enemy**, and **the world snaps back to light**. Then damage lands and **the numbers pop, fully lit and readable**. | Damage numbers invisible/dim → **THE FIGURE-VISIBILITY LAW** broke (F6). Flash on only one enemy (a `Char=` problem). Light returns but no flash, or vice versa (they are authored on the same tick — a split means one op was dropped: F3). Audio crunches → R6, §6 knob 3. |
-| **P5 — DISSOLVE + RELEASE** | 405→485 | 27.0–32.3 | One more slow drift beat **in the restored light** — the only moment you see NIMBRA against the real arena. Then it **thins**: the body narrows to nothing while stretching upward, wisps peel off it, gone. The drone stops. Iviv returns to idle and squares up. Control returns cleanly. | It vanishes abruptly instead of thinning (the third Scaling piece). The cast **hangs** here → R9, the `WaitSFXDone`-after-`EffectPoint` ordering is suspect #1. Iviv stays frozen in the cast pose → THE ANIM=IDLE RELEASE LAW. A short wisp trail ~4 s after the release is **expected**, not a bug (SEQUENCE-LANE §7). |
+| **P0 — THE HUSH + THE GATHER** | 0→25 | 0.0–1.7 | A title plate reads **"Nimbra"**. Iviv bows into the chant loop. The **summon** aura kindles (not the blue Spell aura). A low drone fades in *under* the music. The arena goes black over ~0.7 s and **the pall, the wisps and the whisper swell arrive WITH the darkness, not after it** — mist rolling in, wisps peeling upward on separate orbits. | Plate says something else / no plate. The screen goes black and *then* the mist appears (the three spawns were re-ordered after the `Wait`). No haze at all (see F3). Wisps all rise on one identical path (the `Parameter0` orbit randomization died — F7). |
+| **P2 — THE COALESCE** | 25→40 | 1.7–2.7 | **NIMBRA rises out of the mist over the ENEMY line**, from below the frame, growing from a smudge to full height in about a second as the veil unfurls and the mask lifts to level. It **floats** — no legs, the veil frays into vapour and never touches the floor. | Nothing appears (F1/F2). It appears in the middle of the arena / off-screen (F4). It appears at full size instantly (the Scaling curve). It **faces away** — R4, §6 knob 1: one line, recast-only. It reads as a **pop** rather than an arrival → STORYBOARD §11.8's last bullet has the exact re-cut. |
+| **P3 — THE LOOK + THE WIND-BACK** | 40→83 | 2.7–5.5 | The aura dies, Iviv commits the gesture. **t 40–65:** NIMBRA just **hangs there**, ribbons rippling, mask turning ~12° and back. It has not attacked; it is looking. **t 65–83:** the arms draw up and behind and the mask tips down — it is winding up. | It freezes mid-air (the playlist ran out — staged coverage is **145 ticks over a 110 window**, so suspect a clip that failed to load, not the arithmetic). Visible **pops** at clip seams (R7 — the shared rest-pose rule). No wind-back at all before the blow (the playlist's `strike` entry). |
+| **P4 — THE STRIKE** | 83→133 | 5.5–8.9 | **Both arm-points drive forward, and on that exact tick** the sting hits, a pale rift-flash blooms **on every enemy**, and **the world snaps back to light**. Then damage lands and **the numbers pop, fully lit and readable** — while NIMBRA is already thinning away behind them. | Damage numbers invisible/dim → **THE FIGURE-VISIBILITY LAW** broke (F6). Flash on only one enemy (a `Char=` problem). **The flash fires while the arms are still drawing BACK** — that was the shipped build's behaviour; the retime moved the clip 18 ticks earlier, so seeing it again means the playlist did not land (F5/F3). Audio crunches → R6, §6 knob 3. |
+| **P5 — RELEASE** | 133→140 | 8.9–9.3 | The dissolve has already finished under the damage numbers — the body narrowed to nothing while stretching upward, wisps peeling off it. The drone stops. Iviv returns to idle and squares up. Control returns cleanly. | It vanishes abruptly instead of thinning (the third Scaling piece). The cast **hangs** here → R9, the `WaitSFXDone`-after-`EffectPoint` ordering is suspect #1. Iviv stays frozen in the cast pose → THE ANIM=IDLE RELEASE LAW. A ~0.9 s wisp trail after the release is **expected**, not a bug. |
 
 **Cross-cutting, judge once at the end:**
 
 - **MP read 24, not 96.** A 96 in the menu = THE TYPE-4 MP LAW leaked (`type` bit 4 set). The staged
-  `Actions.csv` row is `Nimbra;195;None(0);AllEnemy(8);0;0;0;0;91;91;85;62;128;0;22;0;24;0;159` — vfx1 =
-  vfx2 = 91, scriptId 85, type `None(0)`, mp 24.
+  `Actions.csv` row is `Nimbra;195;None(0);AllEnemy(8);0;0;0;0;91;91;85;34;128;0;22;0;24;0;159` — vfx1 =
+  vfx2 = 91, scriptId 85, type `None(0)`, **power 34**, mp 24.
+- **It should hit for noticeably less than before.** Power went 62 → 34 (STORYBOARD §11.4) — that is
+  deliberate, and it is the *other* half of the census: 34/24 = 1.42 is the stock mean power/MP, where
+  62/24 = 2.58 was 60 % above the most aggressive stock ratio. **A damage drop is the fix landing,
+  not a regression.**
 - **Nothing stock ever appears.** No Bahamut, no stock Eidolon, at any point. `vfx1 = vfx2 = 91` makes
   that structural.
 - **"Bahamut Cinema" still works** from the same menu (it is the ef084 bench, untouched).
-- **Total ≈ 32 s ± 1.** More than ~34 s means the two P0 clip-bound waits are longer than the ~10-tick
-  budget — harmless solo, but note it (R2).
+- **Total ≈ 9.3 s ± 0.7.** More than ~11 s means the two P0 clip-bound waits are longer than the
+  ~10-tick budget — harmless, but note it.
+- **It should NOT feel long on cast 3.** That is the whole point of the round: the old build spent up to
+  ~88 s of one fight on three casts, this one spends ~28.
 
 ---
 
@@ -160,10 +191,13 @@ is not a result, and a beat landing at the wrong *time* is a different bug from 
 | 2 | **Too big / too small** | the `[[summon.staging.scale]]` destinations (the model is authored at 1402u; the curve is the size knob, per STORYBOARD §1.3) | step 2, cast |
 | 3 | **Audio crunches at the strike** (R6 — there is **no limiter anywhere** in SaXAudio) | halve `Volume=0.7` on `nimbra.seq`'s `PlaySound: Sound=100003` **before** touching the asset | step 2, cast |
 | 4 | **Blows out white** (rung-7 residual b: no battle-actor lighting pass on the SFX path) | `creature/nimbra_spec.py` → `DARKEN` (currently 0.85), re-run `make_nimbra.py` — **PNG only**, no re-export of anything else | step 2, cast |
-| 5 | **Netsync guest freeze** (R2 — 32.3 s vs the s37 `GuestWaitMs = 30000` cap; the s40/s41 diorama path is UNRESOLVED) | **one line**: `nimbra.seq`'s P1 `Wait: Time=95` → `50`. Yields 440 ticks = **29.3 s**. Nothing else changes — it sits *before* `PlaySFX`, so it shifts the whole cast uniformly and both clocks stay locked (the P4 sting stays on manifest frame 195). More headroom: `95 → 35` = 28.3 s. **Never trim a `Wait` after `PlaySFX`** — the retracted P3 recipe is STORYBOARD §7.3 | step 2, cast |
+| 5 | ~~Netsync guest freeze~~ **RETIRED** (R2). 9.3 s is nowhere near the s37 `GuestWaitMs = 30000` cap, and the knob it named (P1's `Wait: Time=95`) no longer exists — P1 was folded into P0 by the retime | — | — |
+| 6 | **The load hitch at the rise** (R3 — `ModelFactory.CreateModel` fires synchronously at `PlaySFX`, and the blackout it hides behind is now 15 ticks old instead of 95) | **one line**: `nimbra.seq`'s P0 `Wait: Time=15` → `20`. Still the only FREE edit in the cast — it sits *before* `PlaySFX`, so it shifts every phase uniformly and both clocks stay locked. Costs 5 ticks on the 140 total | step 2, cast |
 
-Solo play is unaffected by #5 either way. Do not trim anything else — every other `Wait` is load-bearing
-for a proven law.
+**Never trim a `Wait` after `PlaySFX` on its own** — the retracted P3 recipe is STORYBOARD §7.3, and the
+retime obeyed it by re-cutting the `.seq`, the window, all three curves and the playlist *together*
+(§11.2). If you want a different length, change all five or none. Do not trim anything else by hand —
+every other `Wait` is load-bearing for a proven law, and P4's 50 ticks are now exactly the law floor.
 
 ---
 
@@ -180,7 +214,7 @@ the left column and it names the law, not a guess.
 | **F2** | Creature missing **and** a NEW GEO id was just minted | the `3DModel 6400` line was not registered | relaunch (§2). If it persists, grep `DictionaryPatch.txt` for exactly one `3DModel 6400` line |
 | **F3** | One beat is missing, everything around it is on time | **a silently-dropped op or arg key** — the class this whole guard exists for | `cd ff9mapkit && py -m ff9mapkit summon-seq-lint <mod>/…/ef091/PlayerSequence.seq --private-ef 91 --particles MistFloor.sfxmodel,MistWisps.sfxmodel,RiftFlash.sfxmodel`. It must print 0 errors. **The emitter refuses to deploy an unlinted cast**, so a live failure here means the file was hand-edited after deploy |
 | **F4** | Creature renders **at the world origin / off-camera** | **THE MOVEMENT TRAP** or **THE MULTI-TARGET NULL**: a missing Movement curve, or an anchor on `TargetPosition*` (which is 0 for a multi-target cast, `SFXData.cs:149`) | the manifest's Movement must read `TargetAveragePosition*`. `anchor = "target"` is refused by the linter — so this means the manifest was edited by hand |
-| **F5** | Creature appears, then **freezes** mid-cast on one frame | **THE ANIMATION-PLAYLIST LAW**: the playlist ran out; there is no loop flag | staged coverage is 375 ticks over a 330 window, so first suspect a clip that failed to LOAD (check all three `Animations/6400/6000*.anim` exist), not the arithmetic |
+| **F5** | Creature appears, then **freezes** mid-cast on one frame | **THE ANIMATION-PLAYLIST LAW**: the playlist ran out; there is no loop flag | staged coverage is **145 ticks over a 110 window**, so first suspect a clip that failed to LOAD (check all three `Animations/6400/6000*.anim` exist), not the arithmetic |
 | **F6** | Damage numbers invisible or barely visible | **THE FIGURE-VISIBILITY LAW**: `Type=Figure` fired under the fullscreen intensity overlay | the linter runs the tick clock and every intensity ramp and refuses this — so a live occurrence means the `.seq` was edited. Particles are EXEMPT (different render path) |
 | **F7** | Particles all move identically / none appear | `Char=` missing (a 0 bitmask renders on nobody, **silently**), or the `ParameterMin/Max` **int-vs-float trap** (`SFXDataMesh.cs:1389-1403` sorts them into separate dicts and drops a mismatched pair, so `Parameter1` evaluates to 0 everywhere with no log) | `summon-seq-lint` the `.sfxmodel` — it checks both |
 | **F8** | **Silence**, everything else correct | the relaunch (`SoundMetaData` loads at process start), or `PriorityToOGG ≠ 1` | relaunch first. STORYBOARD §5.2: *silence with everything else working is a missed relaunch, not a design failure* |

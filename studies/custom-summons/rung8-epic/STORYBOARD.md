@@ -984,3 +984,403 @@ ANIMATION-PLAYLIST LAW, the `SkipSequence` gotcha, the two logged residuals);
   `vfx1 → ef{id}/` binding is proven and sufficient.
 - **No short/long variant.** A minted command never enters `DecideSummonType` (PLAN §3.7) — NIMBRA
   always plays in full, which is what "epic" wanted anyway.
+  > **§11 amends this bullet.** "Always plays in full" turned out to be the *defect*, not the feature —
+  > and the fix was to make the one cinematic short rather than to author a pair. See §11.0.
+
+---
+
+# 11. THE RETIME — 2026-07-24 (post-playtest re-composition)
+
+> **This section AMENDS §3, §3.1, §3.2, §3.3, §4.1, §4.2, §5, §6.2 and §7.2. It does not replace them.**
+> §§1-10 above are the original record of the build that got NIMBRA's **first successful cast** and are
+> deliberately left standing verbatim — including the numbers this section supersedes. Where the two
+> disagree, **§11 is the shipped build** and §3 is history.
+>
+> **What happened.** The cast worked. The owner's verdict: *"some of the cinematic beats hold for too
+> long which reads as laggy/buggy. we can make it a shorter summon, not everyone has to be Bahamut"* —
+> plus a design question: **is stock summon cinematic duration correlated with power?**
+>
+> That question was answered by a full census of all 33 stock summon effect sequences
+> (`census/DURATION-CENSUS.md`, reproducible via `census/duration_census.py`). This section implements
+> its recommendation.
+
+## 11.0 The verdict, and why the cut is 3× and not 20 %
+
+**The owner's hypothesis is RIGHT — for the FULL cinematic.** Duration tracks power at Spearman
+ρ = **+0.84** (p = 0.0023) and tracks MP harder at ρ = **+0.86** (p < 0.0001); both survive deleting
+Ark. It is **WRONG for the SHORT cinematic** (ρ = −0.29 without Ark, p = 0.97): the shorts are a flat
+3.8–12.5 s band that carries **no power claim at all**.
+
+**But the hypothesis was not NIMBRA's problem.** NIMBRA's 29.3 s is *unremarkable* among stock FULL
+cinematics — band 17.3–36.5 s, median 28.1 — and Bahamut, Odin, Madeen, Fenrir-Wind and Leviathan are
+all **longer**. The real defect is structural and §10's last bullet named it as a feature:
+
+> Every stock summon **rolls** full-vs-short on every cast (`btl_cmd.cs:1600`): `P(short) = 230/256 =
+> 89.8 %` when the caster holds more than double the cost. So Bahamut's **expected** per-cast cost is
+> **10.4 s**, and the stock expected-cast band is **5.2–14.4 s (median 9.0)**. NIMBRA ships
+> `vfx1 == vfx2 == 91` with no short variant, so it pays 29.3 s **every** cast — **2.8× Bahamut, longer
+> than 100 % of stock expected casts.** *That* is what read as laggy.
+
+The census's second, independent finding: **power/MP was over-tuned by 60 %** — 62/24 = **2.58** against
+a stock range of 0.94–1.61 (mean 1.40). Leviathan-tier power at Ramuh-tier price, and nothing to do with
+duration.
+
+> ### ▶ ADOPTED: census §4.4 candidate **A — "THE WHISPER"**. 140 ticks / **9.3 s**, **power 34**,
+> **MP 24**, `type = 0`, element Dark, `AllEnemy`.
+>
+> 9.3 s is the stock expected-cast **median** (9.0). 34/24 = **1.42** is the stock mean power/MP to two
+> decimals, and power 34 sits between Ramuh (32) and Shiva (36) — honestly the weak tier the owner
+> asked for. MP stays **24**, so Iviv's 80 MP is still three casts and nothing else on the bench moves.
+> The census's own consistency check for the identity: **`Shiva__Short` is 135 ticks / 9.0 s** and still
+> reads as Shiva arriving, freezing the field and leaving. FF9 proves the budget is sufficient.
+>
+> Candidate **B** (the free trim, 23.7 s — no manifest re-cut) was rejected: it is honest about not
+> fixing the complaint. Candidate **C** (6.7 s) was rejected on identity: the law-bound P4 floor leaves
+> it 25 ticks for rise + look.
+>
+> The census's own phase budget is `pre 25 / rise 25 / look 25 / strike 50 / dissolve 10 / tail 5`.
+> **Within that 140, this build spends rise 15 / look 25 + an 18-tick wind-back / strike 50 / dissolve
+> as an overlap** — a redistribution to land the playlist on exact clip boundaries (§11.2), not a change
+> of target. Total, window, power and MP are the recommendation verbatim.
+
+**This is a re-composition, not a uniform squeeze.** A 3.5× uniform scale would have left the same shape
+with everything twice as twitchy. What actually happened is that *dead* time was deleted and *live* time
+was made to run concurrently — the ledger is §11.3.
+
+## 11.1 The new tick table (`nimbra.seq`)
+
+Clock unchanged: `BattleTPS = 15`, 1 tick = 1/15 s. **P1 no longer exists as its own phase** — its
+content fires inside P0's window. Phase names are otherwise kept so every law citation in §§1-10 still
+resolves.
+
+| Phase | Ticks | Sec | On screen | Fixed waits |
+|---|---|---|---|---|
+| **P0 — THE HUSH + THE GATHER** | 0 → 25 | 1.7 | Title plate, chant, summon aura, drone. The arena slides to black in **10 ticks, not 45** — and the pall, the wisps and the whisper swell all fire **on the same tick as the dim**, so the mist arrives *through* the darkening instead of after it. | `Wait: Time=15` (10 ramp + 5 settle) + the ~10-tick clip-bound budget |
+| **P2 — THE COALESCE** | 25 → 40 | 1.0 | **Manifest frame 0.** NIMBRA rises out of the mist from below the frame in one second: Movement (−900 → +120), Scaling (0.15 → 1.0) and the `emerge` clip all run the same 15 ticks — the rise, the growth and the unfurl are one gesture. | `Wait: Time=15` |
+| **P3 — THE DRIFT (THE LOOK) + THE WIND-BACK** | 40 → 83 | 2.9 | The aura dies, Iviv commits the gesture. **t 40–65 = THE LOOK** (the `drift` clip: the sway, the ribbons, the 12° mask turn) — the identity beat, 25 ticks, exactly what the census protected. **t 65–83 = the wind-back** (the first 18 ticks of `strike`): arms drawing up and behind, mask tipping down. | `Wait: Time=43` |
+| **P4 — THE STRIKE** | 83 → 133 | 3.3 | **t 83 is the `strike` clip's LUNGE PEAK.** Sting + rift-flash + relight all fire on it — the light returning *is* the impact. Ramp completes t 101; `EffectPoint` at **t 113** = the 12-tick FIGURE-VISIBILITY floor exactly; figures at t 125. | `Wait: 30 / 12 / 8` = **50, the law floor** |
+| **P5 — THE DISSOLVE + RELEASE** | 133 → 140 | 0.5 | `WaitSFXDone` holds 2 ticks to the drain at t 135; the drone stops (already faded out naturally at t ≈ 130); `Anim=Idle`; the release `Turn`. The **dissolve itself already happened** — see §11.3. | `Turn: Time=5` |
+
+**Total ≈ 140 ticks ≈ 9.33 s** (was 485 / 32.3 s as designed, 440 / 29.3 s as playtested).
+Fixed `Wait` ticks: **123** (was 395) = 15 + 15 + 43 + 30 + 12 + 8. The two P0 clip-bound waits remain
+the cast's only uncertainty (±10 ticks) and still sit **before** `PlaySFX`, so their slack shifts every
+phase uniformly and never touches the two-clock alignment.
+
+## 11.2 The two clocks, the curves, the playlist
+
+`PlaySFX` at **t = 25** ⇒ manifest frame 0 = t 25. `Start = 0`, **`End = 110`** ⇒ the instance drains at
+**t = 135**, which is the tick `WaitSFXDone` is authored to resolve on. *(Was 150 / 330 / 480.)*
+
+| Playlist entry | Frames (N) | Speed | Manifest frames | Ticks | Beat |
+|---|---:|---:|---|---:|---|
+| `emerge` | **15** | 1 | 0 → 15 | 25 → 40 | the rise (1.0 s) |
+| `driftlook` | **25** | 1 | 15 → 40 | 40 → 65 | **THE LOOK** |
+| `strike` | **30** | 1 | 40 → 70 | 65 → 95 | wind-back 65→83, **lunge peak t 83**, settle 83→95 |
+| `drift` | **75** | 1 | 70 → **110 (cut)** | 95 → 135 | the eerie half-speed sway returns, under the dissolve |
+
+Playlist total **145 ≥ 110** ⇒ never exhausted, never freezes on a last frame.
+
+> **⚠ AMENDED BY §11.9 (adversarial round, same day).** This table originally read
+> `emerge@6 / drift@3 / strike@2 / drift@1` on the **unchanged** 90 / 75 / 60-frame clips, on the claim
+> that a re-cut could be bought with `Speed` divisors alone and no creature-lane re-export. **That was
+> wrong** — `Speed > 1` does not slow a clip down, it runs it out early and freezes the rig (§11.9).
+> The **entry boundaries, the tick table, the window and every curve above and below are unchanged**;
+> only the clips' own frame counts are, so the numbers this section asserts are all still the shipped
+> ones. `drift` (N=75, Speed 1) is **bit-identical** to the shipped build — it was the one entry the
+> defect could not reach — and keeps §1.7's deliberate eerie half-speed. `emerge` and `strike` are the
+> same authored envelopes resampled onto 15 and 30 frames; `driftlook` is `drift`'s own normalized
+> builder at 25 frames. The playlist is four entries, not six — the same four seam *kinds*, one fewer
+> seam — and every clip still opens and closes on the shared rest pose (asserted in code).
+
+> ### THE 18-TICK LEAD — the round's one choreography FIX (not a cut)
+> The shipped build fired the sting, the flash and the relight on the `strike` clip's **frame 0**, i.e.
+> on the **wind-back**; the lunge peak landed *after* the light returned. The retimed build schedules
+> `strike` to **start 18 ticks early** (manifest frame 40, t 65) so its lunge peak lands on frame 58 =
+> **t 83** — the exact tick of the flash. §3.1 P4's own prose ("the arms draw back … both points drive
+> forward … the light returning *is* the impact") always described this; the shipped tick table did not
+> deliver it. Free: no extra ticks, just an earlier playlist boundary.
+>
+> **The peak is the `drive` envelope's authored `(36, 1.0)` breakpoint — 36/59 of the clip.** On the
+> shipped 30-frame `strike` at Speed 1 that is clip frame 17.7, which the sampler shows at manifest
+> frame 58 = **t 83** (`playlist_sim.py`, verdict `OK`). Under the pre-§11.9 `Speed 2` playlist the same
+> breakpoint landed at **t 74** — the fix was aimed correctly and the divisor defect was mis-delivering
+> it by 9 ticks in the *other* direction.
+
+**The curves** (each must sum to `end − start` = 110, and each was re-proportioned *with* the window —
+§7.3's whole lesson is that nothing after `PlaySFX` moves alone):
+
+| Curve | Pieces (duration → destination) | Was |
+|---|---|---|
+| **Movement** | 15 → `(Ax, 120, Az)` · 95 → `(Ax, 190, Az)` | 45 / 285 |
+| **Rotation** | 15 hold `(0,180,180)` · 25 → `(0,168,180)` · 70 → `(0,180,180)` | 45 / 180 / 105 |
+| **Scaling** | 15 → `1.00` · 70 hold · **25 → `(0.02, 1.70, 0.02)`** | 45 / 210 / 75 |
+
+Rotation piece 2 is now locked to the look entry (frames 15–40) and piece 3's `SinusOut` front-loads
+the return, so NIMBRA is **most of the way back** to square by the lunge rather than still turning away
+from it.
+
+> **The number, since the first draft of this line over-claimed it as "square-on".** `Factor2` for
+> `SinusOut` is `sin(½π · cur/max)` (`ParametricMovement.cs:309`); piece 3 spans frames 40–110, so at
+> the lunge (frame 58) `cur/max = 18/70` ⇒ **0.393** of the 12° recovered ⇒ **Y ≈ 172.7°**, i.e. still
+> **7.3° off square** when the blow lands, squaring up fully by frame 110. That is a defensible read
+> for a lunge (it drives *through* the last of the turn) but it is not "square-on", and `SinusOut` is
+> still the right ease — `SinusIn` would recover only 8 % by the same tick.
+
+## 11.3 The ledger — what was CUT, what was OVERLAPPED
+
+**Cut (dead time — 272 fixed-Wait ticks, 18.1 s):**
+
+| Where | Was | Now | What actually died |
+|---|---:|---:|---|
+| P0 blackout ramp | 45 | **10** (+5 settle) | the slow slide to black. §2.5's law says the ramp `Time` is the expressive knob — it still is, at a quarter the length. |
+| **P1 the hold** | 95 | **0** | **THE R17 BEAT.** §7.1 R17 flagged "~9.3 s of near-static blackout … repeated near-identically each cast" as a playtest risk and §3.1 defended it as a dread beat that "must be allowed to be boring." **The playtest confirmed R17.** The beat is gone as a *hold*; its content survives as an overlap (below). |
+| P2 the rise | 105 | **15** | 7 s of watching a finished creature hang after a 3 s rise. The rise itself is intact — it is the *clip*, and it now owns the whole phase. |
+| P3 the drift | 90 | **43** | 6 s of hang → 1.67 s of look + 1.2 s of wind-back. |
+| P4 tail | 60 | **50** | the trailing wait after `Type=Figure`, 18 → 8. **P4 is now exactly §4.3's STRUCTURAL FLOOR** and cannot go lower without breaking THE FIGURE-VISIBILITY LAW. |
+| P5 `WaitSFXDone` block | 75 | **2** | the "one more slow drift beat in the restored light" *as a separate beat*. |
+
+**Overlapped (live time made concurrent — this is where the identity was kept):**
+
+1. **The gather rides the dim.** `MistFloor`, `MistWisps` and the whisper cue all fire on the same tick
+   as `SetBackgroundIntensity: Intensity=0 ; Time=10`. The mist rolls in *during* the darkening. The
+   dread beat is now carried by arrival, not by duration.
+2. **The dissolve rides the damage.** Scaling piece 3 runs frames 85–110 = **t 110–135**, and the
+   `EffectPoint`s fire at t 113 and t 125 — so NIMBRA thins away *while the numbers pop*, in the restored
+   light, instead of waiting for them to finish. The second `MistWisps` spawn moves to t 113 with them.
+3. **The wind-back rides the look.** §11.2's 18-tick lead: the tension beat is now inside P3's window
+   instead of inside P4's.
+
+## 11.4 The power/MP re-tune (`bench/rung8.field.toml`)
+
+```toml
+{ name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 91, vfx2 = 91, type = 0,
+  power = 34, element = ["Dark"], mp = 24 },      # power was 62
+```
+
+Name, element, targets, `type = 0`, `vfx1 = vfx2 = 91` and MP are **unchanged** — §6.2's table stands
+line for line. Only `power` moved, and it moved on the **power/MP axis, not the duration axis**: census
+§3 verdict 3 proves a short cinematic makes no power claim (ρ = −0.29), so 9.3 s did not force 34. The
+built row now reads `Nimbra;195;None(0);AllEnemy(8);0;0;0;0;91;91;85;34;128;0;22;0;24;0;159`.
+
+## 11.5 The audio and the particles, re-cut to the new lengths
+
+**Audio** — three time re-cuts, zero character changes; peak budgets, `Volume=` lines, ids and resource
+ids all unchanged. Re-rendered and re-validated **post-encode** (`audio/build_audio.py`): peaks
+**0.4019 / 0.3523 / 0.5037** against budgets 0.45 / 0.40 / 0.55, all three PASS.
+
+| Id | Was | Now | Why that number |
+|---|---:|---:|---|
+| 100001 `nimbra_drone` | 34.0 s | **8.0 s** | audible window is t 10 → 135 = 8.33 s. The 8.0 s master now **fades out naturally at t ≈ 130** and the `StopSound` five ticks later is a safety, not an audible cut — the shipped build stopped it 26 s early. Fade-in 6→1.5 s, fade-out 4→2 s, the 110 Hz layer's entry 8→2.2 s (the same ~27 % of the cue, so the octave still arrives with the creature). |
+| 100002 `nimbra_whispers` | 7.0 s | **4.0 s** | fires once, at t ≈ 10, and dies at t ≈ 70 just as the wind-back starts. **All six bursts survive** — onsets and attack tighten together, so the "slow in, hard out" overlap pattern is the same shape at 4/7 scale. The second (P5) spawn is dropped: the dissolve is covered by `MistWisps`, not by a second swell in a 9-second cast. |
+| 100003 `nimbra_strike` | 2.5 s | **2.0 s** | fired at t 83, it rings out onto **t 113** — the tick the dissolve and the damage numbers arrive. Decays tightened with it (ring τ 0.55→0.45, thump τ 0.28→0.24) so it still ends on its own tail, not on the click-guard. The inharmonic partial set is untouched. |
+
+**Particles** — the two mist models' lifetimes were authored against a 485-tick cast (§4.1: 198 ticks of
+total on-screen life; §4.2: 145) and would have outlived this whole cast. Re-cut by THE TOTAL-LIFE
+FORMULA (`last Emission frame + Duration`), geometry / colours / orbit idiom / `Parameter` ranges all
+unchanged:
+
+| File | Was | Now | Lands |
+|---|---|---|---|
+| `MistFloor` | 12 emissions to frame 88, `Duration 110` → **198 ticks** | 8 emissions to frame 28, **`Duration 44`** → **72 ticks** | spawns t ≈ 10, last particle dies **t ≈ 82** — one tick before the relight, so the pall burns off exactly as the light returns |
+| `MistWisps` | 16 emissions to frame 75, `Duration 70` → **145 ticks** | 7 emissions to frame 18, **`Duration 22`** → **40 ticks** | gather spawn t ≈ 10 dies t ≈ 50 (the wisps NIMBRA rises *through*); dissolve spawn t 113 dies t ≈ 153 — a 0.87 s trail past the release, down from 4.3 s |
+| `RiftFlash` | `Duration 30` | **unchanged, byte-identical** | t 83 → 116; it was already scaled to a single beat |
+
+`MistWisps`' rise shortens 520 → 300 units so the shorter life does not read as a rocket; the orbit radii
+are deliberately **kept**, so the pall now *rolls in* rather than crawls — which is the overlap §11.3
+asked for, not a side effect.
+
+**Two risks improve as a side effect, both measured not assumed:** peak concurrent billboards fall from
+≈ 180 to ≈ **90** (R13 — and the two `MistWisps` spawns no longer overlap at all), and at the strike tick
+the voice stack is now **drone + sting** instead of drone + whispers + sting (R6 — the no-limiter budget).
+
+## 11.6 What did NOT change
+
+- **Every law.** THE PHASE-LOCK RULE (zero clip-bound waits in the `PlaySFX … WaitSFXDone` window),
+  THE FIGURE-VISIBILITY LAW (12-tick floor, hit exactly), THE INTENSITY LAW (only 0 and 1),
+  THE ANIM=IDLE RELEASE LAW, THE ANIMATION-PLAYLIST LAW (145 ≥ 110), THE MULTI-TARGET NULL
+  (`target_average`), THE ROTATION BASELINE LAW, R15 (no `ef091/Sequence.seq`).
+- **The creature.** Mesh, rig, atlas — byte-identical. ~~All three clips~~ **AMENDED by §11.9:** `drift`
+  is byte-identical (`git diff` clean); `emerge` and `strike` are the same authored envelopes resampled
+  onto 15 and 30 frames, and `driftlook` is new. No mesh, rig, atlas or texture work either way.
+- **The wiring.** `private_ef = 91`, `vfx1 = vfx2 = 91`, `type = 0`, MP 24, field 30301, `ef084`
+  untouched, "Bahamut Cinema" still at id 194.
+- **§7.3's retracted-P3 lesson, honoured rather than dodged.** The reason the shipped build's only free
+  knob was P1's pre-`PlaySFX` wait is that *no* edit after `PlaySFX` is free. This round paid that price
+  properly: the `.seq`, the window, all three curves and the playlist were re-cut **together**, and the
+  three gates that refused the retracted recipe (`_validate_staging`'s duration sums,
+  `playlist_coverage`, the seqlint tick clock) are exactly what proved this one coherent.
+
+## 11.7 Redeploy — recast-only vs relaunch
+
+| Artifact | Changed this round | Redeploy |
+|---|---|---|
+| `ef091/PlayerSequence.seq`, `nimbra_manifest.sfxmodel`, `MistFloor`/`MistWisps` | yes | **recast-only.** Re-run deploy step 2; press `~` → cast again. No relaunch. |
+| `Animations/6400/*.anim` (**§11.9**: 60000 + 60002 re-cut, **60003 `driftlook` is NEW**) | yes | **recast-only** — the SFX route loads clips by literal path, so there is still no `3DModelAnimation` line and no relaunch (§1.7). Re-run deploy step 2. |
+| `6400.fbx`, `6400.png`, `RiftFlash.sfxmodel`, `Animations/6400/60001` (`drift`) | **no** (byte-identical) | nothing to do; step 2 rewrites them harmlessly. |
+| **`Actions.csv` (`power` 62 → 34)** | yes | **step 1 + RELAUNCH.** The battle CSVs are read at launch. |
+| **The three `.ogg` cues (all re-rendered)** | yes | step 3, and **assume a RELAUNCH** — see the note below. |
+
+> **THE UNPROVEN ASSUMPTION, restated because this round is the first time it matters.** §5.2 established
+> that *registering* a new sfx id needs a relaunch (`SoundMetaData` loads once at process start) and
+> flagged as **unproven** whether *replacing the `.ogg` content at an already-registered id* needs one
+> too. Ids 100001-100003 are already registered from the first deploy; only their **content** changed.
+> **Assume yes until measured.** Since the `Actions.csv` re-tune needs a relaunch anyway, this round
+> costs nothing to be safe about — and it is a free opportunity to measure it: if you want the answer,
+> deploy step 3 alone, cast without relaunching, and note whether the drone runs 8 s or 34 s.
+
+## 11.8 Risks retired, and one to watch
+
+- **R17 — RETIRED.** It was the thing the playtest reported and it is deleted, not mitigated.
+- **R2 (netsync 30 s guest freeze cap) — RETIRED.** 9.3 s is nowhere near `GuestWaitMs = 30000`, and the
+  R2/§6-knob-5 trim it prescribed no longer exists (P1's `Wait: Time=95` is gone).
+- **R3 (the `ModelFactory.CreateModel` hitch at `PlaySFX`) — WATCH.** The blackout it hides behind is
+  now 15 ticks old instead of 95 when `PlaySFX` fires. The load is still inside full black (the ramp
+  completes at t ≈ 20, `PlaySFX` is at t ≈ 25), but the margin is thinner. If cast 1 hitches visibly at
+  the rise, the cheapest fix is a longer pre-`PlaySFX` wait — the one edit that is still **free**,
+  because it lands before the manifest clock starts (P0's `Wait: Time=15` → `20`; every phase shifts
+  uniformly, no curve, playlist or alignment edit, at the cost of 5 ticks on the 140 total).
+- **R13 / R6 — improved**, see §11.5.
+- **New, minor: `emerge` compresses a 3.0 s authored unfurl into 1.0 s.** It is paired with the Scaling
+  ramp and the rise so it should read as one whoosh, but it is the fastest thing in the cast and the
+  first candidate if the emergence reads as a *pop* rather than an arrival. **It is not a one-number
+  knob** — the window is pinned, so buying the rise more ticks means selling the look some. The exact
+  trade, worked out and coherent (same 140 total, same 110 window, same lunge-on-the-flash alignment):
+  `emerge` **N 15 → 18** paid for by `driftlook` **N 25 → 19**, then Movement `18 / 92`, Rotation
+  `18 / 19 / 73`, Scaling `18 / 67 / 25`, P2's `Wait: Time=15 → 18` and P3's `Wait: Time=43 → 37`.
+  Re-run `make_nimbra_anims.py`, then `build_rung8_stage.py --check`; it re-derives all four invariants.
+  *(Pre-§11.9 this bullet named the knob as `Speed 6 → 5`; the knob is now the clip's frame count.)*
+
+---
+
+## 11.9 THE SPEED-DIVISOR DEFECT — the adversarial round's finding, and the fix
+
+**Found by re-deriving §11.2's two-clock arithmetic by hand against the engine source rather than
+against §1.7's summary of it.** §11.2's headline claim — *"the lunge peak lands on t 83, the exact tick
+the flash fires"* — was **false as shipped**, by 9 ticks, and three of the four playlist entries were
+freezing mid-entry. Both have the same cause.
+
+### The mechanism
+
+§1.7's "Speed compensation" equation was derived from **two** of the three lines that drive an
+`Animations[]` playlist and never checked the third — the one that actually poses the rig:
+
+```
+SFXDataMesh.cs:851   animMaxFrame[i] = max(0, ceil(geoAnimGetNumFrames(obj, clip_i) / Speed_i));
+SFXDataMesh.cs:853   while (frame >= startFrame + frameCounter + animMaxFrame[animIndex])
+                         frameCounter += animMaxFrame[animIndex++];
+SFXDataMesh.cs:858   animFrame = (Int32)Math.Floor((frame - startFrame - frameCounter) * Speed_i);
+SFXDataMesh.cs:863   else { animIndex = last; animFrame = animMaxFrame[animIndex]; }
+SFXDataMesh.cs:869   clipState.time = clipState.length * animFrame / animMaxFrame[animIndex];
+```
+
+`animFrame` is a **clip-frame index** (`:858` multiplies ticks *by* Speed). `animMaxFrame` is a **tick
+count** (`:853` accumulates it against `frame`). `:869` divides one by the other. **They are equal only
+at `Speed == 1`.** `:863` is the tell: the playlist-exhausted branch sets `animFrame = animMaxFrame`
+precisely so `:869` yields `time = length`, which proves the divisor was *meant* to be "the value
+`animFrame` takes at the end of the clip" — i.e. ≈ `numFrames`, not `animMaxFrame`.
+
+⇒ **At Speed `s` a clip advances `s²` clip-frames per tick.** It runs out of itself after `1/s` of its
+entry and spends the remainder past `length` (Unity clamps at `Sample()` under the legacy
+`Once`/`ClampForever` default, or wraps under `Loop` — neither is the authored motion).
+
+### Measured, not argued
+
+`playlist_sim.py` reproduces `Render`'s sampling exactly and prints the tick-by-tick clip-frame
+trajectory. On the playlist as this section found it:
+
+| Entry | Ticks | Clip runs out at | Verdict |
+|---|---:|---|---|
+| `emerge` @6 | 15 | tick 3 | **frozen 12 of 15** |
+| `drift` @3 (the look) | 25 | tick 9 | **frozen 16 of 25** |
+| `strike` @2 | 30 | tick 15 | **frozen 15 of 30**; lunge peak at **t 74**, flash at t 83 |
+| `drift` @1 | 75 | — | clean (Speed 1) |
+
+The same probe on the **playtested** `emerge@2 / drift@1 ×2 / strike@2 / drift@1 ×2` build shows
+`emerge` frozen 22 of 45 ticks and `strike` frozen 15 of 30 — so part of the owner's *"beats hold for
+too long which reads as laggy/buggy"* was **a frozen creature, not duration**. The duration census and
+the retime remain correct and necessary; this is a second, independent cause that the retime inherited
+and (at Speed 6) made worse.
+
+**There is no stock precedent to have calibrated against:** the whole install has 11 `.sfxmodel` files
+and the only two with an `FBX` block are ours (`ef084`'s M1b bench has **no** `Animations` playlist at
+all — it is driven by the s58 native skeleton). NIMBRA's first cast is the only in-game exercise of a
+`Speed > 1` playlist that has ever happened. The clone at `6b8bb2d5` is the dev engine's exact base and
+no patch in `memoria-patches/` touches these lines.
+
+### The fix — size the CLIP to the beat, never the divisor
+
+> **EVERY playlist entry is `speed = 1`.** It is the only self-consistent value, and — decisively — the
+> one value at which **both** readings of `:869` agree, so the fix is correct whichever reading is.
+
+The **tick table, the window, all three curves, every `.seq` wait and every entry boundary are
+unchanged.** Only where the frames come from changed:
+
+| Entry | Was | Now | Note |
+|---|---|---|---|
+| `emerge` | N 90 @ Speed 6 | **N 15 @ Speed 1** | same envelopes, breakpoints × (N−1)/(REF−1) |
+| the look | `drift` N 75 @ Speed 3 | **`driftlook` N 25 @ Speed 1** | `build_drift` is normalized on `u = f/(N−1)` — a pure resample of one sine cycle |
+| `strike` | N 60 @ Speed 2 | **N 30 @ Speed 1** | the `(36, 1.0)` lunge breakpoint rescales to frame 17.7 ⇒ shows at **t 83** |
+| the tail | `drift` N 75 @ Speed 1 | **unchanged, byte-identical** | it was already the one correct entry |
+
+Playlist **15 + 25 + 30 + 75 = 145 ≥ 110**, identical to before. `playlist_sim.py`'s third report:
+every entry *"never over-runs"*, and `THE LUNGE PEAK … -> OK`.
+
+**The re-cut costs no fidelity.** At Speed 1 the sampler shows exactly **one clip frame per tick**, so a
+15-tick rise renders 15 distinct poses either way — `emerge@6` was *also* showing 15 (`floor(6k)` for
+k < 15, then a freeze). The re-cut simply makes those the evenly-resampled, correct 15.
+
+**Ledger:** `creature/nimbra_clips.py` (frame counts + `rescale()` + `driftlook`), the `clips`/`play`
+tables in `nimbra.summon.toml` and `bench/rung8.field.toml`, the header of `nimbra.seq` (comments only —
+**not one op or Wait changed**), and `playlist_sim.py` (new, read-only). `git diff` confirms
+`creature/nimbra/drift.anim` is untouched.
+
+### The lesson, stated so the kit inherits it
+
+**A law derived from the lines that *schedule* a thing is not a law about the line that *renders* it.**
+§1.7 read `animMaxFrame` and `animFrame`, both correct, and stopped one line short of the only one that
+poses the rig. The two gates that could have caught it — `playlist_coverage` and the storyboard's own
+tick table — are both built *out of the same two lines*, so they agreed with each other and with the
+error. `summons/deploy.py:playlist_coverage` now carries the citation and reports `nonunit_speeds`;
+`bench/build_rung8_bench.py` gates on it; `test_summon_curves.py` asserts it on this very block.
+
+---
+
+## 11.10 THE PACING READ — does the retimed table still play EERIE?
+
+Read off the composited timeline (`.seq` waits + curves + playlist + the two mist models' lifetimes +
+the three cues), not off the prose. **Yes** — and the mechanism is the one §11.3 claimed: the dread is
+carried by *arrival and by slowness of motion* instead of by stillness. Every beat §3.1 named survives
+as a beat; none of them survives as a **hold**, which is the whole point.
+
+| t | Beat | Reads as |
+|---:|---|---|
+| 10 → 25 | drone in, arena dims in 10 ticks, pall + wisps + whisper swell arrive **through** the darkening | the gather. 1.0 s, but it is an *event*, not a wait |
+| 25 → 40 | the rise: `emerge`, Movement −900 → +120, Scaling 0.15 → 1.0, all 15 ticks | one gesture out of the mist |
+| 40 → 65 | **THE LOOK**: one full sway cycle, the 12° mask turn away, the wisps dying around it | the identity beat, intact |
+| 65 → 83 | the wind-back: `strike` frames 0 → 17.7, mask tipping, the pall burning off | tension, and it is *earned* — it was dead air before |
+| 83 | sting + rift-flash + relight, **on the lunge peak** | the light returning **is** the impact |
+| 101 → 135 | fully lit; damage at 113, figures at 125, the dissolve running under both, `drift` swaying at the eerie half-speed | vapour venting while the numbers pop |
+
+**Three things to watch on the next playtest — flagged, not fixed:**
+
+1. **THE LOOK now sways at ~3× the tail's tempo.** `driftlook` runs one full cycle in 25 ticks (1.67 s);
+   the closing `drift` runs the *same* cycle in 75 (5.0 s), which is §1.7's deliberate "everything else
+   moves at battle tempo, NIMBRA does not". So the creature sways **fast** during the look and **slow**
+   during the dissolve — the reverse of a build. This is the retime's own choice (the 25-tick look is
+   the census's protected budget) and §11.9 only made it render honestly; it is nonetheless **the single
+   biggest character change in the whole re-composition** and the first thing to question if the look
+   stops reading as eerie. It is *not* a cheap fix: a half-cycle `driftlook` would not close on the rest
+   pose and would break THE PLAYLIST-SEAM RULE. The cheap version is to spend ticks (§11.8's trade).
+2. **The ground pall is gone before the light comes back.** `MistFloor`'s last particle dies at t ≈ 82
+   and the relight ramps t 83 → 101, so the last ~28 ticks of blackout play on a progressively emptying
+   stage. §11.5 called this "burns off exactly as the light returns"; it is really "burns off just
+   *before*". Defensible (it reads as the mist being drawn in) but it is the beat with the least on
+   screen.
+3. **There is no breath after the dissolve.** Scaling finishes at t 135, `WaitSFXDone` releases on the
+   same tick and control returns at t 140 — the census's own `tail 5` budget, spent exactly. If the end
+   reads as a cut rather than a release, the fix is the 5 ticks §11.8 keeps free before `PlaySFX`.
+
+**And one risk that §11.9 materially *reduced*:** §11.8's "`emerge` may read as a *pop*". The pre-fix
+entry showed the unfurl in 3 ticks and then froze a finished creature for 12 — which is both a pop *and*
+a hold, and is very likely part of what the owner reported as *"laggy/buggy"*. It now renders 15 evenly
+resampled poses across the full 15 ticks. Still the fastest thing in the cast; no longer a stutter.

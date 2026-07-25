@@ -4,7 +4,14 @@ Per STORYBOARD.md §5: "A 45 Hz sine thump with a 25 ms attack, plus an inharmon
 ring-out (partials at 1.0 / 2.76 / 5.40 / 8.93 x 640 Hz, exponential decay tau = 0.55 s) -- a bell
 that is not a bell." Peak <= 0.55.
 
-Fires: ``PlaySound`` t = 345 (P4), the SAME tick as ``RiftFlash`` and the Intensity=1 relight.
+RE-CUT 2026-07-24 -- STORYBOARD.md §11 (THE RETIME): 2.5 s -> **2.0 s**, decays tightened to match
+(ring tau 0.55 -> 0.45 s, thump tau 0.28 -> 0.24 s) so the sting still ends on its own tail rather
+than on the 50 ms click-guard. 2.0 s = 30 ticks: fired at t = 83 it rings out exactly onto t = 113,
+the tick the dissolve and the damage numbers arrive. The inharmonic partial set -- what makes it "a
+bell that is not a bell" -- is untouched.
+
+Fires: ``PlaySound`` t = 83 (P4), the SAME tick as ``RiftFlash``, the Intensity=1 relight, and (new
+this round) the ``strike`` clip's own lunge peak.
 
 100% synthesized. Zero Square-Enix bytes.
 """
@@ -22,16 +29,16 @@ SOUND_ID = 100003
 RESOURCE_ID = "Sounds02/SE00/nimbra_strike"
 NAME = "nimbra_strike"
 
-DURATION_S = 2.5
+DURATION_S = 2.0                                # RE-CUT from 2.5 (STORYBOARD §11)
 THUMP_HZ = 45.0
 THUMP_ATTACK_S = 0.025
-THUMP_TAU_S = 0.28
+THUMP_TAU_S = 0.24                              # was 0.28
 RING_BASE_HZ = 640.0
 RING_RATIOS = [1.0, 2.76, 5.40, 8.93]           # inharmonic -- "a bell that is not a bell"
 RING_AMPS = [1.0, 0.6, 0.35, 0.2]
-RING_TAU_S = 0.55
-RING_PHASES = [0.0, 0.9, 1.7, 2.4]              # distinct phases so the partials don't sum-cancel
-TAIL_FADE_S = 0.05                              # click-guard at the hard 2.5s cutoff
+RING_TAU_S = 0.45                               # was 0.55 -- exp(-2.0/0.45) = 0.011, so the tail is
+RING_PHASES = [0.0, 0.9, 1.7, 2.4]              # already gone before the cutoff, as at 2.5/0.55
+TAIL_FADE_S = 0.05                              # click-guard at the hard 2.0s cutoff
 PEAK_BUDGET = 0.55
 TARGET_PEAK = 0.50
 

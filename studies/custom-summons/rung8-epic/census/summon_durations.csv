@@ -1,0 +1,35 @@
+ability_id,name,csv_name,variant,effect_id,sfx_ticks,sfx_seconds,cast_ticks,cast_seconds,pre_ticks,post_ticks,damage_beat_tick,power,mp,element,type,targets,clip_waits,clip_uncertainty_ticks,is_summon_roll
+64,Ark,Ark,full,381,1698,113.2,1732,115.47,29,5,1635,106,80,Shadow,4,AllEnemy(8),4,20,True
+62,Bahamut,Bahamut,full,227,547,36.47,572,38.13,20,5,486,88,56,Non-elem,4,AllEnemy(8),4,20,True
+74,Madeen,Madeen,full,251,519,34.6,553,36.87,29,5,464,71,54,Holy,0,AllEnemy(8),4,20,True
+60,Leviathan,Leviathan,full,179,481,32.07,519,34.6,33,5,424,59,42,Water,4,AllEnemy(8),4,20,True
+58,Odin,Odin,full,261,537,35.8,562,37.47,20,5,463,45,28,Non-elem,4,AllEnemy(8),4,20,True
+67,Fenrir (Wind),Fenrir,full,226,485,32.33,510,34.0,20,5,414,44,30,Wind,0,AllEnemy(8),4,20,True
+66,Fenrir (Earth),Fenrir,full,210,422,28.13,447,29.8,20,5,351,42,30,Earth,0,AllEnemy(8),4,20,True
+51,Ifrit,Ifrit,full,276,351,23.4,366,24.4,10,5,280,42,26,Fire,4,AllEnemy(8),2,10,True
+72,Phoenix,Phoenix,full,211,469,31.27,494,32.93,20,5,444,40,32,Fire,0,Everyone(12),4,20,True
+49,Shiva,Shiva,full,38,364,24.27,398,26.53,29,5,288,36,24,Ice,4,AllEnemy(8),4,20,True
+53,Ramuh,Ramuh,full,186,331,22.07,356,23.73,20,5,270,32,22,Thunder,4,AllEnemy(8),4,20,True
+55,Atomos,Atomos,full,184,424,28.27,449,29.93,20,5,356,30,32,Non-elem,4,AllEnemy(8),4,20,True
+73,Rebirth Flame (Trance Phoenix),Rebirth Flame,full,225,523,34.87,548,36.53,20,5,494,30,0,Non-elem,0,AllAlly(7),4,20,False
+69,Carbuncle (Haste),Carbuncle,full,494,260,17.33,296,19.73,31,5,227,0,24,Non-elem,0,AllAlly(7),4,20,True
+68,Carbuncle (Reflect),Carbuncle,full,177,260,17.33,296,19.73,31,5,227,0,24,Non-elem,0,AllAlly(7),4,20,True
+70,Carbuncle (Shell),Carbuncle,full,493,260,17.33,296,19.73,31,5,227,0,24,Non-elem,0,AllAlly(7),4,20,True
+71,Carbuncle (Vanish),Carbuncle,full,495,260,17.33,296,19.73,31,5,227,0,24,Non-elem,0,AllAlly(7),4,20,True
+64,Ark,Ark,short,447,396,26.4,421,28.07,20,5,364,106,80,Shadow,4,AllEnemy(8),4,20,True
+62,Bahamut,Bahamut,short,405,112,7.47,137,9.13,20,5,83,88,56,Non-elem,4,AllEnemy(8),4,20,True
+74,Madeen,Madeen,short,378,168,11.2,193,12.87,20,5,133,71,54,Holy,0,AllEnemy(8),4,20,True
+60,Leviathan,Leviathan,short,406,111,7.4,136,9.07,20,5,86,59,42,Water,4,AllEnemy(8),4,20,True
+58,Odin,Odin,short,424,59,3.93,84,5.6,20,5,24,45,28,Non-elem,4,AllEnemy(8),4,20,True
+67,Fenrir (Wind),Fenrir,short,509,119,7.93,144,9.6,20,5,88,44,30,Wind,0,AllEnemy(8),4,20,True
+66,Fenrir (Earth),Fenrir,short,508,89,5.93,114,7.6,20,5,58,42,30,Earth,0,AllEnemy(8),4,20,True
+51,Ifrit,Ifrit,short,445,77,5.13,102,6.8,20,5,46,42,26,Fire,4,AllEnemy(8),4,20,True
+72,Phoenix,Phoenix,short,510,187,12.47,212,14.13,20,5,162,40,32,Fire,0,Everyone(12),4,20,True
+49,Shiva,Shiva,short,407,135,9.0,160,10.67,20,5,99,36,24,Ice,4,AllEnemy(8),4,20,True
+53,Ramuh,Ramuh,short,415,113,7.53,138,9.2,20,5,76,32,22,Thunder,4,AllEnemy(8),4,20,True
+55,Atomos,Atomos,short,446,165,11.0,190,12.67,20,5,132,30,32,Non-elem,4,AllEnemy(8),4,20,True
+73,Rebirth Flame (Trance Phoenix),Rebirth Flame,short,225,523,34.87,548,36.53,20,5,494,30,0,Non-elem,0,AllAlly(7),4,20,False
+69,Carbuncle (Haste),Carbuncle,short,506,73,4.87,98,6.53,20,5,56,0,24,Non-elem,0,AllAlly(7),4,20,True
+68,Carbuncle (Reflect),Carbuncle,short,504,57,3.8,82,5.47,20,5,40,0,24,Non-elem,0,AllAlly(7),4,20,True
+70,Carbuncle (Shell),Carbuncle,short,505,57,3.8,82,5.47,20,5,40,0,24,Non-elem,0,AllAlly(7),4,20,True
+71,Carbuncle (Vanish),Carbuncle,short,507,65,4.33,90,6.0,20,5,48,0,24,Non-elem,0,AllAlly(7),4,20,True

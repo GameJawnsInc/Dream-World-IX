@@ -181,6 +181,10 @@ def main() -> int:
     if cov:
         print(f"  playlist : {cov['playlist_ticks']} ticks over a {cov['window']}-tick window "
               f"({', '.join(cov['detail'])})")
+        if cov.get("nonunit_speeds"):
+            print(f"  *** THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9): {cov['nonunit_speeds']} -- a clip "
+                  f"at Speed s advances s^2 frames/tick, finishes after 1/s of its entry and FREEZES. "
+                  f"Size the CLIP to the beat and keep every speed = 1. ***")
     print(f"  revert   : {res['revert_script']}")
 
     if args.check:
@@ -210,10 +214,11 @@ def check(res: dict, mod_root: Path) -> int:
 
     man = json.loads(Path(res["overlay"]["manifest_dest"]).read_text(encoding="utf-8"))
     fbx = man["FBX"][0]
-    play_at = 150                       # nimbra.seq: the fixed waits before PlaySFX (45 + 95 + 10 budget)
+    play_at = 25                        # nimbra.seq: the fixed wait before PlaySFX (15) + the ~10-tick
+                                        # clip-bound budget. RETIMED from 150 -- STORYBOARD 11.2.
     end = int(fbx["End"])
     print(f"  two clocks  : PlaySFX at tick ~{play_at}, FBX window {fbx['Start']}..{fbx['End']} "
-          f"=> the instance drains at ~{play_at + end} (STORYBOARD 3.2 says 480)")
+          f"=> the instance drains at ~{play_at + end} (STORYBOARD 11.2 says 135)")
     for curve in ("Movement", "Rotation", "Scaling"):
         total = sum(int(p["Duration"]) for p in fbx[curve])
         flag = "ok" if total == end - int(fbx["Start"]) else "MISMATCH"

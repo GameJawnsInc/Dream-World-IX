@@ -514,22 +514,27 @@ def test_manifest_name_must_be_bare():
                     reason="the rung-8 study artifacts are not in this checkout")
 def test_the_rung8_block_normalizes_and_reproduces_the_storyboards_numbers():
     """The round's deliverable block, read as the kit reads it. The three curve totals and the playlist
-    tick total are STORYBOARD section 3.2/3.3's own figures, re-derived here from the TOML."""
+    tick total are STORYBOARD section 11.2's own figures (THE RETIME, 2026-07-24 -- they were 330/375
+    against section 3.2/3.3 before the re-composition), re-derived here from the TOML."""
     import tomllib
     block = tomllib.loads((_STUDY / "nimbra.summon.toml").read_text(encoding="utf-8"))["summon"][0]
     spec = D.normalize_spec(CS.numeric_block(block))
     assert spec["staging"] == "curves" and spec["private_ef"] == 91
     assert spec["sequence"] == "nimbra.seq" and spec["manifest"] == "nimbra_manifest.sfxmodel"
     fbx = D.staging_curves_json(spec)
-    assert fbx["Start"] == "0" and fbx["End"] == "330"
+    assert fbx["Start"] == "0" and fbx["End"] == "110"
     for curve in ("Movement", "Rotation", "Scaling"):
-        assert sum(int(p["Duration"]) for p in fbx[curve]) == 330, curve
-    assert len(fbx["Animations"]) == 6
-    # 45 + 75 + 75 + 30 + 75 + 75 = 375 >= 330: the playlist is never exhausted, so it never freezes
-    frames = {"emerge": 90, "drift": 75, "strike": 60}
+        assert sum(int(p["Duration"]) for p in fbx[curve]) == 110, curve
+    assert len(fbx["Animations"]) == 4
+    # 15 + 25 + 30 + 75 = 145 >= 110: the playlist is never exhausted, so it never freezes.
+    # THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9): the clips are sized to their BEATS and every entry is
+    # Speed 1 -- SFXDataMesh.cs:869 divides a clip-frame index by a tick count, so any Speed > 1 runs
+    # the clip out after 1/s of its entry and freezes the rig. This assertion is the regression.
+    frames = {"emerge": 15, "driftlook": 25, "strike": 30, "drift": 75}
+    assert all(p.get("speed", 1) == 1 for p in spec["staging_curves"]["play"])
     ticks = sum(-(-frames[p["clip"]] // p.get("speed", 1)) * p.get("repeat", 1)
                 for p in spec["staging_curves"]["play"])
-    assert ticks == 375 and ticks >= 330
+    assert ticks == 145 and ticks >= 110
 
 
 # --------------------------------------------------------------------------- the INTEGRATION regressions

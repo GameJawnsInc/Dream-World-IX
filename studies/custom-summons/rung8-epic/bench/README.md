@@ -78,11 +78,11 @@ prints `authored cast (no donor)`.
 
 | Seam | Contract | State |
 |---|---|---|
-| **creature → kit (clips)** | the creature lane ships **named** `emerge/drift/strike.anim`; `deploy.clip_key_of` mints keys **60000/60001/60002** and `clip_name_map` resolves `play.clip = "emerge"` onto them | ✔ verified on the emitted tree: keys `[60000, 60001, 60002]`, the manifest playlist reads `60000@2 / 60001 / 60001 / 60002@2 / 60001 / 60001`, and each file loads under the kit's own `anim_frame_count` (90 / 75 / 60 frames) |
-| **kit → engine (curves)** | `[summon.staging]` is the canonical TABLE form (the storyboard's `staging = "curves"` + table is not expressible in TOML — SEQUENCE-LANE §2.1) | ✔ all three curves span exactly the 330-tick window; Movement anchors on `TargetAveragePosition*` (THE MULTI-TARGET NULL); playlist 375 ≥ 330 so it never freezes |
+| **creature → kit (clips)** | the creature lane ships **named** `emerge/drift/strike/driftlook.anim`; `deploy.clip_key_of` mints keys **60000..60003** and `clip_name_map` resolves `play.clip = "emerge"` onto them | ✔ verified on the emitted tree: keys `[60000, 60001, 60002, 60003]`, the manifest playlist reads `60000@1 / 60003@1 / 60002@1 / 60001@1` (RETIMED 2026-07-24 -- STORYBOARD 11.2, clips sized to their beats at Speed 1 per **11.9**), and each file loads under the kit's own `anim_frame_count` (15 / 75 / 30 / 25 frames) |
+| **kit → engine (curves)** | `[summon.staging]` is the canonical TABLE form (the storyboard's `staging = "curves"` + table is not expressible in TOML — SEQUENCE-LANE §2.1) | ✔ all three curves span exactly the **110**-tick window; Movement anchors on `TargetAveragePosition*` (THE MULTI-TARGET NULL); playlist **145 ≥ 110** so it never freezes |
 | **audio → `.seq` (ids)** | ids **100001/100002/100003** with pinned resource ids `Sounds02/SE00/nimbra_{drone,whispers,strike}` | ✔ the three `SOUND_ID` constants are **imported** from the audio lane's own modules by both bench scripts (never retyped), and the check asserts each id appears as `Sound=<id>` in the staged `.seq` |
-| **two clocks** | `PlaySFX` at tick 150 + a 330-tick manifest window = the instance drains at 480, which is the tick `WaitSFXDone` was authored to resolve on (§3.2) | ✔ asserted arithmetically against the emitted manifest, not against the prose |
-| **ability → effect** | `vfx1 = vfx2 = private_ef` | ✔ read back out of the **built** `Actions.csv`: `Nimbra;195;None(0);AllEnemy(8);0;0;0;0;91;91;85;62;128;0;22;0;24;0;159` — and `Bahamut Cinema;194;` is still there, so the live M1b bench binding is untouched |
+| **two clocks** | `PlaySFX` at tick **25** + a **110**-tick manifest window = the instance drains at **135**, which is the tick `WaitSFXDone` was authored to resolve on (§11.2) | ✔ asserted arithmetically against the emitted manifest, not against the prose |
+| **ability → effect** | `vfx1 = vfx2 = private_ef` | ✔ read back out of the **built** `Actions.csv`: `Nimbra;195;None(0);AllEnemy(8);0;0;0;0;91;91;85;34;128;0;22;0;24;0;159` (power **34** since the §11.4 re-tune) — and `Bahamut Cinema;194;` is still there, so the live M1b bench binding is untouched |
 
 ---
 
@@ -107,13 +107,13 @@ Nothing in rung 8 is in-game proven yet, including:
 
 - the yaw baseline (R4 — the one knob rung 7 spent two casts on);
 - brightness (rung-7 residual b: no battle-actor lighting pass on this path);
-- the ~180 concurrent billboards in P1 (R13, unmeasured on this install);
+- the ~90 concurrent billboards in the gather (R13, unmeasured on this install -- was ~180 before the §11.5 particle re-cut);
 - the in-battle `ModelFactory.CreateModel` hitch at `PlaySFX` (R3, scheduled inside the blackout);
 - `WaitSFXDone` sitting after the `EffectPoint` pair (R9 — suspect #1 if the cast hangs);
-- whether 32.3 s trips the netsync guest freeze cap (R2 — solo play is unaffected either way).
+- ~~whether 32.3 s trips the netsync guest freeze cap~~ **retired**: the cast is 9.3 s (STORYBOARD §11.8).
 
 The runbook's §5 phase table and §7 failure table are written to make the first playtest **decidable**
-rather than impressionistic. Spend the first cast on watching all six phases end to end.
+rather than impressionistic. Spend the first cast watching all five phases end to end -- and then **cast twice more**, because the complaint this round answers was a *repeat* complaint.
 
 ---
 

@@ -1,11 +1,25 @@
 """Rung 8 (NIMBRA) -- cue 100001 ``nimbra_drone``: the P0/P1/.../P5 bed.
 
 Per STORYBOARD.md §5: "Two detuned saw/sine partials at 55.0 Hz and 82.5 Hz (a bare fifth) with
-±3 cent slow beating; a third partial at 110 Hz entering at 8 s; over it a band-passed pink-noise
-"breath" (300-900 Hz) amplitude-modulated at 0.13 Hz. 6 s fade-in, 4 s fade-out. Peak <= 0.45."
-Fires: ``PlaySound`` t ≈ 10 (P0), ``StopSound`` t = 480 (P5) -- the file is a 34.0 s MASTER; the
-engine only ever plays ~31.3 s of it (StopSound lands mid-file), which is by design (§5 of the
-storyboard), not a bug in this generator.
+±3 cent slow beating; a third partial at 110 Hz entering [late]; over it a band-passed pink-noise
+"breath" (300-900 Hz) amplitude-modulated at 0.13 Hz. Peak <= 0.45."
+
+RE-CUT 2026-07-24 -- STORYBOARD.md §11 (THE RETIME): 34.0 s -> **8.0 s**. The cast is now ~140 ticks
+(9.3 s); the drone starts at t ≈ 10 and ``StopSound``s at t = 135, i.e. it is audible for 125 ticks =
+**8.33 s**. An 8.0 s master therefore reaches its own natural fade-out END at t ≈ 130 and the
+``StopSound`` five ticks later is a SAFETY, not an audible cut -- the opposite of the shipped build,
+where StopSound landed 3 s inside a 34 s file.
+
+Only the four TIME constants moved. Everything that makes it this drone -- the 55/82.5 Hz bare fifth,
+the ±3-cent detuning, the sine/saw blend, the 110 Hz late layer, the pink-noise breath and its 0.13 Hz
+AM -- is unchanged. Two character notes that follow from the shorter file, both deliberate:
+  * the ±3-cent beat period at 55 Hz is ~10.5 s, so an 8 s file carries ~3/4 of one beat -- it reads as
+    ONE slow swell rather than a repeating pulse, which is what a 9-second cast wants;
+  * the 0.13 Hz breath (7.7 s period) is likewise now exactly one breath across the whole cue.
+Raising either rate to "fit more cycles in" was considered and rejected: it turns a drone into a
+tremolo, and the peak budget is not where the character lives.
+
+Fires: ``PlaySound`` t ≈ 10 (P0), ``StopSound`` t = 135 (P5).
 
 100% synthesized (numpy FFT-noise-shaping + additive-harmonic saw + phase-continuous sines).
 Zero Square-Enix bytes.
@@ -24,17 +38,17 @@ SOUND_ID = 100001
 RESOURCE_ID = "Sounds02/SE00/nimbra_drone"
 NAME = "nimbra_drone"
 
-DURATION_S = 34.0
+DURATION_S = 8.0               # RE-CUT from 34.0 (STORYBOARD §11) -- the audible window is 8.33 s
 F1 = 55.0                      # root
 F2 = 82.5                      # bare fifth above F1 (82.5/55 == 1.5)
 F3 = 110.0                     # octave above F1, enters late
 DETUNE_CENTS = 3.0             # ±3 cents -> two sub-oscillators per partial, natural slow beating
-F3_ENTRY_S = 8.0
-F3_RAMP_S = 2.5
+F3_ENTRY_S = 2.2               # was 8.0: the same PROPORTION of the cue (~27%), so the octave still
+F3_RAMP_S = 1.0                # arrives with the creature rather than at the top of the cast
 BREATH_LO_HZ, BREATH_HI_HZ = 300.0, 900.0
 BREATH_AM_HZ = 0.13
-FADE_IN_S = 6.0
-FADE_OUT_S = 4.0
+FADE_IN_S = 1.5                # was 6.0 -- the drone must be present by the time the screen is black
+FADE_OUT_S = 2.0               # was 4.0 -- ends naturally at t~130, five ticks before StopSound
 PEAK_BUDGET = 0.45
 TARGET_PEAK = 0.40              # authored under budget -- headroom for the Vorbis re-encode
 
