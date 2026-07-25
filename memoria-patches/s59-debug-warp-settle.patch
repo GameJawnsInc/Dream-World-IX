@@ -1,0 +1,87 @@
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -116,6 +116,17 @@
+     private Int32 _pendingWarpScenario = -1;     // [ff9mapkit] >= 0 -> set ScenarioCounter before the map change (seed a story beat)
+     private Single _pendingWarpTimer;
+     private Boolean _pendingWarpReset;
++    // [ff9mapkit s59] THE ARRIVAL HOLD — the fade-out above covers the EXIT, but the destination's own
++    // fade-in comes before its smooth camera finishes easing onto the spawn, so a warp still showed the
++    // settle drift a gateway hides (a warp lands the camera a far bigger delta than any tuned entrance).
++    // Fix: once the destination is live, RE-ASSERT black for WarpSettleFrames (the field-entry study's
++    // proven 45-60 settle band), overriding any early scripted fade-in, then fade in ourselves. This
++    // class survives the transition (DontDestroyOnLoad), so the hold runs on the new field.
++    private const Int32 WarpSettleFrames = 50;   // arrival black-hold while the camera eases
++    private const Int32 WarpFadeInFrames = 24;   // the reveal after the hold (mirrors WarpFadeFrames)
++    private Int32 _settleMap = -1;               // >= 0 while an arrival hold is pending/running
++    private Int32 _settleFramesLeft = -1;        // -1 = waiting for the destination to be live
++    private Single _settleDeadline;              // realtime bail-out: never strand a stuck hold
+ 
+     private const Int32 WinId = 0x4F9DEB;
+     // One context-adaptive "Go" tab (warp / teleport / — on the overworld — vehicle / disc / restore control) replaces the
+@@ -508,6 +519,7 @@
+     private void Update()
+     {
+         ServicePendingWarp();                    // drive the deferred faded warp (fade out -> map change)
++        ServiceArrivalHold();                    // [s59] then hold the arrival black through the camera ease
+         // While the menu is open, RIGHT-CLICK the field to copy the world (x, z) under the cursor (to
+         // the clipboard + the Go tab teleport boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
+         if (_open && Input.GetMouseButtonDown(1))
+@@ -1968,6 +1980,11 @@
+             ee.SetNextMap(mapNo);
+             FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
+             PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++            // [ff9mapkit s59] arm the arrival hold: keep the destination black
++            // through its camera ease, then reveal (see the field declarations)
++            _settleMap = mapNo;
++            _settleFramesLeft = -1;
++            _settleDeadline = Time.realtimeSinceStartup + 12f;
+         }
+         catch (Exception err)
+         {
+@@ -1975,6 +1992,46 @@
+         }
+     }
+ 
++    // [ff9mapkit s59] Drive the arrival hold armed by ServicePendingWarp: wait for the destination to be
++    // live (map id flipped + FieldHUD back — the load itself renders black), then re-assert the wipe to
++    // black each frame for WarpSettleFrames (out-shouting any early scripted fade-in) while the smooth
++    // camera eases onto the spawn, then fade in. A deadline clears a hold that never arms (e.g. the
++    // destination instantly chain-warped elsewhere) so the screen can never be stranded black.
++    private void ServiceArrivalHold()
++    {
++        if (_settleMap < 0)
++            return;
++        try
++        {
++            if (Time.realtimeSinceStartup > _settleDeadline)
++            {
++                if (_settleFramesLeft >= 0)                  // we forced black -> hand it back
++                    SceneDirector.FF9Wipe_FadeInEx(WarpFadeInFrames);
++                _settleMap = -1;
++                return;
++            }
++            if (_settleFramesLeft < 0)
++            {
++                if (FF9StateSystem.Common.FF9.fldMapNo != _settleMap
++                    || PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++                    return;                                  // still loading (black by itself)
++                _settleFramesLeft = WarpSettleFrames;
++            }
++            if (_settleFramesLeft > 0)
++            {
++                SceneDirector.FF9Wipe_FadeOutEx(1);          // hold: black wins this frame
++                _settleFramesLeft--;
++                return;
++            }
++            SceneDirector.FF9Wipe_FadeInEx(WarpFadeInFrames);
++            _settleMap = -1;
++        }
++        catch (Exception)
++        {
++            _settleMap = -1;                                 // stop re-blacking on any fault
++        }
++    }
++
+     // [ff9mapkit] Set the ScenarioCounter on the CURRENT field without warping (then Reload field to let
+     // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
+     private void SetScenarioNow()
