@@ -49,10 +49,17 @@ SLOT_PAIRS = [(0, 2), (0, 1), (1, 2)]
 
 
 def _pt_in_tri_xz(px, pz, a, b, c) -> bool:
-    """(px,pz) inside-or-on triangle (a,b,c) using only X and Z (top-down). Same-sign barycentric."""
-    def cross(p, q):
-        return (px - q[0]) * (p[2] - q[2]) - (p[0] - q[0]) * (pz - q[2])
-    d1, d2, d3 = cross(a, b), cross(b, c), cross(c, a)
+    """(px,pz) inside-or-on triangle (a,b,c) using only X and Z (top-down). Same-sign barycentric.
+
+    The three cross products are written out rather than folded into a helper: this is the innermost
+    call of every walkmesh query (the auto-router probes it millions of times per build), and the
+    operand order is kept EXACTLY as the closure computed it so the float results stay bit-identical."""
+    ax, az = a[0], a[2]
+    bx, bz = b[0], b[2]
+    cx, cz = c[0], c[2]
+    d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz)
+    d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz)
+    d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az)
     return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
 
 
@@ -194,18 +201,192 @@ class BgiWalkmesh:
         self.floors: list[Floor] = []
         self.normals: list[FVec] = []
         self.verts: list[Vec3] = []
+        self._cache: dict = {}
+
+    # ---------------- derived-geometry cache ----------------
+    # `world_verts()` / `_tri_floor()` are pure functions of (verts, floors, tris.vtx, orgPos), yet the
+    # placement queries below rebuilt BOTH on every single call -- and the auto-router
+    # (`content.pathfind`) probes those queries tens of thousands of times per routed leg, so a
+    # 60-unit field spent ~44s of a build re-deriving the same 237 vertices. They are memoised here,
+    # behind a cheap STRUCTURAL SIGNATURE: every in-repo path that changes this geometry does so while
+    # BUILDING a mesh (`from_bytes` and `build` append to the section lists), so the section counts +
+    # orgPos catch it. The two methods that mutate an EXISTING mesh -- `rebuild_neighbors` and
+    # `apply_seams` -- touch only `nbr`/`edgeClone`, which the signature cannot see and the WALL cache
+    # depends on, so they drop the cache explicitly. Anything else editing a live mesh in place must
+    # call `invalidate_cache()`.
+    def _sig(self):
+        op = self.orgPos
+        return (len(self.verts), len(self.tris), len(self.floors), len(self.edges),
+                op.x, op.y, op.z)
+
+    def invalidate_cache(self) -> None:
+        """Drop the derived-geometry caches (world verts, vert/tri->floor, the point-lookup grid, the
+        per-floor wall edges). Only needed after mutating verts/tris/floors/edges IN PLACE -- adding
+        or removing whole entries is caught automatically by the structural signature."""
+        self._cache = {}
+
+    def _derived(self) -> dict:
+        c = getattr(self, "_cache", None)
+        sig = self._sig()
+        if c is None or c.get("sig") != sig:
+            c = self._cache = {"sig": sig}
+        return c
+
+    def _vfm(self) -> dict:
+        """The SHARED `vert_floor_map()` -- internal, treat as read-only."""
+        c = self._derived()
+        m = c.get("vfm")
+        if m is None:
+            m = {}
+            for fi, fl in enumerate(self.floors):
+                for ti in fl.tri_ndx_list:
+                    if 0 <= ti < len(self.tris):
+                        for vi in self.tris[ti].vtx:
+                            m[vi] = fi
+            c["vfm"] = m
+        return m
+
+    def _wv(self) -> list:
+        """The SHARED `world_verts()` -- internal, treat as read-only."""
+        c = self._derived()
+        out = c.get("wv")
+        if out is None:
+            vf = self._vfm()
+            op = self.orgPos
+            out = []
+            for i, v in enumerate(self.verts):
+                fi = vf.get(i)
+                fo = self.floors[fi].org if (fi is not None and fi < len(self.floors)) else Vec3(0, 0, 0)
+                out.append((v.x + op.x + fo.x, v.y + op.y + fo.y, v.z + op.z + fo.z))
+            c["wv"] = out
+        return out
+
+    def _tf(self) -> dict:
+        """The SHARED `_tri_floor()` -- internal, treat as read-only."""
+        c = self._derived()
+        m = c.get("tf")
+        if m is None:
+            m = c["tf"] = {ti: fi for fi, fl in enumerate(self.floors) for ti in fl.tri_ndx_list}
+        return m
+
+    def _grid(self):
+        """Uniform XZ bucket grid over the triangles: ``(x0, z0, x1, z1, sx, sz, nx, nz, buckets)``.
+
+        ``buckets[j * nx + i]`` lists -- in ASCENDING triangle index order -- every triangle whose XZ
+        bounding box overlaps that cell. A point can only lie in a triangle whose bbox contains it, so
+        testing just the point's own cell is EXACT: the bucket is a superset of the true matches,
+        containment is still decided by :func:`_pt_in_tri_xz`, and triangle order is preserved -- so
+        the queries below return the same FIRST match as the full scans they replace. ``None`` for an
+        empty mesh (callers fall back to scanning every triangle)."""
+        c = self._derived()
+        if "grid" in c:
+            return c["grid"]
+        wv, tris = self._wv(), self.tris
+        g = None
+        if wv and tris:
+            x0 = x1 = wv[0][0]
+            z0 = z1 = wv[0][2]
+            for v in wv:
+                if v[0] < x0:
+                    x0 = v[0]
+                elif v[0] > x1:
+                    x1 = v[0]
+                if v[2] < z0:
+                    z0 = v[2]
+                elif v[2] > z1:
+                    z1 = v[2]
+            n = max(1, min(64, 2 * int(len(tris) ** 0.5)))
+            nx = nz = n
+            sx = (x1 - x0) / nx or 1.0
+            sz = (z1 - z0) / nz or 1.0
+            buckets = [None] * (nx * nz)
+            nv = len(wv)
+            for ti, t in enumerate(tris):
+                a, b, cc = t.vtx[0], t.vtx[1], t.vtx[2]
+                if not (0 <= a < nv and 0 <= b < nv and 0 <= cc < nv):
+                    continue                       # malformed tri: it can never contain a point
+                pa, pb, pc = wv[a], wv[b], wv[cc]
+                i0 = int((min(pa[0], pb[0], pc[0]) - x0) / sx)
+                i1 = int((max(pa[0], pb[0], pc[0]) - x0) / sx)
+                j0 = int((min(pa[2], pb[2], pc[2]) - z0) / sz)
+                j1 = int((max(pa[2], pb[2], pc[2]) - z0) / sz)
+                i0 = 0 if i0 < 0 else (nx - 1 if i0 > nx - 1 else i0)
+                i1 = 0 if i1 < 0 else (nx - 1 if i1 > nx - 1 else i1)
+                j0 = 0 if j0 < 0 else (nz - 1 if j0 > nz - 1 else j0)
+                j1 = 0 if j1 < 0 else (nz - 1 if j1 > nz - 1 else j1)
+                for j in range(j0, j1 + 1):
+                    row = j * nx
+                    for i in range(i0, i1 + 1):
+                        k = row + i
+                        if buckets[k] is None:
+                            buckets[k] = [ti]
+                        else:
+                            buckets[k].append(ti)
+            g = (x0, z0, x1, z1, sx, sz, nx, nz, buckets)
+        c["grid"] = g
+        return g
+
+    def _lookup(self):
+        """``(world_verts, tri_floor, grid)`` in ONE cache probe -- the placement queries need all
+        three per call, and re-deriving the cache signature for each was pure overhead at A* volume."""
+        c = self._derived()
+        lk = c.get("lookup")
+        if lk is None:
+            lk = c["lookup"] = (self._wv(), self._tf(), self._grid())
+        return lk
+
+    def _candidates(self, x, z, g=False):
+        """Triangle indices that could contain (x, z), ascending. Empty when the point is outside the
+        mesh bbox -- exact, since a containing triangle's own bbox would have to contain the point.
+
+        ``g`` optionally passes an already-fetched grid (``False`` means "not supplied"; ``None`` is
+        the meaningful "this mesh has no grid, scan everything" value)."""
+        if g is False:
+            g = self._grid()
+        if g is None:
+            return range(len(self.tris))
+        x0, z0, x1, z1, sx, sz, nx, nz, buckets = g
+        if x < x0 or x > x1 or z < z0 or z > z1:
+            return ()
+        i = int((x - x0) / sx)
+        j = int((z - z0) / sz)
+        i = 0 if i < 0 else (nx - 1 if i > nx - 1 else i)
+        j = 0 if j < 0 else (nz - 1 if j > nz - 1 else j)
+        return buckets[j * nx + i] or ()
+
+    def _wall_segs(self) -> dict:
+        """floor index -> its collision-WALL edges, in the exact (triangle index, slot) order
+        :meth:`distance_to_boundary` scans them in, each pre-reduced to ``(ax, az, dx, dz, l2)``.
+
+        The segment delta and its squared length depend only on the EDGE, but the old scan recomputed
+        both for every probe (millions per routed build). They are lifted here; the per-probe arithmetic
+        that remains is byte-for-byte the arithmetic :func:`_pt_seg_dist_xz` performs."""
+        c = self._derived()
+        w = c.get("walls")
+        if w is None:
+            wv, tf = self._wv(), self._tf()
+            w = {}
+            nv = len(wv)
+            for ti, t in enumerate(self.tris):
+                lst = w.setdefault(tf.get(ti, t.floor_ndx), [])
+                for k in range(3):
+                    if t.nbr[k] >= 0:              # neighbor across this edge -> not a wall
+                        continue
+                    i, j = SLOT_PAIRS[k]
+                    a, b = t.vtx[i], t.vtx[j]
+                    if 0 <= a < nv and 0 <= b < nv:
+                        pa, pb = wv[a], wv[b]
+                        ax, az, bx, bz = pa[0], pa[2], pb[0], pb[2]
+                        dx, dz = bx - ax, bz - az
+                        lst.append((ax, az, dx, dz, dx * dx + dz * dz))
+            c["walls"] = w
+        return w
 
     # ---------------- world transform (corner-origin per-floor -> world) ----------------
     def vert_floor_map(self) -> dict:
         """vert index -> floor index. A real .bgi gives each floor a DISJOINT vertex set, so this
         is well-defined; unowned verts map to floor 0."""
-        m = {}
-        for fi, fl in enumerate(self.floors):
-            for ti in fl.tri_ndx_list:
-                if 0 <= ti < len(self.tris):
-                    for vi in self.tris[ti].vtx:
-                        m[vi] = fi
-        return m
+        return dict(self._vfm())
 
     def world_verts(self):
         """World (camera/art/engine) position of each vertex = vert + header.orgPos + its floor.org.
@@ -215,14 +396,7 @@ class BgiWalkmesh:
         every GRGR vert exactly inside the header [minPos,maxPos] and tiles its 7 floors into a
         coherent centred tunnel. Single-floor fields have floor.org=(0,0,0), so this reduces to
         vert + orgPos (GLGV unchanged). This is the exact transform the EXPORTER inverts."""
-        vf = self.vert_floor_map()
-        op = self.orgPos
-        out = []
-        for i, v in enumerate(self.verts):
-            fi = vf.get(i)
-            fo = self.floors[fi].org if (fi is not None and fi < len(self.floors)) else Vec3(0, 0, 0)
-            out.append((v.x + op.x + fo.x, v.y + op.y + fo.y, v.z + op.z + fo.z))
-        return out
+        return list(self._wv())
 
     # ---------------- connectivity (the navmesh adjacency graph) ----------------
     def all_floors(self) -> set:
@@ -275,7 +449,7 @@ class BgiWalkmesh:
 
     # ---------------- seam extract / reconcile (the editable-multi-floor sidecar; WALKMESH_EDITING.md) ----------------
     def _tri_floor(self) -> dict:
-        return {ti: fi for fi, fl in enumerate(self.floors) for ti in fl.tri_ndx_list}
+        return dict(self._tf())
 
     def _edge_world_pos(self, wv, ti, slot):
         """The slot's edge as a sorted pair of world positions (a stable, renumber-proof key)."""
@@ -287,8 +461,8 @@ class BgiWalkmesh:
         pair. This is the adjacency a geometry-only `.obj` can't carry (rebuild_neighbors links only
         within a floor, and FF9 floors use disjoint vertex sets). Pair with `apply_seams` to reconcile
         an edited obj against an imported field. Validated game-wide (tools/sweep_seams.py)."""
-        wv = self.world_verts()
-        fo = self._tri_floor()
+        wv = self._wv()
+        fo = self._tf()
         seams, seen = [], set()
         for ti, t in enumerate(self.tris):
             fa = fo.get(ti)
@@ -311,8 +485,8 @@ class BgiWalkmesh:
         mesh already has intra-floor links from `bgi.build`). Sets `nbr` + `edgeClone` on both sides,
         the same convention as `rebuild_neighbors`. Returns (linked, missing, misses) -- a miss means
         a seam's connecting edge was moved/deleted in the edit. The v2 reconcile."""
-        wv = self.world_verts()
-        fo = self._tri_floor()
+        wv = self._wv()
+        fo = self._tf()
         lut = {}
         for ti in range(len(self.tris)):
             for k in range(3):
@@ -332,6 +506,7 @@ class BgiWalkmesh:
             else:
                 missing += 1
                 misses.append((fa, a_edge, fb, b_edge))
+        self.invalidate_cache()        # nbr/edgeClone moved: the wall set is now stale
         return linked, missing, misses
 
     # ---------------- placement / geometry validation (catch authoring mistakes pre-build) ----------------
@@ -339,11 +514,12 @@ class BgiWalkmesh:
         """Floor index of the triangle whose XZ-projection contains (x, z), else None. Validates that
         authored content (NPC / player spawn / gateway zone) sits on the walkable area before build --
         a top-down point-in-triangle test (multi-floor fields can overlap in XZ; returns first match)."""
-        wv = self.world_verts()
-        fo = self._tri_floor()
-        for ti, t in enumerate(self.tris):
+        wv, tf, grid = self._lookup()
+        tris = self.tris
+        for ti in self._candidates(x, z, grid):    # bbox-bucketed superset, ascending -- same first match
+            t = tris[ti]
             if _pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
-                return fo.get(ti, t.floor_ndx)
+                return tf.get(ti, t.floor_ndx)
         return None
 
     def height_at(self, x, z):
@@ -351,8 +527,10 @@ class BgiWalkmesh:
         barycentric-interpolated from its 3 verts. None if off-mesh. A navigable ladder's dismount must
         land at the floor's REAL height -- otherwise the jump arcs to Y=0 and SetPathing snaps you up
         (the fall+slingshot). Lets the builder auto-fill an omitted floor_landing/top_landing Y."""
-        wv = self.world_verts()
-        for t in self.tris:
+        wv, _tf, grid = self._lookup()
+        tris = self.tris
+        for ti in self._candidates(x, z, grid):    # same ascending order as the full scan
+            t = tris[ti]
             a, b, c = wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]   # each vert = (x, y, z)
             if _pt_in_tri_xz(x, z, a, b, c):
                 den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
@@ -372,25 +550,28 @@ class BgiWalkmesh:
         floor = self.point_on_walkmesh(x, z)
         if floor is None:
             return None
-        wv = self.world_verts()
-        fo = self._tri_floor()
         best = None
-        for ti, t in enumerate(self.tris):
-            if fo.get(ti, t.floor_ndx) != floor:
-                continue
-            for k in range(3):
-                if t.nbr[k] >= 0:                       # neighbor across this edge -> not a wall
-                    continue
-                i, j = SLOT_PAIRS[k]
-                d = _pt_seg_dist_xz(x, z, wv[t.vtx[i]], wv[t.vtx[j]])
-                if best is None or d < best:
-                    best = d
+        for (ax, az, dx, dz, l2) in self._wall_segs().get(floor, ()):   # this floor's walls only
+            # _pt_seg_dist_xz inlined against the pre-reduced segment (identical operations/order):
+            # this is the innermost loop of every auto-routed build.
+            if l2 == 0:
+                t = 0.0
+            else:
+                t = ((x - ax) * dx + (z - az) * dz) / l2
+                if t < 0.0:
+                    t = 0.0
+                elif t > 1.0:
+                    t = 1.0
+            cx, cz = ax + t * dx, az + t * dz
+            d = ((x - cx) ** 2 + (z - cz) ** 2) ** 0.5
+            if best is None or d < best:
+                best = d
         return best
 
     def degenerate_tris(self):
         """Triangle indices with ~zero XZ area -- collinear/vertical verts make a DEAD ZONE in the
         engine's IsInQuad fan test (the player can't stand there). Almost always an editing mistake."""
-        wv = self.world_verts()
+        wv = self._wv()
         out = []
         for ti, t in enumerate(self.tris):
             a, b, c = wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]
@@ -530,6 +711,7 @@ class BgiWalkmesh:
     # ---------------- neighbor rebuild (bgi_fix_neighbors) ----------------
     def rebuild_neighbors(self) -> None:
         """Recompute all neighbor + edgeClone links from shared-vertex analysis."""
+        self.invalidate_cache()        # links change under us; also covers the non-manifold raise below
         for t in self.tris:
             t.nbr = [-1, -1, -1]
         for e in self.edges:
@@ -579,6 +761,7 @@ class BgiWalkmesh:
             self.tris[ib].nbr[sb] = ia
             self.edges[self.tris[ia].edge[sa]].clone = sb
             self.edges[self.tris[ib].edge[sb]].clone = sa
+        self.invalidate_cache()        # nbr/edgeClone rebuilt: the wall set is now stale
 
 
 # ----------------------------------------------------------------------------- builders

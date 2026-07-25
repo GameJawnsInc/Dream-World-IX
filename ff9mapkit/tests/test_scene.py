@@ -31,6 +31,105 @@ def test_build_flat_reproduces_hut_walkmesh_byte_exact():
     assert bgi.build_flat(verts, faces).to_bytes() == raw
 
 
+# --- the placement-query cache + bucket grid (a pure SPEED change: must stay bit-identical) ---
+
+def _scan_on_walkmesh(m, x, z):
+    """The pre-cache `point_on_walkmesh`: scan EVERY triangle, first match wins."""
+    wv, fo = m.world_verts(), {ti: fi for fi, fl in enumerate(m.floors) for ti in fl.tri_ndx_list}
+    for ti, t in enumerate(m.tris):
+        if bgi._pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
+            return fo.get(ti, t.floor_ndx)
+    return None
+
+
+def _scan_boundary(m, x, z):
+    """The pre-cache `distance_to_boundary`: scan every triangle, min over the floor's wall edges."""
+    floor = _scan_on_walkmesh(m, x, z)
+    if floor is None:
+        return None
+    wv, fo = m.world_verts(), {ti: fi for fi, fl in enumerate(m.floors) for ti in fl.tri_ndx_list}
+    best = None
+    for ti, t in enumerate(m.tris):
+        if fo.get(ti, t.floor_ndx) != floor:
+            continue
+        for k in range(3):
+            if t.nbr[k] >= 0:
+                continue
+            i, j = bgi.SLOT_PAIRS[k]
+            d = bgi._pt_seg_dist_xz(x, z, wv[t.vtx[i]], wv[t.vtx[j]])
+            if best is None or d < best:
+                best = d
+    return best
+
+
+def _probe_lattice(m, n=22):
+    """A lattice over the mesh bbox grown 15% (so probes fall OFF the mesh and outside the grid
+    entirely), plus every world vertex and triangle centroid -- the exact-boundary cases."""
+    wv = m.world_verts()
+    xs, zs = [v[0] for v in wv], [v[2] for v in wv]
+    x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+    px, pz = (x1 - x0) * 0.15 + 1, (z1 - z0) * 0.15 + 1
+    x0, x1, z0, z1 = x0 - px, x1 + px, z0 - pz, z1 + pz
+    pts = [(round(x0 + (x1 - x0) * i / (n - 1)), round(z0 + (z1 - z0) * j / (n - 1)))
+           for i in range(n) for j in range(n)]
+    pts += [(v[0], v[2]) for v in wv]
+    pts += [(round(sum(wv[i][0] for i in t.vtx) / 3), round(sum(wv[i][2] for i in t.vtx) / 3))
+            for t in m.tris]
+    return pts
+
+
+def test_placement_queries_match_the_full_scan_bit_for_bit():
+    """The bucket grid + derived-geometry cache are an optimisation ONLY: every placement query must
+    return exactly what scanning every triangle returned (same floor, same float, same None)."""
+    for name in ("hut_ext.bgi.bytes", "multifloor.bgi.bytes"):
+        m = bgi.BgiWalkmesh.from_bytes((FIX / name).read_bytes())
+        for (x, z) in _probe_lattice(m):
+            assert m.point_on_walkmesh(x, z) == _scan_on_walkmesh(m, x, z), (name, x, z)
+            d, ref = m.distance_to_boundary(x, z), _scan_boundary(m, x, z)
+            assert d == ref or (d is None and ref is None), (name, x, z, d, ref)
+
+
+def test_cached_geometry_survives_a_neighbor_rebuild():
+    """`rebuild_neighbors`/`apply_seams` move nbr+edgeClone -- which the WALL cache is derived from
+    and the structural signature cannot see -- so both must drop the cache."""
+    m = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
+    pts = _probe_lattice(m, n=8)
+    for (x, z) in pts:                                    # warm every cache
+        m.distance_to_boundary(x, z)
+    seams = m.extract_seams()
+    m.rebuild_neighbors()                                 # drops the cross-floor seams -> more walls
+    for (x, z) in pts:
+        assert m.distance_to_boundary(x, z) == _scan_boundary(m, x, z), (x, z)
+    m.apply_seams(seams)                                  # links them back -> fewer walls again
+    for (x, z) in pts:
+        assert m.distance_to_boundary(x, z) == _scan_boundary(m, x, z), (x, z)
+
+
+def test_world_verts_and_vert_floor_map_stay_caller_owned():
+    """Both are cached internally but must still hand back a FRESH object each call -- callers have
+    always been free to keep/mutate the result, and sharing the cache would corrupt the mesh."""
+    m = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
+    a, b = m.world_verts(), m.world_verts()
+    assert a == b and a is not b
+    a[0] = (12345, 6789, 1011)
+    assert m.world_verts()[0] == b[0]                     # the mesh is unharmed
+    va, vb = m.vert_floor_map(), m.vert_floor_map()
+    assert va == vb and va is not vb
+    va[0] = 999
+    assert m.vert_floor_map()[0] == vb[0]
+
+
+def test_invalidate_cache_picks_up_an_in_place_vertex_edit():
+    """The signature only sees section COUNTS + orgPos; editing a vertex in place is the documented
+    `invalidate_cache()` case."""
+    m = bgi.BgiWalkmesh.from_bytes((FIX / "hut_ext.bgi.bytes").read_bytes())
+    before = m.world_verts()[0]
+    m.verts[0].x += 500
+    m.invalidate_cache()
+    assert m.world_verts()[0][0] == before[0] + 500
+    assert m.point_on_walkmesh(0, 0) == _scan_on_walkmesh(m, 0, 0)
+
+
 def test_quad_reproduces_hut_walkmesh_and_links():
     raw = (FIX / "hut_ext.bgi.bytes").read_bytes()
     q = bgi.quad([(-1069, -85), (1069, -85), (1069, -2267), (-1069, -2267)])
