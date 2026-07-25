@@ -426,6 +426,28 @@ TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
 
 
 @dataclass
+class ScanSpec:
+    """THE VECTOR LOOP (rung 0 of the v2 vector substrate): each ticker pass,
+    the roster's mirrors are copied into position tables and a bounded loop
+    walks them by a LIVE index — reads AND writes vector cells through the loop
+    variable — deriving how many units sit inside a Chebyshev box around
+    ``point``, published into counter ``count``. The count flows THROUGH a
+    computed-index write then read-back of the per-unit flag cells, so any
+    indexing fault breaks the number rather than passing silently."""
+    name: str
+    units: tuple
+    point: tuple
+    radius: int
+    count: str
+    flags: str
+    px_tid: int = 0
+    pz_tid: int = 0
+    flag_tid: int = 0
+    li: int = 0
+    acc: int = 0
+
+
+@dataclass
 class TableSpec:
     """A named per-field DATA TABLE backed by Memoria's ``gScriptVector`` (the 0xD3
     VECTOR lane — real computed array indexing in ``.eb``, on the protected stock
@@ -667,6 +689,7 @@ class FieldBehavior:
         self.tables: dict[str, tuple[int, tuple]] = {}   # name -> (vector id, values)
         self._counters: dict[str, int] = {}              # name -> cell index
         self._schedules: list[tuple[str, str]] = []      # (counter, table)
+        self._scans: list[ScanSpec] = []                 # the vector-loop rosters
         taken: set[int] = set()
         for ts in tables:
             if ts.id is not None:
@@ -882,6 +905,71 @@ class FieldBehavior:
         if any(c == counter for c, _t in self._schedules):
             raise BehaviorError(f"counter {counter!r} already has a schedule")
         self._schedules.append((counter, table))
+
+    def _alloc_tid(self) -> int:
+        """A deterministic auto table id AFTER construction (scan registration):
+        continue from the ctor's high-water mark, skipping anything taken."""
+        used = {tid for tid, _v in self.tables.values()}
+        if self._ctr_tid is not None:
+            used.add(self._ctr_tid)
+        while self._next_tid in used:
+            self._next_tid += 1
+        tid = self._next_tid
+        self._next_tid += 1
+        return tid
+
+    def scan(self, name: str, units, point, radius: int, count: str,
+             flags: str | None = None):
+        """THE VECTOR LOOP (v2 rung 0 — the group-scan primitive): each run
+        pass, copy the roster's position mirrors into px/pz tables (constant-
+        index vector writes, the proven seed shape), then LOOP an index byte
+        over the roster: write each unit's inside-the-box flag into the flags
+        table BY THE LOOP VARIABLE (the computed-index WRITE), read it back and
+        accumulate (the computed-index READ), and publish the total into
+        counter ``count`` — trees gate on ``counter_ge`` as usual. The count is
+        derived THROUGH the flag round-trip on purpose: a mis-indexed write or
+        read breaks the number instead of passing silently.
+
+        Mirrors freeze when a unit deactivates (the mirror block is
+        active-gated), so a dead unit still standing in the box keeps counting
+        — pair the scan with rosters that stay alive, or gate consumers
+        accordingly (the v2 group loop proper will carry an active[] table)."""
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name or ""):
+            raise BehaviorError(f"scan name {name!r} must be [a-z][a-z0-9_]*")
+        if any(s.name == name for s in self._scans):
+            raise BehaviorError(f"scan {name!r} already registered")
+        units = tuple(str(u) for u in units)
+        if not units:
+            raise BehaviorError(f"scan {name!r}: needs at least one unit")
+        if len(units) > TABLE_MAX_LEN:
+            raise BehaviorError(f"scan {name!r}: {len(units)} units > the "
+                                f"{TABLE_MAX_LEN}-cell table cap")
+        for u in units:
+            if u not in self.units:
+                raise BehaviorError(f"scan {name!r}: unknown unit {u!r}")
+        if len(set(units)) != len(units):
+            raise BehaviorError(f"scan {name!r}: duplicate units")
+        if not 1 <= int(radius) <= 30000:
+            raise BehaviorError(f"scan {name!r}: radius must be 1..30000")
+        self._counter_ref(count)                          # existence check
+        fname = flags or f"scan.{name}.near"
+        for tname in (f"scan.{name}.px", f"scan.{name}.pz", fname):
+            if tname in self.tables:
+                raise BehaviorError(f"scan {name!r}: table name {tname!r} is taken")
+        zeros = (0,) * len(units)
+        sc = ScanSpec(name, units, (int(point[0]), int(point[1])), int(radius),
+                      str(count), fname,
+                      px_tid=self._alloc_tid(), pz_tid=self._alloc_tid(),
+                      flag_tid=self._alloc_tid(),
+                      li=self.bb.byte(f"scan.{name}.i"),
+                      acc=self.bb.byte(f"scan.{name}.n"))
+        # registering the tables makes Main_Init seed them (size wipe + grow)
+        # and, for the user-named flags table, exposes it to the table_* conds
+        self.tables[f"scan.{name}.px"] = (sc.px_tid, zeros)
+        self.tables[f"scan.{name}.pz"] = (sc.pz_tid, zeros)
+        self.tables[fname] = (sc.flag_tid, zeros)
+        self._scans.append(sc)
+        return sc
 
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
@@ -1297,6 +1385,42 @@ class FieldBehavior:
                 _stmt(f"{cell} {cell} const(1) B_PLUS B_LET"),
                 label(f"sch_{si}"),
             ]
+        # THE VECTOR LOOPS (scan): copy mirrors into the position tables
+        # (constant-index writes — the proven Main_Init seed shape), then a
+        # bounded backward-jump loop whose reads AND writes index cells by the
+        # LIVE loop byte — the v2 rung-0 composition. Pure table/GLOB math, no
+        # object tokens (the player-ref eval law never enters), and the loop
+        # bound is a compile-time constant (always terminates).
+        for sc in self._scans:
+            n = len(sc.units)
+            cd_blocks.append(label(f"__seg scan {sc.name}"))
+            for i, un in enumerate(sc.units):
+                mx = self.bb.int16(f"{un}.mx")
+                mz = self.bb.int16(f"{un}.mz")
+                cd_blocks.append(_stmt(f"{_cnum(sc.px_tid)} {_cnum(i)} B_VECTOR "
+                                       f"Global.Int16[{mx}] B_LET"))
+                cd_blocks.append(_stmt(f"{_cnum(sc.pz_tid)} {_cnum(i)} B_VECTOR "
+                                       f"Global.Int16[{mz}] B_LET"))
+            px = f"{_cnum(sc.px_tid)} Global.Byte[{sc.li}] B_VECTOR"
+            pz = f"{_cnum(sc.pz_tid)} Global.Byte[{sc.li}] B_VECTOR"
+            x, z, r = sc.point[0], sc.point[1], sc.radius
+            cheb = (f"{px} {_cnum(x - r)} B_GT {px} {_cnum(x + r)} B_LT B_ANDAND "
+                    f"{pz} {_cnum(z - r)} B_GT B_ANDAND "
+                    f"{pz} {_cnum(z + r)} B_LT B_ANDAND")
+            cd_blocks += [
+                _set_byte(sc.li, 0), _set_byte(sc.acc, 0),
+                label(f"scn_{sc.name}_top"),
+                _stmt(f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                      f"{cheb} B_LET"),
+                _stmt(f"Global.Byte[{sc.acc}] Global.Byte[{sc.acc}] "
+                      f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                      f"B_PLUS B_LET"),
+                _stmt(f"Global.Byte[{sc.li}] Global.Byte[{sc.li}] const(1) "
+                      f"B_PLUS B_LET"),
+                _stmt(f"Global.Byte[{sc.li}] const({n}) B_LT"),
+                (JMP_IF, f"scn_{sc.name}_top"),
+                _stmt(f"{self._counter_ref(sc.count)} Global.Byte[{sc.acc}] B_LET"),
+            ]
         # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
         # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
         # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
@@ -1401,6 +1525,12 @@ class FieldBehavior:
                     f"{n}=cell {i}" for n, i in self._counters.items()))
             for cname, tname in self._schedules:
                 tl.append(f"  schedule: {cname} += 1 while timer < {tname}[{cname}]")
+            for sc in self._scans:
+                tl.append(f"  scan {sc.name}: {len(sc.units)} unit(s) -> counter "
+                          f"'{sc.count}' (acc byte {sc.acc}, loop byte {sc.li}); "
+                          f"box ({sc.point[0]},{sc.point[1]}) r={sc.radius}; "
+                          f"tables px={sc.px_tid} pz={sc.pz_tid} "
+                          f"near={sc.flag_tid} ('{sc.flags}')")
             tables_txt = "\n" + "\n".join(tl)
         # the byte histogram: segment sizes from the PRE-relaxation measure (the
         # content bytes; the asm() length difference is pure island overhead)

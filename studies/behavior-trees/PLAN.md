@@ -529,7 +529,15 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
 
 ### V2 candidates, ranked by leverage on the measured walls
 
-1. **THE VECTOR SUBSTRATE (the group loop) — the headline.** Move per-unit state
+1. **THE VECTOR SUBSTRATE (the group loop) — the headline. ▶ RUNG 0 IN FLIGHT
+   (2026-07-25):** `[[behavior.scan]]` shipped (the bounded in-ticker loop
+   whose reads AND writes index vector cells by the live loop byte — the one
+   composition BTTABLE didn't cover; count derived THROUGH a computed-index
+   write-then-read round trip so faults break the number, never silently).
+   Bench: THE PILGRIMAGE on 30416 (`vector_bench.py` — 8 staggered marchers,
+   the abbot announces at 1/4/8 from the scan count; registered line kept
+   identical to ISLES = zero relaunch), DEPLOYED, playtest pending. The full
+   substrate then follows: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
    logic as a bounded in-tick LOOP over an index instead of an unrolled branch

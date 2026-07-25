@@ -52,6 +52,15 @@ field entry, so deterministic per-session state):
 Counters bump from trees: ``die = "kills"`` (bump once — the body runs exactly
 once); branches gate on ``counter_ge``/``counter_eq``.
 
+    [[behavior.scan]]                        # THE VECTOR LOOP (v2 rung 0): per
+    name = "shrine"                          # tick, mirror the roster into
+    units = ["m0", "m1", "m2"]               # position tables, loop a live index
+    point = [1153, -200]                     # over them (computed-index vector
+    radius = 300                             # reads AND writes), and publish the
+    count = "at_shrine"                      # inside-the-box headcount into the
+    flags = "near_shrine"                    # counter; flags = the per-unit 0/1
+                                             # table (readable via table_* conds)
+
 Action verbs (the ``do`` dict: one verb key + that verb's option keys):
 ``walk_to`` / ``hold`` (point; +speed), ``chase`` (target; +standoff, speed),
 ``patrol`` / ``march`` (points or a route-marker name; +arrive_r, speed, and
@@ -103,10 +112,11 @@ ACTION_VERBS = {
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
-              "counters", "table", "schedule"}
+              "counters", "table", "schedule", "scan"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
+SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags"}
 
 
 class BehaviorTomlError(ValueError):
@@ -612,6 +622,11 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         fb.alternator(str(alt["name"]), int(alt["frames"]))
     for s in schedule_rows(raw):
         fb.schedule(str(s.get("counter", "")), str(s.get("table", "")))
+    for s in b.get("scan", []) or []:
+        fb.scan(str(s.get("name", "")), [str(u) for u in s.get("units", []) or []],
+                tuple(s.get("point", (0, 0))), int(s.get("radius", 300)),
+                str(s.get("count", "")),
+                flags=(str(s["flags"]) if s.get("flags") else None))
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
@@ -829,6 +844,50 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         if b.get("timer") is None:
             problems.append(f"{ctx}: a schedule needs field-level `timer = <seconds>` "
                             f"(the countdown HUD is the clock it reads)")
+    # scans (the vector loop — v2 rung 0)
+    scan_names = set()
+    for si, row in enumerate(b.get("scan", []) or []):
+        ctx = f"[[behavior.scan]] #{si}"
+        extra = set(row) - SCAN_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = str(row.get("name", ""))
+        if not _re2.fullmatch(r"[a-z][a-z0-9_]*", nm):
+            problems.append(f"{ctx}: needs `name = ` ([a-z][a-z0-9_]*)")
+        elif nm in scan_names:
+            problems.append(f"{ctx}: duplicate scan {nm!r}")
+        scan_names.add(nm)
+        us = row.get("units")
+        if not isinstance(us, list) or not us:
+            problems.append(f"{ctx}: needs `units = [<behavior unit npcs>]`")
+        else:
+            if len(us) > B.TABLE_MAX_LEN:
+                problems.append(f"{ctx}: {len(us)} units > the {B.TABLE_MAX_LEN}-cell cap")
+            for u in us:
+                if str(u) not in unit_names:
+                    problems.append(f"{ctx}: {u!r} is not a [[behavior.unit]] npc")
+            if len(set(map(str, us))) != len(us):
+                problems.append(f"{ctx}: duplicate units")
+        pt = row.get("point")
+        if (not isinstance(pt, list) or len(pt) != 2
+                or any(not isinstance(v, int) for v in pt)):
+            problems.append(f"{ctx}: needs `point = [x, z]` (ints)")
+        r = row.get("radius", 300)
+        if not isinstance(r, int) or not 1 <= r <= 30000:
+            problems.append(f"{ctx}: radius must be an int 1..30000")
+        cn = str(row.get("count", ""))
+        if cn not in declared_counters:
+            problems.append(f"{ctx}: count {cn!r} is not in [behavior] counters")
+        fl = row.get("flags")
+        if fl is not None and str(fl) in declared_tables:
+            problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.table]]")
+        elif nm and isinstance(us, list):
+            # scans DECLARE tables too — the flags table (user-named or the
+            # scan.<name>.near default) plus the position pair are readable by
+            # the table_* conds, sized to the roster
+            for tn2 in (str(fl) if fl else f"scan.{nm}.near",
+                        f"scan.{nm}.px", f"scan.{nm}.pz"):
+                declared_tables.setdefault(tn2, len(us))
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene
