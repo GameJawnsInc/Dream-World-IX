@@ -308,7 +308,7 @@ reads the kill tally with `counter_ge = ["kills", N]`. Bench: field 30415
 (`studies/behavior-trees/bttable_bench.py`) — the first in-game consumer of computed
 array indexing anywhere.
 
-## Scans — the vector loop (EXPERIMENTAL, v2 rung 0)
+## Scans — the vector loop (v2 rung 0 — in-game proven)
 
 ```toml
 [[behavior.scan]]
@@ -330,12 +330,13 @@ published into `count` — trees gate on `counter_ge` as usual, and a named
 round-trip on purpose: a mis-indexed cell breaks the number rather than passing
 silently. Cost: ~400B of ticker for an 8-unit roster.
 
-Two caveats while the lane is rung-0: mirrors freeze when a unit deactivates
-(a dead unit still standing in the box keeps counting — scan rosters that stay
-alive, or gate consumers on `active`), and this is the first stone of the v2
-vector substrate (`studies/behavior-trees/PLAN.md`, THE THREE WALLS) — the
-group-loop proper (per-target logic without unrolled pair branches) builds on
-exactly this composition once it is in-game proven.
+The composition is in-game proven (THE PILGRIMAGE, field 30416 — an 8-pilgrim
+roll call whose whole announce ladder derives from the loop). One caveat while
+the lane grows: mirrors freeze when a unit deactivates (a dead unit still
+standing in the box keeps counting — scan rosters that stay alive, or gate
+consumers on `active`). This is the first stone of the v2 vector substrate
+(`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group-loop proper
+(per-target logic without unrolled pair branches) builds on it.
 
 ## Limits (v1)
 
