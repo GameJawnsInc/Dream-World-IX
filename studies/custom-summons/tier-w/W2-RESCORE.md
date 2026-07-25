@@ -341,3 +341,24 @@ absorbed the same delta with far less to show for it.
 **Guidance this mints for any future rescore:** prefer H over pose; prefer lateral/inward over
 back-and-up; judge on the thinnest arena you intend to ship on, because the envelope is per-battle-
 location, not per-summon.
+
+### ⚠ CORRECTION 2026-07-25 — the finding above named the wrong owner
+
+The section above called the folding surface "the battle background" and generalised it to a
+per-battle-location envelope. **The owner falsified that in one cast: the same summon in ICE CAVERN
+showed the SAME satellite-view ground, not snow.** The surface is **Bahamut's own scenery**, shipped
+inside ef227 and drawn during its aerial beats; the real battle background does appear at other points
+in the same cutscene, so the two alternate.
+
+Confirmed offline in the container: chunk 0 carries `MARK_6` (26 KB) and two `MARK_7` (70 KB) geometry
+resources beside `SUMMON_MODEL` (156 KB) — the FORMAT round's eff-slot props — and R3's phase table
+shows the rescored entrance phase (`c0` s0, f57–126) is one of the phases that **draws effect models**.
+
+The corrected law (PLAN.md, THE EFFECT-OWNED SCENERY LAW) is **per-summon and inside the container**,
+which makes the scenery *editable by the very path this rung proved*, rather than a hard ceiling. The
+practical rules survive unchanged — prefer H, avoid back-and-up, check the phase table — but they now
+rest on the right cause.
+
+**Process note worth keeping:** the wrong law came from generalising a single screenshot instead of
+asking what the container ships. One targeted in-game experiment (same summon, different arena) beat
+the inference outright — the calibration rule again, in the owner's hands rather than the agent's.
