@@ -563,10 +563,20 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
 5. **Side probes** (RunSharedScript caller-context, self-REQ) — unchanged, cheap,
    unlock the per-unit-brain variant.
 
-**In flight:** the ISLES bench (30416, "the brawl") is DEPLOYED — 33,820B ticker
-content, 2 live islands, 14 mutual-combat units + a crier on the fallen-counter.
-First >32KB body ever to run in-game; the playtest verdict is pure liveness
-(no freeze, hp-1 flee branches fire, late-run crier announces land).
+**★ THE CROSSING PASSED (owner playtest, 2026-07-25):** ISLES (30416, "the
+brawl" — 33,820B ticker content, 2 live islands, 14 mutual-combat units + a
+crier on the fallen counter) ran clean in-game: "the brawl runs clean, crier
+lines all fire." **The LONG-JUMP RELAXATION is now IN-GAME PROVEN** — island
+bytes executed, deep-tree branches fired, and the event-Once + counter lanes
+re-verified on a second field for free. One observation, owner-triaged as not
+worth digging at: a left-arc Mu slid along a wall instead of rounding it —
+that is the KNOWN pursuit class, not an island artifact (chase = the duty
+body's blocked engine Walk toward a live target; the engine wall-slides, no
+routing exists for live-target pursuit, and the pursuit-sweep lint exists
+precisely to predict this blocked fraction — the bench's 2200u cross-plaza
+chases were authored for the byte crossing, not clean pursuit lines). The
+authoring answer stands: place for sightlines, keep chase radii short, use
+route="auto" marches for long approaches and chase only for the close.
 
 ## Standing constraints
 
