@@ -21,7 +21,9 @@ forest_rehome.py`` + ``hill_at_scale.py`` + ``massif_carry.py`` -- the laws it e
   ``ff9.rayDistance`` is dead code).
 * THE ROUND-AFTER-TRANSLATE WELD -- ring keys derive from the CARRIED floats.
 * Zip-annulus mains UVs are DECODED per 4u cell from the kept tris' own bytes (16
-  hypotheses, exact); fully-dropped cells take a deterministic in-language pick.
+  hypotheses, exact); fully-dropped cells resolve through ``assign_mains``' own seeded
+  policy pre-seeded with the decoded ground truth (THE DIVERSITY POLICY, uvf_fix2:
+  an uncoupled per-cell uniform pick reads as a chevron quilt).
 * THE GRASS-HILL LANGUAGE -- lowland slope envelope p99 28.6 deg, pure-grass summits are
   real, prominence 3.5-5.2 over 20-26u, peaks <= the lowland band top (~8.6); the hill is
   a PURE-Y raised-cosine displacement (mains UVs are XZ-linear, so vertical motion keeps
@@ -330,8 +332,11 @@ def raised_cosine(d: float, height: float, radius: float) -> float:
 
 
 def decode_cell_pick(cell, decoded: dict):
-    """Deterministic in-language (quad, ori) for a fully-dropped mains cell -- avoid the
-    W/S neighbours' quads (the anti-tiling discipline)."""
+    """Deterministic in-language (quad, ori) for ONE isolated mains cell -- avoid the
+    W/S neighbours' quads. RETIRED from the carve path (the UV arc's DIVERSITY POLICY:
+    its uncoupled uniform orientation reads as a chevron quilt over any multi-cell
+    region -- use :func:`grassland.assign_mains_seeded` there); kept for single-cell
+    decode/forensic use (the uvf_fix* studies reconstruct round-1 fields with it)."""
     import random as _r
     QUADS = [(u, v) for u in (0, 1) for v in (0, 1)]
     i, j = cell
@@ -609,12 +614,9 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         kept_main_by_cell[cell_of(cx, cz)].append(tidx)
     QUADS = [(u, v) for u in (0, 1) for v in (0, 1)]
     ORIS = (0, 90, 180, 270)
-    _decoded = {}
 
-    def decode_cell(cell):
-        if cell in _decoded:
-            return _decoded[cell]
-        best = None
+    def decode_cell_bytes(cell):
+        # method (a): exact 16-hypothesis decode from the cell's own kept bytes
         for tidx in kept_main_by_cell.get(cell, []):
             tri = gtris[tidx]
             uvv = gmeta[tidx][3]
@@ -625,16 +627,28 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
                         mu, mv = G.mains_uv(gpos[i][0], gpos[i][2], cell, quad, ori)
                         err = max(err, abs(mu - u), abs(mv - v))
                     if err < 1e-4:
-                        best = (quad, ori)
-                        break
-                if best:
-                    break
-            if best:
-                break
-        if best is None:
-            best = decode_cell_pick(cell, _decoded)
-        _decoded[cell] = best
-        return best
+                        return (quad, ori)
+        return None
+
+    # resolve every zip cell UP FRONT: decoded ground truth where the kept bytes allow,
+    # else the seeded assign_mains policy over the whole fallback set (THE DIVERSITY
+    # POLICY -- the uncoupled per-cell pick this replaces read as a chevron ring)
+    zcells = {cell_of((t[0][0] + t[1][0] + t[2][0]) / 3,
+                      (t[0][2] + t[1][2] + t[2][2]) / 3) for t in zip_tris}
+    decoded = {c: got for c in zcells if (got := decode_cell_bytes(c)) is not None}
+    dropped = sorted(c for c in zcells if c not in decoded)
+    pre = dict(decoded)
+    for (ci, cj) in dropped:                # ground-truth W/S boundary where bytes exist
+        for n in ((ci - 1, cj), (ci, cj - 1)):
+            if n not in pre and n not in zcells and \
+                    (got := decode_cell_bytes(n)) is not None:
+                pre[n] = got
+    dq, do = G.assign_mains_seeded(dropped, {c: qo[0] for c, qo in pre.items()},
+                                   {c: qo[1] for c, qo in pre.items()})
+    cell_qo = dict(decoded)
+    cell_qo.update({c: (dq[c], do[c]) for c in dropped})
+    log(f"zip mains: {len(decoded)} cells decoded from kept bytes, "
+        f"{len(dropped)} resolved via the assign_mains policy")
 
     GRASS_ID = float(X.encode_id(topograph=0))
     new_parents = []
@@ -657,7 +671,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         ccx = float(a[0] + b[0] + c[0]) / 3
         ccz = float(a[2] + b[2] + c[2]) / 3
         cell = cell_of(ccx, ccz)
-        quad, ori = decode_cell(cell)
+        quad, ori = cell_qo[cell]
         corners = []
         for pnt in order:
             key = kk3(pnt)
@@ -717,8 +731,10 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     _perimeter_walk_in_gate(changed, [rimw(p) for p in rim_ord], poly, log=log)
 
     return {"changed": changed, "center": (TX, TZ), "drop": drop,
+            "zip_cells": cell_qo, "zip_fallback": dropped,
             "report": {"blob_tris": len(blob), "dropped": len(drop),
-                       "zip_tris": len(zip_tris), "wall_rise": round(worst_wall, 2),
+                       "zip_tris": len(zip_tris), "zip_fallback_cells": len(dropped),
+                       "wall_rise": round(worst_wall, 2),
                        "zip_rise": round(worst_zip_rise, 2)}}
 
 

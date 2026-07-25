@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-forest`: the zip annulus' fallback cells wear the mint's own texture policy
+- The carve's fully-dropped ring cells — on a real island MOST of the ring (36 of 41
+  cells on the island-E bench) — resolved through an uncoupled per-cell uniform pick,
+  which the UV arc proved reads as a chevron/diamond quilt (same-rotation ~0.23 vs the
+  real map's ~0.49). They now resolve through `grassland.assign_mains_seeded`, the
+  UV-arc-proven constrained-boundary mirror of `assign_mains` (uvf_fix2's DIVERSITY
+  POLICY): cells decoded from the kept bytes pre-seed the W/S coupling and are never
+  rewritten; with an empty pre-seed the mirror is bit-identical to `assign_mains`
+  (pinned by test). Byte-conservative outside the fill — only fallback-cell zip UVs
+  change (verified per-channel old-vs-new on the island-E carve; ring same-ori 0.23 →
+  0.52). `decode_cell_pick` stays for single-cell forensic use. NOTE: a pre-policy
+  island-E deploy no longer byte-matches the identity net — re-carve rather than
+  restore old backups.
+
 ### Added — `[[behavior.group]]` + the `engage` verb: THE GROUP LOOP (v2 rung 1)
 - Rosters as table state: a group's members get `group.<name>.px/pz/act` mirrors and an
   `hp` table that IS their hit points (the `hp_le`/`hp_gt` conds and every SwingAt

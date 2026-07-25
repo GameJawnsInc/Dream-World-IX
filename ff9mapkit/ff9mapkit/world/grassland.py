@@ -291,6 +291,38 @@ def assign_mains(cells, seed: int = 0xF91):
     return cell_quad, cell_ori
 
 
+def assign_mains_seeded(cells, pre_quad, pre_ori, seed: int = 0xF92):
+    """:func:`assign_mains`' exact loop body extended to a CONSTRAINED boundary (the UV-arc
+    repair, ``studies/overworld-topography/uvf_fix2.py``): ``pre_quad``/``pre_ori`` hold
+    ground-truth cells (decoded from real bytes) consulted for the W/S anti-repeat and the
+    p=0.32 rotation-copy but NEVER rewritten; only ``cells`` draw from the single stream, in
+    ``sorted`` order. Every W=(i-1,j)/S=(i,j-1) sorts before (i,j), so each neighbour is
+    already resolved (pre-seed or earlier cell) when a cell is drawn -- with an empty
+    pre-seed the output is bit-identical to :func:`assign_mains`. THE DIVERSITY POLICY: an
+    uncoupled per-cell uniform pick reads as a chevron quilt at region scale (same-rotation
+    ~0.25 vs the real map's ~0.49). Returns ``(quad, ori)`` dicts for ``cells`` only."""
+    rng = random.Random(seed)
+    cell_quad, cell_ori = dict(pre_quad), dict(pre_ori)
+    out_quad, out_ori = {}, {}
+    for (i, j) in sorted(cells):
+        nb_q = [cell_quad[n] for n in ((i - 1, j), (i, j - 1)) if n in cell_quad]
+        choices = [(u, v) for u in (0, 1) for v in (0, 1)]
+        if nb_q:
+            avoid = nb_q[rng.randrange(len(nb_q))]
+            choices = [q for q in choices if q != avoid]
+        q = choices[rng.randrange(len(choices))]
+        cell_quad[(i, j)] = q
+        out_quad[(i, j)] = q
+        nb_o = [cell_ori[n] for n in ((i - 1, j), (i, j - 1)) if n in cell_ori]
+        if nb_o and rng.random() < 0.32:
+            o = nb_o[rng.randrange(len(nb_o))]
+        else:
+            o = ORIS[rng.randrange(4)]
+        cell_ori[(i, j)] = o
+        out_ori[(i, j)] = o
+    return out_quad, out_ori
+
+
 def mains_uv(x: float, z: float, cell, quad, ori: int):
     """The mains map for one corner: linear-in-position into the cell's quadrant rect, with the
     DIRECTION-AWARE bleed clamp (inward/cross-split bleed like real conforming tris; never outside the

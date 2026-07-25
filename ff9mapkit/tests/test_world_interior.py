@@ -12,6 +12,9 @@ fresh-mint dent-tolerance TRACK B). The rest covers the hermetic machinery:
   * chain_rings (multi-cycle chaining + degree-2 refusal) + signed_area orientation
   * split_borders8 (64u border split, channel lerp, THE WALL LAW's true-3D-area filter)
   * raised_cosine + decode_cell_pick determinism
+  * the zip-annulus fallback policy (THE DIVERSITY POLICY): assign_mains_seeded's exact
+    assign_mains mirror + pre-seed semantics, the autocorrelation band vs the retired
+    chevron picker, and a hermetic carve_forest whose whole ring falls back
   * soup_from_blocks byte-fam classification (main/stamp/forest/rock + the coast proxy)
   * build_hill on a synthetic mains grid: gates pass, pure-Y displacement, local normals,
     the rolling-relief envelope refusing a STACKED second hill, the slope-envelope refusal
@@ -550,6 +553,96 @@ def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
                           log=lambda *a: None)
 
 
+# ---- the forest zip-annulus fallback (THE DIVERSITY POLICY) ----------------------------------
+
+def _adjacency_stats(cells_qo):
+    """Same-quad / same-ori rates over within-set E/N-adjacent cell pairs -- the UV arc's
+    texture-variety metric (uvf_fix2.adjacency_stats)."""
+    pairs = [(c, n) for c in cells_qo for n in ((c[0] + 1, c[1]), (c[0], c[1] + 1))
+             if n in cells_qo]
+    same_q = sum(1 for a, b in pairs if cells_qo[a][0] == cells_qo[b][0])
+    same_o = sum(1 for a, b in pairs if cells_qo[a][1] == cells_qo[b][1])
+    return len(pairs), same_q / len(pairs), same_o / len(pairs)
+
+
+def test_assign_mains_seeded_is_assign_mains_on_an_empty_preseed():
+    """The mirror claim is EXACT: with no pre-seed, the constrained-boundary form draws
+    the identical stream and returns bit-identical (quad, ori) fields."""
+    cells = {(i, j) for i in range(8) for j in range(-8, 0)}
+    for seed in (0xF91, 0xF92, 7):
+        assert G.assign_mains_seeded(cells, {}, {}, seed=seed) == \
+            G.assign_mains(cells, seed=seed)
+
+
+def test_assign_mains_seeded_consults_but_never_rewrites_the_preseed():
+    pre_q = {(0, 0): (1, 0)}
+    pre_o = {(0, 0): 90}
+    out_q, out_o = G.assign_mains_seeded({(0, 1), (1, 0), (1, 1)}, pre_q, pre_o, seed=3)
+    assert set(out_q) == set(out_o) == {(0, 1), (1, 0), (1, 1)}   # boundary not re-emitted
+    assert pre_q == {(0, 0): (1, 0)} and pre_o == {(0, 0): 90}    # inputs untouched
+    # (0,1) and (1,0) each have exactly ONE resolved neighbour -- the pre-seeded (0,0) --
+    # so the anti-repeat guarantees neither wears its quadrant
+    assert out_q[(0, 1)] != (1, 0) and out_q[(1, 0)] != (1, 0)
+
+
+def test_diversity_policy_autocorrelation_beats_the_retired_picker():
+    """THE DIVERSITY POLICY regression (GROUND-FAMILY-DECODE round 2 / uvf_fix2): over a
+    region-scale field the seeded policy keeps assign_mains' neighbour coupling, while the
+    retired uncoupled picker reads as the chevron quilt (same-ori ~uniform 0.25) with a
+    RIGID quad alternation (same-quad exactly 0 under a fully-resolved neighbourhood)."""
+    field = {(i, j) for i in range(30) for j in range(-30, 0)}
+    q, o = G.assign_mains_seeded(field, {}, {}, seed=0xF92)
+    n, sq, so = _adjacency_stats({c: (q[c], o[c]) for c in field})
+    assert n == 1740
+    assert 0.33 <= so <= 0.55           # measured 0.3885 (the assign_mains band)
+    assert 0.06 <= sq <= 0.20           # measured 0.1132
+    dec = {}
+    for c in sorted(field):
+        dec[c] = IN.decode_cell_pick(c, dec)
+    n2, sq2, so2 = _adjacency_stats(dec)
+    assert n2 == 1740
+    assert so2 < 0.31 < so              # the chevron: measured 0.2701
+    assert sq2 == 0.0                   # the union-avoid's rigid diamond lattice
+
+
+def _canopy_donor(x0=8.0, z0=-8.0, n=5, cell=4.0):
+    """A flat 5x5-cell topo-37 canopy carpet in the donor block's local frame -- the
+    minimal blob: a square once-edge rim, zero relief (every step gate trivially clean)."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            xa, xb = x0 + i * cell, x0 + (i + 1) * cell
+            za, zb = z0 - j * cell, z0 - (j + 1) * cell
+            tris.append((((xa, 0.0, za), (xb, 0.0, za), (xa, 0.0, zb)), FOREST, 0.5))
+            tris.append((((xb, 0.0, za), (xb, 0.0, zb), (xa, 0.0, zb)), FOREST, 0.5))
+    return _bm(tris, name="Block[15][15] Terrain", x=15, y=15)
+
+
+def test_carve_forest_fallback_ring_wears_the_assign_mains_policy(monkeypatch, tmp_path):
+    """The zip annulus on a synthetic bench (no decodable kept UVs -> every ring cell
+    falls back): resolution goes through grassland.assign_mains_seeded, the ring's
+    autocorrelation sits in the policy band rather than the retired picker's chevron,
+    and the carve is deterministic end to end."""
+    _patch_donor(monkeypatch, _canopy_donor())
+    soup = IN.soup_from_blocks({(0, 0): _mains_grid()})
+    res = IN.carve_forest(soup, center=(26.0, -26.0), donor=(15, 15), game=tmp_path,
+                          log=lambda *a: None)
+    assert res["report"]["zip_fallback_cells"] == len(res["zip_fallback"]) == 24
+    assert set(res["zip_fallback"]) == set(res["zip_cells"])       # nothing decodes here
+    n, sq, so = _adjacency_stats({c: res["zip_cells"][c] for c in res["zip_fallback"]})
+    assert n == 24
+    assert so >= 0.35                   # measured 11/24 = 0.458; the chevron sits ~0.25
+    # determinism: an identical second carve resolves the identical field + bytes
+    soup2 = IN.soup_from_blocks({(0, 0): _mains_grid()})
+    res2 = IN.carve_forest(soup2, center=(26.0, -26.0), donor=(15, 15), game=tmp_path,
+                           log=lambda *a: None)
+    assert res2["zip_cells"] == res["zip_cells"]
+    (blk, bm), = res["changed"].items()
+    (blk2, bm2), = res2["changed"].items()
+    assert blk == blk2 == (0, 0)
+    assert bm.chan_arrays == bm2.chan_arrays and bm.tris == bm2.tris
+
+
 # ---- the deployed-block loader ---------------------------------------------------------------
 
 def test_read_deployed_blocks_semantics(tmp_path):
@@ -662,7 +755,11 @@ def test_interior_pipeline_reproduces_deployed_island_e(tmp_path):
     """THE IDENTITY NET (forest + hill): clean seed-55 mint -> carve_forest at the center
     recovered from the deployed canopy -> f32 write/read-back (the deployed
     representation) -> build_hill -> all 5 deployed island E blocks byte-identical
-    (in-game proven 2026-07-13). Ported from interior_productize_check.py."""
+    (in-game proven 2026-07-13). Ported from interior_productize_check.py.
+    NOTE: the zip fallback moved to the assign_mains policy (THE DIVERSITY POLICY,
+    2026-07-25) -- identity holds against a deploy CARVED BY THIS MODULE; the pre-policy
+    island E bytes (36 fallback cells' zip UVs, the old chevron ring) no longer match, so
+    restore-from-old-backup would fail here by design. Re-carve + redeploy instead."""
     from ff9mapkit.world.extract import decode_id
     from ff9mapkit.world.island import build_landmass
 
