@@ -230,3 +230,29 @@ def test_shell_region_picker_gains_field_counts(app, pin_prefs, monkeypatch):
     lst = dlg.findChildren(QListWidget)[0]
     # the shell picker was count-less before; the shared builder gives it Import's field counts
     assert any("fields" in lst.item(i).text() for i in range(lst.count())), "the shell picker now shows counts"
+
+
+def test_new_campaign_first_id_uses_the_shared_validator(app, pin_prefs, tmp_path):
+    # the UX-pass catch: New Campaign's 'First field id' was the LONE id box still outside id_field /
+    # check_custom_id -- a real-band 100 sailed through to campaign.new_campaign with no band lesson
+    w = _win(app, pin_prefs)
+    with pytest.raises(ValueError) as ei:
+        w._new_campaign("Camp", str(tmp_path), id_base=100)
+    msg = str(ei.value)
+    assert "first field id" in msg and "custom band" in msg
+
+
+def test_the_toolbar_overflow_door_is_a_visible_themed_button(app, pin_prefs):
+    # Squeezed (narrow window / CALIBRE 150), Qt folds the toolbar tail -- Refresh/Lint/Info Hub/
+    # Search/Settings -- into the extension button, whose default arrow painted INVISIBLY: the app's
+    # discoverability features vanished with no door. It must carry the themed icon + an a11y name.
+    from PySide6.QtWidgets import QStyle, QToolButton
+    shell._apply_app_theme(app, pick_palette("dark"))  # the production style (Fusion + the extent fix)
+    w = _win(app, pin_prefs)
+    ext = w.findChild(QToolButton, "qt_toolbar_ext_button")
+    assert ext is not None, "Qt's toolbar extension button exists from construction"
+    assert not ext.icon().isNull(), "the overflow door carries the themed icon (the default was invisible)"
+    assert ext.accessibleName() == "More toolbar items"
+    # the layout SIZES AND PLACES the door from this metric -- a widget minimum cannot fix it (probed:
+    # the widened button hung 9px off the window edge). Fusion's 12px cannot hold a glyph.
+    assert app.style().pixelMetric(QStyle.PixelMetric.PM_ToolBarExtensionExtent, None, w) >= 24

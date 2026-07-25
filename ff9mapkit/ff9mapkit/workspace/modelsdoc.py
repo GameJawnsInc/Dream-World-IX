@@ -83,13 +83,20 @@ class ModelsDoc(QWidget):
         self.cards_btn.clicked.connect(self.on_cards)
         srow.addWidget(self.cards_btn)
         lv.addLayout(srow)
-        frow = QHBoxLayout()
+        # TWO rows, not one: a checkbox's label is its minimumSizeHint (no wrap), so combo + both
+        # checkboxes in one row put a ~450px floor under the LEFT pane -- in the ~700px document column
+        # that starved the right pane below its own content width and (with its h-bar then forced off)
+        # every control on it CLIPPED mid-glyph at the default window size.
+        grow = QHBoxLayout()
         self.group = QComboBox()
         self.group.setAccessibleName("Filter models by group")
         for label, _arg in _GROUPS:
             self.group.addItem(label)
         self.group.currentIndexChanged.connect(self._refill)
-        frow.addWidget(self.group)
+        grow.addWidget(self.group)
+        grow.addStretch(1)
+        lv.addLayout(grow)
+        frow = QHBoxLayout()
         self.field_only = QCheckBox("Field-placeable only")
         self.field_only.setToolTip("Keep the field-form (F*) models — the ones an [[npc]] can wear.")
         self.field_only.toggled.connect(self._refill)
@@ -177,8 +184,11 @@ class ModelsDoc(QWidget):
         # set this; these were the stragglers.
         right.setFrameShape(QFrame.Shape.NoFrame)
         right.setWidgetResizable(True)
-        # vertical-only: wrappable labels + shrinkable line edits must re-flow, never clip sideways
-        right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # AsNeeded, not AlwaysOff: the labels/line edits re-flow first, but the action ROWS have a real
+        # minimum, and below it a widgetResizable scroll area with the h-bar forced off does not scroll --
+        # it CLIPS (the shipped defect: 'Copy [[npc]] snip', 'Deploy r' cut mid-glyph at the default
+        # window). The bar appears only in the squeeze it exists to make honest.
+        right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         right.setWidget(right_host)
         split.addWidget(right)
         split.setStretchFactor(0, 1)

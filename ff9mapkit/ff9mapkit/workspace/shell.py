@@ -22,7 +22,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QEvent, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
     QPixmap, QShortcut, QTextCharFormat, QTextCursor, QTextDocument,
@@ -30,9 +30,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
-    QProgressBar, QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
-    QTreeWidgetItemIterator, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QProxyStyle, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
+    QSplitter, QProgressBar, QStackedWidget, QStyle, QTabWidget, QTextEdit, QToolBar, QToolButton,
+    QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
@@ -139,12 +139,25 @@ def _qpalette(pal) -> QPalette:
     return p
 
 
+class _DwixStyle(QProxyStyle):
+    """Fusion with ONE metric overridden: ``PM_ToolBarExtensionExtent`` (12px in Fusion) both SIZES and
+    POSITIONS the toolbar's overflow button -- too narrow for any legible glyph, which is how a squeezed
+    toolbar's door (Refresh/Lint/Info Hub/Search/Settings all fold into it) went invisible. A widget
+    minimum cannot fix it: the layout places the button from this metric, so a widened button just hangs
+    off the window edge (probed: geom x=841 w=28 in an 860 window)."""
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        if metric == QStyle.PixelMetric.PM_ToolBarExtensionExtent:
+            return 28
+        return super().pixelMetric(metric, option, widget)
+
+
 def _apply_app_theme(app, pal):
     """Point the whole application at ``pal``: the Fusion base style (the one built-in style that fully
     honours stylesheets -- the Windows-11 default paints its own OS-mode chrome UNDER the QSS) + the derived
     QPalette. Idempotent; called at launch and on a live theme switch."""
-    if app.style().objectName() != "fusion":
-        app.setStyle("fusion")
+    if not isinstance(app.style(), _DwixStyle):
+        app.setStyle(_DwixStyle("fusion"))
     app.setPalette(_qpalette(pal))
 
 
@@ -757,8 +770,9 @@ class Workspace(QMainWindow):
                 "Nothing has been deployed from this project yet, so there is nothing to compare against.\n"
                 "Deploy once (F9) and this will list every edit you make afterwards.", "body"))
         else:
-            head = widgets.role_label(tomldiff.summarize(changes) + f" since the deploy {deploysnap.age_str(snap)}",
-                                      "head")
+            head_text = tomldiff.summarize(changes) + f" since the deploy {deploysnap.age_str(snap)}"
+            head = widgets.role_label(head_text[:1].upper() + head_text[1:],   # 'no changes…' is a heading:
+                                      "head")                                  # sentence case, not a fragment
             lay.addWidget(head)
             where = snap.get("dest")
             now = self.build_deploy.deploy_dest_key() if getattr(self, "build_deploy", None) else None
@@ -1492,7 +1506,7 @@ class Workspace(QMainWindow):
         # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
         # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
         # features were invisible until the window grew. Now it shrinks first and never evicts anything.
-        search = QPushButton("Search anything  (Ctrl-K)")
+        search = widgets.ElideButton("Search anything  (Ctrl-K)")   # elides under squeeze, never chops
         search.setObjectName("search")
         self._set_btn_icon(search, "search", "text", 16)   # the ⌕ glyph -> the SVG search icon (re-tints on theme)
         search.setToolTip("Jump to any command, field, or object (Ctrl-K)")
@@ -1511,6 +1525,16 @@ class Workspace(QMainWindow):
         self._settings_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self._settings_btn.setAccessibleName("Settings")   # the ⚙ glyph -> the SVG settings icon; name it for a11y
         self._set_btn_icon(self._settings_btn, "settings", "text", 18)
+        # THE OVERFLOW DOOR MUST BE VISIBLE. When the window (or a high CALIBRE rung) squeezes the
+        # toolbar, Qt folds the tail -- Refresh/Lint/Info Hub/Search/Settings -- into this extension
+        # button, whose default style-drawn arrow painted INVISIBLY here: the app's discoverability
+        # features vanished with no door. A themed icon (re-tinted like every other) makes it one.
+        ext = tb.findChild(QToolButton, "qt_toolbar_ext_button")
+        if ext is not None:
+            self._set_btn_icon(ext, "chevron-right", "text", 16)
+            # its WIDTH comes from _DwixStyle's PM_ToolBarExtensionExtent (28), never a widget minimum
+            ext.setToolTip("More toolbar items — the window is too narrow to show them all")
+            ext.setAccessibleName("More toolbar items")
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -1792,6 +1816,15 @@ class Workspace(QMainWindow):
         insp_scroll.setMaximumWidth(420)            # an info panel -- cap it so long content can't balloon it
         insp_scroll.setWidget(insp)
         split.addWidget(insp_scroll)
+        self._insp_scroll = insp_scroll
+        # The field card BAKES its thumbnail width into rich text at render time (a QLabel <img> has no
+        # max-width), so the pane's width at render is part of the card. A later resize re-bakes it,
+        # coalesced -- otherwise the old width keeps wrapping the whole card and the pane clips.
+        self._insp_refit = QTimer(self)
+        self._insp_refit.setSingleShot(True)
+        self._insp_refit.setInterval(200)
+        self._insp_refit.timeout.connect(self._refit_inspector)
+        insp_scroll.viewport().installEventFilter(self)
 
         split.setSizes(list(_DEFAULT_CENTRAL_SPLIT))
         split.setStretchFactor(1, 1)
@@ -3558,11 +3591,13 @@ class Workspace(QMainWindow):
         name = str(name).strip()
         if not name:
             raise ValueError("a campaign name is required")
+        from .. import pack
+        id_base = pack.check_custom_id(id_base, what="first field id")   # the one shared band voice
         dest = Path(dest)
         cpath = dest / "campaign.toml"
         if cpath.exists():
             raise ValueError(f"a campaign.toml already exists in {dest} — choose an empty folder")
-        C.new_campaign(name, mod_folder or "FF9CustomMap", dest, id_base=int(id_base))
+        C.new_campaign(name, mod_folder or "FF9CustomMap", dest, id_base=id_base)
         self._last_new_dir = str(dest)
         self.open_campaign(cpath)
         return cpath
@@ -3577,13 +3612,13 @@ class Workspace(QMainWindow):
         name.setPlaceholderText("My Campaign")
         dest = QLineEdit(self._default_new_dest())
         mod = QLineEdit(mod_folder or "FF9CustomMap")
-        idb = QLineEdit("4000")
         form.addRow("Name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose the campaign folder (campaign.toml goes here)"))
         form.addRow("Mod folder", mod)
         mod.setToolTip("The Memoria mod folder this campaign deploys into — leave as FF9CustomMap unless "
                        "you keep separate mod stacks.")
-        form.addRow("First field id", idb)
+        # the one band lesson, same as New Field / New Journey / Import (this box was the lone holdout)
+        idb = widgets.id_field(form, "First field id", value="4000", placeholder="")
         note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
                       "tree (or its root) to <b>Add field…</b>.")
         note.setProperty("role", "muted")
@@ -3596,7 +3631,7 @@ class Workspace(QMainWindow):
         try:
             self._new_campaign(name.text(), dest.text().strip() or self._default_new_dest(),
                                mod_folder=mod.text().strip() or "FF9CustomMap",
-                               id_base=int(idb.text() or 4000))
+                               id_base=idb.text().strip() or 4000)   # check_custom_id parses + band-checks
         except (ValueError, C.CampaignError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the campaign"),
                                 [fb.Problem(fb.ERROR, str(e))])
@@ -8095,6 +8130,53 @@ class Workspace(QMainWindow):
             self._inspect(cur, self._payload(cur), member)   # rewrites insp_title/body only
         self._thumb_rerender.start()
 
+    @staticmethod
+    def _thumb_img_attr(w, h, avail):
+        """The Inspector thumbnail's size attribute, fitted to the pane it will render in.
+
+        A rich-text ``<img>`` is ATOMIC: whatever width it declares becomes the label's minimum, and the
+        widgetResizable host then lays the WHOLE card out at that width -- past the viewport it does not
+        scroll (the h-bar is off), it CLIPS, text and all. That was the shipped defect: a fixed
+        ``width="300"`` in the 240px default pane clipped every long line of the card (the rollup read
+        '2 cutscenes (8 ste'). Landscape rooms cap by WIDTH (≤300 and ≤avail); tall scrolling rooms cap
+        by HEIGHT (≤380) with the rendered width still fenced to ``avail`` through the aspect ratio."""
+        if w <= 0 or h <= 0:                        # a null/failed pixmap: fall back to the width cap
+            return f'width="{min(300, avail)}"'
+        if h > w * 1.4:                             # tall scrolling room: height-capped, width-fenced
+            return f'height="{min(380, (avail * h) // w)}"'
+        return f'width="{min(300, avail)}"'
+
+    def _insp_avail(self):
+        """The width the Inspector card actually renders in: the scroll viewport minus ``insp``'s own
+        margins (10+10) and a little slack. Before the first layout (viewport ~0 wide) fall back to the
+        historical 300 cap rather than baking a nonsense width."""
+        sc = getattr(self, "_insp_scroll", None)
+        vp = sc.viewport().width() if sc is not None else 0
+        if vp < 60:
+            return 300
+        return max(160, vp - 24)
+
+    def _refit_inspector(self):
+        """Re-bake the mounted card after a pane resize moved its render width materially (>16px).
+        Render-only: ``_inspect`` rewrites insp_title/body and commits nothing (the _on_thumb_ready
+        precedent), so a refit can never touch the actively edited form."""
+        baked = getattr(self, "_insp_avail_baked", None)
+        if baked is None or abs(self._insp_avail() - baked) <= 16:
+            return
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is None:
+            return
+        self._inspect(cur, self._payload(cur), self._payload(fa)[1])
+
+    def eventFilter(self, obj, ev):
+        sc = getattr(self, "_insp_scroll", None)
+        if sc is not None and obj is sc.viewport() and ev.type() == QEvent.Type.Resize:
+            t = getattr(self, "_insp_refit", None)
+            if t is not None:
+                t.start()                           # coalesced -- a splitter drag streams resize events
+        return super().eventFilter(obj, ev)
+
     def _inspect_field(self, name):
         """A campaign member (or a loose field), grouped as a data card:
           * **Identity** — the background THUMBNAIL (the art, finally visible), id / source / mode, the
@@ -8108,12 +8190,14 @@ class Workspace(QMainWindow):
         ident, contents, conn = [], [], []
         doc = self._safe_doc(name)
         png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
-        if png:                                     # rich text renders the file:/// img. Landscape rooms cap
-            pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
-            if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
-                ident.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
-            else:
-                ident.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
+        if png:                                     # rich text renders the file:/// img, sized to the PANE
+            pm = QPixmap(png)                       # (see _thumb_img_attr for why a fixed 300 clipped).
+            avail = self._insp_avail()
+            self._insp_avail_baked = avail
+            ident.append(f'<img src="file:///{Path(png).as_posix()}" '
+                         f'{self._thumb_img_attr(pm.width(), pm.height(), avail)}>')
+        else:
+            self._insp_avail_baked = None           # no img baked -> nothing for a pane resize to re-fit
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:

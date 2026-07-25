@@ -406,3 +406,45 @@ def test_catalog_picker_card_pick_answers_the_dialog(app, pin_cache, monkeypatch
     monkeypatch.setattr(pk, "accept", lambda: accepted.append(True))
     pk._open_cards()
     assert pk.result == _VIV and accepted
+
+
+# ------------------------------------------------------------------ the right pane never clips silently
+def test_models_right_pane_scrolls_instead_of_clipping(doc, app):
+    """At the default window the one-row filter strip put a ~450px floor under the LEFT pane, the split
+    starved the right editor pane below its own content width, and its h-bar was forced off -- which
+    under widgetResizable means CLIP, not scroll ('Copy [[npc]] snip', 'Deploy r' cut mid-glyph).
+    Filters now stack two rows; the bar is AsNeeded and must actually appear in a squeeze."""
+    from PySide6.QtWidgets import QScrollArea, QSplitter
+    right = doc.findChildren(QScrollArea)[0]
+    assert right.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded, \
+        "AlwaysOff under widgetResizable is a silent clip, not a policy"
+    doc.show()
+    app.processEvents()
+    assert doc.group.y() < doc.field_only.y(), \
+        "the group combo sits on its own row above the checkboxes (the left pane's width floor)"
+    split = doc.findChildren(QSplitter)[0]
+    split.setSizes([900, 120])                       # starve the right pane below its content minimum
+    app.processEvents()
+    assert right.horizontalScrollBar().isVisible(), \
+        "below its content minimum the pane scrolls -- it never clips silently"
+
+
+def test_single_kind_picker_rows_drop_the_chip_and_realfield_rows_carry_the_id(app):
+    """Every row of the realfield picker repeated '[realfield]' (noise in a single-kind list) while
+    twin names ('Cargo Room' x2, 'Interior' x4) were indistinguishable -- the id, the very value the
+    pick fills in, was nowhere on the row."""
+    from ff9mapkit.infohub import Entry
+    ents = [Entry("realfield", "Prima Vista/Interior", None, "field #58 -- pv_int", 58),
+            Entry("realfield", "Prima Vista/Interior", None, "field #59 -- pv_int2", 59)]
+    dlg = CatalogPicker(None, ["realfield"], "", None, pick_palette("dark"), entries=ents, want_id=True)
+    try:
+        rows = [dlg.lst.item(i).text() for i in range(dlg.lst.count())]
+        assert all("[realfield]" not in r for r in rows), "a single-kind picker repeats no kind chip"
+        assert "58" in rows[0] and "59" in rows[1] and rows[0] != rows[1], \
+            "twin names are told apart by the id the pick fills in"
+        assert "2 matches" in dlg.info.text(), "a real plural, not 'match(es)'"
+        dlg.q.setText("58")
+        assert "1 match " in dlg.info.text() or dlg.info.text().startswith("1 match"), \
+            "the singular reads as prose too"
+    finally:
+        dlg.deleteLater()

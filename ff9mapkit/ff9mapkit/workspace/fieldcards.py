@@ -181,7 +181,8 @@ class FieldCardPicker(QDialog):
             self.listw.setCurrentItem(self._items[keep])
         where = f" in {region}" if region else ""
         off = "" if thumbs_mod.enabled() else "  ·  previews off"
-        self.info.setText(f"{len(self._entries)} field(s){where}{off}")
+        n = len(self._entries)
+        self.info.setText(f"{n} field{'' if n == 1 else 's'}{where}{off}")
         self._scroll_timer.start()
 
     def _icon_for(self, fid) -> QIcon:
