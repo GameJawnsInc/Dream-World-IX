@@ -82,6 +82,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
   30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
 
+### Added — `.eb` expressions: COMPUTED ARRAY INDEXING (the 0xD3 `flexible_varfunc` lane)
+- **`exprasm` can now emit — and every kit expression walker correctly decode — Memoria's
+  `0xD3` expression sub-command** (the Path-B study's dividend: stock-Memoria script arrays,
+  in the pinned engine base since 2023). New tokens: **`B_VECTOR`** (`<id> <idx> B_VECTOR` —
+  reads `gScriptVector[id][idx]`, and as an LVALUE writes it via `B_LET`: index == size
+  APPENDS, a missing id at index 0 CREATES, all fail-soft), **`B_VECTOR_SIZE`**,
+  **`B_DICTIONARY`**, plus the generic **`flex(id,argc)`** for every other
+  `flexible_varfunc` (arity rides the wire — no arity table to trust). Both stores are
+  **save-serialized** (JsonParser) — persistent per-save arrays, writable and readable
+  entirely from field bytecode: data tables, wave schedules, per-unit params.
+- **A latent decoder desync fixed with it**: `0xD3 >= 0xC0`, so all four kit expression
+  walkers (`read_expr` / `pretty_expr` / the uid- and const-offset walkers) previously
+  parsed it as a 1-byte-operand variable token — 2 bytes of desync per occurrence on any
+  field using the Memoria extension. All four now carve it out (engine-faithful: `EBin.expr`
+  checks `0xD3` before var decoding). 3 new test groups incl. the walker-desync guard;
+  `assemble()`'s round-trip self-verification covers the new tokens by construction.
+  Offline-verified; the first in-game consumer (e.g. condor rung-5 wave/cost tables) is the
+  natural live proof.
+
 ### Added — `[behavior]` waves + win/loss: the countdown clock and REAL battles
 - **`timer = <seconds>`** (field-level): starts FF9's own countdown HUD on field entry —
   the Festival of the Hunt's exact start triplet (`ChangeTimerTime`/`ShowTimer`/`RunTimer`,
