@@ -310,8 +310,25 @@ runtime tree switching beyond blackboard-driven branches.
   build invariant). 6 new tests incl. the built-.eb tag-10 e2e. The proof bench =
   fort-condor 30400 "THE SIEGE" (its PLAN rung 4).
 - **POST-LADDER — DATA TABLES (the 0xD3 dividend as vocabulary, 2026-07-24):
-  ⚠ BUILT + DEPLOYED, playtest pending (bench 30415 "BTTABLE" = the FIRST IN-GAME
-  RUN of `.eb` computed array indexing anywhere).** `[[behavior.table]]` (named int
+  ★ MECHANISMS IN-GAME PROVEN over 2 rounds (bench 30415 "BTTABLE" = the FIRST
+  IN-GAME RUN of `.eb` computed array indexing anywhere); round 3 = the
+  starvation-fix check pending.** Round 1 proved the clock/computed-index/kill
+  path but the bench's own layout hid the tally beat (fang0's dormant post on a
+  BALCONY — the lattice spanned all floors of the multi-floor plaza; + both
+  approach chords measured 37-92% off-mesh, the arrival was blocked-walk
+  sliding) → floor-filtered lattice (`Tri.floor_ndx`, spawn's floor) + the
+  approaches as `march route="auto"` (+3/+2 spliced waypoints — the autoroute
+  lane escorting the 0xD3 field). Round 2: every dialogue fires ("good") EXCEPT
+  the wave-three line → **THE MONOTONIC-ONCE STARVATION** (a compiler defect,
+  not a bench bug): sticky Once over a cond that never re-falsifies (a kill
+  tally, a spent wave counter) holds the selection FOREVER and starves every
+  branch below; reordering cannot fix two monotonic onces. **THE FIX — THE
+  EVENT ONCE:** `Once` over an `Announce` compiles fire-and-release — selection
+  edge-latches an `areq` flag, the ONE-SHOT REQUEST LANE (Battle's clobber
+  machinery, now shared) fires when the level frees, the dispatch body sets the
+  Once latch FIRST and returns with no idle loop (the async window persists on
+  its own). Sticky is UNCHANGED for feeds; a bare announce keeps its spam
+  guard; a shared once/bare Announce object is refused. 3 tests. `[[behavior.table]]` (named int
   arrays in `gScriptVector`, RE-SEEDED every field entry: size←0 then size←n —
   engine zero-fill — then non-zero cells only; auto ids from 1000, save-global
   aliasing harmless by the re-seed, stale save tails impossible by the truncate) +
