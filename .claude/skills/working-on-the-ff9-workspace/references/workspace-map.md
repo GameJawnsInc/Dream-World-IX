@@ -48,8 +48,12 @@ dlg:new-field|new-campaign|new-journey|fork-regions|import-fields|setup|prefs|ab
     |concept-map|infohub|updates|fork-battle|campaign-newgame
 coop:nogame|stock|s36|s37|ready|live                 map:empty|plain|art
 world:guide|nogame|atlas                             console:log|find|miss|jobs
-drift:none|synced|ahead|campaign
+drift:none|synced|ahead|campaign                     script:tree|panel
 ```
+
+`script:*` renders the verbatim Script presentation over a KIT-AUTHORED synthetic .eb (zero SE bytes —
+the builder is owned by `tests/test_workspace_script_tree.py` and loaded by path), so it works in a
+template-less worktree where the smoke's ALEX-fixture block skips.
 
 Flags: `--theme` (default `mist`), `--scale 100|110|125|150`, `--guided guided|full`,
 `--width`/`--height` (default 1280x850), `--out`, `--campaign`, `--thumb-source`, `--list`.
@@ -97,7 +101,8 @@ Output: `tools/scroll_out/gui_snaps/<name>_<theme>_<scale>.png`.
 `test_gui_mode_lever.py`, `test_gui_wave2_wiring.py` (the call-site fences), `test_editor_theme.py`
 (the token/contrast fences), `test_prefs.py`, `test_coop_tab.py`, `test_worldscan.py`,
 `test_worlddoc.py`, `test_builddoc_dest_ledger.py`, `test_home_beginner.py`, `test_field_cards.py`,
-`test_model_cards.py`.
+`test_model_cards.py`, `test_workspace_script_tree.py` (the verbatim Script presentation, over a
+synthetic .eb — runs in every worktree).
 
 `tests/conftest.py`'s one autouse fixture repoints `prefs._path` at a tmp file. Anything else that
 could reach the developer's machine (game install, thumbs cache, `backups/`, `FF9MAPKIT_DATA`) must

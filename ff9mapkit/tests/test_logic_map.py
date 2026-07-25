@@ -324,9 +324,104 @@ def test_node_report():
     r = LM.node_report(n)
     assert 'Says: "Welcome!"' in r
     assert "Gives the player Potion ×2" in r and "Opens the save-point menu" in r
-    assert "Runs only if story flag 8512 is SET" in r
+    # 8512 sits in the stock read-mail scratch band -> the phrase carries its BAND (flag_phrase)
+    assert "Runs only if flag 8512 (stock read-mail scratch) is SET" in r
     assert "Sets story flag 3461" in r and "Sets (OR into) story flag 3458" in r
     assert "Warps to field 300" in r
     assert any(line.startswith("Runs shared field logic") and "entry 0" in line for line in r)
     assert "Branches on a value → cases 1900, 2005 (else a default path)" in r
     assert LM.node_report(N(0, 1, "shared_routine", 0, 0)) == []      # empty routine -> empty report
+
+
+# ---- the semantic layer: bands, labels, selectors, battles, warp names (pure) ----
+def test_flag_phrase_names_the_band():
+    from ff9mapkit import flags as F
+    assert LM.flag_phrase(2145) == "story flag 2145"                       # a donor story flag stays plain
+    assert "kit band" in LM.flag_phrase(F.FIRST_SAFE_FLAG)                 # 8712+ = added by this fork
+    assert "Mognet lock" in LM.flag_phrase(F.MOGNET_LOCK_LO + 4)
+    assert "read-mail scratch" in LM.flag_phrase(F.READMAIL_PAYLOAD_LO)
+
+
+def test_every_func_kind_has_a_human_label():
+    """The call-site law, pre-fenced: every kind _func_kind can emit has a KIND_LABEL entry, so no tree
+    row can fall back to the machine token."""
+    kinds = set()
+    for role in ("main", "player", "gateway", "npc", "object", "logic"):
+        for tag in (0, 1, 2, 3, 7, 10, 29):
+            kinds.add(LM._func_kind(role, tag))
+    missing = {k for k in kinds if k not in LM.KIND_LABEL}
+    assert not missing, f"kinds with no human label: {missing}"
+    assert LM.kind_label("npc_talk") == "Talk handler"
+    assert LM.kind_label("main_reinit") == "After-battle re-entry"
+    assert LM.kind_label("brand_new_kind") == "brand_new_kind"             # unknown never blanks
+
+
+def test_node_report_names_warps_battles_and_the_two_dispatch_shapes():
+    N = LM.Node
+    n = N(0, 0, "main_init", 0, 0,
+          warps=[{"op": "Field", "to": 30101, "name": "TRAIL"}],
+          battles=[{"scene": 67, "name": "BSC_EF_R007"}],
+          branches=[{"op": 0x06, "base": None, "selector": "scenario",
+                     "edges": [{"value": 1900, "target": 10, "is_default": False},
+                               {"value": None, "target": 30, "is_default": True}]},
+                    {"op": 0x0B, "base": 0, "selector": "choice",
+                     "edges": [{"value": 0, "target": 10, "is_default": False},
+                               {"value": 1, "target": 20, "is_default": False},
+                               {"value": None, "target": 30, "is_default": True}]}])
+    r = LM.node_report(n)
+    assert "Warps to field 30101 — TRAIL" in r
+    assert "Starts a battle (scene 67 — BSC_EF_R007)" in r
+    assert any("STORY-BEAT dispatch" in line and "beats 1900" in line
+               and "[startup] scenario" in line for line in r), r
+    assert any(line.startswith("Answer dispatch") and "rows 0, 1" in line for line in r), r
+    s = LM.node_summary(n)
+    assert "story-beat dispatch" in s and "menu dispatch" in s and "starts a battle" in s
+    assert "switch" not in s, "a classified dispatch is not double-counted as a plain switch"
+    # hints stay single-category-honest
+    assert LM.node_hint(N(0, 1, "x", 0, 0, battles=[{"scene": 5, "name": None}])) == " · battle"
+    assert LM.node_hint(N(0, 1, "x", 0, 0, branches=[{"op": 0x06, "base": None, "selector": "scenario",
+                                                      "edges": []}])) == " · story beats"
+
+
+def test_build_scans_battles_and_classifies_the_scenario_selector():
+    """Driven through real bytes: a 1-entry .eb whose tag-0 pushes the ScenarioCounter (DC 00) then
+    switches on it, and a tag-2 that starts Battle scene 67. The builder must mark the selector
+    'scenario' and surface the battle."""
+    import struct as _s
+    # tag 0: 05 (expr: DC 00 7F -- push ScenarioCounter) + a 1-case 0x0B switch + terminators. The switch
+    # sits at rel 4, is 8 bytes, anchor = off+1; case -> rel 12 (reloff 7), default -> rel 13 (reloff 8).
+    expr = b"\x05\xDC\x00\x7F"
+    sw = bytes([0x0B, 0x01]) + _s.pack("<HHH", 0, 8, 7)      # base=0, default reloff, case reloff
+    ret = b"\x04"                                             # the 0-arg terminator
+    body0 = expr + sw + ret + ret + ret
+    # tag 2: Battle(rush, btlId) -- op 0x2A, arg_flag 0 (both literal); rush is a 1-byte arg, btlId u16
+    battle = bytes([0x2A, 0x00, 0x00]) + _s.pack("<H", 67)
+    body2 = battle + ret
+    fc = 2
+    table = _s.pack("<HH", 0, fc * 4) + _s.pack("<HH", 2, fc * 4 + len(body0))
+    entry = bytes([0, fc]) + table + body0 + body2
+    head = bytearray(0x80)
+    head[0:2] = b"EV"
+    head[3] = 1
+    eb = bytes(head) + _s.pack("<HHBBH", 8, len(entry), 0, 0, 0) + entry
+    lm = LM.build_logic_map(eb)
+    n0 = next(n for n in lm.nodes if n.tag == 0)
+    assert n0.branches and n0.branches[0]["selector"] == "scenario", n0.branches
+    n2 = next(n for n in lm.nodes if n.tag == 2)
+    assert n2.battles and n2.battles[0]["scene"] == 67, n2.battles
+
+
+def test_build_names_warp_destinations_from_field_names():
+    import struct as _s
+    body = bytes([0x2B, 0x00]) + _s.pack("<H", 553) + b"\x04"   # Field(553) + the terminator
+    table = _s.pack("<HH", 3, 4)
+    entry = bytes([0, 1]) + table + body
+    head = bytearray(0x80)
+    head[0:2] = b"EV"
+    head[3] = 1
+    eb = bytes(head) + _s.pack("<HHBBH", 8, len(entry), 0, 0, 0) + entry
+    lm = LM.build_logic_map(eb, field_names={553: "Dali/Inn"})
+    n = next(n for n in lm.nodes if n.warps)
+    assert n.warps[0]["to"] == 553 and n.warps[0]["name"] == "Dali/Inn"
+    lm2 = LM.build_logic_map(eb)                                # no names -> None, never a crash
+    assert next(n for n in lm2.nodes if n.warps).warps[0]["name"] is None
