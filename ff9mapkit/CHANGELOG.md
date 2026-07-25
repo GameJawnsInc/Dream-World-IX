@@ -27,6 +27,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ceiling (~32KB — relative jumps are signed-16), which caps per-ally target lists; a
   long-jump relaxation pass in `labelasm` is the queued fix.
 
+### Added — `[behavior]` `hold_ground` (THE PIN)
+- `do = { hold_ground = true }`: a dispatch action whose SELECTION halts the duty walk (the
+  dispatch-halt clause) and whose body just idles while the branch holds — a marcher gated on
+  `any_near(interceptors)` stands and takes the fight instead of jogging away from its
+  attackers, and resumes the march at its current waypoint when it shakes free. Minted from
+  the condor round-1 playtest ("the Mu run right to the depot instead of engaging soldiers");
+  the raiders' full COUNTER-damage remains blocked on the ticker's ~32KB jump ceiling.
+
 ### Fixed — THE MONOTONIC-ONCE STARVATION: `once` over an `announce` is an EVENT, not an engagement
 - BTTABLE round 2 (the data-table bench): the herald's win line — `once` + `announce` gated on
   `counter_ge ["kills", 2]` — fired correctly, then **held the selection for the rest of the
