@@ -550,10 +550,19 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    target-indexed swing body per unit; automatic re-acquisition on a dead
    target). MEASURED: the 7v7 parity bench compiles to **42% of the unrolled
    bytes** (19,997B vs ISLES' 46,625B, same fight; ratio pinned by a suite
-   test). Bench: THE GROUP BRAWL on 30416 (`group_bench.py`, zero-relaunch
-   redeploy) DEPLOYED, playtest pending — parity is the verdict, plus the one
-   new visible power: survivors PIVOT to the next foe in range. The original
-   full-substrate sketch, for the later rungs: move per-unit state
+   test). **★ IN-GAME PROVEN (owner, 5 runs: "works well"):** THE GROUP BRAWL
+   on 30416 — melee resolves, table-cell flee works (the hp reroute end to
+   end), survivors PIVOT between victims (re-acquisition, the new power), no
+   freeze across five full fights. Two bench notes, both authoring-class:
+   knights won all 5 with ~3 alive because some Mus snag on the monument (the
+   KNOWN pursue wall-slide — the west approach crosses the centerpiece, so
+   the east team concentrates force first; map-authoring answer, owner
+   concurs), and the crier's "ONE LEFT STANDING" rung never armed because a
+   TEAM fight tops the tally out near 11 — the counter being TRUTHFUL. Ladder
+   lesson: team-fight finales should key on team-wipe, which wants the scan
+   gaining `alive_only` (gate cells on act&&hp like the acquire loop) — a
+   small rung-2 item. The original full-substrate sketch, for the later
+   rungs: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
    logic as a bounded in-tick LOOP over an index instead of an unrolled branch
