@@ -362,6 +362,26 @@ class Announce(Action):
     window: int = 0
 
 
+@dataclass
+class Award(Action):
+    """Pay the player — gil and/or an item (the minigame win-reward lane). MUST be
+    wrapped in Once: it compiles on the EVENT-Once machinery (edge-latched request
+    lane, latch-FIRST body), which is what makes the payout exactly-once even if
+    the win condition holds forever. Pair with a separate Announce branch for the
+    fanfare text."""
+    gil: int = 0
+    item: object = None              # item name ("Ether") or numeric id
+    count: int = 1
+
+    def __post_init__(self):
+        if not 0 <= int(self.gil) <= 0xFFFFFF:
+            raise BehaviorError("Award gil must be 0..16777215 (24-bit)")
+        if not 1 <= int(self.count) <= 99:
+            raise BehaviorError("Award count must be 1..99")
+        if not int(self.gil) and self.item is None:
+            raise BehaviorError("Award needs gil and/or an item")
+
+
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
                                          # ("Special never fires on this user's binding")
 
@@ -585,6 +605,15 @@ class FieldBehavior:
                 idx = self.bb.flag(f"pool.{pname}.spawn")
             self.pool_flags[pname] = idx
             self._reset_flags.append(idx)
+        # THE HIREABLE FLAG (per pool, PUBLISHED): hireable = (gil >= price, when
+        # priced) AND not-exhausted — refreshed every run pass by the ticker. Wire a
+        # hire [[choice]] row's `requires_flag` to it (and a refusal row's
+        # `requires_flag_clear`) and the menu can never say "Deployed!" to a hire
+        # the activation block will refuse. Presets to 1 in Main_Init (gil is
+        # unknowable at build; the first run pass corrects within a tick).
+        self.pool_hireable: dict[str, int] = {}
+        for pname in self._pools:
+            self.pool_hireable[pname] = self.bb.flag(f"pool.{pname}.hireable")
         # DATA TABLES + COUNTERS (the 0xD3 VECTOR lane): explicit ids claim first,
         # autos fill the lowest free ids from TABLE_ID_BASE in declaration order,
         # and the internal counter table takes the LAST auto slot — all
@@ -871,16 +900,18 @@ class FieldBehavior:
 
     def _once_announce_map(self, u: UnitSpec, ids: dict) -> dict:
         """aid -> Once name for every ``Once`` whose subtree is a simple branch
-        ending in an ``Announce`` — THE EVENT ONCE (the BTTABLE round-2 law:
-        a sticky Once over a MONOTONIC condition — a kill tally, a spent wave
-        counter — holds the selection FOREVER and starves every branch below
-        it). Over an Announce, "once" means an EVENT: fire and release. The
-        fire rides the same edge-latched request lane as Battle (a one-tick
-        selection can be clobbered by a body still holding the level — the
-        siege round-1 lesson), and the dispatch body sets the Once latch
-        itself, so the branch releases the moment the line is delivered."""
+        ending in an ``Announce`` or ``Award`` — THE EVENT ONCE (the BTTABLE
+        round-2 law: a sticky Once over a MONOTONIC condition — a kill tally, a
+        spent wave counter — holds the selection FOREVER and starves every
+        branch below it). Over these one-shot actions, "once" means an EVENT:
+        fire and release. The fire rides the same edge-latched request lane as
+        Battle (a one-tick selection can be clobbered by a body still holding
+        the level — the siege round-1 lesson), and the dispatch body sets the
+        Once latch itself, so the branch releases the moment it delivers.
+        An Award OUTSIDE a Once is refused — a payout must be exactly-once."""
         onced: dict = {}
         bare: set = set()
+        bare_awards: set = set()
 
         def walk(n):
             if isinstance(n, (Selector, Sequence)):
@@ -890,20 +921,27 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, Announce):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
-                            f"{u.name}: the same Announce object sits under two "
-                            f"Once decorators ({onced[aid]!r}, {n.name!r}) — one "
-                            f"latch cannot serve two gates; give each its own "
-                            f"Announce instance")
+                            f"{u.name}: the same {type(leaf.action).__name__} object "
+                            f"sits under two Once decorators ({onced[aid]!r}, "
+                            f"{n.name!r}) — one latch cannot serve two gates; give "
+                            f"each its own instance")
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, Announce):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award)):
                 bare.add(ids[id(n.action)])
+                if isinstance(n.action, Award):
+                    bare_awards.add(ids[id(n.action)])
         walk(u.tree)
+        if bare_awards:
+            raise BehaviorError(
+                f"{u.name}: an Award must be wrapped in Once (the payout is "
+                f"exactly-once BY that machinery — a bare Award would re-pay "
+                f"every selection)")
         clash = set(onced) & bare
         if clash:
             raise BehaviorError(
@@ -1077,7 +1115,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, Announce) and aid in once_ann:
+                elif isinstance(a, (Announce, Award)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -1252,6 +1290,16 @@ class FieldBehavior:
             cd_blocks += [label(f"pl_{pname}_done"),     # exhausted pool falls through
                           _set_flag(req, 0),             # here too: consume the request
                           label(f"pl_{pname}_end")]
+        # hireable refresh — AFTER the activation blocks, so the tick that spawns a
+        # pool's last unit flips it un-hireable the same pass
+        for pname, unames in self._pools.items():
+            hidx = self.pool_hireable[pname]
+            price = getattr(self.pool_specs.get(pname), "price", None)
+            afford = f"B_SYSVAR[6] {_cnum(int(price))} B_GE" if price else "const(1)"
+            sp = [f"Global.Bit[{self.bb.flag(f'{un}.spawned')}]" for un in unames]
+            allsp = sp[0] + "".join(f" {s} B_ANDAND" for s in sp[1:])
+            cd_blocks.append(_stmt(f"Global.Bit[{hidx}] {afford} {allsp} B_NOT "
+                                   f"B_ANDAND B_LET"))
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:
             main_init += _set_byte(self.bb.byte(name), 0)
@@ -1263,6 +1311,8 @@ class FieldBehavior:
             main_init += _set_flag(idx, 0)
         for idx, v in self._preset16.items():             # Wander target seeds
             main_init += _set_int16(idx, v)
+        for pname in self._pools:                         # hireable: optimistic preset,
+            main_init += _set_flag(self.pool_hireable[pname], 1)   # first pass corrects
 
         ticker += [label("wait"), opcodes.wait(self.tick), (JMP, "top"), opcodes.RETURN]
         pools_txt = ""
@@ -1274,7 +1324,8 @@ class FieldBehavior:
                     extra += f", price {ps.price} gil"
                 if ps is not None and ps.button is not None:
                     extra += f", hire button mask 0x{ps.button:X}"
-                return (f"  {p}: spawn-request flag {self.pool_flags[p]}{extra}, "
+                return (f"  {p}: spawn-request flag {self.pool_flags[p]}, hireable "
+                        f"flag {self.pool_hireable[p]}{extra}, "
                         f"units [{', '.join(self._pools[p])}]")
             pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
                 + "\n".join(_pdesc(p) for p in self._pools)
@@ -1327,10 +1378,10 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, Announce):
-                # THE EVENT ONCE (BTTABLE round-2 law): over an Announce, "once"
-                # means fire-and-release — the sticky form over a MONOTONIC cond
-                # (a kill tally, a spent wave counter) would hold the selection
+            if leaf is not None and isinstance(leaf.action, (Announce, Award)):
+                # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
+                # "once" means fire-and-release — the sticky form over a MONOTONIC
+                # cond (a kill tally, a spent wave counter) would hold the selection
                 # forever and STARVE every branch below it. Selection edge-latches
                 # the request; the one-shot lane fires it when the level frees;
                 # the dispatch body sets THIS latch itself, releasing the branch.
@@ -1673,6 +1724,23 @@ class FieldBehavior:
                 _set_byte(run, 255),                     # suspend, so a return can
                 opcodes.encode(0x2A, 0, int(a.scene)),   # never re-fire it. Battle(0,
                 _set_byte(run, 0),                       # scene) = 559's tread shape.
+                opcodes.RETURN,
+            ])
+        if isinstance(a, Award):
+            if oneshot_latch is None:                     # unreachable (the map
+                raise BehaviorError(                      # refused it) — belt+braces
+                    f"{u.name}: Award must be Once-wrapped")
+            from . import event as _event
+            pay: list = []
+            if int(a.gil):
+                pay.append(opcodes.add_gil(int(a.gil)))
+            if a.item is not None:
+                pay.append(_event.give_item(a.item, int(a.count)))
+            return asm([
+                _set_flag(oneshot_latch, 1),              # latch FIRST — pay once ever
+                _set_byte(run, 255),
+            ] + pay + [
+                _set_byte(run, 0),
                 opcodes.RETURN,
             ])
         if isinstance(a, Announce):

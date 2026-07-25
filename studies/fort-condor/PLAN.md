@@ -193,6 +193,39 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.
+  **RATIFIED (owner, 2026-07-25):** roster = LEAN 3 (Soldier melee chaser / Shooter
+  stationary artillery / Defender tanky gate guard, each own model+stats+price) ·
+  economy = 20-ally cap across pools, FFVII price band ~300-600 gil · win = GIL + AN
+  ITEM (verify the .eb gil-award lane — the chocobo prize path pays gil) · battlefield
+  = THE 30400 PLAZA with the owner's siege layout: the defended base/NPC on the EAST
+  side (east of the center block); waves enter at the NORTHWEST and SOUTHWEST
+  entrances on authored marker paths; the two chokepoints sit ~north and ~south of
+  the monument. Also lands: the recorded hire-menu polish debt (compiler-published
+  per-pool affordable/exhausted flags gating menu rows — kills "Deployed!" on a
+  refused hire). Layout mapping goes through the layout probe FIRST (the cardinals
+  law: FRONT = -z; probe PNGs before any coordinate is written).
+  **BUILD 1 ⚠ DEPLOYED, playtest pending (2026-07-25)** — `condor_fit_bench.py`
+  rebuilds 30400 as CONDOR: depot hp 24 + QM at (1153,-200) east of the monument
+  (this camera is yaw-0 — probe-verified, so the owner's screen directions ARE
+  world cardinals); 4 pools (5×Soldier-N 300 / 5×Soldier-S 300 / 5×Shooter 550 /
+  5×Defender 450 = the 20 cap) hired via the SELECT war council (ONE parked menu,
+  four rows, each gated on its pool's NEW published `hireable` flag — rows vanish
+  instead of lying); waves 2/2/1+1/2 (2 Fang heavies) on sched [220,170,120,70]
+  over a 4:00 clock, marching route="auto" lanes NW→north-choke and
+  SW→south-choke; the opening 3000-gil STIPEND + the win purse (2000 gil +
+  Phoenix Down) ride the NEW `award` verb (exactly-once by the event-Once lane);
+  loss = depot hp 0 → Battle(35). Compiler additions this rung: `award` +
+  `pool_hireable`. THE CAPACITY FINDING: the v1 central ticker tops out ~32KB
+  (signed-16 jump spans) — the 20-ally × 8-raider full cross-product does NOT
+  fit; per-type target trims ship build 1 (soldiers fight their own watch's
+  lane, defenders grind the late/heavy four), and the REAL fix — a long-jump
+  relaxation pass in `eb/labelasm.py` (island trampolines at
+  unconditional-jump sites, offsets iterated to fixpoint) — is the queued
+  follow-up. Bench-layout laws minted: anchor picks = the spawn's CONNECTED
+  COMPONENT of the tri-nbr graph (same-floor pockets can be DISCONNECTED sheets
+  — the east bay was, and the route planner rightly refused an anchor there) +
+  a ~120u wall-clearance filter + a height band that keeps the street arms but
+  drops the balcony class.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates
