@@ -49,5 +49,13 @@ declarative surface, with the stock install revertible at every step.
 
 ## Status
 
-- W1 — IN FLIGHT (the read-out; its round-trip gate does the camera recon).
-- W2–W4 — pending W1.
+- **W1 — ★ DONE** (`W1-READOUT.md`, `summon_camera.py`, `test_summon_camera.py`, `w1_gates.py`;
+  5/5 gates). **THE RECON ANSWER: outcome 1 — 798/798 stock summon camera blocks across 372/372
+  effects round-trip BYTE-IDENTICAL through the unmodified battle `camera_codec.py`.** The FORMAT
+  claim is proven with an artifact. Three corrections fell out (`0x23 SETUP_CAMERA` names 713 of
+  the 798 blocks; the id-2 directory sits AFTER the extra-sector region; the Code `frame` word
+  carries flags in its top 3 bits), and the two-clocks law is now a number: the authored cut LEADS
+  the beat by 1/1/0 ticks and the runtime install lags by a constant 2.
+- W2 — next; read W1-READOUT §6 first (the block-size ceiling is the directory delta, and half the
+  corpus's blocks carry three genuinely different alternate takes).
+- W3–W4 — pending W2.
