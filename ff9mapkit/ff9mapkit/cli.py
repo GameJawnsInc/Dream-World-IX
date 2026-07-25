@@ -498,7 +498,8 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     fb = BT.build(raw, npc_slots=slots,
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
                                      if n.get("name") and "dialogue" in n},
-                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
+                  behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
+                                  **{("hud", hi): 0 for hi, _h in BT.hud_lines(raw)}},
                   routed=plan)
     try:
         cb = fb.compile()

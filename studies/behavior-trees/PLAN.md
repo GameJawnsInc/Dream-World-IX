@@ -563,7 +563,21 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    TEAM fight tops the tally out near 11 — the counter being TRUTHFUL. Ladder
    lesson: team-fight finales should key on team-wipe, which wants the scan
    gaining `alive_only` (gate cells on act&&hp like the acquire loop) — a
-   small rung-2 item. The original full-substrate sketch, for the later
+   small rung-2 item.
+   **▶ THE POLISH ROUND shipped (same day, owner-directed "independent
+   features first, Condor after"):** scan GROUP FORM + `alive_only` (loop the
+   roster's own tables; boxless = pure headcount; act&&hp gates — team-wipe
+   finales expressible, ~100B/scan) · engage `nearest = true` (argmin acquire,
+   shared scratch, ~70B/unit) · **`[[behavior.hud]]`** (the census' live
+   counter strip: 0x66 expression-arg SetTextVariable + transparent re-issued
+   WindowAsync on a dirty-mirror check; .mes minted via the announce path,
+   [IMME] auto-prepended, ≤8 slots) · extended opcodes 0x112-0x11E in the
+   optables (regen CUSTOM_EXTENDED block, engine-verified getv3 shapes).
+   Bench: THE SCOREBOARD BRAWL on 30416 (group_bench round 2, zero-relaunch)
+   DEPLOYED, playtest pending — the strip's numbers ARE the alive-scan
+   verification, the wipe line replaces the unreachable 13-kill finale, and
+   nearest shows as straight-across pairing.
+   The original full-substrate sketch, for the later
    rungs: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP

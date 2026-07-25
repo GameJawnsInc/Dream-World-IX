@@ -184,9 +184,22 @@ def _branch(when=None, do=None, **keys) -> str:
 
 
 def behavior_toml(lay: dict) -> str:
-    parts = ['\n[behavior]\nwarmup = 45\ncounters = ["fallen"]\n'
+    # ROUND 2 — THE SCOREBOARD: two alive_only group scans feed the live strip
+    # (kn/mu headcounts + the fallen tally), engage picks the NEAREST foe, and
+    # the crier's finale keys on TEAM WIPE (the truthful-counter lesson: a team
+    # fight never reaches a 13-kill tally).
+    parts = ['\n[behavior]\nwarmup = 45\n'
+             'counters = ["fallen", "kn_alive", "mu_alive"]\n'
              f'\n[[behavior.group]]\nname = "knights"\nunits = {_t(KNIGHTS)}\n'
-             f'\n[[behavior.group]]\nname = "mus"\nunits = {_t(MUS)}\n']
+             f'\n[[behavior.group]]\nname = "mus"\nunits = {_t(MUS)}\n'
+             '\n[[behavior.scan]]\nname = "kn_up"\ngroup = "knights"\n'
+             'count = "kn_alive"\nalive_only = true\n'
+             '\n[[behavior.scan]]\nname = "mu_up"\ngroup = "mus"\n'
+             'count = "mu_alive"\nalive_only = true\n'
+             '\n[[behavior.hud]]\nwindow = 6\n'
+             'values = ["kn_alive", "mu_alive", "fallen"]\n'
+             'text = "[MPOS=8,8]Knights [NUMB=0]   Mus [NUMB=1]   '
+             'Fallen [NUMB=2]"\n']
 
     def brawler(name, post, foe_group, refuge, threat):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = 4\nspeed = 55\n')
@@ -196,7 +209,7 @@ def behavior_toml(lay: dict) -> str:
         parts.append(_branch(when=[{"hp_le": 1}],
                              do={"flee": threat, "to": [list(p) for p in refuge],
                                  "avoid_r": 800, "speed": 70}))
-        parts.append(_branch(do=dict(engage=foe_group, **ENGAGE)))
+        parts.append(_branch(do=dict(engage=foe_group, nearest=True, **ENGAGE)))
         parts.append(_branch(do={"hold": list(post)}))
 
     for i, name in enumerate(KNIGHTS):
@@ -206,8 +219,12 @@ def behavior_toml(lay: dict) -> str:
 
     cx, cz = lay["crier"]
     parts.append('\n[[behavior.unit]]\nnpc = "crier"\nspeed = 30\n')
-    parts.append(_branch(when=[{"counter_ge": ["fallen", 13]}], once="last",
-                         do={"announce": "ONE LEFT STANDING!  The plaza falls silent."}))
+    parts.append(_branch(when=[{"counter_eq": ["mu_alive", 0]}], once="muwipe",
+                         do={"announce": "The Mus are WIPED OUT — the east side"
+                                         " takes the plaza!"}))
+    parts.append(_branch(when=[{"counter_eq": ["kn_alive", 0]}], once="knwipe",
+                         do={"announce": "The knights are WIPED OUT — the Mus"
+                                         " take the plaza!"}))
     parts.append(_branch(when=[{"counter_ge": ["fallen", 7]}], once="half",
                          do={"announce": "Half the brawl has fallen!"}))
     parts.append(_branch(when=[{"counter_ge": ["fallen", 1]}], once="first",
@@ -225,6 +242,7 @@ def _dry_build(parts: list):
         raise SystemExit("behavior validate:\n  " + "\n  ".join(problems))
     all_units = [u["npc"] for u in raw["behavior"]["unit"]]
     txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in BT.announce_lines(raw)}
+    txids.update({("hud", hi): 950 + hi for hi, _h in BT.hud_lines(raw)})
     fb = BT.build(raw, npc_slots={n: i + 2 for i, n in enumerate(all_units)},
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
                   behavior_txids=txids)
@@ -277,6 +295,10 @@ def gen() -> None:
     _raw, fb, cb = _dry_build(parts)
     if set(fb._groups) != {"knights", "mus"} or len(fb._engages) != 14:
         raise SystemExit("BENCH INVALID: the group lane did not compile in")
+    if len(fb._scans) != 2 or not all(s.alive_only for s in fb._scans) \
+            or not fb._huds or not all(e.nearest for e in fb._engages.values()):
+        raise SystemExit("BENCH INVALID: scoreboard round pieces missing "
+                         "(alive scans / hud / nearest)")
     new_bytes = (len(cb.ticker_body) + len(cb.main_init)
                  + sum(len(b) for b in cb.duty_bodies.values())
                  + sum(len(b) for fns in cb.action_funcs.values()
@@ -311,19 +333,20 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST (30416 again — registration unchanged, NO relaunch: ~ -> Warp -> {FIELD_ID}
-or Reload if there):
-  THE POINT: the same brawl you already passed, compiled through THE GROUP
-  LOOP — one engage branch + one indexed swing body per unit over roster
-  tables, instead of 13 unrolled branches + 6 bodies. Parity IS the verdict:
-  1 both arcs charge after the ~4s warm-up; a real melee resolves; units die;
-  2 wounded units (1 hp) break off and run for their corner — the flee cond
-    reads a TABLE CELL now, so a working retreat proves the hp reroute;
-  3 RE-ACQUISITION (the one NEW visible power): when a unit's target falls it
-    turns on another foe in range instead of standing idle — watch a survivor
-    pivot between victims;
-  4 the crier ladder lands true: "First blood" / "Half the brawl has fallen" /
-    "ONE LEFT STANDING";
-  5 no freeze, no unit locked mid-swing; ~ -> Reload restarts clean.
+or Reload if there). ROUND 2 — THE SCOREBOARD. Three independent features on
+the proven brawl; each verifies on its own:
+  1 THE HUD STRIP (top-left, frameless): "Knights 7   Mus 7   Fallen 0" from
+    boot, live all match — check it against the ACTORS ON SCREEN at any
+    moment (the alive counts come from the alive_only scans, the tally from
+    the die counter). It must tick down as units die, never lag, never
+    flicker.
+  2 ALIVE_ONLY SCANS / TEAM WIPE: the finale line now fires on a WIPE ("The
+    Mus are WIPED OUT...") the moment the last one drops — exactly when the
+    strip shows 0. (First blood / Half unchanged.)
+  3 NEAREST: at the charge, units pair off with the closest opposite (fewer
+    crossing lines than round 1) and survivors pivot to the CLOSEST next foe.
+  4 regressions: flee-at-1hp, deaths, no freeze; ~ -> Reload restarts clean
+    (strip back to 7/7/0).
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

@@ -331,10 +331,16 @@ round-trip on purpose: a mis-indexed cell breaks the number rather than passing
 silently. Cost: ~400B of ticker for an 8-unit roster.
 
 The composition is in-game proven (THE PILGRIMAGE, field 30416 — an 8-pilgrim
-roll call whose whole announce ladder derives from the loop). One caveat while
-the lane grows: mirrors freeze when a unit deactivates (a dead unit still
-standing in the box keeps counting — scan rosters that stay alive, or gate
-consumers on `active`). This is the first stone of the v2 vector substrate
+roll call whose whole announce ladder derives from the loop).
+
+**The group form**: `group = "raiders"` instead of `units` loops the GROUP'S
+own tables (no copies), `point`/`radius` become optional (absent = a pure
+roster headcount), and `alive_only = true` gates every cell on act && hp>0 —
+the team-wipe / alive-count primitive (`counter_eq = ["mus_alive", 0]` fires
+the moment the roster is wiped). ~100B of ticker per scan. The units form
+keeps its rung-0 caveat: mirrors freeze when a unit deactivates (a dead unit
+still standing in the box keeps counting — scan rosters that stay alive, or
+use the group form with `alive_only`). This is the first stone of the v2 vector substrate
 (`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group loop below
 builds on it.
 
@@ -368,10 +374,33 @@ The economics are the point (the three walls): a 7-per-side mutual brawl costs
 **42% of the unrolled bytes** (one ~170B body per unit instead of one ~108B
 body per PAIR; ~880B of ticker per unit instead of ~2,340B; one swing timer +
 two register bytes instead of a band byte per pair) — pinned by a suite test
-so the ratio can't silently regress. v2 rung-1 limits: one `engage` per unit,
-engaging your own group is refused, `raise_flags`/`clear_flags` don't ride the
-engage branch, and acquisition is first-in-range (nearest-foe is a later
-flag).
+so the ratio can't silently regress. v2 limits: one `engage` per unit,
+engaging your own group is refused, and `raise_flags`/`clear_flags` don't ride
+the engage branch. Acquisition defaults to first-in-range in roster order;
+**`nearest = true`** switches the acquire loop to an argmin over Chebyshev
+distance (units pair off with the closest living foe within `radius` and
+survivors pivot to the closest next victim; the scratch registers are shared
+field-wide — ~70B of ticker per unit, four blackboard slots total).
+
+## HUD strips — `[[behavior.hud]]` (the live counter substrate)
+
+```toml
+[[behavior.hud]]
+window = 6                                       # Dialog.WindowID 0..7
+values = ["kn_alive", "mu_alive", "fallen"]      # 1..8 counter names
+text = "[MPOS=8,8]Knights [NUMB=0]   Mus [NUMB=1]   Fallen [NUMB=2]"
+```
+
+The stock substrate every PC minigame HUD uses (the hunt points, the auction
+bid, the jump-rope count — there is no number opcode in FF9): slot i's
+`[NUMB=i]` renders `values[i]`'s counter, fed by `SetTextVariable` with the
+cell as an expression arg, and the ticker re-issues the same TRANSPARENT
+window (flags 16 — frameless floating text) only when a value changed (the
+hunt's dirty-mirror shape). The `.mes` line is minted like an announce and
+`[IMME]` is prepended when absent so the strip never types in. Place it with
+`[MPOS=x,y]`; combine with alive_only scans for live team headcounts. ~150B
+of ticker + one window slot per strip; static values cost nothing (the dirty
+check skips the redraw).
 
 ## Limits (v1)
 

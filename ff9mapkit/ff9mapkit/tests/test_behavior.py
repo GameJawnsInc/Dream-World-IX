@@ -1145,3 +1145,126 @@ def test_classic_swing_at_grouped_target_damages_the_cell():
     _verify_all(cb)
     swing = cb.action_funcs["raider"][0][1]
     assert bytes([0xD3]) in swing      # the damage write reaches into the table
+
+
+# ------------------------------------------------------------------ scan v2 forms
+def test_group_scan_alive_only_headcount():
+    """The team-wipe primitive: a boxless group scan counting act && hp>0."""
+    fb = group_brawl_field()
+    fb._counters["reds_alive"] = len(fb._counters)
+    sc = fb.scan("reds_up", group="reds", count="reds_alive", alive_only=True)
+    assert sc.point is None and sc.flags is None and sc.group == "reds"
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "scan reds_up" in cb.report and "ALIVE-ONLY" in cb.report \
+        and "no box (headcount)" in cb.report
+    # no own tables: the scan loops the GROUP's px/pz (no scan.px table)
+    assert "scan.reds_up.px" not in fb.tables
+
+
+def test_group_scan_with_box_and_flags():
+    fb = group_brawl_field()
+    fb._counters["near_gate"] = len(fb._counters)
+    fb.scan("gatewatch", group="blues", point=(900, 0), radius=400,
+            count="near_gate", flags="blues_near_gate", alive_only=True)
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "blues_near_gate" in fb.tables
+
+
+def test_scan_form_negatives():
+    fb = group_brawl_field()
+    fb._counters["c2"] = len(fb._counters)
+    with pytest.raises(B.BehaviorError, match="exactly one of"):
+        fb.scan("s1", units=["a0"], group="reds", count="c2")
+    with pytest.raises(B.BehaviorError, match="alive_only needs group"):
+        fb.scan("s2", units=["a0"], point=(0, 0), radius=100, count="c2",
+                alive_only=True)
+    with pytest.raises(B.BehaviorError, match="flags need a point"):
+        fb.scan("s3", group="reds", count="c2", flags="f")
+    with pytest.raises(B.BehaviorError, match="units form needs point"):
+        fb.scan("s4", units=["a0"], count="c2")
+    with pytest.raises(B.BehaviorError, match="come together"):
+        fb.scan("s5", group="reds", point=(0, 0), count="c2")
+
+
+# ------------------------------------------------------------------ nearest engage
+def test_nearest_engage_compiles_and_shares_scratch():
+    n = 3
+    units = ([B.UnitSpec(f"a{i}", entry=2 + i, spawn=(0, i * 300), hp=3)
+              for i in range(n)]
+             + [B.UnitSpec(f"b{i}", entry=2 + n + i, spawn=(900, i * 300), hp=3)
+                for i in range(n)])
+    fb = B.FieldBehavior(units, counters=("fallen",))
+    fb.group("reds", [f"a{i}" for i in range(n)])
+    fb.group("blues", [f"b{i}" for i in range(n)])
+    for i in range(n):
+        for nm, foe in ((f"a{i}", "blues"), (f"b{i}", "reds")):
+            fb.units[nm].tree = B.Selector(
+                B.Sequence(fb.hp_le(nm, 0), B.Do(B.Die(count="fallen"))),
+                fb.engage_node(nm, B.Engage(foe, radius=1500, contact=170,
+                                            nearest=True)),
+                B.Do(B.Hold(fb.units[nm].spawn)),
+            )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "NEAREST" in cb.report
+    # ONE shared scratch set regardless of unit count
+    assert "engage.scratch.dx" in cb.report and cb.report.count("scratch.dx") == 1
+    h1 = cb.stable_hash()
+    fb2 = B.FieldBehavior(list(units), counters=("fallen",))
+    fb2.group("reds", [f"a{i}" for i in range(n)])
+    fb2.group("blues", [f"b{i}" for i in range(n)])
+    for i in range(n):
+        for nm, foe in ((f"a{i}", "blues"), (f"b{i}", "reds")):
+            fb2.units[nm].tree = B.Selector(
+                B.Sequence(fb2.hp_le(nm, 0), B.Do(B.Die(count="fallen"))),
+                fb2.engage_node(nm, B.Engage(foe, radius=1500, contact=170,
+                                             nearest=True)),
+                B.Do(B.Hold(fb2.units[nm].spawn)),
+            )
+    assert fb2.compile().stable_hash() == h1
+
+
+# ------------------------------------------------------------------ the hud strip
+def hud_field() -> B.FieldBehavior:
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), hp=3)],
+                         counters=("kills", "score"))
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.hp_le("u", 0), B.Do(B.Die(count="kills"))),
+        B.Do(B.Hold((0, 0))),
+    )
+    fb.hud("[MPOS=12,10]K [NUMB=0]  S [NUMB=1]", ["kills", "score"],
+           window=6, txid=940)
+    return fb
+
+
+def test_hud_compiles_and_draws():
+    cb = hud_field().compile()
+    _verify_all(cb)
+    ops = [i.op for i in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
+    assert ops.count(0x66) == 2                    # one SetTextVariable per value
+    assert 0x20 in ops                             # the re-issued WindowAsync
+    assert "hud #0: window 6, txid 940" in cb.report
+    segs = dict(cb.sizes["ticker_segments"])
+    assert segs.get("hud 0", 0) > 40
+    assert hud_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_hud_negatives():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))],
+                         counters=("kills",))
+    fb.units["u"].tree = B.Do(B.Hold((0, 0)))
+    with pytest.raises(B.BehaviorError, match="NUMB=3"):
+        fb.hud("x [NUMB=3]", ["kills"], txid=1)
+    with pytest.raises(B.BehaviorError, match="unknown counter"):
+        fb.hud("x [NUMB=0]", ["ghost"], txid=1)
+    fb.hud("k [NUMB=0]", ["kills"], window=5, txid=1)
+    with pytest.raises(B.BehaviorError, match="already carries"):
+        fb.hud("k2 [NUMB=0]", ["kills"], window=5, txid=2)
+    fb2 = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))],
+                          counters=("kills",))
+    fb2.units["u"].tree = B.Do(B.Hold((0, 0)))
+    fb2.hud("k [NUMB=0]", ["kills"])               # no txid: refused at compile
+    with pytest.raises(B.BehaviorError, match="no txid"):
+        fb2.compile()

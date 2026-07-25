@@ -16,6 +16,29 @@ import argparse
 import re
 from pathlib import Path
 
+# ---- Memoria's custom extended opcodes (the 0xFF page, ops >= 0x112) ----
+# The engine dispatches these ad hoc and reads EVERY operand with getv3()
+# (3-byte immediates, expression-flagged like any arg) — they never appear in
+# the static opArgCount/opArgSize tables this script parses, so they are
+# declared here, transcribed from the EventEngine.DoEventCode.cs case bodies
+# (verified against base 6b8bb2d5, 2026-07-25). Names = Memoria's own quoted
+# names where the case comment carries one.
+CUSTOM_EXTENDED = {
+    0x112: ("SetCharacterEquipment", [3, 3, 3]),        # char, slot, item
+    0x113: ("SetCharacterLevel", [3, 3]),               # char, level
+    0x114: ("SetCharacterExp", [3, 3]),                 # char, exp
+    0x115: ("AddShopItem", [3, 3, 3]),                  # shopId, item, add?
+    0x116: ("AddShopSynthesis", [3, 3, 3]),             # shopId, synthId, add?
+    0x117: ("WalkEx", [3, 3, 3, 3, 3, 3]),              # obj, speed, x, y, z, flags
+    0x118: ("TurnTowardObjectEx", [3, 3, 3]),           # turner, target, speed
+    0x119: ("SetLogicalAnimationEx", [3, 3, 3]),        # obj, kind, anim
+    0x11A: ("ClearMemoriaVector", [3]),                 # vector id
+    0x11B: ("ClearMemoriaDictionary", [3]),             # dictionary id
+    0x11C: ("SetTilePositionTimed", [3, 3, 3, 3, 3]),   # overlay, dx, dy, dz, frames
+    0x11D: ("AddBattleStatus", [3, 3, 3, 3, 3, 3]),     # target, status, perm?, a1, a2, a3
+    0x11E: ("RemoveBattleStatus", [3, 3, 3]),           # target, status, perm?
+}
+
 
 def parse_tables(memoria_root: Path):
     utils = memoria_root / "Assembly-CSharp" / "Global" / "Event" / "Engine" / "EventEngineUtils.cs"
@@ -35,6 +58,20 @@ def parse_tables(memoria_root: Path):
         mm = re.search(r'case EBin\.event_code_binary\.(\w+):\s*//\s*(0x[0-9A-Fa-f]+),\s*"([^"]+)"', line)
         if mm:
             names[int(mm.group(2), 16)] = mm.group(3)
+    # the custom extended page (see CUSTOM_EXTENDED): appended past the static
+    # tables, which end exactly at 0x111
+    assert len(op_arg_count) == 0x112 and len(op_arg_size) == 0x112, \
+        f"static tables end at {len(op_arg_count):#x}, expected 0x112 — re-derive CUSTOM_EXTENDED"
+    for op in sorted(CUSTOM_EXTENDED):
+        nm, sizes = CUSTOM_EXTENDED[op]
+        assert op == len(op_arg_count), f"CUSTOM_EXTENDED gap at {op:#x}"
+        op_arg_count.append(len(sizes))
+        op_arg_size.append(list(sizes))
+        names[op] = nm
+    # extended-page ops with no parsed name keep their hex placeholder (the
+    # historical convention for the BS*/BA* block)
+    for k in range(0x100, len(op_arg_count)):
+        names.setdefault(k, f"0x{k:X}")
     return op_arg_count, op_arg_size, names
 
 

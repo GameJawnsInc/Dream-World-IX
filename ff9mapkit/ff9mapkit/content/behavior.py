@@ -334,6 +334,7 @@ class Engage(Action):
     damage: int = 1
     interval: int = 25
     speed: int | None = None
+    nearest: bool = False            # argmin acquire (Chebyshev) vs roster order
 
     def __post_init__(self):
         if not 1 <= int(self.radius) <= 30000:
@@ -475,6 +476,23 @@ TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
 
 
 @dataclass
+class HudSpec:
+    """A LIVE COUNTER STRIP — the stock substrate every PC minigame HUD uses
+    (the hunt points, the auction bid, the jump-rope count): SetTextVariable
+    (0x66) feeds ``[NUMB=n]`` slots and a re-issued transparent WindowAsync
+    (0x20, flags 16) replaces the same window; the ticker redraws only when a
+    value changed (the hunt's dirty-mirror shape). ``values`` are COUNTER
+    names, slot i drives ``[NUMB=i]`` in ``text``; the ``.mes`` line is minted
+    by the build like an announce (``[IMME]`` is prepended if absent so the
+    strip never types in)."""
+    text: str
+    values: tuple
+    window: int = 6
+    txid: int | None = None
+    mirrors: tuple = ()              # per-value Int16 dirty mirrors (allocated)
+
+
+@dataclass
 class GroupSpec:
     """A ROSTER whose per-member state lives in gScriptVector tables — the v2
     substrate: px/pz (position mirrors, copied per tick), act (the active bit,
@@ -500,15 +518,19 @@ class ScanSpec:
     indexing fault breaks the number rather than passing silently."""
     name: str
     units: tuple
-    point: tuple
-    radius: int
+    point: tuple | None
+    radius: int | None
     count: str
-    flags: str
+    flags: str | None
     px_tid: int = 0
     pz_tid: int = 0
     flag_tid: int = 0
     li: int = 0
     acc: int = 0
+    group: str | None = None         # group form: loop the roster's own tables
+    alive_only: bool = False         # gate each cell on act && hp>0 (group form)
+    act_tid: int = 0                 # group form only
+    hp_tid: int = 0
 
 
 @dataclass
@@ -757,6 +779,7 @@ class FieldBehavior:
         self._groups: dict[str, GroupSpec] = {}          # the engage rosters
         self._member: dict[str, tuple[str, int]] = {}    # unit -> (group, index)
         self._engages: dict[str, Engage] = {}            # unit -> its one Engage
+        self._huds: list[HudSpec] = []                   # live counter strips
         taken: set[int] = set()
         for ts in tables:
             if ts.id is not None:
@@ -1070,8 +1093,9 @@ class FieldBehavior:
                      Do(e._pursue)),
         )
 
-    def scan(self, name: str, units, point, radius: int, count: str,
-             flags: str | None = None):
+    def scan(self, name: str, units=None, point=None, radius: int | None = None,
+             count: str = "", flags: str | None = None, group: str | None = None,
+             alive_only: bool = False):
         """THE VECTOR LOOP (v2 rung 0 — the group-scan primitive): each run
         pass, copy the roster's position mirrors into px/pz tables (constant-
         index vector writes, the proven seed shape), then LOOP an index byte
@@ -1082,15 +1106,40 @@ class FieldBehavior:
         derived THROUGH the flag round-trip on purpose: a mis-indexed write or
         read breaks the number instead of passing silently.
 
-        Mirrors freeze when a unit deactivates (the mirror block is
-        active-gated), so a dead unit still standing in the box keeps counting
-        — pair the scan with rosters that stay alive, or gate consumers
-        accordingly (the v2 group loop proper will carry an active[] table)."""
+        TWO FORMS. Units form (``units=`` + ``point``/``radius`` required): the
+        scan owns px/pz tables and copies the mirrors in — the rung-0 shape;
+        mirrors freeze on deactivation, so a dead unit still standing in the
+        box keeps counting. Group form (``group=``): loop the GROUP'S OWN
+        tables (no copies — the group mirror block owns them), ``point`` is
+        OPTIONAL (absent = no box: a pure roster headcount), and
+        ``alive_only=True`` gates every cell on act && hp>0 — the team-wipe /
+        alive-count primitive (``counter_eq = ["mus_alive", 0]`` = wiped)."""
         if not re.fullmatch(r"[a-z][a-z0-9_]*", name or ""):
             raise BehaviorError(f"scan name {name!r} must be [a-z][a-z0-9_]*")
         if any(s.name == name for s in self._scans):
             raise BehaviorError(f"scan {name!r} already registered")
-        units = tuple(str(u) for u in units)
+        if (group is None) == (units is None):
+            raise BehaviorError(f"scan {name!r}: give exactly one of units= / group=")
+        if (point is None) != (radius is None):
+            raise BehaviorError(f"scan {name!r}: point and radius come together")
+        if flags is not None and point is None:
+            raise BehaviorError(f"scan {name!r}: flags need a point/radius box "
+                                f"(a boxless scan has no per-unit near result)")
+        gspec = None
+        if group is not None:
+            if group not in self._groups:
+                raise BehaviorError(f"scan {name!r}: unknown group {group!r}")
+            gspec = self._groups[group]
+            units = gspec.units
+        else:
+            if alive_only:
+                raise BehaviorError(f"scan {name!r}: alive_only needs group= "
+                                    f"(only a roster carries act/hp tables)")
+            if point is None:
+                raise BehaviorError(f"scan {name!r}: the units form needs "
+                                    f"point/radius (rosterless headcounts are "
+                                    f"static — use group=)")
+            units = tuple(str(u) for u in units)
         if not units:
             raise BehaviorError(f"scan {name!r}: needs at least one unit")
         if len(units) > TABLE_MAX_LEN:
@@ -1101,27 +1150,65 @@ class FieldBehavior:
                 raise BehaviorError(f"scan {name!r}: unknown unit {u!r}")
         if len(set(units)) != len(units):
             raise BehaviorError(f"scan {name!r}: duplicate units")
-        if not 1 <= int(radius) <= 30000:
+        if radius is not None and not 1 <= int(radius) <= 30000:
             raise BehaviorError(f"scan {name!r}: radius must be 1..30000")
         self._counter_ref(count)                          # existence check
-        fname = flags or f"scan.{name}.near"
-        for tname in (f"scan.{name}.px", f"scan.{name}.pz", fname):
+        fname = flags if flags is not None else (f"scan.{name}.near" if point else None)
+        own_tables = group is None
+        check = ([f"scan.{name}.px", f"scan.{name}.pz"] if own_tables else [])
+        if fname:
+            check.append(fname)
+        for tname in check:
             if tname in self.tables:
                 raise BehaviorError(f"scan {name!r}: table name {tname!r} is taken")
         zeros = (0,) * len(units)
-        sc = ScanSpec(name, units, (int(point[0]), int(point[1])), int(radius),
+        sc = ScanSpec(name, tuple(units),
+                      (int(point[0]), int(point[1])) if point else None,
+                      int(radius) if radius is not None else None,
                       str(count), fname,
-                      px_tid=self._alloc_tid(), pz_tid=self._alloc_tid(),
-                      flag_tid=self._alloc_tid(),
+                      px_tid=(self._alloc_tid() if own_tables else gspec.px_tid),
+                      pz_tid=(self._alloc_tid() if own_tables else gspec.pz_tid),
+                      flag_tid=(self._alloc_tid() if fname else 0),
                       li=self.bb.byte(f"scan.{name}.i"),
-                      acc=self.bb.byte(f"scan.{name}.n"))
+                      acc=self.bb.byte(f"scan.{name}.n"),
+                      group=group, alive_only=bool(alive_only),
+                      act_tid=(gspec.act_tid if gspec else 0),
+                      hp_tid=(gspec.hp_tid if gspec else 0))
         # registering the tables makes Main_Init seed them (size wipe + grow)
         # and, for the user-named flags table, exposes it to the table_* conds
-        self.tables[f"scan.{name}.px"] = (sc.px_tid, zeros)
-        self.tables[f"scan.{name}.pz"] = (sc.pz_tid, zeros)
-        self.tables[fname] = (sc.flag_tid, zeros)
+        if own_tables:
+            self.tables[f"scan.{name}.px"] = (sc.px_tid, zeros)
+            self.tables[f"scan.{name}.pz"] = (sc.pz_tid, zeros)
+        if fname:
+            self.tables[fname] = (sc.flag_tid, zeros)
         self._scans.append(sc)
         return sc
+
+    def hud(self, text: str, values, window: int = 6,
+            txid: int | None = None) -> HudSpec:
+        """Register a live counter strip (see :class:`HudSpec`). ``values``:
+        1..8 counter names — slot i drives ``[NUMB=i]`` in ``text``. The TOML
+        lane wires the minted txid; Python callers pass one explicitly."""
+        values = tuple(str(v) for v in values)
+        if not 1 <= len(values) <= 8:
+            raise BehaviorError("hud: 1..8 values (the engine has 8 gMesValue slots)")
+        for v in values:
+            self._counter_ref(v)                          # existence check
+        if not str(text).strip():
+            raise BehaviorError("hud: text must be non-empty")
+        for m in re.finditer(r"\[NUMB=(\d+)", str(text)):
+            if int(m.group(1)) >= len(values):
+                raise BehaviorError(f"hud: [NUMB={m.group(1)}] has no value "
+                                    f"(only {len(values)} given)")
+        if not 0 <= int(window) <= 7:
+            raise BehaviorError("hud: window must be 0..7 (Dialog.WindowID)")
+        if any(h.window == int(window) for h in self._huds):
+            raise BehaviorError(f"hud: window {window} already carries a strip")
+        h = HudSpec(str(text), values, int(window), txid,
+                    mirrors=tuple(self.bb.int16(f"hud{len(self._huds)}.m{i}")
+                                  for i in range(len(values))))
+        self._huds.append(h)
+        return h
 
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
@@ -1544,45 +1631,10 @@ class FieldBehavior:
                 _stmt(f"{cell} {cell} const(1) B_PLUS B_LET"),
                 label(f"sch_{si}"),
             ]
-        # THE VECTOR LOOPS (scan): copy mirrors into the position tables
-        # (constant-index writes — the proven Main_Init seed shape), then a
-        # bounded backward-jump loop whose reads AND writes index cells by the
-        # LIVE loop byte — the v2 rung-0 composition. Pure table/GLOB math, no
-        # object tokens (the player-ref eval law never enters), and the loop
-        # bound is a compile-time constant (always terminates).
-        for sc in self._scans:
-            n = len(sc.units)
-            cd_blocks.append(label(f"__seg scan {sc.name}"))
-            for i, un in enumerate(sc.units):
-                mx = self.bb.int16(f"{un}.mx")
-                mz = self.bb.int16(f"{un}.mz")
-                cd_blocks.append(_stmt(f"{_cnum(sc.px_tid)} {_cnum(i)} B_VECTOR "
-                                       f"Global.Int16[{mx}] B_LET"))
-                cd_blocks.append(_stmt(f"{_cnum(sc.pz_tid)} {_cnum(i)} B_VECTOR "
-                                       f"Global.Int16[{mz}] B_LET"))
-            px = f"{_cnum(sc.px_tid)} Global.Byte[{sc.li}] B_VECTOR"
-            pz = f"{_cnum(sc.pz_tid)} Global.Byte[{sc.li}] B_VECTOR"
-            x, z, r = sc.point[0], sc.point[1], sc.radius
-            cheb = (f"{px} {_cnum(x - r)} B_GT {px} {_cnum(x + r)} B_LT B_ANDAND "
-                    f"{pz} {_cnum(z - r)} B_GT B_ANDAND "
-                    f"{pz} {_cnum(z + r)} B_LT B_ANDAND")
-            cd_blocks += [
-                _set_byte(sc.li, 0), _set_byte(sc.acc, 0),
-                label(f"scn_{sc.name}_top"),
-                _stmt(f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
-                      f"{cheb} B_LET"),
-                _stmt(f"Global.Byte[{sc.acc}] Global.Byte[{sc.acc}] "
-                      f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
-                      f"B_PLUS B_LET"),
-                _stmt(f"Global.Byte[{sc.li}] Global.Byte[{sc.li}] const(1) "
-                      f"B_PLUS B_LET"),
-                _stmt(f"Global.Byte[{sc.li}] const({n}) B_LT"),
-                (JMP_IF, f"scn_{sc.name}_top"),
-                _stmt(f"{self._counter_ref(sc.count)} Global.Byte[{sc.acc}] B_LET"),
-            ]
-        # GROUP MIRRORS (the engage substrate): px/pz/act into the roster tables
-        # once per group per pass — the same constant-index write shape as the
-        # scan copies. hp needs no mirror: the cells ARE the home.
+        # GROUP MIRRORS first (scans in group form read them same-pass): px/pz/
+        # act into the roster tables once per group per pass — the same
+        # constant-index write shape as the scan copies. hp needs no mirror:
+        # the cells ARE the home.
         for g in self._groups.values():
             cd_blocks.append(label(f"__seg group {g.name}"))
             for i, un in enumerate(g.units):
@@ -1597,6 +1649,56 @@ class FieldBehavior:
                     _stmt(f"{_cnum(g.act_tid)} {_cnum(i)} B_VECTOR "
                           f"Global.Bit[{act}] B_LET"),
                 ]
+        # THE VECTOR LOOPS (scan): a bounded backward-jump loop whose reads AND
+        # writes index cells by the LIVE loop byte — the v2 rung-0 composition,
+        # in-game proven. The per-cell TEST composes from the enabled parts
+        # (alive gates and/or the Chebyshev box) into ONE jumpless statement.
+        # Pure table/GLOB math (the player-ref eval law never enters); the loop
+        # bound is a compile-time constant (always terminates).
+        for sc in self._scans:
+            n = len(sc.units)
+            cd_blocks.append(label(f"__seg scan {sc.name}"))
+            if sc.group is None:                     # units form: own copies
+                for i, un in enumerate(sc.units):
+                    mx = self.bb.int16(f"{un}.mx")
+                    mz = self.bb.int16(f"{un}.mz")
+                    cd_blocks.append(_stmt(f"{_cnum(sc.px_tid)} {_cnum(i)} B_VECTOR "
+                                           f"Global.Int16[{mx}] B_LET"))
+                    cd_blocks.append(_stmt(f"{_cnum(sc.pz_tid)} {_cnum(i)} B_VECTOR "
+                                           f"Global.Int16[{mz}] B_LET"))
+            parts = []
+            if sc.alive_only:
+                parts.append(f"{_cnum(sc.act_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                             f"const(1) B_EQ")
+                parts.append(f"{_cnum(sc.hp_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                             f"const(0) B_GT")
+            if sc.point is not None:
+                px = f"{_cnum(sc.px_tid)} Global.Byte[{sc.li}] B_VECTOR"
+                pz = f"{_cnum(sc.pz_tid)} Global.Byte[{sc.li}] B_VECTOR"
+                x, z, r = sc.point[0], sc.point[1], sc.radius
+                parts.append(f"{px} {_cnum(x - r)} B_GT {px} {_cnum(x + r)} B_LT "
+                             f"B_ANDAND {pz} {_cnum(z - r)} B_GT B_ANDAND "
+                             f"{pz} {_cnum(z + r)} B_LT B_ANDAND")
+            test = (parts[0] + "".join(f" {p} B_ANDAND" for p in parts[1:])
+                    if parts else "const(1)")
+            if sc.flags:
+                body = [_stmt(f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                              f"{test} B_LET"),
+                        _stmt(f"Global.Byte[{sc.acc}] Global.Byte[{sc.acc}] "
+                              f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                              f"B_PLUS B_LET")]
+            else:
+                body = [_stmt(f"Global.Byte[{sc.acc}] Global.Byte[{sc.acc}] "
+                              f"{test} B_PLUS B_LET")]
+            cd_blocks += ([_set_byte(sc.li, 0), _set_byte(sc.acc, 0),
+                           label(f"scn_{sc.name}_top")]
+                          + body
+                          + [_stmt(f"Global.Byte[{sc.li}] Global.Byte[{sc.li}] "
+                                   f"const(1) B_PLUS B_LET"),
+                             _stmt(f"Global.Byte[{sc.li}] const({n}) B_LT"),
+                             (JMP_IF, f"scn_{sc.name}_top"),
+                             _stmt(f"{self._counter_ref(sc.count)} "
+                                   f"Global.Byte[{sc.acc}] B_LET")])
         # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
         # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
         # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
@@ -1661,6 +1763,33 @@ class FieldBehavior:
             allsp = sp[0] + "".join(f" {s} B_ANDAND" for s in sp[1:])
             cd_blocks.append(_stmt(f"Global.Bit[{hidx}] {afford} {allsp} B_NOT "
                                    f"B_ANDAND B_LET"))
+        # HUD STRIPS last (freshest counters — the scans above already ran this
+        # pass): the hunt-points dirty-mirror shape — compare each counter cell
+        # to its Int16 mirror, and on ANY difference re-feed the [NUMB] slots
+        # (SetTextVariable 0x66 with the CELL as an expression arg) and re-issue
+        # the transparent window (replace-in-place = the live update).
+        for hi, h in enumerate(self._huds):
+            if h.txid is None:
+                raise BehaviorError(
+                    f"hud #{hi}: no txid — the TOML build mints the .mes line "
+                    f"(collect_text); Python callers must pass txid=")
+            cd_blocks.append(label(f"__seg hud {hi}"))
+            for i, v in enumerate(h.values):
+                cd_blocks += [
+                    _stmt(f"{self._counter_ref(v)} Global.Int16[{h.mirrors[i]}] B_EQ"),
+                    (JMP_IFNOT, f"hud_{hi}_draw"),
+                ]
+            cd_blocks.append((JMP, f"hud_{hi}_skip"))
+            cd_blocks.append(label(f"hud_{hi}_draw"))
+            for i, v in enumerate(h.values):
+                cd_blocks.append(opcodes.encode(
+                    0x66, i,
+                    exprasm.assemble(f"{self._counter_ref(v)} B_EXPR_END"),
+                    arg_flags=0b10))
+                cd_blocks.append(_stmt(f"Global.Int16[{h.mirrors[i]}] "
+                                       f"{self._counter_ref(v)} B_LET"))
+            cd_blocks.append(opcodes.window_async(h.window, 16, int(h.txid)))
+            cd_blocks.append(label(f"hud_{hi}_skip"))
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:
             main_init += _set_byte(self.bb.byte(name), 0)
@@ -1674,6 +1803,9 @@ class FieldBehavior:
             main_init += _set_int16(idx, v)
         for pname in self._pools:                         # hireable: optimistic preset,
             main_init += _set_flag(self.pool_hireable[pname], 1)   # first pass corrects
+        for h in self._huds:                              # -1 mirrors: counters are >=0,
+            for m in h.mirrors:                           # so the first pass always draws
+                main_init += _set_int16(m, -1)
 
         ticker += [label("__seg tail"), label("wait"), opcodes.wait(self.tick),
                    (JMP, "top"), opcodes.RETURN]
@@ -1702,11 +1834,14 @@ class FieldBehavior:
             for cname, tname in self._schedules:
                 tl.append(f"  schedule: {cname} += 1 while timer < {tname}[{cname}]")
             for sc in self._scans:
+                src = f"group '{sc.group}'" if sc.group else f"px={sc.px_tid} pz={sc.pz_tid}"
+                box = (f"box ({sc.point[0]},{sc.point[1]}) r={sc.radius}"
+                       if sc.point else "no box (headcount)")
+                extra = (" ALIVE-ONLY" if sc.alive_only else "") + (
+                    f"; near={sc.flag_tid} ('{sc.flags}')" if sc.flags else "")
                 tl.append(f"  scan {sc.name}: {len(sc.units)} unit(s) -> counter "
                           f"'{sc.count}' (acc byte {sc.acc}, loop byte {sc.li}); "
-                          f"box ({sc.point[0]},{sc.point[1]}) r={sc.radius}; "
-                          f"tables px={sc.px_tid} pz={sc.pz_tid} "
-                          f"near={sc.flag_tid} ('{sc.flags}')")
+                          f"{box}; {src}{extra}")
             for g in self._groups.values():
                 tl.append(f"  group {g.name}: [{', '.join(g.units)}] — tables "
                           f"px={g.px_tid} pz={g.pz_tid} act={g.act_tid} "
@@ -1715,7 +1850,12 @@ class FieldBehavior:
                 tl.append(f"  engage {un} -> group '{e.group}': target register "
                           f"byte {self.bb.byte(f'{un}.ctgt')} (255=none, watch in "
                           f"~ Flags), r={e.radius} contact={e.contact} "
-                          f"dmg={e.damage} ivl={e.interval}")
+                          f"dmg={e.damage} ivl={e.interval}"
+                          + (" NEAREST" if e.nearest else ""))
+            for hi, h in enumerate(self._huds):
+                tl.append(f"  hud #{hi}: window {h.window}, txid {h.txid}, values "
+                          + ", ".join(f"[NUMB={i}]='{v}'"
+                                      for i, v in enumerate(h.values)))
             tables_txt = "\n" + "\n".join(tl)
         # the byte histogram: segment sizes from the PRE-relaxation measure (the
         # content bytes; the asm() length difference is pure island overhead)
@@ -1888,6 +2028,8 @@ class FieldBehavior:
             label(f"{A}_drop"),
             _set_byte(ctgt, 255),
             label(f"{A}_scan"),
+        ] + (self._acquire_scan_nearest(u, e, g, n, ctgt, li, pxl, pzl, A)
+             if e.nearest else [
             _set_byte(li, 0),
             label(f"{A}_top"),
             _stmt(f"{_cnum(g.act_tid)} Global.Byte[{li}] B_VECTOR const(1) B_EQ"),
@@ -1903,7 +2045,59 @@ class FieldBehavior:
             _stmt(f"Global.Byte[{li}] const({n}) B_LT"),
             (JMP_IF, f"{A}_top"),
             _set_byte(ctgt, 255),
+        ]) + [
             label(f"{A}_end"),
+        ]
+
+    def _acquire_scan_nearest(self, u: UnitSpec, e: Engage, g: GroupSpec, n: int,
+                              ctgt: int, li: int, pxl: str, pzl: str, A: str) -> list:
+        """The argmin scan (``nearest=True``): track the smallest Chebyshev
+        distance ≤ radius over the roster and take its index. Scratch is
+        SHARED across every nearest engage (the ticker is sequential — one
+        dx/dz/best/idx set serves all units, band-cheap). |d| via conditional
+        negate (RPN has no abs); max(dx,dz) via conditional copy — the same
+        no-squares Int24 stance as every kit distance."""
+        s = getattr(self, "_nscratch", None)
+        if s is None:
+            s = self._nscratch = {
+                "dx": self.bb.int16("engage.scratch.dx"),
+                "dz": self.bb.int16("engage.scratch.dz"),
+                "best": self.bb.int16("engage.scratch.best"),
+                "idx": self.bb.byte("engage.scratch.idx"),
+            }
+        dx, dz, best, idx = s["dx"], s["dz"], s["best"], s["idx"]
+        return [
+            _set_byte(li, 0),
+            _set_int16(best, int(e.radius) + 1),
+            _set_byte(idx, 255),
+            label(f"{A}_ntop"),
+            _stmt(f"{_cnum(g.act_tid)} Global.Byte[{li}] B_VECTOR const(1) B_EQ"),
+            (JMP_IFNOT, f"{A}_nnxt"),
+            _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{li}] B_VECTOR const(0) B_GT"),
+            (JMP_IFNOT, f"{A}_nnxt"),
+            _stmt(f"Global.Int16[{dx}] {pxl} {self._mx(u.name)} B_MINUS B_LET"),
+            _stmt(f"Global.Int16[{dx}] const(0) B_LT"),
+            (JMP_IFNOT, f"{A}_nax"),
+            _stmt(f"Global.Int16[{dx}] const(0) Global.Int16[{dx}] B_MINUS B_LET"),
+            label(f"{A}_nax"),
+            _stmt(f"Global.Int16[{dz}] {pzl} {self._mz(u.name)} B_MINUS B_LET"),
+            _stmt(f"Global.Int16[{dz}] const(0) B_LT"),
+            (JMP_IFNOT, f"{A}_naz"),
+            _stmt(f"Global.Int16[{dz}] const(0) Global.Int16[{dz}] B_MINUS B_LET"),
+            label(f"{A}_naz"),
+            _stmt(f"Global.Int16[{dx}] Global.Int16[{dz}] B_LT"),
+            (JMP_IFNOT, f"{A}_nmx"),
+            _stmt(f"Global.Int16[{dx}] Global.Int16[{dz}] B_LET"),
+            label(f"{A}_nmx"),                        # dx = Chebyshev distance
+            _stmt(f"Global.Int16[{dx}] Global.Int16[{best}] B_LT"),
+            (JMP_IFNOT, f"{A}_nnxt"),
+            _stmt(f"Global.Int16[{best}] Global.Int16[{dx}] B_LET"),
+            _stmt(f"Global.Byte[{idx}] Global.Byte[{li}] B_LET"),
+            label(f"{A}_nnxt"),
+            _stmt(f"Global.Byte[{li}] Global.Byte[{li}] const(1) B_PLUS B_LET"),
+            _stmt(f"Global.Byte[{li}] const({n}) B_LT"),
+            (JMP_IF, f"{A}_ntop"),
+            _stmt(f"Global.Byte[{ctgt}] Global.Byte[{idx}] B_LET"),
         ]
 
     def _feed_effect(self, u: UnitSpec, a: Action) -> list:
