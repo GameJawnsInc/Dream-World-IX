@@ -47,6 +47,46 @@ declarative surface, with the stock install revertible at every step.
   (`C:\gd\SCRATCH\summon-format\`). Zero SE bytes in the repo.
 - **The two-clocks law is a gate, not a note** — any rung that changes timing must show both clocks.
 
+## ★ THE EFFECT-OWNED SCENERY LAW — what W2's cast actually minted (2026-07-25)
+
+> ⚠ **A FIRST READING OF THIS CAST WAS WRONG AND IS RETRACTED.** It called the folding surface the
+> *battle background* and concluded the envelope was per-battle-location. **The owner falsified it with
+> a one-cast experiment: he cast the same summon in ICE CAVERN and the ground was NOT SNOWY — it was the
+> same satellite-view terrain.** The surface is not the arena. Kept visible because the wrong version
+> pointed the tier at the wrong ceiling.
+
+**What the cast really showed.** Bahamut's cinematic **ships its own scenery** — an authored ground
+plane that travels with the effect and displaces the arena during the aerial beats. (The real battle
+background *does* show at other points in the same cutscene; the two alternate.) Widening the entrance
+shot revealed that ground's edges and seams, because it is finite geometry modelled to look right from
+the shot it was authored for.
+
+**Confirmed in the container, offline:** ef227's chunk 0 carries, beyond `SUMMON_MODEL` (Bahamut
+himself, 156 KB), a `MARK_6` (26 KB) and two `MARK_7` (70 KB) geometry resources plus two VRAM texture
+pages — the FORMAT round's "32 eff slots = the effect's beams and props." R3's phase table shows the
+entrance phase we rescored (`c0` state 0, f57–126) **draws effect models**, and other phases do not.
+So: effect-owned geometry, drawn on a schedule we can already read.
+
+**THE LAW:** *a summon's cinematic is a self-contained set — creature, props, AND scenery — authored to
+look right from its own camera. Rescoring the camera without regard for that set will show the set's
+edges.* The constraint is **per-SUMMON and lives INSIDE the container**, not per-battle-location.
+
+**Why this expands the tier rather than capping it.** The folding surface is not the game's; it is
+**ef227's, in a container we can now read, patch, and ship**. The scenery is in scope — the same
+override path that carried four camera bytes can carry a re-authored ground. So the ceiling on
+"rescore stock summons" is not FF9's arenas at all: it is only that the camera and the effect's own
+scenery must be re-authored *together*.
+
+**Practical rules (unchanged in substance, re-derived on the right cause):**
+1. **Focal distance (H) is the safest lever** — it reframes without moving the eye, so it exposes less
+   of the effect's own set than a pose change does.
+2. **Back-and-up is the riskiest direction** — it grows the visible footprint, which is exactly what
+   finds the scenery's edge. Lateral/inward stays inside the authored set.
+3. **Judge each shot against the phase table** (`summon-inspect`): a phase that draws effect models is a
+   phase where the set is on screen and the reframe budget is tight; a phase that draws only the
+   creature is far more forgiving.
+4. **W4's scope grows:** "reskin" should be read as the effect's whole set — creature *and* scenery.
+
 ## Status
 
 - **W1 — ★ DONE** (`W1-READOUT.md`, `summon_camera.py`, `test_summon_camera.py`, `w1_gates.py`;

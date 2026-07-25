@@ -307,3 +307,58 @@ id-2 directory writer that shifts every later sub-file and re-checks the native 
 | `studies/custom-summons/tier-w/test_rescore.py` | 34 tests; all but 6 run with no install and no corpus |
 | `studies/custom-summons/tier-w/w2_gates.py` | X0–X5 |
 | `C:\gd\SCRATCH\summon-format\rescore-w2\` | the staged mod root, the backups, and `revert_summon_camera_227.py` — **stock-derived, SCRATCH only** |
+
+---
+
+## CAST VERDICT — 2026-07-25 ★ THE MECHANISM IS PROVEN IN-GAME
+
+**"yeah it pulled back"** — the reframe landed. A four-byte edit to a stock summon's camera block,
+delivered through the mod-folder container override, visibly changed Bahamut's entrance and then snapped
+back to stock at the shot's own next keyframe, exactly as authored. **TIER W rung 2 is ★:** a stock FF9
+summon's cinematic is editable in place, end to end — read, author, deploy, revert.
+
+The lever that read clearest is the one TIER R's capture had already measured directly: the focal
+distance (H 256 -> 96). Pose direction/magnitude remain predictions (W2's stated riskiest assumption);
+this cast neither confirms nor refutes the degree conventions, it only proves they MOVE the camera.
+
+### THE FINDING — the background is the limit, not the camera
+
+The playtester's own diagnosis, and it is the durable result of this rung:
+
+> *"had a curious effect during the aerial view where the ground kind of wrapped in upon itself from the
+> new perspective. basically a side effect of changing camera angles during certain scenes that were
+> tuned to look a certain direction"*
+
+Exactly right. **THE BACKGROUND-GEOMETRY ENVELOPE** (now a tier law, PLAN.md): the battle background is
+finite geometry authored to look correct from the ORIGINAL shot. Widen or re-angle past what it was
+built for and its edge, backfaces and seams enter frame. Nothing in the container is wrong — the world
+ran out.
+
+Aggravating factor specific to this cast: it ran on a **world-map encounter**, whose background is a
+thin chunk of overworld terrain — the least forgiving arena in the game. An interior arena would have
+absorbed the same delta with far less to show for it.
+
+**Guidance this mints for any future rescore:** prefer H over pose; prefer lateral/inward over
+back-and-up; judge on the thinnest arena you intend to ship on, because the envelope is per-battle-
+location, not per-summon.
+
+### ⚠ CORRECTION 2026-07-25 — the finding above named the wrong owner
+
+The section above called the folding surface "the battle background" and generalised it to a
+per-battle-location envelope. **The owner falsified that in one cast: the same summon in ICE CAVERN
+showed the SAME satellite-view ground, not snow.** The surface is **Bahamut's own scenery**, shipped
+inside ef227 and drawn during its aerial beats; the real battle background does appear at other points
+in the same cutscene, so the two alternate.
+
+Confirmed offline in the container: chunk 0 carries `MARK_6` (26 KB) and two `MARK_7` (70 KB) geometry
+resources beside `SUMMON_MODEL` (156 KB) — the FORMAT round's eff-slot props — and R3's phase table
+shows the rescored entrance phase (`c0` s0, f57–126) is one of the phases that **draws effect models**.
+
+The corrected law (PLAN.md, THE EFFECT-OWNED SCENERY LAW) is **per-summon and inside the container**,
+which makes the scenery *editable by the very path this rung proved*, rather than a hard ceiling. The
+practical rules survive unchanged — prefer H, avoid back-and-up, check the phase table — but they now
+rest on the right cause.
+
+**Process note worth keeping:** the wrong law came from generalising a single screenshot instead of
+asking what the container ships. One targeted in-game experiment (same summon, different arena) beat
+the inference outright — the calibration rule again, in the owner's hands rather than the agent's.
