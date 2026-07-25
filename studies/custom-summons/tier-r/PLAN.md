@@ -77,5 +77,23 @@ answer "what happens at frame N and which code does it" without a debugger.
     falls out of the load offset alone.
   * **The GTE surface is SIX cofun words** (RTPS/RTPT/MVMVA/DPCS/NCLIP/AVSZ3). The DLL's COP2 handler
     whole-word-matches exactly those and asserts on anything else; the corpus set is **equal** to it.
-- R2/R3 — unblocked. R2 inherits a complete per-image call census (204 of 216 ops still unnamed) and the
-  `sysStruct` at `headerRel+0x48` as the program's window onto the host.
+- R2 — ★ DONE → **`R2-ANNOTATOR.md`** (`tier_r_annot.py` + `test_tier_r_annot.py` + `r2_gates.py` +
+  the committable **`hle_ops.json`**). 6/6 gates, 111/111 tests (70 new, R1's 41 unchanged).
+  * **THE OP DICTIONARY** — 79/216 ops named (**high 42 / medium 27 / low 10 / unnamed 137**),
+    covering **51.8 % of all 14,212 call sites**. Calibration on the 12 known ops: **12/12** on name,
+    arity AND native-fn identity. Every high name carries both a DLL-supplied symbol and a corpus
+    check (`arity-mode` 28 / `never-called` 11 / `noop-called-anyway` 3), enforced in code.
+  * **THE DATA-REF MAP** — **5,981/5,981 absolute addresses resolved (100 %), 0 unresolved**; every
+    one lands inside its own id-3 image. **The camera sub-file is unreachable from the program** —
+    it is 100 % sequence-driven (opcode `0x29`, ef227 shots 6/16/47), and the motion clips are
+    reached by INDEX (op 26 / op 100), never by pointer. Confirms the format model rather than
+    refuting it, and **relocates TIER W's camera work from the program to the sequence**.
+  * **THE FUNCTION TABLE** — 1,022 functions over 385 images, **0 orphans / 0 shared / 0
+    mid-function call targets**. ef227's two entries are each ONE switch-driven state machine,
+    **11 and 6 cases** — the phase spine R3 binds to the s53 capture.
+  * Findings against the record: the OFX/OFY/H "camera triple" is not atomic (H is an independent
+    zoom knob, ops 121/122/148); `Hi_Draw*ByBone` reads `summonModels`; `M3-opcode-table.json`'s
+    arity column is wrong for 19 ops and its `.data` fn table is not the dispatch authority (8 ops
+    are no-ops).
+- R3 — unblocked. Best next target: **op 117** (1,709 calls, `(ptr,ptr)->ptr`, `fn 0x306f0`), the
+  only unnamed op in the top three.

@@ -1,0 +1,4514 @@
+[
+ {
+  "op": 0,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "int",
+  "native_fn": "0x2cd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0xeed2: arity 2 kinds=pp returns int; corpus: 2 call sites in 2 images / 2 effects (1 creature-bearing); modal arg-setup 1/2 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1, 0: 1}; called next to ops 1(x1), 14(x1), 191(x1); $a2 (BEYOND the arity -- leftovers, not arguments): 2149515264(x1); position: {'middle-third': 1, 'last-third': 1}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 1
+ },
+ {
+  "op": 1,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "int",
+  "native_fn": "0x2d20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0xef2b: arity 2 kinds=pp returns int; corpus: 9 call sites in 7 images / 7 effects (2 creature-bearing); modal arg-setup 5/9 sites = 4 vs the stub's 2 register args DISAGREES; full histogram {4: 5, 2: 4}; called next to ops 141(x5), 128(x2), 28(x1); $a1 constants: 2149489540(x1), 2149489604(x1), 2149489732(x1); position: {'first-third': 7, 'middle-third': 1, 'last-third': 1}",
+  "call_sites": 9,
+  "effects": 7,
+  "creature_effects": 2
+ },
+ {
+  "op": 2,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "pipp",
+  "returns": "void",
+  "native_fn": "0x2fc80",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xef84: arity 4 kinds=pipp returns void; corpus: 7 call sites in 6 images / 6 effects (3 creature-bearing); modal arg-setup 7/7 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 7}; called next to ops 50(x6), 5(x5), 48(x2); $a1 constants: 4294967286(x2), 0(x2), 4294967288(x1), 4294967293(x1), 11(x1); position: {'first-third': 5, 'middle-third': 2}",
+  "call_sites": 7,
+  "effects": 6,
+  "creature_effects": 3
+ },
+ {
+  "op": 3,
+  "name": "set_gte_rot_and_trans",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "piii",
+  "returns": "void",
+  "native_fn": "0x40340",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf007: arity 4 kinds=piii returns void; fn 0x40340 directly references gteRotationMatrix, gteTranslation; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 4,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x47260",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0xf145: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 5,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "ptr",
+  "native_fn": "0x39d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf162: arity 2 kinds=pp returns ptr; corpus: 55 call sites in 39 images / 38 effects (14 creature-bearing); modal arg-setup 50/55 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 50, 3: 1, 4: 3, 1: 1}; called next to ops 8(x34), 159(x12), 15(x6); $a0 constants: 2149488808(x1), 2149487360(x1), 2149492072(x1); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x2), 2149515264(x1); position: {'first-third': 38, 'last-third': 11, 'middle-third': 6}",
+  "call_sites": 55,
+  "effects": 38,
+  "creature_effects": 14
+ },
+ {
+  "op": 6,
+  "name": "Hi_RegisterGouEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "int",
+  "native_fn": "0x15b70",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf1c8: arity 1 kinds=p returns int; the DLL's own debug string 'Hi_RegisterGouEffModel' is owned by fn 0x15b70 (UNWIND_INFO-exact function boundaries); corpus: 29 call sites in 20 images / 20 effects (2 creature-bearing); modal arg-setup 29/29 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 29}; called next to ops 102(x50), 64(x4), 97(x1); position: {'last-third': 1, 'first-third': 15, 'middle-third': 13}",
+  "call_sites": 29,
+  "effects": 20,
+  "creature_effects": 2
+ },
+ {
+  "op": 7,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppii",
+  "returns": "void",
+  "native_fn": "0x2f70",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf1fe: arity 4 kinds=ppii returns void; corpus: 17 call sites in 11 images / 11 effects (4 creature-bearing); modal arg-setup 17/17 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 17}; called next to ops 46(x5), 28(x2), 129(x2); position: {'first-third': 11, 'last-third': 6}",
+  "call_sites": 17,
+  "effects": 11,
+  "creature_effects": 4
+ },
+ {
+  "op": 8,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "ptr",
+  "native_fn": "0x3a20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf29e: arity 2 kinds=pp returns ptr; corpus: 34 call sites in 27 images / 26 effects (9 creature-bearing); modal arg-setup 34/34 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 34}; called next to ops 5(x34), 159(x23), 10(x7); $a1 constants: 2149488832(x1); position: {'first-third': 25, 'middle-third': 6, 'last-third': 3}",
+  "call_sites": 34,
+  "effects": 26,
+  "creature_effects": 9
+ },
+ {
+  "op": 9,
+  "name": "touches_gteTranslation_and_gteVertexBank?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "ptr",
+  "native_fn": "0x3cb0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteTranslation",
+   "gteVertexBank"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank"
+  ],
+  "evidence": "stub 0xf304: arity 3 kinds=ppp returns ptr; fn 0x3cb0 directly references gteTranslation, gteVertexBank; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 10,
+  "name": "set_gte_rotation_matrix",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x3250",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [
+   "gteRotationMatrix"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix"
+  ],
+  "evidence": "stub 0xf390: arity 1 kinds=p returns void; fn 0x3250 directly references gteRotationMatrix; corpus: 7 call sites in 6 images / 6 effects (3 creature-bearing); modal arg-setup 7/7 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 7}; called next to ops 8(x7), 13(x7); position: {'first-third': 4, 'middle-third': 3}",
+  "call_sites": 7,
+  "effects": 6,
+  "creature_effects": 3
+ },
+ {
+  "op": 11,
+  "name": "Hi_StopSummonTexAnim",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18930",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0xf3ed: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_StopSummonTexAnim' is owned by fn 0x18930 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 12,
+  "name": "Hi_StartSummonTexAnim",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iii",
+  "returns": "void",
+  "native_fn": "0x188a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0xf412: arity 3 kinds=iii returns void; the DLL's own debug string 'Hi_StartSummonTexAnim' is owned by fn 0x188a0 (UNWIND_INFO-exact function boundaries); corpus: 2 call sites in 1 images / 1 effects (1 creature-bearing); modal arg-setup 2/2 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 2}; called next to ops 100(x1), 25(x1), 117(x1); $a1 constants: 0(x1), 1(x1); $a2 constants: 0(x2); position: {'first-third': 2}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 1
+ },
+ {
+  "op": 13,
+  "name": "set_gte_translation",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x3280",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [
+   "gteTranslation"
+  ],
+  "touches_deep": [
+   "gteTranslation"
+  ],
+  "evidence": "stub 0xf443: arity 1 kinds=p returns void; fn 0x3280 directly references gteTranslation; corpus: 7 call sites in 6 images / 6 effects (3 creature-bearing); modal arg-setup 7/7 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 7}; called next to ops 10(x7), 127(x4), 191(x1); position: {'first-third': 4, 'middle-third': 3}",
+  "call_sites": 7,
+  "effects": 6,
+  "creature_effects": 3
+ },
+ {
+  "op": 14,
+  "name": "rcos_fixed_point",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x3190",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf48e: arity 1 kinds=i returns void; the stub converts $a0 to double, calls the CRT `cos` import, and scales back to 12-bit fixed point (a 1-function thin wrapper, so the import IS the op rather than something it reaches); corpus: 710 call sites in 121 images / 109 effects (18 creature-bearing); modal arg-setup 689/710 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 689, 0: 9, 4: 1, 2: 11}; called next to ops 15(x342), 102(x107), 24(x90); $a1 (BEYOND the arity -- leftovers, not arguments): 14(x2), 1431655766(x2), 11(x1), 24(x1), 15(x1), 30(x1); position: {'last-third': 310, 'first-third': 130, 'middle-third': 270}",
+  "call_sites": 710,
+  "effects": 109,
+  "creature_effects": 18
+ },
+ {
+  "op": 15,
+  "name": "rsin_fixed_point",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x31d0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf4cf: arity 1 kinds=i returns void; the stub converts $a0 to double, calls the CRT `sin` import, and scales back to 12-bit fixed point (a 1-function thin wrapper, so the import IS the op rather than something it reaches); corpus: 746 call sites in 130 images / 119 effects (16 creature-bearing); modal arg-setup 723/746 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 723, 2: 10, 0: 10, 3: 3}; called next to ops 14(x342), 102(x129), 24(x106); $a0 constants: 512(x1); $a1 (BEYOND the arity -- leftovers, not arguments): 1717986919(x3), 15(x2), 2149515264(x2), 14(x2), 954437177(x1), 11(x1); position: {'first-third': 157, 'middle-third': 311, 'last-third': 278}",
+  "call_sites": 746,
+  "effects": 119,
+  "creature_effects": 16
+ },
+ {
+  "op": 16,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x3210",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf510: arity 2 kinds=ii returns void; corpus: 3 call sites in 3 images / 3 effects (0 creature-bearing); modal arg-setup 3/3 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 3}; called next to ops 53(x3), 102(x2), 152(x1); position: {'first-third': 2, 'middle-third': 1}",
+  "call_sites": 3,
+  "effects": 3,
+  "creature_effects": 0
+ },
+ {
+  "op": 17,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x32a0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfaec: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 18,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 5,
+  "arg_kinds": "ppiii",
+  "returns": "void",
+  "native_fn": "0x30b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf565: arity 5 kinds=ppiii returns void; corpus: 8 call sites in 8 images / 8 effects (2 creature-bearing); modal arg-setup 8/8 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 8}; called next to ops 64(x5), 55(x2), 127(x2); position: {'first-third': 3, 'middle-third': 1, 'last-third': 4}",
+  "call_sites": 8,
+  "effects": 8,
+  "creature_effects": 2
+ },
+ {
+  "op": 19,
+  "name": "Hi_RegisterTexListModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "void",
+  "native_fn": "0x15d30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf5f8: arity 3 kinds=ppp returns void; the DLL's own debug string 'Hi_RegisterTexListModel' is owned by fn 0x15d30 (UNWIND_INFO-exact function boundaries); corpus: 35 call sites in 9 images / 9 effects (4 creature-bearing); modal arg-setup 35/35 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 35}; called next to ops 102(x61), 185(x4), 128(x1); $a1 constants: 2149501860(x4), 2149482236(x2), 2149496484(x1), 2149496532(x1), 2149496588(x1), 2149481688(x1); $a2 constants: 2149501876(x4), 2149482244(x2), 2149496508(x1), 2149496544(x1), 2149496596(x1), 2149481736(x1); position: {'first-third': 27, 'middle-third': 6, 'last-third': 2}",
+  "call_sites": 35,
+  "effects": 9,
+  "creature_effects": 4
+ },
+ {
+  "op": 20,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "noop-called-anyway",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": null,
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: 1 call sites in 1 effects, and they still set up arguments for an op that executes nothing -- a retired entry point whose callers were never re-emitted (observed arg-setup {1: 1})",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 21,
+  "name": "Hi_RegisterSolidEffModel",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "int",
+  "native_fn": "0x15ac0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf684: arity 1 kinds=p returns int; the DLL's own debug string 'Hi_RegisterSolidEffModel' is owned by fn 0x15ac0 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 22,
+  "name": "Hi_RegisterTexEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 5,
+  "arg_kinds": "piiii",
+  "returns": "int",
+  "native_fn": "0x15c20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf6ba: arity 5 kinds=piiii returns int; the DLL's own debug string 'Hi_RegisterTexEffModel' is owned by fn 0x15c20 (UNWIND_INFO-exact function boundaries); corpus: 238 call sites in 79 images / 78 effects (4 creature-bearing); modal arg-setup 238/238 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 238}; called next to ops 102(x428), 128(x8), 47(x8); $a1 constants: 154(x42), 186(x29), 57(x19), 151(x19), 184(x10), 55(x10); $a2 constants: 15808(x51), 15680(x44), 65535(x38), 15616(x21), 15936(x12), 15872(x11); $a3 constants: 0(x170), 128(x52), 16(x7), 64(x7), 4294967232(x1), 192(x1); position: {'first-third': 130, 'middle-third': 101, 'last-third': 7}",
+  "call_sites": 238,
+  "effects": 78,
+  "creature_effects": 4
+ },
+ {
+  "op": 23,
+  "name": "Hi_RegisterSummonModel",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "int",
+  "native_fn": "0x15ee0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "summonModels",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf724: arity 2 kinds=pp returns int; the DLL's own debug string 'Hi_RegisterSummonModel' is owned by fn 0x15ee0 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 24,
+  "name": "Hi_DrawEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "pppi",
+  "returns": "void",
+  "native_fn": "0x16150",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf767: arity 4 kinds=pppi returns void; the DLL's own debug string 'Hi_DrawEffModel' is owned by fn 0x16150 (UNWIND_INFO-exact function boundaries); corpus: 556 call sites in 131 images / 120 effects (20 creature-bearing); modal arg-setup 550/556 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 550, 3: 3, 0: 3}; called next to ops 155(x261), 15(x106), 14(x90); $a0 constants: 2149493356(x1), 2149491320(x1), 2149491368(x1), 2149491416(x1), 2149491688(x1), 2149491832(x1); $a1 constants: 2149491328(x1), 2149491376(x1), 2149491424(x1), 2149491696(x1), 2149491840(x1), 2149491984(x1); $a2 constants: 2149493372(x1), 2149491344(x1), 2149491392(x1), 2149491440(x1), 2149491712(x1), 2149491856(x1); position: {'middle-third': 298, 'last-third': 209, 'first-third': 49}",
+  "call_sites": 556,
+  "effects": 120,
+  "creature_effects": 20
+ },
+ {
+  "op": 25,
+  "name": "Hi_DrawSummonModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 5,
+  "arg_kinds": "pppii",
+  "returns": "int",
+  "native_fn": "0x17710",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "summonModels",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf7da: arity 5 kinds=pppii returns int; the DLL's own debug string 'Hi_DrawSummonModel' is owned by fn 0x17710 (UNWIND_INFO-exact function boundaries); corpus: 67 call sites in 26 images / 20 effects (17 creature-bearing); modal arg-setup 67/67 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 67}; called next to ops 100(x20), 149(x17), 14(x13); $a0 constants: 2149485828(x1), 2149494184(x1), 2149485192(x1), 2149487228(x1), 2149485844(x1); $a1 constants: 2149485836(x1), 2149494200(x1), 2149485200(x1), 2149487236(x1), 2149485852(x1); $a2 constants: 2149485852(x1), 2149494216(x1), 2149485216(x1), 2149487252(x1), 2149485868(x1); position: {'first-third': 17, 'middle-third': 33, 'last-third': 17}",
+  "call_sites": 67,
+  "effects": 20,
+  "creature_effects": 17
+ },
+ {
+  "op": 26,
+  "name": "Hi_SetSummonMotion",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "void",
+  "native_fn": "0x17a10",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0xf85e: arity 2 kinds=pi returns void; the DLL's own debug string 'Hi_SetSummonMotion' is owned by fn 0x17a10 (UNWIND_INFO-exact function boundaries); corpus: 58 call sites in 25 images / 19 effects (16 creature-bearing); modal arg-setup 54/58 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 54, 0: 1, 3: 1, 4: 1, 1: 1}; called next to ops 100(x29), 117(x12), 102(x12); $a2 (BEYOND the arity -- leftovers, not arguments): 2149515264(x1), 4096(x1); position: {'first-third': 19, 'middle-third': 34, 'last-third': 5}",
+  "call_sites": 58,
+  "effects": 19,
+  "creature_effects": 16
+ },
+ {
+  "op": 27,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "noop-called-anyway",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x182c0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: 1 call sites in 1 effects, and they still set up arguments for an op that executes nothing -- a retired entry point whose callers were never re-emitted (observed arg-setup {2: 1})",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 28,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "void",
+  "native_fn": "0x15940",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf888: arity 2 kinds=pi returns void; corpus: 160 call sites in 159 images / 148 effects (21 creature-bearing); modal arg-setup 153/160 sites = 2 vs the stub's 2 register args AGREES; full histogram {4: 4, 2: 153, 1: 3}; called next to ops 102(x115), 127(x28), 128(x27); $a0 constants: 2149482032(x2), 2149482100(x2), 2149483456(x2), 2149481144(x2), 2149481956(x2), 2149487556(x2); $a1 constants: 2(x31), 1(x23), 3(x16), 6(x13), 32(x12), 5(x12); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 114, 'middle-third': 37, 'last-third': 9}",
+  "call_sites": 160,
+  "effects": 148,
+  "creature_effects": 21
+ },
+ {
+  "op": 29,
+  "name": "summon_model_slot_access",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "void",
+  "native_fn": "0x15a20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0xf8c2: arity 2 kinds=pi returns void; fn 0x15a20 directly references summonModels; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 30,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x159f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xf8ec: arity 0 kinds=- returns void; corpus: 126 call sites in 126 images / 116 effects (16 creature-bearing); modal arg-setup 121/126 sites = 0 vs the stub's 0 register args AGREES; full histogram {0: 121, 1: 4, 4: 1}; called next to ops 155(x27), 144(x17), 128(x16); $a0 (BEYOND the arity -- leftovers, not arguments): 0(x3), 1(x2), 2149515264(x1), 16(x1); $a1 (BEYOND the arity -- leftovers, not arguments): 640(x3), 15(x1), 448(x1); position: {'last-third': 111, 'middle-third': 12, 'first-third': 3}",
+  "call_sites": 126,
+  "effects": 116,
+  "creature_effects": 16
+ },
+ {
+  "op": 31,
+  "name": "summon_model_slot_access",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x15aa0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0xf906: arity 0 kinds=- returns void; fn 0x15aa0 directly references summonModels; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 32,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x182d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf919: arity 3 kinds=iip returns void; corpus: 85 call sites in 41 images / 41 effects (2 creature-bearing); modal arg-setup 80/85 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 80, 4: 4, 0: 1}; called next to ops 102(x27), 128(x12), 53(x12); $a0 constants: 16(x81); $a1 constants: 23(x16), 4(x11), 0(x5), 12(x5), 28(x3), 24(x3); $a2 constants: 2149484892(x1), 2149489548(x1), 2149481660(x1), 2149481676(x1), 2149483904(x1), 2149483912(x1); position: {'last-third': 9, 'middle-third': 38, 'first-third': 38}",
+  "call_sites": 85,
+  "effects": 41,
+  "creature_effects": 2
+ },
+ {
+  "op": 33,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x18340",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf96e: arity 3 kinds=iip returns void; corpus: 61 call sites in 45 images / 45 effects (0 creature-bearing); modal arg-setup 58/61 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 58, 4: 3}; called next to ops 102(x24), 128(x20), 53(x14); $a0 constants: 16(x57), 0(x4); $a1 constants: 0(x54), 1(x6); position: {'first-third': 38, 'middle-third': 19, 'last-third': 4}",
+  "call_sites": 61,
+  "effects": 45,
+  "creature_effects": 0
+ },
+ {
+  "op": 34,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x1b380",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xf9c3: arity 2 kinds=ip returns void; corpus: 9 call sites in 9 images / 9 effects (0 creature-bearing); modal arg-setup 9/9 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 9}; called next to ops 35(x9), 38(x9); position: {'last-third': 9}",
+  "call_sites": 9,
+  "effects": 9,
+  "creature_effects": 0
+ },
+ {
+  "op": 35,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "?i",
+  "returns": "int",
+  "native_fn": "0x1b4a0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfa07: arity 2 kinds=?i returns int; corpus: 9 call sites in 9 images / 9 effects (0 creature-bearing); modal arg-setup 9/9 sites = 0 vs the stub's 2 register args DISAGREES; full histogram {0: 9}; called next to ops 34(x9), 117(x2), 64(x2); position: {'last-third': 9}",
+  "call_sites": 9,
+  "effects": 9,
+  "creature_effects": 0
+ },
+ {
+  "op": 36,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x2fd0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 37,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x1bab0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfa33: arity 0 kinds=- returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 38,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b4b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfa3c: arity 2 kinds=ii returns void; corpus: 9 call sites in 9 images / 9 effects (0 creature-bearing); modal arg-setup 9/9 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 9}; called next to ops 34(x9), 203(x9); $a1 constants: 0(x9); position: {'last-third': 9}",
+  "call_sites": 9,
+  "effects": 9,
+  "creature_effects": 0
+ },
+ {
+  "op": 39,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x1b560",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfa63: arity 1 kinds=i returns int; corpus: 8 call sites in 8 images / 8 effects (0 creature-bearing); modal arg-setup 8/8 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 8}; called next to ops 203(x8), 202(x8); position: {'last-third': 8}",
+  "call_sites": 8,
+  "effects": 8,
+  "creature_effects": 0
+ },
+ {
+  "op": 40,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b240",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfa7c: arity 2 kinds=ii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 41,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x182c0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 42,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b310",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfaa3: arity 2 kinds=ii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 43,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x3d660",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xface: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 44,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x32a0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfaec: arity 1 kinds=i returns void; corpus: 4 call sites in 4 images / 4 effects (2 creature-bearing); modal arg-setup 2/4 sites = 2 vs the stub's 1 register args DISAGREES; full histogram {2: 2, 4: 2}; called next to ops 53(x3), 15(x2), 48(x2); $a1 (BEYOND the arity -- leftovers, not arguments): 20(x3), 15(x1); position: {'last-third': 4}",
+  "call_sites": 4,
+  "effects": 4,
+  "creature_effects": 2
+ },
+ {
+  "op": 45,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iii",
+  "returns": "int",
+  "native_fn": "0x20bd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfb0d: arity 3 kinds=iii returns int; corpus: 76 call sites in 33 images / 32 effects (8 creature-bearing); modal arg-setup 59/76 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 59, 2: 17}; called next to ops 15(x28), 14(x15), 102(x12); position: {'last-third': 3, 'first-third': 54, 'middle-third': 19}",
+  "call_sites": 76,
+  "effects": 32,
+  "creature_effects": 8
+ },
+ {
+  "op": 46,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "iiii",
+  "returns": "int",
+  "native_fn": "0x20c00",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfb3d: arity 4 kinds=iiii returns int; corpus: 41 call sites in 18 images / 18 effects (8 creature-bearing); modal arg-setup 40/41 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 40, 0: 1}; called next to ops 102(x8), 155(x7), 14(x6); $a0 constants: 0(x10), 255(x3), 8192(x2), 16384(x2), 191(x2), 63(x1); $a1 constants: 0(x11), 4096(x3), 16384(x2), 8192(x2), 127(x2), 255(x2); $a3 constants: 32(x5), 21(x4), 48(x3), 8(x3), 16(x3), 24(x2); position: {'last-third': 20, 'first-third': 11, 'middle-third': 10}",
+  "call_sites": 41,
+  "effects": 18,
+  "creature_effects": 8
+ },
+ {
+  "op": 47,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppip",
+  "returns": "void",
+  "native_fn": "0x20c50",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfb75: arity 4 kinds=ppip returns void; corpus: 62 call sites in 47 images / 46 effects (4 creature-bearing); modal arg-setup 62/62 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 62}; called next to ops 50(x32), 15(x14), 102(x8); $a2 constants: 16384(x1); position: {'last-third': 17, 'first-third': 25, 'middle-third': 20}",
+  "call_sites": 62,
+  "effects": 46,
+  "creature_effects": 4
+ },
+ {
+  "op": 48,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "int",
+  "native_fn": "0x20930",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfbe8: arity 0 kinds=- returns int; corpus: 451 call sites in 77 images / 74 effects (13 creature-bearing); modal arg-setup 348/451 sites = 0 vs the stub's 0 register args AGREES; full histogram {1: 92, 0: 348, 3: 8, 2: 3}; called next to ops 15(x52), 50(x44), 97(x40); $a0 (BEYOND the arity -- leftovers, not arguments): 2149481948(x1), 2149482284(x1); $a1 (BEYOND the arity -- leftovers, not arguments): 4096(x2), 1717986919(x2); $a2 (BEYOND the arity -- leftovers, not arguments): 4096(x2); $a3 (BEYOND the arity -- leftovers, not arguments): 1(x2); position: {'last-third': 300, 'middle-third': 99, 'first-third': 52}",
+  "call_sites": 451,
+  "effects": 74,
+  "creature_effects": 13
+ },
+ {
+  "op": 49,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x20950",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfc08: arity 2 kinds=ii returns int; corpus: 78 call sites in 15 images / 15 effects (5 creature-bearing); modal arg-setup 77/78 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 77, 0: 1}; called next to ops 48(x23), 68(x8), 102(x8); $a0 constants: 4294967040(x11), 4294967264(x9), 4294967232(x7), 4294967200(x6), 4294967168(x4), 0(x4); $a1 constants: 256(x11), 32(x10), 64(x7), 8(x6), 96(x6), 128(x5); position: {'last-third': 33, 'middle-third': 22, 'first-third': 23}",
+  "call_sites": 78,
+  "effects": 15,
+  "creature_effects": 5
+ },
+ {
+  "op": 50,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x20980",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfc32: arity 1 kinds=i returns void; corpus: 378 call sites in 50 images / 45 effects (9 creature-bearing); modal arg-setup 360/378 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 360, 3: 3, 0: 4, 4: 3, 2: 8}; called next to ops 97(x72), 14(x49), 48(x44); $a0 constants: 256(x78), 128(x35), 512(x30), 32(x17), 1024(x15), 384(x14); $a1 (BEYOND the arity -- leftovers, not arguments): 1(x2); position: {'last-third': 190, 'middle-third': 105, 'first-third': 83}",
+  "call_sites": 378,
+  "effects": 45,
+  "creature_effects": 9
+ },
+ {
+  "op": 51,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "int",
+  "native_fn": "0x208d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfc72: arity 2 kinds=pp returns int; corpus: 18 call sites in 6 images / 6 effects (1 creature-bearing); modal arg-setup 18/18 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 18}; called next to ops 159(x4), 14(x4), 53(x2); position: {'first-third': 16, 'middle-third': 2}",
+  "call_sites": 18,
+  "effects": 6,
+  "creature_effects": 1
+ },
+ {
+  "op": 52,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x209b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfc9f: arity 1 kinds=p returns void; corpus: 10 call sites in 5 images / 5 effects (1 creature-bearing); modal arg-setup 10/10 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 10}; called next to ops 97(x7), 54(x6), 55(x4); position: {'last-third': 10}",
+  "call_sites": 10,
+  "effects": 5,
+  "creature_effects": 1
+ },
+ {
+  "op": 53,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "void",
+  "native_fn": "0x20a20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfcb6: arity 3 kinds=ppp returns void; corpus: 148 call sites in 103 images / 101 effects (11 creature-bearing); modal arg-setup 144/148 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 144, 4: 4}; called next to ops 102(x48), 136(x22), 117(x15); $a0 constants: 2149481372(x2), 2149486428(x2), 2149484932(x1), 2149489556(x1), 2149519348(x1), 2149481772(x1); $a1 constants: 2149481424(x1), 2149519364(x1), 2149481764(x1), 2149508316(x1), 2149487484(x1); $a2 constants: 2149519356(x1), 2149487360(x1), 2149483744(x1), 2149492312(x1); position: {'middle-third': 65, 'first-third': 63, 'last-third': 20}",
+  "call_sites": 148,
+  "effects": 101,
+  "creature_effects": 11
+ },
+ {
+  "op": 54,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "pip",
+  "returns": "void",
+  "native_fn": "0x3c110",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfcf3: arity 3 kinds=pip returns void; fn 0x3c110 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 20 call sites in 13 images / 13 effects (1 creature-bearing); modal arg-setup 20/20 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 20}; called next to ops 124(x11), 128(x7), 52(x6); $a1 constants: 4294967086(x4), 160(x1); position: {'middle-third': 12, 'last-third': 7, 'first-third': 1}",
+  "call_sites": 20,
+  "effects": 13,
+  "creature_effects": 1
+ },
+ {
+  "op": 55,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppip",
+  "returns": "void",
+  "native_fn": "0x3c320",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfd2e: arity 4 kinds=ppip returns void; fn 0x3c320 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 85 call sites in 58 images / 58 effects (5 creature-bearing); modal arg-setup 81/85 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 81, 3: 4}; called next to ops 102(x21), 48(x17), 53(x15); $a0 constants: 2149486176(x3); $a2 constants: 200(x7), 384(x5), 300(x4), 4294967280(x3), 1500(x3), 0(x3); $a3 constants: 2149481512(x1), 2149483660(x1), 2149481756(x1), 2149481764(x1); position: {'last-third': 27, 'first-third': 21, 'middle-third': 37}",
+  "call_sites": 85,
+  "effects": 58,
+  "creature_effects": 5
+ },
+ {
+  "op": 56,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "int",
+  "native_fn": "0x3c9b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfda1: arity 3 kinds=iip returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 57,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "ppi",
+  "returns": "void",
+  "native_fn": "0x3ca00",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0xfdf4: arity 3 kinds=ppi returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 58,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x3cae0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfe31: arity 2 kinds=pp returns void; fn 0x3cae0 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 59,
+  "name": "set_gte_rotation_matrix",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "pppi",
+  "returns": "void",
+  "native_fn": "0x3cce0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix"
+  ],
+  "evidence": "stub 0xfe5b: arity 4 kinds=pppi returns void; fn 0x3cce0 directly references gteRotationMatrix; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 60,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppip",
+  "returns": "void",
+  "native_fn": "0x3cf30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xfebe: arity 4 kinds=ppip returns void; fn 0x3cf30 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 22 call sites in 13 images / 12 effects (3 creature-bearing); modal arg-setup 22/22 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 22}; called next to ops 50(x15), 15(x10), 45(x9); $a2 constants: 0(x20), 4096(x2); position: {'last-third': 8, 'middle-third': 1, 'first-third': 13}",
+  "call_sites": 22,
+  "effects": 12,
+  "creature_effects": 3
+ },
+ {
+  "op": 61,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "ppi",
+  "returns": "void",
+  "native_fn": "0x3d170",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xff4d: arity 3 kinds=ppi returns void; fn 0x3d170 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 62,
+  "name": "set_gte_rot_and_trans",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "pppp",
+  "returns": "void",
+  "native_fn": "0x3d420",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0xff8a: arity 4 kinds=pppp returns void; fn 0x3d420 directly references gteRotationMatrix, gteTranslation; corpus: 2 call sites in 2 images / 2 effects (1 creature-bearing); modal arg-setup 2/2 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 2}; called next to ops 141(x2), 102(x1), 28(x1); position: {'first-third': 2}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 1
+ },
+ {
+  "op": 63,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "ptr",
+  "native_fn": "0x3f0c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10058: arity 2 kinds=ii returns ptr; corpus: 7 call sites in 7 images / 7 effects (3 creature-bearing); modal arg-setup 7/7 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 7}; called next to ops 5(x5), 141(x4), 64(x1); $a0 constants: 0(x7); $a1 constants: 2(x1); position: {'first-third': 5, 'last-third': 2}",
+  "call_sites": 7,
+  "effects": 7,
+  "creature_effects": 3
+ },
+ {
+  "op": 64,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "piii",
+  "returns": "void",
+  "native_fn": "0x3f180",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1007f: arity 4 kinds=piii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}",
+  "call_sites": 366,
+  "effects": 93,
+  "creature_effects": 24
+ },
+ {
+  "op": 65,
+  "name": "Hi_ModifySummonModelRGB",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "iiii",
+  "returns": "void",
+  "native_fn": "0x18b50",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x100d7: arity 4 kinds=iiii returns void; the DLL's own debug string 'Hi_ModifySummonModelRGB' is owned by fn 0x18b50 (UNWIND_INFO-exact function boundaries); corpus: 24 call sites in 18 images / 16 effects (13 creature-bearing); modal arg-setup 24/24 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 24}; called next to ops 25(x13), 14(x7), 149(x4); $a1 constants: 4294967232(x4), 4294967264(x2), 4294967200(x1), 32(x1); $a2 constants: 4294967232(x4), 4294967264(x3), 4294967200(x1), 32(x1); $a3 constants: 4294967232(x5), 4294967264(x2), 4294967200(x1), 32(x1); position: {'last-third': 5, 'middle-third': 13, 'first-third': 6}",
+  "call_sites": 24,
+  "effects": 16,
+  "creature_effects": 13
+ },
+ {
+  "op": 66,
+  "name": "set_gte_rot_and_trans",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x3f6f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10110: arity 2 kinds=pp returns void; fn 0x3f6f0 directly references gteRotationMatrix, gteTranslation; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 67,
+  "name": "set_gte_rot_and_trans",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 9,
+  "arg_kinds": "piiiiiiii",
+  "returns": "void",
+  "native_fn": "0x3fc70",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1028a: arity 9 kinds=piiiiiiii returns void; fn 0x3fc70 directly references gteRotationMatrix, gteTranslation; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 68,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 7,
+  "arg_kinds": "pppiiii",
+  "returns": "void",
+  "native_fn": "0x40730",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x103c3: arity 7 kinds=pppiiii returns void; corpus: 93 call sites in 37 images / 35 effects (15 creature-bearing); modal arg-setup 87/93 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 87, 3: 6}; called next to ops 102(x123), 14(x9), 49(x8); $a1 constants: 0(x77); $a2 constants: 0(x84); $a3 constants: 4294967295(x30), 0(x23); position: {'first-third': 38, 'last-third': 29, 'middle-third': 26}",
+  "call_sites": 93,
+  "effects": 35,
+  "creature_effects": 15
+ },
+ {
+  "op": 69,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "void",
+  "native_fn": "0x409d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x104b4: arity 3 kinds=ppp returns void; fn 0x409d0 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 39 call sites in 18 images / 17 effects (5 creature-bearing); modal arg-setup 39/39 sites = 4 vs the stub's 3 register args DISAGREES; full histogram {4: 39}; called next to ops 102(x45), 14(x11), 50(x4); $a1 constants: 2149494740(x1), 2149482740(x1); $a2 constants: 0(x29); $a3 (BEYOND the arity -- leftovers, not arguments): 10240(x7), 12288(x5), 24576(x4), 4096(x3), 6144(x3), 8192(x2); position: {'first-third': 16, 'last-third': 15, 'middle-third': 8}",
+  "call_sites": 39,
+  "effects": 17,
+  "creature_effects": 5
+ },
+ {
+  "op": 70,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppii",
+  "returns": "void",
+  "native_fn": "0x40f90",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x105a1: arity 4 kinds=ppii returns void; fn 0x40f90 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 4 images / 4 effects (0 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x7), 146(x1); $a2 constants: 0(x1); $a3 constants: 1(x3), 255(x1); position: {'middle-third': 3, 'last-third': 1}",
+  "call_sites": 4,
+  "effects": 4,
+  "creature_effects": 0
+ },
+ {
+  "op": 71,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ipii",
+  "returns": "void",
+  "native_fn": "0x413b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10604: arity 4 kinds=ipii returns void; corpus: 41 call sites in 12 images / 9 effects (4 creature-bearing); modal arg-setup 41/41 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 41}; called next to ops 102(x58), 24(x6), 146(x3); $a0 constants: 3072(x13), 4088(x8), 4094(x8), 2(x4), 8(x4), 7(x2); $a2 constants: 4294967252(x6), 120(x4), 288(x2), 160(x1); $a3 constants: 120(x11), 160(x6), 88(x3), 70(x2), 115(x1), 64(x1); position: {'middle-third': 25, 'last-third': 14, 'first-third': 2}",
+  "call_sites": 41,
+  "effects": 9,
+  "creature_effects": 4
+ },
+ {
+  "op": 72,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "pppi",
+  "returns": "void",
+  "native_fn": "0x41670",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10693: arity 4 kinds=pppi returns void; fn 0x41670 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 9 call sites in 3 images / 3 effects (1 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 102(x15), 14(x2), 30(x1); $a2 constants: 0(x9); $a3 constants: 9216(x2), 6144(x2), 28672(x1), 8192(x1); position: {'middle-third': 5, 'last-third': 4}",
+  "call_sites": 9,
+  "effects": 3,
+  "creature_effects": 1
+ },
+ {
+  "op": 73,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 7,
+  "arg_kinds": "pppiiii",
+  "returns": "void",
+  "native_fn": "0x41b80",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1072f: arity 7 kinds=pppiiii returns void; fn 0x41b80 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 3 images / 3 effects (1 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x6), 14(x2); $a2 constants: 0(x2); $a3 constants: 12288(x3), 8192(x1); position: {'last-third': 3, 'middle-third': 1}",
+  "call_sites": 4,
+  "effects": 3,
+  "creature_effects": 1
+ },
+ {
+  "op": 74,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 7,
+  "arg_kinds": "pppiiii",
+  "returns": "void",
+  "native_fn": "0x42180",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x107bb: arity 7 kinds=pppiiii returns void; fn 0x42180 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 262 call sites in 59 images / 49 effects (8 creature-bearing); modal arg-setup 262/262 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 262}; called next to ops 102(x345), 14(x57), 15(x44); $a1 constants: 2149492476(x3), 2149492528(x3), 2149492912(x2), 2149501024(x2), 2149508316(x2), 2149517356(x1); $a2 constants: 0(x140); $a3 constants: 4096(x24), 2730(x5), 2048(x4), 16384(x4), 20480(x4), 28672(x3); position: {'middle-third': 120, 'last-third': 103, 'first-third': 39}",
+  "call_sites": 262,
+  "effects": 49,
+  "creature_effects": 8
+ },
+ {
+  "op": 75,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 7,
+  "arg_kinds": "pppiiii",
+  "returns": "void",
+  "native_fn": "0x42be0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10847: arity 7 kinds=pppiiii returns void; fn 0x42be0 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 76,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 6,
+  "arg_kinds": "piiiii",
+  "returns": "void",
+  "native_fn": "0x434b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x108d3: arity 6 kinds=piiiii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 77,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "void",
+  "native_fn": "0x43800",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10947: arity 2 kinds=pi returns void; corpus: 102 call sites in 69 images / 67 effects (11 creature-bearing); modal arg-setup 102/102 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 102}; called next to ops 102(x132), 24(x10), 30(x7); position: {'last-third': 61, 'first-third': 4, 'middle-third': 37}",
+  "call_sites": 102,
+  "effects": 67,
+  "creature_effects": 11
+ },
+ {
+  "op": 78,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppii",
+  "returns": "void",
+  "native_fn": "0x44560",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1096f: arity 4 kinds=ppii returns void; fn 0x44560 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 21 call sites in 16 images / 15 effects (5 creature-bearing); modal arg-setup 21/21 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 21}; called next to ops 102(x23), 15(x5), 64(x3); $a2 constants: 11(x1); $a3 constants: 4096(x2); position: {'last-third': 8, 'middle-third': 11, 'first-third': 2}",
+  "call_sites": 21,
+  "effects": 15,
+  "creature_effects": 5
+ },
+ {
+  "op": 79,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "ipp",
+  "returns": "void",
+  "native_fn": "0x324f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x109bd: arity 3 kinds=ipp returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 80,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "ptr",
+  "native_fn": "0x32540",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x109f9: arity 2 kinds=pp returns ptr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 81,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "int",
+  "native_fn": "0x325f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10a23: arity 1 kinds=p returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 82,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x34330",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10a3d: arity 2 kinds=ip returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 83,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "pppp",
+  "returns": "ptr",
+  "native_fn": "0x34380",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10a66: arity 4 kinds=pppp returns ptr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 84,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "void",
+  "native_fn": "0x34710",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10ab6: arity 3 kinds=ppp returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 85,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x34820",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10af3: arity 2 kinds=pp returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 86,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "int",
+  "native_fn": "0x34860",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10b1d: arity 2 kinds=pp returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 87,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "ptr",
+  "native_fn": "0x35490",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10b4a: arity 1 kinds=p returns ptr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 88,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x354e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10b61: arity 2 kinds=pp returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 89,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "pppp",
+  "returns": "void",
+  "native_fn": "0x380c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10b8b: arity 4 kinds=pppp returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 90,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x48800",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10bdb: arity 0 kinds=- returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 91,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "ptr",
+  "native_fn": "0x488c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10be5: arity 2 kinds=pi returns ptr; corpus: 6 call sites in 6 images / 6 effects (1 creature-bearing); modal arg-setup 5/6 sites = 4 vs the stub's 2 register args DISAGREES; full histogram {2: 1, 4: 5}; called next to ops 15(x5), 53(x2), 128(x2); position: {'first-third': 5, 'middle-third': 1}",
+  "call_sites": 6,
+  "effects": 6,
+  "creature_effects": 1
+ },
+ {
+  "op": 92,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "iiii",
+  "returns": "void",
+  "native_fn": "0x48b10",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10c0d: arity 4 kinds=iiii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 93,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "int",
+  "native_fn": "0x48e70",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10c58: arity 0 kinds=- returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 94,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x30780",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10c65: arity 2 kinds=ii returns int; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1}; called next to ops 48(x1), 91(x1); $a0 constants: 8(x1); $a1 constants: 12(x1); position: {'first-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 95,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 5,
+  "arg_kinds": "ipiii",
+  "returns": "void",
+  "native_fn": "0x307a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10c8f: arity 5 kinds=ipiii returns void; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 1}; called next to ops 91(x1), 148(x1); $a2 constants: 8(x1); $a3 constants: 12(x1); position: {'first-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 96,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x30880",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10cef: arity 1 kinds=i returns void; corpus: 22 call sites in 15 images / 9 effects (5 creature-bearing); modal arg-setup 22/22 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 22}; called next to ops 115(x11), 64(x7), 30(x6); $a1 (BEYOND the arity -- leftovers, not arguments): 704(x2); position: {'first-third': 2, 'last-third': 15, 'middle-third': 5}",
+  "call_sites": 22,
+  "effects": 9,
+  "creature_effects": 5
+ },
+ {
+  "op": 97,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "ptr",
+  "native_fn": "0x30930",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10d05: arity 1 kinds=i returns ptr; corpus: 116 call sites in 52 images / 45 effects (6 creature-bearing); modal arg-setup 106/116 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 106, 2: 10}; called next to ops 50(x72), 48(x40), 117(x12); $a1 (BEYOND the arity -- leftovers, not arguments): 640(x3), 1(x3), 6144(x2), 3400(x2), 2730(x1); position: {'last-third': 80, 'middle-third': 31, 'first-third': 5}",
+  "call_sites": 116,
+  "effects": 45,
+  "creature_effects": 6
+ },
+ {
+  "op": 98,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x30a70",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10d1b: arity 1 kinds=i returns int; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 0 vs the stub's 1 register args DISAGREES; full histogram {0: 1}; called next to ops 101(x2); position: {'middle-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 99,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x30bd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10d34: arity 1 kinds=i returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 100,
+  "name": "Hi_SetSummonMotFrame",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x17a70",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x10d4d: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_SetSummonMotFrame' is owned by fn 0x17a70 (UNWIND_INFO-exact function boundaries); corpus: 51 call sites in 18 images / 12 effects (9 creature-bearing); modal arg-setup 46/51 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 46, 0: 3, 3: 2}; called next to ops 26(x29), 25(x20), 102(x9); $a1 constants: 0(x28), 10(x4), 90(x2), 169(x2), 24(x2), 6(x1); position: {'first-third': 13, 'middle-third': 27, 'last-third': 11}",
+  "call_sites": 51,
+  "effects": 12,
+  "creature_effects": 9
+ },
+ {
+  "op": 101,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x486a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10d74: arity 0 kinds=- returns void; corpus: 2 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 2/2 sites = 0 vs the stub's 0 register args AGREES; full histogram {0: 2}; called next to ops 98(x2), 69(x1), 128(x1); position: {'middle-third': 2}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 102,
+  "name": "get_subfile_ptr",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "ptr",
+  "native_fn": "0x3d800",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10d7e: arity 2 kinds=ii returns ptr; native fn 0x3d800 is the sub-file directory walker ef_container documents (entry = base + (Int32)base[idx]); the stub returns a POINTER; FALSIFIABLE INDEX TEST: 3138/3176 statically-known $a1 values address a sub-file the chunk's id-2 directory really has (98.80%); misses ['ef251:c0+0x1460 idx=5 of 2', 'ef251:c0+0x1514 idx=130 of 2', 'ef251:c0+0x154c idx=135 of 2']; corpus: 3311 call sites in 380 images / 367 effects (24 creature-bearing); modal arg-setup 3194/3311 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 3194, 1: 57, 4: 20, 3: 23, 0: 17}; called next to ops 117(x2513), 206(x621), 22(x428); $a1 constants: 1(x237), 2(x193), 3(x176), 4(x158), 5(x154), 7(x139); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x4), 368(x1), 2149508492(x1), 2149481736(x1), 2149515264(x1), 2149496684(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 128(x9), 0(x1), 5(x1), 2149515264(x1); position: {'middle-third': 1347, 'last-third': 878, 'first-third': 1086}",
+  "call_sites": 3311,
+  "effects": 367,
+  "creature_effects": 24
+ },
+ {
+  "op": 103,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x3daa0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10da5: arity 2 kinds=ii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 104,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x3db80",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10dcf: arity 0 kinds=- returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 105,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x3db90",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10dd9: arity 1 kinds=i returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 106,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "int",
+  "native_fn": "0x3dbf0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10df2: arity 0 kinds=- returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 107,
+  "name": "psx_ram_arena_access",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x3de20",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "arenaCursor",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "otzArray",
+   "screenXYArray",
+   "summonModels",
+   "arenaCursor",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10dff: arity 0 kinds=- returns void; fn 0x3de20 directly references arenaCursor; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 108,
+  "name": "touches_seqState?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x313d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "seqState"
+  ],
+  "touches_deep": [
+   "seqState"
+  ],
+  "evidence": "stub 0x10e09: arity 0 kinds=- returns void; fn 0x313d0 directly references seqState; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 109,
+  "name": "touches_channelFlags_and_curChunkSlot_and_seqPtr_and_seqState?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x313f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "seqState",
+   "curChunkSlot",
+   "channelFlags",
+   "seqPtr",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "seqState",
+   "curChunkSlot",
+   "channelFlags",
+   "seqPtr",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10e13: arity 1 kinds=i returns int; fn 0x313f0 directly references channelFlags, curChunkSlot, seqPtr, seqState; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 110,
+  "name": "touches_curChunkSlot_and_seqPtr_and_seqState?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x31520",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "seqState",
+   "curChunkSlot",
+   "seqPtr",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "seqState",
+   "curChunkSlot",
+   "seqPtr",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10e2c: arity 0 kinds=- returns void; fn 0x31520 directly references curChunkSlot, seqPtr, seqState; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 111,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "void",
+  "native_fn": "0x3d670",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10e36: arity 2 kinds=pi returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 112,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "ptr",
+  "native_fn": "0x3d6c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10e5e: arity 2 kinds=pi returns ptr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 113,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "int",
+  "native_fn": "0x3d7a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10e86: arity 2 kinds=pi returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 114,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x3d7d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10eb1: arity 1 kinds=p returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 115,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x30620",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10ec8: arity 0 kinds=- returns void; corpus: 46 call sites in 21 images / 13 effects (10 creature-bearing); modal arg-setup 46/46 sites = 0 vs the stub's 0 register args AGREES; full histogram {0: 46}; called next to ops 96(x11), 28(x10), 102(x8); $a2 (BEYOND the arity -- leftovers, not arguments): 1431633920(x1); position: {'first-third': 11, 'middle-third': 20, 'last-third': 15}",
+  "call_sites": 46,
+  "effects": 13,
+  "creature_effects": 10
+ },
+ {
+  "op": 116,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x306b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10ed2: arity 0 kinds=- returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 117,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "ptr",
+  "native_fn": "0x306f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10edc: arity 2 kinds=pp returns ptr; corpus: 1709 call sites in 369 images / 357 effects (24 creature-bearing); modal arg-setup 1703/1709 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1703, 0: 6}; called next to ops 102(x2513), 136(x436), 64(x58); $a1 constants: 2149513316(x4), 2149492192(x4), 2149496812(x4), 2149485868(x3), 2149483296(x3), 2149485232(x3); position: {'middle-third': 805, 'last-third': 577, 'first-third': 327}",
+  "call_sites": 1709,
+  "effects": 357,
+  "creature_effects": 24
+ },
+ {
+  "op": 118,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x30710",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10f06: arity 2 kinds=pp returns void; corpus: 69 call sites in 39 images / 39 effects (12 creature-bearing); modal arg-setup 60/69 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 60, 1: 9}; called next to ops 102(x11), 172(x10), 177(x9); $a1 constants: 2149492304(x2), 2149484956(x1), 2149492852(x1), 2149492216(x1), 2149494252(x1), 2149492868(x1); $a2 (BEYOND the arity -- leftovers, not arguments): 2149515264(x1); position: {'middle-third': 39, 'last-third': 22, 'first-third': 8}",
+  "call_sites": 69,
+  "effects": 39,
+  "creature_effects": 12
+ },
+ {
+  "op": 119,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x30730",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10f30: arity 1 kinds=p returns void; corpus: 157 call sites in 56 images / 54 effects (19 creature-bearing); modal arg-setup 152/157 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 152, 0: 5}; called next to ops 117(x46), 102(x43), 64(x25); $a1 (BEYOND the arity -- leftovers, not arguments): 1(x2); position: {'first-third': 37, 'last-third': 24, 'middle-third': 96}",
+  "call_sites": 157,
+  "effects": 54,
+  "creature_effects": 19
+ },
+ {
+  "op": 120,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x44a30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10f47: arity 1 kinds=p returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 121,
+  "name": "set_projection_distance?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x48760",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteH"
+  ],
+  "touches_deep": [
+   "gteH"
+  ],
+  "evidence": "stub 0x10f5e: arity 0 kinds=- returns void; fn 0x48760 directly references gteH; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 122,
+  "name": "set_projection_distance?",
+  "confidence": "low",
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x48740",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteH"
+  ],
+  "touches_deep": [
+   "gteH"
+  ],
+  "evidence": "stub 0x10f68: arity 1 kinds=i returns void; fn 0x48740 directly references gteH; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 123,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x44d50",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x10f7e: arity 0 kinds=- returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 124,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x44d60",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10f88: arity 1 kinds=i returns int; corpus: 23 call sites in 18 images / 18 effects (1 creature-bearing); modal arg-setup 22/23 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 22, 4: 1}; called next to ops 54(x11), 131(x7), 102(x7); $a0 constants: 0(x17), 256(x3); position: {'first-third': 9, 'middle-third': 12, 'last-third': 2}",
+  "call_sites": 23,
+  "effects": 18,
+  "creature_effects": 1
+ },
+ {
+  "op": 125,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x44da0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10fa1: arity 1 kinds=i returns int; corpus: 5 call sites in 5 images / 5 effects (0 creature-bearing); modal arg-setup 5/5 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 5}; called next to ops 124(x3), 132(x2), 168(x2); $a0 constants: 0(x5); position: {'first-third': 5}",
+  "call_sites": 5,
+  "effects": 5,
+  "creature_effects": 0
+ },
+ {
+  "op": 126,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x44dc0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10fba: arity 2 kinds=ip returns void; corpus: 61 call sites in 28 images / 27 effects (5 creature-bearing); modal arg-setup 59/61 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 59, 3: 1, 0: 1}; called next to ops 129(x41), 170(x9), 102(x7); $a0 constants: 0(x17), 16(x6); $a1 constants: 2149486436(x1), 2149484908(x1), 2149483936(x1); position: {'last-third': 24, 'first-third': 16, 'middle-third': 21}",
+  "call_sites": 61,
+  "effects": 27,
+  "creature_effects": 5
+ },
+ {
+  "op": 127,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x44f60",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x10fe3: arity 2 kinds=ip returns void; corpus: 211 call sites in 162 images / 162 effects (8 creature-bearing); modal arg-setup 208/211 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 208, 3: 1, 0: 1, 1: 1}; called next to ops 102(x91), 128(x67), 131(x32); $a0 constants: 0(x118), 16(x58); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 106, 'last-third': 43, 'middle-third': 62}",
+  "call_sites": 211,
+  "effects": 162,
+  "creature_effects": 8
+ },
+ {
+  "op": 128,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x450c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1100c: arity 3 kinds=iip returns void; corpus: 305 call sites in 223 images / 223 effects (9 creature-bearing); modal arg-setup 301/305 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 301, 4: 4}; called next to ops 102(x126), 127(x67), 28(x27); $a0 constants: 0(x209), 16(x74); $a1 constants: 0(x289), 1(x15); $a2 constants: 2149486428(x3), 2149492500(x1), 2149484900(x1), 2149484948(x1), 2149484932(x1), 2149492552(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x2); position: {'first-third': 183, 'last-third': 48, 'middle-third': 74}",
+  "call_sites": 305,
+  "effects": 223,
+  "creature_effects": 9
+ },
+ {
+  "op": 129,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x450f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11046: arity 2 kinds=ip returns void; corpus: 89 call sites in 37 images / 36 effects (4 creature-bearing); modal arg-setup 83/89 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 83, 0: 1, 3: 3, 1: 2}; called next to ops 126(x41), 15(x19), 127(x13); $a0 constants: 0(x24), 16(x9), 17(x3); $a1 constants: 2149483944(x1); position: {'last-third': 46, 'middle-third': 36, 'first-third': 7}",
+  "call_sites": 89,
+  "effects": 36,
+  "creature_effects": 4
+ },
+ {
+  "op": 130,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ippp",
+  "returns": "int",
+  "native_fn": "0x46320",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1106f: arity 4 kinds=ippp returns int; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 1}; called next to ops 30(x1), 182(x1); $a0 constants: 0(x1); position: {'last-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 131,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x45350",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x110c1: arity 2 kinds=ip returns void; corpus: 74 call sites in 58 images / 57 effects (7 creature-bearing); modal arg-setup 74/74 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 74}; called next to ops 127(x32), 128(x24), 102(x12); $a0 constants: 16(x37), 0(x17); position: {'first-third': 39, 'middle-third': 23, 'last-third': 12}",
+  "call_sites": 74,
+  "effects": 57,
+  "creature_effects": 7
+ },
+ {
+  "op": 132,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x45480",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x110ea: arity 1 kinds=i returns int; corpus: 16 call sites in 11 images / 10 effects (2 creature-bearing); modal arg-setup 16/16 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 16}; called next to ops 170(x6), 126(x4), 128(x3); $a0 constants: 0(x4), 16(x3); position: {'middle-third': 3, 'first-third': 4, 'last-third': 9}",
+  "call_sites": 16,
+  "effects": 10,
+  "creature_effects": 2
+ },
+ {
+  "op": 133,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x454a0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 134,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x457c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11103: arity 3 kinds=iip returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 135,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x45970",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1113d: arity 2 kinds=ii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 136,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x45a80",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11167: arity 2 kinds=ii returns int; corpus: 510 call sites in 231 images / 231 effects (4 creature-bearing); modal arg-setup 510/510 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 510}; called next to ops 117(x436), 102(x200), 53(x22); $a0 constants: 0(x340), 16(x120); $a1 constants: 128(x237), 32(x153), 64(x46), 256(x18), 16(x14), 512(x13); position: {'middle-third': 219, 'last-third': 220, 'first-third': 71}",
+  "call_sites": 510,
+  "effects": 231,
+  "creature_effects": 4
+ },
+ {
+  "op": 137,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x460e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11191: arity 2 kinds=ii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 138,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x46e80",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x111bb: arity 1 kinds=i returns void; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 1}; called next to ops 136(x1), 102(x1); position: {'last-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 139,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "iipi",
+  "returns": "void",
+  "native_fn": "0x3efc0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x111d1: arity 4 kinds=iipi returns void; corpus: 11 call sites in 8 images / 8 effects (3 creature-bearing); modal arg-setup 11/11 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 11}; called next to ops 141(x8), 164(x3), 102(x2); $a0 constants: 134217728(x9), 83886080(x2); $a3 constants: 2(x5); position: {'first-third': 6, 'middle-third': 3, 'last-third': 2}",
+  "call_sites": 11,
+  "effects": 8,
+  "creature_effects": 3
+ },
+ {
+  "op": 140,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x47070",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1121d: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 141,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x3eed0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11233: arity 3 kinds=iip returns void; corpus: 63 call sites in 30 images / 28 effects (10 creature-bearing); modal arg-setup 57/63 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 57, 0: 4, 2: 1, 4: 1}; called next to ops 15(x13), 159(x11), 28(x11); $a0 constants: 201326592(x24), 150994944(x22), 134217728(x8), 16777216(x7), 83886080(x1); $a1 constants: 0(x3), 4095(x2), 2(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 15616(x1); position: {'first-third': 37, 'last-third': 15, 'middle-third': 11}",
+  "call_sites": 63,
+  "effects": 28,
+  "creature_effects": 10
+ },
+ {
+  "op": 142,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppi",
+  "returns": "void",
+  "native_fn": "0x47a00",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x1126d: arity 3 kinds=ppi returns void; corpus: 6 call sites in 5 images / 5 effects (3 creature-bearing); modal arg-setup 6/6 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 6}; called next to ops 64(x3), 15(x2), 144(x1); $a0 constants: 2149485048(x2), 2149490112(x1), 2149517364(x1), 2149489356(x1), 2149485740(x1); position: {'last-third': 4, 'first-third': 2}",
+  "call_sites": 6,
+  "effects": 5,
+  "creature_effects": 3
+ },
+ {
+  "op": 143,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ippi",
+  "returns": "void",
+  "native_fn": "0x3edb0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x112a9: arity 4 kinds=ippi returns void; corpus: 9 call sites in 7 images / 6 effects (2 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 28(x4), 5(x3), 15(x1); $a0 constants: 134217728(x5), 67108864(x4); $a3 constants: 2(x2); position: {'first-third': 7, 'last-third': 2}",
+  "call_sites": 9,
+  "effects": 6,
+  "creature_effects": 2
+ },
+ {
+  "op": 144,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 7,
+  "arg_kinds": "iiiiiii",
+  "returns": "void",
+  "native_fn": "0x47b40",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11307: arity 7 kinds=iiiiiii returns void; corpus: 167 call sites in 67 images / 59 effects (13 creature-bearing); modal arg-setup 166/167 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 166, 0: 1}; called next to ops 24(x54), 155(x32), 102(x23); $a0 constants: 0(x6); $a1 constants: 640(x32), 448(x27), 576(x24), 704(x24), 512(x14), 832(x14); $a2 constants: 256(x100), 384(x47), 368(x10), 288(x4), 320(x4), 480(x1); $a3 constants: 32(x68), 64(x58), 16(x18), 56(x12), 28(x6), 24(x3); position: {'last-third': 81, 'middle-third': 68, 'first-third': 18}",
+  "call_sites": 167,
+  "effects": 59,
+  "creature_effects": 13
+ },
+ {
+  "op": 145,
+  "name": "Hi_DrawMorphModelByBone",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 6,
+  "arg_kinds": "piiiii",
+  "returns": "void",
+  "native_fn": "0x17190",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "summonModels",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1138f: arity 6 kinds=piiiii returns void; fn 0x17190 also references Hi_GetSummonBoneMatrix, but another function owns that string exclusively -- an inlined callee's assert text, not this op's name; the DLL's own debug string 'Hi_DrawMorphModelByBone' is owned by fn 0x17190 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 146,
+  "name": "gte_project_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 14,
+  "arg_kinds": "iiiiiiiiipppii",
+  "returns": "int",
+  "native_fn": "0x47e30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11403: arity 14 kinds=iiiiiiiiipppii returns int; fn 0x47e30 directly references gteH, gteOFX, gteOFY, gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 71 call sites in 49 images / 40 effects (17 creature-bearing); modal arg-setup 71/71 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 71}; called next to ops 102(x18), 117(x12), 64(x12); $a0 constants: 1(x30), 3(x22), 2(x5), 0(x5), 512(x4), 5(x2); $a1 constants: 160(x69); $a2 constants: 112(x38), 120(x29), 110(x2), 115(x1); $a3 constants: 80(x38), 160(x23), 77(x5), 32(x3), 70(x2); position: {'middle-third': 23, 'last-third': 44, 'first-third': 4}",
+  "call_sites": 71,
+  "effects": 40,
+  "creature_effects": 17
+ },
+ {
+  "op": 147,
+  "name": "Hi_ModifySummonModelAbr",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18af0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x1155d: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_ModifySummonModelAbr' is owned by fn 0x18af0 (UNWIND_INFO-exact function boundaries); corpus: 3 call sites in 3 images / 3 effects (3 creature-bearing); modal arg-setup 2/3 sites = 2 vs the stub's 2 register args AGREES; full histogram {0: 1, 2: 2}; called next to ops 65(x4), 24(x1), 15(x1); $a1 constants: 1(x2); position: {'middle-third': 2, 'last-third': 1}",
+  "call_sites": 3,
+  "effects": 3,
+  "creature_effects": 3
+ },
+ {
+  "op": 148,
+  "name": "set_projection_distance?",
+  "confidence": "low",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "void",
+  "native_fn": "0x484e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteH",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteH",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11584: arity 1 kinds=p returns void; fn 0x484e0 directly references gteH; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 0 vs the stub's 1 register args DISAGREES; full histogram {0: 1}; called next to ops 95(x1), 14(x1); position: {'first-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 149,
+  "name": "Hi_GetSummonBonePos",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x185b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x1159b: arity 3 kinds=iip returns void; the DLL's own debug string 'Hi_GetSummonBonePos' is owned by fn 0x185b0 (UNWIND_INFO-exact function boundaries); corpus: 112 call sites in 16 images / 13 effects (13 creature-bearing); modal arg-setup 110/112 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 110, 4: 1, 2: 1}; called next to ops 102(x34), 25(x17), 117(x14); $a1 constants: 0(x19), 17(x16), 96(x4), 33(x4), 76(x3), 67(x3); $a2 constants: 2149485956(x2), 2149492876(x2), 2149492892(x2), 2149485940(x2), 2149492860(x1), 2149485924(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x1); position: {'first-third': 19, 'middle-third': 58, 'last-third': 35}",
+  "call_sites": 112,
+  "effects": 13,
+  "creature_effects": 13
+ },
+ {
+  "op": 150,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "ptr",
+  "native_fn": "0x3dae0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x115d5: arity 1 kinds=i returns ptr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 151,
+  "name": "Hi_FreeEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x159a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x115eb: arity 1 kinds=i returns void; the DLL's own debug string 'Hi_FreeEffModel' is owned by fn 0x159a0 (UNWIND_INFO-exact function boundaries); corpus: 20 call sites in 6 images / 6 effects (5 creature-bearing); modal arg-setup 16/20 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 16, 0: 4}; called next to ops 117(x4), 119(x3), 64(x2); position: {'first-third': 9, 'middle-third': 10, 'last-third': 1}",
+  "call_sites": 20,
+  "effects": 6,
+  "creature_effects": 5
+ },
+ {
+  "op": 152,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b9e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11601: arity 2 kinds=ii returns void; corpus: 2 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 2/2 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 2}; called next to ops 16(x1), 102(x1), 187(x1); $a0 constants: 16(x2); $a1 constants: 0(x1), 1(x1); position: {'first-third': 1, 'middle-third': 1}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 153,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 11,
+  "arg_kinds": "piiiiipiiii",
+  "returns": "int",
+  "native_fn": "0x3f3a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11628: arity 11 kinds=piiiiipiiii returns int; corpus: 13 call sites in 8 images / 8 effects (4 creature-bearing); modal arg-setup 13/13 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 13}; called next to ops 64(x8), 14(x6), 15(x3); $a1 constants: 66(x4), 40(x3), 4294967264(x2); $a2 constants: 16(x6), 2(x2), 8(x2), 1(x2), 4(x1); $a3 constants: 2(x7), 3(x5), 1(x1); position: {'last-third': 9, 'first-third': 1, 'middle-third': 3}",
+  "call_sites": 13,
+  "effects": 8,
+  "creature_effects": 4
+ },
+ {
+  "op": 154,
+  "name": "Hi_ModifyEffModelAbr",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18990",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11729: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_ModifyEffModelAbr' is owned by fn 0x18990 (UNWIND_INFO-exact function boundaries); corpus: 111 call sites in 67 images / 64 effects (5 creature-bearing); modal arg-setup 109/111 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 109, 1: 2}; called next to ops 24(x89), 155(x87), 163(x17); $a1 constants: 1(x85), 3(x9), 0(x7), 255(x5), 2(x5); position: {'last-third': 46, 'middle-third': 52, 'first-third': 13}",
+  "call_sites": 111,
+  "effects": 64,
+  "creature_effects": 5
+ },
+ {
+  "op": 155,
+  "name": "Hi_ModifyEffModelRGB",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "iiii",
+  "returns": "void",
+  "native_fn": "0x189f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11750: arity 4 kinds=iiii returns void; the DLL's own debug string 'Hi_ModifyEffModelRGB' is owned by fn 0x189f0 (UNWIND_INFO-exact function boundaries); corpus: 384 call sites in 125 images / 114 effects (18 creature-bearing); modal arg-setup 382/384 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 382, 0: 2}; called next to ops 24(x261), 154(x87), 14(x69); $a1 constants: 0(x17), 6(x7), 4294967264(x6), 4294967248(x3), 4294967232(x3), 4294967200(x2); $a2 constants: 0(x17), 6(x7), 4294967264(x6), 4294967248(x3), 4294967232(x3), 4294967200(x2); $a3 constants: 0(x17), 6(x7), 4294967264(x6), 4294967248(x3), 4294967232(x3), 4294967200(x2); position: {'last-third': 172, 'middle-third': 176, 'first-third': 36}",
+  "call_sites": 384,
+  "effects": 114,
+  "creature_effects": 18
+ },
+ {
+  "op": 156,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b5c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1179b: arity 2 kinds=ii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 157,
+  "name": "Hi_ShowSummonModelMesh",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x187e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x117c2: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_ShowSummonModelMesh' is owned by fn 0x187e0 (UNWIND_INFO-exact function boundaries); corpus: 2 call sites in 1 images / 1 effects (1 creature-bearing); modal arg-setup 2/2 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 2}; called next to ops 158(x1), 26(x1); $a1 constants: 1(x1), 2(x1); position: {'first-third': 2}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 1
+ },
+ {
+  "op": 158,
+  "name": "Hi_HideSummonModelMesh",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18840",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x117e9: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_HideSummonModelMesh' is owned by fn 0x18840 (UNWIND_INFO-exact function boundaries); corpus: 3 call sites in 1 images / 1 effects (1 creature-bearing); modal arg-setup 3/3 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 3}; called next to ops 64(x1), 157(x1), 149(x1); $a1 constants: 1(x1), 2(x1), 0(x1); position: {'first-third': 3}",
+  "call_sites": 3,
+  "effects": 1,
+  "creature_effects": 1
+ },
+ {
+  "op": 159,
+  "name": "set_gte_rot_and_trans",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "p",
+  "returns": "ptr",
+  "native_fn": "0x3ab0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation"
+  ],
+  "evidence": "stub 0x11810: arity 1 kinds=p returns ptr; fn 0x3ab0 directly references gteRotationMatrix, gteTranslation; corpus: 33 call sites in 27 images / 26 effects (8 creature-bearing); modal arg-setup 33/33 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 33}; called next to ops 8(x23), 5(x12), 141(x11); position: {'first-third': 24, 'last-third': 7, 'middle-third': 2}",
+  "call_sites": 33,
+  "effects": 26,
+  "creature_effects": 8
+ },
+ {
+  "op": 160,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b8d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11827: arity 2 kinds=ii returns void; corpus: 1 call sites in 1 images / 1 effects (1 creature-bearing); modal arg-setup 1/1 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1}; called next to ops 117(x1), 119(x1); position: {'middle-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 1
+ },
+ {
+  "op": 161,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x1b870",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1184e: arity 1 kinds=i returns int; corpus: 3 call sites in 3 images / 3 effects (1 creature-bearing); modal arg-setup 3/3 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 3}; called next to ops 30(x2), 26(x1), 102(x1); position: {'middle-third': 1, 'last-third': 2}",
+  "call_sites": 3,
+  "effects": 3,
+  "creature_effects": 1
+ },
+ {
+  "op": 162,
+  "name": "Hi_DrawEffModelByBone",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "piii",
+  "returns": "void",
+  "native_fn": "0x167f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "summonModels",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11867: arity 4 kinds=piii returns void; fn 0x167f0 also references Hi_GetSummonBoneMatrix, but another function owns that string exclusively -- an inlined callee's assert text, not this op's name; the DLL's own debug string 'Hi_DrawEffModelByBone' is owned by fn 0x167f0 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 163,
+  "name": "Hi_DrawMorphEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 6,
+  "arg_kinds": "pppiii",
+  "returns": "void",
+  "native_fn": "0x16cc0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x118b3: arity 6 kinds=pppiii returns void; the DLL's own debug string 'Hi_DrawMorphEffModel' is owned by fn 0x16cc0 (UNWIND_INFO-exact function boundaries); corpus: 53 call sites in 32 images / 31 effects (9 creature-bearing); modal arg-setup 47/53 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 47, 3: 6}; called next to ops 155(x18), 154(x17), 102(x13); $a2 constants: 2149497984(x2); position: {'last-third': 18, 'middle-third': 22, 'first-third': 13}",
+  "call_sites": 53,
+  "effects": 31,
+  "creature_effects": 9
+ },
+ {
+  "op": 164,
+  "name": "Hi_GetSummonBoneMatrix",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x18630",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels"
+  ],
+  "touches_deep": [
+   "summonModels"
+  ],
+  "evidence": "stub 0x1192a: arity 3 kinds=iip returns void; the DLL's own debug string 'Hi_GetSummonBoneMatrix' is owned by fn 0x18630 (UNWIND_INFO-exact function boundaries); corpus: 28 call sites in 7 images / 6 effects (3 creature-bearing); modal arg-setup 26/28 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 26, 2: 2}; called next to ops 172(x28), 173(x7), 149(x4); $a1 constants: 61(x11), 39(x2), 7(x1), 49(x1); position: {'first-third': 6, 'middle-third': 11, 'last-third': 11}",
+  "call_sites": 28,
+  "effects": 6,
+  "creature_effects": 3
+ },
+ {
+  "op": 165,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 4,
+  "arg_kinds": "piii",
+  "returns": "int",
+  "native_fn": "0x2fd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11964: arity 4 kinds=piii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 166,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "pii",
+  "returns": "int",
+  "native_fn": "0x2fe0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0x119b6: arity 3 kinds=pii returns int; corpus: 5 call sites in 5 images / 5 effects (0 creature-bearing); modal arg-setup 4/5 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 4, 4: 1}; called next to ops 155(x3), 30(x3), 97(x1); $a1 constants: 704(x3); $a2 constants: 256(x3); position: {'last-third': 3, 'middle-third': 1, 'first-third': 1}",
+  "call_sites": 5,
+  "effects": 5,
+  "creature_effects": 0
+ },
+ {
+  "op": 167,
+  "name": "Hi_DebugPSGData",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x15200",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x119f3: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_DebugPSGData' is owned by fn 0x15200 (UNWIND_INFO-exact function boundaries); corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 168,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x455f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11a1a: arity 2 kinds=ip returns void; corpus: 18 call sites in 17 images / 17 effects (7 creature-bearing); modal arg-setup 18/18 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 18}; called next to ops 131(x9), 127(x5), 128(x4); $a0 constants: 16(x8), 0(x5); $a1 constants: 2149486444(x1), 2149484916(x1); position: {'first-third': 11, 'last-third': 3, 'middle-third': 4}",
+  "call_sites": 18,
+  "effects": 17,
+  "creature_effects": 7
+ },
+ {
+  "op": 169,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x456d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11a43: arity 2 kinds=ip returns void; corpus: 23 call sites in 12 images / 12 effects (3 creature-bearing); modal arg-setup 23/23 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 23}; called next to ops 129(x11), 170(x6), 126(x4); $a0 constants: 0(x11), 16(x1), 17(x1); $a1 constants: 2149486444(x1), 2149484916(x1); position: {'middle-third': 11, 'last-third': 8, 'first-third': 4}",
+  "call_sites": 23,
+  "effects": 12,
+  "creature_effects": 3
+ },
+ {
+  "op": 170,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "void",
+  "native_fn": "0x453c0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11a6c: arity 2 kinds=ip returns void; corpus: 25 call sites in 13 images / 12 effects (3 creature-bearing); modal arg-setup 18/25 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 18, 4: 2, 3: 5}; called next to ops 126(x9), 169(x6), 129(x6); $a0 constants: 0(x3), 17(x1); position: {'middle-third': 7, 'last-third': 18}",
+  "call_sites": 25,
+  "effects": 12,
+  "creature_effects": 3
+ },
+ {
+  "op": 171,
+  "name": "Hi_RegisterTexPtrModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppp",
+  "returns": "int",
+  "native_fn": "0x15e10",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11a95: arity 3 kinds=ppp returns int; the DLL's own debug string 'Hi_RegisterTexPtrModel' is owned by fn 0x15e10 (UNWIND_INFO-exact function boundaries); corpus: 2 call sites in 2 images / 2 effects (1 creature-bearing); modal arg-setup 2/2 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 2}; called next to ops 102(x2), 206(x2); $a1 constants: 2149491796(x1), 2149485768(x1); $a2 constants: 2149491812(x1), 2149485784(x1); position: {'first-third': 2}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 1
+ },
+ {
+  "op": 172,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "pip",
+  "returns": "void",
+  "native_fn": "0x3c560",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11ad5: arity 3 kinds=pip returns void; fn 0x3c560 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 76 call sites in 31 images / 30 effects (3 creature-bearing); modal arg-setup 76/76 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 76}; called next to ops 177(x69), 102(x31), 164(x28); $a1 constants: 0(x7), 400(x6), 70(x5), 128(x4), 800(x3), 500(x2); $a2 constants: 2149483256(x1), 2149492160(x1); position: {'first-third': 30, 'middle-third': 34, 'last-third': 12}",
+  "call_sites": 76,
+  "effects": 30,
+  "creature_effects": 3
+ },
+ {
+  "op": 173,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pp",
+  "returns": "void",
+  "native_fn": "0x3c730",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11b10: arity 2 kinds=pp returns void; fn 0x3c730 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 11 call sites in 6 images / 5 effects (2 creature-bearing); modal arg-setup 11/11 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 11}; called next to ops 164(x7), 177(x6), 32(x4); position: {'last-third': 8, 'first-third': 1, 'middle-third': 2}",
+  "call_sites": 11,
+  "effects": 5,
+  "creature_effects": 2
+ },
+ {
+  "op": 174,
+  "name": "gte_transform_vertices",
+  "confidence": "medium",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x45ab0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11b3a: arity 3 kinds=iip returns void; fn 0x45ab0 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 13 call sites in 13 images / 13 effects (0 creature-bearing); modal arg-setup 13/13 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 13}; called next to ops 15(x13), 136(x3), 30(x3); $a0 constants: 16(x13); $a1 constants: 1(x13); position: {'middle-third': 2, 'last-third': 11}",
+  "call_sites": 13,
+  "effects": 13,
+  "creature_effects": 0
+ },
+ {
+  "op": 175,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x45f90",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11b74: arity 2 kinds=ii returns void; corpus: 38 call sites in 23 images / 23 effects (6 creature-bearing); modal arg-setup 35/38 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 35, 1: 2, 0: 1}; called next to ops 129(x7), 117(x5), 15(x5); $a0 constants: 16(x15), 0(x11), 17(x5); $a1 constants: 0(x11), 4294967295(x5), 128(x5), 4294967294(x4), 4096(x1); position: {'last-third': 20, 'first-third': 6, 'middle-third': 12}",
+  "call_sites": 38,
+  "effects": 23,
+  "creature_effects": 6
+ },
+ {
+  "op": 176,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 3,
+  "arg_kinds": "iii",
+  "returns": "void",
+  "native_fn": "0x46cb0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11b9b: arity 3 kinds=iii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 177,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x18440",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11bd4: arity 3 kinds=iip returns void; corpus: 65 call sites in 31 images / 31 effects (1 creature-bearing); modal arg-setup 65/65 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 65}; called next to ops 172(x69), 117(x11), 118(x9); $a0 constants: 16(x65); $a1 constants: 4(x5), 16(x5), 28(x3), 60(x3), 5(x2), 17(x2); position: {'first-third': 29, 'middle-third': 25, 'last-third': 11}",
+  "call_sites": 65,
+  "effects": 31,
+  "creature_effects": 1
+ },
+ {
+  "op": 178,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x184b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11c0e: arity 3 kinds=iip returns void; corpus: 1 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 1/1 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 1}; called next to ops 127(x1), 172(x1); $a0 constants: 16(x1); $a1 constants: 0(x1); position: {'first-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 179,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x3bf40",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11c48: arity 2 kinds=ii returns void; corpus: 4 call sites in 3 images / 3 effects (0 creature-bearing); modal arg-setup 4/4 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 4}; called next to ops 119(x2), 14(x1), 15(x1); $a0 constants: 1(x3); $a1 constants: 1(x4); position: {'middle-third': 1, 'last-third': 3}",
+  "call_sites": 4,
+  "effects": 3,
+  "creature_effects": 0
+ },
+ {
+  "op": 180,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x322e0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11c6f: arity 2 kinds=ii returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 181,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x32310",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11c96: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 182,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iii",
+  "returns": "int",
+  "native_fn": "0x323a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11cac: arity 3 kinds=iii returns int; corpus: 57 call sites in 14 images / 14 effects (1 creature-bearing); modal arg-setup 57/57 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 57}; called next to ops 127(x5), 136(x5), 64(x4); $a0 constants: 7(x7), 8(x5), 6(x4), 19(x3), 20(x3), 21(x3); $a2 constants: 4294967295(x57); position: {'first-third': 13, 'middle-third': 27, 'last-third': 17}",
+  "call_sites": 57,
+  "effects": 14,
+  "creature_effects": 1
+ },
+ {
+  "op": 183,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x46670",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11ce8: arity 2 kinds=ii returns int; corpus: 3 call sites in 2 images / 2 effects (0 creature-bearing); modal arg-setup 3/3 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 3}; called next to ops 14(x2), 30(x2); $a0 constants: 0(x2), 1(x1); $a1 constants: 16(x3); position: {'middle-third': 3}",
+  "call_sites": 3,
+  "effects": 2,
+  "creature_effects": 0
+ },
+ {
+  "op": 184,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ip",
+  "returns": "ptr",
+  "native_fn": "0x2fd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11d12: arity 2 kinds=ip returns ptr; corpus: 2 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 2/2 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 2}; called next to ops 175(x3), 129(x1); $a0 constants: 14(x2); $a1 constants: 2149484768(x2); position: {'middle-third': 1, 'last-third': 1}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 185,
+  "name": "Hi_SetEffModelOffset",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18a40",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11d3b: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_SetEffModelOffset' is owned by fn 0x18a40 (UNWIND_INFO-exact function boundaries); corpus: 36 call sites in 14 images / 14 effects (4 creature-bearing); modal arg-setup 36/36 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 36}; called next to ops 24(x36), 14(x7), 102(x7); $a1 constants: 2(x22), 110(x6), 128(x2), 32(x1), 50(x1), 40(x1); position: {'middle-third': 13, 'first-third': 7, 'last-third': 16}",
+  "call_sites": 36,
+  "effects": 14,
+  "creature_effects": 4
+ },
+ {
+  "op": 186,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x46020",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11d63: arity 2 kinds=ii returns void; corpus: 1 call sites in 1 images / 1 effects (1 creature-bearing); modal arg-setup 1/1 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1}; called next to ops 170(x1), 132(x1); position: {'last-third': 1}",
+  "call_sites": 1,
+  "effects": 1,
+  "creature_effects": 1
+ },
+ {
+  "op": 187,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x1b980",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11d8a: arity 2 kinds=ii returns void; corpus: 2 call sites in 2 images / 2 effects (0 creature-bearing); modal arg-setup 2/2 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 2}; called next to ops 19(x1), 200(x1), 55(x1); $a0 constants: 16(x2); $a1 constants: 0(x1), 1(x1); position: {'last-third': 1, 'middle-third': 1}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 0
+ },
+ {
+  "op": 188,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x468d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11db1: arity 1 kinds=i returns void; corpus: 2 call sites in 2 images / 2 effects (0 creature-bearing); modal arg-setup 2/2 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 2}; called next to ops 127(x1), 175(x1), 128(x1); $a0 constants: 0(x2); position: {'first-third': 1, 'middle-third': 1}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 0
+ },
+ {
+  "op": 189,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 8,
+  "arg_kinds": "iiiipiii",
+  "returns": "int",
+  "native_fn": "0x48770",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0x11dc7: arity 8 kinds=iiiipiii returns int; corpus: 13 call sites in 13 images / 13 effects (3 creature-bearing); modal arg-setup 13/13 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 13}; called next to ops 102(x6), 22(x3), 53(x2); $a0 constants: 448(x6), 576(x3), 640(x2), 704(x1), 768(x1); $a1 constants: 256(x10), 382(x1), 384(x1), 448(x1); $a2 constants: 128(x6), 256(x3), 112(x3), 64(x1); $a3 constants: 128(x4), 256(x3), 112(x3), 160(x2), 64(x1); position: {'middle-third': 6, 'first-third': 6, 'last-third': 1}",
+  "call_sites": 13,
+  "effects": 13,
+  "creature_effects": 3
+ },
+ {
+  "op": 190,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x44a60",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11e69: arity 1 kinds=i returns int; corpus: 2 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 2/2 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 2}; called next to ops 78(x1), 182(x1); $a0 constants: 16(x1); position: {'middle-third': 2}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 191,
+  "name": "Hi_GetSplitMdlVertex",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x17b30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11e9a: arity 2 kinds=ii returns int; the DLL's own debug string 'Hi_GetSplitMdlVertex' is owned by fn 0x17b30 (UNWIND_INFO-exact function boundaries); corpus: 5 call sites in 5 images / 5 effects (4 creature-bearing); modal arg-setup 5/5 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 5}; called next to ops 193(x4), 13(x1), 196(x1); $a1 constants: 4294967295(x5); position: {'first-third': 4, 'last-third': 1}",
+  "call_sites": 5,
+  "effects": 5,
+  "creature_effects": 4
+ },
+ {
+  "op": 192,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x2fd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11ec4: arity 2 kinds=ii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 193,
+  "name": "Hi_SplitMdlVertex",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "iip",
+  "returns": "void",
+  "native_fn": "0x17ae0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11eee: arity 3 kinds=iip returns void; the DLL's own debug string 'Hi_SplitMdlVertex' is owned by fn 0x17ae0 (UNWIND_INFO-exact function boundaries); corpus: 10 call sites in 9 images / 9 effects (4 creature-bearing); modal arg-setup 5/10 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 5, 2: 1, 4: 4}; called next to ops 50(x7), 198(x4), 191(x4); $a1 constants: 4294967295(x10); $a2 constants: 2149495760(x1), 2149485084(x1), 2149488724(x1); position: {'first-third': 9, 'last-third': 1}",
+  "call_sites": 10,
+  "effects": 9,
+  "creature_effects": 4
+ },
+ {
+  "op": 194,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x182c0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 195,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 5,
+  "arg_kinds": "iippi",
+  "returns": "int",
+  "native_fn": "0x2fd0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11f28: arity 5 kinds=iippi returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 196,
+  "name": "Hi_GetMdlVertexPtr",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 5,
+  "arg_kinds": "iippi",
+  "returns": "int",
+  "native_fn": "0x18000",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x11f8c: arity 5 kinds=iippi returns int; the DLL's own debug string 'Hi_GetMdlVertexPtr' is owned by fn 0x18000 (UNWIND_INFO-exact function boundaries); corpus: 3 call sites in 3 images / 3 effects (1 creature-bearing); modal arg-setup 3/3 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 3}; called next to ops 198(x2), 28(x1), 127(x1); $a1 constants: 0(x1); position: {'first-third': 1, 'middle-third': 1, 'last-third': 1}",
+  "call_sites": 3,
+  "effects": 3,
+  "creature_effects": 1
+ },
+ {
+  "op": 197,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x18ba0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x11ff0: arity 1 kinds=i returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 198,
+  "name": "Hi_SplitMdlVertex",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x18c00",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x12009: arity 1 kinds=i returns int; the DLL's own debug string 'Hi_SplitMdlVertex' is owned by fn 0x18c00 (UNWIND_INFO-exact function boundaries); corpus: 4 call sites in 2 images / 2 effects (0 creature-bearing); modal arg-setup 4/4 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 4}; called next to ops 193(x4), 196(x2); position: {'first-third': 4}",
+  "call_sites": 4,
+  "effects": 2,
+  "creature_effects": 0
+ },
+ {
+  "op": 199,
+  "name": "Hi_DrawSliceEffModel",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "pppi",
+  "returns": "void",
+  "native_fn": "0x16570",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteOFX",
+   "gteOFY",
+   "gteH",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x12022: arity 4 kinds=pppi returns void; the DLL's own debug string 'Hi_DrawSliceEffModel' is owned by fn 0x16570 (UNWIND_INFO-exact function boundaries); corpus: 31 call sites in 19 images / 19 effects (3 creature-bearing); modal arg-setup 31/31 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 31}; called next to ops 200(x35), 155(x10), 102(x6); $a3 constants: 2(x1); position: {'middle-third': 11, 'last-third': 12, 'first-third': 8}",
+  "call_sites": 31,
+  "effects": 19,
+  "creature_effects": 3
+ },
+ {
+  "op": 200,
+  "name": "Hi_SetEffModelSlice",
+  "confidence": "high",
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x18a90",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x12081: arity 2 kinds=ii returns void; the DLL's own debug string 'Hi_SetEffModelSlice' is owned by fn 0x18a90 (UNWIND_INFO-exact function boundaries); corpus: 31 call sites in 19 images / 19 effects (3 creature-bearing); modal arg-setup 29/31 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 29, 3: 1, 1: 1}; called next to ops 199(x35), 155(x4), 15(x3); $a0 constants: 1(x1), 2(x1); $a1 constants: 0(x3); position: {'middle-third': 13, 'last-third': 10, 'first-third': 8}",
+  "call_sites": 31,
+  "effects": 19,
+  "creature_effects": 3
+ },
+ {
+  "op": 201,
+  "name": "sequence_stream_access",
+  "confidence": "medium",
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x314f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "seqPtr"
+  ],
+  "touches_deep": [
+   "seqPtr"
+  ],
+  "evidence": "stub 0x120b9: arity 1 kinds=i returns void; fn 0x314f0 directly references seqPtr; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 202,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x1b500",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x120cf: arity 1 kinds=i returns int; corpus: 8 call sites in 8 images / 8 effects (0 creature-bearing); modal arg-setup 8/8 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 8}; called next to ops 39(x8), 203(x7); position: {'last-third': 8}",
+  "call_sites": 8,
+  "effects": 8,
+  "creature_effects": 0
+ },
+ {
+  "op": 203,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "int",
+  "native_fn": "0x1ba30",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x120e8: arity 1 kinds=i returns int; corpus: 18 call sites in 9 images / 9 effects (0 creature-bearing); modal arg-setup 16/18 sites = 0 vs the stub's 1 register args DISAGREES; full histogram {0: 16, 1: 2}; called next to ops 38(x9), 39(x8), 202(x7); $a0 constants: 0(x2); position: {'last-third': 18}",
+  "call_sites": 18,
+  "effects": 9,
+  "creature_effects": 0
+ },
+ {
+  "op": 204,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 6,
+  "arg_kinds": "iiiiip",
+  "returns": "int",
+  "native_fn": "0x3c0d0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x12101: arity 6 kinds=iiiiip returns int; corpus: 14 call sites in 3 images / 3 effects (2 creature-bearing); modal arg-setup 14/14 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 14}; called next to ops 102(x6), 64(x2), 117(x2); $a1 constants: 12(x3), 24(x2), 7(x2), 20(x1), 2(x1), 14(x1); $a2 constants: 4(x2), 2(x2), 10(x2), 6(x2), 8(x2), 7(x1); $a3 constants: 4294967295(x8), 0(x6); position: {'first-third': 13, 'last-third': 1}",
+  "call_sites": 14,
+  "effects": 3,
+  "creature_effects": 2
+ },
+ {
+  "op": 205,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "void",
+  "native_fn": "0x3bce0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x12177: arity 2 kinds=ii returns void; corpus: 16 call sites in 2 images / 2 effects (1 creature-bearing); modal arg-setup 16/16 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 16}; called next to ops 64(x16), 146(x2), 102(x2); $a0 constants: 4294967295(x8), 1(x4), 0(x4); $a1 constants: 6(x4), 2(x2), 1(x2), 3(x2), 0(x2), 5(x2); position: {'first-third': 8, 'middle-third': 8}",
+  "call_sites": 16,
+  "effects": 2,
+  "creature_effects": 1
+ },
+ {
+  "op": 206,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 2,
+  "arg_kinds": "pi",
+  "returns": "int",
+  "native_fn": "0x47290",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x1219e: arity 2 kinds=pi returns int; corpus: 339 call sites in 89 images / 79 effects (18 creature-bearing); modal arg-setup 339/339 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 339}; called next to ops 102(x621), 26(x9), 24(x8); $a0 constants: 2149495096(x1), 2149489060(x1); $a1 constants: 1(x222), 0(x65), 255(x44), 2(x7), 3(x1); position: {'first-third': 243, 'middle-third': 79, 'last-third': 17}",
+  "call_sites": 339,
+  "effects": 79,
+  "creature_effects": 18
+ },
+ {
+  "op": 207,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 2,
+  "arg_kinds": "ii",
+  "returns": "int",
+  "native_fn": "0x46890",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x121c9: arity 2 kinds=ii returns int; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 208,
+  "name": "summon_model_slot_access",
+  "confidence": "low",
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "ppip",
+  "returns": "void",
+  "native_fn": "0x47330",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "summonModels",
+   "psxBankTable"
+  ],
+  "touches_deep": [
+   "otzArray",
+   "screenXYArray",
+   "summonModels",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x121f3: arity 4 kinds=ppip returns void; fn 0x47330 directly references summonModels; corpus: 3 call sites in 3 images / 3 effects (0 creature-bearing); modal arg-setup 3/3 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 3}; called next to ops 102(x3), 26(x2), 127(x1); $a2 constants: 1(x3); $a3 constants: 2149486212(x1), 2149484648(x1), 2149487156(x1); position: {'middle-third': 3}",
+  "call_sites": 3,
+  "effects": 3,
+  "creature_effects": 0
+ },
+ {
+  "op": 209,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "never-called",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x182c0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 210,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 4,
+  "arg_kinds": "iiii",
+  "returns": "int",
+  "native_fn": "0x324b0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [
+   "vramUploadCallback",
+   "gteRotationMatrix",
+   "gteTranslation",
+   "gteVertexBank",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x12242: arity 4 kinds=iiii returns int; corpus: 2 call sites in 1 images / 1 effects (0 creature-bearing); modal arg-setup 2/2 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 2}; called next to ops 155(x1), 48(x1); $a0 constants: 36(x1), 37(x1); $a2 constants: 4294967295(x2); position: {'last-third': 2}",
+  "call_sites": 2,
+  "effects": 1,
+  "creature_effects": 0
+ },
+ {
+  "op": 211,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "void",
+  "native_fn": "0x464f0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0x1228d: arity 0 kinds=- returns void; corpus: 7 call sites in 5 images / 5 effects (1 creature-bearing); modal arg-setup 7/7 sites = 0 vs the stub's 0 register args AGREES; full histogram {0: 7}; called next to ops 64(x3), 155(x2), 102(x2); position: {'middle-third': 3, 'last-third': 3, 'first-third': 1}",
+  "call_sites": 7,
+  "effects": 5,
+  "creature_effects": 1
+ },
+ {
+  "op": 212,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "never-called",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x32260",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback"
+  ],
+  "evidence": "stub 0x12294: arity 1 kinds=i returns void; corpus: NEVER called by any of the 385 programs -- itself a checked fact, and the expected one for a host-side registration entry point",
+  "call_sites": 0,
+  "effects": 0,
+  "creature_effects": 0
+ },
+ {
+  "op": 213,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 1,
+  "arg_kinds": "i",
+  "returns": "void",
+  "native_fn": "0x462a0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [
+   "vramUploadCallback"
+  ],
+  "touches_deep": [
+   "vramUploadCallback",
+   "psxBankTable"
+  ],
+  "evidence": "stub 0x122a7: arity 1 kinds=i returns void; corpus: 6 call sites in 5 images / 5 effects (4 creature-bearing); modal arg-setup 5/6 sites = 1 vs the stub's 1 register args AGREES; full histogram {1: 5, 0: 1}; called next to ops 30(x3), 127(x2), 146(x1); $a0 constants: 16(x5); position: {'last-third': 5, 'first-third': 1}",
+  "call_sites": 6,
+  "effects": 5,
+  "creature_effects": 4
+ },
+ {
+  "op": 214,
+  "name": "nop_returns_zero",
+  "confidence": "high",
+  "corpus_support": "noop-called-anyway",
+  "arity": 0,
+  "arg_kinds": "",
+  "returns": "none",
+  "native_fn": "0x182c0",
+  "native_fn_confirmed_by_stub": false,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122f1: arity 0 kinds=- returns none; the dispatcher's jump-table slot IS the return tail 0x122f1: the op executes nothing and returns r12d, zeroed at 0xee92; corpus: 4 call sites in 4 effects, and they still set up arguments for an op that executes nothing -- a retired entry point whose callers were never re-emitted (observed arg-setup {1: 4})",
+  "call_sites": 4,
+  "effects": 4,
+  "creature_effects": 4
+ },
+ {
+  "op": 215,
+  "name": null,
+  "confidence": null,
+  "corpus_support": "arity-mode",
+  "arity": 3,
+  "arg_kinds": "ppi",
+  "returns": null,
+  "native_fn": "0x18ce0",
+  "native_fn_confirmed_by_stub": true,
+  "touches": [],
+  "touches_deep": [],
+  "evidence": "stub 0x122ba: arity 3 kinds=ppi returns None; corpus: 2 call sites in 2 images / 2 effects (1 creature-bearing); modal arg-setup 2/2 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 2}; called next to ops 102(x2), 168(x1), 19(x1); $a0 constants: 2149481664(x1), 2149494916(x1); $a1 constants: 2149481712(x1), 2149494948(x1); $a2 constants: 350(x1), 672(x1); position: {'middle-third': 1, 'first-third': 1}",
+  "call_sites": 2,
+  "effects": 2,
+  "creature_effects": 1
+ }
+]
