@@ -91,7 +91,7 @@ lines below are verbatim from those sources; everything else is a pointer.
   (`AnimationClipReader.LoadedClips`).
 - Redeploy survival: `deploy_field`'s revert/re-apply "PRESERVES foreign DictionaryPatch lines
   (matches its own FieldScene/`3DModel`/`3DModelAnimation` by exact id/key, not GEO block)" — a
-  between-deploy `model-anim-new` clip survives a field redeploy (`ff9mapkit/dictpatch.py`).
+  between-deploy `model-anim-new` clip survives a field redeploy (`ff9mapkit/ff9mapkit/dictpatch.py`).
 - Donor-folder redirect: "a clip's on-disc p0data5 folder is derived from the anim NAME's model
   tokens, NOT from the model playing it" — an edited donor clip must deploy to the DONOR's folder
   ("an override under the playing model's folder is silently DEAD"), and "a donor-folder override is

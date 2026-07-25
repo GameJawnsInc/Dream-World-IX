@@ -1,6 +1,6 @@
 ---
 name: forking-ff9-fields
-description: Fork or import any of FF9's ~674 real fields into a mod faithfully. Use when the user runs `ff9mapkit import` (`--verbatim`/`--native`/`--editable`), `fork-report`, `find-rooms`, or `list-fields`; wants to clone a shipping room; adds self-contained content onto a verbatim fork; or hits a lost behavior on a forked id (letterbox, off-mesh exemption, fake-battle return, SPS). Modes -- `--verbatim` = whole real `.eb`+`.mes`, remap only `Field()`; `--editable` = re-author scaffold, NOT a clone; `--native` = seamless per-tile. Covers faithful object/NPC/player-func/text carry, non-Zidane donors + `--swap-player`, firing a donor's story-gated cutscene, the scenario-zero narrative-state gap, and dead-end #14 (grafting a render-only talk handler into a non-verbatim fork). A forked field REQUIRES the custom-Memoria fork-gate suite. For building/patching that engine see `building-the-memoria-engine`; for authoring a NEW field from scratch see `authoring-ff9-scenes` + `authoring-ff9-field-scripts`.
+description: Fork or import any of FF9's ~674 real fields into a mod faithfully. Use when the user runs `ff9mapkit import` (`--verbatim`/`--native`/`--editable`), `fork-report`, `find-rooms`, or `list-fields`; wants to clone a shipping room; adds self-contained content onto a verbatim fork; or hits a lost behavior on a forked id (letterbox, off-mesh exemption, fake-battle return, SPS). Modes -- `--verbatim` = whole real `.eb`+`.mes`, remap only `Field()`; `--editable` = re-author scaffold, NOT a clone; `--native` = seamless per-tile. Covers faithful object/NPC/player-func/text carry, non-Zidane donors + `--swap-player`, firing a donor's story-gated cutscene, the scenario-zero narrative-state gap, and dead-end 14 (grafting a render-only talk handler into a non-verbatim fork). A forked field REQUIRES the custom-Memoria fork-gate suite. For building/patching that engine see `building-the-memoria-engine`; for authoring a NEW field from scratch see `authoring-ff9-scenes` + `authoring-ff9-field-scripts`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
@@ -18,7 +18,8 @@ Always run `ff9mapkit fork-report <field>` BEFORE forking — offline, it reads 
 `[startup]`, and the verdict: **CLEAN static-roster** (forks faithfully) vs **STORY-EVENT** (a
 high-fidelity diorama). `fork-report <field> --explain` decodes the cast's talk routines into
 readable English. Doc: `ff9mapkit/docs/FORK_REPORT.md`. Discover donors with `list-fields`
-(`--players` / `--non-zidane`) and `find-rooms` (ranked swap/demo test rooms).
+(`--players` / `--non-zidane`) and `find-rooms` (ranked swap/demo test rooms). A defect in the
+Workspace's own realfield picker or fork-report panel: the `working-on-the-ff9-workspace` skill.
 
 ## Mode-selection decision table
 

@@ -65,8 +65,9 @@ the run-`--apply-links`-last rule): `references/scoping-and-newgame.md`; deep re
 
 field-local < campaign-shared < journey-global `[[flag]]` — all the SAME `gEventGlobal` array,
 only the naming scope differs; the campaign tier is the workhorse. Read
-[[project-ff9-story-flags]] and [[project-ff9-flag-scope-hierarchy]]; the allocation-band table
-lives in `ff9mapkit/docs/GLOBAL_RESOURCES.md`.
+[[project-ff9-story-flags]] — its "Flag scopes (field/campaign/journey)" section OWNS the 3-tier
+detail (who shares the name, the GUI editors, the propagation plumbing, and the cross-tier
+collision rules). The allocation-band table lives in `ff9mapkit/docs/GLOBAL_RESOURCES.md`.
 
 ## Additional resources
 

@@ -98,9 +98,13 @@ is closed to clear the cosmetic stamp.
   `Assembly-CSharp.x64.dll.<ts>` names (arch-specific backups restore only their own arch);
   exits non-zero with a loud `NOTHING RESTORED` message when no backup matches (fixed
   2026-07-22 — it used to print `Done.` after restoring zero files). Run from the MAIN repo:
-  `backups/` lives there, not in a worktree. The historical `baseline` set
-  (`*.baseline-rebuild-6b8bb2d5.*`) is gone from `backups/`, so `baseline` mode now fails
-  loudly. Covered by `ff9mapkit/tests/test_restore_memoria_dll.py`.
+  `backups/` lives there, not in a worktree. ⚠ The historical `baseline` set
+  (`*.baseline-rebuild-6b8bb2d5.*`) is gone from `backups/` (re-verified 2026-07-24: zero
+  matches in 1611 files), so `baseline` mode now fails loudly — **and `baseline` is the
+  script's no-argument DEFAULT**, so a bare `restore_memoria_dll.py` restores nothing and
+  exits non-zero. Always pass your own snapshot's timestamp. (SKILL.md §Restore / revert says
+  the same; if these two ever disagree, re-check `backups/` and fix both.) Covered by
+  `ff9mapkit/tests/test_restore_memoria_dll.py`.
 - True original install: re-run `Memoria.Patcher.exe` (or Steam verify-integrity + re-patch).
 - Close FF9 first: restore hits `WinError 1224` on any DLL the running game has memory-mapped
   (byte-identical copies are no-ops).
