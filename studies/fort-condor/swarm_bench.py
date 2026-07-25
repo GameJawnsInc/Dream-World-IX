@@ -67,13 +67,20 @@ ATTACKER_MODEL, DEFENDER_MODEL, HERALD_MODEL = \
     "GEO_MON_F0_FFG", "GEO_NPC_F0_CSO", "GEO_NPC_F2_CSO"
 CONTACT_R = 200                              # the rung-2 tuned fight range
 ACQUIRE_R = 700                              # defender aggro radius (fights stay in view)
-HP_PRESET = {"attacker0": 3, "defender0": 5, "attacker1": 5, "defender1": 3}
+HP_PRESET = {"attacker0": 3, "defender0": 5, "attacker1": 5, "defender1": 3,
+             "attacker2": 5, "attacker3": 5}                 # wave 2 hits harder
 FIGHT_CENTER = (-1225, -827)                 # owner-called visible town square (playtest 4)
 TIER_FLAGS = ["tier10", "tier20", "tier30", "tier40"]
 N_POOL = 4                                   # the hireable soldier pool (rung-3 parity)
 RECRUIT_COST = 300                           # gil per soldier (the old bench's price)
 HIRE_FLAG = 8848                             # the old bench's own request flag, explicit
 RECRUIT_HP = 4
+# ---- rung 4: THE SIEGE (waves + win/loss on the countdown clock) ----
+SIEGE_SECONDS = 180                          # the countdown HUD (3:00; ~ Reload resets)
+WAVE_BANDS = {0: 170, 1: 170, 2: 90, 3: 90}  # attacker i marches once time < band
+GATE_HP = 6                                  # the herald IS the gate; 0 = the loss
+LOSS_SCENE = 35                              # 559's OWN arena battle (the tread-region
+                                             # Battle(0,35) — stock scene, no BattlePatch)
 
 
 # --------------------------------------------------------------- layout
@@ -119,16 +126,30 @@ def nearest(pts, x, z):
 
 
 def skirmish_layout(pts) -> dict:
-    """The playtest-6-proven lane geometry: defenders post flanking FIGHT_CENTER, the
-    goal just south, attackers march in from the far north."""
+    """The playtest-6-proven lane geometry grown for the siege: defenders post
+    flanking FIGHT_CENTER, THE GATE (the herald) just south, four attackers (two
+    waves x two lanes) staged in the far north."""
     fcx, fcz = FIGHT_CENTER
     posts = [nearest(pts, fcx - 400, fcz + 150), nearest(pts, fcx + 400, fcz + 150)]
     goal = nearest(pts, fcx, fcz - 900)
     zmax = max(p[1] for p in pts)
     north = [p for p in pts if p[1] >= zmax - 1000] or sorted(pts, key=lambda p: -p[1])[:2]
-    atk = [min(north, key=lambda p: p[0]), max(north, key=lambda p: p[0])]
+    w1 = [min(north, key=lambda p: p[0]), max(north, key=lambda p: p[0])]
+    used = set(w1)
+
+    def pick(x, z):                                      # nearest UNUSED lattice point
+        for c in sorted(pts, key=lambda p: (p[0] - x) ** 2 + (p[1] - z) ** 2):
+            if c not in used:
+                used.add(c)
+                return c
+        raise SystemExit("lattice exhausted picking wave-2 posts")
+
+    atk = [w1[0], w1[1],                                 # wave 1 (lanes 0/1)
+           pick(w1[0][0] + 300, w1[0][1] - 400),         # wave 2, staged just behind
+           pick(w1[1][0] - 300, w1[1][1] - 400)]
     herald = nearest(pts, goal[0] + 350, goal[1])
-    return {"attackers": atk, "defenders": posts, "goal": goal, "herald": herald}
+    return {"attackers": atk, "defenders": posts, "goal": goal, "herald": herald,
+            "gate": herald}
 
 
 # --------------------------------------------------------------- the [behavior] TOML
@@ -156,6 +177,7 @@ def _branch(when=None, do=None, **keys) -> str:
 
 def behavior_toml(chaser_posts: list, lay: dict) -> str:
     parts = ["\n[behavior]\nwarmup = 45\n"
+             f"timer = {SIEGE_SECONDS}\n"
              f"public_flags = {_t(TIER_FLAGS + ['skirmish'])}\n"]
 
     def unit(name, hp=None, speed=50, pooled_in=None):
@@ -172,32 +194,60 @@ def behavior_toml(chaser_posts: list, lay: dict) -> str:
         parts.append(_branch(when=[arm], do={"chase": "player"}))
         parts.append(_branch(do={"hold": list(chaser_posts[i])}))
 
-    # THE SKIRMISH: the playtest-6 staging as trees (the behavior study's rung-2
-    # regression proved this exact translation on bench 30411)
+    # THE SIEGE (rung 4): the skirmish grown into timed WAVES against THE GATE (the
+    # herald, hp'd) with win/loss on the countdown clock. Lever row 5 arms it; wave
+    # bands key on the HUD clock (the Hunt's GetTimerTime band shape); gate down ->
+    # the LOSS Battle (559's own scene 35, one-shot by construction); clock out with
+    # the gate standing -> the WIN cry.
     armed = {"flag": "skirmish"}
+    calm = [{"not_flag": "lost"}, {"not_flag": "won"}]
     recruits = [f"recruit{r}" for r in range(N_POOL)]
-    for lane in (0, 1):
-        a, d = f"attacker{lane}", f"defender{lane}"
+    attackers = [f"attacker{i}" for i in range(4)]
+    for i, a in enumerate(attackers):
+        lane = i % 2
+        d = f"defender{lane}"
         unit(a, hp=HP_PRESET[a], speed=40)
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
         parts.append(_branch(when=[armed, {"active": d}, {"near": [d, CONTACT_R]}],
                              do={"swing_at": d}))
-        # MUTUAL combat vs hired recruits (the rung-3 one-sided-harass debt, closed
-        # by plain branches — priority above the march, below the defender duel)
+        # THE GATE is the prize: beat on the herald at contact
+        parts.append(_branch(when=[armed, {"active": "herald"},
+                                   {"near": ["herald", CONTACT_R]}],
+                             do={"swing_at": "herald"}))
+        # MUTUAL combat vs hired recruits (plain branches — no referee)
         for r in recruits:
             parts.append(_branch(when=[armed, {"active": r}, {"near": [r, CONTACT_R]}],
                                  do={"swing_at": r}))
-        parts.append(_branch(when=[armed, {"near_point": ["goal", 220]}],
-                             do={"announce_npc": "herald"}, once=f"breach{lane}"))
-        parts.append(_branch(when=[armed], do={"walk_to": "goal", "speed": 40}))
-        parts.append(_branch(do={"hold": list(lay["attackers"][lane])}))
+        # the wave march: my band open + the siege still undecided -> march the gate
+        # (route="auto": the walkmesh A* splices detours if a leg would wedge)
+        parts.append(_branch(
+            when=[armed, {"time_below": WAVE_BANDS[i]}] + calm,
+            do={"march": [list(lay["attackers"][i]), list(lay["gate"])],
+                "route": "auto", "arrive_r": 180, "speed": 40}))
+        parts.append(_branch(do={"hold": list(lay["attackers"][i])}))
+    for lane in (0, 1):
+        d = f"defender{lane}"
+        mine = [attackers[lane], attackers[lane + 2]]    # both waves of my lane
         unit(d, hp=HP_PRESET[d], speed=50)
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
-        parts.append(_branch(when=[armed, {"active": a}, {"near": [a, CONTACT_R]}],
-                             do={"swing_at": a}))
-        parts.append(_branch(when=[armed, {"active": a}, {"near": [a, ACQUIRE_R]}],
-                             do={"chase": a}))
+        for a in mine:
+            parts.append(_branch(when=[armed, {"active": a}, {"near": [a, CONTACT_R]}],
+                                 do={"swing_at": a}))
+        for a in mine:
+            parts.append(_branch(when=[armed, {"active": a}, {"near": [a, ACQUIRE_R]}],
+                                 do={"chase": a}))
         parts.append(_branch(do={"hold": list(lay["defenders"][lane])}))
+    # THE GATE (the herald with hp): loss battle at 0 hp, the win cry at 0:00
+    unit("herald", hp=GATE_HP, speed=30)
+    parts.append(_branch(when=[{"flag": "lost"}], do={"die": True}))
+    parts.append(_branch(when=[{"hp_le": 0}], do={"battle": LOSS_SCENE},
+                         raise_flags=["lost"]))
+    parts.append(_branch(when=[armed, {"time_below": 1}],
+                         do={"announce": "We held the gate!  The Festival is saved!"},
+                         raise_flags=["won"], once="wincry"))
+    parts.append(_branch(when=[armed, {"any_near": [attackers, 350]}],
+                         do={"announce_npc": "herald"}, once="gatecry"))
+    parts.append(_branch(do={"hold": list(lay["gate"])}))
     # THE RECRUIT POOL (rung-3 rebuilt as compiler vocabulary): pooled soldiers,
     # hired ANYWHERE via the SELECT/Special poller + the parked menu below; each
     # holds the spot it was placed on (hold_post) and defends it A-then-B priority
@@ -206,12 +256,10 @@ def behavior_toml(chaser_posts: list, lay: dict) -> str:
     for r in recruits:
         unit(r, hp=RECRUIT_HP, speed=50, pooled_in="recruits")
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
-        for lane in (0, 1):
-            a = f"attacker{lane}"
+        for a in attackers:
             parts.append(_branch(when=[armed, {"active": a}, {"near": [a, CONTACT_R]}],
                                  do={"swing_at": a}))
-        for lane in (0, 1):
-            a = f"attacker{lane}"
+        for a in attackers:
             parts.append(_branch(when=[armed, {"active": a}, {"near": [a, ACQUIRE_R]}],
                                  do={"chase": a}))
         parts.append(_branch(do={"hold_post": True}))
@@ -245,7 +293,7 @@ def gen() -> None:
     hx, hz = lay["herald"]
     parts.append(f'\n[[npc]]\nname = "herald"\nmodel = "{HERALD_MODEL}"\n'
                  f'pos = [{hx}, {hz}]\n'
-                 f'dialogue = "The beasts broke through!  The gate is lost!"\n')
+                 f'dialogue = "They are at the gate!  Hold them back!"\n')
     # the recruit POOL (never boot-spawned; parked by the goal — the 2-frame
     # pre-DPOS flash lands out of the action, the old bench's park idiom)
     gx0, gz0 = lay["goal"]
@@ -253,9 +301,9 @@ def gen() -> None:
         parts.append(f'\n[[npc]]\nname = "recruit{r}"\nmodel = "{DEFENDER_MODEL}"\n'
                      f'pos = [{gx0 + 80 * (r + 1)}, {gz0 + 80}]\n'
                      f'dialogue = "Holding this ground, sir!"\n')
-    gx, gz = lay["goal"]
-    parts.append(f'\n[[marker]]\nname = "goal"\npos = [{gx}, {gz}]\n')
-    # the march lines, probe-sweepable (informational — the staging is playtest-6-proven)
+    gx, gz = lay["gate"]
+    parts.append(f'\n[[marker]]\nname = "gate"\npos = [{gx}, {gz}]\n')
+    # the march lines, probe-sweepable (informational — route="auto" also self-heals)
     for i, (ax, az) in enumerate(lay["attackers"]):
         parts.append(f'\n[[marker]]\nname = "lane{i}"\npos = [{ax}, {az}]\n'
                      f"path = [[{ax}, {az}], [{gx}, {gz}]]\nclosed = false\n")
@@ -280,9 +328,11 @@ def gen() -> None:
     if problems:
         raise SystemExit("behavior validate:\n  " + "\n  ".join(problems))
     all_units = [u["npc"] for u in raw["behavior"]["unit"]]
+    wmesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
     fb = BT.build(raw, npc_slots={n: i + 2 for i, n in enumerate(all_units)},
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
-                  behavior_txids={})
+                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
+                  routed=BT.autoroute_plan(raw, wmesh))
     fidx = {nm: fb.public_flag(nm) for nm in TIER_FLAGS + ["skirmish"]}
 
     cx, cz = spawn
@@ -292,8 +342,9 @@ def gen() -> None:
         f'reply = "{(b + 1) * BAND} released! (~ Reload to reset)"\n'
         f"set_flag = [{fidx[t]}, 1]\n"
         for b, t in enumerate(TIER_FLAGS))
-    rows += (f'\n[[choice.options]]\ntext = "Skirmish demo"\n'
-             f'reply = "The beasts are loose!  Soldiers, hold the line!"\n'
+    rows += (f'\n[[choice.options]]\ntext = "Begin the SIEGE ({SIEGE_SECONDS // 60}:'
+             f'{SIEGE_SECONDS % 60:02d} on the clock)"\n'
+             f'reply = "The beasts are coming!  Soldiers, hold the gate!"\n'
              f"set_flag = [{fidx['skirmish']}, 1]\n")
     parts.append(
         f'\n[[choice]]\nzone = [[{cx - h},{cz + h}],[{cx + h},{cz + h}],'
@@ -319,29 +370,34 @@ def deploy() -> None:
     import tomllib
     raw = tomllib.loads(SWARM_TOML.read_text(encoding="utf-8"))
     all_units = [u["npc"] for u in raw["behavior"]["unit"]]
+    wmesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
     fb = BT.build(raw, npc_slots={n: i + 2 for i, n in enumerate(all_units)},
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
-                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)})
+                  behavior_txids={(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
+                  routed=BT.autoroute_plan(raw, wmesh))
     report = fb.compile().report
     REPORT.write_text(report + "\n(dry-run placeholders; the build bound the real "
                       "slots/txids)\n", encoding="utf-8")
     print(f"\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (THE PLACEMENT/ECONOMY REBUILD — rung 3 on compiler vocabulary):
+PLAYTEST (RUNG 4 — THE SIEGE: waves + win/loss on the clock):
   ~ -> Reload field on {FIELD_ID} (RELAUNCH only if never registered), then:
-  1 REGRESSION: tiers + skirmish exactly as the parity check (ring at 140u, lane A
-    defender wins, lane B breaches once, ~ Reload resets).
-  2 HIRE ANYWHERE: press SELECT (or Special) anywhere -> blip + the menu ->
-    "Hire ({RECRUIT_COST} gil)" -> gil drops by {RECRUIT_COST} (check the pause menu)
-    and a soldier appears AT YOUR FEET, holding that spot. NOTE: gil is REAL save
-    state — spend knowingly; ~ Reload does NOT refund.
-  3 THE DEFENSE: arm the skirmish, then drop 1-2 recruits on lane B's march path
-    (between its start and the goal) -> they acquire within {ACQUIRE_R}, duel the
-    Fang MUTUALLY (it fights back), and lane B's breach is STOPPED; survivors walk
-    back to their posts.
-  4 LIMITS: 5th hire = silent nothing (pool of {N_POOL}); hire with < {RECRUIT_COST}
-    gil = menu works, pick Hire, nothing spawns and NOTHING is charged.
-  5 ~ Reload: recruits despawn, pool refills, skirmish resets (gil stays spent).
+  0 The {SIEGE_SECONDS // 60}:{SIEGE_SECONDS % 60:02d} countdown HUD shows from field
+    entry (~ Reload resets it). Tiers lever + SELECT-hires work as before.
+  1 ARM THE SIEGE (lever row 5). ~10s in (clock < {WAVE_BANDS[0]}), WAVE 1: two Fangs
+    march their lanes for THE GATE (the herald, south); the posted defenders
+    intercept as always — lane A holds, lane B's Fang usually gets through.
+  2 THE GATE FIGHT: a Fang reaching the herald beats on HIM (he cries out once);
+    gate hp {GATE_HP}. If it drops to 0 -> **the LOSS: a REAL battle** (559's own
+    arena fight) — win or lose it, you return to the field, the herald falls, and
+    the siege stands down. ~ Reload restarts the whole round.
+  3 THE DEFENSE: hire soldiers (SELECT, {RECRUIT_COST} gil) and drop them on the
+    lanes/gate approach -> mutual duels; WAVE 2 (clock < {WAVE_BANDS[2]}): two
+    TOUGHER Fangs (hp 5) march in — the real test of your placements.
+  4 THE WIN: survive to 0:00 with the gate standing -> the herald's victory line
+    pops and the beasts stand down.
+  5 Sanity: the loss battle fires ONCE per round (no battle loop after returning);
+    after-battle the field resumes (no softlock, BGM back).
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

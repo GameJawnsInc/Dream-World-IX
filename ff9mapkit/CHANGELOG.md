@@ -5,6 +5,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` static-feed auto-routing: `route = "auto"` on `patrol`/`march`
+- **`route = "auto"`** on a `patrol`/`march` verb re-routes any leg the walkability sweep finds
+  OFF-MESH through the walkmesh A* (`content.pathfind.route_polyline`, the same pathfinder
+  cutscene walks use) and splices the detour waypoints in at build time — the concave-notch
+  wedge `behavior lint` could only *diagnose* is now *fixed* by the build. **Opt-in and
+  conservative:** a field without the key never resolves a walkmesh (byte-identical builds,
+  guarded by test), and within an opted-in route clear legs stay exactly as authored. `patrol`
+  routes its wrap leg too (it always cycles); routing avoids **walls only** (other units move —
+  build-time character obstacles would be stale guesses; the docs say so); the spliced total
+  must fit the verb's 8-point ceiling or the build fails naming the field/unit/branch/leg.
+  `walk_to`/`hold`/`flee` are refused with an explanation — their legs have no build-time
+  origin (and spliced flee points would become extra refuges), that's the dynamic-routing
+  problem, deliberately out of scope here.
+- **`behavior lint` stays truthful:** an auto-routed patrol/march is swept on its ROUTED line
+  (what the build compiles) and each detoured leg is reported as `routed:`, not as a jam; a jam
+  on a *non*-routed patrol/march now prints a `route = "auto"` hint. Lint sweeps also became
+  verb-aware: a `patrol` is swept CLOSED regardless of the marker's `closed` flag (the compiler
+  always cycles the wrap leg — previously a wrap-leg jam on an open marker went unswept), a
+  `march` open, and inline point lists are now swept too (previously only markers were).
+  `behavior compile`/`view` and the build report the same auto-routed-leg lines
+  (`describe_autoroute`), and `build_script` errors cleanly when `route = "auto"` has no
+  resolvable walkmesh. New shared resolver `build.behavior_walkmesh` keeps what lint checks ==
+  what the build compiles. 10 new tests (`test_behavior_autoroute.py`: detour-splice + re-sweep
+  clean + determinism, clear-leg byte identity, wrap-leg routing, ceiling error text,
+  off-mesh-waypoint/disconnected-floor refusals, TOML negatives, built-`.eb` byte identity).
+  Docs: [BEHAVIOR.md § Movement](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
+
 ### Added — `[behavior]` pooled units: runtime activation ("hire a soldier at your feet")
 - **`pooled = true` / `pool = "name"` on a `[[behavior.unit]]`**: the unit's NPC is seated
   DORMANT at boot (no spawn, no reveal flag — `inject_npc` gains `boot_spawn=False`) and joins a
@@ -24,6 +51,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   instruction walks, allocation hygiene, TOML negatives, a built-`.eb` e2e proving the pooled
   entry has no boot `InitObject`). Bench: `studies/behavior-trees/btpool_bench.py` → field
   30413. Docs: [BEHAVIOR.md § Pooled units](docs/BEHAVIOR.md), `FORMAT.md § [behavior]`.
+
+### Added — `[behavior]` waves + win/loss: the countdown clock and REAL battles
+- **`timer = <seconds>`** (field-level): starts FF9's own countdown HUD on field entry —
+  the Festival of the Hunt's exact start triplet (`ChangeTimerTime`/`ShowTimer`/`RunTimer`,
+  in-game proven on a custom id); `~ → Reload` resets the clock. Two condition verbs read
+  it: **`time_below` / `time_above`** (remaining seconds) — gate march branches on
+  descending bands for TIMED WAVES (the Hunt's `GetTimerTime` scheduling shape).
+- **`battle = <scene id>`** action verb: fire a REAL battle — `Battle(0, scene)`, the
+  donor-grounded shape (559's tread battles; the engine owns the swirl). **One-shot per
+  field load by construction**: a compiled latch gates the dispatch so the reactive tree
+  can't re-fire it after the return. The build auto-installs the **entry-0 tag-10
+  Main_Reinit** (the after-battle resume law) + the field-BGM resume whenever a behavior
+  compiles a battle — no `[encounter]` block needed; a stock scene id needs no BattlePatch.
+- Together with pooled units + the hire economy this completes the Fort Condor core loop:
+  bench 30400 = THE SIEGE (3:00 clock, two waves × two lanes with `route = "auto"`
+  marches, the herald as the hp'd GATE, breach → 559's own boss battle, survive → the
+  win cry). 5 new tests (incl. a built-`.eb` e2e asserting the tag-10 installs); suite
+  green.
 
 ### Added — `[behavior]` pool ECONOMY: price + the buy-anywhere hire button
 - **`[[behavior.pool]]`** rows configure a pool: `price` compiles a gil gate

@@ -45,6 +45,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import math
 import re
 import shutil
 import time
@@ -77,6 +78,110 @@ ABSENT_EF_IDS = frozenset({
 })
 
 HOST_SEQ_NAME = "PlayerSequence.seq"      # the ``.seq`` a battle command actually authors against
+DEFAULT_MANIFEST_NAME = "creature_manifest.sfxmodel"   # the FileList ``Model`` target (rung-7 proven)
+
+#: ``staging.anchor`` -> the NCalc position-parameter prefix the emitted curve expressions are built on
+#: (``ParametricMovement.cs:158-196``). ``world`` = no anchor, bare absolute numbers.
+STAGING_ANCHORS = {
+    "caster": "CasterPosition",
+    "target_average": "TargetAveragePosition",
+    "world": None,
+}
+
+#: THE MULTI-TARGET NULL. ``SFXData.PlaySFX`` passes ``sfxRequest.trgno == 1 ? trg[0] : null`` into
+#: ``SetupPositions`` (``SFXData.cs:149``), so on a multi-target cast ``target`` is null and EVERY
+#: ``TargetPosition*`` evaluates to 0 (``ParametricMovement.cs:176-178``) -- a creature staged on it would
+#: render at the world origin, off-camera. ``TargetAveragePosition*`` (``BTL_VFX_REQ.trgcpos``) is always
+#: valid; note its ``vy`` is hard-set to 0 (``BTL_VFX_REQ.cs:88``), so a ``target_average`` Y offset is an
+#: ABSOLUTE ground-plane height, not a height above the targets.
+_ANCHOR_TARGET_REFUSAL = (
+    'staging anchor "target" is refused for a creature: SFXData.cs:149 passes a NULL target into '
+    "SetupPositions whenever the cast has more than one target, and every TargetPosition* then evaluates "
+    "to 0 -- the creature would stage at the world origin, off-camera (THE MOVEMENT TRAP by a second "
+    'route). Use anchor = "target_average" (BTL_VFX_REQ.trgcpos, always valid; its Y is hard-zero, so a Y '
+    'offset is an absolute ground-plane height) or "caster". NOTE the split: a CreateVisualEffect particle '
+    "IS spawned per-unit and its own TargetPosition* is valid -- this refusal is about the FBX creature.")
+
+#: the seven ``ParametricMovement.InterpolateType`` names; an unknown string silently becomes
+#: ``Constant`` (``TryParseInterpolateType``, ``ParametricMovement.cs:273-285``).
+_EASES = ("Constant", "Linear", "Sinus", "SinusIn", "SinusOut", "Turning1", "Turning2")
+
+#: THE TURNING SPLIT -- the eases legal on an **FBX** curve, which is only FIVE of the seven.
+#: ``ParametricMovement.GetPosition`` dereferences ``customParam`` WITHOUT a null guard on exactly the
+#: ``Turning1``/``Turning2`` arms::
+#:
+#:     if (currentPiece.interpolate[i] == InterpolateType.Turning1 || ... == InterpolateType.Turning2)
+#:     {
+#:         Single baseAngle;
+#:         customParam.TryGetValue(0, out baseAngle);      // ParametricMovement.cs:233-237
+#:
+#: and the FBX render path passes ``customParam = null`` on all three curves::
+#:
+#:     tok.unityObject.transform.position    = tok.movement.GetPosition(frame, null, ...);
+#:     tok.unityObject.transform.eulerAngles = tok.rotation.GetPosition(frame, null, ...);
+#:     tok.unityObject.transform.localScale  = tok.scaling .GetPosition(frame, null, ...);
+#:                                                                 // SFXDataMesh.cs:843-845
+#:
+#: -> a NullReferenceException on EVERY render frame of the cast. Only the SPRITE path supplies a dict
+#: (``p.param``, ``SFXDataMesh.cs:1285``), and even there it is null unless the emission carries a
+#: ``ParameterMin``/``ParameterMax`` pair (``SFXDataMesh.cs:1386-1388``) -- which is why the study's own
+#: ``MistFloor``/``MistWisps`` particles pair their ``Turning1``/``Turning2`` with ``Parameter0..2`` and
+#: are safe. Turning on a creature curve never is.
+_FBX_EASES = ("Constant", "Linear", "Sinus", "SinusIn", "SinusOut")
+
+#: the two Sprite-only eases, refused on an FBX curve (see :data:`_FBX_EASES`).
+_TURNING_EASES = ("Turning1", "Turning2")
+
+#: the ``[summon.staging]`` table's own keys, and its two sub-table shapes -- a curve piece
+#: (``[[summon.staging.move/turn/scale]]``) and a playlist row (``[[summon.staging.play]]``). Same
+#: hygiene as :data:`content.summon.KNOWN_KEYS`: a typo'd key here is otherwise stored and silently
+#: ignored (nothing in :func:`_validate_staging`/:func:`staging_curves_json` ever reads an unknown key),
+#: so it is refused at validate time rather than let through to a cast that quietly does not do what the
+#: author wrote.
+_STAGING_TABLE_KEYS = frozenset({"anchor", "start", "end", "move", "turn", "scale", "play"})
+_CURVE_PIECE_KEYS = frozenset({"duration", "from", "to", "ease"})
+_PLAY_ROW_KEYS = frozenset({"clip", "speed", "repeat"})
+
+#: THE OMITTED-CURVE SPLIT. ``staging_curves_json`` only emits a ``Movement``/``Rotation``/``Scaling``
+#: key when its piece list is non-empty, and ``LoadFBX`` only calls ``LoadFromJSON`` for a node that
+#: exists (``SFXDataMesh.cs:1007-1012``) -- so an omitted curve leaves that ``ParametricMovement`` with
+#: ZERO pieces. ``GetPosition`` then takes ``currentPiece = null`` and returns the *seed* ``currentDest``
+#: (``ParametricMovement.cs:209-212, 226-227``), and the seed is NOT the same for all three:
+#:
+#:   * ``movement`` / ``rotation`` -- ``new ParametricMovement()`` seeds ``Vector3.zero``
+#:     (``ParametricMovement.cs:31-35``, ``SFXDataMesh.cs:1250-1251``). An omitted ``move`` therefore
+#:     pins ``transform.position`` at the WORLD ORIGIN for the whole cast -- THE MOVEMENT TRAP, exactly
+#:     the failure ``normalize_spec`` already refuses ``staging = "curves"``-with-no-table for. An
+#:     omitted ``turn`` pins ``eulerAngles`` at ``(0,0,0)``, which is NOT the rung-7-proven
+#:     ``(0,180,180)`` ROTATION BASELINE -- and the engine WRITES eulerAngles every frame
+#:     (``SFXDataMesh.cs:844``), so it overrides whatever the FBX baked. Both are refused here.
+#:   * ``scale`` -- ``new ParametricMovement(true)`` (``SFXDataMesh.cs:1252``) takes the ``isScaling``
+#:     branch and seeds ``Vector3.one`` (``ParametricMovement.cs:26-30``), so an omitted ``scale`` is a
+#:     benign IDENTITY scale ``(1,1,1)``: the creature renders at its authored size. It is therefore
+#:     OPTIONAL, and deliberately not refused -- the "omitting scale makes the creature invisible"
+#:     reading is wrong, it is the ``asScaling`` seed that saves it.
+_REQUIRED_CURVES = {
+    "move":
+        "[summon.staging] has no [[summon.staging.move]] pieces. An omitted Movement curve is never "
+        "loaded (SFXDataMesh.cs:1007-1012 only calls LoadFromJSON for a node that EXISTS), so "
+        "ParametricMovement keeps zero pieces and GetPosition returns its Vector3.zero seed "
+        "(ParametricMovement.cs:31-35, 226-227) -- the creature is pinned at the WORLD ORIGIN, "
+        "off-camera, for the whole cast. That is THE MOVEMENT TRAP. Author at least one "
+        "[[summon.staging.move]] piece (a single Duration = end - start piece with from == to is a "
+        "legal way to say 'hold still here').",
+    "turn":
+        "[summon.staging] has no [[summon.staging.turn]] pieces. An omitted Rotation curve is never "
+        "loaded (SFXDataMesh.cs:1007-1012), so GetPosition returns its Vector3.zero seed and the engine "
+        "writes eulerAngles = (0,0,0) EVERY frame (SFXDataMesh.cs:844, raw, with no battle-actor base) "
+        "-- overriding whatever orientation the FBX was exported at. That is not the rung-7-proven "
+        "(0,180,180) ROTATION BASELINE, so the creature faces the wrong way with no error anywhere. "
+        "Author at least one [[summon.staging.turn]] piece; the proven baseline is a single piece with "
+        "from = to = [0, 180, 180].",
+}
+
+#: authored ``.anim`` clips get on-disc keys from the kit's mint band, clear of every stock clip key
+#: (stock tops out at 14739) so a minted creature's clip file can never shadow a real one.
+AUTHORED_CLIP_KEY_BASE = _anim._NEW_ANIM_KEY_BASE
 
 #: donor id -> sha256 of the pristine stock ``ef{donor:D3}/PlayerSequence.seq`` we splice against. A donor
 #: whose live ``.seq`` drifts from its registered hash is REFUSED (``build_thomas.py:141``). A donor with
@@ -136,15 +241,34 @@ def normalize_spec(block: dict) -> dict:
     if lane not in LANES:
         raise SummonDeployError(f"[[summon]] lane must be one of {list(LANES)}, got {block.get('lane')!r}")
 
-    donor_raw = block.get("donor", DEFAULT_DONOR)
-    if isinstance(donor_raw, str) and not donor_raw.strip().isdigit():
+    donor_raw = block.get("donor")
+    if donor_raw is None and block.get("sequence"):
+        # An authored (`sequence=`) block has no donor at all -- do NOT silently fall back to
+        # DEFAULT_DONOR (Bahamut). A pure-authored cast reads no stock content, so a donor id here would
+        # be a LIE: it would claim a relationship to a creature/skeleton this block never touches, and on
+        # the hybrid lane it would arm `[SfxHybrid] EffectId = 227` -- posing the model on BAHAMUT's live
+        # bones for a creature that was never rigged to them. `donor` stays ``None``; donor-dependent
+        # features (the hybrid lane; a donor-decode `clips` selector) refuse it explicitly below / in
+        # :func:`_decode_donor_clips` rather than crashing or silently defaulting.
+        donor = None
+    else:
+        if donor_raw is None:
+            donor_raw = DEFAULT_DONOR
+        if isinstance(donor_raw, str) and not donor_raw.strip().isdigit():
+            raise SummonDeployError(
+                f"[[summon]] donor {donor_raw!r} is a name -- the deploy engine takes the NUMERIC effect "
+                "id (e.g. 227 for Bahamut). Resolve a SpecialEffect name to its id in the block-schema "
+                "layer first, or pass the numeric id.")
+        donor = _as_int(donor_raw, "[[summon]] donor")
+        if donor <= 0:
+            raise SummonDeployError(f"[[summon]] donor id {donor} must be positive")
+
+    if lane == "hybrid" and donor is None:
         raise SummonDeployError(
-            f"[[summon]] donor {donor_raw!r} is a name -- the deploy engine takes the NUMERIC effect id "
-            "(e.g. 227 for Bahamut). Resolve a SpecialEffect name to its id in the block-schema layer "
-            "first, or pass the numeric id.")
-    donor = _as_int(donor_raw, "[[summon]] donor")
-    if donor <= 0:
-        raise SummonDeployError(f"[[summon]] donor id {donor} must be positive")
+            '[[summon]] lane = "hybrid" needs a `donor` -- the s58 SfxHybridDrive engine feature poses '
+            "the model on a REAL donor's live skeleton (`[SfxHybrid] EffectId` = donor); an authored "
+            "(`sequence=`) block with no donor has no skeleton to pose on. Use lane = \"overlay\" (the "
+            "default a donor-less block should reach for) or add a `donor`.")
 
     group = str(block.get("group", DEFAULT_GROUP)).upper()
     # validate the group early (bad group -> unknown ModelType) via the mint helper's table
@@ -175,13 +299,42 @@ def normalize_spec(block: dict) -> dict:
     hide_mask = _norm_hide_mask(block.get("hide_mask", "0x3"))
     node_count = _as_int(block.get("node_count", 93), "[[summon]] node_count")
     clips = block.get("clips", "all")
-    staging = str(block.get("staging", "donor")).lower()
-    if staging not in ("donor", "curves"):
-        raise SummonDeployError(f"[[summon]] staging must be 'donor' or 'curves', got {staging!r}")
+    staging, staging_curves = _norm_staging(block.get("staging", "donor"))
+    if staging_curves is None and block.get("staging_curves") is not None:
+        # RE-NORMALIZING AN ALREADY-NORMALIZED SPEC. This function's contract (and ``emit_overlay`` /
+        # ``emit_hybrid``'s docstrings) is that it is IDEMPOTENT -- ``deploy()`` normalizes, then the lane
+        # emitter normalizes again. A curve table breaks that naively: the first pass SPLITS
+        # ``staging = <table>`` into ``staging = "curves"`` + a separate ``staging_curves`` key, so the
+        # second pass saw a bare ``"curves"`` string with no table and refused a block that emits fine when
+        # the emitter is called directly. (That is exactly the split between ``emit_overlay(block, ...)``,
+        # which the study's build scripts use, and the real ``summon-deploy`` CLI, which goes through
+        # ``deploy()`` -- so it only bit the actual deploy command.) Adopt the already-split table.
+        staging_curves = dict(block["staging_curves"])
 
     textures = block.get("textures")
     if textures is not None:
         textures = [str(t) for t in textures]
+    particles = block.get("particles")
+    if particles is not None:
+        particles = [str(p) for p in particles]
+    sequence = block.get("sequence")
+    if sequence is not None:
+        sequence = str(sequence)
+    manifest = str(block.get("manifest", DEFAULT_MANIFEST_NAME))
+    if "/" in manifest or "\\" in manifest:
+        raise SummonDeployError(
+            f"[[summon]] manifest {manifest!r} must be a BARE file name -- FileList.txt's grammar splits on "
+            "single spaces and AssetManager resolves the name relative to the ef folder itself "
+            "(SFXData.cs:253-254)")
+
+    if staging == "curves" and staging_curves is None:
+        raise SummonDeployError(
+            '[[summon]] staging = "curves" needs an authored [summon.staging] table (anchor/start/end + '
+            "[[summon.staging.move]]/[[summon.staging.turn]]/[[summon.staging.scale]]/[[summon.staging.play]]"
+            ") -- otherwise there are no curves to emit and the creature would stage at the world origin "
+            "(THE MOVEMENT TRAP).")
+    if staging_curves is not None:
+        _validate_staging(staging_curves, clips)
 
     return {
         "lane": lane, "donor": donor, "model": block.get("model"), "textures": textures,
@@ -191,8 +344,301 @@ def normalize_spec(block: dict) -> dict:
         "hide_mask": hide_mask, "node_count": node_count,
         "apply_column_scale": bool(block.get("apply_column_scale", False)),
         "hide_meshes": hide_meshes,
-        "clips": clips, "staging": staging,
+        "clips": clips, "staging": staging, "staging_curves": staging_curves,
+        "sequence": sequence, "particles": particles, "manifest": manifest,
     }
+
+
+def _norm_staging(raw) -> tuple:
+    """``staging`` -> ``(mode, curves_table_or_None)``.
+
+    Two accepted forms, because the storyboard's own example (``staging = "curves"`` **and** a
+    ``[summon.staging]`` table) is not expressible in TOML -- one key cannot be a string and a table at
+    once. The TABLE form is canonical:
+
+      * ``[summon.staging]`` (a table)  -> mode ``"curves"``, the table IS the curve spec;
+      * ``staging = "donor"``           -> mode ``"donor"`` (the default: decode the donor's own staging);
+      * ``staging = "curves"``          -> mode ``"curves"`` with NO table, which
+        :func:`normalize_spec` then refuses with the fix spelled out.
+    """
+    if isinstance(raw, dict):
+        return "curves", dict(raw)
+    mode = str(raw).lower()
+    if mode not in ("donor", "curves"):
+        raise SummonDeployError(
+            f"[[summon]] staging must be 'donor', 'curves', or a [summon.staging] curve table, got {raw!r}")
+    return mode, None
+
+
+# --------------------------------------------------------------------------- staging = "curves" (K4)
+
+def authored_clip_paths(clips) -> "list | None":
+    """``clips`` -> the AUTHORED file-path list, or ``None`` when it is the donor-decode selector.
+
+    The two forms are told apart by CONTENT, not by a flag: a list whose every element is an int (or an
+    all-digit string) is a donor CLIP-INDEX list; anything else is a list of authored ``.anim`` paths.
+    A bare string (``"all"``/``"none"``/``"0 1 2"``) is always the donor selector."""
+    if not isinstance(clips, (list, tuple)):
+        return None
+    if not clips:
+        return []
+    if all(isinstance(c, int) or (isinstance(c, str) and c.strip().isdigit()) for c in clips):
+        return None
+    return [str(c) for c in clips]
+
+
+def clip_key_of(index: int, path=None) -> int:
+    """The on-disc ``.anim`` key for the ``index``-th AUTHORED clip. ``anim_disc_path`` names clip files
+    ``{key}.anim`` and the engine's playlist keys a clip by ``Path.GetFileNameWithoutExtension``
+    (``SFXDataMesh.cs:789``), so the key doubles as the clip's runtime NAME -- it just has to be unique
+    and stable, and the manifest's ``Animations[].Path`` must agree with it.
+
+    Two forms, so an upstream clip author can pin a key OR stay out of the way:
+
+      * a NUMERIC file stem (``0.anim``) is taken AT ITS WORD -- the author has chosen the key;
+      * anything else (``emerge.anim``) gets ``AUTHORED_CLIP_KEY_BASE + index``, which reads back in the
+        deployed tree as an unmistakably minted key and can never collide with a stock clip (stock keys
+        top out at 14739).
+
+    Either way the kit writes both the file and the manifest entry from THIS function, so they cannot
+    disagree."""
+    if path is not None:
+        stem = Path(str(path)).stem
+        if stem.isdigit():
+            return int(stem)
+    return AUTHORED_CLIP_KEY_BASE + int(index)
+
+
+def clip_name_map(clips) -> dict:
+    """Authored clips -> ``{stem: key}`` (plus ``{str(key): key}`` so a ``play.clip`` may name either).
+    Empty for the donor-decode selector.
+
+    Refuses two ALIASING collisions, neither of which the engine would ever surface as an error -- it
+    would just silently do the wrong thing:
+
+      * **same key, different clip** -- an explicit numeric stem (``60001.anim``) landing on the same
+        key an auto-derived stem resolves to (``AUTHORED_CLIP_KEY_BASE + index``), or two explicit
+        numeric stems repeating a key. ``_stage_authored_clips`` and this map are BOTH keyed by the
+        number, and both write to ``anim_disc_path(mod_root, id, key)`` -- the second clip's write
+        silently OVERWRITES the first clip's ``.anim`` file on disc, with no error at deploy or in-game
+        (the symptom is "my emerge clip plays drift's motion").
+      * **same stem, different key** -- two authored clips sharing a file NAME (``a/emerge.anim`` and
+        ``b/emerge.anim``) but different (auto-derived, positional) keys. ``out[stem] = key`` is a plain
+        dict assignment, so the second entry SILENTLY REPLACES the first in the name map -- a
+        ``play.clip = "emerge"`` row can then only ever reach the second clip; the first is staged to
+        disc under its own key but becomes unreachable by name."""
+    paths = authored_clip_paths(clips)
+    if not paths:
+        return {}
+    out: dict = {}
+    key_owner: dict = {}          # key -> (index, stem) of the clip that first claimed it
+    for i, p in enumerate(paths):
+        stem = Path(p).stem
+        key = clip_key_of(i, p)
+        if key in key_owner and key_owner[key][1] != stem:
+            other_i, other_stem = key_owner[key]
+            raise SummonDeployError(
+                f"[[summon]] clips[{i}] ({stem!r}) and clips[{other_i}] ({other_stem!r}) both resolve to "
+                f".anim key {key} -- the on-disc file AND the manifest's playlist entry are keyed by this "
+                "number, so the second clip's write would silently overwrite the first's .anim file with "
+                "no error. Rename one clip file, or renumber the numeric stem that collided.")
+        key_owner[key] = (i, stem)
+        if stem in out and out[stem] != key:
+            raise SummonDeployError(
+                f"[[summon]] clips has two authored clips both named {stem!r} (position {i} and an "
+                f"earlier one) with DIFFERENT keys ({key} vs {out[stem]}) -- the name map can only hold "
+                f"one key per stem, so `play.clip = {stem!r}` would silently reach only the later clip. "
+                "Rename one of the files.")
+        out[stem] = key
+        out[str(key)] = key
+    return out
+
+
+def _num(v) -> str:
+    """A curve number -> its expression text. Ints stay int-shaped (``190`` not ``190.0``) so the emitted
+    JSON reads like the hand-authored stock manifests."""
+    f = float(v)
+    return str(int(f)) if f == int(f) else repr(round(f, 6))
+
+
+def _axis_expr(prefix, axis: str, offset) -> str:
+    """One axis of a curve endpoint: ``TargetAveragePositionY - 900`` / ``190`` (anchor ``world``)."""
+    if prefix is None:
+        return _num(offset)
+    f = float(offset)
+    if f == 0:
+        return f"{prefix}{axis}"
+    return f"{prefix}{axis} {'+' if f > 0 else '-'} {_num(abs(f))}"
+
+
+def _triple(v, who: str) -> list:
+    """A curve endpoint: a 3-list, or a scalar meaning "uniform on all three axes" (Scaling's usual form)."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return [float(v)] * 3
+    if isinstance(v, (list, tuple)) and len(v) == 3 and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+        return [float(x) for x in v]
+    raise SummonDeployError(f"{who} must be a 3-number list [x, y, z] or a single number, got {v!r}")
+
+
+def _validate_staging(st: dict, clips) -> None:
+    """Structural validation of a ``[summon.staging]`` table (no I/O). The duration invariants come
+    straight from the engine: every curve is evaluated against the SAME frame counter, so all three must
+    span the whole ``end - start`` window or the tail of the shortest one freezes on its last piece."""
+    if not isinstance(st, dict):
+        raise SummonDeployError("[summon.staging] must be a table")
+    unknown = set(st) - _STAGING_TABLE_KEYS
+    if unknown:
+        raise SummonDeployError(
+            f"[summon.staging] has unknown key(s) {sorted(unknown)} -- valid keys: "
+            f"{sorted(_STAGING_TABLE_KEYS)}")
+    anchor = str(st.get("anchor", "target_average")).lower()
+    if anchor == "target":
+        raise SummonDeployError(f"[summon.staging] {_ANCHOR_TARGET_REFUSAL}")
+    if anchor not in STAGING_ANCHORS:
+        raise SummonDeployError(
+            f"[summon.staging] anchor must be one of {sorted(STAGING_ANCHORS)}, got {anchor!r}")
+    start = _as_int(st.get("start", 0), "[summon.staging] start")
+    if "end" not in st:
+        # `start`/`end` both silently default to 0 in staging_curves_json (STORYBOARD 6.4's own emit
+        # rule: Start==End==0 tells the ENGINE to auto-derive the window, SFXDataMesh.cs:803-808). But
+        # THIS validator's duration-sum invariant (below) is gated on `if span and ...` -- a span of 0
+        # (the same default) makes that gate falsy and SILENTLY SKIPS the invariant, indistinguishable
+        # from "the author explicitly wants auto-derive". Require `end` explicitly so an omission (a
+        # typo, not a choice) is caught here instead of disabling the check it was meant to run.
+        raise SummonDeployError(
+            "[summon.staging] needs an explicit `end` -- even `end = 0` if you want the engine's own "
+            "auto-derive route (Start==End, SFXDataMesh.cs:803-808). An OMITTED `end` defaults to 0 too, "
+            "which makes `span = end - start` also 0 and SILENTLY DISABLES the duration-sum invariant "
+            "below (`if span and total != span` -- a falsy span never runs the check), so a genuine typo "
+            "and a deliberate auto-derive become indistinguishable. Pin `end` explicitly.")
+    end = _as_int(st.get("end", 0), "[summon.staging] end")
+    if end < start:
+        raise SummonDeployError(f"[summon.staging] end {end} is before start {start}")
+    span = end - start
+
+    for key in ("move", "turn", "scale"):
+        pieces = st.get(key) or []
+        if not isinstance(pieces, (list, tuple)):
+            raise SummonDeployError(f"[[summon.staging.{key}]] must be an array of tables")
+        if not pieces:
+            if key in _REQUIRED_CURVES:
+                raise SummonDeployError(_REQUIRED_CURVES[key])
+            continue                      # `scale` only -- see _REQUIRED_CURVES' note on the identity seed
+        total = 0
+        for i, p in enumerate(pieces):
+            where = f"[[summon.staging.{key}]] #{i}"
+            if not isinstance(p, dict):
+                raise SummonDeployError(f"{where} must be a table")
+            unknown = set(p) - _CURVE_PIECE_KEYS
+            if unknown:
+                raise SummonDeployError(
+                    f"{where} has unknown key(s) {sorted(unknown)} -- valid keys: {sorted(_CURVE_PIECE_KEYS)}")
+            total += _as_int(p.get("duration", 0), f"{where} duration")
+            if "to" not in p:
+                raise SummonDeployError(f"{where} needs a `to` destination")
+            _triple(p["to"], f"{where} to")
+            if "from" in p:
+                _triple(p["from"], f"{where} from")
+            elif i == 0:
+                raise SummonDeployError(
+                    f"{where} is the FIRST piece and has no `from` -- there is no previous destination to "
+                    "inherit (ParametricMovement.cs:88-105), so its origin expression would stay null")
+            for e in (p.get("ease") or []):
+                if str(e) in _TURNING_EASES:
+                    raise SummonDeployError(
+                        f"{where} ease {e!r} is SPRITE-ONLY and would CRASH this creature. "
+                        f"ParametricMovement.cs:233-237 calls customParam.TryGetValue(0, out baseAngle) "
+                        f"with no null guard on exactly the Turning1/Turning2 arms, and the FBX render "
+                        f"path passes customParam = null on all three curves (SFXDataMesh.cs:843-845) -- "
+                        f"a NullReferenceException on every render frame of the cast. Only the sprite "
+                        f"path supplies a dict (p.param, SFXDataMesh.cs:1285), which is why a PARTICLE "
+                        f".sfxmodel may use them. On an FBX curve use one of {list(_FBX_EASES)}.")
+                if str(e) not in _EASES:
+                    raise SummonDeployError(
+                        f"{where} ease {e!r} is not one of {list(_EASES)} -- TryParseInterpolateType "
+                        "(ParametricMovement.cs:273-285) silently falls back to Constant, so a typo here "
+                        "freezes that axis at its origin with no log")
+        if span and total != span:
+            raise SummonDeployError(
+                f"[[summon.staging.{key}]] durations sum to {total} but end - start = {span}. Every curve "
+                "is sampled against the same frame counter -- a short one freezes on its last piece while "
+                "the others keep moving.")
+
+    names = clip_name_map(clips)
+    for i, p in enumerate(st.get("play") or []):
+        where = f"[[summon.staging.play]] #{i}"
+        if not isinstance(p, dict):
+            raise SummonDeployError(f"{where} must be a table")
+        unknown = set(p) - _PLAY_ROW_KEYS
+        if unknown:
+            raise SummonDeployError(
+                f"{where} has unknown key(s) {sorted(unknown)} -- valid keys: {sorted(_PLAY_ROW_KEYS)}")
+        clip = p.get("clip")
+        if clip is None:
+            raise SummonDeployError(f"{where} needs a `clip`")
+        if names and str(clip) not in names:
+            raise SummonDeployError(
+                f"{where} clip {clip!r} is not one of the block's authored clips {sorted(k for k in names if not k.isdigit())}")
+        speed = float(p.get("speed", 1))
+        if speed <= 0:
+            raise SummonDeployError(
+                f"{where} speed must be > 0 (animMaxFrame = ceil(numFrames / speed), SFXDataMesh.cs:852)")
+        if _as_int(p.get("repeat", 1), f"{where} repeat") < 1:
+            raise SummonDeployError(f"{where} repeat must be >= 1")
+
+
+def staging_curves_json(spec: dict) -> dict:
+    """The authored ``[summon.staging]`` table -> the ``.sfxmodel`` FBX entry's
+    ``Start``/``End``/``Movement``/``Rotation``/``Scaling``/``Animations`` keys (K4).
+
+    ``Movement`` is ANCHORED (offsets are added to the anchor's NCalc position parameters); ``Rotation``
+    and ``Scaling`` are ABSOLUTE -- rotation is applied raw to ``eulerAngles`` with no battle-actor base
+    (``SFXDataMesh.cs:844``, THE ROTATION BASELINE LAW) and scaling is a plain factor. A piece that omits
+    ``from`` emits NO ``Origin*`` keys at all, so the engine's own by-reference inheritance
+    (``ParametricMovement.cs:88-105``) does the chaining -- re-emitting the previous destination would
+    double-evaluate the NCalc expression.
+
+    A curve with no pieces emits NO key at all, which leaves the engine's ``ParametricMovement`` empty
+    and pins that transform channel at its constructor seed for the whole cast (see
+    :data:`_REQUIRED_CURVES`). ``move`` and ``turn`` are therefore REQUIRED by :func:`_validate_staging`
+    (their seed is ``Vector3.zero`` = the world origin / a wrong facing); ``scale`` is optional because
+    its ``ParametricMovement(true)`` seed is ``Vector3.one``, a benign identity scale."""
+    st = spec["staging_curves"]
+    anchor = str(st.get("anchor", "target_average")).lower()
+    prefix = STAGING_ANCHORS[anchor]
+    out: dict = {"Start": str(_as_int(st.get("start", 0), "start")),
+                 "End": str(_as_int(st.get("end", 0), "end"))}
+    for key, json_key, pfx in (("move", "Movement", prefix), ("turn", "Rotation", None),
+                               ("scale", "Scaling", None)):
+        pieces = st.get(key) or []
+        if not pieces:
+            continue
+        out[json_key] = [_curve_piece(p, pfx) for p in pieces]
+    names = clip_name_map(spec.get("clips"))
+    playlist = []
+    for p in (st.get("play") or []):
+        key = names.get(str(p["clip"]), p["clip"])
+        entry = {"Path": f"Animations/{spec['id']}/{key}"}
+        speed = float(p.get("speed", 1))
+        if speed != 1:
+            entry["Speed"] = _num(speed)
+        playlist += [dict(entry) for _ in range(int(p.get("repeat", 1)))]
+    if playlist:
+        out["Animations"] = playlist
+    return out
+
+
+def _curve_piece(p: dict, prefix) -> dict:
+    d = {"Duration": str(_as_int(p.get("duration", 0), "duration"))}
+    if "from" in p:
+        for ax, v in zip("XYZ", _triple(p["from"], "from")):
+            d[f"Origin{ax}"] = _axis_expr(prefix, ax, v)
+    for ax, v in zip("XYZ", _triple(p["to"], "to")):
+        d[f"Destination{ax}"] = _axis_expr(prefix, ax, v)
+    for ax, e in zip("XYZ", (p.get("ease") or [])):
+        d[f"InterpolationType{ax}"] = str(e)
+    return d
 
 
 def _norm_mesh_key(k) -> str:
@@ -597,8 +1043,30 @@ def _stage_model(spec: dict, mod_root: Path, ledger: _Ledger) -> dict:
 # --------------------------------------------------------------------------- host .seq (row 2)
 
 def _stage_host_seq(spec: dict, mod_root: Path, game, ledger: _Ledger, *, overlay: bool) -> dict:
-    """Row 2: the drift-guarded donor ``.seq`` copy spliced into ``ef{private_ef:D3}/PlayerSequence.seq``.
-    The donor is READ (never written); its unified diff is captured for the deploy receipt."""
+    """Row 2: the host ``ef{private_ef:D3}/PlayerSequence.seq``.
+
+    Two sources, and the second one is the rung-8 delta (K1):
+
+      * ``sequence = "<file>.seq"`` -- an AUTHORED cast, copied VERBATIM. No donor is read, no splice is
+        performed, no drift guard applies (there is no stock content in the chain at all), and the file is
+        run through :mod:`ff9mapkit.summons.seqlint` first -- the engine drops an unknown op or arg key
+        without a log, so an unlinted hand-authored cast is a silent-failure machine.
+      * no ``sequence`` -- the historical transplant path: the drift-guarded donor ``.seq``, spliced. The
+        donor is READ (never written); its unified diff is captured for the deploy receipt."""
+    authored = spec.get("sequence")
+    if authored:
+        src = Path(authored)
+        if not src.is_file():
+            raise SummonDeployError(f"[[summon]] sequence file not found: {src}")
+        problems = _lint_authored_sequence(spec, src)
+        if problems:
+            raise SummonDeployError(
+                f"the authored sequence {src} does not lint -- refusing to deploy a cast the engine would "
+                "silently drop pieces of:\n  " + "\n  ".join(problems))
+        seq_dest = _sfx_dir(mod_root, spec["private_ef"]) / HOST_SEQ_NAME
+        seq_sha = ledger.write_bytes(seq_dest, src.read_bytes())
+        return {"seq_dest": str(seq_dest), "seq_sha256": seq_sha, "seq_diff": "",
+                "seq_source": str(src), "seq_authored": True}
     donor_text = fetch_donor_seq(game, spec["donor"])
     out_text = splice_host_seq(donor_text, spec.get("hide_meshes"), private_ef=spec["private_ef"],
                                overlay=overlay)
@@ -615,10 +1083,18 @@ def _stage_host_seq(spec: dict, mod_root: Path, game, ledger: _Ledger, *, overla
 
 def _sfxmodel_manifest(spec: dict, clip_names: list) -> dict:
     """The ``.sfxmodel`` JSON manifest (overlay lane, DESIGN row 5): one FBX entry naming the bare minted
-    GEO name (Hop 4/5 discards the ef folder), plus one ``Animations[]`` entry per baked clip referenced by
-    its literal ``Animations/{id}/{clip}`` path (Hop 8; verbatim, unprefixed). Sane world-origin
-    Movement/Rotation/Scaling anchors so a mis-wired overlay degrades to "visible but static" not
-    "invisible at the origin" (FBX-PATHS section 4)."""
+    GEO name (Hop 4/5 discards the ef folder), plus the ``Animations[]`` playlist.
+
+    ``staging = "donor"`` (the default) emits sane world-origin Movement/Rotation/Scaling anchors so a
+    mis-wired overlay degrades to "visible but static" rather than "invisible at the origin"
+    (FBX-PATHS section 4), and chains each decoded clip once.
+
+    A ``[summon.staging]`` curve table (``staging = "curves"``, K4) REPLACES all of that with the authored
+    Start/End + the three curves + the authored playlist -- see :func:`staging_curves_json`."""
+    if spec.get("staging_curves") is not None:
+        fbx = {"Path": spec["name"]}
+        fbx.update(staging_curves_json(spec))
+        return {"FBX": [fbx]}
     fbx = {"Path": spec["name"], "Start": "0", "End": "0",
            "Movement": [{"Duration": "0", "OriginX": "0", "OriginY": "0", "OriginZ": "0",
                          "DestinationX": "0", "DestinationY": "0", "DestinationZ": "0"}],
@@ -631,6 +1107,135 @@ def _sfxmodel_manifest(spec: dict, clip_names: list) -> dict:
     return {"FBX": [fbx]}
 
 
+def _seqlint():
+    """Lazy handle to the ``.seq``/``.sfxmodel`` linter (K5) -- only an authored cast pays for it."""
+    from . import seqlint
+    return seqlint
+
+
+def _lint_authored_sequence(spec: dict, src: Path) -> list:
+    """The authored ``.seq``'s silent-skip lint (K5), as a plain problem list (no I/O side effects beyond
+    the read). Shared by :func:`_preflight_inputs` (a cheap, no-writes-yet check) and
+    :func:`_stage_host_seq` (the actual write site -- kept as a safety net for any caller that reaches it
+    without going through preflight, e.g. a test that calls it directly)."""
+    text = src.read_text(encoding="utf-8-sig")
+    return _seqlint().lint_seq(
+        text, private_ef=spec["private_ef"],
+        particles=[Path(p).name for p in (spec.get("particles") or [])], path=str(src))
+
+
+def _check_playlist_coverage(spec: dict) -> None:
+    """THE ANIMATION-PLAYLIST LAW as a raising check (a thin wrapper over :func:`playlist_coverage`, which
+    is a pure read -- no writes). Shared by :func:`_preflight_inputs` (early, before the first byte of the
+    mint is written) and :func:`_stage_overlay_extras_authored` (the actual write site -- kept as a safety
+    net). ``None``/``short_by == 0`` from :func:`playlist_coverage` means nothing to check -- returns."""
+    coverage = playlist_coverage(spec)
+    if coverage and coverage["short_by"] > 0:
+        raise SummonDeployError(
+            f"THE ANIMATION-PLAYLIST LAW: the [[summon.staging.play]] playlist covers "
+            f"{coverage['playlist_ticks']} ticks but the FBX window (end - start) is {coverage['window']} "
+            f"-- short by {coverage['short_by']}. SFXDataMesh.cs:860-863 has no loop flag: once the "
+            f"playlist runs out the model FREEZES on the last clip's last frame for the remaining "
+            f"{coverage['short_by']} ticks. Add a `repeat` (or shorten `end`).\n"
+            f"  per clip (frames / speed = ticks): " + ", ".join(coverage["detail"]))
+
+
+def _preflight_inputs(spec: dict) -> None:
+    """Every caller-supplied input file must EXIST before the first byte is written -- AND, for the two
+    checks that are cheap to run this early (pure reads, no derived manifest/clip-key state needed), must
+    also pass the checks the engine would otherwise fail at SILENTLY:
+
+      * the authored ``sequence=``'s silent-skip lint (K5, :func:`_lint_authored_sequence`);
+      * THE ANIMATION-PLAYLIST LAW's coverage check (:func:`_check_playlist_coverage`).
+
+    Without this an emit that dies half-way (a particle path typo, a lint failure, a short playlist)
+    leaves the mint + the host ``.seq`` already in the mod folder and no revert script -- the ledger only
+    renders one at the end. Both checks are pure reads against caller-supplied files already confirmed to
+    exist above, so folding them in costs nothing extra in I/O and moves their failure point BEFORE
+    :func:`_stage_model`'s first write (previously: the seq lint fired inside :func:`_stage_host_seq`,
+    which runs after the mint is already on disc; the playlist check fired inside
+    :func:`_stage_overlay_extras_authored`, after the mint AND the host ``.seq`` are already on disc).
+
+    NOT folded in, and this is deliberate rather than an oversight: the ``.sfxmodel`` manifest lint
+    (:func:`_write_manifest`) and the particle-file lint (:func:`_stage_particles`). Both need state this
+    function has no cheap way to derive twice -- the manifest lint needs the ACTUAL clip-key list
+    :func:`_stage_authored_clips`/:func:`_decode_donor_clips` compute while writing, and the particle
+    lint is already itself the very first thing each particle file's write site does. Duplicating either
+    here would mean re-deriving (not just re-reading) real staged state before the real staging runs, which
+    is not "trivially callable" the way the seq lint and the playlist check are -- so they stay at their
+    existing write sites, and this docstring is the honest record of the check order."""
+    missing = []
+    for label, raw in [("model", spec.get("model")), ("sequence", spec.get("sequence"))]:
+        if raw and not Path(raw).is_file():
+            missing.append(f"[[summon]] {label} file not found: {raw}")
+    for label, seq in [("particle .sfxmodel", spec.get("particles")),
+                       ("clip", authored_clip_paths(spec.get("clips")))]:
+        for raw in (seq or []):
+            if not Path(raw).is_file():
+                missing.append(f"[[summon]] {label} not found: {raw}")
+    if missing:
+        raise SummonDeployError("\n".join(missing))
+
+    sequence = spec.get("sequence")
+    if sequence:
+        problems = _lint_authored_sequence(spec, Path(sequence))
+        if problems:
+            raise SummonDeployError(
+                f"the authored sequence {sequence} does not lint -- refusing to deploy a cast the engine "
+                "would silently drop pieces of:\n  " + "\n  ".join(problems))
+    _check_playlist_coverage(spec)
+
+
+def _stage_particles(spec: dict, mod_root: Path, ledger: _Ledger) -> list:
+    """K3: the authored sprite ``.sfxmodel`` particle files, copied VERBATIM into the private
+    ``ef{private_ef:D3}/`` folder beside the manifest.
+
+    They live in the ef folder because that is where ``CreateVisualEffect``'s full ``Data/``-rooted
+    ``SFXModel=`` path points, and because a ``.sfxmodel``'s own texture references resolve relative to its
+    OWN folder (``SFXDataMesh.cs:1064-1068``). Each is linted first -- a ``.sfxmodel`` that does not parse
+    makes ``ModelSequence.Load`` return null and the op ``break`` with no message at all
+    (``UnifiedBattleSequencer.cs:406-408``)."""
+    out = []
+    for raw in (spec.get("particles") or []):
+        src = Path(raw)
+        if not src.is_file():
+            raise SummonDeployError(f"[[summon]] particle .sfxmodel not found: {src}")
+        problems = _seqlint().lint_sfxmodel_file(src)
+        if problems:
+            raise SummonDeployError(
+                "a particle .sfxmodel does not lint -- refusing to deploy an effect the engine would drop "
+                "silently:\n  " + "\n  ".join(problems))
+        dest = _sfx_dir(mod_root, spec["private_ef"]) / src.name
+        ledger.write_bytes(dest, src.read_bytes())
+        out.append(str(dest))
+    return out
+
+
+def _stage_authored_clips(spec: dict, mod_root: Path, ledger: _Ledger) -> list:
+    """K2: AUTHORED ``.anim`` clips (the ``models/anim.py:new_clip`` -> ``clip_to_anim_json`` output),
+    copied verbatim to ``anim_disc_path(mod_root, id, key)``.
+
+    NO ``3DModelAnimation`` DictionaryPatch line is written, exactly as on the donor-decode path: the SFX
+    route resolves a clip by LITERAL PATH through ``AssetManager.Load<AnimationClip>``
+    (``SFXDataMesh.cs:793``), not through the animation table -- so authored clips are RECAST-only, and
+    only a new ``3DModel`` mint id needs the relaunch.
+
+    The on-disc key is :func:`clip_key_of` (the mint band, positional), and the manifest's playlist maps a
+    human ``play.clip = "emerge"`` name onto it via :func:`clip_name_map` -- so the TOML stays readable
+    while the file name stays a key the engine is happy to treat as a clip NAME."""
+    paths = authored_clip_paths(spec.get("clips")) or []
+    out = []
+    for i, raw in enumerate(paths):
+        src = Path(raw)
+        if not src.is_file():
+            raise SummonDeployError(f"[[summon]] clip file not found: {src}")
+        key = clip_key_of(i, src)
+        dest = _anim.anim_disc_path(mod_root, spec["id"], key)
+        ledger.write_bytes(dest, src.read_bytes())
+        out.append({"name": src.stem, "key": key, "dest": str(dest), "source": str(src)})
+    return out
+
+
 def _decode_donor_clips(spec: dict, game) -> list:
     """Decode the donor creature's motion clips offline for the overlay ``.anim`` set (DESIGN 3.3), reusing
     the proven ``summons.build.adapt_all_clips`` decoder. Reads a LOCAL ``ef{donor}.bytes`` under
@@ -639,6 +1244,11 @@ def _decode_donor_clips(spec: dict, game) -> list:
     clips_sel = spec.get("clips", "all")
     if clips_sel in (None, "none", "off", []):
         return []
+    if spec.get("donor") is None:
+        raise SummonDeployError(
+            "[[summon]] has no `donor` -- an authored (`sequence=`) block with no donor cannot decode "
+            "donor clips (there is no ef###.bytes to read them from). Pass `clips=[<authored .anim "
+            'paths>]` (K2) or `clips="none"`, or add a `donor`.')
     from . import build as _sbuild
     from . import container as _container
     src = _local_ef_bytes(spec["donor"])
@@ -692,14 +1302,22 @@ def _clip_bone_paths(clip: dict, parent_of: dict) -> dict:
 def _stage_overlay_extras(spec: dict, mod_root: Path, game, ledger: _Ledger) -> dict:
     """Rows 4/5/6 (overlay lane): the ``.anim`` clips (via ``models/anim.py:clip_to_anim_json`` at
     ``anim_disc_path`` -- NO ``3DModelAnimation`` line), the ``.sfxmodel`` manifest, and the one-line
-    ``FileList.txt`` -- all under the PRIVATE ``ef{private_ef}/`` folder (never the donor's)."""
+    ``FileList.txt`` -- all under the PRIVATE ``ef{private_ef}/`` folder (never the donor's). Plus, on the
+    rung-8 authored path, the sprite particle ``.sfxmodel`` files (K3)."""
     from . import container as _container
+    authored = authored_clip_paths(spec.get("clips"))
+    if authored is not None:
+        return _stage_overlay_extras_authored(spec, mod_root, ledger)
     # decode + write the clips
     clips = _decode_donor_clips(spec, game)
     # bone-number -> parent map from the donor rig (for the hierarchy-path re-key)
     parent_of = {}
-    src = _local_ef_bytes(spec["donor"])
     if clips:
+        # `_decode_donor_clips` already refused a None `donor` before returning anything non-empty, so
+        # `spec["donor"]` is safe to read here (deferred past the empty-clips/"none" case, which never
+        # needs a donor at all -- see Finding 8: a donor-less authored block with `clips="none"` must not
+        # crash trying to resolve a donor it was never given).
+        src = _local_ef_bytes(spec["donor"])
         blob = src.read_bytes()
         mp = _container.creature_package(blob)
         g = _container.creature_geom(blob, mp)
@@ -717,14 +1335,102 @@ def _stage_overlay_extras(spec: dict, mod_root: Path, game, ledger: _Ledger) -> 
         ledger.write_bytes(dest, anim_json.encode("utf-8"))
         clip_names.append(_anim_key_of(name))
 
+    return _write_manifest(spec, mod_root, ledger, clip_names, particles=[])
+
+
+def _stage_overlay_extras_authored(spec: dict, mod_root: Path, ledger: _Ledger) -> dict:
+    """The rung-8 authored variant of :func:`_stage_overlay_extras`: no donor container is opened at all
+    (K2's clips are files the caller wrote), the sprite particles ride along (K3), and the manifest picks
+    up the ``[summon.staging]`` curves when they are present (K4)."""
+    _check_playlist_coverage(spec)                     # already run in _preflight_inputs; kept as a
+    coverage = playlist_coverage(spec)                  # safety net for a caller that skips preflight
+    clips = _stage_authored_clips(spec, mod_root, ledger)
+    particles = _stage_particles(spec, mod_root, ledger)
+    res = _write_manifest(spec, mod_root, ledger, [c["key"] for c in clips], particles=particles)
+    res["clip_files"] = clips
+    if coverage:
+        res["playlist_coverage"] = coverage
+    return res
+
+
+def anim_frame_count(path) -> "int | None":
+    """Frames in an authored ``.anim`` JSON clip -- what ``GeoAnim.geoAnimGetNumFrames`` will report.
+
+    Derived, not read: the ``.anim`` JSON carries per-key TIMES in seconds plus a ``frameRate``
+    (``models/anim.py:clip_to_anim_json``), so frames = ``round(maxTime * frameRate) + 1``. Returns
+    ``None`` for a file this shape does not fit (binary clips, a donor decode) -- the caller then skips
+    the coverage check rather than guessing."""
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or "transform" not in doc:
+        return None
+    rate = float(doc.get("frameRate") or 30.0)
+    tmax = 0.0
+    for bone in doc.get("transform") or []:
+        for chan in ("localRotation", "localPosition", "localScale"):
+            for k in bone.get(chan) or []:
+                tmax = max(tmax, float(k.get("time", 0.0)))
+    return int(round(tmax * rate)) + 1
+
+
+def playlist_coverage(spec: dict) -> "dict | None":
+    """Does the authored ``[[summon.staging.play]]`` playlist cover the whole ``end - start`` window?
+
+    One playlist entry occupies ``ceil(frames / speed)`` SEQUENCE TICKS (``animMaxFrame``,
+    ``SFXDataMesh.cs:852``) -- which is also why a 30 fps clip runs at half speed with ``speed = 1`` at
+    ``BattleTPS = 15``. ``None`` when there is nothing to check (no curves, no playlist, or a clip whose
+    frame count could not be derived)."""
+    st = spec.get("staging_curves")
+    paths = authored_clip_paths(spec.get("clips"))
+    if not st or not st.get("play") or not paths:
+        return None
+    frames = {}
+    for i, p in enumerate(paths):
+        n = anim_frame_count(p)
+        if n is None:
+            return None
+        frames[Path(p).stem] = frames[str(clip_key_of(i, p))] = n
+    window = _as_int(st.get("end", 0), "end") - _as_int(st.get("start", 0), "start")
+    total, detail = 0, []
+    for p in st["play"]:
+        name = str(p["clip"])
+        speed = float(p.get("speed", 1))
+        repeat = int(p.get("repeat", 1))
+        n = frames.get(name)
+        if n is None:
+            return None
+        ticks = int(math.ceil(n / speed)) * repeat
+        total += ticks
+        detail.append(f"{name} {n}/{_num(speed)}"
+                      + (f" x{repeat}" if repeat > 1 else "") + f" = {ticks}")
+    return {"window": window, "playlist_ticks": total, "short_by": max(0, window - total),
+            "detail": detail}
+
+
+def _write_manifest(spec: dict, mod_root: Path, ledger: _Ledger, clip_names: list, *,
+                    particles: list) -> dict:
+    """Row 5 + 6: the ``.sfxmodel`` manifest and the one-line ``FileList.txt`` that reveals it.
+
+    THE FILELIST GRAMMAR: tokens split on a SINGLE space (``SFXData.cs:253-254``) -- a tab or a double
+    space breaks the line silently -- and the manifest name must stay bare so ``UsePathWithDefaultFolder``
+    resolves it inside this same ef folder."""
+    manifest_name = spec.get("manifest") or DEFAULT_MANIFEST_NAME
     manifest = _sfxmodel_manifest(spec, clip_names)
-    manifest_name = "creature_manifest.sfxmodel"
+    body = json.dumps(manifest, indent=2) + "\n"
+    problems = _seqlint().lint_sfxmodel_text(body, path=manifest_name)
+    if problems:
+        raise SummonDeployError(
+            "the emitted .sfxmodel manifest does not lint (a kit bug or a bad [summon.staging]):\n  "
+            + "\n  ".join(problems))
     man_dest = _sfx_dir(mod_root, spec["private_ef"]) / manifest_name
-    ledger.write_bytes(man_dest, (json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
+    ledger.write_bytes(man_dest, body.encode("utf-8"))
 
     fl_dest = _sfx_dir(mod_root, spec["private_ef"]) / "FileList.txt"
     ledger.write_bytes(fl_dest, f"Model {manifest_name}\n".encode("utf-8"))
-    return {"manifest_dest": str(man_dest), "filelist_dest": str(fl_dest), "clips": clip_names}
+    return {"manifest_dest": str(man_dest), "filelist_dest": str(fl_dest), "clips": clip_names,
+            "particles": particles, "manifest_name": manifest_name}
 
 
 def _anim_key_of(clip_name: str):
@@ -849,6 +1555,7 @@ def emit_overlay(spec: dict, mod_root, game, *, work_dir=None) -> dict:
 
     ``spec`` may be a raw ``[[summon]]`` block OR an already-:func:`normalize_spec`-ed spec (idempotent)."""
     spec = _resolve_ids(normalize_spec(spec), mod_root, game)
+    _preflight_inputs(spec)
     ledger = _Ledger(_backup_root(mod_root, work_dir))
     mint = _stage_model(spec, mod_root, ledger)
     seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=True)

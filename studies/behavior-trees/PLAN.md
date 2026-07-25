@@ -268,6 +268,47 @@ runtime tree switching beyond blackboard-driven branches.
   lane is CLOSED: dormant pool / spawn-at-feet + hold_post / intercept-duel-resume /
   the NEW-GAME entry (the staged-latch fix's regression box) / silent exhaustion /
   reload refill, all in-game.
+- **POST-LADDER — STATIC-FEED AUTO-ROUTE (PATH A): ★ PLAYTEST PROVEN (2026-07-24,
+  bench 30414: "the wedge clumsily rams into walls and walks into them until he
+  slowly slides back to a navigable place, while the clever dodges walls" — the
+  routed unit clean, and the naive control is the slide law live).** `route = "auto"` on `patrol`/`march` re-routes any leg the
+  walkability sweep finds OFF-MESH through the cutscene builder's walkmesh A*
+  (`pathfind.route_polyline` — the sweep is the jam oracle, so what's routed ==
+  what lint reports) and splices the detours in at build time — the concave-notch
+  wedge the rung-3 layout round could only diagnose is now fixed by the compiler.
+  Design pins: OPT-IN (no key → the walkmesh is never resolved → byte-identical,
+  tested); clear legs stay as authored; patrol routes its WRAP leg (it always
+  cycles — the lint sweep is now verb-aware too, closing the old open-marker
+  wrap-leg blind spot, and sweeps inline routes); obstacles = WALLS ONLY (units
+  move — build-time character obstacles would be stale; engine collision slides
+  convex contacts); the 8-point ceiling is a hard error naming field/unit/leg;
+  `walk_to`/`hold`/`flee` are REFUSED with the reason (no build-time leg origin —
+  that's path B, dynamic routing; spliced flee points would become extra refuges).
+  New `build.behavior_walkmesh` (one resolver for build + lint); lint reports
+  routed legs as `routed:` lines + hints `route = "auto"` on non-routed jams.
+  10 tests (`test_behavior_autoroute.py`), suite 4901. En route: the new inline
+  sweep found a REAL latent jam in 30412's civilian inline-flee refuge pair
+  (refuge→refuge leg crosses the donut; lint-only, the proven playtest never fired
+  that retarget), and the sweep's minwall oracle counts cross-floor SEAMS as walls
+  (phantom 1-18u warnings; `distance_to_boundary` is seam-aware — fix task
+  spawned). Bench **30414** "BTROUTE" (`btroute_bench.py`, pure product path): the
+  A/B — two soldiers patrol THE SAME 2-point chord across the donut hole, `wedge`
+  naive (jams, the disease live) vs `clever` route="auto" (an 8/8-point routed
+  circuit, byte-verified in the deployed `.eb`). RELAUNCH → ~ → Warp → 30414.
+  Revert: `tools/scroll_out/revert_deploy_30414.py`.
+- **POST-LADDER — THE CLOCK + REAL BATTLES (fort-condor rung 4's vocabulary,
+  2026-07-24): BUILT, ⚠ bench playtest pending.** Field-level `timer = <seconds>`
+  (the Hunt's HUD start triplet in Main_Init — 0x69/0x8D/0x7D, the custom-id claim
+  ★ proven long ago) + `time_below`/`time_above` conds (B_SYSVAR[17] remaining
+  seconds — timed WAVE bands) + the `battle = <scene>` action: `Battle(0, scene)`
+  verbatim from 559's tread battles, ONE-SHOT per field load BY CONSTRUCTION (a
+  compiled latch gates the dispatch — a reactive tree re-selecting the branch after
+  the battle returns cannot re-fire it; the naive Once-decorator route would have
+  looped, sticky-engagement holds the branch selected forever on a dead gate) + the
+  build auto-installing `content.reinit.add_reinit` (entry-0 tag-10) + the BGM
+  resume whenever a behavior compiles a battle (the after-battle resume law as a
+  build invariant). 6 new tests incl. the built-.eb tag-10 e2e. The proof bench =
+  fort-condor 30400 "THE SIEGE" (its PLAN rung 4).
 - **Side probes (cheap, unblock the per-unit-brain variant later):** (a) shared-script
   context semantics — does `RunSharedScript` execute with the CALLER as gCur? (the
   Hunt's Entry17 poller hints yes → ONE generic brain shared by all units,

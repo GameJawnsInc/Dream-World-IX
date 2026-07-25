@@ -1,0 +1,52 @@
+{
+  "MinimalDuration": "0",
+  "Sprite":
+  [{
+    "Material":
+    {
+      "TextureKind": "0",
+      "Shader": "SFX_ADD_G",
+      "GlobalColor": "(1, 1, 1, 1)",
+      "Threshold": "0.0295"
+    },
+    "ScreenSize": "false",
+    "Vertices":
+    [
+      "(0, 75, 0)", "(13, 0, 0)", "(0, -75, 0)", "(-13, 0, 0)"
+    ],
+    "Indices":
+    [
+      "0","1","2",  "0","2","3"
+    ],
+    "ColorInterpolation": ["SinusOut", "Constant", "SinusIn"],
+    "ColorAnimation":
+    [
+      {"Frame":"0",  "VertexColors": ["(0,0,0,0.5)","(0,0,0,0.5)","(0,0,0,0.5)","(0,0,0,0.5)"]},
+      {"Frame":"14", "VertexColors": ["(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)"]},
+      {"Frame":"34", "VertexColors": ["(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)","(0.34,0.46,0.40,0.5)"]},
+      {"Frame":"70", "VertexColors": ["(0,0,0,0.5)","(0,0,0,0.5)","(0,0,0,0.5)","(0,0,0,0.5)"]}
+    ],
+    "Movement":
+    {
+      "Duration": "70",
+      "OriginX": "TargetPositionX - 300 * Parameter1", "DestinationX": "TargetPositionX + 300 * Parameter1",
+      "OriginY": "Parameter2",                         "DestinationY": "Parameter2 + 520 * Parameter1",
+      "OriginZ": "TargetPositionZ - 150 * Parameter1", "DestinationZ": "TargetPositionZ + 150 * Parameter1",
+      "InterpolationTypeX": "Turning1",
+      "InterpolationTypeY": "SinusOut",
+      "InterpolationTypeZ": "Turning2"
+    },
+    "Scale": "0.6",
+    "ScaleAnimation": [{"Frame":"0","Scale":"0.6"}, {"Frame":"70","Scale":"1.5"}],
+    "ScaleInterpolation": "SinusOut",
+    "Duration": "70",
+    "Emission":
+    [{
+      "Frame": ["0","5","10","15","20","25","30","35","40","45","50","55","60","65","70","75"],
+      "Count": "1",
+      "ParameterMin0": "0",    "ParameterMax0": "360",
+      "ParameterMin1": "0.3",  "ParameterMax1": "1.0",
+      "ParameterMin2": "10",   "ParameterMax2": "140"
+    }]
+  }]
+}

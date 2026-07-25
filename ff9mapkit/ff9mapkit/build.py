@@ -5907,12 +5907,33 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if _behaviortoml.table(project.raw):
         from .content import behavior as _behavior
         try:
+            routed = None
+            if _behaviortoml.wants_autoroute(project.raw):
+                # route = "auto" is the ONLY case behavior needs a walkmesh; a field
+                # without the key never resolves one (byte-identical builds)
+                try:
+                    bh_wmesh = behavior_walkmesh(project)
+                except Exception as e:
+                    raise BuildError(f"[behavior]: route = \"auto\" needs a resolvable "
+                                     f"walkmesh ({e})") from e
+                routed = _behaviortoml.autoroute_plan(project.raw, bh_wmesh)
+                if warnings is not None:
+                    for line in _behaviortoml.describe_autoroute(routed, project.raw):
+                        warnings.append(f"[behavior] {line}")
             fb = _behaviortoml.build(
                 project.raw, npc_slots=npc_slots,
                 npc_txids_by_name={n.get("name"): dialogue_txids[i]
                                    for i, n in enumerate(project.raw.get("npc", []))
                                    if n.get("name") and i in dialogue_txids},
-                behavior_txids=behavior_txids)
+                behavior_txids=behavior_txids, routed=routed)
+            # a behavior Battle action needs the after-battle machinery the encounter
+            # lane installs: the entry-0 tag-10 Main_Reinit (EnterBattleEnd suspends
+            # every object; the tag-10's return resumes them) + the field-BGM resume
+            if fb.has_battle_actions() and not has_encounter:
+                eb = _reinit.add_reinit(eb, with_fade=True)
+                _song = project.raw.get("music", {}).get("song")
+                if _song is not None:
+                    eb = _music.add_music_to_reinit(eb, int(_song))
             # button pools: resolve each pool's PARKED hire [[choice]] (matched by the
             # option that set_flags its request flag) to the region slot injected above
             pool_choice_slots = {}
@@ -5941,6 +5962,19 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             raise BuildError(f"[behavior]: {e}") from e
 
     return eb
+
+
+def behavior_walkmesh(project: FieldProject):
+    """The walkmesh ``[behavior]`` ``route = "auto"`` routes over — the field's own
+    ``[walkmesh] bgi``/``reference`` when it ships one, else the resolved built
+    walkmesh. ONE resolver shared by the build and ``behavior lint`` so what's
+    checked == what's compiled."""
+    from .scene import bgi as _bgi
+    wm_cfg = project.raw.get("walkmesh", {}) or {}
+    ref = wm_cfg.get("bgi") or wm_cfg.get("reference")
+    wm_bytes = (project.path(ref).read_bytes() if ref
+                else resolve_walkmesh(project, resolve_cameras(project)[0]))
+    return _bgi.BgiWalkmesh.from_bytes(wm_bytes)
 
 
 def _actor_token(actor_npc):

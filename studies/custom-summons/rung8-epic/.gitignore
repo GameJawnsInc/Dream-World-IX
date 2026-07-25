@@ -1,0 +1,8 @@
+# BUILD OUTPUT, not source. Every byte under stage/ is reproduced by the lane scripts:
+#   creature/make_nimbra.py + make_nimbra_anims.py   -> creature/nimbra/ + stage/creature/
+#   audio/build_audio.py                             -> stage/audio/
+#   build_rung8_stage.py                             -> stage/FF9CustomMap/   (the sequence lane)
+#   bench/build_rung8_bench.py                       -> stage/final/          (the whole bench)
+# The GENERATORS are the committable artifacts (that is what makes this rung 100% original and
+# committable in the first place -- see RUNBOOK.md section 9). Rebuild, don't archive.
+stage/

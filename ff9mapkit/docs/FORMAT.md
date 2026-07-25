@@ -1791,7 +1791,7 @@ lane       = "hybrid"               # "hybrid" (the s58 drive, DEFAULT) | "overl
 
 | key | meaning |
 |---|---|
-| `donor` | **required.** The stock summon whose cast you inherit — a numeric `SpecialEffect` id (`227` = Bahamut) or its enum name (`"Bahamut__Full"`); resolved through a verified name→id catalog (`content/summon.py:SUMMON_DONORS`). Must be a real donor with creature content — one of the 24 stock-absent ids (see `private_ef`) is refused. |
+| `donor` | **required unless `sequence` is set** (an ORIGINAL summon has no donor). The stock summon whose cast you inherit — a numeric `SpecialEffect` id (`227` = Bahamut) or its enum name (`"Bahamut__Full"`); resolved through a verified name→id catalog (`content/summon.py:SUMMON_DONORS`). Must be a real donor with creature content — one of the 24 stock-absent ids (see `private_ef`) is refused. |
 | `model` | **required.** Your own retargeted FBX/glTF, skinned onto the `bone000..bone09N` rig `summon-rig-ref` exported for this donor (same names + hierarchy — renaming/reparenting breaks Unity's by-path clip binding). Smooth multi-bone weights are legal for *your* mesh (only the *donor* creature is rigid one-bone-per-vertex). |
 | `lane` | `"hybrid"` (default) — the s58 drive poses your model from the donor's live per-frame bones; needs the custom engine. `"overlay"` — DLL-free: your model plays the donor's motion clips, decoded once to loose `.anim` files in your mod folder, no live bone read. |
 | `id` / `name` / `group` / `form` | the mint identity, in the same ≥6000 band `[[mint]]` uses. `id` defaults to the next free id; `name` defaults to `GEO_<group>_<form>_M<offset:03d>` (reproduces `GEO_MON_B0_M201` for id 6201/group MON); `group` sets the silhouette-family token that drives `ModelType` (default `MON`); `form` is the form token, rarely changed (default `B0`). |
@@ -1799,8 +1799,11 @@ lane       = "hybrid"               # "hybrid" (the s58 drive, DEFAULT) | "overl
 | `private_ef` | the stock-**absent** `SpecialEffect` id that hosts the cast's `.seq` (and, overlay-only, the `.sfxmodel`/`FileList.txt`). **Never** the donor's own `ef{donor:D3}/` folder — a `FileList.txt`/`Model` line there silently replaces the WHOLE native cast (the donor-FileList replacement law), which is fatal to the hybrid lane. Default: auto-picked from the 24-id absent set; declare it explicitly to pin a value or to share one id across several `[[summon]]` blocks. Refused if it collides with `donor`, isn't actually absent, or already has real content. |
 | `hide_native` / `hide_mask` / `node_count` / `apply_column_scale` | **hybrid-only**, map 1:1 onto `[SfxHybrid]`'s `HideNative`/`HideMask`/`NodeCount`/`ApplyColumnScale` (see [SUMMONS.md](SUMMONS.md)). The `hide_mask`/`node_count` defaults (`0x3`/`93`) are Bahamut's own values — override them for a different donor. Leave `apply_column_scale` off unless your rig's bind pose is not a clean scale-1 rest — the node-position spread already carries the donor's authored scale sweep, so applying it again doubles the creature. |
 | `hide_meshes` | mesh **key** strings spliced onto the host `.seq`'s `PlaySFX` line as `HideMeshes=0x..`. Optional defense-in-depth for hybrid (`HideNative` already does the real hide); for overlay there's no engine feature to lean on, so this is the practical way to hide the donor's body. |
-| `clips` | **overlay-only.** Which decoded donor clips to bake to `.anim`: `"all"` (default), `"none"`, or an index list. |
-| `staging` | **overlay-only.** How the overlay lane gets camera + fly-by motion (the baked clip alone carries no meaningful root travel — every axis of every stock clip stays under ~250 units). The overlay host `.seq` always nests the donor cast (inheriting its camera/staging for free) and the emitted `.sfxmodel` ships sane world-origin anchor curves, so the deployed artifacts are the same for both values today. `staging` is accepted and validated (`"donor"` default \| `"curves"`) as a forward-compatibility knob for a future hand-authored-curve mode; it does not yet change what is emitted. |
+| `clips` | **overlay-only.** Which decoded donor clips to bake to `.anim`: `"all"` (default), `"none"`, or an index list — **or a list of AUTHORED `.anim` file paths** (the two forms are told apart by content: all-numeric = donor indices). Authored clips are copied verbatim to `Animations/{id}/{key}.anim` with no `3DModelAnimation` line (the SFX path resolves clips by literal path), so they are recast-only. The key is the file stem when it is numeric, else a mint-band key the manifest is written from — the two can never disagree. |
+| `staging` | **overlay-only.** How the overlay lane gets camera + fly-by motion (the baked clip alone carries no meaningful root travel — every axis of every stock clip stays under ~250 units). `"donor"` (default) nests the donor cast in the host `.seq`, inheriting its camera/staging for free, and emits sane world-origin anchor curves. A **`[summon.staging]` table** instead (its presence selects curve mode) emits AUTHORED `Start`/`End` + `Movement`/`Rotation`/`Scaling` pieces + the `Animations` playlist — see [SUMMONS.md → An original summon](SUMMONS.md). Sub-tables: `[[summon.staging.move]]` / `.turn` / `.scale` (`duration`, `from`, `to`, `ease`; an omitted `from` inherits the previous piece's destination) and `[[summon.staging.play]]` (`clip`, `speed`, `repeat`). `move` and `turn` are REQUIRED — an omitted curve is never loaded and pins that channel at its zero seed (world origin / euler `(0,0,0)` over your FBX's own orientation); `scale` is optional (its seed is identity `1`). `ease` on a creature curve is `Constant` \| `Linear` \| `Sinus` \| `SinusIn` \| `SinusOut` — `Turning1`/`Turning2` are sprite-only and REFUSED (they read a `customParam` dict the FBX path passes as `null`, crashing every render frame). `anchor` = `caster` \| `target_average` \| `world` — a bare `target` is REFUSED (a multi-target cast nulls the target and every `TargetPosition*` becomes 0). |
+| `sequence` | an AUTHORED `PlayerSequence.seq`, copied verbatim into `ef{private_ef}/` instead of splicing a donor's. Makes `donor` optional; nothing stock is read. The file is linted first (`summon-seq-lint`) — the engine drops an unknown operation, and ignores an unknown argument key, with no log at all. |
+| `particles` | **overlay-only.** Sprite `.sfxmodel` files copied verbatim beside the manifest, so a `CreateVisualEffect: … SFXModel=Data/SpecialEffects/ef{private_ef}/<name>` line in your sequence resolves. Every `SFXModel=` the sequence names must be in this list. |
+| `manifest` | the bare `.sfxmodel` file name `FileList.txt` reveals (default `creature_manifest.sfxmodel`). Must not contain a path separator — `FileList.txt`'s grammar splits on single spaces and the name resolves relative to the ef folder itself. |
 
 **Wiring the cast trigger is a separate, existing step.** `[[summon]]` does not touch
 `Actions.csv` — point the summoning ability's `vfx1` (kit key on `Actions.csv`'s `animationId1`
@@ -1945,16 +1948,22 @@ speed = 40                                     # default walk speed
 = another's) · `near` / `not_near` (`[target, r]`; target = a unit or `"player"`; Chebyshev) ·
 `near_point` / `not_near_point` (`[point, r]`) · `flag` / `not_flag` / `any_flag` · `active` /
 `not_active` (a unit lives) · `any_near` (`[[units...], r]` — the watcher idiom, actives gated) ·
-`any_active` (`[units...]`).
+`any_active` (`[units...]`) · `time_below` / `time_above` (remaining seconds on the field-level
+`timer = <seconds>` countdown HUD — timed wave bands).
 
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
 `patrol` (loops its points) / `march` (walks them ONCE and holds the last; both: a route-marker
-name or an inline point list; `arrive_r`, `speed`) · `flee` (threat; `to` = refuge points in
+name or an inline point list; `arrive_r`, `speed`, and `route = "auto"` — at build time any leg
+the walkability sweep finds off-mesh is re-routed through the walkmesh pathfinder, detours
+spliced in, clear legs untouched; walls-only, 8-point ceiling — see
+[BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
-`damage`, `interval`) · `die` · `announce` (a text line, minted into the field's `.mes`) /
-`announce_npc` (reuse that NPC's own `dialogue` line).
+`damage`, `interval`) · `die` · `battle` (a battle SCENE id — a REAL fight, one-shot per
+field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
+resume; use a stock scene = no BattlePatch) · `announce` (a text line, minted into the
+field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
 
 **Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
 through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior

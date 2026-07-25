@@ -30,7 +30,7 @@ proven "fidelity dead end" before this approach).
 | | **hybrid** (default) | **overlay** |
 |---|---|---|
 | Motion | the donor's real per-frame bones, read live from the running native cast | the donor's motion clips, decoded once to loose `.anim` files in your mod folder |
-| Camera / staging | inherited for free — the same `Camera.main` every SFX effect renders through | the overlay host `.seq` nests the donor cast, so the donor's camera + fly-by carry for free; the `.sfxmodel` also ships default anchor curves (`staging` is a forward-compat knob — both values emit the same today) |
+| Camera / staging | inherited for free — the same `Camera.main` every SFX effect renders through | the overlay host `.seq` nests the donor cast, so the donor's camera + fly-by carry for free; the `.sfxmodel` also ships default anchor curves, and a `[summon.staging]` table replaces them with **authored** Movement/Rotation/Scaling curves + an animation playlist (see *An original summon* below) |
 | Engine requirement | **needs the custom `memoria-patches` build** — the s58 `SfxHybridDrive` feature (`studies/custom-summons/thomas-swap/m0/S58-DRAFT.md`); `summon-deploy` **refuses to arm** on a stock engine | **stock Memoria** — the DLL-free rung-7 FileList/`.sfxmodel`/`.anim` route |
 | Fidelity | the proven ceiling: real articulation + real staging + real camera | flapping motion only; the clip carries **no** root travel worth naming (every axis of every Bahamut clip ≤246 units — `disasm/TRANSPLANT.md` §3.5) unless you also supply staging |
 | `lane =` | `"hybrid"` | `"overlay"` |
@@ -64,6 +64,81 @@ Two facts worth knowing before you read that table:
   (`m0/FBX-PATHS.md` §3, "the donor-FileList replacement law"). That's why the block always mints
   a **private, stock-absent** effect id (`private_ef`, default auto-picked from the 24 unused
   `SpecialEffect` slots) to host the sequence + (overlay only) the JSON mesh.
+
+## An original summon — no donor at all (overlay lane)
+
+A transplant *wears* a stock cast. An **original** summon has no donor to wear: you author the cast
+yourself. Four optional keys turn the overlay lane into that, and they make `donor` optional:
+
+```toml
+[[summon]]
+lane       = "overlay"                                     # DLL-free, stock Memoria
+model      = "nimbra/6400.fbx"
+private_ef = 91                                            # PIN it -- see the warning below
+sequence   = "nimbra.seq"                                  # your own PlayerSequence.seq, copied verbatim
+manifest   = "nimbra_manifest.sfxmodel"                    # the bare name FileList.txt reveals
+clips      = ["emerge.anim", "drift.anim", "strike.anim"]  # authored clips (vs "all"/"none"/indices)
+particles  = ["MistWisps.sfxmodel"]                        # sprite models, copied beside the manifest
+
+[summon.staging]                    # the table's PRESENCE selects curve staging
+anchor = "target_average"           # caster | target_average | world
+start  = 0
+end    = 330                        # pin it: your .seq's WaitSFXDone beat depends on it
+
+[[summon.staging.move]]             # -> Movement pieces, in order. Offsets are added to the anchor.
+duration = 45
+from = [0, -900, 0]
+to   = [0,  120, 0]
+ease = ["Linear", "SinusOut", "Linear"]
+[[summon.staging.move]]
+duration = 285                      # `from` omitted -> the engine inherits the previous destination
+to   = [0, 190, 0]
+
+# [[summon.staging.turn]]  -> Rotation pieces (ABSOLUTE euler)
+# [[summon.staging.scale]] -> Scaling pieces (a scalar `from`/`to` fans out to all three axes)
+# [[summon.staging.play]]  -> the Animations playlist: clip = "emerge", speed = 2, repeat = 2
+```
+
+With `sequence` set, **nothing stock is read**: no donor `.seq`, no `ef###.bytes`, no drift guard —
+so the whole emit runs offline and everything it produces is yours to commit.
+
+The build refuses, rather than shipping something the engine drops in silence:
+
+- **the `.seq` is linted** (`ff9mapkit summon-seq-lint` runs the same checks standalone). An unknown
+  operation is dropped by the parser *with no log*, and an unknown argument key is stored and never
+  read — so a typo is invisible until a playtest. The linter also refuses `PlayCamera`/`ShiftWorld`
+  (inert or harmful — see `studies/custom-summons/rung8-epic/STORYBOARD.md` §2) and checks the
+  proven cast laws: no clip-bound wait inside the `PlaySFX…WaitSFXDone` window, no `EffectPoint`
+  under a background blackout, a `PlayAnimation: … Anim=Idle` release, `Char=` on every
+  `CreateVisualEffect`, and every `SFXModel=`/`SFX=` resolving to something staged.
+- **the curves must span `end - start`** on all three axes, every first piece must carry a `from`,
+  and an unrecognised `ease` name is refused (the engine silently falls back to `Constant`).
+- **`move` and `turn` are required; `scale` is optional.** An omitted curve is never loaded at all, and
+  the engine then pins that channel at its constructor seed for the whole cast. For movement and
+  rotation that seed is zero — the world origin, and euler `(0,0,0)` written over your FBX's own
+  orientation every frame. Scaling alone is seeded to `1` (it is built `asScaling`), so leaving it out
+  is a harmless identity scale.
+- **`ease` is five names on a creature curve, not seven.** `Turning1`/`Turning2` are **sprite-only**:
+  they are the only interpolations that read the engine's `customParam` dictionary, and they read it
+  without a null check — which is fine for a particle (it is handed one) and a `NullReferenceException`
+  on *every render frame* for an FBX (it is handed `null`). Use `Constant`, `Linear`, `Sinus`,
+  `SinusIn`, or `SinusOut`. In a **particle** `.sfxmodel` the two are legal and useful, but only when
+  that sprite's `Emission` carries a `ParameterMin0`/`ParameterMax0` pair — without one the dictionary
+  is null there too, and `summon-seq-lint` says so.
+- **the playlist must cover the window.** There is no loop flag — a short playlist *freezes* the
+  model on its last frame — so `repeat` is checked against each clip's real frame count.
+- **`anchor = "target"` is refused**: a multi-target cast passes a null target into the position
+  setup, every `TargetPosition*` evaluates to 0, and the creature renders at the world origin.
+
+> ⚠ **Pin `private_ef`.** Auto-allocation walks the stock-absent set ascending and lands on **18**,
+> whose legacy semantics are *"would apply effect instantly"*. The mild ids are **80 / 84 / 91**.
+
+**File paths are relative to the TOML that declares them** — `model`, `sequence`, `clips`, `particles`
+and `textures` all resolve against the field toml's own directory, whether the block is reached through
+`lint`/`build` or through `ff9mapkit summon-deploy --from-toml <file>` (which rebases them the same way,
+so the verb works from any working directory). Absolute paths are taken as given. Unlike the field's own
+asset refs (`[[layers]] image`, `portrait`, …), these are **not** confined to the toml's directory: a
+`[[summon]]` block may reach into a sibling folder that owns the artifact.
 
 ## Relaunch vs. recast
 

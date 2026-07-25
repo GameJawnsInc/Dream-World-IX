@@ -27,15 +27,21 @@
 > at-feet + hold_post + pool + the New-Game staged-latch fix; `pooled`/`pool`/`hold_post`
 > in `[behavior]` + the per-pool spawn-request flag; the rung-3 recipes returned as
 > compiler vocabulary — behavior study PLAN §POST-LADDER) → 2. placement/economy —
-> **BUILT + DEPLOYED on 30400 (2026-07-24), ⚠ playtest pending**: `[[behavior.pool]]`
+> **★ IN-GAME PROVEN on 30400 (2026-07-24, "good")**: `[[behavior.pool]]`
 > price 300 (gil gate + RemoveGil in the activation block, charge only on spawn) +
 > `button = true` (the SELECT/Special buy-anywhere poller, rung-3 shape verbatim:
 > Wait(1) `B_KEYON` poll / blip / `RunScriptSync(4, menu, 3)`) + the parked hire
 > [[choice]] matched by request_flag 8848; 4 pooled recruits with hold_post posts and
 > MUTUAL attacker↔recruit combat via plain branches (the v1 one-sided-harass debt
-> gone); deployed bytes verified (4 runtime-only spawns / 4 RemoveGil sites / 1
-> poller) → 3. rung 4 waves +
-> win/loss (below) on tree-driven units. Read
+> gone). Proven: broke-hire correctly refuses (no spawn, no charge) and the pool cap
+> holds. **POLISH DEBT (cosmetic, owner-noted): the menu's "Deployed!" reply plays
+> even on a refused hire** — the reply is baked into the choice row while the real
+> transaction happens in the ticker. Fix design (queued): the compiler publishes
+> per-pool `affordable`/`exhausted` flags (2 writes/tick, cheap) and the hire menu
+> gates its rows on them via the existing option requires_flag machinery ("Hire"
+> visible only when affordable+available; a greyed "(need 300 gil)" row otherwise)
+> → 3. rung 4 waves +
+> win/loss (below) on tree-driven units — **IN PROGRESS**. Read
 > [[project-ff9-behavior-trees]] + `docs/BEHAVIOR.md` before extending the compiler.
 
 **Goal:** emulate FFVII's Fort Condor minigame (real-time lane defense: place units for gil,
@@ -151,9 +157,23 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   Playtest (~ Reload): button menu anywhere? spawn at feet? gil deducted (pause menu)?
   recruits chase+chip? lane B saved? pool caps at 4? reload resets (gil NOT refunded —
   gil is real save state, spend knowingly).
-- **Rung 4 — WAVES + WIN/LOSS.** Timer-band wave scheduling (the Hunt's
-  `GetTimerTime > 600/540/480/…` table shape), a base-HP flag, the faithful Fort Condor
-  loss fallback: breach → real `Battle()` boss (the Zaghnol pattern at field 559).
+- **Rung 4 — WAVES + WIN/LOSS: BUILT + DEPLOYED (2026-07-24), ⚠ playtest pending.**
+  All three mechanisms as COMPILER VOCABULARY (behavior study post-ladder): field-level
+  `timer = <seconds>` (the Hunt's exact HUD start triplet — ChangeTimerTime 0x69 /
+  ShowTimer 0x8D / RunTimer 0x7D — ★ the custom-id claim was proven back in playtest 2)
+  + `time_below`/`time_above` conds (B_SYSVAR[17] = remaining seconds; the Hunt's
+  GetTimerTime band shape) + the `battle = <scene>` action (`Battle(0, scene)` —
+  559's OWN tread-battle byte shape, scene 35 = the arena's stock fight so no
+  BattlePatch; ONE-SHOT per load by construction via a compiled latch that gates the
+  dispatch; the build auto-installs the entry-0 tag-10 Main_Reinit + BGM resume — the
+  after-battle resume law — whenever a battle compiles). THE SIEGE on 30400: 3:00
+  clock, wave 1 (Fangs hp 3/5) at 2:50 + wave 2 (hp 5/5) at 1:30 on `route="auto"`
+  marches (the owner's pathfinder lane, dogfooded), the herald = THE GATE (hp 6,
+  attackers swing him; his cry once at any_near), gate down → the loss battle →
+  return → the gate falls + the siege stands down (`lost`); survive to 0:00 →
+  the minted win announce (`won`). Measure: the wave cadence, the gate fight, the
+  loss battle firing ONCE with a clean after-battle return (no softlock, BGM back),
+  the win path, recruits + defenders + economy unchanged, ~ Reload = full round reset.
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.

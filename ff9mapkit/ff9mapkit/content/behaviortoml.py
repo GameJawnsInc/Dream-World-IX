@@ -33,7 +33,10 @@ Condition verbs (each ``when`` row is a dict with EXACTLY the verb key):
 
 Action verbs (the ``do`` dict: one verb key + that verb's option keys):
 ``walk_to`` / ``hold`` (point; +speed), ``chase`` (target; +standoff, speed),
-``patrol`` / ``march`` (points or a route-marker name; +arrive_r, speed),
+``patrol`` / ``march`` (points or a route-marker name; +arrive_r, speed, and
+``route = "auto"`` — at build time, any leg the walkability sweep finds OFF-MESH
+is re-routed through the walkmesh pathfinder and the detours spliced in; clear
+legs stay exactly as authored),
 ``flee`` (threat; +to = refuge points, avoid_r, speed), ``wander`` (centre
 point; +radius, every, speed), ``swing_at`` (unit; +damage, interval),
 ``die``, ``announce`` (a text line — minted into the field's .mes) /
@@ -55,24 +58,26 @@ COND_VERBS = {
     "hp_le": (), "hp_gt": (), "near": (), "not_near": (), "near_point": (),
     "not_near_point": (), "flag": (), "not_flag": (), "any_flag": (),
     "active": (), "not_active": (), "any_near": (), "any_active": (),
+    "time_below": (), "time_above": (),
 }
 ACTION_VERBS = {
     "walk_to": ("speed",),
     "hold": ("speed",),
     "hold_post": ("speed",),
     "chase": ("standoff", "speed"),
-    "patrol": ("arrive_r", "speed"),
-    "march": ("arrive_r", "speed"),
+    "patrol": ("arrive_r", "speed", "route"),
+    "march": ("arrive_r", "speed", "route"),
     "flee": ("to", "avoid_r", "speed"),
     "wander": ("radius", "every", "speed"),
     "swing_at": ("damage", "interval"),
     "die": (),
+    "battle": (),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
-FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool"}
+FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
 
 
@@ -214,6 +219,105 @@ def route_names(raw: dict) -> set:
     return names
 
 
+ROUTE_CEILING = 8                    # Patrol/March take 2..8 points (unrolled if-chain)
+
+
+def movement_route_refs(raw: dict) -> list:
+    """Every patrol/march/flee route reference, in TOML order:
+    ``{"ui", "bi", "unit", "verb", "value" (marker name or inline list),
+    "autoroute" (bool)}``. The lint sweep and the autoroute plan iterate THIS, so
+    what's checked == what's compiled."""
+    refs = []
+    for ui, u in enumerate(units(raw)):
+        for bi, br in enumerate(u.get("branch", []) or []):
+            do = br.get("do")
+            if not isinstance(do, dict):
+                continue
+            for verb in ("patrol", "march"):
+                if verb in do:
+                    refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                                 "verb": verb, "value": do[verb],
+                                 "autoroute": do.get("route") == "auto"})
+            if "flee" in do and "to" in do:
+                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                             "verb": "flee", "value": do["to"], "autoroute": False})
+    return refs
+
+
+def wants_autoroute(raw: dict) -> bool:
+    """True when any patrol/march sets ``route = "auto"`` — the only case the build
+    needs a walkmesh (a field without the key never resolves one: byte-identical)."""
+    return any(r["autoroute"] for r in movement_route_refs(raw))
+
+
+def _route_label(value) -> str:
+    return f"'{value}'" if isinstance(value, str) else "inline route"
+
+
+def autoroute_plan(raw: dict, wmesh) -> dict:
+    """Compute the routed point list for every ``route = "auto"`` patrol/march.
+
+    Returns ``{(ui, bi): {"verb", "label", "points", "inserted"}}`` — ``points`` is the
+    post-splice list ``build`` compiles, ``inserted`` the ``[(leg, [waypoints])]``
+    detours (empty = every leg was already clear and the authored points survive
+    byte-for-byte). Patrol routes its WRAP leg too (the compiler always cycles
+    ``(i+1)%n``); march is open-ended. Deterministic: pure A* over the walkmesh, TOML
+    order, walls-only obstacles. Raises :class:`BehaviorTomlError` naming the field,
+    unit, branch, and leg on an unroutable leg or a waypoint-ceiling overflow."""
+    from . import pathfind as _pathfind
+    plan: dict = {}
+    refs = [r for r in movement_route_refs(raw) if r["autoroute"]]
+    if not refs:
+        return plan
+    fld = raw.get("field", {}) or {}
+    where = f"field {fld.get('id', '?')} {fld.get('name', '')!r}"
+    if wmesh is None:
+        raise BehaviorTomlError(
+            f"{where}: route = \"auto\" needs a resolvable walkmesh (none was found) -- "
+            f"the routed bytes must match what the build compiles")
+    positions = _npc_marker_positions(raw)
+    mpaths = marker_paths(raw)
+    for r in refs:
+        ctx = (f"{where} [[behavior.unit]] {r['unit']!r} branch #{r['bi']}: "
+               f"{r['verb']} {_route_label(r['value'])}")
+        pts = _resolve_route(r["value"], positions, mpaths, ctx)
+        closed = r["verb"] == "patrol"
+        try:
+            routed, inserted = _pathfind.route_polyline(wmesh, pts, closed=closed)
+        except _pathfind.RouteLegError as e:
+            raise BehaviorTomlError(f"{ctx} route=\"auto\": {e}") from e
+        if len(routed) > ROUTE_CEILING and inserted:
+            worst = max(inserted, key=lambda li: len(li[1]))
+            a = pts[worst[0]] if worst[0] < len(pts) else pts[0]
+            b = pts[(worst[0] + 1) % len(pts)]
+            raise BehaviorTomlError(
+                f"{ctx} route=\"auto\": the routed route needs {len(routed)} points but "
+                f"{r['verb']} takes at most {ROUTE_CEILING} (the compiler unrolls the "
+                f"waypoint chain). Biggest detour: leg {worst[0] + 1} "
+                f"({a[0]:.0f},{a[1]:.0f})->({b[0]:.0f},{b[1]:.0f}) "
+                f"needs +{len(worst[1])} waypoints. Split the route into two markers, or "
+                f"relay the jamming leg by hand so fewer detours are needed")
+        plan[(r["ui"], r["bi"])] = {"verb": r["verb"], "label": _route_label(r["value"]),
+                                    "points": routed, "inserted": inserted}
+    return plan
+
+
+def describe_autoroute(plan: dict, raw: dict) -> list:
+    """Human-readable lines for the legs the plan actually re-routed (empty plan
+    entries — every leg clear — stay quiet). Shared by build warnings, ``behavior
+    lint``, and ``behavior compile`` so all three tell the same story."""
+    lines = []
+    us = units(raw)
+    for (ui, bi), p in plan.items():
+        unit = str(us[ui].get("npc")) if ui < len(us) else "?"
+        for leg, wps in p["inserted"]:
+            lines.append(
+                f"{p['verb']} {p['label']} (unit {unit!r} branch #{bi}): leg {leg + 1} "
+                f"auto-routed around an off-mesh span, +{len(wps)} waypoint(s) "
+                f"({len(p['points'])}/{ROUTE_CEILING} points used)")
+    return lines
+
+
 def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str):
     verb = _one_verb(d, COND_VERBS, ctx)
     v = d[verb]
@@ -233,6 +337,10 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
         return B.Invert(c) if verb == "not_flag" else c
     if verb == "any_flag":
         return fb.any_flag(*[str(n) for n in v])
+    if verb == "time_below":
+        return fb.time_below(int(v))
+    if verb == "time_above":
+        return fb.time_above(int(v))
     if verb == "any_near":
         # THE WATCHER IDIOM: any of these units within r of me, each behind its own
         # active gate -- any_of(all_of(active(t), near(me, t, r)), ...)
@@ -245,10 +353,20 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
     return B.Invert(c) if verb == "not_active" else c
 
 
-def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid, ctx: str):
+def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid,
+                  ctx: str, routed_points=None):
     verb = _one_verb(d, ACTION_VERBS, ctx)
     v = d[verb]
     spd = d.get("speed")
+    if "route" in d:
+        if d["route"] != "auto":
+            raise BehaviorTomlError(f"{ctx}: route = {d['route']!r} -- the only value is "
+                                    f"\"auto\"")
+        if routed_points is None:
+            raise BehaviorTomlError(
+                f"{ctx}: route = \"auto\" but no autoroute plan was passed -- the caller "
+                f"must run autoroute_plan(raw, wmesh) and hand build() the result "
+                f"(routing silently skipped would ship the jamming route)")
     if verb == "walk_to":
         return B.WalkTo(_resolve_point(v, positions, ctx), speed=spd)
     if verb == "hold":
@@ -261,11 +379,13 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
     if verb == "chase":
         return B.Chase(str(v), standoff=int(d.get("standoff", 140)), speed=spd)
     if verb == "patrol":
-        return B.Patrol(_resolve_route(v, positions, mpaths, ctx),
-                        arrive_r=int(d.get("arrive_r", 150)), speed=spd)
+        pts = routed_points if routed_points is not None \
+            else _resolve_route(v, positions, mpaths, ctx)
+        return B.Patrol(pts, arrive_r=int(d.get("arrive_r", 150)), speed=spd)
     if verb == "march":
-        return B.March(_resolve_route(v, positions, mpaths, ctx),
-                       arrive_r=int(d.get("arrive_r", 150)), speed=spd)
+        pts = routed_points if routed_points is not None \
+            else _resolve_route(v, positions, mpaths, ctx)
+        return B.March(pts, arrive_r=int(d.get("arrive_r", 150)), speed=spd)
     if verb == "flee":
         if "to" not in d:
             raise BehaviorTomlError(f"{ctx}: flee needs `to = [refuge points]`")
@@ -280,6 +400,8 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
                          damage=int(d.get("damage", 1)))
     if verb == "die":
         return B.Die()
+    if verb == "battle":
+        return B.Battle(int(v))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -292,18 +414,23 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
 
 
 def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
-          behavior_txids: dict | None = None) -> B.FieldBehavior | None:
+          behavior_txids: dict | None = None,
+          routed: dict | None = None) -> B.FieldBehavior | None:
     """Construct the :class:`FieldBehavior` from the ``[behavior]`` table.
 
     ``npc_slots``: npc name -> entry slot (the build's own injection map — no
     discovery needed). ``npc_txids_by_name``: npc name -> its dialogue txid (for
     ``announce_npc``). ``behavior_txids``: ``(unit_idx, branch_idx) -> txid`` for
-    minted ``announce`` lines (from ``collect_text``). Construction order is the
-    TOML order — the deterministic-allocation contract."""
+    minted ``announce`` lines (from ``collect_text``). ``routed``: the
+    :func:`autoroute_plan` result when any verb sets ``route = "auto"`` (a branch
+    carrying the key with no plan entry is an ERROR — routing must never silently
+    skip). Construction order is the TOML order — the deterministic-allocation
+    contract."""
     b = table(raw)
     if not b:
         return None
     behavior_txids = behavior_txids or {}
+    routed = routed or {}
     npc_txids_by_name = npc_txids_by_name or {}
     positions = _npc_marker_positions(raw)
     mpaths = marker_paths(raw)
@@ -323,7 +450,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                 pooled=bool(u.get("pooled", False)),
                                 pool=str(u.get("pool", "pool"))))
     fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
-                         pools=pool_specs(raw))
+                         pools=pool_specs(raw),
+                         timer=(int(b["timer"]) if b.get("timer") is not None else None))
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
     for alt in b.get("alternators", []) or []:
@@ -345,9 +473,11 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
             npc_txid = None
             if isinstance(do, dict) and "announce_npc" in do:
                 npc_txid = npc_txids_by_name.get(str(do["announce_npc"]))
+            rp = routed.get((ui, bi))
             action = _build_action(fb, do, positions=positions, mpaths=mpaths,
                                    txid=behavior_txids.get((ui, bi)),
-                                   npc_txid=npc_txid, ctx=ctx)
+                                   npc_txid=npc_txid, ctx=ctx,
+                                   routed_points=(rp["points"] if rp else None))
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
                            clear_flags=tuple(br.get("clear_flags", []) or []))
             conds = [_build_cond(fb, name, c, positions, ctx)
@@ -396,6 +526,10 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     extra = set(b) - FIELD_KEYS
     if extra:
         problems.append(f"[behavior]: unknown key(s) {sorted(extra)}")
+    if b.get("timer") is not None and (not isinstance(b["timer"], int)
+                                       or not 1 <= b["timer"] <= 30000):
+        problems.append("[behavior]: timer must be an int 1..30000 (seconds — the "
+                        "countdown HUD)")
     npc_names = {n.get("name") for n in raw.get("npc", []) or [] if n.get("name")}
     unit_names = []
     positions = _npc_marker_positions(raw)
@@ -500,6 +634,17 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     problems.append(f"{ctx}: needs a `do` action")
                     continue
                 do = br["do"]
+                if isinstance(do, dict) and "route" in do:
+                    if not ({"patrol", "march"} & set(do)):
+                        problems.append(
+                            f"{ctx}: `route = ` only applies to patrol/march -- a "
+                            f"walk_to/hold/flee walk starts wherever the unit happens to "
+                            f"be when the branch selects (no build-time origin to route "
+                            f"from), and spliced flee points would become extra REFUGES "
+                            f"(avoid_r semantics), not waypoints")
+                    elif do["route"] != "auto":
+                        problems.append(f"{ctx}: route = {do['route']!r} -- the only "
+                                        f"value is \"auto\"")
                 verb = _one_verb(do, ACTION_VERBS, ctx)
                 v = do[verb]
                 if verb in ("chase",) and str(v) not in valid_targets:
@@ -520,6 +665,18 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if verb == "hold_post" and v is not True:
                     problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
                                     f"own placement post)")
+                if verb == "battle":
+                    if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
+                        problems.append(f"{ctx}: battle takes a battle SCENE id int "
+                                        f"(0..65535; a STOCK scene needs no BattlePatch)")
+                for c in (br.get("when") or []):
+                    _cv = _one_verb(c, COND_VERBS, ctx)
+                    if _cv in ("time_below", "time_above"):
+                        if b.get("timer") is None:
+                            problems.append(f"{ctx}: {_cv} needs field-level "
+                                            f"`timer = <seconds>` (the countdown HUD)")
+                        if not isinstance(c[_cv], int) or not 0 <= c[_cv] <= 30000:
+                            problems.append(f"{ctx}: {_cv} takes seconds 0..30000")
                 if verb == "announce_npc":
                     npc = next((n for n in raw.get("npc", []) or []
                                 if n.get("name") == str(v)), None)
