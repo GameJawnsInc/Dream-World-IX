@@ -215,6 +215,26 @@ The build matches the menu to the pool by that flag (exactly one zone choice mus
 wires the poller automatically. `price` also works without `button` — an NPC-talk or walk-in
 hire menu pays the same way, since the gate lives in the activation block, not the menu.
 
+**Honest hire rows — the published `hireable` flag.** Every pool also gets a
+`pool.<name>.hireable` flag (index printed at build and in `behavior compile`):
+`(gil ≥ price, when priced) AND not sold out`, refreshed by the ticker every pass. Put
+`requires_flag = <that index>` on the Hire row and the row **vanishes** the moment the hire
+would be refused — the menu can never say "Deployed!" to a request the activation block will
+consume without filling (pair a `requires_flag_clear` row for an explicit "sold out" line if
+you prefer words over absence). One menu may carry rows for SEVERAL pools — give each pool an
+explicit `request_flag` and each row its own `set_flag`/`requires_flag` pair; only the pool
+carrying `button` needs to be matched to the menu.
+
+### `award` — pay the player, exactly once
+
+`do = { award = 2000, item = "Phoenix Down" }` adds gil (0..16777215) and/or an item
+(name or id; `count = n` for stacks) to the party — the minigame **win-reward** lane. It
+**requires `once`** on its branch and compiles on the event-Once machinery (edge-latched
+request, latch-first body), which is precisely what makes the payout exactly-once even though
+a win condition like `time_below = 1` holds forever. Pair it with a separate `announce`
+branch for the fanfare text. Field reload re-arms it (bench semantics — a shipped minigame
+gates the whole match behind a story flag instead).
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:

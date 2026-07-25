@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` `award` + the published per-pool `hireable` flag (the Fort Condor economy pieces)
+- **`award`** (`do = { award = 2000, item = "Phoenix Down", count = 1 }`): pay the player gil
+  (0..16777215, `AddGil` 0xCE) and/or an item (name or id via the items resolver, `AddItem`
+  0x48) — the minigame win-reward lane. **Requires `once`** and compiles on the event-Once
+  machinery (edge-latched request lane, latch-FIRST body, no idle loop), which is exactly what
+  makes the payout exactly-once even under a forever-true win condition (`time_below = 1`); a
+  bare Award, an Award shared across sites, and an un-resolvable item are all refused.
+- **`pool.<name>.hireable`** (published, printed in the report): `(gil >= price, when priced)
+  AND not sold out`, refreshed by the ticker every run pass (after the activation blocks, so
+  the tick that sells a pool out flips it the same pass; Main_Init presets it optimistic).
+  Wire it into a hire row's `requires_flag` and the row VANISHES instead of saying
+  "Deployed!" to a hire the activation block would refuse — the recorded fort-condor polish
+  debt, closed. One parked menu may now serve SEVERAL pools (each row its own
+  `set_flag`/`requires_flag`; only the `button` pool needs the menu match).
+- First composed consumer: `studies/fort-condor/condor_fit_bench.py` (rung 5 — field 30400
+  rebuilt as THE FORT CONDOR FIT on the owner-ratified design). En route, two bench-layout
+  laws earned their keep: anchors snap to the spawn's CONNECTED COMPONENT of the tri-neighbor
+  graph (same-floor pockets can be disconnected sheets — the route planner rightly refuses
+  them) with a ~120u wall-clearance filter, and the v1 central ticker has a REAL capacity
+  ceiling (~32KB — relative jumps are signed-16), which caps per-ally target lists; a
+  long-jump relaxation pass in `labelasm` is the queued fix.
+
 ### Fixed — THE MONOTONIC-ONCE STARVATION: `once` over an `announce` is an EVENT, not an engagement
 - BTTABLE round 2 (the data-table bench): the herald's win line — `once` + `announce` gated on
   `counter_ge ["kills", 2]` — fired correctly, then **held the selection for the rest of the
