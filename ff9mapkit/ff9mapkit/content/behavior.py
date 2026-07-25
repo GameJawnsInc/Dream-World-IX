@@ -836,6 +836,7 @@ class FieldBehavior:
             funcs: list = []
             dispatch_tag: dict[int, int] = {}
             battle_latch: dict[int, int] = {}            # aid -> one-shot latch flag
+            battle_req: dict[int, int] = {}              # aid -> EDGE-latched request
             for a in actions:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
@@ -844,9 +845,12 @@ class FieldBehavior:
                 dispatch_tag[aid] = tag
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
+                    ri = self.bb.flag(f"{u.name}.breq{aid}")
                     battle_latch[aid] = li
-                    if li not in self._reset_flags:
-                        self._reset_flags.append(li)
+                    battle_req[aid] = ri
+                    for fi in (li, ri):
+                        if fi not in self._reset_flags:
+                            self._reset_flags.append(fi)
                 funcs.append((tag, self._dispatch_body(u, a, aid, sel, run)))
             # the SPEED NUDGE (always the last tag): MSPEED from the speed GLOB, then
             # record it applied. Straight-line at level 4 — preempts a mid-flight
@@ -872,22 +876,38 @@ class FieldBehavior:
                 label(f"t_{u.name}_fellthrough"),        # unreachable (fallback is
                 label(f"t_{u.name}_selected"),           # unconditional) — lint safety
             ]
-            for aid, tag in dispatch_tag.items():        # dispatch tail
+            # THE BATTLE REQUEST LANE runs FIRST and is EDGE-LATCHED: a Battle branch
+            # is typically outranked ONE TICK after it selects (its own raise_flags —
+            # e.g. "lost" — promotes a die/aftermath branch above it), and if another
+            # body still holds `running` during that single tick the sel-gated
+            # dispatch never fires (the siege round-1 clobber: the gatecry announce
+            # ate the window). So selection SETS `breq`, and the dispatch fires on
+            # breq && !fought && running==0 whenever level 4 frees — independent of
+            # what the tree selects meanwhile. A successful REQ jumps past the rest
+            # of the tail (one REQ per unit per tick, still by construction).
+            disp_end = f"t_{u.name}_dend"
+            for aid, ri in battle_req.items():
+                bl = f"t_{u.name}_b{aid}"
+                ticker += [
+                    _stmt(f"Global.Bit[{ri}]"), (JMP_IFNOT, bl),
+                    _stmt(f"Global.Bit[{battle_latch[aid]}]"), (JMP_IF, bl),
+                    _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, bl),
+                    opcodes.run_script_async(DISPATCH_LEVEL, u.entry, dispatch_tag[aid]),
+                    (JMP, disp_end),
+                    label(bl),
+                ]
+            for aid, tag in dispatch_tag.items():        # the normal sel-gated tail
+                if aid in battle_req:                    # battles ride the request lane
+                    continue
                 ticker += [
                     _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
                     _stmt(f"Global.Byte[{run}] const(0) B_EQ"),
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
-                ]
-                if aid in battle_latch:                  # a Battle fires ONCE per load:
-                    ticker += [                          # the latch gates re-dispatch
-                        _stmt(f"Global.Bit[{battle_latch[aid]}]"),
-                        (JMP_IF, f"t_{u.name}_d{aid}"),
-                    ]
-                ticker += [
                     opcodes.run_script_async(DISPATCH_LEVEL, u.entry, tag),
                     label(f"t_{u.name}_d{aid}"),
                 ]
+            ticker += [label(disp_end)]
             # the nudge dispatch: only when level 4 is free AND a FEED is selected
             # (a selected dispatch action owns the level-4 REQ this tick — mutual
             # exclusion by construction, never two REQs on one unit per tick)
@@ -1085,6 +1105,11 @@ class FieldBehavior:
             sel = self.bb.byte(f"{u.name}.selected")
             out = list(on_select or [])
             out.append(_set_byte(sel, aid))
+            if isinstance(node.action, Battle):
+                # EDGE-LATCH the request at selection — the branch may be outranked
+                # next tick by its own raise_flags (the siege round-1 clobber); the
+                # dispatch tail's request lane fires it when level 4 frees
+                out.append(_set_flag(self.bb.flag(f"{u.name}.breq{aid}"), 1))
             for nm in node.raise_flags:
                 fi = self.bb.flag(nm)
                 if fi not in self._reset_flags:

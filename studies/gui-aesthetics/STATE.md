@@ -1,5 +1,170 @@
 # GUI aesthetics — state + next steps
 
+> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ⚠ PLAYTEST PENDING
+>
+> **The weak area is named in the brief's own loudest law:** *"One change per in-game test. When a build
+> breaks, we need to know which edit did it."* — and **nothing in the toolkit could answer *which edit*.**
+> The deploy path already records a successful deploy's target, id, destination and revertibility, but only
+> in memory (`_proc_done`), so the moment you keep editing, "what is in the game" is something you hold in
+> your head. Obeying the project's hardest process rule was a memory exercise.
+>
+> One mechanism — a **parsed project snapshot taken at deploy time** — three surfaces: a status-bar **drift
+> chip** (`game: in sync` / `game: 3 ahead`), a **change list** (Ctrl-K → "What changed since my last
+> deploy?"), and the **law itself** stated in the tooltip/dialog once there is more than one change under a
+> test. New: `editor/tomldiff.py` (pure), `editor/deploysnap.py`, `gui_snap console:*`→ plus `drift:*`.
+>
+> **NO NEW MODAL, and that was a constraint rather than a preference.** The obvious home for a
+> one-change-per-test warning is an F9 confirm — but **ASK #1 deliberately removed exactly that confirm**
+> ("make F9 a true one-key loop"), so putting one back would undo a ratified decision. An always-visible
+> chip costs zero clicks and says it earlier.
+>
+> **★ THE DESIGN'S REAL CONTENT IS ARRAY IDENTITY.** A field.toml is mostly arrays of tables (~38 kinds).
+> Matched by INDEX, deleting `[[npc]]` #0 reports *"npc[0] changed, npc[1] changed, npc[2] removed"* — three
+> rows for one edit, a text diff wearing a schema's clothes. Matched by identity it reports one removal.
+> **The first design was an ordered list of candidate key fields, and the corpus killed it:** measured over
+> every kit toml in the repo it missed `requires_flag` (the only thing separating two gateways to the same
+> field) and `give_folklore` (five events distinguished only by their payload) — *because a gating list rots,
+> and this kit grows a new block most weeks.* The fix inverts it: **every field present on every entry is
+> ELIGIBLE; the preference list only RANKS what already works; the smallest unique key wins.** Census: 27 kit
+> tomls / 34 array kinds / 41 multi-entry arrays → **37 of 41 identified (90.2%), zero ambiguity**, and the
+> only remainder is `cutscene.steps` — an ordered script, where **a beat's identity IS its position** and
+> index is the right answer. Composite keys were measured too and rescue exactly one case (`edge` → to+from).
+>
+> **The key is derived from the UNION of both sides**, because the same census found `gateway` keyed by `to`
+> in one file and `requires_flag` in another: a key unique on the old side can collide on the new one.
+>
+> **Two truths, deliberately not conflated** — the snapshot records **disk** (what the subprocess actually
+> deployed), the live count reads the **open doc** (what you are looking at, unsaved edits included).
+> Conflating them either hides unsaved work from the count or records edits that never reached the game. And
+> the capture happens **at launch, not on success**: a build takes seconds, and a save landing mid-run would
+> otherwise be recorded as "already deployed" — the very edit under test would vanish from the next compare.
+>
+> **Why not a text diff, fenced rather than asserted:** the kit's serializer preserves neither comments nor
+> key order (its contract is round-trip *value* equality), so the first GUI save of a hand-written toml
+> rewrites the document. `test_a_text_diff_would_report_a_rewrite_where_this_reports_nothing` measures both
+> halves — **>20 changed text lines, zero changed meaning.** And **not a rollback**: this repo has git and
+> its owner uses it; the scarce thing at a playtest is attention, not storage.
+>
+> **Defects found by driving it, not reading it:**
+> 1. **A multi-file diff lost its file prefix on array rows** — `_label` rebuilt the string from the array's
+>    own name and discarded every parent segment. `Change.file` is now separate from `Change.where`, which
+>    also lets the UI **group rows by member** (a campaign's changes read per room).
+> 2. **The last job… er, the last FILE's final character was chopped** — `end - 1` drops the newline that
+>    belongs to the next file's header, and the last one has no such newline. Measured on a traceback's
+>    closing quote.
+> 3. **`QMessageBox(self).exec()` is an INSTANCE, not a static** — gui_snap's static stubs could not see the
+>    unsaved-changes prompt, so `drift:ahead` (which deliberately leaves unsaved edits) hung the harness with
+>    **no output at all**. `faulthandler.dump_traceback_later` is the tool for a silent hang; the guard now
+>    stubs both kinds, to **Discard** (a snap must never *write* the user's project).
+> 4. **I broke the shared harness with a one-line env var.** Redirecting the snapshot cache via
+>    `FF9MAPKIT_DATA` also redirects **`provision.data_dir()` — the templates dir** — so every surface's
+>    template lookup pointed at an empty directory and the first snap hung. **One knob, two meanings:** the
+>    redirect is now scoped to `deploysnap.snap_dir` alone.
+> 5. **The chip reported "in sync" about a project the user had just closed** — it was keyed on the Build
+>    tab's path box, which *deliberately* survives a close (round 10 persists the destination). Gated on the
+>    same `_current_target()` predicate Home's guide uses.
+> 6. **`setProperty("mono", True)` on a QListWidget styles nothing** — style.py's rule is
+>    `QLabel[mono="true"], QLineEdit[mono="true"]`. Dropped rather than extended: the rows are a dotted path
+>    *and* a line of dialogue at once, and the kit's own DICTION rule is "mono on a sentence reads as a bug".
+> 7. **The list is a `QListWidget`, not a `QPlainTextEdit`** — because `fit_dialog` sizes a populated list
+>    from real content while a text box's sizeHint is a fixed ~256×192 whatever is in it. The first cut opened
+>    **368px tall for three rows**; using the mechanism that already exists also bought keyboard nav and
+>    per-row tooltips carrying the unelided values.
+>
+> **And one of my own fences tested the wrong `except` clause:** the "never load-bearing" check used a NUL
+> byte in the path, which raises `ValueError`, not `OSError` — a situation no machine is ever in. The code was
+> right (the project's convention, stated in `deploylog.py`, is to swallow *filesystem* errors only, because
+> "a silent swallow of a TypeError is how a guard rots"); **the unrealistic failure mechanism was the bug.**
+> Re-fenced with a file sitting where the directory should be.
+>
+> All three sabotage runs (index matching / ignore `from_disk` / drop the open-project gate) go red on exactly
+> the right fences. Suite **4229** (+35 new). ⚠ Nothing here has been seen in the running app by a human.
+
+> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ⚠ PLAYTEST PENDING
+>
+> **The weak area, stated precisely: there was no find ANYWHERE in this app.** `Ctrl+F` was unbound
+> app-wide, and the surface that needed it most is the one the app streams every build, deploy, lint and
+> import into. An earlier round made `run_job` stop clearing the console on purpose — *"the header is a
+> SEPARATOR, and a separator with nothing above it separates nothing"* — which turned Output into a
+> **multi-job document** of up to 5000 blocks and left it with a drain's three controls: Wrap,
+> Copy-everything, Clear. Its own structure (the `[HH:MM:SS] subject` head lines, which the GUI writes
+> **itself** and therefore knows with certainty) was spent by nothing.
+>
+> One mechanism — the head-line index — three affordances: **find** (Ctrl+F, incremental, match count,
+> Enter/Shift+Enter, wrap, highlight-all, Esc), **jump to a job** (a `Jobs` menu, newest first, ✓/✗/⏹ by
+> shape not colour), and **copy just that job** (a jump selects the span, so the OLD Copy button becomes
+> per-job — the new mechanism pays for the existing control instead of adding one).
+>
+> **★ THE MEASUREMENT KILLED THE NAIVE BUILD BEFORE IT SHIPPED — the NINTH-GROUND LAW, on the one surface
+> that had no ground but its own.** A find highlight is a *third* colour painted under the log's text, so
+> `contrast(log_fg, log_bg) >= 4.5` says nothing about it. Probed across all 8 palettes
+> (`evidence/probe_find_ground.py`): letting the log's own ink ride an accent highlight measures
+> **1.16 (solarized-dark) to 3.43 (nord) — sub-AA in EIGHT of eight**, i.e. the current match would have
+> been the *least readable line in the log*, in every palette. The quiet tier was sub-AA in solarized-light
+> too (4.42). So the loud tier reuses the **authored** `accent`/`accent_fg` pair (already fenced) and the
+> quiet tier gets two derived tokens, `find_bg` (`_find_token`) + `find_fg` (the existing `_fg_token` rule).
+>
+> **`selection_bg` was the obvious reuse and it was wrong** — it is derived against `surface`/`hover`, the
+> *tree's* ground. The console's ground is `log_bg`, a different and deeper fill in every palette. Reusing it
+> would have been this study's most-repeated defect: a fence set on the wrong ground.
+>
+> **And `_selection_token`'s 20/255 floor was also wrong here, which is the round's transferable bit.** At 20
+> the mist render *painted* the quiet match correctly — **339 measured px of the token, so the mechanism was
+> right** — and it still read as a smudge, not a mark, on a near-black well. Same delta, less perceived.
+> `FIND_TINT_FLOOR = 44`, swept at 4× nearest-neighbour on both extremes (mist's deepest well, cream
+> solarized-light) via `evidence/shot_find_tier.py`: 20 reads as an artifact, 32 as a mark, 44 unambiguously.
+> **A visibility floor is calibrated per GROUND; it does not transfer between tokens.** The ceiling is
+> numeric, not taste: 44 keeps the derived ink ≥4.77:1 in all 8 and every palette ≥60 raw channels from the
+> accent. **And the sweep corroborated the ink token independently: `contrast(log_fg, find_bg)` FALLS as the
+> floor rises** (solarized-dark 4.52 → 3.55) — visibility and inherited legibility pull in *opposite*
+> directions, so no floor exists at which the naive build is both visible and legible. The two tokens are the
+> only shape that works.
+>
+> **Seven live defects, each caught by driving the thing rather than reading it:**
+> 1. **`QPlainTextEdit.ExtraSelection` does not exist in PySide6** (it is `QTextEdit`'s) — an AttributeError
+>    on the first keystroke of the first search.
+> 2. **`self.pal` is the RAW palette**, so `pal["find_bg"]` KeyErrors — the trap `Workspace._derived` exists
+>    to document, hit again by a new module.
+> 3. **The last job's span chopped its final character** (`end - 1` with no next head to trim) — measured on
+>    a traceback's closing quote.
+> 4. **Two jobs sharing a head string both resolved to the first occurrence.** A head is `[HH:MM:SS] subject`,
+>    so two Checks in the same second are byte-identical; the spans are now built cumulatively, in order.
+> 5. **Shift+Enter never fired.** It lived on a QShortcut hosted by a hidden zero-size QPushButton — Qt
+>    disables shortcuts owned by an invisible widget — while the ▲ button's tooltip advertised the key.
+>    Measured: 1/3 → **2/3**, i.e. `returnPressed` won. Esc would likewise have been eaten by
+>    `setClearButtonEnabled`. Both keys now live on a `QLineEdit` subclass that owns them.
+> 6. **The find bar paid for itself out of the log.** The console opens ~152px, so a ~46px bar inside it left
+>    ONE readable line and clipped the next mid-height — the squeeze law in the panel that exists to be read
+>    *while you search it*. The height now comes from the DOCUMENTS pane, and is given back **only if the
+>    split still reads as the one we set** (round 7's law cutting the other way: a divider the user dragged
+>    while searching is a preference, and restoring blindly would discard it).
+> 7. **Two dropdown arrows on the Jobs button** — an InstantPopup QToolButton draws its own indicator, so the
+>    typed `▾` was a second caret. Visible only in the 150% snap.
+>
+> **Two of my own fences were set at the wrong bar, and the second one is the sharper lesson:**
+> - `test_the_find_highlight_cannot_inherit_the_logs_own_ink` first demanded `find_fg` beat `log_fg` in every
+>   palette and went **red on dracula, where the two are byte-identical** (`#f8f8f2` is that palette's
+>   `log_fg` *and* its `text`, and `_fg_token` returns its input unchanged wherever the palette already
+>   clears AA). That is the rule working as designed. A fence at "strictly better everywhere" would have
+>   forced a pointless second hex into dracula; the honest contract is *never worse* per palette **plus**
+>   *load-bearing at least once* across them.
+> - The miss state's fence asserted `count.property("state") == "error"` — **a property is not a rendered
+>   colour.** The counter also carries `role="muted"`, and `style.py`'s own `QLabel[role="muted"][state="warn"]`
+>   two-attribute rule exists precisely because that cascade did not go the obvious way for warn. Re-measured
+>   from pixels: hit → `#9fadc4` (`muted`), miss → `#ff6b6b` (`error_text`). The error rule does win — and the
+>   fence now says so from pixels.
+>
+> **Not capped, because it was measured, not guessed:** at full log depth (5000 blocks / 179k chars) a
+> refresh+repaint is 27ms for 5,000 matches and 58ms for 10,000 (the single letter `o`), against a 180ms
+> coalescing window. A cap would have to either lie in the counter or announce itself; neither is worth
+> buying at 58ms.
+>
+> All three sabotage runs (naive ink / no tint / merged tiers) go red on the right fence with the right
+> message. `gui_snap` grew **`console:log|find|miss|jobs`** (a pinned 3-job session with fixed timestamps — a
+> random clock breaks pixel-diffing the panel's most prominent line) and grabs the console panel *as well as*
+> the window, because a highlight tier judged from a downscaled 850px shot is the "sample the button, don't
+> squint at the screenshot" mistake. Suite **4194** (+28 new fences, 263 skips = this worktree's un-extracted byte-level templates, none of them GUI).
+
 > ## ROUND 9 — THE CO-OP TAB, and the trap that unfilled every button  ·  branch `claude/gui-coop-tab-round9`
 >
 > The first round driven end-to-end by the snap loop: `gui_snap` grew pinned **co-op machine states**

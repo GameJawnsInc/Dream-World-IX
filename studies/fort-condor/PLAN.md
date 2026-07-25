@@ -174,6 +174,17 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   the minted win announce (`won`). Measure: the wave cadence, the gate fight, the
   loss battle firing ONCE with a clean after-battle return (no softlock, BGM back),
   the win path, recruits + defenders + economy unchanged, ~ Reload = full round reset.
+  **ROUND 1 (2026-07-24): waves ★ ("all 4 Fangs spawn in" on a late arm — both bands
+  open at once, as designed) + the win line ★ — but THE LOSS BATTLE NEVER FIRED,
+  owner-diagnosed as the defeat dialogue clobbering it. CONFIRMED mechanically — THE
+  ONE-TICK DISPATCH CLOBBER: a Battle branch's own raise_flags ("lost") promotes the
+  die branch above it NEXT tick, so the battle is selected for EXACTLY ONE tick; if
+  another body (the gatecry announce, still exiting) holds `running` through that
+  tick, the sel-gated dispatch never fires. FIX (compiler-structural, same day): THE
+  EDGE-LATCHED REQUEST LANE — selecting a Battle branch sets a `breq` flag; the
+  dispatch tail fires on breq && !fought && running==0 INDEPENDENT of the current
+  selection, ordered first with a one-REQ-per-tick jump. ⚠ round-2 playtest pending
+  (the loss-battle box + the after-battle return chain).**
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.
