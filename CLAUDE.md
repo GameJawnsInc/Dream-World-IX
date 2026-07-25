@@ -259,6 +259,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 > counts, no quotes. The shipped-pillar inventory lives in the memory index (§9); per-arc status in `studies/`.
 
 **Open arcs — status lives in the study, not here:**
+- The Southern Ring (the composed world) — ratified; R1 dry loop DEPLOYED (New Game → hub 4600 → Lantern Hall 6601 → the Lantern Quay; relaunch+playtest pending) → `studies/overworld-topography/southern-ring/DESIGN.md`
 - Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
 - Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`

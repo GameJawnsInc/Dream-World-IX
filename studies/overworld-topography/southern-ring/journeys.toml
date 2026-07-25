@@ -1,0 +1,59 @@
+# ============================================================================
+#  THE SOUTHERN RING -- World Hub registry (input to `ff9mapkit gen-hub`).
+#
+#  R1 "THE DRY LOOP", step 6 (plan A, owner-selected 2026-07-25). The hub is the
+#  New-Game landing: walk as the Moogle, talk to the narrator, pick a journey ->
+#  warp into its entry field. Per journey the hub needs only {id, name, entry, seed};
+#  HOW the journey plays is the slice's own business. (memory: project-ff9-world-hub)
+#
+#  Schema source of truth: ff9mapkit/ff9mapkit/hub.py (HubSpec / validate_hub) +
+#  the reference registry ff9mapkit/examples/world_hub/journeys.toml (hub id 4500 --
+#  the bundled example is a golden oracle and is NEVER edited in place; ours is 4600).
+#
+#  Regenerate after editing:
+#    py -m ff9mapkit gen-hub ../../../studies/overworld-topography/southern-ring/journeys.toml \
+#        --extract-camera
+#  Deploy:
+#    py tools/deploy_field.py studies/overworld-topography/southern-ring/hub.field.toml \
+#        --id 4600 --name SOUTHERN_RING_HUB --mod-folder FF9CustomMap-world
+# ============================================================================
+
+[hub]
+name      = "SOUTHERN_RING_HUB"      # -> EVT_SOUTHERN_RING_HUB.eb / FBG_N21_<borrow_bg>
+id        = 4600                     # verified ABSENT from BOTH live DictionaryPatches
+area      = 21                       # must match the borrowed room's area (>= 10)
+borrow_bg = "GRGR_MAP420_GR_CEN_0"   # Gargan Roo / centre -- the world hub's proven backdrop
+borrow_field = 950                   # the real field that room IS -> `gen-hub --extract-camera`
+camera    = "camera_hub.bgx"         # field 950's real camera, extracted by --extract-camera into
+                                     # ff9mapkit/.ff9mapkit-cache/fields/950/ and copied in BESIDE this
+                                     # registry (asset paths beside the toml, the lantern-hall convention);
+                                     # gitignored -- game-derived bytes. Re-running gen-hub WITH
+                                     # --extract-camera repoints this at the cache copy instead.
+# text_block omitted ON PURPOSE: it derives from `id` (4600) and auto-registers. Any REAL
+# block would overwrite that location's own dialogue game-wide (the text-block shadow trap).
+
+prompt    = "Kupo! Which passage will you book?"
+stay_text = "Not yet, kupo..."       # the trailing no-warp (cancel) row
+
+player_model   = 220                 # the iconic white save moogle (GEO_NPC_F0_MOG)
+player_spawn   = [200, 127]          # SEE the probe note below -- NOT the example's [404,127]
+narrator       = "Stiltzkin"         # the wandering moogle -- the journey narrator
+narrator_model = 212                 # Stiltzkin's ACTUAL rig (GEO_NPC_F3_MOG)
+narrator_pos   = [600, 127]          # 400u east of the spawn, same walkmesh band
+
+# LAYOUT DEFECT CAUGHT BY tools/field_layout_probe.py (the same class the lantern hall hit):
+# the bundled example's pair -- player [404,127] / narrator [480,127] -- is only 76u apart, and
+# actors JAM/SHOVE under ~192u centre distance (real fields keep standing NPCs 300u+ apart).
+# Both were pushed apart along the same z=127 band inside Gargan Roo's centre chamber, whose
+# floor at z=127 runs x in [-800, +800]; at x=600 the narrator still has ~200u of east wall
+# clearance and the player 400u of separation. Re-probed clean (0 warnings).
+
+# ---------------------------------------------------------------------------
+# The journeys. `id` must be a TOKEN (A-Z, 0-9, _) -- hub.validate_hub's _NAME_RE
+# rejects a hyphen, so the design's "southern-ring" slug is spelled southern_ring.
+# ---------------------------------------------------------------------------
+[[journey]]
+id    = "southern_ring"
+name  = "The Southern Ring"
+entry = 6601                         # LANTERN_HALL -- deployed + confirmed in FF9CustomMap-world
+set_scenario = 4100                  # seed the beat hub-side before the warp

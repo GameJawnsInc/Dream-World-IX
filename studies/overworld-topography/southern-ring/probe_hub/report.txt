@@ -1,0 +1,18 @@
+FIELD LAYOUT PROBE -- studies/overworld-topography/southern-ring/hub.field.toml
+camera 0/1: pitch 49.6 deg, yaw -0.0 deg, H=497, canvas 384x448
+camera position C=(-0, 3651, -3454)  (the VIEWER stands here; the room edge nearest it is the FRONT)
+
+COMPASS (world direction -> where it points ON SCREEN):
+  north (+z, back)     -> up         (0 deg)
+  east (+x)            -> right      (90 deg)
+  south (-z, front)    -> down       (180 deg)
+  west (-x)            -> left       (270 deg)
+  screen-UP corresponds to world north (0 deg from +Z toward +X)
+
+CONTENT (world -> canvas):
+  Stiltzkin            npc       world(   600,   127) -> canvas( 250.5, 191.0)
+  spawn                spawn     world(   200,   127) -> canvas( 211.5, 191.0)
+
+WARNINGS: none
+
+Reminders: FRONT of a room = -z (toward camera) = down-screen at yaw 0. Facing byte: 0=south(front) 64=west 128=north(back) 192=east. Actors jam under ~192u centre distance; real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls.
