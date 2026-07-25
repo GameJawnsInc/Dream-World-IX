@@ -29,7 +29,10 @@ And every falsified flight hypothesis (v1→v10.1) died for want of exactly this
 | **R3** | **THE INSPECTOR** — `summon-inspect <ef>`: an annotated choreography report | **ef227 CHOREOGRAPHY.md explains the OBSERVED phases (float / charge / beam / fire-column; creature window 82–412) from the code**, validated against the archived s53 capture — the calibrated instrument, not a narrative |
 
 **Done = "decodable":** a person (or agent) can open the inspector's report for a stock summon and
-answer "what happens at frame N and which code does it" without a debugger.
+answer "what happens at frame N and which code does it" without a debugger. **★ REACHED for the 34
+switch-driven programs** (`EF227-CHOREOGRAPHY.md` §0 is that table for ef227, frame by frame). For
+the 342 single-body effects the question is degenerate rather than answered: they do the same thing
+every tick, and this rung says so rather than inventing a spine for them.
 
 ---
 
@@ -95,5 +98,32 @@ answer "what happens at frame N and which code does it" without a debugger.
     zoom knob, ops 121/122/148); `Hi_Draw*ByBone` reads `summonModels`; `M3-opcode-table.json`'s
     arity column is wrong for 19 ops and its `.data` fn table is not the dispatch authority (8 ops
     are no-ops).
-- R3 — unblocked. Best next target: **op 117** (1,709 calls, `(ptr,ptr)->ptr`, `fn 0x306f0`), the
-  only unnamed op in the top three.
+- R3 — ★ DONE → **`EF227-CHOREOGRAPHY.md`** (`summon_inspect.py` + `test_summon_inspect.py` +
+  `r3_gates.py`). 5/5 gates, 142/142 tests (31 new; R1's 41 and R2's 70 unchanged).
+  * **THE EXECUTION MODEL, recovered not assumed.** An effect program is a **per-tick callback**,
+    not a script: its first branch dispatches on `$a0` — 0 *describe* (report the state block's
+    size: ef227 **168 B** / **228 B**), 1 *init*, anything else one **tick**. State lives in the
+    caller's block (`arg1+0`); the **clock is the caller's cell `*(arg3)`**, and a transition
+    writes **-1** to it. That one store fixes the frame model: -1 is only coherent if the host
+    increments before the next read, so a case guarded by `clock < N` occupies **N+1 ticks**.
+  * **ef227's phase spine, both entries.** c0: `0 →(70) 10 →(25) 1 →(25) 2 →(27) 4 →(31) 5·term`;
+    c1: `0 →(36) 1 →(49) 2 →(29) 3 →(3) 4 →(15) 5·term`. Every slot reachable, every transition
+    target real, **0 unreachable targets**; c0 carries **5 dead slots (3,6,7,8,9)** that land on
+    the per-tick TAIL — the same body every case's "not yet" branch falls into.
+  * **VALIDATED against the archived s53 capture, and it REPLICATES.** One fitted parameter per
+    program (the frame the sequence starts that chunk: **f57** and **f300**). c0: **5/5** phase
+    boundaries land on observed motion-counter restarts **and 5/5 on the motion-frame constant the
+    transition writes** (0,0,0,**10**,0). First draw predicted f81 (gate `clock >= 24`, derived by
+    dominance) vs observed f82; c1's last draw predicted f413 vs bone-pose-valid-through f415.
+    **15 checks agree, 0 disagree**, identically across all **3** archived captures.
+  * **Corpus census (385 images): clean 16 · frame-dispatch 18 · trivial 342 · defeated 9.**
+    `frame-dispatch` is a second shape, not a failure — the switch index is the host's frame
+    counter and nothing writes it, so slot k IS frame k. Only **43** images have a switch-driven
+    entry at all: multi-phase choreography is the exception in FF9's effect corpus.
+  * Findings: the cast's **end is a sequence event** (both programs end terminal, neither stops
+    itself or the other); the camera's three shots change `gteH` at f58/f153/f302 — **1, 1 and 2
+    frames after a phase boundary**, so sequence and program are two clocks kept aligned by
+    construction (rescoring one without retiming the other will drift).
+  * Next: **op 117** (1,709 calls, `(ptr,ptr)->ptr`, `fn 0x306f0`) is still the best naming target;
+    and the 9 defeated images split 4 computed-dispatch / 4 stack-local inner switch / 1 degenerate
+    chain.
