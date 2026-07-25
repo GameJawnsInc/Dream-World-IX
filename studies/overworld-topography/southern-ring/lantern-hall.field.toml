@@ -1,0 +1,82 @@
+# lantern-hall.field.toml -- THE LANTERN HALL: the Southern Ring's ferry saloon.
+#
+# R1 "THE DRY LOOP" (studies/overworld-topography/out/world-design/design_judgment.json
+# first_rung). A WORKING COPY of ff9mapkit/examples/continent-v1/waystation.field.toml --
+# the bundled example is a byte-exact golden oracle and is NEVER edited in place.
+#
+# Deltas from the example:
+#   * id 6500 -> 6601, name CONT_WAYST -> LANTERN_HALL
+#   * text_block = 6601 (the field's OWN id). 22 (Lindblum) would shadow that
+#     location's dialogue game-wide -- there is no free REAL text block.
+#   * displayed strings re-voiced to the ferry-saloon fiction (purser, berth door)
+#   * the berth gateway re-aimed at ASHVALE, the accepted junction island's west
+#     shore: quay trigger cell (1,36) world (48,-1168), arrive (60,-1168) facing
+#     east (inland), 12u clear of the trigger tile (THE ARRIVAL-CLEARANCE LAW, >=8u)
+#
+# BG-borrows Daguerreo/Entrance (field 2800, the game's own hidden island harbor) --
+# real art + real walkmesh + real camera render engine-side; only OUR .eb ships.
+#
+# Deploy (from the repo root):
+#   py tools/deploy_field.py studies/overworld-topography/southern-ring/lantern-hall.field.toml \
+#       --id 6601 --mod-folder FF9CustomMap-world
+
+[field]
+id = 6601
+name = "LANTERN_HALL"
+text_block = 6601                    # the field's OWN id -- NEVER a real block (shadow trap)
+borrow_bg = "DGLO_MAP775_DG_ENT_0"   # Daguerreo/Entrance (field 2800), area >= 10
+area = 55
+hide_area_title = true               # the borrowed room's "Daguerreo" card is not this place
+
+[camera]
+borrow = "camera_lantern.bgx"        # field 2800's real camera, `extract-field 2800` then
+                                     # copied in beside this toml (asset paths may not climb
+                                     # out of the field dir); gitignored -- game-derived bytes
+entry_settle = "auto"                # computed hold: the build measures the spawn's warp-in delta
+
+# field 2800's REAL walkmesh, for offline content validation ONLY -- NEVER shipped
+# (`_borrow_walkmesh`): the engine runs the borrowed room's own mesh. Without it the
+# layout probe cannot answer "is this prop on the floor", which is exactly the check
+# an off-floor savepoint failed once before. Gitignored -- game-derived bytes.
+[walkmesh]
+reference = "walkmesh_lantern.bgi"
+
+[player]
+spawn = [0, -2000]                   # just inside the hall door, on the y=0 corridor
+
+# MEASURED corridor (tools/field_layout_probe.py + the reference walkmesh above): the
+# hall is a uniform shaft, floor x in [-205, +205] for every z in [-3400, -1000], then
+# it flares north of z=-1000. So actor CENTRES must stay in x [-157, +157] (the 48u
+# player collision radius off each wall). The example's Mopli at x=170 measured only
+# 37u from the east wall -- the player could not have walked up to talk; that is the
+# one real defect the probe caught, and both actors moved inward and split along z.
+[[npc]]
+name = "Purser"                      # the ferry purser (white save-moogle rig)
+pos = [130, -1650]                   # 75u off the east wall; 373u from the spawn
+model = 220
+dialogue = "Kupo! Lantern Hall, southern berth. The ferry lies out the door behind me -- log your passage on the ledger to the west first, kupo!"
+
+# the passage ledger (save point): its own press area WEST of and DEEPER IN than the
+# purser -- 75u off the west wall, 328u from the purser, 565u from the spawn (the
+# example's 280u prop/spawn pair projected only 12px apart at this near-level camera).
+[[prop]]
+model = 220                          # the stock standing save moogle (the purser's rig)
+pos = [-130, -1450]
+
+[[savepoint]]
+zone = [[-195, -1550], [-65, -1550], [-65, -1350], [-195, -1350]]   # the prop centred in
+                                     # its own press area -- the example's proven relation,
+                                     # translated with it
+
+# THE BERTH DOOR -- walking out returns to the world map. The zone is field 2800's
+# OWN real exit region, verbatim (the borrowed art's door sits exactly there).
+# arrive pins the world landing DETERMINISTICALLY on Ashvale's west shore (the
+# engine's position-mirror return is racy for teleported/short visits).
+[[gateway]]
+to = "worldmap"
+zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
+arrive = [60.0, -1168.0]             # Ashvale west shore, 12u inland (east) of the
+                                     # quay trigger tile (48,-1168) -- THE
+                                     # ARRIVAL-CLEARANCE LAW's >=8u, so no instant
+                                     # re-entry loop
+arrive_face = 192                    # facing east = inland, back turned to the sea

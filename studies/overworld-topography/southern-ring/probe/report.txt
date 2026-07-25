@@ -1,0 +1,24 @@
+FIELD LAYOUT PROBE -- studies/overworld-topography/southern-ring/lantern-hall.field.toml
+camera 0/1: pitch 2.5 deg, yaw -12.2 deg, H=368, canvas 512x320
+camera position C=(1745, 937, -4418)  (the VIEWER stands here; the room edge nearest it is the FRONT)
+
+COMPASS (world direction -> where it points ON SCREEN):
+  north (+z, back)     -> up-right   (66 deg)
+  east (+x)            -> right      (92 deg)
+  south (-z, front)    -> down-left  (246 deg)
+  west (-x)            -> left       (272 deg)
+  screen-UP corresponds to world north (343 deg from +Z toward +X)
+  !! yawed camera (-12 deg): world cardinals do NOT align with screen edges -- narrate directions from this table, not from coordinates
+
+CONTENT (world -> canvas):
+  Purser               npc       world(   130, -1650) -> canvas( 137.5, 249.6)
+  220                  prop      world(  -130, -1450) -> canvas( 123.1, 241.8)
+  spawn                spawn     world(     0, -2000) -> canvas(  97.4, 261.5)
+
+ZONES:
+  -> worldmap          gateway   world x[-193,201] z[-3377,-2315] -> canvas centre (-11,314)
+  save point           savepoint world x[-195,-65] z[-1550,-1350] -> canvas centre (123,242)
+
+WARNINGS: none
+
+Reminders: FRONT of a room = -z (toward camera) = down-screen at yaw 0. Facing byte: 0=south(front) 64=west 128=north(back) 192=east. Actors jam under ~192u centre distance; real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls.
