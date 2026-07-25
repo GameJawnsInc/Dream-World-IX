@@ -5,6 +5,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the compiled-behavior BYTE HISTOGRAM (`CompiledBehavior.size_report()`)
+- The compiler now accounts for every byte it emits: zero-width `__seg` markers in the
+  ticker (provably byte-inert — labels emit nothing) + exact body lengths yield a
+  per-unit / per-branch histogram — ticker segment, duty body, and each dispatch body by
+  action — plus the shared-infrastructure segments (head/mirrors/clocks/pools/hireable)
+  and the island-overhead delta. Study benches print it on every dry build. First run on
+  the shipped Fort Condor build settled where the budget goes: 126 SwingAt dispatch
+  bodies × 108B of byte-identical code (13.6KB of the 15KB body total) — the measured
+  target for the scoped v2 byte-economy work (`studies/behavior-trees/PLAN.md`, THE
+  THREE WALLS). A third wall was measured en route: the blackboard scratch band is 820
+  bytes of `gEventGlobal`, exhausting near 40 units × 6 swing pairs (loudly).
+
+### Fixed — assembler + entry-table hardening (the stress pass)
+- **Island REUSE**: long jumps that share a target now repoint at an existing in-reach
+  island instead of minting one each (batched per fixpoint round; the strictly-between
+  progress law prevents an island's own hop from reusing itself — a cycle). Dense
+  same-target bails (thousands of branches jumping to one far label) previously cost 6
+  bytes + a fixpoint round APIECE and could exhaust the convergence cap.
+- Long-jump **detection now uses the true emit limits** (±32767 signed / 65535 unsigned)
+  while island **placement keeps the safe-margin goal** — detecting at the soft margin
+  made dense island clusters churn (every insertion nudged neighbors over the soft line
+  and re-routed them). The convergence cap scales with input size instead of a flat 400.
+- `eb.edit.append_entry`: the chunked entry-table growth **no longer overshoots the
+  255-slot ceiling** when the requested slot itself still fits (at 250 entries, slot 250
+  used to ask for 258 and be refused); slot 255 stays a loud refusal. New boundary,
+  dense-jump, distinct-target, histogram, and 40-unit swarm stress tests (suite +9).
+
 ### Added — `[behavior]` `award` + the published per-pool `hireable` flag (the Fort Condor economy pieces)
 - **`award`** (`do = { award = 2000, item = "Phoenix Down", count = 1 }`): pay the player gil
   (0..16777215, `AddGil` 0xCE) and/or an item (name or id via the items resolver, `AddItem`

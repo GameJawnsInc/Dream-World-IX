@@ -1,0 +1,140 @@
+# Stock minigame / UI substrate survey (2026-07-25)
+
+> Two independent censuses — the Memoria engine source (`C:\gd\FFIX\Memoria`) and
+> the 817 HW field-script exports (`C:\gd\FFIX\reference\test2\`) — run in
+> parallel and CONVERGED on every headline. This file is the distilled, durable
+> catalog; consumers: the fort-condor war-room UI, any future `[minigame]` lane,
+> and the kit's dialog/window vocabulary. Full agent transcripts are ephemeral;
+> every claim here carries its file ref.
+
+## THE HEADLINE (both censuses independently)
+
+**FF9 has NO number-display / gauge / score opcode.** Every live number the PC
+game ever shows on a field — hunt points, auction bid, jump-rope count, frog
+tally, H&C score/depth, Pandemonium altitude — is the same three generic
+opcodes, re-issued from a looping code entry:
+
+```
+SetTextVariable(slot, value)      ; 0x66 — 8 slots (ETb.gMesValue[0..7])
+WindowAsync(winID, flags, textID) ; 0x20 — REDRAW same winID = replace = update
+CloseWindow(winID)                ; 0x21     (8 windows, Dialog.WindowID.ID0..7)
+```
+
+- The dialog engine re-renders a window **every frame its `[NUMB=n]` variables
+  change** (`Dialog.cs:1409-1427` UpdateMessageValue) — the redraw loop only
+  needs a dirty check.
+- `flags=16` (`ETb.WindowTransparentStyle`) = body+border alpha 0 → **frameless
+  floating HUD text**; `flags=4` = chat-no-tail. Position/layout live in the
+  `.mes` text: `[MPOS=x,y]` `[WDTH]` `[TBLE]` `[XTAB]` `[YADD]` `[NUMB]`
+  `[ICON]` `[SPRT]` (`NGUIText.cs:1490-1555`).
+- **The `MinigameHUD` prefab family (jump rope / auction pad / Hippaul / chocobo
+  dig button...) is MOBILE-ONLY** — `FieldHUD.DisplaySpecialHUD` opens with
+  `if (!FF9StateSystem.MobilePlatform) return;` (`FieldHUD.cs:115-118`). On PC
+  those prefabs render NOTHING; there is no engine dig gauge to de-hardcode.
+  The overlays key on (`FF9TextTool.FieldZoneId`, mesId) or `fldMapNo` — a
+  custom field on its own text block never trips them.
+
+## The five substrates worth building on (ranked)
+
+### 1. The live-counter HUD daemon (Festival of the Hunt shape) — ★ build first
+`test2_128.txt:427-440` (field 550), duplicated VERBATIM into all 12 festival
+fields: a dedicated code entry loops `if (local_mirror < global) { mirror it;
+SetTextVariable(1, v); WindowAsync(6, 4, textid) } Wait(1)`. Fully portable, no
+field-id gate anywhere. Three simultaneous strips (gil / wave / units) fit in
+one text id — the auction already drives 5 variables in one window. Pairs with
+the already-proven timer triplet (0x69/0x8D/0x7D) for clock + score.
+**Kit shape:** a `[[behavior.hud]]` lane — compiler emits the daemon entry +
+the `.mes` line; ticker publishes values by writing the mirrored globals.
+
+### 2. The numeric stepper (Treno auction) — the game's numeric INPUT
+`test2_249.txt:1783-1908` (field 909, `Code10_31`): 3-digit ×100 bid stepper —
+window 6 = frame + legend; windows 3/4/5 = per-digit CURSORS, each a transparent
+(`flags=16`) empty-text window positioned under one digit; Left/Right swaps
+cursor windows, Up/Down mutates with a hand-rolled auto-repeat ramp, ceiling
+clamped vs `GetGil`, cancel = sentinel 65535. **Nine shipping fields carry this
+byte-for-byte** (852/909/1600/1607/1909/2800/2950/2951/2952) — the studio's own
+reusable snippet, so a kit `[[numeric_input]]` emitter has multiple goldens.
+Memoria's author even ships the single-dialog modern form as a source comment:
+`[NUMB=digitVar,selVar]` renders the selected digit pink (`Dialog.cs:1429-74`,
+`DialogBoxSymbols.cs:161-170`).
+
+### 3. Shop-as-hire-menu — native armoury, zero DLL, mostly already in the kit
+`Menu(2, shopId)` (opcode 0x75) opens `ShopUI` from ANY field, no id gate
+(`DoEventCode.cs:2317-2342`; the full Menu enum: 0=main 1=name-entry 2=shop
+4=save 5=chocograph; 3/6/7/8 dead). Stock lives in `Data/Items/ShopItems.csv`
+(merges by shop id; ids 0-31 must survive the merge — `ff9buy.cs:23-45`), and
+**the kit already ships `[[shop]] id ≥ 32` + `[[npc]] opens_shop`**
+(FORMAT.md). The polling half is vanilla: expression token 0x64 `B_HAVE_ITEM`
+= `GetItemCount(id)` — the kit emits it today (`content/region.py:71`). Sell
+"Soldier Contract" items; the ticker converts inventory → pooled spawns.
+Gotchas: the shop HARD-PAUSES field scripts (`SetEventEnable(false)`) but the
+timer keeps ticking (`TimerUI.cs:205-235`) — an armoury phase, not a hot-swap
+(the buy-anywhere [[choice]] poller keeps that role); stock non-equip items →
+clean Item-shop type; items are real inventory (survive saves, sellable);
+`AddShopItem` 0x115 can mutate the roster mid-run; the kit's encoder already
+speaks the 0xFF-prefix page (`opcodes.py:44`) — only `_optables.py` arg-shape
+rows past 0x10A are missing (a small add, scoped in the behavior-trees PLAN).
+
+### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split
+`test2_15.txt` entries 2/3/4: one entry ISSUES prompts (8 text ids, random with
+a no-repeat blocklist), a PARALLEL entry polls `IsButton(mask)` per frame, a
+third aggregates. The reaction timer is a countdown byte decremented by the
+poller whose LEFTOVER value IS the speed bonus; combo/max-combo accumulate in
+globals. Plus `EnableDialogChoices(availMask, initIndex)` (0x7C, 833 uses) —
+grey out individual menu rows by bitmask (complement to our requires_flag row
+VANISHING). Engine's only field-64 hook is a +30% Steam-assist rewrite
+(`EMinigame.cs:9-31`) — cosmetic, skippable.
+
+### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge
+`SetTileColor` 0x59 / `ShowTile` 0x5B / `SetTilePositionEx` 0x5A /
+`MoveTileLoop` 0x5C / `SetTileAnimationFrame` 0xE7 / `AttachTile` 0x92 (follows
+an actor) — ~25K combined uses; field 64 pulses a tile by a Sin-driven color.
+A background-art bar filled by `SetTilePositionEx`/`ShowTile` per segment is a
+DLL-free gauge. Text-side alternative: `[TBLE=bank]` value-indexed string swap
+(`ETb.cs:270-283`) — one `.mes` entry holding N bar states indexed by a
+`gMesValue` slot.
+
+## Smaller confirmed facts (keep, they cost playtests elsewhere)
+
+- **`0xAE MINIGAME` (Tetra Master)** launches from any field but is a FLOW
+  TERMINATOR (`return 7`) — must be the last thing its function does; gate on
+  `B_SYSVAR[19]` ≥ 5 cards (`DoEventCode.cs:2378-86`). The uid-keyed
+  `EMinigame.Set*Id` helpers are inert on custom fields.
+- **`AddFrog` 0xE0 / `GetFrogAmount`** — the game's ONE engine-backed counter
+  opcode (writes THE frog counter; field-agnostic).
+- **Name entry** = `Menu(1, charId)` — renames a real PLAYER; not a generic
+  string prompt. **Party select** = `0xB2 PARTYMENU(minSize, lockedMask)`.
+- **`Bubble` 0x68** ("!"/"?" over the player) and **`ShowHereIcon` 0xEF**
+  (mode 3 = unconditional) — free 1-bit HUD sprites. `WIPERGB` 0xEC = screen
+  flash; `GAMEOVER` 0xF5 exists.
+- **`GetTimerTime` is additive-extendable mid-run** — `ChangeTimerTime(
+  GetTimerTime + 10)` is H&C's time-bonus idiom (`test2_221.txt:1562`); the cut
+  minigame in field 1853 (`test2_513.txt:1046-1230`, text-stripped but wired)
+  even does score-extends-clock.
+- **`gScriptVector` is SAVE-PERSISTED** (`JsonParser.cs:521-545`) — the
+  behavior compiler's size←0/size←n table seed is what keeps stale saves inert;
+  keep it law.
+- **Custom NGUI HUD panel (DLL path, when script windows hit their limit):**
+  ~150-250 lines cloning `TimerUI.cs`'s lifecycle (Singleton + prefab +
+  `AddChild(UIManager…)`), labels via `NGUITools.AddWidget<UILabel>`, bar donor
+  `APBarHUD` (UISlider); drive it by READING `ETb.gMesValue` each frame so the
+  field script's plain `SetTextVariable` is the whole wire protocol — no new
+  opcode. ~8 of the ~20 NGUI construction laws apply (no list/scroll laws).
+  An order of magnitude smaller than the s45 codex screen.
+- Rival-bidder AI (auction): per-NPC private budget in ENTRY LOCALS seeded
+  `base*(rand&255+128)/256` (`test2_249.txt:1953-83`); the Nero shuffle carries
+  the double-or-nothing ante loop (`test2_518.txt:1290-1325`); the frog ponds
+  carry the bitmask spawn pool + per-actor local wander/flee
+  (`test2_182.txt:3161-3255`). Ragtime Mouse is battle-side, nothing to mine.
+- `CloseAllWindows` 0xEB and `PreventWindowInit` 0x53 exist in the engine and
+  are used by ZERO shipping fields — free real estate, but verbatim-first says
+  bench them before trusting them.
+
+## What this buys fort-condor, concretely
+
+1. A real HUD row — `Gil 1250 | Units 8/20 | Depot 24` — as one transparent
+   window + three SetTextVariables from the ticker (substrate #1). No DLL.
+2. The war council can grow a "how many?" count picker (substrate #2) and/or an
+   armoury SHOP phase between waves (substrate #3) with native gil handling.
+3. Wave banners ("WAVE 2 — southwest!") = a second window slot, event-Once
+   announces already do the timing.

@@ -24,12 +24,14 @@ much behavior one ticker can hold. ``asm()`` now RELAXES: an out-of-range jump i
 re-routed through an inserted ISLAND (``JMP skip; island: JMP target; skip:`` — 6
 bytes, jumped over by fall-through so it is safe at ANY block boundary), iterated to a
 fixpoint since each insertion shifts later offsets; a span beyond two hops chains
-islands naturally (an island's own jump is scanned like any other). Two invariants:
-a body with NO out-of-range jump assembles BYTE-IDENTICAL to the pre-relaxation
-encoder (golden stability), and an island is never inserted between an expression
-statement and the conditional jump that consumes it (the belt-and-braces stance on
-the engine's condition register — an unconditional hop between push and test is not
-a pattern any shipped field exercises).
+islands naturally (an island's own jump is scanned like any other), and long jumps
+that share a target REUSE an in-reach island instead of minting their own (dense
+same-target bails would otherwise cost 6 bytes + a fixpoint round apiece). Two
+invariants: a body with NO out-of-range jump assembles BYTE-IDENTICAL to the
+pre-relaxation encoder (golden stability), and an island is never inserted between
+an expression statement and the conditional jump that consumes it (the
+belt-and-braces stance on the engine's condition register — an unconditional hop
+between push and test is not a pattern any shipped field exercises).
 """
 from __future__ import annotations
 
@@ -37,11 +39,15 @@ import struct
 
 JMP, JMP_IFNOT, JMP_IF = 0x01, 0x02, 0x03
 
-# stay clear of the true limits so the 6-byte shifts of LATER insertions rarely
-# push an already-routed hop back out of range (the fixpoint loop still catches
-# any that do)
-_SIGNED_REACH = 30000
+# PLACEMENT aims well short of the true limits so the 6-byte shifts of LATER
+# insertions rarely push a routed hop back out of range; DETECTION uses the true
+# emit limits, so drift forces a re-route only when the encoding would actually
+# overflow (detecting at the safe margin made dense island clusters churn —
+# every insertion nudged neighbors over the soft line and re-routed them)
+_SIGNED_REACH = 30000                    # island-placement goal distance
 _UNSIGNED_REACH = 63000
+_SIGNED_MAX = 32767                      # emit truth: struct "<h" / "<H"
+_UNSIGNED_MAX = 65535
 _ISLAND_PREFIX = "__isl"
 
 
@@ -64,21 +70,66 @@ def _measure(blocks) -> tuple:
     return labels, at, pos
 
 
+def _is_long(op: int, off: int) -> bool:
+    """Does this span exceed the op's TRUE emit reach? JMP_IFNOT is unsigned
+    forward (huge reach); backward JMP_IFNOT stays a hard error at emit time —
+    no island can make a backward hop unsigned."""
+    if op == JMP_IFNOT:
+        return off > _UNSIGNED_MAX
+    return not -_SIGNED_MAX <= off <= _SIGNED_MAX
+
+
 def _first_long_jump(blocks, labels, at):
-    """Index of the first jump whose span exceeds its op's SAFE reach, or None.
-    JMP_IFNOT is unsigned forward (huge reach); backward JMP_IFNOT stays a hard
-    error at emit time — no island can make a backward hop unsigned."""
+    """Index of the first jump whose span exceeds its op's safe reach, or None."""
     for i, it in enumerate(blocks):
         if not (isinstance(it, tuple) and it[0] != "label"):
             continue
         op, target = it
-        off = labels[target] - (at[i] + 3)
-        if op == JMP_IFNOT:
-            if off > _UNSIGNED_REACH:
-                return i
-        elif not -_SIGNED_REACH <= off <= _SIGNED_REACH:
+        if _is_long(op, labels[target] - (at[i] + 3)):
             return i
     return None
+
+
+def _batch_reuse(blocks, labels, at) -> int:
+    """Repoint every long jump at an EXISTING island that already hops to its
+    target and sits within the op's safe reach. Dense same-target long jumps
+    (every branch bailing to one far label) would otherwise mint one island
+    EACH — 6 bytes a head and a fixpoint round a head, exhausting the
+    convergence cap long before a real body exhausts the file. Repointing
+    inserts nothing, so ``labels``/``at`` stay valid for the whole batch and
+    every routed span strictly shrinks — progress is preserved. Returns the
+    number of jumps repointed."""
+    islands = {}                                 # target -> [island label pos...]
+    for k, it in enumerate(blocks):
+        if (isinstance(it, tuple) and it[0] == "label"
+                and it[1].startswith(_ISLAND_PREFIX) and it[1][-1].isdigit()
+                and k + 1 < len(blocks) and isinstance(blocks[k + 1], tuple)
+                and blocks[k + 1][0] == JMP):
+            islands.setdefault(blocks[k + 1][1], []).append(it[1])
+    if not islands:
+        return 0
+    n = 0
+    for i, it in enumerate(blocks):
+        if not (isinstance(it, tuple) and it[0] != "label"):
+            continue
+        op, target = it
+        src_end = at[i] + 3
+        tgt = labels[target]
+        if not _is_long(op, tgt - src_end):
+            continue
+        lo, hi = (src_end, tgt) if tgt > src_end else (tgt, src_end)
+        for isl in islands.get(target, ()):
+            p = labels[isl]
+            if not lo < p < hi:                  # the same strictly-between law as
+                continue                         # insertion — an island's own jump
+            off = p - src_end                    # must never reuse ITSELF (a cycle)
+            ok = (0 < off <= _UNSIGNED_MAX if op == JMP_IFNOT
+                  else -_SIGNED_MAX <= off <= _SIGNED_MAX)
+            if ok:
+                blocks[i] = (op, isl)
+                n += 1
+                break
+    return n
 
 
 def _insert_island(blocks, ji, labels, at, total: int, ctr: int):
@@ -126,15 +177,20 @@ def asm(blocks) -> bytes:
     ``ValueError`` on a backward JMP_IFNOT or a non-converging relaxation."""
     blocks = list(blocks)
     ctr = 0
-    for _round in range(400):
+    njumps = sum(1 for it in blocks
+                 if isinstance(it, tuple) and it[0] != "label")
+    cap = max(400, 2 * njumps + 64)              # runaway guard scaled to input
+    for _round in range(cap):
         labels, at, total = _measure(blocks)
         ji = _first_long_jump(blocks, labels, at)
         if ji is None:
             break
+        if _batch_reuse(blocks, labels, at):     # free: repoint, insert nothing
+            continue
         blocks = _insert_island(blocks, ji, labels, at, total, ctr)
         ctr += 1
     else:
-        raise ValueError("long-jump relaxation did not converge (400 islands?)")
+        raise ValueError(f"long-jump relaxation did not converge ({cap} rounds)")
 
     out, pos = bytearray(), 0
     for it in blocks:
