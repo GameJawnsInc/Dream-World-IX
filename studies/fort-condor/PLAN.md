@@ -268,8 +268,16 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   in-game 2026-07-25 ("brawl runs clean, crier lines all fire") — the
   relaxation is fully proven and condor content may exceed 32KB freely (the
   FILE wall remains the binding budget).
-  **ROUND 4 — THE GROUP RE-FIT (built + DEPLOYED 2026-07-25, playtest
-  pending): the ratified design is finally WHOLE.** The siege now runs on the
+  **ROUND 4 ★ IN-GAME PROVEN (2026-07-25) — THE GROUP RE-FIT: the ratified
+  design is WHOLE.** Two fixes bought en route, both recorded as general laws:
+  the strip overlapped the countdown clock (MPOS is the PSX-ish 320x224 grid —
+  stock pins its save menu at 20,16 — and the TIMER OWNS THE TOP-LEFT CORNER;
+  moved to 10,48), and the reward paid TWICE (the rout award and the clock
+  award were separate branches with separate once-latches → restructured as
+  DETECT-THEN-PAY: each ending announces and raises a shared `won` flag gated
+  on `not_flag "won"`, ONE award branch gated on `flag "won"` pays once —
+  now in BEHAVIOR.md as the win-condition shape). Owner: "both fixed, one
+  purse fires now". The siege now runs on the
   v2 substrate proven on 30416: two GROUPS (raiders / allies) carry position +
   alive + hp as table state; `engage nearest` replaces every hand-listed pair
   branch (one branch + one target-indexed body per unit), so **the ratified
