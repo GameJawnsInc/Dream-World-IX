@@ -349,7 +349,7 @@ def pick_palette(mode: str = "auto") -> dict:
 _DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
                  "info", "success_text", "warn_text", "error_text",
                  "border_lit", "border_shade", "accent_lit", "accent_shade",
-                 "warn_fg", "help_fg", "pressed_fg")
+                 "warn_fg", "help_fg", "pressed_fg", "find_bg", "find_fg")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
 # the whole direction, isolated to one number on purpose -- and settled by RENDERING it at 6x, because no
@@ -415,6 +415,59 @@ def _selection_token(surface: str, accent: str, hover: str) -> str:
         t += 0.02
         sel = _mix(surface, accent, t)
     return sel
+
+
+# The quiet find tier's visibility floor -- raw channel distance from the console well. ONE number for the
+# whole taste call, like EDGE_T, and CALIBRATED BY RENDER rather than inherited.
+#
+# `_selection_token` uses 20, AND 20 IS WRONG HERE. Its floor was calibrated against renders where the
+# confusion partner is HOVER -- a fill against a mid-grey surface. This tier's partner is `log_bg`, the
+# DEEPEST fill in the palette. At 20 the mist render painted the quiet match correctly (339 measured px of
+# the token) and it still read as a smudge rather than a mark on a near-black ground: same delta, less
+# perceived. A floor is calibrated per GROUND; it is not transferable between tokens.
+#
+# 44, swept at 4x nearest-neighbour on the two extremes -- mist (the default theme, deepest well) and
+# solarized-light (a cream well, where the tint travels the other way). 20 reads as an artifact, 32 reads as
+# a mark, 44 reads as a mark with no ambiguity, and even at 56 nothing "competes with the current match"
+# because the loud tier is a SATURATED fill with inverted ink and this one is a tint. So the ceiling is not
+# taste, it is the numbers: 44 keeps the derived ink at >=4.77:1 in all 8 (56 -> 4.69, its tightest) and
+# keeps every palette >=60 raw channels from the accent (56 -> 48 on nord, whose accent sits nearest its own
+# ground). 3x the separation floor, with ink headroom, at the first value that is unambiguous.
+#
+# AND THE SWEEP CORROBORATED THE INK TOKEN INDEPENDENTLY: `contrast(log_fg, find_bg)` FALLS as the floor
+# rises (solarized-dark 4.52 -> 3.55, solarized-light 4.42 -> 3.86). Visibility and inherited legibility pull
+# in OPPOSITE directions, so there is no floor at which the naive "let the log's own ink ride the tint" build
+# is both visible and legible. The two tokens are not belt-and-braces; they are the only shape that works.
+# See evidence/shot_find_tier.py (the renders) and evidence/probe_find_ground.py (the table).
+FIND_TINT_FLOOR = 44
+
+
+def _find_token(log_bg: str, accent: str) -> str:
+    """The QUIET tier of a console find highlight: the WELL tinted with the accent until a matched line is
+    visibly matched. (The CURRENT match is the full `accent` fill -- it needs no token.)
+
+    WHY THIS IS NOT `selection_bg`. Both are "a tinted fill marking a hit", so the obvious move is to reuse
+    the token. Measured, that is the study's most-repeated defect -- a fence set on the wrong GROUND.
+    `selection_bg` is derived against `surface`/`hover`: the TREE's ground. A find highlight is painted in
+    the console well, and `log_bg` is a different and DEEPER fill in every one of the 8 palettes (dark's
+    `#181b20` vs surface `#20242c`; solarized-dark's `#00212b` vs `#073642`). A tint solved against one is
+    not a tint solved against the other.
+
+    THE METRIC IS A RAW CHANNEL DISTANCE, not a contrast ratio, for exactly REGISTER P1's reason: the thing
+    a matched line is confused with is an UNMATCHED line, i.e. the well itself, and a tint moves along a
+    hue/chroma axis a luminance-only ratio cannot see. Same 20/255 floor and the same walk as
+    :func:`_selection_token`, whose floor was calibrated against renders.
+
+    Every palette clears it early -- t lands 0.10-0.20 (nord highest, its accent being nearest its own
+    ground, exactly as in `_selection_token`). The ceiling is the accent itself; the walk cannot pass it.
+    """
+    t, fill = 0.10, _mix(log_bg, accent, 0.10)
+    while t < 0.60 and max(abs(a - b) for a, b in zip(
+            [int(fill[i:i + 2], 16) for i in (1, 3, 5)],
+            [int(log_bg[i:i + 2], 16) for i in (1, 3, 5)])) < FIND_TINT_FLOOR:
+        t += 0.02
+        fill = _mix(log_bg, accent, t)
+    return fill
 
 
 def _focus_token(accent: str, surface: str) -> str:
@@ -597,6 +650,19 @@ def derive(pal: dict) -> dict:
     for _k, _src in (("border", pal["border"]), ("accent", pal["accent"])):
         out[f"{_k}_lit"] = _mix(_src, "#ffffff", EDGE_T)
         out[f"{_k}_shade"] = _mix(_src, "#000000", EDGE_T)
+    # The console FIND highlight's quiet tier -- and its ink, which is the whole reason it is two tokens.
+    #
+    # THE NINTH-GROUND LAW, on the one surface that had no ground but its own. `log_bg`/`log_fg` are an
+    # authored PAIR, fenced at 4.5 by test_palette_contrast_invariants; a highlight paints a THIRD colour
+    # under that same text and voids the fence silently. Measured (evidence/probe_find_ground.py), the naive
+    # build -- paint the fill, let the log's own ink ride it -- is sub-AA in EVERY palette on the loud tier
+    # (`log_fg` on `accent`: 1.16 solarized-dark, 1.17 solarized-light, 1.35 mist, ... 3.43 nord at best) and
+    # sub-AA on the QUIET tier in solarized-light (4.42) with solarized-dark a rounding error clear (4.52).
+    # So the current match reuses the AUTHORED `accent`/`accent_fg` pair (already fenced by
+    # test_a_filled_ground_carries_its_ink) and the quiet tier gets these two: the fill from `_find_token`
+    # and its ink from the same `_fg_token` rule every other fill in the app uses. 5.45-14.21, all 8.
+    out["find_bg"] = _find_token(pal["log_bg"], pal["accent"])
+    out["find_fg"] = _fg_token(out["find_bg"], pal)
     return out
 
 

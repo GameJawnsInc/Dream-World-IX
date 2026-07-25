@@ -17,7 +17,9 @@ import html
 import os
 import sys
 import threading
+import contextlib
 import time
+import tomllib
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QElapsedTimer, QObject, QProcess, QSize, QTimer, QUrl, Signal
@@ -40,9 +42,11 @@ from .. import provision
 from .. import save as _save
 from .. import update_check
 from ..editor import breadcrumb as bc
+from ..editor import deploysnap
 from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
+from ..editor import tomldiff
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from .battledoc import BattleDoc
@@ -58,6 +62,7 @@ from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
+from . import logfind
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
@@ -583,6 +588,7 @@ class Workspace(QMainWindow):
         self._build_console()
         self.statusBar().showMessage("Open a journey, campaign, or field to begin.")
         self._build_mode_chip()
+        self._build_drift_chip()
         self._build_version_label()
         self._restore_layout()                     # window/splitters/console from last session (best-effort)
 
@@ -616,6 +622,225 @@ class Workspace(QMainWindow):
             if guided else
             "Beginner mode: Full — every field and expert drawer is shown. Click to change in Preferences.")
         chip.setAccessibleName("Beginner mode: " + ("Guided" if guided else "Full"))
+
+    # ---- the DRIFT chip: is what I am looking at what the game is running? ----
+    def _build_drift_chip(self):
+        """A quiet status-bar chip answering the question the brief's loudest law depends on.
+
+        *"One change per in-game test. When a build breaks, we need to know which edit did it."* -- and until
+        now nothing in the toolkit could say WHICH edit, so obeying it meant holding the list in your head
+        across an edit session. This chip carries the count; clicking it lists them.
+
+        NO NEW MODAL, deliberately. The obvious placement for a one-change-per-test warning is a confirm on
+        F9 -- but ASK #1 removed exactly that confirm on purpose ("make F9 a true one-key loop"), so putting
+        one back would undo a ratified decision. An always-visible chip costs zero clicks and says the same
+        thing earlier. Same tier/keyboard treatment as the mode chip beside it.
+        """
+        self.drift_chip = QToolButton()
+        self.drift_chip.setObjectName("modeChip")          # the quiet chip tier, already styled + dial-proof
+        self.drift_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.drift_chip.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.drift_chip.clicked.connect(self._open_drift)
+        self.statusBar().addPermanentWidget(self.drift_chip)
+        # Recomputing means parsing the project's tomls, and the edit funnel (_refresh_dirty_marks) is
+        # documented as "free to call per keystroke" -- so the chip is coalesced behind a timer rather than
+        # computed inline. Same shape as the find bar's restat timer.
+        self._drift_timer = QTimer(self)
+        self._drift_timer.setSingleShot(True)
+        self._drift_timer.setInterval(350)
+        self._drift_timer.timeout.connect(self._refresh_drift_chip)
+        self._drift_snapshot = None                        # cached snapshot payload for the open project
+        self._refresh_drift_chip()
+
+    def _drift_files(self, *, from_disk=False):
+        """``{label: parsed_toml}`` for the current deploy target -- the project's own comparable content.
+
+        ``from_disk`` picks WHICH truth: the snapshot taken at deploy time must record what was DEPLOYED (the
+        bytes on disk that the subprocess read), while the live comparison must reflect what the user is
+        LOOKING at (the open doc's in-memory data, unsaved edits included). Those differ, and conflating them
+        would either hide unsaved work from the count or record edits that never reached the game.
+        """
+        t = self._deploy_target()
+        if not t:
+            return {}
+        target = Path(t)
+        out = {}
+
+        def parse(path, label):
+            if not from_disk:
+                for m, doc in getattr(self, "_docs", {}).items():         # prefer the LIVE doc when open
+                    if getattr(doc, "path", None) and Path(doc.path) == path:
+                        out[label] = doc.data
+                        return
+            try:
+                out[label] = tomllib.loads(path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                pass                       # an unreadable member is simply absent -- never a crash here
+        parse(target, target.name)
+        # A campaign's edits live in its MEMBER field.tomls, so a campaign snapshot that covered only
+        # campaign.toml would report "no changes" after a day of editing rooms. `member_paths` is the shell's
+        # own name -> path map, already built on open.
+        if self.plan is not None and self.campaign_path is not None:
+            for name, p in sorted(getattr(self, "member_paths", {}).items()):
+                with contextlib.suppress(OSError):
+                    parse(Path(p), f"{name}")
+        return out
+
+    def _drift_changes(self):
+        """``(snapshot, changes)`` for the open project. ``snapshot`` is None before its first deploy.
+
+        GATED ON SOMETHING BEING OPEN, via the same ``_current_target()`` predicate Home's guide uses -- not on
+        the Build tab's path box. Closing a project deliberately LEAVES that box set (round 10 persists the
+        destination choice), so a chip keyed on it alone went on reporting "in sync" about a project the user
+        had just closed. The chip describes what you have open; nothing open, nothing to say.
+        """
+        if self._current_target()[0] is None:
+            return None, []
+        t = self._deploy_target()
+        if not t:
+            return None, []
+        if self._drift_snapshot is None or self._drift_snapshot.get("project") != str(t):
+            self._drift_snapshot = deploysnap.read(t) or {"project": str(t), "absent": True}
+        snap = self._drift_snapshot
+        if snap.get("absent"):
+            return None, []
+        return snap, deploysnap.changes(snap, self._drift_files())
+
+    def _drift_reset(self):
+        """A different project is open: the cached snapshot describes the old one. Drop it and re-read."""
+        self._drift_snapshot = None
+        self._refresh_drift_chip()
+
+    def _refresh_drift_chip(self):
+        """Re-label the chip from the live state. Hidden entirely when it has nothing true to say."""
+        chip = getattr(self, "drift_chip", None)
+        if chip is None:
+            return
+        try:
+            snap, changes = self._drift_changes()
+        except Exception:                                  # noqa: BLE001 -- diagnostics must never break the UI
+            chip.setVisible(False)
+            return
+        if snap is None:
+            # No project open, or this one has never been deployed from here. There is no drift to report and
+            # a chip reading "0 changes" would imply the game is running something. THE GOES-AWAY LAW.
+            chip.setVisible(False)
+            return
+        chip.setVisible(True)
+        n = len(changes)
+        ago = deploysnap.age_str(snap)
+        if not n:
+            chip.setText("game: in sync")
+            chip.setToolTip(f"The project matches what you deployed {ago}. Click for details.")
+        else:
+            chip.setText(f"game: {n} ahead")
+            law = ("" if n == 1 else
+                   "  ⚠ More than one change is under this test — if it breaks, you will not know which edit "
+                   "did it.")
+            chip.setToolTip(f"{tomldiff.summarize(changes)} since the deploy {ago}."
+                            f"{law}  Click to list them.")
+        chip.setAccessibleName(f"Changes since the last deploy: {tomldiff.summarize(changes)}")
+
+    def _note_drift(self):
+        """Ask for a chip refresh (coalesced). Safe to call per keystroke."""
+        if getattr(self, "_drift_timer", None) is not None:
+            self._drift_timer.start()
+
+    def _open_drift(self):
+        """The change list: what is different between this project and the last thing you deployed."""
+        snap, changes = self._drift_changes()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Since your last deploy")
+        lay = QVBoxLayout(dlg)
+        if snap is None:
+            lay.addWidget(widgets.role_label(
+                "Nothing has been deployed from this project yet, so there is nothing to compare against.\n"
+                "Deploy once (F9) and this will list every edit you make afterwards.", "body"))
+        else:
+            head = widgets.role_label(tomldiff.summarize(changes) + f" since the deploy {deploysnap.age_str(snap)}",
+                                      "head")
+            lay.addWidget(head)
+            where = snap.get("dest")
+            now = self.build_deploy.deploy_dest_key() if getattr(self, "build_deploy", None) else None
+            sub = f"That deploy went to {self._dest_phrase(where)}."
+            if where and now and list(now) != list(where):
+                # The snapshot is keyed by PROJECT, not by destination (see deploysnap.write) -- so say it
+                # plainly rather than silently comparing across two different places.
+                sub += f"  You are now aimed at {self._dest_phrase(now)}."
+            lay.addWidget(widgets.caption(sub))
+            if len(changes) > 1:
+                lay.addWidget(widgets.notice(
+                    "More than one change is under this test. If it breaks, you will not know which edit did "
+                    "it — the project's own rule is one change per in-game test.", kind="warn"))
+            # A LIST, not a QPlainTextEdit, and that is fit_dialog's OWN mechanism rather than a new one:
+            # it sizes a populated QListWidget from real content (longest row, up to `list_rows`), while a
+            # text box's sizeHint is a fixed ~256x192 whatever is in it -- which is exactly why the first
+            # cut opened 368px tall for three rows. The list also brings keyboard navigation and a per-row
+            # tooltip carrying the UNELIDED values for free.
+            box = PlaceholderListWidget("The project matches what is deployed.", self.pal["muted"])
+            # NO mono property here, and the first cut's was a silent no-op anyway: style.py's rule is
+            # `QLabel[mono="true"], QLineEdit[mono="true"]` -- setting it on a QListWidget styles nothing.
+            # Proportional is also the RIGHT call by the kit's own DICTION rule (widgets.kv: mono is for
+            # machine tokens, never prose, because "mono on a sentence reads as a bug"). These rows are both
+            # at once -- a dotted path AND a line of dialogue -- so the prose half wins.
+            box.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+            last = None
+            for c in changes:
+                if c.file and c.file != last:              # GROUP by file: a campaign's rows read per room
+                    hdr = QListWidgetItem(c.file)
+                    hdr.setFlags(Qt.ItemFlag.NoItemFlags)  # a heading is not a row you can pick
+                    hf = hdr.font()
+                    hf.setBold(True)
+                    hdr.setFont(hf)
+                    box.addItem(hdr)
+                    last = c.file
+                it = QListWidgetItem(("   " if c.file else "") + c.render(with_file=False))
+                if c.kind == tomldiff.CHANGED:             # the full values, unelided, on hover
+                    it.setToolTip(f"was: {c.old!r}\nnow: {c.new!r}")
+                box.addItem(it)
+            lay.addWidget(box, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=86, lines=max(4, min(len(changes) + 2, 20)))
+        dlg.exec()
+
+    def _capture_deploy_snapshot(self):
+        """Called when a deploy LAUNCHES: remember what is being deployed, from disk.
+
+        AT LAUNCH, NOT ON SUCCESS. A build takes seconds and the user keeps working -- read the files after
+        the subprocess returns and a save landed mid-run would be recorded as "already deployed", so the very
+        edit under test would vanish from the next comparison. Captured here, promoted only if it succeeded.
+        """
+        t = self._deploy_target()
+        self._pending_snapshot = (t, self._drift_files(from_disk=True)) if t else None
+
+    def _commit_deploy_snapshot(self):
+        """A deploy SUCCEEDED: promote the pending capture, so "since the last deploy" now means this one."""
+        pend = getattr(self, "_pending_snapshot", None)
+        self._pending_snapshot = None
+        if not pend or not pend[1]:
+            return
+        t, files = pend
+        bd = getattr(self, "build_deploy", None)
+        deploysnap.write(t, files, dest=bd.deploy_dest_key() if bd is not None else None,
+                         field_id=getattr(self, "_deployed_field_id", None))
+        self._drift_snapshot = None                        # force a re-read on the next chip refresh
+        self._refresh_drift_chip()
+
+    _DEST_PHRASE = {"test": "the shared test slot", "install": "your game (Install to game)",
+                    "inplace": "in place, over its donor", "own": "its own field id",
+                    "campaign": "a campaign deploy", "journey": "a journey deploy", "battle": "a battle deploy"}
+
+    def _dest_phrase(self, dest) -> str:
+        """A deploy destination as English. ``deploy_dest_key()`` returns a tuple whose first element is the
+        kind and whose second (when present) is the donor/id -- readable to the code, not to a reader."""
+        if not dest:
+            return "an unknown destination"
+        head = str(dest[0])
+        tail = next((str(x) for x in list(dest)[1:] if x not in (None, "")), "")
+        return self._DEST_PHRASE.get(head, head) + (f" ({tail})" if tail else "")
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -683,6 +908,9 @@ class Workspace(QMainWindow):
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
         if getattr(self, "world_doc", None) is not None:
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
+        if getattr(self, "_find_bar", None) is not None:
+            self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
+                                                              # QPainter-side, so the sheet cannot reach them
 
     def _apply_density(self, density):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
@@ -1288,6 +1516,7 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_field)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: self._open_find())
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
         QShortcut(QKeySequence(Qt.Key_F9), self, activated=self._deploy_now)   # save-all + deploy the target
@@ -1693,6 +1922,23 @@ class Workspace(QMainWindow):
         out_head = QHBoxLayout()
         out_head.addWidget(self._panel_header("Output"))
         out_head.addStretch(1)
+        # THE JOB INDEX. run_job stopped clearing the console on purpose ("a separator with nothing above it
+        # separates nothing"), which made this a MULTI-JOB DOCUMENT -- and nothing spent its structure. The
+        # head lines are that structure, and the GUI writes them itself, so this list is certain rather than
+        # sniffed. Built on demand so a jump is never offered to a job the 5000-block cap has eaten.
+        self._jobs_btn = QToolButton()
+        self._jobs_btn.setObjectName("consoleHeadBtn")
+        # "Jobs", not "Jobs ▾": an InstantPopup QToolButton draws its OWN menu indicator, so a typed caret
+        # renders a SECOND arrow beside Qt's (measured in the 150% snap -- two carets on one button).
+        self._jobs_btn.setText("Jobs")
+        self._jobs_btn.setToolTip("Jump to a job's output in this session's log")
+        self._jobs_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._jobs_menu = QMenu(self._jobs_btn)
+        self._jobs_menu.aboutToShow.connect(self._fill_jobs_menu)
+        self._jobs_btn.setMenu(self._jobs_menu)
+        self._out_find = QPushButton("Find")
+        self._out_find.setToolTip("Find in the output (Ctrl+F)")
+        self._out_find.clicked.connect(lambda: self._open_find())
         self._out_wrap = QPushButton("Wrap")
         self._out_wrap.setCheckable(True)
         self._out_wrap.setToolTip("Toggle line wrapping (long deploy lines vs a horizontal scroll)")
@@ -1700,11 +1946,16 @@ class Workspace(QMainWindow):
             lambda on: self.output.setLineWrapMode(
                 QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap))
         out_copy = QPushButton("Copy")
-        out_copy.setToolTip("Copy the whole console to the clipboard")
-        out_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.output.toPlainText()))
+        # SELECTION FIRST, and that is the job index paying for the old control rather than adding one. When
+        # the log held a single job, "copy everything" WAS "copy this job"; accumulation silently turned it
+        # into "copy the whole session" -- the wrong granularity for pasting one failure into a report. A
+        # Jobs row selects that job's span, so Copy right after it copies exactly that job.
+        out_copy.setToolTip("Copy the selection — or the whole console when nothing is selected")
+        out_copy.clicked.connect(self._copy_output)
         out_clear = QPushButton("Clear")
-        out_clear.clicked.connect(lambda: self.output.clear())
-        for b in (self._out_wrap, out_copy, out_clear):
+        out_clear.clicked.connect(self._clear_output)
+        out_head.addWidget(self._jobs_btn)
+        for b in (self._out_find, self._out_wrap, out_copy, out_clear):
             # The height pin is QSS now (style.py's #consoleHeadBtn, keyed to style.CONSOLE_H) rather than
             # a setFixedHeight(24) here. A Python pin is invisible to the text-size dial: audited, these
             # labels outgrow a frozen 24 at 125%, and setFixedHeight clips rather than grows. In QSS one
@@ -1722,6 +1973,11 @@ class Workspace(QMainWindow):
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
+        # Find-in-Output: hidden until asked for, below the log so opening it never reflows the head row.
+        self._find_bar = logfind.FindBar(self.output, self.pal)
+        self._find_bar.closed.connect(lambda: self._grow_console_for_find(-1))
+        self._find_split = None                      # the split WE set for the bar (see _grow_console_for_find)
+        ov.addWidget(self._find_bar)
 
         split.addWidget(prob_page)
         split.addWidget(out_page)
@@ -1798,6 +2054,151 @@ class Workspace(QMainWindow):
         make sure the console itself is expanded -- e.g. if the user collapsed it."""
         if getattr(self, "console_panel", None) is not None:
             self._toggle_console(expand=True)
+
+    # ---- find in Output + the session job index (see workspace/logfind.py for the why) ----
+    def _open_find(self, seed=""):
+        """Ctrl+F / the Output head's Find button: expand the console, show the bar, take focus.
+
+        The console can be collapsed to its header strip, so raising it FIRST is load-bearing -- a find bar
+        inside a hidden body takes focus the user cannot see and swallows every keystroke."""
+        if getattr(self, "_find_bar", None) is None:
+            return
+        self._raise_console()
+        was_open = self._find_bar.isVisible()
+        self._find_bar.open_for(seed)
+        if not was_open:
+            self._grow_console_for_find(+1)
+
+    # px of DOCUMENTS the find bar may never take the pane below. A plain px is right here and not a TAILOR
+    # violation: this bounds a PANE, not text -- the height being moved is itself read from the bar's own
+    # sizeHint, so the amount taken already tracks the dial even though the floor does not.
+    _FIND_DOCS_FLOOR = 220
+
+    def _grow_console_for_find(self, sign):
+        """Make room for the find bar out of the DOCUMENTS pane, not out of the log.
+
+        THE BAR MUST NOT PAY FOR ITSELF. Measured in the snaps: the console opens ~152px tall, so adding a
+        ~40px bar inside it left the log ONE visible line and clipped the next mid-height -- the squeeze law
+        ("a squeezed thing does not shrink, it overpaints") in the panel that exists to be read while you
+        search it. So the pane grows by exactly the bar's height and shrinks back by the same amount.
+
+        AND GIVING IT BACK IS CONDITIONAL, because a value the user chose outranks one we did: if the split
+        no longer reads as the one we set, they dragged the divider while searching, and round 7's law cuts
+        the other way here -- restoring blindly would discard a real preference. We only undo our own edit.
+        """
+        sizes = self._vsplit.sizes()
+        if len(sizes) != 2:
+            return
+        h = self._find_bar.sizeHint().height() + 4          # + the layout's top margin
+        if sign > 0:
+            take = min(h, max(0, sizes[0] - self._FIND_DOCS_FLOOR))
+            if take <= 0:
+                return                                       # no room to give -- leave the split alone
+            new = [sizes[0] - take, sizes[1] + take]
+        else:
+            if sizes != getattr(self, "_find_split", None):   # the user moved it: their value wins
+                self._find_split = None
+                return
+            give = min(h, max(0, sizes[1] - self._console_head_h()))
+            new = [sizes[0] + give, sizes[1] - give]
+        self._vsplit.setSizes(new)
+        self._find_split = self._vsplit.sizes() if sign > 0 else None
+
+    def _copy_output(self):
+        """Copy the SELECTION when there is one, else the whole console. See the Copy button's comment: the
+        log accumulates across jobs now, so 'everything' stopped being the granularity anyone wants, and a
+        Jobs-menu jump leaves exactly one job selected."""
+        cur = self.output.textCursor()
+        if cur.hasSelection():
+            # Read the RANGE out of the plain text rather than QTextCursor.selectedText(), which joins
+            # blocks with U+2029 (PARAGRAPH SEPARATOR) instead of a newline -- paste that into a bug
+            # report or a terminal and a 40-line failure arrives as ONE unbroken line. Documented Qt
+            # behaviour, easy to miss. Slicing by OFFSET fixes it without putting a U+2029 literal in
+            # this file -- which matters beyond taste: str.splitlines() SPLITS on U+2029, so the literal
+            # form makes every line-based reader of shell.py see a broken line (it broke this edit).
+            lo, hi = sorted((cur.selectionStart(), cur.selectionEnd()))
+            text = self.output.toPlainText()[lo:hi]
+        else:
+            text = self.output.toPlainText()
+        QApplication.clipboard().setText(text)
+
+    def _clear_output(self):
+        """Clear the log AND the index that describes it -- a job index outliving its document would offer
+        jumps to lines that no longer exist (every row would simply disable, which is worse than empty)."""
+        self.output.clear()
+        self._job_index = []
+        if getattr(self, "_find_bar", None) is not None and self._find_bar.isVisible():
+            self._find_bar.close_bar()
+
+    _JOB_GLYPH = {None: "·", 0: "✓"}          # running / ok; anything else is a failure -> below
+
+    def _fill_jobs_menu(self):
+        """Rebuild the Jobs menu from this session's index, newest first.
+
+        VERDICT BY SHAPE, NOT BY COLOUR (WCAG 1.4.1): a glyph, since a QMenu row's text colour is the one
+        thing the menu QSS owns. A job whose head has been trimmed off the front of the 5000-block log is
+        DISABLED and says so rather than jumping somewhere wrong -- the whole reason a job is remembered by
+        its head TEXT and not by a block number."""
+        m = self._jobs_menu
+        m.clear()
+        idx = getattr(self, "_job_index", [])
+        if not idx:
+            act = m.addAction("No jobs yet in this session")
+            act.setEnabled(False)
+            return
+        # ONE pass for every row (job_spans, not job_span per row -- the latter rescans the whole document
+        # each call, so a 200-job session would scan a 5000-block log 200 times to open a menu).
+        spans = logfind.job_spans(self.output.toPlainText(), [r["head"] for r in idx])
+        for i in range(len(idx) - 1, -1, -1):
+            rec = idx[i]
+            glyph = self._JOB_GLYPH.get(rec["code"], "✗")
+            if rec["code"] is not None and rec.get("stopped"):
+                glyph = "⏹"
+            span = spans[i]
+            act = m.addAction(f"{glyph}  {rec['time']}   {rec['subject']}")
+            if span is None:
+                act.setEnabled(False)
+                act.setText(act.text() + "   (scrolled out of the log)")
+            else:
+                act.triggered.connect(lambda _c=False, _i=i: self._goto_job(_i))
+        m.addSeparator()
+        last = m.addAction("Copy the last job's output")
+        last.setToolTip("The whole of the most recent job — for pasting into a bug report")
+        last.triggered.connect(lambda _c=False: self._copy_job(len(idx) - 1))
+
+    def _job_span(self, i):
+        """``(start, end)`` of job ``i`` in the live document, or ``None`` if trimmed away."""
+        idx = getattr(self, "_job_index", [])
+        return logfind.job_span(self.output.toPlainText(), [r["head"] for r in idx], i)
+
+    def _goto_job(self, i):
+        """Scroll to job ``i`` and SELECT its span, so Copy right after this yields exactly that job."""
+        span = self._job_span(i)
+        if span is None:
+            return
+        self._raise_console()
+        # SELECT BACKWARD -- anchor at the job's end, cursor at its HEAD. ensureCursorVisible scrolls to
+        # the cursor POSITION, so a forward selection reveals the job's LAST line and scrolls its header
+        # off the top: you end up looking at the end of the thing you asked to see. The selection is
+        # identical either way, so the direction is free -- and only one of the two is right.
+        cur = self.output.textCursor()
+        cur.setPosition(span[1])
+        cur.setPosition(span[0], QTextCursor.MoveMode.KeepAnchor)
+        self.output.setTextCursor(cur)
+        self.output.ensureCursorVisible()
+
+    def _copy_job(self, i):
+        span = self._job_span(i)
+        if span is None:
+            return
+        QApplication.clipboard().setText(self.output.toPlainText()[span[0]:span[1]])
+
+    def _copy_last_job(self):
+        """The Ctrl-K route to the high-value case: paste the most recent job -- and only it -- into a report.
+        No-op with an empty index rather than silently copying the whole console."""
+        idx = getattr(self, "_job_index", [])
+        if idx:
+            self._copy_job(len(idx) - 1)
 
     def _welcome(self):
         """The 'Start here' HOME (do-now #4): a live front door that names every entry point in hierarchy
@@ -2376,6 +2777,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._fork_queue = []                      # a fresh journey -> no stale fork chain can re-drain
         self._reset_history()
@@ -3044,6 +3446,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._reset_history()
         self.tree.clear()
@@ -3687,6 +4090,7 @@ class Workspace(QMainWindow):
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
         self._touched = set()                      # fresh open -> nothing in-progress
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # same-named member as a prior project -> don't reuse its map
         self._reset_history()                      # a different file -> drop the old undo history
         self._seed_undo_base(name)
@@ -3798,6 +4202,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # member NAMES recur across projects (same-FBG forks)
         self._reset_history()                      # a different campaign -> drop the old undo history
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
@@ -4179,6 +4584,7 @@ class Workspace(QMainWindow):
         self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
         self._refresh_spine()                          # dirty state feeds the cohesion spine's next action
+        self._note_drift()                             # ...and the status-bar drift chip (coalesced)
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -4467,6 +4873,9 @@ class Workspace(QMainWindow):
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
             ("Fork FF9 regions…", "command", self._fork_ff9_regions),
+            ("What changed since my last deploy?", "command", self._open_drift),
+            ("Find in Output (Ctrl+F)", "command", lambda: self._open_find()),
+            ("Copy the last job's output", "command", self._copy_last_job),
             ("Undo", "command", self._undo),
             ("Redo", "command", self._redo),
             ("Save All fields", "command", self._save_all),
@@ -8367,7 +8776,18 @@ class Workspace(QMainWindow):
         # wiping the console on every job meant the log only ever held one job and the timestamp was
         # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
         # Clear button still exists for when you actually want it.
-        self._log(f"[{time.strftime('%H:%M:%S')}] {subject}", "head")
+        # A deploy's project state is captured HERE, at launch, from disk -- see _capture_deploy_snapshot
+        # for why on-success would be wrong. Same subject test _proc_done's success branch uses.
+        if "deploy" in subject.lower() or "install to game" in subject.lower():
+            self._capture_deploy_snapshot()
+        stamp = time.strftime("%H:%M:%S")
+        head = f"[{stamp}] {subject}"
+        # ...and THAT accumulation is what the Jobs menu indexes. Recorded here, at the one site that writes a
+        # head line, so the index cannot drift from the document: same string, same moment. The head TEXT is
+        # the locator (never a block number -- the 5000-block cap shifts those; see logfind's docstring).
+        self._job_index = (getattr(self, "_job_index", []) + [
+            {"head": head, "time": stamp, "subject": subject, "code": None, "stopped": False}])[-200:]
+        self._log(head, "head")
         self._log(f"$ {' '.join(str(a) for a in argv[1:])}", "echo")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
@@ -8474,6 +8894,9 @@ class Workspace(QMainWindow):
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
+        if getattr(self, "_job_index", None):           # stamp the verdict onto the Jobs-menu row (✓ / ✗ / ⏹)
+            self._job_index[-1]["code"] = code          # the last row IS this job: one QProcess, one at a time
+            self._job_index[-1]["stopped"] = bool(self._stopped)
         subject, ok_headline, ok_next, fail_hint, on_finished, field_id = getattr(
             self, "_job", ("Job", None, "", "See the Output panel.", None, None))
         if self._stopped:                               # a Stop kill -> the verdict names it plainly
@@ -8502,6 +8925,7 @@ class Workspace(QMainWindow):
             bd = getattr(self, "build_deploy", None)
             self._deployed_dest = bd.deploy_dest_key() if bd is not None else None
             self._deployed_revertible = bool(bd is not None and bd.revert_available())
+            self._commit_deploy_snapshot()                  # "since the last deploy" now means THIS deploy
             first_ever = not prefs.has_deployed()           # read BEFORE the latch below eats the fact
             prefs.set_has_deployed(True)                    # the sticky first-run marker -> READY spine silent hereafter
             self._refresh_spine()
