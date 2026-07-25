@@ -1764,22 +1764,31 @@ class FieldBehavior:
             cd_blocks.append(_stmt(f"Global.Bit[{hidx}] {afford} {allsp} B_NOT "
                                    f"B_ANDAND B_LET"))
         # HUD STRIPS last (freshest counters — the scans above already ran this
-        # pass): the hunt-points dirty-mirror shape — compare each counter cell
-        # to its Int16 mirror, and on ANY difference re-feed the [NUMB] slots
-        # (SetTextVariable 0x66 with the CELL as an expression arg) and re-issue
-        # the transparent window (replace-in-place = the live update).
+        # pass). THE WINDOW OPENS EXACTLY ONCE (the `shown` latch): the engine
+        # re-renders a live dialog's [NUMB] variables in place every frame they
+        # change (Dialog.Update -> UpdateMessageValue, CompleteAnimation +
+        # HasMessageValueChanged), so a running strip only needs its variables
+        # written. RE-ISSUING WindowAsync would DISPOSE and recreate the window
+        # (ETb.DisposWindowByID) — its open animation replaying on every change
+        # is exactly the flicker the first build showed. Dirty-mirror gating
+        # stays: it keeps the writes (and the engine's re-parse) off the quiet
+        # frames.
         for hi, h in enumerate(self._huds):
             if h.txid is None:
                 raise BehaviorError(
                     f"hud #{hi}: no txid — the TOML build mints the .mes line "
                     f"(collect_text); Python callers must pass txid=")
+            shown = self.bb.flag(f"hud{hi}.shown")
+            if shown not in self._reset_flags:            # ~ Reload re-opens it
+                self._reset_flags.append(shown)
             cd_blocks.append(label(f"__seg hud {hi}"))
             for i, v in enumerate(h.values):
                 cd_blocks += [
                     _stmt(f"{self._counter_ref(v)} Global.Int16[{h.mirrors[i]}] B_EQ"),
                     (JMP_IFNOT, f"hud_{hi}_draw"),
                 ]
-            cd_blocks.append((JMP, f"hud_{hi}_skip"))
+            cd_blocks += [_stmt(f"Global.Bit[{shown}]"),  # values steady: open
+                          (JMP_IF, f"hud_{hi}_skip")]     # only if not up yet
             cd_blocks.append(label(f"hud_{hi}_draw"))
             for i, v in enumerate(h.values):
                 cd_blocks.append(opcodes.encode(
@@ -1788,8 +1797,12 @@ class FieldBehavior:
                     arg_flags=0b10))
                 cd_blocks.append(_stmt(f"Global.Int16[{h.mirrors[i]}] "
                                        f"{self._counter_ref(v)} B_LET"))
-            cd_blocks.append(opcodes.window_async(h.window, 16, int(h.txid)))
-            cd_blocks.append(label(f"hud_{hi}_skip"))
+            cd_blocks += [
+                _stmt(f"Global.Bit[{shown}]"), (JMP_IF, f"hud_{hi}_skip"),
+                opcodes.window_async(h.window, 16, int(h.txid)),
+                _set_flag(shown, 1),
+                label(f"hud_{hi}_skip"),
+            ]
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:
             main_init += _set_byte(self.bb.byte(name), 0)

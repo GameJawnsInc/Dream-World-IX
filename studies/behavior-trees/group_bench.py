@@ -196,10 +196,11 @@ def behavior_toml(lay: dict) -> str:
              'count = "kn_alive"\nalive_only = true\n'
              '\n[[behavior.scan]]\nname = "mu_up"\ngroup = "mus"\n'
              'count = "mu_alive"\nalive_only = true\n'
+             # short labels: the window auto-sizes to the text and the round-1
+             # strip wrapped ("Fallen" / "7" on two lines) — keep one line
              '\n[[behavior.hud]]\nwindow = 6\n'
              'values = ["kn_alive", "mu_alive", "fallen"]\n'
-             'text = "[MPOS=8,8]Knights [NUMB=0]   Mus [NUMB=1]   '
-             'Fallen [NUMB=2]"\n']
+             'text = "[MPOS=8,8]KN [NUMB=0]  MU [NUMB=1]  DOWN [NUMB=2]"\n']
 
     def brawler(name, post, foe_group, refuge, threat):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = 4\nspeed = 55\n')

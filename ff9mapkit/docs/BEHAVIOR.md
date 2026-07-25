@@ -394,13 +394,22 @@ text = "[MPOS=8,8]Knights [NUMB=0]   Mus [NUMB=1]   Fallen [NUMB=2]"
 The stock substrate every PC minigame HUD uses (the hunt points, the auction
 bid, the jump-rope count — there is no number opcode in FF9): slot i's
 `[NUMB=i]` renders `values[i]`'s counter, fed by `SetTextVariable` with the
-cell as an expression arg, and the ticker re-issues the same TRANSPARENT
-window (flags 16 — frameless floating text) only when a value changed (the
-hunt's dirty-mirror shape). The `.mes` line is minted like an announce and
-`[IMME]` is prepended when absent so the strip never types in. Place it with
-`[MPOS=x,y]`; combine with alive_only scans for live team headcounts. ~150B
-of ticker + one window slot per strip; static values cost nothing (the dirty
-check skips the redraw).
+cell as an expression arg, into a TRANSPARENT window (flags 16 — frameless
+floating text). The `.mes` line is minted like an announce and `[IMME]` is
+prepended when absent so the strip never types in.
+
+**The window opens exactly ONCE** and is never re-issued: the engine
+re-renders a live dialog's `[NUMB]` variables in place every frame they change
+(`Dialog.Update → UpdateMessageValue`), while re-issuing `WindowAsync` would
+dispose and recreate the window — its open animation replaying on every change
+is a visible flicker (the first build's playtest). A dirty-mirror check keeps
+the variable writes off quiet frames, and the shown-latch clears on `~ Reload`
+so the strip re-opens with the field.
+
+Authoring notes: place with `[MPOS=x,y]`; the window AUTO-SIZES to its text,
+so keep labels short (or set `[WDTH=n]`) — a long strip wraps to a second
+line. Combine with `alive_only` scans for live team headcounts. ~150B of
+ticker + one window slot per strip; static values cost nothing.
 
 ## Limits (v1)
 
