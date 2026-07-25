@@ -529,7 +529,21 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
 
 ### V2 candidates, ranked by leverage on the measured walls
 
-1. **THE VECTOR SUBSTRATE (the group loop) — the headline.** Move per-unit state
+1. **THE VECTOR SUBSTRATE (the group loop) — the headline. ★ RUNG 0 IN-GAME
+   PROVEN (2026-07-25, "all eight lines fire true, no freeze"):**
+   `[[behavior.scan]]` — the bounded in-ticker loop whose reads AND writes
+   index vector cells by the live loop byte (the one composition BTTABLE
+   didn't cover; count derived THROUGH a computed-index write-then-read round
+   trip so faults break the number, never silently) — ran clean on THE
+   PILGRIMAGE (30416, `vector_bench.py`; zero-relaunch redeploy over the ISLES
+   slot). The abbot's whole 1/4/8 ladder landed true off the loop. Bench
+   notes, no re-test needed: the arrival stagger was too tight (fast pilgrims
+   had the long legs — the speed×distance products nearly cancel; future
+   benches give SLOW units the LONG routes), and the visible camera drift on
+   entry is the KNOWN bare-~-warp class (the one unfaded entry path left,
+   [[project-ff9-field-entry-arrival]]) — not a fork or bench defect; a
+   debug-menu fade-on-warp is a candidate engine-bundle polish item. The full
+   substrate now follows: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
    logic as a bounded in-tick LOOP over an index instead of an unrolled branch
