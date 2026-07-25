@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from ._exprtable import EXPR_OP_NAMES, VAR_SOURCE, VAR_TYPE
+from ._exprtable import EXPR_OP_NAMES, FLEX_FN_BY_NAME, VAR_SOURCE, VAR_TYPE
 
 _OP_BY_NAME = {n: v for v, n in EXPR_OP_NAMES.items()}
 _SRC_BY_NAME = {n: v for v, n in VAR_SOURCE.items()}
@@ -29,6 +29,7 @@ _TYPE_BY_NAME = {n: v for v, n in VAR_TYPE.items()}
 
 _RE_CONST = re.compile(r"^const\((-?\d+)\)$")
 _RE_CONST4 = re.compile(r"^const4\((-?\d+)\)$")
+_RE_FLEX = re.compile(r"^flex\((\d+),(\d+)\)$")
 _RE_VAR = re.compile(r"^([A-Za-z]+)\.([A-Za-z0-9]+)\[(\d+)\]$")
 _RE_SYS = re.compile(r"^(B_SYSVAR|B_SYSLIST)\[(\d+)\]$")
 _RE_OBJ = re.compile(r"^obj\(uid=(\d+)\)\.f\[(\d+)\]$")
@@ -67,6 +68,15 @@ def assemble_token(tok: str) -> bytes:
         if not -0x80000000 <= v <= 0xFFFFFFFF:              # to 26 bits, but the 4 bytes are byte-faithful here)
             raise AssembleError(f"{tok}: const4 out of 32-bit range")
         return bytes((0x7E,)) + _u32(v & 0xFFFFFFFF)
+    if tok in FLEX_FN_BY_NAME:                              # B_VECTOR / B_VECTOR_SIZE / B_DICTIONARY --
+        fid, argc = FLEX_FN_BY_NAME[tok]                    # Memoria's 0xD3 flexible_varfunc at its
+        return bytes((0xD3,)) + _u16(fid) + bytes((argc,))  # canonical arity; args are RPN operands
+    m = _RE_FLEX.match(tok)                                 # flex(id,argc) -- any other 0xD3 sub-command
+    if m:                                                   # (argc rides the wire; the engine pops that
+        fid, argc = int(m.group(1)), int(m.group(2))        # many CalcStack operands)
+        if not 0 <= fid <= 0xFFFF or not 0 <= argc <= 0xFF:
+            raise AssembleError(f"{tok}: flex id must be 0-65535, argc 0-255")
+        return bytes((0xD3,)) + _u16(fid) + bytes((argc,))
     m = _RE_SYS.match(tok)                                  # B_SYSVAR[i] / B_SYSLIST[i] -- 1-byte index
     if m:
         idx = int(m.group(2))

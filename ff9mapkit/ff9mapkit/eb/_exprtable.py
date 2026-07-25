@@ -57,3 +57,21 @@ def decode_var(token: int, index: int) -> str:
     src = VAR_SOURCE.get(token & 3, f"src{token & 3}")
     typ = VAR_TYPE.get((token >> 2) & 7, f"t{(token >> 2) & 7}")
     return f"{src}.{typ}[{index}]"
+
+
+# flexible_varfunc (Memoria's 0xD3 expression sub-command — EBin.expr carves the byte
+# OUT of the var-token space and reads ``u16 id + u8 argc``; the args are popped from
+# the CalcStack, so they are ordinary RPN operands pushed BEFORE the token). Only the
+# gScriptVector/gScriptDictionary trio gets sugar names — VECTOR pushes a resolvable
+# LVALUE token (readable anywhere an operand is; assignable via B_LET, where index ==
+# size APPENDS and a missing id at index 0 CREATES; both stores are SAVE-SERIALIZED).
+# Every other id round-trips as the explicit ``flex(id,argc)`` form (argc rides the
+# wire, so no per-function arity table is needed or trusted).
+FLEX_FN_SUGAR = {(20, 2): "B_VECTOR", (21, 1): "B_VECTOR_SIZE", (22, 2): "B_DICTIONARY"}
+FLEX_FN_BY_NAME = {name: pair for pair, name in FLEX_FN_SUGAR.items()}
+
+
+def flex_fn_name(fid: int, argc: int) -> str:
+    """Pretty form for a 0xD3 flexible_varfunc: the sugar name for the vector trio at
+    its canonical arity, else the explicit ``flex(id,argc)`` (both assemble back)."""
+    return FLEX_FN_SUGAR.get((fid, argc), f"flex({fid},{argc})")

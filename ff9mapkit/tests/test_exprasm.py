@@ -59,6 +59,59 @@ def test_roundtrip_byte_identity(stream):
     assert assemble(text) == b, text                      # assemble(pretty_expr(b)) == b
 
 
+# ---- 0xD3 flexible_varfunc (Memoria): computed array indexing over gScriptVector ---------------------
+def test_vector_token_shapes():
+    # the trio at canonical arity: 0xD3 + u16 id + u8 argc (args are RPN operands BEFORE the token)
+    assert assemble("{const(7) const(3) B_VECTOR B_EXPR_END}") \
+        == bytes((0x7D, 7, 0, 0x7D, 3, 0, 0xD3, 20, 0, 2, 0x7F))
+    assert assemble("{const(7) B_VECTOR_SIZE B_EXPR_END}") == bytes((0x7D, 7, 0, 0xD3, 21, 0, 1, 0x7F))
+    assert assemble("{const(7) const(9) B_DICTIONARY B_EXPR_END}") \
+        == bytes((0x7D, 7, 0, 0x7D, 9, 0, 0xD3, 22, 0, 2, 0x7F))
+    # the generic escape hatch for every other flexible_varfunc id
+    assert assemble("{const(240) flex(11,1) B_EXPR_END}") == bytes((0x7D, 240, 0, 0xD3, 11, 0, 1, 0x7F))
+    # a VECTOR WRITE is the ordinary lvalue shape: token then value then B_LET (index==size
+    # appends; a missing id at index 0 creates -- both engine-side, fail-soft)
+    write = assemble("{const(7) const(0) B_VECTOR const(42) B_LET B_EXPR_END}")
+    assert bytes((0xD3, 20, 0, 2)) in write and write[-1] == 0x7F
+
+
+@pytest.mark.parametrize("stream", [
+    [0x7D, 7, 0, 0x7D, 3, 0, 0xD3, 20, 0, 2, 0x7F],           # B_VECTOR read
+    [0x7D, 7, 0, 0xD3, 21, 0, 1, 0x7F],                       # B_VECTOR_SIZE
+    [0x7D, 7, 0, 0x7D, 9, 0, 0xD3, 22, 0, 2, 0x7F],           # B_DICTIONARY
+    [0x7D, 240, 0, 0xD3, 11, 0, 1, 0x7F],                     # flex(11,1) (ITEM_FULL_COUNT id)
+    [0xD3, 20, 0, 3, 0x7F],                                   # non-canonical arity -> flex(20,3)
+])
+def test_vector_roundtrip_byte_identity(stream):
+    b = bytes(stream)
+    text, pos = disasm.pretty_expr(b, 0)
+    assert pos == len(b)
+    assert assemble(text) == b, text
+    # the sugar names appear only at canonical arity
+    if stream[:4] == [0xD3, 20, 0, 3]:
+        assert "flex(20,3)" in text and "B_VECTOR" not in text
+
+
+def test_vector_does_not_desync_the_offset_walkers():
+    """0xD3 >= 0xC0 -- before the carve-out every kit walker read it as a 1-byte-operand
+    var token and desynced by 2. Prove all four walkers now stay in step: a const and
+    an obj-uid AFTER the 0xD3 token must be found at their true offsets."""
+    b = assemble("{const(7) const(3) B_VECTOR obj(uid=5).f[8] B_PLUS const(99) B_MINUS B_EXPR_END}")
+    # read_expr consumes to the exact end
+    _raw, pos = disasm.read_expr(b, 0)
+    assert pos == len(b)
+    # the uid walker finds obj(uid=5)'s uid byte (right after the 0x78 token byte)
+    pos2, uids = disasm._expr_uid_offsets(b, 0)
+    assert pos2 == len(b) and len(uids) == 1 and b[uids[0]] == 5
+    # the const walker finds all three B_CONST literals at true payload offsets
+    consts: list = []
+    end = disasm._expr_const_offsets(b, 0, 0, consts)
+    assert end == len(b)
+    assert [v for _off, v, _i in consts] == [7, 3, 99]
+    for off, v, _i in consts:
+        assert b[off] | (b[off + 1] << 8) == v
+
+
 @pytest.mark.parametrize("stream", _BATTERY)
 def test_roundtrip_text_identity(stream):
     b = bytes(stream)
