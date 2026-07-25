@@ -1249,7 +1249,7 @@ def test_hud_compiles_and_draws():
     # EXACTLY ONCE behind the shown-latch — the engine re-renders [NUMB]s in
     # place, and re-issuing WindowAsync disposes+recreates (blink per change)
     assert ops.count(0x20) == 1
-    assert "hud0.shown" in cb.report and "3-digit reserve" in cb.report
+    assert "hud0.shown" in cb.report and "(3d)" in cb.report
     # THE WIDTH-RESERVE LAW (playtest 2: "double digits causes clipping"):
     # Dialog.AutomaticSize bakes the width ONCE at open, so the open pass must
     # feed the max-width sentinel (10^digits - 1) before the window opens
@@ -1281,3 +1281,30 @@ def test_hud_negatives():
     fb2.hud("k [NUMB=0]", ["kills"])               # no txid: refused at compile
     with pytest.raises(B.BehaviorError, match="no txid"):
         fb2.compile()
+
+
+def test_hud_value_sources_and_per_slot_digits():
+    """A strip reads counters, the live gil/timer sysvars, and a unit's hp —
+    with a per-slot width reserve (a gil readout wants 6, a headcount 2)."""
+    fb = B.FieldBehavior([B.UnitSpec("base", entry=2, spawn=(0, 0), hp=24),
+                          B.UnitSpec("mu", entry=3, spawn=(500, 0), hp=3)],
+                         counters=("kills",), timer=60)
+    fb.group("raiders", ["mu"])
+    for nm, pt in (("base", (0, 0)), ("mu", (500, 0))):
+        fb.units[nm].tree = B.Selector(
+            B.Sequence(fb.hp_le(nm, 0), B.Do(B.Die(count="kills"))),
+            B.Do(B.Hold(pt)))
+    fb.hud("[MPOS=8,8]G [NUMB=0] T [NUMB=1] D [NUMB=2] K [NUMB=3]",
+           ["gil", "timer", "hp:base", "kills"], txid=940, digits=[6, 3, 2, 2])
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "'gil'(6d)" in cb.report and "'hp:base'(2d)" in cb.report
+    ops = [i.op for i in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
+    assert ops.count(0x66) == 8                    # 4 sentinels + 4 live writes
+    # hp:<roster member> reaches into the group's hp CELL
+    fb.hud("[NUMB=0]", ["hp:mu"], window=5, txid=941)
+    assert "B_VECTOR" in fb._hud_ref("hp:mu")
+    with pytest.raises(B.BehaviorError, match="unknown unit"):
+        fb._hud_ref("hp:ghost")
+    with pytest.raises(B.BehaviorError, match="digits list"):
+        fb.hud("[NUMB=0]", ["kills"], window=4, txid=942, digits=[2, 2])

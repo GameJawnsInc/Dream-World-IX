@@ -486,11 +486,10 @@ class HudSpec:
     by the build like an announce (``[IMME]`` is prepended if absent so the
     strip never types in)."""
     text: str
-    values: tuple
+    values: tuple                    # value SOURCES (counter / gil / timer / hp:unit)
     window: int = 6
     txid: int | None = None
-    digits: int = 2                  # width reserve (see the open-pass sentinel)
-    mirrors: tuple = ()              # per-value Int16 dirty mirrors (allocated)
+    digits: tuple = ()               # per-slot width reserve (open-pass sentinels)
 
 
 @dataclass
@@ -1185,23 +1184,51 @@ class FieldBehavior:
         self._scans.append(sc)
         return sc
 
-    def hud(self, text: str, values, window: int = 6,
-            txid: int | None = None, digits: int = 2) -> HudSpec:
-        """Register a live counter strip (see :class:`HudSpec`). ``values``:
-        1..8 counter names — slot i drives ``[NUMB=i]`` in ``text``. The TOML
-        lane wires the minted txid; Python callers pass one explicitly.
+    def _hud_ref(self, src: str) -> str:
+        """Resolve a hud VALUE SOURCE to an RPN fragment: a counter name, the
+        live ``gil`` / ``timer`` sysvars, or ``hp:<unit>`` (a unit's hit
+        points — the group cell for a roster member)."""
+        src = str(src)
+        if src == "gil":
+            return "B_SYSVAR[6]"
+        if src == "timer":
+            return "B_SYSVAR[17]"
+        if src.startswith("hp:"):
+            unit = src[3:]
+            if unit not in self.units:
+                raise BehaviorError(f"hud value {src!r}: unknown unit {unit!r}")
+            if self.units[unit].hp is None and unit not in self._member:
+                raise BehaviorError(f"hud value {src!r}: unit {unit!r} has no hp=")
+            return self._hp_ref(unit)
+        return self._counter_ref(src)                     # raises if unknown
 
-        ``digits``: the widest value each slot will ever show. The engine bakes
-        a dialog's width ONCE, at open, from the text as it renders THEN
-        (``Dialog.AutomaticSize``; a variable change only re-parses, never
-        re-sizes), so a strip opened at "0" clips when a counter reaches two
-        digits (playtest 2). The open pass therefore feeds every slot a
-        max-width sentinel (``10**digits - 1``) so the bake reserves room."""
+    def hud(self, text: str, values, window: int = 6,
+            txid: int | None = None, digits=2) -> HudSpec:
+        """Register a live strip (see :class:`HudSpec`). ``values``: 1..8 value
+        SOURCES — a counter name, ``"gil"``, ``"timer"``, or ``"hp:<unit>"`` —
+        slot i driving ``[NUMB=i]`` in ``text``. The TOML lane wires the minted
+        txid; Python callers pass one explicitly.
+
+        ``digits``: the widest value a slot will ever show — one int for every
+        slot, or a per-slot list (a gil readout wants 6, a headcount 2). The
+        engine bakes a dialog's width ONCE, at open, from the text as it
+        renders THEN (``Dialog.AutomaticSize``; a variable change only
+        re-parses, never re-sizes), so a strip opened at "0" clips when a value
+        reaches two digits (playtest 2). The open pass therefore feeds each
+        slot a max-width sentinel (``10**digits - 1``) so the bake reserves
+        room."""
         values = tuple(str(v) for v in values)
         if not 1 <= len(values) <= 8:
             raise BehaviorError("hud: 1..8 values (the engine has 8 gMesValue slots)")
         for v in values:
-            self._counter_ref(v)                          # existence check
+            self._hud_ref(v)                              # existence check
+        digs = ((int(digits),) * len(values) if isinstance(digits, int)
+                else tuple(int(d) for d in digits))
+        if len(digs) != len(values):
+            raise BehaviorError(f"hud: digits list has {len(digs)} entries for "
+                                f"{len(values)} values")
+        if any(not 1 <= d <= 7 for d in digs):
+            raise BehaviorError("hud: digits must be 1..7 (the width reserve)")
         if not str(text).strip():
             raise BehaviorError("hud: text must be non-empty")
         for m in re.finditer(r"\[NUMB=(\d+)", str(text)):
@@ -1212,11 +1239,7 @@ class FieldBehavior:
             raise BehaviorError("hud: window must be 0..7 (Dialog.WindowID)")
         if any(h.window == int(window) for h in self._huds):
             raise BehaviorError(f"hud: window {window} already carries a strip")
-        if not 1 <= int(digits) <= 7:
-            raise BehaviorError("hud: digits must be 1..7 (the width reserve)")
-        h = HudSpec(str(text), values, int(window), txid, int(digits),
-                    mirrors=tuple(self.bb.int16(f"hud{len(self._huds)}.m{i}")
-                                  for i in range(len(values))))
+        h = HudSpec(str(text), values, int(window), txid, digs)
         self._huds.append(h)
         return h
 
@@ -1792,38 +1815,27 @@ class FieldBehavior:
             if shown not in self._reset_flags:            # ~ Reload re-opens it
                 self._reset_flags.append(shown)
             cd_blocks.append(label(f"__seg hud {hi}"))
-            # THE OPEN PASS (once): feed every slot the max-width SENTINEL so
-            # AutomaticSize bakes a strip wide enough for the widest value this
-            # strip will ever show, then open. The mirrors stay at their -1
-            # preset, so the very next pass writes the real values in place —
-            # correct numbers one tick later, no second window, no flicker.
-            sentinel = 10 ** int(h.digits) - 1
+            # THE OPEN PASS (once): feed each slot its max-width SENTINEL so
+            # AutomaticSize bakes a strip wide enough for the widest value that
+            # slot will ever show, then open. The values land on the next pass.
             cd_blocks += [_stmt(f"Global.Bit[{shown}]"), (JMP_IF, f"hud_{hi}_live")]
-            for i in range(len(h.values)):
-                cd_blocks.append(opcodes.encode(0x66, i, sentinel))
+            for i, d in enumerate(h.digits):
+                cd_blocks.append(opcodes.encode(0x66, i, 10 ** int(d) - 1))
             cd_blocks += [
                 opcodes.window_async(h.window, 16, int(h.txid)),
                 _set_flag(shown, 1),
                 (JMP, f"hud_{hi}_skip"),
                 label(f"hud_{hi}_live"),
             ]
-            # THE LIVE PASS: dirty-mirror check -> write the changed variables
-            # (the engine re-renders the [NUMB]s in place); the window is never
-            # touched again.
-            for i, v in enumerate(h.values):
-                cd_blocks += [
-                    _stmt(f"{self._counter_ref(v)} Global.Int16[{h.mirrors[i]}] B_EQ"),
-                    (JMP_IFNOT, f"hud_{hi}_draw"),
-                ]
-            cd_blocks.append((JMP, f"hud_{hi}_skip"))
-            cd_blocks.append(label(f"hud_{hi}_draw"))
+            # THE LIVE PASS: write every slot from its source, unconditionally.
+            # No dirty mirrors: the ENGINE already re-renders only when a value
+            # actually changed (HasMessageValueChanged), a gMesValue write is a
+            # bare array store, and a mirror would cap a gil readout at Int16.
             for i, v in enumerate(h.values):
                 cd_blocks.append(opcodes.encode(
                     0x66, i,
-                    exprasm.assemble(f"{self._counter_ref(v)} B_EXPR_END"),
+                    exprasm.assemble(f"{self._hud_ref(v)} B_EXPR_END"),
                     arg_flags=0b10))
-                cd_blocks.append(_stmt(f"Global.Int16[{h.mirrors[i]}] "
-                                       f"{self._counter_ref(v)} B_LET"))
             cd_blocks.append(label(f"hud_{hi}_skip"))
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:
@@ -1838,9 +1850,6 @@ class FieldBehavior:
             main_init += _set_int16(idx, v)
         for pname in self._pools:                         # hireable: optimistic preset,
             main_init += _set_flag(self.pool_hireable[pname], 1)   # first pass corrects
-        for h in self._huds:                              # -1 mirrors: counters are >=0,
-            for m in h.mirrors:                           # so the first pass always draws
-                main_init += _set_int16(m, -1)
 
         ticker += [label("__seg tail"), label("wait"), opcodes.wait(self.tick),
                    (JMP, "top"), opcodes.RETURN]
@@ -1888,10 +1897,10 @@ class FieldBehavior:
                           f"dmg={e.damage} ivl={e.interval}"
                           + (" NEAREST" if e.nearest else ""))
             for hi, h in enumerate(self._huds):
-                tl.append(f"  hud #{hi}: window {h.window}, txid {h.txid}, "
-                          f"{h.digits}-digit reserve, values "
-                          + ", ".join(f"[NUMB={i}]='{v}'"
-                                      for i, v in enumerate(h.values)))
+                tl.append(f"  hud #{hi}: window {h.window}, txid {h.txid}, values "
+                          + ", ".join(f"[NUMB={i}]='{v}'({d}d)"
+                                      for i, (v, d) in enumerate(zip(h.values,
+                                                                     h.digits))))
             tables_txt = "\n" + "\n".join(tl)
         # the byte histogram: segment sizes from the PRE-relaxation measure (the
         # content bytes; the asm() length difference is pure island overhead)

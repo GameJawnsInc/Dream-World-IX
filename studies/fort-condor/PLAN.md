@@ -268,15 +268,26 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   in-game 2026-07-25 ("brawl runs clean, crier lines all fire") — the
   relaxation is fully proven and condor content may exceed 32KB freely (the
   FILE wall remains the binding budget).
+  **ROUND 4 — THE GROUP RE-FIT (built + DEPLOYED 2026-07-25, playtest
+  pending): the ratified design is finally WHOLE.** The siege now runs on the
+  v2 substrate proven on 30416: two GROUPS (raiders / allies) carry position +
+  alive + hp as table state; `engage nearest` replaces every hand-listed pair
+  branch (one branch + one target-indexed body per unit), so **the ratified
+  20-ALLY CAP is restored** (8 Soldiers / 6 Shooters / 6 Defenders) **with the
+  FULL mutual cross-product** — every ally fights every raider and vice versa,
+  which round 3 could not afford at any cap; class STANCE is now just a radius
+  vs contact ratio (Soldiers hunt at 2000/170; Shooters and Defenders take
+  contact = radius-1 so their pursue phase can never select = artillery that
+  never leaves its post); two `alive_only` scans publish live headcounts,
+  feeding both the WAR-ROOM STRIP (`[[behavior.hud]]`: GIL / TROOPS / RAIDERS
+  / DEPOT hp, the census substrate, no DLL) and a NEW early win — THE ROUT
+  (wave 3 spawned + zero raiders alive → the purse without waiting out the
+  clock). **Budget: 42,147B for 26 units WITH the cross-product, vs round 3's
+  49,383B for 20 units WITHOUT it** — the three walls are headroom now.
   OPEN rung-5 items:
   the tuning pass toward the FFVII feel (owner-driven, 1-minute clock stays
-  until then), restore the real 4:00 clock when tuned, the 20-cap-vs-counters
-  FILE-budget trade (owner's call — and the scoped VECTOR-substrate v2 would
-  dissolve it: studies/behavior-trees/PLAN.md §THE THREE WALLS), win/lose
-  presentation polish + a REAL HUD row (Gil | Units | Depot hp) via the stock
-  live-counter substrate — the UI census settled how: SetTextVariable +
-  transparent WindowAsync, no DLL (`studies/minigame-ui/SURVEY.md`), then the
-  `[minigame]`/`[condor]` productization decision.
+  until then), restore the real 4:00 clock when tuned, win/lose presentation
+  polish, then the `[minigame]`/`[condor]` productization decision.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates
