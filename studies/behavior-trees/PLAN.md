@@ -529,7 +529,40 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
 
 ### V2 candidates, ranked by leverage on the measured walls
 
-1. **THE VECTOR SUBSTRATE (the group loop) — the headline.** Move per-unit state
+1. **THE VECTOR SUBSTRATE (the group loop) — the headline. ★ RUNG 0 IN-GAME
+   PROVEN (2026-07-25, "all eight lines fire true, no freeze"):**
+   `[[behavior.scan]]` — the bounded in-ticker loop whose reads AND writes
+   index vector cells by the live loop byte (the one composition BTTABLE
+   didn't cover; count derived THROUGH a computed-index write-then-read round
+   trip so faults break the number, never silently) — ran clean on THE
+   PILGRIMAGE (30416, `vector_bench.py`; zero-relaunch redeploy over the ISLES
+   slot). The abbot's whole 1/4/8 ladder landed true off the loop. Bench
+   notes, no re-test needed: the arrival stagger was too tight (fast pilgrims
+   had the long legs — the speed×distance products nearly cancel; future
+   benches give SLOW units the LONG routes), and the visible camera drift on
+   entry is the KNOWN bare-~-warp class (the one unfaded entry path left,
+   [[project-ff9-field-entry-arrival]]) — not a fork or bench defect; a
+   debug-menu fade-on-warp is a candidate engine-bundle polish item.
+   **▶ RUNG 1 IN FLIGHT (same day): THE GROUP LOOP shipped** —
+   `[[behavior.group]]` rosters (px/pz/act mirrors + hp CELLS as the members'
+   only hit points, all hp accessors rerouted) + the `engage` verb (sticky
+   first-in-range acquire register; two-phase contact-strike/pursue; ONE
+   target-indexed swing body per unit; automatic re-acquisition on a dead
+   target). MEASURED: the 7v7 parity bench compiles to **42% of the unrolled
+   bytes** (19,997B vs ISLES' 46,625B, same fight; ratio pinned by a suite
+   test). **★ IN-GAME PROVEN (owner, 5 runs: "works well"):** THE GROUP BRAWL
+   on 30416 — melee resolves, table-cell flee works (the hp reroute end to
+   end), survivors PIVOT between victims (re-acquisition, the new power), no
+   freeze across five full fights. Two bench notes, both authoring-class:
+   knights won all 5 with ~3 alive because some Mus snag on the monument (the
+   KNOWN pursue wall-slide — the west approach crosses the centerpiece, so
+   the east team concentrates force first; map-authoring answer, owner
+   concurs), and the crier's "ONE LEFT STANDING" rung never armed because a
+   TEAM fight tops the tally out near 11 — the counter being TRUTHFUL. Ladder
+   lesson: team-fight finales should key on team-wipe, which wants the scan
+   gaining `alive_only` (gate cells on act&&hp like the acquire loop) — a
+   small rung-2 item. The original full-substrate sketch, for the later
+   rungs: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
    logic as a bounded in-tick LOOP over an index instead of an unrolled branch
@@ -563,10 +596,20 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
 5. **Side probes** (RunSharedScript caller-context, self-REQ) — unchanged, cheap,
    unlock the per-unit-brain variant.
 
-**In flight:** the ISLES bench (30416, "the brawl") is DEPLOYED — 33,820B ticker
-content, 2 live islands, 14 mutual-combat units + a crier on the fallen-counter.
-First >32KB body ever to run in-game; the playtest verdict is pure liveness
-(no freeze, hp-1 flee branches fire, late-run crier announces land).
+**★ THE CROSSING PASSED (owner playtest, 2026-07-25):** ISLES (30416, "the
+brawl" — 33,820B ticker content, 2 live islands, 14 mutual-combat units + a
+crier on the fallen counter) ran clean in-game: "the brawl runs clean, crier
+lines all fire." **The LONG-JUMP RELAXATION is now IN-GAME PROVEN** — island
+bytes executed, deep-tree branches fired, and the event-Once + counter lanes
+re-verified on a second field for free. One observation, owner-triaged as not
+worth digging at: a left-arc Mu slid along a wall instead of rounding it —
+that is the KNOWN pursuit class, not an island artifact (chase = the duty
+body's blocked engine Walk toward a live target; the engine wall-slides, no
+routing exists for live-target pursuit, and the pursuit-sweep lint exists
+precisely to predict this blocked fraction — the bench's 2200u cross-plaza
+chases were authored for the byte crossing, not clean pursuit lines). The
+authoring answer stands: place for sightlines, keep chase radii short, use
+route="auto" marches for long approaches and chase only for the close.
 
 ## Standing constraints
 

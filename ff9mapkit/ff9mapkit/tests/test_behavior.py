@@ -951,3 +951,197 @@ def test_swarm_stress_forty_units_relaxes_and_accounts():
     assert sum(n for _nm, n in s["ticker_segments"]) == s["ticker_content"]
     assert len(cb.ticker_body) >= s["ticker_content"]  # island overhead >= 0
     assert build().compile().stable_hash() == cb.stable_hash()
+
+
+# ------------------------------------------------------------------ the vector loop
+def scan_field() -> B.FieldBehavior:
+    fb = B.FieldBehavior(
+        [B.UnitSpec(f"p{i}", entry=2 + i, spawn=(i * 100, 0)) for i in range(3)],
+        counters=("at_shrine",))
+    for i in range(3):
+        fb.units[f"p{i}"].tree = B.Do(B.Hold((i * 100, 0)))
+    fb.scan("shrine", ["p0", "p1", "p2"], (500, 0), 300, "at_shrine",
+            flags="near_shrine")
+    return fb
+
+
+def test_scan_compiles_and_verifies():
+    fb = scan_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # the loop is a BACKWARD conditional jump in the ticker — the new shape
+    back_ifs = []
+    for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body)):
+        if ins.op == 0x03:
+            t = D.jump_target(ins)
+            if t is not None and t < ins.off:
+                back_ifs.append(ins.off)
+    assert back_ifs, "the scan loop must close with a backward JMP_IF"
+    # registered tables: px/pz internal + the user-named flags table
+    assert "scan.shrine.px" in fb.tables and "near_shrine" in fb.tables
+    assert "scan shrine" in cb.report and "at_shrine" in cb.report
+    # histogram: the scan has its own segment with real bytes in it
+    segs = dict(cb.sizes["ticker_segments"])
+    assert segs.get("scan shrine", 0) > 100
+    assert scan_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_scan_seeds_tables_in_main_init():
+    cb = scan_field().compile()
+    # three zero tables -> exactly two size statements each, no cell writes;
+    # cheap structural proxy: main_init walks clean and mentions nothing odd
+    _verify_body(cb.main_init)
+    # the seed wipes then grows every scan table (0xD3 appears in main_init)
+    assert bytes([0xD3]) in bytes(cb.main_init)
+
+
+def test_scan_negatives():
+    fb = scan_field()
+    with pytest.raises(B.BehaviorError, match="already registered"):
+        fb.scan("shrine", ["p0"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="unknown unit"):
+        fb.scan("ghost", ["nobody"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="unknown counter"):
+        fb.scan("badctr", ["p0"], (0, 0), 100, "missing")
+    with pytest.raises(B.BehaviorError, match="radius"):
+        fb.scan("badr", ["p0"], (0, 0), 0, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="duplicate"):
+        fb.scan("dup", ["p0", "p0"], (0, 0), 100, "at_shrine")
+    with pytest.raises(B.BehaviorError, match="table cap"):
+        fb2 = B.FieldBehavior(
+            [B.UnitSpec("u", entry=2, spawn=(0, 0))], counters=("c",))
+        fb2.units["u"].tree = B.Do(B.Hold((0, 0)))
+        fb2.scan("big", ["u"] * 65, (0, 0), 100, "c")
+
+
+def test_scan_table_ids_are_deterministic():
+    """Scan tables allocate AFTER the ctor's autos + the counter table, in
+    declaration order — the allocation contract extends to scans."""
+    fb = scan_field()
+    ctr = fb._ctr_tid
+    px, _ = fb.tables["scan.shrine.px"]
+    pz, _ = fb.tables["scan.shrine.pz"]
+    fl, _ = fb.tables["near_shrine"]
+    assert (px, pz, fl) == (ctr + 1, ctr + 2, ctr + 3)
+
+
+# ------------------------------------------------------------------ the group loop
+def group_brawl_field(n=3):
+    """Two rosters engaging each other through the group loop — die/engage/hold."""
+    units = ([B.UnitSpec(f"a{i}", entry=2 + i, spawn=(0, i * 300), hp=3)
+              for i in range(n)]
+             + [B.UnitSpec(f"b{i}", entry=2 + n + i, spawn=(900, i * 300), hp=3)
+                for i in range(n)])
+    fb = B.FieldBehavior(units, counters=("fallen",))
+    fb.group("reds", [f"a{i}" for i in range(n)])
+    fb.group("blues", [f"b{i}" for i in range(n)])
+    for i in range(n):
+        for nm, foe in ((f"a{i}", "blues"), (f"b{i}", "reds")):
+            fb.units[nm].tree = B.Selector(
+                B.Sequence(fb.hp_le(nm, 0), B.Do(B.Die(count="fallen"))),
+                fb.engage_node(nm, B.Engage(foe, radius=1500, contact=170)),
+                B.Do(B.Hold(fb.units[nm].spawn)),
+            )
+    return fb
+
+
+def test_group_loop_compiles_and_verifies():
+    fb = group_brawl_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # ONE swing body per unit regardless of roster size: Die + _GroupSwing + nudge
+    assert all(len(cb.action_funcs[u]) == 3 for u in fb.units)
+    # the hp conds route to roster cells, not Global bytes
+    assert "B_VECTOR" in fb.hp_le("a0", 0).text
+    assert "B_VECTOR" in fb.hp_gt("b2", 1).text
+    assert "group reds" in cb.report and "engage a0 -> group 'blues'" in cb.report
+    # acquire loops close with backward conditional jumps (one per engage unit)
+    back_ifs = 0
+    for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body)):
+        if ins.op == 0x03:
+            t = D.jump_target(ins)
+            if t is not None and t < ins.off:
+                back_ifs += 1
+    assert back_ifs >= len(fb.units)
+    assert group_brawl_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_group_loop_beats_unrolled_pairs_on_bytes():
+    """THE ECONOMY PIN: at 6v6 the group lane must cost less than HALF the
+    unrolled pair machinery (ticker + dispatch bodies together) — the reason
+    this rung exists. If this ratio regresses, the three-walls win is gone."""
+    n = 6
+    grouped = group_brawl_field(n).compile()
+
+    units = ([B.UnitSpec(f"a{i}", entry=2 + i, spawn=(0, i * 300), hp=3)
+              for i in range(n)]
+             + [B.UnitSpec(f"b{i}", entry=2 + n + i, spawn=(900, i * 300), hp=3)
+                for i in range(n)])
+    fb = B.FieldBehavior(units, counters=("fallen",))
+    for i in range(n):
+        for nm, foes in ((f"a{i}", [f"b{j}" for j in range(n)]),
+                         (f"b{i}", [f"a{j}" for j in range(n)])):
+            branches = [B.Sequence(fb.hp_le(nm, 0), B.Do(B.Die(count="fallen")))]
+            for o in foes:
+                branches.append(B.Sequence(fb.active(o), fb.near(nm, o, 170),
+                                           B.Do(B.SwingAt(o))))
+                branches.append(B.Sequence(fb.active(o), fb.near(nm, o, 1500),
+                                           B.Do(B.Chase(o, standoff=170))))
+            branches.append(B.Do(B.Hold(fb.units[nm].spawn)))
+            fb.units[nm].tree = B.Selector(*branches)
+    unrolled = fb.compile()
+
+    def cost(cb):
+        return (len(cb.ticker_body)
+                + sum(len(b) for fns in cb.action_funcs.values() for _t, b in fns))
+
+    assert cost(grouped) < cost(unrolled) / 2, \
+        f"group {cost(grouped)}B vs unrolled {cost(unrolled)}B"
+
+
+def test_group_negatives():
+    fb = group_brawl_field()
+    with pytest.raises(B.BehaviorError, match="OWN group"):
+        fb.engage_node("a0", B.Engage("reds"))
+    with pytest.raises(B.BehaviorError, match="already has an engage"):
+        fb.engage_node("a0", B.Engage("blues"))
+    with pytest.raises(B.BehaviorError, match="unknown group"):
+        fb.engage_node("a1", B.Engage("ghosts"))
+    with pytest.raises(B.BehaviorError, match="already registered"):
+        fb.group("reds", ["a0"])
+    with pytest.raises(B.BehaviorError, match="already in group"):
+        fb.group("more", ["a0"])
+    with pytest.raises(B.BehaviorError, match="no hp"):
+        fb2 = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))])
+        fb2.group("g", ["u"])
+    with pytest.raises(B.BehaviorError, match="contact"):
+        B.Engage("g", radius=100, contact=100)
+    with pytest.raises(B.BehaviorError, match="fallback"):
+        fb3 = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), hp=2),
+                               B.UnitSpec("v", entry=3, spawn=(9, 9), hp=2)])
+        fb3.group("vs", ["v"])
+        fb3.units["v"].tree = B.Do(B.Hold((9, 9)))
+        fb3.units["u"].tree = fb3.engage_node("u", B.Engage("vs"))
+        fb3.compile()
+
+
+def test_classic_swing_at_grouped_target_damages_the_cell():
+    """A CLASSIC SwingAt whose target is a roster member must decrement the
+    member's hp CELL (its only home), not a dead Global byte."""
+    fb = B.FieldBehavior([B.UnitSpec("raider", entry=2, spawn=(0, 0), hp=5),
+                          B.UnitSpec("m", entry=3, spawn=(100, 0), hp=4)],
+                         counters=("fallen",))
+    fb.group("guards", ["m"])
+    fb.units["raider"].tree = B.Selector(
+        B.Sequence(fb.active("m"), fb.near("raider", "m", 200),
+                   B.Do(B.SwingAt("m"))),
+        B.Do(B.Hold((0, 0))),
+    )
+    fb.units["m"].tree = B.Selector(
+        B.Sequence(fb.hp_le("m", 0), B.Do(B.Die(count="fallen"))),
+        B.Do(B.Hold((100, 0))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    swing = cb.action_funcs["raider"][0][1]
+    assert bytes([0xD3]) in swing      # the damage write reaches into the table

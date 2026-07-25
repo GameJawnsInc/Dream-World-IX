@@ -718,6 +718,63 @@ def _snap_drift_body(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+SCRIPT_STATES = ("tree", "panel")
+
+
+def _load_script_demo():
+    """The synthetic verbatim demo field's builder lives in tests/test_workspace_script_tree.py -- ONE
+    owner for the fixture bytes (kit-authored raw instructions, zero Square-Enix bytes), loaded by path
+    because tests/ is not a package. Import side effects are benign here: the module's env setdefaults
+    land after the native QApplication already exists."""
+    import importlib.util
+    p = REPO / "ff9mapkit" / "tests" / "test_workspace_script_tree.py"
+    spec = importlib.util.spec_from_file_location("_script_demo_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def snap_script(ctx: _Ctx, state: str) -> None:
+    """The verbatim 'Script (verbatim .eb)' presentation over the kit-authored demo field: the tree
+    expanded to its routines with the NPC talk handler selected ('tree' -- the Inspector shows the
+    friendly transcript), or that routine's in-place edit panel ('panel')."""
+    if state not in SCRIPT_STATES:
+        raise ValueError(f"unknown script state {state!r} (know: {', '.join(SCRIPT_STATES)})")
+    demo = _load_script_demo()
+    root = _SCRATCH / "script_demo"                    # stable path -- mkdtemp breaks pixel-diffing
+    if root.exists():
+        shutil.rmtree(root, ignore_errors=True)
+    proj = demo.make_demo_campaign(root)
+    win = _make_win(ctx)
+    assert win.open_campaign(proj), "the demo campaign must open"
+    win.tree.expandItem(win.tree.topLevelItem(0))
+    vitem = win.tree.topLevelItem(0).child(0)
+    win.tree.expandItem(vitem)
+    _settle(4)
+    grp = next(vitem.child(i) for i in range(vitem.childCount())
+               if win._payload(vitem.child(i))[0] == "logic_root")
+    win.tree.expandItem(grp)
+    _settle(4)
+    for i in range(grp.childCount()):
+        win.tree.expandItem(grp.child(i))
+    _settle(4)
+    tgt = None                                         # the NPC talk handler -> the Inspector transcript
+    for i in range(grp.childCount()):
+        for j in range(grp.child(i).childCount()):
+            if win._payload(grp.child(i).child(j))[2] == "logic_n:2:3":
+                tgt = grp.child(i).child(j)
+    assert tgt is not None, "the demo field's talk handler row must exist"
+    win.tree.setCurrentItem(tgt)
+    _settle(6)
+    if state == "panel":
+        win._open_editor("GLADE", "logic_node", "logic_n:2:3")
+        win.tabs.setCurrentWidget(win.doc_scroll)      # the Editor sub-tab (a campaign open lands on Map)
+        _settle(6)
+    _grab(ctx, f"script-{state}", win)
+    _grab(ctx, f"script-{state}-tree", win.tree)
+    _close(win)
+
+
 CONSOLE_STATES = ("log", "find", "miss", "jobs")
 
 
@@ -898,7 +955,8 @@ def all_surfaces() -> list[str]:
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
             + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
-            + [f"drift:{s}" for s in DRIFT_STATES])
+            + [f"drift:{s}" for s in DRIFT_STATES]
+            + [f"script:{s}" for s in SCRIPT_STATES])
 
 
 def main() -> None:
@@ -942,6 +1000,8 @@ def main() -> None:
                 snap_console(ctx, rest)
             elif kind == "drift":
                 snap_drift(ctx, rest)
+            elif kind == "script":
+                snap_script(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

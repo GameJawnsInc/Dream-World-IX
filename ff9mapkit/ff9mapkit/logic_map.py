@@ -80,15 +80,16 @@ class Node:
     gives: list = _dc_field(default_factory=list)        # [{kind, ...}] item/gil/shop/save/menu/remove_*
     flags_set: list = _dc_field(default_factory=list)    # [{index, mode}] mode = set | or
     flags_read: list = _dc_field(default_factory=list)   # [{index, require_set}]
-    warps: list = _dc_field(default_factory=list)         # [{op, to}] Field / WorldMap
+    warps: list = _dc_field(default_factory=list)         # [{op, to, name}] Field / WorldMap
+    battles: list = _dc_field(default_factory=list)       # [{scene, name}] scripted Battle/BattleEx starts
     calls: list = _dc_field(default_factory=list)         # [Call]
-    branches: list = _dc_field(default_factory=list)      # [{op, base, edges:[{value, target, is_default}]}] switch tables
+    branches: list = _dc_field(default_factory=list)      # [{op, base, selector, edges:[{value, target, is_default}]}]
     unresolved: list = _dc_field(default_factory=list)    # [{op, reason, off}] runtime-computed / dynamic
 
     @property
     def empty(self) -> bool:
-        return not (self.says or self.gives or self.flags_set or self.flags_read
-                    or self.warps or self.calls or self.branches or self.unresolved)
+        return not (self.says or self.gives or self.flags_set or self.flags_read or self.warps
+                    or self.battles or self.calls or self.branches or self.unresolved)
 
 
 @dataclass
@@ -124,7 +125,7 @@ def _line_text(entries, txid, width: int = 60):
         return None
     from .dialogue import strip_tags
     s = strip_tags(e.text).replace("\n", " / ").strip()
-    s = " ".join(s.split())
+    s = " ".join(s.split()).rstrip(" /")           # a trailing .mes newline is a separator to NOTHING
     return (s[:width] + "...") if len(s) > width else (s or "(blank line)")
 
 
@@ -175,14 +176,132 @@ def _func_kind(role: str, tag: int) -> str:
     return {0: "init", 2: "tread", 3: "press", 10: "reinit"}.get(tag, "routine")
 
 
+# The human names for the engine's func-tag conventions -- what each routine IS, in the user's language.
+# Grounded in the project's own proven semantics: tag 0 = the setup pass (_read_object_init reads the model
+# pose from it) · tag 1 = the every-frame loop (the behavior-tree compiler's home) · tag 2 = the contact
+# dispatch (a gateway's walk-in region; the chest reward handler lives here) · tag 3 = the press-action
+# handler (forkreport.TALK_TAG -- "an NPC's interactive tag-3 IS the field's quest logic") · tag 10 = the
+# after-battle re-entry (Main_Reinit and its per-object siblings). The raw tag NUMBER stays visible at every
+# call site because [[logic_edit]]/[[logic_add]] key on it.
+KIND_LABEL = {
+    "main_init": "Field startup",
+    "main_reinit": "After-battle re-entry",
+    "shared_routine": "Shared routine",
+    "player_init": "Player setup",
+    "player_loop": "Player idle loop",
+    "player_seq": "Player sequence",
+    "gateway_tread": "Walk-in trigger",
+    "gateway_press": "Action trigger",
+    "gateway_reinit": "After-battle re-entry",
+    "gateway_routine": "Gateway routine",
+    "object_init": "Setup (model & pose)",
+    "object_loop": "Every-frame loop",
+    "object_tread": "Contact trigger",
+    "npc_talk": "Talk handler",
+    "object_reinit": "After-battle re-entry",
+    "object_routine": "Routine",
+    "init": "Setup",
+    "tread": "Contact trigger",
+    "press": "Action trigger",
+    "reinit": "After-battle re-entry",
+    "routine": "Routine",
+}
+
+
+def kind_label(kind: str) -> str:
+    """The human name for a :func:`_func_kind` token (falls back to the token so a new kind never blanks)."""
+    return KIND_LABEL.get(kind, kind)
+
+
+def entry_label(e) -> str:
+    """The entry row's role WORD -- what this actor slot IS. The raw classifier's ``logic`` covered two
+    very different shapes and a real fork shows a WALL of them (Prima Vista: seven 'entry N: logic' rows in
+    a column): a model-less entry WITH a contact/action handler is an **invisible trigger** (the engine
+    still dispatches into it when the player touches or examines its spot), while one with only
+    setup/loops/helpers is a **script helper** other routines call into."""
+    if e.role == "logic":
+        return "invisible trigger" if any(t in (2, 3) for t in e.tags) else "script helper"
+    return e.role
+
+
+# The engine's event meaning of the CONVENTIONAL tag numbers, for annotating an entry's tag list
+# ("functions (tags): 0 (setup), 1 (every frame), 3 (action/talk)"). Non-conventional numbers are the
+# script's own helpers and stay bare.
+_TAG_NOTE = {0: "setup", 1: "every frame", 2: "contact", 3: "action/talk", 10: "after battle"}
+
+
+def tag_note(tag: int) -> str:
+    """'setup' / 'every frame' / 'contact' / 'action/talk' / 'after battle', or '' for a helper number."""
+    return _TAG_NOTE.get(tag, "")
+
+
+def fmt_tags(tags) -> str:
+    """An entry's tag list with each conventional number annotated: ``0 (setup), 1 (every frame), 29``."""
+    out = []
+    for t in tags:
+        note = tag_note(t)
+        out.append(f"{t} ({note})" if note else str(t))
+    return ", ".join(out)
+
+
+def flag_phrase(idx: int) -> str:
+    """Name a GLOB story-flag index by its BAND, so a reader can tell the donor's own story flags from the
+    bits this kit's tooling added. Truth = :mod:`ff9mapkit.flags` (the safe band 8712+ is where the kit
+    allocates once-guards/campaign flags; the Mognet lock + read-mail bands are stock-reserved)."""
+    from .flags import (FIRST_SAFE_FLAG, MOGNET_LOCK_LO, MOGNET_LOCK_HI,
+                        READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI)
+    if idx >= FIRST_SAFE_FLAG:
+        return f"flag {idx} (kit band — added by this fork, not the donor)"
+    if MOGNET_LOCK_LO <= idx <= MOGNET_LOCK_HI:
+        return f"flag {idx} (stock Mognet lock band)"
+    if READMAIL_PAYLOAD_LO <= idx <= READMAIL_PAYLOAD_HI:
+        return f"flag {idx} (stock read-mail scratch)"
+    return f"story flag {idx}"
+
+
+def _switch_selector(data: bytes, expr_off, base, contiguous: bool, window_before: bool):
+    """Classify what a switch DISPATCHES ON -- the presentation difference between "a switch" and the two
+    shapes a user actually reasons about:
+
+      * ``'scenario'`` -- the selector expression (the ``0x05`` pushed just before the switch) reads the
+        save's ScenarioCounter (``Global.UInt16[0]``, token ``DC 00``): the STORY-BEAT dispatch that
+        ``[startup] scenario = <beat>`` keys into (~11% of Main_Inits open with one).
+      * ``'choice'`` -- a base-0 contiguous table right after a dialogue window: the engine's answer
+        dispatch, one case per menu row (the same shape ``_menu_txid_hint`` / ``menu_row`` target).
+
+    Anything else returns None and stays a plain switch."""
+    if expr_off is not None:
+        try:
+            from .eb.disasm import pretty_expr
+            from .eb._exprtable import decode_var
+            txt, _ = pretty_expr(data, expr_off + 1)
+            if decode_var(0xDC, 0) in txt:
+                return "scenario"
+        except Exception:                              # noqa: BLE001 -- an undecodable expr is just not scenario
+            pass
+    if contiguous and base == 0 and window_before:
+        return "choice"
+    return None
+
+
 # --- the builder ------------------------------------------------------------------------------------
 def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str = "",
-                    event_name: str = "") -> LogicMap:
+                    event_name: str = "", field_names=None) -> LogicMap:
     """Build a :class:`LogicMap` from a field's ``.eb`` bytes (pure; ``entries`` = a parsed ``.mes``
-    ``{txid: MesEntry}`` to enrich dialogue with real text -- omit for the structure-only view)."""
+    ``{txid: MesEntry}`` to enrich dialogue with real text -- omit for the structure-only view;
+    ``field_names`` = an optional ``{field_id: name}`` so a ``Field()`` warp can NAME its destination --
+    the GUI passes campaign members + the dev manifest, the CLI the manifest alone)."""
     from . import eventscan
     from . import forkreport as FR
     from ._modeldb import MODELS
+    fnames = field_names or {}
+
+    def _scene_name(sid):
+        try:
+            from . import catalog as _cat
+            return _cat.scene_name(sid)
+        except Exception:                              # noqa: BLE001 -- no baked census -> id only
+            return None
 
     lm = LogicMap(field_id=field_id, fbg_name=fbg_name, event_name=event_name, has_text=bool(entries))
     if not eb_bytes:
@@ -226,9 +345,12 @@ def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str 
 
         for f in e.funcs:
             node = Node(e.index, f.tag, _func_kind(role, f.tag), f.abs_start, f.abs_end)
+            last_expr_off = None                       # the nearest preceding 0x05 = a switch's selector push
+            saw_window = False                         # a dialogue window earlier in this routine (choice menus)
             for ins in eb.instrs(f):
                 op = ins.op
                 if op in WINDOW_OPS:
+                    saw_window = True
                     txid = ins.imm(WINDOW_OPS[op])
                     if txid is None:
                         node.unresolved.append({"op": ins.name, "reason": "text chosen at runtime", "off": ins.off})
@@ -260,10 +382,19 @@ def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str 
                     if to is None:
                         node.unresolved.append({"op": ins.name, "reason": "warp target computed", "off": ins.off})
                     else:
-                        node.warps.append({"op": "Field", "to": int(to)})
+                        node.warps.append({"op": "Field", "to": int(to), "name": fnames.get(int(to))})
                 elif op == WORLDMAP_OP:
                     loc = ins.imm(0)
-                    node.warps.append({"op": "WorldMap", "to": int(loc) if loc is not None else None})
+                    node.warps.append({"op": "WorldMap", "to": int(loc) if loc is not None else None,
+                                       "name": None})
+                elif op in (eventscan.BATTLE_OP, eventscan.BATTLE_EX_OP):
+                    bid = ins.imm(1 if op == eventscan.BATTLE_OP else 2)
+                    if bid is None:
+                        node.unresolved.append({"op": ins.name, "reason": "battle chosen at runtime",
+                                                "off": ins.off})
+                    else:                              # scene = btlId & 0x7FFF (the high bit is Steiner's state)
+                        sid = int(bid) & eventscan.BATTLE_SCENE_MASK
+                        node.battles.append({"scene": sid, "name": _scene_name(sid)})
                 elif op in RUNSCRIPT_OPS:
                     uid, t = ins.imm(1), ins.imm(2)
                     if uid is None or t is None:
@@ -288,9 +419,12 @@ def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str 
                         node.unresolved.append({"op": ins.name, "reason": "switch operands computed", "off": ins.off})
                     else:
                         node.branches.append({"op": ins.name, "base": sw.base,
+                                              "selector": _switch_selector(data, last_expr_off, sw.base,
+                                                                           op in (0x0B, 0x0D), saw_window),
                                               "edges": [{"value": e.value, "target": e.target,
                                                          "is_default": e.is_default} for e in sw.edges]})
                 elif op == EXPR_STMT_OP:
+                    last_expr_off = ins.off            # a switch pops its selector from the expr pushed here
                     w = _flag_write_at(data, ins.off)
                     if w is not None:
                         node.flags_set.append({"index": w[0], "mode": w[1]})
@@ -327,8 +461,14 @@ def logic_map(field_id: int, *, game=None, bundle=None, lang: str = "us") -> Log
             entries = _d.parse_mes(mes)
     except Exception:
         entries = None
+    try:
+        from .extract import _manifest_field_names
+        names = _manifest_field_names()                # {} without the dev-only manifest -- degrade to ids
+    except Exception:                                  # noqa: BLE001
+        names = {}
     return build_logic_map(data, entries=entries, field_id=field_id,
-                           fbg_name=ID_TO_FBG.get(field_id, ""), event_name=ID_TO_EVT.get(field_id, ""))
+                           fbg_name=ID_TO_FBG.get(field_id, ""), event_name=ID_TO_EVT.get(field_id, ""),
+                           field_names=names)
 
 
 # --- serialization ----------------------------------------------------------------------------------
@@ -372,7 +512,11 @@ def _fmt_node_lines(n: Node, indent: str = "        ") -> list:
     for fs in n.flags_set:
         out.append(f"{indent}{'sets' if fs['mode'] == 'set' else 'or-sets'} flag {fs['index']}")
     for w in n.warps:
-        out.append(f"{indent}{w['op']}({w.get('to')})")
+        nm = f"  ({w['name']})" if w.get("name") else ""
+        out.append(f"{indent}{w['op']}({w.get('to')}){nm}")
+    for bt in n.battles:
+        nm = f"  ({bt['name']})" if bt.get("name") else ""
+        out.append(f"{indent}battle scene {bt['scene']}{nm}")
     for c in n.calls:
         tgt = f" -> entry {c.targets}" if c.targets else ""
         out.append(f"{indent}-> {c.label}{tgt}")
@@ -380,7 +524,8 @@ def _fmt_node_lines(n: Node, indent: str = "        ") -> list:
         ncases = sum(1 for e in b["edges"] if not e["is_default"])
         arms = [("default" if e["is_default"] else str(e["value"])) + f"->@{e['target']}" for e in b["edges"]]
         shown = ", ".join(arms[:6]) + (f", ... (+{len(arms) - 6} more)" if len(arms) > 6 else "")
-        out.append(f"{indent}switch ({ncases} cases): {shown}")
+        kind = {"scenario": "story-beat switch", "choice": "menu switch"}.get(b.get("selector"), "switch")
+        out.append(f"{indent}{kind} ({ncases} cases): {shown}")
     for u in n.unresolved:
         out.append(f"{indent}? {u['op']}: {u['reason']}")
     return out
@@ -414,8 +559,16 @@ def node_summary(n: Node) -> str:
                      else f"sets {len(n.flags_set)} flags")
     if n.warps:
         parts.append(f"{len(n.warps)} warp" + ("s" if len(n.warps) != 1 else ""))
-    if n.branches:
-        parts.append(f"{len(n.branches)} switch" + ("es" if len(n.branches) != 1 else ""))
+    if n.battles:
+        parts.append("starts a battle" if len(n.battles) == 1 else f"starts {len(n.battles)} battles")
+    sel = {b.get("selector") for b in n.branches}
+    if "scenario" in sel:
+        parts.append("story-beat dispatch")
+    if "choice" in sel:
+        parts.append("menu dispatch")
+    plain = sum(1 for b in n.branches if b.get("selector") not in ("scenario", "choice"))
+    if plain:
+        parts.append(f"{plain} switch" + ("es" if plain != 1 else ""))
     if n.unresolved:
         parts.append(f"{len(n.unresolved)} runtime-computed")
     return " · ".join(parts)
@@ -449,30 +602,40 @@ def node_report(n: Node) -> list:
         elif k == "remove_gil":
             out.append("Takes gil")
     for fr in n.flags_read:
-        out.append(f"Runs only if story flag {fr['index']} is " + ("SET" if fr["require_set"] else "CLEAR"))
+        out.append(f"Runs only if {flag_phrase(fr['index'])} is " + ("SET" if fr["require_set"] else "CLEAR"))
     for fs in n.flags_set:
-        out.append(("Sets" if fs["mode"] == "set" else "Sets (OR into)") + f" story flag {fs['index']}")
+        out.append(("Sets" if fs["mode"] == "set" else "Sets (OR into)") + f" {flag_phrase(fs['index'])}")
     for w in n.warps:
         op = str(w["op"])
+        nm = f" — {w['name']}" if w.get("name") else ""
         if op.lower().startswith("field"):
-            out.append(f"Warps to field {w.get('to')}")
+            out.append(f"Warps to field {w.get('to')}{nm}")
         elif "world" in op.lower():
             out.append("Exits to the world map")
         else:
             out.append(f"{op}({w.get('to')})")
+    for bt in n.battles:
+        nm = f" — {bt['name']}" if bt.get("name") else ""
+        out.append(f"Starts a battle (scene {bt['scene']}{nm})")
     for c in n.calls:
         lbl = c.label or f"calls routine #{c.tag}"
         tgt = f" [→ entry {', '.join(str(t) for t in c.targets)}]" if c.targets else ""
         out.append(lbl[:1].upper() + lbl[1:] + tgt)
     for b in n.branches:
         vals = [str(e["value"]) for e in b["edges"] if not e["is_default"]]
-        if vals:
-            shown = ", ".join(vals[:8]) + (f", +{len(vals) - 8} more" if len(vals) > 8 else "")
+        shown = ", ".join(vals[:8]) + (f", +{len(vals) - 8} more" if len(vals) > 8 else "")
+        if b.get("selector") == "scenario":
+            out.append(f"STORY-BEAT dispatch — picks a path by the scenario counter → beats {shown} "
+                       "(else the default path). A fork boots at beat 0; [startup] scenario = <beat> lands on one.")
+        elif b.get("selector") == "choice":
+            out.append(f"Answer dispatch — one path per menu row (rows {shown})")
+        elif vals:
             out.append(f"Branches on a value → cases {shown} (else a default path)")
         else:
             out.append("Branches (a default path only)")
     for u in n.unresolved:
-        out.append(f"Calls a routine chosen at runtime — {u['reason']}")
+        # not always a CALL -- the op says what kind of thing the runtime decides (text/warp/battle/call)
+        out.append(f"Decided at runtime — {u['op']}: {u['reason']}")
     return out
 
 
@@ -480,7 +643,8 @@ def node_hint(n: Node) -> str:
     """A SHORT, high-confidence tree-label suffix -- emitted ONLY when the routine has a SINGLE kind of action
     (so the hint can't mislead). A mixed routine returns ``''`` and stays plain (its detail is in the panel
     summary / :func:`_fmt_node_lines`)."""
-    cats = (bool(n.calls), bool(n.says), bool(n.gives), bool(n.warps), bool(n.flags_set), bool(n.branches))
+    cats = (bool(n.calls), bool(n.says), bool(n.gives), bool(n.warps), bool(n.flags_set), bool(n.branches),
+            bool(n.battles))
     if sum(cats) != 1:
         return ""
     if n.calls:
@@ -494,7 +658,14 @@ def node_hint(n: Node) -> str:
         return " · reward"
     if n.flags_set:
         return " · sets flag"
-    return " · switch"                                        # the only remaining single category (branches)
+    if n.battles:
+        return " · battle"
+    sel = {b.get("selector") for b in n.branches}              # the only remaining single category (branches)
+    if sel == {"scenario"}:
+        return " · story beats"
+    if sel == {"choice"}:
+        return " · menu answers"
+    return " · switch"
 
 
 def format_logic_map(lm: LogicMap) -> str:
@@ -515,7 +686,7 @@ def format_logic_map(lm: LogicMap) -> str:
         glyph = _ROLE_GLYPH.get(e.role, " ")
         model = f"  {e.model_name or ('model ' + str(e.model_id))}" if e.model_id is not None else ""
         spawn = "" if e.role in ("main", "player") or e.spawns else "  (defined, not spawned)"
-        out.append(f"  {glyph} entry {e.index}: {e.role}{model}{spawn}")
+        out.append(f"  {glyph} entry {e.index}: {entry_label(e)}{model}{spawn}")
         for n in by_entry.get(e.index, []):
             lines = _fmt_node_lines(n)
             if not lines:

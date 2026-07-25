@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[behavior.group]]` + the `engage` verb: THE GROUP LOOP (v2 rung 1)
+- Rosters as table state: a group's members get `group.<name>.px/pz/act` mirrors and an
+  `hp` table that IS their hit points (the `hp_le`/`hp_gt` conds and every SwingAt
+  damage write reroute to the cells — one home, no drift; `table_*` conds can read
+  them). The `engage` branch verb replaces the unrolled pair apparatus: a sticky
+  acquire loop holds a first-in-range target register (roster order = priority order,
+  v1 parity), the branch runs two-phase (contact -> ONE target-indexed strike body
+  with computed-index damage and table-position facing; else -> a pursue feed on the
+  target's cells), and a dead/escaped target drops the register for automatic
+  re-acquisition. Measured on the 7v7 parity bench: **42% of the unrolled bytes** for
+  the same fight (~880B vs ~2,340B of ticker per unit; one ~170B body vs six ~108B) —
+  the ratio is pinned by a suite test. Rung-1 limits: one engage per unit, no
+  self-group targets, no raise/clear flags on the branch.
+
+### Added — `[[behavior.scan]]`: the vector loop (v2 rung 0, EXPERIMENTAL)
+- The first stone of the vector substrate: per tick, the roster's position mirrors are
+  copied into gScriptVector px/pz tables and a bounded backward-jump loop walks them by
+  a LIVE index byte — vector reads **and** writes through the loop variable (the one
+  0xD3 composition the BTTABLE proof did not cover) — publishing the inside-the-box
+  headcount into a counter and the per-unit 0/1 flags into a named table the `table_*`
+  conds can read. The count is derived through the flag write-then-read round trip, so
+  an indexing fault breaks the number instead of passing silently. ~400B of ticker per
+  8-unit roster. In-game proven (THE PILGRIMAGE, 30416: the whole 1/4/8 announce ladder
+  landed true off the loop). Caveat: mirrors freeze on deactivation (a dead unit keeps
+  counting); the group-loop proper builds on this.
+
 ### Added — the compiled-behavior BYTE HISTOGRAM (`CompiledBehavior.size_report()`)
 - The compiler now accounts for every byte it emits: zero-width `__seg` markers in the
   ticker (provably byte-inert — labels emit nothing) + exact body lengths yield a

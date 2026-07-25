@@ -1,5 +1,74 @@
 # GUI aesthetics — state + next steps
 
+> ## ROUND 14 — THE SCRIPT SPEAKS THE USER'S LANGUAGE (the verbatim Script presentation)  ·  ⚠ PLAYTEST PENDING
+>
+> **The ask:** the verbatim Script section presents raw decode ("npc_talk / tag 3", "shared_routine /
+> tag 29", bare flag indices, numeric warps) while the project now KNOWS these functions — the tag
+> conventions are proven, the scenario dispatch is the narrative-state lever, battles/warps/flags all
+> have names. One principle: **present what the kit has proven, keep the raw coordinate visible**
+> (edits key on entry/tag, so the number never leaves the row).
+>
+> **The semantic layer (logic_map.py, all pure + fenced):**
+> - **`KIND_LABEL`/`kind_label`** — every (role, tag) kind gets its human name: Field startup /
+>   After-battle re-entry / Talk handler / Walk-in trigger / Action trigger / Contact trigger /
+>   Player idle loop / Setup (model & pose)… Grounded in proven semantics (TALK_TAG=3, the tag-2
+>   chest handler, entry-0 tag-10 Main_Reinit). Completeness-fenced: every emitted kind has a label.
+> - **`_switch_selector`** — a switch is no longer "a switch": the selector expr pushed before it is
+>   decoded (pretty_expr), and `DC 00` (the ScenarioCounter) marks the **STORY-BEAT dispatch** — the
+>   exact thing `[startup] scenario` keys into; a base-0 contiguous table after a dialogue window is
+>   the **answer dispatch** (one case per menu row, `_menu_txid_hint`'s own heuristic).
+> - **Battle 0x2A/BattleEx** scanned as a first-class effect ("Starts a battle (scene 67 — BSC_…)"),
+>   scene named via the battle-locations census — a talk handler that starts a boss fight was
+>   INVISIBLE before.
+> - **`flag_phrase`** — a flag names its BAND: kit band 8712+ = "added by this fork, not the donor"
+>   (audit your own guards at a glance), Mognet lock / read-mail scratch = stock-reserved.
+> - **Warp names** — `build_logic_map(field_names=)`: campaign members first (a retargeted warp lands
+>   on a member → "Warps to field 30101 — TRAIL"), the dev manifest's real-field names second.
+> - node_summary/node_hint speak the same language (" · story beats", " · menu answers", " · battle",
+>   "story-beat dispatch"); the CLI transcript (`format_logic_map`) keeps parity; the unresolved line
+>   no longer says "Calls a routine chosen at runtime — text chosen at runtime".
+>
+> **The shell spends it:** tree rows lead with the human name ("Talk handler · tag 3 · dialogue"),
+> a defined-but-never-spawned entry is chipped **on its row** ("· not spawned" — dormant content was
+> detail-only), the Script group's detail teaches the story-beat lever exactly when Main_Init
+> dispatches on the scenario counter, and the edit panel's crown reads "Talk handler · entry 2 / tag 3"
+> (single-spaced '·' inside the name half — `_header` rpartitions on the wide separator; the first cut
+> made the routine the KICKER and the coordinates the crown).
+>
+> **The fixture is the other half of the round:** a KIT-AUTHORED synthetic verbatim field (raw
+> instruction bytes — spawns + a story-beat SWITCHEX + a talkable NPC with dialogue/reward/kit-band
+> flag + a dormant object + warp/battle triggers + a .mes json; zero SE bytes). It powers BOTH the new
+> `test_workspace_script_tree.py` call-site fences AND the new pinned `script:tree|panel` gui_snap
+> surfaces — which run in template-less worktrees where the smoke's ALEX block silently skips (the
+> worktree-skip trap, closed for this surface). The builder has ONE owner (the test file); gui_snap
+> loads it by path.
+>
+> Snap-caught while driving: the panel's Editor sub-tab isn't current after a campaign open (the snap
+> activates it); dialogue lines ended with a stray " /" (a trailing .mes newline rendered as a
+> separator to nothing — `_line_text` now rstrips it, real fields included). Suite green + new fences;
+> pixels read at 100%. ⚠ Not yet seen by a human in the running app.
+>
+> **PART 2 — THE NOUNS GET TAUGHT (owner feedback on a real Prima Vista fork: "still not really
+> understanding these entries/tags/routines/cases").** The labels were friendlier but the CONCEPTS were
+> untaught, and the real field showed the failure round 14's demo couldn't: a WALL of seven identical
+> "entry N: logic" rows. Four moves, each in a house mechanism:
+> 1. **A concept card** (`script-entries` — "Entries, tags & routines"): the cast-list model in plain
+>    words (entry = actor slot · tags = the engine's moments: 0 setup / 1 every frame / 2 contact /
+>    3 action / 10 after battle · routine = entry+tag · case = one path of a switch). Aliased to every
+>    word the owner reached for (entries/tags/routines/cases/switch → Ctrl-K answers them). Linked ⓘ
+>    from the Script group's detail AND the routine panel (the wave2 quiet-link pattern).
+> 2. **`entry_label` splits the logic wall**: a model-less entry with a tag-2/3 handler is an
+>    **invisible trigger** (the engine dispatches when the player touches/examines its spot); one with
+>    only loops/helpers is a **script helper**. The word "logic" appears on no row; the entry detail
+>    says what a model-less slot IS.
+> 3. **`fmt_tags`** annotates the conventional numbers in the entry detail ("functions (tags): 0
+>    (setup), 1 (every frame), 3 (action/talk), 29").
+> 4. **The routine transcript opens by default** — it IS the explanation — and opening it caught a
+>    pre-existing rendering bug on its FIRST rendered pixel: `_collapsible` escaped each line into a
+>    label that renders PLAIN, so the panel said `Says: &quot;Kupo!…` literally (invisible for a whole
+>    round because the block always started collapsed — a mechanism nobody renders is a mechanism
+>    nobody verifies). Raw text + forced PlainText now; fenced on the real quote and the absent entity.
+
 > ## ROUND 13 — THE SQUEEZE, THREE PANES DEEP (the detailed UX pass)  ·  ★ PLAYTESTED 2026-07-25
 >
 > A full-surface sweep (all 45 pinned surfaces × 100/150%, every PNG read) against the current master.

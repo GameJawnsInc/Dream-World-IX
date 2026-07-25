@@ -317,6 +317,55 @@ class HoldPost(Action):
 
 
 @dataclass
+class Engage(Action):
+    """THE GROUP LOOP (v2): fight whichever member of ``group`` the acquire loop
+    holds in my target register — ONE branch and ONE dispatch body regardless of
+    roster size, replacing the unrolled per-pair machinery (the three-walls
+    economics: ~130B of ticker + ~108B of body + a band byte PER PAIR collapse
+    to a fixed ~700B per unit). Two-phase by construction: within ``contact``
+    the strike body runs (target-indexed damage + facing); otherwise the pursue
+    feed walks toward the target's table position (live retarget, sync-walk
+    law). Acquisition is FIRST-IN-RANGE in roster order (v1 pair-branch parity
+    — roster order IS the priority list) and STICKY: a valid target is kept
+    until it dies, deactivates, or leaves ``radius``."""
+    group: str
+    radius: int = 900
+    contact: int = 170
+    damage: int = 1
+    interval: int = 25
+    speed: int | None = None
+
+    def __post_init__(self):
+        if not 1 <= int(self.radius) <= 30000:
+            raise BehaviorError("Engage radius must be 1..30000")
+        if not 1 <= int(self.contact) < int(self.radius):
+            raise BehaviorError("Engage contact must be 1..radius-1")
+        if not 1 <= int(self.damage) <= 99:
+            raise BehaviorError("Engage damage must be 1..99")
+        if not 1 <= int(self.interval) <= 255:
+            raise BehaviorError("Engage interval must be 1..255 (a GLOB byte timer)")
+        self._swing = _GroupSwing(self)
+        self._pursue = _GroupPursue(self)
+
+
+@dataclass
+class _GroupSwing(Action):
+    """Engage's strike half (internal): the target-indexed dispatch body."""
+    engage: "Engage"
+
+
+@dataclass
+class _GroupPursue(Action):
+    """Engage's approach half (internal): the table-fed chase feed."""
+    engage: "Engage"
+    feed = True
+
+    @property
+    def speed(self):
+        return self.engage.speed
+
+
+@dataclass
 class HoldGround(Action):
     """Stand and take the fight: a dispatch action whose SELECTION halts the duty
     walk (the dispatch-halt clause feeds the unit its own mirror) and whose body
@@ -423,6 +472,43 @@ TABLE_ID_BASE = 1000                     # kit auto-allocation band for gScriptV
 TABLE_MAX_LEN = 64                       # keeps the Main_Init seed block bounded
 TABLE_VALUE_MIN = -(1 << 25)             # CalcStack values are 26-bit signed — a const4
 TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
+
+
+@dataclass
+class GroupSpec:
+    """A ROSTER whose per-member state lives in gScriptVector tables — the v2
+    substrate: px/pz (position mirrors, copied per tick), act (the active bit,
+    copied per tick), hp (THE ONLY home of a member's hit points — seeded from
+    UnitSpec.hp at Main_Init, damaged by computed-index writes, read by the
+    rerouted hp conds). Rosters are what Engage loops over."""
+    name: str
+    units: tuple
+    px_tid: int = 0
+    pz_tid: int = 0
+    act_tid: int = 0
+    hp_tid: int = 0
+
+
+@dataclass
+class ScanSpec:
+    """THE VECTOR LOOP (rung 0 of the v2 vector substrate): each ticker pass,
+    the roster's mirrors are copied into position tables and a bounded loop
+    walks them by a LIVE index — reads AND writes vector cells through the loop
+    variable — deriving how many units sit inside a Chebyshev box around
+    ``point``, published into counter ``count``. The count flows THROUGH a
+    computed-index write then read-back of the per-unit flag cells, so any
+    indexing fault breaks the number rather than passing silently."""
+    name: str
+    units: tuple
+    point: tuple
+    radius: int
+    count: str
+    flags: str
+    px_tid: int = 0
+    pz_tid: int = 0
+    flag_tid: int = 0
+    li: int = 0
+    acc: int = 0
 
 
 @dataclass
@@ -667,6 +753,10 @@ class FieldBehavior:
         self.tables: dict[str, tuple[int, tuple]] = {}   # name -> (vector id, values)
         self._counters: dict[str, int] = {}              # name -> cell index
         self._schedules: list[tuple[str, str]] = []      # (counter, table)
+        self._scans: list[ScanSpec] = []                 # the vector-loop probes
+        self._groups: dict[str, GroupSpec] = {}          # the engage rosters
+        self._member: dict[str, tuple[str, int]] = {}    # unit -> (group, index)
+        self._engages: dict[str, Engage] = {}            # unit -> its one Engage
         taken: set[int] = set()
         for ts in tables:
             if ts.id is not None:
@@ -740,12 +830,10 @@ class FieldBehavior:
         return Cond(f"Global.Bit[{self.bb.flag(f'{unit}.active')}]", _trusted=True)
 
     def hp_gt(self, unit: str, n: int) -> Cond:
-        return Cond(f"Global.Byte[{self.bb.byte(f'{unit}.hp')}] const({n}) B_GT",
-                    _trusted=True)
+        return Cond(f"{self._hp_ref(unit)} const({n}) B_GT", _trusted=True)
 
     def hp_le(self, unit: str, n: int) -> Cond:
-        return Cond(f"Global.Byte[{self.bb.byte(f'{unit}.hp')}] const({n}) B_LE",
-                    _trusted=True)
+        return Cond(f"{self._hp_ref(unit)} const({n}) B_LE", _trusted=True)
 
     def flag(self, name: str) -> Cond:
         return Cond(f"Global.Bit[{self.bb.flag(name)}]", _trusted=True)
@@ -882,6 +970,158 @@ class FieldBehavior:
         if any(c == counter for c, _t in self._schedules):
             raise BehaviorError(f"counter {counter!r} already has a schedule")
         self._schedules.append((counter, table))
+
+    def _alloc_tid(self) -> int:
+        """A deterministic auto table id AFTER construction (scan registration):
+        continue from the ctor's high-water mark, skipping anything taken."""
+        used = {tid for tid, _v in self.tables.values()}
+        if self._ctr_tid is not None:
+            used.add(self._ctr_tid)
+        while self._next_tid in used:
+            self._next_tid += 1
+        tid = self._next_tid
+        self._next_tid += 1
+        return tid
+
+    def group(self, name: str, units) -> GroupSpec:
+        """Declare a ROSTER (see :class:`GroupSpec`): allocates the px/pz/act/hp
+        tables and moves every member's hit points INTO the hp table (the hp
+        conds and every SwingAt damage write reroute to the cell — one home,
+        no drift). Members must carry ``hp=`` and may belong to one group.
+        DECLARE GROUPS BEFORE BUILDING TREES: ``hp_gt``/``hp_le`` bake the hp
+        home into their Cond text at call time (the TOML lane orders this
+        correctly by construction)."""
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name or ""):
+            raise BehaviorError(f"group name {name!r} must be [a-z][a-z0-9_]*")
+        if name in self._groups:
+            raise BehaviorError(f"group {name!r} already registered")
+        units = tuple(str(u) for u in units)
+        if not units:
+            raise BehaviorError(f"group {name!r}: needs at least one unit")
+        if len(units) > TABLE_MAX_LEN:
+            raise BehaviorError(f"group {name!r}: {len(units)} units > the "
+                                f"{TABLE_MAX_LEN}-cell table cap")
+        if len(set(units)) != len(units):
+            raise BehaviorError(f"group {name!r}: duplicate units")
+        for u in units:
+            if u not in self.units:
+                raise BehaviorError(f"group {name!r}: unknown unit {u!r}")
+            if self.units[u].hp is None:
+                raise BehaviorError(f"group {name!r}: member {u!r} has no hp= "
+                                    f"(the roster hp table is a member's ONLY "
+                                    f"hit-point home)")
+            if u in self._member:
+                raise BehaviorError(f"group {name!r}: {u!r} is already in group "
+                                    f"{self._member[u][0]!r}")
+        for tname in (f"group.{name}.px", f"group.{name}.pz",
+                      f"group.{name}.act", f"group.{name}.hp"):
+            if tname in self.tables:
+                raise BehaviorError(f"group {name!r}: table name {tname!r} is taken")
+        zeros = (0,) * len(units)
+        g = GroupSpec(name, units,
+                      px_tid=self._alloc_tid(), pz_tid=self._alloc_tid(),
+                      act_tid=self._alloc_tid(), hp_tid=self._alloc_tid())
+        self.tables[f"group.{name}.px"] = (g.px_tid, zeros)
+        self.tables[f"group.{name}.pz"] = (g.pz_tid, zeros)
+        self.tables[f"group.{name}.act"] = (g.act_tid, zeros)
+        self.tables[f"group.{name}.hp"] = (
+            g.hp_tid, tuple(int(self.units[u].hp) for u in units))
+        self._groups[name] = g
+        for i, u in enumerate(units):
+            self._member[u] = (name, i)
+        return g
+
+    def _hp_ref(self, unit: str) -> str:
+        """The RPN fragment for a unit's hit points — a Global byte, or (for a
+        roster member) its hp CELL: usable as read operand or B_LET target."""
+        m = self._member.get(unit)
+        if m is not None:
+            g = self._groups[m[0]]
+            return f"{_cnum(g.hp_tid)} {_cnum(m[1])} B_VECTOR"
+        return f"Global.Byte[{self.bb.byte(f'{unit}.hp')}]"
+
+    def engage_node(self, unit: str, e: Engage) -> Node:
+        """Compile-side surface for the ``engage`` verb: registers the unit's
+        acquire loop + target register and returns the two-phase subtree
+        (contact -> the strike dispatch; else -> the pursue feed), built
+        entirely from the standard node vocabulary."""
+        if unit not in self.units:
+            raise BehaviorError(f"engage: unknown unit {unit!r}")
+        if e.group not in self._groups:
+            raise BehaviorError(f"engage: unknown group {e.group!r} "
+                                f"(declare it with group())")
+        g = self._groups[e.group]
+        if unit in g.units:
+            raise BehaviorError(f"engage: {unit!r} cannot engage its OWN group "
+                                f"{e.group!r}")
+        if unit in self._engages:
+            raise BehaviorError(f"engage: {unit!r} already has an engage "
+                                f"(one target register per unit in v2 rung 1)")
+        self._engages[unit] = e
+        ctgt = self.bb.byte(f"{unit}.ctgt")
+        pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        return Selector(
+            Sequence(Cond(f"Global.Byte[{ctgt}] const(255) B_LT", _trusted=True),
+                     Cond(_box(self._mx(unit), self._mz(unit), pxc, pzc,
+                               int(e.contact)), _trusted=True),
+                     Do(e._swing)),
+            Sequence(Cond(f"Global.Byte[{ctgt}] const(255) B_LT", _trusted=True),
+                     Do(e._pursue)),
+        )
+
+    def scan(self, name: str, units, point, radius: int, count: str,
+             flags: str | None = None):
+        """THE VECTOR LOOP (v2 rung 0 — the group-scan primitive): each run
+        pass, copy the roster's position mirrors into px/pz tables (constant-
+        index vector writes, the proven seed shape), then LOOP an index byte
+        over the roster: write each unit's inside-the-box flag into the flags
+        table BY THE LOOP VARIABLE (the computed-index WRITE), read it back and
+        accumulate (the computed-index READ), and publish the total into
+        counter ``count`` — trees gate on ``counter_ge`` as usual. The count is
+        derived THROUGH the flag round-trip on purpose: a mis-indexed write or
+        read breaks the number instead of passing silently.
+
+        Mirrors freeze when a unit deactivates (the mirror block is
+        active-gated), so a dead unit still standing in the box keeps counting
+        — pair the scan with rosters that stay alive, or gate consumers
+        accordingly (the v2 group loop proper will carry an active[] table)."""
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name or ""):
+            raise BehaviorError(f"scan name {name!r} must be [a-z][a-z0-9_]*")
+        if any(s.name == name for s in self._scans):
+            raise BehaviorError(f"scan {name!r} already registered")
+        units = tuple(str(u) for u in units)
+        if not units:
+            raise BehaviorError(f"scan {name!r}: needs at least one unit")
+        if len(units) > TABLE_MAX_LEN:
+            raise BehaviorError(f"scan {name!r}: {len(units)} units > the "
+                                f"{TABLE_MAX_LEN}-cell table cap")
+        for u in units:
+            if u not in self.units:
+                raise BehaviorError(f"scan {name!r}: unknown unit {u!r}")
+        if len(set(units)) != len(units):
+            raise BehaviorError(f"scan {name!r}: duplicate units")
+        if not 1 <= int(radius) <= 30000:
+            raise BehaviorError(f"scan {name!r}: radius must be 1..30000")
+        self._counter_ref(count)                          # existence check
+        fname = flags or f"scan.{name}.near"
+        for tname in (f"scan.{name}.px", f"scan.{name}.pz", fname):
+            if tname in self.tables:
+                raise BehaviorError(f"scan {name!r}: table name {tname!r} is taken")
+        zeros = (0,) * len(units)
+        sc = ScanSpec(name, units, (int(point[0]), int(point[1])), int(radius),
+                      str(count), fname,
+                      px_tid=self._alloc_tid(), pz_tid=self._alloc_tid(),
+                      flag_tid=self._alloc_tid(),
+                      li=self.bb.byte(f"scan.{name}.i"),
+                      acc=self.bb.byte(f"scan.{name}.n"))
+        # registering the tables makes Main_Init seed them (size wipe + grow)
+        # and, for the user-named flags table, exposes it to the table_* conds
+        self.tables[f"scan.{name}.px"] = (sc.px_tid, zeros)
+        self.tables[f"scan.{name}.pz"] = (sc.pz_tid, zeros)
+        self.tables[fname] = (sc.flag_tid, zeros)
+        self._scans.append(sc)
+        return sc
 
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
@@ -1117,8 +1357,13 @@ class FieldBehavior:
                 px, pz = fallback.point
             main_init += _set_int16(tx, int(px))
             main_init += _set_int16(tz, int(pz))
-            if u.hp is not None:
+            if u.hp is not None and u.name not in self._member:
+                # a roster member's ONLY hp home is its group cell (table-seeded)
                 main_init += _set_byte(self.bb.byte(f"{u.name}.hp"), int(u.hp))
+            if u.name in self._engages:
+                # the target register: 255 = none (0 is a VALID roster index,
+                # so this preset must never ride the zero-reset list)
+                main_init += _set_byte(self.bb.byte(f"{u.name}.ctgt"), 255)
             if u.pooled or any(isinstance(a, HoldPost) for a in actions):
                 # the placement post: presets to the unit's own spawn; a pooled
                 # activation overwrites it with the press-time position
@@ -1206,6 +1451,8 @@ class FieldBehavior:
                 _stmt(f"Global.Bit[{act_flag}]"),
                 (JMP_IFNOT, f"t_{u.name}_done"),
             ]
+            if u.name in self._engages:
+                ticker += self._acquire_block(u, self._engages[u.name])
             ticker += self._compile_tree(u, u.tree, ids, fail=f"t_{u.name}_fellthrough")
             ticker += [
                 label(f"t_{u.name}_fellthrough"),        # unreachable (fallback is
@@ -1297,6 +1544,59 @@ class FieldBehavior:
                 _stmt(f"{cell} {cell} const(1) B_PLUS B_LET"),
                 label(f"sch_{si}"),
             ]
+        # THE VECTOR LOOPS (scan): copy mirrors into the position tables
+        # (constant-index writes — the proven Main_Init seed shape), then a
+        # bounded backward-jump loop whose reads AND writes index cells by the
+        # LIVE loop byte — the v2 rung-0 composition. Pure table/GLOB math, no
+        # object tokens (the player-ref eval law never enters), and the loop
+        # bound is a compile-time constant (always terminates).
+        for sc in self._scans:
+            n = len(sc.units)
+            cd_blocks.append(label(f"__seg scan {sc.name}"))
+            for i, un in enumerate(sc.units):
+                mx = self.bb.int16(f"{un}.mx")
+                mz = self.bb.int16(f"{un}.mz")
+                cd_blocks.append(_stmt(f"{_cnum(sc.px_tid)} {_cnum(i)} B_VECTOR "
+                                       f"Global.Int16[{mx}] B_LET"))
+                cd_blocks.append(_stmt(f"{_cnum(sc.pz_tid)} {_cnum(i)} B_VECTOR "
+                                       f"Global.Int16[{mz}] B_LET"))
+            px = f"{_cnum(sc.px_tid)} Global.Byte[{sc.li}] B_VECTOR"
+            pz = f"{_cnum(sc.pz_tid)} Global.Byte[{sc.li}] B_VECTOR"
+            x, z, r = sc.point[0], sc.point[1], sc.radius
+            cheb = (f"{px} {_cnum(x - r)} B_GT {px} {_cnum(x + r)} B_LT B_ANDAND "
+                    f"{pz} {_cnum(z - r)} B_GT B_ANDAND "
+                    f"{pz} {_cnum(z + r)} B_LT B_ANDAND")
+            cd_blocks += [
+                _set_byte(sc.li, 0), _set_byte(sc.acc, 0),
+                label(f"scn_{sc.name}_top"),
+                _stmt(f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                      f"{cheb} B_LET"),
+                _stmt(f"Global.Byte[{sc.acc}] Global.Byte[{sc.acc}] "
+                      f"{_cnum(sc.flag_tid)} Global.Byte[{sc.li}] B_VECTOR "
+                      f"B_PLUS B_LET"),
+                _stmt(f"Global.Byte[{sc.li}] Global.Byte[{sc.li}] const(1) "
+                      f"B_PLUS B_LET"),
+                _stmt(f"Global.Byte[{sc.li}] const({n}) B_LT"),
+                (JMP_IF, f"scn_{sc.name}_top"),
+                _stmt(f"{self._counter_ref(sc.count)} Global.Byte[{sc.acc}] B_LET"),
+            ]
+        # GROUP MIRRORS (the engage substrate): px/pz/act into the roster tables
+        # once per group per pass — the same constant-index write shape as the
+        # scan copies. hp needs no mirror: the cells ARE the home.
+        for g in self._groups.values():
+            cd_blocks.append(label(f"__seg group {g.name}"))
+            for i, un in enumerate(g.units):
+                mx = self.bb.int16(f"{un}.mx")
+                mz = self.bb.int16(f"{un}.mz")
+                act = self.bb.flag(f"{un}.active")
+                cd_blocks += [
+                    _stmt(f"{_cnum(g.px_tid)} {_cnum(i)} B_VECTOR "
+                          f"Global.Int16[{mx}] B_LET"),
+                    _stmt(f"{_cnum(g.pz_tid)} {_cnum(i)} B_VECTOR "
+                          f"Global.Int16[{mz}] B_LET"),
+                    _stmt(f"{_cnum(g.act_tid)} {_cnum(i)} B_VECTOR "
+                          f"Global.Bit[{act}] B_LET"),
+                ]
         # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
         # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
         # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
@@ -1401,6 +1701,21 @@ class FieldBehavior:
                     f"{n}=cell {i}" for n, i in self._counters.items()))
             for cname, tname in self._schedules:
                 tl.append(f"  schedule: {cname} += 1 while timer < {tname}[{cname}]")
+            for sc in self._scans:
+                tl.append(f"  scan {sc.name}: {len(sc.units)} unit(s) -> counter "
+                          f"'{sc.count}' (acc byte {sc.acc}, loop byte {sc.li}); "
+                          f"box ({sc.point[0]},{sc.point[1]}) r={sc.radius}; "
+                          f"tables px={sc.px_tid} pz={sc.pz_tid} "
+                          f"near={sc.flag_tid} ('{sc.flags}')")
+            for g in self._groups.values():
+                tl.append(f"  group {g.name}: [{', '.join(g.units)}] — tables "
+                          f"px={g.px_tid} pz={g.pz_tid} act={g.act_tid} "
+                          f"hp={g.hp_tid} (hp cells ARE the members' hit points)")
+            for un, e in self._engages.items():
+                tl.append(f"  engage {un} -> group '{e.group}': target register "
+                          f"byte {self.bb.byte(f'{un}.ctgt')} (255=none, watch in "
+                          f"~ Flags), r={e.radius} contact={e.contact} "
+                          f"dmg={e.damage} ivl={e.interval}")
             tables_txt = "\n" + "\n".join(tl)
         # the byte histogram: segment sizes from the PRE-relaxation measure (the
         # content bytes; the asm() length difference is pure island overhead)
@@ -1546,6 +1861,51 @@ class FieldBehavior:
             return out
         raise BehaviorError(f"unknown node {type(node).__name__}")
 
+    def _acquire_block(self, u: UnitSpec, e: Engage) -> list:
+        """THE ACQUIRE LOOP (per engage unit, inside its active gate, before the
+        tree): keep a STILL-VALID target (alive, active, within radius — the
+        sticky fast path most ticks take), else scan the roster FIRST-IN-RANGE
+        in roster order (v1 pair-branch parity: roster order is the priority
+        list). All reads index the group tables by a live byte — the rung-0
+        composition doing per-unit perception."""
+        g = self._groups[e.group]
+        n = len(g.units)
+        ctgt = self.bb.byte(f"{u.name}.ctgt")
+        li = self.bb.byte(f"{u.name}.gscan")
+        pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        pxl = f"{_cnum(g.px_tid)} Global.Byte[{li}] B_VECTOR"
+        pzl = f"{_cnum(g.pz_tid)} Global.Byte[{li}] B_VECTOR"
+        A = f"t_{u.name}_aq"
+        return [
+            _stmt(f"Global.Byte[{ctgt}] const(255) B_LT"), (JMP_IFNOT, f"{A}_scan"),
+            _stmt(f"{_cnum(g.act_tid)} Global.Byte[{ctgt}] B_VECTOR const(1) B_EQ"),
+            (JMP_IFNOT, f"{A}_drop"),
+            _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{ctgt}] B_VECTOR const(0) B_GT"),
+            (JMP_IFNOT, f"{A}_drop"),
+            _stmt(_box(self._mx(u.name), self._mz(u.name), pxc, pzc, int(e.radius))),
+            (JMP_IF, f"{A}_end"),
+            label(f"{A}_drop"),
+            _set_byte(ctgt, 255),
+            label(f"{A}_scan"),
+            _set_byte(li, 0),
+            label(f"{A}_top"),
+            _stmt(f"{_cnum(g.act_tid)} Global.Byte[{li}] B_VECTOR const(1) B_EQ"),
+            (JMP_IFNOT, f"{A}_nxt"),
+            _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{li}] B_VECTOR const(0) B_GT"),
+            (JMP_IFNOT, f"{A}_nxt"),
+            _stmt(_box(self._mx(u.name), self._mz(u.name), pxl, pzl, int(e.radius))),
+            (JMP_IFNOT, f"{A}_nxt"),
+            _stmt(f"Global.Byte[{ctgt}] Global.Byte[{li}] B_LET"),
+            (JMP, f"{A}_end"),
+            label(f"{A}_nxt"),
+            _stmt(f"Global.Byte[{li}] Global.Byte[{li}] const(1) B_PLUS B_LET"),
+            _stmt(f"Global.Byte[{li}] const({n}) B_LT"),
+            (JMP_IF, f"{A}_top"),
+            _set_byte(ctgt, 255),
+            label(f"{A}_end"),
+        ]
+
     def _feed_effect(self, u: UnitSpec, a: Action) -> list:
         tx = self.bb.int16(f"{u.name}.tx")
         tz = self.bb.int16(f"{u.name}.tz")
@@ -1558,6 +1918,28 @@ class FieldBehavior:
             upz = self.bb.int16(f"{u.name}.pz")
             return [_stmt(f"Global.Int16[{tx}] Global.Int16[{upx}] B_LET"),
                     _stmt(f"Global.Int16[{tz}] Global.Int16[{upz}] B_LET")]
+        if isinstance(a, _GroupPursue):
+            e = a.engage
+            g = self._groups[e.group]
+            ctgt = self.bb.byte(f"{u.name}.ctgt")
+            pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            self._label_ctr += 1
+            L = f"t_{u.name}_gp{self._label_ctr}"
+            # walk toward the target's TABLE position (live retarget — the
+            # mirrors refresh the cells each pass). In contact the swing branch
+            # outranks this one, and its dispatch-halt feeds the own mirror, so
+            # no standoff clause is needed here. Belt: no target -> hold ground
+            # (the engage subtree's valid-cond makes this unreachable).
+            return [_stmt(f"Global.Byte[{ctgt}] const(255) B_LT"),
+                    (JMP_IFNOT, f"{L}_own"),
+                    _stmt(f"Global.Int16[{tx}] {pxc} B_LET"),
+                    _stmt(f"Global.Int16[{tz}] {pzc} B_LET"),
+                    (JMP, f"{L}_end"),
+                    label(f"{L}_own"),
+                    _stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
+                    _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET"),
+                    label(f"{L}_end")]
         if isinstance(a, Chase):
             self._check_unit(a.target)
             gate = (f"Global.Bit[{self._staged}]" if a.target == PLAYER
@@ -1844,21 +2226,50 @@ class FieldBehavior:
             self._check_unit(a.target)
             if a.target == PLAYER:
                 raise BehaviorError("SwingAt(player) is not a v1 action")
-            t_hp = self.bb.byte(f"{a.target}.hp")
+            t_hp = self._hp_ref(a.target)      # Global byte, or a roster hp CELL
             t_act = self.bb.flag(f"{a.target}.active")
             timer = self.bb.byte(f"{u.name}.swing{aid}")
             if timer not in self._reset_bytes:
                 self._reset_bytes.append(timer)
             work: list = [
                 _stmt(f"Global.Bit[{t_act}]"), (JMP_IFNOT, "out"),
-                _stmt(f"Global.Byte[{t_hp}] const(0) B_GT"), (JMP_IFNOT, "out"),
+                _stmt(f"{t_hp} const(0) B_GT"), (JMP_IFNOT, "out"),
                 _stmt(f"Global.Byte[{timer}] Global.Byte[{timer}] const(1) B_PLUS B_LET"),
                 _stmt(f"Global.Byte[{timer}] const({a.interval}) B_LT"),
                 (JMP_IF, "wait"),
                 _set_byte(timer, 0),
                 opcodes.turn_toward_object(self.units[a.target].entry, 16),
-                _stmt(f"Global.Byte[{t_hp}] Global.Byte[{t_hp}] const({a.damage}) "
-                      f"B_MINUS B_LET"),
+                _stmt(f"{t_hp} {t_hp} const({a.damage}) B_MINUS B_LET"),
+            ]
+            return asm(head + work + tail)
+        if isinstance(a, _GroupSwing):
+            e = a.engage
+            g = self._groups[e.group]
+            ctgt = self.bb.byte(f"{u.name}.ctgt")
+            timer = self.bb.byte(f"{u.name}.gswing")
+            if timer not in self._reset_bytes:
+                self._reset_bytes.append(timer)
+            actc = f"{_cnum(g.act_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            hpc = f"{_cnum(g.hp_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            # the SwingAt body generalized by the target REGISTER: every read
+            # and the damage write index the roster tables through ctgt. Facing
+            # is TurnTowardPosition on the target's TABLE position — pure data,
+            # no uid, the player-ref law never enters.
+            work = [
+                _stmt(f"Global.Byte[{ctgt}] const(255) B_LT"), (JMP_IFNOT, "out"),
+                _stmt(f"{actc} const(1) B_EQ"), (JMP_IFNOT, "out"),
+                _stmt(f"{hpc} const(0) B_GT"), (JMP_IFNOT, "out"),
+                _stmt(f"Global.Byte[{timer}] Global.Byte[{timer}] const(1) B_PLUS B_LET"),
+                _stmt(f"Global.Byte[{timer}] const({e.interval}) B_LT"),
+                (JMP_IF, "wait"),
+                _set_byte(timer, 0),
+                opcodes.encode(0x9B,
+                               exprasm.assemble(f"{pxc} B_EXPR_END"),
+                               exprasm.assemble(f"{pzc} B_EXPR_END"),
+                               arg_flags=0b11),
+                _stmt(f"{hpc} {hpc} const({e.damage}) B_MINUS B_LET"),
             ]
             return asm(head + work + tail)
         raise BehaviorError(f"no dispatch body for {type(a).__name__}")

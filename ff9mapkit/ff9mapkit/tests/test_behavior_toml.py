@@ -674,3 +674,150 @@ def test_award_toml_surface_and_negatives():
     assert any("count must be" in p for p in
                mut(lambda b: b["unit"][0]["branch"][0].update(
                    do={"award": 5, "count": 0})))
+
+
+SCAN_RAW = {
+    "npc": [
+        {"name": "m0", "pos": [0, 0], "dialogue": "..."},
+        {"name": "m1", "pos": [100, 0], "dialogue": "..."},
+        {"name": "crier", "pos": [900, 0], "dialogue": "..."},
+    ],
+    "behavior": {
+        "counters": ["at_shrine"],
+        "scan": [{"name": "shrine", "units": ["m0", "m1"], "point": [800, 0],
+                  "radius": 300, "count": "at_shrine", "flags": "near_shrine"}],
+        "unit": [
+            {"npc": "m0", "branch": [{"do": {"march": [[0, 0], [800, 0]]}}]},
+            {"npc": "m1", "branch": [{"do": {"march": [[100, 0], [800, 0]]}}]},
+            {"npc": "crier", "branch": [
+                {"when": [{"counter_ge": ["at_shrine", 2]}], "once": "both",
+                 "do": {"announce": "Both at the shrine."}},
+                {"when": [{"table_eq": ["near_shrine", 0, 1]}], "once": "first",
+                 "do": {"announce": "The first arrives."}},
+                {"do": {"hold": [900, 0]}},
+            ]},
+        ],
+    },
+}
+
+
+def test_scan_toml_surface():
+    assert BT.validate(SCAN_RAW) == []
+    fb = BT.build(SCAN_RAW, npc_slots={"m0": 2, "m1": 3, "crier": 4},
+                  behavior_txids={(2, 0): 700, (2, 1): 701})
+    cb = fb.compile()
+    _verify_all(cb)
+    assert [s.name for s in fb._scans] == ["shrine"]
+    # the user-named flags table is a REAL table: table_* conds read it
+    assert "near_shrine" in fb.tables
+    assert "scan shrine: 2 unit(s)" in cb.report
+    fb2 = BT.build(SCAN_RAW, npc_slots={"m0": 2, "m1": 3, "crier": 4},
+                   behavior_txids={(2, 0): 700, (2, 1): 701})
+    assert fb2.compile().stable_hash() == cb.stable_hash()
+
+
+def test_scan_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(SCAN_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("is not a [[behavior.unit]] npc" in p for p in
+               mut(lambda b: b["scan"][0].update(units=["ghost"])))
+    assert any("not in [behavior] counters" in p for p in
+               mut(lambda b: b["scan"][0].update(count="nope")))
+    assert any("needs `point" in p for p in
+               mut(lambda b: b["scan"][0].update(point=[1])))
+    assert any("radius must be" in p for p in
+               mut(lambda b: b["scan"][0].update(radius=0)))
+    assert any("needs `name" in p for p in
+               mut(lambda b: b["scan"][0].update(name="BadName")))
+    assert any("duplicate scan" in p for p in
+               mut(lambda b: b["scan"].append(dict(b["scan"][0]))))
+    assert any("unknown key" in p for p in
+               mut(lambda b: b["scan"][0].update(speed=9)))
+    assert any("duplicate units" in p for p in
+               mut(lambda b: b["scan"][0].update(units=["m0", "m0"])))
+    assert any("collides with a [[behavior.table]]" in p for p in
+               mut(lambda b: (b.__setitem__("table", [{"name": "near_shrine",
+                                                       "values": [1]}]))))
+
+
+GROUP_RAW = {
+    "npc": [
+        {"name": "a0", "pos": [0, 0], "dialogue": "..."},
+        {"name": "a1", "pos": [0, 300], "dialogue": "..."},
+        {"name": "b0", "pos": [900, 0], "dialogue": "..."},
+        {"name": "b1", "pos": [900, 300], "dialogue": "..."},
+    ],
+    "behavior": {
+        "counters": ["fallen"],
+        "group": [{"name": "reds", "units": ["a0", "a1"]},
+                  {"name": "blues", "units": ["b0", "b1"]}],
+        "unit": [
+            {"npc": "a0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "blues", "radius": 1500, "contact": 170}},
+                {"do": {"hold": [0, 0]}}]},
+            {"npc": "a1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"when": [{"table_ge": ["group.blues.hp", 0, 1]}],
+                 "do": {"engage": "blues"}},
+                {"do": {"hold": [0, 300]}}]},
+            {"npc": "b0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds"}},
+                {"do": {"hold": [900, 0]}}]},
+            {"npc": "b1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds", "speed": 70}},
+                {"do": {"hold": [900, 300]}}]},
+        ],
+    },
+}
+
+
+def test_group_toml_surface():
+    assert BT.validate(GROUP_RAW) == []
+    slots = {"a0": 2, "a1": 3, "b0": 4, "b1": 5}
+    fb = BT.build(GROUP_RAW, npc_slots=slots)
+    cb = fb.compile()
+    _verify_all(cb)
+    assert set(fb._groups) == {"reds", "blues"}
+    assert fb._member["a0"] == ("reds", 0) and fb._member["b1"] == ("blues", 1)
+    assert set(fb._engages) == {"a0", "a1", "b0", "b1"}
+    assert "group reds" in cb.report and "engage b1 -> group 'reds'" in cb.report
+    fb2 = BT.build(GROUP_RAW, npc_slots=slots)
+    assert fb2.compile().stable_hash() == cb.stable_hash()
+
+
+def test_group_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(GROUP_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("cannot engage its own group" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(engage="reds")))
+    assert any("is not a [[behavior.group]]" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(engage="ghosts")))
+    assert any("contact must be" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(
+                   radius=100, contact=100)))
+    assert any("takes no raise_flags" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1].update(raise_flags=["x"])))
+    assert any("already has an engage" in p for p in
+               mut(lambda b: b["unit"][0]["branch"].insert(
+                   2, {"do": {"engage": "blues"}})))
+    assert any("has no `hp`" in p for p in
+               mut(lambda b: b["unit"][1].pop("hp")))
+    assert any("already in group" in p for p in
+               mut(lambda b: b["group"][1]["units"].append("a0")))
+    assert any("unknown key" in p for p in
+               mut(lambda b: b["group"][0].update(color="red")))
+    assert any("duplicate group" in p for p in
+               mut(lambda b: b["group"].append({"name": "reds", "units": ["b0"]})))
