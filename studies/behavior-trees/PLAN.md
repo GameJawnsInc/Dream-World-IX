@@ -310,9 +310,9 @@ runtime tree switching beyond blackboard-driven branches.
   build invariant). 6 new tests incl. the built-.eb tag-10 e2e. The proof bench =
   fort-condor 30400 "THE SIEGE" (its PLAN rung 4).
 - **POST-LADDER — DATA TABLES (the 0xD3 dividend as vocabulary, 2026-07-24):
-  ★ MECHANISMS IN-GAME PROVEN over 2 rounds (bench 30415 "BTTABLE" = the FIRST
-  IN-GAME RUN of `.eb` computed array indexing anywhere); round 3 = the
-  starvation-fix check pending.** Round 1 proved the clock/computed-index/kill
+  ★ FULLY IN-GAME PROVEN over 3 rounds (bench 30415 "BTTABLE" = the FIRST
+  IN-GAME RUN of `.eb` computed array indexing anywhere; round 3 "wave 3 is
+  good" — every announce fires, the OOB terminator holds, no softlock).** Round 1 proved the clock/computed-index/kill
   path but the bench's own layout hid the tally beat (fang0's dormant post on a
   BALCONY — the lattice spanned all floors of the multi-floor plaza; + both
   approach chords measured 37-92% off-mesh, the arrival was blocked-walk
@@ -328,7 +328,9 @@ runtime tree switching beyond blackboard-driven branches.
   machinery, now shared) fires when the level frees, the dispatch body sets the
   Once latch FIRST and returns with no idle loop (the async window persists on
   its own). Sticky is UNCHANGED for feeds; a bare announce keeps its spam
-  guard; a shared once/bare Announce object is refused. 3 tests. `[[behavior.table]]` (named int
+  guard; a shared once/bare Announce object is refused. 4 tests. **Round 3 ★
+  ("wave 3 is good"): the starved line fires at its band with the win line
+  already latched — THE EVENT ONCE is in-game proven and the lane is CLOSED.** `[[behavior.table]]` (named int
   arrays in `gScriptVector`, RE-SEEDED every field entry: size←0 then size←n —
   engine zero-fill — then non-zero cells only; auto ids from 1000, save-global
   aliasing harmless by the re-seed, stale save tails impossible by the truncate) +

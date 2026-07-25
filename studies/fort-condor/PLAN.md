@@ -198,8 +198,8 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates
   waves and win conditions; `table_*` verbs take a counter as a COMPUTED index). Wave
   compositions, band times, and win thresholds become ONE table edit instead of
-  re-unrolled branches. ⚠ First in-game 0xD3 proof pending on bench 30415 (BTTABLE) —
-  prove it there BEFORE building rung 5 on it. Remaining rung-5 vocabulary gaps, for
+  re-unrolled branches. ★ PROVEN on bench 30415 (BTTABLE, 3 playtest rounds,
+  2026-07-24 — incl. THE EVENT-ONCE fix) — the substrate is live; rung 5 builds on it. Remaining rung-5 vocabulary gaps, for
   the ratification round: per-pool hire MENUS with multiple unit types priced apart
   (today: one pool = one price; N types = N pools + N menu rows — workable, just
   verbose), the affordable/exhausted feedback flags (recorded polish debt), win
