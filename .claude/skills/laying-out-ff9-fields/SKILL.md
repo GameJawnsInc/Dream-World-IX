@@ -1,7 +1,9 @@
 ---
 name: laying-out-ff9-fields
-description: Spatial layout for FF9 fields -- world axes, cardinals, facing bytes, model scale, spacing, and the offline layout probe. Use this EVERY time you place content in a field.toml (NPC/prop/spawn/arrival/gateway/zone positions, `face` values, cutscene walk/path coordinates) or narrate a direction in FF9 ("the goblin walks north", "the door on the left", "behind the player") -- in dialogue text, commit messages, study notes, or questions to the playtester. Also for "how big is a character / how far apart should NPCs be / will these overlap on screen / which way does W move". The recurring failure this prevents: content packed too close (actors jam under ~192u) and inverted cardinals (FF9's camera sits at NEGATIVE z, the room's FRONT is -z, and yawed cameras rotate the whole screen<->world mapping). Run `tools/field_layout_probe.py` and READ its PNGs before claiming any layout is correct.
+description: Spatial layout for FF9 fields -- world axes, cardinals, facing bytes, model scale, spacing, and the offline layout probe. Use this EVERY time you place content in a field.toml (NPC/prop/spawn/arrival/gateway/zone positions, `face` values, cutscene walk/path coordinates) or narrate a direction in FF9 ("the goblin walks north", "the door on the left", "behind the player") -- in dialogue text, commit messages, study notes, or questions to the playtester. Also for "how big is a character / how far apart should NPCs be / will these overlap on screen / which way does W move". The recurring failure this prevents -- content packed too close (actors jam under ~192u) and inverted cardinals (FF9's camera sits at NEGATIVE z, the room's FRONT is -z, and yawed cameras rotate the whole screen<->world mapping). Run `tools/field_layout_probe.py` and READ its PNGs before claiming any layout is correct.
 ---
+
+> Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
 
 # Laying Out FF9 Fields
 

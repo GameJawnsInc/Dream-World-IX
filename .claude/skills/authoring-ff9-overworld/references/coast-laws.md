@@ -1,11 +1,27 @@
-# Coast laws — NAME INDEX ONLY (full statements live in memory)
+# Coast laws — PARTIAL NAME INDEX (a 2026-07-11 snapshot; full + current list lives in memory)
 
-> **This file is a THIN INDEX, not the laws.** The full statements + provenance live in memory
-> **`project-ff9-overworld-coast-mosaic`** — read its `## LAW INDEX (read this first — full statements
-> below in this file)` section FIRST, then search the quoted `→ "…"` phrase to jump to the named section.
-> The memory file is canonical; if this index and the memory disagree, the memory wins. Every entry below
-> quotes the law's NAME verbatim + the index's one-line gist (snapshot of the LAW INDEX as of 2026-07-11,
-> 115 laws in 7 theme groups). Do not act on a gist — read the full statement.
+> **This file is a THIN, INCOMPLETE INDEX, not the laws — and not the current list.** It is a snapshot of
+> the memory file's LAW INDEX **as it stood on 2026-07-11** (115 laws in 7 theme groups). The coast/interior
+> arc ran continuously past that date, so **this file is now staler than the SKILL.md that gates on it.**
+>
+> **THE AUTHORITY IS MEMORY `project-ff9-overworld-coast-mosaic`.** Its own `## LAW INDEX` section
+> (**lines 13-164**, ~134 named laws, maintained through 2026-07-22) is the current list — read those
+> lines FIRST, then search the quoted `→ "…"` phrase to jump to the named section for the full statement +
+> provenance. The memory file is ~393 KB: **read lines 1-165 and open the body only to recover one
+> specific law's full statement.** If this index and the memory disagree, the memory wins.
+>
+> **Laws minted AFTER this snapshot (none of them appear below — search by NAME in the file named):**
+> *In `project-ff9-overworld-coast-mosaic`* — THE DIVERT-ARM LAW (s34) · THE EFFECTIVE-PREFAB-ORACLE law ·
+> THE WANG-CARRY LAW · THE SHALLOW-LADDER REMEDY (+ the `{sea1,sea5}` ladder) · THE ZERO-UV-AREA FLOOR.
+> *In `project-ff9-overworld-interior-topography`* — THE ORPHAN-DECAL GATE · THE ONE-WINDOW-PER-TRI LAW ·
+> THE DUNES-BACKING LAW · THE RIBBON FALLACY · the dunes SIZE-CLASS law (+ ZERO-UV-AREA, shared).
+> *In `project-ff9-overworld-audit-roadmap` / `project-ff9-overworld-terrain-authoring`* — THE SEA-LAYER
+> LAW · THE FLAT-MESH INVARIANT.
+> This is a discoverability list, not a re-index: **do not act on a name — open the named memory file and
+> read the law.** Nor is it exhaustive; the memory's LAW INDEX is.
+>
+> Every entry below quotes the law's NAME verbatim + the 2026-07-11 index's one-line gist. Do not act on a
+> gist — read the full statement.
 
 ## Contents
 

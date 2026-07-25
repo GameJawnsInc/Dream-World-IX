@@ -1,6 +1,6 @@
 ---
 name: deploying-ff9-mods
-description: Deploy, hot-reload, and debug FF9 mod builds through the edit-deploy-~ loop -- the procedure every content task terminates in. Use whenever the user runs `tools/deploy_field.py` or `deploy_battle`; presses ~ (tilde) to reload/warp in-game; or hits a post-deploy symptom (black screen, wrong dialogue but correct flags, after-battle softlock, "nothing changed after deploy"). Covers `.ff9deploy.toml` resolution and the master/-bb/-ih mod-folder stack, id-bands (real 10-3100 / custom 4000-9899 / scratch 30000-32767), the GLOBAL EventDB/SceneData distinct-id rule and null-`.eb` black-screen diagnosis, text-block/`.mes` shadowing across stacked folders, mesID registration, reverting a deploy, and re-wiring New Game after a wholesale campaign deploy. For campaign/journey deploy see `building-ff9-campaigns`; for rebuilding the engine DLL see `building-the-memoria-engine`; for authoring a field's logic see `authoring-ff9-field-scripts`.
+description: Deploy, hot-reload, and debug FF9 mod builds through the edit-deploy-~ loop -- the procedure every content task terminates in. Use whenever the user runs `tools/deploy_field.py` or `deploy_battle`; presses ~ (tilde) to reload/warp in-game; or hits a post-deploy symptom (black screen, wrong dialogue but correct flags, after-battle softlock, "nothing changed after deploy"). Covers `.ff9deploy.toml` resolution and the stacked mod-folder targets (`FF9CustomMap` + `FF9CustomMap-world`), id-bands (real 10-3100 / custom 4000-9899 / scratch 30000-32767), the GLOBAL EventDB/SceneData distinct-id rule and null-`.eb` black-screen diagnosis, text-block/`.mes` shadowing across stacked folders, mesID registration, reverting a deploy, and re-wiring New Game after a wholesale campaign deploy. For campaign/journey deploy see `building-ff9-campaigns`; for rebuilding the engine DLL see `building-the-memoria-engine`; for authoring a field's logic see `authoring-ff9-field-scripts`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
@@ -10,6 +10,8 @@ description: Deploy, hot-reload, and debug FF9 mod builds through the edit-deplo
 Every content change terminates in edit -> deploy -> ~. This skill owns that loop plus post-deploy
 failure diagnosis. Campaign/journey deploys belong to `building-ff9-campaigns`; engine-DLL rebuilds
 to `building-the-memoria-engine`; authoring the field's logic itself to `authoring-ff9-field-scripts`.
+The Workspace GUI drives this loop, so a defect in the deploy UI itself (a dead button, a wrong
+receipt, the revert ledger, the drift chip) belongs to `working-on-the-ff9-workspace`, not here.
 
 ## The edit->deploy->~ fast loop
 
@@ -30,7 +32,9 @@ Only three things — everything else is menu-hot:
 ## Choosing a deploy target
 
 Resolution order: CLI `--mod-folder` > `$FF9_MOD_FOLDER` > `.ff9deploy.toml` (gitignored) >
-default `FF9CustomMap`/4003. Slots: master -> `FF9CustomMap`/30000, `-bb`/30001, `-ih`/30002.
+default `FF9CustomMap`/4003. Live targets (verified against the install 2026-07-24):
+`FF9CustomMap` (master, scratch id 30000) and `FF9CustomMap-world` (overworld only) — the `-bb`/`-ih`
+worktree-era slots no longer exist. Confirm with `.ff9deploy.toml` + `Memoria.ini [Mod] FolderNames`.
 
 ## The mod-folder stack & distinct-id rule
 

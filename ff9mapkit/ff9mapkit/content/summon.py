@@ -47,6 +47,19 @@ KNOWN_KEYS = frozenset({
     "sequence",    # K1: an authored PlayerSequence.seq, copied verbatim (makes `donor` optional)
     "particles",   # K3: authored sprite .sfxmodel files, copied into the private ef folder
     "manifest",    # the bare .sfxmodel file name FileList.txt reveals (default creature_manifest.sfxmodel)
+    # --- the SHORT/FULL pair lane (M2 follow-on): `sequence` is the FULL cast (vfx1); `short_sequence`
+    # is a second, self-contained cast (vfx2) the engine plays when cmd.info.short_summon != 0
+    # (btl_vfx.cs:99) -- see summons/deploy.py's short-roll section for the full mechanism.
+    "short_sequence",     # a second authored/verbatim .seq, minted its OWN private ef folder
+    "short_private_ef",   # OPTIONAL: default = the next stock-absent id after private_ef
+    "roll_mp",             # the HOSTING ability's own MP cost -- required to emit the short/full roll
+    "roll_command",        # the HOSTING ability's BattleCommandId (name or 0-47 id) -- required with roll_mp
+    "roll_ability",        # the HOSTING ability's BattleAbilityId (int ONLY -- names are language-
+                            # dependent) -- required with roll_mp/roll_command: a command can host SEVERAL
+                            # abilities, so CommandId alone cannot discriminate which one is casting
+    "short_staging",       # REQUIRED with short_sequence: the short cast's OWN [summon.short_staging]
+                            # curve table -- its OWN timeline, never copied/defaulted from `staging`
+    "short_manifest",      # OPTIONAL: the short folder's OWN bare .sfxmodel file name -- default = `manifest`
 })
 
 
@@ -165,7 +178,8 @@ def _model_path_problem(spec: dict, base_dir) -> str | None:
     return next(iter(_path_problems(spec, base_dir, ("model",))), None)
 
 
-def _path_problems(spec: dict, base_dir, keys=("model", "sequence", "clips", "particles")) -> list[str]:
+def _path_problems(spec: dict, base_dir,
+                   keys=("model", "sequence", "short_sequence", "clips", "particles")) -> list[str]:
     """Build-time existence checks for every FILE-PATH key (the deploy engine only checks at emit, by
     which point half the mod folder is already written). ``clips`` is skipped when it carries the donor's
     index selector rather than authored paths."""
@@ -270,6 +284,15 @@ def lint_notes(blocks) -> list[str]:
         notes.append(f"{tag}: this block does NOT author the cast -- point an ability's `vfx1` at "
                      f"private_ef={pef} to fire it (see the authoring-ff9-battles skill / "
                      f"battle/actiondelta.py; the block MUST NOT edit Actions.csv).")
+        if block.get("short_sequence"):
+            spef = block.get("short_private_ef")
+            spef = spef if spef is not None else "<auto> (the next stock-absent id after private_ef; printed at deploy)"
+            notes.append(f"{tag}: `short_sequence` is set -- also point that SAME ability's `vfx2` at "
+                         f"short_private_ef={spef} (the engine plays Vfx2 when cmd.info.short_summon != 0, "
+                         "btl_vfx.cs:99). The short/full ROLL is emitted for you as an AbilityFeatures "
+                         "Command-trigger keyed on `roll_command` AND `roll_ability` (a command can host "
+                         "several abilities; both are required to discriminate which one is casting) -- "
+                         "this block MUST NOT edit Actions.csv or hand-edit AbilityFeatures.txt.")
         if block.get("sequence") and block.get("private_ef") is None:
             # THE AUTO-ALLOC TRAP: alloc_private_ef walks the absent set ASCENDING and lands on 18, whose
             # documented legacy semantics are "Would apply effect instantly" -- not what an authored

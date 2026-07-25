@@ -135,6 +135,11 @@ _scratch_ate/
 # Battle-map geometry + minted-scene assets forked from the install by `ff9mapkit battle-import`
 # (SE-derived; regenerate any time). Same zero-SE-bytes posture as the field *.eb.bytes/*.bgx — never commit.
 *.fbx
+# EXCEPTION: NIMBRA's creature body is MINTED, not forked — every vertex/clip authored by
+# creature/make_nimbra.py (zero SE bytes; the install is only consulted read-only for a winding
+# check, with a calibrated fallback). Committed so the rung-8 bench toml resolves on a fresh
+# checkout (tests/test_summon_curves.py round-trips it).
+!studies/custom-summons/rung8-epic/creature/nimbra/6400.fbx
 # custom-model exports forked from the install (`model-export`/`model-gltf`): SE-derived, never commit
 *.glb
 *.gltf

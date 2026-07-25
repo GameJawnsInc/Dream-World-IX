@@ -6,6 +6,7 @@ the end-to-end deploy (which the transplant lane can only test install-gated).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -599,8 +600,14 @@ def test_the_bench_toml_block_survives_the_real_from_toml_path(tmp_path):
     block = tomllib.loads(src.read_text(encoding="utf-8"))["summon"][0]
     block = cli._rebase_summon_paths(block, src.parent)
     spec = D.normalize_spec(D.normalize_spec(CS.numeric_block(block)))
-    assert spec["private_ef"] == 91 and spec["id"] == 6400 and spec["staging"] == "curves"
-    for p in [spec["model"], spec["sequence"], *spec["particles"], *spec["clips"]]:
+    # THE PAIR (2026-07-24): primary = THE FULL (ef080), short = THE WHISPER (ef091), plus the roll trio.
+    assert spec["private_ef"] == 80 and spec["id"] == 6400 and spec["staging"] == "curves"
+    assert spec["short_private_ef"] == 91 and spec["short_manifest"] == "nimbra_manifest.sfxmodel"
+    assert (spec["roll_mp"], spec["roll_command"], spec["roll_ability"]) == (24, 46, 195)
+    # short_sequence must ride the same rebase as sequence (the cli._rebase_summon_paths gap, fixed
+    # 2026-07-24): every path -- BOTH casts' -- must resolve from a cwd that is not the toml's folder.
+    for p in [spec["model"], spec["sequence"], spec["short_sequence"],
+              *spec["particles"], *spec["clips"]]:
         assert _P(p).is_file(), p
     D._preflight_inputs(spec)                          # the emitter's own front-loaded existence check
 
@@ -656,3 +663,489 @@ def test_an_omitted_scale_curve_is_ACCEPTED_because_its_seed_is_identity():
                              "clips": ["a/emerge.anim", "a/drift.anim"], "staging": st})
     out = D.staging_curves_json(spec)
     assert "Scaling" not in out and "Movement" in out and "Rotation" in out
+
+
+# --------------------------------------------------------------------------- THE SHORT/FULL PAIR (K6)
+#
+# The engine plays ability Vfx2 when cmd.info.short_summon != 0, else VfxIndex/vfx1 (btl_vfx.cs:99). A
+# custom command never reaches the stock roll (DecideSummonType, btl_cmd.cs:1025-1028 gates on cmd_no), so
+# `short_sequence` mints a SECOND private ef folder for the short cast and emits the roll itself as an
+# AbilityFeatures Command-trigger (see the module comment above deploy.short_summon_feature_block).
+#
+# ADDENDUM (review 2026-07-24): the short cast has its OWN timeline -- `short_staging` (a REQUIRED
+# [summon.short_staging] table) is never copied/defaulted from the primary's own `staging`.
+
+def _short_staging(**over) -> dict:
+    """A minimal, independently-timed short curve table -- deliberately a DIFFERENT window (40 ticks) and
+    a DIFFERENT destination than ``_staging()``'s (90 ticks) so a test that reads back both manifests can
+    tell them apart."""
+    st = {
+        "anchor": "target_average", "start": 0, "end": 40,
+        "move": [{"duration": 40, "from": [0, -300, 0], "to": [0, 50, 0], "ease": ["Linear"] * 3}],
+        "turn": [{"duration": 40, "from": [0, 180, 180], "to": [0, 180, 180]}],
+    }
+    st.update(over)
+    return st
+
+
+@pytest.fixture
+def short_inputs(inputs, tmp_path) -> dict:
+    """``inputs`` (the authored FULL cast, private_ef=91) + a paired SHORT cast + the roll wiring +
+    ``short_staging``. ``short_private_ef`` defaults to the next stock-absent id after 91 (263 -- see
+    ``test_short_private_ef_defaults_to_the_next_absent_id_not_literal_plus_one``), so the short .seq is
+    authored against 263 directly rather than against a guessed id."""
+    short_seq = _SEQ.replace("SFX=91", "SFX=263").replace("Wait: Time=30", "Wait: Time=10")
+    (tmp_path / "short_cast.seq").write_text(short_seq, encoding="utf-8", newline="\n")
+    out = dict(inputs)
+    out.update(short_sequence=str(tmp_path / "short_cast.seq"), roll_mp=24, roll_command=46,
+               roll_ability=195, short_staging=_short_staging())
+    return out
+
+
+def test_short_private_ef_defaults_to_the_next_absent_id_not_literal_plus_one():
+    """ABSENT_EF_IDS is NOT contiguous (18, 37, 39, 80, 84, 91, ... gaps up to 19) -- a literal
+    `private_ef + 1` would land OUTSIDE the pool for 18 of the 24 ids. "primary private_ef + 1" is read as
+    +1 POSITION in the ordered absent-id sequence instead."""
+    assert D._next_absent_ef(84) == 91                    # reproduces the bench precedent (84 -> 91)
+    assert D._next_absent_ef(91) == 263
+    assert D._next_absent_ef(379) == 380                  # a genuinely-consecutive pair: still +1 here
+    with pytest.raises(D.SummonDeployError, match="LAST stock-absent id"):
+        D._next_absent_ef(488)                            # the highest absent id -- no default after it
+
+
+def test_short_sequence_equal_to_sequence_is_refused():
+    with pytest.raises(D.SummonDeployError, match="pointless pair"):
+        D.normalize_spec({"donor": 227, "sequence": "x.seq", "short_sequence": "x.seq",
+                          "roll_mp": 1, "roll_command": 1})
+
+
+def test_short_sequence_same_as_sequence_after_normalization_is_refused():
+    """FOLD-B: raw string equality let a trivially different SPELLING of the same path evade the
+    refusal -- normalize both sides before comparing."""
+    with pytest.raises(D.SummonDeployError, match="pointless pair"):
+        D.normalize_spec({"donor": 227, "sequence": "b.seq", "short_sequence": "./b.seq",
+                          "roll_mp": 1, "roll_command": 1})
+    with pytest.raises(D.SummonDeployError, match="pointless pair"):
+        D.normalize_spec({"donor": 227, "sequence": "dir/b.seq", "short_sequence": "dir\\b.seq",
+                          "roll_mp": 1, "roll_command": 1})
+
+
+@pytest.mark.parametrize("missing", ["roll_mp", "roll_command", "roll_ability"])
+def test_short_sequence_needs_all_three_roll_keys_not_just_two(missing):
+    """review 2026-07-24 item 1: `roll_ability` joined `roll_mp`/`roll_command` as a REQUIRED trio -- a
+    command can host several abilities, so CommandId alone cannot discriminate which one is casting."""
+    block = {"donor": 227, "short_sequence": "s.seq", "roll_mp": 1, "roll_command": 1, "roll_ability": 1}
+    del block[missing]
+    with pytest.raises(D.SummonDeployError, match="ALL THREE"):
+        D.normalize_spec(block)
+
+
+def test_roll_keys_without_short_sequence_are_refused():
+    with pytest.raises(D.SummonDeployError, match="only meaningful together"):
+        D.normalize_spec({"donor": 227, "roll_mp": 1, "roll_command": 1, "roll_ability": 1})
+
+
+def test_roll_command_accepts_a_battlecommandid_name():
+    spec = D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                             "roll_mp": 10, "roll_command": "Summon Garnet", "roll_ability": 16,
+                             "short_staging": _short_staging()})
+    assert spec["roll_command"] == 16
+
+
+def test_roll_command_none_word_is_refused():
+    with pytest.raises(D.SummonDeployError, match="not a real command"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 10, "roll_command": "None", "roll_ability": 1})
+
+
+def test_roll_ability_must_be_an_int_not_a_name():
+    """review 2026-07-24 item 1: names are refused -- AbilityCastingName is 'Language dependent'
+    (NCalcUtility.cs:634), so a name-based roll_ability would silently break on a non-English install."""
+    with pytest.raises(D.SummonDeployError, match="Language dependent"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 10, "roll_command": 46, "roll_ability": "Bahamut"})
+
+
+def test_roll_ability_zero_void_is_refused():
+    with pytest.raises(D.SummonDeployError, match="Void"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 10, "roll_command": 46, "roll_ability": 0})
+
+
+def test_roll_ability_out_of_range_is_refused():
+    with pytest.raises(D.SummonDeployError, match="out of range"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 10, "roll_command": 46, "roll_ability": 9999})
+
+
+def test_short_private_ef_explicit_collision_with_private_ef_is_refused():
+    with pytest.raises(D.SummonDeployError, match="equals private_ef"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 1, "roll_command": 1, "private_ef": 84, "short_private_ef": 84})
+
+
+def test_no_short_keys_normalize_to_none_the_regression_floor():
+    """The byte-identical-no-short regression floor at the schema level: an existing-style block (no
+    short_sequence/short_private_ef/roll_mp/roll_command/roll_ability/short_staging/short_manifest)
+    normalizes with all seven new keys None -- the dict shape every pre-existing caller already
+    destructures is untouched."""
+    spec = D.normalize_spec({"donor": 227, "model": "m.fbx", "private_ef": 84})
+    assert (spec["short_sequence"], spec["short_private_ef"], spec["roll_mp"], spec["roll_command"],
+            spec["roll_ability"], spec["short_staging_curves"], spec["short_manifest"]) == (
+        None, None, None, None, None, None, None)
+
+
+# ---- short_staging: THE SHORT CAST'S OWN TIMELINE (addendum) ----
+
+def test_short_staging_is_required_with_short_sequence():
+    with pytest.raises(D.SummonDeployError, match=r"needs a \[summon\.short_staging\] curve table"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 1, "roll_command": 1, "roll_ability": 1})
+
+
+def test_short_staging_orphaned_without_short_sequence_is_refused():
+    with pytest.raises(D.SummonDeployError, match="only meaningful together"):
+        D.normalize_spec({"donor": 227, "short_staging": _short_staging()})
+
+
+def test_short_staging_has_no_donor_mode():
+    """Unlike the primary `staging`, `short_staging` has no 'donor' string mode -- the short is always
+    fully authored, there is nothing to splice against."""
+    with pytest.raises(D.SummonDeployError, match="no 'donor' mode"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 1, "roll_command": 1, "roll_ability": 1, "short_staging": "donor"})
+
+
+def test_short_staging_is_validated_independently_of_the_primary():
+    """The addendum's core assertion: `short_staging` is a genuinely SEPARATE table -- an invalid short
+    curve (missing `turn`) is refused even though the primary's OWN `staging` (via `inputs`) would be
+    perfectly valid -- the bug class the addendum flagged was exactly a validator that never looked here."""
+    bad = _short_staging()
+    del bad["turn"]
+    with pytest.raises(D.SummonDeployError, match="ROTATION BASELINE"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 1, "roll_command": 1, "roll_ability": 1, "short_staging": bad})
+
+
+def test_short_staging_curves_survive_a_second_normalize_pass():
+    """Mirrors THE DOUBLE-NORMALIZE BUG fix for the primary `staging`/`staging_curves` split -- emit_hybrid/
+    emit_overlay normalize an already-normalized spec a second time."""
+    spec = D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                             "roll_mp": 1, "roll_command": 1, "roll_ability": 1,
+                             "short_staging": _short_staging()})
+    twice = D.normalize_spec(spec)
+    assert twice["short_staging_curves"] == spec["short_staging_curves"]
+
+
+# ---- the roll feature TEXT (deterministic, exact-string) ----
+
+def test_short_summon_feature_block_is_none_without_short_sequence():
+    spec = D.normalize_spec({"donor": 227, "model": "m.fbx"})
+    assert D.short_summon_feature_block(spec) is None
+    assert D.short_summon_feature_lines(spec) == []
+    assert D.render_short_summon_feature(spec) == ""
+
+
+def test_short_summon_feature_text_matches_the_exact_grammar_mp24_cmd46_ability195():
+    """The exact emitted AbilityFeatures block for mp=24/command=46/ability=195 -- ``>SA Global+`` (3b:
+    Global runs BEFORE every equipped SA including stock Boost, so Boost's unconditional `false` always
+    overwrites ours, never the reverse), `Command EvenImmobilized`, gated on BOTH `CommandId == 46` AND
+    `AbilityId == 195` (item 1, review 2026-07-24: CommandId alone cannot discriminate which of the
+    command's several abilities is casting -- NCalcUtility.cs:631-632 binds both in the SAME Condition
+    context), and the 3a-compensated threshold (`MP > 24`, NOT `MP > 48`) because NCalc's `MP` reads the
+    caster's POST-deduction current MP (ConsumeMp already ran a CommandEngine tick earlier)."""
+    spec = D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                             "roll_mp": 24, "roll_command": 46, "roll_ability": 195,
+                             "short_staging": _short_staging()})
+    assert D.short_summon_feature_lines(spec) == [
+        ">SA Global+ ff9mapkit summon short/full roll -- command 46 ability 195",
+        "Command EvenImmobilized",
+        "[code=Condition] IsTheCaster && CommandId == 46 && AbilityId == 195 [/code]",
+        "[code=IsShortSummon] GetRandom() < (MP > 24 ? 230 : 170) [/code]",
+        "",
+    ]
+    assert D.render_short_summon_feature(spec) == (
+        ">SA Global+ ff9mapkit summon short/full roll -- command 46 ability 195\n"
+        "Command EvenImmobilized\n"
+        "[code=Condition] IsTheCaster && CommandId == 46 && AbilityId == 195 [/code]\n"
+        "[code=IsShortSummon] GetRandom() < (MP > 24 ? 230 : 170) [/code]\n\n")
+
+
+def test_short_summon_feature_lines_are_valid_abilityfeatures_dsl():
+    """The emitted block must itself validate clean through battle.abilityfeatures (the DSL it is written
+    in) -- proves the header/[code=] grammar round-trips, not just that our f-strings look plausible."""
+    from ff9mapkit.battle import abilityfeatures as af
+    spec = D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                             "roll_mp": 24, "roll_command": 46, "roll_ability": 195,
+                             "short_staging": _short_staging()})
+    block = D.short_summon_feature_block(spec)
+    assert af.validate_blocks([block]) == []
+
+
+# ---- end to end (mints the SECOND private ef folder, writes AbilityFeatures.txt, ledger/revert) ----
+
+def test_short_pair_mints_a_second_private_ef_folder(short_inputs, tmp_path):
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    assert res["spec"]["short_private_ef"] == 263          # _next_absent_ef(91)
+    ef_full = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef091"
+    ef_short = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263"
+    assert (ef_full / "PlayerSequence.seq").is_file()
+    assert (ef_short / "PlayerSequence.seq").is_file()
+    got = (ef_short / "PlayerSequence.seq").read_text(encoding="utf-8")
+    assert "SFX=263" in got and "SFX=91" not in got
+    assert res["short"]["short_ticks"] < res["short"]["full_ticks"]
+
+    ab = tmp_path / "mod" / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    text = ab.read_text(encoding="cp1252")
+    assert ">SA Global+" in text and "CommandId == 46" in text and "AbilityId == 195" in text
+    assert "MP > 24" in text
+    assert f"summon-short-roll-{res['spec']['id']}" in text
+
+
+def test_short_folder_gets_its_own_filelist_manifest_and_particles(short_inputs, tmp_path):
+    """MUST-FIX 1: the short ef folder used to get ONLY PlayerSequence.seq -- no FileList.txt, no
+    .sfxmodel manifest, no particles -- so the short's OWN self-referencing `LoadSFX:
+    SFX=<short_private_ef>` had nowhere to find a Model line, and the creature could not render on a short
+    cast under EITHER lane."""
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    ef_short = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263"
+
+    fl = (ef_short / "FileList.txt").read_bytes()
+    assert fl == b"Model nimbra_manifest.sfxmodel\n"
+
+    man = json.loads((ef_short / "nimbra_manifest.sfxmodel").read_text(encoding="utf-8"))["FBX"][0]
+    assert man["Path"] == "GEO_MON_B0_M400"                # the SAME shared model as the primary
+    assert man["End"] == "40"                               # THE SHORT'S OWN window, not the primary's 90
+
+    # particles duplicated VERBATIM into the short's own folder (self-containment)
+    assert (ef_short / "Puff.sfxmodel").read_text(encoding="utf-8") == _SPRITE
+
+    overlay_folder = res["short"]["overlay_folder"]
+    assert Path(overlay_folder["manifest_dest"]) == ef_short / "nimbra_manifest.sfxmodel"
+    assert Path(overlay_folder["filelist_dest"]) == ef_short / "FileList.txt"
+
+
+def test_short_and_primary_manifests_have_independent_windows_and_endpoints(short_inputs, tmp_path):
+    """THE ADDENDUM ACCEPTANCE TEST: a pair block where short (40 ticks) and primary (90 ticks) have
+    DIFFERENT staging lengths produces TWO manifests whose curve endpoints match their OWN seq/staging
+    windows -- assert BOTH, not just the primary (the exact bug the addendum flagged: an earlier draft
+    copied the primary's manifest verbatim into the short folder)."""
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    primary_man = json.loads(
+        (tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef091" /
+         "nimbra_manifest.sfxmodel").read_text(encoding="utf-8"))["FBX"][0]
+    short_man = json.loads(
+        (tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263" /
+         "nimbra_manifest.sfxmodel").read_text(encoding="utf-8"))["FBX"][0]
+    assert primary_man["End"] == "90" and short_man["End"] == "40"
+    assert primary_man["Movement"][-1]["DestinationY"] == "TargetAveragePositionY + 190"
+    assert short_man["Movement"][0]["DestinationY"] == "TargetAveragePositionY + 50"
+    assert primary_man["Path"] == short_man["Path"] == "GEO_MON_B0_M400"       # the one shared asset
+
+
+# ---- short_manifest: DISTINCT manifest file names per folder (review 2026-07-24, item 2) ----
+
+def test_short_manifest_defaults_to_manifest():
+    spec = D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                             "roll_mp": 1, "roll_command": 1, "roll_ability": 1,
+                             "short_staging": _short_staging(), "manifest": "x.sfxmodel"})
+    assert spec["short_manifest"] == "x.sfxmodel"
+
+
+def test_short_manifest_bare_name_only():
+    with pytest.raises(D.SummonDeployError, match="BARE file name"):
+        D.normalize_spec({"donor": 227, "sequence": "a.seq", "short_sequence": "b.seq",
+                          "roll_mp": 1, "roll_command": 1, "roll_ability": 1,
+                          "short_staging": _short_staging(), "short_manifest": "sub/dir/x.sfxmodel"})
+
+
+def test_short_manifest_orphaned_without_short_sequence_is_refused():
+    with pytest.raises(D.SummonDeployError, match="only meaningful together"):
+        D.normalize_spec({"donor": 227, "short_manifest": "x.sfxmodel"})
+
+
+def test_short_manifest_gives_the_two_folders_distinct_names(short_inputs, tmp_path):
+    """THE ITEM-2 ACCEPTANCE TEST: a pair block with distinct manifest names produces two folders whose
+    FileList.txt each reveal their OWN name -- the bench: the deployed short folder keeps
+    `nimbra_manifest.sfxmodel`, the full's own spec renames to `nimbra_full_manifest.sfxmodel`
+    (FULL-STORYBOARD.md section 7). Byte-identical re-emission was blocked before this fix: BOTH folders
+    were named from `manifest` (deploy.py:1852 in the pre-fix draft), so the pair could never diverge."""
+    short_inputs["manifest"] = "nimbra_full_manifest.sfxmodel"     # rename the PRIMARY
+    short_inputs["short_manifest"] = "nimbra_manifest.sfxmodel"    # the short KEEPS the old bare name
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+
+    ef_full = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef091"
+    ef_short = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263"
+    assert (ef_full / "nimbra_full_manifest.sfxmodel").is_file()
+    assert (ef_short / "nimbra_manifest.sfxmodel").is_file()
+    assert not (ef_full / "nimbra_manifest.sfxmodel").exists()     # each folder has ONLY its own name
+    assert not (ef_short / "nimbra_full_manifest.sfxmodel").exists()
+
+    assert (ef_full / "FileList.txt").read_bytes() == b"Model nimbra_full_manifest.sfxmodel\n"
+    assert (ef_short / "FileList.txt").read_bytes() == b"Model nimbra_manifest.sfxmodel\n"
+    assert res["overlay"]["manifest_dest"] == str(ef_full / "nimbra_full_manifest.sfxmodel")
+    assert res["short"]["overlay_folder"]["manifest_dest"] == str(ef_short / "nimbra_manifest.sfxmodel")
+
+
+def test_short_sequence_bad_lint_is_refused_before_any_write(short_inputs, tmp_path):
+    Path(short_inputs["short_sequence"]).write_text(
+        _SEQ.replace("SFX=91", "SFX=263") + "PlayCamera: Camera=3\n", encoding="utf-8", newline="\n")
+    mod = tmp_path / "mod"
+    with pytest.raises(D.SummonDeployError, match="does not lint"):
+        D.emit_overlay(short_inputs, mod, None)
+    assert not mod.exists()                                # preflight fires before the FIRST byte lands
+
+
+def test_short_longer_than_full_is_refused(short_inputs, tmp_path):
+    Path(short_inputs["short_sequence"]).write_text(
+        _SEQ.replace("SFX=91", "SFX=263").replace("Wait: Time=30", "Wait: Time=9999"),
+        encoding="utf-8", newline="\n")
+    with pytest.raises(D.SummonDeployError, match="LONGER than the full cast"):
+        D.emit_overlay(short_inputs, tmp_path / "mod", None)
+
+
+def test_short_sequence_is_copied_byte_verbatim_crlf_preserved(short_inputs, tmp_path):
+    """FOLD-A: an earlier draft re-encoded the DECODED text as UTF-8/LF-only, silently corrupting a
+    CRLF-authored short .seq (and dropping any BOM). The write must be the exact source bytes."""
+    crlf_bom = (_SEQ.replace("SFX=91", "SFX=263").replace("Wait: Time=30", "Wait: Time=10")
+                .replace("\n", "\r\n"))
+    raw = b"\xef\xbb\xbf" + crlf_bom.encode("utf-8")        # UTF-8 BOM + CRLF, exactly what a Windows
+    Path(short_inputs["short_sequence"]).write_bytes(raw)   # editor is likely to actually produce
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    got = Path(res["short"]["seq_dest"]).read_bytes()
+    assert got == raw                                       # byte-exact: BOM AND CRLF both survive
+
+
+def test_short_private_ef_default_survives_a_second_deploy_of_the_same_block(short_inputs, tmp_path):
+    """MUST-FIX 2: a DEFAULTED short_private_ef used to hard-error on redeploy -- validate_private_ef's
+    `for_alloc=True` branch refused the very folder THIS SAME block's first deploy had just created. The
+    default must behave like an explicit pin once computed: idempotent, byte-stable redeploys."""
+    mod = tmp_path / "mod"
+    res1 = D.emit_overlay(short_inputs, mod, None)
+    seq1 = Path(res1["short"]["seq_dest"]).read_bytes()
+    res2 = D.emit_overlay(short_inputs, mod, None)          # must NOT raise
+    seq2 = Path(res2["short"]["seq_dest"]).read_bytes()
+    assert res1["spec"]["short_private_ef"] == res2["spec"]["short_private_ef"] == 263
+    assert seq1 == seq2
+
+
+def test_the_revert_script_removes_the_short_folder_and_the_feature_file(short_inputs, tmp_path):
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    ef_short = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263"
+    ab = tmp_path / "mod" / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    assert ef_short.is_dir() and ab.is_file()
+    out = subprocess.run([sys.executable, res["revert_script"]], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert not ef_short.exists()
+    assert not ab.exists()                                 # a freshly-created file -> revert deletes it
+
+
+def test_revert_restores_a_pre_existing_abilityfeatures_file_byte_exact(short_inputs, tmp_path):
+    """FOLD-C: a revert against a PRE-EXISTING AbilityFeatures.txt was untested. The ledger must back up
+    the file BEFORE merging our marker section in, and the revert script must restore those exact bytes --
+    not a re-derived/re-encoded approximation."""
+    mod = tmp_path / "mod"
+    ab = mod / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    ab.parent.mkdir(parents=True)
+    original = "# ff9mapkit [[ability_feature]] -- a partial AbilityFeatures.txt (merged per-ability over the base).\n\n>SA 59 Boost\nCommand EvenImmobilized\n[code=Condition] IsTheCaster [/code]\n[code=IsShortSummon] false [/code]\n"
+    ab.write_bytes(original.encode("cp1252"))
+
+    res = D.emit_overlay(short_inputs, mod, None)
+    assert ab.read_bytes() != original.encode("cp1252")     # really was rewritten
+    assert ">SA 59 Boost" in ab.read_text(encoding="cp1252")   # foreign content preserved by the merge
+
+    out = subprocess.run([sys.executable, res["revert_script"]], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert ab.read_bytes() == original.encode("cp1252")     # byte-EXACT restore, not a re-encode
+
+
+def test_no_short_sequence_deploy_writes_no_abilityfeatures_file(inputs, tmp_path):
+    """THE BYTE-IDENTICAL-NO-SHORT REGRESSION: an existing-style block (no short_sequence) must emit
+    EXACTLY what it emitted before this feature existed -- no `short` key in the result, no
+    AbilityFeatures.txt anywhere in the mod folder, and the primary .seq bytes untouched."""
+    res = D.emit_overlay(inputs, tmp_path / "mod", None)
+    assert "short" not in res
+    ab = tmp_path / "mod" / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    assert not ab.exists()
+    ef = tmp_path / "mod" / "StreamingAssets" / "Data" / "SpecialEffects" / "ef091" / "PlayerSequence.seq"
+    assert ef.read_text(encoding="utf-8") == _SEQ
+
+
+def test_no_short_overlay_deploy_byte_identity_over_every_artifact(inputs, tmp_path):
+    """MUST-FIX 4: the earlier regression guard read_text'd ONE file (universal-newline translation would
+    pass a CRLF-corrupting change). Hash EVERY artifact this deploy's own ledger reports, on the OVERLAY
+    lane -- seq, mint FBX, .anim clips, manifest, FileList.txt."""
+    mod = tmp_path / "mod"
+    res = D.emit_overlay(inputs, mod, None)
+    assert "short" not in res
+    assert res["artifacts"]
+    for artifact in res["artifacts"]:
+        assert Path(artifact).is_file(), artifact
+
+    seq_p = Path(res["seq"]["seq_dest"])
+    assert seq_p.read_bytes() == _SEQ.encode("utf-8")
+    assert hashlib.sha256(seq_p.read_bytes()).hexdigest() == res["seq"]["seq_sha256"]
+
+    fbx_p = Path(res["mint"]["fbx_dest"])
+    assert fbx_p.read_bytes() == Path(inputs["model"]).read_bytes()
+    assert hashlib.sha256(fbx_p.read_bytes()).hexdigest() == res["mint"]["fbx_sha256"]
+
+    man_p = Path(res["overlay"]["manifest_dest"])
+    assert man_p.is_file()
+    fl_p = Path(res["overlay"]["filelist_dest"])
+    assert fl_p.read_bytes() == f"Model {inputs['manifest']}\n".encode("utf-8")
+
+    for c in res["overlay"]["clip_files"]:
+        assert Path(c["dest"]).read_bytes() == Path(c["source"]).read_bytes()
+
+    assert not (mod / "StreamingAssets" / "Data" / "Characters" / "Abilities" /
+               "AbilityFeatures.txt").exists()
+    assert not (mod / "StreamingAssets" / "Data" / "SpecialEffects" / "ef263").exists()
+
+
+# --------------------------------------------------------------------------- FOLD-D / FOLD-G
+
+def test_deploy_receipt_prints_the_short_half(short_inputs, tmp_path):
+    """FOLD-D: the deploy receipt used to be silent about the short half entirely. It must print the
+    short's host .seq destination, the RESOLVED short_private_ef, and a vfx2 wiring reminder."""
+    lines = []
+    D.emit_overlay(short_inputs, tmp_path / "mod", None, out=lines.append)
+    text = "\n".join(lines)
+    assert "ef263" in text and "PlayerSequence.seq" in text
+    assert "263" in text and "vfx2" in text
+    assert "short_private_ef=263" in text
+
+
+def test_modfilelist_warning_fires_when_present(short_inputs, tmp_path):
+    """FOLD-G: a mod folder shipping ModFileList.txt only exposes LISTED assets (AssetManager.cs:948-976)
+    -- a newly staged AbilityFeatures.txt is invisible to the engine unless also listed there. Warn."""
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    (mod / "ModFileList.txt").write_text("StreamingAssets/Data/Characters/Abilities/AbilityFeatures.txt\n",
+                                         encoding="utf-8")
+    assert D._modfilelist_warning(mod, "x") is not None
+    assert D._modfilelist_warning(tmp_path / "no-such-mod", "x") is None    # no file -> no warning
+
+    lines = []
+    res = D.emit_overlay(short_inputs, mod, None, out=lines.append)
+    assert res["short"]["ability_features"]["warning"] is not None
+    assert any("ModFileList.txt" in ln for ln in lines)
+
+
+def test_no_modfilelist_no_warning(short_inputs, tmp_path):
+    res = D.emit_overlay(short_inputs, tmp_path / "mod", None)
+    assert "warning" not in res["short"]["ability_features"]
+
+
+def test_undecodable_abilityfeatures_bytes_fail_loud_not_replace(short_inputs, tmp_path):
+    """FOLD-C: windows-1252 leaves 5 byte values undefined (0x81 among them); `errors="replace"` would
+    silently turn one into U+FFFD (then `?`), corrupting whatever else wrote that byte. Refuse instead."""
+    with pytest.raises(D.SummonDeployError, match="not valid cp1252"):
+        D._decode_cp1252_strict(b"\x81", "fake.txt")
+
+    mod = tmp_path / "mod"
+    ab = mod / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    ab.parent.mkdir(parents=True)
+    ab.write_bytes(b"\x81garbage")
+    with pytest.raises(D.SummonDeployError, match="not valid cp1252"):
+        D.emit_overlay(short_inputs, mod, None)

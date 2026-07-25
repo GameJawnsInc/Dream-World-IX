@@ -1,4 +1,4 @@
-# The fork-gate census: four gate forms + the s22–s36 lever map
+# The fork-gate census: four gate forms + the fork-gate lever map
 
 The canonical per-site census is `ff9mapkit/docs/FORK_IDGATE_MAP.md` ("280 gates found · 265
 lost on a custom-id fork — SOFTLOCK 12 · FUNCTIONAL 142 · COSMETIC 111") — do not re-derive or
@@ -36,6 +36,10 @@ path) — an A/B test = comment the line + relaunch. Without this file no gate f
 
 ## Patch lever map (`memoria-patches/`)
 
+Scope: the **fork-gate suite proper is s23–s33**; s22/s34/s35/s36 are listed only for context.
+The stack as a whole runs **s12–s58** (37 `.patch` files) and grows every engine round — for
+anything outside the fork gates, `memoria-patches/README.md` is the authority, not this table.
+
 | patch | class | what it does |
 |---|---|---|
 | s22 | dev tool | the in-game debug menu (~) (Go/Cheats/Flags/Time) — SHIPS in the bundle; not a fork wrap |
@@ -48,7 +52,7 @@ path) — an A/B test = comment the line + relaunch. Without this file no gate f
 | s33 | lookup-arg | wraps `fldMapNo`-as-argument sites (menu LOCATION at BOTH call sites, battle-BGM fallback, mesh-combine, smooth-cam) + the `LocationName <id> <title>` DictionaryPatch directive backing `[field] location` |
 | s34 | capability | overworld loose-mesh override (NOT a fork wrap; powers the `world-*` commands) |
 | s35 | polish | overlay-texture cache (kills the slow see-through fade on re-entry / battle-return) |
-| s36 | experimental | multiplayer ghost sync — held for b14, NOT in the shipped bundle |
+| s36 | experimental | multiplayer co-op ghost sync (head of the s36–s41+ netsync suite; NOT a fork wrap) — SHIPS in the public bundle since 1.0.0b16, flagged EXPERIMENTAL because the wire protocol still changes release to release |
 
 Non-gate uses of `fldMapNo` stay RAW (e.g. `sOriginalFieldNo = mapNo`, the fork's own
 `eventIDToFBGID[fldMapNo]` registration) — wrapping those would be wrong; see the memory.

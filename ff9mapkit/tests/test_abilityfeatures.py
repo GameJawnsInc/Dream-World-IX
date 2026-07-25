@@ -150,7 +150,11 @@ def test_write_is_cp1252_lf(tmp_path):
     assert p.is_file()
     raw = p.read_bytes()
     assert b"\r\n" not in raw and b"\x92" in raw                                # LF only; cp1252 curly apostrophe
-    assert p.read_text(encoding="cp1252").splitlines()[2].startswith(">SA 60+ Odin")
+    # MARKER-AWARE (MUST-FIX 3): the content lands inside this build's own "field-abilities" marker
+    # section, not at a fixed line index -- find it by content, not position.
+    lines = p.read_text(encoding="cp1252").splitlines()
+    assert any(ln.startswith(">SA 60+ Odin") for ln in lines)
+    assert any("## >>> ff9mapkit ability_feature field-abilities" in ln for ln in lines)
 
 
 def test_write_nothing_when_empty(tmp_path):
@@ -211,3 +215,91 @@ def test_merge_replaces_prior_block_idempotent():
     assert twice == once
     stripped = af.merge_ability_features(once, [], 4003)                        # empty -> strips our block
     assert ">SA 2+ AutoHaste" not in stripped and "keep" in stripped
+
+
+# ---------------------------------------------------------------- MUST-FIX 3: cross-writer coexistence ---
+# write_ability_features (the [[ability_feature]]/[[playable]] field-build writer, build.py's `_af` import)
+# used to whole-file `write_text` AbilityFeatures.txt, wiping any foreign `## >>> ...`-marked section
+# already there -- in particular a [[summon]] short/full roll block `summons/deploy.py:
+# _stage_short_summon_feature` had written. Both writers must now preserve the OTHER's section, in EITHER
+# deploy order.
+
+def _short_summon_block(tmp_path, n=1) -> dict:
+    """A minimal, self-contained [[summon]] short/full pair block -- lint-clean, no donor/install needed."""
+    seq = "PlayAnimation: Char=Caster ; Anim=Idle\n"
+    (tmp_path / f"full{n}.seq").write_text(seq, encoding="utf-8", newline="\n")
+    (tmp_path / f"short{n}.seq").write_text(seq, encoding="utf-8", newline="\n")
+    (tmp_path / f"m{n}.fbx").write_text("; stub\n", encoding="utf-8", newline="\n")
+    return {
+        "lane": "overlay", "model": str(tmp_path / f"m{n}.fbx"), "id": 6500 + n,
+        "name": f"GEO_MON_B0_M{500 + n:03d}", "private_ef": 91, "clips": "none",
+        "sequence": str(tmp_path / f"full{n}.seq"),
+        "short_sequence": str(tmp_path / f"short{n}.seq"), "short_private_ef": 263,
+        "roll_mp": 1, "roll_command": 1, "roll_ability": 1,
+        "short_staging": {"anchor": "target_average", "start": 0, "end": 1,
+                          "move": [{"duration": 1, "from": [0, 0, 0], "to": [0, 0, 0]}],
+                          "turn": [{"duration": 1, "from": [0, 180, 180], "to": [0, 180, 180]}]},
+    }
+
+
+def test_cross_writer_field_build_then_summon_preserves_both_sections(tmp_path):
+    """Order 1: the field-build writer runs FIRST (a real [[ability_feature]] block), THEN a summon
+    deploy. Both sections must survive in the final file."""
+    from ff9mapkit.config import ModLayout
+    from ff9mapkit.summons import deploy as D
+
+    layout = ModLayout(tmp_path / "mod")
+    af.write_ability_features(layout, [{"kind": "SA", "ability": 60, "comment": "Odin's Sword",
+                                        "features": "Ability [code=Condition] 1 [/code]"}])
+    mid = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert ">SA 60+" in mid
+
+    D.emit_overlay(_short_summon_block(tmp_path), tmp_path / "mod", None)
+    final = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert ">SA 60+" in final                                    # the field-build section SURVIVED
+    assert "summon-short-roll-6501" in final                     # the summon section landed
+
+
+def test_cross_writer_summon_then_field_build_preserves_both_sections(tmp_path):
+    """Order 2 (the reverse): a summon deploy runs FIRST, THEN the field-build writer. Both sections must
+    survive -- this is the direction that was actually broken (write_ability_features used to blind-
+    overwrite the whole file)."""
+    from ff9mapkit.config import ModLayout
+    from ff9mapkit.summons import deploy as D
+
+    layout = ModLayout(tmp_path / "mod")
+    D.emit_overlay(_short_summon_block(tmp_path, n=2), tmp_path / "mod", None)
+    mid = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert "summon-short-roll-6502" in mid
+
+    af.write_ability_features(layout, [{"kind": "SA", "ability": 61, "comment": "Mug",
+                                        "features": "Ability [code=Condition] 1 [/code]"}])
+    final = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert "summon-short-roll-6502" in final                      # THE FIX: the summon section SURVIVED
+    assert ">SA 61+" in final
+
+
+def test_write_ability_features_fails_loud_on_undecodable_bytes(tmp_path):
+    """FOLD-C: an undecodable pre-existing AbilityFeatures.txt (e.g. 0x81, undefined in windows-1252) must
+    refuse loudly rather than silently replace-corrupt it."""
+    from ff9mapkit.config import ModLayout
+
+    layout = ModLayout(tmp_path / "mod")
+    layout.ability_features_txt.parent.mkdir(parents=True)
+    layout.ability_features_txt.write_bytes(b"\x81garbage")
+    with pytest.raises(AbilityFeatureError, match="not valid cp1252"):
+        af.write_ability_features(layout, [{"kind": "SA", "ability": 2, "features": "StatusInit AutoStatus Haste"}])
+
+
+def test_field_build_writer_is_itself_idempotent_across_two_runs(tmp_path):
+    """A build run twice (e.g. two `ff9mapkit build` invocations) must replace ITS OWN section, not grow
+    a duplicate one, now that it merges instead of overwriting."""
+    from ff9mapkit.config import ModLayout
+
+    layout = ModLayout(tmp_path / "mod")
+    blk = {"kind": "SA", "ability": 60, "comment": "Odin", "features": "Ability [code=Condition] 1 [/code]"}
+    af.write_ability_features(layout, [blk])
+    af.write_ability_features(layout, [blk])
+    text = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert text.count(">SA 60+") == 1
+    assert text.count("field-abilities") == 2                     # one begin marker + one end marker

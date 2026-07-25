@@ -370,6 +370,16 @@ with no engine rebuild. **The risk to check first is ORDERING:** `SelectCommandV
 command-set time and a `[BattleScript]` runs at damage-calc time, so the write may land *after* the
 vfx has already been chosen. Verify that before costing the work.
 
+> **✔ TAKEN + RESOLVED 2026-07-24 (the short/full roll round).** The ordering fear was correct for the
+> `[BattleScript]` route (damage-calc runs after the vfx pick — dead as suspected), but a strictly
+> earlier data-driven route exists: an **AbilityFeatures Command-trigger** writing NCalc `IsShortSummon`
+> (`CharacterAbilityGems.cs:821` — stock Boost's own mechanism, inverted) at `CMD_MODE_SELECT_VFX`,
+> before the pick. The kit's `[[summon]]` block now emits it from a `roll_mp`/`roll_command`/
+> `roll_ability` trio; the WHISPER became the SHORT (vfx2) and FULL-STORYBOARD's 23.0 s composition the
+> FULL (vfx1, ef080). Also learned en route: a SHORT cast deals **2/3 damage** (`BattleCalculator.cs:515`)
+> — so this census's power/MP tuning axis (§4.4) needs no retune, sticker powers are full-cast powers
+> for stock eidolons too. → FULL-STORYBOARD §7.4, the bench block, `summons/deploy.py`.
+
 ---
 
 ## 6. Reproducing

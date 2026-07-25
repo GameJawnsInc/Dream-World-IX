@@ -80,11 +80,20 @@ abilities = [
   #   targets="AllEnemy" THE RUNG-1 STRUCTURAL LAW: btl_vfx.cs:99 plays the SHORT vfx2 only for
   #                      (ManyAny && cursor==0) / short_summon / a Beatrix pair. AllEnemy(8) is never
   #                      ManyAny and a minted BattleCommandId 46 never enters DecideSummonType -- so
-  #                      vfx1 plays IN FULL on every cast, structurally, not by luck.
-  #   vfx1 = vfx2 = 91   both point at OUR folder. Rungs 1/3 left vfx2 = 405 (Bahamut Short) reasoning
-  #                      it could never fire; for an ORIGINAL summon that reasoning inverts -- the
-  #                      residual risk of ever flashing a stock Eidolon is not worth carrying, and
-  #                      pointing both at 91 makes stock content structurally unreachable. Zero cost.
+  #                      WITHOUT the roll feature, vfx1 plays IN FULL on every cast, structurally.
+  #   vfx1=80, vfx2=91   THE PAIR (2026-07-24, the short/full roll round). The law above still holds --
+  #                      DecideSummonType never fires for command 46 -- but the [[summon]] block's roll
+  #                      trio now emits an AbilityFeatures Command-trigger (>SA Global) that writes
+  #                      cmd.info.short_summon at CMD_MODE_SELECT_VFX (btl_cmd.cs:594-595), BEFORE
+  #                      SelectCommandVfx (:617) reads it -- stock's own 230/170-of-256 odds, stock's
+  #                      own Comn.random8() (GetRandom()), post-MP-deduction threshold compensated.
+  #                      vfx1 = ef080 = THE FULL (23.0s, FULL-STORYBOARD); vfx2 = ef091 = THE WHISPER
+  #                      (9.3s, the approved CAST 2, re-emitted byte-identical). Both OUR folders:
+  #                      stock Eidolon content stays structurally unreachable, as rung 3 wanted.
+  #                      A SHORT cast deals 2/3 damage (BattleCalculator.cs:515) -- stock-faithful;
+  #                      every stock eidolon's sticker power lives under the same rule, so power=34
+  #                      needs no retune. Boost (SA 59) still forces full: it registers in saExtended,
+  #                      which runs AFTER >SA Global features and overwrites our roll (ff9abil.cs:70-84).
   #   type = 0           THE TYPE-4 MP LAW. Stock Bahamut ships type = 4 and
   #                      `(Type & 4) != 0 && GARNET_SUMMON_FLAG != 0` quadruples the MP cost
   #                      (AbilityUI.cs:1310-1315 + the BattleHUD twin) -- vanilla's early-game summon
@@ -101,7 +110,7 @@ abilities = [
   #                      NOTE the short-cinematic band carries NO power claim (census 3, verdict 3:
   #                      rho = -0.29 without Ark), so the 9.3 s runtime did not force this number -- it
   #                      is chosen on the power/MP line, which is a different axis.
-  { name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 91, vfx2 = 91, type = 0, power = 34, element = ["Dark"], mp = 24 },
+  { name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 80, vfx2 = 91, type = 0, power = 34, element = ["Dark"], mp = 24 },
 ]
 
 # --- the second custom character, unchanged from rung 3 (it proves the stack is not Vivi-specific) ---
@@ -132,116 +141,220 @@ abilities = [ { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 } ]
 #   ../*.sfxmodel        the particle lane
 # Nothing is copied into bench/ -- each lane stays the single source of truth for its own bytes.
 [[summon]]
+# THE PAIR (2026-07-24, the short/full roll round). ONE block now stages BOTH casts:
+#   primary  = THE FULL     ef080, ../nimbra_full.seq, 23.0s -- FULL-STORYBOARD sections 3/4; the ability's
+#                           vfx1. ef080 is STORYBOARD 6.1's reserved spare ("the spare", verified absent
+#                           from stock); nimbra_full.seq already writes SFX=80 on every LoadSFX/PlaySFX.
+#   short    = THE WHISPER  ef091, ../nimbra.seq, 9.3s -- the approved CAST 2, BYTE-IDENTICAL re-emit
+#                           (seq verbatim bytes, same manifest name, same K4 curves); the ability's vfx2.
+#   the roll = an AbilityFeatures Command-trigger (>SA Global) keyed CommandId 46 AND AbilityId 195 --
+#              ability-discriminated because command 46 hosts FOUR abilities and a command-wide roll
+#              would flip the other three onto Vfx2 at 2/3 damage. Stock odds (230/170 of 256), stock
+#              primitive (GetRandom() = Comn.random8()), threshold MP > 24 = post-deduction compensation
+#              (btl_cmd.cs:1652 deducts at INSPECTION; post > cost <=> stock's pre > 2*cost).
 lane       = "overlay"                     # DLL-free; runs on STOCK Memoria (no s58, no [SfxHybrid])
 model      = "../creature/nimbra/6400.fbx"
 id         = 6400
 name       = "GEO_MON_B0_M400"
 group      = "MON"
-private_ef = 91                            # PINNED (STORYBOARD 6.1). 84 is the live Thomas/M1b bench and
-                                           # must stay bit-intact; auto-alloc walks the absent pool
-                                           # ASCENDING and would land on 18 ("would apply effect
-                                           # instantly") -- not what a 32-second cast wants.
-sequence   = "../nimbra.seq"               # K1 -- an AUTHORED cast. No `donor`: nothing stock is read,
+private_ef = 80                            # THE FULL's own folder (STORYBOARD 6.1's spare). 84 is the
+                                           # live Thomas/M1b bench and must stay bit-intact; 91 is the
+                                           # short's (below).
+sequence   = "../nimbra_full.seq"          # K1 -- an AUTHORED cast. No `donor`: nothing stock is read,
                                            # spliced or drift-guarded anywhere in this block.
-manifest   = "nimbra_manifest.sfxmodel"    # the bare name FileList.txt reveals (single-space grammar)
+manifest   = "nimbra_full_manifest.sfxmodel"   # the bare name ef080/FileList.txt reveals (FULL-STORYBOARD 7.2)
 clips      = ["../creature/nimbra/emerge.anim",     # K2 -- NAMED clips, so deploy.clip_key_of mints the
               "../creature/nimbra/drift.anim",      # 60000..60003 band keys and clip_name_map resolves
               "../creature/nimbra/strike.anim",     # `play.clip = "emerge"` onto them. ORDER IS
-              "../creature/nimbra/driftlook.anim"]  # LOAD-BEARING: the key is 60000 + list index.
-particles  = ["../MistFloor.sfxmodel",              # K3 -- copied verbatim into ef091/ beside the
-              "../MistWisps.sfxmodel",              # manifest, which is where CreateVisualEffect's full
-              "../RiftFlash.sfxmodel"]              # Data/-rooted SFXModel= path points.
+              "../creature/nimbra/driftlook.anim"]  # LOAD-BEARING: the key is 60000 + list index, BOTH
+                                                    # manifests drive the same GEO 6400, and the deployed
+                                                    # short was keyed on THIS order -- never reorder
+                                                    # (FULL-STORYBOARD 7.2).
+particles  = ["../MistFloor.sfxmodel",              # K3 -- copied verbatim into ef080/ AND ef091/ (each
+              "../MistWisps.sfxmodel",              # folder is self-contained), which is where
+              "../RiftFlash.sfxmodel"]              # CreateVisualEffect's Data/-rooted SFXModel= points.
 
-# --- K4: the staging curves (STORYBOARD 3.3) --------------------------------------------------------
+# --- the SHORT half + the roll trio ------------------------------------------------------------------
+short_sequence   = "../nimbra.seq"              # the approved WHISPER, staged verbatim-bytes
+short_private_ef = 91                           # PINNED: the folder the live install already runs; the
+                                                # re-emit must be byte-identical (deploy gate D2 below)
+short_manifest   = "nimbra_manifest.sfxmodel"   # PINNED: ef091/FileList.txt's deployed name -- byte-identity
+roll_mp      = 24                               # the Nimbra ability's OWN mp (the row above)
+roll_command = 46                               # Iviv's minted command1 (Spark) -- build_rung8_bench asserts it
+roll_ability = 195                              # Nimbra's minted ability id -- THE DISCRIMINATOR (see header)
+
+# --- K4: THE FULL's staging curves (FULL-STORYBOARD 4.3) ---------------------------------------------
 # anchor = "target_average" is LOAD-BEARING. THE MULTI-TARGET NULL: SFXData.cs:149 passes a NULL target
 # into SetupPositions whenever the cast has >1 target, so every TargetPosition* would evaluate to 0 and
 # NIMBRA would render at the world origin (THE MOVEMENT TRAP by a second route). TargetAveragePosition*
 # is BTL_VFX_REQ.trgcpos -- always valid -- and its vy is hard-zero (BTL_VFX_REQ.cs:88), so the Y offsets
 # below are ABSOLUTE ground-plane heights, not heights above the enemy line.
+# Every curve sums to end - start = 260 (FULL-STORYBOARD 4.3's own ledger); the window drains at
+# t 315 = PlaySFX (t 55) + 260, the tick nimbra_full.seq's WaitSFXDone is authored on.
 [summon.staging]
 anchor = "target_average"
 start  = 0
-end    = 110            # PINNED, not auto-derived: ../nimbra.seq's WaitSFXDone beat is authored against
-                        # it (PlaySFX at tick 25 + 110 = the instance drains at 135).
-                        # RETIMED 2026-07-24 (STORYBOARD 11): 330 -> 110, the manifest re-cut candidate A
-                        # requires. Every curve below is re-proportioned WITH it -- STORYBOARD 7.3's
-                        # lesson is that nothing after PlaySFX moves alone.
+end    = 260            # PINNED to ../nimbra_full.seq's two-clock design (FULL-STORYBOARD 4.1)
 
-# Movement: rise from below the frame in ONE second, then a barely-there continued lift through the
-# look, the strike and the dissolve.
+# Movement: the rise, then a real lateral PASS across the enemy line -- "the circling drift". A literal
+# orbit is impossible (Turning1/2 NRE on an FBX curve), so the pass is built from Sinus on X and Z.
+# THE ONE UNPROVEN STAGING NUMBER (FULL-STORYBOARD 4.3): the short never moves laterally; if cast 1
+# shows clipping or sliding, set every X and Z destination to 0 -- recast-only, and the staging is then
+# bit-for-bit the proven short's shape, at the cost of the pass.
 [[summon.staging.move]]
-duration = 15           # locked to the `emerge` playlist entry (90 frames @ Speed 6 = 15 ticks)
+duration = 15           # the rise, locked to the emerge entry
 from = [0, -900, 0]
 to   = [0,  120, 0]
 ease = ["Linear", "SinusOut", "Linear"]
 [[summon.staging.move]]
-duration = 95           # `from` omitted -> the engine inherits the previous piece's Destination BY
-to   = [0, 190, 0]      # EXPRESSION REFERENCE (ParametricMovement.cs:88-105). Re-emitting it would
-ease = ["Linear", "Sinus", "Linear"]      # double-evaluate the NCalc.
+duration = 75           # the circling drift, out to stage-left ('from' omitted: Destination inherits
+to   = [-160, 160, 60]  # BY EXPRESSION REFERENCE, ParametricMovement.cs:88-105 -- never re-emit it)
+ease = ["Sinus", "Sinus", "Sinus"]
+[[summon.staging.move]]
+duration = 25           # THE LOOK -- it stops travelling and turns
+to   = [-160, 170, 60]
+ease = ["Constant", "Sinus", "Constant"]
+[[summon.staging.move]]
+duration = 75           # the pass completes, back across to stage-right (the second gathering)
+to   = [160, 180, -80]
+ease = ["Sinus", "Sinus", "Sinus"]
+[[summon.staging.move]]
+duration = 30           # it squares to the line for the blow
+to   = [0, 190, 0]
+ease = ["SinusOut", "Sinus", "SinusOut"]
+[[summon.staging.move]]
+duration = 40           # the dissolve's upward vent
+to   = [0, 200, 0]
+ease = ["Constant", "Sinus", "Constant"]
 
-# Rotation: ABSOLUTE euler, applied raw to eulerAngles with no battle-actor base (SFXDataMesh.cs:844) --
-# THE ROTATION BASELINE LAW. (0,180,180) is rung 7's proven facing.
-# THE ONE KNOB THAT MAY COST A CAST (R4): NIMBRA stands enemy-side, the mirror of rung 7's caster-side
-# staging. If cast 1 shows it facing away, flip every Y between 180 and 0 (and 168 -> 12): one line,
-# recast-only, no re-export, no relaunch.
+# Rotation: ABSOLUTE euler, raw to eulerAngles (SFXDataMesh.cs:844) -- THE ROTATION BASELINE LAW,
+# (0,180,180) = rung 7's proven facing. Piece 5's SinusOut is computed, not claimed: the lunge lands
+# 18/30 in, sin(pi/2 * 0.6) = 0.809 -> Y ~176.9 at the blow, 3.1 degrees off square (the short's was 7.3).
 [[summon.staging.turn]]
 duration = 15           # square through the rise
 from = [0, 180, 180]
 to   = [0, 180, 180]
 [[summon.staging.turn]]
-duration = 25           # THE LOOK: the 12-degree turn away, locked to the `drift` entry (frames 15-40)
+duration = 75           # yaws into its own travel
+to   = [0, 192, 180]
+ease = ["Constant", "Sinus", "Constant"]
+[[summon.staging.turn]]
+duration = 25           # THE LOOK: 24 degrees across, ending 12 off square (the short's own figure)
 to   = [0, 168, 180]
 ease = ["Constant", "Sinus", "Constant"]
 [[summon.staging.turn]]
-duration = 70           # squares up THROUGH the wind-back and holds; SinusOut front-loads it, so NIMBRA
-to   = [0, 180, 180]    # is square-on by the lunge peak (frame 58) rather than after it
+duration = 75           # stays turned away through the second gathering
+to   = [0, 164, 180]
+ease = ["Constant", "Sinus", "Constant"]
+[[summon.staging.turn]]
+duration = 30           # squares up THROUGH the wind-back; SinusOut front-loads it
+to   = [0, 180, 180]
 ease = ["Constant", "SinusOut", "Constant"]
+[[summon.staging.turn]]
+duration = 40           # holds square through the dissolve
+to   = [0, 180, 180]
+ease = ["Constant", "Constant", "Constant"]
 
-# Scaling: the approach (an approach WITHOUT a camera move -- STORYBOARD 2.4 lever 3), the hold, then THE
-# DISSOLVE: the body thins to a thread while stretching upward, which reads as vapour venting.
+# Scaling: the approach, the long hold, then THE DISSOLVE (frames 220-260 = t 275-315, overlapping the
+# damage window -- the vent begins on the strike->drift playlist seam).
 [[summon.staging.scale]]
 duration = 15
 from = [0.15, 0.15, 0.15]
 to   = [1.0, 1.0, 1.0]
 ease = ["SinusOut", "SinusOut", "SinusOut"]
 [[summon.staging.scale]]
-duration = 70           # the hold: the look (15-40), the wind-back (40-58), the blow (58-85)
+duration = 205          # full height for the drift, the look, the gathering and the blow
 to   = [1.0, 1.0, 1.0]
 ease = ["Constant", "Constant", "Constant"]
 [[summon.staging.scale]]
-duration = 25           # THE DISSOLVE, frames 85-110 = ticks 110-135 -- it now OVERLAPS the damage
-to   = [0.02, 1.70, 0.02]     # window (EffectPoints at t 113 / 125) instead of following it
+duration = 40           # THE DISSOLVE -- the body thins to a thread while stretching upward
+to   = [0.02, 1.70, 0.02]
 ease = ["SinusIn", "SinusOut", "SinusIn"]
 
-# The playlist. THE ANIMATION-PLAYLIST LAW: entries chain each clip ONCE and then FREEZE -- there is no
-# loop flag and no blending, so every clip must open and close on the shared `drift` rest pose.
-#
-# EVERY ENTRY IS SPEED 1 -- THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9, adversarial round 2026-07-24).
-# `animMaxFrame = ceil(frames / speed)` is a TICK count; `animFrame = floor(ticks * speed)` is a
-# CLIP-FRAME index; SFXDataMesh.cs:869 divides one by the other. They agree only at speed 1, so at
-# speed s a clip advances s^2 frames per tick -- it finishes after 1/s of its entry and FREEZES for the
-# rest. `playlist_sim.py` measured the pre-fix playlist: emerge frozen 12 of 15 ticks, the look 16 of
-# 25, strike 15 of 30, lunge peak at t 74 against a flash at t 83. SIZE THE CLIP TO THE BEAT.
-#
-# The tick table, the window and the entry BOUNDARIES are STORYBOARD 11.2's, unchanged:
-#   emerge     15 / 1 = 15 ticks   frames   0..15   the rise, 1.0 s
-#   driftlook  25 / 1 = 25 ticks   frames  15..40   THE LOOK -- the beat the census protected at 25
-#   strike     30 / 1 = 30 ticks   frames  40..70   wind-back, THE LUNGE PEAK at frame 58 = t 83, settle
-#   drift      75 / 1 = 75 ticks   frames  70..145  the eerie half-speed sway (clipped at frame 110)
-# Total 15 + 25 + 30 + 75 = 145 ticks >= the 110-tick window, so it never freezes on a last frame.
-# `drift` (N=75, speed 1) is bit-identical to the shipped build -- it was the one entry the defect could
-# not reach. The lunge peak still lands on t 83, the exact tick ../nimbra.seq fires the sting, the
-# rift-flash and the relight; it is now delivered rather than only intended.
+# THE FULL's playlist (FULL-STORYBOARD 4.2): six entries, EVERY ONE AT SPEED 1 (THE SPEED-DIVISOR
+# DEFECT, STORYBOARD 11.9: at speed s a clip advances s^2 frames/tick and freezes at 1/s of its entry --
+# SIZE THE CLIP TO THE BEAT). Playlist total 295 >= the 260 window, never exhausted.
+#   emerge    15   frames   0..15    the rise
+#   drift     75   frames  15..90    THE CIRCLING DRIFT (new -- the full's first earned beat)
+#   driftlook 25   frames  90..115   THE LOOK, byte-for-byte the short's identity beat
+#   drift     75   frames 115..190   THE SECOND GATHERING (new -- the caster causes it)
+#   strike    30   frames 190..220   wind-back 190..208 (THE 18-TICK LEAD), LUNGE PEAK at 208 = t 263
+#   drift     75   frames 220..295   the dissolve rides it, cut at 260
 [[summon.staging.play]]
 clip = "emerge"
+speed = 1
+[[summon.staging.play]]
+clip = "drift"
 speed = 1
 [[summon.staging.play]]
 clip = "driftlook"
 speed = 1
 [[summon.staging.play]]
+clip = "drift"
+speed = 1
+[[summon.staging.play]]
 clip = "strike"
 speed = 1
 [[summon.staging.play]]
+clip = "drift"
+speed = 1
+
+# --- K4-short: THE WHISPER's staging curves, carried VERBATIM ----------------------------------------
+# These are the approved CAST 2 tables, unchanged to the digit -- the deploy gate asserts the re-emitted
+# ef091 manifest is byte-identical to the live install's. end = 110 is PINNED: ../nimbra.seq's
+# WaitSFXDone beat is authored against it (PlaySFX at tick 25 + 110 = the instance drains at 135).
+[summon.short_staging]
+anchor = "target_average"
+start  = 0
+end    = 110
+
+[[summon.short_staging.move]]
+duration = 15           # locked to the emerge playlist entry
+from = [0, -900, 0]
+to   = [0,  120, 0]
+ease = ["Linear", "SinusOut", "Linear"]
+[[summon.short_staging.move]]
+duration = 95           # 'from' omitted -> Destination inherited BY EXPRESSION REFERENCE
+to   = [0, 190, 0]      # (ParametricMovement.cs:88-105); re-emitting it would double-evaluate the NCalc
+ease = ["Linear", "Sinus", "Linear"]
+
+[[summon.short_staging.turn]]
+duration = 15           # square through the rise
+from = [0, 180, 180]
+to   = [0, 180, 180]
+[[summon.short_staging.turn]]
+duration = 25           # THE LOOK: the 12-degree turn away
+to   = [0, 168, 180]
+ease = ["Constant", "Sinus", "Constant"]
+[[summon.short_staging.turn]]
+duration = 70           # squares up THROUGH the wind-back and holds
+to   = [0, 180, 180]
+ease = ["Constant", "SinusOut", "Constant"]
+
+[[summon.short_staging.scale]]
+duration = 15
+from = [0.15, 0.15, 0.15]
+to   = [1.0, 1.0, 1.0]
+ease = ["SinusOut", "SinusOut", "SinusOut"]
+[[summon.short_staging.scale]]
+duration = 70           # the hold: the look, the wind-back, the blow
+to   = [1.0, 1.0, 1.0]
+ease = ["Constant", "Constant", "Constant"]
+[[summon.short_staging.scale]]
+duration = 25           # THE DISSOLVE, frames 85-110 = ticks 110-135, overlapping the damage window
+to   = [0.02, 1.70, 0.02]
+ease = ["SinusIn", "SinusOut", "SinusIn"]
+
+[[summon.short_staging.play]]
+clip = "emerge"
+speed = 1
+[[summon.short_staging.play]]
+clip = "driftlook"
+speed = 1
+[[summon.short_staging.play]]
+clip = "strike"
+speed = 1
+[[summon.short_staging.play]]
 clip = "drift"
 speed = 1
 

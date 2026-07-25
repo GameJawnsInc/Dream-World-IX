@@ -3,7 +3,8 @@ Canonical source: `ff9mapkit/docs/FORMAT.md`, the `### [[playable]]` section —
 # `[[playable]]` schema — key tables (quoted from FORMAT.md)
 
 Everything below the rule is quoted verbatim from `ff9mapkit/docs/FORMAT.md`. Relative links inside the
-quoted blocks (e.g. `CUSTOM_MODELS.md`, `../examples/...`) resolve against `ff9mapkit/docs/`, not this file.
+quoted blocks (e.g. `CUSTOM_MODELS.md`, `BATTLE_DESIGN.md`, `SCRIPTS_DLL.md`) resolve against `ff9mapkit/docs/`,
+not this file — the one `examples/` path below is rewritten repo-root-relative so it resolves from here.
 
 ## Contents
 
@@ -25,8 +26,9 @@ quoted blocks (e.g. `CUSTOM_MODELS.md`, `../examples/...`) resolve against `ff9m
 > Mint a **genuinely new engine `CharacterId`** — a 13th (14th, …) party member alongside all 12 canon
 > characters, with its own name, stats, battle model, and ability kit. **Zero DLL** (CSV deltas + `.eb`
 > recruit op), *except* a custom battle **formula** (`script`, see below) which uses the Scripts-DLL channel.
-> Full worked example: [`examples/thirteenth-character/`](../examples/thirteenth-character/iviv.field.toml)
-> (Iviv + Steiniv); the engine mechanism is in the memory `project-ff9-13th-character`.
+> Full worked example: `ff9mapkit/examples/thirteenth-character/iviv.field.toml` (repo-root-relative;
+> FORMAT.md writes this link relative to itself) — Iviv + Steiniv; the engine mechanism is in the
+> memory `project-ff9-13th-character`.
 >
 > > **Relaunch + New Game.** The new `BaseStats`/`CharacterParameters` rows and the name directive load at
 > > **startup / New-Game init** — ~ Reload won't pick them up. So: deploy → **relaunch** → **New Game** (so
