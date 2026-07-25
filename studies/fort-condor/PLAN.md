@@ -183,8 +183,13 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   tick, the sel-gated dispatch never fires. FIX (compiler-structural, same day): THE
   EDGE-LATCHED REQUEST LANE — selecting a Battle branch sets a `breq` flag; the
   dispatch tail fires on breq && !fought && running==0 INDEPENDENT of the current
-  selection, ordered first with a one-REQ-per-tick jump. ⚠ round-2 playtest pending
-  (the loss-battle box + the after-battle return chain).**
+  selection, ordered first with a one-REQ-per-tick jump.
+  ★ ROUND 2 PROVEN (2026-07-24): "i fought a Trick Sparrow with no re-swirl and no
+  softlock. win still works" — the loss battle fires (edge-latch ✓), one-shot holds
+  (no re-swirl ✓), the after-battle return chain is clean (tag-10 ✓), the win path
+  regression-clean. RUNG 4 IS CLOSED — the ladder rungs 0-4 are ALL ★ IN-GAME
+  PROVEN. Next: rung 5 (the Fort Condor fit) + the owner's dynamic-pursuit research
+  (integrate if viable).**
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.
