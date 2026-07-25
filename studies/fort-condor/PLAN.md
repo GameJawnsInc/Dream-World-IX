@@ -258,6 +258,17 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   real. Donor bystanders (the 5 npc-kind carried [[object]]s — Zaghnol, the
   red-hat villager, the little girl, the noble woman + one) stripped; the two
   scenery props stay. Shipped .eb 55.4KB / 65.6KB reach.
+  **ROUND 3 ★ ("good", 2026-07-25): the COUNTERATTACK is in-game proven** —
+  raiders trade blows with their engagers, allies die for real, the mutual
+  heavy/Defender duel holds, the plaza is clean of bystanders, win/loss
+  regressions clean. NOTE for precision: this ticker is 30.2KB (back under the
+  old wall after the file-budget trims), so the ISLAND bytes themselves have
+  not yet run in-game — the relaxation is offline-proven and will get its live
+  crossing whenever content next exceeds ~32KB of one body. OPEN rung-5 items:
+  the tuning pass toward the FFVII feel (owner-driven, 1-minute clock stays
+  until then), restore the real 4:00 clock when tuned, the 20-cap-vs-counters
+  FILE-budget trade (owner's call), win/lose presentation polish, then the
+  `[minigame]`/`[condor]` productization decision.
   **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
   `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
   below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates
