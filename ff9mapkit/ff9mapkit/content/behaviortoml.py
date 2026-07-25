@@ -244,6 +244,91 @@ def movement_route_refs(raw: dict) -> list:
     return refs
 
 
+def _engagement_radius(branch: dict, target: str):
+    """The tightest ``near``/``any_near`` radius in ``branch`` that binds ``target``.
+
+    A branch's ``when`` rows are ANDed, so the smallest radius naming the target is
+    what actually gates the action; ``None`` = the branch never bounds the distance to
+    that target, so the pursuit family is the whole field. ``not_near`` is IGNORED (it
+    excludes CLOSE pairs, which would widen the family, so honouring it could only make
+    the report louder on a construct nobody writes)."""
+    best = None
+    for c in (branch.get("when") or []):
+        if not isinstance(c, dict):
+            continue
+        r = None
+        if isinstance(c.get("near"), (list, tuple)) and len(c["near"]) >= 2 \
+                and str(c["near"][0]) == target:
+            r = int(c["near"][1])
+        elif isinstance(c.get("any_near"), (list, tuple)) and len(c["any_near"]) >= 2 \
+                and target in [str(t) for t in c["any_near"][0]]:
+            r = int(c["any_near"][1])
+        if r is not None and (best is None or r < best):
+            best = r
+    return best
+
+
+def _source_box(branch: dict, positions: dict):
+    """A ``(x0, x1, z0, z1)`` restriction on where the ACTING unit can be, from a
+    ``near_point`` row (Chebyshev, matching the compiler's box), else ``None``."""
+    box = None
+    for c in (branch.get("when") or []):
+        if not isinstance(c, dict) or not isinstance(c.get("near_point"), (list, tuple)):
+            continue
+        v = c["near_point"]
+        if len(v) < 2:
+            continue
+        try:
+            px, pz = _resolve_point(v[0], positions, "near_point")
+        except BehaviorTomlError:
+            continue
+        r = int(v[1])
+        b = (px - r, px + r, pz - r, pz + r)
+        box = b if box is None else (max(box[0], b[0]), min(box[1], b[1]),
+                                     max(box[2], b[2]), min(box[3], b[3]))
+    return box
+
+
+def pursuit_refs(raw: dict) -> list:
+    """Every DYNAMIC movement reference (``chase`` / ``wander``), in TOML order — the
+    pursuit-sweep analogue of :func:`movement_route_refs`.
+
+    These are the feeds ``route = "auto"`` REFUSES: their destination is a runtime
+    position, so there is no build-time line to splice (the Path-B study). What IS
+    checkable is the family of legs the branch's own engagement gate admits. Each row:
+    ``{"ui", "bi", "unit", "verb", "target", "radius" (None = ungated), "standoff",
+    "source_box", "target_box"}``."""
+    positions = _npc_marker_positions(raw)
+    refs = []
+    for ui, u in enumerate(units(raw)):
+        for bi, br in enumerate(u.get("branch", []) or []):
+            do = br.get("do")
+            if not isinstance(do, dict):
+                continue
+            if "chase" in do:
+                tgt = str(do["chase"])
+                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                             "verb": "chase", "target": tgt,
+                             "radius": _engagement_radius(br, tgt),
+                             "standoff": int(do.get("standoff", 140)),
+                             "source_box": _source_box(br, positions),
+                             "target_box": None})
+            if "wander" in do:
+                try:
+                    cx, cz = _resolve_point(do["wander"], positions, "wander")
+                except BehaviorTomlError:
+                    continue                   # unresolvable -> validate reported it
+                r = int(do.get("radius", 400))
+                box = (cx - r, cx + r, cz - r, cz + r)
+                # a roll lands anywhere in the box, so the walker can be at one corner
+                # and its fresh target at the other: the family spans 2r per axis
+                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                             "verb": "wander", "target": f"({cx},{cz})+-{r}",
+                             "radius": 2 * r, "standoff": 0,
+                             "source_box": box, "target_box": box})
+    return refs
+
+
 def wants_autoroute(raw: dict) -> bool:
     """True when any patrol/march sets ``route = "auto"`` — the only case the build
     needs a walkmesh (a field without the key never resolves one: byte-identical)."""

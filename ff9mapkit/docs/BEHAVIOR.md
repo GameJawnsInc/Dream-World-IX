@@ -10,7 +10,8 @@ content. Reference: [FORMAT.md § `[behavior]`](FORMAT.md#behavior-optional--beh
 ff9mapkit behavior compile <field.toml>    # dry-compile: the report (blackboard map, action
                                            # ids, public-flag indices) — nothing written
 ff9mapkit behavior lint    <field.toml>    # static checks + a walkability SWEEP of every
-                                           # route marker your patrols/marches reference
+                                           # route your patrols/marches reference, AND of
+                                           # the pursuit lines your chases/wanders admit
 ff9mapkit behavior view    <field.toml>    # compile, then disassemble every generated body
 ```
 
@@ -83,6 +84,23 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
   `flee` can't auto-route: their walks start wherever the unit happens to be when the branch
   selects (there is no build-time origin to route from), and spliced flee points would become
   extra *refuges*, not waypoints.
+- **What `chase` / `wander` get instead: THE PURSUIT SWEEP.** A chase follows a live position, so
+  there is no line to route — but there IS a knowable *family* of lines: every pair of standable
+  positions your branch's own `near` radius admits. `behavior lint` sweeps that family and tells
+  you what fraction of it jams, plus the worst example as two coordinates ("pursuer here, quarry
+  there, off-mesh for ~970u around this spot"). It's a **warning, not an error**: a dynamic jam
+  needs your quarry to actually stand on a bad spot, unlike a static route's off-mesh leg, which
+  jams every lap. Two things make it quiet or loud, both under your control:
+  - **The engagement radius is the dial.** Jamming is a LONG-RANGE phenomenon — measured on the
+    donut field the benches use, 0% of pursuit lines under 600u leave the mesh, 10% at 1200u, 82%
+    past 2400u. Tightening the `near` row that gates the chase is usually the whole fix.
+  - **An ungated chase** (no `near`/`any_near` row naming the target) is called out as such: its
+    family is the entire field, so on anything non-convex it *will* wedge somewhere. If you want
+    a unit to come from across the map, give it a `march` with `route = "auto"` for the approach
+    and let `chase` take over from close range.
+  A `wander` is swept the same way over its own box (a roll can land behind a wall — the walker
+  then shoves that wall until the next roll). Coverage is sampled, and the sweep always prints the
+  spacing it used: the number it reports is a floor on the real rate, not a ceiling.
 
 `patrol` loops its points forever; `march` walks them once and holds the last (a raid column,
 an escape run). `flee` is deliberately not vector math: you give it **refuge points in priority

@@ -175,6 +175,11 @@ def read_expr(raw: bytes, pos: int) -> tuple[str, int]:
     ops = []
     while True:
         o = raw[pos]; pos += 1
+        if o == 0xD3:                       # flexible_varfunc (Memoria): u16 id + u8 argc.
+            fid = raw[pos] | (raw[pos + 1] << 8)   # The engine carves 0xD3 OUT of the var-token
+            ops.append(f"op{o:02X}({fid},{raw[pos + 2]})")   # space (EBin.expr checks it first) --
+            pos += 3                        # decoding it as a short-index var desyncs by 2 bytes.
+            continue
         isconst = o in (0x7D, 0x7E)
         isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
         if not isconst and not isvar:
@@ -197,10 +202,15 @@ def pretty_expr(raw: bytes, pos: int) -> tuple[str, int]:
     :func:`read_expr` but names each operator via the ``op_binary`` table and decodes a variable token into its
     ``Source.Type[index]`` form (so a story-flag read shows as ``Global.Bit[8512]``, an enemy-HP read as
     ``B_CURHP``). The read side of the battle-AI inspector; field scripts read the same way."""
-    from ._exprtable import expr_op_name, decode_var
+    from ._exprtable import expr_op_name, decode_var, flex_fn_name
     out = []
     while True:
         o = raw[pos]; pos += 1
+        if o == 0xD3:                                       # flexible_varfunc: u16 id + u8 argc
+            fid = raw[pos] | (raw[pos + 1] << 8)
+            out.append(flex_fn_name(fid, raw[pos + 2]))
+            pos += 3
+            continue
         isconst = o in (0x7D, 0x7E)
         isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
         if not isconst and not isvar:                       # a pure operator (no inline operand bytes)
@@ -280,6 +290,9 @@ def _expr_uid_offsets(raw: bytes, pos: int) -> tuple[int, list]:
     offs = []
     while True:
         o = raw[pos]; pos += 1
+        if o == 0xD3:                         # flexible_varfunc: u16 id + u8 argc (no uid inside)
+            pos += 3
+            continue
         isconst = o in (0x7D, 0x7E)
         isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
         if not isconst and not isvar:
@@ -339,6 +352,9 @@ def _expr_const_offsets(raw: bytes, pos: int, operand_index: int, out: list) -> 
     length-preserving by construction. 4-byte ``0x7E`` (B_CONST4) literals are skipped, not collected."""
     while True:
         o = raw[pos]; pos += 1
+        if o == 0xD3:                         # flexible_varfunc: u16 id + u8 argc (no B_CONST inside)
+            pos += 3
+            continue
         isconst = o in (0x7D, 0x7E)
         isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
         if not isconst and not isvar:

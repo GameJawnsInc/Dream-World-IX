@@ -563,6 +563,215 @@ def snap_home(ctx: _Ctx, state: str) -> None:
         _close(win)
 
 
+DRIFT_STATES = ("none", "synced", "ahead", "campaign")
+
+
+class _no_modals:
+    """Make every message box non-blocking for a whole surface, loudly -- BOTH kinds.
+
+    Needed OUTSIDE a dialog grab, which is why it is not part of :class:`_grab_next_dialog`. The case that
+    found it: a surface that deliberately leaves UNSAVED edits (drift:ahead), where ``win.close()`` fires the
+    unsaved-changes prompt long after the dialog grab has exited. The run hung with NO OUTPUT AT ALL and only
+    ``faulthandler.dump_traceback_later`` said where -- worth remembering as the tool for a silent hang.
+
+    TWO KINDS, and the first fix only covered one. The static helpers (``QMessageBox.warning`` etc.) exec in
+    C++ and never consult a Python-patched ``QDialog.exec``; but ``_maybe_prompt_unsaved`` builds an INSTANCE
+    (``QMessageBox(self).exec()``), which the static stubs cannot see. So the instance ``exec`` is stubbed too,
+    to Discard -- a snap must not silently WRITE the user's project, and Save would.
+
+    (`_maybe_prompt_unsaved` early-returns under ``QT_QPA_PLATFORM=offscreen``, which is exactly why every
+    offscreen probe of this feature was clean and only the native snap hung.)
+    """
+
+    def __enter__(self):
+        self._msg = (QMessageBox.warning, QMessageBox.information, QMessageBox.question, QMessageBox.critical)
+        self._exec = QMessageBox.exec
+
+        def _exec_stub(box):
+            print(f"      [modal] {box.windowTitle()}: {box.text()}".splitlines()[0])
+            return QMessageBox.StandardButton.Discard      # never Save: a snap must not write the project
+        QMessageBox.exec = _exec_stub
+
+        def _stub(name, ret):
+            def stub(_parent, title, text, *a, **k):
+                print(f"      [{name}] {title}: {text}".splitlines()[0])
+                return ret
+            return staticmethod(stub)
+
+        QMessageBox.warning = _stub("warning", QMessageBox.StandardButton.Ok)
+        QMessageBox.information = _stub("information", QMessageBox.StandardButton.Ok)
+        QMessageBox.question = _stub("question", QMessageBox.StandardButton.No)
+        QMessageBox.critical = _stub("critical", QMessageBox.StandardButton.Ok)
+        return self
+
+    def __exit__(self, *exc):
+        (QMessageBox.warning, QMessageBox.information,
+         QMessageBox.question, QMessageBox.critical) = self._msg
+        QMessageBox.exec = self._exec
+        return False
+
+
+class _pin_snapshot_dir:
+    """Redirect deploy SNAPSHOTS to this run's scratch, so a snap never writes into the checkout.
+
+    Scoped to :mod:`deploysnap`, NOT done with ``FF9MAPKIT_DATA``. The first cut set that env var -- and it
+    overrides ``provision.data_dir()`` (the TEMPLATES dir) as well as the cache, so it silently pointed every
+    surface's template lookup at an empty directory and the whole harness hung on the first snap. One knob,
+    two meanings: patch the narrow thing instead.
+    """
+
+    def __init__(self, sub: str):
+        self.dir = _SCRATCH / "snapcache" / sub
+
+    def __enter__(self):
+        from ff9mapkit.editor import deploysnap
+        self._mod, self._orig = deploysnap, deploysnap.snap_dir
+        deploysnap.snap_dir = lambda: self.dir
+        return self
+
+    def __exit__(self, *exc):
+        self._mod.snap_dir = self._orig
+        return False
+
+
+def _drift_project(ctx, kind="field"):
+    """A WRITABLE copy of a bundled example + the shell aimed at it.
+
+    Never the bundled example itself: the study's standing rule is that a form-editor Save rewrites the
+    byte-exact golden oracle. A snap that edits a project has to edit a copy.
+    """
+    # stolen-ember lives at the REPO root's examples/, boletta under the package's -- resolve, never assume.
+    rel = ("examples/stolen-ember" if kind == "campaign" else "ff9mapkit/examples/boletta")
+    src = next((c for c in (REPO / rel, REPO / "ff9mapkit" / rel, REPO / rel.split("/", 1)[-1]) if c.is_dir()), None)
+    assert src is not None, f"cannot find the {kind} example ({rel}) -- snap void"
+    dst = _SCRATCH / f"drift_{kind}"
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)
+    proj = (dst / "campaign.toml") if kind == "campaign" else (dst / "boletta.field.toml")
+    win = _make_win(ctx)
+    if kind == "campaign":
+        win.open_campaign(proj)
+    else:
+        win.open_field(proj)
+    win.build_deploy.set_target(str(proj))
+    _settle(6)
+    return win, proj
+
+
+def _grab_strip(ctx: _Ctx, name: str, w, factor: int = 3) -> None:
+    """Grab a SHORT widget (a status bar is ~25px) upscaled nearest-neighbour.
+
+    Two reasons, both from round 11: `_grab` floors at 50px so a strip fails its "grabbed nothing" assert;
+    and a chip judged inside an 850px window shot is the downscaled-review mistake -- the subject has to be
+    big enough to read. Nearest-neighbour so no intermediate colour is invented.
+    """
+    _settle()
+    img = w.grab().toImage()
+    assert img.width() > 20 and img.height() > 4, f"{name}: grabbed nothing"
+    big = img.scaled(img.width() * factor, img.height() * factor,
+                     Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+    path = ctx.png(name)
+    big.save(str(path))
+    print(f"  {path}")
+    print(f"      strip {img.width()}x{img.height()} at {factor}x")
+    ctx.saved.append(path)
+
+
+def snap_drift(ctx: _Ctx, state: str) -> None:
+    """The drift chip + the change list: "am I looking at what the game is running?"
+
+    The deploy is driven through the real hooks (_capture_deploy_snapshot / _commit_deploy_snapshot) rather
+    than by hand-writing a snapshot file, so the snap exercises the shipped path. FF9MAPKIT_DATA already
+    points at this run's scratch dir, so no real cache is touched.
+    """
+    if state not in DRIFT_STATES:
+        raise ValueError(f"unknown drift state {state!r} (know: {', '.join(DRIFT_STATES)})")
+    # _no_static_modals wraps the WHOLE surface: the 'ahead' states end with unsaved edits on purpose, and
+    # win.close() then fires the unsaved-changes prompt -- a static QMessageBox, i.e. a hard hang.
+    with _pin_snapshot_dir(state), _no_modals():
+        _snap_drift_body(ctx, state)
+
+
+def _snap_drift_body(ctx: _Ctx, state: str) -> None:
+    win, _proj = _drift_project(ctx, "campaign" if state == "campaign" else "field")
+    if state != "none":                                  # 'none' = never deployed -> the chip must be absent
+        win._capture_deploy_snapshot()
+        win._deployed_field_id = 4004
+        win._commit_deploy_snapshot()
+        _settle(4)
+    if state in ("ahead", "campaign"):
+        doc = win._docs[sorted(win._docs)[0]]
+        doc.data.setdefault("camera", {})["pitch"] = 45.0
+        doc.data.setdefault("field", {})["title"] = "A Colder Glade"
+        npcs = doc.data.get("npc") or []
+        if npcs:
+            npcs[0]["dialogue"] = "It is colder now than it was."
+        win._refresh_drift_chip()
+        _settle(4)
+    win._refresh_drift_chip()
+    _settle(4)
+    _grab(ctx, f"drift-{state}", win)
+    _grab_strip(ctx, f"drift-{state}-statusbar", win.statusBar())
+    with _grab_next_dialog(ctx, f"drift-{state}-dialog"):
+        win._open_drift()
+    _close(win)
+
+
+CONSOLE_STATES = ("log", "find", "miss", "jobs")
+
+
+def _seed_console(win) -> list[dict]:
+    """A realistic MULTI-JOB session log + its job index, pinned -- never this machine's real jobs.
+
+    Written through ``win._log`` in the same four registers ``run_job`` uses (head / echo / body / trace) so
+    the snap records the real ink, and the head strings are built the same way run_job builds them. Fixed
+    timestamps: a random clock would break pixel-diffing the most prominent line in the panel (round 9's
+    mkdtemp lesson).
+    """
+    session = [("09:41:02", "Build field 4003", 0,
+                ["scene: camera k=14 ok", "wrote build/4003/scene.bgx", "wrote build/4003/field.eb"]),
+               ("09:41:20", "Deploy field 4003", 0,
+                ["copying to FF9CustomMap/StreamingAssets", "wrote revert_deploy_4003.py", "deploy ok"]),
+               ("09:42:07", "Import field 354", 1,
+                ["reading p0data7.bin", "Traceback (most recent call last):",
+                 "  File \"ff9mapkit/import.py\", line 88, in scan", "KeyError: 'walkmesh'"])]
+    idx = []
+    for stamp, subject, code, lines in session:
+        head = f"[{stamp}] {subject}"
+        idx.append({"head": head, "time": stamp, "subject": subject, "code": code, "stopped": False})
+        win._log(head, "head")
+        win._log(f"$ -m ff9mapkit {subject.split()[0].lower()} examples/showcase", "echo")
+        for ln in lines:
+            win._log(ln, "trace" if win._TRACE_ANCHOR in ln else "body")
+    win._job_index = idx
+    return idx
+
+
+def snap_console(ctx: _Ctx, state: str) -> None:
+    """The console read as a DOCUMENT: the multi-job log, the find bar's two highlight tiers, the no-match
+    state, and the Jobs menu."""
+    if state not in CONSOLE_STATES:
+        raise ValueError(f"unknown console state {state!r} (know: {', '.join(CONSOLE_STATES)})")
+    win = _make_win(ctx)
+    _seed_console(win)
+    win._raise_console()
+    if state == "find":
+        win._open_find("wrote")
+    elif state == "miss":
+        win._open_find("walkmsh")            # a typo'd needle -> the 'no matches' tier
+    _settle(8)
+    if state == "jobs":
+        win._fill_jobs_menu()
+        _grab(ctx, "console-jobs-menu", win._jobs_menu)
+    # The console body is the subject, so grab IT as well as the window: the panel is ~200px of a 850px
+    # shot and a highlight tier judged from the downscaled whole is the 'sample the button, don't squint at
+    # the screenshot' mistake this study already paid for.
+    _grab(ctx, f"console-{state}", win)
+    _grab(ctx, f"console-{state}-panel", win.console_panel)
+    _close(win)
+
+
 def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "coop":
         # tab:coop unpinned rendered THIS machine's real [Netsync] state -- including the developer's
@@ -687,7 +896,9 @@ DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-f
 def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
-            + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES])
+            + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
+            + [f"console:{s}" for s in CONSOLE_STATES]
+            + [f"drift:{s}" for s in DRIFT_STATES])
 
 
 def main() -> None:
@@ -727,6 +938,10 @@ def main() -> None:
                 snap_map(ctx, rest)
             elif kind == "world":
                 snap_world(ctx, rest)
+            elif kind == "console":
+                snap_console(ctx, rest)
+            elif kind == "drift":
+                snap_drift(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface
