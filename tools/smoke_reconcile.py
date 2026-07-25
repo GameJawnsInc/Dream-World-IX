@@ -76,6 +76,7 @@ def reconcile(geom, seams):
             linked += 1
         else:
             missing += 1
+    geom.invalidate_cache()                             # nbr/edgeClone moved under the derived caches
     return linked, missing
 
 

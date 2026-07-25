@@ -87,6 +87,13 @@ def _luminance(hexstr: str) -> float:
     return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
 
 
+def _chan_dist(a: str, b: str) -> int:
+    """Max raw channel distance -- the metric for a TINT, where a contrast ratio is the wrong instrument
+    (REGISTER P1: a ratio is luminance-only and blind to the hue/chroma axis a tint actually uses). The same
+    measure `_selection_token` and `_find_token` solve against."""
+    return max(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) for i in (1, 3, 5))
+
+
 def _contrast(a: str, b: str) -> float:
     la, lb = _luminance(a), _luminance(b)
     hi, lo = max(la, lb), min(la, lb)
@@ -216,6 +223,69 @@ def test_a_filled_ground_carries_its_ink():
                           ("pressed", "pressed_fg")):
             assert _contrast(d[ink], d[fill]) >= 4.5, \
                 f"{mode}: ${ink} is sub-AA on its own ${fill} fill"
+
+
+def test_the_find_highlight_owes_its_own_ground_a_fence():
+    """THE NINTH-GROUND LAW on the console: a find highlight is a THIRD colour painted under the log's text,
+    so `contrast(log_fg, log_bg) >= 4.5` (fenced above) says nothing about it.
+
+    Both tiers, all 8 palettes, three separate contracts -- and the naive build fails the first one in EVERY
+    palette, which is what this exists to keep failing loudly:
+      1. the ink on each fill clears AA (4.5) -- the loud tier's ink is the AUTHORED `accent_fg`, the quiet
+         tier's the derived `find_fg`;
+      2. the quiet fill is VISIBLE against the well (raw channel distance, not a ratio -- REGISTER P1: a tint
+         moves on an axis luminance cannot see);
+      3. the quiet fill is still DISTINGUISHABLE from the loud one, or the two tiers say the same thing.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        # 1. ink on ground, both tiers
+        assert _contrast(d["find_fg"], d["find_bg"]) >= 4.5, \
+            f"{mode}: the quiet find tier's ink is sub-AA on its own fill"
+        assert _contrast(d["accent_fg"], d["accent"]) >= 4.5, \
+            f"{mode}: the current match's ink is sub-AA on the accent fill"
+        # 2. visible against the well
+        assert _chan_dist(d["find_bg"], pal["log_bg"]) >= theme.FIND_TINT_FLOOR, \
+            f"{mode}: the quiet find tier is invisible in the console well"
+        # 3. the two tiers are not the same mark
+        assert _chan_dist(d["find_bg"], pal["accent"]) >= 20, \
+            f"{mode}: the quiet find tier is indistinguishable from the CURRENT match"
+
+
+def test_the_find_highlight_cannot_inherit_the_logs_own_ink():
+    """The fence above passes trivially if someone "simplifies" the two tokens away and lets the log's body
+    colour ride the highlight. This asserts that shortcut is ILLEGAL -- by measuring that it is still broken.
+
+    It is not a near miss on the LOUD tier: `log_fg` on the accent fill measures 1.16 (solarized-dark) to
+    3.43 (nord) -- sub-AA in EIGHT of eight, so that half is a hard `<` per palette.
+
+    THE QUIET TIER'S CONTRACT IS TWO-PART, AND THE FIRST DRAFT OF THIS FENCE GOT IT WRONG -- it demanded
+    find_fg beat log_fg in EVERY palette and went red on dracula, where the two are BYTE-IDENTICAL (`#f8f8f2`
+    is both that palette's `log_fg` and its `text`, and `_fg_token` chooses between `log_bg` and `text`). That
+    is the rule working as designed -- `_fg_token` returns its input unchanged wherever the palette already
+    clears AA -- not a token with no job. A fence set at "strictly better everywhere" would have forced a
+    pointless second hex into dracula. So:
+      * per palette, the derived ink is NEVER WORSE than the log's own; and
+      * ACROSS the palettes it is load-bearing at least once (measured: solarized-dark 3.55, solarized-light
+        3.86 at FIND_TINT_FLOOR 44 -- both sub-AA without it).
+    And the quiet tier cannot be rescued by tuning the floor either, because visibility and inherited
+    legibility move in OPPOSITE directions: raising the floor walks the tint toward the accent and AWAY from
+    the log's ink (solarized-dark 4.52 at floor 20 -> 3.55 at 44).
+    """
+    inherited = []
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        assert _contrast(pal["log_fg"], pal["accent"]) < 4.5, (
+            f"{mode}: log_fg now clears AA on the accent fill. If that is real, the loud tier could drop its "
+            f"explicit ink -- re-measure all 8 before believing it.")
+        bare = _contrast(pal["log_fg"], d["find_bg"])
+        inherited.append(bare)
+        assert _contrast(d["find_fg"], d["find_bg"]) >= bare, \
+            f"{mode}: find_fg reads WORSE than the log's own ink on the quiet tier -- the derivation regressed"
+    assert min(inherited) < 4.5, (
+        "log_fg now clears AA on the quiet find tier in ALL 8 palettes, so `find_fg` has no remaining job. "
+        "That would be a real simplification -- but verify it at the shipped FIND_TINT_FLOOR first: this "
+        "measured 3.55 (solarized-dark) when the fence was written.")
 
 
 def test_an_ink_is_never_borrowed_from_the_ground_next_door():

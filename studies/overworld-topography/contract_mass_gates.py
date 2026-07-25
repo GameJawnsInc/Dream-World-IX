@@ -1,4 +1,19 @@
-"""THE MASS-ANATOMY CONTRACT round -- THE GATES, v4 (2026-07-24, post-RE-audit round 3).
+"""THE MASS-ANATOMY CONTRACT round -- THE GATES, v5 (2026-07-24, Rung-F UV-fix round 2).
+
+v5 EVOLVES exactly one gate semantic (frozen matrix otherwise): GATE R1's STAGED-SEA-UNDERLAP
+detector no longer POISONS the verdict. A full-block staged sea plane under the ecotone invalidates
+ONLY the sea-vertex standoff convention (a backing plane collapses it to ~0.6u) -- it provably cannot
+perturb the land-perimeter mesh-edge measure that IS the staged verdict (single-owner TERRAIN edges
+only; no sea mesh at any Y contributes an edge; specimen vs FIXED measure 46.826/48.882/49.547u
+byte-identically across restoring the full Sea4 plane). So _staged_sea_underlap firing now records
+`sea_vertex_convention_invalid` (protection retained -- the reported sea-vertex cross-check is
+untrustworthy) WITHOUT failing the land-edge verdict. The v2 blanket form incentivized the Rung-F
+build to replace real ocean with 0.005u^2 stubs to dodge the detector (the 819,200x missing-ocean
+cliff, healed round 1); the evolution removes that incentive while keeping the protection. Every
+prior verdict is FROZEN: stock PASS, controls PASS, rungs C/D/E REJECT; the ONLY behaviour change is
+on full-underlay staged trees whose land-edge standoff PASSES -- CONVENTION-INVALID -> the land-edge
+verdict (round-1's FIXED tree now correctly reads R1 PASS with the sea-vertex flag set; rung_c's R1
+sub-verdict likewise flips CONVENTION-INVALID -> PASS but it still REJECTS overall on R2+R3).
 
 v4 closes the TWO fresh beats the round-2 re-audit (contract_mass_reaudit2.py) found in v3 -- both
 normal/malformed-pipeline probes that beat the v3 suite:
@@ -586,12 +601,20 @@ def gate_r1(cand, *, mode="enforce", tol=1e-3):
     without the coastal restriction on stock. Floors are convention-independent on stock (falsifier
     A), so a staged mint measured by land-perimeter is directly comparable.
 
-    THE STAGED-UNDERLAP DETECTOR (v2): if staged terrain near the measured boundary lies UNDER a
-    staged full-block sea plane, the land-perimeter silhouette over-reports the standoff while the
-    visible waterline is close. The gate flags CONVENTION-INVALID (a FAILING status) -- but ONLY to
-    rescue a FALSE PASS: a build whose land-perimeter already fails the floor stays a plain standoff
-    FAIL (Rung E). Internal-seam contamination errs the perimeter SMALL (a false-FAIL, the safe
-    direction) and is left reported-not-fixed."""
+    THE STAGED-UNDERLAP DETECTOR (v2, EVOLVED v5): if staged terrain near the measured boundary lies
+    UNDER a staged full-block sea plane, the SEA-VERTEX standoff convention collapses to ~0.6u (a
+    backing plane sits right over the ecotone). v2 read this as also poisoning the land-perimeter
+    verdict and flagged CONVENTION-INVALID (a FAILING status). v5 (Rung-F UV-fix round 2) CORRECTS
+    that: the land-perimeter silhouette is built from single-owner TERRAIN edges only, so a sea mesh
+    -- at ANY Y, under or over -- cannot contribute an edge and provably cannot perturb the land-edge
+    standoff (specimen vs FIXED measure 46.826/48.882/49.547u byte-identically across restoring the
+    full Sea4 plane). So underlap now records `sea_vertex_convention_invalid` (keeping the protection:
+    the reported sea-vertex cross-check is untrustworthy) and the VERDICT is taken from the valid
+    land-edge measurement. HISTORY: the v2 blanket form incentivized the Rung-F build to replace real
+    ocean with 0.005u^2 stubs to dodge the detector (the 819,200x missing-ocean cliff healed in round
+    1); the evolution removes that incentive while keeping the sea-vertex protection. Internal-seam
+    contamination errs the perimeter SMALL (a false-FAIL, the safe direction) and is left
+    reported-not-fixed."""
     floors = dict(boundary_cell=ceil("R1.boundary_cell_to_coast_floor_u"),
                   straddle_cell=ceil("R1.straddle_cell_to_coast_floor_u"),
                   body_tri=ceil("R1.body_tri_to_coast_floor_u"))
@@ -659,22 +682,33 @@ def gate_r1(cand, *, mode="enforce", tol=1e-3):
         checks[k] = dict(measured_u=round(mv, 3) if mv is not None else None,
                          floor_u=floors[k],
                          passes=(mv is not None and mv >= floors[k] - tol))
-    standoff_pass = all(c["passes"] for c in checks.values())
-    failed = [k for k, c in checks.items() if not c["passes"]]
-    # v2: CONVENTION-INVALID rescues a FALSE PASS only -- the land-perimeter says the standoff clears
-    # the floor, but the ecotone underlaps a full-block staged sea plane, so the true waterline is
-    # close and the measurement is not trustworthy. If the standoff already FAILS, it stays a plain
-    # standoff FAIL (the underlap is merely reported) -- so Rung E fails on standoff, not convention.
-    underlap_invalid = (cand["is_staged"] and standoff_pass
-                        and diagnostics.get("staged_sea_underlap", {}).get("convention_invalid"))
-    if underlap_invalid:
-        verdict = "CONVENTION-INVALID"
-        convention_invalid = True
-    else:
-        verdict = "PASS" if standoff_pass else "FAIL"
+    # only the three realized-standoff measures decide the pass (robust to extra checks[] keys below).
+    standoff_pass = all(checks[k]["passes"] for k in ("boundary_cell", "straddle_cell", "body_tri"))
+    failed = [k for k in ("boundary_cell", "straddle_cell", "body_tri") if not checks[k]["passes"]]
+    # v5 (Rung-F UV-fix round 2): THE UNDERLAP EVOLUTION. A full-block staged sea plane UNDER the
+    # ecotone invalidates ONLY the sea-vertex standoff convention (a backing plane collapses it to
+    # ~0.6u) -- it provably CANNOT perturb the land-perimeter mesh-edge measurement that IS the staged
+    # verdict, because that silhouette is built from single-owner TERRAIN edges alone and no sea mesh,
+    # at any Y, ever contributes a terrain edge (specimen vs FIXED measure 46.826/48.882/49.547u
+    # byte-identically -- restoring the full Sea4 plane did not move the land-edge standoff a single
+    # ulp). So underlap now RECORDS `sea_vertex_convention_invalid` (the protective flag: the reported
+    # invalid_sea_vertex_convention cross-check is untrustworthy) WITHOUT poisoning the land-edge
+    # verdict. HISTORY: the old v2 blanket form forced CONVENTION-INVALID (a failing status) whenever
+    # such a plane underlaid a passing land-edge standoff; that incentivized the Rung-F build to REPLACE
+    # its 6 blob Sea4 planes with 0.005u^2 degenerate stubs purely to dodge the detector -- creating an
+    # 819,200x missing-ocean cliff (healed in round 1 by restoring the real ocean). The evolution
+    # removes that perverse incentive while keeping the protection intact for the sea-vertex measure.
+    sea_vertex_convention_invalid = bool(
+        cand["is_staged"] and diagnostics.get("staged_sea_underlap", {}).get("convention_invalid"))
+    checks["sea_vertex_convention_invalid"] = sea_vertex_convention_invalid
+    verdict = "PASS" if standoff_pass else "FAIL"
+    # convention_invalid (the VERDICT-convention flag) stays False: the land-perimeter convention that
+    # decides the verdict is valid under a backing plane. Only the sea-vertex cross-check is invalid.
+    convention_invalid = False
     return dict(
         gate="R1", title="realized-boundary standoff", mode=mode, verdict=verdict,
         enforce=(mode == "enforce"), convention=convention, convention_invalid=convention_invalid,
+        sea_vertex_convention_invalid=sea_vertex_convention_invalid,
         standoff_pass=standoff_pass,
         n_boundary_cells=len(cand["boundary_cells"]), n_straddle_cells=len(cand["straddle_cells"]),
         n_body_tris=len(body_pts), floors=floors, checks=checks, failed_measures=failed,
@@ -727,13 +761,30 @@ def _scan_staged_sea(cand):
 
 
 def _staged_sea_underlap(cand, measured_pts, block_cover=56.0, margin=1.0):
-    """v2 audit hole #4. Detect whether the measured ecotone (boundary/straddle/body points) lies
-    UNDER a staged FULL-BLOCK sea plane -- the pathology that inflates the land-perimeter standoff
-    (the visible waterline is close but the terrain silhouette extends under the sea). Scans staged
-    Sea* meshes over the region blocks; a mesh is a full-block plane if its XZ bbox spans >=
-    `block_cover`u in BOTH axes (a ~64u block) and is near-planar in Y. `convention_invalid` is True
-    iff ANY measured point falls inside such a plane's XZ footprint (sea directly over the terrain).
-    Report-only fields are always returned; the FAIL decision is gated in gate_r1 on a false-PASS."""
+    """v2 audit hole #4, SEMANTICS EVOLVED v5. Detect whether the measured ecotone (boundary/straddle/
+    body points) lies UNDER a staged FULL-BLOCK sea plane. Scans staged Sea* meshes over the region
+    blocks; a mesh is a full-block plane if its XZ bbox spans >= `block_cover`u in BOTH axes (a ~64u
+    block) and is near-planar in Y. `convention_invalid` is True iff ANY measured point falls inside
+    such a plane's XZ footprint (a full-block backing plane sits over the ecotone).
+
+    WHAT `convention_invalid` MEANS (v5): it marks the SEA-VERTEX standoff convention invalid -- a
+    full-block backing plane makes the sea-vertex measure collapse to ~0.6u, meaningless. It does NOT
+    mean the land-perimeter (mesh-edge) verdict is invalid: that silhouette is built from single-owner
+    TERRAIN edges alone, so no sea mesh at any Y contributes an edge, and the land-edge standoff is
+    provably unperturbed by a plane under (or over) the island (specimen vs FIXED measure
+    46.826/48.882/49.547u byte-identically across restoring the full Sea4 plane). gate_r1 therefore
+    records the flag `sea_vertex_convention_invalid` (protection retained: the reported invalid
+    sea-vertex cross-check is untrustworthy) and takes the R1 VERDICT from the valid land-edge measure.
+
+    HISTORY (why the semantics were evolved): the original v2 form used this same `convention_invalid`
+    to POISON the whole R1 verdict (CONVENTION-INVALID = failing) whenever a full-block sea plane
+    underlaid a passing land-edge standoff. Being XZ-only, Y-blind and verdict-convention-agnostic, it
+    fired on a build with real ocean and PASSED a build that had deleted its ocean -- so it actively
+    incentivized the Rung-F build to REPLACE its 6 blob Sea4 planes with 0.005u^2 degenerate stubs
+    purely to dodge the detector, creating an 819,200x missing-ocean cliff (round 1 healed it by
+    restoring the real ocean, which then tripped the old detector into a false CONVENTION-INVALID).
+    The v5 evolution removes that perverse incentive while keeping the sea-vertex protection.
+    Report-only fields are always returned; gate_r1 (v5) never uses this to fail the verdict."""
     if not cand["is_staged"]:
         return dict(applicable=False, convention_invalid=False, n_full_block_planes=0,
                     n_points_under_full_block_sea=0)
@@ -1530,10 +1581,13 @@ def main():
         f"skipped: {[s['name'] for s in skipped]}.")
 
     out = dict(
-        meta=dict(script="contract_mass_gates.py", version="v4", generated=time.strftime("%Y-%m-%d %H:%M:%S"),
+        meta=dict(script="contract_mass_gates.py", version="v5", generated=time.strftime("%Y-%m-%d %H:%M:%S"),
                   elapsed_s=round(time.time() - t0, 1), read_only=True, zero_game_writes=True,
                   zero_deploys=True,
-                  note="Gates v4 for the Rung-F build (post-RE-audit round 3). Ceilings are stock-measured + "
+                  note="Gates v5 (Rung-F UV-fix round 2): R1 staged-sea-underlap no longer poisons the "
+                       "verdict -- it records sea_vertex_convention_invalid and the verdict is taken from "
+                       "the land-perimeter measure (a backing plane cannot perturb it). Frozen matrix "
+                       "otherwise. Ceilings are stock-measured + "
                        "falsifier-CONFIRMED. n=1 stock ecotone map-wide -> the gates are a census of "
                        "the only lawful instance. See annotations.json for the four critic gaps."),
         gate_ceilings=ceilings_out,
@@ -1591,8 +1645,13 @@ def write_annotations(calibration):
                        "is the mass-thickness enforcement: a desert lobe too thin puts its own coast "
                        "near the ecotone waist, dropping the body-tri/boundary-cell standoff below "
                        "the floor. Land-perimeter (staged) + sea-vertex (stock) are both whole-region "
-                       "so both honour it; v2 makes it law + adds the staged-sea-underlap detector "
-                       "(a full-block sea plane over the ecotone -> CONVENTION-INVALID, not a PASS)."),
+                       "so both honour it; v2 makes it law + adds the staged-sea-underlap detector. "
+                       "v5 EVOLUTION: a full-block backing sea plane under the ecotone now marks only "
+                       "the SEA-VERTEX convention invalid (recorded flag sea_vertex_convention_invalid) "
+                       "and the R1 verdict is taken from the land-perimeter measure, which a sea mesh "
+                       "at any Y provably cannot perturb (it is built from TERRAIN edges only). The old "
+                       "v2 blanket CONVENTION-INVALID was dropped -- it incentivized replacing real "
+                       "ocean with degenerate stubs (the 819,200x cliff); protection is retained."),
         ),
         round3_beats_closed=dict(
             note="v4 closed the TWO fresh beats the round-2 re-audit (contract_mass_reaudit2.py) found "
@@ -1654,14 +1713,17 @@ def write_annotations(calibration):
         ),
         documented_residuals=dict(
             note="Known, bounded gaps carried honestly for a Rung-F reader -- none re-open a closed beat.",
-            r1_staged_sea_underlap_sub_threshold=dict(
-                status="reasoned-not-built (as in the original audit #4)",
-                detail="THE STAGED-UNDERLAP DETECTOR flags a full-block sea plane (>= 56u in BOTH axes) "
-                       "over the ecotone as CONVENTION-INVALID. A staged sea override SMALLER than a "
-                       "full block (< 56u in either axis) sitting over the boundary would not trip the "
-                       "full-block test and could still inflate the land-perimeter standoff. No stock or "
-                       "control build exhibits it; a Rung-F mint that stages a sub-block sea over its "
-                       "ecotone should be caught by eye. Bounded, not observed."),
+            r1_staged_sea_underlap_semantics_v5=dict(
+                status="EVOLVED v5 (Rung-F UV-fix round 2)",
+                detail="THE STAGED-UNDERLAP DETECTOR still fires on a full-block sea plane (>= 56u in "
+                       "BOTH axes) under the ecotone, but v5 uses it ONLY to mark the sea-vertex "
+                       "convention invalid (recorded flag sea_vertex_convention_invalid); the R1 "
+                       "verdict is taken from the land-perimeter mesh-edge measure, which is built from "
+                       "single-owner TERRAIN edges alone and so cannot be perturbed by a sea mesh at "
+                       "any Y (specimen vs FIXED measure 46.826/48.882/49.547u byte-identically). The "
+                       "v2 blanket CONVENTION-INVALID poisoning was DROPPED: being XZ-only/Y-blind it "
+                       "fired on real ocean and passed a build that deleted it, incentivizing the "
+                       "0.005u^2-stub dodge (the 819,200x cliff). Reports stay honest via the flag."),
             r2_penetration_n1_gray_zone=dict(
                 status="acknowledged n=1 gray zone (OWNED, not a knife-edge)",
                 detail="The penetration ceiling 0.25 sits between stock's decaying fringe (~0.12) and a "
