@@ -107,6 +107,17 @@ def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     if u16(b, so + 2) != 0:
         raise ValueError(f"entry slot {slot} is not empty (size={u16(b, so + 2)})")
     new_off = len(b) - ENTRY_TABLE_OFF
+    # the entry table is u16-addressed and set_u16 MASKS (& 0xFFFF) — an
+    # oversized file would otherwise register a silently-WRAPPED offset (a
+    # black-screen generator now that long-jump relaxation permits huge bodies)
+    if new_off > 0xFFFF:
+        raise ValueError(
+            f"entry slot {slot}: the file is too large — this entry would start at "
+            f"table-relative offset {new_off} > 65535 (the .eb entry table is "
+            f"u16-addressed; whole-file budget ≈ 64KB). Trim the biggest bodies.")
+    if len(entry_bytes) > 0xFFFF:
+        raise ValueError(f"entry slot {slot}: entry size {len(entry_bytes)} > 65535 "
+                         f"(the entry-table size field is u16)")
     b += entry_bytes
     set_u16(b, so, new_off)
     set_u16(b, so + 2, len(entry_bytes))
