@@ -68,7 +68,14 @@ answer "what happens at frame N and which code does it" without a debugger.
 ## Status
 
 - R0 — ★ DONE (above).
-- R1 — IN FLIGHT: the reachability disassembler (gates: 385/385 images × 599 entries walk; 0 invalid
-  reachable instructions; delay slots modeled; every JALR target in-image or HLE-trapped; coverage vs
-  `headerRel` reported per image — the ef508/ef210 embedded-data files are the canary).
-- R2/R3 — pending R1.
+- R1 — ★ DONE → **`R1-DISASSEMBLER.md`** (`tier_r_disasm.py` + `test_tier_r_disasm.py` + `r1_gates.py`).
+  8/8 gates, 41/41 tests. 385/385 images × 599 entries walk, **0 invalid reachable instructions, 0
+  unresolved call targets** (1,015 in-image / 14,190 HLE / 11 polymorphic-HLE); coverage median 98.6 %;
+  the ef508/ef210 canary holds. Two R0 unknowns closed statically:
+  * **HLE base = RVA `0x21FF78`** (camera struct `0x21FF7C`, `0x21FF70` excluded) — and the runtime probe
+    D2 §4.5 budgeted is **not needed**: an HLE call is `lw $vX,(4*op)($table)` + `jalr`, so the op index
+    falls out of the load offset alone.
+  * **The GTE surface is SIX cofun words** (RTPS/RTPT/MVMVA/DPCS/NCLIP/AVSZ3). The DLL's COP2 handler
+    whole-word-matches exactly those and asserts on anything else; the corpus set is **equal** to it.
+- R2/R3 — unblocked. R2 inherits a complete per-image call census (204 of 216 ops still unnamed) and the
+  `sysStruct` at `headerRel+0x48` as the program's window onto the host.
