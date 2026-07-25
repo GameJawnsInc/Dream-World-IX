@@ -1244,7 +1244,11 @@ def test_hud_compiles_and_draws():
     _verify_all(cb)
     ops = [i.op for i in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
     assert ops.count(0x66) == 2                    # one SetTextVariable per value
-    assert 0x20 in ops                             # the re-issued WindowAsync
+    # THE FLICKER LAW (playtest 1: "the strip flickers"): the window opens
+    # EXACTLY ONCE behind the shown-latch — the engine re-renders [NUMB]s in
+    # place, and re-issuing WindowAsync disposes+recreates (blink per change)
+    assert ops.count(0x20) == 1
+    assert "hud0.shown" in cb.report
     assert "hud #0: window 6, txid 940" in cb.report
     segs = dict(cb.sizes["ticker_segments"])
     assert segs.get("hud 0", 0) > 40
