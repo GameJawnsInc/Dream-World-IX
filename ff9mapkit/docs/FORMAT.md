@@ -1949,7 +1949,9 @@ speed = 40                                     # default walk speed
 `near_point` / `not_near_point` (`[point, r]`) · `flag` / `not_flag` / `any_flag` · `active` /
 `not_active` (a unit lives) · `any_near` (`[[units...], r]` — the watcher idiom, actives gated) ·
 `any_active` (`[units...]`) · `time_below` / `time_above` (remaining seconds on the field-level
-`timer = <seconds>` countdown HUD — timed wave bands).
+`timer = <seconds>` countdown HUD — timed wave bands) · `counter_ge` / `counter_le` /
+`counter_eq` (`["counter", n]`) · `table_ge` / `table_le` / `table_eq` (`["table", index, n]`;
+`index` = an int or a **counter name** — a runtime-computed table lookup).
 
 **Action verbs** (the `do` dict: one verb + its options): `walk_to` / `hold` (point; `speed`) ·
 `chase` (target; `standoff` — pursuers stop short, never phase onto the target — `speed`) ·
@@ -1960,7 +1962,8 @@ spliced in, clear legs untouched; walls-only, 8-point ceiling — see
 [BEHAVIOR.md](BEHAVIOR.md)) · `flee` (threat; `to` = refuge points in
 priority order — the first the threat is NOT within `avoid_r` of; `speed`) · `wander` (centre;
 `radius`, `every` = ticks between random re-targets, `speed`) · `swing_at` (a unit with `hp`;
-`damage`, `interval`) · `die` · `battle` (a battle SCENE id — a REAL fight, one-shot per
+`damage`, `interval`) · `die` (`true`, or a **counter name** — `die = "kills"` bumps that
+counter once) · `battle` (a battle SCENE id — a REAL fight, one-shot per
 field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
 resume; use a stock scene = no BattlePatch) · `announce` (a text line, minted into the
 field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
@@ -2006,6 +2009,17 @@ actual spawn — broke or pool-empty consumes the request free) + optional `butt
 `[[choice]]` — its zone far off-mesh, its Hire row `set_flag = [N, 1]` — which the build
 matches by that flag and the poller opens remotely. See
 [BEHAVIOR.md § Price and the buy-anywhere button](BEHAVIOR.md#price-and-the-buy-anywhere-button).
+
+**Data tables (`[[behavior.table]]` / `counters` / `[[behavior.schedule]]`):** named int
+arrays in the save's `gScriptVector` (the engine's 0xD3 computed-array-indexing lane),
+**re-seeded at every field entry** — deterministic per-session state. `[[behavior.table]]`:
+`name`, `values` (1..64 ints, ±26-bit), optional `id` (vector id; default allocates from
+1000). `counters = ["wave", "kills"]`: runtime cells seeded 0 — read them with the
+`counter_*` verbs, bump one with `die = "<counter>"`. `[[behavior.schedule]]`
+(`counter` + `table`; needs `timer =`): THE WAVE CLOCK — `counter += 1` while the countdown
+HUD sits below `table[counter]`; when the counter walks off the table's end the read fails
+soft to 0 and the clock stops itself. Wave bands become data instead of unrolled
+`time_below` branches. See [BEHAVIOR.md § Data tables](BEHAVIOR.md#data-tables-counters-and-the-schedule-clock).
 
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 

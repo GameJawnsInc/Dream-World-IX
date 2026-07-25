@@ -29,7 +29,28 @@ Condition verbs (each ``when`` row is a dict with EXACTLY the verb key):
 ``hp_le`` / ``hp_gt`` (int = own hp; ``["unit", n]`` = another's), ``near`` /
 ``not_near`` (``[target, r]``; target = a unit name or ``"player"``),
 ``near_point`` / ``not_near_point`` (``[point, r]``), ``flag`` / ``not_flag``,
-``any_flag`` (list), ``active`` / ``not_active`` (unit).
+``any_flag`` (list), ``active`` / ``not_active`` (unit), ``counter_ge`` /
+``counter_le`` / ``counter_eq`` (``["counter", n]``), ``table_ge`` /
+``table_le`` / ``table_eq`` (``["table", index, n]``; index = an int or a
+COUNTER name — the computed-array-indexing read).
+
+Data tables (Memoria's gScriptVector, the 0xD3 VECTOR lane — re-seeded every
+field entry, so deterministic per-session state):
+
+    [behavior]
+    timer = 180                              # the countdown HUD
+    counters = ["wave", "kills"]             # runtime cells, seeded 0
+
+    [[behavior.table]]
+    name = "sched"                           # wave start-times (data, not code)
+    values = [170, 90]
+
+    [[behavior.schedule]]                    # THE WAVE CLOCK: while the HUD sits
+    counter = "wave"                         # below sched[wave], wave += 1 — one
+    table = "sched"                          # generic engine, terminates itself
+                                             # when wave walks off the table
+Counters bump from trees: ``die = "kills"`` (bump once — the body runs exactly
+once); branches gate on ``counter_ge``/``counter_eq``.
 
 Action verbs (the ``do`` dict: one verb key + that verb's option keys):
 ``walk_to`` / ``hold`` (point; +speed), ``chase`` (target; +standoff, speed),
@@ -59,6 +80,8 @@ COND_VERBS = {
     "not_near_point": (), "flag": (), "not_flag": (), "any_flag": (),
     "active": (), "not_active": (), "any_near": (), "any_active": (),
     "time_below": (), "time_above": (),
+    "counter_ge": (), "counter_le": (), "counter_eq": (),
+    "table_ge": (), "table_le": (), "table_eq": (),
 }
 ACTION_VERBS = {
     "walk_to": ("speed",),
@@ -77,8 +100,11 @@ ACTION_VERBS = {
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
-FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer"}
+FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
+              "counters", "table", "schedule"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
+TABLE_KEYS = {"name", "values", "id"}
+SCHEDULE_KEYS = {"counter", "table"}
 
 
 class BehaviorTomlError(ValueError):
@@ -162,6 +188,30 @@ def pool_specs(raw: dict) -> list:
             request_flag=(int(row["request_flag"])
                           if row.get("request_flag") is not None else None)))
     return out
+
+
+def table_specs(raw: dict) -> list:
+    """The parsed ``[[behavior.table]]`` rows as :class:`behavior.TableSpec` — named
+    int arrays backed by gScriptVector (the 0xD3 VECTOR lane), re-seeded at every
+    field entry."""
+    b = table(raw)
+    out = []
+    for row in (b.get("table", []) if b else []) or []:
+        out.append(B.TableSpec(
+            name=str(row.get("name", "")),
+            values=tuple(row.get("values", []) or []),
+            id=(int(row["id"]) if row.get("id") is not None else None)))
+    return out
+
+
+def counter_names(raw: dict) -> tuple:
+    b = table(raw)
+    return tuple(str(c) for c in ((b.get("counters", []) if b else []) or []))
+
+
+def schedule_rows(raw: dict) -> list:
+    b = table(raw)
+    return list((b.get("schedule", []) if b else []) or [])
 
 
 def pool_menu_choice(raw: dict, request_flag: int):
@@ -426,6 +476,11 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
         return fb.time_below(int(v))
     if verb == "time_above":
         return fb.time_above(int(v))
+    if verb in ("counter_ge", "counter_le", "counter_eq"):
+        return getattr(fb, verb)(str(v[0]), int(v[1]))
+    if verb in ("table_ge", "table_le", "table_eq"):
+        idx = v[1] if isinstance(v[1], str) else int(v[1])
+        return getattr(fb, verb)(str(v[0]), idx, int(v[2]))
     if verb == "any_near":
         # THE WATCHER IDIOM: any of these units within r of me, each behind its own
         # active gate -- any_of(all_of(active(t), near(me, t, r)), ...)
@@ -484,7 +539,9 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         return B.SwingAt(str(v), interval=int(d.get("interval", 30)),
                          damage=int(d.get("damage", 1)))
     if verb == "die":
-        return B.Die()
+        # die = true, or die = "kills" (bump that counter once — the body runs
+        # exactly once, the entry terminates)
+        return B.Die(count=(str(v) if isinstance(v, str) else None))
     if verb == "battle":
         return B.Battle(int(v))
     if verb == "announce":
@@ -536,11 +593,14 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                 pool=str(u.get("pool", "pool"))))
     fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
                          pools=pool_specs(raw),
-                         timer=(int(b["timer"]) if b.get("timer") is not None else None))
+                         timer=(int(b["timer"]) if b.get("timer") is not None else None),
+                         tables=table_specs(raw), counters=counter_names(raw))
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
     for alt in b.get("alternators", []) or []:
         fb.alternator(str(alt["name"]), int(alt["frames"]))
+    for s in schedule_rows(raw):
+        fb.schedule(str(s.get("counter", "")), str(s.get("table", "")))
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
@@ -698,6 +758,66 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 elif n > 1:
                     problems.append(f"{ctx}: {n} zone [[choice]]s set flag {rf} — the "
                                     f"hire menu match must be unique")
+    # data tables / counters / schedules (the 0xD3 VECTOR lane)
+    import re as _re2
+    declared_counters = []
+    for ci, cn in enumerate(b.get("counters", []) or []):
+        if not _re2.fullmatch(r"[A-Za-z0-9_]+", str(cn)):
+            problems.append(f"[behavior] counters #{ci}: name {cn!r} must be [A-Za-z0-9_]+")
+        if str(cn) in declared_counters:
+            problems.append(f"[behavior] counters: duplicate {cn!r}")
+        declared_counters.append(str(cn))
+    declared_tables: dict = {}
+    seen_tids = set()
+    for ti, row in enumerate(b.get("table", []) or []):
+        ctx = f"[[behavior.table]] #{ti}"
+        extra = set(row) - TABLE_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = row.get("name")
+        if not nm or not _re2.fullmatch(r"[A-Za-z0-9_]+", str(nm)):
+            problems.append(f"{ctx}: needs `name = ` ([A-Za-z0-9_]+)")
+            nm = None
+        elif str(nm) in declared_tables:
+            problems.append(f"{ctx}: duplicate table {nm!r}")
+        elif str(nm) in declared_counters:
+            problems.append(f"{ctx}: table {nm!r} collides with a counter name")
+        vals = row.get("values")
+        if (not isinstance(vals, list) or not vals
+                or len(vals) > B.TABLE_MAX_LEN
+                or any(not isinstance(v, int) for v in vals)):
+            problems.append(f"{ctx}: values must be 1..{B.TABLE_MAX_LEN} ints")
+        elif any(not B.TABLE_VALUE_MIN <= v <= B.TABLE_VALUE_MAX for v in vals):
+            problems.append(f"{ctx}: values must sit in the 26-bit CalcStack domain "
+                            f"({B.TABLE_VALUE_MIN}..{B.TABLE_VALUE_MAX})")
+        if nm is not None:
+            declared_tables[str(nm)] = len(vals) if isinstance(vals, list) else 0
+        tid = row.get("id")
+        if tid is not None:
+            if not isinstance(tid, int) or not 0 <= tid <= B.TABLE_VALUE_MAX:
+                problems.append(f"{ctx}: id must be an int 0..{B.TABLE_VALUE_MAX} "
+                                f"(a gScriptVector id)")
+            elif tid in seen_tids:
+                problems.append(f"{ctx}: id {tid} used twice")
+            else:
+                seen_tids.add(tid)
+    scheduled = set()
+    for si, row in enumerate(b.get("schedule", []) or []):
+        ctx = f"[[behavior.schedule]] #{si}"
+        extra = set(row) - SCHEDULE_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        cn, tn = str(row.get("counter", "")), str(row.get("table", ""))
+        if cn not in declared_counters:
+            problems.append(f"{ctx}: counter {cn!r} is not in [behavior] counters")
+        elif cn in scheduled:
+            problems.append(f"{ctx}: counter {cn!r} already has a schedule")
+        scheduled.add(cn)
+        if tn not in declared_tables:
+            problems.append(f"{ctx}: table {tn!r} is not a [[behavior.table]]")
+        if b.get("timer") is None:
+            problems.append(f"{ctx}: a schedule needs field-level `timer = <seconds>` "
+                            f"(the countdown HUD is the clock it reads)")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene
@@ -754,6 +874,13 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
                         problems.append(f"{ctx}: battle takes a battle SCENE id int "
                                         f"(0..65535; a STOCK scene needs no BattlePatch)")
+                if verb == "die":
+                    if v is not True and not isinstance(v, str):
+                        problems.append(f"{ctx}: die takes `true` or a counter name "
+                                        f"(die = \"kills\" bumps it once)")
+                    elif isinstance(v, str) and v not in declared_counters:
+                        problems.append(f"{ctx}: die counts {v!r} — not in "
+                                        f"[behavior] counters")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):
@@ -787,6 +914,31 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                                 problems.append(f"{ctx}: any_active({t!r}) is not a behavior unit")
                     if cv in ("near_point", "not_near_point"):
                         _resolve_point(val[0], positions, ctx)
+                    if cv in ("counter_ge", "counter_le", "counter_eq"):
+                        if (not isinstance(val, list) or len(val) != 2
+                                or not isinstance(val[1], int)):
+                            problems.append(f"{ctx}: {cv} takes [\"counter\", n]")
+                        elif str(val[0]) not in declared_counters:
+                            problems.append(f"{ctx}: {cv} counter {val[0]!r} is not in "
+                                            f"[behavior] counters")
+                    if cv in ("table_ge", "table_le", "table_eq"):
+                        if (not isinstance(val, list) or len(val) != 3
+                                or not isinstance(val[2], int)):
+                            problems.append(f"{ctx}: {cv} takes [\"table\", index, n] "
+                                            f"(index = an int or a counter name)")
+                        else:
+                            tn, ix = str(val[0]), val[1]
+                            if tn not in declared_tables:
+                                problems.append(f"{ctx}: {cv} table {tn!r} is not a "
+                                                f"[[behavior.table]]")
+                            elif isinstance(ix, str):
+                                if ix not in declared_counters:
+                                    problems.append(f"{ctx}: {cv} index {ix!r} is not in "
+                                                    f"[behavior] counters")
+                            elif (not isinstance(ix, int)
+                                    or not 0 <= ix < declared_tables[tn]):
+                                problems.append(f"{ctx}: {cv} index {ix!r} out of range "
+                                                f"0..{declared_tables[tn] - 1}")
             except BehaviorTomlError as e:
                 problems.append(str(e))
     return problems

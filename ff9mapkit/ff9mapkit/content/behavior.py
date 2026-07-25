@@ -327,7 +327,12 @@ class SwingAt(Action):
 
 @dataclass
 class Die(Action):
-    """Clear my active flag (mirrors stop — the dead-uid firewall), then TerminateEntry."""
+    """Clear my active flag (mirrors stop — the dead-uid firewall), then TerminateEntry.
+    ``count``: bump that counter by 1 first — the dispatch body runs exactly once
+    (the entry terminates), so the bump is edge-safe for free (the kill-counter
+    idiom: every attacker dies with ``count="kills"``, a win branch gates on
+    ``counter_ge``)."""
+    count: str | None = None
 
 
 @dataclass
@@ -383,6 +388,31 @@ class PoolSpec:
     request_flag: int | None = None
 
 
+# ---------------------------------------------------------------- data tables
+TABLE_ID_BASE = 1000                     # kit auto-allocation band for gScriptVector ids
+TABLE_MAX_LEN = 64                       # keeps the Main_Init seed block bounded
+TABLE_VALUE_MIN = -(1 << 25)             # CalcStack values are 26-bit signed — a const4
+TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
+
+
+@dataclass
+class TableSpec:
+    """A named per-field DATA TABLE backed by Memoria's ``gScriptVector`` (the 0xD3
+    VECTOR lane — real computed array indexing in ``.eb``, on the protected stock
+    baseline since 2023).
+
+    RE-SEEDED at every Main_Init (field entry AND ~ Reload): size is forced to 0
+    then to ``len(values)`` (the engine zero-fills a grow), then non-zero cells are
+    written — so a table is deterministic FIELD-SESSION state, and a redeploy can
+    never leave a stale tail behind in the save (gScriptVector is save-serialized;
+    the id namespace is save-GLOBAL, which the re-seed makes harmless: every field
+    rebuilds its own tables before reading them). ``id``: an explicit gScriptVector
+    id; default = allocated from :data:`TABLE_ID_BASE` in declaration order."""
+    name: str
+    values: tuple
+    id: int | None = None
+
+
 # ------------------------------------------------------------------ unit spec
 @dataclass
 class UnitSpec:
@@ -399,6 +429,15 @@ class UnitSpec:
 # ------------------------------------------------------------------ the compiler
 def _stmt(text: str) -> bytes:
     return bytes([0x05]) + exprasm.assemble(text + " B_EXPR_END")
+
+
+def _cnum(v: int) -> str:
+    """The correct literal token for ``v``: ``const()`` is a SIGNED Int16 at
+    runtime (the engine reads getShortIP signed — 32768..65535 would come out
+    negative), anything outside ±32767 rides ``const4()`` (engine-masked to the
+    26-bit CalcStack domain, which TABLE_VALUE_MIN/MAX already bound)."""
+    v = int(v)
+    return f"const({v})" if -0x8000 <= v <= 0x7FFF else f"const4({v})"
 
 
 def _set_flag(idx: int, v: int) -> bytes:
@@ -447,7 +486,8 @@ class FieldBehavior:
 
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
                  tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = (),
-                 timer: int | None = None):
+                 timer: int | None = None, tables: list[TableSpec] | tuple = (),
+                 counters: tuple = ()):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
@@ -535,6 +575,56 @@ class FieldBehavior:
                 idx = self.bb.flag(f"pool.{pname}.spawn")
             self.pool_flags[pname] = idx
             self._reset_flags.append(idx)
+        # DATA TABLES + COUNTERS (the 0xD3 VECTOR lane): explicit ids claim first,
+        # autos fill the lowest free ids from TABLE_ID_BASE in declaration order,
+        # and the internal counter table takes the LAST auto slot — all
+        # deterministic from the ctor arguments alone (the allocation contract).
+        self.tables: dict[str, tuple[int, tuple]] = {}   # name -> (vector id, values)
+        self._counters: dict[str, int] = {}              # name -> cell index
+        self._schedules: list[tuple[str, str]] = []      # (counter, table)
+        taken: set[int] = set()
+        for ts in tables:
+            if ts.id is not None:
+                tid = int(ts.id)
+                if not 0 <= tid <= TABLE_VALUE_MAX:
+                    raise BehaviorError(f"table {ts.name!r}: id must be 0..{TABLE_VALUE_MAX}")
+                if tid in taken:
+                    raise BehaviorError(f"table {ts.name!r}: id {tid} used twice")
+                taken.add(tid)
+        self._next_tid = TABLE_ID_BASE
+
+        def _auto_tid() -> int:
+            while self._next_tid in taken:
+                self._next_tid += 1
+            taken.add(self._next_tid)
+            return self._next_tid
+
+        for ts in tables:
+            if not re.fullmatch(r"[A-Za-z0-9_]+", ts.name or ""):
+                raise BehaviorError(f"table name {ts.name!r} must be [A-Za-z0-9_]+")
+            if ts.name in self.tables:
+                raise BehaviorError(f"duplicate table {ts.name!r}")
+            vals = tuple(int(v) for v in ts.values)
+            if not 1 <= len(vals) <= TABLE_MAX_LEN:
+                raise BehaviorError(f"table {ts.name!r}: 1..{TABLE_MAX_LEN} values "
+                                    f"(got {len(vals)})")
+            for v in vals:
+                if not TABLE_VALUE_MIN <= v <= TABLE_VALUE_MAX:
+                    raise BehaviorError(f"table {ts.name!r}: value {v} outside the "
+                                        f"26-bit CalcStack domain "
+                                        f"({TABLE_VALUE_MIN}..{TABLE_VALUE_MAX})")
+            self.tables[ts.name] = (int(ts.id) if ts.id is not None else _auto_tid(),
+                                    vals)
+        for cn in counters:
+            cn = str(cn)
+            if not re.fullmatch(r"[A-Za-z0-9_]+", cn):
+                raise BehaviorError(f"counter name {cn!r} must be [A-Za-z0-9_]+")
+            if cn in self._counters:
+                raise BehaviorError(f"duplicate counter {cn!r}")
+            if cn in self.tables:
+                raise BehaviorError(f"counter {cn!r} collides with a table name")
+            self._counters[cn] = len(self._counters)
+        self._ctr_tid: int | None = _auto_tid() if self._counters else None
 
     # ---------------- perception / condition helpers (mirror-safe by construction)
     def _mx(self, unit: str) -> str:
@@ -635,6 +725,78 @@ class FieldBehavior:
         if not 0 <= int(seconds) <= 30000:
             raise BehaviorError("time_above seconds must be 0..30000")
         return Cond(f"B_SYSVAR[17] const({int(seconds)}) B_GT", _trusted=True)
+
+    # ---------------- data tables + counters (the 0xD3 VECTOR lane)
+    def _counter_ref(self, name: str) -> str:
+        """The RPN fragment pushing counter ``name``'s cell — usable as a read
+        operand OR as a B_LET assignment target (the VECTOR token is an lvalue)."""
+        if name not in self._counters:
+            raise BehaviorError(f"unknown counter {name!r} (declare it in counters=)")
+        return f"{_cnum(self._ctr_tid)} {_cnum(self._counters[name])} B_VECTOR"
+
+    def _table_ref(self, name: str, idx) -> str:
+        """The RPN fragment pushing ``table[name][idx]``. ``idx``: an int (bounds-
+        checked at compile time) or a COUNTER name — the computed-index form: the
+        index is READ FROM the counter cell at runtime (nested VECTOR reads compose;
+        the engine keys sub-operands by CalcStack depth). A runtime index past the
+        end fails soft to 0 by engine design."""
+        if name not in self.tables:
+            raise BehaviorError(f"unknown table {name!r} (declare it in tables=)")
+        tid, values = self.tables[name]
+        if isinstance(idx, str):
+            return f"{_cnum(tid)} {self._counter_ref(idx)} B_VECTOR"
+        if not 0 <= int(idx) < len(values):
+            raise BehaviorError(f"table {name!r} index {idx} out of range "
+                                f"0..{len(values) - 1}")
+        return f"{_cnum(tid)} {_cnum(int(idx))} B_VECTOR"
+
+    def _check_cmp_value(self, n: int) -> int:
+        if not TABLE_VALUE_MIN <= int(n) <= TABLE_VALUE_MAX:
+            raise BehaviorError(f"comparison value {n} outside the 26-bit CalcStack "
+                                f"domain ({TABLE_VALUE_MIN}..{TABLE_VALUE_MAX})")
+        return int(n)
+
+    def counter_ge(self, name: str, n: int) -> Cond:
+        return Cond(f"{self._counter_ref(name)} {_cnum(self._check_cmp_value(n))} B_GE",
+                    _trusted=True)
+
+    def counter_le(self, name: str, n: int) -> Cond:
+        return Cond(f"{self._counter_ref(name)} {_cnum(self._check_cmp_value(n))} B_LE",
+                    _trusted=True)
+
+    def counter_eq(self, name: str, n: int) -> Cond:
+        return Cond(f"{self._counter_ref(name)} {_cnum(self._check_cmp_value(n))} B_EQ",
+                    _trusted=True)
+
+    def table_ge(self, name: str, idx, n: int) -> Cond:
+        return Cond(f"{self._table_ref(name, idx)} {_cnum(self._check_cmp_value(n))} B_GE",
+                    _trusted=True)
+
+    def table_le(self, name: str, idx, n: int) -> Cond:
+        return Cond(f"{self._table_ref(name, idx)} {_cnum(self._check_cmp_value(n))} B_LE",
+                    _trusted=True)
+
+    def table_eq(self, name: str, idx, n: int) -> Cond:
+        return Cond(f"{self._table_ref(name, idx)} {_cnum(self._check_cmp_value(n))} B_EQ",
+                    _trusted=True)
+
+    def schedule(self, counter: str, table: str):
+        """THE WAVE CLOCK: each ticker pass (after warm-up), if the countdown HUD
+        has dropped below ``table[counter]``, the counter advances by 1 — one
+        generic engine instead of N unrolled time bands, and the schedule is DATA
+        (a rebalance edits the table, not the trees). Self-limiting by
+        construction: once the counter walks off the table's end the read fails
+        soft to 0 and ``timer < 0`` never holds (the OOB terminator — no latch
+        flag needed). Units gate their waves on ``counter_ge``/``counter_eq``.
+        Needs ``timer=`` on the field."""
+        if self.timer is None:
+            raise BehaviorError("schedule() needs timer= on the field (the countdown "
+                                "HUD is the clock it reads)")
+        self._counter_ref(counter)                        # existence checks
+        self._table_ref(table, 0)
+        if any(c == counter for c, _t in self._schedules):
+            raise BehaviorError(f"counter {counter!r} already has a schedule")
+        self._schedules.append((counter, table))
 
     def alternator(self, name: str, frames: int) -> Cond:
         """A shift clock: the flag ``name`` FLIPS every ``frames`` ticks (patrol
@@ -765,6 +927,21 @@ class FieldBehavior:
             main_init += (opcodes.encode(0x69, self.timer)   # ChangeTimerTime(sec)
                           + opcodes.encode(0x8D, 1)          # ShowTimer(1)
                           + opcodes.encode(0x7D, 1))         # RunTimer(1)
+        # THE TABLE SEED: size←0 wipes whatever the save holds (stale tails from an
+        # older deploy included), size←n zero-fills fresh (the engine's grow path),
+        # then only NON-zero cells need writes. Counters are all-zero by definition
+        # — their table seeds in exactly two statements.
+        for _tname, (tid, values) in self.tables.items():
+            main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE const(0) B_LET")
+            main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE {_cnum(len(values))} B_LET")
+            for i, v in enumerate(values):
+                if v:
+                    main_init += _stmt(f"{_cnum(tid)} {_cnum(i)} B_VECTOR "
+                                       f"{_cnum(v)} B_LET")
+        if self._counters:
+            main_init += _stmt(f"{_cnum(self._ctr_tid)} B_VECTOR_SIZE const(0) B_LET")
+            main_init += _stmt(f"{_cnum(self._ctr_tid)} B_VECTOR_SIZE "
+                               f"{_cnum(len(self._counters))} B_LET")
         report: list[str] = []
 
         for u in self.units.values():
@@ -949,6 +1126,18 @@ class FieldBehavior:
                 _stmt(f"Global.Bit[{f}] Global.Bit[{f}] const(1) B_XOR B_LET"),
                 label(f"alt_{t}_end"),
             ]
+        # schedule clocks (the wave engine): counter += 1 while the countdown HUD
+        # sits below table[counter] — the read's INDEX is the counter cell itself,
+        # the computed-array-indexing lane doing the work it was taken for. Runs on
+        # the run path only (holds during warm-up, like every cd block).
+        for si, (cname, tname) in enumerate(self._schedules):
+            cell = self._counter_ref(cname)
+            cd_blocks += [
+                _stmt(f"B_SYSVAR[17] {self._table_ref(tname, cname)} B_LT"),
+                (JMP_IFNOT, f"sch_{si}"),
+                _stmt(f"{cell} {cell} const(1) B_PLUS B_LET"),
+                label(f"sch_{si}"),
+            ]
         # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
         # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
         # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
@@ -1026,12 +1215,24 @@ class FieldBehavior:
                         f"units [{', '.join(self._pools[p])}]")
             pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
                 + "\n".join(_pdesc(p) for p in self._pools)
+        tables_txt = ""
+        if self.tables or self._counters:
+            tl = ["tables (gScriptVector ids — re-seeded every field entry):"]
+            for tname, (tid, values) in self.tables.items():
+                tl.append(f"  {tname}: id {tid}, {len(values)} cell(s) = {list(values)}")
+            if self._counters:
+                tl.append(f"  counters: id {self._ctr_tid} — " + ", ".join(
+                    f"{n}=cell {i}" for n, i in self._counters.items()))
+            for cname, tname in self._schedules:
+                tl.append(f"  schedule: {cname} += 1 while timer < {tname}[{cname}]")
+            tables_txt = "\n" + "\n".join(tl)
         return CompiledBehavior(
             ticker_body=asm(ticker),
             duty_bodies=duty_bodies,
             action_funcs=action_funcs,
             main_init=bytes(main_init),
-            report=self.bb.report() + "\nunits:\n" + "\n".join(report) + pools_txt,
+            report=self.bb.report() + "\nunits:\n" + "\n".join(report) + pools_txt
+            + tables_txt,
         )
 
     # ---------------- tree → ticker blocks
@@ -1375,8 +1576,14 @@ class FieldBehavior:
         tail: list = [label("wait"), opcodes.wait(1), (JMP, "loop"),
                       label("out"), _set_byte(run, 0), opcodes.RETURN]
         if isinstance(a, Die):
+            bump: list = []
+            if a.count is not None:
+                # the body runs once ever (the entry terminates) — edge-safe free
+                cell = self._counter_ref(a.count)
+                bump = [_stmt(f"{cell} {cell} const(1) B_PLUS B_LET")]
             return asm([
                 _set_flag(self.bb.flag(f"{u.name}.active"), 0),   # mirrors stop first
+            ] + bump + [
                 opcodes.terminate_entry(255),
                 opcodes.RETURN,
             ])

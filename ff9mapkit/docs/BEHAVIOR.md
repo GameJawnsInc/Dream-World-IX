@@ -241,6 +241,46 @@ BattlePatch line is needed either. The Fort Condor loss shape: the gate is a uni
 `hp`; raiders `swing_at` it; its `hp_le 0` branch fires the boss battle and raises
 `"lost"`; a `time_below = 1` branch on a surviving gate announces the win.
 
+## Data tables, counters, and the schedule clock
+
+The unrolled `time_below` bands above work, but the schedule is **code**. Tables make it
+**data** — real int arrays in the save (Memoria's `gScriptVector`, reachable from `.eb`
+expressions with **computed indexes** via the engine's `0xD3` VECTOR lane):
+
+```toml
+[behavior]
+timer = 180
+counters = ["wave", "kills"]         # runtime cells, seeded 0 on entry
+
+[[behavior.table]]
+name = "sched"                       # wave start-times — a rebalance edits DATA
+values = [170, 90, 60]               # (1..64 values; ±26-bit ints)
+
+[[behavior.schedule]]                # THE WAVE CLOCK: while the countdown HUD sits
+counter = "wave"                     # below sched[wave], wave += 1 — one generic
+table = "sched"                      # engine instead of N unrolled bands
+```
+
+- **Everything re-seeds at every field entry** (and `~ → Reload`): tables get their
+  declared values, counters get 0 — deterministic per-session state, never a stale
+  save tail (the seed truncates first). Vector ids allocate from 1000 per field
+  (`id = N` overrides; the ids are save-global, which the re-seed makes harmless).
+- **Reading**: `counter_ge` / `counter_le` / `counter_eq = ["wave", 2]` gate branches
+  on a counter; `table_ge` / `table_le` / `table_eq = ["sched", index, n]` compare a
+  table cell — and `index` may be a **counter name**, which is a genuine
+  runtime-computed lookup (`sched[wave]`), the thing plain `.eb` variables can never do.
+- **Writing**: `die = "kills"` bumps that counter exactly once (the death body runs
+  once). The schedule clock advances its own counter. That's the v1 write surface —
+  deliberately small.
+- **The clock stops itself**: when `wave` walks off the table's end, the read fails
+  soft to 0 and `timer < 0` never holds — no latch flag, the data is the terminator.
+
+The wave shape becomes: units gate their march branches on `counter_ge = ["wave", 1]`
+(wave 2 on `["wave", 2]`, …), the herald announces on `counter_eq`, and a win condition
+reads the kill tally with `counter_ge = ["kills", N]`. Bench: field 30415
+(`studies/behavior-trees/bttable_bench.py`) — the first in-game consumer of computed
+array indexing anywhere.
+
 ## Limits (v1)
 
 - Novel fields and `--native`/`--editable` forks only — a VERBATIM fork runs the donor's real
