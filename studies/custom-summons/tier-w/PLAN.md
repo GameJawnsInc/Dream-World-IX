@@ -47,6 +47,33 @@ declarative surface, with the stock install revertible at every step.
   (`C:\gd\SCRATCH\summon-format\`). Zero SE bytes in the repo.
 - **The two-clocks law is a gate, not a note** — any rung that changes timing must show both clocks.
 
+## ★ THE BACKGROUND-GEOMETRY ENVELOPE — the law W2's cast minted (2026-07-25)
+
+**The mechanism works; the *world* is what bounds it.** W2's cast landed — stock Bahamut's entrance
+visibly pulled back and re-angled, then snapped to stock exactly as authored. But the widened frame
+showed the battle background **folding in on itself**: at the new angle the terrain reads as a finite
+polygon with a hard edge and visible seams, with void beyond it.
+
+**THE LAW:** *a battle background is finite geometry authored to look right from the shot's ORIGINAL
+camera. A rescore's validity is bounded by that geometry, not by the camera format.* Pull back or
+re-angle far enough and you see the mesh's edge, its backfaces, or its seams — the summon is fine, the
+world ran out.
+
+**The envelope is per-BATTLE-LOCATION, not per-summon.** The same delta that is safe in a walled
+interior arena will show void on an open world-map encounter (which is where W2's cast ran — the
+terrain chunk under a world-map battle is the thinnest background in the game). So a rescore cannot be
+validated once and declared good; it is valid *for the arenas it was judged on*.
+
+**Practical consequences for W3/W4 and any authored rescore:**
+1. **Direction matters more than magnitude.** Pulling BACK and raising the angle are the two riskiest
+   moves — both grow the visible footprint. Lateral moves, small yaw, and pushing IN stay inside the
+   authored footprint by construction.
+2. **Judge on the thinnest arena you intend to ship on**, not the friendliest one.
+3. **Focal distance (H) is the safest lever** — it reframes without moving the eye, so it changes what
+   is seen far less than a pose change does.
+4. This is ALSO the honest limit on "rescore stock summons" as a feature: the ceiling is not our
+   tooling, it is that FF9's arenas were built for the shots FF9 ships.
+
 ## Status
 
 - **W1 — ★ DONE** (`W1-READOUT.md`, `summon_camera.py`, `test_summon_camera.py`, `w1_gates.py`;
