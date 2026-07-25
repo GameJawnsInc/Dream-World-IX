@@ -608,17 +608,35 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     return {"blocks": blocks, "outline": outline, "rim": rim, "seed": seed, "center": (cx, cz),
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
             "ground": ground, "beach": bch,
+            # THE MINTED (quad,ori) FIELD -- the very per-4u-cell window assignment every mains tri
+            # above was emitted through (G.ground_uv(..., cell, quad, ori, ground)).  Handed to
+            # texgates.one_window_gate by verify_landmass: THE ONE-WINDOW-PER-TRI LAW can only be
+            # judged against the field the generator actually minted with (a blind lattice search
+            # reproduces <20% of lawful stock ground -- see texgates' calibration docstring).
+            "mains_field": {cell: (cell_quad[cell], cell_ori[cell]) for cell in cell_quad},
             "world": {"pos": gpos, "tris": gtris, "meta": gmeta, "nrm": gnrm}}
 
 
-def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) -> dict:
+def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
+                    texgates: bool = True, enforce_texgates: bool = False,
+                    allow_texgates: bool = False) -> dict:
     """The offline gate suite over a :func:`build_landmass` result: watertight (cracks), the
     closed-surface once-edge audit (``open_edges`` / ``missing_faces`` -- no boundary above the y=0
     sea skirt), winding (down-facing / engine walk-filter fails, wall AND grass), on-grain (grass
     tris > 8u), footprint holes, per-family UV bounds, and -- when ``sea_plane`` is given -- the
     ENGINE PLACEMENT census per block
     (MISS must be 0 everywhere; the centre must ground on walkable grass). Returns a report dict with
-    ``clean``."""
+    ``clean``.
+
+    THE TEXTURE + SEA GATES (``texgates=True``, the default -- the Rung-F UV/relief fold-back,
+    2026-07-25): :func:`ff9mapkit.world.texgates.texture_sea_gates` also runs over the just-minted
+    BlockMesh set and lands in ``report["texgates"]`` -- zero-uv-area, THE ONE-WINDOW-PER-TRI LAW
+    (judged against ``built["mains_field"]``, the field this very mint emitted through),
+    family mains-rect membership, and -- only when ``sea_plane`` is given -- the 3-predicate sea
+    gate. They follow :func:`~ff9mapkit.world.transplant.wang_carry_gate`'s policy: **WARN by
+    default** (``ok`` stays True, ``warn`` surfaces the finding, ``clean`` is unaffected),
+    ``enforce_texgates=True`` folds a failure into ``clean``, ``allow_texgates=True`` waives even
+    then. Purely read-only -- it mutates no byte of ``built`` and changes no output byte."""
     from .extract import decode_id
     gpos = built["world"]["pos"]
     gtris = built["world"]["tris"]
@@ -746,26 +764,45 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
     shape["ok"] = 8.0 <= shape["med_turn"] <= 35.0 and shape["acute"] <= 0.12 and shape["max_turn"] < 150.0
     report["shape"] = shape
 
+    def _meshlist(blk, bm):
+        """The block's full deploy part list (Terrain + the sea/beach parts) -- ONE construction
+        shared by the placement census and THE TEXTURE + SEA GATES below. Requires ``sea_plane``."""
+        from . import mesh as M
+        bx, by = blk
+        beach = built.get("beach")
+        hid = lambda nm: M.hidden_block_mesh(name=nm, disc=bm.disc, x=bx, y=by)  # noqa: E731
+        if beach is not None and tuple(beach["block"]) == blk:
+            return [("Object", hid("Object")), ("Terrain", bm),
+                    ("Sea1", _part_blockmesh("Sea1", blk, beach["sea1"], bm.disc)),
+                    ("Sea2", _part_blockmesh("Sea2", blk, beach["wash"], bm.disc)),
+                    ("Sea3", hid("Sea3")),
+                    ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"])),
+                    ("Sea5", _part_blockmesh("Sea5", blk, beach["sea5"], bm.disc)),
+                    ("Beach1", _part_blockmesh("Beach1", blk, beach["foam"], bm.disc))]
+        return [("Object", hid("Object")), ("Terrain", bm),
+                ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
+                ("Sea4", sea_plane), ("Sea5", hid("Sea5"))]
+
+    # THE TEXTURE + SEA GATES (read-only; WARN unless enforce_texgates). The sea half needs the
+    # real part list, so it runs only when a sea_plane was supplied -- the texture half always does.
+    texgate_list = []
+    if texgates:
+        from . import texgates as TG
+        blocks_in = ({blk: _meshlist(blk, bm) for blk, bm in built["blocks"].items()}
+                     if sea_plane is not None
+                     else {blk: [("Terrain", bm)] for blk, bm in built["blocks"].items()})
+        texgate_list = TG.texture_sea_gates(blocks_in, set(built["blocks"]),
+                                            quad_ori=built.get("mains_field"),
+                                            enforce=enforce_texgates, allow=allow_texgates,
+                                            sea=sea_plane is not None)
+        report["texgates"] = texgate_list
+
     place_reports = {}
     if sea_plane is not None:
-        from . import mesh as M
         cx, cz = built["center"]
-        beach = built.get("beach")
         for blk, bm in built["blocks"].items():
             bx, by = blk
-            hid = lambda nm: M.hidden_block_mesh(name=nm, disc=bm.disc, x=bx, y=by)  # noqa: E731
-            if beach is not None and tuple(beach["block"]) == blk:
-                meshlist = [("Object", hid("Object")), ("Terrain", bm),
-                            ("Sea1", _part_blockmesh("Sea1", blk, beach["sea1"], bm.disc)),
-                            ("Sea2", _part_blockmesh("Sea2", blk, beach["wash"], bm.disc)),
-                            ("Sea3", hid("Sea3")),
-                            ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"])),
-                            ("Sea5", _part_blockmesh("Sea5", blk, beach["sea5"], bm.disc)),
-                            ("Beach1", _part_blockmesh("Beach1", blk, beach["foam"], bm.disc))]
-            else:
-                meshlist = [("Object", hid("Object")), ("Terrain", bm),
-                            ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
-                            ("Sea4", sea_plane), ("Sea5", hid("Sea5"))]
+            meshlist = _meshlist(blk, bm)
             cen = P.census(meshlist)
             entry = {"counts": cen["counts"], "miss": len(cen["miss"])}
             lx, lz = cx - BLOCK * bx, cz + BLOCK * (by + 1) - BLOCK
@@ -777,7 +814,9 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
                        and len(open_bad) == 0 and shape["ok"] and main_slope_p99 <= MAX_FLANK + 1e-6
-                       and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values()))
+                       and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values())
+                       # WARN-default: every texgate's own ``ok`` is True unless enforce_texgates
+                       and all(g["ok"] for g in texgate_list))
     return report
 
 

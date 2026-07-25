@@ -540,9 +540,11 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    notes, no re-test needed: the arrival stagger was too tight (fast pilgrims
    had the long legs — the speed×distance products nearly cancel; future
    benches give SLOW units the LONG routes), and the visible camera drift on
-   entry is the KNOWN bare-~-warp class (the one unfaded entry path left,
-   [[project-ff9-field-entry-arrival]]) — not a fork or bench defect; a
-   debug-menu fade-on-warp is a candidate engine-bundle polish item.
+   entry was the bench toml MISSING `entry_settle` (the importer never emits
+   it; the generators now add `"auto"` — [[project-ff9-field-entry-arrival]]).
+   The s59 engine arrival-hold built on the wrong theory ("the unfaded warp
+   class") flickered against the destination's own fade-in and was WITHDRAWN
+   same day — when a report names a kit mechanism, check the DATA first.
    **▶ RUNG 1 IN FLIGHT (same day): THE GROUP LOOP shipped** —
    `[[behavior.group]]` rosters (px/pz/act mirrors + hp CELLS as the members'
    only hit points, all hp accessors rerouted) + the `engage` verb (sticky

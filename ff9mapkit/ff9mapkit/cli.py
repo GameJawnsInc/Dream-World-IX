@@ -3109,7 +3109,9 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                       enforce_wang_carry=args.enforce_wang_carry,
                       allow_orphan_decals=args.allow_orphan_decals,
                       enforce_orphan_decals=args.enforce_orphan_decals,
-                      redress_orphans=args.redress_orphans, dry_run=args.dry_run,
+                      redress_orphans=args.redress_orphans,
+                      enforce_texture_gates=args.enforce_texture_gates,
+                      allow_texture_gates=args.allow_texture_gates, dry_run=args.dry_run,
                       skip_mirror=args.skip_mirror)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
@@ -3176,6 +3178,13 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                   f"and either pass --redress-orphans to auto-fix to the wearing side's plain mains at "
                   f"build time (changes output bytes), or --enforce-orphan-decals to refuse "
                   f"(--allow-orphan-decals to silence).")
+        if g.get("warn") and g["gate"] in ("tex-zero-uv", "tex-one-window", "tex-family-rect",
+                                           "sea-plan"):
+            print(f"  !! WARNING {g['gate']}: {g.get('detail') or 'see the gate row above'} -- the "
+                  f"Rung-F UV/relief arc's own acceptance criteria (studies/overworld-topography, "
+                  f"8 in-game rounds). Review in-game (a flat-sheet texture stain, a white atlas "
+                  f"gutter, or a sea-plane defect) or pass --enforce-texture-gates to refuse "
+                  f"(--allow-texture-gates to silence).")
     if not summary["clean"]:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2
@@ -3279,6 +3288,11 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             gy, nm, topo = place["centre"]
             extra = f"; centre grounds y={gy} on {nm} topo {topo}"
         print(f"  block {blk}: {b['tris']} tris ({b['verts']} verts){extra}")
+    for g in summary["report"].get("texgates", []):
+        if g.get("warn"):
+            print(f"  !! WARNING {g['gate']}: {g.get('detail') or 'see the report'} -- THE TEXTURE + "
+                  f"SEA GATES (studies/overworld-topography's Rung-F UV/relief arc). The mint is "
+                  f"deployed; review it in-game before building on it.")
     print("all gates CLEAN (geometry, UV language, placement census: 0 MISS). "
           "~ -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
     return 0
@@ -6621,6 +6635,21 @@ def build_parser() -> argparse.ArgumentParser:
                           "Round 10 + comp1_orphan_redress.py).")
     wtp.add_argument("--allow-orphan-decals", action="store_true", dest="allow_orphan_decals",
                      help="waive THE ORPHAN-DECAL GATE even when enforced (--enforce-orphan-decals).")
+    wtp.add_argument("--enforce-texture-gates", action="store_true", dest="enforce_texture_gates",
+                     help="ENFORCE THE TEXTURE + SEA GATES (default report-only): FAIL the build on "
+                          "a zero-UV-area / bit-identical-UV Terrain tri above the 0.0005 ceiling "
+                          "(the constant-UV stamp -- the flat-sheet stain the Rung-F UV arc spent 8 "
+                          "in-game rounds removing), a ground tri whose UVs escape its own family's "
+                          "catalogued mains rect (a transparent atlas gutter = white in game), or a "
+                          "sea-plan violation (land fully submerged under the y=0 plane, adjacent "
+                          "blocks' Sea4 plan areas differing by more than 4x -- the degenerate "
+                          "one-blob Sea4 stub -- or real water overlapping land in plan beyond "
+                          "stock's own 0.1913 headline). All three measure CLEAN on real stock "
+                          "bytes, so this is safe to enforce on a verbatim carry; it stays opt-in "
+                          "only to match the two carry gates above.")
+    wtp.add_argument("--allow-texture-gates", action="store_true", dest="allow_texture_gates",
+                     help="waive THE TEXTURE + SEA GATES even when enforced "
+                          "(--enforce-texture-gates).")
     wtp.add_argument("--redress-orphans", action="store_true", dest="redress_orphans",
                      help="auto-fix every ORPHAN-DECAL GATE finding to the wearing side's plain "
                           "GROUNDS mains (assign_mains + ground_uv, the proven FIX-G shape: UV "
