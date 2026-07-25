@@ -259,7 +259,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 > counts, no quotes. The shipped-pillar inventory lives in the memory index (§9); per-arc status in `studies/`.
 
 **Open arcs — status lives in the study, not here:**
-- Overworld interior topography — the two-ground landmass (Rung F): the island ACCEPTED in-game (the 8-round UV/relief arc closed; open lever = the generator fold-back) → `studies/overworld-topography/`
+- Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
 - Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
