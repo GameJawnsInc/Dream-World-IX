@@ -78,10 +78,25 @@ def read_spawn() -> tuple[int, int]:
 
 
 def lattice() -> list[tuple[int, int]]:
+    """Lattice points on the SPAWN'S OWN FLOOR only — 559 is multi-floor (plaza +
+    balconies + stairs), and the round-1 playtest put fang0's dormant post on a
+    BALCONY (the bbox corner belongs to an upper floor): it could never walk down
+    to the duel, so the kill tally could never complete. Posts must share the
+    player's floor."""
     mesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
     wv = mesh.world_verts()
-    tris = [tuple(wv[i] for i in t.vtx) for t in mesh.tris]
-    xs, zs = [v[0] for v in wv], [v[2] for v in wv]
+    spawn = read_spawn()
+    by_floor: dict = {}
+    for t in mesh.tris:
+        by_floor.setdefault(t.floor_ndx, []).append(tuple(wv[i] for i in t.vtx))
+    holding = [f for f, ts in by_floor.items()
+               if any(_pt_in_tri_xz(spawn[0], spawn[1], a, b, c) for a, b, c in ts)]
+    if not holding:
+        raise SystemExit(f"spawn {spawn} is on no floor — mesh read wrong?")
+    floor = max(holding, key=lambda f: len(by_floor[f]))     # overlap -> the big floor
+    tris = by_floor[floor]
+    xs = [v[0] for tri in tris for v in tri]
+    zs = [v[2] for tri in tris for v in tri]
 
     def on_mesh(x, z):
         return any(_pt_in_tri_xz(x, z, a, b, c) for a, b, c in tris)
@@ -92,7 +107,7 @@ def lattice() -> list[tuple[int, int]]:
             if on_mesh(x, z):
                 pts.append((x, z))
     if len(pts) < 30:
-        raise SystemExit(f"only {len(pts)} lattice points — mesh read wrong?")
+        raise SystemExit(f"only {len(pts)} lattice points on floor {floor} — mesh read wrong?")
     return pts
 
 
@@ -160,8 +175,9 @@ def behavior_toml(lay: dict) -> str:
                          do={"announce": "Wave two!  Second band."},
                          once="w2"))
     parts.append(_branch(when=[{"counter_eq": ["wave", 3]}],
-                         do={"announce": "Wave three — the schedule is spent."
-                                         "  The clock stops itself now."},
+                         do={"announce": "Wave three is a BLANK — three bands in the"
+                                         " table, only two fangs exist.  The clock"
+                                         " stops itself now; nothing else happens."},
                          once="w3"))
     parts.append(_branch(do={"hold": list(lay["herald"])}))
     # THE GUARD: the intercept at mid-arena (MUTUAL with the fangs)
@@ -181,8 +197,12 @@ def behavior_toml(lay: dict) -> str:
         parts.append(_branch(when=[{"active": "guard"},
                                    {"near": ["guard", CONTACT_R]}],
                              do={"swing_at": "guard", "interval": 35}))
+        # the approach is a ROUTED march (route="auto"): the straight chord is
+        # heavily off-mesh on this plaza (fountain/tower) — the round-1 fang only
+        # arrived by blocked-walk sliding; the router splices real detours
         parts.append(_branch(when=[{"counter_ge": ["wave", f + 1]}],
-                             do={"walk_to": list(lay["mid"]), "speed": 55}))
+                             do={"march": [[wx, wz], list(lay["mid"])],
+                                 "route": "auto", "speed": 55}))
         parts.append(_branch(do={"hold": [wx, wz]}))
     return "".join(parts)
 
@@ -198,9 +218,15 @@ def _compile_report(parts: list) -> tuple:
     all_units = [u["npc"] for u in raw["behavior"]["unit"]]
     txids = {(ui, bi): 900 + 10 * ui + bi
              for ui, bi, _br in BT.announce_lines(raw)}
+    routed = None
+    if BT.wants_autoroute(raw):
+        wmesh = BgiWalkmesh.from_bytes((BENCH / "walkmesh.bgi").read_bytes())
+        routed = BT.autoroute_plan(raw, wmesh)
+        for line in BT.describe_autoroute(routed, raw):
+            print("  route:", line)
     fb = BT.build(raw, npc_slots={n: i + 2 for i, n in enumerate(all_units)},
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
-                  behavior_txids=txids)
+                  behavior_txids=txids, routed=routed)
     return raw, fb.compile().report
 
 
@@ -251,7 +277,7 @@ def deploy() -> None:
                       "slots/txids)\n", encoding="utf-8")
     print(f"\nreport saved -> {REPORT}")
     print(f"""
-PLAYTEST (~ -> Warp -> {FIELD_ID}; FIRST deploy needs a game RELAUNCH):
+PLAYTEST (~ -> Warp -> {FIELD_ID}; already registered -> ~ Reload is enough):
   This field is the FIRST IN-GAME RUN of .eb computed array indexing (0xD3
   VECTOR) — the wave schedule lives in a gScriptVector table, not in code.
   0 BOOT: a 2:00 countdown HUD; herald + guard posted, two Mus DORMANT at the
