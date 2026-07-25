@@ -93,6 +93,7 @@ ACTION_VERBS = {
     "flee": ("to", "avoid_r", "speed"),
     "wander": ("radius", "every", "speed"),
     "swing_at": ("damage", "interval"),
+    "hold_ground": (),
     "die": (),
     "battle": (),
     "award": ("item", "count"),
@@ -539,6 +540,11 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
     if verb == "swing_at":
         return B.SwingAt(str(v), interval=int(d.get("interval", 30)),
                          damage=int(d.get("damage", 1)))
+    if verb == "hold_ground":
+        if v is not True:
+            raise BehaviorTomlError(f"{ctx}: hold_ground takes `true` (stand and "
+                                    f"idle while the branch holds — the pin)")
+        return B.HoldGround()
     if verb == "die":
         # die = true, or die = "kills" (bump that counter once — the body runs
         # exactly once, the entry terminates)
@@ -875,6 +881,9 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if verb == "hold_post" and v is not True:
                     problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
                                     f"own placement post)")
+                if verb == "hold_ground" and v is not True:
+                    problems.append(f"{ctx}: hold_ground takes `true` (stand and idle "
+                                    f"while the branch holds — the pin)")
                 if verb == "battle":
                     if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
                         problems.append(f"{ctx}: battle takes a battle SCENE id int "

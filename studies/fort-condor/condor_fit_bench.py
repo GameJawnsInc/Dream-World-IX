@@ -14,24 +14,27 @@ clock (sched = DATA), pooled hires at your feet, the published HIREABLE flags
 (exactly-once payouts riding the event-Once lane) — every mechanism previously
 ★ proven on benches 30410-30415, composed.
 
-THE GAME (4:00 clock):
+THE GAME (round-2 TUNING clock — 1:00 runs, a wave every ~20s):
   ~boot      the city fronts you a 3000-gil WAR STIPEND (award #1, kupo).
   anywhere   press SELECT/SPECIAL -> the WAR COUNCIL menu -> hire where you
-             STAND (that spot becomes the unit's post): Soldier-north 300g /
-             Soldier-south 300g / Shooter 550g / Defender 450g. Rows VANISH
-             when unaffordable or sold out (the hireable flags) — the menu can
-             never take an order it won't fill. 5+5+5+5 = the 20-ally cap.
-  3:40       wave 1 — 2 Mus in from the NORTHWEST street.
-  2:50       wave 2 — 2 Mus in from the SOUTHWEST gate.
-  2:00       wave 3 — 1 more from EACH side.
-  1:10       wave 4 — 2 Fang HEAVIES from the southwest.
-  raiders    march their lane, squeeze the chokepoint, and beat on the DEPOT
-             (hp 24). Your units do the killing: Soldiers chase their watch's
-             lane, Shooters shell anything within 600u of their post,
-             Defenders grind whatever reaches them.
+             STAND (that spot becomes the unit's post): Soldier 300g /
+             Shooter 550g / Defender 450g (6/4/4 this build). Rows VANISH when
+             unaffordable or sold out (the hireable flags) — the menu can
+             never take an order it won't fill.
+  0:55       wave 1 — 2 Mus in from the NORTHWEST street.
+  0:40       wave 2 — 2 Mus in from the SOUTHWEST gate.
+  0:20       wave 3 — 2 Fang HEAVIES from the southwest.
+  raiders    march their lane, squeeze the chokepoint, and — NEW, THE PIN —
+             STAND AND FIGHT while a Soldier is on them (no more jogging away
+             from their attackers), then resume the march if they shake free.
+             Leakers beat on the DEPOT (hp 24). Soldiers chase the Mus,
+             Shooters shell everything within 600u, Defenders grind the
+             southwest pressure.
   0:00       depot alive = WE HELD: the win cry + the purse (2000 gil + a
              Phoenix Down, exactly once).
   depot dead = the raiders' boss fight (a REAL battle), then the field mourns.
+  (The ratified 20-ally cap and raider COUNTER-damage return with the labelasm
+  long-jump pass — this build ships 14 allies under the ~32KB ticker ceiling.)
 
 Usage (repo root):  py studies/fort-condor/condor_fit_bench.py gen | probe | deploy
 30400 is long registered -> ~ -> Reload field is enough after deploy.
@@ -68,23 +71,28 @@ DEFENDER_MODEL = "GEO_NPC_F1_CSO"
 RAIDER_MODEL = "GEO_MON_F0_MUU"
 HEAVY_MODEL = "GEO_MON_F0_FFG"
 
-SIEGE_SECONDS = 240
-SCHED = [220, 170, 120, 70]              # wave start-times (remaining seconds)
+# ROUND-2 TUNING BUILD (owner: "minute long runs with spawns every 20 seconds"):
+# a 1:00 clock, three 2-raider waves, ONE soldier pool (the north/south watch
+# split is gone — placement is manual, the lanes were a ticker-budget hack), and
+# THE PIN: an engaged raider stands and takes the fight instead of jogging away.
+# 14 allies this build — the ratified 20-cap and raider COUNTER-damage both need
+# the labelasm long-jump pass (the ~32KB ticker ceiling), the queued next task.
+SIEGE_SECONDS = 60
+SCHED = [55, 40, 20]                     # wave start-times (remaining seconds)
 BASE_HP = 24
 LOSS_SCENE = 35                          # the donor's own arena fight (no BattlePatch)
 STIPEND = 3000
 WIN_GIL = 2000
 WIN_ITEM = "Phoenix Down"
 
-# pools: name -> (count, price, request flag). 5+5+5+5 = the ratified 20-ally cap.
+# pools: name -> (count, price, request flag). Prices are the ratified band.
 # Request flags sit OUTSIDE the blackboard band (8860+); the safe band starts 8712.
 POOLS = {
-    "soldiers_n": (5, 300, 8840),
-    "soldiers_s": (5, 300, 8841),
-    "shooters":   (5, 550, 8842),
-    "defenders":  (5, 450, 8843),
+    "soldiers":  (6, 300, 8840),
+    "shooters":  (4, 550, 8842),
+    "defenders": (4, 450, 8843),
 }
-N_RAIDERS = {"n": 3, "s": 3, "h": 2}     # NW Mus / SW Mus / SW heavies
+N_RAIDERS = {"n": 2, "s": 2, "h": 2}     # NW Mus / SW Mus / SW heavies
 
 
 # --------------------------------------------------------------- walkmesh helpers
@@ -229,8 +237,9 @@ def _branch(when=None, do=None, **keys) -> str:
     return "\n".join(out) + "\n"
 
 
-RAIDERS = (["n0", "n1", "n2"], ["s0", "s1", "s2"], ["h0", "h1"])
+RAIDERS = (["n0", "n1"], ["s0", "s1"], ["h0", "h1"])
 ALL_RAIDERS = [r for grp in RAIDERS for r in grp]
+SOLDIERS = [f"sd{i}" for i in range(POOLS["soldiers"][0])]
 
 
 def behavior_toml(lay: dict) -> str:
@@ -240,7 +249,7 @@ def behavior_toml(lay: dict) -> str:
              f'\n[[behavior.table]]\nname = "sched"\nvalues = {_t(SCHED)}\n'
              f'\n[[behavior.schedule]]\ncounter = "wave"\ntable = "sched"\n']
     for pname, (_n, price, rf) in POOLS.items():
-        btn = "\nbutton = true" if pname == "soldiers_n" else ""
+        btn = "\nbutton = true" if pname == "soldiers" else ""
         parts.append(f'\n[[behavior.pool]]\nname = "{pname}"\nprice = {price}\n'
                      f"request_flag = {rf}{btn}\n")
 
@@ -265,13 +274,18 @@ def behavior_toml(lay: dict) -> str:
                          do={"announce": "They're through!  Protect the depot!"}))
     parts.append(_branch(do={"hold": [bx, bz]}))
 
-    # THE RAIDERS — single-minded: march the lane, beat the depot. Each death
-    # feeds the kill tally.
+    # THE RAIDERS — march the lane, beat the depot, and STAND THE FIGHT: the
+    # hold_ground PIN (round-1 feedback: Mus jogged away from their attackers)
+    # halts the march while any soldier is on them; deselect resumes the march
+    # at the current waypoint. Priority: at the depot, keep swinging IT (the
+    # defenders' grinder duel stays a duel). Each death feeds the kill tally.
     def raider(name, model, hp, stage, route, wave, dmg, ivl, speed):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = {hp}\nspeed = {speed}\n')
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": "kills"}))
         parts.append(_branch(when=[{"active": "base"}, {"near": ["base", 300]}],
                              do={"swing_at": "base", "damage": dmg, "interval": ivl}))
+        parts.append(_branch(when=[{"any_near": [SOLDIERS, 240]}],
+                             do={"hold_ground": True}))
         parts.append(_branch(when=[{"counter_ge": ["wave", wave]}],
                              do={"march": [list(stage)] + [list(p) for p in route],
                                  "route": "auto", "arrive_r": 180, "speed": speed}))
@@ -280,46 +294,38 @@ def behavior_toml(lay: dict) -> str:
     nw, sw = lay["nw_route"], lay["sw_route"]
     raider("n0", RAIDER_MODEL, 3, lay["nw_stage"][0], nw, 1, 1, 30, 50)
     raider("n1", RAIDER_MODEL, 3, lay["nw_stage"][1], nw, 1, 1, 30, 45)
-    raider("n2", RAIDER_MODEL, 4, lay["nw_stage"][2], nw, 3, 1, 28, 50)
     raider("s0", RAIDER_MODEL, 3, lay["sw_stage"][0], sw, 2, 1, 30, 50)
     raider("s1", RAIDER_MODEL, 3, lay["sw_stage"][1], sw, 2, 1, 30, 45)
-    raider("s2", RAIDER_MODEL, 4, lay["sw_stage"][2], sw, 3, 1, 28, 50)
-    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][0], sw, 4, 2, 26, 40)
-    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][1], sw, 4, 2, 26, 38)
+    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][0], sw, 3, 2, 26, 40)
+    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][1], sw, 3, 2, 26, 38)
 
     # THE ARMY — 20 POOLED units, hired at your feet, each holding its post.
     #   Soldier: chases + melees its WATCH's lane.  Shooter: stationary, shells
     #   600u.  Defender: stationary grinder, damage 2 at 300u.
-    def ally(name, model, pool, targets, *, chase=False, reach=250, dmg=1, ivl=25,
-             speed=60):
+    def ally(name, model, pool, targets, *, chase_targets=(), reach=250, dmg=1,
+             ivl=25, speed=60):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\npooled = true\n'
                      f'pool = "{pool}"\nspeed = {speed}\n')
         for r in targets:
             parts.append(_branch(when=[{"active": r}, {"near": [r, reach]}],
                                  do={"swing_at": r, "damage": dmg, "interval": ivl}))
-        if chase:
-            for r in targets:
-                parts.append(_branch(when=[{"active": r}, {"near": [r, 700]}],
-                                     do={"chase": r, "standoff": 170, "speed": 65}))
+        for r in chase_targets:
+            parts.append(_branch(when=[{"active": r}, {"near": [r, 700]}],
+                                 do={"chase": r, "standoff": 170, "speed": 65}))
         parts.append(_branch(do={"hold_post": True}))
 
     # Target lists are the TICKER-SIZE knob (the v1 central ticker is one .eb
-    # body; relative jumps are signed-16, so ~32KB is a hard span ceiling — the
-    # 20-ally + 8-raider full cross-product does not fit; per-type target trims
-    # are invisible in play): soldiers fight their WATCH's lane; shooters shell
-    # everything; defenders grind the late/heavy raiders that reach the depot.
-    n_targets = RAIDERS[0]
-    s_targets = RAIDERS[1] + RAIDERS[2]
-    late_targets = ["n2", "s2", "h0", "h1"]
-    for i in range(POOLS["soldiers_n"][0]):
-        ally(f"ns{i}", SOLDIER_MODEL, "soldiers_n", n_targets, chase=True)
-    for i in range(POOLS["soldiers_s"][0]):
-        ally(f"ss{i}", SOLDIER_MODEL, "soldiers_s", s_targets, chase=True)
+    # body; relative jumps are signed-16, so ~32KB is a hard span ceiling):
+    # soldiers chase the runners and melee everything; shooters shell all six;
+    # defenders grind the SW pressure (the heavies' lane) that reaches them.
+    runners = RAIDERS[0] + RAIDERS[1]                    # the chase-worthy Mus
+    for i, name in enumerate(SOLDIERS):
+        ally(name, SOLDIER_MODEL, "soldiers", ALL_RAIDERS, chase_targets=runners)
     for i in range(POOLS["shooters"][0]):
         ally(f"sh{i}", SHOOTER_MODEL, "shooters", ALL_RAIDERS,
              reach=600, ivl=15, speed=50)
     for i in range(POOLS["defenders"][0]):
-        ally(f"df{i}", DEFENDER_MODEL, "defenders", late_targets,
+        ally(f"df{i}", DEFENDER_MODEL, "defenders", RAIDERS[1] + RAIDERS[2],
              reach=300, dmg=2, ivl=30, speed=45)
     return "".join(parts)
 
@@ -382,10 +388,9 @@ def gen() -> None:
                      f'pos = [{sx + 120 * (i + 1)}, {sz}]\ndialogue = "GRAAAH."\n')
     seat = 0
     for pname, (count, _price, _rf) in POOLS.items():
-        model = {"soldiers_n": SOLDIER_MODEL, "soldiers_s": SOLDIER_MODEL,
+        model = {"soldiers": SOLDIER_MODEL,
                  "shooters": SHOOTER_MODEL, "defenders": DEFENDER_MODEL}[pname]
-        pfx = {"soldiers_n": "ns", "soldiers_s": "ss",
-               "shooters": "sh", "defenders": "df"}[pname]
+        pfx = {"soldiers": "sd", "shooters": "sh", "defenders": "df"}[pname]
         for i in range(count):
             sx, sz = lay["park"][seat]
             parts.append(f'\n[[npc]]\nname = "{pfx}{i}"\nmodel = "{model}"\n'
@@ -400,8 +405,7 @@ def gen() -> None:
     # 1 appends the menu WITHOUT requires_flag, the dry build resolves the flags
     # (menu content can't move blackboard allocation), and pass 2 swaps in the
     # flag-gated rows: a row you can SEE is a hire that will succeed.
-    LABELS = (("soldiers_n", "Soldier — NORTH watch"),
-              ("soldiers_s", "Soldier — SOUTH watch"),
+    LABELS = (("soldiers", "Soldier (chases, melee)"),
               ("shooters", "Shooter (stationary, long reach)"),
               ("defenders", "Defender (stationary, heavy)"))
 
@@ -452,26 +456,25 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
-  0 BOOT: 4:00 clock; the depot master + quartermaster stand in the EAST pocket;
-    Mus wait at the NW street mouth, Mus + two Fangs at the SW gate. Within a
-    few seconds: the STIPEND line + 3000 gil lands in your purse (check Items).
-  1 THE WAR COUNCIL: press SELECT anywhere -> four priced hire rows. Hire a
-    Soldier (north) at the NORTH chokepoint (north of the monument), a Shooter
-    somewhere with sightlines, a Defender by the depot. Each appears AT YOUR
-    FEET and holds that post. Watch your gil fall.
-  2 HONEST ROWS: burn gil below 300 -> rows VANISH (no more "Deployed!" lies);
-    sell out a pool (5 hires) -> its row vanishes too.
-  3 3:40 — wave 1 (2 Mus, NW street). They squeeze the NORTH choke. Your north
-    watch should intercept; Shooters open up at 600u.
-  4 2:50 — wave 2 (2 Mus, SW gate) via the SOUTH choke. 2:00 — wave 3 (one per
-    side). 1:10 — wave 4 (2 Fangs, SW — hp 6, hit the depot for 2).
-  5 LEAKERS beat on the depot (hp {BASE_HP}); the depot cries for help at 500u.
-    If it dies: the boss battle ({LOSS_SCENE}) fires ONCE, you fight it for
-    real, and the field resumes lost.
-  6 If the depot stands at 0:00: the WIN CRY + the purse — {WIN_GIL} gil and a
-    {WIN_ITEM}, paid EXACTLY ONCE.
-  7 ~ -> Reload: full reset (pools refill, waves re-arm, clock restarts; the
-    stipend pays again — bench semantics).
+  0 BOOT: 1:00 clock; depot + quartermaster in the EAST pocket; 2 Mus at the NW
+    street, 2 Mus + 2 Fangs at the SW gate. Within seconds: the STIPEND line +
+    3000 gil (round-1 confirmed — regression check only).
+  1 HIRES: press SELECT anywhere -> THREE rows now (the north/south watch split
+    is GONE — one Soldier row; placement is yours). Deploy fast: a Soldier at
+    each chokepoint, a Shooter with sightlines, a Defender at the depot.
+  2 0:55 — wave 1 (2 Mus, NW street). THE PIN CHECK — the round-1 defect: when
+    your Soldier reaches a Mu, the Mu should STOP and stand the fight (idle in
+    place, no more jogging to the depot mid-beating), and resume its march only
+    if it shakes free (you can test by hiring the Soldier far off the lane).
+  3 0:40 — wave 2 (2 Mus, SW gate, SOUTH choke). 0:20 — wave 3 (2 Fangs, hp 6,
+    hit the depot for 2).
+  4 LEAKERS beat on the depot (hp {BASE_HP}); at the depot a raider keeps
+    swinging IT even while Defenders grind him (the duel stays a duel).
+    If it dies: the boss battle ({LOSS_SCENE}) fires ONCE, then the field
+    resumes lost.
+  5 If the depot stands at 0:00: the WIN CRY + the purse — {WIN_GIL} gil and a
+    {WIN_ITEM}, paid EXACTLY ONCE (round-1 confirmed).
+  6 ~ -> Reload: full reset; a whole run is ONE MINUTE — iterate freely.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 
