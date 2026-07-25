@@ -22,7 +22,7 @@ Detail → `references/battle-tuning.md`.
 
 ## Backgrounds: the four tiers
 
-Reskin (drop PNGs) / loose-FBX geometry swap / net-new scene mint (`BattleScene <ID> <NAME> <BBG>` DictionaryPatch + 4 mod assets — the `.mes` is LOAD-BEARING, missing = NRE, empty battle) / wholly original `BBG_B###` number (>177, static `.inb` is safe). CLI: `battle-import` → `battle-build` → `tools/deploy_battle.py` (reversible). If you mint a BG-borrow trigger FIELD for testing, its FieldScene `<area>` must be `>= 10` (single-digit areas black-screen — a FieldScene rule, see CLAUDE.md §7). Detail + camera authoring → `references/battle-backgrounds.md`.
+Reskin (drop PNGs) / loose-FBX geometry swap / net-new scene mint (`BattleScene <ID> <NAME> <BBG>` DictionaryPatch + 4 mod assets — the `.mes` is LOAD-BEARING, missing = NRE, empty battle) / wholly original `BBG_B###` number (>177, static `.inb` is safe). CLI: `battle-import` → `battle-build` → `tools/deploy_battle.py` (reversible). If you mint a BG-borrow trigger FIELD for testing, its FieldScene `<area>` must be `>= 10` (single-digit areas black-screen — a FieldScene rule, see the `authoring-ff9-scenes` skill and [[project-ff9-bg-borrow-solution]]). Detail + camera authoring → `references/battle-backgrounds.md`.
 
 ## Tuning: stats / AI / btlseq
 
@@ -54,7 +54,7 @@ Three compile-at-deploy plugin surfaces in ONE mod DLL, no engine rebuild (relau
 
 ## Overload one-hub
 
-From the brief (CLAUDE.md §10), verbatim: "the engine registers 1 IOverload\* implementer per interface per DLL, last-wins → the kit emits a single regenerated hub; features = plain static classes, mutators-before-observers, a collision gate, GENERIC deploy stickiness". "THE GRANULARITY LAW: a flag-gated Overload feature's toggle latency = its hook's fire cadence." Returning hooks (`OnGameOver`) are SINGLE-OWNER with fail-safe = vanilla. Laws quoted in full → `references/scripts-dll-overload.md`.
+From memory [[project-ff9-overload-hooks]], verbatim: "the engine registers 1 IOverload\* implementer per interface per DLL, last-wins → the kit emits a single regenerated hub; features = plain static classes, mutators-before-observers, a collision gate, GENERIC deploy stickiness". "THE GRANULARITY LAW: a flag-gated Overload feature's toggle latency = its hook's fire cadence." Returning hooks (`OnGameOver`) are SINGLE-OWNER with fail-safe = vanilla. Laws quoted in full → `references/scripts-dll-overload.md`.
 
 ## [difficulty] / [rebalance] / [deathrules]
 
