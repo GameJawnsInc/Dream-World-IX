@@ -261,6 +261,41 @@ def test_hybrid_deploy_revert_restores_the_armed_ini(tmp_path):
     assert ini.read_text(encoding="utf-8") == original                # THE FIX: the arm is actually undone
 
 
+def test_no_short_hybrid_deploy_byte_identity_over_every_artifact(tmp_path):
+    """MUST-FIX 4 (hybrid lane, review 2026-07-24): the earlier regression guard covered ONE file on the
+    overlay lane only. Hash EVERY artifact this no-short HYBRID emit's own ledger reports -- the mint FBX
+    and the donor-splice output -- against a synthetic offline 'install' (donor 502, unregistered in
+    EXPECTED_DONOR_SEQ_SHA so no drift guard fires; no real FF9 install needed, so this ALWAYS runs)."""
+    game = tmp_path / "game"
+    donor = 502
+    seq_dir = game / "StreamingAssets" / "Data" / "SpecialEffects" / f"ef{donor:03d}"
+    seq_dir.mkdir(parents=True)
+    (seq_dir / "PlayerSequence.seq").write_bytes(_DONOR_SEQ.encode("utf-8"))
+
+    mod = tmp_path / "mod"
+    fbx = tmp_path / "m.fbx"
+    fbx.write_bytes(b"FAKE-FBX-BYTES-HYBRID-REGRESSION")
+    block = {"donor": donor, "model": str(fbx), "id": 6203, "private_ef": 84, "lane": "hybrid"}
+    res = D.emit_hybrid(block, mod, str(game))
+
+    assert "short" not in res
+    assert res["artifacts"]
+    for artifact in res["artifacts"]:
+        assert Path(artifact).is_file(), artifact
+
+    fbx_p = Path(res["mint"]["fbx_dest"])
+    assert fbx_p.read_bytes() == b"FAKE-FBX-BYTES-HYBRID-REGRESSION"
+    assert hashlib.sha256(fbx_p.read_bytes()).hexdigest() == res["mint"]["fbx_sha256"]
+
+    seq_p = Path(res["seq"]["seq_dest"])
+    assert seq_p.read_bytes() == _DONOR_SEQ.encode("utf-8")            # unmodified: no hide_meshes given
+    assert hashlib.sha256(seq_p.read_bytes()).hexdigest() == res["seq"]["seq_sha256"]
+
+    assert not (mod / "StreamingAssets" / "Data" / "Characters" / "Abilities" /
+               "AbilityFeatures.txt").exists()
+    assert not (mod / "StreamingAssets" / "Data" / "SpecialEffects" / "ef085").exists()
+
+
 def test_overlay_manifest_shape():
     spec = D.normalize_spec({"donor": 227, "id": 6201, "name": "GEO_MON_B0_M201", "private_ef": 84})
     man = D._sfxmodel_manifest(spec, [0, 1])

@@ -262,19 +262,45 @@ def validate_blocks(features, *, game=None) -> list:
     return []
 
 
+def _decode_cp1252_strict(data: bytes, path) -> str:
+    """cp1252 STRICT decode, failing LOUD instead of silently corrupting bytes (review FOLD-C, mirrored
+    from ``summons/deploy.py`` -- not imported from there to avoid a circular import, since that module
+    already imports THIS one). windows-1252 leaves 5 byte values undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D);
+    ``errors="replace"`` would silently turn one into U+FFFD, corrupting whatever else wrote it (e.g. a
+    foreign encoding, a stray control byte) with no warning."""
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError as e:
+        raise AbilityFeatureError(
+            f"{path} is not valid cp1252 ({e}) -- refusing to merge into it. A silent 'replace' decode "
+            "would corrupt whatever produced that byte; fix the file's encoding first.") from e
+
+
 def write_ability_features(layout, features, *, game=None) -> list:
     """Build + write ``layout.ability_features_txt`` (cp1252 / LF, byte-faithful with the base). Returns
-    warnings; writes nothing when there are no blocks."""
+    warnings; writes nothing when there are no blocks.
+
+    MARKER-AWARE (MUST-FIX 3, review 2026-07-24): this used to ``write_text`` the WHOLE file, which wiped
+    any foreign ``## >>> ...``-marked section already there -- in particular a ``[[summon]]`` short/full
+    roll block ``summons/deploy.py:_stage_short_summon_feature`` had written (that ability would then
+    silently always play its FULL cast, no error anywhere). Routes through the SAME
+    :func:`merge_ability_features` marker splice that writer uses, under this build's OWN fixed marker id
+    (``field-abilities``) -- so re-running a field build twice replaces only ITS OWN section (idempotent),
+    and running in EITHER order relative to a summon deploy leaves the OTHER writer's section untouched.
+    The file is strict-decoded (FOLD-C) and seeded with the shared header on a fresh file, so either
+    writer's first touch produces identical bytes regardless of which one runs first."""
     lines, warnings = build_lines(features, game=game, strict=True)
     if not lines:
         return warnings
     path = layout.ability_features_txt
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="cp1252", errors="replace", newline="\n")
+    live = _decode_cp1252_strict(path.read_bytes(), path) if path.is_file() else (_FILE_HEADER + "\n")
+    merged = merge_ability_features(live, lines[2:], "field-abilities")   # drop [_FILE_HEADER, ""]
+    path.write_bytes(merged.encode("cp1252"))
     return warnings
 
 
-# ---- non-clobbering merge into a live AbilityFeatures.txt (deferred -- the MVP deploy whole-file-copies) ----
+# ---- non-clobbering merge into a live AbilityFeatures.txt ----
 def _markers(marker_id):
     return (f"## >>> ff9mapkit ability_feature {marker_id} (auto -- edit the toml, not here)",
             f"## <<< ff9mapkit ability_feature {marker_id}")

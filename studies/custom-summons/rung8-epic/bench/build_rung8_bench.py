@@ -13,7 +13,8 @@ byte and checks it. Nothing here is a mock and nothing here is hand-written: if 
 THE THREE DEPLOY STEPS IT MIRRORS (see ../RUNBOOK.md -- the orchestrator runs those against the install):
 
     1. `tools/deploy_field.py bench/rung8.field.toml --id 30301`   -> the field + the "Nimbra" ability
-    2. `ff9mapkit summon-deploy --from-toml bench/rung8.field.toml` -> ef091/ + the GEO 6400 mint
+    2. `ff9mapkit summon-deploy --from-toml bench/rung8.field.toml` -> ef080/ + ef091/ (THE PAIR) + the GEO
+       6400 mint
     3. the audio mint (100001-100003)                              -> the .ogg files + the manifest override
 
 Run in that order, because step 1 is a WHOLESALE field build (it owns DictionaryPatch.txt) and steps 2/3
@@ -27,6 +28,13 @@ IT NEVER TOUCHES THE GAME.
     needs ``[Audio] PriorityToOGG = 1``; the runbook says so out loud). It DOES read the install's stock
     ``SoundEffectMetaData.txt`` because the override REPLACES that table and must therefore carry all of
     it -- read-only, and cached in the system temp dir, never in the install.
+
+THE PAIR (2026-07-24, the short/full roll round). ONE ``[[summon]]`` block now stages TWO self-contained
+effect folders from ONE shared model + clip pool: ef080 = THE FULL (vfx1, ~23.0s) and ef091 = THE WHISPER
+(vfx2, ~9.3s, byte-identical to the live install). The AbilityFeatures roll that picks between them is
+ability-DISCRIMINATED (``roll_command`` AND ``roll_ability``) because Iviv's minted command 46 hosts FOUR
+abilities and a command-wide roll would flip the other three onto their own Vfx2. See section 4 below
+("THE ROLL") for the artifact this script checks.
 
 Exit code 0 = every check green.
 """
@@ -59,27 +67,43 @@ MOD_NAME = "FF9CustomMap"
 #: an id or resource-id edit over there cannot silently desync from the ``.seq`` that plays them).
 AUDIO_MODULES = ("make_nimbra_drone", "make_nimbra_whispers", "make_nimbra_strike")
 
-#: STORYBOARD 11.2's two-clock arithmetic (RETIMED 2026-07-24 from 3.2's 150/480), restated here as the
-#: integration ASSERTION rather than prose.
-PLAY_SFX_TICK = 25             # the fixed wait before PlaySFX (15) + the ~10-tick clip-bound budget
-DRAIN_TICK = 135               # PLAY_SFX_TICK + the manifest window -- the tick WaitSFXDone resolves on
-PRIVATE_EF = 91
-GEO_ID = 6400
+#: THE PAIR (2026-07-24, the short/full roll round) -- per-cast two-clock arithmetic, restated here as the
+#: integration ASSERTION rather than prose. FULL and SHORT are two INDEPENDENT effect folders/timelines;
+#: never share one constant pair (that was the addendum's own law for the [[summon]] block, mirrored here).
+FULL_PRIVATE_EF = 80            # THE FULL -- rung8.field.toml's `private_ef` (STORYBOARD 6.1's spare)
+FULL_PLAY_SFX_TICK = 55         # the fixed wait before PlaySFX (FULL-STORYBOARD 4.1)
+FULL_WINDOW = 260               # PINNED to ../nimbra_full.seq's WaitSFXDone beat (FULL-STORYBOARD 4.1/4.3)
+FULL_DRAIN_TICK = 315           # FULL_PLAY_SFX_TICK + FULL_WINDOW
+
+SHORT_PRIVATE_EF = 91           # THE WHISPER -- the live install's own folder; the re-emit must match it
+SHORT_PLAY_SFX_TICK = 25        # the ORIGINAL STORYBOARD 11.2 arithmetic -- now the short half's own
+SHORT_WINDOW = 110
+SHORT_DRAIN_TICK = 135          # SHORT_PLAY_SFX_TICK + SHORT_WINDOW
+
+GEO_ID = 6400                   # shared: ONE model, ONE clip pool (60000-60003) -- both casts reference it
 ABILITY = "Nimbra"
+ROLL_COMMAND = 46               # Iviv's minted command1 ("Spark") -- section 4 (THE ROLL) asserts the
+                                 # field build's OWN Commands.csv output actually resolved it to this id,
+                                 # not just that the toml claims it -- a band-order change must fail loud.
+ROLL_ABILITY = 195              # Nimbra's minted ability id -- THE DISCRIMINATOR (roll_ability): command
+                                 # 46 hosts FOUR abilities, so CommandId alone cannot tell them apart.
 
 
 # --------------------------------------------------------------------------------------- lane resolution
 def load_block() -> dict:
     """The bench toml's first ``[[summon]]`` block with every relative path resolved against the TOML's own
-    directory -- the same rule ``lint``/``build`` apply via ``base_dir`` and (since this round) the same
-    rule ``summon-deploy --from-toml`` applies via ``cli._rebase_summon_paths``."""
+    directory -- the same rule ``lint``/``build`` apply via ``base_dir``, and the same rule
+    ``summon-deploy --from-toml`` applies via ``cli._rebase_summon_paths`` (mirrored here key-for-key, PLUS
+    ``short_sequence`` -- THE PAIR's second authored cast, which needs the identical treatment ``sequence``
+    already gets. ``manifest``/``short_manifest`` are bare file names -- deliberately left untouched, same
+    as ``cli._rebase_summon_paths`` never touches them)."""
     block = dict(tomllib.loads(BENCH_TOML.read_text(encoding="utf-8"))["summon"][0])
 
     def fix(p):
         q = Path(str(p))
         return str(q if q.is_absolute() else (HERE / q).resolve())
 
-    for key in ("model", "sequence"):
+    for key in ("model", "sequence", "short_sequence"):
         block[key] = fix(block[key])
     for key in ("clips", "particles"):
         block[key] = [fix(v) for v in block[key]]
@@ -113,7 +137,9 @@ def step_field(mod_root: Path) -> dict:
 
 
 def step_summon(mod_root: Path, work_dir: Path) -> dict:
-    """Step 2 -- the ``[[summon]]`` block, through the real overlay emitter (``game=None``)."""
+    """Step 2 -- the ``[[summon]]`` block, through the real overlay emitter (``game=None``). ONE call now
+    stages BOTH effect folders (THE PAIR) plus the AbilityFeatures roll -- there is no separate short-half
+    step; ``emit_overlay`` owns that internally once ``short_sequence`` is set."""
     return D.emit_overlay(load_block(), mod_root, None, work_dir=work_dir)
 
 
@@ -178,72 +204,101 @@ class Check:
         return 0 if not self.failed else 2
 
 
-def check_all(mod_root: Path, summon: dict, audio: dict) -> Check:
-    ck = Check()
-    spec = summon["spec"]
-    ef = mod_root / "StreamingAssets" / "Data" / "SpecialEffects" / f"ef{PRIVATE_EF:03d}"
+def check_effect_folder(ck: Check, mod_root: Path, spec: dict, *, ef_id: int, tick: int, window: int,
+                        drain: int, manifest_name: str, staging_curves: dict, key_strs: set,
+                        on_disc_clips: set, label: str) -> dict:
+    """THE PER-FOLDER CHECKS (formerly a single hardcoded pass over ef091 -- THE PAIR round generalized it
+    to run against EITHER effect folder, called once for FULL and once for SHORT): the folder is staged,
+    ``Sequence.seq`` is absent (R15), the ``.seq`` lints clean against ITS OWN ``ef_id``, the manifest +
+    particles are staged and lint clean, ``FileList.txt`` names ITS OWN manifest, the two clocks align,
+    every curve spans the window, Movement anchors on ``TargetAveragePosition*``, the playlist covers the
+    window at Speed 1 against ITS OWN ``staging_curves`` (never the other folder's), and every playlist
+    entry both names a minted clip and resolves to a staged ``.anim`` (the clips are a SHARED pool -- minted
+    ONCE -- but each folder's playlist may reference a different subset/order of it). Returns the parsed
+    manifest's ``FBX[0]`` dict."""
+    ef = mod_root / "StreamingAssets" / "Data" / "SpecialEffects" / f"ef{ef_id:03d}"
 
-    # --- 1. the effect folder ------------------------------------------------------------------------
     seq_path = ef / "PlayerSequence.seq"
-    ck(seq_path.is_file(), "ef091/PlayerSequence.seq staged")
-    ck(not (ef / "Sequence.seq").exists(), "ef091/Sequence.seq ABSENT",
+    ck(seq_path.is_file(), f"{label}: PlayerSequence.seq staged")
+    ck(not (ef / "Sequence.seq").exists(), f"{label}: Sequence.seq ABSENT",
        "R15: SFXData.cs:174 reads it unconditionally; a present one threads in as duplicate damage")
 
     parts = [Path(p).name for p in (spec.get("particles") or [])]
-    rep = SL.lint_seq_file(seq_path, private_ef=PRIVATE_EF, particles=parts)
-    ck(not rep.errors, "the staged .seq lints clean",
+    rep = SL.lint_seq_file(seq_path, private_ef=ef_id, particles=parts)
+    ck(not rep.errors, f"{label}: the staged .seq lints clean",
        f"{len(rep.errors)} error(s), {len(rep.warnings)} warning(s), {rep.total_ticks} fixed-Wait ticks")
     for p in rep.problems:
-        print(f"      seqlint: {p}")
+        print(f"      seqlint({label}): {p}")
 
-    for name in parts + [spec["manifest"]]:
+    for name in parts + [manifest_name]:
         f = ef / name
-        if not ck(f.is_file(), f"ef091/{name} staged"):
+        if not ck(f.is_file(), f"{label}: {name} staged"):
             continue
         probs = SL.lint_sfxmodel_file(f)
-        ck(not probs, f"ef091/{name} lints clean", "; ".join(probs))
+        ck(not probs, f"{label}: {name} lints clean", "; ".join(probs))
 
     fl = (ef / "FileList.txt").read_bytes() if (ef / "FileList.txt").is_file() else b""
-    ck(fl == f"Model {spec['manifest']}\n".encode(),
-       "FileList.txt grammar (single spaces, bare manifest name)", repr(fl))
+    ck(fl == f"Model {manifest_name}\n".encode(),
+       f"{label}: FileList.txt grammar (single spaces, its OWN manifest name)", repr(fl))
 
-    # --- 2. the manifest's two clocks + curve invariants ----------------------------------------------
-    man = json.loads((ef / spec["manifest"]).read_text(encoding="utf-8"))
+    man = json.loads((ef / manifest_name).read_text(encoding="utf-8"))
     fbx = man["FBX"][0]
-    ck(fbx["Path"] == spec["name"], "manifest names the minted GEO", fbx["Path"])
-    window = int(fbx["End"]) - int(fbx["Start"])
-    ck(PLAY_SFX_TICK + window == DRAIN_TICK, "THE TWO CLOCKS align",
-       f"PlaySFX@{PLAY_SFX_TICK} + window {window} = {PLAY_SFX_TICK + window} (STORYBOARD 11.2: {DRAIN_TICK})")
+    ck(fbx["Path"] == spec["name"], f"{label}: manifest names the minted GEO", fbx["Path"])
+    win = int(fbx["End"]) - int(fbx["Start"])
+    ck(tick + win == drain, f"{label}: THE TWO CLOCKS align",
+       f"PlaySFX@{tick} + window {win} = {tick + win} (expected {drain})")
     for curve in ("Movement", "Rotation", "Scaling"):
         total = sum(int(p["Duration"]) for p in fbx[curve])
-        ck(total == window, f"{curve} spans the whole window", f"{total} vs {window}")
-    ck(all("TargetAveragePosition" in v for k, v in fbx["Movement"][0].items() if k.startswith(("Origin", "Destination"))),
-       "Movement anchors on TargetAveragePosition*",
+        ck(total == win, f"{label}: {curve} spans the whole window", f"{total} vs {win}")
+    ck(all("TargetAveragePosition" in v for k, v in fbx["Movement"][0].items()
+           if k.startswith(("Origin", "Destination"))),
+       f"{label}: Movement anchors on TargetAveragePosition*",
        "THE MULTI-TARGET NULL: SFXData.cs:149 nulls the target for an AllEnemy cast")
-    cov = D.playlist_coverage(spec)
-    ck(cov is not None and cov["short_by"] == 0, "the playlist covers the window (never freezes)",
+
+    cov = D.playlist_coverage(spec, staging_curves)
+    ck(cov is not None and cov["short_by"] == 0, f"{label}: the playlist covers the window (never freezes)",
        f"{cov['playlist_ticks']} ticks over {cov['window']} ({', '.join(cov['detail'])})" if cov else "not derivable")
     # THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9): animFrame is a CLIP-FRAME index and animMaxFrame is a
     # TICK count, and SFXDataMesh.cs:869 divides one by the other -- equal only at Speed 1. Any entry
     # above 1 runs its clip out after 1/s of the entry and FREEZES the rig for the remainder.
     ck(cov is not None and not cov["nonunit_speeds"],
-       "every playlist entry is Speed 1 (THE SPEED-DIVISOR DEFECT)",
+       f"{label}: every playlist entry is Speed 1 (THE SPEED-DIVISOR DEFECT)",
        "SFXDataMesh.cs:869 -- size the CLIP to the beat, never the divisor"
        if cov and not cov["nonunit_speeds"] else f"non-unit speeds: {cov['nonunit_speeds'] if cov else '?'}")
 
-    # --- 3. the clips + the mint ---------------------------------------------------------------------
+    entries = {e["Path"].rsplit("/", 1)[-1] for e in fbx.get("Animations", [])}
+    ck(entries == key_strs, f"{label}: every playlist entry names a MINTED clip", str(sorted(entries)))
+    ck(entries <= on_disc_clips, f"{label}: every playlist entry resolves to an .anim on disc",
+       f"playlist {sorted(entries)} vs disc {sorted(on_disc_clips)}")
+    return fbx
+
+
+def check_all(mod_root: Path, summon: dict, audio: dict, out_dir: Path) -> Check:
+    ck = Check()
+    spec = summon["spec"]
+    short = summon["short"]
+
+    # --- 1. the two effect folders (THE PAIR) -----------------------------------------------------------
     keys = [c["key"] for c in summon["overlay"].get("clip_files", [])]
+    key_strs = {str(k) for k in keys}
+    on_disc = {p.stem for p in mod_root.rglob(f"Animations/{GEO_ID}/*.anim")}
+
+    check_effect_folder(ck, mod_root, spec, ef_id=FULL_PRIVATE_EF, tick=FULL_PLAY_SFX_TICK,
+                        window=FULL_WINDOW, drain=FULL_DRAIN_TICK, manifest_name=spec["manifest"],
+                        staging_curves=spec["staging_curves"], key_strs=key_strs, on_disc_clips=on_disc,
+                        label=f"ef{FULL_PRIVATE_EF:03d} (FULL)")
+    check_effect_folder(ck, mod_root, spec, ef_id=SHORT_PRIVATE_EF, tick=SHORT_PLAY_SFX_TICK,
+                        window=SHORT_WINDOW, drain=SHORT_DRAIN_TICK, manifest_name=spec["short_manifest"],
+                        staging_curves=spec["short_staging_curves"], key_strs=key_strs, on_disc_clips=on_disc,
+                        label=f"ef{SHORT_PRIVATE_EF:03d} (SHORT)")
+
+    # --- 2. the clips + the mint (minted ONCE -- a shared 60000-60003 band, both folders reference it) ---
     ck(keys == [60000, 60001, 60002, 60003], "clips minted into the 60000 band (named stems)", str(keys))
     for c in summon["overlay"].get("clip_files", []):
         dest = Path(c["dest"])
         n = D.anim_frame_count(dest)          # the KIT's own reader, not a local re-implementation
         ck(dest.is_file() and n is not None, f"clip {c['name']} loads under the kit reader",
            f"{n} frames -> {dest.name}")
-    entries = {e["Path"].rsplit("/", 1)[-1] for e in fbx["Animations"]}
-    ck(entries == {str(k) for k in keys}, "every playlist entry names a staged clip", str(sorted(entries)))
-    on_disc = {p.stem for p in mod_root.rglob(f"Animations/{GEO_ID}/*.anim")}
-    ck(entries <= on_disc, "every playlist entry resolves to an .anim on disc",
-       f"playlist {sorted(entries)} vs disc {sorted(on_disc)}")
     mint = summon["mint"]
     ck(Path(mint["fbx_dest"]).is_file(), "the FBX mint landed", mint["fbx_dest"])
     ck(bool(mint["textures"]), "the atlas rode along", ", ".join(Path(t).name for t in mint["textures"]))
@@ -255,22 +310,75 @@ def check_all(mod_root: Path, summon: dict, audio: dict) -> Check:
        "NO 3DModelAnimation line for the summon clips",
        "the SFX route loads by literal path (SFXDataMesh.cs:793) -- clips are recast-only")
 
-    # --- 4. the ability wiring (the cross-lane join the storyboard cares most about) -------------------
-    act = mod_root / "StreamingAssets" / "Data" / "Battle" / "Actions.csv"
-    ck(act.is_file(), "Actions.csv delta emitted")
-    row = next((ln for ln in act.read_text(encoding="utf-8").splitlines() if ln.split(":", 1)[-1].startswith(ABILITY + ";")), "")
+    # --- 3. the ability wiring (the cross-lane join the storyboard cares most about) -------------------
+    act_path = mod_root / "StreamingAssets" / "Data" / "Battle" / "Actions.csv"
+    ck(act_path.is_file(), "Actions.csv delta emitted")
+    act_lines = act_path.read_text(encoding="utf-8").splitlines()
+    row = next((ln for ln in act_lines if ln.split(":", 1)[-1].startswith(ABILITY + ";")), "")
     ck(bool(row), f"the {ABILITY!r} row exists", row)
     if row:
         f = row.split(":", 1)[-1].split(";")
+        ck(f[1] == str(ROLL_ABILITY),
+           f"{ABILITY!r} keeps minted ability id {ROLL_ABILITY} (roll_ability's live discriminator)", f[1])
         ck(f[3].startswith("AllEnemy"), "targets = AllEnemy (the rung-1 structural full-cast law)", f[3])
-        ck(f[8] == str(PRIVATE_EF) and f[9] == str(PRIVATE_EF),
-           f"vfx1 = vfx2 = {PRIVATE_EF}", f"vfx1={f[8]} vfx2={f[9]}")
-        ck(f[10] != "87", "scriptId != 87 (Odin's Sword SA never triggered)", f"scriptId={f[10]}")
+        ck(f[8] == str(FULL_PRIVATE_EF) and f[9] == str(SHORT_PRIVATE_EF),
+           f"vfx1 = ef{FULL_PRIVATE_EF:03d} (FULL) AND vfx2 = ef{SHORT_PRIVATE_EF:03d} (SHORT)",
+           f"vfx1={f[8]} vfx2={f[9]}")
+        ck(f[10] != "87", "scriptId != 87 (Odin's Sword SA never triggered)", f[10])
         ck((int(f[2].split("(")[-1].rstrip(")")) & 4) == 0, "THE TYPE-4 MP LAW: bit 4 clear", f[2])
-    ck(any("Bahamut Cinema;194;" in ln for ln in act.read_text(encoding="utf-8").splitlines()),
+    ck(any("Bahamut Cinema;194;" in ln for ln in act_lines),
        "Bahamut Cinema keeps id 194 (the live M1b bench binding is untouched)")
 
-    # --- 5. the audio --------------------------------------------------------------------------------
+    # --- 4. THE ROLL (review 2026-07-24, the short/full pair round) ------------------------------------
+    # The AbilityFeatures Command-trigger the [[summon]] block's roll trio emits -- gated on BOTH
+    # `roll_command` AND `roll_ability` (item 1: command 46 hosts four abilities, so CommandId alone
+    # cannot discriminate which one is casting). Checked here, not just in the kit's own unit tests,
+    # because THIS is the one place the two upstream steps (the field build's minted command/ability ids,
+    # and the summon emit's roll formula) actually have to AGREE for the roll to fire correctly at all.
+    ab_path = mod_root / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+    ck(ab_path.is_file(), "AbilityFeatures.txt staged (the roll artifact)")
+    marker = f"summon-short-roll-{spec['id']}"
+    begin = f"## >>> ff9mapkit ability_feature {marker} (auto -- edit the toml, not here)"
+    cond = f"IsTheCaster && CommandId == {ROLL_COMMAND} && AbilityId == {ROLL_ABILITY}"
+    formula = f"GetRandom() < (MP > {spec['roll_mp']} ? 230 : 170)"
+    if ab_path.is_file():
+        ab_text = ab_path.read_text(encoding="cp1252")
+        ck(begin in ab_text, "the roll's marker section is present", marker)
+        ck(f"[code=Condition] {cond} [/code]" in ab_text,
+           "the roll's Condition discriminates command AND ability", cond)
+        ck(f"[code=IsShortSummon] {formula} [/code]" in ab_text,
+           "the roll's formula matches the 3a-compensated stock odds", formula)
+        ck(ab_text.count(begin) == 1, "exactly ONE roll section", f"{ab_text.count(begin)} occurrence(s)")
+
+    # a SECOND emit into the SAME mod_root must not duplicate the marker section -- the idempotent-redeploy
+    # proof (MUST-FIX 2's fix), exercised here rather than only asserted in the kit's own unit tests.
+    # `out=` is silenced: `Check.report()` prints every row only AFTER `check_all()` returns, so this
+    # redeploy's own receipt would otherwise interleave BEFORE the "[ok] ..." lines it is nested between.
+    redeploy = D.emit_overlay(load_block(), mod_root, None, work_dir=out_dir, out=lambda *a, **k: None)
+    ck(redeploy["spec"]["short_private_ef"] == SHORT_PRIVATE_EF, "a redeploy resolves the SAME short_private_ef",
+       str(redeploy["spec"]["short_private_ef"]))
+    if ab_path.is_file():
+        ab_text2 = ab_path.read_text(encoding="cp1252")
+        ck(ab_text2.count(begin) == 1, "a re-run does NOT duplicate the roll section",
+           f"{ab_text2.count(begin)} occurrence(s)")
+        ck(ab_text2 == ab_text, "the re-run's AbilityFeatures.txt is byte-identical", "")
+
+    # Iviv's minted command1 ("Spark") really resolved to `roll_command`'s target -- read from the field
+    # build's OWN Commands.csv output, not re-derived from the toml, so a band-order/allocation change
+    # fails loud HERE instead of silently desyncing the roll's Condition from the live command id.
+    cmd_path = mod_root / "StreamingAssets" / "Data" / "Characters" / "Commands.csv"
+    ck(cmd_path.is_file(), "Commands.csv delta emitted")
+    if cmd_path.is_file():
+        cmd_lines = cmd_path.read_text(encoding="utf-8").splitlines()
+        cmd_row = next((ln for ln in cmd_lines if ln.rstrip().endswith("# Spark")), "")
+        ck(bool(cmd_row), "Iviv's minted command1 ('Spark') row exists in Commands.csv", cmd_row)
+        if cmd_row:
+            cid = cmd_row.split(";", 1)[0]
+            ck(cid == str(ROLL_COMMAND),
+               f"'Spark' resolved to command id {ROLL_COMMAND} (roll_command's live target)",
+               f"got {cid} -- a band-order change would desync the roll's Condition silently otherwise")
+
+    # --- 5. the audio ------------------------------------------------------------------------------------
     ffprobe = _ffprobe()
     for m in audio["minted"]:
         ogg = Path(m["ogg"])
@@ -283,14 +391,16 @@ def check_all(mod_root: Path, summon: dict, audio: dict) -> Check:
     ck(not audio["partial"], "the sfx manifest override carries the STOCK table too",
        f"{audio.get('stock_rows', 0)} stock + 3 minted"
        if not audio["partial"] else "PARTIAL (--offline-audio) -- do NOT deploy this manifest")
-    seq_text = seq_path.read_text(encoding="utf-8")
+    full_seq_text = (mod_root / "StreamingAssets" / "Data" / "SpecialEffects" /
+                     f"ef{FULL_PRIVATE_EF:03d}" / "PlayerSequence.seq").read_text(encoding="utf-8")
     for m in audio["minted"]:
-        ck(f"Sound={m['song_id']}" in seq_text, f"the .seq plays sfx {m['song_id']}")
+        ck(f"Sound={m['song_id']}" in full_seq_text, f"the FULL .seq plays sfx {m['song_id']}")
 
-    # --- 6. the blast radius -------------------------------------------------------------------------
-    others = sorted(p.name for p in (mod_root / "StreamingAssets" / "Data" / "SpecialEffects").iterdir()
-                    if p.is_dir()) if (mod_root / "StreamingAssets" / "Data" / "SpecialEffects").is_dir() else []
-    ck(others == [f"ef{PRIVATE_EF:03d}"], "ef091 is the ONLY effect folder written",
+    # --- 6. the blast radius -----------------------------------------------------------------------------
+    sfx_dir = mod_root / "StreamingAssets" / "Data" / "SpecialEffects"
+    others = sorted(p.name for p in sfx_dir.iterdir() if p.is_dir()) if sfx_dir.is_dir() else []
+    expect = sorted([f"ef{FULL_PRIVATE_EF:03d}", f"ef{SHORT_PRIVATE_EF:03d}"])
+    ck(others == expect, "the SpecialEffects tree is EXACTLY {ef080, ef091}, nothing else",
        f"ef084 (the live Thomas/M1b bench) is never in this tree: {others}")
     return ck
 
@@ -339,12 +449,20 @@ def main() -> int:
     for ln in field["stdout"]:
         print(f"    {ln}")
 
-    print("--- step 2: the [[summon]] block (overlay lane, authored cast, game=None)")
+    print("--- step 2: the [[summon]] block (overlay lane, authored casts, game=None) -- THE PAIR")
     summon = step_summon(mod_root, out)
     spec = summon["spec"]
-    print(f"    {spec['name']} (id {spec['id']}) -> private ef{spec['private_ef']:03d}, staging={spec['staging']}")
-    print(f"    host .seq: {Path(summon['seq']['seq_dest']).name}  (AUTHORED, verbatim from "
+    print(f"    {spec['name']} (id {spec['id']})")
+    print(f"    FULL  -> ef{spec['private_ef']:03d}/{spec['manifest']}")
+    print(f"    host .seq (FULL) : {Path(summon['seq']['seq_dest']).name}  (AUTHORED, verbatim from "
           f"{Path(summon['seq']['seq_source']).name})")
+    short = summon.get("short")
+    if short:
+        print(f"    SHORT -> ef{spec['short_private_ef']:03d}/{spec['short_manifest']}")
+        print(f"    host .seq (SHORT): {Path(short['seq_dest']).name}  (AUTHORED, verbatim from "
+              f"{Path(short['seq_source']).name})  -> {short['seq_dest']}")
+        print(f"    roll     : command={spec['roll_command']} ability={spec['roll_ability']} "
+              f"mp={spec['roll_mp']}")
     for c in summon["overlay"].get("clip_files", []):
         print(f"    clip     : {c['name']:<8} -> Animations/{spec['id']}/{c['key']}")
     for p in summon["overlay"].get("particles", []):
@@ -362,7 +480,8 @@ def main() -> int:
     files = sorted(p for p in mod_root.rglob("*") if p.is_file())
     report = {"mod_root": str(mod_root), "files": len(files),
               "field_warnings": field["warnings"], "summon": {
-                  "spec": {k: v for k, v in spec.items() if k != "staging_curves"},
+                  "spec": {k: v for k, v in spec.items()
+                          if k not in ("staging_curves", "short_staging_curves")},
                   "artifacts": summon["artifacts"], "revert_script": summon["revert_script"]},
               "audio": audio}
     print(f"\n{len(files)} file(s) staged under {mod_root}")
@@ -370,7 +489,7 @@ def main() -> int:
     rc = 0
     if args.check:
         print("\n--- check ---")
-        ck = check_all(mod_root, summon, audio)
+        ck = check_all(mod_root, summon, audio, out)
         rc = ck.report()
         report["checks"] = ck.rows
     (out / "BENCH-REPORT.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

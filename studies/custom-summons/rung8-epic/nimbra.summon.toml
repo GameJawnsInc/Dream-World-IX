@@ -1,5 +1,12 @@
 # RUNG 8 -- the NIMBRA [[summon]] block, staging = "curves" (STORYBOARD section 6.4).
 #
+# 2026-07-24 THE PAIR: the BENCH block (bench/rung8.field.toml) is now the SHORT/FULL pair -- the full
+# (ef080, nimbra_full.seq, FULL-STORYBOARD) as primary/vfx1, THIS cast as `short_sequence`/vfx2 at ef091,
+# plus the roll trio (roll_mp/roll_command/roll_ability -> the AbilityFeatures Command-trigger that
+# writes cmd.info.short_summon with stock's own 230/170-of-256 odds). THIS FILE REMAINS THE SHORT'S
+# STANDALONE SPEC: its K4 tables below are the source of truth the bench's [summon.short_staging]
+# carries verbatim, and it is still directly consumable on its own (a single-cast deploy of the WHISPER).
+#
 # THIS FILE IS THE BLOCK, NOT THE BENCH. Paste this whole `[[summon]]` (and its `[summon.staging]`
 # sub-tables) into `rung8.field.toml` -- the wiring lane owns that file, its `[[playable]]` rows, and the
 # "Nimbra" ability whose `vfx1`/`vfx2` point at private_ef 91. This block deliberately authors NO ability:

@@ -1892,7 +1892,7 @@ def _rebase_summon_paths(block: dict, base_dir) -> dict:
         return str(p if p.is_absolute() else base / p)
 
     out = dict(block)
-    for key in ("model", "sequence"):
+    for key in ("model", "sequence", "short_sequence"):
         if out.get(key):
             out[key] = one(out[key])
     for key in ("particles", "textures"):

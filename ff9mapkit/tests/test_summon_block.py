@@ -246,5 +246,74 @@ def test_emit_routes_to_the_right_lane_emitter(monkeypatch):
     assert out2 == {"ok": "overlay"}
 
 
+# ------------------------------------------------------------------ the SHORT/FULL pair (K6)
+_SHORT_STAGING = {
+    "anchor": "target_average", "start": 0, "end": 10,
+    "move": [{"duration": 10, "from": [0, 0, 0], "to": [0, 0, 0]}],
+    "turn": [{"duration": 10, "from": [0, 180, 180], "to": [0, 180, 180]}],
+}
+
+
+def test_short_sequence_with_roll_wiring_validates_clean():
+    assert summon.validate_blocks([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "b.seq",
+        "roll_mp": 24, "roll_command": 46, "roll_ability": 195, "short_staging": _SHORT_STAGING,
+    }]) == []
+
+
+def test_short_sequence_without_roll_wiring_surfaces_in_validate():
+    assert _has(summon.validate_blocks([{"donor": 227, "model": "m.fbx", "short_sequence": "b.seq"}]),
+                "ALL THREE")
+
+
+def test_short_sequence_without_roll_ability_surfaces_in_validate():
+    """review 2026-07-24 item 1: roll_ability joined the required trio -- a command can host several
+    abilities, so CommandId alone cannot discriminate which one is casting."""
+    assert _has(summon.validate_blocks([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "b.seq",
+        "roll_mp": 24, "roll_command": 46,
+    }]), "roll_ability")
+
+
+def test_short_sequence_without_short_staging_surfaces_in_validate():
+    assert _has(summon.validate_blocks([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "b.seq",
+        "roll_mp": 24, "roll_command": 46, "roll_ability": 195,
+    }]), "short_staging")
+
+
+def test_short_sequence_path_existence_checked_with_base_dir(tmp_path):
+    (tmp_path / "m.fbx").write_text("x")
+    (tmp_path / "a.seq").write_text("x")
+    problems = summon.validate_blocks([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "missing.seq",
+        "roll_mp": 1, "roll_command": 1, "roll_ability": 1, "short_staging": _SHORT_STAGING,
+    }], base_dir=tmp_path)
+    assert _has(problems, "short_sequence") and _has(problems, "file not found")
+
+
+def test_lint_notes_emit_the_vfx2_reminder_when_short_sequence_is_set():
+    notes = summon.lint_notes([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "b.seq",
+        "roll_mp": 24, "roll_command": 46, "roll_ability": 195, "short_private_ef": 263,
+    }])
+    assert any("vfx2" in n and "short_private_ef=263" in n and "MUST NOT edit" in n for n in notes)
+    assert any("roll_ability" in n for n in notes)
+
+
+def test_lint_notes_omitted_short_private_ef_shows_auto():
+    notes = summon.lint_notes([{
+        "donor": 227, "model": "m.fbx", "sequence": "a.seq", "short_sequence": "b.seq",
+        "roll_mp": 24, "roll_command": 46,
+    }])
+    vfx2 = next(n for n in notes if "vfx2" in n)
+    assert "<auto>" in vfx2
+
+
+def test_lint_notes_no_short_reminder_without_short_sequence():
+    notes = summon.lint_notes([{"donor": 227, "model": "m.fbx", "private_ef": 84}])
+    assert not any("vfx2" in n for n in notes)
+
+
 def _has(problems, needle) -> bool:
     return any(needle in p for p in problems)

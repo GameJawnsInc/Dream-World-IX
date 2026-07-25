@@ -46,6 +46,7 @@ import difflib
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import time
@@ -220,6 +221,15 @@ def _as_int(v, who: str) -> int:
         raise SummonDeployError(f"{who} must be an integer, got {v!r}")
 
 
+def _same_path(a: str, b: str) -> bool:
+    """Lexical path equality, robust to `./b.seq` vs `b.seq` / backslash-vs-forward-slash / Windows case
+    (review FOLD-B: raw string equality let a trivially-different spelling evade the short==sequence
+    refusal). `normalize_spec` has no `base_dir` -- both sides are relative to whatever the TOML author
+    wrote them relative to (the SAME field, in practice), so plain `normpath` is the right amount of
+    normalization here; a true on-disk resolve happens later in `content.summon._path_problems`."""
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
 def derive_summon_name(new_id: int, group: str = DEFAULT_GROUP, form: str = DEFAULT_FORM) -> str:
     """The default minted GEO name for a summon model: ``GEO_<GROUP>_<FORM>_M<offset:03d>`` -- the same
     band-offset token scheme :func:`ff9mapkit.models.mint.derive_mint_name` uses, so id 6201 group MON
@@ -327,6 +337,128 @@ def normalize_spec(block: dict) -> dict:
             "single spaces and AssetManager resolves the name relative to the ef folder itself "
             "(SFXData.cs:253-254)")
 
+    # ------------------------------------------------------------------- the SHORT/FULL pair (K6)
+    short_sequence = block.get("short_sequence")
+    if short_sequence is not None:
+        short_sequence = str(short_sequence)
+        if sequence is not None and _same_path(sequence, short_sequence):
+            raise SummonDeployError(
+                "[[summon]] short_sequence is the same file as `sequence` (after path normalization) -- a "
+                "short/full pair needs two DIFFERENT casts (the engine plays Vfx2 verbatim when "
+                "cmd.info.short_summon != 0, btl_vfx.cs:99); pointing both vfx slots at one .seq is a "
+                "pointless pair.")
+
+    short_private_ef = block.get("short_private_ef")
+    if short_private_ef is not None:
+        short_private_ef = _as_int(short_private_ef, "[[summon]] short_private_ef")
+        _check_private_ef_static(short_private_ef, donor)
+        if private_ef is not None and short_private_ef == private_ef:
+            raise SummonDeployError(
+                f"[[summon]] short_private_ef {short_private_ef} equals private_ef {private_ef} -- the "
+                "short cast needs its OWN private host id (a distinct ef### folder); a FileList.txt in the "
+                "same folder as the full cast's .seq would collide with it.")
+
+    roll_mp, roll_command, roll_ability = (block.get("roll_mp"), block.get("roll_command"),
+                                           block.get("roll_ability"))
+    # `short_staging` -- THE SHORT CAST'S OWN TIMELINE (review 2026-07-24 addendum). It must NOT default to
+    # or copy the primary's `staging`/`staging_curves`: the two casts have independently-authored lengths
+    # (the bench case: primary ~23.0s/260 frames, short ~9.3s/110 frames), so a short folder wearing the
+    # full's Movement/Rotation/Scaling envelope would render at the wrong pace/position for its own
+    # shorter window. Grammar mirrors `staging`/`[summon.staging]` exactly, minus the "donor" mode (there
+    # is no donor splice for a short cast at all -- it is always fully authored, K1's self-load shape).
+    short_staging_curves = _norm_short_staging(block.get("short_staging"))
+    if short_staging_curves is None and block.get("short_staging_curves") is not None:
+        # idempotent re-normalize (mirrors the `staging`/`staging_curves` split below)
+        short_staging_curves = dict(block["short_staging_curves"])
+    # `short_manifest` -- the SHORT folder's OWN bare .sfxmodel file name (review 2026-07-24, item 2): the
+    # two ef folders are otherwise both named from `manifest`, so a pair block could never give them
+    # distinct manifest file names (the bench needs exactly this: the deployed short folder keeps
+    # `nimbra_manifest.sfxmodel` while the full's own spec renames to `nimbra_full_manifest.sfxmodel`).
+    # Defaults to `manifest` (today's behaviour) when short_sequence is set and short_manifest is omitted.
+    short_manifest = block.get("short_manifest")
+    if short_manifest is not None:
+        short_manifest = str(short_manifest)
+        if "/" in short_manifest or "\\" in short_manifest:
+            raise SummonDeployError(
+                f"[[summon]] short_manifest {short_manifest!r} must be a BARE file name -- FileList.txt's "
+                "grammar splits on single spaces and AssetManager resolves the name relative to the ef "
+                "folder itself (SFXData.cs:253-254)")
+
+    if short_sequence is not None:
+        if roll_mp is None or roll_command is None or roll_ability is None:
+            raise SummonDeployError(
+                "[[summon]] short_sequence needs `roll_mp` (the hosting ability's own MP cost), "
+                "`roll_command` (its BattleCommandId, name or 0-47 id), AND `roll_ability` (its "
+                "BattleAbilityId, an int) -- ALL THREE. The short/full pick is a per-command-AND-"
+                "per-ability AbilityFeatures roll standing in for DecideSummonType, which never reaches a "
+                "custom command (btl_cmd.cs:1025-1028 gates on cmd_no in {SummonGarnet, SummonEiko, "
+                "Phantom}). The deploy engine refuses to guess the wiring rather than silently never "
+                "rolling.")
+        roll_mp = _as_int(roll_mp, "[[summon]] roll_mp")
+        if roll_mp < 0:
+            raise SummonDeployError(f"[[summon]] roll_mp {roll_mp} must be >= 0")
+        from ..battle import characterdelta as _cd
+        try:
+            roll_command = _cd._resolve_command(roll_command, ctx="[[summon]] roll_command")
+        except _cd.CharacterDeltaError as e:
+            raise SummonDeployError(str(e)) from e
+        if roll_command == 0:
+            raise SummonDeployError(
+                "[[summon]] roll_command 0 ('None') is not a real command -- the roll's Condition gates on "
+                "CommandId == roll_command, and no cast is ever dispatched under command 0")
+        # THE ABILITY-DISCRIMINATION LAW (review 2026-07-24, item 1): a minted command can host SEVERAL
+        # abilities (the rung-8 bench's command 46 hosts four). CommandId alone does not discriminate --
+        # every ability sharing that command would roll IsShortSummon, flipping the OTHERS onto their own
+        # Vfx2 (btl_vfx.cs:99) and taking a 2/3 damage cut wherever their own formula reads IsShortSummon
+        # (e.g. BattleCalculator.cs:515). `AbilityId` is bound right alongside `CommandId`
+        # (NCalcUtility.cs:631-632, InitializeExpressionCommand) in the SAME Condition context
+        # TriggerOnCommand evaluates (CharacterAbilityGems.cs:774) -- int only: `AbilityCastingName` is
+        # explicitly flagged "Language dependent" in the engine's own source comment (NCalcUtility.cs:634),
+        # so a name-based `roll_ability` would silently break on a non-English install.
+        if isinstance(roll_ability, bool):
+            raise SummonDeployError(f"[[summon]] roll_ability must be an int, got {roll_ability!r}")
+        try:
+            roll_ability = _as_int(roll_ability, "[[summon]] roll_ability")
+        except SummonDeployError:
+            raise SummonDeployError(
+                f"[[summon]] roll_ability must be an int (the hosting ability's BattleAbilityId) -- an "
+                f"ability NAME is refused: AbilityCastingName is explicitly flagged 'Language dependent' "
+                f"in the engine's own source (NCalcUtility.cs:634), got {roll_ability!r}")
+        from ..battle import abilityfeatures as _af
+        if not (0 <= roll_ability <= _af._AA_MAX):
+            raise SummonDeployError(
+                f"[[summon]] roll_ability {roll_ability} out of range (0-{_af._AA_MAX})")
+        if roll_ability == 0:
+            raise SummonDeployError(
+                "[[summon]] roll_ability 0 (Void) is not a real ability -- the roll's Condition gates on "
+                "AbilityId == roll_ability, and Void never actually casts")
+        if short_staging_curves is None:
+            raise SummonDeployError(
+                "[[summon]] short_sequence needs a [summon.short_staging] curve table -- the short cast "
+                "hosts its OWN FBX creature self-load (K1's LoadSFX-on-itself shape) with its OWN timeline; "
+                "an omitted Movement/Rotation curve pins the model at the world origin / zero rotation for "
+                "the WHOLE short cast (THE MOVEMENT TRAP -- the same law the primary's staging=\"curves\" "
+                "mode already enforces). It must NOT silently default to the primary's own `staging` -- the "
+                "two casts have independent lengths. A single hold-still piece (from == to) is a legal, "
+                "minimal short_staging.")
+        _validate_staging(short_staging_curves, clips)
+        if short_manifest is None:
+            short_manifest = manifest                  # default: the SAME bare name as the primary's
+    else:
+        if roll_mp is not None or roll_command is not None or roll_ability is not None:
+            raise SummonDeployError(
+                "[[summon]] roll_mp/roll_command/roll_ability are only meaningful together with "
+                "`short_sequence` (there is nothing to roll between without a second cast) -- add "
+                "short_sequence, or remove them.")
+        if short_staging_curves is not None:
+            raise SummonDeployError(
+                "[[summon]] short_staging is only meaningful together with `short_sequence` -- remove it, "
+                "or add short_sequence.")
+        if short_manifest is not None:
+            raise SummonDeployError(
+                "[[summon]] short_manifest is only meaningful together with `short_sequence` -- remove it, "
+                "or add short_sequence.")
+
     if staging == "curves" and staging_curves is None:
         raise SummonDeployError(
             '[[summon]] staging = "curves" needs an authored [summon.staging] table (anchor/start/end + '
@@ -346,6 +478,9 @@ def normalize_spec(block: dict) -> dict:
         "hide_meshes": hide_meshes,
         "clips": clips, "staging": staging, "staging_curves": staging_curves,
         "sequence": sequence, "particles": particles, "manifest": manifest,
+        "short_sequence": short_sequence, "short_private_ef": short_private_ef,
+        "roll_mp": roll_mp, "roll_command": roll_command, "roll_ability": roll_ability,
+        "short_staging_curves": short_staging_curves, "short_manifest": short_manifest,
     }
 
 
@@ -368,6 +503,21 @@ def _norm_staging(raw) -> tuple:
         raise SummonDeployError(
             f"[[summon]] staging must be 'donor', 'curves', or a [summon.staging] curve table, got {raw!r}")
     return mode, None
+
+
+def _norm_short_staging(raw) -> "dict | None":
+    """``short_staging`` -> the curve table, or ``None``. Unlike :func:`_norm_staging`, there is no
+    "donor" mode here at all -- the short cast never splices a donor's own staging (it is always fully
+    authored, K1's self-load shape), so a bare string is always a mistake worth refusing by name rather
+    than silently coercing."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return dict(raw)
+    raise SummonDeployError(
+        f"[[summon]] short_staging must be a [summon.short_staging] curve table (there is no 'donor' mode "
+        f"for the short cast -- it is always fully authored, independent of the primary's own staging), "
+        f"got {raw!r}")
 
 
 # --------------------------------------------------------------------------- staging = "curves" (K4)
@@ -588,7 +738,7 @@ def _validate_staging(st: dict, clips) -> None:
             raise SummonDeployError(f"{where} repeat must be >= 1")
 
 
-def staging_curves_json(spec: dict) -> dict:
+def staging_curves_json(spec: dict, staging_curves: "dict | None" = None) -> dict:
     """The authored ``[summon.staging]`` table -> the ``.sfxmodel`` FBX entry's
     ``Start``/``End``/``Movement``/``Rotation``/``Scaling``/``Animations`` keys (K4).
 
@@ -603,8 +753,12 @@ def staging_curves_json(spec: dict) -> dict:
     and pins that transform channel at its constructor seed for the whole cast (see
     :data:`_REQUIRED_CURVES`). ``move`` and ``turn`` are therefore REQUIRED by :func:`_validate_staging`
     (their seed is ``Vector3.zero`` = the world origin / a wrong facing); ``scale`` is optional because
-    its ``ParametricMovement(true)`` seed is ``Vector3.one``, a benign identity scale."""
-    st = spec["staging_curves"]
+    its ``ParametricMovement(true)`` seed is ``Vector3.one``, a benign identity scale.
+
+    ``staging_curves`` -- an explicit override (the SHORT cast's OWN ``short_staging_curves`` table,
+    review 2026-07-24 addendum: the short/full pair each renders from its OWN curve table, never a shared
+    one). Defaults to ``spec["staging_curves"]`` (the primary) for every pre-existing caller."""
+    st = staging_curves if staging_curves is not None else spec["staging_curves"]
     anchor = str(st.get("anchor", "target_average")).lower()
     prefix = STAGING_ANCHORS[anchor]
     out: dict = {"Start": str(_as_int(st.get("start", 0), "start")),
@@ -867,6 +1021,19 @@ def alloc_private_ef(game, mod_root, donor: int) -> int:
     raise SummonDeployError("no free private effect id -- every stock-absent slot is occupied")
 
 
+def _next_absent_ef(private_ef: int) -> int:
+    """The next stock-absent id AFTER ``private_ef`` in ascending order -- ``short_private_ef``'s default
+    ("primary private_ef + 1" read as +1 POSITION in :data:`ABSENT_EF_IDS`'s ordered sequence, not literal
+    arithmetic -- see the SHORT/FULL ROLL module comment above :func:`_stage_short_seq`)."""
+    higher = sorted(a for a in ABSENT_EF_IDS if a > private_ef)
+    if not higher:
+        raise SummonDeployError(
+            f"[[summon]] private_ef {private_ef} is the LAST stock-absent id in ascending order -- there "
+            "is no default short_private_ef after it; set short_private_ef explicitly to one of "
+            f"{sorted(ABSENT_EF_IDS)}")
+    return higher[0]
+
+
 def alloc_mint_id(mod_root) -> int:
     """The next free mint GEO id >= 6000 not already present as a ``Models/*/{id}/`` folder in
     ``mod_root`` (a deterministic default when the block omits ``id``)."""
@@ -1065,8 +1232,9 @@ def _stage_host_seq(spec: dict, mod_root: Path, game, ledger: _Ledger, *, overla
                 "silently drop pieces of:\n  " + "\n  ".join(problems))
         seq_dest = _sfx_dir(mod_root, spec["private_ef"]) / HOST_SEQ_NAME
         seq_sha = ledger.write_bytes(seq_dest, src.read_bytes())
+        authored_text = src.read_text(encoding="utf-8-sig")
         return {"seq_dest": str(seq_dest), "seq_sha256": seq_sha, "seq_diff": "",
-                "seq_source": str(src), "seq_authored": True}
+                "seq_source": str(src), "seq_authored": True, "text": authored_text}
     donor_text = fetch_donor_seq(game, spec["donor"])
     out_text = splice_host_seq(donor_text, spec.get("hide_meshes"), private_ef=spec["private_ef"],
                                overlay=overlay)
@@ -1076,12 +1244,287 @@ def _stage_host_seq(spec: dict, mod_root: Path, game, ledger: _Ledger, *, overla
         donor_text.splitlines(keepends=True), out_text.splitlines(keepends=True),
         fromfile=f"stock/ef{spec['donor']:03d}/{HOST_SEQ_NAME}",
         tofile=f"ef{spec['private_ef']:03d}/{HOST_SEQ_NAME}"))
-    return {"seq_dest": str(seq_dest), "seq_sha256": seq_sha, "seq_diff": diff}
+    return {"seq_dest": str(seq_dest), "seq_sha256": seq_sha, "seq_diff": diff, "text": out_text}
+
+
+# --------------------------------------------------------------------------- the SHORT/FULL pair (K6)
+"""
+THE SHORT/FULL ROLL -- how `short_sequence` picks between two casts.
+
+The engine's own summon roll (``DecideSummonType``, ``btl_cmd.cs:1583-1615``) sets ``cmd.info.short_summon``,
+and ``btl_vfx.SelectCommandVfx``/``GetPlayerCommandSFX`` (``btl_vfx.cs:41-103``, the ``short_summon`` branch
+at ``:99``) plays ``cmd.aa.Vfx2`` whenever ``cmd.info.short_summon != 0``, else ``VfxIndex`` (vfx1) -- so
+vfx1 = FULL, vfx2 = SHORT. But ``DecideSummonType`` only RUNS for ``cmd.cmd_no`` in ``{SummonGarnet,
+SummonEiko, Phantom}`` (``btl_cmd.cs:1025-1028``, inside ``CheckCommandCondition``'s ``switch``) -- a custom
+command never reaches it, so a custom short/full pair needs its own roll. Memoria's ``AbilityFeatures``
+NCalc system already has the write it needs: a ``>SA`` ``Command``-type feature may set
+``command.IsShortSummon`` (``CharacterAbilityGems.cs:821``), and stock ships exactly one precedent -- ``>SA
+59 Boost``: ``Command EvenImmobilized`` / ``[code=Condition] IsTheCaster [/code]`` / ``[code=IsShortSummon]
+false [/code]`` (``AbilityFeatures.txt:842-845``) -- Boost forces every summon its wearer casts to the FULL
+form.
+
+QUESTION 3a -- is the caster's MP already deducted by the time our formula reads it? YES.
+    The stock roll runs inside ``CheckCommandCondition`` (called from ``CMD_MODE_INSPECTION``,
+    ``btl_cmd.cs:564``), comparing PRE-deduction MP: ``cmd.regist.cur.mp > cmd.aa.MP * 2``
+    (``btl_cmd.cs:1605``). The ACTUAL deduction (``ConsumeMp``, ``btl_cmd.cs:1641-1652``) happens inside
+    ``CheckMpCondition`` -- the THIRD operand of the SAME ``||`` chain at ``btl_cmd.cs:564``
+    (``!CheckCommandCondition(...) || !CheckTargetCondition(...) || !CheckMpCondition(...)``), so it runs
+    AFTER ``CheckCommandCondition`` within that one ``CMD_MODE_INSPECTION`` tick.
+    Our own write happens in ``SupportingAbilityFeature.TriggerOnCommand``
+    (``CharacterAbilityGems.cs:755``), called from the loop at ``btl_cmd.cs:594-595`` -- which only runs
+    inside ``case command_mode_index.CMD_MODE_SELECT_VFX`` (``btl_cmd.cs:579-617``), a mode
+    ``CMD_MODE_INSPECTION`` merely SETS and ``break``s out of (``btl_cmd.cs:577-578``) -- so
+    ``CMD_MODE_SELECT_VFX`` runs on a LATER ``CommandEngine`` tick, after ``ConsumeMp`` has already run.
+    NCalc's ``MP`` parameter reads the LIVE current MP (``NCalcUtility.cs:411``,
+    ``expr.Parameters[prefix + "MP"] = unit.CurrentMp``) -- so by the time our formula evaluates, MP is
+    POST-deduction: ``MP == pre_deduction_mp - mp_cost``.
+    COMPENSATION: stock compares ``pre_deduction_mp > 2*mp_cost``. Substituting
+    ``pre_deduction_mp = MP + mp_cost`` gives ``MP + mp_cost > 2*mp_cost  <=>  MP > mp_cost`` -- so the
+    formula below thresholds on ``mp_cost`` (``roll_mp``), NOT ``2*mp_cost``. Using ``2*mp_cost`` against an
+    already-deducted MP would silently demand ``pre_deduction_mp > 3*mp_cost``, biasing every cast whose
+    true cost sits in ``(2x, 3x]`` toward the LOW branch (170/255) that stock would have rolled HIGH (230/255).
+    CAVEAT (review FOLD-F): under dev cheats the deduction never runs at all -- ``ConsumeMp``'s guard is
+    ``if (!FF9StateSystem.Battle.isDebug && (btl.bi.player == 0 || !FF9StateSystem.Settings.IsHpMpFull))``
+    (``btl_cmd.cs:1651-1652``) -- so a debug/``IsHpMpFull`` session reads PRE-deduction MP through our
+    POST-deduction-calibrated threshold, biasing every roll toward the HIGH branch (more shorts than a
+    clean save would produce). This is a cheat-session artifact, not a bug in the formula.
+
+QUESTION 3b -- if the caster ALSO has stock SA 59 Boost equipped, who wins? BOOST, BY CONSTRUCTION.
+    ``TriggerOnCommand`` writes are a plain overwrite -- ``command.IsShortSummon =
+    EvaluateNCalcCondition(e.Evaluate(), command.IsShortSummon)`` (``CharacterAbilityGems.cs:821``) -- so
+    whichever SA feature runs LAST for the caster wins; there is no "leave untouched" expressible from our
+    side (the current-value fallback only matters if OUR OWN formula fails to evaluate to a bool, which
+    would be a bug, not a coexistence strategy). But the ORDER is fixed, not the HashSet-iteration order of
+    equipped abilities: ``ff9abil.GetEnabledSA(BTL_DATA btl)`` (``ff9abil.cs:70-84``, the exact overload
+    ``btl_cmd.cs:594`` calls) returns ``[Global, ...saMonster, ...saExtended (equipped SAs, Boost among
+    them), GlobalLast]`` -- Global is ALWAYS first, GlobalLast ALWAYS last, regardless of what is equipped.
+    Boost lives in ``saExtended`` (an ordinary equipped SA), so registering our own roll under ``>SA
+    Global`` guarantees Boost's unconditional ``false`` (its own Condition is just ``IsTheCaster``, no
+    CommandId check) runs STRICTLY AFTER ours and overwrites it -- Boost's "always full summon" promise is
+    preserved for OUR command too, exactly as it already is for the stock ones. (The alternative,
+    registering under ``GlobalLast``, would run AFTER Boost and silently break that promise -- refused by
+    construction: this module only ever emits ``>SA Global``.)
+
+THE HYBRID-LANE SHORT MECHANISM (MUST-FIX 1, review 2026-07-24). ``[SfxHybrid] EffectId`` always names the
+PRIMARY's ``donor`` -- the s58 drive poses the primary's model on THAT donor's live skeleton, full stop.
+A ``short_sequence`` is a fully-authored cast under its OWN ``short_private_ef``, wholly disconnected from
+the hybrid drive (a donor is never read to build it, per :func:`_stage_short_seq`'s own doc). So regardless
+of whether the BLOCK's ``lane`` is ``"hybrid"`` or ``"overlay"``, the short folder is ALWAYS staged the
+OVERLAY/K1 way -- a self-contained ``FileList.txt`` + ``.sfxmodel`` manifest + verbatim particle copies
+beside its own ``PlayerSequence.seq`` (:func:`_stage_short_overlay_folder`) -- because that manifest's own
+``LoadSFX: SFX=<short_private_ef>`` self-load (K1's shape: the ``.seq`` loads ITSELF) is the only mechanism
+that can render an FBX creature with no live donor skeleton driving it. A ``[[summon]]`` block with
+``lane = "hybrid"`` therefore ends up running BOTH mechanisms side by side: the s58 drive for its own
+(full) cast, and a private JSON-mesh ``SFXData`` instance for the short -- exactly the rung-7 overlay route,
+just reached from a hybrid-lane block.
+
+THE SHORT CAST'S OWN TIMELINE (addendum, review 2026-07-24). A short cast is NOT the primary re-timed --
+each has an independently-authored length (the bench: primary ~23.0s/260 frames, short ~9.3s/110 frames).
+``short_staging`` (a ``[summon.short_staging]`` curve table, REQUIRED whenever ``short_sequence`` is set)
+is therefore a SEPARATE table from the primary's ``staging``/``[summon.staging]`` -- never copied, never
+defaulted from it. Only the ASSETS are shared verbatim: the model (`spec["name"]`, referenced by both
+manifests) and any authored ``.anim`` clips (one shared ``Animations/{id}/`` location, keyed by the model
+id, which is identical for both casts). Particles ARE duplicated into the short's own folder (self-
+containment: the short folder must not depend on the primary folder still existing) via
+:func:`_stage_particles`'s new ``ef_id`` parameter.
+"""
+
+#: the SHORT/FULL roll's Command-feature body template (`{cond}` = the Condition formula, `{formula}` =
+#: the IsShortSummon formula) -- see the module comment above for 3a (the `roll_mp` threshold) and 3b (why
+#: `Global`, not `GlobalLast`). `EvenImmobilized` mirrors stock SA 59 Boost's own choice (DecideSummonType
+#: itself has no immobilized guard either).
+_SHORT_ROLL_BODY = "Command EvenImmobilized\n[code=Condition] {cond} [/code]\n[code=IsShortSummon] {formula} [/code]"
+
+
+def short_summon_feature_block(spec: dict) -> "dict | None":
+    """The ``[[ability_feature]]``-shaped dict (``battle/abilityfeatures.py``'s own schema) that emits the
+    short/full roll as DATA. ``None`` when the block has no ``short_sequence`` (nothing to roll between).
+    Registered under the ``Global`` special SA id (3b) with `cumulate=True` (`+`) so multiple ``[[summon]]``
+    blocks -- each gated on their OWN `roll_command`/`roll_ability` pair -- coexist in one file without
+    wiping each other (``ff9abil.cs:538``: a header WITHOUT `+` replaces the whole prior entry for that id).
+
+    THE ABILITY-DISCRIMINATION LAW (review 2026-07-24, item 1): the Condition gates on BOTH `CommandId`
+    AND `AbilityId` -- a minted command can host SEVERAL abilities (the rung-8 bench's command 46 hosts
+    four: Voltflare, Soul Leech, Bahamut Cinema, Nimbra), and `CommandId` alone cannot tell them apart.
+    Gating on `CommandId` only would roll `IsShortSummon` for every one of them, flipping the OTHER
+    abilities' Vfx2 too (btl_vfx.cs:99) and biasing whatever else reads `IsShortSummon` in their own
+    formulas (e.g. SA 60 Odin's Sword's HPDamage -- ``AbilityFeatures.txt:852`` -- takes a 2/3 cut when
+    it's true). Both parameters are bound in the SAME Condition context TriggerOnCommand evaluates
+    (`InitializeExpressionCommand`, `NCalcUtility.cs:631-632`, called from `CharacterAbilityGems.cs:774`)."""
+    if not spec.get("short_sequence"):
+        return None
+    mp_cost, cmd_id, abil_id = spec["roll_mp"], spec["roll_command"], spec["roll_ability"]
+    cond = f"IsTheCaster && CommandId == {cmd_id} && AbilityId == {abil_id}"
+    formula = f"GetRandom() < (MP > {mp_cost} ? 230 : 170)"
+    return {
+        "kind": "SA", "ability": "Global", "cumulate": True,
+        "features": _SHORT_ROLL_BODY.format(cond=cond, formula=formula),
+        "comment": f"ff9mapkit summon short/full roll -- command {cmd_id} ability {abil_id}",
+    }
+
+
+def short_summon_feature_lines(spec: dict) -> list:
+    """:func:`short_summon_feature_block` rendered through ``battle.abilityfeatures.build_lines`` (reuse,
+    never re-derive the header/`[code=]` grammar) -- just THIS block's own lines (the file preamble +
+    leading blank line ``build_lines`` prepends are stripped). Empty when there is nothing to roll."""
+    blk = short_summon_feature_block(spec)
+    if blk is None:
+        return []
+    from ..battle import abilityfeatures as _af
+    try:
+        lines, _warnings = _af.build_lines([blk], strict=False)
+    except _af.AbilityFeatureError as e:
+        raise SummonDeployError(f"[[summon]] short/full roll feature failed to build: {e}") from e
+    return lines[2:]                      # drop [_FILE_HEADER, ""]; keep this block's own trailing ""
+
+
+def render_short_summon_feature(spec: dict) -> str:
+    """The exact text :func:`_stage_short_summon_feature` merges into ``AbilityFeatures.txt`` -- for the
+    printed manifest / offline inspection. ``""`` when there is nothing to roll."""
+    lines = short_summon_feature_lines(spec)
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _preflight_short_sequence(spec: dict) -> None:
+    """Every short-lane check that is cheap to run BEFORE the first byte of a deploy is written -- mirrors
+    :func:`_preflight_inputs`'s early-check law for the primary. No-op when there is no `short_sequence`.
+
+      * the K5 silent-skip lint on `short_sequence` itself;
+      * THE ANIMATION-PLAYLIST LAW against the short's OWN ``short_staging_curves`` window (review
+        addendum: this must NEVER be checked against the primary's ``staging_curves`` -- the two windows
+        are independent)."""
+    short = spec.get("short_sequence")
+    if not short:
+        return
+    src = Path(short)
+    if not src.is_file():
+        raise SummonDeployError(f"[[summon]] short_sequence file not found: {src}")
+    text = src.read_text(encoding="utf-8-sig")
+    problems = _seqlint().lint_seq(
+        text, private_ef=spec["short_private_ef"],
+        particles=[Path(p).name for p in (spec.get("particles") or [])], path=str(src))
+    if problems:
+        raise SummonDeployError(
+            f"the short_sequence {src} does not lint -- refusing to deploy a cast the engine would "
+            "silently drop pieces of:\n  " + "\n  ".join(problems))
+    _check_playlist_coverage(spec, spec.get("short_staging_curves"), label="[[summon.short_staging.play]]")
+
+
+def _stage_short_seq(spec: dict, mod_root: Path, ledger: _Ledger, *, full_text: str) -> dict:
+    """The short cast's host ``ef{short_private_ef:D3}/PlayerSequence.seq`` -- ALWAYS an authored, verbatim
+    BYTE copy (review FOLD-A: the earlier draft re-encoded the decoded text as UTF-8-LF-only, silently
+    corrupting a CRLF-authored file; the decoded ``text`` below is used ONLY for lint/tick analysis, never
+    for the write -- exactly :func:`_stage_host_seq`'s own authored branch). There is no donor-splice route
+    for a short: the short's whole POINT is a hand-timed abbreviation, never derived from a stock file.
+    Refuses a short LONGER than the full cast (a "short" that outruns the full one is backwards) by
+    comparing each cast's :func:`seqlint.analyze_seq` fixed-``Wait`` tick floor -- the same measure the
+    phase-lock/figure-visibility laws are built on."""
+    src = Path(spec["short_sequence"])
+    raw = src.read_bytes()
+    text = raw.decode("utf-8-sig")                   # decode ONLY for lint/tick analysis, see above
+    seq = _seqlint()
+    problems = seq.lint_seq(
+        text, private_ef=spec["short_private_ef"],
+        particles=[Path(p).name for p in (spec.get("particles") or [])], path=str(src))
+    if problems:                          # safety net (already run in _preflight_short_sequence)
+        raise SummonDeployError(
+            f"the short_sequence {src} does not lint -- refusing to deploy a cast the engine would "
+            "silently drop pieces of:\n  " + "\n  ".join(problems))
+    full_ticks = seq.analyze_seq(full_text).total_ticks
+    short_ticks = seq.analyze_seq(text).total_ticks
+    if short_ticks > full_ticks:
+        raise SummonDeployError(
+            f"[[summon]] short_sequence ({short_ticks} fixed-Wait ticks) is LONGER than the full cast "
+            f"({full_ticks} ticks) -- a 'short' cinematic that outruns the full one is backwards. Trim "
+            "short_sequence, or check `sequence` (the census puts real shorts in a ~3.8-12.5s band).")
+    seq_dest = _sfx_dir(mod_root, spec["short_private_ef"]) / HOST_SEQ_NAME
+    seq_sha = ledger.write_bytes(seq_dest, raw)
+    return {"seq_dest": str(seq_dest), "seq_sha256": seq_sha, "seq_source": str(src),
+            "full_ticks": full_ticks, "short_ticks": short_ticks}
+
+
+def _stage_short_overlay_folder(spec: dict, mod_root: Path, ledger: _Ledger) -> dict:
+    """MUST-FIX 1 (review 2026-07-24): complete the short private ef folder to the SAME self-contained
+    shape the primary's overlay staging gets -- ``FileList.txt`` + a ``.sfxmodel`` manifest + verbatim
+    particle copies -- so the short cast's own ``LoadSFX: SFX=<short_private_ef>`` self-load (K1's shape,
+    the ONLY route that can render an FBX creature with no live donor skeleton -- see THE HYBRID-LANE
+    SHORT MECHANISM above :func:`short_summon_feature_block`) actually finds a Model line. Runs
+    regardless of the block's own ``lane`` (hybrid or overlay) -- the short is always this shape.
+
+    The manifest is built from ``short_staging_curves`` (never ``staging_curves`` -- the addendum: each
+    cast renders from its OWN timeline). ``clip_names`` is passed empty because ``short_staging_curves``
+    is REQUIRED whenever this runs (:func:`normalize_spec`), so :func:`_sfxmodel_manifest`'s curves branch
+    is always taken -- the world-origin-stub fallback that reads ``clip_names`` is unreachable here; any
+    shared clip a ``[[summon.short_staging.play]]`` entry names is still resolved via
+    ``Animations/{id}/`` -- the SAME shared, model-id-keyed location the primary's own playlist reads (no
+    duplication: :func:`_stage_particles`/authored-clip staging already wrote it once).
+
+    ``manifest_name`` -- ``spec["short_manifest"]`` (review 2026-07-24, item 2), the short folder's OWN
+    bare file name -- defaults to ``spec["manifest"]`` in :func:`normalize_spec`, but a pair block may
+    give the two folders DISTINCT names (the bench: the short keeps the deployed ``nimbra_manifest
+    .sfxmodel``, the full renames to ``nimbra_full_manifest.sfxmodel``)."""
+    particles = _stage_particles(spec, mod_root, ledger, ef_id=spec["short_private_ef"])
+    return _write_manifest(spec, mod_root, ledger, [], particles=particles,
+                           ef_id=spec["short_private_ef"], staging_curves=spec["short_staging_curves"],
+                           manifest_name=spec["short_manifest"])
+
+
+def _decode_cp1252_strict(data: bytes, path) -> str:
+    """cp1252 STRICT decode, failing LOUD (review FOLD-C). windows-1252 leaves 5 byte values undefined
+    (0x81, 0x8D, 0x8F, 0x90, 0x9D) and Python's codec raises on them; the file's charset is invariant
+    (``AbilityFeatures.txt`` is documented cp1252 kit-wide, ``battle/abilityfeatures.py``'s own docstring),
+    so an undecodable byte means something ELSE already wrote non-cp1252 content into this file --
+    ``errors="replace"`` would silently turn it into U+FFFD (re-encoded as ``?``), corrupting that other
+    writer's bytes with no warning. Refuse clearly instead."""
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError as e:
+        raise SummonDeployError(
+            f"{path} is not valid cp1252 ({e}) -- refusing to merge into it. A silent 'replace' decode "
+            "would corrupt whatever produced that byte (a foreign encoding, a stray control byte) with no "
+            "warning; fix the file's encoding first.") from e
+
+
+def _modfilelist_warning(mod_root, rel_path: str) -> "str | None":
+    """G (review FOLD-G): if the mod folder ships a ``ModFileList.txt``, a newly staged file is INVISIBLE
+    to the engine unless it is also LISTED there (``AssetManager.cs:948-976`` resolves an asset only
+    against the entries that manifest names). A WARNING, not a hard refusal -- this deploy engine does not
+    own that file's format or the decision to auto-append to it; plenty of mod folders have none at all
+    (an unlisted file just loads straight off disk in that case)."""
+    mfl = Path(mod_root) / "ModFileList.txt"
+    if not mfl.is_file():
+        return None
+    return (f"{mfl} exists -- a mod folder shipping ModFileList.txt only exposes LISTED assets "
+            f"(AssetManager.cs:948-976); add {rel_path!r} to it or the engine will not see this file")
+
+
+def _stage_short_summon_feature(spec: dict, mod_root: Path, ledger: _Ledger) -> dict:
+    """Merge the roll (:func:`short_summon_feature_lines`) into this mod folder's ``AbilityFeatures.txt``,
+    non-destructively (``battle.abilityfeatures.merge_ability_features``'s ``##`` marker splice -- keyed on
+    this block's own mint `id`, so redeploying one ``[[summon]]`` block never disturbs another's roll or
+    any hand-authored ``[[ability_feature]]`` content already in the file -- see MUST-FIX 3: the field-build
+    writer, ``battle.abilityfeatures.write_ability_features``, is now ALSO marker-aware for the same reason,
+    so whichever of the two runs SECOND updates only its OWN section). ``{}`` when there is nothing to
+    roll. The file is seeded with the shared file header on a FRESH file (so either writer's first touch
+    produces the same bytes, order-independent) and decoded STRICT (FOLD-C)."""
+    lines = short_summon_feature_lines(spec)
+    if not lines:
+        return {}
+    from ..battle import abilityfeatures as _af
+    path = (Path(mod_root) / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt")
+    live = _decode_cp1252_strict(path.read_bytes(), path) if path.is_file() else (_af._FILE_HEADER + "\n")
+    merged = _af.merge_ability_features(live, lines, f"summon-short-roll-{spec['id']}")
+    ledger.write_bytes(path, merged.encode("cp1252"))
+    result = {"ability_features_path": str(path)}
+    warn = _modfilelist_warning(mod_root, "StreamingAssets/Data/Characters/Abilities/AbilityFeatures.txt")
+    if warn:
+        result["warning"] = warn
+    return result
 
 
 # --------------------------------------------------------------------------- overlay extras (rows 4/5/6)
 
-def _sfxmodel_manifest(spec: dict, clip_names: list) -> dict:
+def _sfxmodel_manifest(spec: dict, clip_names: list, *, staging_curves: "dict | None | bool" = False) -> dict:
     """The ``.sfxmodel`` JSON manifest (overlay lane, DESIGN row 5): one FBX entry naming the bare minted
     GEO name (Hop 4/5 discards the ef folder), plus the ``Animations[]`` playlist.
 
@@ -1090,10 +1533,18 @@ def _sfxmodel_manifest(spec: dict, clip_names: list) -> dict:
     (FBX-PATHS section 4), and chains each decoded clip once.
 
     A ``[summon.staging]`` curve table (``staging = "curves"``, K4) REPLACES all of that with the authored
-    Start/End + the three curves + the authored playlist -- see :func:`staging_curves_json`."""
-    if spec.get("staging_curves") is not None:
+    Start/End + the three curves + the authored playlist -- see :func:`staging_curves_json`.
+
+    ``staging_curves`` -- explicit override for the SHORT cast's own ``short_staging_curves`` (the
+    sentinel default ``False``, not ``None``, distinguishes "not passed -> use `spec['staging_curves']`"
+    from "passed explicitly as `None` -> this manifest has NO curves table at all", which the short lane
+    never does since `short_staging_curves` is a required field once `short_sequence` is set, but a caller
+    passing the primary's `spec.get('staging_curves')` verbatim -- which CAN legitimately be ``None`` --
+    must not be silently redirected back to `spec['staging_curves']`)."""
+    st = spec.get("staging_curves") if staging_curves is False else staging_curves
+    if st is not None:
         fbx = {"Path": spec["name"]}
-        fbx.update(staging_curves_json(spec))
+        fbx.update(staging_curves_json(spec, st))
         return {"FBX": [fbx]}
     fbx = {"Path": spec["name"], "Start": "0", "End": "0",
            "Movement": [{"Duration": "0", "OriginX": "0", "OriginY": "0", "OriginZ": "0",
@@ -1124,15 +1575,20 @@ def _lint_authored_sequence(spec: dict, src: Path) -> list:
         particles=[Path(p).name for p in (spec.get("particles") or [])], path=str(src))
 
 
-def _check_playlist_coverage(spec: dict) -> None:
+def _check_playlist_coverage(spec: dict, staging_curves: "dict | None | bool" = False,
+                             label: str = "[[summon.staging.play]]") -> None:
     """THE ANIMATION-PLAYLIST LAW as a raising check (a thin wrapper over :func:`playlist_coverage`, which
     is a pure read -- no writes). Shared by :func:`_preflight_inputs` (early, before the first byte of the
     mint is written) and :func:`_stage_overlay_extras_authored` (the actual write site -- kept as a safety
-    net). ``None``/``short_by == 0`` from :func:`playlist_coverage` means nothing to check -- returns."""
-    coverage = playlist_coverage(spec)
+    net). ``None``/``short_by == 0`` from :func:`playlist_coverage` means nothing to check -- returns.
+
+    ``staging_curves``/``label`` -- forwarded to :func:`playlist_coverage` + used in the error text so the
+    SHORT cast's own check (``short_staging_curves`` / ``[[summon.short_staging.play]]``) names ITSELF,
+    not the primary, when it fires."""
+    coverage = playlist_coverage(spec, staging_curves)
     if coverage and coverage["short_by"] > 0:
         raise SummonDeployError(
-            f"THE ANIMATION-PLAYLIST LAW: the [[summon.staging.play]] playlist covers "
+            f"THE ANIMATION-PLAYLIST LAW: the {label} playlist covers "
             f"{coverage['playlist_ticks']} ticks but the FBX window (end - start) is {coverage['window']} "
             f"-- short by {coverage['short_by']}. SFXDataMesh.cs:860-863 has no loop flag: once the "
             f"playlist runs out the model FREEZES on the last clip's last frame for the remaining "
@@ -1186,7 +1642,7 @@ def _preflight_inputs(spec: dict) -> None:
     _check_playlist_coverage(spec)
 
 
-def _stage_particles(spec: dict, mod_root: Path, ledger: _Ledger) -> list:
+def _stage_particles(spec: dict, mod_root: Path, ledger: _Ledger, *, ef_id: "int | None" = None) -> list:
     """K3: the authored sprite ``.sfxmodel`` particle files, copied VERBATIM into the private
     ``ef{private_ef:D3}/`` folder beside the manifest.
 
@@ -1194,7 +1650,12 @@ def _stage_particles(spec: dict, mod_root: Path, ledger: _Ledger) -> list:
     ``SFXModel=`` path points, and because a ``.sfxmodel``'s own texture references resolve relative to its
     OWN folder (``SFXDataMesh.cs:1064-1068``). Each is linted first -- a ``.sfxmodel`` that does not parse
     makes ``ModelSequence.Load`` return null and the op ``break`` with no message at all
-    (``UnifiedBattleSequencer.cs:406-408``)."""
+    (``UnifiedBattleSequencer.cs:406-408``).
+
+    ``ef_id`` -- which private ef folder to copy into (default ``spec["private_ef"]``); the SHORT folder
+    (MUST-FIX 1) passes its own ``short_private_ef`` so it carries its OWN verbatim copies -- a
+    self-contained folder that does not depend on the primary's still existing."""
+    ef_id = spec["private_ef"] if ef_id is None else ef_id
     out = []
     for raw in (spec.get("particles") or []):
         src = Path(raw)
@@ -1205,7 +1666,7 @@ def _stage_particles(spec: dict, mod_root: Path, ledger: _Ledger) -> list:
             raise SummonDeployError(
                 "a particle .sfxmodel does not lint -- refusing to deploy an effect the engine would drop "
                 "silently:\n  " + "\n  ".join(problems))
-        dest = _sfx_dir(mod_root, spec["private_ef"]) / src.name
+        dest = _sfx_dir(mod_root, ef_id) / src.name
         ledger.write_bytes(dest, src.read_bytes())
         out.append(str(dest))
     return out
@@ -1375,8 +1836,13 @@ def anim_frame_count(path) -> "int | None":
     return int(round(tmax * rate)) + 1
 
 
-def playlist_coverage(spec: dict) -> "dict | None":
+def playlist_coverage(spec: dict, staging_curves: "dict | None | bool" = False) -> "dict | None":
     """Does the authored ``[[summon.staging.play]]`` playlist cover the whole ``end - start`` window?
+
+    ``staging_curves`` -- explicit override, checked against ITS OWN window (the SHORT cast passes its
+    own ``short_staging_curves`` here -- its playlist must cover ITS OWN ``end - start``, never the
+    primary's; sentinel default ``False`` means "use ``spec['staging_curves']``", distinct from an
+    explicit ``None``).
 
     One playlist entry occupies ``ceil(frames / speed)`` SEQUENCE TICKS (``animMaxFrame``,
     ``SFXDataMesh.cs:852``) -- which is also why a 30 fps clip runs at half speed with ``speed = 1`` at
@@ -1402,7 +1868,7 @@ def playlist_coverage(spec: dict) -> "dict | None":
     raised, because ``speed`` remains a legal knob and existing content may rely on the tick footprint.
     Diagnosed on rung 8 -- ``studies/custom-summons/rung8-epic/`` STORYBOARD 11.9 + ``playlist_sim.py``.
     """
-    st = spec.get("staging_curves")
+    st = spec.get("staging_curves") if staging_curves is False else staging_curves
     paths = authored_clip_paths(spec.get("clips"))
     if not st or not st.get("play") or not paths:
         return None
@@ -1432,24 +1898,36 @@ def playlist_coverage(spec: dict) -> "dict | None":
 
 
 def _write_manifest(spec: dict, mod_root: Path, ledger: _Ledger, clip_names: list, *,
-                    particles: list) -> dict:
+                    particles: list, ef_id: "int | None" = None,
+                    staging_curves: "dict | None | bool" = False,
+                    manifest_name: "str | None" = None) -> dict:
     """Row 5 + 6: the ``.sfxmodel`` manifest and the one-line ``FileList.txt`` that reveals it.
 
     THE FILELIST GRAMMAR: tokens split on a SINGLE space (``SFXData.cs:253-254``) -- a tab or a double
     space breaks the line silently -- and the manifest name must stay bare so ``UsePathWithDefaultFolder``
-    resolves it inside this same ef folder."""
-    manifest_name = spec.get("manifest") or DEFAULT_MANIFEST_NAME
-    manifest = _sfxmodel_manifest(spec, clip_names)
+    resolves it inside this same ef folder.
+
+    ``ef_id`` -- which private ef folder to write into (default ``spec["private_ef"]``, the primary); the
+    SHORT folder passes its own ``short_private_ef``. ``staging_curves`` -- forwarded to
+    :func:`_sfxmodel_manifest` (the SHORT folder passes its own ``short_staging_curves`` so its manifest
+    is built from its OWN timeline, never the primary's). ``manifest_name`` -- which BARE file name to
+    write the manifest (and the ``FileList.txt`` ``Model`` line) as; default ``spec["manifest"]`` (the
+    primary's). The SHORT folder passes its own ``short_manifest`` (review 2026-07-24, item 2) so a pair
+    block can give the two folders DISTINCT manifest file names -- both are still bare-name-validated by
+    :func:`normalize_spec` the same way ``manifest`` itself is."""
+    ef_id = spec["private_ef"] if ef_id is None else ef_id
+    manifest_name = manifest_name if manifest_name is not None else (spec.get("manifest") or DEFAULT_MANIFEST_NAME)
+    manifest = _sfxmodel_manifest(spec, clip_names, staging_curves=staging_curves)
     body = json.dumps(manifest, indent=2) + "\n"
     problems = _seqlint().lint_sfxmodel_text(body, path=manifest_name)
     if problems:
         raise SummonDeployError(
             "the emitted .sfxmodel manifest does not lint (a kit bug or a bad [summon.staging]):\n  "
             + "\n  ".join(problems))
-    man_dest = _sfx_dir(mod_root, spec["private_ef"]) / manifest_name
+    man_dest = _sfx_dir(mod_root, ef_id) / manifest_name
     ledger.write_bytes(man_dest, body.encode("utf-8"))
 
-    fl_dest = _sfx_dir(mod_root, spec["private_ef"]) / "FileList.txt"
+    fl_dest = _sfx_dir(mod_root, ef_id) / "FileList.txt"
     ledger.write_bytes(fl_dest, f"Model {manifest_name}\n".encode("utf-8"))
     return {"manifest_dest": str(man_dest), "filelist_dest": str(fl_dest), "clips": clip_names,
             "particles": particles, "manifest_name": manifest_name}
@@ -1539,6 +2017,20 @@ def arm_sfxhybrid(game, spec: dict, *, log: bool = False, out=print,
     return backup
 
 
+def _print_short_receipt(spec: dict, short: dict, *, out=print) -> None:
+    """FOLD-D (review 2026-07-24): the deploy receipt was silent about the short half entirely -- print
+    its host ``.seq`` destination, the RESOLVED ``short_private_ef`` (the lint note in
+    ``content/summon.py`` already promises this number), and a `vfx2` wiring reminder, plus any
+    ``ModFileList.txt`` visibility warning (FOLD-G)."""
+    out(f"  short cast: ef{spec['short_private_ef']:03d}/PlayerSequence.seq ({short['short_ticks']} "
+        f"ticks vs full's {short['full_ticks']})")
+    out(f"      -> {short['seq_dest']}")
+    out(f"  point that SAME ability's `vfx2` at short_private_ef={spec['short_private_ef']} to fire it")
+    warn = (short.get("ability_features") or {}).get("warning")
+    if warn:
+        out(f"  ! {warn}")
+
+
 # --------------------------------------------------------------------------- the lane emitters
 
 def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False, out=print) -> dict:
@@ -1555,9 +2047,21 @@ def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False,
     ``spec`` may be a raw ``[[summon]]`` block OR an already-:func:`normalize_spec`-ed spec (normalize is
     idempotent), so ``content/summon.py`` can call this with either (it never passes ``arm``)."""
     spec = _resolve_ids(normalize_spec(spec), mod_root, game)
+    _preflight_short_sequence(spec)
     ledger = _Ledger(_backup_root(mod_root, work_dir))
     mint = _stage_model(spec, mod_root, ledger)
     seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=False)
+    short = None
+    if spec.get("short_sequence"):
+        # THE HYBRID-LANE SHORT MECHANISM (module comment above short_summon_feature_block): the short is
+        # ALWAYS the authored/overlay shape, never the s58 drive. The primary hybrid lane never stages
+        # clips (the drive supplies all motion from the live donor bones) -- but the SHORT's own manifest
+        # may reference authored clips via [[summon.short_staging.play]], so stage them here too (a no-op,
+        # `[]`, when `clips` isn't an authored-path list -- see authored_clip_paths).
+        _stage_authored_clips(spec, mod_root, ledger)
+        short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
+        short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
+        short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
     ini_backup = arm_sfxhybrid(game, spec, log=True, out=out, ledger=ledger) if arm else None
     revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
     result = {"lane": "hybrid", "spec": spec, "mint": mint, "seq": seq,
@@ -1565,12 +2069,15 @@ def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False,
               "sfxhybrid_updates": sfxhybrid_updates(spec, log=True),
               "revert_script": str(revert), "artifacts": _artifact_paths(ledger),
               "armed": bool(arm)}
+    if short is not None:
+        result["short"] = short
+        _print_short_receipt(spec, short, out=out)
     if ini_backup is not None:
         result["ini_backup"] = str(ini_backup)
     return result
 
 
-def emit_overlay(spec: dict, mod_root, game, *, work_dir=None) -> dict:
+def emit_overlay(spec: dict, mod_root, game, *, work_dir=None, out=print) -> dict:
     """The OVERLAY lane deploy (DESIGN rows 1, 1b, 2, 4, 5, 6) -- DLL-free, works on stock Memoria. Emits
     the mint + the host ``.seq`` (with the StartThread self-load) + the ``.anim`` clips + the ``.sfxmodel``
     + ``FileList.txt``. No ini. Writes a revert script. Returns a manifest dict.
@@ -1578,13 +2085,23 @@ def emit_overlay(spec: dict, mod_root, game, *, work_dir=None) -> dict:
     ``spec`` may be a raw ``[[summon]]`` block OR an already-:func:`normalize_spec`-ed spec (idempotent)."""
     spec = _resolve_ids(normalize_spec(spec), mod_root, game)
     _preflight_inputs(spec)
+    _preflight_short_sequence(spec)
     ledger = _Ledger(_backup_root(mod_root, work_dir))
     mint = _stage_model(spec, mod_root, ledger)
     seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=True)
     extras = _stage_overlay_extras(spec, mod_root, game, ledger)
+    short = None
+    if spec.get("short_sequence"):
+        short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
+        short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
+        short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
     revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
-    return {"lane": "overlay", "spec": spec, "mint": mint, "seq": seq, "overlay": extras,
-            "revert_script": str(revert), "artifacts": _artifact_paths(ledger)}
+    result = {"lane": "overlay", "spec": spec, "mint": mint, "seq": seq, "overlay": extras,
+              "revert_script": str(revert), "artifacts": _artifact_paths(ledger)}
+    if short is not None:
+        result["short"] = short
+        _print_short_receipt(spec, short, out=out)
+    return result
 
 
 def _resolve_ids(spec: dict, mod_root, game) -> dict:
@@ -1601,6 +2118,31 @@ def _resolve_ids(spec: dict, mod_root, game) -> dict:
         spec["private_ef"] = alloc_private_ef(game, mod_root, spec["donor"])
     else:
         validate_private_ef(spec["private_ef"], spec["donor"], game=game, mod_root=mod_root)
+    if spec.get("short_sequence"):
+        if spec.get("short_private_ef") is None:
+            # default = "primary private_ef + 1" -- but ABSENT_EF_IDS is NOT contiguous (18, 37, 39, 80,
+            # 84, 91, ... gaps up to 19), so a LITERAL +1 lands outside the pool for 18 of the 24 ids. Read
+            # "+1" as +1 POSITION in the ordered absent-id sequence instead (the next allocatable slot
+            # after the primary) -- always a legal candidate barring pool exhaustion, and it reproduces the
+            # bench precedent (84 -> 91, the rung-3/7 fresh id).
+            #
+            # MUST-FIX 2 (review 2026-07-24): unlike `alloc_private_ef`'s ascending SCAN (which picks a
+            # genuinely different free id if its first pick is occupied -- appropriate for a search), this
+            # default is a DETERMINISTIC function of `private_ef` alone -- redeploying the SAME block with
+            # a PINNED `private_ef` recomputes the exact same `short_private_ef` every time. Validating it
+            # `for_alloc=True` (the "refuse if `mod_root` already has this folder populated" branch) then
+            # refused the block's own SECOND deploy on the very folder its FIRST deploy created. Mirror the
+            # EXPLICIT-primary rule instead (`validate_private_ef`'s `for_alloc` default, False): a
+            # computed-but-now-fixed id is checked exactly like a user-pinned one, so redeploying is
+            # idempotent. (The same collision risk an explicit `private_ef` already accepts -- two
+            # UNRELATED blocks landing on the same id -- applies here too; that is a pre-existing,
+            # documented tradeoff of pinning, not something this default newly introduces.)
+            spec["short_private_ef"] = _next_absent_ef(spec["private_ef"])
+        validate_private_ef(spec["short_private_ef"], spec["donor"], game=game, mod_root=mod_root)
+        if spec["short_private_ef"] == spec["private_ef"]:
+            raise SummonDeployError(
+                f"[[summon]] short_private_ef {spec['short_private_ef']} equals private_ef "
+                f"{spec['private_ef']} -- the short cast needs its OWN private host id")
     return spec
 
 
@@ -1648,7 +2190,7 @@ def deploy(block: dict, *, game=None, mod_root=None, arm=False, dry_run=False, o
     if spec["lane"] == "hybrid":
         result = emit_hybrid(spec, mod_root, game, work_dir=work_dir, arm=(arm and not dry_run), out=out)
     else:
-        result = emit_overlay(spec, mod_root, game, work_dir=work_dir)
+        result = emit_overlay(spec, mod_root, game, work_dir=work_dir, out=out)
         result["armed"] = False
     result["dry_run"] = bool(dry_run)
     result["mod_root"] = str(mod_root)
