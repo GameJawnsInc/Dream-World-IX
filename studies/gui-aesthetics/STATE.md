@@ -1,6 +1,6 @@
 # GUI aesthetics — state + next steps
 
-> ## ROUND 13 — THE SQUEEZE, THREE PANES DEEP (the detailed UX pass)  ·  ⚠ PLAYTEST PENDING
+> ## ROUND 13 — THE SQUEEZE, THREE PANES DEEP (the detailed UX pass)  ·  ★ PLAYTESTED 2026-07-25
 >
 > A full-surface sweep (all 45 pinned surfaces × 100/150%, every PNG read) against the current master.
 > **The round's one theme is round 7's law reaching INSIDE the docs: a pane that cannot get its content's
@@ -46,10 +46,10 @@
 > header pair persists once a map is open).
 >
 > Suite 4454 → green + the new fences; every touched surface re-snapped and READ (models 100/150,
-> map:art, new-campaign, fork-regions, drift-synced, battle, home 100/150/860px). ⚠ Nothing here has
-> been seen by a human in the running app.
+> map:art, new-campaign, fork-regions, drift-synced, battle, home 100/150/860px). ★ PLAYTESTED
+> 2026-07-25 — the owner cleared rounds 11, 12 and 13 in one session; all three are on master.
 
-> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ⚠ PLAYTEST PENDING
+> ## ROUND 12 — AHEAD OF THE GAME (what changed since my last deploy?)  ·  ★ PLAYTESTED 2026-07-25
 >
 > **The weak area is named in the brief's own loudest law:** *"One change per in-game test. When a build
 > breaks, we need to know which edit did it."* — and **nothing in the toolkit could answer *which edit*.**
@@ -127,9 +127,9 @@
 > Re-fenced with a file sitting where the directory should be.
 >
 > All three sabotage runs (index matching / ignore `from_disk` / drop the open-project gate) go red on exactly
-> the right fences. Suite **4229** (+35 new). ⚠ Nothing here has been seen in the running app by a human.
+> the right fences. Suite **4229** (+35 new). ★ PLAYTESTED 2026-07-25 (with rounds 11 + 13).
 
-> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ⚠ PLAYTEST PENDING
+> ## ROUND 11 — THE LOG IS A DOCUMENT (find + a job spine for the console)  ·  ★ PLAYTESTED 2026-07-25
 >
 > **The weak area, stated precisely: there was no find ANYWHERE in this app.** `Ctrl+F` was unbound
 > app-wide, and the surface that needed it most is the one the app streams every build, deploy, lint and
