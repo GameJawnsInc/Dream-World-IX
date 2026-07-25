@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[behavior.group]]` + the `engage` verb: THE GROUP LOOP (v2 rung 1)
+- Rosters as table state: a group's members get `group.<name>.px/pz/act` mirrors and an
+  `hp` table that IS their hit points (the `hp_le`/`hp_gt` conds and every SwingAt
+  damage write reroute to the cells — one home, no drift; `table_*` conds can read
+  them). The `engage` branch verb replaces the unrolled pair apparatus: a sticky
+  acquire loop holds a first-in-range target register (roster order = priority order,
+  v1 parity), the branch runs two-phase (contact -> ONE target-indexed strike body
+  with computed-index damage and table-position facing; else -> a pursue feed on the
+  target's cells), and a dead/escaped target drops the register for automatic
+  re-acquisition. Measured on the 7v7 parity bench: **42% of the unrolled bytes** for
+  the same fight (~880B vs ~2,340B of ticker per unit; one ~170B body vs six ~108B) —
+  the ratio is pinned by a suite test. Rung-1 limits: one engage per unit, no
+  self-group targets, no raise/clear flags on the branch.
+
 ### Added — `[[behavior.scan]]`: the vector loop (v2 rung 0, EXPERIMENTAL)
 - The first stone of the vector substrate: per tick, the roster's position mirrors are
   copied into gScriptVector px/pz tables and a bounded backward-jump loop walks them by

@@ -743,3 +743,81 @@ def test_scan_toml_negatives():
     assert any("collides with a [[behavior.table]]" in p for p in
                mut(lambda b: (b.__setitem__("table", [{"name": "near_shrine",
                                                        "values": [1]}]))))
+
+
+GROUP_RAW = {
+    "npc": [
+        {"name": "a0", "pos": [0, 0], "dialogue": "..."},
+        {"name": "a1", "pos": [0, 300], "dialogue": "..."},
+        {"name": "b0", "pos": [900, 0], "dialogue": "..."},
+        {"name": "b1", "pos": [900, 300], "dialogue": "..."},
+    ],
+    "behavior": {
+        "counters": ["fallen"],
+        "group": [{"name": "reds", "units": ["a0", "a1"]},
+                  {"name": "blues", "units": ["b0", "b1"]}],
+        "unit": [
+            {"npc": "a0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "blues", "radius": 1500, "contact": 170}},
+                {"do": {"hold": [0, 0]}}]},
+            {"npc": "a1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"when": [{"table_ge": ["group.blues.hp", 0, 1]}],
+                 "do": {"engage": "blues"}},
+                {"do": {"hold": [0, 300]}}]},
+            {"npc": "b0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds"}},
+                {"do": {"hold": [900, 0]}}]},
+            {"npc": "b1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds", "speed": 70}},
+                {"do": {"hold": [900, 300]}}]},
+        ],
+    },
+}
+
+
+def test_group_toml_surface():
+    assert BT.validate(GROUP_RAW) == []
+    slots = {"a0": 2, "a1": 3, "b0": 4, "b1": 5}
+    fb = BT.build(GROUP_RAW, npc_slots=slots)
+    cb = fb.compile()
+    _verify_all(cb)
+    assert set(fb._groups) == {"reds", "blues"}
+    assert fb._member["a0"] == ("reds", 0) and fb._member["b1"] == ("blues", 1)
+    assert set(fb._engages) == {"a0", "a1", "b0", "b1"}
+    assert "group reds" in cb.report and "engage b1 -> group 'reds'" in cb.report
+    fb2 = BT.build(GROUP_RAW, npc_slots=slots)
+    assert fb2.compile().stable_hash() == cb.stable_hash()
+
+
+def test_group_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(GROUP_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("cannot engage its own group" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(engage="reds")))
+    assert any("is not a [[behavior.group]]" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(engage="ghosts")))
+    assert any("contact must be" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(
+                   radius=100, contact=100)))
+    assert any("takes no raise_flags" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1].update(raise_flags=["x"])))
+    assert any("already has an engage" in p for p in
+               mut(lambda b: b["unit"][0]["branch"].insert(
+                   2, {"do": {"engage": "blues"}})))
+    assert any("has no `hp`" in p for p in
+               mut(lambda b: b["unit"][1].pop("hp")))
+    assert any("already in group" in p for p in
+               mut(lambda b: b["group"][1]["units"].append("a0")))
+    assert any("unknown key" in p for p in
+               mut(lambda b: b["group"][0].update(color="red")))
+    assert any("duplicate group" in p for p in
+               mut(lambda b: b["group"].append({"name": "reds", "units": ["b0"]})))

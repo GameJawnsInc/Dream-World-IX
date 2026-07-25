@@ -542,8 +542,18 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    benches give SLOW units the LONG routes), and the visible camera drift on
    entry is the KNOWN bare-~-warp class (the one unfaded entry path left,
    [[project-ff9-field-entry-arrival]]) — not a fork or bench defect; a
-   debug-menu fade-on-warp is a candidate engine-bundle polish item. The full
-   substrate now follows: move per-unit state
+   debug-menu fade-on-warp is a candidate engine-bundle polish item.
+   **▶ RUNG 1 IN FLIGHT (same day): THE GROUP LOOP shipped** —
+   `[[behavior.group]]` rosters (px/pz/act mirrors + hp CELLS as the members'
+   only hit points, all hp accessors rerouted) + the `engage` verb (sticky
+   first-in-range acquire register; two-phase contact-strike/pursue; ONE
+   target-indexed swing body per unit; automatic re-acquisition on a dead
+   target). MEASURED: the 7v7 parity bench compiles to **42% of the unrolled
+   bytes** (19,997B vs ISLES' 46,625B, same fight; ratio pinned by a suite
+   test). Bench: THE GROUP BRAWL on 30416 (`group_bench.py`, zero-relaunch
+   redeploy) DEPLOYED, playtest pending — parity is the verdict, plus the one
+   new visible power: survivors PIVOT to the next foe in range. The original
+   full-substrate sketch, for the later rungs: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
    `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
    logic as a bounded in-tick LOOP over an index instead of an unrolled branch

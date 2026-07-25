@@ -102,6 +102,7 @@ ACTION_VERBS = {
     "flee": ("to", "avoid_r", "speed"),
     "wander": ("radius", "every", "speed"),
     "swing_at": ("damage", "interval"),
+    "engage": ("radius", "contact", "damage", "interval", "speed"),
     "hold_ground": (),
     "die": (),
     "battle": (),
@@ -112,11 +113,12 @@ ACTION_VERBS = {
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
-              "counters", "table", "schedule", "scan"}
+              "counters", "table", "schedule", "scan", "group"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags"}
+GROUP_KEYS = {"name", "units"}
 
 
 class BehaviorTomlError(ValueError):
@@ -622,6 +624,9 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         fb.alternator(str(alt["name"]), int(alt["frames"]))
     for s in schedule_rows(raw):
         fb.schedule(str(s.get("counter", "")), str(s.get("table", "")))
+    for gr in b.get("group", []) or []:
+        fb.group(str(gr.get("name", "")),
+                 [str(u) for u in gr.get("units", []) or []])
     for s in b.get("scan", []) or []:
         fb.scan(str(s.get("name", "")), [str(u) for u in s.get("units", []) or []],
                 tuple(s.get("point", (0, 0))), int(s.get("radius", 300)),
@@ -641,6 +646,31 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
             if br.get("once") is not None and br.get("cooldown") is not None:
                 raise BehaviorTomlError(f"{ctx}: once and cooldown are mutually exclusive")
             do = br["do"]
+            if isinstance(do, dict) and "engage" in do:
+                # THE GROUP LOOP verb — expands to the two-phase subtree
+                # (contact -> strike dispatch / else -> pursue feed) through
+                # the standard node vocabulary; the acquire loop registers
+                # with the unit. No raise/clear flags in v2 rung 1.
+                if br.get("raise_flags") or br.get("clear_flags"):
+                    raise BehaviorTomlError(
+                        f"{ctx}: engage takes no raise_flags/clear_flags")
+                sub = fb.engage_node(name, B.Engage(
+                    group=str(do["engage"]),
+                    radius=int(do.get("radius", 900)),
+                    contact=int(do.get("contact", 170)),
+                    damage=int(do.get("damage", 1)),
+                    interval=int(do.get("interval", 25)),
+                    speed=(int(do["speed"]) if do.get("speed") is not None
+                           else None)))
+                conds = [_build_cond(fb, name, c, positions, ctx)
+                         for c in (br.get("when") or [])]
+                node = B.Sequence(*conds, sub) if conds else sub
+                if br.get("once") is not None:
+                    node = B.Once(str(br["once"]), node)
+                elif br.get("cooldown") is not None:
+                    node = B.Cooldown(int(br["cooldown"]), node)
+                branches.append(node)
+                continue
             npc_txid = None
             if isinstance(do, dict) and "announce_npc" in do:
                 npc_txid = npc_txids_by_name.get(str(do["announce_npc"]))
@@ -844,6 +874,42 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         if b.get("timer") is None:
             problems.append(f"{ctx}: a schedule needs field-level `timer = <seconds>` "
                             f"(the countdown HUD is the clock it reads)")
+    # groups (the engage rosters — v2)
+    declared_groups: dict = {}
+    member_of: dict = {}
+    _hp_units = {u.get("npc") for u in b.get("unit", []) if u.get("hp") is not None}
+    for gi, row in enumerate(b.get("group", []) or []):
+        ctx = f"[[behavior.group]] #{gi}"
+        extra = set(row) - GROUP_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = str(row.get("name", ""))
+        if not _re2.fullmatch(r"[a-z][a-z0-9_]*", nm):
+            problems.append(f"{ctx}: needs `name = ` ([a-z][a-z0-9_]*)")
+        elif nm in declared_groups:
+            problems.append(f"{ctx}: duplicate group {nm!r}")
+        us = row.get("units")
+        if not isinstance(us, list) or not us:
+            problems.append(f"{ctx}: needs `units = [<behavior unit npcs>]`")
+            us = []
+        if len(us) > B.TABLE_MAX_LEN:
+            problems.append(f"{ctx}: {len(us)} units > the {B.TABLE_MAX_LEN}-cell cap")
+        if len(set(map(str, us))) != len(us):
+            problems.append(f"{ctx}: duplicate units")
+        for u in us:
+            un = str(u)
+            if un not in unit_names:
+                problems.append(f"{ctx}: {un!r} is not a [[behavior.unit]] npc")
+            elif un not in _hp_units:
+                problems.append(f"{ctx}: member {un!r} has no `hp` (the roster hp "
+                                f"table is a member's only hit-point home)")
+            if un in member_of:
+                problems.append(f"{ctx}: {un!r} is already in group {member_of[un]!r}")
+            member_of[un] = nm
+        declared_groups[nm] = {str(u) for u in us}
+        # the group's tables are readable by the table_* conds
+        for suffix in ("px", "pz", "act", "hp"):
+            declared_tables.setdefault(f"group.{nm}.{suffix}", len(us))
     # scans (the vector loop — v2 rung 0)
     scan_names = set()
     for si, row in enumerate(b.get("scan", []) or []):
@@ -900,6 +966,7 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         f"— the conductor and the behavior dispatch share REQ level 4")
     valid_targets = set(unit_names) | {B.PLAYER}
     hp_units = {u.get("npc") for u in b.get("unit", []) if u.get("hp") is not None}
+    engaged_units: set = set()
     for ui, u in enumerate(b.get("unit", [])):
         me = u.get("npc")
         for bi, br in enumerate(u.get("branch", []) or []):
@@ -929,6 +996,27 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: swing_at {v!r} is not a behavior unit")
                     elif str(v) not in hp_units:
                         problems.append(f"{ctx}: swing_at {v!r} — that unit has no `hp`")
+                if verb == "engage":
+                    if str(v) not in declared_groups:
+                        problems.append(f"{ctx}: engage group {v!r} is not a "
+                                        f"[[behavior.group]]")
+                    elif str(me) in declared_groups[str(v)]:
+                        problems.append(f"{ctx}: {me!r} cannot engage its own "
+                                        f"group {v!r}")
+                    if str(me) in engaged_units:
+                        problems.append(f"{ctx}: {me!r} already has an engage "
+                                        f"(one target register per unit)")
+                    engaged_units.add(str(me))
+                    r = do.get("radius", 900)
+                    c = do.get("contact", 170)
+                    if not (isinstance(r, int) and 1 <= r <= 30000):
+                        problems.append(f"{ctx}: engage radius must be an int 1..30000")
+                    elif not (isinstance(c, int) and 1 <= c < r):
+                        problems.append(f"{ctx}: engage contact must be an int "
+                                        f"1..radius-1")
+                    if br.get("raise_flags") or br.get("clear_flags"):
+                        problems.append(f"{ctx}: engage takes no "
+                                        f"raise_flags/clear_flags")
                 if verb == "flee" and str(v) not in valid_targets:
                     problems.append(f"{ctx}: flee threat {v!r} is not a behavior unit or player")
                 if verb in ("patrol", "march"):

@@ -335,8 +335,43 @@ roll call whose whole announce ladder derives from the loop). One caveat while
 the lane grows: mirrors freeze when a unit deactivates (a dead unit still
 standing in the box keeps counting — scan rosters that stay alive, or gate
 consumers on `active`). This is the first stone of the v2 vector substrate
-(`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group-loop proper
-(per-target logic without unrolled pair branches) builds on it.
+(`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group loop below
+builds on it.
+
+## Groups + `engage` — THE GROUP LOOP (v2 rung 1)
+
+```toml
+[[behavior.group]]
+name = "raiders"               # [a-z][a-z0-9_]*
+units = ["mu0", "mu1", "mu2"]  # roster; every member needs hp=; one group each
+
+# a branch on any NON-member unit:
+do = { engage = "raiders", radius = 900, contact = 170, damage = 1, interval = 25, speed = 60 }
+```
+
+A group moves its members' state into roster tables: `group.<name>.px/pz/act`
+(mirrored per tick) and `group.<name>.hp` — **the hp cells ARE the members'
+hit points** (seeded from `hp=`, damaged by every swing, read by the `hp_le`/
+`hp_gt` conds, all rerouted automatically; the tables are also readable via
+`table_*` conds). `engage` then replaces the whole unrolled pair apparatus
+with ONE branch: a sticky ACQUIRE loop keeps a valid target in the unit's
+target register (first-in-range in roster order — roster order is the
+priority list, matching v1 pair-branch semantics) and the branch runs
+two-phase — within `contact` a single target-INDEXED strike body (damage and
+facing through the register), otherwise a pursue feed walking at the target's
+table position (live retarget). When the target dies or leaves `radius`, the
+register drops and the loop re-acquires — units pivot to the next foe with no
+extra authoring, which the unrolled form could only approximate by branch
+order.
+
+The economics are the point (the three walls): a 7-per-side mutual brawl costs
+**42% of the unrolled bytes** (one ~170B body per unit instead of one ~108B
+body per PAIR; ~880B of ticker per unit instead of ~2,340B; one swing timer +
+two register bytes instead of a band byte per pair) — pinned by a suite test
+so the ratio can't silently regress. v2 rung-1 limits: one `engage` per unit,
+engaging your own group is refused, `raise_flags`/`clear_flags` don't ride the
+engage branch, and acquisition is first-in-range (nearest-foe is a later
+flag).
 
 ## Limits (v1)
 
