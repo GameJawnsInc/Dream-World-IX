@@ -19,6 +19,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   island-E deploy no longer byte-matches the identity net — re-carve rather than
   restore old backups.
 
+### Added — the substrate polish round: scan group form + `alive_only`, engage `nearest`, `[[behavior.hud]]`, extended opcodes
+- **Scan group form**: `[[behavior.scan]] group = "<roster>"` loops the group's OWN
+  tables (no position copies), `point`/`radius` become optional (absent = a pure roster
+  headcount), and `alive_only = true` gates every cell on act && hp>0 — the team-wipe /
+  alive-count primitive (`counter_eq = ["mus_alive", 0]` fires the moment the roster is
+  wiped; the truthful-counter lesson from the brawl's unreachable 13-kill finale). ~100B
+  of ticker per scan; the group mirror block now runs before scans (same-pass freshness).
+- **Engage `nearest = true`**: the acquire loop becomes an argmin over Chebyshev distance
+  (|d| by conditional negate, max by conditional copy — the no-squares Int24 stance) —
+  units pair off with the closest living foe and survivors pivot to the closest next
+  victim. Scratch registers shared field-wide (four blackboard slots total).
+- **`[[behavior.hud]]`** — the live counter strip on the stock substrate every PC
+  minigame HUD uses (no number opcode exists in FF9): `SetTextVariable` (0x66, the cell
+  as an expression arg) feeds `[NUMB=i]` slots and a TRANSPARENT `WindowAsync` (flags 16)
+  re-issues in place, only on change (the hunt-points dirty-mirror shape). The `.mes`
+  line mints like an announce, `[IMME]` auto-prepended. 1..8 counter values per strip,
+  one strip per window id, ~150B of ticker.
+- **Extended opcodes 0x112–0x11E** (`AddShopItem`, `WalkEx`, `ClearMemoriaVector`,
+  `AddBattleStatus`, …): the regen script grew a documented CUSTOM_EXTENDED block (the
+  engine reads these ad hoc with getv3 — they are absent from its static tables) and the
+  optables now carry their true arg shapes; encode→decode round-trips pinned by tests.
+
 ### Added — `[[behavior.group]]` + the `engage` verb: THE GROUP LOOP (v2 rung 1)
 - Rosters as table state: a group's members get `group.<name>.px/pz/act` mirrors and an
   `hp` table that IS their hit points (the `hp_le`/`hp_gt` conds and every SwingAt

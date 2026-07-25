@@ -102,7 +102,7 @@ ACTION_VERBS = {
     "flee": ("to", "avoid_r", "speed"),
     "wander": ("radius", "every", "speed"),
     "swing_at": ("damage", "interval"),
-    "engage": ("radius", "contact", "damage", "interval", "speed"),
+    "engage": ("radius", "contact", "damage", "interval", "speed", "nearest"),
     "hold_ground": (),
     "die": (),
     "battle": (),
@@ -113,12 +113,14 @@ ACTION_VERBS = {
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
-              "counters", "table", "schedule", "scan", "group"}
+              "counters", "table", "schedule", "scan", "group", "hud"}
 POOL_KEYS = {"name", "price", "button", "request_flag"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
-SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags"}
+SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
+             "alive_only"}
 GROUP_KEYS = {"name", "units"}
+HUD_KEYS = {"window", "text", "values"}
 
 
 class BehaviorTomlError(ValueError):
@@ -221,6 +223,20 @@ def table_specs(raw: dict) -> list:
 def counter_names(raw: dict) -> tuple:
     b = table(raw)
     return tuple(str(c) for c in ((b.get("counters", []) if b else []) or []))
+
+
+def hud_lines(raw: dict) -> list:
+    """(index, row) per ``[[behavior.hud]]`` — the build mints each row's text
+    like an announce (``collect_text`` keys them ``("hud", i)``)."""
+    b = table(raw)
+    return list(enumerate((b.get("hud", []) if b else []) or []))
+
+
+def hud_mes_text(row: dict) -> str:
+    """The final ``.mes`` text for a hud row: the author's text with ``[IMME]``
+    prepended when absent — a live strip must never type in."""
+    t = str(row.get("text", ""))
+    return t if "[IMME]" in t else "[IMME]" + t
 
 
 def schedule_rows(raw: dict) -> list:
@@ -628,10 +644,18 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         fb.group(str(gr.get("name", "")),
                  [str(u) for u in gr.get("units", []) or []])
     for s in b.get("scan", []) or []:
-        fb.scan(str(s.get("name", "")), [str(u) for u in s.get("units", []) or []],
-                tuple(s.get("point", (0, 0))), int(s.get("radius", 300)),
-                str(s.get("count", "")),
-                flags=(str(s["flags"]) if s.get("flags") else None))
+        fb.scan(str(s.get("name", "")),
+                units=([str(u) for u in s["units"]] if s.get("units") else None),
+                point=(tuple(s["point"]) if s.get("point") is not None else None),
+                radius=(int(s["radius"]) if s.get("radius") is not None else None),
+                count=str(s.get("count", "")),
+                flags=(str(s["flags"]) if s.get("flags") else None),
+                group=(str(s["group"]) if s.get("group") else None),
+                alive_only=bool(s.get("alive_only", False)))
+    for hi, h in hud_lines(raw):
+        fb.hud(str(h.get("text", "")), [str(v) for v in h.get("values", []) or []],
+               window=int(h.get("window", 6)),
+               txid=behavior_txids.get(("hud", hi)))
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
@@ -661,7 +685,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                     damage=int(do.get("damage", 1)),
                     interval=int(do.get("interval", 25)),
                     speed=(int(do["speed"]) if do.get("speed") is not None
-                           else None)))
+                           else None),
+                    nearest=bool(do.get("nearest", False))))
                 conds = [_build_cond(fb, name, c, positions, ctx)
                          for c in (br.get("when") or [])]
                 node = B.Sequence(*conds, sub) if conds else sub
@@ -923,37 +948,95 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         elif nm in scan_names:
             problems.append(f"{ctx}: duplicate scan {nm!r}")
         scan_names.add(nm)
+        gr = row.get("group")
         us = row.get("units")
-        if not isinstance(us, list) or not us:
-            problems.append(f"{ctx}: needs `units = [<behavior unit npcs>]`")
-        else:
-            if len(us) > B.TABLE_MAX_LEN:
-                problems.append(f"{ctx}: {len(us)} units > the {B.TABLE_MAX_LEN}-cell cap")
-            for u in us:
-                if str(u) not in unit_names:
-                    problems.append(f"{ctx}: {u!r} is not a [[behavior.unit]] npc")
-            if len(set(map(str, us))) != len(us):
-                problems.append(f"{ctx}: duplicate units")
+        roster_len = 0
+        if (gr is None) == (us is None):
+            problems.append(f"{ctx}: give exactly one of units= / group=")
+        if gr is not None:
+            if str(gr) not in declared_groups:
+                problems.append(f"{ctx}: group {gr!r} is not a [[behavior.group]]")
+            else:
+                roster_len = len(declared_groups[str(gr)])
+        elif us is not None:
+            if not isinstance(us, list) or not us:
+                problems.append(f"{ctx}: needs `units = [<behavior unit npcs>]`")
+            else:
+                roster_len = len(us)
+                if len(us) > B.TABLE_MAX_LEN:
+                    problems.append(f"{ctx}: {len(us)} units > the "
+                                    f"{B.TABLE_MAX_LEN}-cell cap")
+                for u in us:
+                    if str(u) not in unit_names:
+                        problems.append(f"{ctx}: {u!r} is not a [[behavior.unit]] npc")
+                if len(set(map(str, us))) != len(us):
+                    problems.append(f"{ctx}: duplicate units")
+        alive = row.get("alive_only", False)
+        if not isinstance(alive, bool):
+            problems.append(f"{ctx}: alive_only takes true/false")
+        elif alive and gr is None:
+            problems.append(f"{ctx}: alive_only needs group= (only a roster "
+                            f"carries act/hp tables)")
         pt = row.get("point")
-        if (not isinstance(pt, list) or len(pt) != 2
-                or any(not isinstance(v, int) for v in pt)):
+        r = row.get("radius")
+        if (pt is None) != (r is None):
+            problems.append(f"{ctx}: point and radius come together")
+        if pt is None and gr is None:
+            problems.append(f"{ctx}: the units form needs point/radius "
+                            f"(a rosterless headcount is static — use group=)")
+        if pt is not None and (not isinstance(pt, list) or len(pt) != 2
+                               or any(not isinstance(v, int) for v in pt)):
             problems.append(f"{ctx}: needs `point = [x, z]` (ints)")
-        r = row.get("radius", 300)
-        if not isinstance(r, int) or not 1 <= r <= 30000:
+        if r is not None and (not isinstance(r, int) or not 1 <= r <= 30000):
             problems.append(f"{ctx}: radius must be an int 1..30000")
         cn = str(row.get("count", ""))
         if cn not in declared_counters:
             problems.append(f"{ctx}: count {cn!r} is not in [behavior] counters")
         fl = row.get("flags")
+        if fl is not None and pt is None:
+            problems.append(f"{ctx}: flags need a point/radius box")
         if fl is not None and str(fl) in declared_tables:
             problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.table]]")
-        elif nm and isinstance(us, list):
+        elif nm and roster_len:
             # scans DECLARE tables too — the flags table (user-named or the
-            # scan.<name>.near default) plus the position pair are readable by
-            # the table_* conds, sized to the roster
-            for tn2 in (str(fl) if fl else f"scan.{nm}.near",
-                        f"scan.{nm}.px", f"scan.{nm}.pz"):
-                declared_tables.setdefault(tn2, len(us))
+            # scan.<name>.near default, box scans only) plus, in the units
+            # form, the position pair — readable by the table_* conds
+            tn_new = []
+            if pt is not None:
+                tn_new.append(str(fl) if fl else f"scan.{nm}.near")
+            if gr is None:
+                tn_new += [f"scan.{nm}.px", f"scan.{nm}.pz"]
+            for tn2 in tn_new:
+                declared_tables.setdefault(tn2, roster_len)
+    # hud strips (the live-counter substrate)
+    hud_windows = set()
+    for hi, row in enumerate(b.get("hud", []) or []):
+        ctx = f"[[behavior.hud]] #{hi}"
+        extra = set(row) - HUD_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        w = row.get("window", 6)
+        if not isinstance(w, int) or not 0 <= w <= 7:
+            problems.append(f"{ctx}: window must be an int 0..7 (Dialog.WindowID)")
+        elif w in hud_windows:
+            problems.append(f"{ctx}: window {w} already carries a strip")
+        hud_windows.add(w if isinstance(w, int) else -1)
+        txt = str(row.get("text", ""))
+        if not txt.strip():
+            problems.append(f"{ctx}: needs `text = ` (the strip's .mes line — "
+                            f"[NUMB=i] slots, [MPOS=x,y] to place it)")
+        vals = row.get("values")
+        if not isinstance(vals, list) or not 1 <= len(vals) <= 8:
+            problems.append(f"{ctx}: values must be 1..8 counter names (the "
+                            f"engine has 8 gMesValue slots)")
+        else:
+            for v in vals:
+                if str(v) not in declared_counters:
+                    problems.append(f"{ctx}: value {v!r} is not in [behavior] counters")
+            for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
+                if int(mnum.group(1)) >= len(vals):
+                    problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
+                                    f"(only {len(vals)} given)")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene
@@ -1014,6 +1097,8 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     elif not (isinstance(c, int) and 1 <= c < r):
                         problems.append(f"{ctx}: engage contact must be an int "
                                         f"1..radius-1")
+                    if not isinstance(do.get("nearest", False), bool):
+                        problems.append(f"{ctx}: engage nearest takes true/false")
                     if br.get("raise_flags") or br.get("clear_flags"):
                         problems.append(f"{ctx}: engage takes no "
                                         f"raise_flags/clear_flags")

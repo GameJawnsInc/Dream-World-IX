@@ -6758,6 +6758,11 @@ def collect_text(project: FieldProject):
     bh_pos = {}
     for _ui, _bi, _br in _behaviortoml.announce_lines(project.raw):
         bh_pos[(_ui, _bi)] = _add(_br, _br["do"]["announce"])
+    # [behavior] hud strips mint their line the same way, keyed ("hud", i) in
+    # the same dict (announce keys are (int, int) -- no collision); [IMME] is
+    # prepended when absent so a live strip never types in
+    for _hi, _h in _behaviortoml.hud_lines(project.raw):
+        bh_pos[("hud", _hi)] = _add(_h, _behaviortoml.hud_mes_text(_h))
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)

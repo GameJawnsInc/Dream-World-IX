@@ -821,3 +821,91 @@ def test_group_toml_negatives():
                mut(lambda b: b["group"][0].update(color="red")))
     assert any("duplicate group" in p for p in
                mut(lambda b: b["group"].append({"name": "reds", "units": ["b0"]})))
+
+
+SCOREBOARD_RAW = {
+    "npc": [
+        {"name": "a0", "pos": [0, 0], "dialogue": "..."},
+        {"name": "a1", "pos": [0, 300], "dialogue": "..."},
+        {"name": "b0", "pos": [900, 0], "dialogue": "..."},
+        {"name": "b1", "pos": [900, 300], "dialogue": "..."},
+        {"name": "crier", "pos": [500, 900], "dialogue": "..."},
+    ],
+    "behavior": {
+        "counters": ["fallen", "reds_up", "blues_up"],
+        "group": [{"name": "reds", "units": ["a0", "a1"]},
+                  {"name": "blues", "units": ["b0", "b1"]}],
+        "scan": [{"name": "ru", "group": "reds", "count": "reds_up",
+                  "alive_only": True},
+                 {"name": "bu", "group": "blues", "count": "blues_up",
+                  "alive_only": True}],
+        "hud": [{"window": 6, "values": ["reds_up", "blues_up", "fallen"],
+                 "text": "[MPOS=10,8]R [NUMB=0]  B [NUMB=1]  X [NUMB=2]"}],
+        "unit": [
+            {"npc": "a0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "blues", "nearest": True}},
+                {"do": {"hold": [0, 0]}}]},
+            {"npc": "a1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "blues"}},
+                {"do": {"hold": [0, 300]}}]},
+            {"npc": "b0", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds", "nearest": True}},
+                {"do": {"hold": [900, 0]}}]},
+            {"npc": "b1", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "fallen"}},
+                {"do": {"engage": "reds"}},
+                {"do": {"hold": [900, 300]}}]},
+            {"npc": "crier", "branch": [
+                {"when": [{"counter_eq": ["blues_up", 0]}], "once": "bwiped",
+                 "do": {"announce": "Blues wiped!"}},
+                {"do": {"hold": [500, 900]}}]},
+        ],
+    },
+}
+
+
+def test_scoreboard_toml_surface():
+    assert BT.validate(SCOREBOARD_RAW) == []
+    slots = {"a0": 2, "a1": 3, "b0": 4, "b1": 5, "crier": 6}
+    tx = {(4, 0): 700, ("hud", 0): 941}
+    fb = BT.build(SCOREBOARD_RAW, npc_slots=slots, behavior_txids=tx)
+    cb = fb.compile()
+    _verify_all(cb)
+    assert len(fb._scans) == 2 and all(s.alive_only for s in fb._scans)
+    assert fb._huds[0].txid == 941
+    assert BT.hud_mes_text(SCOREBOARD_RAW["behavior"]["hud"][0]).startswith("[IMME]")
+    fb2 = BT.build(SCOREBOARD_RAW, npc_slots=slots, behavior_txids=tx)
+    assert fb2.compile().stable_hash() == cb.stable_hash()
+
+
+def test_scoreboard_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(SCOREBOARD_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("alive_only needs group" in p for p in
+               mut(lambda b: b["scan"][0].update(group=None, units=["a0"],
+                                                 point=[0, 0], radius=100)))
+    assert any("exactly one of" in p for p in
+               mut(lambda b: b["scan"][0].update(units=["a0"])))
+    assert any("flags need a point" in p for p in
+               mut(lambda b: b["scan"][0].update(flags="f")))
+    assert any("is not a [[behavior.group]]" in p for p in
+               mut(lambda b: b["scan"][0].update(group="ghosts")))
+    assert any("nearest takes" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["do"].update(nearest=1)))
+    assert any("window must be" in p for p in
+               mut(lambda b: b["hud"][0].update(window=9)))
+    assert any("NUMB=7" in p for p in
+               mut(lambda b: b["hud"][0].update(text="[NUMB=7]")))
+    assert any("not in [behavior] counters" in p for p in
+               mut(lambda b: b["hud"][0].update(values=["ghost"])))
+    assert any("already carries" in p for p in
+               mut(lambda b: b["hud"].append({"window": 6, "values": ["fallen"],
+                                              "text": "[NUMB=0]"})))
