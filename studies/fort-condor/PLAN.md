@@ -263,10 +263,11 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   heavy/Defender duel holds, the plaza is clean of bystanders, win/loss
   regressions clean. NOTE for precision: this ticker is 30.2KB (back under the
   old wall after the file-budget trims), so the ISLAND bytes themselves have
-  not yet run in-game — the relaxation is offline-proven and will get its live
-  crossing whenever content next exceeds ~32KB of one body. (2026-07-25: that
-  crossing now has its OWN bench — ISLES 30416, the 14-unit brawl,
-  `studies/behavior-trees/island_bench.py`, deployed, playtest pending.)
+  not yet run in-game at the time — since ★ RESOLVED: the ISLES bench (30416,
+  the 14-unit brawl, `studies/behavior-trees/island_bench.py`) crossed the wall
+  in-game 2026-07-25 ("brawl runs clean, crier lines all fire") — the
+  relaxation is fully proven and condor content may exceed 32KB freely (the
+  FILE wall remains the binding budget).
   OPEN rung-5 items:
   the tuning pass toward the FFVII feel (owner-driven, 1-minute clock stays
   until then), restore the real 4:00 clock when tuned, the 20-cap-vs-counters
