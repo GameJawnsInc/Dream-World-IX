@@ -79,7 +79,7 @@ Quoted verbatim from memory `project-ff9-overload-hooks`:
 Displaced engine defaults are transcribed VERBATIM into the hub (position hand-authored per hook); each
 spliced call is try/catch-wrapped; a collision GATE refuses a hand-dropped `.cs` colliding with the hub.
 Adding a feature = one registry entry (dir/file/order/live_owned/hooks/render) + a static-class renderer
-+ splice statements (`ff9mapkit/battle/overload.py`).
++ splice statements (`ff9mapkit/ff9mapkit/battle/overload.py`).
 
 ## Returning hooks + the GRANULARITY LAW
 
@@ -129,5 +129,5 @@ text markup in enemy names). RELAUNCH-scoped like the whole channel.
 
 `tools/deploy_field.py` is generic: it REPLACES build-owned Sources dirs and preserves live-owned ones
 (telemetry), then recompiles if any live-owned feature is present — one code path for every feature.
-⚠ `ff9mapkit/deploy.py` (deploy-campaign/journey wholesale-replace) has NO stickiness — a live
+⚠ `ff9mapkit/ff9mapkit/deploy.py` (deploy-campaign/journey wholesale-replace) has NO stickiness — a live
 telemetry install is wiped by those; re-install after.

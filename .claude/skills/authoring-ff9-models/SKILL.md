@@ -23,7 +23,7 @@ Every `model-*` command is DLL-free: the engine probes a loose `Models/{typeInt}
 
 ## New animation clips
 
-`model-anim-new` mints a wholly new clip. Two traps: **FIELD anim ids are 16-bit** — "A field-playable anim key MUST fit UInt16 (≤65535)" → mint band **60000–65535** — and "a NEW clip must key the FULL skeleton" (an unkeyed neck + head-focus = the spinning-head artifact). Minted clips survive a field redeploy: `ff9mapkit/dictpatch.py` preserves foreign DictionaryPatch lines by exact id/key. Detail → `references/model-pipeline.md`; editing EXISTING clips → `ff9mapkit/docs/ANIMATION_EDITING.md`.
+`model-anim-new` mints a wholly new clip. Two traps: **FIELD anim ids are 16-bit** — "A field-playable anim key MUST fit UInt16 (≤65535)" → mint band **60000–65535** — and "a NEW clip must key the FULL skeleton" (an unkeyed neck + head-focus = the spinning-head artifact). Minted clips survive a field redeploy: `ff9mapkit/ff9mapkit/dictpatch.py` preserves foreign DictionaryPatch lines by exact id/key. Detail → `references/model-pipeline.md`; editing EXISTING clips → `ff9mapkit/docs/ANIMATION_EDITING.md`.
 
 ## Battle-model alias chain
 

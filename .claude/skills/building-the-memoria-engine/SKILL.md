@@ -1,7 +1,6 @@
 ---
 name: building-the-memoria-engine
-description: Build and patch the local custom Memoria engine -- a rare, DANGEROUS workflow. Confirm a DLL rebuild is truly needed before starting (most tasks need none), and back up the DLL first because the build AUTO-DEPLOYS with no backup. Use when the user rebuilds `Assembly-CSharp.dll`, adds/edits a memoria-patch (s22-s36), works on the fork-donor remap suite (sweeping a hardcoded `fldMapNo` in its four forms -- `==` compare, local alias, name-key, lookup-arg -- via `EffectiveFieldId`/`EffectiveFieldName`/`FieldLocationName`), or runs `verify_fork_gates` / `restore_memoria_dll`. Covers the MSBuild recipe (`/p:SolutionDir=C:\gd\FFIX\Memoria\` trailing slash required, add new `.cs` to the csproj), version-match commit `6b8bb2d5`, the fork-gate census, and why forked fields require the bundle while novel fields run on stock. For deploying mod content (not engine code) see `deploying-ff9-mods`; for USING the fork gates see `forking-ff9-fields`.
-disable-model-invocation: true
+description: Build and patch the local custom Memoria engine -- a rare, DANGEROUS workflow. Confirm a DLL rebuild is truly needed before starting (most tasks need none), and back up the DLL first because the build AUTO-DEPLOYS with no backup. Use when the user rebuilds `Assembly-CSharp.dll`, adds/edits a memoria-patch (the `memoria-patches/` stack, s12-s58), works on the fork-donor remap suite (sweeping a hardcoded `fldMapNo` in its four forms -- `==` compare, local alias, name-key, lookup-arg -- via `EffectiveFieldId`/`EffectiveFieldName`/`FieldLocationName`), or runs `verify_fork_gates` / `restore_memoria_dll`. Covers the MSBuild recipe (`/p:SolutionDir=C:\gd\FFIX\Memoria\` trailing slash required, add new `.cs` to the csproj), version-match commit `6b8bb2d5`, the fork-gate census, and why forked fields require the bundle while novel fields run on stock. For deploying mod content (not engine code) see `deploying-ff9-mods`; for USING the fork gates see `forking-ff9-fields`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
@@ -65,8 +64,13 @@ Method + findings: memory `project-ff9-fork-verification-harness`.
 
 ## Restore / revert
 
-- `py tools/restore_memoria_dll.py baseline` — copies the no-edits-rebuild baseline DLLs back
-  to both Managed folders (isolates "my edits" from "the rebuild itself").
+- `py tools/restore_memoria_dll.py <selector>` — copies the newest backup set whose name
+  contains `<selector>` back into both Managed folders. `<selector>` = the timestamp
+  `backup_memoria_dll.py` printed for YOUR pre-build snapshot. Run it from the MAIN repo
+  (`backups/` lives there, not in a worktree).
+- ⚠ `baseline` (the historical no-edits-rebuild set — and the script's no-argument DEFAULT) is
+  GONE from `backups/`: it now exits non-zero with `NOTHING RESTORED`. Always pass a real
+  timestamp. Detail: [`references/build-recipe.md`](references/build-recipe.md).
 - TRUE stock = re-run the Memoria patcher (`Memoria.Patcher.exe`).
 - Close FF9 first: restoring over a running game hits `WinError 1224` (DLL memory-mapped).
 

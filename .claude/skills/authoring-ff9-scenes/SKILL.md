@@ -1,6 +1,6 @@
 ---
 name: authoring-ff9-scenes
-description: Author a NEW FF9 field's camera, walkmesh, and pre-rendered background art from math. Use when the user runs `ff9mapkit new`/`build`/`camera`/`walkmesh`/`paint-template`/`repaint-native`, places/aligns a camera, builds/verifies/reshapes a walkmesh, paints/wires background layers, or hits content off-mesh, in a dead zone, misaligned on the art, a doubled FOV when scrolling, or a BG-borrow black screen. Covers the k=14/15 projection invariant and `cam.synth_r_t`, the scale-1 canvas (canvasX=rawProj.x+w/2, canvasY=h/2-rawProj.y), ground-offset 0 / `frame="world"`, yaw/control-direction, the vert+orgPos+floor.org walkmesh frame, `.bgi` ship-verbatim or reshape via obj+links, IsInQuad dead zones, COLLISION_RADIUS~=48, canvas 384x448/4x PNGs, smaller-Z-in-front occlusion, scrolling `window_width` vs `Range`, and BG-borrow `area>=10`. The physical half of a novel field; for its `.eb` logic/NPCs/dialogue see `authoring-ff9-field-scripts`; to fork a real field's art see `forking-ff9-fields`.
+description: Author a NEW FF9 field's camera, walkmesh, pre-rendered background art, and its media assets. Use when the user runs `ff9mapkit new`/`build`/`camera`/`walkmesh`/`paint-template`/`repaint-native`, places/aligns a camera, builds/verifies/reshapes a walkmesh, paints/wires background layers, adds custom MUSIC or SFX (`audio-import`/`music-list`/`sfx-list`, `[music] song=`), SPS particle effects (`sps`, `[[sps]]`), or an FMV swap -- or hits content off-mesh, in a dead zone, misaligned on the art, a doubled FOV when scrolling, or a BG-borrow black screen. Covers the k=14/15 projection invariant and `cam.synth_r_t`, the scale-1 canvas (canvasX=rawProj.x+w/2, canvasY=h/2-rawProj.y), ground-offset 0 / `frame="world"`, the vert+orgPos+floor.org walkmesh frame, smaller-Z-in-front occlusion, and BG-borrow `area>=10`. The physical half of a novel field; for its `.eb` logic/NPCs/dialogue see `authoring-ff9-field-scripts`; to fork a real field's art see `forking-ff9-fields`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
@@ -8,6 +8,7 @@ description: Author a NEW FF9 field's camera, walkmesh, and pre-rendered backgro
 # Authoring FF9 Scenes
 
 Camera + walkmesh + painted-art placement for a novel field, authored from math. This is SOLVED — author from the formulas, never eyeball. The human owns final in-game alignment judgment (I cannot see the running game; after a visible change, stop and ask for a playtest).
+A defect in the form editor or the Workspace's camera/scene panels themselves — as opposed to the math they emit — belongs to `working-on-the-ff9-workspace`.
 
 ## Camera from math
 
@@ -42,9 +43,17 @@ Mint via DictionaryPatch `FieldScene <id> <area> <MAPID> <NAME> <textid>`; point
 
 The `.bgx` editable-layer path has unavoidable 1px bilinear tile seams; **`--native`** (verbatim `.bgs` + atlas, no `.bgx`) is the seam-free path, and `repaint-native` makes the tile-packed atlas repaintable. Read memory `[[project-ff9-native-repaint-workflow]]`, `[[project-ff9-editable-scene-seams]]`.
 
+## Field media assets -- music, SFX, particles, FMV
+
+Shipped but easy to miss. All three are DLL-free loose-file overrides, and all three are routing targets, not recipes to re-derive here.
+
+- **Custom music / SFX** — `music-list` / `sfx-list` show the song-id → ResourceID map (what you may replace); `audio-import <file> --song <id>` REPLACES an existing id, `audio-import <file> --new-song [--id N]` MINTS a new one (`--kind music|sfx`, `--deploy <modfolder>`). Any source format is transcoded to Ogg Vorbis; the engine wraps it into AKB2 at runtime. Play it from a field with `[music] song = <id>` (or `.eb RunSoundCode(0, <id>)`). **Two gotchas that eat a whole test:** `Memoria.ini [Audio] PriorityToOGG = 1` is REQUIRED (the bundled `.akb` always exists and wins otherwise — `audio-import` sets it unless `--no-set-priority`), and audio loads at STARTUP, so **RELAUNCH** — ~ → Reload will not pick it up. Also check the user's MusicVolume is not 0 before believing "I hear nothing". → memory `[[project-ff9-sound-music]]`; re-routing a field to an EXISTING song id instead → `[[project-ff9-verbatim-music]]`.
+- **SPS particle effects** (fire/smoke/magic) — the `.sps` binary is fully decoded and round-trip proven. `ff9mapkit sps <field>` lists/decodes an effect, `--templates` lists the `[[sps]]` creator templates, `--png`/`--gif` render an offline preview (needs UnityPy). Canonical doc: `ff9mapkit/docs/SPS.md`; deep recipe → memory `[[project-ff9-sps-authoring]]`. Pixels live in a shared per-scene `spt.tcb`, not in the `.sps` — which is why a FORK must carry both; that fork-fidelity axis belongs to `forking-ff9-fields` (`[[project-ff9-sps-fork]]`).
+- **FMV** — there is **no CLI verb**; the swap is a manual encode plus a loose drop at `<mod>/StreamingAssets/ma/FMV###.bytes` (Ogg/Theora, in-game proven on FMV000). ⚠ The load-bearing trap is the ENCODER, not the pipeline: the common `ffmpeg` build on PATH ships a BROKEN libtheora and produces garbage at every setting. Always decode-validate an encode (`ffmpeg -v error -i X.bytes -f null -` must report ZERO errors; a vanilla FMV is the 0-error oracle). Read `[[project-ff9-fmv-pipeline]]` BEFORE encoding anything — a brand-new FMV slot is blocked (the movie table has no `.eb` reach); reuse/repoint an existing one.
+
 ## Additional resources
 
 - Docs (Layer 3): `ff9mapkit/docs/TECHNICAL.md` (§2 camera projection, §3 canvas map, §4 ground offset, §6 walkmesh frame), `ff9mapkit/docs/PIPELINE.md` (§2 camera + paint guide, §3 painting, §4 walkmesh, scrolling), `ff9mapkit/docs/WALKMESH_EDITING.md` (the obj+links reshape spec).
 - Code (canonical): `ff9mapkit/ff9mapkit/scene/cam.py` (projection/canvas/yaw), `ff9mapkit/ff9mapkit/scene/bgi.py` (walkmesh codec).
-- Memory (Layer 2): read `[[project-ff9-camera-math]]`, `[[project-ff9-import-frame]]`, `[[project-ff9-novel-bg-pipeline]]`.
+- Memory (Layer 2): read `[[project-ff9-camera-math]]`, `[[project-ff9-import-frame]]`, `[[project-ff9-novel-bg-pipeline]]`; for media assets `[[project-ff9-sound-music]]`, `[[project-ff9-sps-authoring]]`, `[[project-ff9-fmv-pipeline]]` (+ `ff9mapkit/docs/SPS.md`).
 - Offline gates: `ff9mapkit lint <toml>` / `ff9mapkit walkmesh verify <path>` — run them; I can't see the game.
