@@ -271,9 +271,12 @@ def behavior_toml(lay: dict) -> str:
              f'\n[[behavior.scan]]\nname = "troop_up"\ngroup = "allies"\n'
              f'count = "troops"\nalive_only = true\n'
              # the war-room strip: gil (6 digits), troops/raiders (2), depot hp (2)
+             # MPOS is the PSX-ish 320x224 UI grid (stock's save menu pins at
+             # 20,16) — and the COUNTDOWN TIMER owns the top-left corner, so
+             # the strip sits BELOW it (playtest: 8,8 overlapped the clock)
              f'\n[[behavior.hud]]\nwindow = 6\ndigits = [6, 2, 2, 2]\n'
              f'values = ["gil", "troops", "raiders_up", "hp:base"]\n'
-             f'text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  '
+             f'text = "[MPOS=10,48]GIL [NUMB=0]  TROOPS [NUMB=1]  '
              f'RAIDERS [NUMB=2]  DEPOT [NUMB=3]"\n']
     for pname, (_n, price, rf) in POOLS.items():
         btn = "\nbutton = true" if pname == "soldiers" else ""
@@ -292,24 +295,26 @@ def behavior_toml(lay: dict) -> str:
                          do={"announce": f"The city fronts you {STIPEND} gil for the"
                                          f" defense, kupo!  Press Select anywhere to"
                                          f" deploy troops where you stand."}))
-    parts.append(_branch(when=[{"time_below": 1}], once="paid",
+    # THE ONE PURSE, TWO ENDINGS (playtest 4: "the reward fires twice — once
+    # when you kill the last enemy, and once when the timer hits zero"). Two
+    # independent award branches each had their OWN once-latch, so a rout paid
+    # AND the clock paid. Now the endings only DETECT — whichever lands first
+    # raises `won` and the other's `not_flag` gate closes it out — and a
+    # single payout branch, gated on `won`, pays exactly once.
+    parts.append(_branch(when=[{"counter_ge": ["wave", len(SCHED)]},
+                               {"counter_eq": ["raiders_up", 0]},
+                               {"not_flag": "won"}], once="routcry",
+                         raise_flags=["won"],
+                         do={"announce": "THE RAID IS BROKEN — every raider is"
+                                         " down!  The city pays in full."}))
+    parts.append(_branch(when=[{"time_below": 1}, {"not_flag": "won"}],
+                         once="wincry", raise_flags=["won"],
+                         do={"announce": "WE HELD THE DEPOT!  The city pays"
+                                         " in full."}))
+    parts.append(_branch(when=[{"flag": "won"}], once="paid",
                          do={"award": WIN_GIL, "item": WIN_ITEM}))
-    parts.append(_branch(when=[{"time_below": 2}], once="wincry",
-                         do={"announce": f"WE HELD THE DEPOT!  The city pays"
-                                         f" {WIN_GIL} gil and a {WIN_ITEM}."}))
     parts.append(_branch(when=[{"any_near": [ALL_RAIDERS, 500]}], once="alarm",
                          do={"announce": "They're through!  Protect the depot!"}))
-    # THE EARLY VICTORY (new — the alive_only wipe scan): clear the field of
-    # raiders before the clock and the siege ends there. Gated on wave 3 having
-    # spawned, so an empty field at 0:55 isn't a win.
-    parts.append(_branch(when=[{"counter_ge": ["wave", len(SCHED)]},
-                               {"counter_eq": ["raiders_up", 0]}], once="routed",
-                         do={"award": WIN_GIL, "item": WIN_ITEM}))
-    parts.append(_branch(when=[{"counter_ge": ["wave", len(SCHED)]},
-                               {"counter_eq": ["raiders_up", 0]}], once="routcry",
-                         do={"announce": f"THE RAID IS BROKEN — every raider is"
-                                         f" down!  The city pays {WIN_GIL} gil"
-                                         f" and a {WIN_ITEM}."}))
     parts.append(_branch(do={"hold": [bx, bz]}))
 
     # THE RAIDERS — march the lane, beat the depot, and FIGHT BACK (round-2
