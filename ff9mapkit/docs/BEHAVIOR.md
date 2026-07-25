@@ -422,10 +422,19 @@ Three engine facts shape the emitted code, each learned from a playtest:
   before opening, then the real values land the next tick. Size `digits` to
   the widest value a slot will ever show (gil wants 6–7).
 
-Authoring notes: place with `[MPOS=x,y]`; the window auto-sizes to its text,
-so keep labels short — a long strip wraps to a second line (`[WDTH]` is a
-no-op in this engine). Combine with `alive_only` scans for live team
-headcounts. ~180B of ticker + one window slot per strip; static values cost
+Authoring notes: place with `[MPOS=x,y]` — the PSX-ish 320×224 UI grid (stock
+pins its save menu at `20,16`), and **the countdown timer owns the top-left
+corner**, so a strip belongs below it (`10,48` clears it) or elsewhere on
+screen. The window auto-sizes to its text, so keep labels short — a long strip
+wraps to a second line (`[WDTH]` is a no-op in this engine). Combine with
+`alive_only` scans for live team headcounts.
+
+Win-condition note (a Condor playtest bought this one): two *separate* award
+branches each carry their own once-latch, so "pay on rout" plus "pay at the
+final whistle" pays TWICE. Model endings as **detect-then-pay** — each ending
+branch only announces and raises a shared `won` flag (gated on
+`not_flag = "won"`, so whichever lands first closes the other out), with ONE
+award branch gated on `flag = "won"`. ~180B of ticker + one window slot per strip; static values cost
 nothing.
 
 ## Limits (v1)
