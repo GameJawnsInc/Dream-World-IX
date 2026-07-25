@@ -1235,7 +1235,7 @@ def hud_field() -> B.FieldBehavior:
         B.Do(B.Hold((0, 0))),
     )
     fb.hud("[MPOS=12,10]K [NUMB=0]  S [NUMB=1]", ["kills", "score"],
-           window=6, txid=940)
+           window=6, txid=940, digits=3)
     return fb
 
 
@@ -1243,12 +1243,21 @@ def test_hud_compiles_and_draws():
     cb = hud_field().compile()
     _verify_all(cb)
     ops = [i.op for i in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
-    assert ops.count(0x66) == 2                    # one SetTextVariable per value
+    # two live writes + two open-pass SENTINEL writes (the width reserve)
+    assert ops.count(0x66) == 4
     # THE FLICKER LAW (playtest 1: "the strip flickers"): the window opens
     # EXACTLY ONCE behind the shown-latch — the engine re-renders [NUMB]s in
     # place, and re-issuing WindowAsync disposes+recreates (blink per change)
     assert ops.count(0x20) == 1
-    assert "hud0.shown" in cb.report
+    assert "hud0.shown" in cb.report and "3-digit reserve" in cb.report
+    # THE WIDTH-RESERVE LAW (playtest 2: "double digits causes clipping"):
+    # Dialog.AutomaticSize bakes the width ONCE at open, so the open pass must
+    # feed the max-width sentinel (10^digits - 1) before the window opens
+    ins = list(D.iter_code(cb.ticker_body, 0, len(cb.ticker_body)))
+    win_at = next(i for i, x in enumerate(ins) if x.op == 0x20)
+    sentinels = [x for x in ins[:win_at] if x.op == 0x66]
+    assert len(sentinels) == 2
+    assert bytes([999 & 0xFF, 999 >> 8]) in cb.ticker_body
     assert "hud #0: window 6, txid 940" in cb.report
     segs = dict(cb.sizes["ticker_segments"])
     assert segs.get("hud 0", 0) > 40

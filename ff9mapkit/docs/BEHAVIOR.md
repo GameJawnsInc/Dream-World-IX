@@ -398,18 +398,29 @@ cell as an expression arg, into a TRANSPARENT window (flags 16 — frameless
 floating text). The `.mes` line is minted like an announce and `[IMME]` is
 prepended when absent so the strip never types in.
 
-**The window opens exactly ONCE** and is never re-issued: the engine
-re-renders a live dialog's `[NUMB]` variables in place every frame they change
-(`Dialog.Update → UpdateMessageValue`), while re-issuing `WindowAsync` would
-dispose and recreate the window — its open animation replaying on every change
-is a visible flicker (the first build's playtest). A dirty-mirror check keeps
-the variable writes off quiet frames, and the shown-latch clears on `~ Reload`
-so the strip re-opens with the field.
+Three engine facts shape the emitted code, each learned from a playtest:
 
-Authoring notes: place with `[MPOS=x,y]`; the window AUTO-SIZES to its text,
-so keep labels short (or set `[WDTH=n]`) — a long strip wraps to a second
-line. Combine with `alive_only` scans for live team headcounts. ~150B of
-ticker + one window slot per strip; static values cost nothing.
+- **The window opens exactly ONCE** and is never re-issued: the engine
+  re-renders a live dialog's `[NUMB]` variables in place every frame they
+  change (`Dialog.Update → UpdateMessageValue`), while re-issuing
+  `WindowAsync` disposes and recreates the window — the open animation
+  replaying on every change is a visible flicker. A dirty-mirror check keeps
+  the variable writes off quiet frames; the shown-latch clears on `~ Reload`.
+- **`[NFOC]` is prepended** (with `[IMME]`): NoFocus sets
+  `Dialog.FlagButtonInh`, so the player's confirm can never close the strip —
+  without it, clicking through any dialogue closes the HUD for good.
+- **`digits` reserves the width** (default 2, up to 7): `AutomaticSize` bakes
+  a dialog's width ONCE at open from the text as it renders THEN, and a
+  variable change never re-sizes it — so a strip opened showing `0` clips when
+  a counter reaches `11`. The open pass feeds every slot `10^digits - 1`
+  before opening, then the real values land the next tick. Size `digits` to
+  the widest value a slot will ever show (gil wants 6–7).
+
+Authoring notes: place with `[MPOS=x,y]`; the window auto-sizes to its text,
+so keep labels short — a long strip wraps to a second line (`[WDTH]` is a
+no-op in this engine). Combine with `alive_only` scans for live team
+headcounts. ~180B of ticker + one window slot per strip; static values cost
+nothing.
 
 ## Limits (v1)
 

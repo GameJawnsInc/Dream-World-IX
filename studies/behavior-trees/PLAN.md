@@ -573,10 +573,25 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    WindowAsync on a dirty-mirror check; .mes minted via the announce path,
    [IMME] auto-prepended, ≤8 slots) · extended opcodes 0x112-0x11E in the
    optables (regen CUSTOM_EXTENDED block, engine-verified getv3 shapes).
-   Bench: THE SCOREBOARD BRAWL on 30416 (group_bench round 2, zero-relaunch)
-   DEPLOYED, playtest pending — the strip's numbers ARE the alive-scan
-   verification, the wipe line replaces the unreachable 13-kill finale, and
-   nearest shows as straight-across pairing.
+   Bench: THE SCOREBOARD BRAWL on 30416 (group_bench round 2, zero-relaunch).
+   **★ ALL FOUR IN-GAME PROVEN (owner, 3 rounds):** alive_only scans + team
+   wipe ("good"), nearest ("good"), the extended opcodes (offline), and the
+   HUD strip after two dialog-behavior fixes — each cause read from the engine
+   source, not guessed:
+   1. FLICKER = re-issuing `WindowAsync` per change DISPOSES and recreates the
+      window (open animation each time). The engine re-renders a live dialog's
+      `[NUMB]`s IN PLACE (`Dialog.Update → UpdateMessageValue`, :1417) — so the
+      window opens ONCE behind a latch and only the variables are written.
+   2. A CONFIRM PRESS CLOSED IT PERMANENTLY = a dialog closes on input unless
+      `FlagButtonInh`; that flag is reachable from a TEXT TAG — **`[NFOC]`**
+      (NoFocus), now auto-prepended with `[IMME]`.
+   3. DOUBLE-DIGIT CLIPPING = `Dialog.AutomaticSize` bakes the width ONCE at
+      open and a variable change never re-sizes → the `digits` reserve: the
+      open pass feeds `10^digits - 1` before opening, real values land next
+      tick.
+   Owner verdict: "strip stays up now, no clipping". All three laws are
+   suite-pinned; the HUD is ready for Condor's Gil/Units/Depot row (digits=6
+   for gil).
    The original full-substrate sketch, for the later
    rungs: move per-unit state
    (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into

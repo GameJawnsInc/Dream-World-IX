@@ -120,7 +120,7 @@ SCHEDULE_KEYS = {"counter", "table"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
              "alive_only"}
 GROUP_KEYS = {"name", "units"}
-HUD_KEYS = {"window", "text", "values"}
+HUD_KEYS = {"window", "text", "values", "digits"}
 
 
 class BehaviorTomlError(ValueError):
@@ -234,9 +234,14 @@ def hud_lines(raw: dict) -> list:
 
 def hud_mes_text(row: dict) -> str:
     """The final ``.mes`` text for a hud row: the author's text with ``[IMME]``
-    prepended when absent — a live strip must never type in."""
+    (never type in) and ``[NFOC]`` (NoFocus -> ``Dialog.FlagButtonInh``, so the
+    player's confirm can NEVER close the strip — playtest 2: clicking through a
+    dialogue closed the HUD permanently) prepended when absent."""
     t = str(row.get("text", ""))
-    return t if "[IMME]" in t else "[IMME]" + t
+    for tag in ("[NFOC]", "[IMME]"):
+        if tag not in t:
+            t = tag + t
+    return t
 
 
 def schedule_rows(raw: dict) -> list:
@@ -655,7 +660,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
     for hi, h in hud_lines(raw):
         fb.hud(str(h.get("text", "")), [str(v) for v in h.get("values", []) or []],
                window=int(h.get("window", 6)),
-               txid=behavior_txids.get(("hud", hi)))
+               txid=behavior_txids.get(("hud", hi)),
+               digits=int(h.get("digits", 2)))
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
@@ -1025,6 +1031,10 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         if not txt.strip():
             problems.append(f"{ctx}: needs `text = ` (the strip's .mes line — "
                             f"[NUMB=i] slots, [MPOS=x,y] to place it)")
+        dg = row.get("digits", 2)
+        if not isinstance(dg, int) or not 1 <= dg <= 7:
+            problems.append(f"{ctx}: digits must be an int 1..7 (the width "
+                            f"reserve — the widest value a slot will show)")
         vals = row.get("values")
         if not isinstance(vals, list) or not 1 <= len(vals) <= 8:
             problems.append(f"{ctx}: values must be 1..8 counter names (the "
