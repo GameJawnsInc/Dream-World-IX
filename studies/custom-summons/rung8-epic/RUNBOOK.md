@@ -271,3 +271,11 @@ castable; field 30300 untouched.
 - **`ef091/Sequence.seq` must never exist** (R15) — `SFXData.LoadSFX` reads it unconditionally, and a
   present one threads in as a second, duplicate-damage parallel thread. The emitter never writes it and
   `PlaySFX` carries `SkipSequence=True` anyway.
+
+## CAST 2 VERDICT — 2026-07-24 ★★ THE WHISPER APPROVED ("much tighter")
+
+The retimed NIMBRA (140 ticks / 9.3s / power 34 / MP 24 — the stock expected-cast median, ratio at
+the stock mean) is playtest-approved. RUNG 8 IS CLOSED ★: the first original FF9 summon ever
+composed, cast, and tuned onto the game's own duration-power line. Resting state: MISTBENCH 30301
+live alongside the M1b bench; every timing knob recast-only. Open leads (non-gating): a REAL short
+variant via cmd.info.short_summon (ordering risk unverified); Ark's measured 113.2s awaits a watch.
