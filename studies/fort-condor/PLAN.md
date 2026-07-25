@@ -193,6 +193,18 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
 - **Rung 5 — THE FORT CONDOR FIT.** Unit roster/costs/waves tuned to the FFVII design
   (owner ratifies which mechanics are essential: unit types, max 20 allies, gil costs,
   fixed artillery, win rewards). Models from the Info Hub catalog.
+  **PREP DONE (2026-07-24): the DATA-TABLE substrate is built** — `[[behavior.table]]` /
+  `counters` / `[[behavior.schedule]]` (the wave clock: `wave += 1` while the HUD sits
+  below `sched[wave]`, self-terminating; `die = "kills"` tallies; `counter_ge` gates
+  waves and win conditions; `table_*` verbs take a counter as a COMPUTED index). Wave
+  compositions, band times, and win thresholds become ONE table edit instead of
+  re-unrolled branches. ⚠ First in-game 0xD3 proof pending on bench 30415 (BTTABLE) —
+  prove it there BEFORE building rung 5 on it. Remaining rung-5 vocabulary gaps, for
+  the ratification round: per-pool hire MENUS with multiple unit types priced apart
+  (today: one pool = one price; N types = N pools + N menu rows — workable, just
+  verbose), the affordable/exhausted feedback flags (recorded polish debt), win
+  REWARDS (a `give_gil`/`give_item` on the win branch — the [[event]] lane may
+  already cover it), and the 20-ally cap (pool sizes already are the cap).
 - Productization (`[minigame]`-style TOML lane) is deliberately deferred until rung 2
   proves the core loop.
 

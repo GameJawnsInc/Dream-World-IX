@@ -552,3 +552,93 @@ def test_mesh_boundary_edges_seam_aware():
     # tris without neighbor data fall back to the raw vertex-pair count
     bare = NS(world_verts=lambda: verts, tris=[NS(vtx=t.vtx) for t in tris])
     assert sorted(R.mesh_boundary_edges(bare)) == sorted(raw)
+
+
+# ------------------------------------------------------------------ data tables (0xD3)
+TABLE_RAW = {
+    "npc": [
+        {"name": "gate", "pos": [0, 0], "dialogue": "..."},
+        {"name": "fang", "pos": [900, 900], "dialogue": "..."},
+    ],
+    "behavior": {
+        "timer": 120,
+        "counters": ["wave", "kills"],
+        "table": [{"name": "sched", "values": [100, 80, 60]}],
+        "schedule": [{"counter": "wave", "table": "sched"}],
+        "unit": [
+            {"npc": "gate", "hp": 6, "branch": [
+                {"when": [{"counter_ge": ["kills", 1]}], "once": "won",
+                 "do": {"announce": "The pest is down."}},
+                {"when": [{"counter_eq": ["wave", 1]},
+                          {"table_ge": ["sched", "wave", 1]}], "once": "w1",
+                 "do": {"announce": "Wave one!"}},
+                {"do": {"hold": [0, 0]}},
+            ]},
+            {"npc": "fang", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": "kills"}},
+                {"do": {"hold": [900, 900]}},
+            ]},
+        ],
+    },
+}
+
+
+def test_table_toml_surface():
+    assert BT.validate(TABLE_RAW) == []
+    fb = BT.build(TABLE_RAW, npc_slots={"gate": 2, "fang": 3},
+                  behavior_txids={(0, 0): 700, (0, 1): 701})
+    cb = fb.compile()
+    _verify_all(cb)
+    assert fb.tables["sched"] == (B.TABLE_ID_BASE, (100, 80, 60))
+    assert fb._counters == {"wave": 0, "kills": 1}
+    assert fb._schedules == [("wave", "sched")]
+    assert "schedule: wave += 1 while timer < sched[wave]" in cb.report
+    # determinism through the TOML path
+    fb2 = BT.build(TABLE_RAW, npc_slots={"gate": 2, "fang": 3},
+                   behavior_txids={(0, 0): 700, (0, 1): 701})
+    assert fb2.compile().stable_hash() == cb.stable_hash()
+
+
+def test_table_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(TABLE_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("is not a [[behavior.table]]" in p for p in
+               mut(lambda b: b["schedule"][0].update(table="nope")))
+    assert any("not in [behavior] counters" in p for p in
+               mut(lambda b: b["schedule"][0].update(counter="nope")))
+    assert any("needs field-level `timer" in p for p in
+               mut(lambda b: b.pop("timer")))
+    assert any("already has a schedule" in p for p in
+               mut(lambda b: b["schedule"].append({"counter": "wave", "table": "sched"})))
+    assert any("die counts" in p for p in
+               mut(lambda b: b["unit"][1]["branch"][0].update(do={"die": "ghosts"})))
+    assert any("out of range" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["when"].__setitem__(
+                   1, {"table_ge": ["sched", 9, 1]})))
+    assert any("is not in [behavior] counters" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][1]["when"].__setitem__(
+                   1, {"table_ge": ["sched", "ghosts", 1]})))
+    assert any("counter_ge takes" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0]["when"].__setitem__(
+                   0, {"counter_ge": ["kills"]})))
+    assert any("values must be" in p for p in
+               mut(lambda b: b["table"][0].update(values=[])))
+    assert any("26-bit" in p for p in
+               mut(lambda b: b["table"][0].update(values=[1 << 26])))
+    assert any("duplicate table" in p for p in
+               mut(lambda b: b["table"].append({"name": "sched", "values": [1]})))
+    assert any("collides with a counter" in p for p in
+               mut(lambda b: b["table"].append({"name": "wave", "values": [1]})))
+    assert any("id 77 used twice" in p for p in
+               mut(lambda b: b["table"].__iadd__(
+                   [{"name": "a", "values": [1], "id": 77},
+                    {"name": "b", "values": [1], "id": 77}])))
+    assert any("unknown key" in p for p in
+               mut(lambda b: b["table"][0].update(cells=["x"])))
+    assert any("unknown key" in p for p in
+               mut(lambda b: b["schedule"][0].update(speed=9)))

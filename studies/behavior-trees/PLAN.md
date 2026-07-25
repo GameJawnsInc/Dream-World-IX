@@ -309,6 +309,26 @@ runtime tree switching beyond blackboard-driven branches.
   resume whenever a behavior compiles a battle (the after-battle resume law as a
   build invariant). 6 new tests incl. the built-.eb tag-10 e2e. The proof bench =
   fort-condor 30400 "THE SIEGE" (its PLAN rung 4).
+- **POST-LADDER — DATA TABLES (the 0xD3 dividend as vocabulary, 2026-07-24):
+  ⚠ BUILT + DEPLOYED, playtest pending (bench 30415 "BTTABLE" = the FIRST IN-GAME
+  RUN of `.eb` computed array indexing anywhere).** `[[behavior.table]]` (named int
+  arrays in `gScriptVector`, RE-SEEDED every field entry: size←0 then size←n —
+  engine zero-fill — then non-zero cells only; auto ids from 1000, save-global
+  aliasing harmless by the re-seed, stale save tails impossible by the truncate) +
+  `counters = [...]` (runtime cells, one internal table) + conds
+  `counter_ge/le/eq` and `table_ge/le/eq` (the table verbs' index may be a COUNTER
+  NAME — a genuinely runtime-computed lookup; nested VECTOR reads compose, the
+  engine keys sub-operands by CalcStack depth) + `die = "<counter>"` (bump-once:
+  the death body runs exactly once) + `[[behavior.schedule]]` = **THE WAVE CLOCK**
+  (`counter += 1` while the countdown HUD sits below `table[counter]` — one generic
+  engine replacing N unrolled `time_below` bands, the schedule is DATA;
+  self-terminating: the counter walking off the table's end reads 0 fail-soft and
+  `timer < 0` never holds — the data IS the latch). The bench: dormant fangs woken
+  per-wave by the clock (counter_ge gates), a MUTUAL guard duel feeding
+  `die = "kills"`, the herald announcing every band + the tally + the terminator.
+  9 new tests (seed shape / computed-index byte shapes / allocation determinism /
+  negatives both surfaces). This is rung 5 of fort-condor's substrate: unit
+  rosters, costs and wave compositions as ONE table edit.
 - **POST-LADDER — THE COMPILED ROADMAP (PATH B, dynamic navigation): ★ FALSIFIED
   OFFLINE (2026-07-24, zero playtests spent).** Scripts + reproduction:
   `pathb/` (`roadmap.py` decomposition, `emit.py` real-byte emission, `census.py`,

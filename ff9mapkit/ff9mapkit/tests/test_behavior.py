@@ -589,3 +589,134 @@ def test_blackboard_allocation():
     with pytest.raises(B.BehaviorError, match="flag band exhausted"):
         bb.flag("f5")
     assert "byte" in bb.report()
+
+
+# ------------------------------------------------------------------ data tables (0xD3)
+def _expr_stmts(body: bytes) -> list:
+    """Every 0x05 expression statement in the body, pretty-printed."""
+    out = []
+    for ins in D.iter_code(body, 0, len(body)):
+        if ins.op == 0x05:
+            txt, _ = D.pretty_expr(body, ins.off + 1)
+            out.append(txt)
+    return out
+
+
+def table_field() -> B.FieldBehavior:
+    """The rung-5 reference shape: a schedule-clocked wave counter + a kill counter
+    bumped by Die(count=) + counter/table conds (one with a COMPUTED index)."""
+    fb = B.FieldBehavior(
+        [B.UnitSpec("gate", entry=2, spawn=(0, 0), hp=6),
+         B.UnitSpec("fang", entry=3, spawn=(900, 900), hp=3)],
+        timer=120,
+        tables=[B.TableSpec("sched", (100, 80, 0)),
+                B.TableSpec("cost", (300, 500), id=2000)],
+        counters=("wave", "kills"))
+    fb.schedule("wave", "sched")
+    fb.units["gate"].tree = B.Selector(
+        B.Sequence(fb.counter_ge("kills", 1), B.Do(B.Announce(700))),
+        B.Sequence(fb.counter_eq("wave", 1), fb.table_ge("sched", "wave", 1),
+                   B.Do(B.Announce(701))),
+        B.Do(B.Hold((0, 0))),
+    )
+    fb.units["fang"].tree = B.Selector(
+        B.Sequence(fb.hp_le("fang", 0), B.Do(B.Die(count="kills"))),
+        B.Do(B.Hold((900, 900))),
+    )
+    return fb
+
+
+def test_tables_allocate_seed_and_verify():
+    fb = table_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # allocation: declared tables from TABLE_ID_BASE in order, an explicit id wins,
+    # the internal counter table takes the next free auto slot
+    assert fb.tables["sched"][0] == B.TABLE_ID_BASE
+    assert fb.tables["cost"][0] == 2000
+    assert fb._ctr_tid == B.TABLE_ID_BASE + 1
+    # THE SEED: size<-0 wipes the save's copy, size<-n zero-fills fresh, then only
+    # NON-zero cells are written (sched[2] == 0 needs no statement)
+    seeds = _expr_stmts(cb.main_init)
+    base = B.TABLE_ID_BASE
+    assert f"{{const({base}) B_VECTOR_SIZE const(0) B_LET B_EXPR_END}}" in seeds
+    assert f"{{const({base}) B_VECTOR_SIZE const(3) B_LET B_EXPR_END}}" in seeds
+    assert f"{{const({base}) const(0) B_VECTOR const(100) B_LET B_EXPR_END}}" in seeds
+    assert f"{{const({base}) const(1) B_VECTOR const(80) B_LET B_EXPR_END}}" in seeds
+    assert not any(f"const({base}) const(2) B_VECTOR" in s for s in seeds)
+    # the counters table seeds in EXACTLY two statements (all-zero by definition)
+    ctr = fb._ctr_tid
+    ctr_seeds = [s for s in seeds if f"const({ctr})" in s]
+    assert ctr_seeds == [f"{{const({ctr}) B_VECTOR_SIZE const(0) B_LET B_EXPR_END}}",
+                         f"{{const({ctr}) B_VECTOR_SIZE const(2) B_LET B_EXPR_END}}"]
+    # THE SCHEDULE CLOCK in the ticker: the computed-index read (sched indexed BY the
+    # wave cell — nested VECTOR, the lane's whole point) + the self-increment
+    ticks = _expr_stmts(cb.ticker_body)
+    assert (f"{{B_SYSVAR[17] const({base}) const({ctr}) const(0) B_VECTOR B_VECTOR "
+            f"B_LT B_EXPR_END}}") in ticks
+    assert (f"{{const({ctr}) const(0) B_VECTOR const({ctr}) const(0) B_VECTOR "
+            f"const(1) B_PLUS B_LET B_EXPR_END}}") in ticks
+    # Die(count=): the fang's Die body bumps the kills cell (cell 1) exactly once
+    die_bodies = [b for _t, b in cb.action_funcs["fang"]]
+    bump = (f"{{const({ctr}) const(1) B_VECTOR const({ctr}) const(1) B_VECTOR "
+            f"const(1) B_PLUS B_LET B_EXPR_END}}")
+    assert any(bump in _expr_stmts(b) for b in die_bodies)
+    # report + determinism
+    assert "sched: id 1000" in cb.report and "cost: id 2000" in cb.report
+    assert "wave=cell 0" in cb.report and "schedule: wave += 1" in cb.report
+    assert table_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_table_negatives():
+    u = [B.UnitSpec("u", entry=2, spawn=(0, 0))]
+    with pytest.raises(B.BehaviorError, match="values"):
+        B.FieldBehavior(list(u), tables=[B.TableSpec("t", ())])
+    with pytest.raises(B.BehaviorError, match="26-bit"):
+        B.FieldBehavior(list(u), tables=[B.TableSpec("t", (1 << 26,))])
+    with pytest.raises(B.BehaviorError, match="duplicate table"):
+        B.FieldBehavior(list(u), tables=[B.TableSpec("t", (1,)),
+                                         B.TableSpec("t", (2,))])
+    with pytest.raises(B.BehaviorError, match="used twice"):
+        B.FieldBehavior(list(u), tables=[B.TableSpec("a", (1,), id=5),
+                                         B.TableSpec("b", (1,), id=5)])
+    with pytest.raises(B.BehaviorError, match="collides"):
+        B.FieldBehavior(list(u), tables=[B.TableSpec("w", (1,))], counters=("w",))
+    with pytest.raises(B.BehaviorError, match="must be"):
+        B.FieldBehavior(list(u), counters=("bad name",))
+    fb = B.FieldBehavior(list(u), tables=[B.TableSpec("t", (1, 2))], counters=("c",))
+    with pytest.raises(B.BehaviorError, match="unknown counter"):
+        fb.counter_ge("nope", 1)
+    with pytest.raises(B.BehaviorError, match="unknown table"):
+        fb.table_ge("nope", 0, 1)
+    with pytest.raises(B.BehaviorError, match="out of range"):
+        fb.table_ge("t", 5, 1)
+    with pytest.raises(B.BehaviorError, match="timer"):
+        fb.schedule("c", "t")                        # no timer= on the field
+    fb2 = B.FieldBehavior(list(u), timer=60,
+                          tables=[B.TableSpec("t", (1,))], counters=("c",))
+    fb2.schedule("c", "t")
+    with pytest.raises(B.BehaviorError, match="already has a schedule"):
+        fb2.schedule("c", "t")
+
+
+def test_die_count_unknown_counter_refused():
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0), hp=1)])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.hp_le("u", 0), B.Do(B.Die(count="ghosts"))),
+        B.Do(B.Hold((0, 0))),
+    )
+    with pytest.raises(B.BehaviorError, match="unknown counter"):
+        fb.compile()
+
+
+def test_cnum_literal_widths():
+    # const() is a SIGNED Int16 at runtime — anything outside rides const4()
+    assert B._cnum(32767) == "const(32767)"
+    assert B._cnum(-32768) == "const(-32768)"
+    assert B._cnum(32768) == "const4(32768)"
+    assert B._cnum(40000) == "const4(40000)"
+    fb = B.FieldBehavior([B.UnitSpec("u", entry=2, spawn=(0, 0))],
+                         tables=[B.TableSpec("big", (100000,), id=50000)])
+    fb.units["u"].tree = B.Do(B.Hold((0, 0)))
+    seeds = _expr_stmts(fb.compile().main_init)
+    assert "{const4(50000) const(0) B_VECTOR const4(100000) B_LET B_EXPR_END}" in seeds

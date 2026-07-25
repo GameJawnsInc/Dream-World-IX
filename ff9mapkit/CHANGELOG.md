@@ -5,6 +5,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[behavior]` DATA TABLES: gScriptVector arrays, counters, and the schedule clock
+- **`[[behavior.table]]`** (`name` / `values` 1..64 ±26-bit ints / optional `id`): named int
+  arrays in the save's `gScriptVector`, written through the engine's 0xD3 VECTOR lane the
+  `exprasm` entry-fee unlock made emittable — **the first consumer of `.eb` computed array
+  indexing anywhere**. Every table (and every counter) **re-seeds at each field entry**:
+  the Main_Init seed forces size→0 then size→n (the engine zero-fills a grow, so all-zero
+  cells cost nothing and a redeploy can never leave a stale tail in the save), then writes
+  only non-zero cells. Auto ids allocate from 1000 per field; save-global aliasing is
+  harmless by the re-seed.
+- **`counters = [...]`** (runtime cells, one internal table) + condition verbs
+  **`counter_ge`/`counter_le`/`counter_eq`** and **`table_ge`/`table_le`/`table_eq`** —
+  the table verbs' `index` may be a **counter name**, compiling a genuinely
+  runtime-computed lookup (`sched[wave]` — nested VECTOR reads compose; the engine keys
+  sub-operands by CalcStack depth). **`die = "<counter>"`** bumps a cell exactly once
+  (the death body runs once — edge-safe for free).
+- **`[[behavior.schedule]]`** (`counter` + `table`, needs `timer =`): THE WAVE CLOCK —
+  `counter += 1` while the countdown HUD sits below `table[counter]`, one generic engine
+  replacing N unrolled `time_below` bands, and the schedule is DATA (a rebalance edits the
+  table, not the trees). Self-terminating by construction: the counter walking off the
+  table's end reads 0 (engine fail-soft) and `timer < 0` never holds — no latch flag.
+- Python surface: `TableSpec`, `FieldBehavior(tables=, counters=)`, `schedule()`,
+  `counter_*`/`table_*` Cond builders, `Die(count=)`. Full validate coverage (unknown
+  names, index bounds, 26-bit domain, duplicate ids, schedule-without-timer). Bench:
+  field 30415 `studies/behavior-trees/bttable_bench.py` — dormant waves woken by the
+  clock, a kill tally, and the OOB terminator, all announced live.
+  Docs: [BEHAVIOR.md § Data tables](docs/BEHAVIOR.md), [FORMAT.md](docs/FORMAT.md).
+
 ### Added — `behavior lint` sweeps the DYNAMIC feeds too: the pursuit sweep for `chase`/`wander`
 - `route = "auto"` refuses `chase`/`wander` because a runtime target has no build-time leg to
   splice — so lint now checks what *is* knowable: the **family** of pursuit lines the branch's own
