@@ -13,8 +13,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   headcount into a counter and the per-unit 0/1 flags into a named table the `table_*`
   conds can read. The count is derived through the flag write-then-read round trip, so
   an indexing fault breaks the number instead of passing silently. ~400B of ticker per
-  8-unit roster. Caveat while rung-0: mirrors freeze on deactivation (a dead unit keeps
-  counting); the group-loop proper builds on this once in-game proven.
+  8-unit roster. In-game proven (THE PILGRIMAGE, 30416: the whole 1/4/8 announce ladder
+  landed true off the loop). Caveat: mirrors freeze on deactivation (a dead unit keeps
+  counting); the group-loop proper builds on this.
 
 ### Added — the compiled-behavior BYTE HISTOGRAM (`CompiledBehavior.size_report()`)
 - The compiler now accounts for every byte it emits: zero-width `__seg` markers in the
