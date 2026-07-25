@@ -46,8 +46,9 @@ ONE merged mesh, 5 logical parts (budget <= 6), 14 bones, 3 clips
   TOTAL  1693 verts  3338 tris      (hard ceiling 7000 verts -- 24 % used)
   bounds  X [-273, 273]  Y [-1400, 2]  Z [-216, 109]   height 1402u
   weights  <= 2 influences/vert, |sum-1| = 0, 13 of 14 bones carry weight
-  clips   emerge 90f/Speed2 = 45 ticks   drift 75f/Speed1 = 75   strike 60f/Speed2 = 30
-  playlist emerge + drift x2 + strike + drift x2 = 375 ticks over a 330-tick window
+  clips   emerge 15f  drift 75f (loopable)  strike 30f  driftlook 25f (loopable)
+  playlist emerge=15 | driftlook=25 | strike=30 | drift=75 = 145 ticks over a 110-tick window
+          (every entry Speed 1 -- THE SPEED-DIVISOR DEFECT, STORYBOARD 11.9)
 ```
 
 Tri count lands within 1.5 % of the storyboard's ~3290 estimate; verts come in ~20 % under its ~2100
@@ -80,11 +81,21 @@ of the mint band silently.
 line** — the SFX route loads by literal asset path, so clips are recast-only; only
 `3DModel 6400 GEO_MON_B0_M400` needs the one relaunch.
 
-**Verified by integration, not by prose:** `make_nimbra_anims.py` calls the kit's *own*
-`anim_frame_count` and `playlist_coverage` on the emitted files and asserts the result — 375 ticks,
-`short_by 0`. `build_rung8_stage.py --clean --check` now reports *"all real — no placeholders"* and
-`CHECK CLEAN`, with the emitted manifest playlist reading
-`['60000@2','60001@1','60001@1','60002@2','60001@1','60001@1']`.
+**Verified by integration, not by prose:** `make_nimbra_anims.py` **reads** the playlist and window out
+of `bench/rung8.field.toml` (one source of truth — the 2026-07-24 retime found three private copies of
+the tick table and this was one of them), then calls the kit's *own* `anim_frame_count` and
+`playlist_coverage` on the emitted files and cross-checks its own arithmetic against them — 145 ticks,
+`short_by 0`. `build_rung8_stage.py --clean --check` reports *"all real — no placeholders"* and
+`CHECK CLEAN`, with the emitted manifest playlist reading `['60000@1','60003@1','60002@1','60001@1']`.
+
+> **THE RETIME DID TOUCH THIS LANE — AND HAD TO.** §11's first pass re-cut the cast from 32.3 s to 9.3 s
+> purely by moving the playlist's `Speed` divisors, on the belief that a divisor slows a clip down.
+> **It does not** — `SFXDataMesh.cs:869` divides a clip-frame index by a tick count, so `Speed > 1` runs
+> the clip out after `1/s` of its entry and freezes the rig (STORYBOARD **§11.9**, measured by
+> `playlist_sim.py`). The fix is this lane's: **every entry is Speed 1 and the CLIP is sized to its
+> beat.** `drift` (N=75) is **byte-identical**; `emerge` (90 → 15) and `strike` (60 → 30) are the same
+> authored envelopes resampled by `nimbra_clips.rescale`; `driftlook` (N=25) is `build_drift`'s own
+> normalized cycle at the look's length. The seam + loop assertions re-ran green on all four.
 
 ---
 

@@ -8,14 +8,17 @@
     {
       "name": "emerge",
       "kit_key": 60000,
-      "speed": 2,
-      "frames": 90,
-      "length_s": 2.966667,
+      "speed": 1,
+      "frames": 15,
+      "playlist_speeds": [
+        1
+      ],
+      "length_s": 0.466667,
       "clip_file": "clips/emerge.anim",
       "manifest_path": "Animations/6400/60000",
       "disc_path": "StreamingAssets/Assets/Resources/Animations/6400/60000.anim",
-      "sequence_ticks": 45,
-      "sequence_seconds": 3.0,
+      "sequence_ticks": 15,
+      "sequence_seconds": 1.0,
       "keyed_bones": [
         1,
         2,
@@ -29,13 +32,16 @@
         12,
         13
       ],
-      "bytes": 151680
+      "bytes": 32643
     },
     {
       "name": "drift",
       "kit_key": 60001,
       "speed": 1,
       "frames": 75,
+      "playlist_speeds": [
+        1
+      ],
       "length_s": 2.466667,
       "clip_file": "clips/drift.anim",
       "manifest_path": "Animations/6400/60001",
@@ -59,9 +65,12 @@
     {
       "name": "strike",
       "kit_key": 60002,
-      "speed": 2,
-      "frames": 60,
-      "length_s": 1.966667,
+      "speed": 1,
+      "frames": 30,
+      "playlist_speeds": [
+        1
+      ],
+      "length_s": 0.966667,
       "clip_file": "clips/strike.anim",
       "manifest_path": "Animations/6400/60002",
       "disc_path": "StreamingAssets/Assets/Resources/Animations/6400/60002.anim",
@@ -81,41 +90,69 @@
         12,
         13
       ],
-      "bytes": 109947
+      "bytes": 59217
+    },
+    {
+      "name": "driftlook",
+      "kit_key": 60003,
+      "speed": 1,
+      "frames": 25,
+      "playlist_speeds": [
+        1
+      ],
+      "length_s": 0.8,
+      "clip_file": "clips/driftlook.anim",
+      "manifest_path": "Animations/6400/60003",
+      "disc_path": "StreamingAssets/Assets/Resources/Animations/6400/60003.anim",
+      "sequence_ticks": 25,
+      "sequence_seconds": 1.667,
+      "keyed_bones": [
+        0,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        11,
+        12,
+        13
+      ],
+      "bytes": 44310
     }
   ],
   "playlist": [
     {
       "clip": "emerge",
-      "speed": 2
+      "speed": 1
     },
     {
-      "clip": "drift",
-      "speed": 1,
-      "repeat": 2
+      "clip": "driftlook",
+      "speed": 1
     },
     {
       "clip": "strike",
-      "speed": 2
+      "speed": 1
     },
     {
       "clip": "drift",
-      "speed": 1,
-      "repeat": 2
+      "speed": 1
     }
   ],
   "window": {
     "start": 0,
-    "end": 330
+    "end": 110
   },
-  "playlist_ticks": 375,
+  "playlist_ticks": 145,
   "name_map": {
     "emerge": 60000,
     "60000": 60000,
     "drift": 60001,
     "60001": 60001,
     "strike": 60002,
-    "60002": 60002
+    "60002": 60002,
+    "driftlook": 60003,
+    "60003": 60003
   },
   "toml_fragment": {
     "model": "studies/custom-summons/rung8-epic/stage/creature/6400.fbx",
@@ -125,7 +162,8 @@
     "clips": [
       "studies/custom-summons/rung8-epic/stage/creature/clips/emerge.anim",
       "studies/custom-summons/rung8-epic/stage/creature/clips/drift.anim",
-      "studies/custom-summons/rung8-epic/stage/creature/clips/strike.anim"
+      "studies/custom-summons/rung8-epic/stage/creature/clips/strike.anim",
+      "studies/custom-summons/rung8-epic/stage/creature/clips/driftlook.anim"
     ]
   },
   "notes": [

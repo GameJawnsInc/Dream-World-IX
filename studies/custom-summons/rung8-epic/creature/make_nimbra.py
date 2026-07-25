@@ -239,16 +239,26 @@ def main(argv):
     return 0
 
 
-# frames sampled per clip for the contact sheets -- chosen at the beats STORYBOARD 1.7 names
-CLIP_FRAMES = {
-    "emerge": [0, 18, 36, 54, 72, 89],      # folded -> unfurling -> at rest
-    "drift": [0, 15, 30, 44, 59, 74],       # one full loop; f0 and f74 MUST match
-    "strike": [0, 12, 24, 33, 44, 59],      # rest -> wind-back -> lunge -> settle
+# Frames sampled per clip for the contact sheets, at the beats STORYBOARD 1.7 names -- expressed as
+# FRACTIONS of the clip and resolved against each clip's OWN length. They used to be absolute indices
+# tied to 90/75/60, which STORYBOARD 11.9's re-cut turned into a KeyError/mis-sample the moment the
+# clips were sized to their beats: a sampling table is a copy of the tick table and goes stale the same
+# way (11.5's "three independent copies" lesson, one lane further on).
+CLIP_BEATS = {
+    "emerge": [0.0, 0.202, 0.404, 0.607, 0.809, 1.0],       # folded -> unfurling -> at rest
+    "drift": [0.0, 0.203, 0.405, 0.595, 0.797, 1.0],        # one full loop; first and last MUST match
+    "driftlook": [0.0, 0.203, 0.405, 0.595, 0.797, 1.0],    # the same cycle, 25 frames
+    "strike": [0.0, 0.203, 0.407, 0.610, 0.780, 1.0],       # rest -> wind-back -> LUNGE PEAK -> settle
 }
 TURNTABLE = [180, 210, 240, 270, 300, 330, 0, 90]      # 180 = dead front (the party's view)
 # per-clip camera: the strike DRIVES FORWARD (+Z) and the drift's wave travels around the axis, and
 # both are almost invisible head-on -- a 3/4 view is the only one that shows them at all
-CLIP_YAW = {"emerge": 196.0, "drift": 232.0, "strike": 244.0}
+CLIP_YAW = {"emerge": 196.0, "drift": 232.0, "driftlook": 232.0, "strike": 244.0}
+
+
+def clip_frames(name, frames):
+    """``CLIP_BEATS[name]`` resolved onto a clip of ``frames`` frames (last index ``frames - 1``)."""
+    return [int(round(u * (frames - 1))) for u in CLIP_BEATS[name]]
 
 
 def render_eye(model):
@@ -273,12 +283,13 @@ def render_eye(model):
 
     for name, c in NC.all_clips().items():
         items = []
-        for f in CLIP_FRAMES[name]:
+        picks = clip_frames(name, c["frames"])
+        for f in picks:
             posed = pose_model(model, pose_at(c["curves"], f))
             posed["textures"] = model["textures"]
             items.append((posed, CLIP_YAW[name]))
         sheet(items, RENDERS / f"kit_clip_{name}.png", size=250, cols=6)
-        mid = CLIP_FRAMES[name][3]
+        mid = picks[3]
         posed = pose_model(model, pose_at(c["curves"], mid))
         posed["textures"] = model["textures"]
         preview.render_model(posed, size=420, yaw=CLIP_YAW[name], pitch=8.0).save(

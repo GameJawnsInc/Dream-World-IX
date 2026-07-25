@@ -5,6 +5,11 @@
 > [`STORYBOARD.md`](STORYBOARD.md); this file records what was built, the two places it had to deviate,
 > and the contracts the integrator has to hold.
 >
+> **▶ RETIMED 2026-07-24.** The cast this file describes has had its first successful playtest and has
+> since been **re-composed to 140 ticks / 9.3 s** — see [`STORYBOARD.md` §11](STORYBOARD.md#11-the-retime--2026-07-24-post-playtest-re-composition)
+> and §8 below. The mechanism, the deviations, the laws and the linter are all unchanged; the tick
+> figures in §1/§5/§7 below are the pre-retime ones and are kept as the build record.
+>
 > **Status: BUILT + OFFLINE-VERIFIED. Nothing deployed, nothing committed, the live install untouched.**
 > Everything staged under `stage/` (`game=None` throughout — the authored lane reads nothing from the
 > install: no donor `.seq`, no `ef###.bytes`, no drift guard, because there is no stock content in the
@@ -187,3 +192,21 @@ Suite: `4233 passed, 262 skipped` (the 262 are this fresh worktree's un-extracte
   not just clip-bound waits. An earlier draft of R2 prescribed trimming P3's `Wait: Time=90` instead;
   that is **retracted** (it fails the curve-duration gate, then the playlist-coverage gate, and then
   desynchronises the strike beat by 15 frames). STORYBOARD §7.3 has the measurements.
+
+---
+
+## 8. THE RETIME (2026-07-24) — what changed in THIS lane
+
+The playtest verdict and the stock-duration census sent the cast from 485/440 ticks to **140 ticks
+(9.3 s)**. The contract, the ledger and the reasoning are [`STORYBOARD.md` §11](STORYBOARD.md#11-the-retime--2026-07-24-post-playtest-re-composition);
+what it meant *here*:
+
+| | |
+|---|---|
+| `nimbra.seq` | rewritten. **36 op lines** (was 37 — the P1 whisper cue moved into P0 and the second whisper `PlaySound` was dropped), **123 fixed-Wait ticks** (was 395). P1 is folded into P0; the `strike` clip is scheduled 18 ticks early so the flash lands on the LUNGE, not the wind-back. |
+| `nimbra.summon.toml` + `bench/rung8.field.toml` | `end` 330 → **110**; all three curves re-proportioned with it; playlist 6 entries → **4**, with the Speed divisors doing the re-cut. |
+| `MistFloor` / `MistWisps` | total lives 198 / 145 ticks → **72 / 40** (THE TOTAL-LIFE FORMULA re-applied). Geometry, colours, orbit idiom and `Parameter` ranges unchanged. `RiftFlash` untouched. |
+| the clips | **AMENDED by STORYBOARD §11.9.** The re-cut could *not* be bought with divisors: `Speed > 1` runs a clip out after `1/s` of its entry and freezes the rig (`SFXDataMesh.cs:869`). Every playlist entry is now **Speed 1** with the clip sized to its beat — `drift` (N=75) byte-identical, `emerge` 90→15, `strike` 60→30, new `driftlook` N=25. **No `.seq` op or `Wait` changed**, and the entry boundaries are unchanged. |
+| the linter | **unchanged, and it is what made the re-cut safe.** Every invariant this lane exists to enforce was re-run against the new numbers: 0 errors / 0 warnings; three curves × 110; playlist 145 ≥ 110; `EffectPoint` at the 12-tick lit floor; two clocks 25 + 110 = 135. |
+| the two source-of-truth duplicates | **removed.** The retime found `bench/build_rung8_bench.py`, `build_rung8_stage.py` and `creature/make_nimbra_anims.py` each holding a private copy of the tick table; the clip lane now **reads** `[summon.staging]` out of the bench TOML and cross-checks its own arithmetic against `playlist_coverage` instead of asserting a retyped tuple. |
+| the kit's two rung-8 regression anchors | re-pinned to the new figures (`tests/test_summon_seqlint.py` 395 → 123; `tests/test_summon_curves.py` 330/375/6 → 110/145/4). Both still assert the study's own artifacts, which is the point of them. |

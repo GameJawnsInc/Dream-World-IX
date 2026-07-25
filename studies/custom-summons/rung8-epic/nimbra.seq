@@ -1,11 +1,37 @@
 // FF9CustomMap/StreamingAssets/Data/SpecialEffects/ef091/PlayerSequence.seq
 // RUNG 8 -- NIMBRA, the composed epic. 100% hand-authored; no donor, no LoadSFX of any stock id, no
-// native ef###.bytes anywhere in the chain. Binding contract: rung8-epic/STORYBOARD.md (Appendix A).
+// native ef###.bytes anywhere in the chain. Binding contract: rung8-epic/STORYBOARD.md (Appendix A +
+// section 11, THE RETIME 2026-07-24).
 //
-// Clock: BattleTPS=15 -> 1 tick = 1/15 s. Total ~485 ticks ~= 32.3 s.
+// Clock: BattleTPS=15 -> 1 tick = 1/15 s. Total ~140 ticks ~= 9.3 s.
+//   THE RETIME (STORYBOARD 11, census/DURATION-CENSUS.md candidate A "THE WHISPER"): the first cast
+//   read as laggy not because 29.3 s is a long FULL cinematic (it is the stock median) but because
+//   NIMBRA has no SHORT variant, so it pays that runtime on EVERY cast where a stock summon rolls
+//   short ~90% of the time (btl_cmd.cs:1600). Measured against what a player actually watches per
+//   cast, stock runs 5.2-14.4 s (median 9.0). This cast is 9.3 s.
+//   The cut is a RE-COMPOSITION, not a squeeze: the ~9.3 s near-static blackout front-load (P0's 45-tick
+//   ramp + P1's 95-tick hold = the R17 dread beat the playtest flagged) is GONE -- the pall, the wisps
+//   and the whisper swell now roll in DURING a 10-tick dim instead of after a 45-tick one, and P1 no
+//   longer exists as its own beat. Nothing that carries a LAW was shortened: P4 still spends its
+//   law-bound 50 ticks (18 relight + 12 settle + EffectPoint + 12 + EffectPoint + 8).
+//
 // THE PHASE-LOCK RULE (STORYBOARD 3): after PlaySFX every wait is a fixed `Wait` -- never a clip-bound
 // WaitAnimation/WaitMove/WaitTurn. The ONE clip-bound wait sits before PlaySFX, where its slack shifts
 // everything uniformly and never touches the two-clock alignment.
+//
+// THE TWO CLOCKS, retimed together (STORYBOARD 11.2):
+//   PlaySFX fires at t = 25  ->  manifest frame 0 = t 25, window Start=0 / End=110  ->  the instance
+//   drains at t = 135, which is the tick WaitSFXDone below is authored to resolve on. The playlist is
+//   emerge (15) | driftlook (25) | strike (30) | drift (75) = 145 ticks over a 110-tick window, EVERY
+//   ENTRY AT SPEED 1 -- THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9): SFXDataMesh.cs:869 divides a
+//   clip-frame index by a tick count, so any Speed > 1 runs its clip out early and freezes the rig for
+//   the remainder of the entry. Clips are sized to their beats instead; the boundaries are unchanged.
+//   The `strike` clip opens 18 ticks before the blow (manifest frame 40, t 65) so that its LUNGE PEAK
+//   -- the drive envelope's authored frame 36/59, which on the 30-frame clip shows 18 ticks in -- lands
+//   on t 83, the exact tick the sting, the rift-flash and the relight fire. The shipped build put the
+//   flash on the strike clip's frame 0, i.e. on the WIND-BACK; the wind-back now reads as the tension
+//   before the blow, which is what STORYBOARD 3.1 P4's prose ("the arms draw back ... both points drive
+//   forward ... the light returning IS the impact") always described.
 //
 // Every op here is on the OUR-OPS executor-derived whitelist (summons/seqlint.py); `Reflect` is the
 // universal per-op gate read at UnifiedBattleSequencer.cs:191, legal on any op.
@@ -16,8 +42,11 @@
 //     and has no automatic restore (UnshiftWorld has zero callers).
 // The linter REFUSES both ops outright with those citations.
 
-// ---- P0  THE HUSH  (t 0 -> 55) -------------------------------------------------------------------
-// The title plate, the chant, the summon aura, the drone, the slow slide to black, the floor pall.
+// ---- P0  THE HUSH + THE GATHER  (t 0 -> 25)  [P1 IS FOLDED IN HERE -- THE OVERLAP] ----------------
+// The title plate, the chant, the summon aura, the drone, a FAST slide to black (Time=10, not 45), and
+// -- on the same tick, not after the dim -- the floor pall, the wisps and the whisper swell. The dread
+// beat is now carried by the mist arriving THROUGH the darkening instead of by six seconds of holding
+// on an empty black screen.
 WaitAnimation: Char=Caster
 Message: Text=[CastName] ; Priority=1 ; Title=True ; Reflect=True
 SetupReflect: Delay=SFXLoaded
@@ -27,53 +56,55 @@ WaitAnimation: Char=Caster
 PlayAnimation: Char=Caster ; Anim=MP_CHANT ; Loop=True
 Channel: Type=Summon
 PlaySound: Sound=100001 ; SoundType=SoundEffect ; Volume=0.55
-SetBackgroundIntensity: Intensity=0 ; Time=45
+SetBackgroundIntensity: Intensity=0 ; Time=10
 CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistFloor.sfxmodel
-Wait: Time=45
-
-// ---- P1  THE MIST GATHERS  (t 55 -> 150) ---------------------------------------------------------
-// Full black. Six seconds of nothing but the pall, the wisps and the whisper swell. The dread beat is
-// allowed to be boring.
 CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistWisps.sfxmodel
 PlaySound: Sound=100002 ; SoundType=SoundEffect ; Volume=0.5
-Wait: Time=95
+Wait: Time=15
 
-// ---- P2  THE COALESCE  (t 150 -> 255)  MANIFEST FRAME 0 STARTS HERE -------------------------------
-// NIMBRA rises out of the mist over the enemy line, from below the frame. The manifest's Start=0 /
-// End=330 window therefore covers ticks 150 -> 480; WaitSFXDone (P5) resolves at 480.
+// ---- P2  THE COALESCE  (t 25 -> 40)  MANIFEST FRAME 0 STARTS HERE ---------------------------------
+// NIMBRA rises out of the mist over the enemy line, from below the frame, in one second: the Movement
+// piece (-900 -> +120) and the Scaling ramp (0.15 -> 1.0) both run 15 ticks and the `emerge` clip runs
+// at Speed 6 over the same 15, so the unfurl, the growth and the rise are ONE gesture, as authored.
 WaitSFXLoaded: SFX=91 ; Reflect=True
 PlaySFX: SFX=91 ; Reflect=True ; SkipSequence=True
-Wait: Time=105
+Wait: Time=15
 
-// ---- P3  THE DRIFT  (t 255 -> 345) ---------------------------------------------------------------
-// The aura dies, Iviv commits the cast gesture, and NIMBRA just hangs there at half speed. It has not
-// attacked. It is looking. The fixed Wait is THE PHASE-LOCK RULE in force (a WaitAnimation here would
-// slide the strike beat off the creature's own `strike` clip).
+// ---- P3  THE DRIFT (THE LOOK) + THE WIND-BACK  (t 40 -> 83) ---------------------------------------
+// The aura dies, Iviv commits the cast gesture, and NIMBRA hangs there. Frames 15-40 (t 40-65) are the
+// `driftlook` clip -- one full sway cycle, the ribbons, the 12-degree mask turn: THE LOOK, the identity
+// beat the census protected at 25 ticks. Frames 40-58 (t 65-83) are the FIRST 18 ticks of `strike`: the arms
+// drawing up and behind, the mask tipping down. It has not attacked. It is winding up.
+// The fixed Wait is THE PHASE-LOCK RULE in force (a WaitAnimation here would slide the strike beat off
+// the creature's own clip -- and this round the alignment is 18 ticks tighter than before).
 StopChannel
 PlayAnimation: Char=Caster ; Anim=MP_MAGIC
-Wait: Time=90
+Wait: Time=43
 
-// ---- P4  THE STRIKE  (t 345 -> 405) --------------------------------------------------------------
-// Sting + flash + relight all on tick 345: the light returning IS the impact. The relight ramp (18) is
-// complete at t=363; both EffectPoints then fire in a fully LIT window -- THE FIGURE-VISIBILITY LAW.
+// ---- P4  THE STRIKE  (t 83 -> 133) ----------------------------------------------------------------
+// t=83 is the `strike` clip's LUNGE PEAK (manifest frame 58). Sting + flash + relight all fire on it:
+// the light returning IS the impact. The relight ramp (18) completes at t=101; both EffectPoints then
+// fire in a fully LIT window -- THE FIGURE-VISIBILITY LAW, at its exact 12-tick floor.
+// 50 ticks, unchanged from the shipped build: this phase is the one the laws pin, and the retime did
+// not touch it (STORYBOARD 4.3's STRUCTURAL FLOOR).
 PlaySound: Sound=100003 ; SoundType=SoundEffect ; Volume=0.7
 CreateVisualEffect: Char=AllTargets ; SFXModel=Data/SpecialEffects/ef091/RiftFlash.sfxmodel
 SetBackgroundIntensity: Intensity=1 ; Time=18
 Wait: Time=30
+// t=113, manifest frame 88: the Scaling dissolve began at frame 85 (t 110), so the wisps peel off the
+// creature WHILE the damage numbers pop -- the dissolve is overlapped into the damage window rather
+// than queued after it. That overlap is where the shipped build's separate 75-tick P5 hold went.
+CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistWisps.sfxmodel
 EffectPoint: Char=AllTargets ; Type=Effect
 Wait: Time=12
 EffectPoint: Char=Everyone ; Type=Figure
-Wait: Time=18
+Wait: Time=8
 
-// ---- P5  THE DISSOLVE + RELEASE  (t 405 -> 485) --------------------------------------------------
-// The wisps are spawned FIRST, at t=405, so they cover the Scaling dissolve (manifest frames 255-330 =
-// ticks 405-480) -- STORYBOARD 4.2 pins this spawn at "t = 405", and a 70-tick particle life then lands
-// at 475, just inside the creature's own 480. Appendix A's draft listed this line AFTER WaitSFXDone,
-// which would have fired it at 480 instead; see rung8-epic/README.md "THE ONE DEVIATION".
-// WaitSFXDone then holds until the instance drains at t=480, StopSound kills the drone on that tick,
-// and the cast closes on Anim=Idle -- THE ANIM=IDLE RELEASE LAW (the literal string "Idle" takes the
-// releaseCmdIdle branch at UnifiedBattleSequencer.cs:505).
-CreateVisualEffect: Char=Everyone ; SFXModel=Data/SpecialEffects/ef091/MistWisps.sfxmodel
+// ---- P5  THE DISSOLVE + RELEASE  (t 133 -> 140) ---------------------------------------------------
+// WaitSFXDone holds the last 2 ticks until the instance drains at t=135 (25 + the 110-tick window);
+// StopSound kills the drone on that tick (the 8.0 s master has already faded out naturally at t~130,
+// so this is a safety, not an audible cut); the cast closes on Anim=Idle -- THE ANIM=IDLE RELEASE LAW
+// (the literal string "Idle" takes the releaseCmdIdle branch at UnifiedBattleSequencer.cs:505).
 WaitSFXDone: SFX=91 ; Reflect=True
 StopSound: Sound=100001 ; SoundType=SoundEffect
 ActivateReflect
@@ -82,11 +113,11 @@ PlayAnimation: Char=Caster ; Anim=Idle
 Turn: Char=Caster ; BaseAngle=Default ; Time=5
 WaitTurn: Char=Caster
 
-// 37 operation lines (counted by summons/seqlint.py, which parses exactly as the engine does). Fixed
-// waits sum to 395 ticks -- STORYBOARD 3.1's own figure, re-derived independently. The two P0 clip-bound
-// waits are budgeted at ~10 and
-// are the only uncertainty in the cast (+-10 ticks) -- and they sit BEFORE PlaySFX, so that slack shifts
-// every phase uniformly and the .seq/manifest two-clock alignment is untouched.
+// 36 operation lines (counted by summons/seqlint.py, which parses exactly as the engine does). Fixed
+// waits sum to 123 ticks (15 + 15 + 43 + 30 + 12 + 8) -- down from 395. The two P0 clip-bound waits are
+// budgeted at ~10 and are the only uncertainty in the cast (+-10 ticks) -- and they sit BEFORE PlaySFX,
+// so that slack shifts every phase uniformly and the .seq/manifest two-clock alignment is untouched.
+// Total = ~10 clip + 123 fixed + the 2 ticks WaitSFXDone blocks + the 5-tick release Turn = ~140.
 //
 // R15 (STORYBOARD 7.1): ef091/Sequence.seq is never written. SFXData.LoadSFX reads it unconditionally
 // (SFXData.cs:174) -- a missing file is a graceful null, a PRESENT one would thread in as a second,

@@ -92,8 +92,16 @@ abilities = [
   #                      very bench: 56 -> 224 MP). Clearing bit 4 is mandatory, not cosmetic.
   #   element=["Dark"]   Mist = soul-refuse; FF9 has no Mist element and Dark is bit 128. An enemy that
   #                      resists/absorbs Dark will flip the result -- thematically correct, fine here.
-  #   power=62, mp=24    62 < Bahamut's 88: an original, not a re-skin.
-  { name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 91, vfx2 = 91, type = 0, power = 62, element = ["Dark"], mp = 24 },
+  #   power=34, mp=24    RE-TUNED 2026-07-24 from 62 (census/DURATION-CENSUS.md 4.4 candidate A). The old
+  #                      62/24 was a power/MP ratio of 2.58 against a stock range of 0.94-1.61 (mean
+  #                      1.40) -- Leviathan-tier power at Ramuh-tier price, an over-tune INDEPENDENT of
+  #                      the duration complaint. 34/24 = 1.42, the stock mean to two decimals, and power
+  #                      34 sits between Ramuh (32) and Shiva (36): honestly the weak tier the owner
+  #                      asked for. MP stays 24 so Iviv's 80 MP is still THREE casts.
+  #                      NOTE the short-cinematic band carries NO power claim (census 3, verdict 3:
+  #                      rho = -0.29 without Ark), so the 9.3 s runtime did not force this number -- it
+  #                      is chosen on the power/MP line, which is a different axis.
+  { name = "Nimbra", from = "Bahamut", targets = "AllEnemy", vfx1 = 91, vfx2 = 91, type = 0, power = 34, element = ["Dark"], mp = 24 },
 ]
 
 # --- the second custom character, unchanged from rung 3 (it proves the stack is not Vivi-specific) ---
@@ -137,8 +145,9 @@ sequence   = "../nimbra.seq"               # K1 -- an AUTHORED cast. No `donor`:
                                            # spliced or drift-guarded anywhere in this block.
 manifest   = "nimbra_manifest.sfxmodel"    # the bare name FileList.txt reveals (single-space grammar)
 clips      = ["../creature/nimbra/emerge.anim",     # K2 -- NAMED clips, so deploy.clip_key_of mints the
-              "../creature/nimbra/drift.anim",      # 60000/60001/60002 band keys and clip_name_map
-              "../creature/nimbra/strike.anim"]     # resolves `play.clip = "emerge"` onto them.
+              "../creature/nimbra/drift.anim",      # 60000..60003 band keys and clip_name_map resolves
+              "../creature/nimbra/strike.anim",     # `play.clip = "emerge"` onto them. ORDER IS
+              "../creature/nimbra/driftlook.anim"]  # LOAD-BEARING: the key is 60000 + list index.
 particles  = ["../MistFloor.sfxmodel",              # K3 -- copied verbatim into ef091/ beside the
               "../MistWisps.sfxmodel",              # manifest, which is where CreateVisualEffect's full
               "../RiftFlash.sfxmodel"]              # Data/-rooted SFXModel= path points.
@@ -152,17 +161,21 @@ particles  = ["../MistFloor.sfxmodel",              # K3 -- copied verbatim into
 [summon.staging]
 anchor = "target_average"
 start  = 0
-end    = 330            # PINNED, not auto-derived: ../nimbra.seq's WaitSFXDone beat is authored against
-                        # it (PlaySFX at tick 150 + 330 = the instance drains at 480).
+end    = 110            # PINNED, not auto-derived: ../nimbra.seq's WaitSFXDone beat is authored against
+                        # it (PlaySFX at tick 25 + 110 = the instance drains at 135).
+                        # RETIMED 2026-07-24 (STORYBOARD 11): 330 -> 110, the manifest re-cut candidate A
+                        # requires. Every curve below is re-proportioned WITH it -- STORYBOARD 7.3's
+                        # lesson is that nothing after PlaySFX moves alone.
 
-# Movement: rise from below the frame, then a barely-there continued lift through the whole hang.
+# Movement: rise from below the frame in ONE second, then a barely-there continued lift through the
+# look, the strike and the dissolve.
 [[summon.staging.move]]
-duration = 45
+duration = 15           # locked to the `emerge` playlist entry (90 frames @ Speed 6 = 15 ticks)
 from = [0, -900, 0]
 to   = [0,  120, 0]
 ease = ["Linear", "SinusOut", "Linear"]
 [[summon.staging.move]]
-duration = 285          # `from` omitted -> the engine inherits the previous piece's Destination BY
+duration = 95           # `from` omitted -> the engine inherits the previous piece's Destination BY
 to   = [0, 190, 0]      # EXPRESSION REFERENCE (ParametricMovement.cs:88-105). Re-emitting it would
 ease = ["Linear", "Sinus", "Linear"]      # double-evaluate the NCalc.
 
@@ -172,54 +185,65 @@ ease = ["Linear", "Sinus", "Linear"]      # double-evaluate the NCalc.
 # staging. If cast 1 shows it facing away, flip every Y between 180 and 0 (and 168 -> 12): one line,
 # recast-only, no re-export, no relaunch.
 [[summon.staging.turn]]
-duration = 45
+duration = 15           # square through the rise
 from = [0, 180, 180]
 to   = [0, 180, 180]
 [[summon.staging.turn]]
-duration = 180
+duration = 25           # THE LOOK: the 12-degree turn away, locked to the `drift` entry (frames 15-40)
 to   = [0, 168, 180]
 ease = ["Constant", "Sinus", "Constant"]
 [[summon.staging.turn]]
-duration = 105
-to   = [0, 180, 180]
+duration = 70           # squares up THROUGH the wind-back and holds; SinusOut front-loads it, so NIMBRA
+to   = [0, 180, 180]    # is square-on by the lunge peak (frame 58) rather than after it
 ease = ["Constant", "SinusOut", "Constant"]
 
 # Scaling: the approach (an approach WITHOUT a camera move -- STORYBOARD 2.4 lever 3), the hold, then THE
 # DISSOLVE: the body thins to a thread while stretching upward, which reads as vapour venting.
 [[summon.staging.scale]]
-duration = 45
+duration = 15
 from = [0.15, 0.15, 0.15]
 to   = [1.0, 1.0, 1.0]
 ease = ["SinusOut", "SinusOut", "SinusOut"]
 [[summon.staging.scale]]
-duration = 210
+duration = 70           # the hold: the look (15-40), the wind-back (40-58), the blow (58-85)
 to   = [1.0, 1.0, 1.0]
 ease = ["Constant", "Constant", "Constant"]
 [[summon.staging.scale]]
-duration = 75
-to   = [0.02, 1.70, 0.02]
+duration = 25           # THE DISSOLVE, frames 85-110 = ticks 110-135 -- it now OVERLAPS the damage
+to   = [0.02, 1.70, 0.02]     # window (EffectPoints at t 113 / 125) instead of following it
 ease = ["SinusIn", "SinusOut", "SinusIn"]
 
 # The playlist. THE ANIMATION-PLAYLIST LAW: entries chain each clip ONCE and then FREEZE -- there is no
-# loop flag and no blending, so `repeat` expands to N identical entries and every clip must open and close
-# on the shared `drift` rest pose. `speed` is a DIVISOR of the frame count (animMaxFrame = ceil(frames /
-# speed), SFXDataMesh.cs:852), so at BattleTPS=15 a 30fps clip plays at HALF speed with speed = 1:
-# speed 2 restores authored tempo (emerge/strike), speed 1 is the deliberate eerie half-speed (drift).
-# Total 45 + 75 + 75 + 30 + 75 + 75 = 375 ticks >= the 330-tick window, so it never freezes on a last frame.
+# loop flag and no blending, so every clip must open and close on the shared `drift` rest pose.
+#
+# EVERY ENTRY IS SPEED 1 -- THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9, adversarial round 2026-07-24).
+# `animMaxFrame = ceil(frames / speed)` is a TICK count; `animFrame = floor(ticks * speed)` is a
+# CLIP-FRAME index; SFXDataMesh.cs:869 divides one by the other. They agree only at speed 1, so at
+# speed s a clip advances s^2 frames per tick -- it finishes after 1/s of its entry and FREEZES for the
+# rest. `playlist_sim.py` measured the pre-fix playlist: emerge frozen 12 of 15 ticks, the look 16 of
+# 25, strike 15 of 30, lunge peak at t 74 against a flash at t 83. SIZE THE CLIP TO THE BEAT.
+#
+# The tick table, the window and the entry BOUNDARIES are STORYBOARD 11.2's, unchanged:
+#   emerge     15 / 1 = 15 ticks   frames   0..15   the rise, 1.0 s
+#   driftlook  25 / 1 = 25 ticks   frames  15..40   THE LOOK -- the beat the census protected at 25
+#   strike     30 / 1 = 30 ticks   frames  40..70   wind-back, THE LUNGE PEAK at frame 58 = t 83, settle
+#   drift      75 / 1 = 75 ticks   frames  70..145  the eerie half-speed sway (clipped at frame 110)
+# Total 15 + 25 + 30 + 75 = 145 ticks >= the 110-tick window, so it never freezes on a last frame.
+# `drift` (N=75, speed 1) is bit-identical to the shipped build -- it was the one entry the defect could
+# not reach. The lunge peak still lands on t 83, the exact tick ../nimbra.seq fires the sting, the
+# rift-flash and the relight; it is now delivered rather than only intended.
 [[summon.staging.play]]
 clip = "emerge"
-speed = 2
-[[summon.staging.play]]
-clip = "drift"
 speed = 1
-repeat = 2
+[[summon.staging.play]]
+clip = "driftlook"
+speed = 1
 [[summon.staging.play]]
 clip = "strike"
-speed = 2
+speed = 1
 [[summon.staging.play]]
 clip = "drift"
 speed = 1
-repeat = 2
 
 # --- random battles, so NIMBRA has something to be cast at (build auto-adds the after-battle reinit) --
 [encounter]

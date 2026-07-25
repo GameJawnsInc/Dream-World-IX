@@ -9,7 +9,14 @@ value for the whole call), so the only way to get six INDEPENDENTLY panned burst
 L/R pan into the file itself at synthesis time. (Mono would collapse "hard-panned alternately"
 into nothing.)
 
-Fires: ``PlaySound`` t = 55 (P1) and again -- same file, second beat -- t = 405 (P5).
+RE-CUT 2026-07-24 -- STORYBOARD.md §11 (THE RETIME): 7.0 s -> **4.0 s**, and it now fires ONCE, in
+P0 (t ≈ 10) rather than in a P1 that no longer exists. 4.0 s = 60 ticks carries the swell across the
+dim, the gather, the rise (t 25-40) and THE LOOK (t 40-65), dying just as the wind-back starts at
+t = 65. All SIX bursts survive -- the onsets and the attack tighten together so the overlap pattern
+("slow in, hard out", each tail still live when the next lands) is the same shape at 4/7 scale.
+
+Fires: ``PlaySound`` t ≈ 10 (P0). The old second spawn at the dissolve is dropped: the dissolve is now
+covered by the second ``MistWisps`` particle spawn, not by a second whisper swell in a 9-second cast.
 
 100% synthesized. Zero Square-Enix bytes.
 """
@@ -27,15 +34,15 @@ SOUND_ID = 100002
 RESOURCE_ID = "Sounds02/SE00/nimbra_whispers"
 NAME = "nimbra_whispers"
 
-DURATION_S = 7.0
+DURATION_S = 4.0                                       # RE-CUT from 7.0 (STORYBOARD §11)
 BURST_LO_HZ, BURST_HI_HZ = 1200.0, 3500.0
-ONSETS_S = [0.00, 1.00, 2.00, 3.05, 4.10, 5.15]        # 6 bursts, overlapping tails
-ATTACK_S = 1.30                                        # "slow in"
-RELEASE_S = 0.20                                       # "hard out"
+ONSETS_S = [0.00, 0.55, 1.10, 1.65, 2.20, 2.75]        # still 6 bursts, still overlapping tails
+ATTACK_S = 0.80                                        # "slow in"  (was 1.30)
+RELEASE_S = 0.15                                       # "hard out" (was 0.20)
 RISE_F_START = 220.0
 RISE_SEMITONES = 3.0                                   # minor third
-RISE_FADE_IN_S = 0.6
-RISE_FADE_OUT_S = 0.3
+RISE_FADE_IN_S = 0.40
+RISE_FADE_OUT_S = 0.25
 PEAK_BUDGET = 0.40
 TARGET_PEAK = 0.36
 

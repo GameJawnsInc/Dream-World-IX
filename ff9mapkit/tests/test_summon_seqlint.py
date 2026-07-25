@@ -319,7 +319,9 @@ def test_the_authored_nimbra_set_is_clean():
     particles = ["MistFloor.sfxmodel", "MistWisps.sfxmodel", "RiftFlash.sfxmodel"]
     rep = SL.lint_seq_file(base / "nimbra.seq", private_ef=91, particles=particles)
     assert [str(p) for p in rep.problems] == []
-    assert rep.total_ticks == 395                       # STORYBOARD section 3.1's own figure
+    # STORYBOARD section 11.1's own figure (THE RETIME, 2026-07-24): 15 + 15 + 43 + 30 + 12 + 8. It was
+    # 395 before the re-composition to the stock per-cast median -- see census/DURATION-CENSUS.md.
+    assert rep.total_ticks == 123
     for name in particles:
         assert SL.lint_sfxmodel_file(base / name) == [], name
 

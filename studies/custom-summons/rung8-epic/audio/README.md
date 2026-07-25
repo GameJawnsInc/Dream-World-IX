@@ -9,9 +9,17 @@ file, which can never be committed — see `rung2-seq-hot-edit/build_rung2.py`'s
 
 | Id | Resource id | Length | File | Fires (per the `.seq`, Appendix A) |
 |---|---|---|---|---|
-| **100001** | `Sounds02/SE00/nimbra_drone` | 34.0 s, mono | `make_nimbra_drone.py` | `PlaySound` t≈10 (P0) → `StopSound` t=480 (P5) |
-| **100002** | `Sounds02/SE00/nimbra_whispers` | 7.0 s, **stereo** | `make_nimbra_whispers.py` | `PlaySound` t=55 (P1) and again t=405 (P5) |
-| **100003** | `Sounds02/SE00/nimbra_strike` | 2.5 s, mono | `make_nimbra_strike.py` | `PlaySound` t=345 (P4), same tick as the relight + `RiftFlash` |
+| **100001** | `Sounds02/SE00/nimbra_drone` | **8.0 s**, mono | `make_nimbra_drone.py` | `PlaySound` t≈10 (P0) → `StopSound` t=135 (P5) |
+| **100002** | `Sounds02/SE00/nimbra_whispers` | **4.0 s**, **stereo** | `make_nimbra_whispers.py` | `PlaySound` t≈10 (P0, with the dim) — once, not twice |
+| **100003** | `Sounds02/SE00/nimbra_strike` | **2.0 s**, mono | `make_nimbra_strike.py` | `PlaySound` t=83 (P4), same tick as the relight, `RiftFlash` and the lunge peak |
+
+> **RE-CUT 2026-07-24 — [`STORYBOARD.md` §11](../STORYBOARD.md) (THE RETIME).** The cast went from 32.3 s
+> to **9.3 s**, so all three cues were re-rendered at new lengths (34.0/7.0/2.5 → 8.0/4.0/2.0 s). **Only
+> time constants moved** — every recipe below still describes the synthesis exactly; the ids, resource
+> ids, peak budgets and the `.seq`'s `Volume=` lines are unchanged. Two consequences worth knowing:
+> the drone now **fades out naturally** at t ≈ 130 so `StopSound` is a safety rather than a 26-second-early
+> cut, and the strike tick's voice stack is now drone + sting instead of drone + whispers + sting, which
+> is real headroom against the no-limiter constraint below.
 
 Ids continue from rung 3's precedent (`sound.MINT_ID_BASE["sfx"] == 100000`, minted there as the
 probe chime). **100000 is left alone** — NIMBRA takes 100001-100003.
@@ -48,17 +56,24 @@ running the full build.
 - **`nimbra_drone`** — two "partials" at 55.0/82.5 Hz (bare fifth), each realized as a **pair** of
   sub-oscillators at ±3 cents (sine/saw blend); the ~0.095 Hz difference-tone between the pair *is*
   the "slow beating" — it falls out of the detuning, no separate LFO needed. A third, plain-sine
-  110 Hz partial ramps in at t=8s (`ramp_in`, 2.5s ramp). A pink-noise "breath" bandpassed to
-  300-900 Hz is amplitude-modulated at 0.13 Hz. 6s fade-in / 4s fade-out on the whole mix.
-- **`nimbra_whispers`** — six band-passed (1200-3500 Hz) noise bursts at onsets `[0, 1.0, 2.0,
-  3.05, 4.1, 5.15]`s, each shaped by `swell_env` (1.3s slow attack, 0.2s hard release) and written
-  hard-panned to alternating channels (even index → Left, odd → Right). A center (both-channel)
-  220 Hz→(minor-third-up) `chirp_sine` rises across the whole 7.0s and fades out mid-rise — it
-  never resolves to a landing pitch.
+  110 Hz partial ramps in at **t=2.2s** (`ramp_in`, **1.0s** ramp — the same ~27% of the cue as the old
+  8s-of-34s, so the octave still arrives with the creature). A pink-noise "breath" bandpassed to
+  300-900 Hz is amplitude-modulated at 0.13 Hz. **1.5s fade-in / 2.0s fade-out** on the whole mix.
+  At 8 s the ±3-cent beat (≈10.5 s period) and the 0.13 Hz breath (7.7 s) each land as ONE slow swell
+  rather than a repeating pulse — deliberate: raising either rate to "fit more cycles in" turns a drone
+  into a tremolo.
+- **`nimbra_whispers`** — **still six** band-passed (1200-3500 Hz) noise bursts, now at onsets
+  `[0, 0.55, 1.10, 1.65, 2.20, 2.75]`s, each shaped by `swell_env` (**0.8s** slow attack, **0.15s** hard
+  release) and written hard-panned to alternating channels (even index → Left, odd → Right). Onsets and
+  attack tighten together, so the overlap pattern is the same shape at 4/7 scale. A center
+  (both-channel) 220 Hz→(minor-third-up) `chirp_sine` rises across the whole **4.0s** and fades out
+  mid-rise — it never resolves to a landing pitch.
 - **`nimbra_strike`** — a 45 Hz sine "thump" (25ms linear attack, `exp(-t/0.28s)` decay) plus a
   4-partial inharmonic "ring" at `640 × [1.0, 2.76, 5.40, 8.93]` Hz (deliberately non-integer
-  ratios — "a bell that is not a bell"), common `exp(-t/0.55s)` decay, distinct per-partial phases
-  so they don't null on top of each other. A 50ms tail fade guards the hard 2.5s cutoff.
+  ratios — "a bell that is not a bell"; the ratios are **unchanged**), common `exp(-t/0.45s)` decay,
+  distinct per-partial phases so they don't null on top of each other. The decays tightened with the
+  length so the sting still ends on its own tail (`exp(-2.0/0.45) = 0.011`) rather than on the click
+  guard. A 50ms tail fade guards the hard 2.0s cutoff.
 
 ## Peak budgets (a hard constraint, not a preference — STORYBOARD.md §5.1)
 
@@ -98,9 +113,9 @@ stage/audio/manifest_fragment.json                       -- the 3 entries the wi
 stage/audio/validation_report.json                       -- the full per-cue check matrix
 ```
 
-**Last run: all 3 cues PASS** (durations exact to the encoder's framing, peaks 0.4046 / 0.3690 /
-0.5027 post-encode — all under budget). Re-run any time; every step is idempotent and
-deterministic (seeded RNG).
+**Last run (2026-07-24, post-retime): all 3 cues PASS** — 8.000 / 4.000 / 2.000 s probed, peaks
+**0.4019 / 0.3523 / 0.5037** post-encode against budgets 0.45 / 0.40 / 0.55. Re-run any time; every step
+is idempotent and deterministic (seeded RNG).
 
 `test_nimbra_audio.py` — an offline (`numpy`-only, no ffmpeg) pytest suite covering the DSP
 primitives and each cue's shape/duration/peak/character (14 tests, all passing). Run it standalone
@@ -137,6 +152,12 @@ after minting and before the first cast** — the same relaunch that registers t
 > **a missed relaunch, not a synthesis failure.** Diagnose in that order. Whether *replacing* the
 > `.ogg` content at an already-registered id needs another relaunch is unproven — assume yes until
 > measured (same open question the storyboard flags).
+>
+> **The retime is the first round where that open question BITES**, because 100001-100003 are already
+> registered and only their content changed. STORYBOARD §11.7 rules it: assume yes. It is free to be safe
+> — the same redeploy re-tunes `Actions.csv`, which is launch-gated anyway — and it is also a free chance
+> to finally measure it (deploy the audio step alone, cast without relaunching, note whether the drone
+> runs 8 s or 34 s).
 
 ## Provenance
 

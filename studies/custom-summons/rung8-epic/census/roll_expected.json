@@ -1,0 +1,166 @@
+{
+  "p_short_rich": 0.8984,
+  "p_short_poor": 0.6641,
+  "rows": [
+    {
+      "name": "Carbuncle (Reflect)",
+      "power": 0,
+      "mp": 24,
+      "power_per_mp": 0.0,
+      "full_s": 17.33,
+      "short_s": 3.8,
+      "expected_s_rich": 5.17,
+      "expected_s_poor": 8.35
+    },
+    {
+      "name": "Carbuncle (Shell)",
+      "power": 0,
+      "mp": 24,
+      "power_per_mp": 0.0,
+      "full_s": 17.33,
+      "short_s": 3.8,
+      "expected_s_rich": 5.17,
+      "expected_s_poor": 8.35
+    },
+    {
+      "name": "Carbuncle (Vanish)",
+      "power": 0,
+      "mp": 24,
+      "power_per_mp": 0.0,
+      "full_s": 17.33,
+      "short_s": 4.33,
+      "expected_s_rich": 5.65,
+      "expected_s_poor": 8.7
+    },
+    {
+      "name": "Carbuncle (Haste)",
+      "power": 0,
+      "mp": 24,
+      "power_per_mp": 0.0,
+      "full_s": 17.33,
+      "short_s": 4.87,
+      "expected_s_rich": 6.14,
+      "expected_s_poor": 9.06
+    },
+    {
+      "name": "Ifrit",
+      "power": 42,
+      "mp": 26,
+      "power_per_mp": 1.615,
+      "full_s": 23.4,
+      "short_s": 5.13,
+      "expected_s_rich": 6.99,
+      "expected_s_poor": 11.27
+    },
+    {
+      "name": "Odin",
+      "power": 45,
+      "mp": 28,
+      "power_per_mp": 1.607,
+      "full_s": 35.8,
+      "short_s": 3.93,
+      "expected_s_rich": 7.17,
+      "expected_s_poor": 14.64
+    },
+    {
+      "name": "Fenrir (Earth)",
+      "power": 42,
+      "mp": 30,
+      "power_per_mp": 1.4,
+      "full_s": 28.13,
+      "short_s": 5.93,
+      "expected_s_rich": 8.18,
+      "expected_s_poor": 13.39
+    },
+    {
+      "name": "Ramuh",
+      "power": 32,
+      "mp": 22,
+      "power_per_mp": 1.455,
+      "full_s": 22.07,
+      "short_s": 7.53,
+      "expected_s_rich": 9.01,
+      "expected_s_poor": 12.41
+    },
+    {
+      "name": "Leviathan",
+      "power": 59,
+      "mp": 42,
+      "power_per_mp": 1.405,
+      "full_s": 32.07,
+      "short_s": 7.4,
+      "expected_s_rich": 9.91,
+      "expected_s_poor": 15.69
+    },
+    {
+      "name": "Fenrir (Wind)",
+      "power": 44,
+      "mp": 30,
+      "power_per_mp": 1.467,
+      "full_s": 32.33,
+      "short_s": 7.93,
+      "expected_s_rich": 10.41,
+      "expected_s_poor": 16.13
+    },
+    {
+      "name": "Bahamut",
+      "power": 88,
+      "mp": 56,
+      "power_per_mp": 1.571,
+      "full_s": 36.47,
+      "short_s": 7.47,
+      "expected_s_rich": 10.42,
+      "expected_s_poor": 17.21
+    },
+    {
+      "name": "Shiva",
+      "power": 36,
+      "mp": 24,
+      "power_per_mp": 1.5,
+      "full_s": 24.27,
+      "short_s": 9.0,
+      "expected_s_rich": 10.55,
+      "expected_s_poor": 14.13
+    },
+    {
+      "name": "Atomos",
+      "power": 30,
+      "mp": 32,
+      "power_per_mp": 0.938,
+      "full_s": 28.27,
+      "short_s": 11.0,
+      "expected_s_rich": 12.75,
+      "expected_s_poor": 16.8
+    },
+    {
+      "name": "Madeen",
+      "power": 71,
+      "mp": 54,
+      "power_per_mp": 1.315,
+      "full_s": 34.6,
+      "short_s": 11.2,
+      "expected_s_rich": 13.58,
+      "expected_s_poor": 19.06
+    },
+    {
+      "name": "Phoenix",
+      "power": 40,
+      "mp": 32,
+      "power_per_mp": 1.25,
+      "full_s": 31.27,
+      "short_s": 12.47,
+      "expected_s_rich": 14.38,
+      "expected_s_poor": 18.79
+    },
+    {
+      "name": "Ark",
+      "power": 106,
+      "mp": 80,
+      "power_per_mp": 1.325,
+      "full_s": 113.2,
+      "short_s": 26.4,
+      "expected_s_rich": 35.22,
+      "expected_s_poor": 55.56
+    }
+  ]
+}

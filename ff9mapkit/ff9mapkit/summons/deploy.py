@@ -1381,7 +1381,27 @@ def playlist_coverage(spec: dict) -> "dict | None":
     One playlist entry occupies ``ceil(frames / speed)`` SEQUENCE TICKS (``animMaxFrame``,
     ``SFXDataMesh.cs:852``) -- which is also why a 30 fps clip runs at half speed with ``speed = 1`` at
     ``BattleTPS = 15``. ``None`` when there is nothing to check (no curves, no playlist, or a clip whose
-    frame count could not be derived)."""
+    frame count could not be derived).
+
+    THE SPEED-DIVISOR DEFECT -- why the returned ``nonunit_speeds`` matters
+    ----------------------------------------------------------------------
+    ``speed`` sets how many TICKS an entry occupies, and it is honest about that. It does NOT slow the
+    clip down. ``animFrame = floor(ticks * speed)`` (``:858``) is a CLIP-FRAME index while
+    ``animMaxFrame`` is a TICK count, and ``SFXDataMesh.cs:869`` divides one by the other::
+
+        clipState.time = clipState.length * animFrame / animMaxFrame[animIndex];
+
+    The two are equal only at ``speed == 1``. (``:863``'s exhausted branch sets
+    ``animFrame = animMaxFrame`` so that line yields ``time = length`` -- proof the divisor was meant to
+    be ``animFrame``'s end-of-clip value, i.e. ~``numFrames``.) So at ``speed = s`` a clip advances
+    ``s**2`` frames per tick: it finishes after ``1/s`` of its entry and the rig FREEZES for the rest.
+
+    **Author every entry at ``speed = 1`` and size the CLIP to the beat.** ``speed = 1`` is the only
+    self-consistent value and the one value at which both readings of ``:869`` agree. ``nonunit_speeds``
+    lists ``(clip, speed)`` for every entry that is not 1 so callers can warn; this is reported, never
+    raised, because ``speed`` remains a legal knob and existing content may rely on the tick footprint.
+    Diagnosed on rung 8 -- ``studies/custom-summons/rung8-epic/`` STORYBOARD 11.9 + ``playlist_sim.py``.
+    """
     st = spec.get("staging_curves")
     paths = authored_clip_paths(spec.get("clips"))
     if not st or not st.get("play") or not paths:
@@ -1393,7 +1413,7 @@ def playlist_coverage(spec: dict) -> "dict | None":
             return None
         frames[Path(p).stem] = frames[str(clip_key_of(i, p))] = n
     window = _as_int(st.get("end", 0), "end") - _as_int(st.get("start", 0), "start")
-    total, detail = 0, []
+    total, detail, nonunit = 0, [], []
     for p in st["play"]:
         name = str(p["clip"])
         speed = float(p.get("speed", 1))
@@ -1403,10 +1423,12 @@ def playlist_coverage(spec: dict) -> "dict | None":
             return None
         ticks = int(math.ceil(n / speed)) * repeat
         total += ticks
+        if speed != 1:                              # THE SPEED-DIVISOR DEFECT -- see the docstring
+            nonunit.append((name, speed))
         detail.append(f"{name} {n}/{_num(speed)}"
                       + (f" x{repeat}" if repeat > 1 else "") + f" = {ticks}")
     return {"window": window, "playlist_ticks": total, "short_by": max(0, window - total),
-            "detail": detail}
+            "detail": detail, "nonunit_speeds": nonunit}
 
 
 def _write_manifest(spec: dict, mod_root: Path, ledger: _Ledger, clip_names: list, *,

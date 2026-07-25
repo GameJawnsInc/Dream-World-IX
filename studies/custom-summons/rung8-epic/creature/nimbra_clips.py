@@ -14,9 +14,10 @@ THE PLAYLIST-SEAM RULE (STORYBOARD 1.7), and the one place it is read literally
 ``SFXDataMesh.cs:845-869`` chains ``Animations[]`` with NO blending -- it hard-sets ``clipState.time``.
 So every SEAM must be pose-continuous. The playlist is
 
-    emerge | drift | drift | strike | drift | drift
+    emerge | driftlook | strike | drift
 
-and its four internal seams are emerge->drift, drift->drift, drift->strike, strike->drift. This module
+(the shipped build's ``emerge | drift | drift | strike | drift | drift`` before the 2026-07-24 retime)
+and its internal seams are emerge->drift, drift->drift, drift->strike, strike->drift. This module
 makes every one of them exact by pinning the shared pose to the model's own REST pose:
 
   * ``drift`` uses ``wave(t, phase, amp) = amp * (sin(2*pi*t + phase) - sin(phase))`` -- a phase-offset
@@ -31,15 +32,42 @@ makes every one of them exact by pinning the shared pose to the model's own REST
     full blackout. There is no seam there to pop. Flagged for the storyboard, not silently deviated.
 
 --------------------------------------------------------------------------------------------------
-FRAME COUNTS -- authored so the storyboard's tick table (3.2) lands on the numbers it already assumes
+FRAME COUNTS -- and THE SPEED-DIVISOR DEFECT (2026-07-24, adversarial round: STORYBOARD 11.9)
 --------------------------------------------------------------------------------------------------
 Keys sit at f = 0 .. N-1 at 30 fps, so the clip's LENGTH is (N-1)/30 s and Unity reports N frames.
-``animMaxFrame[i] = ceil(numFrames / Speed)`` (``SFXDataMesh.cs:849``):
 
-    emerge  N=90  Speed=2  -> 45 ticks   drift  N=75  Speed=1 -> 75 ticks
-    strike  N=60  Speed=2  -> 30 ticks
+STORYBOARD 1.7's "Speed compensation" equation read TWO of the three lines that drive a playlist --
+``animMaxFrame = ceil(N / Speed)`` and ``animFrame = floor(ticks * Speed)`` -- and never checked the
+third, the line that actually poses the rig:
 
-...which is STORYBOARD 3.2's table exactly.
+    SFXDataMesh.cs:869   clipState.time = clipState.length * animFrame / animMaxFrame[animIndex];
+
+``animFrame`` is a CLIP-FRAME index; ``animMaxFrame`` is a TICK count. They are equal only at
+**Speed 1**, and line 863's exhausted branch (``animFrame = animMaxFrame`` -> ``time = length``)
+proves the divisor was meant to be "animFrame's value at the end of the clip" -- i.e. ~N, not
+animMaxFrame. So at Speed s a clip advances s^2 clip-frames per tick: it finishes after 1/s of its
+entry and FREEZES for the rest. ``playlist_sim.py`` prints the trajectory; on the retimed playlist it
+measured emerge frozen 12 of 15 ticks, the look frozen 16 of 25, strike frozen 15 of 30 -- and the
+lunge peak landing at t 74 against a .seq that fires the flash at t 83.
+
+**THEREFORE: EVERY entry is authored at Speed 1 and the CLIP is sized to its beat.** Speed 1 is the
+only value at which both readings of line 869 agree, so this is correct whichever reading is right.
+The tick table, the window and the entry boundaries are UNCHANGED -- only where the frames come from:
+
+    emerge     N=15  Speed=1 ->  15 ticks   (frames   0..15)   the rise
+    driftlook  N=25  Speed=1 ->  25 ticks   (frames  15..40)   THE LOOK
+    strike     N=30  Speed=1 ->  30 ticks   (frames  40..70)   wind-back + the lunge peak + settle
+    drift      N=75  Speed=1 ->  75 ticks   (frames  70..145)  the eerie half-speed sway, UNCHANGED
+
+``drift`` keeps N=75 and is bit-identical to the shipped build (it was already the one correct entry).
+``emerge`` and ``strike`` are RE-CUT: the same authored envelopes, breakpoints scaled by (N-1)/(REF-1),
+so the motion is the identical shape resampled onto its own tick count. At Speed 1 the sampler shows
+exactly one clip frame per tick, so a 15-tick rise shows 15 distinct poses either way -- the re-cut
+costs no fidelity, it just makes those poses the RIGHT ones. ``driftlook`` is ``drift``'s own builder
+at N=25 (it is normalized on ``u = f/(N-1)``, so this is a pure resample of one full sine cycle).
+
+The playlist is ``emerge | driftlook | strike | drift`` -- the same four seam KINDS as before, and
+every clip still opens and closes on the shared rest pose (asserted below).
 """
 from __future__ import annotations
 
@@ -48,7 +76,24 @@ import math
 from nimbra_spec import BONE_NUM
 
 RATE = 30.0
-N_EMERGE, N_DRIFT, N_STRIKE = 90, 75, 60
+
+#: the clips as SHIPPED -- one entry each, every playlist entry at Speed 1 (see the docstring).
+N_EMERGE, N_DRIFT, N_STRIKE, N_DRIFTLOOK = 15, 75, 30, 25
+
+#: the frame counts the envelopes below were AUTHORED against (STORYBOARD 1.7's shape). Breakpoints are
+#: written in these reference frames and scaled to the shipped N by :func:`rescale`, so the storyboard's
+#: own numbers ("frames 0-24 wind-back, 24-36 lunge, 36-60 settle") stay readable in the source.
+REF_EMERGE, REF_STRIKE = 90, 60
+
+
+def rescale(keys, ref_n, n):
+    """Map envelope breakpoints authored against ``ref_n`` frames onto a clip of ``n`` frames.
+
+    Proportional in the clip's own normalized time: ``f -> f * (n - 1) / (ref_n - 1)``. Endpoints are
+    exact (0 -> 0, ref_n-1 -> n-1), which is what keeps THE PLAYLIST-SEAM RULE's rest-pose ends intact
+    after a re-cut."""
+    k = (n - 1) / (ref_n - 1)
+    return [(f * k, v) for (f, v) in keys]
 
 
 # --------------------------------------------------------------------------- quaternion helpers
@@ -138,11 +183,12 @@ VEIL_BONES = [BONE_NUM["bone011"], BONE_NUM["bone012"], BONE_NUM["bone013"]]
 
 def build_emerge() -> dict:
     N = N_EMERGE
+    R = REF_EMERGE                  # breakpoints stay written in the AUTHORED 90-frame shape
     # envelopes are 1.0 at the folded start and 0.0 at rest; each limb releases on its own schedule
-    e_veil = env([(0, 1.0), (14, 0.92), (58, 0.18), (N - 1, 0.0)])       # the veil unfurls first + longest
-    e_arm = env([(0, 1.0), (20, 0.95), (66, 0.12), (N - 1, 0.0)])        # arms uncross late
-    e_neck = env([(0, 1.0), (34, 0.86), (74, 0.10), (N - 1, 0.0)])       # the mask levels LAST
-    e_spine = env([(0, 1.0), (46, 0.40), (N - 1, 0.0)])
+    e_veil = env(rescale([(0, 1.0), (14, 0.92), (58, 0.18), (R - 1, 0.0)], R, N))   # veil first + longest
+    e_arm = env(rescale([(0, 1.0), (20, 0.95), (66, 0.12), (R - 1, 0.0)], R, N))    # arms uncross late
+    e_neck = env(rescale([(0, 1.0), (34, 0.86), (74, 0.10), (R - 1, 0.0)], R, N))   # the mask levels LAST
+    e_spine = env(rescale([(0, 1.0), (46, 0.40), (R - 1, 0.0)], R, N))
 
     curves = {b: {"rot": []} for b in (
         BONE_NUM["bone001"], BONE_NUM["bone002"], BONE_NUM["bone003"], BONE_NUM["bone004"],
@@ -193,8 +239,11 @@ def build_emerge() -> dict:
 ROOT_REST_Y = -740.0        # bone000's rest local pos y -- a pos curve REPLACES localPosition
 
 
-def build_drift() -> dict:
-    N = N_DRIFT
+def build_drift(n: int = None) -> dict:
+    """One full sine cycle over ``n`` frames. Everything below is keyed on ``u = f/(N-1)``, so this
+    builder is length-agnostic: ``drift`` (N=75, the eerie 5 s tail) and ``driftlook`` (N=25, THE LOOK)
+    are the SAME motion resampled, not two authored clips."""
+    N = N_DRIFT if n is None else n
     root, chest, mask = BONE_NUM["bone000"], BONE_NUM["bone002"], BONE_NUM["bone004"]
     curves = {root: {"pos": []}, chest: {"rot": []}, mask: {"rot": []},
               BONE_NUM["bone005"]: {"rot": []}, BONE_NUM["bone006"]: {"rot": []},
@@ -242,11 +291,14 @@ def build_drift() -> dict:
 
 def build_strike() -> dict:
     N = N_STRIKE
-    # one shared shape function: negative = wound back, positive = lunged
-    drive = env([(0, 0.0), (24, -1.0), (30, 0.55), (36, 1.0), (46, -0.12), (N - 1, 0.0)])
+    R = REF_STRIKE                  # breakpoints stay written in the AUTHORED 60-frame shape
+    # one shared shape function: negative = wound back, positive = lunged. THE LUNGE PEAK is the
+    # `(36, 1.0)` breakpoint -- 36/59 of the clip, which at N=30 / Speed 1 shows at t 83 (STORYBOARD
+    # 11.9): the exact tick nimbra.seq fires the sting, the rift-flash and the relight.
+    drive = env(rescale([(0, 0.0), (24, -1.0), (30, 0.55), (36, 1.0), (46, -0.12), (R - 1, 0.0)], R, N))
     # the mask has its own beat: tips down through the wind-back, SNAPS level on the lunge
-    mask_tip = env([(0, 0.0), (24, 1.0), (33, -0.22), (44, 0.06), (N - 1, 0.0)])
-    veil_drag = env([(0, 0.0), (28, -0.8), (40, 1.0), (52, -0.2), (N - 1, 0.0)])
+    mask_tip = env(rescale([(0, 0.0), (24, 1.0), (33, -0.22), (44, 0.06), (R - 1, 0.0)], R, N))
+    veil_drag = env(rescale([(0, 0.0), (28, -0.8), (40, 1.0), (52, -0.2), (R - 1, 0.0)], R, N))
 
     keyed = [BONE_NUM[n] for n in ("bone002", "bone003", "bone004", "bone005", "bone006",
                                    "bone007", "bone008", "bone009", "bone010")] + VEIL_BONES
@@ -313,10 +365,15 @@ def _assert_loop(curves, name):
 # --------------------------------------------------------------------------- registry
 
 CLIPS = [
-    # (name, builder, frames, manifest Speed, .anim numeric key)
-    ("emerge", build_emerge, N_EMERGE, 2, 0),
+    # (name, builder, frames, the clip's FIRST playlist Speed, .anim numeric key)
+    # The Speed here is a REPORTING default only -- bench/rung8.field.toml's [[summon.staging.play]] is
+    # the source of truth and make_nimbra_anims.py reads it from there (see this module's docstring).
+    # ORDER IS LOAD-BEARING: deploy.clip_key_of mints AUTHORED_CLIP_KEY_BASE + list index, so this order
+    # must match `clips = [...]` in the TOML or the manifest names clips that are not on disc.
+    ("emerge", build_emerge, N_EMERGE, 1, 0),
     ("drift", build_drift, N_DRIFT, 1, 1),
-    ("strike", build_strike, N_STRIKE, 2, 2),
+    ("strike", build_strike, N_STRIKE, 1, 2),
+    ("driftlook", lambda: build_drift(N_DRIFTLOOK), N_DRIFTLOOK, 1, 3),
 ]
 
 

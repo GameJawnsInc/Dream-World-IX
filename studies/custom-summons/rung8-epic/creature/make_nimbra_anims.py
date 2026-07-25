@@ -58,14 +58,29 @@ STAGE = HERE.parent / "stage" / "creature"
 CLIPDIR = STAGE / "clips"
 TPS = 15.0          # the bench's Memoria.ini [Graphics] BattleTPS
 
-# STORYBOARD 3.2's playlist + window, verbatim -- the thing the coverage check is run against
-PLAYLIST = [{"clip": "emerge", "speed": 2}, {"clip": "drift", "speed": 1, "repeat": 2},
-            {"clip": "strike", "speed": 2}, {"clip": "drift", "speed": 1, "repeat": 2}]
-WINDOW_START, WINDOW_END = 0, 330
+#: THE ONE SOURCE OF TRUTH for the playlist and the window is the bench TOML's ``[summon.staging]``.
+#: It used to be a hand-copied constant here ("STORYBOARD 3.2's playlist + window, verbatim"), and the
+#: 2026-07-24 RETIME (STORYBOARD 11) found THREE independent copies of those numbers -- this one,
+#: ``bench/build_rung8_bench.py``'s PLAY_SFX_TICK/DRAIN_TICK, and ``build_rung8_stage.py``'s ``play_at``
+#: -- every one of which goes stale silently the moment the cast is re-cut. This lane now READS them.
+BENCH_TOML = HERE.parent / "bench" / "rung8.field.toml"
+
+
+def load_staging() -> tuple:
+    """``(start, end, playlist)`` straight out of ``bench/rung8.field.toml``'s ``[summon.staging]``."""
+    import tomllib
+    st = tomllib.loads(BENCH_TOML.read_text(encoding="utf-8"))["summon"][0]["staging"]
+    return int(st["start"]), int(st["end"]), [dict(p) for p in st["play"]]
 
 
 def main():
     bones = NS.build_bones()
+    WINDOW_START, WINDOW_END, PLAYLIST = load_staging()
+    #: the Speed each clip is played at on its FIRST appearance in the playlist (a clip may appear more
+    #: than once at different divisors -- `drift` is the look at Speed 3 and the dissolve at Speed 1)
+    first_speed = {}
+    for p in PLAYLIST:
+        first_speed.setdefault(str(p["clip"]), int(p.get("speed", 1)))
     OUT.mkdir(parents=True, exist_ok=True)
     CLIPDIR.mkdir(parents=True, exist_ok=True)
 
@@ -93,9 +108,11 @@ def main():
         frames = sdeploy.anim_frame_count(dest)
         assert frames == spec["frames"], (f"{name}: kit derives {frames} frames, authored "
                                           f"{spec['frames']} -- the tick table would be wrong")
-        ticks = -(-frames // spec["speed"])                 # ceil(frames / Speed), SFXDataMesh.cs:852
+        speed = first_speed.get(name, spec["speed"])
+        ticks = -(-frames // speed)                         # ceil(frames / Speed), SFXDataMesh.cs:852
         index.append({
-            "name": name, "kit_key": key, "speed": spec["speed"], "frames": frames,
+            "name": name, "kit_key": key, "speed": speed, "frames": frames,
+            "playlist_speeds": [int(p.get("speed", 1)) for p in PLAYLIST if str(p["clip"]) == name],
             "length_s": round((frames - 1) / NC.RATE, 6),
             "clip_file": str(dest.relative_to(STAGE)).replace("\\", "/"),
             "manifest_path": f"Animations/{NS.GEO_ID}/{key}",
@@ -103,10 +120,10 @@ def main():
             "sequence_ticks": ticks, "sequence_seconds": round(ticks / TPS, 3),
             "keyed_bones": sorted(spec["curves"]), "bytes": len(text.encode("utf-8")),
         })
-        print(f"  {name:<7} kit key {key}  {frames:>3} frames @{NC.RATE:g}fps  Speed {spec['speed']}"
+        print(f"  {name:<7} kit key {key}  {frames:>3} frames @{NC.RATE:g}fps  Speed {speed}"
               f"  -> {ticks:>3} ticks ({ticks / TPS:.2f}s)  {len(text) // 1024} KiB")
 
-    # ---- the storyboard's tick table, re-derived by THE KIT'S OWN coverage checker -----------------
+    # ---- the tick table, re-derived by THE KIT'S OWN coverage checker ------------------------------
     spec = {"clips": [str(p) for p in written],
             "staging_curves": {"start": WINDOW_START, "end": WINDOW_END, "play": PLAYLIST}}
     cov = sdeploy.playlist_coverage(spec)
@@ -116,8 +133,13 @@ def main():
     assert cov["short_by"] <= 0, ("THE ANIMATION-PLAYLIST LAW: the playlist would run out and FREEZE "
                                   f"on a last frame for {cov['short_by']} ticks")
     by = {c["name"]: c for c in index}
-    assert (by["emerge"]["sequence_ticks"], by["drift"]["sequence_ticks"],
-            by["strike"]["sequence_ticks"]) == (45, 75, 30), "diverged from STORYBOARD 3.2's tick table"
+    # DERIVED cross-check, not a retyped table: every playlist entry's ceil(frames/Speed) must sum to
+    # exactly what the kit computed. (This replaces a hardcoded `== (45, 75, 30)`, which was a fourth
+    # copy of the pre-retime tick table and would have had to be edited by hand every re-cut.)
+    ours = sum(-(-by[str(p["clip"])]["frames"] // int(p.get("speed", 1))) * int(p.get("repeat", 1))
+               for p in PLAYLIST)
+    assert ours == cov["playlist_ticks"], (
+        f"this lane derives {ours} playlist ticks, the kit derives {cov['playlist_ticks']}")
 
     doc = {
         "geo": NS.GEO_NAME, "geo_id": NS.GEO_ID, "rate": NC.RATE, "battle_tps": TPS,

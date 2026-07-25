@@ -59,9 +59,10 @@ MOD_NAME = "FF9CustomMap"
 #: an id or resource-id edit over there cannot silently desync from the ``.seq`` that plays them).
 AUDIO_MODULES = ("make_nimbra_drone", "make_nimbra_whispers", "make_nimbra_strike")
 
-#: STORYBOARD 3.2's two-clock arithmetic, restated here as the integration ASSERTION rather than prose.
-PLAY_SFX_TICK = 150            # the fixed waits before PlaySFX (45 + 95) + the ~10-tick clip-bound budget
-DRAIN_TICK = 480               # PLAY_SFX_TICK + the manifest window -- the tick WaitSFXDone resolves on
+#: STORYBOARD 11.2's two-clock arithmetic (RETIMED 2026-07-24 from 3.2's 150/480), restated here as the
+#: integration ASSERTION rather than prose.
+PLAY_SFX_TICK = 25             # the fixed wait before PlaySFX (15) + the ~10-tick clip-bound budget
+DRAIN_TICK = 135               # PLAY_SFX_TICK + the manifest window -- the tick WaitSFXDone resolves on
 PRIVATE_EF = 91
 GEO_ID = 6400
 ABILITY = "Nimbra"
@@ -212,7 +213,7 @@ def check_all(mod_root: Path, summon: dict, audio: dict) -> Check:
     ck(fbx["Path"] == spec["name"], "manifest names the minted GEO", fbx["Path"])
     window = int(fbx["End"]) - int(fbx["Start"])
     ck(PLAY_SFX_TICK + window == DRAIN_TICK, "THE TWO CLOCKS align",
-       f"PlaySFX@{PLAY_SFX_TICK} + window {window} = {PLAY_SFX_TICK + window} (STORYBOARD 3.2: {DRAIN_TICK})")
+       f"PlaySFX@{PLAY_SFX_TICK} + window {window} = {PLAY_SFX_TICK + window} (STORYBOARD 11.2: {DRAIN_TICK})")
     for curve in ("Movement", "Rotation", "Scaling"):
         total = sum(int(p["Duration"]) for p in fbx[curve])
         ck(total == window, f"{curve} spans the whole window", f"{total} vs {window}")
@@ -222,10 +223,17 @@ def check_all(mod_root: Path, summon: dict, audio: dict) -> Check:
     cov = D.playlist_coverage(spec)
     ck(cov is not None and cov["short_by"] == 0, "the playlist covers the window (never freezes)",
        f"{cov['playlist_ticks']} ticks over {cov['window']} ({', '.join(cov['detail'])})" if cov else "not derivable")
+    # THE SPEED-DIVISOR DEFECT (STORYBOARD 11.9): animFrame is a CLIP-FRAME index and animMaxFrame is a
+    # TICK count, and SFXDataMesh.cs:869 divides one by the other -- equal only at Speed 1. Any entry
+    # above 1 runs its clip out after 1/s of the entry and FREEZES the rig for the remainder.
+    ck(cov is not None and not cov["nonunit_speeds"],
+       "every playlist entry is Speed 1 (THE SPEED-DIVISOR DEFECT)",
+       "SFXDataMesh.cs:869 -- size the CLIP to the beat, never the divisor"
+       if cov and not cov["nonunit_speeds"] else f"non-unit speeds: {cov['nonunit_speeds'] if cov else '?'}")
 
     # --- 3. the clips + the mint ---------------------------------------------------------------------
     keys = [c["key"] for c in summon["overlay"].get("clip_files", [])]
-    ck(keys == [60000, 60001, 60002], "clips minted into the 60000 band (named stems)", str(keys))
+    ck(keys == [60000, 60001, 60002, 60003], "clips minted into the 60000 band (named stems)", str(keys))
     for c in summon["overlay"].get("clip_files", []):
         dest = Path(c["dest"])
         n = D.anim_frame_count(dest)          # the KIT's own reader, not a local re-implementation
