@@ -195,7 +195,8 @@ def layout() -> dict:
                      nearest(clear, -3850, 4650, used)],
         "sw_stage": [nearest(clear, -4250, -2850, used),
                      nearest(clear, -4550, -3150, used),
-                     nearest(clear, -3950, -2600, used)],
+                     nearest(clear, -3950, -2600, used),
+                     nearest(clear, -4700, -3400, used)],   # the heavies' own posts
         # dormant pooled seats: never spawned, but keep them on-mesh and spread
         # (~200u lattice pitch) so the probe stays quiet about them
         "park": [nearest(pts, 2200 + 200 * (i % 5), 1400 + 200 * (i // 5), used)
@@ -240,6 +241,8 @@ def _branch(when=None, do=None, **keys) -> str:
 RAIDERS = (["n0", "n1"], ["s0", "s1"], ["h0", "h1"])
 ALL_RAIDERS = [r for grp in RAIDERS for r in grp]
 SOLDIERS = [f"sd{i}" for i in range(POOLS["soldiers"][0])]
+ALL_ALLIES = (SOLDIERS + [f"sh{i}" for i in range(POOLS["shooters"][0])]
+              + [f"df{i}" for i in range(POOLS["defenders"][0])])
 
 
 def behavior_toml(lay: dict) -> str:
@@ -274,38 +277,53 @@ def behavior_toml(lay: dict) -> str:
                          do={"announce": "They're through!  Protect the depot!"}))
     parts.append(_branch(do={"hold": [bx, bz]}))
 
-    # THE RAIDERS — march the lane, beat the depot, and STAND THE FIGHT: the
-    # hold_ground PIN (round-1 feedback: Mus jogged away from their attackers)
-    # halts the march while any soldier is on them; deselect resumes the march
-    # at the current waypoint. Priority: at the depot, keep swinging IT (the
-    # defenders' grinder duel stays a duel). Each death feeds the kill tally.
-    def raider(name, model, hp, stage, route, wave, dmg, ivl, speed):
+    # THE RAIDERS — march the lane, beat the depot, and FIGHT BACK (round-2
+    # feedback: "enemies stop when engaged but don't fight back"): each raider
+    # counter-swings its MELEE ENGAGERS — every Soldier, and (heavies only) the
+    # Defenders that grind them. A counter-swing is a dispatch, so selecting it
+    # HALTS the march (the old hold_ground pin is subsumed and dropped). The
+    # scope is the FILE budget, not the ticker: the long-jump pass freed the
+    # ~32KB body wall, and this build promptly found the engine's u16 entry
+    # table = a ~64KB WHOLE-FILE wall — the full 6×14 counter cross-product
+    # (branches + dispatch bodies) does not fit beside 220 other functions.
+    def raider(name, model, hp, stage, route, wave, dmg, ivl, speed,
+               counter=()):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = {hp}\nspeed = {speed}\n')
         parts.append(_branch(when=[{"hp_le": 0}], do={"die": "kills"}))
         parts.append(_branch(when=[{"active": "base"}, {"near": ["base", 300]}],
                              do={"swing_at": "base", "damage": dmg, "interval": ivl}))
-        parts.append(_branch(when=[{"any_near": [SOLDIERS, 240]}],
-                             do={"hold_ground": True}))
+        for a in counter:
+            parts.append(_branch(when=[{"active": a}, {"near": [a, 230]}],
+                                 do={"swing_at": a, "damage": dmg,
+                                     "interval": ivl + 8}))
         parts.append(_branch(when=[{"counter_ge": ["wave", wave]}],
                              do={"march": [list(stage)] + [list(p) for p in route],
                                  "route": "auto", "arrive_r": 180, "speed": speed}))
         parts.append(_branch(do={"hold": list(stage)}))
 
     nw, sw = lay["nw_route"], lay["sw_route"]
-    raider("n0", RAIDER_MODEL, 3, lay["nw_stage"][0], nw, 1, 1, 30, 50)
-    raider("n1", RAIDER_MODEL, 3, lay["nw_stage"][1], nw, 1, 1, 30, 45)
-    raider("s0", RAIDER_MODEL, 3, lay["sw_stage"][0], sw, 2, 1, 30, 50)
-    raider("s1", RAIDER_MODEL, 3, lay["sw_stage"][1], sw, 2, 1, 30, 45)
-    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][0], sw, 3, 2, 26, 40)
-    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][1], sw, 3, 2, 26, 38)
+    dfs = [f"df{i}" for i in range(POOLS["defenders"][0])]
+    raider("n0", RAIDER_MODEL, 3, lay["nw_stage"][0], nw, 1, 1, 30, 50,
+           counter=SOLDIERS)
+    raider("n1", RAIDER_MODEL, 3, lay["nw_stage"][1], nw, 1, 1, 30, 45,
+           counter=SOLDIERS)
+    raider("s0", RAIDER_MODEL, 3, lay["sw_stage"][0], sw, 2, 1, 30, 50,
+           counter=SOLDIERS)
+    raider("s1", RAIDER_MODEL, 3, lay["sw_stage"][1], sw, 2, 1, 30, 45,
+           counter=SOLDIERS)
+    raider("h0", HEAVY_MODEL, 6, lay["sw_stage"][2], sw, 3, 2, 26, 40,
+           counter=SOLDIERS + dfs)
+    raider("h1", HEAVY_MODEL, 6, lay["sw_stage"][3], sw, 3, 2, 26, 38,
+           counter=SOLDIERS + dfs)
 
     # THE ARMY — 20 POOLED units, hired at your feet, each holding its post.
     #   Soldier: chases + melees its WATCH's lane.  Shooter: stationary, shells
     #   600u.  Defender: stationary grinder, damage 2 at 300u.
-    def ally(name, model, pool, targets, *, chase_targets=(), reach=250, dmg=1,
-             ivl=25, speed=60):
-        parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\npooled = true\n'
-                     f'pool = "{pool}"\nspeed = {speed}\n')
+    def ally(name, model, pool, targets, *, hp, chase_targets=(), reach=250,
+             dmg=1, ivl=25, speed=60):
+        parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = {hp}\n'
+                     f'pooled = true\npool = "{pool}"\nspeed = {speed}\n')
+        parts.append(_branch(when=[{"hp_le": 0}], do={"die": True}))
         for r in targets:
             parts.append(_branch(when=[{"active": r}, {"near": [r, reach]}],
                                  do={"swing_at": r, "damage": dmg, "interval": ivl}))
@@ -320,12 +338,13 @@ def behavior_toml(lay: dict) -> str:
     # defenders grind the SW pressure (the heavies' lane) that reaches them.
     runners = RAIDERS[0] + RAIDERS[1]                    # the chase-worthy Mus
     for i, name in enumerate(SOLDIERS):
-        ally(name, SOLDIER_MODEL, "soldiers", ALL_RAIDERS, chase_targets=runners)
+        ally(name, SOLDIER_MODEL, "soldiers", ALL_RAIDERS, hp=4,
+             chase_targets=runners)
     for i in range(POOLS["shooters"][0]):
-        ally(f"sh{i}", SHOOTER_MODEL, "shooters", ALL_RAIDERS,
+        ally(f"sh{i}", SHOOTER_MODEL, "shooters", ALL_RAIDERS, hp=3,
              reach=600, ivl=15, speed=50)
     for i in range(POOLS["defenders"][0]):
-        ally(f"df{i}", DEFENDER_MODEL, "defenders", RAIDERS[1] + RAIDERS[2],
+        ally(f"df{i}", DEFENDER_MODEL, "defenders", RAIDERS[1] + RAIDERS[2], hp=8,
              reach=300, dmg=2, ivl=30, speed=45)
     return "".join(parts)
 
@@ -365,6 +384,12 @@ def gen() -> None:
     text = re.sub(r"(?m)^id = \d+", f"id = {FIELD_ID}", text)
     text = re.sub(r'(?m)^name = "[^"]+"', f'name = "{FIELD_NAME}"', text)
     text = re.sub(r"(?ms)^\[\[gateway\]\].*?(?=^\[|\Z)", "", text)   # a closed room
+    # drop the donor's VERBATIM BYSTANDERS (the Zaghnol, the red-hat villager,
+    # the little girl, the noble woman... — round-2 owner request): every carried
+    # [[object]] of kind "npc" goes; the two scenery props stay
+    blocks = re.split(r"(?m)(?=^\[)", text)
+    text = "".join(b for b in blocks
+                   if not (b.startswith("[[object]]") and 'kind = "npc"' in b))
 
     lay = layout()
     parts = [text, "\n# ---- THE FORT CONDOR FIT (generated by "
@@ -383,9 +408,9 @@ def gen() -> None:
             parts.append(f'\n[[npc]]\nname = "{grp}{i}"\nmodel = "{RAIDER_MODEL}"\n'
                          f'pos = [{sx}, {sz}]\ndialogue = "Kweeeh!"\n')
     for i in range(N_RAIDERS["h"]):
-        sx, sz = lay["sw_stage"][i]
+        sx, sz = lay["sw_stage"][2 + i]
         parts.append(f'\n[[npc]]\nname = "h{i}"\nmodel = "{HEAVY_MODEL}"\n'
-                     f'pos = [{sx + 120 * (i + 1)}, {sz}]\ndialogue = "GRAAAH."\n')
+                     f'pos = [{sx}, {sz}]\ndialogue = "GRAAAH."\n')
     seat = 0
     for pname, (count, _price, _rf) in POOLS.items():
         model = {"soldiers": SOLDIER_MODEL,
@@ -456,25 +481,24 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
-  0 BOOT: 1:00 clock; depot + quartermaster in the EAST pocket; 2 Mus at the NW
-    street, 2 Mus + 2 Fangs at the SW gate. Within seconds: the STIPEND line +
-    3000 gil (round-1 confirmed — regression check only).
-  1 HIRES: press SELECT anywhere -> THREE rows now (the north/south watch split
-    is GONE — one Soldier row; placement is yours). Deploy fast: a Soldier at
-    each chokepoint, a Shooter with sightlines, a Defender at the depot.
-  2 0:55 — wave 1 (2 Mus, NW street). THE PIN CHECK — the round-1 defect: when
-    your Soldier reaches a Mu, the Mu should STOP and stand the fight (idle in
-    place, no more jogging to the depot mid-beating), and resume its march only
-    if it shakes free (you can test by hiring the Soldier far off the lane).
-  3 0:40 — wave 2 (2 Mus, SW gate, SOUTH choke). 0:20 — wave 3 (2 Fangs, hp 6,
-    hit the depot for 2).
-  4 LEAKERS beat on the depot (hp {BASE_HP}); at the depot a raider keeps
-    swinging IT even while Defenders grind him (the duel stays a duel).
-    If it dies: the boss battle ({LOSS_SCENE}) fires ONCE, then the field
-    resumes lost.
-  5 If the depot stands at 0:00: the WIN CRY + the purse — {WIN_GIL} gil and a
-    {WIN_ITEM}, paid EXACTLY ONCE (round-1 confirmed).
-  6 ~ -> Reload: full reset; a whole run is ONE MINUTE — iterate freely.
+  0 BOOT: the plaza is YOURS now — the donor bystanders (the Zaghnol, red-hat
+    villager, little girl, noble woman + one) are GONE; only the depot,
+    quartermaster, and the staged raiders remain. Stipend lands as before.
+  1 HIRES: three rows, SELECT anywhere (round-2 confirmed — regression only).
+  2 THE COUNTERATTACK (this round's headline — "they don't fight back" is
+    fixed): close a Soldier on a Mu -> the Mu turns and TRADES BLOWS (its
+    counter-swing halts its march, so the round-2 pin behavior is preserved by
+    the fight itself). Soldiers have hp 4 and CAN DIE now — a lone soldier
+    against two Mus should lose the exchange and vanish.
+  3 THE HEAVIES (0:20, hp 6, depot hits for 2) also counter DEFENDERS — park a
+    Defender (hp 8, dmg 2) on them and the depot-side duel is MUTUAL; the
+    Defender should win 1v1 but bleed.
+  4 Shooters (hp 3) still shell from 600u and are NOT countered at range — a
+    raider only hits what stands in contact. A shooter parked ON the lane is
+    fair game.
+  5 Depot loss -> the boss battle, win at 0:00 -> the purse (both round-1/2
+    confirmed — regression only).
+  6 ~ -> Reload: full reset; one run is ONE MINUTE.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 
