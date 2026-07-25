@@ -336,6 +336,12 @@ which is the tick `WaitSFXDone` is authored to resolve on ✓.
    > post-deduction ≡ stock's pre-deduction `MP > 2×cost`, `btl_cmd.cs:1652`), Boost still wins
    > (`>SA Global` runs before `saExtended`, `ff9abil.cs:70-84`). `vfx1 = 80` is therefore wired —
    > the bench block is the pair, and the 23 s cast is the ~1-in-10 ceremony, E[per cast] ≈ 10.7 s.
+   >
+   > **★ PLAYTESTED 2026-07-25 ("test was good"; the full's rarity read correctly). WATCH ITEM
+   > RESOLVED-AS-ACCEPTED:** the full reads as *"a double cast, kind of awkward"* — the P5 second
+   > gathering's `MP_MAGIC` re-gesture is the prime suspect (the beat's own §3 premise, "the caster
+   > causes it", is exactly what reads as a second cast). Kept for the demo by the owner; the
+   > recast-only knob is recorded in RUNBOOK §THE SHORT/FULL ROLL ROUND.
 5. Relaunch/recast split is unchanged from §11.7: a new `ef080/` folder and a changed `Actions.csv`
    need the relaunch; the `.seq`, manifest and particles are recast-only. **No new clip, particle or audio
    id is minted by this round**, so `SoundMetaData` and the `3DModel` line are untouched.

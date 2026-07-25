@@ -279,3 +279,27 @@ the stock mean) is playtest-approved. RUNG 8 IS CLOSED ★: the first original F
 composed, cast, and tuned onto the game's own duration-power line. Resting state: MISTBENCH 30301
 live alongside the M1b bench; every timing knob recast-only. Open leads (non-gating): a REAL short
 variant via cmd.info.short_summon (ordering risk unverified); Ark's measured 113.2s awaits a watch.
+
+## THE SHORT/FULL ROLL ROUND — 2026-07-24/25 ★ THE ROLL PROVEN IN-GAME ("test was good")
+
+The CAST 2 verdict's open lead, taken the same night and playtested the next: the WHISPER became the
+SHORT (vfx2, ef091 — re-emitted BYTE-IDENTICAL, deploy-gated) and a new 23.0s FULL (ef080,
+`nimbra_full.seq`, FULL-STORYBOARD) became vfx1, with THE ROLL as pure data — an AbilityFeatures
+Command-trigger writing NCalc `IsShortSummon` at CMD_MODE_SELECT_VFX (stock Boost's own mechanism
+inverted; stock odds 230/170-of-256; ability-DISCRIMINATED on `AbilityId == 195` because command 46
+hosts four abilities). Full engine trail → FULL-STORYBOARD §7.4; the kit lane → `[[summon]]`'s
+`short_sequence`/`short_private_ef`/`short_manifest`/`[summon.short_staging]` + the roll trio.
+
+**PLAYTEST VERDICT:** *"nimbra test was good... functionally and for a demo it's good."* The roll's
+RARITY reads correctly — the full "happened rarely, had to do a couple battles to get it to fire",
+which is exactly 230/256-short at MP-rich (the design, not a defect).
+
+**RESIDUAL (accepted, not fixed — the owner kept it for the demo):** the FULL *"seemed like a double
+cast or something, kind of awkward."* PRIME SUSPECT: **P5 THE SECOND GATHERING** — the beat's whole
+premise is Iviv re-committing a cast gesture mid-cinematic (`StopChannel` + `MP_MAGIC` at t 170), so
+the cast reads cast → creature → *the caster casts again* → strike. THE KNOB (recast-only, no
+relaunch): replace the P5 re-gesture with a non-cast beat — drop the `MP_MAGIC` (keep the whisper
+swell + pall answering NIMBRA's own drift, i.e. the creature causes the second gathering, not the
+caster) — `nimbra_full.seq` P5 block only, the manifest untouched. Second (weaker) suspect: the P3→P5
+drift-out-then-drift-back symmetry reading as a loop restart; the X/Z zero-out knob (FULL-STORYBOARD
+§4.3) also flattens that if ever needed.
