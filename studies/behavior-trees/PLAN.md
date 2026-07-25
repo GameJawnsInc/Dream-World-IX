@@ -496,6 +496,78 @@ runtime tree switching beyond blackboard-driven branches.
   Instance-var-parameterized); (b) self-REQ (an object dispatching its own higher-level
   function).
 
+## THE THREE WALLS + V2 SCOPING (2026-07-25 — the stress/measurement pass)
+
+The compiler grew its own instrument this pass — `CompiledBehavior.size_report()`,
+a per-unit/per-branch **byte histogram** (zero-width `__seg` ticker markers +
+exact body lengths; provably byte-inert). Run against the shipped round-3 CONDOR
+build and a 40-unit offline swarm, it turned "the build feels big" into three
+MEASURED walls, all binding at roughly the same scale:
+
+| wall | limit | measured onset | nature |
+|---|---|---|---|
+| blackboard band | 820 bytes of `gEventGlobal` scratch (physical: `Byte[2048]` minus reserved) | ~40 units × 6 swing pairs (a 7th pair/unit exhausts; ~14B unit kit + ~1B per swing timer) | HARD, loud |
+| ticker span | old: ±32767 jump reach; now RELAXED via islands | ~240 lean pair branches (~135B each) | SOFT since the island pass — first in-game crossing = the ISLES bench (30416) |
+| the FILE | u16 entry table ≈ 64KB whole file | ~50-55KB of new bytes on the plaza donor; CONDOR round 3 ships 49.4KB | HARD, engine-fixed, loud since the strict guards |
+
+**The histogram's verdict on WHERE the bytes go (CONDOR round 3, 49,383B new):**
+126 `SwingAt` dispatch bodies × **108B = 13.6KB of byte-identical code** differing
+only in target constants; pair TICKER branches ~122-135B each (~190B counter-gated);
+shared infrastructure a rounding error (head+mirrors+clocks+pools+hireable = 2.1KB).
+The roster cross-product IS the cost — v1 pays it three times (band bytes, ticker
+bytes, body bytes) because per-pair logic is UNROLLED over per-unit state held in
+`gEventGlobal` scratch.
+
+Assembler hardening shipped alongside (the robustness half of the pass): island
+REUSE (dense same-target long jumps repoint at an existing in-reach island instead
+of minting one each — batched per fixpoint round, strictly-between so no cycles),
+detection at the TRUE emit limits with placement at the safe-margin goal (kills
+re-route churn in dense island clusters), an input-scaled convergence cap, the
+255-entry table ceiling clamped at the boundary (chunked growth no longer refuses
+a slot that fits), and 5 new stress tests (dense-same-target, 300-distinct-target,
+boundary-at-255, histogram tiling, the 40-unit swarm).
+
+### V2 candidates, ranked by leverage on the measured walls
+
+1. **THE VECTOR SUBSTRATE (the group loop) — the headline.** Move per-unit state
+   (hp, mirrors, active, current-target) out of `gEventGlobal` bytes into
+   `gScriptVector` tables (hp[i], mx[i], mz[i]...), and compile per-FOE-GROUP
+   logic as a bounded in-tick LOOP over an index instead of an unrolled branch
+   per pair; swing dispatch becomes ONE body per unit reading its target's cells
+   by computed index. Every ingredient is ALREADY IN-GAME PROVEN on bench 30415
+   (computed-index read AND write, VECTOR_SIZE seed/resize, OOB fail-soft).
+   Kills all three walls at once: state leaves the band, bodies go O(units), the
+   ticker goes O(units·groups). Also UNLOCKS what v1 cannot express at all:
+   dynamic target acquisition ("nearest living foe" as an argmin loop) instead of
+   static priority lists. Risks to bench first (rung-0 style, one mechanism per
+   playtest): per-iteration expression cost (VECTOR indexing per operand — frame
+   budget at ~200 iterations/tick), CalcStack depth under composed reads, and the
+   loop being a NEW bytecode shape (grounded nowhere in stock fields — needs the
+   verbatim-first treatment). Save-persistence footnote: `gScriptVector` rides
+   saves (JsonParser) — the size←0/size←n seed idiom already neutralizes stale
+   state, keep it law.
+2. **Dispatch-body dedup WITHOUT vectors (nearer-term, subsumed by #1 later):**
+   one swing body per UNIT, target parameterized through per-unit "current
+   target" GLOBs the ticker writes at selection time — the referee's GLOB
+   indirection generalized. Saves ~10KB of the 13.6KB on condor-class builds and
+   needs no new bytecode shape; costs a few band bytes per unit.
+3. **Extended-opcode optable rows (ops 0x112-0x11E):** smaller than the census
+   feared — `opcodes.encode` already emits the `0xFF` page prefix and disasm
+   decodes it (opcodes.py:44, disasm.py:245); only `_optables.py`'s arg-shape
+   rows stop at 0x10A. Adding rows unlocks lint-clean emission of `AddShopItem`
+   0x115 (mutate a shop's stock from a running field script — wave-unlocked
+   hire rosters), `MOVE_EX`/`AANIM_EX`/`ADD_STATUS`
+   (studies/minigame-ui/SURVEY.md).
+4. **v1 "Limits" items** (Parallel, action-result plumbing, deeper nesting) —
+   still demand-driven; nothing in the ratified fort-condor design needs them.
+5. **Side probes** (RunSharedScript caller-context, self-REQ) — unchanged, cheap,
+   unlock the per-unit-brain variant.
+
+**In flight:** the ISLES bench (30416, "the brawl") is DEPLOYED — 33,820B ticker
+content, 2 live islands, 14 mutual-combat units + a crier on the fallen-counter.
+First >32KB body ever to run in-game; the playtest verdict is pure liveness
+(no freeze, hp-1 flee branches fire, late-run crier announces land).
+
 ## Standing constraints
 
 - **Engine independence is THE protected property:** everything pure `.eb`,

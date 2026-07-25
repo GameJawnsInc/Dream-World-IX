@@ -311,11 +311,16 @@ array indexing anywhere.
 ## Limits (v1)
 
 - **Size**: assembled bodies have NO practical jump ceiling (the label assembler relaxes
-  long jumps through fall-through-safe islands automatically), but the `.eb` **file** is
-  u16-addressed — roughly **64KB total**, engine-fixed. On a donor fork that leaves
+  long jumps through fall-through-safe islands automatically, and same-target long jumps
+  share islands), but the `.eb` **file** is u16-addressed — roughly **64KB total**,
+  engine-fixed — and the entry table caps at **255 slots**. On a donor fork that leaves
   ~50-55KB for all compiled behavior (ticker + every dispatch body); each unit×target
   pair branch costs ~135B of ticker plus ~90B of body, so pair-target scope is the knob.
-  An over-budget build fails loudly at build time (never a wrapped offset).
+  A third budget binds at swarm scale: the blackboard scratch band is **820 bytes** of
+  `gEventGlobal` (~40 units with ~6 swing pairs each; ~14B per unit + ~1B per swing).
+  Every over-budget build fails loudly at build time (never a wrapped offset), and
+  `CompiledBehavior.size_report()` prints the per-unit **byte histogram** — where the
+  bytes actually went — so the trim is a decision, not a hunt.
 - Novel fields and `--native`/`--editable` forks only — a VERBATIM fork runs the donor's real
   `.eb` (no kit-injected NPC entries to bind to); `validate` refuses it with this explanation.
 - A behavior unit can't also be a `[cutscene]` cast actor (both mechanisms drive the actor at

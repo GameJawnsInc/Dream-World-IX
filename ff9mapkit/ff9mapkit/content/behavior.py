@@ -55,7 +55,7 @@ import struct
 from dataclasses import dataclass
 
 from ..eb import exprasm, opcodes
-from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
+from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
 
 OP_SET_OBJECT_FLAGS = 0x93
 OP_WALK = 0x23
@@ -509,6 +509,42 @@ class CompiledBehavior:
     action_funcs: dict               # unit name -> [(tag, bytes)]
     main_init: bytes
     report: str
+    sizes: dict | None = None        # the byte histogram (see size_report)
+
+    def size_report(self) -> str:
+        """THE BYTE HISTOGRAM — where the compiled bytes go, unit by unit, against
+        the engine's real walls: the ticker relaxes past ±32K via jump islands,
+        but the whole FILE stays u16-addressed (~64KB entry-table reach), so this
+        is the budget sheet for roster/pairing decisions."""
+        if not self.sizes:
+            return "size report unavailable"
+        s = self.sizes
+        disp_total = sum(n for fns in s["dispatch"].values() for _, _, n in fns)
+        duty_total = sum(s["duty"].values())
+        islands = len(self.ticker_body) - s["ticker_content"]
+        new_total = (len(self.ticker_body) + len(self.main_init)
+                     + duty_total + disp_total)
+        out = [f"byte histogram -- new bytes this build: {new_total}B "
+               f"(ticker {len(self.ticker_body)}B"
+               + (f" = {s['ticker_content']}B + {islands}B islands" if islands else "")
+               + f", main_init {len(self.main_init)}B, duty {duty_total}B, "
+                 f"dispatch bodies {disp_total}B)"]
+        shared = [(nm, n) for nm, n in s["ticker_segments"]
+                  if not nm.startswith("unit ")]
+        out.append("  shared ticker: " + ", ".join(f"{nm} {n}B" for nm, n in shared))
+        per_unit = []
+        for nm, n in s["ticker_segments"]:
+            if not nm.startswith("unit "):
+                continue
+            u = nm[5:]
+            fns = s["dispatch"].get(u, [])
+            per_unit.append((n + s["duty"].get(u, 0) + sum(x for _, _, x in fns),
+                             u, n, fns))
+        for tot, u, tick_n, fns in sorted(per_unit, reverse=True):
+            body_txt = ", ".join(f"{kind} {x}B" for _, kind, x in fns)
+            out.append(f"  {u}: {tot}B  (ticker {tick_n}B, duty "
+                       f"{s['duty'].get(u, 0)}B; {body_txt})")
+        return "\n".join(out)
 
     def stable_hash(self) -> str:
         h = hashlib.sha256()
@@ -973,8 +1009,12 @@ class FieldBehavior:
 
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
+        disp_sizes: dict[str, list] = {}                 # unit -> [(tag, kind, bytes)]
         wu = self.bb.byte("warmup")
-        ticker: list = [label("top"),
+        # "__seg " labels are zero-width byte-histogram markers: they emit nothing
+        # (byte-identity holds) and are never placed between an expression statement
+        # and its conditional jump (the island-legality stance is untouched)
+        ticker: list = [label("__seg head"), label("top"),
                         # latch = (player BOUND and usercontrol) or already latched —
                         # bound proves obj(250) resolves; usercontrol keeps the proven
                         # wake timing (movement enabled = the field has settled)
@@ -999,6 +1039,7 @@ class FieldBehavior:
         ticker += [(JMP, "wait"), label("run")]
         # the player mirror (staged is guaranteed on the run path)
         ticker += [
+            label("__seg mirrors"),
             _stmt(f"Global.Int16[{self.bb.int16(f'{PLAYER}.mx')}] "
                   f"obj(uid={PLAYER_UID}).f[0] B_LET"),
             _stmt(f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}] "
@@ -1137,24 +1178,31 @@ class FieldBehavior:
                     for fi in (li, ri):
                         if fi not in self._reset_flags:
                             self._reset_flags.append(fi)
-                funcs.append((tag, self._dispatch_body(u, a, aid, sel, run,
-                                                       oneshot_latch=latch_arg)))
+                body = self._dispatch_body(u, a, aid, sel, run,
+                                           oneshot_latch=latch_arg)
+                funcs.append((tag, body))
+                disp_sizes.setdefault(u.name, []).append(
+                    (tag, f"{type(a).__name__}#{aid}", len(body)))
             # the SPEED NUDGE (always the last tag): MSPEED from the speed GLOB, then
             # record it applied. Straight-line at level 4 — preempts a mid-flight
             # blocked walk, which resumes at the new speed (actor.speed is re-read
             # every walk frame). Same running-protocol shape as action bodies.
             nudge_tag = FIRST_ACTION_TAG + len(funcs)
-            funcs.append((nudge_tag, asm([
+            nudge_body = asm([
                 _set_byte(run, 255),
                 opcodes.encode(0x26, exprasm.assemble(f"Global.Byte[{spd}] B_EXPR_END"),
                                arg_flags=0b1),
                 _stmt(f"Global.Byte[{spdap}] Global.Byte[{spd}] B_LET"),
                 _set_byte(run, 0),
                 opcodes.RETURN,
-            ])))
+            ])
+            funcs.append((nudge_tag, nudge_body))
+            disp_sizes.setdefault(u.name, []).append(
+                (nudge_tag, "nudge", len(nudge_body)))
             action_funcs[u.name] = funcs
 
             ticker += [
+                label(f"__seg unit {u.name}"),
                 _stmt(f"Global.Bit[{act_flag}]"),
                 (JMP_IFNOT, f"t_{u.name}_done"),
             ]
@@ -1217,7 +1265,7 @@ class FieldBehavior:
 
         # cooldown decrements + alternator clocks — spliced after mirrors, so they
         # tick once per run pass (and HOLD during warm-up, which never reaches here)
-        cd_blocks: list = []
+        cd_blocks: list = [label("__seg clocks")]
         for name, _frames in self._cooldowns:
             t = self.bb.byte(name)
             cd_blocks += [
@@ -1261,7 +1309,8 @@ class FieldBehavior:
         for pname, unames in self._pools.items():
             req = self.pool_flags[pname]
             price = getattr(self.pool_specs.get(pname), "price", None)
-            cd_blocks += [_stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
+            cd_blocks += [label(f"__seg pool {pname}"),
+                          _stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
             if price:
                 # the gil gate (the inn-553 idiom): broke -> consume the request,
                 # charge NOTHING (RemoveGil sits at the SPAWN site below, so an
@@ -1302,6 +1351,8 @@ class FieldBehavior:
                           label(f"pl_{pname}_end")]
         # hireable refresh — AFTER the activation blocks, so the tick that spawns a
         # pool's last unit flips it un-hireable the same pass
+        if self._pools:
+            cd_blocks.append(label("__seg hireable"))
         for pname, unames in self._pools.items():
             hidx = self.pool_hireable[pname]
             price = getattr(self.pool_specs.get(pname), "price", None)
@@ -1324,7 +1375,8 @@ class FieldBehavior:
         for pname in self._pools:                         # hireable: optimistic preset,
             main_init += _set_flag(self.pool_hireable[pname], 1)   # first pass corrects
 
-        ticker += [label("wait"), opcodes.wait(self.tick), (JMP, "top"), opcodes.RETURN]
+        ticker += [label("__seg tail"), label("wait"), opcodes.wait(self.tick),
+                   (JMP, "top"), opcodes.RETURN]
         pools_txt = ""
         if self._pools:
             def _pdesc(p):
@@ -1350,6 +1402,16 @@ class FieldBehavior:
             for cname, tname in self._schedules:
                 tl.append(f"  schedule: {cname} += 1 while timer < {tname}[{cname}]")
             tables_txt = "\n" + "\n".join(tl)
+        # the byte histogram: segment sizes from the PRE-relaxation measure (the
+        # content bytes; the asm() length difference is pure island overhead)
+        _slabels, _, _stotal = _measure(ticker)
+        _marks = [(n[len("__seg "):], p) for n, p in _slabels.items()
+                  if n.startswith("__seg ")]
+        ticker_segments = []
+        for i, (nm, p) in enumerate(_marks):
+            end = _marks[i + 1][1] if i + 1 < len(_marks) else _stotal
+            if end - p:
+                ticker_segments.append((nm, end - p))
         return CompiledBehavior(
             ticker_body=asm(ticker),
             duty_bodies=duty_bodies,
@@ -1357,6 +1419,11 @@ class FieldBehavior:
             main_init=bytes(main_init),
             report=self.bb.report() + "\nunits:\n" + "\n".join(report) + pools_txt
             + tables_txt,
+            sizes={"ticker_content": _stotal,
+                   "ticker_segments": ticker_segments,
+                   "duty": {n: len(b) for n, b in duty_bodies.items()},
+                   "dispatch": disp_sizes,
+                   "main_init": len(main_init)},
         )
 
     # ---------------- tree → ticker blocks
