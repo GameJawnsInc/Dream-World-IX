@@ -95,6 +95,7 @@ ACTION_VERBS = {
     "swing_at": ("damage", "interval"),
     "die": (),
     "battle": (),
+    "award": ("item", "count"),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -544,6 +545,10 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         return B.Die(count=(str(v) if isinstance(v, str) else None))
     if verb == "battle":
         return B.Battle(int(v))
+    if verb == "award":
+        # award = <gil int> (+ item = name/id, count = n); exactly-once BY the
+        # event-Once machinery — validate requires `once` on the branch
+        return B.Award(gil=int(v), item=d.get("item"), count=int(d.get("count", 1)))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -881,6 +886,26 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     elif isinstance(v, str) and v not in declared_counters:
                         problems.append(f"{ctx}: die counts {v!r} — not in "
                                         f"[behavior] counters")
+                if verb == "award":
+                    if not isinstance(v, int) or not 0 <= v <= 0xFFFFFF:
+                        problems.append(f"{ctx}: award takes a gil int 0..16777215 "
+                                        f"(+ optional item/count)")
+                    elif not v and do.get("item") is None:
+                        problems.append(f"{ctx}: award needs gil and/or an item")
+                    if br.get("once") is None:
+                        problems.append(f"{ctx}: award needs `once = \"name\"` — the "
+                                        f"payout is exactly-once BY that machinery")
+                    cnt = do.get("count")
+                    if cnt is not None and (not isinstance(cnt, int)
+                                            or not 1 <= cnt <= 99):
+                        problems.append(f"{ctx}: award count must be 1..99")
+                    if do.get("item") is not None:
+                        try:
+                            from .. import items as _items
+                            _items.resolve(do["item"])
+                        except Exception as e:
+                            problems.append(f"{ctx}: award item {do['item']!r} does "
+                                            f"not resolve ({e})")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):

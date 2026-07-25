@@ -808,3 +808,54 @@ def test_once_announce_shared_between_two_onces_refused():
     )
     with pytest.raises(B.BehaviorError, match="two [Oo]nce"):
         fb.compile()
+
+
+# ------------------------------------------------------------------ award + hireable
+def test_award_compiles_hireable_publishes():
+    fb = B.FieldBehavior(
+        [B.UnitSpec("base", 2, spawn=(2000, -100), hp=20),
+         B.UnitSpec("s0", 3, spawn=(0, 0), hp=4, pooled=True, pool="soldiers"),
+         B.UnitSpec("s1", 4, spawn=(0, 0), hp=4, pooled=True, pool="soldiers")],
+        timer=240, pools=[B.PoolSpec("soldiers", price=300)])
+    fb.units["base"].tree = B.Selector(
+        B.Once("paid", B.Sequence(fb.time_below(1), B.Do(B.Award(gil=2000, item=236)))),
+        B.Do(B.Hold((2000, -100))),
+    )
+    for s in ("s0", "s1"):
+        fb.units[s].tree = B.Selector(
+            B.Sequence(fb.hp_le(s, 0), B.Do(B.Die())), B.Do(B.HoldPost()))
+    cb = fb.compile()
+    _verify_all(cb)
+    # the Award body: latch FIRST, AddGil (0xCE) + AddItem (0x48), no idle Wait
+    award = next(b for _t, b in cb.action_funcs["base"]
+                 if any(i.op == 0xCE for i in D.iter_code(b, 0, len(b))))
+    ops = [i.op for i in D.iter_code(award, 0, len(award))]
+    assert 0x48 in ops and 0x22 not in ops
+    latch = fb.bb.flag("base.once.paid")
+    assert _expr_stmts(award)[0] == f"{{Global.Bit[{latch}] const(1) B_LET B_EXPR_END}}"
+    # the published hireable flag: preset 1 in Main_Init, refreshed in the ticker as
+    # (gil >= price) AND NOT (all spawned)
+    h = fb.pool_hireable["soldiers"]
+    assert f"{{Global.Bit[{h}] const(1) B_LET B_EXPR_END}}" in _expr_stmts(cb.main_init)
+    s0 = fb.bb.flag("s0.spawned")
+    s1 = fb.bb.flag("s1.spawned")
+    assert (f"{{Global.Bit[{h}] B_SYSVAR[6] const(300) B_GE Global.Bit[{s0}] "
+            f"Global.Bit[{s1}] B_ANDAND B_NOT B_ANDAND B_LET B_EXPR_END}}"
+            ) in _expr_stmts(cb.ticker_body)
+    assert f"hireable flag {h}" in cb.report
+
+
+def test_award_negatives():
+    with pytest.raises(B.BehaviorError, match="gil"):
+        B.Award(gil=-1)
+    with pytest.raises(B.BehaviorError, match="needs gil"):
+        B.Award()
+    with pytest.raises(B.BehaviorError, match="count"):
+        B.Award(gil=1, count=0)
+    fb = B.FieldBehavior([B.UnitSpec("u", 2, spawn=(0, 0))])
+    fb.units["u"].tree = B.Selector(
+        B.Sequence(fb.flag("f"), B.Do(B.Award(gil=100))),
+        B.Do(B.Hold((0, 0))),
+    )
+    with pytest.raises(B.BehaviorError, match="wrapped in Once"):
+        fb.compile()

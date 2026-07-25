@@ -642,3 +642,35 @@ def test_table_toml_negatives():
                mut(lambda b: b["table"][0].update(cells=["x"])))
     assert any("unknown key" in p for p in
                mut(lambda b: b["schedule"][0].update(speed=9)))
+
+
+def test_award_toml_surface_and_negatives():
+    import copy
+    raw = copy.deepcopy(TABLE_RAW)
+    raw["behavior"]["unit"][0]["branch"].insert(0, {
+        "when": [{"time_below": 1}], "once": "paid",
+        "do": {"award": 2000, "item": 236}})
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"gate": 2, "fang": 3},
+                  behavior_txids={(0, 1): 700, (0, 2): 701})
+    cb = fb.compile()
+    _verify_all(cb)
+    award = next(b for _t, b in cb.action_funcs["gate"]
+                 if any(i.op == 0xCE for i in D.iter_code(b, 0, len(b))))
+    assert any(i.op == 0x48 for i in D.iter_code(award, 0, len(award)))
+
+    def mut(fn):
+        r = copy.deepcopy(raw)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("needs `once" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].pop("once")))
+    assert any("award takes a gil int" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].update(
+                   do={"award": "lots"})))
+    assert any("needs gil and/or an item" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].update(do={"award": 0})))
+    assert any("count must be" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].update(
+                   do={"award": 5, "count": 0})))

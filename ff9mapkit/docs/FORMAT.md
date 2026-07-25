@@ -1965,8 +1965,10 @@ priority order — the first the threat is NOT within `avoid_r` of; `speed`) · 
 `damage`, `interval`) · `die` (`true`, or a **counter name** — `die = "kills"` bumps that
 counter once) · `battle` (a battle SCENE id — a REAL fight, one-shot per
 field load by construction; the build auto-installs the after-battle Main_Reinit + BGM
-resume; use a stock scene = no BattlePatch) · `announce` (a text line, minted into the
-field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
+resume; use a stock scene = no BattlePatch) · `award` (gil int; `+ item`/`count` — pays the
+player EXACTLY ONCE via the event-Once lane; requires `once` on the branch) · `announce`
+(a text line, minted into the field's `.mes`) / `announce_npc` (reuse that NPC's own
+`dialogue` line).
 
 **Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
 through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior
@@ -2010,7 +2012,9 @@ actual spawn — broke or pool-empty consumes the request free) + optional `butt
 (or a PSX button-mask int): a press-anywhere hire poller. `button` requires an explicit
 `request_flag = N` (a GLOB bit outside the behavior blackboard band) and a PARKED zone
 `[[choice]]` — its zone far off-mesh, its Hire row `set_flag = [N, 1]` — which the build
-matches by that flag and the poller opens remotely. See
+matches by that flag and the poller opens remotely. Every pool also publishes a
+**`pool.<name>.hireable`** flag (ticker-refreshed: affordable AND not sold out) — put it in
+the Hire row's `requires_flag` and the row vanishes instead of lying "Deployed!". See
 [BEHAVIOR.md § Price and the buy-anywhere button](BEHAVIOR.md#price-and-the-buy-anywhere-button).
 
 **Data tables (`[[behavior.table]]` / `counters` / `[[behavior.schedule]]`):** named int
