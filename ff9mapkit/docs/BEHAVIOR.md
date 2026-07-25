@@ -127,9 +127,16 @@ in other trees reacts the same tick).
 - **`public_flags`** are set from OUTSIDE the behavior — a `[[choice]]` lever, a gateway.
   Their allocated indices print at build time and in `behavior compile`; wire them into
   `set_flag = [<index>, 1]` rows.
-- **`once` / `cooldown`** are *sticky*: `once` lets its branch run through one full engagement
-  and latches when it ends (a war cry, a breach line); `cooldown` re-arms N ticks after the
+- **`once` / `cooldown`** are *sticky* over movement behaviors: `once` lets its branch run
+  through one full engagement and latches when it ends; `cooldown` re-arms N ticks after the
   behavior ends (a stalker that needs a breather once you escape).
+- **`once` over an `announce` is an EVENT, not an engagement**: it fires the line once and
+  *releases the branch immediately* (via the same edge-latched request lane battles use, so
+  another body holding the dispatch level can't eat it). This matters because announce
+  conditions are usually **monotonic** — a kill tally, a spent wave counter — and a sticky
+  `once` over a condition that never goes false again would hold the selection forever,
+  **starving every branch below it** (the BTTABLE round-2 defect: the win line, once fired,
+  silently swallowed the wave-three line for the rest of the match).
 
 ## Pooled units — spawn reinforcements at your feet
 

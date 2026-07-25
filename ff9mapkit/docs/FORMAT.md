@@ -1970,7 +1970,10 @@ field's `.mes`) / `announce_npc` (reuse that NPC's own `dialogue` line).
 
 **Branch extras:** `once = "name"` / `cooldown = frames` (sticky decorators — `once` fires
 through one engagement then latches forever; `cooldown` re-arms N ticks after the behavior
-*ends*), `raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
+*ends*). Exception: **`once` over an `announce` is an EVENT** — it fires the line once and
+releases the branch immediately (edge-latched request lane), because announce conditions are
+usually monotonic and a sticky hold would starve every branch below forever.
+`raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
 A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
 
 **Pooled units (runtime activation):** `pooled = true` on a `[[behavior.unit]]` keeps its NPC

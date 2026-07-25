@@ -720,3 +720,91 @@ def test_cnum_literal_widths():
     fb.units["u"].tree = B.Do(B.Hold((0, 0)))
     seeds = _expr_stmts(fb.compile().main_init)
     assert "{const4(50000) const(0) B_VECTOR const4(100000) B_LET B_EXPR_END}" in seeds
+
+
+# ------------------------------------------------------- the EVENT Once (starvation)
+def herald_field() -> B.FieldBehavior:
+    """BTTABLE round 2's exact defect shape: a Once+Announce on a MONOTONIC cond
+    (a kill tally) ABOVE another Once+Announce — sticky semantics held the top
+    branch selected forever and starved the lower line."""
+    fb = B.FieldBehavior([B.UnitSpec("herald", entry=2, spawn=(0, 0))],
+                         counters=("kills", "wave"))
+    fb.units["herald"].tree = B.Selector(
+        B.Once("won", B.Sequence(fb.counter_ge("kills", 2), B.Do(B.Announce(700)))),
+        B.Once("w3", B.Sequence(fb.counter_eq("wave", 3), B.Do(B.Announce(701)))),
+        B.Do(B.Hold((0, 0))),
+    )
+    return fb
+
+
+def test_once_announce_is_an_event_not_an_engagement():
+    fb = herald_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # NO engagement flags — the event form has no sticky machinery to hold the
+    # selection open on a never-falsifying condition
+    assert "onceeng" not in cb.report
+    # each announce got a request flag + rides the one-shot lane
+    assert "herald.areq1" in cb.report and "herald.areq2" in cb.report
+    req1 = fb.bb.flag("herald.areq1")
+    latch1 = fb.bb.flag("herald.once.won")
+    ticks = _expr_stmts(cb.ticker_body)
+    # the Once gate is latch-only, and selection edge-latches the request
+    assert f"{{Global.Bit[{latch1}] B_EXPR_END}}" in ticks
+    assert f"{{Global.Bit[{req1}] const(1) B_LET B_EXPR_END}}" in ticks
+    # the lane checks req -> latch -> run==0 (the Battle clobber shape)
+    assert f"{{Global.Bit[{req1}] B_EXPR_END}}" in ticks
+    # the dispatch body: latch FIRST, window, release — and NO idle loop (no wait op)
+    bodies = [b for _t, b in cb.action_funcs["herald"]]
+    won_body = next(b for b in bodies
+                    if f"{{Global.Bit[{latch1}] const(1) B_LET B_EXPR_END}}"
+                    in _expr_stmts(b))
+    ops = [i.op for i in D.iter_code(won_body, 0, len(won_body))]
+    assert 0x22 not in ops                       # no Wait (0x22) — fire and return
+    assert _expr_stmts(won_body)[0] == f"{{Global.Bit[{latch1}] const(1) B_LET B_EXPR_END}}"
+    # the CONTROL: a bare (un-Onced) Announce keeps its idle loop — Wait present
+    fb2 = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
+    fb2.units["g"].tree = B.Selector(
+        B.Sequence(fb2.flag("f1"), B.Do(B.Announce(700))),
+        B.Do(B.Hold((0, 0))),
+    )
+    bare = [b for _t, b in fb2.compile().action_funcs["g"]][0]
+    assert 0x22 in [i.op for i in D.iter_code(bare, 0, len(bare))]
+    # determinism
+    assert herald_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_once_over_a_feed_stays_sticky():
+    fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
+    fb.units["g"].tree = B.Selector(
+        B.Once("meet", B.Sequence(fb.near("g", B.PLAYER, 400), B.Do(B.Chase(B.PLAYER)))),
+        B.Do(B.Hold((0, 0))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "g.onceeng.meet" in cb.report         # the engagement flag survives
+    assert "areq" not in cb.report
+
+
+def test_once_announce_shared_with_bare_site_refused():
+    fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
+    a = B.Announce(700)
+    fb.units["g"].tree = B.Selector(
+        B.Once("x", B.Sequence(fb.flag("f1"), B.Do(a))),
+        B.Sequence(fb.flag("f2"), B.Do(a)),
+        B.Do(B.Hold((0, 0))),
+    )
+    with pytest.raises(B.BehaviorError, match="shared between"):
+        fb.compile()
+
+
+def test_once_announce_shared_between_two_onces_refused():
+    fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
+    a = B.Announce(700)
+    fb.units["g"].tree = B.Selector(
+        B.Once("x", B.Sequence(fb.flag("f1"), B.Do(a))),
+        B.Once("y", B.Sequence(fb.flag("f2"), B.Do(a))),
+        B.Do(B.Hold((0, 0))),
+    )
+    with pytest.raises(B.BehaviorError, match="two [Oo]nce"):
+        fb.compile()
