@@ -386,6 +386,10 @@ def gen() -> None:
     text = re.sub(r"(?m)^id = \d+", f"id = {FIELD_ID}", text)
     text = re.sub(r'(?m)^name = "[^"]+"', f'name = "{FIELD_NAME}"', text)
     text = re.sub(r"(?ms)^\[\[gateway\]\].*?(?=^\[|\Z)", "", text)   # a closed room
+    # entry_settle: the proven camera-ease cover (field-entry rung 7) — the
+    # importer does not emit it; without it warp/gateway reveals show the ease
+    if "entry_settle" not in text:
+        text = re.sub(r"(?m)^\[camera\]$", '[camera]\nentry_settle = "auto"', text)
     # drop the donor's VERBATIM BYSTANDERS (the Zaghnol, the red-hat villager,
     # the little girl, the noble woman... — round-2 owner request): every carried
     # [[object]] of kind "npc" goes; the two scenery props stay

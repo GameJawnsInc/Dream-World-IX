@@ -247,6 +247,11 @@ def gen() -> None:
     text = re.sub(r"(?m)^id = \d+", f"id = {FIELD_ID}", text)
     text = re.sub(r'(?m)^name = "[^"]+"', f'name = "{FIELD_NAME}"', text)
     text = re.sub(r"(?ms)^\[\[gateway\]\].*?(?=^\[|\Z)", "", text)   # a closed room
+    # entry_settle: the PROVEN camera-ease cover (field-entry rung 7, warp-tested
+    # on the waystation) — the importer does not emit it, and without it the
+    # reveal lands before the smooth camera parks (the drift seen on warp-in)
+    if "entry_settle" not in text:
+        text = re.sub(r"(?m)^\[camera\]$", '[camera]\nentry_settle = "auto"', text)
     blocks = re.split(r"(?m)(?=^\[)", text)                          # clear the stage
     text = "".join(b for b in blocks
                    if not (b.startswith("[[object]]") and 'kind = "npc"' in b))
