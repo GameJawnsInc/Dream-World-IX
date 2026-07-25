@@ -5,6 +5,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `behavior lint` sweeps the DYNAMIC feeds too: the pursuit sweep for `chase`/`wander`
+- `route = "auto"` refuses `chase`/`wander` because a runtime target has no build-time leg to
+  splice — so lint now checks what *is* knowable: the **family** of pursuit lines the branch's own
+  engagement gate admits. `scene.routes.sweep_pursuit` tests every pair of *occupiable* positions
+  inside the compiler's Chebyshev `near` box (excluding pairs already inside the `standoff`, where
+  the pursuer holds ground, and truncating each leg at the standoff ring) and reports the blocked
+  fraction plus spatially distinct worst-case pairs as coordinates. New
+  `behaviortoml.pursuit_refs` reads each chase's binding radius from the **tightest** `near` /
+  `any_near` row that names its target (branch rows are ANDed), turns a `near_point` row into a
+  source-box restriction, and models a `wander` as its own box spanning twice the radius; a chase
+  with no row bounding its target is reported as **UNGATED** (family = the whole field).
+- **WARNINGS, never errors** — a dynamic jam needs the quarry to stand on a bad spot, unlike a
+  static route's off-mesh leg, which jams every lap; the hint points at the two real fixes
+  (tighten the `near` radius, or `march route = "auto"` the approach and chase from close range).
+  Calibration from the Path-B study: 0% of sub-600u pursuit lines jam on the benches' donut field,
+  so the check is naturally quiet on sane layouts. Across the four benches that carry a
+  `[behavior]` table: silent on `BTROUTE` (patrol-only, no dynamic feed), 5.1% on the raid bench's
+  900u guard chase, 3.4%/2.0% on the pool bench, and the swarm bench's 40 ungated chases are
+  reported as UNGATED. (`BTREE`/`BTWAR` predate the TOML surface and have no table to lint.)
+- **Honest coverage:** the raster/leg **grain** is fixed at the collision radius and never scales
+  with the radius, only the sampled endpoint spacing does — and both are printed, so a sampled
+  sweep can never read as exhaustive (the reported rate is a floor, not a ceiling). Two false-clean
+  bugs found and fixed by the new tests while building it: sizing the sampling off an ungated
+  radius rather than off the floor that exists drove a ~4000u endpoint grid on a 1600u mesh, and
+  selecting endpoints by `gi % stride == 0` (a modulus on absolute grid indices) matched no cell at
+  all — each reported "0 pairs tested" as clean. Sources are now chosen by **bucketing**, and every
+  sizing decision is clamped to the occupiable extent. 16 new tests
+  (`test_behavior_pursuit.py`). Docs: [BEHAVIOR.md § Movement](docs/BEHAVIOR.md).
+  Rationale + the measurements: `studies/behavior-trees/PLAN.md § PATH B`.
+
 ### Added — `[behavior]` static-feed auto-routing: `route = "auto"` on `patrol`/`march`
 - **`route = "auto"`** on a `patrol`/`march` verb re-routes any leg the walkability sweep finds
   OFF-MESH through the walkmesh A* (`content.pathfind.route_polyline`, the same pathfinder
