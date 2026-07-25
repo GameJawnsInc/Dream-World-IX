@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE MONOTONIC-ONCE STARVATION: `once` over an `announce` is an EVENT, not an engagement
+- BTTABLE round 2 (the data-table bench): the herald's win line — `once` + `announce` gated on
+  `counter_ge ["kills", 2]` — fired correctly, then **held the selection for the rest of the
+  match** and silently starved the wave-three line below it. Sticky `Once` (the rung-1 design,
+  correct for feeds: "chase me while I'm near, never again once I escape") disengages when its
+  child's conditions go false — but announce conditions are usually **monotonic** (a kill tally,
+  a spent wave counter, `time_below`) and never go false again. Any mid-match one-shot line above
+  other branches would hit this; branch reordering can't fix two monotonic onces.
+- Now `Once` whose branch ends in an `Announce` compiles as **fire-and-release**: selection
+  edge-latches a request flag; the one-shot request lane (the same machinery as `battle`'s
+  clobber fix — a one-tick selection can be eaten by a body still holding the dispatch level)
+  fires the window when the level frees; the dispatch body sets the Once latch FIRST (a
+  re-request can never re-fire) and returns without an idle loop — the async window persists on
+  its own, and the branch releases the next tick. Sticky semantics are UNCHANGED for movement
+  behaviors, and a bare (un-`once`d) `announce` keeps its idle-while-selected spam guard.
+  An `Announce` object shared between a `once` site and a bare site is refused at compile.
+  3 new tests (the starvation shape structurally, the sticky-feed control, the shared-site
+  negative). Docs: BEHAVIOR.md § Alarms, FORMAT.md.
+
 ### Added — `[behavior]` DATA TABLES: gScriptVector arrays, counters, and the schedule clock
 - **`[[behavior.table]]`** (`name` / `values` 1..64 ±26-bit ints / optional `id`): named int
   arrays in the save's `gScriptVector`, written through the engine's 0xD3 VECTOR lane the

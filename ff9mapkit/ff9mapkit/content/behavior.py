@@ -431,6 +431,16 @@ def _stmt(text: str) -> bytes:
     return bytes([0x05]) + exprasm.assemble(text + " B_EXPR_END")
 
 
+def _terminal_do(node) -> "Do | None":
+    """The subtree's terminal Do — a bare Do, or a Sequence ending in one (the
+    only shapes v1 emits). None for anything else."""
+    if isinstance(node, Do):
+        return node
+    if isinstance(node, Sequence) and node.children and isinstance(node.children[-1], Do):
+        return node.children[-1]
+    return None
+
+
 def _cnum(v: int) -> str:
     """The correct literal token for ``v``: ``const()`` is a SIGNED Int16 at
     runtime (the engine reads getShortIP signed — 32768..65535 would come out
@@ -859,6 +869,48 @@ class FieldBehavior:
                     f"{unit.name}: the tree needs an unconditional Do fallback "
                     f"(got {type(node).__name__})")
 
+    def _once_announce_map(self, u: UnitSpec, ids: dict) -> dict:
+        """aid -> Once name for every ``Once`` whose subtree is a simple branch
+        ending in an ``Announce`` — THE EVENT ONCE (the BTTABLE round-2 law:
+        a sticky Once over a MONOTONIC condition — a kill tally, a spent wave
+        counter — holds the selection FOREVER and starves every branch below
+        it). Over an Announce, "once" means an EVENT: fire and release. The
+        fire rides the same edge-latched request lane as Battle (a one-tick
+        selection can be clobbered by a body still holding the level — the
+        siege round-1 lesson), and the dispatch body sets the Once latch
+        itself, so the branch releases the moment the line is delivered."""
+        onced: dict = {}
+        bare: set = set()
+
+        def walk(n):
+            if isinstance(n, (Selector, Sequence)):
+                for c in n.children:
+                    walk(c)
+            elif isinstance(n, Cooldown):
+                walk(n.child)
+            elif isinstance(n, Once):
+                leaf = _terminal_do(n.child)
+                if leaf is not None and isinstance(leaf.action, Announce):
+                    aid = ids[id(leaf.action)]
+                    if aid in onced and onced[aid] != n.name:
+                        raise BehaviorError(
+                            f"{u.name}: the same Announce object sits under two "
+                            f"Once decorators ({onced[aid]!r}, {n.name!r}) — one "
+                            f"latch cannot serve two gates; give each its own "
+                            f"Announce instance")
+                    onced[aid] = n.name
+                else:
+                    walk(n.child)
+            elif isinstance(n, Do) and isinstance(n.action, Announce):
+                bare.add(ids[id(n.action)])
+        walk(u.tree)
+        clash = set(onced) & bare
+        if clash:
+            raise BehaviorError(
+                f"{u.name}: an Announce object is shared between a Once-wrapped site "
+                f"and a bare site — give each site its own Announce instance")
+        return onced
+
     def has_battle_actions(self) -> bool:
         """True when any unit's tree fires a :class:`Battle` — the build must then
         ensure the entry-0 tag-10 Main_Reinit (the after-battle resume law)."""
@@ -1010,25 +1062,35 @@ class FieldBehavior:
             ])
 
             # ---- dispatch-action bodies (tags 15+) + the per-unit tree in the ticker
+            once_ann = self._once_announce_map(u, ids)   # aid -> Once name (EVENT Once)
             funcs: list = []
             dispatch_tag: dict[int, int] = {}
-            battle_latch: dict[int, int] = {}            # aid -> one-shot latch flag
-            battle_req: dict[int, int] = {}              # aid -> EDGE-latched request
+            oneshot_latch: dict[int, int] = {}           # aid -> one-shot latch flag
+            oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched request
             for a in actions:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
                     continue
                 tag = FIRST_ACTION_TAG + len(funcs)
                 dispatch_tag[aid] = tag
+                latch_arg = None
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                    battle_latch[aid] = li
-                    battle_req[aid] = ri
+                elif isinstance(a, Announce) and aid in once_ann:
+                    li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
+                    ri = self.bb.flag(f"{u.name}.areq{aid}")
+                    latch_arg = li
+                else:
+                    li = ri = None
+                if li is not None:
+                    oneshot_latch[aid] = li
+                    oneshot_req[aid] = ri
                     for fi in (li, ri):
                         if fi not in self._reset_flags:
                             self._reset_flags.append(fi)
-                funcs.append((tag, self._dispatch_body(u, a, aid, sel, run)))
+                funcs.append((tag, self._dispatch_body(u, a, aid, sel, run,
+                                                       oneshot_latch=latch_arg)))
             # the SPEED NUDGE (always the last tag): MSPEED from the speed GLOB, then
             # record it applied. Straight-line at level 4 — preempts a mid-flight
             # blocked walk, which resumes at the new speed (actor.speed is re-read
@@ -1053,28 +1115,29 @@ class FieldBehavior:
                 label(f"t_{u.name}_fellthrough"),        # unreachable (fallback is
                 label(f"t_{u.name}_selected"),           # unconditional) — lint safety
             ]
-            # THE BATTLE REQUEST LANE runs FIRST and is EDGE-LATCHED: a Battle branch
-            # is typically outranked ONE TICK after it selects (its own raise_flags —
-            # e.g. "lost" — promotes a die/aftermath branch above it), and if another
-            # body still holds `running` during that single tick the sel-gated
-            # dispatch never fires (the siege round-1 clobber: the gatecry announce
-            # ate the window). So selection SETS `breq`, and the dispatch fires on
-            # breq && !fought && running==0 whenever level 4 frees — independent of
-            # what the tree selects meanwhile. A successful REQ jumps past the rest
-            # of the tail (one REQ per unit per tick, still by construction).
+            # THE ONE-SHOT REQUEST LANE runs FIRST and is EDGE-LATCHED: a Battle (or
+            # event-Once Announce) branch is typically outranked or released ONE
+            # TICK after it selects (its own raise_flags — e.g. "lost" — promotes an
+            # aftermath branch above it), and if another body still holds `running`
+            # during that single tick the sel-gated dispatch never fires (the siege
+            # round-1 clobber: the gatecry announce ate the window). So selection
+            # SETS the request flag, and the dispatch fires on req && !latch &&
+            # running==0 whenever level 4 frees — independent of what the tree
+            # selects meanwhile. A successful REQ jumps past the rest of the tail
+            # (one REQ per unit per tick, still by construction).
             disp_end = f"t_{u.name}_dend"
-            for aid, ri in battle_req.items():
+            for aid, ri in oneshot_req.items():
                 bl = f"t_{u.name}_b{aid}"
                 ticker += [
                     _stmt(f"Global.Bit[{ri}]"), (JMP_IFNOT, bl),
-                    _stmt(f"Global.Bit[{battle_latch[aid]}]"), (JMP_IF, bl),
+                    _stmt(f"Global.Bit[{oneshot_latch[aid]}]"), (JMP_IF, bl),
                     _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, bl),
                     opcodes.run_script_async(DISPATCH_LEVEL, u.entry, dispatch_tag[aid]),
                     (JMP, disp_end),
                     label(bl),
                 ]
             for aid, tag in dispatch_tag.items():        # the normal sel-gated tail
-                if aid in battle_req:                    # battles ride the request lane
+                if aid in oneshot_req:                   # one-shots ride the request lane
                     continue
                 ticker += [
                     _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
@@ -1263,11 +1326,26 @@ class FieldBehavior:
         if isinstance(node, Invert):
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
-            # STICKY semantics (rung-1 design fix): a reactive ticker re-selects every
-            # tick, so a select-time latch would fire for ONE tick. Instead: selecting
-            # the child ENGAGES; while engaged the gate is bypassed (the child's own
-            # conditions keep deciding); the first child-FAIL while engaged disengages
-            # and latches — "chase me while I'm near, never again once I escape".
+            leaf = _terminal_do(node.child)
+            if leaf is not None and isinstance(leaf.action, Announce):
+                # THE EVENT ONCE (BTTABLE round-2 law): over an Announce, "once"
+                # means fire-and-release — the sticky form over a MONOTONIC cond
+                # (a kill tally, a spent wave counter) would hold the selection
+                # forever and STARVE every branch below it. Selection edge-latches
+                # the request; the one-shot lane fires it when the level frees;
+                # the dispatch body sets THIS latch itself, releasing the branch.
+                aid = ids[id(leaf.action)]
+                latch = self.bb.flag(f"{u.name}.once.{node.name}")
+                req = self.bb.flag(f"{u.name}.areq{aid}")
+                extra = (on_select or []) + [_set_flag(req, 1)]
+                return ([_stmt(f"Global.Bit[{latch}]"), (JMP_IF, fail)]
+                        + self._compile_tree(u, node.child, ids, fail, _ctr, extra))
+            # STICKY semantics (rung-1 design fix), for FEED behaviors: a reactive
+            # ticker re-selects every tick, so a select-time latch would fire for
+            # ONE tick. Instead: selecting the child ENGAGES; while engaged the gate
+            # is bypassed (the child's own conditions keep deciding); the first
+            # child-FAIL while engaged disengages and latches — "chase me while I'm
+            # near, never again once I escape".
             latch = self.bb.flag(f"{u.name}.once.{node.name}")
             eng = self.bb.flag(f"{u.name}.onceeng.{node.name}")
             self._reset_flags += [i for i in (latch, eng) if i not in self._reset_flags]
@@ -1569,7 +1647,8 @@ class FieldBehavior:
                                 + "\n".join(map(str, fresh)))
         return out
 
-    def _dispatch_body(self, u: UnitSpec, a: Action, aid: int, sel: int, run: int) -> bytes:
+    def _dispatch_body(self, u: UnitSpec, a: Action, aid: int, sel: int, run: int,
+                       oneshot_latch: int | None = None) -> bytes:
         head: list = [_set_byte(run, aid), label("loop"),
                       _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                       (JMP_IFNOT, "out")]
@@ -1597,6 +1676,17 @@ class FieldBehavior:
                 opcodes.RETURN,
             ])
         if isinstance(a, Announce):
+            if oneshot_latch is not None:
+                # the EVENT-Once variant: latch FIRST (Battle's one-shot shape —
+                # a re-request can never re-fire), show the window (async — it
+                # persists on screen without a body idling), release the level.
+                return asm([
+                    _set_flag(oneshot_latch, 1),
+                    _set_byte(run, 255),
+                    opcodes.window_async(a.window, 128, int(a.txid)),
+                    _set_byte(run, 0),
+                    opcodes.RETURN,
+                ])
             return asm(head[:1] + [opcodes.window_async(a.window, 128, int(a.txid))]
                        + [label("loop"),
                           _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
