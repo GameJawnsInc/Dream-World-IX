@@ -92,7 +92,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Multi-campaign journeys: links, seeds, per-journey tuning (`journeys.toml`) | ✓ | [JOURNEYS](JOURNEYS.md) |
 | Generated World-Hub selector field (New Game → pick a journey → seeded warp) | ✓ | [JOURNEYS](JOURNEYS.md) |
 | FF9 reference-arc scaffold (`reference-arcs` — the disc-1 spine as a fork playbook) | ✓ | [JOURNEYS](JOURNEYS.md) |
-| Reversible deploys + New Game wiring (`deploy-campaign`, `deploy-journey`, `newgame`) | ✓ | [tutorials 04–05](tutorials/README.md) |
+| Reversible deploys + New Game wiring (`deploy`, `deploy-campaign`, `deploy-journey`, `newgame`) | ✓ | [tutorials 04–05](tutorials/README.md) |
 | Story-flag scopes: field / campaign / journey, with lint-enforced disjointness | ✓ | [GLOBAL_RESOURCES](GLOBAL_RESOURCES.md) |
 
 ## Battle maps & tuning

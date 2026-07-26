@@ -281,6 +281,25 @@ def _cmd_deploy_campaign(args: argparse.Namespace) -> int:
     return report["rc"]
 
 
+def _cmd_deploy(args: argparse.Namespace) -> int:
+    """Reversibly install ONE field.toml into the live game (the installed-copy equivalent of
+    tools/deploy_field.py, minus its repo-only dev-loop levers). SAFE BY DEFAULT: prints the plan; pass
+    --apply to touch the game. Snapshot + revert go to a per-user cache."""
+    from . import deploy, provision
+    from .deploy import DeployError
+    try:
+        report = deploy.deploy_field(
+            args.field, game=getattr(args, "game", None), mod_folder=getattr(args, "mod_folder", None),
+            apply=args.apply, allow_name_collision=args.allow_name_collision,
+            allow_id_collision=args.allow_id_collision, allow_drop=args.allow_drop,
+            out_dist=args.out_dist, backups_dir=provision.deploy_backups_dir(),
+            reverts_dir=provision.deploy_reverts_dir())
+    except DeployError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return report["rc"]
+
+
 def _cmd_deploy_journey(args: argparse.Namespace) -> int:
     """Deploy (or dry-run) a multi-campaign journey into the live game (the installed-copy equivalent of
     tools/deploy_journey.py). Default = a dry-run playbook; --apply runs the one-shot install with one unified
@@ -7648,6 +7667,26 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--no-extract", action="store_true", help="skip the base-asset extraction step")
     su.add_argument("--no-fixtures", action="store_true", help="skip test fixtures during extraction")
     su.set_defaults(func=_cmd_setup)
+
+    dpf = sub.add_parser("deploy", aliases=["deploy-field"],
+                         help="reversibly INSTALL one field.toml into the live game, into a DEDICATED mod "
+                              "folder (SAFE by default: prints the plan; --apply touches the game).")
+    dpf.add_argument("field", help="path to the field.toml to install")
+    dpf.add_argument("--mod-folder", dest="mod_folder", default=None,
+                     help="mod folder to install into (default: a dedicated FF9CustomMap-<field name>)")
+    dpf.add_argument("--out-dist", dest="out_dist", default=None,
+                     help="keep the staged build here instead of a temp dir (for inspection)")
+    dpf.add_argument("--allow-name-collision", action="store_true", dest="allow_name_collision",
+                     help="install even when EVT/FBG names collide with another FolderNames folder (default ABORT)")
+    dpf.add_argument("--allow-id-collision", action="store_true", dest="allow_id_collision",
+                     help="install even when the field id collides with another FolderNames folder (default ABORT)")
+    dpf.add_argument("--allow-drop", action="store_true", dest="allow_drop",
+                     help="install into a folder holding OTHER fields, unregistering them (default ABORT). A "
+                          "single-field install replaces its folder wholesale; iterate many fields into one "
+                          "shared folder with the repo's tools/deploy_field.py instead.")
+    dpf.add_argument("--game", default=argparse.SUPPRESS, help="game install path (default: auto-detect)")
+    dpf.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
+    dpf.set_defaults(func=_cmd_deploy)
 
     dca = sub.add_parser("deploy-campaign",
                          help="reversibly INSTALL a built campaign into the live game + wire New Game (SAFE by "

@@ -1,6 +1,6 @@
 # PLAN — Promote single-field deploy into the package (`deploy_field` gap)
 
-> **Status: Phase 0 ★ DONE (commit `c942899e`). Phases 1–2 still not started.** Self-contained brief for a
+> **Status: Phases 0 + 1 ★ DONE. Phase 2 deferred (and still the right call).** Self-contained brief for a
 > fresh session; file:line refs are so you *verify*, not trust.
 >
 > *Was `HANDOFF_DEPLOY_FIELD_PROMOTION.md` at the repo root; moved here 2026-07-26 in the root-clutter
@@ -191,7 +191,40 @@ delta — `5235 → 5239` passed, exactly the 4 new tests. A true green still ha
 
 ---
 
-## Phase 1 — the `ff9mapkit deploy` verb (dedicated folder, reversible)
+## Phase 1 — the `ff9mapkit deploy` verb ★ DONE
+
+**Shipped:** `deploy.deploy_field()` + `default_field_folder()` + `_render_field_revert()`, CLI verb
+**`deploy`** with alias **`deploy-field`** (both registered, so the naming question the doc left open is
+moot), 9 tests in `tests/test_deploy_field.py` running against a fake game dir under `tmp_path`.
+
+Decisions taken (the doc left these to ask):
+- **Verb name:** `deploy`, with `deploy-field` as an argparse alias. No reason to choose.
+- **Dedicated folder by default:** yes — `FF9CustomMap-<name>`, keeping the `FF9CustomMap*` family the
+  install already stacks. Sanitized, so a field name can't escape the path.
+- **`--mod-folder` is allowed but GATED.** Pointed at a folder holding other fields, the wholesale install
+  would unregister them, so it ABORTS (`--allow-drop` overrides) — reusing `_regs_wiped` +
+  `_wiped_regs_warning`. That is the same rule `build_mod` enforces for `--out`, and it is what keeps
+  Phase 2 genuinely deferred rather than half-done.
+
+Two things the sketch got wrong:
+- **`_render_folder_revert` could NOT be reused.** It only restores a snapshot; when the deploy CREATES
+  the folder there is no snapshot, and it would leave the install in place while reporting success. Hence
+  `_render_field_revert`, which removes the folder in that case. Both branches are tested by actually
+  running the emitted script.
+- **`tools/deploy_field.py` was NOT shrunk to a shim** — deliberately, see below.
+
+Also carried over from `deploy_campaign`: the offline lint gate (`lint_all`, aborts on errors), and the
+name / GLOBAL-EventDB-id / text-block-shadow guards run against the BUILT dist.
+
+### Why `tools/deploy_field.py` is still 590 lines (the doc's step 4, NOT done)
+The doc assumed the repo script could become a thin shim once the package had `deploy_field()`. It cannot,
+yet: the two do genuinely different installs. The package function OWNS a dedicated folder and replaces it
+wholesale; the repo script does a **surgical per-id merge into a SHARED folder** (splices BattlePatch /
+TextPatch under `//field-<id>` markers, merges DictionaryPatch and MusicMetaData non-destructively, handles
+the live Scripts-DLL recompile). That merge is exactly Phase 2. Until Phase 2 lands there is nothing for
+the shim to delegate to, so the script stays as-is and the dev loop is untouched.
+
+<details><summary>Original Phase-1 sketch (superseded)</summary>
 
 **Goal:** installed users get a one-command, reversible single-field install. Target a **dedicated** mod
 folder (default = the field's own name) so no surgical merge/guards are needed — a fresh folder has nothing
@@ -226,6 +259,8 @@ Reuse existing pieces:
 
 **Decision to make (ask the user):** verb name `deploy` vs `deploy-field`; and whether Phase 1 should default
 to a dedicated folder (recommended) or offer `--mod-folder FF9CustomMap` (which pulls in Phase 2's merge).
+
+</details>
 
 ---
 
@@ -275,12 +310,20 @@ These are dev-loop concerns with no meaning on a single-game install; they live 
    prerequisite, if anyone wants this collapse: first make `_emit_logic_only_member` record
    `source_field = real_id` (which is worth doing on its own — it closes the same standalone-install hole
    for editable members).
-3. `feat(deploy): ff9mapkit deploy — reversible single-field install into a dedicated folder`.
-4. `refactor(tools): deploy_field.py → thin shim over ff9mapkit.deploy.deploy_field`.
+3. ★ **DONE** `feat(deploy): ff9mapkit deploy — reversible single-field install into a dedicated folder`.
+4. ~~`refactor(tools): deploy_field.py → thin shim`~~ — **BLOCKED ON PHASE 2, not skipped.** The repo script
+   does a surgical per-id merge into a SHARED folder; the package function owns a dedicated one. Different
+   installs, nothing to delegate to yet. See the Phase-1 note.
 5. (later / optional) Phase 2, restore-engine, deploy-battle, and dropping `coop.py`'s now-redundant write.
 
 ## Definition of done (Phases 0–1)
 - ★ `ff9mapkit build <fork> --out <dir>` produces a correct ForkDonorPatch.txt; novel field produces none.
-- `ff9mapkit deploy <field.toml>` installs reversibly on a machine with **no repo**; revert restores cleanly.
-- `tools/deploy_field.py` is a thin shim; the repo dev loop (debug menu/sandbox/worktree) still works unchanged.
-- Full suite green: `py -m pytest -n 6`.
+- ★ `ff9mapkit deploy <field.toml>` installs reversibly with **no repo**; revert restores (or removes) cleanly.
+- ⚠ `tools/deploy_field.py` is NOT a shim — correctly, it is blocked on Phase 2. The repo dev loop is
+  untouched (the script was not modified at all).
+- ⚠ Full suite: **not verifiable in a worktree.** Delta vs the same tree without these changes is clean
+  (`5235 → 5250` passed = the 15 new tests; identical 67 failed / 35 skipped / 30 errors, all pre-existing
+  environment gaps). **A true green still has to come from the main repo.**
+- ⚠ **No in-game playtest yet.** Nothing here changes the repo dev loop, and the fork-gate payoff is only
+  observable on a standalone install — worth one confirmation that a `ff9mapkit deploy`'d fork boots with
+  its occlusion intact.
