@@ -1,0 +1,9 @@
+PLAN (dry run -- nothing written): cell (1, 36) tag 0xA405 -> case 53 -> field 6601
+  NAMEPLATE SURGERY: dead case 53 -> Field(6601); name 'Lantern Quay' (locId 52); explored word 98 bit 4
+  nameplate SURGERY: the entrance runs the game's REAL native flow; the location nameplate shows "Lantern Quay" (a CUSTOM name)
+    dead AREA-switch case 53 repointed -> [set explored word 98 bit 4 (gEventGlobal bit 788)] + Field(6601)
+    name registered into world text block 68 at locId 52 (split[53]) -- shows "?" until first visit, then the name (faithful)
+  trigger func -> 0 dispatcher(s) x 7 langs = 0 .eb file(s): (none)
+  skipped (cell already has an entrance there): world00, world02, world03, world05, world07, world08, world09, world10, world11
+  event tiles: 6 triangle(s) set event=1 area=KEPT (--no-tile-area) in block(0, 18), 14 tiles blocked under the building
+  building (planned): ../studies/overworld-topography/southern-ring/quay_beacon.obj at (48.0, -1160.5) seat=False keep_block=False

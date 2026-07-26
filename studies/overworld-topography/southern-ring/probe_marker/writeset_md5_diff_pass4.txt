@@ -1,0 +1,31 @@
+# Install write-set proof -- md5 of FF9CustomMap-world, the PRE-PASS-3 baseline vs AFTER the pass-4 re-site.
+# The baseline is the same reference pass 3 used, so this diff shows the marker's TOTAL install
+# footprint, not just the pass-3 -> pass-4 delta. 891 files before, 891 after; none added/removed.
+#
+#   Block[0][18] Terrain.ff9mesh  35900 B -> 40580 B  (hull split 230 -> 260 tris; 14 tiles topo 59)
+#   Block[0][18] Object.ff9mesh      176 B -> 34652 B  (the 222-tri beacon, every tri idall 4078)
+#   ...each on BOTH discs, byte-identical across them.
+#
+# Pass 4 RESTORED the pre-pass-3 Terrain + Object stub FIRST (verified md5 1225065193757d7a12efcb324ab05c07
+# / e4a62c30d82899d19f86bdd6e19df0c9, whole tree == baseline) before re-running, so pass 3's 12 orphan
+# topo-59 hull tiles are provably gone rather than left as invisible walls in open grass.
+#
+# All 9 world dispatchers SKIPPED (0 .eb written) -- see dryrun_pass4.txt. The 7 nameplate 68.mes
+# files were rewritten but are byte-identical to their backups (absent from this diff).
+
+152c152
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> 4acc87aba56ab8e5e164cb790c94d92b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+158c158
+< 1225065193757d7a12efcb324ab05c07 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Terrain.ff9mesh
+---
+> db6e94d780f5923bfc9eaefe6c2f0ce8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Terrain.ff9mesh
+541c541
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> 4acc87aba56ab8e5e164cb790c94d92b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh
+547c547
+< 1225065193757d7a12efcb324ab05c07 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Terrain.ff9mesh
+---
+> db6e94d780f5923bfc9eaefe6c2f0ce8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Terrain.ff9mesh

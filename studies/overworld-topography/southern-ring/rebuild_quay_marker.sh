@@ -20,6 +20,13 @@
 #   * --no-tile-area   : R1 deployed the trigger tiles with area KEPT (idall 16384, area 0). Without
 #                        this flag the tiles would be re-stamped area=53 and the probe's expectation
 #                        (and possibly the entrance) would change.
+#   * --building-at 48 -1160.5 : pass 4's re-site (THE TRIGGER-AT-THE-FOOT LAW). Pass 3 stood the tower
+#                        at z -1157, ~12u north of the trigger cluster, and the owner reported "the
+#                        entrance is heavily offset to the south" -- the "!" fired in open grass with
+#                        the tower standing apart. -1160.5 puts the footprint's south edge at z -1162.8,
+#                        1.2u off the trigger rect's north edge (z -1164). Do NOT go further south than
+#                        -1160.70: below that the hull comes within 1u of the trigger tris and the
+#                        retriangulating split can reach them. MUST match ANCHOR in mint_quay_beacon.py.
 #   * --no-seat        : the OBJ is authored in WORLD coords with its skirt 0.5u BELOW the y=3.00
 #                        plateau. Seating would lift the lowest point ONTO the ground and un-bury the
 #                        skirt, reintroducing the coplanar-face z-fighting the beacon exists to avoid.
@@ -58,7 +65,7 @@ py -m ff9mapkit world-entrance \
     --no-tile-area \
     --mod-folder FF9CustomMap-world \
     --building "../studies/overworld-topography/southern-ring/quay_beacon.obj" \
-    --building-at 48 -1157 \
+    --building-at 48 -1160.5 \
     --no-seat \
     --replace-town \
     --building-idall 4078
