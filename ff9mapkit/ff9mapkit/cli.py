@@ -2639,18 +2639,19 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_locate(args: argparse.Namespace) -> int:
-    """Decode the overworld ENTRANCE dispatch: which world blocks/tiles (IDALL area) lead to which field, with
-    the ScenarioCounter branches. The area IS the dispatch switch key, so the blocks are the true geography."""
+    """Decode the overworld ENTRANCE dispatch: which world CELLS/blocks lead to which field, with the
+    ScenarioCounter branches. Geography = the dispatcher's object-0 cell-tag triggers (the engine packs the walked
+    CELL into the dispatch key -- ff9.cs WorldEvent); the tile's IDALL area bits are NOT the key."""
     from .world import locate as Loc
     try:
-        rows = Loc.locate(disc=args.disc, game=args.game)
+        rows = Loc.locate(game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
 
     def _dests(ds):
         if not ds:
-            return "(no entrance)"
+            return "(no dispatch case: scripted world event, no walk-on warp)"
         out = []
         for d in ds:
             f = "(no warp)" if d["field"] is None else ("field %d" % d["field"] + (" %s" % d["name"] if d["name"] else ""))
@@ -2661,25 +2662,31 @@ def _cmd_world_locate(args: argparse.Namespace) -> int:
         bx, by = args.block
         rows = [r for r in rows if (bx, by) in r["blocks"]]
         if not rows:
-            print(f"block [{bx}][{by}] carries no overworld entrance (plain terrain)")
+            print(f"block [{bx}][{by}] carries no overworld entrance trigger (plain terrain)")
             return 0
-    elif args.area is not None:
-        rows = [r for r in rows if r["area"] == args.area]
+    elif args.case is not None:
+        rows = [r for r in rows if r["case"] == args.case]
     elif args.field is not None:
         rows = [r for r in rows if any(d["field"] == args.field for d in r["destinations"])]
         if not rows:
-            print(f"no overworld area leads to field {args.field}")
+            print(f"no overworld dispatch case leads to field {args.field}")
             return 0
 
     for r in rows:
-        blk = " ".join("[%d][%d]" % b for b in r["blocks"]) or "(no entrance tiles found)"
-        print(f"area {r['area']:>2}: {_dests(r['destinations'])}")
-        print(f"         blocks: {blk}")
-    print(f"\n{len(rows)} area(s). Read: BOTH blocks + a field = a walk-on overworld entrance (the tile's IDALL "
-          "area is the dispatch case) -- the reliable place->blocks map; FIELD only = a scripted/return "
-          "destination with no walk-on tile; BLOCKS only = walkable terrain, no warp. Destinations are BASE-game "
-          "-- a deployed journey may field_remap them (base area 2 -> Alexandria 1856; the user's journey remaps "
-          "it to a Dali fork, which is why the runtime Dali spot reads as area 2).")
+        head = "case %2d" % r["case"] if r["case"] is not None else "no-case"
+        lm = ""
+        if r["landmark"] is not None:
+            lm = " ~ %s (d=%.0fu)" % (r["landmark"]["name"], r["landmark"]["dist"])
+        print(f"{head}:{lm} {_dests(r['destinations'])}")
+        if r["cells"]:
+            cells = " ".join("(%d,%d)e%d" % c for c in r["cells"])
+            blk = " ".join("[%d][%d]" % b for b in r["blocks"])
+            print(f"         cells: {cells}   blocks: {blk}")
+    print(f"\n{len(rows)} row(s). Read: CELLS + a field = a walk-on overworld entrance (the walked cell's packed "
+          "tag picks the object-0 trigger, whose Byte[39] case picks the destination -- the tile's IDALL area "
+          "bits are NOT the key, they are a cosmetic regional tag); FIELD only = a scripted/return destination "
+          "with no walk-on tile; ~landmark = nearest engine navipos marker to the cells, with its distance. "
+          "Destinations are BASE-game -- a deployed journey may field_remap them.")
     return 0
 
 
@@ -2711,19 +2718,28 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
     print(f"retargeted {n} tile(s) on block[{x}][{y}] -> {dest}")
     print(f"  entrances before: {[(e['area'], e['event']) for e in before]}")
     print(f"  entrances after:  {[(e['area'], e['event']) for e in after]}")
-    if args.area is not None:
-        try:
-            from .world import locate as Loc
-            fs = Loc.area_to_fields(game=args.game).get(args.area)
-            if fs:
-                print("  area %d on foot -> " % args.area + " | ".join(
-                    ((c + ": ") if c != "default" else "") + ("field %d" % f if f is not None else "(no warp)")
-                    for c, f in fs))
-        except (RuntimeError, FileNotFoundError, ValueError):
-            pass
+    try:                                                     # what the DISPATCHER says about this block's cells
+        from .world import locate as Loc
+        from .world.entrance import cell_to_block
+        a2f = Loc.case_to_fields(game=args.game)
+        trig = sorted((cell, c) for c, cells in Loc.case_to_cells(game=args.game).items()
+                      for cell in cells if cell_to_block(cell[0], cell[1]) == (x, y))
+        for (cx, cz, ev), c in trig:
+            if c is None:
+                print(f"  dispatcher trigger at cell ({cx},{cz}) event {ev}: no Byte[39] case (scripted event)")
+                continue
+            fs = " | ".join(((cond + ": ") if cond != "default" else "") + ("field %d" % f if f is not None else "(no warp)")
+                            for cond, f in a2f.get(c, [])) or "(case has no dispatch arm)"
+            print(f"  dispatcher trigger at cell ({cx},{cz}) event {ev} -> case {c}: {fs}")
+        if not trig:
+            print("  NO dispatcher trigger covers this block's cells -- event/area bits alone warp nowhere "
+                  "(world-entrance authors the trigger)")
+    except (RuntimeError, FileNotFoundError, ValueError):
+        pass
     print("  RELAUNCH + reach the overworld. TOPOGRAPH edits change WALKABILITY/encounters (the move gate reads "
-          "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- an overworld entrance is a "
-          "world .eb ENTRY keyed to the cell position (GetIP); a plain tile with event bits warps nowhere.")
+          "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- the destination comes from the "
+          "world .eb object-0 trigger GetIP-keyed to the CELL position, and the tile's area bits are not read by "
+          "dispatch at all (cosmetic regional tag).")
     return 0
 
 
@@ -6375,13 +6391,15 @@ def build_parser() -> argparse.ArgumentParser:
     wd.set_defaults(func=_cmd_world_deploy)
 
     wl = sub.add_parser("world-locate",
-                        help="decode which overworld blocks/tiles (IDALL area) lead to which field -- the entrance "
-                             "dispatch, with ScenarioCounter branches (the reliable place->blocks map)")
-    wl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
-    wl.add_argument("--area", type=int, help="show only this IDALL area id")
+                        help="decode which overworld cells/blocks lead to which field -- the entrance dispatch "
+                             "(cell trigger -> Byte[39] case -> Field), with ScenarioCounter branches + navipos "
+                             "landmark naming (the reliable place->blocks map)")
+    wl.add_argument("--case", "--area", dest="case", type=int,
+                    help="show only this dispatch case (Map.Byte[39]; --area is the deprecated pre-census spelling "
+                         "-- the case never was the tile IDALL area)")
     wl.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"),
-                    help="show the entrance(s) carried by this block")
-    wl.add_argument("--field", type=int, help="show which areas/blocks lead to this destination field id")
+                    help="show the entrance trigger(s) whose cells sit in this block")
+    wl.add_argument("--field", type=int, help="show which cases/cells lead to this destination field id")
     wl.set_defaults(func=_cmd_world_locate)
 
     wr = sub.add_parser("world-retarget",
@@ -6392,7 +6410,9 @@ def build_parser() -> argparse.ArgumentParser:
     wr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wr.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
     wr.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
-    wr.add_argument("--area", type=int, help="set the entrance AREA (the dispatch case = which place; see world-locate)")
+    wr.add_argument("--area", type=int, help="set the tile's IDALL area bits -- a COSMETIC regional tag, NOT the "
+                                             "dispatch key (the destination comes from the cell's dispatcher "
+                                             "trigger; see world-locate / world-entrance)")
     wr.add_argument("--event", type=int, choices=[0, 1, 2, 3],
                     help="set the event-trigger bits (0=land, 1-3=fires WorldEvent) -- NOTE: bits alone do NOT make "
                          "a working entrance; the destination is a world .eb entry keyed to the cell")
@@ -7083,8 +7103,8 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--trigger-radius", type=float, default=14.0,
                      help="event-tile cluster radius in world units (default 14; the cell is 32u wide)")
     wen.add_argument("--no-tile-area", action="store_true",
-                     help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; the "
-                          "stamp just keeps world-locate reporting the entrance)")
+                     help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; "
+                          "world-locate reads the dispatcher's trigger table, so the stamp is pure bookkeeping)")
     wen.add_argument("--trigger-only", action="store_true",
                      help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
                           "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "

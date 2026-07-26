@@ -82,8 +82,8 @@ decodes the entrance dispatch.
   `Byte[24]=Byte[39]+100` → the dispatcher's conditional `Byte[24]-=100` → `Byte[29]=Byte[24]` → the base-2 AREA switch
   (60 cases) on `Byte[29]` → ScenarioCounter → `Field(dest)` (0x2B). **So the destination is the func's `Byte[39]`
   (== the switch case); the tile's IDALL area is only designer-correlated, NOT the dispatch key.** Interaction is the
-  standard action-button `!` prompt, not a tread warp. `ff9mapkit world-locate` decodes area→field; journeys re-point
-  via `worldmap_inject`/`field_remap`. **⚠ 13 DISPATCHERS:** the disc-1 overworld runs one of `EVT_WORLD_WORLD00..12`
+  standard action-button `!` prompt, not a tread warp. `ff9mapkit world-locate` decodes the whole chain
+  (cell tags → case → field, with navipos landmark naming); journeys re-point via `worldmap_inject`/`field_remap`. **⚠ 13 DISPATCHERS:** the disc-1 overworld runs one of `EVT_WORLD_WORLD00..12`
   (p0data7) picked by the world MapNo (9000-9012 = entry/story state) — a new entrance must be added to the WORLDxx
   actually loaded (see below).
 - **The game's own debug menu:** `WMBeeMenu` (the "Bee scene" = `WorldMapDebug`). Teleport buttons =
@@ -359,7 +359,7 @@ ff9mapkit world-entrance --cell 35 25 --field 300 --mod-folder FF9CustomMap \
 ```
 
 What it does, generalizing + hardening the manual recipe:
-- **Destination.** `--field N` inverts `area_to_fields` to the dispatch case (prefers a `default` branch; errors with the
+- **Destination.** `--field N` inverts `case_to_fields` to the dispatch case (prefers a `default` branch; errors with the
   reachable-field list if N isn't overworld-reachable); `--case C` sets `Byte[39]` directly. `--field 300` → case 4 (Ice
   Cavern), the proven default. **`--field-direct N` targets a CUSTOM field**: the trigger func keeps the template's own
   vehicle/state gate verbatim, then performs the real **zone-in choreography** itself before warping `Field(N)` — the
