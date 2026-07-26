@@ -179,17 +179,26 @@ def png_name(spec: GaugeSpec, k: int) -> str:
     return f"gauge_{spec.name}_{k:02d}.png"
 
 
+def effective_width(spec: GaugeSpec) -> int:
+    """The bar's TRUE pixel width: the largest exact uniform-cell fit <= the
+    asked ``width``. Cells must all be the SAME width (WATERWORKS round 1: the
+    remainder-px scheme made the last cell visibly narrower), so the bar
+    normalizes down instead of padding cells unevenly. The overlay Size uses
+    this too — a Size wider than the PNG would stretch the cells uneven again."""
+    cw = (spec.width - 2 - (spec.segments - 1)) // spec.segments
+    return 2 + cw * spec.segments + (spec.segments - 1)
+
+
 def art_pngs(spec: GaugeSpec) -> list:
     """``[(filename, png_bytes)]`` for fill states 0..segments. Each state is a
     complete self-backed bar (plate + cells) so the ANIMATION's one-visible-frame
     swap needs no separate backplate overlay and frame 255 hides the WHOLE bar.
-    Flat PSX-flavored cells: 1px black border, dark plate, per-cell top bevel."""
+    Flat PSX-flavored UNIFORM cells: 1px black border, dark plate, top bevel."""
     from PIL import Image, ImageDraw
 
-    w, h, seg = spec.width, spec.height, spec.segments
-    inner = w - 2 - (seg - 1)                 # px available to the cells
-    base_cw = inner // seg
-    extras = inner - base_cw * seg            # leftmost cells get the remainder px
+    h, seg = spec.height, spec.segments
+    w = effective_width(spec)
+    cw = (w - 2 - (seg - 1)) // seg
     fill, back = tuple(spec.color), tuple(spec.back_color)
     bevel = tuple(min(255, c + 70) for c in fill)
     out = []
@@ -199,7 +208,6 @@ def art_pngs(spec: GaugeSpec) -> list:
         d.rectangle([0, 0, w - 1, h - 1], fill=(12, 12, 20, 235), outline=(0, 0, 0, 255))
         x = 1
         for i in range(seg):
-            cw = base_cw + (1 if i < extras else 0)
             c = fill if i < k else back
             d.rectangle([x, 1, x + cw - 1, h - 2], fill=c + (255,))
             if i < k:
@@ -217,7 +225,7 @@ def overlay_blocks(spec: GaugeSpec):
     from ..scene import bgx as _bgx
     return [_bgx.Overlay(image=png_name(spec, k),
                          position=(spec.pos[0], spec.pos[1], spec.depth),
-                         size=(spec.width, spec.height), camera_id=spec.camera)
+                         size=(effective_width(spec), spec.height), camera_id=spec.camera)
             for k in range(spec.segments + 1)]
 
 
