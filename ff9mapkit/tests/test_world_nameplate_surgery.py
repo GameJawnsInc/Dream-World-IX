@@ -227,8 +227,17 @@ def test_dead_case_guard_raises_on_a_mapped_case():
 @needs_game
 def test_author_entrance_surgery_summary():
     """The one-shot author (dry-run, trigger-only) reports the surgery plan: 9 dispatchers, case 53 -> Field(6500),
-    name 'Waystation' at locId 52, explored word 98 bit 4 (== gEventGlobal bit 788)."""
-    info = EN.author_entrance(cell=(7, 36), mod_folder="FF9CustomMap-world", direct_field=FIELD,
+    name 'Waystation' at locId 52, explored word 98 bit 4 (== gEventGlobal bit 788).
+
+    The mod folder is a deliberately-ABSENT name: author_entrance stacks on ``<mod_folder>``'s deployed ``.eb``
+    when one exists, and the SHARED install's real folders may legitimately carry case 53 already (a shipped
+    surgery entrance maps it to ITS OWN handler), which would trip the -- correct, load-bearing -- already-mapped
+    guard. An absent folder makes every base fall back to pristine p0data bytes, where case 53 is dead (stock)."""
+    from ff9mapkit import config
+    mod = "FF9MK-PYTEST-NO-SUCH-MOD"
+    assert not (config.find_game_path(None) / mod).exists(), \
+        f"{mod!r} exists in the install -- this test needs an absent mod folder so the bases stay pristine"
+    info = EN.author_entrance(cell=(7, 36), mod_folder=mod, direct_field=FIELD,
                               nameplate_name="Waystation", trigger_only=True, dry_run=True)
     assert info["surgery"] is True
     assert info["case"] == CASE and info["field"] == FIELD
@@ -236,9 +245,8 @@ def test_author_entrance_surgery_summary():
     assert (info["explored_word"], info["explored_bit"]) == (98, 4)
     assert info["explored_bit_index"] == 788 == navimap.marker_bit(52)
     assert info["name_rename"] == {"locid": 52, "to": "Waystation", "text_block": 68}
-    # the surgery covers all 9 free-roam dispatchers (written OR already-present/skipped if it's been deployed --
-    # idempotent, so don't assume a pristine mod folder); the total is what matters
-    assert len(info["dispatchers_written"]) + len(info["dispatchers_skipped"]) == 9
+    # pristine bases -> the surgery is a FRESH plan in every free-roam dispatcher (nothing already-present to skip)
+    assert len(info["dispatchers_written"]) == 9 and info["dispatchers_skipped"] == []
 
 
 @needs_game
