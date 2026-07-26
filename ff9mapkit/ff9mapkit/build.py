@@ -3815,6 +3815,17 @@ class _FlagAlloc:
                             v = it.get(key)
                             if isinstance(v, int) and not isinstance(v, bool) and _flags.is_safe_custom(v):
                                 reserved.add(v)
+                # [[qte]] is outside the walk too: reserve its explicit finale `flag` bit AND the
+                # 16-bit span of its `result` Int16 (a BYTE offset -- a safe-band result word overlaps
+                # 16 bit-flags, which a defaulted block must not land inside).
+                for it in project.raw.get("qte", []) or []:
+                    if isinstance(it, dict):
+                        v = it.get("flag")
+                        if isinstance(v, int) and not isinstance(v, bool) and _flags.is_safe_custom(v):
+                            reserved.add(v)
+                        r = it.get("result")
+                        if isinstance(r, int) and not isinstance(r, bool):
+                            reserved.update(b for b in range(r * 8, r * 8 + 16) if _flags.is_safe_custom(b))
             except Exception:                    # noqa: BLE001 -- flag collection must never break the build
                 reserved = ()
         return cls(base, reserved)

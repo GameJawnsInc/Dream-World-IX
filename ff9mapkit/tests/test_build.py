@@ -962,6 +962,19 @@ def test_flag_alloc_for_project_reserves_logic_add_indices():
                               "guard": EVENT_FLAG_BASE + 1}]}
     a = _FlagAlloc.for_project(_P())
     assert a.event(0) == EVENT_FLAG_BASE + 2
+    # [[qte]]: the explicit finale flag AND the result Int16's 16-bit span are reserved (result is a
+    # BYTE offset -- a safe-band result word overlaps 16 bit-flags)
+    res_byte = EVENT_FLAG_BASE // 8 + 1                    # a word landing inside the event auto band
+    span = set(range(res_byte * 8, res_byte * 8 + 16))
+
+    class _Q:
+        flag_base = None
+        raw = {"qte": [{"name": "duel", "result": res_byte, "flag": EVENT_FLAG_BASE}]}
+    q = _FlagAlloc.for_project(_Q())
+    assert EVENT_FLAG_BASE in q.reserved and span <= q.reserved
+    for i in range(30):                                    # no auto event flag lands on either reservation
+        got = q.event(i)
+        assert got != EVENT_FLAG_BASE and got not in span
 
 
 def test_mognet_mailbox_region_is_reserved():
