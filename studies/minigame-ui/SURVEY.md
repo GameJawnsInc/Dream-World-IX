@@ -75,7 +75,7 @@ clean Item-shop type; items are real inventory (survive saves, sellable);
 speaks the 0xFF-prefix page (`opcodes.py:44`) — only `_optables.py` arg-shape
 rows past 0x10A are missing (a small add, scoped in the behavior-trees PLAN).
 
-### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split
+### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split (★ built as `[[qte]]`, bench 30419 "ENGARDE" — `engarde_bench.py`, playtest pending; one modal entry, since stock's 3-entry split existed only for its actor choreography)
 `test2_15.txt` entries 2/3/4: one entry ISSUES prompts (8 text ids, random with
 a no-repeat blocklist), a PARALLEL entry polls `IsButton(mask)` per frame, a
 third aggregates. The reaction timer is a countdown byte decremented by the
@@ -103,8 +103,12 @@ DLL-free gauge. Text-side alternative: `[TBLE=bank]` value-indexed string swap
   relaunch. Two laws minted en route: THE INVENTORY-SNAPSHOT LAW (have_item reads a
   top-of-tick mirror; the pool's live consumption raced a live read) and THE
   DRAINING-CONDITION LAW (one branch/unit/tick — several once-effects on a transient
-  moment must flag-latch it). `AddShopSynthesis` 0x116 = the same handler shape for
-  synth recipes, still unbenched.
+  moment must flag-latch it). **`AddShopSynthesis` 0x116 — ★★ ALSO FULLY PROVEN
+  (ARMOURY round 5, "phoenix down forges")** as `add_shop_synth`/`remove_shop_synth`:
+  the mutation is INVERTED (shop grafted onto the RECIPE, guard on the recipe);
+  result-NAME selectors resolve to the deterministic CSV mint (keyed by resolved item
+  id); lint refuses BUY-shop targets; THE HIDDEN-RECIPE IDIOM = declare the locked
+  recipe on a PARKED shop id, graft the real shop at runtime.
 - **`0xAE MINIGAME` (Tetra Master)** launches from any field but is a FLOW
   TERMINATOR (`return 7`) — must be the last thing its function does; gate on
   `B_SYSVAR[19]` ≥ 5 cards (`DoEventCode.cs:2378-86`). The uid-keyed

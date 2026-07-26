@@ -38,7 +38,7 @@ CHOICE_FLAG_BASE = _flags.AUTO_CHOICE_BASE
 
 
 def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,
-                input_specs: dict | None = None) -> bytes:
+                input_specs: dict | None = None, qte_slots: dict | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
@@ -57,6 +57,13 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
             raise ValueError(f"choice option input {opt['input']!r} has no seated "
                              f"[[numeric_input]] entry (validate should have caught this)")
         parts.append(_numinput.call_bytes(slot))
+    if "qte" in opt:
+        from . import qte as _qte_mod
+        qslot = (qte_slots or {}).get(str(opt["qte"]))
+        if qslot is None:
+            raise ValueError(f"choice option qte {opt['qte']!r} has no seated "
+                             f"[[qte]] entry (validate should have caught this)")
+        parts.append(_qte_mod.call_bytes(qslot))
     if "recall" in opt:
         # re-load gMesValue slot 0 from that input's RESULT var so this row's reply
         # renders the SAVED number — slot 0 is transient and shared by every stepper's

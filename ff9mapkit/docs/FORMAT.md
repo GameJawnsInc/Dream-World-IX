@@ -1526,6 +1526,37 @@ bank; validate refuses the combination). Synthesized fields only for now (not ve
 
 ---
 
+## `[[qte]]` (optional)
+
+The game's **button-prompt reaction minigame** — the Blank sword duel's core (FF9's one QTE),
+re-emitted with the round count, reaction window, prompt set, and texts as parameters. Random
+button prompts (stock's own glyph lines, never the same twice running), a per-prompt reaction
+countdown, and stock's two-channel scoring: a hit banks the **countdown leftover** (speed IS
+the score) plus the current combo; a miss or timeout breaks the combo. The finale shows a
+1–100 score, a tiered verdict, and optionally pays stock's gil-purse formula with the
+gold-lettered shower line. Opened from a `[[choice]]` option's `qte = "<name>"` (modal — the
+choice bracket holds movement; re-picking the row replays with fresh state).
+
+```toml
+[[qte]]
+name = "duel"                   # the [[choice]] option's `qte =` target
+result = 2006                   # gEventGlobal byte offset: Global.Int16 <- the 1..100 score
+rounds = 10                     # 1..99 prompts per bout
+window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
+buttons = ["cross", "circle"]   # (optional) the prompt set, >= 2 of the 8 stock names
+gil = true                      # (optional) pay stock's purse at the finale
+flag = 8300                     # (optional) story-flag BIT raised when a bout completes
+verdicts = ["...", "...", "...", "..."]   # (optional) the 4 score tiers (<25/<50/<75/75+)
+```
+
+Holding **Start** bails the current beat (a deliberate miss — stock's courtesy). The score is
+always written (there is no cancel). Synthesized fields only; a field can't carry both
+`[[qte]]` and `[behavior]` yet (the game's scratch sits inside the blackboard's headroom
+band). Deferred theater, by design: per-prompt actor choreography, hit/miss SFX, the stock
+combo-gated difficulty ramp.
+
+---
+
 ## `[cutscene]` / `[[cutscene]]` (optional)
 
 An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the
