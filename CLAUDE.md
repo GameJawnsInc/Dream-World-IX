@@ -152,7 +152,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
 - **Provenance gate is CLEAR and must stay so** — zero Square-Enix binary bytes; templates regenerate from
   the user's own install (`ff9mapkit extract-templates`). The one documented game-text exception is
   `research/FLAG_LORE.md`'s ≤110-char excerpts (`ff9mapkit/docs/PROVENANCE.md`).
-- **Versions:** kit `1.0.0b17`, Blender add-on `0.9.28`.
+- **Versions:** kit `1.0.0b17`, Blender add-on `0.9.29`.
 
 ---
 

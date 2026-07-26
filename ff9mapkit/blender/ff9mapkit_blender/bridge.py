@@ -449,6 +449,12 @@ def camera_zones_to_toml(zones):
     return "\n\n".join(blocks)
 
 
+# Owner directive (the field-entry arc): every generated field.toml carries the computed entry-settle
+# hold. Byte-for-byte MIRROR of the CLI's extract._ENTRY_SETTLE_LINE -- the add-on is self-contained
+# inside Blender (no ff9mapkit import), so the lockstep is pinned by blender/tests instead.
+ENTRY_SETTLE_LINE = 'entry_settle = "auto"   # computed hold: the camera settles behind the entry fade\n'
+
+
 def editable_field_toml(meta, layers, npcs=(), gateways=(), spawn=None, has_links=False):
     """field.toml for an EDITABLE fork re-exported from Blender (a custom scene over a forked real
     field). The camera + per-depth art are the real field's (preserved on export); the walkmesh is
@@ -478,6 +484,7 @@ def editable_field_toml(meta, layers, npcs=(), gateways=(), spawn=None, has_link
         f"area = {meta['area']}\n"
         f"text_block = {meta['text_block']}\n\n"
         f"[camera]\n"
+        f"{ENTRY_SETTLE_LINE}"
         f'borrow = "camera.bgx"\n'
         f"{scroll}\n"
         f"{wm}\n"

@@ -13,6 +13,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   carries its own real entry sequence, so the key would be a lint-flagged dead no-op
   there. Tomls without the key build byte-identically (the settle machinery is unchanged;
   only the generated scaffold gained the line).
+- Blender add-on **0.9.29**: `bridge.editable_field_toml` (the CLI-mirror re-export of an
+  editable fork) now emits the same `entry_settle = "auto"` line first under `[camera]` —
+  it silently dropped the settle on re-export, the same silent-loss class the `_merge_scene`
+  camera graft closed. The line is a byte-for-byte mirror of the CLI's constant, pinned by
+  a blender test (the add-on can't import `ff9mapkit` inside Blender).
 
 ### Fixed — `world-locate`: geography now follows the engine's CELL-tag dispatch, not tile IDALL areas
 - The area→place join was measured wrong (2026-07-25 Object-mesh census): the engine packs the

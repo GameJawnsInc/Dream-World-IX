@@ -103,6 +103,19 @@ def test_editable_field_toml_structure_multifloor():
     assert doc["layers"][1]["shader"] == "PSX/FieldMap_Abr_1"
 
 
+def test_editable_field_toml_entry_settle_mirrors_the_cli():
+    # Owner directive (the field-entry arc): every generated field.toml carries the computed settle.
+    # The add-on can't import ff9mapkit inside Blender, so bridge.ENTRY_SETTLE_LINE is a local mirror
+    # of the CLI's constant -- pin the byte-for-byte lockstep AND the CLI form (first key under
+    # [camera]), the same silent-loss class the _merge_scene graft closed on the scene.toml path.
+    from ff9mapkit import extract
+    assert bridge.ENTRY_SETTLE_LINE == extract._ENTRY_SETTLE_LINE
+    meta = {"field_id": 4003, "field_name": "GRGR_EDIT", "area": 21, "text_block": 1073}
+    text = bridge.editable_field_toml(meta, [{"image": "back.png", "z": 4000}])
+    assert "[camera]\n" + extract._ENTRY_SETTLE_LINE in text          # first key under [camera]
+    assert tomllib.loads(text)["camera"]["entry_settle"] == "auto"
+
+
 def test_editable_field_toml_single_floor_omits_links():
     meta = {"field_id": 4005, "field_name": "GLGV_EDIT", "area": 36, "text_block": 1073}
     doc = tomllib.loads(bridge.editable_field_toml(meta, [{"image": "back.png", "z": 4000}],
