@@ -89,8 +89,10 @@ def posts() -> dict:
     def nearest(x, z):
         return min(pts, key=lambda p: (p[0] - x) ** 2 + (p[1] - z) ** 2)
 
-    lay = {"broker": nearest(spawn[0] + 500, spawn[1] + 550),    # SE flank — clear of donor
-           "quarter": nearest(spawn[0] - 350, spawn[1])}         # arrival 9 (jam radius, probe-caught)
+    # both posts on the spawn→fountain axis (round 2: 400u WEST put the quartermaster
+    # outside the camera bounds — keep the cast inside the boot view, flanking the walk)
+    lay = {"broker": nearest(spawn[0] + 500, spawn[1] + 550),    # NE flank — clear of arrival 9
+           "quarter": nearest(spawn[0] + 100, spawn[1] + 500)}   # NNE, left of the broker
     bx, bz = lay["broker"]
     qx, qz = lay["quarter"]
     if max(abs(bx - qx), abs(bz - qz)) < 250:                    # the ~192u actor-jam law + margin
@@ -115,6 +117,12 @@ def gen() -> None:
     # the condor-bench lesson: dressing that LOOKS like cast makes the real cast
     # unfindable (round 1 here: "the broker is MIA" with both NPCs present)
     text = re.sub(r"(?ms)^\[\[object\]\].*?(?=^\[|\Z)", "", text)
+    # the importer never emits entry_settle — OWNER DIRECTIVE (NUMPAD round 2): every
+    # authored field keeps the player-experience settle; benches are not exempt
+    if "entry_settle" not in text:
+        text = text.replace("[camera]\n", '[camera]\nentry_settle = "auto"\n', 1)
+        if "entry_settle" not in text:
+            raise SystemExit("no [camera] block to hang entry_settle on — base toml changed?")
 
     lay = posts()
     bx, bz = lay["broker"]
@@ -198,10 +206,10 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST (round 2 — ~ Reload / re-warp is enough, {FIELD_ID} is registered):
-  The plaza now holds EXACTLY TWO people (donor bystanders stripped): the two
-  City Soldiers. The BROKER stands UP-RIGHT of spawn (toward the fountain);
-  the QUARTERMASTER is just LEFT of spawn. The menus name themselves
-  (probe-verified: screen-up = north on this camera).
+  Round 3: entry_settle restored (the arrival plays properly now) and BOTH
+  City Soldiers stand between the spawn and the fountain, inside the boot
+  camera view — the BROKER on the right, the QUARTERMASTER on the left.
+  The menus name themselves.
   THE BID (the broker — "Care to bid on the lot, kupo?"):
    1 Talk -> "Place a bid" -> the stepper: a "00100 Gil"-style line mid-left,
      the RIGHTMOST digit tinted PINK, a button legend below. No walking while
