@@ -53,26 +53,35 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 
-# (re)generate the beacon OBJ -- it is committed, but this keeps the mesh and the deploy in lockstep
-# and re-runs the 20 geometry gates (closed / orientable / outward / buried skirt / panel scale / UVs)
-py "$HERE/mint_quay_beacon.py"
+SITE="${1:-}"
+if [ -z "$SITE" ]; then
+  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur>" >&2
+  exit 2
+fi
+
+# Per-site deploy arguments. Each row is: cell-x cell-y  trigger-x trigger-z  beacon-x beacon-z  obj
+# The beacon anchor's SOUTHERN LIMIT is derived per site in mint_quay_beacon.py's SITES table: the hull
+# must stay >= 1.0u clear of the trigger rect, and the hull is the mesh's FULL XZ extent, which since
+# pass 5 includes the entrance steps projecting 0.45u south. So the limit is
+#     cz >= (trigger north edge) + 1.0 + 2.30 + 0.45
+# Ashvale: trigger north -1164.0 -> cz >= -1160.25, uses -1160.2 (0.05u slack).
+# Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
+# was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
+case "$SITE" in
+  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.2";    OBJ="quay_beacon.obj" ;;
+  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.2";   OBJ="quay_beacon_tidefall.obj" ;;
+  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.2";  OBJ="quay_beacon_grimhorn.obj" ;;
+  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.2";    OBJ="quay_beacon_larkspur.obj" ;;
+  *) echo "unknown site: $SITE" >&2; exit 2 ;;
+esac
+
+# (re)generate this site's OBJ -- committed, but this keeps mesh and deploy in lockstep and re-runs
+# the 29 geometry gates (closed / orientable / outward / buried skirt / siting / panel scale / UVs)
+py "$HERE/mint_quay_beacon.py" --site "$SITE"
 
 cd "$ROOT/ff9mapkit"
-py -m ff9mapkit world-entrance \
-    --cell 1 36 \
-    --field-direct 6601 \
-    --nameplate-name "Lantern Quay" \
-    --nameplate-case 53 \
-    --trigger-at 48 -1168 \
-    --trigger-radius 3.0 \
-    --no-tile-area \
-    --mod-folder FF9CustomMap-world \
-    --building "../studies/overworld-topography/southern-ring/quay_beacon.obj" \
-    --building-at 48 -1160.2 \
-    --no-seat \
-    --replace-town \
-    --building-idall 4078
+py -m ff9mapkit world-entrance     --cell $CELL     --field-direct 6601     --nameplate-name "Lantern Quay"     --nameplate-case 53     --trigger-at $TRIG     --trigger-radius 3.0     --no-tile-area     --mod-folder FF9CustomMap-world     --building "../studies/overworld-topography/southern-ring/$OBJ"     --building-at $AT     --no-seat     --replace-town     --building-idall 4078
 
 echo
-echo "Re-deployed. Now verify from the DEPLOYED bytes:"
+echo "Re-deployed $SITE. Now verify from the DEPLOYED bytes:"
 echo "  py \"$HERE/probe_marker/probe_quay_beacon.py\""
