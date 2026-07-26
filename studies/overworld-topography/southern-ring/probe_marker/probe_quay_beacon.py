@@ -46,17 +46,23 @@ BX, BY = 0, 18
 OX, OZ = W.block_world_origin(BX, BY)
 
 BEACON_IDALL = 4078
-BEACON_TRIS, BEACON_VERTS = 222, 666
+# ⚠ THESE DESCRIBE THE PASS-5 MESH (the entrance-face door), which is NOT DEPLOYED YET -- pass 5 was
+# repo-only and the door rolls out to all four quays in the R2 placement pass. Running this probe
+# against the currently-live pass-4 beacon will therefore FAIL on the tri/vert count and the span;
+# that is expected. Re-run it after the R2 deploy, when it becomes true again.
+#   pass 4 (live now): 222 tris / 666 verts, span z[-1162.80, -1158.20], anchor (48, -1160.5)
+#   pass 5 (here):     270 tris / 810 verts, span z[-1162.95, -1157.90], anchor (48, -1160.2)
+BEACON_TRIS, BEACON_VERTS = 270, 810
 HULL_TOPO = 59
 TRIGGER_IDALL = 16384
 TRIGGER_TRIS = 6
 TRIGGER_BBOX = (44.0, 52.0, -1172.0, -1164.0)
-BEACON_SPAN = (45.70, 50.30, -1162.80, -1158.20)   # pass 4: re-sited SOUTH to the trigger's foot
+BEACON_SPAN = (45.70, 50.30, -1162.95, -1157.90)   # pass 5: +the entrance steps projecting 0.45u south
 HULL_CLEARANCE = 1.0
-# pass 3's footprint, kept so the probe can PROVE its 12 orphan hull tiles went back to topo 0.
-# A naive re-run would have stamped the new hull while the old one stayed blocked = invisible walls
-# standing in open grass 5u north of the tower.
-OLD_SPAN = (45.70, 50.30, -1159.30, -1154.70)
+# The PREVIOUS footprint, kept so the probe can PROVE the old hull tiles went back to topo 0. A re-run
+# that stamps the new hull while the old one stays blocked leaves invisible walls in open grass.
+# Update this to the outgoing span whenever the beacon moves; pass 5 supersedes pass 4's -1162.80.
+OLD_SPAN = (45.70, 50.30, -1162.80, -1158.20)
 ARRIVE = (60.0, -1168.0)
 WALKABLE_TOPO = {0, 10, 36}            # on-foot limit: 10/36 walkable, 49/59 blocked (ff9.cs:5769)
 IDALL_SKIP = {4078, 4088, 2040}

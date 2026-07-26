@@ -1037,3 +1037,117 @@ foot** (1.2 u between the tower's south face and the trigger's north edge). Conf
    collision hull starts 1.2 u north of the tile;
 3. nothing invisible remains ~5 u north of the tower where pass 3's hull used to be (walk through it);
 4. entry still works and the "Lantern Quay" plate still appears.
+
+**⚠ §11's ANCHOR is superseded by §12** (−1160.5 → −1160.2), which is **not deployed yet**.
+
+---
+
+# 12. PASS 5 — THE ENTRANCE-FACE DOOR — **REPO ONLY, NOT DEPLOYED**
+
+Run 2026-07-26, same worktree/branch, as R2 phase 1. **ZERO install writes. Zero backups needed.
+The live install is still pass 4's beacon** — the door rolls out to all four quays in the R2
+placement pass, once the scout returns the three new dock coords.
+
+## 12.1 The defect
+
+Owner, after the pass-4 playtest: *"most buildings have some obvious entrance feature; ours does not,
+making the entrance seem offset."* Pass 4 put the trigger at the tower's foot, but the tower was a
+blank stone box on every side, so nothing told the player **which** side was the way in — the entrance
+still read as arbitrary.
+
+## 12.2 What changed in the generator
+
+Everything is in `mint_quay_beacon.py`; the tower body is untouched.
+
+* **The plinth was raised, 1.30 → 2.90 u** (`PLINTH_H`), because a door needs somewhere to live. The
+  four shaft bands re-space from ~1.4 u to ~1.0 u to keep the total height at 10.60 u — so the
+  silhouette, footprint and legibility band are all unchanged.
+* **A recessed doorway on the SOUTH face only** — the face the quay trigger sits at. 1.60 u wide,
+  2.05 u tall, sunk 0.35 u into the wall, with a 0.40 u lintel band above it. **The asymmetry is the
+  feature**: the other three faces are byte-for-byte the plain plinth they were, and a gate asserts it.
+* **Two shallow steps** up to the threshold (0.20 u and 0.42 u treads, 1.20 u / 1.00 u half-widths),
+  each its own closed box, projecting 0.45 u south.
+* **A third atlas tile** for the recess, `TILE_DOOR`. Chosen **by measurement, not by eye**: of 685
+  candidate rects sampled from the object palette it has the lowest mean luminance (**2.2/255**) at a
+  near-zero stddev (**0.9**) — i.e. the flattest, darkest panel on the atlas, which is what reads as an
+  opening. Jambs, lintel underside, threshold and back face all take it; the steps take the shaft's
+  stone tile.
+
+## 12.3 How the recess stays CLOSED (the risky part)
+
+An inset doorway adds interior faces, and a polygon-with-a-hole invites an ad-hoc triangulation that
+quietly breaks the mesh. Two rules kept it manifold:
+
+1. **The frame is a quad STRIP between two 6-vertex loops**, not a triangulated polygon-with-a-hole.
+   The outer loop is *exactly* the boundary of the two south panels being replaced — **the same
+   vertices, with no new points inserted on the shared edges**. That matters: adding a vertex mid-edge
+   would leave the neighbouring strip's edge used once and mine used twice, i.e. a T-junction, and the
+   closedness gate would fail. The inner loop traces the opening with the same 6-fold structure, so the
+   annulus is a plain strip and its winding follows the **same derived rule as every other strip**.
+   Extruding the inner loop inward and capping it closes the cavity.
+2. **No hand-flipping, anywhere.** The recess side walls and the step boxes reuse the pass-3 winding
+   derivation (`L[i]→U[i]→U[j]→L[j]`, plus t-order bottom fans and reversed-order top fans). The step
+   boxes are built through that same machinery rather than as 12 hand-written triangles.
+
+Separate components are fine: the gates check every edge has exactly 2 faces and every *directed* edge
+exactly one, which holds per component, and the signed volumes add.
+
+**A real bug this caught.** The first recess back-face used a fan from one corner. The J loop is a
+rectangle carrying collinear mid-points on its top and bottom edges, so a fan from *any* corner emits
+one **zero-area sliver** along the edge its apex sits on. The existing "no degenerate triangles" gate
+missed it completely — it only tests for a *repeated vertex*, and this triangle had three distinct
+ones. Fixed by triangulating the cap as a 2-quad strip, **and by adding a real area gate**
+(`min area > 1e-6`) so the next collinear triangle cannot slip through.
+
+## 12.4 ⚠ THE SOUTHERN LIMIT WAS RE-SOLVED — the anchor moved 0.30 u north
+
+The hull is the mesh's **full XZ extent**, so the steps count:
+
+```
+pass 4 (no steps):     south edge = cz − 2.30           ≥ −1163.0  ⇒  cz ≥ −1160.70   (used −1160.5)
+pass 5 (+0.45 steps):  south edge = cz − (2.30 + 0.45)  ≥ −1163.0  ⇒  cz ≥ −1160.25   (uses −1160.2)
+```
+
+**`ANCHOR = (48.0, −1160.2)`**, 0.05 u of slack. The structure still gets **closer** to the trigger than
+pass 4: its southern extent is now the bottom step at **z −1162.95** versus pass 4's bare plinth face at
+−1162.80, so the door faces the trigger across a **1.05 u** gap. Arrival clearance **10.936 u**
+(gate ≥ 6), block north margin 5.90 u.
+
+**Do not site south of −1160.25 while the steps exist.** `rebuild_quay_marker.sh` now records the new
+anchor *and* both derivations, so a future `island.py`-clobber rebuild cannot drift into the trigger.
+
+## 12.5 Gate results — 29 checks, ALL PASS
+
+| | |
+|---|---|
+| closed | every edge shared by exactly 2 faces — **0 bad** |
+| orientable | every *directed* edge used exactly once — **0 bad** |
+| outward | signed volume **+144.928 u³** > 0 ⇒ nothing culls from any angle |
+| slivers | min face area **9.36e-02 u²** (the new gate) |
+| ground plane | **0** faces coplanar with y = 3.00; skirt still buried 0.50 u |
+| siting | 1.05 u off the trigger rect, `< 3 u` "at the foot", 10.936 u from arrival, inside the block |
+| tiles | every UV in one of the 3 authored rects (222 stone / 32 lantern / 16 door tris); none degenerate; all in [0,1] |
+| entrance face | frame on the south plane (16 faces), recess sunk behind it (4 faces), steps exactly 0.45 u south, **north face still at the plain plinth line** |
+
+**Tri count 222 → 270 (+48):** door frame 12, recess walls 12, recess back 4, steps 24, minus the 4
+replaced panel tris. Verts 113 → 141. The budget gate was raised 250 → 320 with that reasoning recorded.
+
+## 12.6 Files
+
+| Path | Change |
+|---|---|
+| `mint_quay_beacon.py` | plinth raised; `DOOR_*` / `STEP_*` / `TILE_DOOR` constants; the door surgery + `_box_solid`; anchor re-solve; +6 gates (sliver, 3-tile coverage, door tile, frame, recess, steps-project, north-face-untouched) |
+| `quay_beacon.obj` | regenerated — 141 verts / 270 tris / 810 UVs, 41202 B |
+| `probe_marker/beacon_textured.png` | re-rendered 4-view preview, **south face first**, sampling the real atlas |
+| `rebuild_quay_marker.sh` | `--building-at 48 -1160.2` + both southern-limit derivations |
+| `probe_marker/probe_quay_beacon.py` | `BEACON_TRIS/VERTS/SPAN` and `OLD_SPAN` advanced to the pass-5 mesh, with a header warning that **it will fail against the currently-live pass-4 beacon until R2 deploys** |
+
+No kit code changed. World/mesh test set: **300 passed, 4 skipped**.
+
+## 12.7 Rollout note for the R2 placement pass
+
+Quay 1 (Lantern Quay) picks the door up on its rebuild alongside sites 2–4. The re-deploy is the
+existing one-command script — and the §11.3 **restore-first** ordering still applies: pass 4's hull is
+live, and the new footprint differs, so restore `quay-beacon-prebuild.20260725-230801`'s Terrain +
+Object stub before re-running, or the old hull tiles orphan as invisible walls. `probe_quay_beacon.py`
+is already primed with the pass-5 expectations and its old-hull-cleared gate points at pass 4's span.

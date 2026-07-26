@@ -69,14 +69,21 @@ sys.path.insert(0, str(REPO / "ff9mapkit"))
 # standing apart. Stock's idiom -- and our own waystation precedent -- put the trigger AT THE
 # STRUCTURE'S FOOT. So the beacon is sited as far SOUTH as the hull gates allow.
 #
-#   the hull must stay >= 1.0u clear of the trigger rect, and the footprint half-width is 2.30u, so
-#       south edge = cz - 2.30 >= -1164.0 + 1.0   =>   cz >= -1160.70
-#   cz = -1160.50 keeps 0.20u of slack inside that bound: south edge -1162.80, i.e. 1.20u clear.
+# ⚠ THE SOUTHERN LIMIT WAS RE-SOLVED IN PASS 5 (the entrance-face door). The hull must stay >= 1.0u
+# clear of the trigger rect, and the hull is computed from the mesh's FULL XZ extent -- which now
+# includes the entrance steps projecting STEP_OUT south of the plinth face:
 #
-# The arrival (60,-1168) is then 11.006u away (gate: >= 6u) and the arrival->trigger path along
-# z = -1168 stays >= 5.20u south of the footprint, whose x span [45.70,50.30] is WEST of the eastern
+#   pass 4 (no steps):   south edge = cz - 2.30            >= -1163.0  =>  cz >= -1160.70
+#   pass 5 (+0.45 steps): south edge = cz - (2.30 + 0.45)  >= -1163.0  =>  cz >= -1160.25
+#
+# so the centre moves 0.30u NORTH to cz = -1160.20 (0.05u of slack). The STRUCTURE still gets closer
+# to the trigger than before: its southern extent is now the bottom step at z -1162.95, versus pass 4's
+# bare plinth face at -1162.80. The door faces the trigger across a 1.05u gap.
+#
+# The arrival (60,-1168) is then ~10.9u away (gate: >= 6u) and the arrival->trigger path along
+# z = -1168 stays >= 5.05u south of the footprint, whose x span [45.70,50.30] is WEST of the eastern
 # approach corridor -- so walking in from the east cannot clip the hull.
-ANCHOR = (48.0, -1160.5)        # XZ centre -- the trigger cluster now sits at the tower's foot
+ANCHOR = (48.0, -1160.2)        # XZ centre -- the DOORWAY now faces the trigger at the tower's foot
 GROUND_Y = 3.00                 # Block[0][18]'s measured plateau
 SKIRT_BURY = 0.50               # how far the plinth base sits BELOW the ground plane
 
@@ -92,25 +99,49 @@ BLOCK_FOOTPRINT = (0.0, 64.0, -1216.0, -1152.0)  # block (0,18) in world XZ
 # ---- the profile: (y above ground, half-width) ------------------------------------------------------
 # A pair of rings at the same y with different half-widths makes a horizontal step (a plinth lip, a
 # gallery ledge, a roof eave). Consecutive rings at different y make a wall or a taper.
+PLINTH_H = 2.90                 # plinth top -- RAISED in pass 5 from 1.30 so it can host the doorway
+
 PROFILE = [
-    (-SKIRT_BURY, 2.30),        # buried skirt base
-    (0.00, 2.30),               # ground line (a ring here, so no face STRADDLES the terrain plane)
-    (1.30, 2.30),               # plinth top
-    (1.30, 1.80),               # step in to the shaft
-    (2.72, 1.68),               # shaft, 4 bands of ~1.4u -- tapering
-    (4.15, 1.55),
-    (5.57, 1.43),
-    (7.00, 1.30),               # shaft top
-    (7.00, 2.10),               # gallery ledge out
-    (7.85, 2.10),               # gallery top
-    (7.85, 1.40),               # step in to the lantern head
-    (8.85, 1.40),               # lantern, 2 bands of 1.0u
-    (9.85, 1.40),               # lantern top
-    (9.85, 1.60),               # roof eave out
+    (-SKIRT_BURY, 2.30),        # 0  buried skirt base
+    (0.00, 2.30),               # 1  ground line (a ring here, so no face STRADDLES the terrain plane)
+    (PLINTH_H, 2.30),           # 2  plinth top
+    (PLINTH_H, 1.80),           # 3  step in to the shaft
+    (3.93, 1.68),               # 4  shaft, 4 bands of ~1.0u -- tapering
+    (4.95, 1.55),               # 5
+    (5.98, 1.43),               # 6
+    (7.00, 1.30),               # 7  shaft top
+    (7.00, 2.10),               # 8  gallery ledge out
+    (7.85, 2.10),               # 9  gallery top
+    (7.85, 1.40),               # 10 step in to the lantern head
+    (8.85, 1.40),               # 11 lantern, 2 bands of 1.0u
+    (9.85, 1.40),               # 12 lantern top
+    (9.85, 1.60),               # 13 roof eave out
 ]
 APEX_Y = 10.60                  # pyramid roof apex
 
 RING_N = 8                      # 8 perimeter points = a square with edge midpoints (2 panels per side)
+
+# ---- THE ENTRANCE FACE (pass 5) ---------------------------------------------------------------------
+# Owner's law from the pass-4 playtest: "most buildings have some obvious entrance feature; ours does
+# not, making the entrance seem offset." So the SOUTH face -- the one the quay trigger sits at -- gets a
+# recessed doorway with a lintel, and two shallow steps up to its threshold. The other three faces are
+# untouched: THE ASYMMETRY IS THE POINT. It tells the player which side to approach.
+#
+# Ring index 6 is the south mid-point (t=270deg), so the south face is the two perimeter panels i=5..6,
+# spanning SW corner (5) -> S mid (6) -> SE corner (7).
+DOOR_STRIP = 1                  # the PROFILE strip the door lives in (1 -> 2, i.e. the plinth wall)
+DOOR_SEGS = (5, 6)              # the two south perimeter panels the door surface replaces
+DOOR_HALF_W = 0.80              # half the opening width (1.60u wide)
+DOOR_SILL = 0.45                # threshold height above ground (the steps climb to just under it)
+DOOR_TOP = 2.50                 # opening head above ground -> a 2.05u tall door, 0.40u of lintel above
+DOOR_DEPTH = 0.35               # how far the recess is sunk into the wall
+
+STEP_OUT = 0.45                 # how far the steps project SOUTH of the plinth face (<= 0.5u by brief)
+STEP_BACK = 0.02                # ...and how far they poke INTO the wall, so there is no crack at the join
+STEP_TIERS = [                  # (half-width, top height above ground, south projection)
+    (1.20, 0.20, 0.45),         # lower/outer tread
+    (1.00, 0.42, 0.22),         # upper tread -- 0.03u under DOOR_SILL so it is never COPLANAR with it
+]
 
 # ---- atlas tiles -----------------------------------------------------------------------------------
 # UVs into the SHARED `res(1_24)_objects` atlas (the engine-resolved one: a Moguri install renders a
@@ -129,6 +160,10 @@ def _inset(r):
 
 TILE_STONE = _inset((0.0039, 0.3506, 0.0352, 0.3818))   # rough grey-brown masonry (topo-59 family)
 TILE_LANTERN = _inset((0.3340, 0.4355, 0.3613, 0.4570))  # warm orange -- the lit lantern room (topo-49)
+# The door recess reads as an OPENING, so it wants the flattest, darkest tile on the object atlas.
+# Chosen by MEASURE, not by eye: mean luminance 2.2/255 with stddev 0.9 across the whole rect -- i.e.
+# a near-uniform black panel -- the darkest of 685 candidate tiles sampled from the object palette.
+TILE_DOOR = _inset((0.3359, 0.7773, 0.3486, 0.7930))
 
 # which ring-strips are the lantern room (0-based strip k joins PROFILE[k] -> PROFILE[k+1])
 LANTERN_STRIPS = {10, 11}
@@ -156,6 +191,28 @@ def _normal(face_pts):
     n = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
     L = math.sqrt(sum(k * k for k in n)) or 1.0
     return (n[0] / L, n[1] / L, n[2] / L)
+
+
+def _box_solid(add, faces, uvs, verts, x0, x1, y0, y1, z0, z1, tile):
+    """Append a CLOSED axis-aligned box as its own component, wound outward.
+
+    Built from the same primitives as the tower rather than by hand-writing 12 triangles: two rings in
+    the ring parameterisation's rotational order (corners at t = 45/135/225/315deg), a wall strip
+    between them, a bottom fan in ``t`` order (which yields -Y, proven by the tower's buried cap) and a
+    top fan in REVERSED ``t`` order (hence +Y). Reusing the derived rules is the point -- hand-flipping
+    faces is what broke orientability the first time the tower was built."""
+    corners = [(x1, z1), (x0, z1), (x0, z0), (x1, z0)]     # t = 45, 135, 225, 315 -- same sense as _ring
+    bot = [add((cx, y0, cz)) for (cx, cz) in corners]
+    top = [add((cx, y1, cz)) for (cx, cz) in corners]
+    u0, v0, u1, v1 = tile
+    for i in range(4):                                      # walls
+        j = (i + 1) % 4
+        faces.append([bot[i], top[i], top[j]]); uvs.extend([(u0, v0), (u0, v1), (u1, v1)])
+        faces.append([bot[i], top[j], bot[j]]); uvs.extend([(u0, v0), (u1, v1), (u1, v0)])
+    for i in range(1, 3):                                   # bottom cap (t order -> faces DOWN)
+        faces.append([bot[0], bot[i], bot[i + 1]]); uvs.extend([(u0, v0), (u1, v0), (u1, v1)])
+        faces.append([top[0], top[i + 1], top[i]]); uvs.extend([(u0, v0), (u1, v1), (u1, v0)])
+    return bot, top
 
 
 def _signed_volume(verts, faces, origin) -> float:
@@ -216,7 +273,56 @@ def build_beacon():
             j = (i + 1) % RING_N
             if rings[k][i] == rings[k + 1][i] and rings[k][j] == rings[k + 1][j]:
                 continue                                   # identical rings -> degenerate strip, skip
+            if k == DOOR_STRIP and i in DOOR_SEGS:
+                continue                                   # the doorway surface replaces these two panels
             quad(lo[i], hi[i], hi[j], lo[j], tile)
+
+    # ---- THE DOORWAY -------------------------------------------------------------------------------
+    # Replaces the two south panels of the plinth strip with: a FRAME (the wall, with a rectangular
+    # hole), the RECESS side walls, and the recess BACK face.
+    #
+    # THE MANIFOLD TRICK: the frame is a quad STRIP between two 6-vertex loops, not an ad-hoc
+    # triangulation of a polygon-with-a-hole. The outer loop is exactly the boundary of the two panels
+    # being replaced -- SAME vertices, no new points on the shared edges -- so the neighbouring strips
+    # still find each of their edges used exactly once (add a vertex mid-edge here and you get a
+    # T-junction, i.e. an edge with only one face, and the closedness gate fails). The inner loop
+    # traces the door opening with the same 6-fold structure, so the annulus is a plain strip and the
+    # winding follows the SAME derived rule as every other strip. Extruding the inner loop inward and
+    # capping it closes the cavity.
+    lo, hi = ring_idx[DOOR_STRIP], ring_idx[DOOR_STRIP + 1]
+    i5, i6, i7 = DOOR_SEGS[0], DOOR_SEGS[1], (DOOR_SEGS[1] + 1) % RING_N
+    # the outer boundary, in the same rotational sense the two replaced quads traced
+    B = [lo[i5], hi[i5], hi[i6], hi[i7], lo[i7], lo[i6]]
+    zS = verts[lo[i6]][2]                                  # the south wall plane
+    yb, yt = GROUND_Y + DOOR_SILL, GROUND_Y + DOOR_TOP
+    cxa = ANCHOR[0]
+    inner = [(cxa - DOOR_HALF_W, yb), (cxa - DOOR_HALF_W, yt), (cxa, yt),
+             (cxa + DOOR_HALF_W, yt), (cxa + DOOR_HALF_W, yb), (cxa, yb)]
+    I = [add((x, y, zS)) for (x, y) in inner]
+    J = [add((x, y, zS + DOOR_DEPTH)) for (x, y) in inner]  # the recess, sunk INTO the wall
+    for k in range(6):                                      # frame: outer loop -> opening rim
+        quad(B[k], B[(k + 1) % 6], I[(k + 1) % 6], I[k], TILE_STONE)
+    for k in range(6):                                      # jambs / lintel underside / threshold
+        quad(I[k], I[(k + 1) % 6], J[(k + 1) % 6], J[k], TILE_DOOR)
+    # The recess BACK face. NOT a fan: the J loop is a rectangle carrying collinear mid-points on its
+    # top and bottom edges, so a fan from ANY corner emits one zero-area sliver along the edge its apex
+    # sits on. Triangulate it as a 2-quad strip pairing top points to bottom points instead.
+    du0, dv0, du1, dv1 = TILE_DOOR
+    for (a, b, c, d) in ((J[0], J[1], J[2], J[5]), (J[5], J[2], J[3], J[4])):
+        faces.append([a, b, c]); uvs.extend([(du0, dv0), (du0, dv1), (du1, dv1)])
+        faces.append([a, c, d]); uvs.extend([(du0, dv0), (du1, dv1), (du1, dv0)])
+
+    # ---- THE ENTRANCE STEPS ------------------------------------------------------------------------
+    # Two shallow treads, each its OWN closed box. Separate components are fine: the gates check that
+    # every edge has exactly 2 faces and every DIRECTED edge exactly one, which holds per component,
+    # and the signed volumes simply add. Each box is buried to the skirt depth (no face on the ground
+    # plane) and pokes STEP_BACK into the wall so there is no visible crack at the join -- that back
+    # face ends up inside the solid plinth, below the door threshold, so it is never seen.
+    for (half_w, top_h, out) in STEP_TIERS:
+        _box_solid(add, faces, uvs, verts,
+                   cxa - half_w, cxa + half_w,
+                   GROUND_Y - SKIRT_BURY, GROUND_Y + top_h,
+                   zS - out, zS + STEP_BACK, TILE_STONE)
 
     # pyramid roof: the eave ring collapsed to a single apex (the same rule, U[i]==U[j]==apex)
     apex = add((ANCHOR[0], GROUND_Y + APEX_Y, ANCHOR[1]))
@@ -288,7 +394,7 @@ def gates(verts, faces, normals, uvs) -> int:
           f"{max(ys) - GROUND_Y:.2f}u, buried {GROUND_Y - min(ys):.2f}u")
 
     m = _assert_closed_solid(verts, faces)
-    check(m["degenerate"] == 0, "no degenerate triangles", f"{m['degenerate']} found")
+    check(m["degenerate"] == 0, "no degenerate triangles (repeated vertex)", f"{m['degenerate']} found")
     check(not m["non_manifold_edges"], "CLOSED: every edge shared by exactly 2 faces",
           f"{len(m['non_manifold_edges'])} bad edges")
     check(not m["misoriented_edges"], "ORIENTABLE: every directed edge used exactly once "
@@ -315,10 +421,12 @@ def gates(verts, faces, normals, uvs) -> int:
     check(len([i for i, f in enumerate(faces) if all(verts[k][1] < GROUND_Y for k in f)]) > 0,
           "at least one face entirely below ground (the buried bottom cap)")
 
-    # budget + legibility
-    check(100 <= len(faces) <= 250, "tri count inside the 100-250 budget", str(len(faces)))
-    check(4.0 <= max(xs) - min(xs) <= 5.0 and 4.0 <= max(zs) - min(zs) <= 5.0,
-          "footprint 4-5u square")
+    # budget + legibility (raised from 250 in pass 5: the doorway + steps are worth ~48 tris and are
+    # the whole point of that pass -- the tower body itself is unchanged at 204)
+    check(100 <= len(faces) <= 320, "tri count inside the 100-320 budget", str(len(faces)))
+    check(4.0 <= max(xs) - min(xs) <= 5.0, "footprint 4-5u wide (x)", f"{max(xs) - min(xs):.2f}u")
+    check(4.0 <= max(zs) - min(zs) <= 5.5, "footprint 4-5.5u deep (z) -- ASYMMETRIC by design, the "
+          "entrance steps project south", f"{max(zs) - min(zs):.2f}u")
     check(9.0 <= max(ys) - GROUND_Y <= 11.0, "height 9-11u above ground",
           f"{max(ys) - GROUND_Y:.2f}u")
 
@@ -330,10 +438,15 @@ def gates(verts, faces, normals, uvs) -> int:
         v = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
         n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
         areas.append(0.5 * math.sqrt(sum(k * k for k in n)))
-    print(f"         face area: min {min(areas):.2f} max {max(areas):.2f} mean "
+    print(f"         face area: min {min(areas):.4f} max {max(areas):.2f} mean "
           f"{sum(areas) / len(areas):.2f} u^2  (panel edge ~{math.sqrt(2 * max(areas)):.1f}u)")
     check(max(areas) < 8.0, "largest panel under 8 u^2 (keeps the atlas tile from smearing)",
           f"max {max(areas):.2f}")
+    # SLIVERS: the degeneracy check above only catches a REPEATED vertex. A triangle whose 3 DISTINCT
+    # vertices are collinear has zero area and slips straight through it -- exactly what the recess
+    # cap's first fan triangulation produced. Check the geometry, not just the indices.
+    check(min(areas) > 1e-6, "no zero-area sliver (3 distinct but COLLINEAR vertices)",
+          f"min {min(areas):.3e} u^2")
 
     # SITING -- the trigger-at-the-foot law, enforced HERE where the anchor is chosen (a gate that
     # only lives in the probe is a gate the next re-site can forget)
@@ -359,12 +472,40 @@ def gates(verts, faces, normals, uvs) -> int:
     check(len(uvs) == 3 * len(faces), "one UV per face corner", f"{len(uvs)} vs {3 * len(faces)}")
     check(all(any(abs(c) > 1e-6 for c in u) for u in uvs), "no degenerate [0,0] UV (would render white)")
     check(all(0.0 <= u[0] <= 1.0 and 0.0 <= u[1] <= 1.0 for u in uvs), "every UV inside [0,1]")
-    used = {(round(min(u[0] for u in uvs), 4), round(max(u[0] for u in uvs), 4))}
-    lan = sum(1 for u in uvs if TILE_LANTERN[0] - 1e-9 <= u[0] <= TILE_LANTERN[2] + 1e-9)
-    check(lan > 0, "the lantern room got its own warm tile", f"{lan // 3} tris warm, "
-          f"{len(faces) - lan // 3} stone")
-    print(f"         UV span u{used} -> 2 tiles: stone {tuple(round(c, 4) for c in TILE_STONE)}, "
-          f"lantern {tuple(round(c, 4) for c in TILE_LANTERN)}")
+    # Count by the FULL rect, not by U alone: TILE_DOOR's U range sits INSIDE TILE_LANTERN's, so a
+    # U-only test silently reported the 48 door corners as lantern corners.
+    def _in_rect(u, r):
+        return r[0] - 1e-9 <= u[0] <= r[2] + 1e-9 and r[1] - 1e-9 <= u[1] <= r[3] + 1e-9
+    n_stone = sum(1 for u in uvs if _in_rect(u, TILE_STONE))
+    n_lan = sum(1 for u in uvs if _in_rect(u, TILE_LANTERN))
+    n_door = sum(1 for u in uvs if _in_rect(u, TILE_DOOR))
+    check(n_stone + n_lan + n_door == len(uvs), "every UV belongs to one of the 3 authored tiles",
+          f"{n_stone}+{n_lan}+{n_door} vs {len(uvs)}")
+    check(n_lan > 0, "the lantern room got its own warm tile", f"{n_lan // 3} tris")
+    check(n_door > 0, "the doorway recess got the dark tile", f"{n_door // 3} tris")
+    print(f"         tiles: stone {n_stone // 3} tris {tuple(round(c, 4) for c in TILE_STONE)} | "
+          f"lantern {n_lan // 3} {tuple(round(c, 4) for c in TILE_LANTERN)} | "
+          f"door {n_door // 3} {tuple(round(c, 4) for c in TILE_DOOR)}")
+
+    # THE ENTRANCE FACE -- the asymmetry is the feature, so assert it rather than trusting the build
+    south_z = min(zs)
+    door_faces = [i for i, f in enumerate(faces)
+                  if all(abs(verts[k][2] - (ANCHOR[1] - 2.30)) < 1e-6 for k in f)]
+    recess = [i for i, f in enumerate(faces)
+              if all(verts[k][2] > ANCHOR[1] - 2.30 + 1e-6 for k in f)
+              and all(verts[k][2] < ANCHOR[1] - 2.30 + DOOR_DEPTH + 1e-6 for k in f)
+              and all(GROUND_Y + DOOR_SILL - 1e-6 <= verts[k][1] <= GROUND_Y + DOOR_TOP + 1e-6 for k in f)]
+    check(len(door_faces) >= 12, "a frame surface exists on the south wall plane",
+          f"{len(door_faces)} coplanar faces")
+    check(len(recess) >= 4, "the recess is sunk INTO the wall (faces behind the south plane)",
+          f"{len(recess)} faces at depth")
+    check(abs(south_z - (ANCHOR[1] - 2.30 - STEP_OUT)) < 1e-6,
+          f"the steps project exactly {STEP_OUT}u south of the plinth face",
+          f"southmost {south_z:.3f}")
+    north_z = max(zs)
+    check(abs(north_z - (ANCHOR[1] + 2.30)) < 1e-6,
+          "the OTHER three faces are untouched (north face still at the plain plinth line)",
+          f"northmost {north_z:.3f}")
     return bad
 
 
