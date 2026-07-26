@@ -41,6 +41,7 @@ from .content import npc as _npc
 from .content import gauge as _gauge
 from .content import numinput as _numinput
 from .content import qte as _qte
+from .content import siege as _siege
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -282,6 +283,9 @@ class FieldProject:
         # (numeric flags pass through), so single-field builds stay byte-identical.
         _flags.resolve_project_flags(raw, flag_names)
         _desugar_ferries(raw)
+        # [siege] -> [behavior]/[[npc]]/[[choice]] (content.siege) -- after ferries so a
+        # siege field may still carry one, before anything reads the behavior table.
+        _siege.desugar(raw)
         return cls(raw, p.parent)
 
     # convenience accessors
@@ -2353,6 +2357,24 @@ def validate(project: FieldProject) -> list[str]:
         elif len(project.raw.get("layers", []) or []) + g_overlay_cells > 255:
             problems.append(f"[[gauge]] overlay budget: {len(project.raw.get('layers', []) or [])} "
                             f"layers + gauge {g_overlay_cells} states > 255")
+    # [siege] (content.siege): validated against the surface the author WROTE; the desugared
+    # [behavior]/[[npc]]/[[choice]] blocks below get the full downstream validation for free.
+    if project.raw.get("siege"):
+        if project.raw.get("_siege_conflict"):
+            problems.append("[siege] owns the field's [behavior] table -- remove the "
+                            "hand-written [behavior] (per-unit overrides belong in the "
+                            "[siege] block; drop to raw [behavior] authoring for anything "
+                            "it cannot express)")
+        else:
+            try:
+                _siege.from_raw(project.raw["siege"])
+            except _siege.SiegeError as e:
+                problems.append(str(e))
+        if project.raw.get("_siege_error"):
+            problems.append(f"[siege]: {project.raw['_siege_error']}")
+        if "verbatim_eb" in project.raw:
+            problems.append("[siege] is not supported on a verbatim fork -- it synthesizes "
+                            "the field's whole behavior layer")
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     # THE FERRY LANE -- validated against the surface the author WROTE ([[ferry]]), before the desugared
     # [[choice]] rules below see the generated rows. See _desugar_ferries for the shape + why the decline
