@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from ff9mapkit import flags
 from ff9mapkit.content import behavior as B
 from ff9mapkit.eb import disasm as D
 
@@ -591,6 +592,25 @@ def test_blackboard_allocation():
     assert "byte" in bb.report()
 
 
+def test_blackboard_default_band_clears_reserved_state():
+    """The default byte band must stop BELOW the reserved top of the heap: the
+    nameplate explored words (bytes 2006-2017, save-persistent), the [[qte]]
+    scratch, the netsync co-op cells (engine-written every frame under co-op),
+    and the choice mask. The old ceiling (2040) admitted all four, so a field
+    needing ~786+ blackboard bytes silently allocated into live state."""
+    bb = B.Blackboard()
+    assert bb._byte_end == B.BYTE_END_DEFAULT == flags.NAMEPLATE_EXPLORED_FLOOR // 8 - 1 == 2005
+    idx = None
+    with pytest.raises(B.BehaviorError, match="byte band exhausted"):
+        n = 0
+        while True:
+            idx = bb.int16(f"w{n}")
+            for bit in (idx * 8, idx * 8 + 15):        # both bytes of the word
+                assert not flags.is_reserved(bit), f"blackboard handed out reserved byte {bit // 8}"
+            n += 1
+    assert idx + 1 == bb._byte_end                     # the band fills flush to the ceiling
+
+
 # ------------------------------------------------------------------ data tables (0xD3)
 def _expr_stmts(body: bytes) -> list:
     """Every 0x05 expression statement in the body, pretty-printed."""
@@ -925,17 +945,20 @@ def test_swarm_stress_forty_units_relaxes_and_accounts():
     ±32K jump wall, every body still walks clean, the histogram still tiles the
     content bytes, and compilation stays deterministic.
 
-    MEASURED WALL pinned here: at 40 units the blackboard byte band (820 bytes
-    of gEventGlobal scratch) holds ~6 swing pairs per unit — a 7th exhausts it
-    (~14B unit kit + ~1B per swing timer). The band is physical (Byte[2048]
-    minus the reserved low bytes), so v1's unrolled-pair architecture tops out
-    near this scale on THREE independent walls: band, ticker content, file."""
-    def build():
+    MEASURED WALL pinned here: at 40 units the blackboard byte band (786 bytes
+    of gEventGlobal scratch, 1220-2005 — the ceiling sits flush BELOW the
+    reserved heap top, B.BYTE_END_DEFAULT) holds ~5 swing pairs per unit — a
+    6th exhausts it LOUDLY (~14B unit kit + ~1B per swing timer), never
+    silently spilling into the reserved live bytes 2006+. The band is physical
+    (Byte[2048] minus the reserved bytes at both ends), so v1's unrolled-pair
+    architecture tops out near this scale on THREE independent walls: band,
+    ticker content, file."""
+    def build(nfoes=5):
         units = [B.UnitSpec(f"w{i}", entry=2 + i, spawn=(i * 40, 0), hp=4)
                  for i in range(40)]
         fb = B.FieldBehavior(units)
         for i, u in enumerate(units):
-            foes = [f"w{j}" for j in range(40) if j != i][:6]
+            foes = [f"w{j}" for j in range(40) if j != i][:nfoes]
             branches = [B.Sequence(fb.hp_le(u.name, 0), B.Do(B.Die()))]
             for o in foes:
                 branches.append(B.Sequence(fb.active(o), fb.near(u.name, o, 220),
@@ -951,6 +974,8 @@ def test_swarm_stress_forty_units_relaxes_and_accounts():
     assert sum(n for _nm, n in s["ticker_segments"]) == s["ticker_content"]
     assert len(cb.ticker_body) >= s["ticker_content"]  # island overhead >= 0
     assert build().compile().stable_hash() == cb.stable_hash()
+    with pytest.raises(B.BehaviorError, match="byte band exhausted"):
+        build(6).compile()                             # the wall is LOUD, never live state
 
 
 # ------------------------------------------------------------------ the vector loop

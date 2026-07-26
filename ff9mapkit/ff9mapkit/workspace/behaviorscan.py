@@ -663,6 +663,76 @@ def delete_route_point(raw: dict, lid: tuple) -> str:
     return "delete route point"
 
 
+# ------------------------------------------------------------------ rung D: archetype stamps
+# Whole PROVEN trees stamped onto a named [[npc]] — the charter's rung D, first slice. Every
+# shape below is grounded in BEHAVIOR.md's own idioms (the watcher pattern, the bolting
+# civilian, the beat walker) and the demo watchman's in-game-proven ladder; all bind against
+# "player" (a first-class target — the module's own front-page example) so a stamp needs no
+# second unit. Combat archetypes that need a TARGET unit binding are D's remainder, with the
+# Info Hub cards and the [siege] whole-block stamp. Each stamp is fenced by a REAL dry-compile.
+
+BEHAVIOR_ARCHETYPES = [
+    {"key": "sentry", "name": "Sentry — watch, alarm, chase",
+     "teach": "Announces once and raises 'alarm' when the player closes, chases from mid "
+              "range, and walks a minted beat otherwise. Gate other trees' combat on "
+              '{ flag = "alarm" } — the watcher pattern.'},
+    {"key": "patroller", "name": "Patroller — walk the beat",
+     "teach": "Walks a minted 4-point beat around its post forever (route = \"auto\" heals "
+              "jammed legs at build). Drag the points into place on the stage."},
+    {"key": "civilian", "name": "Civilian — panic and flee",
+     "teach": "Bolts from the player to refuge points in priority order, strolls a small "
+              "wander box at home otherwise (the speed contrast IS the character)."},
+]
+
+
+def _mint_beat_marker(raw: dict, npc_name: str, pos) -> str:
+    """A closed 4-point diamond beat around the post (220u legs — clear of the ~192u
+    actor-jam spacing), name-deduped. Rung C's drag handles shape it from there."""
+    taken = {str(m.get("name")) for m in raw.get("marker", []) or []}
+    base = f"{npc_name}_beat"
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}_{n}", n + 1
+    x, z = pos
+    raw.setdefault("marker", []).append(
+        {"name": name, "closed": True,
+         "path": [[x + 220, z], [x, z + 220], [x - 220, z], [x, z - 220]]})
+    return name
+
+
+def stamp_archetype(raw: dict, key: str, npc_name: str) -> str:
+    """Seat ``npc_name`` as a behavior unit wearing the archetype's proven tree; returns
+    the undo-step label. Unknown key/npc are caller bugs (the picker lists the tables)."""
+    positions = BT._npc_marker_positions(raw)
+    x, z = positions.get(npc_name, (0, 0))
+    die = {"when": [{"hp_le": 0}], "do": {"die": True}}
+    if key == "sentry":
+        beat = _mint_beat_marker(raw, npc_name, (x, z))
+        branches = [
+            die,
+            {"when": [{"near": ["player", 450]}], "do": {"announce": "Who goes there?!"},
+             "once": True, "raise_flags": ["alarm"]},
+            {"when": [{"near": ["player", 900]}],
+             "do": {"chase": "player", "standoff": 180, "speed": 65}},
+            {"do": {"patrol": beat, "route": "auto"}},
+        ]
+    elif key == "patroller":
+        beat = _mint_beat_marker(raw, npc_name, (x, z))
+        branches = [die, {"do": {"patrol": beat, "route": "auto", "speed": 40}}]
+    elif key == "civilian":
+        branches = [
+            die,
+            {"when": [{"near": ["player", 350]}],
+             "do": {"flee": "player", "to": [[x + 400, z], [x - 400, z]], "speed": 80}},
+            {"do": {"wander": [x, z], "radius": 300, "speed": 30}},
+        ]
+    else:
+        raise KeyError(f"unknown behavior archetype {key!r}")
+    b = raw.setdefault("behavior", {})
+    b.setdefault("unit", []).append({"npc": npc_name, "hp": 3, "branch": branches})
+    return f"stamp {key} archetype on {npc_name}"
+
+
 # ------------------------------------------------------------------ rung C: the sweep lane
 @dataclass
 class SweepResult:

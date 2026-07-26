@@ -293,6 +293,58 @@ def test_ring_rids_point_back_at_their_own_cond():
     assert BS.stage_model(raw)["rings"]["a"][0]["radius"] == 512
 
 
+# --------------------------------------------------------------------------- rung D: archetype stamps
+def test_every_archetype_stamps_a_legal_unit():
+    for a in BS.BEHAVIOR_ARCHETYPES:
+        raw = _field([])                           # b has an empty unit list
+        label = BS.stamp_archetype(raw, a["key"], "a")
+        assert a["key"] in label and "a" in label
+        assert [u["npc"] for u in raw["behavior"]["unit"]] == ["a"]
+        assert BS.validate_problems(raw) == [], (a["key"], BS.validate_problems(raw))
+        rows = BS.ladder_model(raw, "a")
+        assert rows[0]["verb"] == "die" and rows[-1]["unconditional"]
+
+
+def test_beat_markers_mint_around_the_post_and_dedupe():
+    raw = _field([])
+    BS.stamp_archetype(raw, "patroller", "a")
+    beat = next(m for m in raw["marker"] if m["name"] == "a_beat")
+    assert beat["closed"] and len(beat["path"]) == 4
+    assert beat["path"][0] == [320, 200]           # a's post (100,200) + the 220u leg
+    BS.delete_unit(raw, "a")
+    BS.stamp_archetype(raw, "patroller", "a")      # re-stamp: the old marker name is taken
+    assert any(m["name"] == "a_beat_2" for m in raw["marker"])
+
+
+def test_unknown_archetype_is_a_caller_bug():
+    import pytest
+    with pytest.raises(KeyError, match="unknown behavior archetype"):
+        BS.stamp_archetype(_field([]), "warlord", "a")
+
+
+def test_every_archetype_survives_a_real_dry_compile(tmp_path):
+    """The stamp fence with teeth: stamp onto the demo field's spare npc, serialize with the
+    editor's own dumps, and run the REAL dry-compile lane (walkmesh sidecar included, so the
+    stamps' route = \"auto\" resolves genuinely). A vocabulary or compiler change that breaks
+    a stamped tree must fail HERE, not at a user's build."""
+    import importlib.util
+    from pathlib import Path
+    from ff9mapkit.editor import model as _model
+    spec = importlib.util.spec_from_file_location(
+        "_bdoc_fixture", Path(__file__).with_name("test_behaviordoc.py"))
+    fx = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fx)
+    for a in BS.BEHAVIOR_ARCHETYPES:
+        root = tmp_path / a["key"]
+        p = fx.make_behavior_field(root)
+        raw = fx.demo_raw()
+        raw["npc"].append({"name": "lamplighter", "pos": [260, 60]})
+        BS.stamp_archetype(raw, a["key"], "lamplighter")
+        p.write_text(_model.dumps(raw), encoding="utf-8")
+        res = BS.dry_compile(p)
+        assert res.ok, (a["key"], res.problems)
+
+
 # --------------------------------------------------------------------------- rung C: the sweep lane
 def _u_mesh(notch_z=-400):
     """The pursuit suite's WELDED U floor: outer x[-800,800] z[-800,200] minus the notch

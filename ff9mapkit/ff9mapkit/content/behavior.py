@@ -56,6 +56,7 @@ from dataclasses import dataclass
 
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
+from ..flags import NAMEPLATE_EXPLORED_FLOOR
 from .chest import RUN_SOUND_CODE3, SFX_BANK, SFX_PARAMS   # the in-game-proven SFX triple (chest owns it)
 
 OP_SET_OBJECT_FLAGS = 0x93
@@ -74,15 +75,24 @@ class BehaviorError(ValueError):
 
 
 # ------------------------------------------------------------------ blackboard
+# The byte band's ceiling: flush below the reserved top of the gEventGlobal heap --
+# the nameplate explored words (NAMEPLATE_EXPLORED_FLOOR, save-persistent), then the
+# [[qte]] scratch, the netsync co-op cells (engine-written every frame under co-op),
+# and the choice mask. flags.BIT_REGIONS is the truth; a byte past this line is live state.
+BYTE_END_DEFAULT = NAMEPLATE_EXPLORED_FLOOR // 8 - 1        # byte 2005
+
+
 class Blackboard:
     """Named GLOB allocation over the safe band — compiled, never hand-assigned.
 
     Defaults start ABOVE the fort-condor bench's hand map (bytes 1102-1214, flags
-    8800-8853) purely as collision insurance if a field ever hosts both systems; every
+    8800-8853) purely as collision insurance if a field ever hosts both systems, and the
+    byte band tops out flush BELOW the reserved heap top (nameplate explored words /
+    [[qte]] scratch / co-op cells / choice mask — :data:`BYTE_END_DEFAULT`); every
     allocation is cleared/preset by the emitted Main_Init prepend, so nothing leaks
     into saves. ``report()`` is the ~ Flags debugging map."""
 
-    def __init__(self, *, byte_base: int = 1220, byte_end: int = 2040,
+    def __init__(self, *, byte_base: int = 1220, byte_end: int = BYTE_END_DEFAULT,
                  flag_base: int = 8860, flag_end: int = 9080):
         self._next_byte, self._byte_end = byte_base, byte_end
         self._next_flag, self._flag_end = flag_base, flag_end

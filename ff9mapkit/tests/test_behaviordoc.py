@@ -547,6 +547,41 @@ def test_route_point_ops_ride_the_undo_contract_and_the_floor_refuses(edoc):
     assert edoc.problems_lbl.property("state") == "warn"
 
 
+# --------------------------------------------------------------------------- rung D: archetype stamps
+def test_stamp_flow_rides_both_seams_and_the_undo_contract(edoc):
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "lone", "pos": [10, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    assert edoc._stack.currentWidget() is edoc._guide_page   # no [behavior] yet
+    edoc._ask_archetype = lambda: "sentry"         # both modal seams injected, never a dialog
+    edoc._ask_unit = lambda names: names[0]
+    edoc._stamp_archetype()                        # the guide's own action button calls this
+    assert edoc._stack.currentWidget() is edoc._content
+    assert edoc._selected_unit == "lone"
+    assert raw["behavior"]["unit"][0]["npc"] == "lone"
+    assert any(m["name"] == "lone_beat" for m in raw["marker"])   # the minted beat
+    assert behaviorscan.validate_problems(raw) == []
+    assert edoc._edits == [("PLAIN", "stamp sentry archetype on lone")]
+
+
+def test_stamp_with_no_free_npc_teaches(edoc):
+    edoc.show_field("BGLADE", demo_raw(), None)    # every demo npc already has a unit
+    edoc._ask_archetype = lambda: "sentry"
+    edoc._stamp_archetype()
+    assert "add\nan [[npc]] first" in edoc.problems_lbl.text() or \
+           "add an [[npc]] first" in edoc.problems_lbl.text()
+    assert edoc._edits == []
+
+
+def test_a_cancelled_picker_stamps_nothing(edoc):
+    raw = {"field": {"name": "PLAIN"}, "npc": [{"name": "lone", "pos": [1, 2]}]}
+    edoc.show_field("PLAIN", raw, None)
+    edoc._ask_archetype = lambda: None             # user pressed Escape
+    edoc._ask_unit = lambda names: names[0]
+    edoc._stamp_archetype()
+    assert "behavior" not in raw and edoc._edits == []
+
+
 # --------------------------------------------------------------------------- rung C: the sweep lane
 def test_sweep_sync_paints_verdicts_and_arms_the_resweep(edoc, tmp_path):
     p = make_behavior_field(tmp_path)

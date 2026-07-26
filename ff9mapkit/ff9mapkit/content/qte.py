@@ -28,9 +28,10 @@ THE SCRATCH BAND (bytes 2018-2031, ``flags.QTE_SCRATCH_FLOOR``, kit-reserved)
 sits ON PURPOSE below the netsync co-op cells (bytes 2032-2039): the engine
 rewrites those EVERY FRAME while [Netsync] co-op runs -- on any field, gates or
 no gates -- so scratch there would have its combo/points channels clobbered
-mid-bout. The band still overlaps the behavior blackboard's headroom
-(1220-2040), so v1 refuses a field carrying both ``[[qte]]`` and ``[behavior]``
--- relaxable later by teaching the blackboard to reserve the band. gMesValue
+mid-bout. The behavior blackboard's band now tops out at byte 2005
+(``behavior.BYTE_END_DEFAULT``, flush below the nameplate explored words), clear
+of this scratch; v1 still refuses a field carrying both ``[[qte]]`` and
+``[behavior]`` as belt-and-braces. gMesValue
 slots 0 (score) and 1 (purse) are loaded at the finale.
 
 Deferred theater (the stock duel's feel, deliberately out of v1): per-prompt
