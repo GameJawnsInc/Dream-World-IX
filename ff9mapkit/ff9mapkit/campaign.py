@@ -639,6 +639,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     # the engine's behaviors hardcoded on a real fldMapNo (off-mesh exemptions, cutscene party-shape guards,
     # scroll player-binds -- docs/FORK_IDGATE_MAP.md) still fire for the fork. Read by the patched DataPatchers
     # (memoria-patches/s24-fork-donor-remap); a no-op on a stock engine that doesn't read the file.
+    #
+    # NOT redundant with build_mod's own emit above, which overwrites -- KEEP BOTH. build_mod derives the donor
+    # from each member TOML (build._verbatim_donor_id); an EDITABLE member emitted by _emit_logic_only_member
+    # (an art-less stub, and the degraded-verbatim fallback) records no donor key at all, so build_mod cannot
+    # see it -- only plan.members' real_id can. Deleting this write silently drops those members' mappings.
     donor_lines = [f"{m.new_id} {m.real_id}" for m in plan.members
                    if getattr(m, "real_id", None) and m.new_id != m.real_id]
     if donor_lines:

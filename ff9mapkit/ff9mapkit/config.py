@@ -247,6 +247,16 @@ class ModLayout:
         return self.root / "TextPatch.txt"
 
     @property
+    def fork_donor_patch(self) -> Path:
+        """The fork-fidelity donor map (``ForkDonorPatch.txt``): one ``<forkId> <donorRealId>`` line per
+        FORKED field, so the engine behaviors hardcoded on a real ``fldMapNo`` (off-mesh exemptions, the
+        name-keyed overlay-occlusion offsets, scroll player-binds -- docs/FORK_IDGATE_MAP.md) still resolve
+        for the custom id. A per-mod-folder drop-in like the patches above, read at LAUNCH by the patched
+        ``DataPatchers`` (memoria-patches/s24-fork-donor-remap) -> a change needs a RELAUNCH. Absent from a
+        stock engine's reads, so shipping it is a no-op there."""
+        return self.root / "ForkDonorPatch.txt"
+
+    @property
     def mod_description(self) -> Path:
         return self.root / "ModDescription.xml"
 
