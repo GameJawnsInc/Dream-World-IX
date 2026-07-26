@@ -1,0 +1,63 @@
+# Pass 9 (the softlock fix + hall cleanup) write-set -- md5 of FF9CustomMap-world, before vs after.
+# 891 files before, 891 after. 14 changed, all field 6601:
+#   7 x EVT_LANTERN_HALL.eb.bytes  7703 -> 5600 B  (SMALLER: the south door's whole worldexit
+#      body and the savepoint region are gone; the ferry gained a save row)
+#   7 x 6601.mes
+# DictionaryPatch line SET IDENTICAL -> no relaunch. Zero world meshes, zero dispatchers.
+
+3c3
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/es/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/es/field/6601.mes
+6c6
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/fr/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/fr/field/6601.mes
+9c9
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/gr/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/gr/field/6601.mes
+12c12
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/it/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/it/field/6601.mes
+15c15
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/jp/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/jp/field/6601.mes
+18c18
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/uk/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/uk/field/6601.mes
+21c21
+< f086121a15dd21514eb66e5ec7308f12 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/us/field/6601.mes
+---
+> a745dc9ae02308957903dfd9957867ad *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/us/field/6601.mes
+806c806
+< 77ed0c51cb6e853d6bb73102e5a362d9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/es/EVT_LANTERN_HALL.eb.bytes
+---
+> be6179e5c5ff2405767fb21bc10f2a61 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/es/EVT_LANTERN_HALL.eb.bytes
+809c809
+< c647e01f71e35cb0e60af2a93a006cef *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/fr/EVT_LANTERN_HALL.eb.bytes
+---
+> cf24ff5df9860b52fd3253743980a593 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/fr/EVT_LANTERN_HALL.eb.bytes
+812c812
+< 6beb424ca9c0423f360987a00745892f *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/gr/EVT_LANTERN_HALL.eb.bytes
+---
+> 20fe61c4c4edd63afe7b2ce0c4c5e42e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/gr/EVT_LANTERN_HALL.eb.bytes
+815c815
+< 2a3e846b5d430cc613f3018ad2c31224 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/it/EVT_LANTERN_HALL.eb.bytes
+---
+> 213995ac489ab4509c28e260d2a418fa *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/it/EVT_LANTERN_HALL.eb.bytes
+818c818
+< d8d71648736fbe281ecfdcbae986505a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/jp/EVT_LANTERN_HALL.eb.bytes
+---
+> 88384f6e7ddf10a1ea052b613a95dc2b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/jp/EVT_LANTERN_HALL.eb.bytes
+821c821
+< 979b8f05ae167a57d0cc3dfb125a30e8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/uk/EVT_LANTERN_HALL.eb.bytes
+---
+> 3eb6c1bc71871a0d7e8b1526ca4abab2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/uk/EVT_LANTERN_HALL.eb.bytes
+824c824
+< 979b8f05ae167a57d0cc3dfb125a30e8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/us/EVT_LANTERN_HALL.eb.bytes
+---
+> 3eb6c1bc71871a0d7e8b1526ca4abab2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/us/EVT_LANTERN_HALL.eb.bytes

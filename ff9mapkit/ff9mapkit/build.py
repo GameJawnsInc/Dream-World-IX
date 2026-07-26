@@ -237,6 +237,14 @@ def _desugar_ferries(raw: dict) -> None:
             if "arrive" in d:
                 o["worldmap"] = {"arrive": d["arrive"], "face": d.get("arrive_face", 0)}
             opts.append(o)
+        if "save" in f:
+            # the SAVE row -- one NPC is both ferry and save point, so the hall needs no twin
+            # save-moogle prop standing beside him (the Lantern Hall shipped two identical
+            # model-220 moogles 330u apart and the playtester read them as clutter).
+            sv = {"text": f["save"], "save": True}
+            if "save_reply" in f:
+                sv["reply"] = f["save_reply"]
+            opts.append(sv)
         if "decline" in f:
             dec = {"text": f["decline"]}
             if "decline_reply" in f:
@@ -2316,6 +2324,15 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} is not a defined [[npc]] name")
         if "prompt" not in f:
             problems.append(f"[[ferry]] #{fi} needs a prompt (the \"Where to?\" line above the rows)")
+        # A ferry REPLACES its NPC's talk window (build's talk-body selection takes the choice), so a
+        # `dialogue` on the same NPC is allocated a txid and then never shown -- silently dead text that
+        # reads, in the toml, as if the player would see it. Say so instead of letting it rot.
+        if "npc" in f:
+            host = next((n for n in project.raw.get("npc", []) if n.get("name") == f["npc"]), None)
+            if host is not None and "dialogue" in host:
+                problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} also has dialogue = \"...\" -- the ferry "
+                                f"prompt REPLACES the talk window, so that line would never be shown. "
+                                f"Fold it into the ferry's prompt and remove dialogue.")
         for di, d in enumerate(dests):
             if not d.get("name"):
                 problems.append(f"[[ferry]] #{fi} destination {di} needs a name (the menu row)")

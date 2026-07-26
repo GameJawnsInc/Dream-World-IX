@@ -1411,6 +1411,8 @@ reply = "The Lantern Quay it is!"    # optional line before the fade
 | `destination[].arrive` | `[x, z]` — the overworld landing. Keep it **≥ 8 u** from the quay's own entrance tile or stepping out re-fires the entrance you just used (THE ARRIVAL-CLEARANCE LAW). |
 | `destination[].arrive_face` | raw facing byte 0–255 at the landing. |
 | `destination[].reply` | optional line before the fade. |
+| `save` | *(optional)* text for a **save row** — opens the real save menu (latched `Menu(4,0)`), so one NPC can be ferry *and* save point instead of standing beside a twin save-moogle prop. Inserted before the decline row. |
+| `save_reply` | optional line after saving. |
 
 > **How it compiles.** A `[[ferry]]` desugars into an ordinary `[[choice]]` whose destination rows
 > carry a worldmap-exit action, so it inherits the whole choice pipeline — the one-text-entry
@@ -1419,6 +1421,14 @@ reply = "The Lantern Quay it is!"    # optional line before the fade
 > gateway does** (`worldexit.worldmap_exit_body`): usercontrol guard → fade → *both* position blocks →
 > `POSITION_PRESET_KEY` 35 → computed `WorldMap`. So a ferry row and a door behave identically once
 > taken. The decline arm emits no transition at all.
+>
+> ⚠ **Do not also give the NPC a `dialogue` line** — the ferry prompt *replaces* the talk window, so that
+> line would be allocated a txid and never shown. Lint rejects it.
+>
+> ⚠ **Why the arm is emitted with `gate=False`** (`worldexit.worldmap_exit_body`): a walk-on exit region
+> opens with `ifnot (IsMovementEnabled) { return }`, but a talk handler has *already* disabled movement,
+> so that prologue would return early, skip the exit, and leave the player frozen with no window — a
+> softlock. It shipped that way once; there is a regression test.
 >
 > The underlying capability is also available directly as `[[choice]]` `options[].worldmap =
 > { arrive = [x, z], face = N }` for hand-built menus; `[[ferry]]` is the productized surface and the

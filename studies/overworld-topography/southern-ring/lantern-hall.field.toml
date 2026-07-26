@@ -61,88 +61,51 @@ spawn = [0, -2000]                   # just inside the hall door, on the y=0 cor
 name = "Purser"                      # the ferry purser (white save-moogle rig)
 pos = [130, -1650]                   # 75u off the east wall -- R1's measured position
 model = 220
-dialogue = "Kupo! Lantern Hall, and I am her purser. Talk to me and I will sail you to any port on the ring. The south door walks out to our own quay, and the passage ledger is up the hall, kupo!"
-
-# the passage ledger (save point): its own press area WEST of and DEEPER IN than the
-# purser -- 75u off the west wall, 328u from the purser, 565u from the spawn (the
-# example's 280u prop/spawn pair projected only 12px apart at this near-level camera).
-[[prop]]
-model = 220                          # the stock standing save moogle (the purser's rig)
-pos = [-130, -1450]
-
-[[savepoint]]
-zone = [[-195, -1550], [-65, -1550], [-65, -1350], [-195, -1350]]   # the prop centred in
-                                     # its own press area -- the example's proven relation,
-                                     # translated with it
 
 # =====================================================================================
-# THE HOME DOOR + THE FERRY (R2, redesigned after playtest)
+# THE FERRY -- the hall's ONLY exit, and its save point
 # =====================================================================================
-# R2's first attempt put FOUR walk-on berths as east-wall alcoves. It FAILED comprehension
-# in-game -- "everything is super clustered... I can't tell what I'm supposed to do. I can
-# randomly trigger 1 of 2 warps." The causes were structural, not tunable:
-#   * the spawn (0,-2000) sat inside berth III's z-band, 10u west of its sign zone;
-#   * the sign zones occupied the CENTRE of a +/-157u walk band, so you crossed them just
-#     walking up the hall;
-#   * the four warp zones ate the whole east half of that band, so adjacent triggers were
-#     one nudge apart;
-#   * and the BORROWED ART PAINTS NOTHING at any alcove -- an invisible door cannot be read.
-# Four unmarked, mutually-adjacent trigger zones in one corridor is not a layout problem with
-# a tuning fix; it is the wrong mechanism for borrowed art.
+# Three playtest defects closed here, all of them "too many invisible/duplicated things":
 #
-# THE PURSER RUNS THE FERRY instead -- stock FF9's own boat-travel idiom (the Blue Narciss
-# captain's "Where to?"). Travel is booked through a PERSON: self-describing, impossible to
-# trigger by accident, and it needs no painted doors. The hall keeps ONE walk-on exit: its
-# real south door, which is the home-port quay.
+#  1. R2's first try put FOUR walk-on berths as east-wall alcoves. Unreadable: the borrowed
+#     art paints nothing at any of them, the spawn sat inside one, and adjacent triggers were
+#     a nudge apart -- "I can randomly trigger 1 of 2 warps."
+#  2. The follow-up kept ONE walk-on door at the south end. Redundant once the Purser sails
+#     you anywhere (its arrive was literally his Ashvale row), and it is the same invisible
+#     walk-on quad class -- so it is GONE. The hall is exit-by-ferry-only.
+#  3. The ledger was a SECOND model-220 moogle ~330u from the Purser: on screen, two identical
+#     moogles clumped beside Zidane. Merged -- the Purser now carries a "Log the passage" row
+#     that opens the real save menu, so the prop and its press-zone are gone too.
 #
-# Flags 8760-8763 (the deleted berth signs' once-guards) are RETURNED TO THE POOL -- nothing
-# references them any more.
-
-# THE HOME DOOR -- field 2800's OWN real exit region, verbatim (the borrowed art's door sits
-# exactly there, so this one IS readable). Walking out returns to Ashvale, the home port.
-[[gateway]]
-to = "worldmap"
-zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
-arrive = [60.0, -1168.0]             # Ashvale west shore, 12u inland (east) of the quay
-                                     # trigger tile (48,-1168) -- THE ARRIVAL-CLEARANCE
-                                     # LAW's >=8u, so stepping out never re-fires it
-arrive_face = 192                    # facing east = inland, back turned to the sea
-
-# THE FERRY -- talk to the Purser, pick a port. Each destination arm runs the SAME worldmap
-# exit body a walk-out gateway does (usercontrol guard -> fade -> both position blocks ->
-# POSITION_PRESET_KEY 35 -> computed WorldMap), with its own arrive/face.
-#
-# ⚠ THE ARRIVES ARE THE QUAYS' OWN GATED POINTS. Each one is the value
-# `mint_quay_beacon.SITES[...]` gates that quay's beacon against, and >=8u clear of that
-# quay's trigger tile so arriving never instantly re-enters the entrance you just used.
-# `probe_marker/probe_quay_sites.py`'s RING-CLOSURE section asserts this file against that
-# table on every run -- the two-file duplication is covered, not trusted.
+# The hall therefore contains exactly TWO things: the spawn, and the Purser. No zones at all.
 [[ferry]]
 npc = "Purser"
-prompt = "Where shall we sail, kupo?"
-decline = "Not yet, kupo."
-decline_reply = "Kupo! The ferry keeps her berth. Come back when you know your port."
+prompt = "Kupo! I am the purser of this hall -- I keep the ledger and I sail the ferry. What do you need, kupo?"
+save = "Log the passage."
+save_reply = "Kupo! Signed and sealed."
+decline = "Nothing for now."
+decline_reply = "Kupo! The ferry keeps her berth."
 
 [[ferry.destination]]
-name = "Ashvale"
+name = "Sail to Ashvale"
 arrive = [60.0, -1168.0]
 arrive_face = 192                    # east = inland
 reply = "The Lantern Quay it is, kupo!"
 
 [[ferry.destination]]
-name = "Tidefall"
+name = "Sail to Tidefall"
 arrive = [432.0, -1232.0]
 arrive_face = 192
 reply = "Tidefall, kupo! Mind the spray."
 
 [[ferry.destination]]
-name = "Grimhorn"
+name = "Sail to Grimhorn"
 arrive = [1214.0, -1192.0]
 arrive_face = 192
 reply = "Grimhorn, kupo. Cold water there."
 
 [[ferry.destination]]
-name = "Larkspur"
+name = "Sail to Larkspur"
 arrive = [688.0, -616.0]
 arrive_face = 64                     # WEST = inland on Larkspur -- the one that differs
 reply = "Larkspur, kupo! The long crossing."

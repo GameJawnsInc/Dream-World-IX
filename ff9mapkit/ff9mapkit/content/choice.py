@@ -89,6 +89,14 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
+    if opt.get("save"):
+        # A SAVE row -- open the real save menu from a dialogue choice, so one NPC can be the
+        # innkeeper/purser AND the save point instead of standing next to a twin save-moogle prop.
+        # `savepoint.save_act` is the same latched Menu(4,0) both real save families use
+        # (GLOB(184)=1; Wait(3); Menu(4,0); Wait(3); GLOB(184)=0). It RETURNS to the menu's caller,
+        # so it is NOT a transition and may sit before other actions.
+        from . import savepoint as _sp
+        parts.append(_sp.save_act())
     if "warp" in opt:
         # A choice that warps is ALWAYS a field transition, so it fades out first (fade=True) -- exactly
         # like a gateway/ladder. Without the fade the destination loads in the clear and you see its
@@ -107,11 +115,17 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         # unreadable and mutually triggerable. A menu is self-describing and cannot be entered by accident.
         #
         # Mutually exclusive with `warp` (both end the function by transitioning away).
+        # ⚠ gate=False IS LOAD-BEARING. `worldmap_exit_body` defaults to emitting the walk-on region
+        # prologue `ifnot (IsMovementEnabled) { return }`. We are inside a TALK handler, which opens with
+        # DisableMove, so IsMovementEnabled is 0: the gate would take its early return, skip the entire
+        # exit, and leave the player frozen with no window -- a SOFTLOCK. That is exactly how the first
+        # Lantern Hall ferry shipped; the deployed bytes showed the `7a 02` gate returning before the
+        # fade. A region prologue is not portable into a menu context.
         from . import worldexit as _wx
         wm = opt["worldmap"]
         parts.append(_wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
                                             arrive_face=int(wm.get("face", 0)),
-                                            fade=True, game=opt.get("_game")))   # LAST: away
+                                            fade=True, gate=False, game=opt.get("_game")))  # LAST: away
     return b"".join(parts)
 
 
