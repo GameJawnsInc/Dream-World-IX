@@ -1,0 +1,119 @@
+====================================================================================================
+DISC 1
+====================================================================================================
+Terrain 39956 B: 768 verts / 256 tris
+Object  34652 B: 666 verts / 222 tris
+
+(a) the quay TRIGGER cluster is intact
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all idall 16384 (event 1, area 0 -- --no-tile-area kept R1's area field)  -- [16384]
+  [PASS] union bbox unmoved  -- x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+
+(b) the ARRIVE point and the walkable approach to the trigger
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] every step of the arrival->trigger path is a WALKABLE topograph ([0, 10, 36])  -- blocked at []
+  [PASS] a +/-6u wide corridor around the approach is walkable too  -- 0 blocked
+
+(c) the BEACON Object mesh (render-only) + the TERRAIN collision hull
+  [PASS] 222 tris / 666 verts  -- got 222 / 666
+  [PASS] EVERY tri idall 4078 (0x0FEE) -> WMPhysics skips it -> RENDER-ONLY  -- {4078: 222}
+       beacon span x[45.70,50.30] y[2.50,13.60] z[-1159.30,-1154.70]
+  [PASS] span == the planned footprint
+  [PASS] skirt BURIED below the y=3.00 plateau (no coplanar z-fight)  -- lowest 2.50
+  [PASS] the WALK query passes THROUGH the beacon to Terrain (render-only confirmed)  -- hit Terrain idall=236
+  [PASS] a sky-cast DOES hit it -> the mesh really is in the walkmesh set, so 4078 is load-bearing  -- hit Object idall=4078
+       terrain BEFORE: 690 verts / 230 tris   AFTER: 768 verts / 256 tris  (+26 tris from the hull split)
+       TERRAIN tiles whose IDALL changed: 12
+         tri   48: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1155.13)  x[48.0,50.3] z[-1156.0,-1154.7]
+         tri   49: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1155.57)  x[48.0,50.3] z[-1156.0,-1154.7]
+         tri   62: idall 0 -> 236  (topo 0 -> 59)  centroid (47.23,-1157.1)  x[45.7,48.0] z[-1159.3,-1156.0]
+         tri   63: idall 0 -> 236  (topo 0 -> 59)  centroid (47.0,-1158.2)  x[45.7,48.0] z[-1159.3,-1156.0]
+         tri   64: idall 0 -> 236  (topo 0 -> 59)  centroid (46.23,-1157.67)  x[45.7,47.3] z[-1159.3,-1156.0]
+         tri   72: idall 0 -> 236  (topo 0 -> 59)  centroid (46.8,-1155.13)  x[45.7,48.0] z[-1156.0,-1154.7]
+         tri   73: idall 0 -> 236  (topo 0 -> 59)  centroid (46.47,-1155.57)  x[45.7,48.0] z[-1156.0,-1154.7]
+         tri  104: idall 0 -> 236  (topo 0 -> 59)  centroid (47.57,-1155.13)  x[46.7,48.0] z[-1156.0,-1154.7]
+         tri  111: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1156.77)  x[48.0,50.3] z[-1158.3,-1156.0]
+         tri  165: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1157.87)  x[48.0,50.3] z[-1159.3,-1156.0]
+         tri  166: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1158.97)  x[48.0,50.3] z[-1159.3,-1158.3]
+         tri  194: idall 0 -> 236  (topo 0 -> 59)  centroid (46.23,-1158.77)  x[45.7,47.3] z[-1159.3,-1157.7]
+  [PASS] the hull DID stamp terrain tiles (collision exists)  -- 12
+  [PASS] every changed tile became topograph 59 (impassable structure)
+  [PASS] NO event tile was overwritten by the hull (the trigger is untouched)
+  [PASS] every changed tile lies INSIDE the beacon footprint  -- 0 outside
+  [PASS] no changed tile overlaps the trigger rect  -- 0
+       total topo-59 tris in the block now: 12
+
+(d) the beacon's UVs
+  [PASS] one UV per vertex  -- 666 vs 666
+  [PASS] no degenerate [0,0] UV (would render white)
+  [PASS] every UV in [0,1]
+  [PASS] BOTH authored tiles present (stone shaft + warm lantern room)  -- 570 stone corners, 96 lantern corners
+       u[0.00414,0.36106] v[0.35084,0.45676]
+
+====================================================================================================
+DISC 4
+====================================================================================================
+Terrain 39956 B: 768 verts / 256 tris
+Object  34652 B: 666 verts / 222 tris
+
+(a) the quay TRIGGER cluster is intact
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all idall 16384 (event 1, area 0 -- --no-tile-area kept R1's area field)  -- [16384]
+  [PASS] union bbox unmoved  -- x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+
+(b) the ARRIVE point and the walkable approach to the trigger
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] every step of the arrival->trigger path is a WALKABLE topograph ([0, 10, 36])  -- blocked at []
+  [PASS] a +/-6u wide corridor around the approach is walkable too  -- 0 blocked
+
+(c) the BEACON Object mesh (render-only) + the TERRAIN collision hull
+  [PASS] 222 tris / 666 verts  -- got 222 / 666
+  [PASS] EVERY tri idall 4078 (0x0FEE) -> WMPhysics skips it -> RENDER-ONLY  -- {4078: 222}
+       beacon span x[45.70,50.30] y[2.50,13.60] z[-1159.30,-1154.70]
+  [PASS] span == the planned footprint
+  [PASS] skirt BURIED below the y=3.00 plateau (no coplanar z-fight)  -- lowest 2.50
+  [PASS] the WALK query passes THROUGH the beacon to Terrain (render-only confirmed)  -- hit Terrain idall=236
+  [PASS] a sky-cast DOES hit it -> the mesh really is in the walkmesh set, so 4078 is load-bearing  -- hit Object idall=4078
+       terrain BEFORE: 690 verts / 230 tris   AFTER: 768 verts / 256 tris  (+26 tris from the hull split)
+       TERRAIN tiles whose IDALL changed: 12
+         tri   48: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1155.13)  x[48.0,50.3] z[-1156.0,-1154.7]
+         tri   49: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1155.57)  x[48.0,50.3] z[-1156.0,-1154.7]
+         tri   62: idall 0 -> 236  (topo 0 -> 59)  centroid (47.23,-1157.1)  x[45.7,48.0] z[-1159.3,-1156.0]
+         tri   63: idall 0 -> 236  (topo 0 -> 59)  centroid (47.0,-1158.2)  x[45.7,48.0] z[-1159.3,-1156.0]
+         tri   64: idall 0 -> 236  (topo 0 -> 59)  centroid (46.23,-1157.67)  x[45.7,47.3] z[-1159.3,-1156.0]
+         tri   72: idall 0 -> 236  (topo 0 -> 59)  centroid (46.8,-1155.13)  x[45.7,48.0] z[-1156.0,-1154.7]
+         tri   73: idall 0 -> 236  (topo 0 -> 59)  centroid (46.47,-1155.57)  x[45.7,48.0] z[-1156.0,-1154.7]
+         tri  104: idall 0 -> 236  (topo 0 -> 59)  centroid (47.57,-1155.13)  x[46.7,48.0] z[-1156.0,-1154.7]
+         tri  111: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1156.77)  x[48.0,50.3] z[-1158.3,-1156.0]
+         tri  165: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1157.87)  x[48.0,50.3] z[-1159.3,-1156.0]
+         tri  166: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1158.97)  x[48.0,50.3] z[-1159.3,-1158.3]
+         tri  194: idall 0 -> 236  (topo 0 -> 59)  centroid (46.23,-1158.77)  x[45.7,47.3] z[-1159.3,-1157.7]
+  [PASS] the hull DID stamp terrain tiles (collision exists)  -- 12
+  [PASS] every changed tile became topograph 59 (impassable structure)
+  [PASS] NO event tile was overwritten by the hull (the trigger is untouched)
+  [PASS] every changed tile lies INSIDE the beacon footprint  -- 0 outside
+  [PASS] no changed tile overlaps the trigger rect  -- 0
+       total topo-59 tris in the block now: 12
+
+(d) the beacon's UVs
+  [PASS] one UV per vertex  -- 666 vs 666
+  [PASS] no degenerate [0,0] UV (would render white)
+  [PASS] every UV in [0,1]
+  [PASS] BOTH authored tiles present (stone shaft + warm lantern room)  -- 570 stone corners, 96 lantern corners
+       u[0.00414,0.36106] v[0.35084,0.45676]
+
+====================================================================================================
+(e) DISC PARITY
+====================================================================================================
+  [PASS] Terrain: Disc1 and Disc4 byte-identical  -- 2d052e3f5b85 vs 2d052e3f5b85
+       Terrain md5 2d052e3f5b854746d0a7bf2517bafc41  (39956 B)
+  [PASS] Object: Disc1 and Disc4 byte-identical  -- 8314ab9f28bd vs 8314ab9f28bd
+       Object md5 8314ab9f28bdb83b60ab06e95ec429e9  (34652 B)
+
+====================================================================================================
+ALL CHECKS PASS
+====================================================================================================

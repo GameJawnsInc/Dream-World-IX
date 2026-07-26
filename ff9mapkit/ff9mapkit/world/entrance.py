@@ -599,7 +599,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
     id (1-3). ``trigger_at``/``trigger_radius`` place the event-tile cluster (default: the cell centre, r=14, kept
-    inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?, texture?, tile?,
+    inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?, idall?, texture?, tile?,
     tile_uv?}``) additionally models + seats a structure in the cell; the texture keys forward to
     :func:`ff9mapkit.world.blendio.build_from_obj` (stamp real atlas tiles / one picked tile / a custom UV rect
     onto UV-less faces -- seated against the STACKED terrain, so it works on a transplanted cell too). ``block_footprint`` (default True) makes the TERRAIN under the building impassable
@@ -608,6 +608,17 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     Uses :func:`ff9mapkit.world.mesh.split_retarget_by_polygon` (EXACT -- splits a straddling terrain triangle at
     the hull boundary) rather than a whole-triangle centroid test, so the blocked edge traces the building's real
     footprint bit-exactly regardless of how coarse the underlying donor terrain's own triangulation is.
+    ⚠ **THE RENDER-ONLY LAW IS CONDITIONAL -- ``idall`` is how you honour it on a donor-backed cell.** The building
+    layer's rule is "the Object mesh RENDERS, the terrain hull COLLIDES; never feed a 3D model to the walkmesh, or its
+    back-face-culled walls + buried base become invisible collision". That holds automatically only on a **BARE**
+    block, where ``WMWorld.RegisterBareObjectOverride`` creates the Object component with ``AddForm1Transform`` and
+    NO ``AddWalkMeshForm1``. If the block's prefab ALREADY has an Object component -- a real town block, or a
+    RECLAIMED cell whose ``Donor.txt`` names a donor that has one -- the override instead takes
+    ``RegisterBlockComponent(..., form1: true)``, which DOES call ``AddWalkMeshForm1`` (WMWorld.cs:775-814), and it is
+    registered BEFORE ``TerrainForm1``, so it also wins the first-mesh ground query. There, pass
+    ``idall=4078`` (``0x0FEE``): ``WMPhysics.Raycast`` skips 4078/4088/2040 outright, so the model is genuinely
+    render-only and cannot shadow an event tile, while footprint collision still comes from the topo-59 terrain hull.
+
     ``flatten_pad=radius`` optionally flattens a pad under the building. ``fresh`` re-reads the block from pristine
     p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``trigger_only`` refreshes
     JUST the dispatcher trigger functions (step 1) and leaves the deployed terrain/tiles/building untouched -- the
@@ -797,6 +808,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
                                exclude_polygon=hull)
     summary["tiles_set"] = n_tiles
+    summary["tile_area_stamped"] = bool(set_tile_area)       # False => each tile KEEPS its existing area field
     summary["footprint_blocked"] = n_block
     summary["pad_flattened"] = n_flat
     if hull:
@@ -817,6 +829,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         if dry_run:
             summary["building"] = {"obj": building["obj"], "at": list(b_at), "seat": building.get("seat", True),
                                    "keep_block": keep, "topograph": building.get("topograph", 59),
+                                   "idall": building.get("idall"),
                                    "texture": bool(building.get("texture") or building.get("tile") is not None
                                                    or building.get("tile_uv") is not None), "planned": True}
         else:
@@ -825,7 +838,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                                        missing_ok=True, fresh=fresh) if keep else None
             summary["building"] = BIO.build_from_obj(
                 building["obj"], into_block=(bx, by), mod_folder=mod_folder, disc=disc, part="object", lod=lod,
-                topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),
+                topograph=building.get("topograph", 59), idall=building.get("idall"),
+                at=b_at, seat=building.get("seat", True),
                 keep_block=keep, solid_base=building.get("solid_base", False),
                 texture=building.get("texture", False), tile=building.get("tile"),
                 tile_uv=building.get("tile_uv"), stock_bm=stock, terrain_bm=ter, game=game,
