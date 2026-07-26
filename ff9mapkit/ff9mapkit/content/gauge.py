@@ -34,6 +34,8 @@ target; on scrolling fields the bar stays where the art is.
 """
 from __future__ import annotations
 
+import functools
+import hashlib
 import io
 import struct
 from dataclasses import dataclass
@@ -175,8 +177,8 @@ def from_raw(block: dict, idx: int, *, resolve_item=None) -> GaugeSpec:
 
 
 # ------------------------------------------------------------------- the art
-def png_name(spec: GaugeSpec, k: int) -> str:
-    return f"gauge_{spec.name}_{k:02d}.png"
+ART_SCALE = 4                     # texels per canvas px -- crisp at the widescreen upscale
+                                  # (the Moguri shape: hi-res texture, same-size quad)
 
 
 def effective_width(spec: GaugeSpec) -> int:
@@ -189,11 +191,20 @@ def effective_width(spec: GaugeSpec) -> int:
     return 2 + cw * spec.segments + (spec.segments - 1)
 
 
-def art_pngs(spec: GaugeSpec) -> list:
-    """``[(filename, png_bytes)]`` for fill states 0..segments. Each state is a
-    complete self-backed bar (plate + cells) so the ANIMATION's one-visible-frame
-    swap needs no separate backplate overlay and frame 255 hides the WHOLE bar.
-    Flat PSX-flavored UNIFORM cells: 1px black border, dark plate, top bevel."""
+@functools.lru_cache(maxsize=64)
+def art_pngs(spec: GaugeSpec) -> tuple:
+    """``((filename, png_bytes), ...)`` for fill states 0..segments. Each state
+    is a complete self-backed bar (plate + cells) so the ANIMATION's
+    one-visible-frame swap needs no separate backplate overlay and frame 255
+    hides the WHOLE bar. Uniform cells drawn at canvas scale, upscaled NEAREST
+    ``ART_SCALE``x onto the same-size quad (crisp under the engine upscale).
+
+    THE OVERLAY-TEXTURE-CACHE LAW (WATERWORKS round 2): the engine's
+    ``MemoriaOverlayTextureCache`` is a STATIC dict keyed by PATH — same-name
+    art edits survive a field reload and keep showing the OLD texture until a
+    relaunch. So the filename carries a CONTENT HASH: changed art = a new
+    path = a cache miss = a true hot reload. Deterministic bytes in, stable
+    names out."""
     from PIL import Image, ImageDraw
 
     h, seg = spec.height, spec.segments
@@ -213,20 +224,25 @@ def art_pngs(spec: GaugeSpec) -> list:
             if i < k:
                 d.line([x, 1, x + cw - 1, 1], fill=bevel + (255,))
             x += cw + 1
+        im = im.resize((w * ART_SCALE, h * ART_SCALE), Image.NEAREST)
         buf = io.BytesIO()
         im.save(buf, "PNG")
-        out.append((png_name(spec, k), buf.getvalue()))
-    return out
+        data = buf.getvalue()
+        tag = hashlib.sha1(data).hexdigest()[:8]
+        out.append((f"gauge_{spec.name}_{k:02d}_{tag}.png", data))
+    return tuple(out)
 
 
 # ------------------------------------------------------------------- the .bgx blocks
 def overlay_blocks(spec: GaugeSpec):
-    """The ``segments+1`` fill-state OVERLAY blocks, in frame order (0 = empty)."""
+    """The ``segments+1`` fill-state OVERLAY blocks, in frame order (0 = empty).
+    Image names come from :func:`art_pngs` (content-hashed); Size stays the
+    CANVAS dims — the hi-res texture maps UV 0..1 onto the same quad."""
     from ..scene import bgx as _bgx
-    return [_bgx.Overlay(image=png_name(spec, k),
+    return [_bgx.Overlay(image=name,
                          position=(spec.pos[0], spec.pos[1], spec.depth),
                          size=(effective_width(spec), spec.height), camera_id=spec.camera)
-            for k in range(spec.segments + 1)]
+            for name, _data in art_pngs(spec)]
 
 
 def animation_block(spec: GaugeSpec, overlay_base: int):

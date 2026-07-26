@@ -1589,6 +1589,11 @@ requires_flag = 8320            # (optional) GLOB bit; CLEAR -> the whole bar hi
 depth = 1                       # (optional) overlay z: smaller = nearer the camera
 ```
 
+The generated art ships at 4× resolution on canvas-size quads (crisp under the engine
+upscale) with **content-hashed filenames** — the engine's overlay-texture cache is static
+and path-keyed, so same-name art edits would survive a field reload; hashed names make
+gauge art changes true hot reloads.
+
 Several `[[gauge]]` blocks share ONE daemon entry whose state lives in **entry locals**
 (stock's `allocate 2`), so gauges coexist with `[behavior]` — a fort-condor field can carry
 both. Three scene hosts: **novel scenes** (the states append to the field's own `.bgx`);
