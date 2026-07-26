@@ -66,3 +66,31 @@ def test_deploy_writes_68_mes_per_language(tmp_path, monkeypatch):
         assert "Lindblum City" in p.read_text(encoding="utf-8")
         assert p == (tmp_path / "FF9CustomMap" / "FF9_Data" / "embeddedasset" / "text"
                      / p.parent.parent.name / "field" / "68.mes")
+
+
+def test_deploy_merges_with_the_already_deployed_override(tmp_path, monkeypatch):
+    """A SECOND named entrance must not wipe the first's name.
+
+    deploy_marker_renames used to rebuild every language's 68.mes from the BASE game text and
+    apply only the renames it was given -- so each new named entrance silently erased every name
+    a previous one had registered (the R3 Lamplight deploy erased R1's "Lantern Quay" split[53];
+    caught only by a byte check of the deployed file). The fix: when an override is already
+    deployed, it IS the base -- splice on top of it."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(dialogue, "extract_field_mes", lambda *a, **k: SYNTH)
+    first = navimap.deploy_marker_renames(
+        [{"locid": 3, "to": "Lantern Quay"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us"])
+    # the second deploy must MERGE with the file the first one wrote, not re-extract the base
+    monkeypatch.setattr(dialogue, "extract_field_mes",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError(
+                            "re-extracted the base over a deployed override -- the wipe bug")))
+    second = navimap.deploy_marker_renames(
+        [{"locid": 1, "to": "Lamplight"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us"])
+    assert first == second
+    names = _table0(second[0].read_text(encoding="utf-8"))
+    assert names[4] == "Lantern Quay"        # locId 3 -> split[4]: the FIRST name survives
+    assert names[2] == "Lamplight"           # locId 1 -> split[2]: the second lands beside it
+    # idempotence: re-running the same rename over the merged file changes nothing
+    third = navimap.deploy_marker_renames(
+        [{"locid": 1, "to": "Lamplight"}], mod_folder="FF9CustomMap", game=tmp_path, langs=["us"])
+    assert _table0(third[0].read_text(encoding="utf-8")) == names

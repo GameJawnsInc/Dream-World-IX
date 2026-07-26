@@ -168,11 +168,20 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
     layout = config.ModLayout(root)
     written = []
     for lang in langs:
-        base = dialogue.extract_field_mes(9000, lang=lang, game=game, zone_id=WORLD_TEXT_BLOCK)
+        dest = Path(layout.mes_path(lang, WORLD_TEXT_BLOCK))
+        if dest.is_file():
+            # MERGE with the already-deployed override, never rebuild from the base text: the
+            # deployed file IS base + every prior rename, so re-extracting the base here would
+            # silently WIPE every name a previous entrance registered (the R3 Lamplight deploy
+            # erased R1's "Lantern Quay" split[53] exactly this way -- caught by a byte check,
+            # invisible to every other gate). apply_marker_renames splices only the locIds given,
+            # so layering on the deployed file is idempotent and preserves the rest verbatim.
+            base = dest.read_text(encoding="utf-8")
+        else:
+            base = dialogue.extract_field_mes(9000, lang=lang, game=game, zone_id=WORLD_TEXT_BLOCK)
         if not base:
             continue                                                   # this lang's block 68 not found -> skip
         out = apply_marker_renames(base, renames)
-        dest = Path(layout.mes_path(lang, WORLD_TEXT_BLOCK))
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(out, encoding="utf-8")
         written.append(dest)
