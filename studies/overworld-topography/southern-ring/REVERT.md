@@ -2055,3 +2055,189 @@ relaunch.
 2. **At the islet, boarding still works** — stand by the beached hull or on the dock and press Confirm.
 3. Dismount still lands you on the dock with the boat back on its beach (§19 unchanged).
 4. The quay entrances should now respond to Confirm normally and exclusively.
+
+---
+
+# 21. R3 — LAMPLIGHT ISLAND (the r44 mint at the reserved case-52 slot) — **APPLIED**
+
+Run 2026-07-26, worktree `r3-lamplight-island-overworld-44317f`. Backup root:
+**`backups/r3-lamplight.20260726-r3lamplight/`** (main repo). **A RELAUNCH is required** (first-time
+`FieldScene`/`MessageFile 6602` registration) — until then the live game ignores all of it; the world
+meshes and dispatcher edits would hot-load on world re-entry but the entrance's destination would not
+exist, so DO NOT walk onto the trigger before relaunching.
+
+## 21.1 What R3 is
+
+The design's one new landmass and the region's one NAMED landmark (design judgment: "Case 52 is held
+in reserve for the region's one named landmark (Lamplight)"): a native-grass island mint in the
+wrapwater corridor, carrying a case-52 native entrance ("Lamplight", locId 51 = block-68 split[52])
+into a new interior field — **6602 LAMPLIGHT**, the lamp room (BG-borrow of L. Castle/Telescope,
+field 615, `LDBM_MAP190_LB_OBS_0`, area 11) — with the R2 doored beacon as its visible landmark.
+Reachability on foot is deliberately none (the island sits on the sailable west arc, R5's concern);
+**R3 is judged by teleport**, per the judgment's own note on mint-first rungs.
+
+## 21.2 The mint (blocks all previously FREE — verified live before deploying)
+
+`world-island --center 1432,-1176 --radius 44 --lobes 1 --seed 44 --mod-folder FF9CustomMap-world`
+
+* **Seed selection was MEASURED, not defaulted** (14 dry-runs): the default seed (718) mints 4
+  zero-UV-area tris + 4 family-rect zero-area offenders; seed 44 mints ZERO hard texture defects
+  (only the endemic one-window advisory, 76/702 mains tris — that gate's own docstring: blind
+  judging refuses even real stock ground). Candidates were compared on the underlying gate
+  fractions, never on printed warning-line counts (a REFUSED run prints zero warnings — the first
+  sweep instrument was wrong exactly that way).
+* **The outline was measured against the design's clearances**: r_max 47.1u (overshoot 1.07× — the
+  design allowed 1.57× → 69.1u against the 88u forbidden ring), west sea channel 43.1u / east 57.3u
+  vs the design's declared 44/60u corridor channels. The lobes=2 candidates narrowed the west
+  channel to ~30-35u and were rejected for that.
+* 6 blocks written: (21,17) (21,18) (22,17) (22,18) (22,19) (23,18) — centre grounds y 3.2 topo 0.
+* Write-set: **108 new files, 0 changed, 0 removed** (54 per disc incl. Donor.txt sidecars, auto-
+  mirrored); whole-folder md5 proof `probe_r3/mint_writeset.txt` (891 → 999 files).
+* Offline acceptance: `probe_r3/probe_lamplight_mint.py` — **ALL CHECKS PASS on both discs**
+  (files + sidecars, centre/trigger/anchor/arrive all walkable Terrain topo-0 at plateau y 3.2 in
+  both query modes, 16-point r=20u interior ring walkable, full disc parity).
+  Output: `probe_r3/probe_mint_output.txt`.
+
+## 21.3 The interior field — 6602 LAMPLIGHT
+
+`studies/overworld-topography/southern-ring/lamplight-tower.field.toml`, deployed
+`py tools/deploy_field.py <toml> --id 6602 --name LAMPLIGHT --mod-folder FF9CustomMap-world`.
+
+* Pre-flight: `FieldScene 6602` ABSENT from both live registries (main folder has 4003-30421 dev
+  ids; `-world` had 4600 + 6601). Donor picked from the manifest: the telescope deck is the one
+  stock room that reads as a beacon's lamp gallery; Daguerreo/Gargan Roo already spent.
+* Content: spawn (0,-400) · keeper moogle "Moglow" (-450,200), model 220, one line · the donor's
+  OWN east exit region (Region4 of field 615's real script, quad verbatim) as a walk-out
+  `[[gateway]] to="worldmap"`, arrive **(1436,-1168) f192** — 12u east of the trigger, facing away
+  (THE ARRIVAL-CLEARANCE LAW).
+* Layout probe `probe_r3/layout_pass2/` — WARNINGS: none; both PNGs read (spawn/NPC 750u apart on
+  the platform, the door zone on the SE stairway, 600u clear of the spawn). Caught en route: the
+  gateway quad key is **`zone`**, not `region` — a `region` key is silently ignored (the pass-1
+  probe drew no zone; that gap IS the catch).
+* `lint`: 0 errors, 1 advisory (`entry_settle` auto → 50 frames).
+* Write-set: 14 new files (7 `EVT_LAMPLIGHT.eb.bytes` + 7 `6602.mes`) + 2 registry lines. The
+  New-Game field-70 override was byte-checked after the deploy: still `Field(4600)`, no 6602 —
+  the deploy notice's "New-Game auto-warp" line is boilerplate.
+* Revert: `py tools/scroll_out/revert_deploy_6602.py`.
+
+## 21.4 The entrance + beacon (the reserved case-52 slot)
+
+`rebuild_quay_marker.sh lamplight` — the canonical invocation (now parameterized FIELD/NAME/CASE
+per site; the four quays keep 6601 / "Lantern Quay" / 53):
+
+    world-entrance --cell 44 36 --field-direct 6602 --nameplate-name "Lamplight" --nameplate-case 52
+      --trigger-at 1424 -1168 --trigger-radius 3.0 --no-tile-area --mod-folder FF9CustomMap-world
+      --building quay_beacon_lamplight.obj --building-at 1424 -1160.425 --no-seat --replace-town
+      --building-idall 4078
+
+* `mint_quay_beacon.py` gained the **lamplight** `SITES` row (anchor (1424,-1160.2), ground_y 3.20,
+  trigger rect x[1420,1428] z[-1172,-1164], arrive (1436,-1168) f192, block (22,18), cell (44,36))
+  — the Ashvale disposition translated +1376 in x, southern-limit derivation identical. All 29
+  generator gates PASS; `quay_beacon_lamplight.obj` committed (our own procedural geometry).
+* Surgery: dead case **52** → `[set explored word 98 bit 3 (navi bit 787)] + Field(6602)`; name
+  registered at block-68 **split[52]** (locId 51). Cell tag 0xA4B1.
+* **7 event tris** (not the quays' 6 — the minted terrain's own triangulation; dry-run-predicted).
+  16 terrain tiles topo-59 under the beacon hull.
+* **Additive-only PROVEN on all 63 dispatchers**: per file exactly ONE changed function
+  (entry-1/tag-1 — the 2-byte case-52 reloffset patch + the appended 15-B handler) and ONE new
+  function (the 0xA4B1 trigger func); zero removed; every other function byte-identical — which is
+  also the proof that the four quay triggers and the case-53 handler are intact.
+* Site probe: `probe_marker/probe_quay_sites.py --backup-root backups/r3-lamplight.20260726-r3lamplight`
+  (quay pre-states copied in from the R2 sweep) — **ALL CHECKS PASS, all FIVE sites × both discs +
+  ring closure** (the four quays regression-clean at the mesh level). Output:
+  `probe_r3/probe_sites_output.txt`. The probe grew `TRIGGER_TRIS_BY_SITE` (7 for lamplight).
+
+## 21.5 ⚠ THE NAMEPLATE-WIPE BUG — found by the byte check, FIXED in the kit
+
+The surgery's rename step (`navimap.deploy_marker_renames`) rebuilt every language's 68.mes **from
+the BASE game text** and applied only its own rename — erasing R1's "Lantern Quay" from split[53]
+in all 7 languages. Every gate passed; only the post-deploy byte check
+(`"Lantern Quay" in 68.mes → False`) caught it. **Any second named entrance wiped the first's name.**
+
+* **Kit fix** (`ff9mapkit/ff9mapkit/world/navimap.py`): when an override is already deployed it IS
+  the base — renames splice on top of it (idempotent; `apply_marker_renames` touches only the
+  locIds given). Regression test:
+  `tests/test_navimap_rename.py::test_deploy_merges_with_the_already_deployed_override`
+  (also pins idempotence and that the merge path never re-extracts the base).
+* **Install repair**: the 7 pre-pass 68.mes restored from `text68/`, then BOTH renames re-applied
+  through the fixed merge path via the new standing registry
+  `studies/overworld-topography/southern-ring/marker_renames.toml` (locid 52 → "Lantern Quay",
+  locid 51 → "Lamplight"). Verified by parsing: split[52]='Lamplight', split[53]='Lantern Quay',
+  all 7 languages.
+
+## 21.6 Full R3 install footprint — 891 → 1013 files, 0 removed
+
+| class | count |
+|---|---|
+| ADDED world meshes (6 blocks × parts × 2 discs, incl. the entrance-carrying (22,18) pair) | 108 |
+| ADDED field 6602 (`.eb` + `.mes` × 7 langs) | 14 |
+| CHANGED `DictionaryPatch.txt` (+`MessageFile 6602` +`FieldScene 6602`) | 1 |
+| CHANGED world dispatchers (9 × 7 langs, additive-only proven) | 63 |
+| CHANGED block-68 nameplate text (both names) | 7 |
+
+Machine-readable: `probe_r3/r3_total_writeset.txt` (+ per-phase `mint_writeset.txt`,
+`entrance_writeset.txt`). `FF9CustomMap` untouched. Tests: 144 green across the targeted world /
+entrance / worldexit / ferry / navimap suites (incl. the new merge regression).
+
+## 21.7 Backups taken BEFORE writing
+
+| Backup (under `backups/r3-lamplight.20260726-r3lamplight/`) | Covers |
+|---|---|
+| `DictionaryPatch.pre6602.txt` | the `-world` registry pre-R3 (4600 + 6601 only) |
+| `lamplight/Disc{1,4}/Block[22][18] {Terrain,Object}.ff9mesh` | the pre-ENTRANCE minted state (the site probe's `pre` baseline) |
+| `dispatchers/<lang>/EVT_WORLD_WORLD*.eb.bytes` (63) | every dispatcher pre-surgery (the kit's own backup is US-only) |
+| `text68/<lang>.68.mes` (7) | the R1 nameplate text ("Lantern Quay", no "Lamplight") |
+| `ashvale/ tidefall/ grimhorn/ larkspur/` | copied IN from the R2 sweep so the 5-site probe runs from one root |
+
+The island blocks need no backup: every minted file is NEW (delete = revert).
+
+## 21.8 Undo (reverse order)
+
+    G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+    B="backups/r3-lamplight.20260726-r3lamplight"
+
+    # 1. entrance + beacon + trigger tiles + dispatchers + nameplate
+    for D in 1 4; do
+      cp "$B/lamplight/Disc$D/Block[22][18] Terrain.ff9mesh" "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc$D/0_1/r18/"
+      cp "$B/lamplight/Disc$D/Block[22][18] Object.ff9mesh"  "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc$D/0_1/r18/"
+    done
+    cp -r "$B/dispatchers/." "$G/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/"
+    for L in us uk fr gr it es jp; do cp "$B/text68/$L.68.mes" "$G/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/$L/field/68.mes"; done
+
+    # 2. the interior field (assets + its 2 DictionaryPatch lines)
+    py tools/scroll_out/revert_deploy_6602.py
+
+    # 3. the island itself -- every minted file is NEW; delete the 108 listed in
+    #    probe_r3/mint_writeset.txt (blocks (21,17) (21,18) (22,17) (22,18) (22,19) (23,18),
+    #    both discs, all parts + Donor.txt)
+
+Then RELAUNCH. Case 52 returns to dead, block-68 split[52] to the stock placeholder, the corridor
+to open ocean.
+
+## 21.9 Standing traps carried forward
+
+* `world-island`/`world-reclaim` over block (22,18) WIPES the beacon + trigger/hull idalls (the §9.6
+  class, now ×5) — re-run `rebuild_quay_marker.sh lamplight`.
+* The kit's `world-entrance` dispatcher backup is still US-only — take all 7 langs yourself first.
+* `deploy_field` prints "reachable via the New-Game auto-warp" unconditionally — it does NOT rewire
+  New Game (byte-checked); don't panic, but don't trust the notice either.
+
+## 21.10 Playtest ask (owner) — ONE relaunch, judged by teleport
+
+1. RELAUNCH. New Game → the hub → the hall → the ferry still sails all four quays (nothing
+   regressed: the ring must feel identical to the R2-confirmed state, and every quay plate still
+   reads **"Lantern Quay"**).
+2. `~ → World → Teleport` to **(1432, -1176)**. Expect: a grass island under you (flat plateau,
+   cliff rim), the doored beacon standing just north of centre, door facing you-ish (south).
+3. Walk onto the trigger at the tower's foot → the approach plate shows **"?"** (unexplored) →
+   press Confirm → fade → **the lamp room** (the Lindblum telescope deck art): Moglow the keeper
+   on the west side, one line, kupo.
+4. Walk out the south-east stairway (the painted stairs) → land back on the island at the beacon's
+   east side, facing east, no instant re-entry.
+5. The plate now reads **"Lamplight"** (the explored bit stuck), and `~ → World` still says 9011.
+6. Sail-by check (optional, the boat is R5-dormant): nothing else in the corridor looks disturbed —
+   the horseshoe bench (west of the island) and the wrapwater channels unchanged.
+
+**Committed** (this worktree, branch `claude/r3-lamplight-island-overworld-44317f`): the study files
+(toml, SITES row, rebuild script, marker registry, probes, this section), the navimap kit fix + its
+regression test, and the probe's per-site trigger table.

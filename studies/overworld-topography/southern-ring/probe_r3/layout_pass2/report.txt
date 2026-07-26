@@ -1,0 +1,21 @@
+FIELD LAYOUT PROBE -- studies/overworld-topography/southern-ring/lamplight-tower.field.toml
+camera 0/1: pitch 19.9 deg, yaw -0.5 deg, H=1146, canvas 512x432
+camera position C=(344, 6525, -12571)  (the VIEWER stands here; the room edge nearest it is the FRONT)
+
+COMPASS (world direction -> where it points ON SCREEN):
+  north (+z, back)     -> up         (358 deg)
+  east (+x)            -> right      (90 deg)
+  south (-z, front)    -> down       (178 deg)
+  west (-x)            -> left       (270 deg)
+  screen-UP corresponds to world north (1 deg from +Z toward +X)
+
+CONTENT (world -> canvas):
+  Moglow               npc       world(  -450,   200) -> canvas( 170.1, 226.3)
+  spawn                spawn     world(     0,  -400) -> canvas( 205.1, 248.0)
+
+ZONES:
+  -> worldmap          gateway   world x[553,1460] z[-1456,-471] -> canvas centre (292,270)
+
+WARNINGS: none
+
+Reminders: FRONT of a room = -z (toward camera) = down-screen at yaw 0. Facing byte: 0=south(front) 64=west 128=north(back) 192=east. Actors jam under ~192u centre distance; real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls.

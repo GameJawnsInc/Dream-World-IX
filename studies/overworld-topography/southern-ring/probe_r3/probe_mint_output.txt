@@ -1,0 +1,52 @@
+== R3 LAMPLIGHT MINT PROBE ==
+-- Disc1
+  [PASS] D1 (21,17) Terrain override exists
+  [PASS] D1 (21,17) Donor.txt exists  -- 0,0
+  [PASS] D1 (21,18) Terrain override exists
+  [PASS] D1 (21,18) Donor.txt exists  -- 0,0
+  [PASS] D1 (22,17) Terrain override exists
+  [PASS] D1 (22,17) Donor.txt exists  -- 0,0
+  [PASS] D1 (22,18) Terrain override exists
+  [PASS] D1 (22,18) Donor.txt exists  -- 0,0
+  [PASS] D1 (22,19) Terrain override exists
+  [PASS] D1 (22,19) Donor.txt exists  -- 0,0
+  [PASS] D1 (23,18) Terrain override exists
+  [PASS] D1 (23,18) Donor.txt exists  -- 0,0
+  [PASS] D1 centre (1432,-1176) walkable Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 462)
+  [PASS] D1 trigger (1424,-1168) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 478)
+  [PASS] D1 trigger idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D1 trigger (1424,-1168) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 478)
+  [PASS] D1 anchor (1424,-1160) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 476)
+  [PASS] D1 anchor idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D1 anchor (1424,-1160) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 476)
+  [PASS] D1 arrive (1436,-1168) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 448)
+  [PASS] D1 arrive idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D1 arrive (1436,-1168) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 448)
+  [PASS] D1 16-point r=20u interior ring uniformly walkable  -- []
+-- Disc4
+  [PASS] D4 (21,17) Terrain override exists
+  [PASS] D4 (21,17) Donor.txt exists  -- 0,0
+  [PASS] D4 (21,18) Terrain override exists
+  [PASS] D4 (21,18) Donor.txt exists  -- 0,0
+  [PASS] D4 (22,17) Terrain override exists
+  [PASS] D4 (22,17) Donor.txt exists  -- 0,0
+  [PASS] D4 (22,18) Terrain override exists
+  [PASS] D4 (22,18) Donor.txt exists  -- 0,0
+  [PASS] D4 (22,19) Terrain override exists
+  [PASS] D4 (22,19) Donor.txt exists  -- 0,0
+  [PASS] D4 (23,18) Terrain override exists
+  [PASS] D4 (23,18) Donor.txt exists  -- 0,0
+  [PASS] D4 centre (1432,-1176) walkable Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 462)
+  [PASS] D4 trigger (1424,-1168) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 478)
+  [PASS] D4 trigger idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D4 trigger (1424,-1168) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 478)
+  [PASS] D4 anchor (1424,-1160) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 476)
+  [PASS] D4 anchor idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D4 anchor (1424,-1160) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 476)
+  [PASS] D4 arrive (1436,-1168) [walk] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 448)
+  [PASS] D4 arrive idall clean (no event/area bits, topo 0)  -- {'event': 0, 'area': 0, 'topograph': 0, 'flags': 0}
+  [PASS] D4 arrive (1436,-1168) [sky] grounds on Terrain at plateau y  -- ('Terrain', 3.200000047683716, 0, 448)
+  [PASS] D4 16-point r=20u interior ring uniformly walkable  -- []
+  [PASS] Disc1/Disc4 byte parity on every minted file  -- []
+
+ALL CHECKS PASS

@@ -103,3 +103,20 @@ Record: REVERT.md §18.
 gone. En-route casualty: boarding the crimson boat at its islet no longer fires (the range window's true
 branch fails in-game) — logged in `studies/custom-vehicle/README.md`, boat DORMANT until R5 by owner
 ruling. R2 is CLOSED; next rungs R3 Lamplight · R4 forest pass · R5 sea lanes + proper boarding.
+
+## R3 — LAMPLIGHT ISLAND ★ DEPLOYED (2026-07-26, relaunch + teleport-judged playtest pending)
+
+The r44 mint at the reserved case-52 slot, exactly as ratified: `world-island` r44 **seed 44 lobes 1**
+at (1432,−1176), block (22,18) — seed MEASURED over 14 dry-runs (zero hard texture defects; outline
+r_max 47.1u = 1.07× overshoot vs the allowed 1.57×; west/east channels 43.1/57.3u ≈ the design's 44/60u —
+lobes-2 candidates narrowed the west channel to ~30-35u and were REJECTED) · the case-**52** native
+entrance, plate **"Lamplight"** (locId 51, explored word 98 bit 3), doored beacon at (1424,−1160.2) with
+the trigger at its foot → NEW field **6602 LAMPLIGHT** (BG-borrow L. Castle/Telescope 615, keeper moogle
+Moglow, walk-out via the donor's own Region4 quad → arrive (1436,−1168) f192) · beacon kit now
+5-site (`rebuild_quay_marker.sh lamplight`; FIELD/NAME/CASE parameterized). All offline gates green:
+mint probe + 5-site probe + ring closure ALL PASS both discs; 63 dispatchers additive-only proven; 144
+targeted tests. **En-route kit catch: THE NAMEPLATE-WIPE BUG** — `deploy_marker_renames` rebuilt 68.mes
+from the BASE text, erasing "Lantern Quay" (any 2nd named entrance wiped the 1st; caught ONLY by the
+post-deploy byte check); FIXED to merge with the deployed override + regression test + the standing
+`marker_renames.toml` registry. Full record + undo: REVERT.md §21. ONE RELAUNCH required (FieldScene
+6602); playtest = §21.10 (teleport to (1432,−1176)).

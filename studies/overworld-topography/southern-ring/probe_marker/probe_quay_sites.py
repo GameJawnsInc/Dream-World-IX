@@ -49,7 +49,12 @@ BEACON_IDALL = 4078
 BEACON_TRIS, BEACON_VERTS = 270, 810
 HULL_TOPO = 59
 TRIGGER_IDALL = 16384
+# `--trigger-radius 3.0` stamps every up-facing tri whose tile intersects the rect, so the COUNT
+# follows the block's own triangulation: the four quays' reclaim-donor terrain yields 6, the
+# Lamplight island's minted terrain yields 7 (dry-run-predicted and deploy-confirmed). The bbox
+# check below is the real invariant; the count only pins the local triangulation.
 TRIGGER_TRIS = 6
+TRIGGER_TRIS_BY_SITE = {"lamplight": 7}
 IDALL_SKIP = {4078, 4088, 2040}
 WALKABLE_TOPO = {0, 10, 13, 17, 36, 37}       # foot mask: 49/58/59 blocked (ff9.cs w_movementCheckTopographID)
 ARRIVE_CLEARANCE = 6.0
@@ -133,7 +138,8 @@ def probe_site(key, backup_root: Path) -> None:
 
         # (a) trigger
         ev = [t for t in range(len(ter.tris)) if W.decode_id(idall_of(ter, t))["event"]]
-        check(len(ev) == TRIGGER_TRIS, f"exactly {TRIGGER_TRIS} event tris", f"got {len(ev)}")
+        n_trig = TRIGGER_TRIS_BY_SITE.get(key, TRIGGER_TRIS)
+        check(len(ev) == n_trig, f"exactly {n_trig} event tris", f"got {len(ev)}")
         # The invariant is event==1 AND area==0 -- NOT a raw idall equality. `retarget_tiles` sets the
         # event bit and (with --no-tile-area) leaves area alone, but it also PRESERVES each tile's own
         # TOPOGRAPH, which is the site's terrain type: Ashvale/Tidefall/Larkspur sit on topo 0 (idall
@@ -158,7 +164,7 @@ def probe_site(key, backup_root: Path) -> None:
                           for t in range(len(m.tris)) if W.decode_id(idall_of(m, t))["event"])
         post_ev = evset(ter)
         pre_ev = evset(pre)
-        check(len(post_ev) == TRIGGER_TRIS and (not pre_ev or post_ev == pre_ev),
+        check(len(post_ev) == n_trig and (not pre_ev or post_ev == pre_ev),
               "trigger tris GEOMETRY-IDENTICAL to the pre-deploy mesh (not split by the hull)"
               if pre_ev else "trigger tris are NEW at this site (block had none before)",
               f"pre {len(pre_ev)} / post {len(post_ev)}")

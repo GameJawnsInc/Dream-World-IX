@@ -55,7 +55,7 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 
 SITE="${1:-}"
 if [ -z "$SITE" ]; then
-  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur>" >&2
+  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur|lamplight>" >&2
   exit 2
 fi
 
@@ -75,11 +75,20 @@ fi
 # Ashvale: trigger north -1164.0 -> cz >= -1160.25, uses -1160.2 (0.05u slack).
 # Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
 # was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
+# The four QUAYS share one destination (the hall), one name and one dead case (53) -- THE ONE-CASE
+# FERRY. Lamplight (R3) is the ring's one NAMED landmark and spends the region's OTHER clean slot:
+# its own field (6602, the lamp room), its own name, dead case 52.
 case "$SITE" in
-  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj" ;;
-  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.425";   OBJ="quay_beacon_tidefall.obj" ;;
-  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.425";  OBJ="quay_beacon_grimhorn.obj" ;;
-  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj" ;;
+  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj"
+            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.425";   OBJ="quay_beacon_tidefall.obj"
+            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.425";  OBJ="quay_beacon_grimhorn.obj"
+            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj"
+            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+  lamplight) CELL="44 36"; TRIG="1424 -1168";  AT="1424 -1160.425";  OBJ="quay_beacon_lamplight.obj"
+            FIELD=6602; NAME="Lamplight"; CASE=52 ;;
   *) echo "unknown site: $SITE" >&2; exit 2 ;;
 esac
 
@@ -88,7 +97,7 @@ esac
 py "$HERE/mint_quay_beacon.py" --site "$SITE"
 
 cd "$ROOT/ff9mapkit"
-py -m ff9mapkit world-entrance     --cell $CELL     --field-direct 6601     --nameplate-name "Lantern Quay"     --nameplate-case 53     --trigger-at $TRIG     --trigger-radius 3.0     --no-tile-area     --mod-folder FF9CustomMap-world     --building "../studies/overworld-topography/southern-ring/$OBJ"     --building-at $AT     --no-seat     --replace-town     --building-idall 4078
+py -m ff9mapkit world-entrance     --cell $CELL     --field-direct $FIELD     --nameplate-name "$NAME"     --nameplate-case $CASE     --trigger-at $TRIG     --trigger-radius 3.0     --no-tile-area     --mod-folder FF9CustomMap-world     --building "../studies/overworld-topography/southern-ring/$OBJ"     --building-at $AT     --no-seat     --replace-town     --building-idall 4078
 
 echo
 echo "Re-deployed $SITE. Now verify from the DEPLOYED bytes:"

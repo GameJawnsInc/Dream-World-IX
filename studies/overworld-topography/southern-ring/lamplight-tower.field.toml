@@ -1,0 +1,57 @@
+# lamplight-tower.field.toml -- THE LAMPLIGHT: the lamp room above the Southern Ring's one
+# named landmark island (R3).
+#
+# The island (r44 mint, seed 44, lobes 1 at world (1432,-1176), block (22,18)) carries the
+# region's reserved case-52 native entrance -- "Lamplight" is the ONLY named landmark the
+# ring's naming discipline allows itself beyond the shared "Lantern Quay" plate (the judgment's
+# ONE-CASE FERRY graft: case 53 = every quay, case 52 = held for Lamplight).
+#
+# BG-borrows L. Castle/Telescope (field 615, LDBM_MAP190_LB_OBS_0, area 11) -- the game's own
+# high open-air lamp-gallery: a round platform over open sky, engine-side art/walkmesh/camera;
+# only OUR .eb ships. Daguerreo (the hall) and Gargan Roo (the hub) are already spent, and the
+# telescope deck is the one stock room that reads as a beacon's lamp platform.
+#
+# Deploy (from the repo root; needs a RELAUNCH -- first-time FieldScene/MessageFile registration):
+#   py tools/deploy_field.py studies/overworld-topography/southern-ring/lamplight-tower.field.toml \
+#       --id 6602 --name LAMPLIGHT --mod-folder FF9CustomMap-world
+
+[field]
+id = 6602
+name = "LAMPLIGHT"
+text_block = 6602                    # the field's OWN id -- NEVER a real block (shadow trap)
+borrow_bg = "LDBM_MAP190_LB_OBS_0"   # L. Castle/Telescope (field 615), area 11 (>= 10)
+area = 11
+hide_area_title = true               # the borrowed room's "Lindblum" card is not this place
+
+[camera]
+borrow = "camera_lamplight.bgx"      # field 615's real camera (`extract-field 615`, copied in
+                                     # beside this toml; gitignored -- game-derived bytes)
+entry_settle = "auto"
+
+# field 615's REAL walkmesh, for offline content validation ONLY -- NEVER shipped: the engine
+# runs the borrowed room's own mesh. Gitignored -- game-derived bytes.
+[walkmesh]
+reference = "walkmesh_lamplight.bgi"
+
+[player]
+spawn = [0, -400]                    # platform centre-south, clear of the door region (probed)
+
+# The keeper of the Lamplight -- one moogle, one line. No ferry here: the tower is the ring's
+# landmark, not a port; the way home is the door you came in by.
+[[npc]]
+name = "Moglow"
+pos = [-450, 200]                    # west side of the platform, facing the room (probed)
+model = 220
+dialogue = "Kupo! I keep the Lamplight lit -- the ferry steers by her over the whole ring. On a clear night you can see all four quays from up here, kupo!"
+
+# =====================================================================================
+# THE DOOR -- field 615's own east exit region (Region4 verbatim), re-aimed at the island
+# =====================================================================================
+# The donor's real stairway-out quad, so it sits exactly where the painted art says a door
+# is. Lands beside the beacon: arrive (1436,-1168) f192 = 12u east of the trigger cluster,
+# facing east AWAY from it (THE ARRIVAL-CLEARANCE LAW, >= 8u clear, never facing the tiles).
+[[gateway]]
+zone = [[804, -471], [553, -646], [1228, -1456], [1460, -1222]]
+to = "worldmap"
+arrive = [1436.0, -1168.0]
+arrive_face = 192

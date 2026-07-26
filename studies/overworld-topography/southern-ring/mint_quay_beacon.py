@@ -146,6 +146,14 @@ SITES = {
     "larkspur": Site("Larkspur", (700.0, -608.2),   3.03,
                      (696.0, 704.0, -620.0, -612.0),   (688.0, -616.0),  _blk(10, 9),   64,
                      (21, 19), (700.0, -616.0)),
+    # R3 -- NOT a quay: the ring's one NAMED landmark (the reserved case-52 slot; every quay shares
+    # case 53). Same beacon, same laws, on the Lamplight island mint (r44, seed 44, block (22,18),
+    # plateau y 3.20 -- probed flat across the footprint, probe_r3/probe_mint_output.txt). Southern
+    # limit: trigger north edge -1164 + 1.0 hull clearance + 2.30 + 0.45 steps => cz >= -1160.25,
+    # uses -1160.2 (the Ashvale derivation verbatim, translated +1376 in x).
+    "lamplight": Site("Lamplight", (1424.0, -1160.2), 3.20,
+                     (1420.0, 1428.0, -1172.0, -1164.0), (1436.0, -1168.0), _blk(22, 18), 192,
+                     (44, 36), (1424.0, -1168.0)),
 }
 
 def obj_path(site):
@@ -535,7 +543,8 @@ def gates(S, verts, faces, normals, uvs) -> int:
           f"footprint (a solid footprint is spawn-fragile)", f"{adist:.3f}u")
     bx0, bx1, bz0, bz1 = S.block
     check(bx0 <= fx0 and fx1 <= bx1 and bz0 <= fz0 and fz1 <= bz1,
-          "footprint inside block (0,18)", f"N margin {bz1 - fz1:.2f}u, S margin {fz0 - bz0:.2f}u")
+          f"footprint inside block ({int(bx0 // 64)},{int(-bz1 // 64)})",
+          f"N margin {bz1 - fz1:.2f}u, S margin {fz0 - bz0:.2f}u")
 
     # UVs -- the failure that renders flat white
     check(len(uvs) == 3 * len(faces), "one UV per face corner", f"{len(uvs)} vs {3 * len(faces)}")

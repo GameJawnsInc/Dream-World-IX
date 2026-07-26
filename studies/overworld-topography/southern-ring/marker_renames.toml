@@ -1,0 +1,11 @@
+# THE RING'S NAMEPLATE REGISTRY -- the single source of truth for every block-68 rename the
+# Southern Ring owns. deploy_marker_renames MERGES with the live deployed 68.mes (the R3 fix in
+# world/navimap.py), so re-running this file is idempotent -- but keep every ring name HERE so a
+# from-scratch rebuild (no deployed 68.mes) still registers them all in one pass.
+[[marker_rename]]
+locid = 52          # split[53] -- dead AREA case 53, THE ONE-CASE FERRY: all four quays share it
+to = "Lantern Quay"
+
+[[marker_rename]]
+locid = 51          # split[52] -- dead AREA case 52, the ring's ONE named landmark (R3)
+to = "Lamplight"
