@@ -50,6 +50,7 @@ from ..editor import tomldiff
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from .battledoc import BattleDoc
+from .behaviordoc import BehaviorDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
@@ -922,6 +923,8 @@ class Workspace(QMainWindow):
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
         if getattr(self, "world_doc", None) is not None:
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
+        if getattr(self, "behavior_doc", None) is not None:
+            self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
         if getattr(self, "_find_bar", None) is not None:
             self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
                                                               # QPainter-side, so the sheet cannot reach them
@@ -971,6 +974,8 @@ class Workspace(QMainWindow):
             self.map.set_scale(self._text_scale)       # the campaign map is a QGraphicsScene -- same story
         if getattr(self, "world_doc", None) is not None:
             self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
+        if getattr(self, "behavior_doc", None) is not None:
+            self.behavior_doc.set_scale(self._text_scale)   # the behavior stage canvas too
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1735,6 +1740,11 @@ class Workspace(QMainWindow):
         # own Scan click -- construction and tab-show touch no filesystem (the startup-spend law).
         self.world_doc = WorldDoc(self.pal, on_setup=self._open_setup, scale=self._text_scale)
         self.tabs.addTab(self.world_doc, "World")
+        # rung A of the Behavior GUI (studies/behavior-trees/GUI-VISION.md): a READ-ONLY render of
+        # the open field's [behavior] block. The shell PUSHES the parsed open doc (tab show / tree
+        # select) -- the doc itself reads no files; its Compile button is the one disk touch.
+        self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale)
+        self.tabs.addTab(self.behavior_doc, "Behavior")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1746,7 +1756,7 @@ class Workspace(QMainWindow):
         # a setTabVisible(False) tab still works + fires the signal).
         self._rail_groups = [
             ("Home", [self._welcome_tab]),
-            ("Author", [self.doc_scroll, self.map]),
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc]),
             ("Assets", [self.import_field, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4735,6 +4745,9 @@ class Workspace(QMainWindow):
         self._inspect(item, p, field)
         if field and getattr(self, "map", None) is not None:
             self.map.highlight(field)              # keep the Map in sync, but DON'T steal the active tab
+        if (getattr(self, "behavior_doc", None) is not None
+                and self.tabs.currentWidget() is self.behavior_doc):
+            self._feed_behavior()                  # a field switch while Behavior is showing follows live
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
@@ -4848,6 +4861,10 @@ class Workspace(QMainWindow):
         elif w is self.world_doc:                  # the atlas names its scanned folder; no edit chip
             self.crumb.set([bc.Crumb("world", w.crumb_label())])
             self._set_chip(None)
+        elif w is self.behavior_doc:               # read-only render of the open field -> no edit chip;
+            self._feed_behavior()                  # re-fed on each show so it tracks the open doc
+            self.crumb.set([bc.Crumb("behavior", w.crumb_label())])
+            self._set_chip(None)
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
@@ -4856,6 +4873,32 @@ class Workspace(QMainWindow):
         if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
             self._sync_rail()
         self._refresh_insp_empty()                  # the untouched inspector's empty-state is tab-aware (#14)
+
+    def _behavior_target(self):
+        """The field member the Behavior tab renders: the tree selection's owning field, else the
+        loose field. None => the doc shows its 'select a field' guide."""
+        items = self.tree.selectedItems() if getattr(self, "tree", None) is not None else []
+        if items:
+            fi = self._ancestor_field(items[0])
+            p = self._payload(fi) if fi is not None else None
+            if p:
+                return p[1]
+        return self._loose
+
+    def _feed_behavior(self):
+        """Push the OPEN field's parsed dict into the Behavior doc. In-memory when the member is
+        already open; a never-opened member loads through the Inspector's own `_safe_doc` lane
+        (one toml, cached). The doc itself never reads files -- this is its only feed."""
+        doc = getattr(self, "behavior_doc", None)
+        if doc is None:
+            return
+        member = self._behavior_target()
+        fd = self._safe_doc(member) if member else None
+        if fd is None:
+            doc.show_none()
+            return
+        doc.show_field(member, fd.data, self.member_paths.get(member),
+                       dirty=member in set(self._dirty_members()))
 
     def _activate_group(self, gi, *, switch=True):
         """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
@@ -4955,6 +4998,8 @@ class Workspace(QMainWindow):
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
             ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
+            ("Go to Behavior (NPC AI ladders)", "view",
+             lambda: self.tabs.setCurrentWidget(self.behavior_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),

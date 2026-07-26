@@ -79,9 +79,14 @@ belong painted on the field, not printed as text. That is the second surface: **
 
 ## 4. The rung ladder (build order, each rung shippable alone)
 
-- **Rung A — READ.** A per-field Behavior document rendering an existing `[behavior]` block:
-  Cast, Ladders, Stage overlay, Instruments. Read-only. Cheapest rung, spends the entire
-  render stack, and is immediately useful on every bench already written (30410–30418).
+- **Rung A — READ. ★ BUILT 2026-07-26** (`workspace/behaviorscan.py` pure layer +
+  `workspace/behaviordoc.py` doc + shell wiring + `gui_snap behavior:guide|doc|compiled` over
+  the synthetic BGLADE fixture owned by `tests/test_behaviordoc.py`; suites
+  `test_behaviorscan`/`test_behaviordoc`). A per-field Behavior document rendering an
+  existing `[behavior]` block: Cast, Ladders, Stage overlay, Instruments. Read-only.
+  Owner rulings taken at build time: ladder+stage STACKED (Q1), archetypes will stamp a
+  high-level `[minigame]` block (Q2, rung D's design), stepper after archetypes (Q3), live
+  watch bookmarked (Q4).
 - **Rung B — EDIT the ladder.** Add/remove/reorder branches and units; verb pickers and option
   forms from the derived vocabulary; decorators; live `validate()`. Writes TOML.
 - **Rung C — AUTHOR on the stage.** Drag a refuge, resize a radius ring, draw a route (with

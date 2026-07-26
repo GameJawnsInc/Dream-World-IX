@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the Workspace **Behavior** tab (read-only, rung A)
+- A new Author-group tab rendering the open field's `[behavior]` block: the CAST rail
+  (units / groups / pools / counters, tables, schedules, scans, HUD strips), the selected
+  unit's LADDER (branches as guarded priority rows in TOML order — the compiled semantics —
+  with decorator chips and the required fallback labeled), and the STAGE (posts, patrol/march
+  routes, flee refuges, scan/wander boxes, and the selected unit's engagement radii drawn on
+  a zoomable canvas in the layout probe's +z-up frame). The Instruments rail shows the
+  compiler's own `validate()` problems live, and a **Compile (dry)** button runs the real
+  `behavior compile` lane off the saved file on a worker thread — blackboard map, byte
+  histogram, and public/pool flag indices with copy-ready `set_flag = [N, 1]` rows. Fully
+  read-only: editing stays in the Editor form (rung B is the ladder editor). Vocabulary is
+  derived from the compiler's own verb tables, so new verbs render with zero GUI changes.
+  Charter: `studies/behavior-trees/GUI-VISION.md`.
+
 ### Changed — every import mode now emits `entry_settle = "auto"`
 - `ff9mapkit import` (native / editable / BG-borrow / lightweight) and `import-chain`
   logic-only members now write `entry_settle = "auto"` under `[camera]` — the computed

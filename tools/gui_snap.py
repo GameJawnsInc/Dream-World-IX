@@ -775,6 +775,49 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+BEHAVIOR_STATES = ("guide", "doc", "compiled")
+
+
+def _load_behavior_demo():
+    """The synthetic [behavior] demo field's builder lives in tests/test_behaviordoc.py -- ONE
+    owner for the fixture TOML (kit-authored, zero Square-Enix bytes; its dry-compile is pinned
+    by that suite), loaded by path because tests/ is not a package."""
+    import importlib.util
+    p = REPO / "ff9mapkit" / "tests" / "test_behaviordoc.py"
+    spec = importlib.util.spec_from_file_location("_behavior_demo_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def snap_behavior(ctx: _Ctx, state: str) -> None:
+    """The Behavior tab (rung A, read-only): its teaching guide ('guide'), the demo field's
+    cast + ladder + stage ('doc'), or the same with the dry-compile instruments filled
+    ('compiled' -- blackboard map, byte histogram, flag copy rows)."""
+    if state not in BEHAVIOR_STATES:
+        raise ValueError(f"unknown behavior state {state!r} (know: {', '.join(BEHAVIOR_STATES)})")
+    win = _make_win(ctx)
+    if state == "guide":
+        win.tabs.setCurrentWidget(win.behavior_doc)
+        _settle(4)
+        _grab(ctx, "behavior-guide", win)
+        _close(win)
+        return
+    demo = _load_behavior_demo()
+    root = _SCRATCH / "behavior_demo"                  # stable path -- mkdtemp breaks pixel-diffing
+    if root.exists():
+        shutil.rmtree(root, ignore_errors=True)
+    toml = demo.make_behavior_field(root)
+    assert win.open_field(toml), "the behavior demo field must open"
+    win.tabs.setCurrentWidget(win.behavior_doc)        # the shell feed runs on tab show
+    _settle(6)
+    if state == "compiled":
+        win.behavior_doc.compile_now(sync=True)        # the deterministic lane; production compiles
+        _settle(4)                                     # on a worker behind the user's own click
+    _grab(ctx, f"behavior-{state}", win)
+    _close(win)
+
+
 CONSOLE_STATES = ("log", "find", "miss", "jobs")
 
 
@@ -956,7 +999,8 @@ def all_surfaces() -> list[str]:
             + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
-            + [f"script:{s}" for s in SCRIPT_STATES])
+            + [f"script:{s}" for s in SCRIPT_STATES]
+            + [f"behavior:{s}" for s in BEHAVIOR_STATES])
 
 
 def main() -> None:
@@ -1002,6 +1046,8 @@ def main() -> None:
                 snap_drift(ctx, rest)
             elif kind == "script":
                 snap_script(ctx, rest)
+            elif kind == "behavior":
+                snap_behavior(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface
