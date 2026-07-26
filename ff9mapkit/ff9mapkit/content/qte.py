@@ -100,13 +100,17 @@ class QteSpec:
     result: int
     rounds: int = 10
     window: int = 50                  # reaction frames per prompt
-    par: int = 80                     # % of the THEORETICAL max that scores 100.
-                                      # Stock's calibration: its divisor lets a great
-                                      # human run reach 100 (~82% of theoretical, the
-                                      # clamp absorbs the top) — scoring against 100%
-                                      # made 100 impossible and ~85 the superhuman
-                                      # ceiling (ENGARDE round 1: "hard to get above
-                                      # ~70"). Lower par = kinder, 100 = merciless.
+    par: int = 65                     # % of the THEORETICAL max that scores 100.
+                                      # Round 1 scored against 100% (100 impossible,
+                                      # ~85 superhuman); round 2's 80 mirrored stock's
+                                      # divisor — but stock's forgiveness lives in its
+                                      # COMBO channel, which only pays over its 48
+                                      # rounds (bonus = 39% of stock's target vs 11%
+                                      # at 10 rounds), so SHORT bouts concentrate
+                                      # every mistake (ENGARDE round 2, owner-called).
+                                      # 65 puts 100 at "clean run, decent reactions"
+                                      # for the default 10 rounds; raise it for long
+                                      # stock-length bouts, 100 = merciless.
     buttons: tuple = tuple(BUTTONS)   # the prompt set (names, >= 2)
     gil: bool = False                 # pay stock's purse formula at the finale
     flag: int | None = None           # optional GLOB bit raised at the finale
@@ -142,10 +146,10 @@ def from_raw(block: dict, idx: int) -> QteSpec:
     if not isinstance(window, int) or not 10 <= window <= 255:
         raise QteError(f"{ctx}: window must be 10..255 reaction frames (stock: 50, "
                        f"30 on the encore)")
-    par = block.get("par", 80)
+    par = block.get("par", 65)
     if not isinstance(par, int) or not 10 <= par <= 100:
         raise QteError(f"{ctx}: par must be 10..100 (the % of the theoretical max "
-                       f"that scores 100 — default 80, stock's calibration)")
+                       f"that scores 100 — default 65, tuned for short bouts)")
     btns = tuple(str(b) for b in (block.get("buttons") or tuple(BUTTONS)))
     bad = [b for b in btns if b not in BUTTONS]
     if bad:

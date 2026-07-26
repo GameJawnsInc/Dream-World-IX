@@ -186,14 +186,13 @@ def test_validate_negatives(tmp_path):
 
 def test_par_calibrates_the_score_divisor():
     """ENGARDE round-1 calibration: scoring against 100% of theoretical made 100
-    impossible (~85 superhuman ceiling, a good human run ~70). Default par 80
-    mirrors stock's divisor feel: a great run reaches 100, the clamp absorbs
-    the top."""
+    impossible (~85 superhuman ceiling, a good human run ~70). Default par 65: stock's combo channel only pays over its 48 rounds, so
+    short bouts need a kinder divisor (round 2, owner-called)."""
     spec = _spec()                                       # rounds 8, window 45
     body = Q.game_body(spec, _tx(spec))
     exprs = [D.pretty_expr(body, ins.off + 1)[0]
              for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x05]
-    assert any(f"const({8 * 45 * 80 // 100})" in e and "B_DIV" in e for e in exprs)
+    assert any(f"const({8 * 45 * 65 // 100})" in e and "B_DIV" in e for e in exprs)
     hard = _spec(par=100)
     bh = Q.game_body(hard, _tx(hard))
     exprs_h = [D.pretty_expr(bh, ins.off + 1)[0]
