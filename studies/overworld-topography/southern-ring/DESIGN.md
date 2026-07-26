@@ -160,6 +160,20 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
+## R5 — THE SEA LANES + THE BOAT WAKES ★ DEPLOYED (2026-07-26; playtest pending)
+
+**R5a:** the dormant boat was §20's DOMAIN mis-diagnosis — **THE ×256 DOMAIN LAW**: `WMActor.pos`'s
+setter writes `RealPosition * 256` into the eb-visible `PosObj.pos[]`, so world-map `obj.f[]` reads
+are fixed point; the ORIGINAL relative gate (|Δf|<25600 = 100u) was correct all along, the §19-era
+quay boarding was the float-parked boat legitimately in range (moor-home was the whole fix), and
+§20's world-unit window could never fire. Fixed by RESTORING the pre-§20 body from its backup (per
+language, only entry-15 tag-1, R3/R4 additions preserved) + source parity + the law in `wu()`'s
+docstring: trace the WRITER of a variable, not just its reader. **R5b:** the Blue Narciss mask
+decodes to topos {53,54,57} (validated by reproducing the foot-walk table); the sea-lane probe
+(8u sampling, stacked meshes, SeaBlockPrefab-aware) proves **the NORTH passage fully sailable
+47/47** — Ashvale → the wrap → north of Lamplight → the horseshoe's west channel. The ratified
+"only block-proven voyage" is now tile-proven, with a boat that boards. Record: REVERT.md §28.
+
 ## R4b — THE TABLE IS THE LAW ★ DEPLOYED (2026-07-26; re-playtest pending): the 36-38 law FALSIFIED in-game, the safe road AUTHORED
 
 The R4 playtest fought Lizard Man/Sand Scorpion/Axe Beak/Ironite on "the grass of the island" —

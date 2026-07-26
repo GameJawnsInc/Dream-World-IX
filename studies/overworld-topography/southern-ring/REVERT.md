@@ -2701,3 +2701,62 @@ earlier layers per their own sections.
    minutes each — **zero encounters**.
 2. The bench canopy still fights (Python/Goblin/Mu; Ragtime Mouse possible).
 3. A stock sanity spot if convenient (e.g. any real plains): stock encounters unchanged.
+
+---
+
+# 28. R5 — THE SEA LANES + THE BOAT WAKES — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26 ("go R5"). Both halves of the rung landed offline-verified.
+
+## 28.1 R5a — the dormant boat: §20 was a DOMAIN mis-diagnosis; the original gate restored
+
+THE ×256 DOMAIN LAW (the missing link §20 never traced): `WMActor.pos`'s SETTER (WMActor.cs:17-19)
+writes `RealPosition * 256f` into the eb-visible `PosObj.pos[]` — **on the world map, `obj(uid).f[]`
+reads are ×256 fixed point**, not world units (the §20 chain read the CAST but never the WRITER).
+Everything re-resolves:
+
+* the ORIGINAL relative gate (`|Δf| < 25600` = 100u ×256) was CORRECT all along;
+* the §19-era quay boarding was the v1 float-parked boat legitimately in range — MOOR-HOME alone
+  was the complete fix for the race (kept, untouched);
+* §20's world-unit absolute window could never be true live (mooring f[0] = 125,952, not 492) =
+  the dormant boat.
+
+**The fix is a RESTORATION, not a new derivation** (honoring the §20-era directive — no new window
+was derived, so no live capture was owed): entry-15 tag-1 grafted back from the pre-§20 backup
+(`gui-workspace-improvements-277c74/backups/boat-rangegate.20260726`), per language from each live
+file's own bytes (174 → 190 B), verified per language that ONLY that function changed and equals
+the oracle body — the R3/R4-era dispatcher additions (case-61/65-68 triggers, the extended
+func-0xB) all preserved. Source parity: `build_boat_world11.py`'s gate rewritten to the relative
+form + `wu()`'s docstring now carries the law as a warning. Backup of the pre-restore state:
+`backups/r3-lamplight.20260726-r3lamplight/world11-pre-r5/`.
+
+## 28.2 R5b — THE SEA-LANE PROBE: the west arc is tile-proven sailable
+
+The Blue Narciss legality mask decoded from TransportControls.csv: `limit0=39845888 / limit1=0` →
+legal topographs exactly **{53, 54, 57}** (the bit convention validated by reproducing THE ENGINE
+FOOT-WALK TABLE byte-exact from the Walking row — the mask oracle). `probe_r3/probe_sea_lane.py`
+walks candidate passages at 8u sampling over the STACKED live meshes, with pure-ocean cells
+resolved to the runtime `SeaBlockPrefab` (generic deep sea, topo 57 — cells with no block files at
+all; the probe's first run mis-scored those as holes, plus started on Ashvale's shore and ran its
+final legs onto the horseshoe's own ground — three instrument errors, all corrected and recorded).
+
+**VERDICT: the NORTH passage — Ashvale's west shore → the x=0/1536 wrap → north of Lamplight →
+the west channel at the horseshoe — is FULLY SAILABLE, 47/47 samples.** The south passage's final
+leg clips the horseshoe's SE ground (topo 16/17 at x 1276-1293): route north or berth wider.
+Output: `probe_r3/probe_sea_lane_output.txt`.
+
+## 28.3 Undo
+
+Restore the 7 files from `world11-pre-r5/` (returns the dormant §20 gate). The lane probe wrote
+nothing.
+
+## 28.4 Playtest ask (owner) — no relaunch, re-enter the world
+
+1. **Board at the islet**: stand by the beached crimson hull (or the dock) and press Confirm —
+   boarding fires again. Dismount: you land on the dock, the boat re-moors.
+2. **Confirm at each quay / in the open**: no boat hijack (moor-home keeps the 100u radius at the
+   islet, 125u+ from everything).
+3. **The voyage (the design's payoff, first sail):** board and sail WEST from Ashvale — through
+   the wrap, keep Lamplight to your south (its plate on the way past, kupo), into the channel
+   between Lamplight and the horseshoe. That is the design's "only block-proven voyage in the
+   world", now tile-proven and — with a working boat — actually sailable.
