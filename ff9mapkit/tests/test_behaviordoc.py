@@ -582,6 +582,53 @@ def test_a_cancelled_picker_stamps_nothing(edoc):
     assert "behavior" not in raw and edoc._edits == []
 
 
+def test_guard_stamp_flow_binds_a_target_through_the_third_seam(edoc):
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "brute", "pos": [10, 20]}, {"name": "hero", "pos": [90, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    edoc._ask_archetype = lambda: "guard"
+    edoc._ask_unit = lambda names: "hero"
+    asked = []
+    edoc._ask_target = lambda units: (asked.append(list(units)), "brute")[1]
+    edoc._ask_archetype2 = None
+    # no unit exists yet -> the guard needs its enemy seated first
+    edoc._stamp_archetype()
+    assert "seat its enemy first" in edoc.problems_lbl.text()
+    behaviorscan.add_unit(raw, "brute")
+    edoc.show_field("PLAIN", raw, None)
+    edoc._stamp_archetype()
+    assert asked == [["brute"]]
+    assert raw["behavior"]["unit"][1]["npc"] == "hero"
+    assert behaviorscan.validate_problems(raw) == []
+    assert edoc._edits[-1] == ("PLAIN", "stamp guard archetype on hero vs brute")
+
+
+def test_a_siege_field_renders_its_generated_behavior_read_only(edoc):
+    import importlib.util
+    from ff9mapkit.workspace import behaviorscan as BS
+    p = (Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py")
+    spec = importlib.util.spec_from_file_location("_siege_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    import copy
+    raw = {"field": {"name": "REDOUBT", "id": 30991}, "player": {"spawn": [0, -600]},
+           "siege": copy.deepcopy(mod.RAW)}
+    edoc.show_field("REDOUBT", raw, None)
+    assert edoc._stack.currentWidget() is edoc._content      # NOT the no-behavior guide
+    assert edoc._readonly and edoc._view is not raw
+    assert "read-only" in edoc.head_sum.text()
+    assert not edoc.add_unit_btn.isEnabled() and not edoc.edit_btn.isEnabled()
+    rows = _ladder_rows(edoc.ladder)
+    assert rows and not any(w for r in rows for w in r.findChildren(QPushButton))
+    assert "behavior" not in raw                             # rendering wrote NOTHING
+    edoc._stamp_archetype()                                  # the programmatic doors refuse
+    edoc._add_unit()
+    assert "behavior" not in raw and edoc._edits == []
+    edoc.show_field("BGLADE", demo_raw(), None)              # a normal field re-arms editing
+    assert not edoc._readonly and edoc.add_unit_btn.isEnabled()
+    assert BS.has_behavior(edoc._view)
+
+
 # --------------------------------------------------------------------------- rung C: the sweep lane
 def test_sweep_sync_paints_verdicts_and_arms_the_resweep(edoc, tmp_path):
     p = make_behavior_field(tmp_path)

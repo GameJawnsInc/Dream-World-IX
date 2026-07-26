@@ -775,7 +775,7 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep")
+BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep", "siege")
 
 
 def _load_behavior_demo():
@@ -808,7 +808,21 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     root = _SCRATCH / "behavior_demo"                  # stable path -- mkdtemp breaks pixel-diffing
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
-    toml = demo.make_behavior_field(root)
+    if state == "siege":                               # the READ-ONLY generated view: test_siege's
+        import copy as _copy                           # own RAW through editor.model.dumps
+        import importlib.util as _ilu
+        from ff9mapkit.editor import model as _model
+        sp = _ilu.spec_from_file_location(
+            "_siege_fixture", REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_siege.py")
+        sm = _ilu.module_from_spec(sp)
+        sp.loader.exec_module(sm)
+        root.mkdir(parents=True, exist_ok=True)
+        toml = root / "field.toml"
+        toml.write_text(_model.dumps(
+            {"field": {"name": "REDOUBT", "id": 30991}, "player": {"spawn": [0, -600]},
+             "siege": _copy.deepcopy(sm.RAW)}), encoding="utf-8")
+    else:
+        toml = demo.make_behavior_field(root)
     assert win.open_field(toml), "the behavior demo field must open"
     win.tabs.setCurrentWidget(win.behavior_doc)        # the shell feed runs on tab show
     _settle(6)

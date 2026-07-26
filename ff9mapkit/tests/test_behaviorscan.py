@@ -296,10 +296,11 @@ def test_ring_rids_point_back_at_their_own_cond():
 # --------------------------------------------------------------------------- rung D: archetype stamps
 def test_every_archetype_stamps_a_legal_unit():
     for a in BS.BEHAVIOR_ARCHETYPES:
-        raw = _field([])                           # b has an empty unit list
-        label = BS.stamp_archetype(raw, a["key"], "a")
+        needs = a.get("needs_target")
+        raw = _field([_unit("b")] if needs else [])
+        label = BS.stamp_archetype(raw, a["key"], "a", "b" if needs else None)
         assert a["key"] in label and "a" in label
-        assert [u["npc"] for u in raw["behavior"]["unit"]] == ["a"]
+        assert [u["npc"] for u in raw["behavior"]["unit"]][-1] == "a"
         assert BS.validate_problems(raw) == [], (a["key"], BS.validate_problems(raw))
         rows = BS.ladder_model(raw, "a")
         assert rows[0]["verb"] == "die" and rows[-1]["unconditional"]
@@ -322,6 +323,42 @@ def test_unknown_archetype_is_a_caller_bug():
         BS.stamp_archetype(_field([]), "warlord", "a")
 
 
+def test_guard_binds_its_target_and_refuses_without_one():
+    import pytest
+    raw = _field([_unit("b")])                     # the enemy is an existing unit
+    with pytest.raises(KeyError, match="needs a target"):
+        BS.stamp_archetype(raw, "guard", "a")
+    BS.stamp_archetype(raw, "guard", "a", "b")
+    assert BS.validate_problems(raw) == []
+    rows = BS.ladder_model(raw, "a")
+    assert rows[2]["verb"] == "swing_at" and "active b" in rows[2]["conds"]
+    assert rows[3]["verb"] == "chase" and rows[-1]["verb"] == "hold_post"
+
+
+def _siege_field():
+    import copy
+    import importlib.util
+    from pathlib import Path
+    p = (Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py")
+    spec = importlib.util.spec_from_file_location("_siege_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return {"field": {"name": "REDOUBT", "id": 30991}, "player": {"spawn": [0, -600]},
+            "siege": copy.deepcopy(mod.RAW)}
+
+
+def test_siege_view_renders_the_generated_behavior_without_touching_the_doc():
+    raw = _siege_field()
+    view = BS.siege_view(raw)
+    assert view is not None and BS.has_behavior(view)
+    assert not BS.has_behavior(raw) and "siege" in raw        # the open doc is untouched
+    assert BS.stage_model(view)["posts"]                      # the projections have geometry
+    assert BS.siege_view({"field": {}}) is None               # no [siege] -> no view
+    both = _siege_field()
+    both["behavior"] = {"unit": [{"npc": "x", "branch": [{"do": {"hold_post": True}}]}]}
+    assert BS.siege_view(both) is None             # [behavior] present: validate owns the clash
+
+
 def test_every_archetype_survives_a_real_dry_compile(tmp_path):
     """The stamp fence with teeth: stamp onto the demo field's spare npc, serialize with the
     editor's own dumps, and run the REAL dry-compile lane (walkmesh sidecar included, so the
@@ -339,7 +376,8 @@ def test_every_archetype_survives_a_real_dry_compile(tmp_path):
         p = fx.make_behavior_field(root)
         raw = fx.demo_raw()
         raw["npc"].append({"name": "lamplighter", "pos": [260, 60]})
-        BS.stamp_archetype(raw, a["key"], "lamplighter")
+        BS.stamp_archetype(raw, a["key"], "lamplighter",
+                           "raider" if a.get("needs_target") else None)
         p.write_text(_model.dumps(raw), encoding="utf-8")
         res = BS.dry_compile(p)
         assert res.ok, (a["key"], res.problems)

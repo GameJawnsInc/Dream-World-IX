@@ -749,6 +749,10 @@ class BehaviorDoc(QWidget):
         #                                            the shell's touch/checkpoint/re-feed hook
         self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
         self._ask_archetype = self._ask_archetype_dialog   # same seam shape for the stamp picker
+        self._ask_target = self._ask_target_dialog          # ...and the guard's enemy picker
+        self._view = None                          # what the projections RENDER: the open dict,
+        self._readonly = False                     # or a [siege] field's desugared copy (read-only
+        #                                            -- the [siege] block owns the behavior table)
         self._member = None
         self._path = None
         self._dirty = False
@@ -895,8 +899,9 @@ class BehaviorDoc(QWidget):
         cl.addWidget(bar)
         self._vsplit = QSplitter(Qt.Orientation.Vertical)
         self._vsplit.setChildrenCollapsible(False)
-        self.ladder = LadderView(self.pal, actions={
-            "move": self._move_row, "edit": self._edit_branch, "delete": self._delete_row})
+        self._ladder_actions = {
+            "move": self._move_row, "edit": self._edit_branch, "delete": self._delete_row}
+        self.ladder = LadderView(self.pal, actions=self._ladder_actions)
         lscroll = QScrollArea()
         lscroll.setWidgetResizable(True)
         lscroll.setWidget(self.ladder)             # h-bar stays as-needed: a denied width must
@@ -1016,9 +1021,19 @@ class BehaviorDoc(QWidget):
         lane; ``dirty`` labels which truth the instruments would read."""
         same_field = member == self._member
         self._member, self._raw, self._path, self._dirty = member, raw, path, dirty
+        self._view, self._readonly = raw, False
         if not behaviorscan.has_behavior(raw):
-            self._show_guide("nobehavior")
-            return
+            view = behaviorscan.siege_view(raw)    # a [siege] field renders its GENERATED
+            if view is None:                       # behavior, read-only (the desugared copy)
+                self._show_guide("nobehavior")
+                return
+            self._view, self._readonly = view, True
+        for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
+                  self.remove_unit_btn, self.edit_btn):
+            b.setEnabled(not self._readonly)
+        if self._readonly and self.edit_btn.isChecked():
+            self.edit_btn.setChecked(False)        # stage edit writes; a view has no writes
+        self.ladder.actions = {} if self._readonly else self._ladder_actions
         if not same_field:
             self._selected_unit = None
             self._set_result(None)                 # another field's report must not linger
@@ -1027,18 +1042,21 @@ class BehaviorDoc(QWidget):
         self._render(refit=not same_field)
 
     def _render(self, *, refit=False):
-        raw = self._raw
+        raw = self._view if self._view is not None else self._raw
         cast = behaviorscan.cast_model(raw)
         names = [u["name"] for u in cast["units"]]
         if self._selected_unit not in names:
             self._selected_unit = names[0] if names else None
         self.head_title.setText(self._member or "Behavior")
-        self.head_sum.setText(behaviorscan.summary(raw))
+        self.head_sum.setText(behaviorscan.summary(raw) + (
+            "  ·  generated from [siege] — read-only (edit the [siege] block in the "
+            "Editor form)" if self._readonly else ""))
         self._fill_cast(cast)
         self._fill_ladder(cast)
         self.canvas.set_model(
             behaviorscan.stage_model(raw), self._selected_unit, refit=refit,
-            handles=behaviorscan.stage_handles(raw) if self.edit_btn.isChecked() else None)
+            handles=behaviorscan.stage_handles(raw) if self.edit_btn.isChecked()
+            and not self._readonly else None)
         problems = behaviorscan.validate_problems(raw)
         if problems:
             self.problems_lbl.setText("\n".join(f"• {p}" for p in problems))
@@ -1104,7 +1122,8 @@ class BehaviorDoc(QWidget):
             stats.append(f"{n} branch{'es' if n != 1 else ''}")
             if u["pooled"]:
                 stats.append("pooled")
-        rows = behaviorscan.ladder_model(self._raw, self._selected_unit) \
+        src = self._view if self._view is not None else self._raw
+        rows = behaviorscan.ladder_model(src, self._selected_unit) \
             if self._selected_unit else []
         self.unit_title.setText(self._selected_unit or "—")
         self.unit_stats.setText(" · ".join(stats))
@@ -1115,7 +1134,8 @@ class BehaviorDoc(QWidget):
         payload = items[0].data(0, Qt.ItemDataRole.UserRole) if items else None
         if payload and payload[0] == "unit" and payload[1] != self._selected_unit:
             self._selected_unit = payload[1]
-            self._fill_ladder(behaviorscan.cast_model(self._raw))
+            src = self._view if self._view is not None else self._raw
+            self._fill_ladder(behaviorscan.cast_model(src))
             self.canvas.select_unit(payload[1])
 
     # -- rung B: edits (all through behaviorscan's pure ops; the shell checkpoints via on_edit) --
@@ -1205,7 +1225,7 @@ class BehaviorDoc(QWidget):
         return (dlg.textValue() if dlg.exec() else None)
 
     def _add_unit(self):
-        if self._raw is None:
+        if self._raw is None or self._readonly:
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
@@ -1247,8 +1267,19 @@ class BehaviorDoc(QWidget):
         return next((a["key"] for a in behaviorscan.BEHAVIOR_ARCHETYPES
                      if a["name"] == picked), None)
 
+    def _ask_target_dialog(self, names):
+        """The guard's enemy picker (instance QInputDialog, the modal-seam law)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Pick the enemy")
+        dlg.setLabelText("Which unit does this guard fight? (give it a swing branch back "
+                         "for mutual combat)")
+        dlg.setComboBoxItems(names)
+        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
+        return (dlg.textValue() if dlg.exec() else None)
+
     def _stamp_archetype(self):
-        if self._raw is None:
+        if self._raw is None or self._readonly:
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
@@ -1259,10 +1290,23 @@ class BehaviorDoc(QWidget):
         key = self._ask_archetype()
         if not key:
             return
+        target = None
+        row = next((a for a in behaviorscan.BEHAVIOR_ARCHETYPES if a["key"] == key), {})
+        if row.get("needs_target"):
+            units = [str(u.get("npc")) for u in self._raw["behavior"]["unit"]] \
+                if behaviorscan.has_behavior(self._raw) else []
+            if not units:
+                self.problems_lbl.setText(f"The {key} archetype fights an EXISTING unit — "
+                                          "seat its enemy first (Add unit / an archetype).")
+                widgets.set_state(self.problems_lbl, "warn")
+                return
+            target = self._ask_target(units)
+            if not target:
+                return
         name = self._ask_unit(names)
         if not name:
             return
-        label = behaviorscan.stamp_archetype(self._raw, key, name)
+        label = behaviorscan.stamp_archetype(self._raw, key, name, target)
         self._selected_unit = name
         if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
             self._stack.setCurrentWidget(self._content)
@@ -1328,7 +1372,8 @@ class BehaviorDoc(QWidget):
     # every committed edit re-judges the OPEN geometry on the warm mesh, debounced, on a
     # worker -- the two-truths split, stated on the button.
     def sweep_now(self, *, sync=False):
-        if self._sweep_busy or self._raw is None or not behaviorscan.has_behavior(self._raw):
+        src = self._view if self._view is not None else self._raw
+        if self._sweep_busy or src is None or not behaviorscan.has_behavior(src):
             return
         if self._wmesh is None and not self._path:
             self.sweep_note.setText("This document has no saved file yet — the walkmesh "
@@ -1339,7 +1384,8 @@ class BehaviorDoc(QWidget):
         self.sweep_btn.setEnabled(False)
         self.sweep_btn.setText("Sweeping…")
         import copy as _copy
-        raw = _copy.deepcopy(self._raw)            # the worker must never race the GUI's dict
+        raw = _copy.deepcopy(src)                  # the worker must never race the GUI's dict;
+        #                                            a [siege] view sweeps its GENERATED routes
         gen, path, wmesh = self._sweep_gen, self._path, self._wmesh
         if sync:                                   # the deterministic test/snap lane
             self._finish_sweep((gen, *self._sweep_work(path, raw, wmesh)))

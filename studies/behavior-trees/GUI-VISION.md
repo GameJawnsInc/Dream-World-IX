@@ -119,11 +119,15 @@ belong painted on the field, not printed as text. That is the second surface: **
   refuges, wander home) — all fenced by a REAL dry-compile of the stamped doc
   (`editor.model.dumps` → disk → the genuine lane, `route="auto"` resolved over the
   fixture's walkmesh). Minted beat markers dedupe (`<npc>_beat_2`); rung C's drag handles
-  are the shaping tool. **D's remainder:** combat archetypes that bind a TARGET unit
-  (watchman-vs-unit, shift patrol pair), the Info Hub archetype cards, and the `[siege]`
-  whole-block stamp (the productization lane's GUI face — a roster of 20 units as a card +
-  a count; note `[siege]` OWNS `[behavior]` and desugars at load, so its surface is its own
-  design, not a free extension of this tab).
+  are the shaping tool. **D2 ★ BUILT 2026-07-26:** the guard archetype (needs_target — the
+  enemy picked through a third modal seam; BEHAVIOR.md's front example verbatim) + THE
+  [SIEGE] READ-ONLY VIEW: a [siege] field renders its DESUGARED behavior
+  (`behaviorscan.siege_view` — the build's own expansion) with full cast/ladders/stage/
+  sweeps over the GENERATED routes, every edit affordance disabled and the banner naming
+  the truth; rendering writes nothing into the open doc (fenced); snap `behavior:siege`.
+  **D's remainder:** the shift patrol pair archetype, the Info Hub archetype cards, and
+  the `[siege]` whole-block STAMP (authoring a new [siege] from the GUI — the read-only
+  view is the rendering half; the stamp is the authoring half).
 - **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
   documented tree semantics stepping simulated positions — scrub a timeline, watch selection
   sweep the ladder rows and units move on the stage. Catches the priority/starvation family of
