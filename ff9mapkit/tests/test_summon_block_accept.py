@@ -57,6 +57,11 @@ def test_sfxhybrid_updates_match_the_live_memoria_ini():
     live = _read_ini_section(ini.read_text(encoding="utf-8", errors="replace"), "SfxHybrid")
     if not live:
         pytest.skip("[SfxHybrid] not armed in the live Memoria.ini -- nothing to compare")
+    if str(live.get("Enabled", "0")).strip() != "1":
+        # The section EXISTING is not the section being ARMED: since W4's hybrid-mask law the drive
+        # is deliberately disarmed (Enabled = 0) between Thomas casts, and comparing a disarmed ini
+        # against the spec's armed values fails open on every clean install.
+        pytest.skip("[SfxHybrid] present but DISARMED (Enabled != 1) -- nothing to compare")
     updates = deploy.sfxhybrid_updates(summon.resolve_spec(acceptance_block()), log=True)
     for key, want in updates.items():
         if key == "Log":                                  # first-cast-only per RUNBOOK section 5

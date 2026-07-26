@@ -1,0 +1,517 @@
+# TIER W rung 5 -- THE CREATURE LEVER, SECOND PROOF.  Stock Madeen (ef251) recoloured in place.
+#
+# SCAFFOLDED, NOT TYPED.  Every `expect_*` guard, every span offset and the drift hash below came
+# out of `py reskin.py scaffold --ef 251`.  Do not retype them; re-scaffold if the install changes.
+# What is authored here is only the ART: `hue_rotate` / `saturation` / `value` / `enabled`.
+#
+# ==============================================================================================
+# WHY ef251 AND NOT ef211.  W4 proved the CREATURE lever on Bahamut (ef227) and it is cast-proven
+# there.  W5's second proof was commissioned on Phoenix (ef211) and REFUSED: ef211's six creature
+# rows are pure fire ramps whose relative LUMINANCE is carried by HUE, so `reskin.py`'s frozen
+# quality gate at :1720 --
+#     Gate(min Spearman rho >= 0.90, "relative luminance ordering survives inside every palette")
+# -- fires at every cold key, at every saturation, at every value (B5's exhaustive sweep: the
+# one-hue intersection is stock +/-25 deg).  ef211 therefore shipped SCENERY-ONLY, and the creature
+# lever -- the headline W4 lever -- was still single-witness.  THIS FILE IS THE SECOND WITNESS.
+#
+# ==============================================================================================
+# WHAT IS IN SCOPE.  CREATURE ONLY.  Every one of ef251's 32 scenery palettes is declared (so the
+# whole derived surface is visible in one place) and left `enabled = false` at IDENTITY.  That is
+# not laziness and not taste:
+#   ef251's `so`-record coverage is 0 of 38 GEOM blocks = 0.0% -- measured this session, and the
+#   scaffold says it in its own header.  Under D5 that makes EVERY unbound scenery palette
+#   SHARED-UNKNOWN, so each would need an explicit `acknowledge_shared = true` asserting something
+#   no byte in this container supports.  A creature-only reskin needs no such assertion: the
+#   creature CLUT strip is written by the id-4 model package and by nothing else, on all 24
+#   creature-bearing containers in the corpus.
+#   (The brief for this rung quoted ~30% so-coverage for ef251.  MEASURED: 0/38 = 0.0%.  Either
+#   number lands on the same verdict -- below 100% is INCOMPLETE -- but the number here is the
+#   one `reskin.attribution()` returns.)
+#
+# ==============================================================================================
+# THE KEY: GLACIAL MADEEN.  Stock Madeen is a cream-and-ivory winged lion with olive-green
+# swirl markings, a crimson wing membrane, a dark-red maw and a violet-blue eye -- warm gold,
+# measured part mean hues 19.4 / 12.8 / 40.8 / 49.9 / 50.4 / 43.3 (S-bar 0.448, V 0.52-0.62).
+# ONE shared rotation of +160 deg lands the dominant cream mass on 200-210 (ice blue), the crimson
+# wing on 172-180 (deep teal), the olive swirls on indigo and the eye on amber.  It reads as ICE.
+#
+# WHY A SHARED `hue_rotate` DELTA AND NOT SIX `hue_to` KEYS -- THE ONE-HUE RULE, verbatim from the
+# cast-proven W4 spec (`bahamut_reskin.toml`:19-23): a single body material appears on five of the
+# six pages, so giving each page its own hue lands that one material on five different hues and the
+# creature falls apart.  `hue_to` computes a DIFFERENT delta per page (each page has its own mean),
+# which is exactly the fracture the rule forbids; it is the right form for a multi-writer CELL, not
+# for a creature's page set.  So the hue is ONE number repeated on six rows, and the per-part knobs
+# are saturation and value -- which is what separates ice-fur from teal-membrane inside a page that
+# carries both.  ef227 shipped +182 the same way.
+#
+# ==============================================================================================
+# THE MEASUREMENT THAT CHOSE +160 -- AND IT CONTRADICTS A CLAIM WORTH CORRECTING.
+#
+# B5 measured on ef211 that "for a fire ramp the structurally clean cold direction is BLUE-VIOLET
+# (240-290), not cyan (180-210)" under the gate's Rec.601 weights.  The brief for this rung asked
+# me to VERIFY that on ef251 rather than inherit it.  IT DOES NOT TRANSFER.  Sweeping the shared
+# delta 0..355 on a 5-deg grid at the shipped per-part (sat,val) shape, min rho over the six parts:
+#
+#     set centre  191.1  196.1  201.1  206.1  211.1  216.1  221.1  226.1  231.1  236.1  241.1
+#     (delta)      155    160    165    170    175    180    185    190    195    200    205
+#     min rho     .9220  .9156  .9039  .8967  .8892  .8805  .8780  .8826  .8862  .8908  .8964
+#                                            <------------ REFUSED ------------->
+#     set centre  246.1  251.1  256.1  261.1  266.1  271.1  276.1  281.1  286.1
+#     (delta)      210    215    220    225    230    235    240    245    250
+#     min rho     .9003  .9052  .9088  .9146  .9187  .9230  .9270  .9284  .9289
+#
+# TWO PASSING LOBES, NOT ONE: a CYAN/TEAL lobe (set centre <= ~206) and a VIOLET lobe (>= ~246),
+# separated by a REFUSAL TROUGH.  Pure BLUE -- the middle of the band the brief pointed at -- is
+# the one cold direction ef251 CANNOT hold.  The trough bottom sits at delta 185, i.e. set centre
+# 221.1, and the stock set centre is 36.1: 36.1 + 180 = 216.1.  THE TROUGH IS CENTRED ON THE STOCK
+# HUE'S OWN COMPLEMENT, which is where a Rec.601 luminance ordering is maximally inverted.
+# Corpus check (all 18 creature packages with >= 2 parts, best-achievable per-part knobs): of the
+# NINE that have any refused delta at all, EIGHT have their curve minimum in 175..205; ef177 (75)
+# is the lone exception.  The other nine never dip below 0.90 anywhere, so their argmin is noise.
+#
+# AND THE SATURATED-RAMP LAW NEEDS THE SAME QUALIFICATION.  B5 stated the reskin's hue headroom is
+# "inversely proportional to creature mean saturation".  Measured over the same 18 packages,
+# Spearman(S-bar, count of refused deltas) = +0.32 (+0.46 over the nine with a trough).  The
+# EXTREMES hold exactly as B5 said -- S-bar 0.711 (ef211/ef225) refuses 63 of 72 deltas, S-bar
+# ~0.31 (ef381/ef447) refuses none -- but the middle of the range does not order: ef186 at S-bar
+# 0.407 refuses 12 while ef210/226 at 0.436 refuse 44.  Saturation sets the SCALE of the trough;
+# it does not rank effects.  ef251 refuses 4 of 72 => PASSING ARC 340 deg, reproducing B5's own
+# figure for Madeen to the degree.
+#
+# THE HEADROOM LAW IS HONOURED WITHOUT AN ACKNOWLEDGEMENT.  ef251's per-part value ceilings are
+# x1.033 / x1.148 / x1.069 / x1.033 / x1.033 / x1.000 (peaks 30/27/29/30/30/31 of 31).  Every
+# `value` below is at or under its own row's ceiling, so no `acknowledge_headroom` appears anywhere
+# and none is needed.  part5 is on the ceiling (peak 31) and is the only row given value < 1.0.
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`reskin.py`'s module docstring, each one a refusal):
+# 0x0000 stays 0x0000; bit 15 (STP) is carried, never recomputed; channels clamp to 0..31; the
+# transform runs in HSV over the decoded BGR555 and re-encodes to 5 bits; every changed byte must
+# land inside a derived palette inside a derived span.
+
+[reskin]
+effect = 251
+label  = "madeen-w5-glacial"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.
+expect_sha256 = "bbbfcbc072c932a106814b59b454f4ee31d05a26782aa62cff72b8765da5b28f"
+
+
+# ==============================================================================================
+# THE SPANS -- guards on the derivation, auto-named by chunk SLOT (`s{slot}`).  ef251 is
+# TWO-CHUNK, so W4's cross-chunk second-writer trap is a live possibility here, not a structural
+# absence as it was on single-chunk ef211.  THE DETECTOR RAN AND CAME BACK CLEAN: 38 declared CLUT
+# cells, s0 writes 16 (VRAM rows 244-249), s1 writes 16 (rows 250-255), the creature strip writes
+# 6 (rows 230-235); ZERO cells are written by more than one chunk slot, zero multi-writer cells,
+# zero dual-depth cells, and all 38 (vram, entries) keys are distinct.  The two chunks partition
+# the CLUT band by row -- that is WHY it is clean, and it is a fact about ef251, not about 2-chunk
+# containers in general (ef381's nine chunks share 19 cells across up to 5 writers).
+# Envelope 9216 B over 3 spans -- ef227 derives 8192 over 4, ef211 6656 over 3.
+
+[reskin.spans.creature_clut_strip]
+offset = 0x064190    # id-4 header: texOffset 0x4c190 + texBytes 0x18000, clutBytes 0xc00
+length = 3072
+
+[reskin.spans.s0_clut_band0]
+offset = 0x000868    # id-0 inline rect 0: VRAM (x=0 y=244 w=256 h=6)
+length = 3072
+
+[reskin.spans.s1_clut_band0]
+offset = 0x0a1858    # id-0 inline rect 0: VRAM (x=0 y=250 w=256 h=6)
+length = 3072
+
+
+# ==============================================================================================
+# DEFAULTS -- any target that omits a knob inherits these.  They are at IDENTITY, so the 32
+# scenery rows below are declared-and-inert twice over: `enabled = false` AND a null transform.
+# Flipping one on without also authoring a key changes zero bytes; flipping one on WITH a key
+# still refuses until `acknowledge_shared = true` is stated, because coverage is 0/38.
+[reskin.defaults]
+hue_rotate = 0.0
+saturation = 1.0
+value      = 1.0
+
+
+# ==============================================================================================
+# THE CREATURE -- SIX 256-ENTRY ROWS, 1:1 WITH THE SIX TEXTURE PAGES, ALL SIX ON.
+# ONE hue for all six: +160.  Per-part saturation and value are the modelling knobs.
+# Each row's measured stock stats and its resulting rho are recorded beside it, so a later reader
+# checks the NUMBER, not the claim.
+
+[[reskin.target]]
+name = "creature.part0"
+expect_entries = 256
+expect_vram = [256, 230]
+expect_offset = 0x064190
+hue_rotate = 160.0
+saturation = 0.85
+value      = 1.03        # ceiling x1.033 -- spent, not exceeded
+# stock: 255 live, mean H 19.4 S 0.49 V 0.52 | peak 30/31, headroom 1
+# -> mean H 180.2 | rho 0.9781 | clipped 0 | 510 of 512 bytes differ
+note = "crimson wing membrane + the cream horn/claw plates -> deep teal over ice"
+
+[[reskin.target]]
+name = "creature.part1"
+expect_entries = 256
+expect_vram = [256, 231]
+expect_offset = 0x064390
+hue_rotate = 160.0
+saturation = 0.85
+value      = 1.10        # ceiling x1.148 -- the darkest page (V 0.55) affords the most lift
+# stock: 255 live, mean H 12.8 S 0.49 V 0.55 | peak 27/31, headroom 4
+# -> mean H 172.4 | rho 0.9366 | clipped 0 | 510 of 512 bytes differ
+note = "the second wing + the ear swirl + the dark-red maw -> teal wing, indigo swirl, cold maw"
+
+[[reskin.target]]
+name = "creature.part2"
+expect_entries = 256
+expect_vram = [256, 232]
+expect_offset = 0x064590
+hue_rotate = 160.0
+saturation = 0.75        # the biggest cream mass: pull it toward ICE rather than toward neon
+value      = 1.05        # ceiling x1.069
+# stock: 255 live, mean H 40.8 S 0.40 V 0.62 | peak 29/31, headroom 2
+# -> mean H 200.4 | rho 0.9917 | clipped 0 | 508 of 512 bytes differ
+note = "the big cream fur mass -- the silhouette's read"
+
+[[reskin.target]]
+name = "creature.part3"
+expect_entries = 256
+expect_vram = [256, 233]
+expect_offset = 0x064790
+hue_rotate = 160.0
+saturation = 0.75        # matches part2: the same fur material must land on the same hue AND sat
+value      = 1.03        # ceiling x1.033
+# stock: 255 live, mean H 49.9 S 0.41 V 0.59 | peak 30/31, headroom 1
+# -> mean H 209.4 | rho 0.9803 | clipped 0 | 508 of 512 bytes differ
+note = "cream flank + the big olive spiral marking"
+
+[[reskin.target]]
+name = "creature.part4"
+expect_entries = 256
+expect_vram = [256, 234]
+expect_offset = 0x064990
+hue_rotate = 160.0
+saturation = 0.80
+value      = 1.03        # ceiling x1.033
+# stock: 255 live, mean H 50.4 S 0.47 V 0.57 | peak 30/31, headroom 1
+# -> mean H 210.1 | rho 0.9628 | clipped 0 | 510 of 512 bytes differ
+note = "the dark olive feather banks + the staff/bell -- the page with the most green in it"
+
+[[reskin.target]]
+name = "creature.part5"
+expect_entries = 256
+expect_vram = [256, 235]
+expect_offset = 0x064b90
+hue_rotate = 160.0
+saturation = 0.55        # THE BINDING ROW.  See below -- the desaturation is what buys the margin.
+value      = 0.95        # ceiling x1.000 (peak 31/31): the only row that cannot be brightened
+# stock: 255 live, mean H 43.3 S 0.43 V 0.60 | peak 31/31, headroom 0, value ceiling x1.000
+# -> mean H 202.7 | rho 0.9156 | clipped 0 | 508 of 512 bytes differ
+# THE MINIMUM OF THE SHIPPED SET, and the row the whole key is tuned against: it is the FACE page
+# (muzzle, the violet-blue eye, the mane), and it carries the container's widest hue spread inside
+# one palette -- cream, olive mane AND a blue eye -- so a rotation reorders more of its luminance
+# than any other page.  Measured at delta 160: rho 0.9214 at sat 0.40, 0.9163 at 0.50, 0.9156 at
+# 0.55, 0.9047 at 0.75, 0.8869 at 1.00.  0.55 is the most colour the row can hold with the gate
+# margin intact.  For scale: ef227's cast-proven shipped set has min rho 0.9212.
+note = "the face -- muzzle, eye and mane; the binding row for the whole key"
+
+
+# ==============================================================================================
+# THE SCENERY -- 32 PALETTES, ALL DECLARED, ALL OFF, ALL AT IDENTITY.
+#
+# Declared rather than omitted for the reason W4 gave: the derived surface should be visible in ONE
+# place, gaps included, and `reskin.py` previews a disabled row through the transform it declares,
+# so the swatch sheet shows exactly what turning it on would do.  Every row below carries the
+# scaffold's own derived verdict: SHARED-UNKNOWN, because ef251's `so` coverage is 0 of 38 GEOM
+# blocks.  Nothing here is `acknowledge_shared`-ed, and nothing needs to be while they are off.
+#
+# s0 owns VRAM rows 244-249 (16 palettes), s1 owns rows 250-255 (16).  Disjoint -- see the span
+# note above.
+
+[[reskin.target]]
+name = "pal.s0.x0_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [0, 244]
+expect_offset = 0x000868
+note = "SHARED-UNKNOWN (0/38 so-coverage): 15 live, H 150.0 S 0.43 V 0.44, peak 24/31"
+
+[[reskin.target]]
+name = "pal.s0.x16_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [16, 244]
+expect_offset = 0x000888
+note = "SHARED-UNKNOWN: 15 live, H 46.9 S 0.68 V 0.55, peak 30/31"
+
+[[reskin.target]]
+name = "pal.s0.x32_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [32, 244]
+expect_offset = 0x0008a8
+note = "SHARED-UNKNOWN: 15 live, pure greyscale (S 0.00), peak 31/31 -- zero headroom"
+
+[[reskin.target]]
+name = "pal.s0.x48_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [48, 244]
+expect_offset = 0x0008c8
+note = "SHARED-UNKNOWN: 16 live, H 56.1 S 0.84 V 0.48, peak 31/31 -- zero headroom"
+
+[[reskin.target]]
+name = "pal.s0.x64_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [64, 244]
+expect_offset = 0x0008e8
+note = "SHARED-UNKNOWN: 15 live, H 236.6 S 0.85 V 0.44, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s0.x80_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [80, 244]
+expect_offset = 0x000908
+note = "SHARED-UNKNOWN: 15 live, H 240.8 S 0.66 V 0.57, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s0.x96_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [96, 244]
+expect_offset = 0x000928
+note = "SHARED-UNKNOWN: 16 live, H 252.3 S 0.57 V 0.60, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s0.x112_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [112, 244]
+expect_offset = 0x000948
+note = "SHARED-UNKNOWN: 13 live, pure greyscale (S 0.00), peak 30/31"
+
+[[reskin.target]]
+name = "pal.s0.x128_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [128, 244]
+expect_offset = 0x000968
+note = "SHARED-UNKNOWN: 16 live, H 234.9 S 0.83 V 0.70, peak 30/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s0.x144_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [144, 244]
+expect_offset = 0x000988
+note = "SHARED-UNKNOWN: 15 live, pure greyscale (S 0.00), peak 25/31"
+
+[[reskin.target]]
+name = "pal.s0.x160_y244.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [160, 244]
+expect_offset = 0x0009a8
+note = "SHARED-UNKNOWN: 16 live, H 236.0 S 0.69 V 0.65, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s0.x0_y245.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 245]
+expect_offset = 0x000a68
+note = "SHARED-UNKNOWN: 255 live, H 356.6 S 0.28 V 0.35, peak 29/31"
+
+[[reskin.target]]
+name = "pal.s0.x0_y246.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 246]
+expect_offset = 0x000c68
+note = "SHARED-UNKNOWN: 256 live, H 310.3 S 1.00 V 0.60, peak 28/31 -- fully saturated"
+
+[[reskin.target]]
+name = "pal.s0.x0_y247.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 247]
+expect_offset = 0x000e68
+note = "SHARED-UNKNOWN: 256 live, H 207.3 S 1.00 V 0.61, peak 28/31 -- fully saturated, cold"
+
+[[reskin.target]]
+name = "pal.s0.x0_y248.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 248]
+expect_offset = 0x001068
+note = "SHARED-UNKNOWN: 256 live, H 144.4 S 0.19 V 0.53, peak 27/31 -- near-grey"
+
+[[reskin.target]]
+name = "pal.s0.x0_y249.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 249]
+expect_offset = 0x001268
+note = "SHARED-UNKNOWN: 189 live, H 248.2 S 0.89 V 0.48, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s1.x0_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [0, 250]
+expect_offset = 0x0a1858
+note = "SHARED-UNKNOWN: 16 live, H 240.0 S 0.35 V 0.33, peak 16/31 -- headroom 15"
+
+[[reskin.target]]
+name = "pal.s1.x16_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [16, 250]
+expect_offset = 0x0a1878
+note = "SHARED-UNKNOWN: 16 live, H 240.0 S 0.06 V 0.41, peak 24/31 -- near-grey"
+
+[[reskin.target]]
+name = "pal.s1.x32_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [32, 250]
+expect_offset = 0x0a1898
+note = "SHARED-UNKNOWN: 15 live, H 29.5 S 0.94 V 0.44, peak 18/31 -- headroom 13"
+
+[[reskin.target]]
+name = "pal.s1.x48_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [48, 250]
+expect_offset = 0x0a18b8
+note = "SHARED-UNKNOWN: 15 live, H 230.7 S 1.00 V 0.55, peak 25/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s1.x64_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [64, 250]
+expect_offset = 0x0a18d8
+note = "SHARED-UNKNOWN: 15 live, H 236.6 S 0.85 V 0.44, peak 31/31 -- s0.x64_y244's twin"
+
+[[reskin.target]]
+name = "pal.s1.x80_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [80, 250]
+expect_offset = 0x0a18f8
+note = "SHARED-UNKNOWN: 15 live, H 29.8 S 0.95 V 0.26, peak 14/31 -- headroom 17"
+
+[[reskin.target]]
+name = "pal.s1.x96_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [96, 250]
+expect_offset = 0x0a1918
+note = "SHARED-UNKNOWN: 12 live, H 83.3 S 1.00 V 0.20, peak 10/31 -- the darkest palette here"
+
+[[reskin.target]]
+name = "pal.s1.x112_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [112, 250]
+expect_offset = 0x0a1938
+note = "SHARED-UNKNOWN: 15 live, pure greyscale (S 0.00), peak 30/31"
+
+[[reskin.target]]
+name = "pal.s1.x128_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [128, 250]
+expect_offset = 0x0a1958
+note = "SHARED-UNKNOWN: 11 live, H 0.0 S 1.00 V 0.16, peak 8/31 -- pure dark red"
+
+[[reskin.target]]
+name = "pal.s1.x144_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [144, 250]
+expect_offset = 0x0a1978
+note = "SHARED-UNKNOWN: 15 live, H 240.0 S 0.54 V 0.43, peak 28/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s1.x160_y250.e16"
+enabled = false
+acknowledge_shared = false
+expect_entries = 16
+expect_vram = [160, 250]
+expect_offset = 0x0a1998
+note = "SHARED-UNKNOWN: 16 live, H 234.9 S 0.83 V 0.70, peak 30/31 -- s0.x128_y244's twin"
+
+[[reskin.target]]
+name = "pal.s1.x0_y251.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 251]
+expect_offset = 0x0a1a58
+note = "SHARED-UNKNOWN: 254 live, H 343.3 S 0.68 V 0.48, peak 27/31"
+
+[[reskin.target]]
+name = "pal.s1.x0_y252.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 252]
+expect_offset = 0x0a1c58
+note = "SHARED-UNKNOWN: 156 live, H 239.9 S 0.82 V 0.72, peak 31/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s1.x0_y253.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 253]
+expect_offset = 0x0a1e58
+note = "SHARED-UNKNOWN: 255 live, H 250.6 S 0.43 V 0.54, peak 27/31 -- already cold"
+
+[[reskin.target]]
+name = "pal.s1.x0_y254.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 254]
+expect_offset = 0x0a2058
+note = "SHARED-UNKNOWN: 254 live, H 104.5 S 0.75 V 0.37, peak 19/31 -- headroom 12"
+
+[[reskin.target]]
+name = "pal.s1.x0_y255.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 255]
+expect_offset = 0x0a2258
+note = "SHARED-UNKNOWN: 189 live, H 248.2 S 0.89 V 0.48, peak 31/31 -- s0.x0_y249's twin"
