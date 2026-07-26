@@ -115,9 +115,9 @@ def from_raw(block: dict, idx: int, *, resolve_item=None) -> GaugeSpec:
             off = int(src.split(":", 1)[1])
         except ValueError:
             off = -1
-        if not 4 <= off <= 2024:
-            raise GaugeError(f"{ctx}: global source byte offset must be 4..2024 "
-                             f"(2026+ is kit modal scratch)")
+        if not 4 <= off <= 2016:
+            raise GaugeError(f"{ctx}: global source byte offset must be 4..2016 "
+                             f"(2018+ is kit modal scratch / the co-op cells)")
         src = f"global:{off}"
     elif src.startswith("item:"):
         sel = src.split(":", 1)[1]

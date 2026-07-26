@@ -41,8 +41,9 @@ def _verify_body(body: bytes) -> int:
 @pytest.mark.parametrize("over,frag", [
     ({"name": ""}, "name"),
     ({"source": "bogus"}, "source"),
-    ({"source": "global:2"}, "4..2024"),
-    ({"source": "global:2040"}, "4..2024"),
+    ({"source": "global:2"}, "4..2016"),
+    ({"source": "global:2040"}, "4..2016"),
+    ({"source": "global:2018"}, "4..2016"),      # the [[qte]] scratch band (2018-2031)
     ({"source": "item:NotAnItemAnywhere"}, "resolve"),
     ({"max": 0}, "max"),
     ({"segments": 1}, "segments"),
