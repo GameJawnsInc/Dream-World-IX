@@ -148,7 +148,8 @@ entrance-only: the case space serves per-quay names, plate-only POIs (summon wit
 the explored bits are save-persistent per-place "visited" state any `.eb` can read. Record:
 REVERT.md §23.
 
-**PER-QUAY NAMES ★ DEPLOYED (2026-07-26, owner-directed; playtest pending):** the four quays moved
+**PER-QUAY NAMES ★ PLAYTEST CONFIRMED (2026-07-26, "all passing and ?/name status holds over
+saves" — the extended band is thereby IN-GAME PROVEN, cases 65-68 live):** the four quays moved
 off the shared case 53 onto **virgin cases 65–68** (Ashvale/Tidefall/Grimhorn/Larkspur — the
 extended band's first consumers; same Field(6601) destination, per-island explored bits at word
 2006 bits 0–3). En route the widened ALL-entries census found **THE AIRBORNE SUMMONER**: WORLD08/09
@@ -158,6 +159,23 @@ Memoria's disc-4 plate (cosmetic, warp-safe). Fixed fully: split[53] restored to
 language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY is retired** — the
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
+
+## R4 — THE FOREST/ENCOUNTER PASS ★ DEPLOYED (2026-07-26; relaunch for the minimap; teleport playtest pending)
+
+The encounter architecture costs ZERO table edits: our tiles' **area 0 → zone 0**, whose topo-37
+rows are the stock starter set (**Python/Goblin/Mu**, both fog rows) — we consume the stock table,
+never edit it (the corrected census REFUTED the "private zone 24": area 63 = the Yan island's live
+table; NO stock-dead 36-38 record exists anywhere). The law verified in-engine: no record ⇒ no
+battle + the case-205/EventCollision topo-36-38 gates — open ground is the safe road by
+construction. **THE SMALL-HOST LIMIT (measured):** every ring island refuses v1 `world-forest`
+(the junction CARRY fails the hole-cycle; r44-class mints fail THE CANOPY STEP LAW with a
+degenerate zip, `zipNyMin 0.00`) — route-island canopy awaits the verb's small-host calibration.
+**THE BENCH** (island E re-homed per the ratified sketch): seed **137** at (136,−168) — found by a
+driver testing hard-clean texture gates AND blob capacity together — carries the proven 132-tri
+canopy at (124,−156) (all gates + walk-in sim clean; **donor AREA 7 restamped to 0** — a verbatim
+canopy carry imports the donor's encounter zone; restamp to the host's area, now a recorded law)
++ the r13/h3.6 south-lobe hill + the minimap redraw. The region's first encounter island. Record:
+REVERT.md §25; playtest = §25.6.
 
 **R3 PLAYTEST CONFIRMED (2026-07-26, "good"):** the case-61 loop works in-game — plate → Confirm →
 the lamp room → walk out → the name registers; no battle. The quicksand leg (§22.8 item 4) was not

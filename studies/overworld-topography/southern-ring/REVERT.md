@@ -2483,3 +2483,89 @@ Restore `dispatchers-post-band/` (63 files) + `text68-post-band/` (7 files) — 
 2. Lamplight still reads "Lamplight"; a stock town plate still works.
 3. (Disc-4 airship over the Memoria site, only if ever handy: the plate shows `???`/`?` again, not
    "Lantern Quay".)
+
+---
+
+# 25. R4 — THE FOREST/ENCOUNTER PASS — **APPLIED** (relaunch for the minimap; teleport playtest pending)
+
+Run 2026-07-26 ("go R4"). The rung as ratified: carve_forest per THE TOPOGRAPH 36-38 ENCOUNTER LAW
++ the island-E bench re-sited at the free r96 pocket (136,−168).
+
+## 25.1 The encounter architecture — ZERO table edits (the design decision of the rung)
+
+* **The corrected census**: every 36-38 record in the 355-table is reachable from some stock tile —
+  the "private zone 24 / area 63" idea is REFUTED (area 63 carries 95 stock topo-37 tiles: the
+  airship-landable Yan island's live table, scenes 777-780). There is NO stock-dead encounter
+  record to own; in-place re-tabling ALWAYS collides with stock.
+* **The lawful lane**: our tiles already carry **area 0 → zone 0** (the Alexandria region), whose
+  topo-37 rows are the game's own starter set — records 4/5: **Python + Goblin** (scenes 359/357),
+  **Mu** incl. the friendly variant (361/363), both fog rows present. We CONSUME the stock table,
+  never edit it. A bespoke per-island table = the doc's scoped `WorldEncounters.csv` engine seam
+  (s23-class), deferred until a design needs distinct fauna.
+* **The law, verified in the engine**: `SelectScene()` resolves zone×topograph×fog — no record ⇒ no
+  battle — plus the case-205 sysvar and 3 EventCollision gates all requiring topo 36-38. Open
+  ground is the safe road by construction; the rate lever (case-26 `w_frameEventBattleProb`,
+  probs 231/365) is live in all 9 dispatchers.
+
+## 25.2 THE SMALL-HOST LIMIT — the ring's own islands refuse v1 carves (measured, recorded)
+
+Every carve attempt on ring islands refused:
+* the **junction island** (a junction_compose CARRY): "hole ring not a simple cycle" at every
+  window — the hole-carve assumes mint lattice topology;
+* **Lamplight (r44) and Tidefall's isle** (the E-remnant): the default 132-tri blob finds no
+  plain-grass pocket, and every small donor (18-53 tris: (15,9)/(19,9)/(13,16)) fails **THE CANOPY
+  STEP LAW** with `zipNyMin 0.00` — a degenerate zip triangle on small hosts ((18,13)/(7,16) refuse
+  earlier: degenerate donor rims).
+
+⚠ Instrument lesson (twice this arc): piping verb output through `tail -N` EATS the stderr refusal
+line that prints first — a FAIL is indistinguishable from a PASS. A pass ends with a plan/deploy
+line; judge by the LAST line, never by the absence of an error.
+
+**Consequence:** the route islands get canopy in a later pass once `world-forest` learns small
+hosts (the degenerate-zip diagnosis is the entry point). R4's gameplay proof lands on the bench.
+
+## 25.3 THE BENCH — the island-E showcase re-homed at the pocket, now the region's first encounter island
+
+* **Mint**: `world-island --center 136,-168 --radius 46 --lobes 3 --seed 137` — the seed found by a
+  driver testing BOTH properties per seed (hard-clean texture gates AND blob capacity; island E's
+  own seed 55 was chosen for capacity but mints dirty at this centre; hard-clean 314 has no
+  pocket). All gates clean; 3 lobes N/W/S; no meadow stamps.
+* **Canopy**: `world-forest --center 124,-156` (the proven (15,15) donor, 132 tris; hole 161 tris,
+  63 zip tris) — all gates clean incl. the perimeter walk-in sim (worst step 2.05 ≤ 2.3) and
+  MISS=0. **The carve carries the donor's AREA 7** (zone 2 — the Lindblum set): restamped to
+  **area 0** on both discs (534 vert-tangents, topo/event/flags preserved) so the canopy rolls
+  zone 0's Python/Goblin/Mu. ⚠ LAW for future carves: **a verbatim canopy carry imports the
+  donor's AREA — the encounter zone is location semantics, not look; restamp to the host's area.**
+* **Hill**: `world-hill --center 132,-204 --radius 13 --height 3.6` on the south lobe (the default
+  R18 finds no footprint on these narrower lobes; r13/h3.6 is inside the real language). Flank
+  25.8° ≤ 28.6, peak y 6.8 ≤ 8.6, all gates clean.
+* `world-minimap` re-drawn (the bench + Lamplight now on the all-world map) — **RELAUNCH to apply
+  the PNG**; the meshes themselves hot-load on world re-entry.
+
+## 25.4 Write-set + probes
+
+**108 added** (the bench: blocks (1,1)(1,2)(2,1)(2,2)(2,3)(3,2)+(2,0?) × parts × 2 discs, all in
+rows r0-r4) · **1 changed** (the minimap PNG redraw) · **4 removed** = STALE `.bak-20260719` files
+(a prior session's live-tree pollution on the Tidefall blocks) relocated with this rung's 10 fresh
+hill `.bak`s to `backups/r3-lamplight.20260726-r3lamplight/bench-hill-baks/`. **Nothing outside
+the bench region + minimap; the ring untouched** (`probe_r3/r4_writeset.txt`).
+
+Probes: centre (136,−168) walkable grass y3.2 area 0 · canopy (124,−156) **topo 37 / area 0 /
+no event bits** y6.9 · hill peak y6.8 · zero area-7 residue · full disc parity · the ring's 5-site
+probe + ring closure ALL PASS post-R4.
+
+## 25.5 Undo
+
+Delete the 108 bench files (rows r0-r4, both discs — `r4_writeset.txt` is the list) + the minimap
+override PNG; restore nothing (all-new). The relocated `.bak`s stay in backups.
+
+## 25.6 Playtest ask (owner) — RELAUNCH once (minimap), then teleport-judged
+
+1. `~ → World → Teleport` to **(136, −168)**: the bench island renders (3 lobes, no stamps);
+   walk the whole rim loop.
+2. **Walk INTO the north-lobe canopy** (~(124,−156)): encounters fire — **Pythons, Goblins,
+   maybe a Mu** — at vanilla cadence. **Open grass and the hill: ZERO encounters** (the law's
+   whole point — please walk both for a few minutes each).
+3. The south hill (132,−204): climbs naturally from all sides.
+4. The all-world map shows the bench + Lamplight (the minimap redraw).
+5. Ring sanity: one ferry hop + Lamplight still behave (nothing in the ring was touched).
