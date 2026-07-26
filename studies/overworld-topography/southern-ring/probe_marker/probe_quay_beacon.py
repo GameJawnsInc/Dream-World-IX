@@ -51,7 +51,12 @@ HULL_TOPO = 59
 TRIGGER_IDALL = 16384
 TRIGGER_TRIS = 6
 TRIGGER_BBOX = (44.0, 52.0, -1172.0, -1164.0)
-BEACON_SPAN = (45.70, 50.30, -1159.30, -1154.70)
+BEACON_SPAN = (45.70, 50.30, -1162.80, -1158.20)   # pass 4: re-sited SOUTH to the trigger's foot
+HULL_CLEARANCE = 1.0
+# pass 3's footprint, kept so the probe can PROVE its 12 orphan hull tiles went back to topo 0.
+# A naive re-run would have stamped the new hull while the old one stayed blocked = invisible walls
+# standing in open grass 5u north of the tower.
+OLD_SPAN = (45.70, 50.30, -1159.30, -1154.70)
 ARRIVE = (60.0, -1168.0)
 WALKABLE_TOPO = {0, 10, 36}            # on-foot limit: 10/36 walkable, 49/59 blocked (ff9.cs:5769)
 IDALL_SKIP = {4078, 4088, 2040}
@@ -128,6 +133,8 @@ for disc in (1, 4):
     obj_p = MOD / f"Disc{disc}" / "0_1" / "r18" / "Block[0][18] Object.ff9mesh"
     ter = M.blockmesh_from_ff9mesh(str(ter_p), disc=disc, x=BX, y=BY, part="terrain")
     obj = M.blockmesh_from_ff9mesh(str(obj_p), disc=disc, x=BX, y=BY, part="object")
+    pre = M.blockmesh_from_ff9mesh(str(BACKUP / f"Disc{disc}-r18" / "Block[0][18] Terrain.ff9mesh"),
+                                   disc=disc, x=BX, y=BY, part="terrain")
     discs[disc] = (ter_p.read_bytes(), obj_p.read_bytes())
     print(f"Terrain {ter_p.stat().st_size} B: {ter.vcount} verts / {len(ter.tris)} tris")
     print(f"Object  {obj_p.stat().st_size} B: {obj.vcount} verts / {len(obj.tris)} tris")
@@ -148,6 +155,21 @@ for disc in (1, 4):
     check(g is not None and g[2] == TRIGGER_IDALL and abs(g[1] - 3.0) < 1e-6,
           f"ground query (48,-1168) -> idall {TRIGGER_IDALL} @ y 3.00",
           "MISS" if g is None else f"{g[0]} idall={g[2]} y={g[1]:.3f}")
+    # GEOMETRY IDENTITY, not mere presence: `split_retarget_by_polygon` RETRIANGULATES, so a hull that
+    # reached a trigger tri would SPLIT it into fragments that still carry idall 16384 and still cover
+    # the same area -- every check above would pass while the cluster silently became 8 or 10 tris of
+    # different shape. Compare the actual vertex triples against the pre-run mesh.
+    def _evset(m):
+        out = []
+        for t in range(len(m.tris)):
+            if W.decode_id(idall_of(m, t))["event"]:
+                out.append(tuple(sorted(tuple(round(c, 5) for c in p) for p in tri_pts(m, t))))
+        return sorted(out)
+    pre_ev, post_ev = _evset(pre), _evset(ter)
+    check(len(post_ev) == len(pre_ev) == TRIGGER_TRIS and post_ev == pre_ev,
+          "the 6 trigger tris are GEOMETRY-IDENTICAL to the pre-run mesh (not split by the hull)",
+          f"pre {len(pre_ev)} tris vs post {len(post_ev)}"
+          + ("" if post_ev == pre_ev else "  -- VERTEX SETS DIFFER"))
 
     # ---- (b) arrival + the approach path -------------------------------------------------------
     print("\n(b) the ARRIVE point and the walkable approach to the trigger")
@@ -191,18 +213,22 @@ for disc in (1, 4):
     check(min(ys) < 3.0 - 1e-6, "skirt BURIED below the y=3.00 plateau (no coplanar z-fight)",
           f"lowest {min(ys):.2f}")
     # render-only, measured: the walk query must pass THROUGH the beacon to the terrain
-    gw = ground(parts, 48.0, -1157.0)
-    gi = ground(parts, 48.0, -1157.0, ignore_exceptions=True)
-    check(gw is not None and gw[0] == "Terrain",
-          "the WALK query passes THROUGH the beacon to Terrain (render-only confirmed)",
-          "MISS" if gw is None else f"hit {gw[0]} idall={gw[2]}")
+    # Probe the BEACON'S OWN CENTRE. This constant must move whenever the beacon moves: pass 4 shifted
+    # the tower 3.5u south and this test was still aimed at pass 3's -1157, which is now open grass --
+    # so the "walk query reaches Terrain" half PASSED FOR THE WRONG REASON (nothing was there at all).
+    # Only the paired "a sky-cast DOES hit the Object" assertion caught it. Keep both halves, always.
+    cx_probe, cz_probe = (BEACON_SPAN[0] + BEACON_SPAN[1]) / 2.0, (BEACON_SPAN[2] + BEACON_SPAN[3]) / 2.0
+    gw = ground(parts, cx_probe, cz_probe)
+    gi = ground(parts, cx_probe, cz_probe, ignore_exceptions=True)
+    check(gw is not None and gw[0] == "Terrain" and W.decode_id(gw[2])["topograph"] == HULL_TOPO,
+          f"at the beacon centre ({cx_probe:.1f},{cz_probe:.1f}) the WALK query passes THROUGH the mesh "
+          f"to the topo-{HULL_TOPO} hull (render-only + collision both confirmed)",
+          "MISS" if gw is None else f"hit {gw[0]} idall={gw[2]} topo={W.decode_id(gw[2])['topograph']}")
     check(gi is not None and gi[0] == "Object" and gi[2] == BEACON_IDALL,
           "a sky-cast DOES hit it -> the mesh really is in the walkmesh set, so 4078 is load-bearing",
           "MISS" if gi is None else f"hit {gi[0]} idall={gi[2]}")
 
     # the terrain idall delta, by GEOMETRY (the hull split retriangulated the block)
-    pre = M.blockmesh_from_ff9mesh(str(BACKUP / f"Disc{disc}-r18" / "Block[0][18] Terrain.ff9mesh"),
-                                   disc=disc, x=BX, y=BY, part="terrain")
     print(f"       terrain BEFORE: {pre.vcount} verts / {len(pre.tris)} tris   "
           f"AFTER: {ter.vcount} verts / {len(ter.tris)} tris  "
           f"(+{len(ter.tris) - len(pre.tris)} tris from the hull split)")
@@ -240,6 +266,36 @@ for disc in (1, 4):
     n59 = sum(1 for t in range(len(ter.tris))
               if W.decode_id(idall_of(ter, t))["topograph"] == HULL_TOPO)
     print(f"       total topo-{HULL_TOPO} tris in the block now: {n59}")
+    check(n59 == len(changed), f"the ONLY topo-{HULL_TOPO} geometry in the block is this hull "
+          "(no orphaned blockers left anywhere)", f"{n59} blocked vs {len(changed)} changed")
+    check(all(bz0 - 0.01 <= c[7] and c[8] <= bz1 + 0.01 for c in changed)
+          and all(c[8] - TRIGGER_BBOX[3] >= HULL_CLEARANCE - 0.01 for c in changed),
+          f"every hull tile stays >= {HULL_CLEARANCE}u north of the trigger rect",
+          f"closest {min(c[8] - TRIGGER_BBOX[3] for c in changed):+.2f}u")
+
+    # PASS-4 GATE: pass 3's hull sat 3.5u further north. Those 12 tiles MUST read topo 0 again --
+    # otherwise the re-site left invisible walls standing in open grass beside the tower.
+    ox0, ox1, oz0, oz1 = OLD_SPAN
+    orphan = []
+    for t in range(len(ter.tris)):
+        pts = tri_pts(ter, t)
+        cx = sum(p[0] for p in pts) / 3.0
+        cz = sum(p[2] for p in pts) / 3.0
+        if not (ox0 <= cx <= ox1 and oz0 <= cz <= oz1):
+            continue                                    # not in pass 3's footprint
+        if bx0 <= cx <= bx1 and bz0 <= cz <= bz1:
+            continue                                    # also inside the NEW hull -> legitimately blocked
+        if W.decode_id(idall_of(ter, t))["topograph"] == HULL_TOPO:
+            orphan.append((t, round(cx, 2), round(cz, 2)))
+    check(not orphan, "pass 3's OLD hull footprint is CLEAR -- no orphaned topo-59 blockers "
+          f"in z[{oz0},{oz1}]", f"{len(orphan)} orphans: {orphan[:6]}")
+    samples = [(48.0, -1157.0), (46.5, -1155.5), (49.5, -1155.5), (48.0, -1155.0), (47.0, -1158.0)]
+    bad_s = []
+    for (wx, wz) in samples:
+        tp, _ = topo_at(ter, wx, wz)
+        if tp is not None and tp == HULL_TOPO:
+            bad_s.append((wx, wz, tp))
+    check(not bad_s, "spot-probe of pass 3's old anchor area reads WALKABLE again", f"{bad_s}")
 
     # ---- (d) UVs -------------------------------------------------------------------------------
     print("\n(d) the beacon's UVs")

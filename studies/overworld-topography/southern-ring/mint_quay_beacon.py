@@ -64,11 +64,30 @@ REPO = HERE.parents[2]
 sys.path.insert(0, str(REPO / "ff9mapkit"))
 
 # ---- siting (world coords) -------------------------------------------------------------------------
-ANCHOR = (48.0, -1157.0)        # XZ centre; the lawful window between the quay trigger and the block edge
+# THE TRIGGER-AT-THE-FOOT LAW (owner playtest, pass 3 -> 4). Pass 3 sat the beacon at z -1157, which
+# left the 6 trigger tris (z[-1172,-1164]) ~12u SOUTH of it: the "!" fired in open grass with the tower
+# standing apart. Stock's idiom -- and our own waystation precedent -- put the trigger AT THE
+# STRUCTURE'S FOOT. So the beacon is sited as far SOUTH as the hull gates allow.
+#
+#   the hull must stay >= 1.0u clear of the trigger rect, and the footprint half-width is 2.30u, so
+#       south edge = cz - 2.30 >= -1164.0 + 1.0   =>   cz >= -1160.70
+#   cz = -1160.50 keeps 0.20u of slack inside that bound: south edge -1162.80, i.e. 1.20u clear.
+#
+# The arrival (60,-1168) is then 11.006u away (gate: >= 6u) and the arrival->trigger path along
+# z = -1168 stays >= 5.20u south of the footprint, whose x span [45.70,50.30] is WEST of the eastern
+# approach corridor -- so walking in from the east cannot clip the hull.
+ANCHOR = (48.0, -1160.5)        # XZ centre -- the trigger cluster now sits at the tower's foot
 GROUND_Y = 3.00                 # Block[0][18]'s measured plateau
 SKIRT_BURY = 0.50               # how far the plinth base sits BELOW the ground plane
 
 OBJ_OUT = HERE / "quay_beacon.obj"
+
+# siting gates (the beacon must abut the trigger WITHOUT the hull ever reaching it)
+TRIGGER_BBOX = (44.0, 52.0, -1172.0, -1164.0)   # the 6 idall-16384 tris
+HULL_CLEARANCE = 1.0                            # min gap from the footprint to the trigger rect
+ARRIVE_POINT = (60.0, -1168.0)
+ARRIVE_CLEARANCE = 6.0
+BLOCK_FOOTPRINT = (0.0, 64.0, -1216.0, -1152.0)  # block (0,18) in world XZ
 
 # ---- the profile: (y above ground, half-width) ------------------------------------------------------
 # A pair of rings at the same y with different half-widths makes a horizontal step (a plinth lip, a
@@ -315,6 +334,26 @@ def gates(verts, faces, normals, uvs) -> int:
           f"{sum(areas) / len(areas):.2f} u^2  (panel edge ~{math.sqrt(2 * max(areas)):.1f}u)")
     check(max(areas) < 8.0, "largest panel under 8 u^2 (keeps the atlas tile from smearing)",
           f"max {max(areas):.2f}")
+
+    # SITING -- the trigger-at-the-foot law, enforced HERE where the anchor is chosen (a gate that
+    # only lives in the probe is a gate the next re-site can forget)
+    tx0, tx1, tz0, tz1 = TRIGGER_BBOX
+    fx0, fx1, fz0, fz1 = min(xs), max(xs), min(zs), max(zs)
+    overlap = not (fx1 < tx0 or fx0 > tx1 or fz1 < tz0 or fz0 > tz1)
+    check(not overlap, "the footprint does NOT overlap the trigger rect")
+    gap = fz0 - tz1                       # footprint's south edge vs the trigger's north edge
+    check(gap >= HULL_CLEARANCE, f"footprint >= {HULL_CLEARANCE}u clear of the trigger rect "
+          f"(so the hull split can never touch a trigger tri)", f"gap {gap:+.2f}u")
+    check(gap < 3.0, "...but CLOSE enough that the trigger reads as being at the tower's foot",
+          f"gap {gap:+.2f}u")
+    ddx = max(fx0 - ARRIVE_POINT[0], 0.0, ARRIVE_POINT[0] - fx1)
+    ddz = max(fz0 - ARRIVE_POINT[1], 0.0, ARRIVE_POINT[1] - fz1)
+    adist = math.hypot(ddx, ddz)
+    check(adist >= ARRIVE_CLEARANCE, f"arrive point {ARRIVE_POINT} >= {ARRIVE_CLEARANCE}u from the "
+          f"footprint (a solid footprint is spawn-fragile)", f"{adist:.3f}u")
+    bx0, bx1, bz0, bz1 = BLOCK_FOOTPRINT
+    check(bx0 <= fx0 and fx1 <= bx1 and bz0 <= fz0 and fz1 <= bz1,
+          "footprint inside block (0,18)", f"N margin {bz1 - fz1:.2f}u, S margin {fz0 - bz0:.2f}u")
 
     # UVs -- the failure that renders flat white
     check(len(uvs) == 3 * len(faces), "one UV per face corner", f"{len(uvs)} vs {3 * len(faces)}")

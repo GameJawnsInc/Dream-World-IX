@@ -994,3 +994,68 @@ def test_item_pool_validation():
                    have_item=["Potion", 0])))
     assert any("item does not resolve" in p for p in
                mut(lambda b: b["hud"][0].update(values=["item:Bogusite"])))
+
+
+# --------------------------------------------- ShopStock (AddShopItem 0x115)
+def _stock_raw(**branch_over):
+    br = {"when": [{"have_item": ["Potion", 3]}],
+          "do": {"add_shop_item": [40, "Elixir"]}, "once": "stock2", **branch_over}
+    return {
+        "player": {"spawn": [0, -900]},
+        "shop": [{"id": 40, "sells": ["Potion"]}],
+        "npc": [{"name": "crier", "pos": [0, -300], "dialogue": "..."}],
+        "behavior": {"unit": [
+            {"npc": "crier", "branch": [br, {"do": {"hold": [0, -300]}}]},
+        ]},
+    }
+
+
+def test_shop_stock_compiles_remove_then_add():
+    """An add emits REMOVE then ADD (the engine's List.Add dupes — idempotence),
+    on the event-Once lane (latch-first body)."""
+    raw = _stock_raw()
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    cb = fb.compile()
+    _verify_all(cb)
+    shop_ops = []
+    for _tag, body in cb.action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "AddShopItem":
+                shop_ops.append((ins.imm(0), ins.imm(1), ins.imm(2)))
+    from ff9mapkit import items as IT
+    ex = IT.resolve("Elixir")
+    assert shop_ops == [(40, ex, 0), (40, ex, 1)]        # remove first, then add
+    # a remove-only verb emits just the remove
+    raw2 = _stock_raw(do={"remove_shop_item": [40, "Elixir"]})
+    fb2 = BT.build(raw2, npc_slots={"crier": 2},
+                   npc_txids_by_name={"crier": 0}, behavior_txids={})
+    ops2 = []
+    for _tag, body in fb2.compile().action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "AddShopItem":
+                ops2.append(ins.imm(2))
+    assert ops2 == [0]
+
+
+def test_shop_stock_validation():
+    import copy
+
+    def mut(f):
+        r = _stock_raw()
+        f(r)
+        return BT.validate(r)
+
+    assert any("neither a [[shop]]" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
+                   add_shop_item=[90, "Elixir"])))
+    assert BT.validate(_stock_raw(do={"add_shop_item": [7, "Elixir"]})) == []  # vanilla 0-31 OK
+    assert any("does not resolve" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
+                   add_shop_item=[40, "Bogusite"])))
+    assert any("needs `once" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0].pop("once")))
+    assert any("takes [shop_id, item]" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
+                   add_shop_item=40)))

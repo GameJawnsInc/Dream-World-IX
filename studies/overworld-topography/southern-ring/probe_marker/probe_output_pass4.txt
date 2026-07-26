@@ -1,0 +1,133 @@
+====================================================================================================
+DISC 1
+====================================================================================================
+Terrain 40580 B: 780 verts / 260 tris
+Object  34652 B: 666 verts / 222 tris
+
+(a) the quay TRIGGER cluster is intact
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all idall 16384 (event 1, area 0 -- --no-tile-area kept R1's area field)  -- [16384]
+  [PASS] union bbox unmoved  -- x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+  [PASS] the 6 trigger tris are GEOMETRY-IDENTICAL to the pre-run mesh (not split by the hull)  -- pre 6 tris vs post 6
+
+(b) the ARRIVE point and the walkable approach to the trigger
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] every step of the arrival->trigger path is a WALKABLE topograph ([0, 10, 36])  -- blocked at []
+  [PASS] a +/-6u wide corridor around the approach is walkable too  -- 0 blocked
+
+(c) the BEACON Object mesh (render-only) + the TERRAIN collision hull
+  [PASS] 222 tris / 666 verts  -- got 222 / 666
+  [PASS] EVERY tri idall 4078 (0x0FEE) -> WMPhysics skips it -> RENDER-ONLY  -- {4078: 222}
+       beacon span x[45.70,50.30] y[2.50,13.60] z[-1162.80,-1158.20]
+  [PASS] span == the planned footprint
+  [PASS] skirt BURIED below the y=3.00 plateau (no coplanar z-fight)  -- lowest 2.50
+  [PASS] at the beacon centre (48.0,-1160.5) the WALK query passes THROUGH the mesh to the topo-59 hull (render-only + collision both confirmed)  -- hit Terrain idall=236 topo=59
+  [PASS] a sky-cast DOES hit it -> the mesh really is in the walkmesh set, so 4078 is load-bearing  -- hit Object idall=4078
+       terrain BEFORE: 690 verts / 230 tris   AFTER: 780 verts / 260 tris  (+30 tris from the hull split)
+       TERRAIN tiles whose IDALL changed: 14
+         tri   58: idall 0 -> 236  (topo 0 -> 59)  centroid (47.4,-1158.8)  x[46.2,48.0] z[-1160.0,-1158.2]
+         tri   61: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1161.7)  x[48.0,50.3] z[-1162.8,-1160.0]
+         tri   62: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1162.63)  x[48.0,50.3] z[-1162.8,-1162.3]
+         tri   78: idall 0 -> 236  (topo 0 -> 59)  centroid (46.07,-1162.43)  x[45.7,46.8] z[-1162.8,-1161.7]
+         tri  107: idall 0 -> 236  (topo 0 -> 59)  centroid (50.27,-1158.23)  x[50.2,50.3] z[-1158.3,-1158.2]
+         tri  152: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1160.77)  x[48.0,50.3] z[-1162.3,-1160.0]
+         tri  165: idall 0 -> 236  (topo 0 -> 59)  centroid (48.73,-1158.8)  x[48.0,50.2] z[-1160.0,-1158.2]
+         tri  166: idall 0 -> 236  (topo 0 -> 59)  centroid (49.5,-1158.83)  x[48.0,50.3] z[-1160.0,-1158.2]
+         tri  167: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1159.43)  x[48.0,50.3] z[-1160.0,-1158.3]
+         tri  180: idall 0 -> 236  (topo 0 -> 59)  centroid (47.23,-1160.93)  x[45.7,48.0] z[-1162.8,-1160.0]
+         tri  181: idall 0 -> 236  (topo 0 -> 59)  centroid (46.83,-1161.87)  x[45.7,48.0] z[-1162.8,-1160.0]
+         tri  182: idall 0 -> 236  (topo 0 -> 59)  centroid (46.07,-1161.5)  x[45.7,46.8] z[-1162.8,-1160.0]
+         tri  198: idall 0 -> 236  (topo 0 -> 59)  centroid (46.63,-1158.8)  x[45.7,48.0] z[-1160.0,-1158.2]
+         tri  199: idall 0 -> 236  (topo 0 -> 59)  centroid (46.47,-1159.4)  x[45.7,48.0] z[-1160.0,-1158.2]
+  [PASS] the hull DID stamp terrain tiles (collision exists)  -- 14
+  [PASS] every changed tile became topograph 59 (impassable structure)
+  [PASS] NO event tile was overwritten by the hull (the trigger is untouched)
+  [PASS] every changed tile lies INSIDE the beacon footprint  -- 0 outside
+  [PASS] no changed tile overlaps the trigger rect  -- 0
+       total topo-59 tris in the block now: 14
+  [PASS] the ONLY topo-59 geometry in the block is this hull (no orphaned blockers left anywhere)  -- 14 blocked vs 14 changed
+  [PASS] every hull tile stays >= 1.0u north of the trigger rect  -- closest +1.70u
+  [PASS] pass 3's OLD hull footprint is CLEAR -- no orphaned topo-59 blockers in z[-1159.3,-1154.7]  -- 0 orphans: []
+  [PASS] spot-probe of pass 3's old anchor area reads WALKABLE again  -- []
+
+(d) the beacon's UVs
+  [PASS] one UV per vertex  -- 666 vs 666
+  [PASS] no degenerate [0,0] UV (would render white)
+  [PASS] every UV in [0,1]
+  [PASS] BOTH authored tiles present (stone shaft + warm lantern room)  -- 570 stone corners, 96 lantern corners
+       u[0.00414,0.36106] v[0.35084,0.45676]
+
+====================================================================================================
+DISC 4
+====================================================================================================
+Terrain 40580 B: 780 verts / 260 tris
+Object  34652 B: 666 verts / 222 tris
+
+(a) the quay TRIGGER cluster is intact
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all idall 16384 (event 1, area 0 -- --no-tile-area kept R1's area field)  -- [16384]
+  [PASS] union bbox unmoved  -- x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+  [PASS] the 6 trigger tris are GEOMETRY-IDENTICAL to the pre-run mesh (not split by the hull)  -- pre 6 tris vs post 6
+
+(b) the ARRIVE point and the walkable approach to the trigger
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 y=3.000
+  [PASS] every step of the arrival->trigger path is a WALKABLE topograph ([0, 10, 36])  -- blocked at []
+  [PASS] a +/-6u wide corridor around the approach is walkable too  -- 0 blocked
+
+(c) the BEACON Object mesh (render-only) + the TERRAIN collision hull
+  [PASS] 222 tris / 666 verts  -- got 222 / 666
+  [PASS] EVERY tri idall 4078 (0x0FEE) -> WMPhysics skips it -> RENDER-ONLY  -- {4078: 222}
+       beacon span x[45.70,50.30] y[2.50,13.60] z[-1162.80,-1158.20]
+  [PASS] span == the planned footprint
+  [PASS] skirt BURIED below the y=3.00 plateau (no coplanar z-fight)  -- lowest 2.50
+  [PASS] at the beacon centre (48.0,-1160.5) the WALK query passes THROUGH the mesh to the topo-59 hull (render-only + collision both confirmed)  -- hit Terrain idall=236 topo=59
+  [PASS] a sky-cast DOES hit it -> the mesh really is in the walkmesh set, so 4078 is load-bearing  -- hit Object idall=4078
+       terrain BEFORE: 690 verts / 230 tris   AFTER: 780 verts / 260 tris  (+30 tris from the hull split)
+       TERRAIN tiles whose IDALL changed: 14
+         tri   58: idall 0 -> 236  (topo 0 -> 59)  centroid (47.4,-1158.8)  x[46.2,48.0] z[-1160.0,-1158.2]
+         tri   61: idall 0 -> 236  (topo 0 -> 59)  centroid (48.77,-1161.7)  x[48.0,50.3] z[-1162.8,-1160.0]
+         tri   62: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1162.63)  x[48.0,50.3] z[-1162.8,-1162.3]
+         tri   78: idall 0 -> 236  (topo 0 -> 59)  centroid (46.07,-1162.43)  x[45.7,46.8] z[-1162.8,-1161.7]
+         tri  107: idall 0 -> 236  (topo 0 -> 59)  centroid (50.27,-1158.23)  x[50.2,50.3] z[-1158.3,-1158.2]
+         tri  152: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1160.77)  x[48.0,50.3] z[-1162.3,-1160.0]
+         tri  165: idall 0 -> 236  (topo 0 -> 59)  centroid (48.73,-1158.8)  x[48.0,50.2] z[-1160.0,-1158.2]
+         tri  166: idall 0 -> 236  (topo 0 -> 59)  centroid (49.5,-1158.83)  x[48.0,50.3] z[-1160.0,-1158.2]
+         tri  167: idall 0 -> 236  (topo 0 -> 59)  centroid (49.53,-1159.43)  x[48.0,50.3] z[-1160.0,-1158.3]
+         tri  180: idall 0 -> 236  (topo 0 -> 59)  centroid (47.23,-1160.93)  x[45.7,48.0] z[-1162.8,-1160.0]
+         tri  181: idall 0 -> 236  (topo 0 -> 59)  centroid (46.83,-1161.87)  x[45.7,48.0] z[-1162.8,-1160.0]
+         tri  182: idall 0 -> 236  (topo 0 -> 59)  centroid (46.07,-1161.5)  x[45.7,46.8] z[-1162.8,-1160.0]
+         tri  198: idall 0 -> 236  (topo 0 -> 59)  centroid (46.63,-1158.8)  x[45.7,48.0] z[-1160.0,-1158.2]
+         tri  199: idall 0 -> 236  (topo 0 -> 59)  centroid (46.47,-1159.4)  x[45.7,48.0] z[-1160.0,-1158.2]
+  [PASS] the hull DID stamp terrain tiles (collision exists)  -- 14
+  [PASS] every changed tile became topograph 59 (impassable structure)
+  [PASS] NO event tile was overwritten by the hull (the trigger is untouched)
+  [PASS] every changed tile lies INSIDE the beacon footprint  -- 0 outside
+  [PASS] no changed tile overlaps the trigger rect  -- 0
+       total topo-59 tris in the block now: 14
+  [PASS] the ONLY topo-59 geometry in the block is this hull (no orphaned blockers left anywhere)  -- 14 blocked vs 14 changed
+  [PASS] every hull tile stays >= 1.0u north of the trigger rect  -- closest +1.70u
+  [PASS] pass 3's OLD hull footprint is CLEAR -- no orphaned topo-59 blockers in z[-1159.3,-1154.7]  -- 0 orphans: []
+  [PASS] spot-probe of pass 3's old anchor area reads WALKABLE again  -- []
+
+(d) the beacon's UVs
+  [PASS] one UV per vertex  -- 666 vs 666
+  [PASS] no degenerate [0,0] UV (would render white)
+  [PASS] every UV in [0,1]
+  [PASS] BOTH authored tiles present (stone shaft + warm lantern room)  -- 570 stone corners, 96 lantern corners
+       u[0.00414,0.36106] v[0.35084,0.45676]
+
+====================================================================================================
+(e) DISC PARITY
+====================================================================================================
+  [PASS] Terrain: Disc1 and Disc4 byte-identical  -- db6e94d780f5 vs db6e94d780f5
+       Terrain md5 db6e94d780f5923bfc9eaefe6c2f0ce8  (40580 B)
+  [PASS] Object: Disc1 and Disc4 byte-identical  -- 4acc87aba56a vs 4acc87aba56a
+       Object md5 4acc87aba56ab8e5e164cb790c94d92b  (34652 B)
+
+====================================================================================================
+ALL CHECKS PASS
+====================================================================================================

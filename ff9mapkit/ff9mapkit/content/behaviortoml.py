@@ -108,6 +108,8 @@ ACTION_VERBS = {
     "die": (),
     "battle": (),
     "award": ("item", "count"),
+    "add_shop_item": (),
+    "remove_shop_item": (),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -611,6 +613,10 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # award = <gil int> (+ item = name/id, count = n); exactly-once BY the
         # event-Once machinery — validate requires `once` on the branch
         return B.Award(gil=int(v), item=d.get("item"), count=int(d.get("count", 1)))
+    if verb in ("add_shop_item", "remove_shop_item"):
+        # [shop_id, item] — the AddShopItem 0x115 runtime stock mutation; the same
+        # event-Once lane as award (session-global state, re-asserted per entry)
+        return B.ShopStock(shop=int(v[0]), item=v[1], add=(verb == "add_shop_item"))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -1217,6 +1223,31 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         except Exception as e:
                             problems.append(f"{ctx}: award item {do['item']!r} does "
                                             f"not resolve ({e})")
+                if verb in ("add_shop_item", "remove_shop_item"):
+                    # AddShopItem 0x115: the engine SILENTLY no-ops on a shop id
+                    # absent from ShopItems.csv — an unknown id must never pass lint
+                    if (not isinstance(v, list) or len(v) != 2
+                            or not isinstance(v[0], int)):
+                        problems.append(f"{ctx}: {verb} takes [shop_id, item]")
+                    else:
+                        own = {int(sh.get("id", -1)) for sh in raw.get("shop", []) or []}
+                        if not 0 <= v[0] <= 255:
+                            problems.append(f"{ctx}: {verb} shop id must be 0..255")
+                        elif v[0] not in own and not 0 <= v[0] <= 31:
+                            problems.append(f"{ctx}: {verb} shop {v[0]} is neither a "
+                                            f"[[shop]] in this field nor a vanilla "
+                                            f"shop 0-31 — the engine would silently "
+                                            f"no-op on a shop ShopItems.csv lacks")
+                        try:
+                            from .. import items as _items
+                            _items.resolve(v[1])
+                        except Exception as e:
+                            problems.append(f"{ctx}: {verb} item {v[1]!r} does not "
+                                            f"resolve ({e})")
+                    if not br.get("once"):
+                        problems.append(f"{ctx}: {verb} needs `once = \"name\"` — the "
+                                        f"mutation is session state, asserted "
+                                        f"exactly-once per entry by that machinery")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):
