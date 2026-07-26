@@ -21,8 +21,10 @@ WORLD11 additions:
   entry 0 tag 0   -- Main_Init gains InitObject(15, 0) (unconditional spawn -- the 9009 pattern)
 
 Seeding: Global.Bit[8712] (the kit's safe flag band) marks "boat record seeded"; first load
-parks the boat at BOAT_SPAWN. Dismount = Confirm while sailing: parks the boat where it
-floats, snaps the player to DOCK (v1 simplification -- no shore-legality check yet).
+parks the boat at BOAT_SPAWN. Dismount = Confirm while sailing: snaps the player to DOCK and
+MOORS THE BOAT HOME at BOAT_SPAWN (v1.1, 2026-07-26 -- see the MOOR-HOME note on BOAT_LOOP;
+still no shore-legality check, that is R5). v1 parked it where it floated, which let its
+board check race a Southern Ring quay's confirm gate.
 
 Deploy: py build_boat_world11.py --deploy   (per-language into FF9CustomMap-world)
 Revert: restore the printed backups (or delete the .eb.bytes if none existed).
@@ -125,6 +127,18 @@ RET()
 
 # The proven board/dismount loop (probe counters stripped after the rung-1 proof).
 # Board = on foot + Confirm|Cross HELD (B_KEY -- THE INPUT-BIT LAW) + within NEAR of the boat.
+#
+# ⚠ MOOR-HOME (2026-07-26, owner ruling). v1's dismount parked the boat WHERE IT FLOATED while
+# snapping the player to DOCK. That put the boat's own per-frame bare-Confirm board check (0x24000,
+# ~100u radius) anywhere the player had sailed -- including alongside a Southern Ring quay, where it
+# RACED that quay's confirm gate: pressing Enter at an entrance SOMETIMES boarded the crimson Narciss
+# instead of entering the field (owner playtest). The dismount now also returns the BOAT to
+# BOAT_SPAWN, so the board check can only ever fire at the block-(7,17) islet -- 125u+ from any quay,
+# and the two gates can never overlap. Proper boarding UX (a prompt, shore-legality) stays R5.
+#
+# The load path needed no change: the Init's tail MoveInstantXZY at L86 is the merge of BOTH branches
+# and there is NO Global[74..82] parked-record read anywhere in the entry (position is hard-coded for
+# the bench), so a world load already re-moors unconditionally. Verified from the deployed bytes.
 BOAT_LOOP = f"""
 L0:
 SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEY B_ANDAND B_EXPR_END}})
@@ -149,6 +163,8 @@ JMP_IFNOT(L900)
 DisableMove()
 DetachObject({ANCHOR_UID})
 RunScriptSync(6, {ANCHOR_UID}, {SNAP_TAG})
+MoveInstantXZY({{const4({fp(BOAT_SPAWN[0])}) B_EXPR_END}}, {{const({BOAT_Y}) B_EXPR_END}}, {{const4({fp(BOAT_SPAWN[1])}) B_EXPR_END}})
+TurnInstant({{const({BOAT_FACE}) B_EXPR_END}})
 SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
 RunWorldCode(1, 0)
 op_22(8)
