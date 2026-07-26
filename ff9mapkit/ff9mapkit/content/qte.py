@@ -100,6 +100,13 @@ class QteSpec:
     result: int
     rounds: int = 10
     window: int = 50                  # reaction frames per prompt
+    par: int = 80                     # % of the THEORETICAL max that scores 100.
+                                      # Stock's calibration: its divisor lets a great
+                                      # human run reach 100 (~82% of theoretical, the
+                                      # clamp absorbs the top) — scoring against 100%
+                                      # made 100 impossible and ~85 the superhuman
+                                      # ceiling (ENGARDE round 1: "hard to get above
+                                      # ~70"). Lower par = kinder, 100 = merciless.
     buttons: tuple = tuple(BUTTONS)   # the prompt set (names, >= 2)
     gil: bool = False                 # pay stock's purse formula at the finale
     flag: int | None = None           # optional GLOB bit raised at the finale
@@ -110,7 +117,7 @@ class QteSpec:
     payout_text: str = DEFAULT_PAYOUT_TEXT
 
 
-_KEYS = {"name", "result", "rounds", "window", "buttons", "gil", "flag",
+_KEYS = {"name", "result", "rounds", "window", "par", "buttons", "gil", "flag",
          "prompt_window", "result_window", "verdicts", "score_text", "payout_text"}
 
 
@@ -135,6 +142,10 @@ def from_raw(block: dict, idx: int) -> QteSpec:
     if not isinstance(window, int) or not 10 <= window <= 255:
         raise QteError(f"{ctx}: window must be 10..255 reaction frames (stock: 50, "
                        f"30 on the encore)")
+    par = block.get("par", 80)
+    if not isinstance(par, int) or not 10 <= par <= 100:
+        raise QteError(f"{ctx}: par must be 10..100 (the % of the theoretical max "
+                       f"that scores 100 — default 80, stock's calibration)")
     btns = tuple(str(b) for b in (block.get("buttons") or tuple(BUTTONS)))
     bad = [b for b in btns if b not in BUTTONS]
     if bad:
@@ -154,7 +165,7 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         wv = block.get(wkey, 1 if wkey == "prompt_window" else 5)
         if not isinstance(wv, int) or not 0 <= wv <= 7:
             raise QteError(f"{ctx}: {wkey} must be 0..7 (Dialog.WindowID)")
-    return QteSpec(name=name, result=result, rounds=rounds, window=window,
+    return QteSpec(name=name, result=result, rounds=rounds, window=window, par=par,
                    buttons=btns, gil=bool(block.get("gil", False)), flag=flag,
                    prompt_window=int(block.get("prompt_window", 1)),
                    result_window=int(block.get("result_window", 5)),
@@ -264,9 +275,10 @@ def game_body(spec: QteSpec, txids: dict) -> bytes:
     B.append((JMP, "round_top"))
     # THE FINALE — stock's score/clamp/tiers/purse, parameterized
     B.append(label("results"))
+    par_max = max(1, spec.rounds * spec.window * spec.par // 100)
     B.append(_stmt(f"Global.Int16[{spec.result}] "
                    f"Global.Int16[{S_POINTS}] Global.Int16[{S_BONUS}] B_PLUS "
-                   f"const(100) B_MULT const({spec.rounds * spec.window}) B_DIV "
+                   f"const(100) B_MULT const({par_max}) B_DIV "
                    f"B_LET"))
     B.append(_stmt(f"Global.Int16[{spec.result}] const(100) B_GT"))
     B.append((JMP_IFNOT, "cl_lo"))
