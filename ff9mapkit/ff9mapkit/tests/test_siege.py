@@ -137,6 +137,26 @@ def test_win_sfx_fanfare_branch():
         _spec(win_sfx="loud")
 
 
+def test_win_flash_branch():
+    """`win_flash` adds the wash one rung below the jingle: pay -> fanfare ->
+    flash, all event-Once on the monotonic `won` flag. `true` means white."""
+    b = S.behavior_raw(_spec(win_sfx=108, win_flash=True))
+    base = b["unit"][0]
+    dos = [br["do"] for br in base["branch"]]
+    assert dos.index({"sfx": 108}) < dos.index({"flash": [255, 255, 255]})
+    fl = next(br for br in base["branch"]
+              if isinstance(br["do"], dict) and "flash" in br["do"])
+    assert fl["when"] == [{"flag": "won"}] and fl["once"] == "winflash"
+    # a colour list passes through; junk is refused
+    b2 = S.behavior_raw(_spec(win_flash=[255, 60, 60]))
+    assert any(br["do"] == {"flash": [255, 60, 60]} for br in b2["unit"][0]["branch"]
+               if isinstance(br["do"], dict))
+    with pytest.raises(S.SiegeError, match="win_flash"):
+        _spec(win_flash=[255, 300, 0])
+    with pytest.raises(S.SiegeError, match="win_flash"):
+        _spec(win_flash="white")
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)
@@ -171,7 +191,7 @@ def _siege_toml() -> str:
     out.write(_FIELD)
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
               'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
-              "loss_battle = 35\n"
+              "win_flash = true\nloss_battle = 35\n"
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")
@@ -214,6 +234,12 @@ def test_full_build_compiles(tmp_path):
              for ins in D.iter_code(body, 0, len(body))
              if ins.name == "RunSoundCode3"]
     assert plays == [(53248, 108)]
+    # ... and the flash (win_flash = true): one white FadeFilter pair
+    fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))
+             for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body))
+             if ins.op == 0xEC]
+    assert fades == [(6, 255, 255, 255), (7, 0, 0, 0)]
     # determinism: a second load desugars to the identical raw
     p2 = BLD.FieldProject.load(f)
     assert p2.raw["behavior"] == p.raw["behavior"]

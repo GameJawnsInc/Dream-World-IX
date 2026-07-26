@@ -504,6 +504,28 @@ class Sfx(Action):
             raise BehaviorError("Sfx bank must be 0..65535 (default 53248 = 0xD000)")
 
 
+FLASH_OUT_FRAMES = 24               # the donor rest bracket's fade-out (field 300 @4925)
+FLASH_IN_FRAMES = 16                # ... and its restore — both in-game proven via the
+                                    # kit savepoint's tent rest (content.savepoint)
+
+
+@dataclass
+class Flash(Action):
+    """ONE screen flash — the donor rest bracket's proven ``FadeFilter`` (0xEC,
+    WIPERGB) pair minus the rest: ``CalculateScreenPosition(player)`` + SUB out to
+    the colour over 24 frames, wait it through, restore over 16 (field 300's exact
+    mode/frame/intensity shape, in-game proven via the kit savepoint). Same two
+    stances as Sfx: Once-wrapped = event-Once fire-and-release (the win-flash
+    lane); bare = play at dispatch, idle while selected. The body holds the
+    dispatch level ~40 frames — queued one-shots fire when it releases."""
+    rgb: tuple = (255, 255, 255)
+
+    def __post_init__(self):
+        self.rgb = tuple(int(c) for c in self.rgb)
+        if len(self.rgb) != 3 or not all(0 <= c <= 255 for c in self.rgb):
+            raise BehaviorError("Flash rgb must be three ints 0..255")
+
+
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
                                          # ("Special never fires on this user's binding")
 
@@ -1440,7 +1462,7 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx)):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
@@ -1451,7 +1473,7 @@ class FieldBehavior:
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth, Sfx)):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                 bare.add(ids[id(n.action)])
                 if isinstance(n.action, (Award, ShopStock, ShopSynth)):
                     bare_awards.add(ids[id(n.action)])
@@ -1644,7 +1666,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx)) and aid in once_ann:
+                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -2101,7 +2123,7 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx)):
+            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                 # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
                 # "once" means fire-and-release — the sticky form over a MONOTONIC
                 # cond (a kill tally, a spent wave counter) would hold the selection
@@ -2644,6 +2666,30 @@ class FieldBehavior:
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + [opcodes.window_async(a.window, 128, int(a.txid))]
+                       + [label("loop"),
+                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          (JMP_IFNOT, "out"),
+                          opcodes.wait(1), (JMP, "loop"),
+                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+        if isinstance(a, Flash):
+            r, g, bl = a.rgb
+            burst = [
+                opcodes.encode(0xA9, PLAYER_UID),        # CalculateScreenPosition —
+                opcodes.encode(0xEC, 6, FLASH_OUT_FRAMES, 255, r, g, bl),
+                opcodes.wait(FLASH_OUT_FRAMES),          # the donor bracket runs it
+                opcodes.encode(0xA9, PLAYER_UID),        # before EACH FadeFilter
+                opcodes.encode(0xEC, 7, FLASH_IN_FRAMES, 255, 0, 0, 0),
+                opcodes.wait(FLASH_IN_FRAMES),
+            ]
+            if oneshot_latch is not None:
+                return asm([
+                    _set_flag(oneshot_latch, 1),         # latch FIRST (Battle's shape)
+                    _set_byte(run, 255),
+                ] + burst + [
+                    _set_byte(run, 0),
+                    opcodes.RETURN,
+                ])
+            return asm(head[:1] + burst
                        + [label("loop"),
                           _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),

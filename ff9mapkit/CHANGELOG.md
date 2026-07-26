@@ -5,16 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — the `sfx` behavior verb + `[siege] win_sfx` (theater rung A)
+### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
 - `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
   branch — `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the kit's
   treasure chest plays in-game (bank 53248; ids via `ff9mapkit sfx-list`). Once-wrapped it
   rides the event-Once lane (fire-and-release — the purse-fanfare shape, gated on the same
   monotonic flag as an `award`); bare, it plays at dispatch and idles while selected (a
   bare `announce`'s no-spam shape). Lint checks id/bank ranges; unknown option keys refuse.
-- `[siege]` grew `win_sfx = <id>`: one generated event-Once fanfare branch below the pay,
-  gated on `won` — the purse pays one tick, the cue rings the next (the draining-condition
-  law's authoring shape). Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421).
+- `do = { flash = [r, g, b] }` washes the screen to a colour and back — the donor rest
+  bracket's `FadeFilter` (0xEC) pair, field 300's exact mode/frame/intensity shape, already
+  in-game proven through the savepoint tent. Same once/bare stances as `sfx`; the body
+  holds the dispatch level ~40 frames and queued one-shots fire on release.
+- `[siege]` grew the win-theater dials `win_sfx = <id>` and `win_flash = true | [r,g,b]`:
+  generated event-Once branches below the pay, all gated on the monotonic `won` flag —
+  purse, jingle, wash on consecutive ticks (the draining-condition law's authoring shape).
+  Win-lane only by design: a loss cue on the base would race its die-on-`lost`
+  `TerminateEntry`, so a loss keeps its own drama (the cry / the boss battle).
+  Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421); rung A cast-proven
+  ("victory sound fired once, nothing on defeat").
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS

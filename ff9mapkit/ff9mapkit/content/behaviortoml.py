@@ -69,9 +69,9 @@ is re-routed through the walkmesh pathfinder and the detours spliced in; clear
 legs stay exactly as authored),
 ``flee`` (threat; +to = refuge points, avoid_r, speed), ``wander`` (centre
 point; +radius, every, speed), ``swing_at`` (unit; +damage, interval),
-``die``, ``sfx`` (a sound-effect cue; +bank), ``announce`` (a text line — minted
-into the field's .mes) / ``announce_npc`` (reuse that NPC's own dialogue line;
-+window).
+``die``, ``sfx`` (a sound-effect cue; +bank), ``flash`` (a [r, g, b] screen
+flash), ``announce`` (a text line — minted into the field's .mes) /
+``announce_npc`` (reuse that NPC's own dialogue line; +window).
 
 Branch keys: ``when`` (optional), ``do`` (required), ``once = "name"`` OR
 ``cooldown = frames`` (the sticky decorators), ``raise_flags`` /
@@ -114,6 +114,7 @@ ACTION_VERBS = {
     "add_shop_synth": (),
     "remove_shop_synth": (),
     "sfx": ("bank",),
+    "flash": (),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -656,6 +657,9 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
     if verb == "sfx":
         # sfx = <sound id> (+ bank) — RunSoundCode3 with the chest-proven params
         return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)))
+    if verb == "flash":
+        # flash = [r, g, b] — the donor rest bracket's FadeFilter pair
+        return B.Flash(tuple(int(c) for c in v))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -1343,6 +1347,12 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: sfx bank must be an int 0..65535 "
                                         f"(default 53248 = 0xD000, the field-SFX "
                                         f"bank)")
+                if verb == "flash":
+                    if (not isinstance(v, list) or len(v) != 3
+                            or not all(isinstance(c, int) and not isinstance(c, bool)
+                                       and 0 <= c <= 255 for c in v)):
+                        problems.append(f"{ctx}: flash takes [r, g, b] — three ints "
+                                        f"0..255 (the screen-flash colour)")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):

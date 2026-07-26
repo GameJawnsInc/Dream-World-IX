@@ -58,8 +58,8 @@ DEFAULT_PROMPT = "WAR COUNCIL — deploy on this spot:"
 DEFAULT_REPLY = "Deployed!  He holds this very spot."
 
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
-         "win_sfx", "loss_battle", "button", "council_prompt", "hud", "hud_text",
-         "flag_base", "alarm_radius", "base", "ally", "raider",
+         "win_sfx", "win_flash", "loss_battle", "button", "council_prompt",
+         "hud", "hud_text", "flag_base", "alarm_radius", "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
@@ -142,6 +142,7 @@ class SiegeSpec:
     win_gil: int = 0
     win_item: str | None = None
     win_sfx: int | None = None       # the purse fanfare cue (`ff9mapkit sfx-list` ids)
+    win_flash: tuple | None = None   # the win screen-flash colour (true = white)
     loss_battle: int | None = None
     button: bool = True
     council_prompt: str = DEFAULT_PROMPT
@@ -271,6 +272,16 @@ def from_raw(s: dict) -> SiegeSpec:
                            or not 0 <= ws <= 0xFFFF):
         raise SiegeError(f"{ctx}: win_sfx must be a sound id int 0..65535 "
                          f"(`ff9mapkit sfx-list`; 108 = the item-get jingle)")
+    wf = s.get("win_flash")
+    if wf is True:
+        wf = (255, 255, 255)                     # win_flash = true -> white
+    elif wf is not None:
+        if (not isinstance(wf, list) or len(wf) != 3
+                or not all(isinstance(c, int) and not isinstance(c, bool)
+                           and 0 <= c <= 255 for c in wf)):
+            raise SiegeError(f"{ctx}: win_flash takes true (white) or [r, g, b] "
+                             f"ints 0..255")
+        wf = tuple(wf)
     fb = s.get("flag_base", REQUEST_FLAG_BASE)
     if not isinstance(fb, int) or not 8712 <= fb <= 16300:
         raise SiegeError(f"{ctx}: flag_base must be a GLOB bit in the safe band "
@@ -285,6 +296,7 @@ def from_raw(s: dict) -> SiegeSpec:
         stipend=int(s.get("stipend", 0)), win_gil=int(s.get("win_gil", 0)),
         win_item=(str(s["win_item"]) if s.get("win_item") else None),
         win_sfx=(int(ws) if ws is not None else None),
+        win_flash=wf,
         loss_battle=(int(s["loss_battle"]) if s.get("loss_battle") is not None else None),
         button=bool(s.get("button", True)),
         council_prompt=str(s.get("council_prompt", DEFAULT_PROMPT)),
@@ -378,6 +390,12 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         # the cue the next — THE DRAINING-CONDITION LAW's authoring shape)
         bb.append(_branch(when=[{"flag": "won"}], once="fanfare",
                           do={"sfx": spec.win_sfx}))
+    if spec.win_flash is not None:
+        # the win FLASH rides the same ladder one rung lower: pay, jingle, wash.
+        # Win-lane only — a loss cue on the base would race its die-on-`lost`
+        # TerminateEntry, so the loss keeps its own drama (the cry / the battle).
+        bb.append(_branch(when=[{"flag": "won"}], once="winflash",
+                          do={"flash": list(spec.win_flash)}))
     bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
                       once="alarm", do={"announce": spec.text_alarm}))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))

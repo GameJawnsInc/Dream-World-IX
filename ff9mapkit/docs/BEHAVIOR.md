@@ -332,6 +332,25 @@ behaves like a bare `announce`: it plays when the branch dispatches and cannot r
 until the tree deselects and re-selects it (an alarm sting each time raiders close in, not
 a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>`.
 
+### `flash` — a screen flash
+
+```toml
+[[behavior.unit.branch]]
+when = [{ flag = "won" }]
+do = { flash = [255, 255, 255] }   # wash to this colour and back
+once = "winflash"
+```
+
+One screen wash — the donor rest bracket's `FadeFilter` pair (field 300's exact
+mode/frame/intensity shape, already in-game proven through the savepoint tent):
+`CalculateScreenPosition(player)` + SUB out to the colour over 24 frames, then restore
+over 16. Same two stances as `sfx`: once-wrapped = event-Once fire-and-release (the
+win-wash lane); bare = fires per dispatch. The body holds the unit's dispatch level for
+~40 frames while the wash runs — queued one-shots (a pending purse, an announce) fire the
+moment it releases, so stack theater as separate branches on one monotonic flag: pay,
+jingle, wash on consecutive rungs. `[siege]` exposes it as `win_flash = true` (white)
+or `[r, g, b]`.
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:
