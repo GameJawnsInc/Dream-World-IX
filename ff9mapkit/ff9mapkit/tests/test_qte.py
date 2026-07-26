@@ -13,7 +13,7 @@ from ff9mapkit.content import qte as Q
 from ff9mapkit.eb import disasm as D, opcodes
 from ff9mapkit.eb.model import EbScript
 
-RAW = {"name": "duel", "result": 2006, "rounds": 8, "window": 45,
+RAW = {"name": "duel", "result": 1998, "rounds": 8, "window": 45,
        "gil": True, "flag": 8712}
 
 
@@ -125,8 +125,11 @@ def test_entry_and_call():
     ({"flag": 16200}, "qte_scratch"),            # the game's OWN scratch (bytes 2018-2031)
     ({"flag": 16256}, "netsync_coop_cells"),     # reserved INSIDE the band's numeric range
     ({"flag": 16320}, "choice_scratch"),
-    # the result cap 2016 keeps the word strictly below the scratch band (2018+)
-    ({"result": 2018}, "4..2016"),
+    # the result cap 2004 keeps the word strictly below the nameplate explored words
+    # (bytes 2006-2017, live overworld visited state since 172c8b98) and the scratch band (2018+)
+    ({"result": 2018}, "4..2004"),
+    ({"result": 2006}, "4..2004"),               # the first nameplate word (the old pinned example)
+    ({"result": 2016}, "4..2004"),               # the old cap top -- now inside the nameplate words
     ({"flag": 200}, "safe custom band"),         # free stock space, but outside the audited band
     ({"flag": True}, "BIT index"),
     # the result Int16 spans TWO bytes -- both must clear the reserved regions
@@ -145,12 +148,12 @@ def test_from_raw_rejects(over, frag):
 
 def test_from_raw_safe_flag_and_clear_result_pass():
     """The tightened validation must not over-reject: the first safe bit, a result word just past
-    the read-mail payload (bytes 1089-1090), the last clear word below the scratch band (2016-2017),
-    and the flagless form all load."""
+    the read-mail payload (bytes 1089-1090), the last clear word below the nameplate explored
+    words (2004-2005), and the flagless form all load."""
     spec = _spec(flag=8712, result=1100)
     assert spec.flag == 8712 and spec.result == 1100
     assert _spec(flag=None, result=1089).result == 1089
-    assert _spec(flag=None, result=2016).result == 2016
+    assert _spec(flag=None, result=2004).result == 2004
     assert _spec(flag=None).flag is None
 
 
@@ -180,15 +183,16 @@ def test_scratch_band_clears_the_coop_cells():
         for bit in range(b * 8, b * 8 + 8):
             r = F.bit_region(bit)
             assert r is not None and r.reserved and r.name == "qte_scratch", (b, bit)
-    # and the result cap admits no word touching the band
-    assert (2016 + 1) * 8 + 7 < F.QTE_SCRATCH_FLOOR
+    # and the result cap admits no word touching the nameplate words below the band, either
+    assert F.RESULT_WORD_CAP == 2004
+    assert (F.RESULT_WORD_CAP + 1) * 8 + 7 < F.NAMEPLATE_EXPLORED_FLOOR < F.QTE_SCRATCH_FLOOR
 
 
 _TOML = (
     '[field]\nid = 30001\nname = "QTE"\narea = 11\n'
     "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
     '\n[[npc]]\nname = "duelist"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Well?"\n'
-    '\n[[qte]]\nname = "duel"\nresult = 2006\nrounds = 8\nwindow = 45\ngil = true\n'
+    '\n[[qte]]\nname = "duel"\nresult = 1998\nrounds = 8\nwindow = 45\ngil = true\n'
     '\n[[choice]]\nnpc = "duelist"\nprompt = "Cross blades?"\n'
     'options = [ { text = "En garde!", qte = "duel" }, { text = "Not today" } ]\n'
 )

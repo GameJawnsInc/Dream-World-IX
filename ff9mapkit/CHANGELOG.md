@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the `[[qte]]`/`[[numeric_input]]` result caps clear the nameplate words
+- The extended-nameplate band claimed gEventGlobal bytes 2006-2017 as live overworld
+  visited state (the explored words), but the modal `result` caps still read 4..2016 —
+  the reserved-region walk already refused 2005-2016, so the caps promised offsets the
+  validator then rejected, and the QTE suite's own pinned example (`result = 2006`) sat
+  on the first explored word. Both caps now derive from one owner,
+  `flags.RESULT_WORD_CAP` (2004, flush below `NAMEPLATE_EXPLORED_FLOOR`), so a future
+  floor move carries them along; docs and error messages updated, and `lint_flag_bands`
+  regression-pins that a result word in the nameplate words is named as such.
+
 ### Added — the Behavior tab AUTHORS ON THE STAGE (rung C)
 - **Stage edit** (the ✥ toggle): every writable point on the stage grows a drag handle —
   unit posts, the player spawn, patrol/march/flee route points (a point that is a NAME

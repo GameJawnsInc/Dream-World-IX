@@ -3603,7 +3603,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
         verb = "would extend" if args.dry_run else "extended"
         print(f"{verb} THE NAMEPLATE BAND (func-0xB range arms -> cases 65-{EN.VIRGIN_CASE_MAX}, minus "
               f"the 91-93 vehicle trio) in {len(s['written'])} dispatcher file(s); "
-              f"{len(s['skipped'])} already extended. Explored words: gEventGlobal bytes 2006-2016 "
+              f"{len(s['skipped'])} already extended. Explored words: gEventGlobal bytes 2006-2017 "
               f"(flags.NAMEPLATE_EXPLORED_FLOOR, kit-reserved). Stock cases 1-64/91-93/156+ compute "
               f"byte-equivalently (256-case interpreter proof in tests). Re-enter the world to apply.")
         return 0
