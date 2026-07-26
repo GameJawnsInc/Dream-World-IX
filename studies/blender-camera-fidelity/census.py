@@ -95,7 +95,11 @@ def census(limit=None):
                 sx, sy, resz = C.project(p, c)
                 if resz <= 0:                                    # behind the raw camera
                     continue
-                ox, oy = sx + rw / 2.0, rh / 2.0 - sy            # to_canvas, inlined
+                # DELIBERATELY the offset-less canvas form, NOT cam.to_canvas (which since 2026-07
+                # folds in the GTE centerOffset): this census validates the Blender POSE
+                # (ff9_cam_to_blender models no principal-point shift), and a camera's constant
+                # centerOffset shift is absorbed downstream by the per-camera view nudge (ops.py).
+                ox, oy = sx + rw / 2.0, rh / 2.0 - sy
                 cand = _pinhole_px(b, rw, rh, bridge.ff9_verts_to_blender([p])[0])
                 if cand is None:
                     errs.append(1e9)                             # oracle sees it, Blender doesn't: max fault

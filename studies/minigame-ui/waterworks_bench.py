@@ -110,19 +110,17 @@ def posts() -> dict:
 def bar_anchor() -> tuple[int, int]:
     """Canvas top-left for the bar stack, INSIDE THE BOOT CAMERA WINDOW.
 
-    A REAL camera's canvas mapping needs its GTE ``centerOffset`` (this donor:
-    [26, 400]) on top of cam.to_canvas's novel-field convention (novel cams are
-    always offset-0, so the kit helper never needed it). From the spawn's
-    corrected canvas point, the boot window = the camera CENTER clamped to the
-    scroll viewport band ± the PSX half-screen (160, 112) — the probe showed the
-    naive spawn-column anchor landed OFF the boot view entirely."""
+    cam.to_canvas now folds in a REAL camera's GTE ``centerOffset`` (this donor:
+    [26, 400] — the case that exposed the bug; regression-pinned in
+    ff9mapkit/tests/test_cameras.py). From the spawn's canvas point, the boot
+    window = the camera CENTER clamped to the scroll viewport band ± the PSX
+    half-screen (160, 112) — the probe showed the naive spawn-column anchor
+    landed OFF the boot view entirely."""
     tris, spawn = _spawn_floor_tris()
     tri = next(t for t in tris if _pt_in_tri_xz(spawn[0], spawn[1], *t))
     sy = sum(v[1] for v in tri) / 3.0
     c0 = CAM.parse_bgx_cameras_text((BENCH / "camera.bgx").read_text(encoding="utf-8"))[0]
-    rawx, rawy, _ = CAM.project((spawn[0], sy, spawn[1]), c0)
-    cx = rawx + c0.centerOffset[0] + c0.range[0] / 2.0
-    cy = c0.range[1] / 2.0 + c0.centerOffset[1] - rawy
+    cx, cy = CAM.to_canvas((spawn[0], sy, spawn[1]), c0)
     vx0, vx1, vy0, vy1 = c0.viewport                     # the camera-CENTER clamp band
     win_x0 = max(vx0, min(vx1, cx)) - 160                # the 320x224 boot window's top-left
     win_y0 = max(vy0, min(vy1, cy)) - 112

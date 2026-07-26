@@ -28,6 +28,13 @@ CAMS = [
 ]
 PTS = [(0, 0, 0), (500, 0, 300), (-800, 0, -1200), (1465, 0, -3344), (300, -400, 800), (-1799, 0, -3344)]
 
+# fbg_n11_ldbm_map158_lb_plz_0 (field 559) camera 0 -- the donor that exposed the to_canvas
+# centerOffset bug (WATERWORKS bench 30420): the largest GTE centerOffset seen so far ([26, 400]
+# on a 512x400 canvas), so the offset-less map put every canvas point a whole screen off.
+MAP158 = ("LDBM_PLZ", 960, (26, 400), (79, -4643, 12147), (512, 400), -989, (160, 352, 112, 288),
+          [1, 0.005371094, -0.001220703, -0.002929688, 0.3371582, -0.8703613,
+           -0.004638672, 0.9326172, 0.361084])
+
 
 def _make(rec):
     name, proj, off, t, rng, dz, vp, om = rec
@@ -94,6 +101,48 @@ def test_grgr_projection_offset_and_canvas_inverse():
     for z in (340, -1188, -3344):
         cy = C.to_canvas((0, 0, z), grgr)[1]
         assert abs(C.solve_z_for_canvasY(grgr, cy) - z) < 0.5
+
+
+@pytest.mark.parametrize("rec", CAMS + [MAP158], ids=[c[0] for c in CAMS] + [MAP158[0]])
+def test_to_canvas_matches_engine_actor_frame(rec):
+    """to_canvas must equal the ENGINE actor position (project_screen, which uses the real
+    projectionOffset incl. centerOffset) mapped into the canvas frame -- the definitional identity
+    canvas = (engine.x + HFW, HFH - engine.y). Holds for offset-0 AND real offset cameras."""
+    _, cam = _make(rec)
+    for P in PTS:
+        ex, ey, _ = C.project_screen(P, cam)
+        cx, cy = C.to_canvas(P, cam)
+        assert abs(cx - (ex + C.HALF_FIELD_W)) < 1e-9
+        assert abs(cy - (C.HALF_FIELD_H - ey)) < 1e-9
+
+
+def test_to_canvas_offset_zero_reduces_to_historical_form():
+    # novel (kit-authored) cameras always have centerOffset [0,0]: the map must stay byte-identical
+    # to the historical offset-less form there, so nothing downstream of `ff9mapkit new` moves.
+    _, grgr = _make(CAMS[0])
+    assert grgr.centerOffset == [0, 0]
+    for P in PTS:
+        px, py, _ = C.project(P, grgr)
+        assert C.to_canvas(P, grgr) == (px + grgr.range[0] / 2.0, grgr.range[1] / 2.0 - py)
+
+
+def test_map158_center_offset_regression():
+    """The proven WATERWORKS-bench case: the map158 spawn (-3247, -134, -2344) must land at canvas
+    ~(16.5, 386.2) -- ON the 512x400 canvas -- not at the offset-less (-9.5, -13.8), which is OFF it.
+    Also: solve_z_for_canvasY must invert the corrected map on this real offset camera."""
+    _, cam = _make(MAP158)
+    P = (-3247, -134.0, -2344)
+    cx, cy = C.to_canvas(P, cam)
+    assert abs(cx - 16.47) < 0.05 and abs(cy - 386.18) < 0.05
+    assert 0 <= cx <= cam.range[0] and 0 <= cy <= cam.range[1]
+    # the offset-less form is off-canvas -- the bug this test pins
+    px, py, _ = C.project(P, cam)
+    ox, oy = px + cam.range[0] / 2.0, cam.range[1] / 2.0 - py
+    assert ox < 0 and oy < 0
+    # the inverse stays exact through the offset fold
+    for z in (-2344, -1000, 500):
+        cyz = C.to_canvas((-3247, -134.0, z), cam)[1]
+        assert abs(C.solve_z_for_canvasY(cam, cyz, x=-3247, y=-134.0) - z) < 0.5
 
 
 def test_paint_template_renders():

@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `cam.to_canvas` now folds in a real camera's GTE `centerOffset`
+- The painted-canvas map (`cam.to_canvas`, and through it `solve_z_for_canvasY` /
+  `horizon_canvas_y`) omitted the camera's GTE `centerOffset` — correct for every kit-authored
+  camera (always `[0, 0]`, byte-identical there) but wrong for imported REAL cameras. Proven
+  case: donor `fbg_n11_ldbm_map158_lb_plz_0` (field 559, centerOffset `[26, 400]`) projected
+  its spawn OFF-canvas at (-9.5, -13.8) instead of the true (16.5, 386.2). The map is now
+  `canvasX = rawProj.x + centerOffset.x + w/2`, `canvasY = h/2 + centerOffset.y - rawProj.y`
+  (the exact canvas-frame image of the engine's `project_screen`). Downstream, this corrects
+  import spawn selection (`extract`'s on-camera test), the `compose_background` walkmesh
+  footprint / Blender backdrop, the repaint-native walkmesh outline, `field_layout_probe`'s
+  camview, and the Blender editable-fork view-offset fit on offset donors. Regression pinned
+  against the real map158 camera in `tests/test_cameras.py`.
+
 ### Fixed — single-field auto story-flags moved into the provably-safe band (save-corrupter default)
 - The single-field auto once/gate-flag defaults (an unflagged `[[event]]` / `[[cutscene]]` /
   zone-`[[choice]]` / `[[on_entry]]` / `[ate]`) allocated from the legacy 8000/8100/8200/8300
