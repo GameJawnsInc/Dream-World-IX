@@ -42,7 +42,8 @@ def test_explored_word_bit_ranges():
     assert EN.explored_word_bit(17) == (94, 0)         # 17-32 -> word 94
     assert EN.explored_word_bit(33) == (96, 0)         # 33-48 -> word 96
     assert EN.explored_word_bit(64) == (98, 15)
-    for bad in (0, 65, -1):
+    assert EN.explored_word_bit(65) == (2006, 0)       # THE EXTENDED BAND (test_nameplate_band.py)
+    for bad in (0, -1, 91, 156):
         with pytest.raises(ValueError):
             EN.explored_word_bit(bad)
 

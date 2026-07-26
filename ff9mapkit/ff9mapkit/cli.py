@@ -3598,6 +3598,18 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     into one deploy. Reversible = delete the printed files (or re-deploy the journey)."""
     from pathlib import Path
     from .world import entrance as EN
+    if not args.extend_nameplate_band and args.cell is None:
+        print("--cell X Z is required (except with --extend-nameplate-band)", file=sys.stderr)
+        return 2
+    if args.extend_nameplate_band:
+        s = EN.extend_nameplate_band(args.mod_folder, dry_run=args.dry_run)
+        verb = "would extend" if args.dry_run else "extended"
+        print(f"{verb} THE NAMEPLATE BAND (func-0xB range arms -> cases 65-{EN.VIRGIN_CASE_MAX}, minus "
+              f"the 91-93 vehicle trio) in {len(s['written'])} dispatcher file(s); "
+              f"{len(s['skipped'])} already extended. Explored words: gEventGlobal bytes 2006-2016 "
+              f"(flags.NAMEPLATE_EXPLORED_FLOOR, kit-reserved). Stock cases 1-64/91-93/156+ compute "
+              f"byte-equivalently (256-case interpreter proof in tests). Re-enter the world to apply.")
+        return 0
     n_dest = sum(v is not None for v in (args.field, args.case, args.field_direct))
     if n_dest != 1:
         print("give a destination: exactly one of --field <id> / --case <n> (the dispatcher-case "
@@ -7090,8 +7102,9 @@ def build_parser() -> argparse.ArgumentParser:
                          help="author a WHOLE custom overworld entrance in one shot: the trigger function (into "
                               "every world dispatcher that carries the destination case, all 7 langs) + the event "
                               "tiles + an optional modelled building. Needs the WorldMeshOverride engine patch.")
-    wen.add_argument("--cell", type=int, nargs=2, metavar=("X", "Z"), required=True,
-                     help="the overworld CELL to place the entrance (32u cells; see the debug-menu World tab / world-locate)")
+    wen.add_argument("--cell", type=int, nargs=2, metavar=("X", "Z"),
+                     help="the overworld CELL to place the entrance (32u cells; see the debug-menu World "
+                          "tab / world-locate). Required except with --extend-nameplate-band")
     wen.add_argument("--field", type=int,
                      help="destination base field id (resolved to a dispatch case; e.g. --field 300 = Ice Cavern). "
                           "A fork/journey field_remap/s28 then sends it on to your fork")
@@ -7185,6 +7198,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "Auto-capped to the building footprint so the flat ground stays UNDER the impassable "
                           "structure (a wider pad leaves walkable edge-steps you get stuck on). Usually unneeded -- "
                           "seating alone handles most spots; the building skirt hides a small float.")
+    wen.add_argument("--extend-nameplate-band", action="store_true",
+                     help="standalone: deploy THE EXTENDED NAMEPLATE BAND (the func-0xB range-arm "
+                          "splice) into every free-roam dispatcher of --mod-folder, enabling virgin "
+                          "nameplate cases 65-155 (a virgin-case deploy past 64 also runs this "
+                          "automatically). Idempotent; stock cases compute byte-equivalently; "
+                          "explored bits live in the kit-reserved words at gEventGlobal bytes "
+                          "2006-2017. Only --mod-folder (and optionally --dry-run) apply")
     wen.add_argument("--fresh", action="store_true",
                      help="re-read this block's terrain/object from PRISTINE p0data, ignoring any already-deployed "
                           "override -- use when RE-doing a block (a flatten pad or a kept building otherwise COMPOUNDS "

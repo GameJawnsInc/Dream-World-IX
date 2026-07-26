@@ -37,7 +37,8 @@ def test_resolve_renames_validation():
                 [{"locid": 3, "to": "two\nlines"}],           # newline
                 [{"to": "x"}],                                # no selector
                 [{"name": "Nowhere", "to": "x"}],             # unknown name
-                [{"locid": 99, "to": "x"}]):                  # out-of-range
+                [{"locid": 155, "to": "x"}],                  # past the case-155 cap
+                [{"locid": 91, "to": "x"}]):                  # the vehicle HUD trio
         with pytest.raises(ValueError):
             navimap.resolve_renames(bad)
 

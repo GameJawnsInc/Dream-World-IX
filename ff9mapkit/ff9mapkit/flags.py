@@ -55,6 +55,10 @@ MOGNET_MAILBOX_LO, MOGNET_MAILBOX_HI = 8192, 8367   # stock Mognet mailbox Byte[
 MOGNET_LOCK_LO, MOGNET_LOCK_HI = 8376, 8511    # the Mognet lock bands + their margin (real-FF9; reserved)
 CHEST_FLAG_LO, CHEST_FLAG_HI = MOGNET_LOCK_LO, MOGNET_LOCK_HI   # deprecated alias (the old mislabel)
 READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI = 8512, 8711   # stock read-mail scratch bytes 1064-1088 (reserved)
+NAMEPLATE_EXPLORED_FLOOR = 16048               # bytes 2006-2017: the EXTENDED-NAMEPLATE explored words
+                                               # (world/entrance.py EXTENDED_EXPLORED_RANGES -- 6 UInt16
+                                               # words, one save-persistent "visited" bit per virgin
+                                               # nameplate case 65-155; flush below the QTE scratch)
 QTE_SCRATCH_FLOOR = 16144                      # bytes 2018-2031: the [[qte]] modal scratch (content/qte.py)
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
@@ -164,6 +168,12 @@ NAMED_WORDS = [
 # Specific named bits are listed BEFORE the broad band they sit inside, so bit_region() resolves the
 # precise name first (e.g. bit 815 -> "mognet_central_discovered", not the broad "worldmap_unlocks").
 BIT_REGIONS = [
+    BitRegion("nameplate_explored_words", 16048, 16143, "The kit's EXTENDED-NAMEPLATE explored words "
+              "(bytes 2006-2017): one save-persistent 'visited' bit per virgin nameplate case 65-155, "
+              "read by the kit-extended func-0xB in every free-roam dispatcher and set by virgin-band "
+              "entrance warp branches (world/entrance.py EXTENDED_EXPLORED_RANGES). Kit-owned; a "
+              "custom story flag here would flip a location's explored state.", True, "a",
+              "world/entrance.py extend_nameplate_band"),
     BitRegion("field_menu_guard", 184, 184, "Engine handshake: 'in-field menu/transition in progress'. "
               "Re-checked + cleared every Main_Init.", True, "a", "disassembly fields 50/100/300"),
     BitRegion("boot_scratch", 191, 191, "Companion scratch bit zeroed on every boot.", True, "a",
@@ -467,6 +477,11 @@ def collect_flag_defs(raw: dict, *, check_index_collisions: bool = True) -> dict
         if not (FIRST_SAFE_FLAG <= idx < CHOICE_SCRATCH_FLOOR):
             raise ValueError(f"[[flag]] {name!r}: index {idx} is outside the safe custom band "
                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}); pick an index there.")
+        if is_reserved(idx):
+            r = bit_region(idx)
+            raise ValueError(f"[[flag]] {name!r}: index {idx} is inside the reserved '{r.name}' region "
+                             f"({r.lo}-{r.hi}: {r.meaning.split('.')[0]}); pick a clear index in "
+                             f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
         if check_index_collisions and idx in by_idx:
             raise ValueError(f"[[flag]] {name!r} and {by_idx[idx]!r} both use index {idx} -- two "
                              f"different story flags can't share one gEventGlobal bit.")

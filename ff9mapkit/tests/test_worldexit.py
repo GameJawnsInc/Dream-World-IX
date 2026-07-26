@@ -265,9 +265,12 @@ def test_entrance_func_body_virgin_case_nameplate():
             assert 61 not in cs, f"{name} maps case 61 -- the virgin band is not virgin"
     tail = list(D.iter_code(named, 0, len(named)))
     assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
-    # 65+ has no explored bit: author-level validation depends on explored_word_bit raising
+    # 65+ is now THE EXTENDED BAND (its own reserved words); the vehicle trio + 156+ still refuse
+    assert explored_set_expr(65)                              # word 2006 bit 0 -- valid since the extension
     with pytest.raises(ValueError):
-        explored_set_expr(65)
+        explored_set_expr(91)                                 # the vehicle HUD trio
+    with pytest.raises(ValueError):
+        explored_set_expr(156)                                # Byte[24] would wrap
 
 
 def test_marker_rename_extends_the_table_for_the_virgin_band():

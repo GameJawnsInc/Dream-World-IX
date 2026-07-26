@@ -2353,3 +2353,60 @@ Residual known cosmetic: NONE — the §21 caveat about the quicksand plate read
 3. A quay sanity pass: one ferry hop still lands beside its beacon, plate "Lantern Quay".
 4. (Only if you happen to have a stock save near Cleyra: the quicksand still ambushes with Antlion
    and its plate still shows the stock "?" — nothing borrowed, nothing renamed.)
+
+---
+
+# 23. THE EXTENDED NAMEPLATE BAND — cases 65–155 — **APPLIED** (hot; plate-sanity check pending)
+
+Run 2026-07-26, owner-directed ("could we extend the nameplates past a measly limit of 5? ...
+just hit it now, we will need it eventually"). Backups:
+`backups/r3-lamplight.20260726-r3lamplight/dispatchers-post-r3fix/` (all 63, the §22 state) +
+per-file copies in `ff9mapkit/backups/nameplate-band/`.
+
+## 23.1 What it is
+
+The named-entrance space was capped at 5 per world (case 53 + the virgin band 61–64) by ONE thing:
+stock func-0xB's last range arm (`w98 >> (case−49)`) dies above 64. **The engine is unbounded** —
+`GetTableText` splits whatever block-68 we ship and the plate read bounds-checks (verified in
+`FF9TextTool.cs`/`ETb.cs`) — and `Byte[24] = case+100` caps the case space at 155. So the kit now
+splices func-0xB's RANGE-ARM SECTION (its first 114 bytes — identical across all 63 files except
+WORLD02's pending-flag var, Byte[35] vs Byte[38]) with a chain adding arms for **65–90 and 94–155**
+(the 91–93 vehicle-HUD trio reserved), whose explored bits live in the kit's OWN reserved words —
+**`flags.NAMEPLATE_EXPLORED_FLOOR`, gEventGlobal bytes 2006–2017** (a new reserved `BitRegion`;
+the `[[flag]]` validator now refuses reserved regions — a pre-existing enforcement gap closed).
+Each file's TAIL (the per-world vehicle switch, 7 distinct shapes) is kept verbatim.
+
+**Named-entrance budget per world: 5 → 93** (case 53 + virgin 61–90 ∪ 94–155).
+
+## 23.2 Proofs
+
+* **The oracle**: the composed stock arm section reproduces the live dispatcher bytes exactly, both
+  var forms (`test_stock_arm_section_is_the_oracle`).
+* **The semantics**: a byte-walking interpreter (EBin rules: Int32 ops, C# `>>` masks count&31) ran
+  ALL 256 Byte[39] values through both chains — 168 stock-domain cases byte-equivalent (1–64, the
+  91–93 trio, 156–255), 88 new-band cases reading their assigned word/bit
+  (`test_extended_chain_semantics_all_256_cases`).
+* **The deploy**: per file, ONLY entry-1/tag-11 changed; its new body == extended-arms + that file's
+  own old tail verbatim; idempotence proven (a re-run writes 0, skips 63). 138 tests green across
+  the affected suites.
+
+## 23.3 Kit surface
+
+`world-entrance --extend-nameplate-band --mod-folder <F>` (standalone, idempotent; a virgin-case
+deploy past 64 also auto-runs it) · `entrance.f0xb_arm_section` / `extend_nameplate_band` /
+`EXTENDED_EXPLORED_RANGES` / `RESERVED_VIRGIN_CASES` / `VIRGIN_CASE_MAX` · `explored_word_bit` +
+`explored_set_expr` cover 65–155 (region-encoded long-index var form `FC + u16`, engine-verified) ·
+`navimap.resolve_renames` locids to 154 (dot-table paths stay capped at the real 64) ·
+`tests/test_nameplate_band.py` (6) · the stale QTE "e.g. 2006" byte-offset suggestion corrected.
+
+## 23.4 Undo
+
+Restore the 63 files from `dispatchers-post-r3fix/` (returns the §22 state — Lamplight case 61
+still works; it never needed the extension). Re-enter the overworld; no relaunch.
+
+## 23.5 Playtest ask (owner) — a plain plate-sanity pass on next play, nothing dedicated
+
+The splice byte-preserves every stock computation, so nothing SHOULD look different. On your next
+session simply confirm: a stock town plate still shows (walk near any real entrance), a quay still
+reads "Lantern Quay", Lamplight still reads "Lamplight", and vehicle overlays (gil/time on
+board/dismount) still behave. First consumer of a 65+ case: the R4/R5 named spots when they come.

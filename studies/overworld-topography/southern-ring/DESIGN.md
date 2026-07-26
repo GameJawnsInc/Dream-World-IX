@@ -135,6 +135,19 @@ stock bytes touched** (63 dispatchers = pre-R3 + one added func each, byte-prove
 its per-language stock labels restored exactly). Named-entrance budget: 1 → 5 (53 + 61-64). Record:
 REVERT.md §22; re-playtest = §22.8.
 
+**THE EXTENDED NAMEPLATE BAND ★ DEPLOYED (2026-07-26, owner-directed, plate-sanity pending):** the
+5-slot cap was ONE script-side arm (func-0xB's `w98 >> (case−49)` dying past 64) — the engine is
+unbounded (verified in FF9TextTool/ETb). The kit now splices func-0xB's 114-byte range-arm section
+(63 dispatchers; each file's vehicle-switch tail kept verbatim; WORLD02's Byte[35] var form handled)
+with arms for **cases 65–90 ∪ 94–155**, explored bits in kit-reserved words (gEventGlobal bytes
+2006–2017, a new flags.py BitRegion + the `[[flag]]` validator now enforces reserved regions).
+**Named-entrance budget per world: 5 → 93.** Proofs: the stock-section ORACLE + a 256-case
+byte-walking interpreter (168 stock-equivalent, 88 new-band correct) + deploy/idempotence byte
+checks; 138 tests. `world-entrance --extend-nameplate-band`; auto-runs on any 65+ deploy. Not
+entrance-only: the case space serves per-quay names, plate-only POIs (summon without a warp), and
+the explored bits are save-persistent per-place "visited" state any `.eb` can read. Record:
+REVERT.md §23.
+
 **R3 PLAYTEST CONFIRMED (2026-07-26, "good"):** the case-61 loop works in-game — plate → Confirm →
 the lamp room → walk out → the name registers; no battle. The quicksand leg (§22.8 item 4) was not
 in-game checked (no Cleyra-era save available) and doesn't need to be: its branch, cell tag, and

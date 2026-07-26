@@ -383,6 +383,24 @@ NAMEPLATE_SURGERY_CASE = 53
 # index (case-1)+1 == case). Verified: split[1] == "Alexandria Harbor" == case 1's nameplate (PIN case_evidence).
 
 
+# --------------------------------------------------------------------------- THE EXTENDED VIRGIN BAND
+# Cases 65-155 (minus the vehicle trio 91-93): stock func-0xB's last arm computes `w98 >> (case-49)`,
+# which dies above 64 (the shift runs off word 98) -- the ONLY thing capping the named-entrance space
+# at 5 slots per world. The ENGINE is unbounded (GetTableText splits whatever block-68 we ship, and the
+# plate read bounds-checks), and Byte[24] = case+100 caps the case space at 155. So the kit replaces
+# func-0xB's RANGE-ARM SECTION (its first 114 bytes -- identical across all 9 free-roam dispatchers x
+# 7 langs except WORLD02's pending-flag var, Byte[35] vs Byte[38]) with a chain whose new arms read
+# explored bits from the kit's OWN reserved safe-band words (flags.NAMEPLATE_EXPLORED_FLOOR, bytes
+# 2006-2016), while every stock-reachable case (1-64, the 91-93 vehicle trio, 156+) computes
+# byte-equivalently. Each file's own TAIL (the per-world vehicle switch) is kept verbatim.
+# Census 2026-07-26 (all compare ops, full 0-255 range, every live dispatcher): the only special
+# Byte[24] values are 20/52/100/120/191-193 + the 91-93 windows -- the extended band is clean.
+EXTENDED_EXPLORED_RANGES = ((65, 80, 2006), (81, 90, 2008), (94, 109, 2010),
+                            (110, 125, 2012), (126, 141, 2014), (142, 155, 2016))
+RESERVED_VIRGIN_CASES = frozenset({91, 92, 93})     # the vehicle HUD plates (Byte[24] 191/192/193)
+VIRGIN_CASE_MAX = 155                               # Byte[24] = case + 100 must fit the 8-bit var
+
+
 def explored_word_bit(case: int) -> tuple:
     """The ``(gEventGlobal word, bit)`` whose set state makes case ``case``'s nameplate show its NAME (not "?").
 
@@ -390,11 +408,119 @@ def explored_word_bit(case: int) -> tuple:
     (byte-verified WORLD09 @6333/@6365/@6397/@6418): 1-16 -> word 92 bit (case-1); 17-32 -> word 94 bit (case-17);
     33-48 -> word 96 bit (case-33); 49-64 -> word 98 bit (case-49). The main loop shows the NAME variant only when
     ``Byte[38] != 0``. This word/bit is ALSO the navi-marker discovery bit for locId ``case-1``
-    (``navimap.marker_bit(case-1) == word*8 + bit``), so the two are one and the same save flag."""
+    (``navimap.marker_bit(case-1) == word*8 + bit``), so the two are one and the same save flag.
+
+    Cases 65-155 (THE EXTENDED VIRGIN BAND) map onto the kit's own reserved words
+    (:data:`EXTENDED_EXPLORED_RANGES` -- NOT navi bits; these places have no map dots by construction)
+    and need the extended func-0xB deployed (:func:`extend_nameplate_band`)."""
     for lo, word in ((1, 92), (17, 94), (33, 96), (49, 98)):
         if lo <= case <= lo + 15:
             return word, case - lo
-    raise ValueError(f"case {case} out of the nameplate range 1..64 (no explored bit)")
+    if case in RESERVED_VIRGIN_CASES:
+        raise ValueError(f"case {case} is a vehicle HUD case (Byte[24] {case + 100}) -- reserved")
+    for lo, hi, word in EXTENDED_EXPLORED_RANGES:
+        if lo <= case <= hi:
+            return word, case - lo
+    raise ValueError(f"case {case} out of the nameplate range 1..{VIRGIN_CASE_MAX} (no explored bit; "
+                     f"Byte[24]=case+100 is an 8-bit var, so 156+ can never carry a plate)")
+
+
+def _f0xb_test(k: int) -> bytes:
+    """func-0xB range-arm test: ``EXPR{ Byte[39] <= k }`` -- byte template from the live stock body."""
+    return bytes([0x05, 0xD5, 0x27, 0x7D, k & 0xFF, (k >> 8) & 0xFF, 0x1A, 0x7F])
+
+
+def _f0xb_assign(var_b: int, word: int, base: int) -> bytes:
+    """func-0xB range-arm assign: ``EXPR{ Byte[var] = (gEventGlobal[word] >> (Byte[39]-base)) & 1 }``.
+    ``word`` <= 255 uses the stock short var form (``DC ww``); above that the engine's long-index form
+    (``FC ww ww`` -- EBin.getVarOperation's ``| 0x20`` + u16, the same encoding region._push_var emits)."""
+    w = bytes([0xDC, word]) if word <= 0xFF else bytes([0xFC, word & 0xFF, (word >> 8) & 0xFF])
+    return (bytes([0x05, 0xD5, var_b]) + w
+            + bytes([0xD5, 0x27, 0x7D, base & 0xFF, (base >> 8) & 0xFF,
+                     0x15, 0x17, 0x7D, 0x01, 0x00, 0x24, 0x2C, 0x7F]))
+
+
+def f0xb_arm_section(var_b: int = 0x26, *, extended: bool = False) -> bytes:
+    """func-0xB's RANGE-ARM SECTION, composed from the byte templates above.
+
+    ``extended=False`` reproduces the STOCK section byte-exactly (the oracle: tests assert it against
+    the live dispatcher bytes) -- three bounded arms (w92/w94/w96) + the unbounded w98 else.
+    ``extended=True`` is THE EXTENDED VIRGIN BAND chain: the stock arms verbatim, the w98 arm bounded
+    at 64, the new-word arms of :data:`EXTENDED_EXPLORED_RANGES`, a stock-formula arm for the 91-93
+    vehicle trio (they never display the plate, but their Byte[38] computation stays byte-equivalent),
+    and the stock else for 156+ -- so every stock-reachable case computes exactly as before.
+    ``var_b`` is the pending-flag var operand: 0x26 (Byte[38]) everywhere except WORLD02's 0x23."""
+    arms = [(16, 92, 1), (32, 94, 17), (48, 96, 33)]
+    if extended:
+        arms += [(64, 98, 49), (80, 2006, 65), (90, 2008, 81), (93, 98, 49),
+                 (109, 2010, 94), (125, 2012, 110), (141, 2014, 126), (155, 2016, 142)]
+    parts = []
+    for (k, word, base) in arms:
+        a = _f0xb_assign(var_b, word, base)
+        parts.append(_f0xb_test(k) + bytes([0x02, len(a) + 3, 0x00]) + a + b"\x01\x00\x00")
+    parts.append(_f0xb_assign(var_b, 98, 49))                 # the unconditional else
+    total = sum(len(p) for p in parts)
+    out = bytearray(); pos = 0
+    for p in parts[:-1]:                                       # patch each arm's JMP -> the tail
+        dist = total - (pos + len(p))
+        p = p[:-3] + bytes([0x01, dist & 0xFF, (dist >> 8) & 0xFF])
+        out += p; pos += len(p)
+    out += parts[-1]
+    return bytes(out)
+
+
+def extend_nameplate_band(mod_folder: str, *, game=None, dry_run: bool = False,
+                          backup_dir=None) -> dict:
+    """Deploy THE EXTENDED VIRGIN BAND: splice the extended range-arm chain into func-0xB
+    (entry-1/tag-11) of every free-roam dispatcher, every language, keeping each file's own TAIL
+    (the per-world vehicle switch -- 7 distinct shapes) verbatim. Idempotent: a file already carrying
+    the extended chain is skipped; a file whose arm section matches neither the stock nor the extended
+    template is REFUSED (never guess at unknown bytes). Reads each language's OWN deployed base."""
+    from ..eb.model import EbScript
+    from ..eb import edit as E
+    game_path = config.find_game_path(game)
+    eb_root = game_path / mod_folder / _WORLD_EB_SUBDIR
+    alld = load_all_dispatchers(game)
+    summary = {"written": [], "skipped": [], "refused": [], "dry_run": dry_run, "backups": []}
+    bkdir = Path(backup_dir) if backup_dir else (Path.cwd() / "backups" / "nameplate-band")
+    for name in sorted(n for n, L in alld.items() if "us" in L and dispatcher_cases(L["us"]) is not None):
+        fname = name.upper() + ".eb.bytes"
+        for lang in LANGS:
+            lang_mod = eb_root / lang / fname
+            base = lang_mod.read_bytes() if lang_mod.is_file() else alld[name].get(lang, alld[name]["us"])
+            fn = EbScript.from_bytes(base).entry(1).func_by_tag(11)
+            if fn is None:
+                summary["refused"].append((name, lang, "no func-0xB (entry-1 tag-11)"))
+                continue
+            body = base[fn.abs_start:fn.abs_end]
+            var_b = None
+            for vb in (0x26, 0x23):
+                if body.startswith(f0xb_arm_section(vb, extended=True)):
+                    var_b = vb; body = None; break                 # already extended
+                if body.startswith(f0xb_arm_section(vb, extended=False)):
+                    var_b = vb; break
+            if body is None:
+                summary["skipped"].append((name, lang))
+                continue
+            if var_b is None:
+                summary["refused"].append((name, lang, "unrecognized func-0xB arm section"))
+                continue
+            stock_arms = f0xb_arm_section(var_b, extended=False)
+            new_body = f0xb_arm_section(var_b, extended=True) + body[len(stock_arms):]
+            if not dry_run:
+                if lang_mod.is_file():
+                    bkdir.mkdir(parents=True, exist_ok=True)
+                    bk = bkdir / f"{name.upper()}.{lang}.{_timestamp()}.eb.bytes"
+                    shutil.copy2(lang_mod, bk)
+                    summary["backups"].append(str(bk))
+                out = E.replace_function_body(base, 1, 11, new_body)
+                lang_mod.parent.mkdir(parents=True, exist_ok=True)
+                lang_mod.write_bytes(out)
+            summary["written"].append((name, lang, len(body), len(new_body)))
+    if summary["refused"]:
+        raise ValueError(f"extend_nameplate_band refused {len(summary['refused'])} file(s): "
+                         f"{summary['refused'][:3]} -- fix or restore those dispatchers first")
+    return summary
 
 
 def explored_set_expr(case: int) -> bytes:
@@ -692,9 +818,12 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
             # navimap) and the explored bit. The trigger is the SELF-SUMMON body (fix-A2's verified laws:
             # summon gated on Byte[24]==100, warp on the on-foot gate, warp-branch Byte[24]=100 mute) with
             # the case's own summon + explored-bit set; the switch is never repointed -- there is no slot.
-            if not 61 <= the_case <= 64:
-                raise ValueError(f"nameplate_case {the_case} is past the explored-bit range (61-64 is the "
-                                 f"virgin band; 65+ has no w98 bit and no plate machinery)")
+            if the_case in RESERVED_VIRGIN_CASES:
+                raise ValueError(f"nameplate_case {the_case} is a vehicle HUD case (Byte[24] "
+                                 f"{the_case + 100}) -- reserved, pick another")
+            if not 61 <= the_case <= VIRGIN_CASE_MAX:
+                raise ValueError(f"nameplate_case {the_case} is past the virgin band (61-{VIRGIN_CASE_MAX}; "
+                                 f"Byte[24]=case+100 is an 8-bit var, so 156+ can never carry a plate)")
             handler = None
             body = None                                    # per-dispatcher: carries the world-state record
             dest = {"case": the_case, "field": int(direct_field),
@@ -751,6 +880,14 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         summary.update({"surgery": True, "nameplate_name": nameplate_name, "name_locid": the_case - 1,
                         "explored_word": exp_word, "explored_bit": exp_bit,
                         "explored_bit_index": exp_word * 8 + exp_bit})
+
+    # (0) a virgin case past 64 needs THE EXTENDED BAND deployed (the func-0xB replacement whose new
+    #     range arms read the kit's reserved explored words) -- run it first, idempotently, so the
+    #     trigger below patches into already-extended bases. Cases 61-64 ride stock func-0xB's own
+    #     unbounded 49+ arm and need nothing.
+    if surgery and handler is None and the_case > 64:
+        summary["nameplate_band"] = extend_nameplate_band(mod_folder, game=game, dry_run=dry_run,
+                                                          backup_dir=backup_dir)
 
     # (1) the trigger function -> every carrying dispatcher, patched into EACH language's OWN base (stacking on any
     #     existing mod-folder .eb). Per-lang because JP's dispatcher carries localized dialogue + a distinct layout.

@@ -157,8 +157,9 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         raise QteError(f"{ctx}: result {result} -- the Int16 word (bytes {result}-{result + 1}) "
                        f"overlaps FF9's reserved '{r.name}' region (bits {r.lo}-{r.hi}): a write "
                        f"there corrupts real save/engine state, and ordinary play writes it "
-                       f"right back over the score. Pick a clear byte offset (e.g. 2006, or "
-                       f"{_flags.READMAIL_PAYLOAD_HI // 8 + 1}+).")
+                       f"right back over the score. Pick a clear byte offset (e.g. 1998, or "
+                       f"{_flags.READMAIL_PAYLOAD_HI // 8 + 1}+; 2006-2017 are the kit's "
+                       f"nameplate-explored words).")
     rounds = block.get("rounds", 10)
     if not isinstance(rounds, int) or not 1 <= rounds <= 99:
         raise QteError(f"{ctx}: rounds must be 1..99")

@@ -111,6 +111,12 @@ def marker_presets(entries) -> list[tuple[int, int]]:
 WORLD_TEXT_BLOCK = 68
 
 
+#: the highest label slot the plate machinery can render: split index = case = locId+1, and
+#: ``Byte[24] = case + 100`` is an 8-bit var, so case caps at 155 -> locId 154. locIds 90-92
+#: (cases 91-93) are the vehicle HUD trio -- reserved (entrance.RESERVED_VIRGIN_CASES).
+MAX_RENAME_LOCID = 154
+
+
 def resolve_renames(cfg_list) -> dict:
     """``[{locid|name, to}]`` -> ``{locId: new_name}``. A ``name`` renames every slot it owns. Raises ValueError
     on an unknown/out-of-range selector, a missing/blank ``to``, or a ``to`` containing a newline (would add a
@@ -126,7 +132,19 @@ def resolve_renames(cfg_list) -> dict:
             raise ValueError(f"marker_rename #{i} `to` must be a single line (no newline)")
         sel = item["locid"] if item.get("locid") is not None else item.get("name")
         if sel is None:
-            raise ValueError(f"marker_rename #{i} needs a `locid` (0-63) or a `name`")
+            raise ValueError(f"marker_rename #{i} needs a `locid` (0-{MAX_RENAME_LOCID}) or a `name`")
+        if isinstance(sel, int) and not isinstance(sel, bool):
+            # An int locid may address the EXTENDED band (64-154 = virgin cases 65-155, slots past
+            # the stock table -- apply_marker_renames extends it). resolve_markers stays capped at
+            # the NAVI dot table (0-63): dots and labels are different spaces above 63.
+            if not (0 <= sel <= MAX_RENAME_LOCID):
+                raise ValueError(f"marker_rename #{i}: locid must be 0..{MAX_RENAME_LOCID} (got {sel}; "
+                                 f"split index = locid+1 and Byte[24] caps the case space at 155)")
+            if 90 <= sel <= 92:
+                raise ValueError(f"marker_rename #{i}: locid {sel} is the vehicle HUD trio "
+                                 f"(cases 91-93) -- reserved, pick another slot")
+            out[sel] = to
+            continue
         for loc in resolve_markers([sel]):
             out[loc] = to
     return out
