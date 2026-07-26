@@ -1490,3 +1490,64 @@ Returns the hall to R1's single south-end berth door. **~ → Reload field** (no
 
 ⚠ Known cosmetic gap: all four **overworld** quays still raise the same case-53 **"Lantern Quay"**
 nameplate — per-quay naming needs three more dead AREA-switch cases and is not in this pass.
+
+---
+
+# 16. R2 PHASE D — WRAP-UP CROSS-CHECKS
+
+Run 2026-07-26, immediately after §15. **Zero install writes** — verification only, plus one new
+offline gate.
+
+## 16.1 THE RING-CLOSURE CHECK (new)
+
+The four berth arrives live in `lantern-hall.field.toml`; the four quay arrives live in
+`mint_quay_beacon.SITES`. **They are the same four points written down in two files, and nothing tied
+them together** — edit a quay's arrive without editing the hall (or the reverse) and the ring silently
+half-breaks: you sail to a berth and land somewhere that is no longer beside its beacon. Offline, cheap,
+and exactly the class of drift that only shows up in a playtest.
+
+`probe_quay_sites.py` now parses the hall's `[[gateway]]` blocks and asserts each arrive **and face**
+against `SITES`. Current state — **all four match**:
+
+| berth | hall | quay table |
+|---|---|---|
+| Ashvale | (60, −1168) f192 | (60, −1168) f192 |
+| Tidefall | (432, −1232) f192 | (432, −1232) f192 |
+| Grimhorn | (1214, −1192) f192 | (1214, −1192) f192 |
+| Larkspur | (688, −616) **f64** | (688, −616) **f64** |
+
+## 16.2 Full-R2 install footprint — 93 files, 891 before and after
+
+Re-measured end-to-end against the pre-A2 baseline, after every phase:
+
+| class | count |
+|---|---|
+| world dispatchers (`EVT_WORLD_WORLDxx`, 9 × 7 langs) | 63 |
+| world meshes (4 sites × Terrain/Object × 2 discs) | 16 |
+| field 6601 `.eb` | 7 |
+| field 6601 `.mes` | 7 |
+| **total** | **93** |
+
+No file added or removed. Zero `DictionaryPatch` content change, zero writes to `FF9CustomMap`.
+**No relaunch was performed and none is required** for any of it.
+
+## 16.3 Final verification state
+
+* **`probe_quay_sites.py --backup-root backups/r2-sweep.20260726-r2sweep`: 162 checks, ALL PASS** —
+  four sites × two discs, re-run *after* the 6601 deploy to confirm the field work regressed nothing,
+  plus the new ring-closure section.
+* **Deployed 6601 `.eb`, all 7 langs**: four `arrive_writes` blocks each exactly once, `D8:2 = 35` ×4,
+  `D8:2 = 62` ×0.
+* **Dispatchers**: every pre-existing function body byte-identical and in order, +3 functions each.
+* **Layout probe**: zero warnings; both PNGs archived at `probe_marker/layout_pass7/`.
+* **Tests**: world/mesh + worldexit + hub sets green (134 in the phase-B run; 310 in the A-phase run,
+  with the one known pre-existing `test_world_nameplate_surgery` live-dispatcher failure).
+
+## 16.4 What R2 did NOT do (open, deliberately)
+
+* **Per-quay nameplates.** All four overworld quays raise the same case-53 *"Lantern Quay"* plate.
+  Distinct names need three more dead high AREA-switch cases (49–59 band, avoiding 54–59/49/50) plus
+  three more text-block-68 locId registrations. Cosmetic; flagged, not attempted.
+* **The Grimhorn falls.** A0 dropped by owner ruling — see the §13 preamble. Not to be re-costed.
+* **The ferry berth rows beyond four.** The design's Lamplight island (R3) and the forest pass (R4)
+  are separate rungs.

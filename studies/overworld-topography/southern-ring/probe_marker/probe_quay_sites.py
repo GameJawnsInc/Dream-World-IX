@@ -250,6 +250,37 @@ def probe_site(key, backup_root: Path) -> None:
     print()
 
 
+def ring_closure() -> None:
+    """THE RING-CLOSURE CHECK -- the one invariant nothing else enforces.
+
+    The four berth arrives live in `lantern-hall.field.toml` and the four quay arrives live in
+    `mint_quay_beacon.SITES`. They are the SAME four points written down in two files, and nothing
+    ties them together: edit a quay's arrive without editing the hall (or vice versa) and the ring
+    silently half-breaks -- you sail to a berth and land somewhere that is no longer beside its
+    beacon. Cheap to check, so check it every run."""
+    import re
+    toml = (STUDY / "lantern-hall.field.toml").read_text(encoding="utf-8")
+    got = []
+    for blk in toml.split("[[gateway]]")[1:]:
+        a = re.search(r"arrive\s*=\s*\[\s*([-\d.]+)\s*,\s*([-\d.]+)", blk)
+        f = re.search(r"arrive_face\s*=\s*(\d+)", blk)
+        if a:
+            got.append((float(a.group(1)), float(a.group(2)), int(f.group(1)) if f else None))
+    want = [(SITES[k].arrive[0], SITES[k].arrive[1], SITES[k].arrive_face)
+            for k in ("ashvale", "tidefall", "grimhorn", "larkspur")]
+    print("=" * 100)
+    print("RING CLOSURE -- lantern-hall berths vs mint_quay_beacon.SITES")
+    print("=" * 100)
+    check(len(got) == 4, "the hall declares exactly 4 worldmap berths", f"got {len(got)}")
+    check(sorted(got) == sorted(want), "every berth arrive matches its quay's gated arrive point",
+          f"hall {sorted(got)} vs quays {sorted(want)}")
+    for k, g in zip(("ashvale", "tidefall", "grimhorn", "larkspur"), got):
+        S = SITES[k]
+        ok = (g[0], g[1], g[2]) == (S.arrive[0], S.arrive[1], S.arrive_face)
+        print(f"    {'OK  ' if ok else 'BAD '} {S.name:9s} hall {g} -> quay {S.arrive} face {S.arrive_face}")
+    print()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--site", choices=sorted(SITES) + ["all"], default="all")
@@ -258,6 +289,8 @@ def main() -> int:
     root = Path(a.backup_root)
     for k in (sorted(SITES) if a.site == "all" else [a.site]):
         probe_site(k, root)
+    if a.site == "all":
+        ring_closure()
     print("=" * 100)
     print("ALL CHECKS PASS" if not FAILURES else f"{len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES))
     print("=" * 100)
