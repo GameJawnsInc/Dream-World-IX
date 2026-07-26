@@ -1368,6 +1368,61 @@ description  = "Restores 15 HP."      # optional — the help + battle descripti
 
 ---
 
+## `[[ferry]]` (optional, repeatable)
+
+**Boat travel booked through a PERSON** — stock FF9's own idiom (the Blue Narciss captain's
+"Where to?"). Talk to an NPC, pick a port, sail to the **overworld** at that port's landing.
+
+Use this instead of one walk-on `[[gateway]]` per destination whenever the art does not *paint* a
+distinct, readable door for each one. Four unmarked trigger zones in one corridor are mutually
+adjacent and unreadable — a menu is self-describing and cannot be entered by accident. (Learned the
+hard way: the Lantern Hall shipped four invisible east-wall berths and the playtester could not tell
+what to do, only that they "randomly triggered 1 of 2 warps".)
+
+```toml
+[[npc]]
+name = "Purser"
+pos = [130, -1650]
+model = 220
+dialogue = "Talk to me and I will sail you anywhere on the ring."
+
+[[ferry]]
+npc = "Purser"                       # must name an [[npc]] (or use zone = [...] for a booth)
+prompt = "Where shall we sail?"      # the line above the rows
+decline = "Not yet."                 # REQUIRED -- the stay-ashore row
+decline_reply = "The ferry keeps her berth."   # optional line after declining
+
+[[ferry.destination]]
+name = "Ashvale"                     # the menu row
+arrive = [60.0, -1168.0]             # where you land on the overworld
+arrive_face = 192                    # 0=south 64=west 128=north 192=east
+reply = "The Lantern Quay it is!"    # optional line before the fade
+```
+
+| key | meaning |
+|---|---|
+| `npc` / `zone` | the trigger — exactly one, same semantics as [`[[choice]]`](#choice-optional-repeatable). |
+| `prompt` | the "Where to?" line above the rows. **Required.** |
+| `decline` | the stay-ashore row's text. **Required** — it is appended LAST because the engine's CANCEL (B) returns the last row, so without it a cancelled menu would sail you to the final destination. |
+| `decline_reply` | optional line shown after declining. |
+| `instant` | default `true` — the menu pops fully drawn instead of typing on (a travel menu wants to snap). |
+| `destination[].name` | the menu row. |
+| `destination[].arrive` | `[x, z]` — the overworld landing. Keep it **≥ 8 u** from the quay's own entrance tile or stepping out re-fires the entrance you just used (THE ARRIVAL-CLEARANCE LAW). |
+| `destination[].arrive_face` | raw facing byte 0–255 at the landing. |
+| `destination[].reply` | optional line before the fade. |
+
+> **How it compiles.** A `[[ferry]]` desugars into an ordinary `[[choice]]` whose destination rows
+> carry a worldmap-exit action, so it inherits the whole choice pipeline — the one-text-entry
+> prompt+rows assembly (and with it the window-geometry law), CANCEL-picks-last, the runtime
+> availability mask, flag gating. Each destination arm emits the **same body a walk-out worldmap
+> gateway does** (`worldexit.worldmap_exit_body`): usercontrol guard → fade → *both* position blocks →
+> `POSITION_PRESET_KEY` 35 → computed `WorldMap`. So a ferry row and a door behave identically once
+> taken. The decline arm emits no transition at all.
+>
+> The underlying capability is also available directly as `[[choice]]` `options[].worldmap =
+> { arrive = [x, z], face = N }` for hand-built menus; `[[ferry]]` is the productized surface and the
+> one that gets linted (≥1 destination, a decline arm, and arrive/face validated like a gateway's).
+
 ## `[[choice]]` (optional, repeatable)
 
 A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /

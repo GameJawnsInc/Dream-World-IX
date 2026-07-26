@@ -64,6 +64,23 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
         # camera-init frames (the World-Hub static-screen bug). entrance (optional) sets the arrival
         # entrance var; it is not the camera fix (the fade is) -- see event.warp.
         parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance"), fade=True))  # LAST: away
+    elif "worldmap" in opt:
+        # THE FERRY ARM -- this row sails to the OVERWORLD at a named landing, instead of warping to a
+        # field. It is the same primitive a walk-out worldmap gateway uses (`worldexit.worldmap_exit_body`
+        # with an explicit `arrive`), so a ferry destination and a door behave identically once taken:
+        # usercontrol guard -> fade -> BOTH position blocks -> POSITION_PRESET_KEY -> computed WorldMap.
+        #
+        # Why a choice row and not four doors: stock FF9 books boat travel through a PERSON (the Blue
+        # Narciss "Where to?"), and the alternative -- one walk-on zone per destination -- needs four
+        # readable doors in the art. Borrowed art has none, so four invisible zones in one corridor are
+        # unreadable and mutually triggerable. A menu is self-describing and cannot be entered by accident.
+        #
+        # Mutually exclusive with `warp` (both end the function by transitioning away).
+        from . import worldexit as _wx
+        wm = opt["worldmap"]
+        parts.append(_wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
+                                            arrive_face=int(wm.get("face", 0)),
+                                            fade=True, game=opt.get("_game")))   # LAST: away
     return b"".join(parts)
 
 
