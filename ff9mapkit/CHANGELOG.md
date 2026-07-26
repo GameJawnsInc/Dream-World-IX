@@ -34,7 +34,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   detect it is guaranteed to ring before the cry / the `loss_battle` transition / the
   base's collapse — no watcher unit needed, the reveal-beat serialization pointed the
   other way. (`hp <= 0` is monotonic — swings gate on target hp > 0 — so the stacked
-  once-branches ride the draining-condition law's exemption.)
+  once-branches ride the draining-condition law's exemption.) Round 2 added the `sfx`
+  verb's `sustain = <frames>` option and gave the sting ~1s of it: the event-once lane
+  guarantees ORDER, not DURATION — without sustain the sting got one ~33ms frame of air
+  before the boss battle took the audio (the round-1 playtest).
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS

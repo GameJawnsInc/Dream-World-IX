@@ -330,7 +330,14 @@ gate it on the same *monotonic* flag as an `award` branch and the pay fires one 
 cue the next (flags don't drain — the draining-condition law's authoring fix). **Bare**, it
 behaves like a bare `announce`: it plays when the branch dispatches and cannot re-fire
 until the tree deselects and re-selects it (an alarm sting each time raiders close in, not
-a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>`.
+a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>` and the
+loss lane as `loss_sfx = <id>`.
+
+**`sustain = <frames>`** holds the unit's dispatch level for N frames after the play.
+The event-once lane guarantees *order*, not *duration* — a cue followed by a queued
+one-shot (a `battle`, an `announce`) otherwise gets exactly one ~33ms frame of air before
+the next dispatch takes the audio (the loss-sting round-1 playtest). Sustain is how a cue
+buys its beat: the queued request fires the moment the sustain releases.
 
 ### `flash` — a screen flash
 

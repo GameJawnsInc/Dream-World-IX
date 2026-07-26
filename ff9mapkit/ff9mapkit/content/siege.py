@@ -47,6 +47,9 @@ ALARM_RADIUS = 500
 RAIDER_CONTACT = 210              # the proven melee reach for a marching raider
 CHASE_CONTACT = 170               # a mobile ally's melee reach
 COUNTER_IVL_PAD = 8               # a raider counter-swings a touch slower than its siege swing
+LOSS_STING_SUSTAIN = 55           # ~1s of held dispatch level so the sting rings CLEAR before
+                                  # the loss_battle/cry (rung-C round 1: zero sustain gave the
+                                  # sting one ~33ms frame before the battle took the audio)
 
 DEFAULT_STIPEND_TEXT = ("The city fronts you {stipend} gil for the defense, kupo!"
                         "  Press Select anywhere to deploy troops where you stand.")
@@ -375,8 +378,10 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         # can terminate the base — the reveal-beat serialization, pointed the
         # other way. hp<=0 is monotonic (swings gate on target hp > 0), so the
         # stacked once-branches ride THE DRAINING-CONDITION LAW's exemption.
+        # The sustain is the beat: order alone gave the sting ONE frame of air.
         bb.append(_branch(when=[{"hp_le": 0}], once="losssting",
-                          do={"sfx": spec.loss_sfx}))
+                          do={"sfx": spec.loss_sfx,
+                              "sustain": LOSS_STING_SUSTAIN}))
     if spec.loss_battle is not None:
         bb.append(_branch(when=[{"hp_le": 0}], do={"battle": spec.loss_battle},
                           raise_flags=["lost"]))

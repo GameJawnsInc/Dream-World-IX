@@ -113,7 +113,7 @@ ACTION_VERBS = {
     "remove_shop_item": (),
     "add_shop_synth": (),
     "remove_shop_synth": (),
-    "sfx": ("bank",),
+    "sfx": ("bank", "sustain"),
     "flash": ("pause",),
     "announce": ("window",),
     "announce_npc": ("window",),
@@ -655,8 +655,9 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # a [[synthesis]] RESULT name (resolved via fb.synth_mints at compile)
         return B.ShopSynth(shop=int(v[0]), synth=v[1], add=(verb == "add_shop_synth"))
     if verb == "sfx":
-        # sfx = <sound id> (+ bank) — RunSoundCode3 with the chest-proven params
-        return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)))
+        # sfx = <sound id> (+ bank, sustain) — RunSoundCode3, chest-proven params
+        return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)),
+                     sustain=int(d.get("sustain", 0)))
     if verb == "flash":
         # flash = [r, g, b] (+ pause frames) — stock's ADD-channel flash pair
         # (the option is `pause`, not `hold` — `hold` is the feed verb)
@@ -1349,6 +1350,13 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: sfx bank must be an int 0..65535 "
                                         f"(default 53248 = 0xD000, the field-SFX "
                                         f"bank)")
+                    su = do.get("sustain")
+                    if su is not None and (isinstance(su, bool)
+                                           or not isinstance(su, int)
+                                           or not 0 <= su <= 255):
+                        problems.append(f"{ctx}: sfx sustain must be an int 0..255 "
+                                        f"frames (holds the dispatch level while "
+                                        f"the cue rings)")
                 if verb == "flash":
                     if (not isinstance(v, list) or len(v) != 3
                             or not all(isinstance(c, int) and not isinstance(c, bool)

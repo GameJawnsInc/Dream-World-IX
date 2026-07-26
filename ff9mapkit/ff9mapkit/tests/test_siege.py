@@ -190,6 +190,9 @@ def test_loss_sfx_pre_detect_sting():
                      if isinstance(x["do"], dict) and x["do"].get("sfx") == 1942)
         assert sting["when"] == [{"hp_le": 0}] and sting["once"] == "losssting"
         assert not sting.get("raise_flags")       # detection stays the detect's job
+        # the SUSTAIN is the beat: order alone gave the sting ONE ~33ms frame
+        # before the battle took the audio (rung-C round-1 playtest)
+        assert sting["do"]["sustain"] == S.LOSS_STING_SUSTAIN
         i_die = next(i for i, x in enumerate(br) if x["do"] == {"die": True})
         i_det = next(i for i, x in enumerate(br)
                      if x.get("raise_flags") == ["lost"])
