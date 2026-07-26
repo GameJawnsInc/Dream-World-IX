@@ -85,7 +85,7 @@ grey out individual menu rows by bitmask (complement to our requires_flag row
 VANISHING). Engine's only field-64 hook is a +30% Steam-assist rewrite
 (`EMinigame.cs:9-31`) — cosmetic, skippable.
 
-### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge (★ built as `[[gauge]]`, bench 30420 "WATERWORKS" DEPLOYED — relaunch+playtest pending — `waterworks_bench.py`)
+### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge (★★ built as `[[gauge]]` and FULLY IN-GAME PROVEN, bench 30420 "WATERWORKS", 3 rounds — bars/stepper-feed/shimmer/cover/reload round 1, live shop-follow + `item:` source rounds 2-3, closed at "all checks out" — `waterworks_bench.py`)
 `SetTileColor` 0x59 / `ShowTile` 0x5B / `SetTilePositionEx` 0x5A /
 `MoveTileLoop` 0x5C / `SetTileAnimationFrame` 0xE7 / `AttachTile` 0x92 (follows
 an actor) — ~25K combined uses; field 64 pulses a tile by a Sin-driven color.
@@ -104,6 +104,14 @@ scene-shared, bench-only). The pulse carries field 64's shade VERBATIM
 need `centerOffset` added to `cam.to_canvas`'s novel-field convention (this
 donor: [26, 400]) — the naive spawn-column anchor landed OFF the boot view;
 the bench projects the boot window and pins the bars inside it.
+Two more laws from the playtests: **THE OVERLAY-TEXTURE-CACHE LAW** —
+`MemoriaOverlayTextureCache` is a STATIC dict keyed by PATH, so same-name art
+edits survive ~Reload showing the OLD texture; gauge art ships with sha1
+CONTENT-HASHED filenames (changed art = new path = true hot reload) at 4×
+texel resolution on canvas-size quads (uniform cells under the engine
+upscale). And a saturation lesson: a gil bar showing FULL against a small
+`max` IS the live read working — calibrate `max` to the expected range
+(round 1's "nothing when buying" was a ≥5000 purse pegging max=5000).
 Text-side alternative (unbuilt): `[TBLE=bank]` value-indexed string swap
 (`ETb.cs:270-283`) — one `.mes` entry holding N bar states indexed by a
 `gMesValue` slot.
