@@ -196,8 +196,9 @@ npc = "crier"
   when = [{{ have_item = ["{CONTRACT}", 3] }}]
   do = {{ announce = "Three writs and counting — the armoury runs deep, kupo!" }}
   once = "deep"
+  raise_flags = ["deep3"]
   [[behavior.unit.branch]]
-  when = [{{ have_item = ["{CONTRACT}", 3] }}]
+  when = [{{ flag = "deep3" }}]
   do = {{ add_shop_item = [{SHOP_ID}, "Elixir"] }}
   once = "stock2"
   [[behavior.unit.branch]]
@@ -242,12 +243,12 @@ the TextPatch rename all load at launch — then ~ -> Warp -> {FIELD_ID}):
   2 THE MUSTER: within a second of the shop closing, two soldiers pop at
     your feet, one tick apart, and WRITS drains 2 -> 1 -> 0. They hold where
     they mustered ("At your command!" on talk).
-  3 THE CRIER + THE UNLOCK (round 3 — the snapshot fix): buy THREE in one
-    visit (exactly 3 works now — round 2's four-writ skew was the pool eating
-    one before the cond counted; have_item reads a top-of-tick snapshot) ->
-    on exit the crier calls "Three writs and counting" ONCE and the SAME
-    moment unlocks new stock — reopen the Sutler's shop: it now ALSO sells
-    Elixir. Spawning in with 3 already held fires both too.
+  3 THE CRIER + THE UNLOCK (round 4 — the flag-latch fix): buy THREE in one
+    visit -> the crier calls "Three writs and counting" and, one tick later,
+    the unlock lands — reopen the Sutler's shop: it now ALSO sells Elixir.
+    (Round 3's crier-but-no-Elixir: one branch fires per tick, and the levy
+    drained the 3-writ condition before the unlock's turn came — the crier
+    now RAISES a flag and the unlock gates on the flag, which doesn't drain.)
     The unlock is SESSION state: it survives ~ Reload AND New Game (the shop
     table is process memory, above the save layer) and resets at relaunch,
     where the condition simply re-asserts it when writs reach 3 again.
