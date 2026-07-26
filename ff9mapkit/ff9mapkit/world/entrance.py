@@ -14,8 +14,9 @@ gating + fade). So a working entrance is THREE things wired together, each of wh
      case -- deployed to all 7 language folders (the bytecode is language-identical). There are 13 dispatchers
      (``EVT_WORLD_WORLD00..12``) selected by entry/story state, so an entrance authored into only one is dead in
      every other state -- this covers them all.
-  2. **the event tile(s)** -- set the terrain tiles in the cell to ``event=<id> area=<case>`` (a loose Terrain
-     ``.ff9mesh`` override) so walking there fires ``WorldEvent`` with the matching tag.
+  2. **the event tile(s)** -- set the terrain tiles in the cell to ``event=<id>`` (+ a cosmetic ``area=<case>``
+     stamp; the area bits are NOT read by dispatch) as a loose Terrain ``.ff9mesh`` override, so walking there
+     fires ``WorldEvent`` with the matching tag.
   3. **(optional) the building** -- a Blender-modelled OBJ placed + seated in the cell as the Object mesh (the
      visible structure you walk up to), via :func:`ff9mapkit.world.blendio.build_from_obj`.
 
@@ -434,8 +435,8 @@ def resolve_destination(*, field=None, case=None, game=None) -> dict:
 
     ``case`` given -> validate it exists in WORLD00's switch, report its field. ``field`` given -> invert the
     dispatch table (prefer a case whose ``default`` branch leads there). Returns ``{case, field, note}``."""
-    from .locate import area_to_fields
-    a2f = area_to_fields(game=game)
+    from .locate import case_to_fields
+    a2f = case_to_fields(game=game)
     if case is not None and field is not None:
         raise ValueError("give a destination as EITHER field=<id> OR case=<n>, not both")
     if case is not None:

@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-locate`: geography now follows the engine's CELL-tag dispatch, not tile IDALL areas
+- The area→place join was measured wrong (2026-07-25 Object-mesh census): the engine packs the
+  walked tile's CELL COORDINATES into the world dispatch key (`WorldEvent`:
+  `0x8000 | z<<8 | x<<2 | id`), GetIP-matches it against object-0's function tags, and the
+  matched trigger's `Byte[39]` literal picks the dispatch-switch case — the tile's IDALL
+  `area` bits are never read (a cosmetic regional tag). The old join filed Alexandria's tile
+  cluster under Marsh/Entrance 650 and Qu's Marsh under Treno/Gate 908 because case numbers
+  coincide with unrelated area numbers. `world/locate.py` now decodes `case_to_cells` /
+  `case_to_blocks` from the object-0 cell tags (alias tags = multi-cell entrances resolve
+  through the shared body; triggers with no `Byte[39]` report under case `None`), names each
+  entrance by the engine's `navipos` landmark table (embedded, with honest distances), and
+  `area_to_fields` is renamed `case_to_fields` (old name kept as an alias — the cases never
+  were IDALL areas). `world-locate` prints cells + landmark per case and drops `--disc`
+  (geography is dispatcher-derived); `--area` filter is now `--case` (old spelling accepted).
+  `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
+  block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
+  Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+
 ### Added — `[[numeric_input]]`: the Treno bid stepper as kit vocabulary
 - The game's one number-entry idiom — the Treno auction's 3-digit ×100 stepper, carried
   byte-for-byte by nine shipping fields (852/909/1600/1607/1909/2800/2950/2951/2952) —

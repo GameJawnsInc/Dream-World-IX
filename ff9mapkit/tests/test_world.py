@@ -402,20 +402,53 @@ def test_sc_condition_parse():
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
-def test_area_to_fields_matches_dispatch():
+def test_case_to_fields_matches_dispatch():
     from ff9mapkit.world import locate as L
-    a = L.area_to_fields()
-    assert a[2] == [("SC < 8800", 1856), ("default", 2450)]      # Dali spot's tile area (mod remaps to the fork)
-    assert a[14] == [("SC <= 2540", 359), ("default", 350)]
-    assert a[4] == [("default", 300)]
-    assert a[24][0][1] == 2152 and a[24][-1] == ("default", 602)  # 3-way ScenarioCounter branch
+    a = L.case_to_fields()
+    assert a[2] == [("SC < 8800", 1856), ("default", 2450)]      # case 2 = Alexandria Main Street
+    assert a[14] == [("SC <= 2540", 359), ("default", 350)]      # case 14 = Dali
+    assert a[4] == [("default", 300)]                            # case 4 = Ice Cavern
+    assert a[24][0][1] == 2152 and a[24][-1] == ("default", 602)  # 3-way ScenarioCounter branch (Dragon's Gate)
+    assert L.area_to_fields is L.case_to_fields                  # compat alias for the pre-census name
+
+
+def test_navipos_landmark_pins():
+    """Offline regression pins for the navipos naming layer (the engine's landmark table; the census verified the
+    markers land inside their Object-mesh structure bboxes to <2u)."""
+    from ff9mapkit.world import locate as L
+    lm = {m["name"]: m for m in L.landmarks()}
+    assert lm["Alexandria Harbour"]["block"] == (21, 10)
+    assert lm["Lindblum Dragon's Gate"]["block"] == (14, 15)
+    near = L.nearest_landmark(1349.8, -678.0)
+    assert near["name"] == "Alexandria Harbour" and near["dist"] < 2.0
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
-def test_locate_dali_spot_is_area2():
+def test_case_to_cells_geography_is_the_cell_tag_join():
+    """THE CELL-TAG JOIN (census refit): entrance geography comes from object-0's GetIP cell tags, NOT from the
+    tiles' IDALL area bits (which the pre-census join used -- it filed Alexandria under Marsh 650 and Qu's Marsh
+    under Treno 908 because case numbers coincide with unrelated area numbers)."""
     from ff9mapkit.world import locate as L
-    b = L.area_to_blocks(disc=1)
-    assert (17, 12) in b[2] and (18, 13) in b[2]                 # the Dali overworld spot = area-2 (runtime-proven)
+    c = L.case_to_cells()
+    assert (39, 21, 1) in c[2]                                   # Alexandria's gate cell -> case 2 (1856/2450)
+    assert (34, 25, 1) in c[14]                                  # Dali -> case 14 (NOT the area-2 conflation)
+    assert (29, 29, 1) in c[22]                                  # Qu's Marsh -> case 22 -> Marsh/Entrance 650
+    assert set(c[25]) == {(27, 33, 2), (27, 34, 2), (28, 33, 2), (28, 34, 2)}  # Lindblum: 4 alias tags, ONE body
+    b = L.case_to_blocks()
+    assert b[24] == [(14, 15)]                                   # Lindblum Dragon's Gate block
+    assert (19, 10) in b[2]                                      # Alexandria's gate block
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_locate_rows_name_the_right_places():
+    from ff9mapkit.world import locate as L
+    rows = {r["case"]: r for r in L.locate()}
+    r24 = rows[24]
+    assert r24["blocks"] == [(14, 15)] and r24["landmark"]["name"] == "Lindblum Dragon's Gate"
+    assert r24["destinations"][-1]["field"] == 602
+    r2 = rows[2]
+    assert r2["landmark"]["name"] == "Alexandria" and r2["landmark"]["dist"] < 16
+    assert rows[22]["landmark"]["name"] == "Qu's Marsh" and rows[22]["destinations"][0]["field"] == 650
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

@@ -67,8 +67,10 @@ def decode_id(idall: int) -> dict:
     ff9.cs ``m_GetIDEvent``/``m_GetIDArea``/``m_GetIDTopograph``:
 
       * ``event``     (bits 14-15) -- 0 = plain terrain; 1-3 = a PLACE/field ENTRANCE tile (fires the world
-        ``.eb`` via ``m_GetIDEvent`` -> ``WorldEvent`` -> ``Field()``).
-      * ``area``      (bits 8-13)  -- which place (0-63); the world ``.eb`` maps it to a destination.
+        ``.eb`` via ``m_GetIDEvent`` -> ``WorldEvent``; the event id is packed into the cell tag, so it must
+        match the dispatcher trigger's tag low bits).
+      * ``area``      (bits 8-13)  -- a coarse REGIONAL tag (0-63) shared across whole neighbourhoods; NOT read
+        by entrance dispatch (``WorldEvent`` packs the walked CELL, not these bits -- see ``world/locate.py``).
       * ``topograph`` (bits 2-7)   -- terrain type (0-63): drives encounters / movement / footstep sfx.
       * ``flags``     (bits 0-1).
     """
@@ -78,9 +80,10 @@ def decode_id(idall: int) -> dict:
 
 def encode_id(event: int = 0, area: int = 0, topograph: int = 0, flags: int = 0) -> int:
     """Pack ``{event, area, topograph, flags}`` back into an IDALL (the inverse of :func:`decode_id`) -- the
-    per-triangle ``tangent.x`` value. ``event`` 0=plain land, 1-3=a place entrance; ``area`` 0-63 = the entrance
-    dispatch case; ``topograph`` 0-63 = terrain type (movement/encounters). Used to RE-POINT a world tile
-    (Lever B: make a plain tile an entrance, or change which place an entrance reaches)."""
+    per-triangle ``tangent.x`` value. ``event`` 0=plain land, 1-3=fires the cell's dispatcher trigger (the id is
+    part of the matched tag); ``area`` 0-63 = the cosmetic regional tag (NOT the dispatch case -- the destination
+    comes from the world ``.eb`` object-0 trigger GetIP-keyed to the CELL); ``topograph`` 0-63 = terrain type
+    (movement/encounters). Used to arm/disarm a tile's trigger bits or retype terrain (``world-retarget``)."""
     return ((event & 3) << 14) | ((area & 0x3F) << 8) | ((topograph & 0x3F) << 2) | (flags & 3)
 
 
