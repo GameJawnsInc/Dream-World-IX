@@ -1688,3 +1688,137 @@ single door, use `backups/r2-sweep.20260726-r2sweep/field6601/` instead.
 4. **Walking out the south door** lands you at Ashvale, the home port.
 5. No accidental warps anywhere in the corridor: the only walk-on trigger is the door itself.
 6. Larkspur is the one that lands you facing **west** (inland is west there).
+
+---
+
+# 18. THE FERRY SOFTLOCK — root-caused from the deployed bytes — FIXED, + the hall stripped to two things
+
+Run 2026-07-26. Backups: **`backups/r2-ferryfix.20260726/`** (7 `.eb`, 7 `.mes`, `DictionaryPatch.txt`).
+
+## 18.1 ROOT CAUSE — `MOVEMENT_GATE` in a talk context
+
+**Hypothesis 1 (double binding) is FALSE.** The deployed talk handler has **one** window at `[1120]`
+(`WindowSync(1,128,501)` = the choice prompt). `build`'s talk-body selection assigns
+`sb = _choice.speak_body(...)`, which *replaces* the plain `WindowSync`. The Purser's `dialogue` line was
+allocated a txid and simply never referenced — dead text, not a second window.
+
+**Hypothesis 2 is TRUE, but the mechanism is not a missing close-window op** — `WindowSync` is
+synchronous (`MES` 0x1F waits for the close), so the window is already gone. The killer is the
+**usercontrol prologue**. The deployed arm read:
+
+```
+[1119] DisableMove()                       <- the talk body disables movement
+[1120] WindowSync(1, 128, 501)             <- the choice prompt (SYNC: pick is finalised)
+[1126] op_05({op7A(9) ...})                <- GetChoose
+[1134] op_02(1111)                         <- switch dispatch
+[1137] WindowSync(1, 128, 502)             <- the picked row's reply
+[1143] op_05({op7A(2) op7F})               <- IsMovementEnabled          ← THE BUG
+[1147] op_03(1)                            <- JMP_TRUE +1
+[1150] op_04()                             <- RETURN                     ← taken
+[1151] DisableMove()                       <- never reached
+[1152] FadeFilter(6, 24, ...)              <- never reached
+...    position blocks, key 35, WorldMap   <- never reached
+```
+
+`region.MOVEMENT_GATE` is `ifnot (IsMovementEnabled) { return }` — `7a 02` — *"the verbatim
+region-trigger prologue … exactly like every real exit/switch region."* It is correct for a **walk-on**
+region, where the player is walking and movement is enabled. Inside a **talk** handler movement is
+already disabled (the handler's own `DisableMove()` at `[1119]`), so `IsMovementEnabled` is **0**, the
+gate takes its early `return`, and **the entire exit is skipped**. Because `DisableMove()` has already
+run and nothing re-enables it, the player is left frozen with no window: **the softlock**.
+
+A region-context prologue is not portable into a menu context. Nothing in the type system said so, which
+is why it shipped.
+
+## 18.2 The fix (kit level)
+
+* `worldexit.worldmap_exit_body(..., **gate: bool = True**)` — emits `MOVEMENT_GATE` only when True.
+  Both branches (with and without `arrive`) honour it. The docstring now carries the whole trap.
+* `choice.option_body`'s `worldmap` arm passes **`gate=False`**, with the reason inline. Walk-on
+  gateways are untouched and still emit the prologue.
+* **Regression tests** (`test_ferry_lane.py`, now 22 cases):
+  * a ferry arm must **not** contain `MOVEMENT_GATE`, **and** a region exit still must;
+  * `gate=False` differs from `gate=True` by *exactly* the prologue and nothing else;
+  * the fade still precedes the arrive writes in a ferry arm.
+
+Confirmed in the redeployed bytes — the gate and its `RETURN` are gone, and the fade now runs
+unconditionally:
+
+```
+[1093] WindowSync(1, 128, 501)   <- reply
+[1099] DisableMove()
+[1100] FadeFilter(6, 24, ...)    <- reached
+```
+
+## 18.3 Defect A — the south walk-on door REMOVED
+
+Under the Purser-runs-the-ferry design it was redundant (its `arrive` *was* his Ashvale row) and it was
+the same invisible walk-on quad class the berth row was condemned for. Deleted. **The hall is
+exit-by-ferry-only.** Ring closure now asserts **ZERO walk-on exits** instead of "exactly one".
+
+## 18.4 Defect C — the twin moogle MERGED into the menu
+
+The ledger was a second `model = 220` moogle ~330 u from the Purser — on screen, two identical moogles
+clumped beside Zidane. Deleted **both** the `[[prop]]` and the `[[savepoint]]` zone; the Purser gained a
+**"Log the passage."** row that opens the real save menu.
+
+New kit capability, kept minimal: `[[ferry]] save = "<row text>"` (+ optional `save_reply`) desugars to a
+choice row carrying `savepoint.save_act()` — the latched `GLOB(184)=1; Wait(3); Menu(4,0); Wait(3);
+GLOB(184)=0` both real save families use. It is **not** a transition (`Menu` returns to its caller), so
+it may sit before other actions, and it is inserted **before** the decline row so CANCEL still lands on
+"Nothing for now." Tests pin the emitted op, the non-transition property, and the row ordering.
+
+Also added: **lint now rejects `dialogue` + `[[ferry]]` on one NPC** — the ferry prompt replaces the talk
+window, so such a line is silently dead text. That is precisely what the Purser had.
+
+## 18.5 The menu shape
+
+Prompt: *"Kupo! I am the purser of this hall — I keep the ledger and I sail the ferry. What do you need,
+kupo?"*
+
+| row | action |
+|---|---|
+| Sail to Ashvale | worldmap exit → (60, −1168) f192 |
+| Sail to Tidefall | worldmap exit → (432, −1232) f192 |
+| Sail to Grimhorn | worldmap exit → (1214, −1192) f192 |
+| Sail to Larkspur | worldmap exit → (688, −616) **f64** |
+| Log the passage. | latched `Menu(4,0)` (save) |
+| Nothing for now. | **decline — LAST, so CANCEL/B lands here** |
+
+## 18.6 Layout probe — WARNINGS: none; the corridor holds TWO things
+
+`probe_marker/layout_pass9/`; both PNGs read. `CONTENT` is **Purser (130,−1650)** and
+**spawn (0,−2000)**, 373 u apart. The report has **no `ZONES` section at all** — there are zero regions
+in the field now (no gateway, no savepoint, no events). You spawn, there is exactly one person, you talk
+to them. `lint`: 0 errors, 1 advisory (`entry_settle` → 50 frames).
+
+## 18.7 Write-set — 14 files, 891 before and after
+
+7 × `EVT_LANTERN_HALL.eb.bytes` **7703 → 5600 B** (it SHRANK: the door's whole worldexit body and the
+savepoint region are gone, the ferry gained one save row) + 7 × `6601.mes`. **DictionaryPatch line set
+byte-identical → no relaunch.** Zero world meshes, zero dispatchers, zero `FF9CustomMap`. Proof:
+`probe_marker/writeset_md5_diff_pass9.txt`.
+
+## 18.8 Deployed-`.eb` assertions — all 7 languages
+
+* **exactly ONE talk handler** (tag 3) on the Purser;
+* **four arrive blocks, each ×1**, with their own coords and face;
+* **`D8:2 = 35` ×4**, **`D8:2 = 62` ×0**;
+* **zero `MOVEMENT_GATE` occurrences inside any talk body** (the regression that caused the softlock);
+* the latched **save act present**;
+* **`[CHOO]`** present in every `6601.mes`;
+* **zero gateway regions** carrying a worldmap exit.
+
+## 18.9 Undo
+
+Restore the 7 `.eb` + 7 `.mes` from `backups/r2-ferryfix.20260726/`. That returns the softlocking
+build with the south door and the twin moogle — useful only for re-confirming the bug. For earlier
+states see §17.8 (four-alcove row) and §15.6 (R1 single door). **~ → Reload field**; no relaunch.
+
+## 18.10 Playtest ask (owner) — no relaunch, ~ → Reload field
+
+1. **Talk to the Purser — the menu must not softlock.** Pick a port: fade, then you land at that quay.
+2. **"Log the passage."** opens the save menu and returns you to the hall.
+3. **Cancel (B)** lands on "Nothing for now." and closes clean — never sails, never saves.
+4. The hall contains **only** Zidane and the Purser. No second moogle, no invisible warps anywhere.
+5. Larkspur still lands you facing **west**.

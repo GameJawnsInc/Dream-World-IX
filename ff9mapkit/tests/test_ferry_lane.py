@@ -31,7 +31,8 @@ area = 55
 name = "Purser"
 pos = [130, -1650]
 model = 220
-dialogue = "Kupo!"
+# NOTE: deliberately NO `dialogue` -- the ferry prompt replaces the talk window, and lint now
+# rejects both on one NPC (test_lint_rejects_dialogue_plus_ferry_on_one_npc).
 
 [[ferry]]
 npc = "Purser"
@@ -142,3 +143,62 @@ def test_warp_and_worldmap_are_mutually_exclusive():
     """Both end the function by transitioning away; `warp` wins and `worldmap` must not also fire."""
     body = C.option_body({"warp": 4600, "worldmap": {"arrive": [1.0, -2.0], "face": 0}})
     assert WX.arrive_writes(1.0, -2.0, face=0) not in body
+
+
+# --- THE SOFTLOCK REGRESSION (the whole reason this lane has tests) ----------------------------
+
+def test_worldmap_option_does_NOT_emit_the_movement_gate():
+    """THE SOFTLOCK. `worldmap_exit_body` defaults to the walk-on region prologue
+    `ifnot (IsMovementEnabled) { return }`. A talk handler opens with DisableMove, so that gate is
+    FALSE inside a menu: it returns early, skips the whole exit, and leaves the player frozen with no
+    window. The first Lantern Hall ferry shipped exactly that. A ferry arm must never carry it."""
+    body = C.option_body({"worldmap": {"arrive": [60.0, -1168.0], "face": 192}})
+    assert R.MOVEMENT_GATE not in body, "a ferry arm must not carry the region movement gate"
+    # ...while a REGION exit still must (the walk-on gateway path is unchanged)
+    assert R.MOVEMENT_GATE in WX.worldmap_exit_body(arrive=(60.0, -1168.0), arrive_face=192)
+
+
+def test_gate_false_is_the_only_difference():
+    """Belt and braces: gate=False removes the prologue and changes nothing else."""
+    gated = WX.worldmap_exit_body(arrive=(1.0, -2.0), arrive_face=64, gate=True)
+    plain = WX.worldmap_exit_body(arrive=(1.0, -2.0), arrive_face=64, gate=False)
+    assert gated == R.MOVEMENT_GATE + plain
+
+
+def test_fade_still_precedes_the_arrive_writes_in_a_ferry_arm():
+    """The exit must still DIM before transitioning (a field->world hop with no fade shows the
+    destination's camera-init frames)."""
+    body = C.option_body({"worldmap": {"arrive": [1.0, -2.0], "face": 0}})
+    assert body.index(WX.exit_fade()) < body.index(WX.arrive_writes(1.0, -2.0, face=0))
+
+
+# --- the SAVE row -------------------------------------------------------------------------------
+
+def test_save_row_emits_the_latched_save_menu():
+    from ff9mapkit.content import savepoint as SP
+    body = C.option_body({"save": True})
+    assert SP.save_act() in body, "a save row must emit the real latched Menu(4,0) act"
+    assert R.MOVEMENT_GATE not in body
+
+
+def test_save_row_is_not_a_transition():
+    """Menu(4,0) RETURNS to its caller, so a save row must not carry an exit/warp."""
+    body = C.option_body({"save": True})
+    assert _key(WX.POSITION_PRESET_KEY) not in body
+    for xz in ((60.0, -1168.0), (688.0, -616.0)):
+        assert WX.arrive_writes(*xz, face=192) not in body
+
+
+def test_ferry_save_row_sits_before_the_decline(tmp_path):
+    toml = FERRY_TOML.replace('decline = "Not yet, kupo."',
+                              'save = "Log the passage."\ndecline = "Not yet, kupo."')
+    rows = _load(tmp_path, toml).raw["choice"][0]["options"]
+    assert [r["text"] for r in rows] == ["Ashvale", "Larkspur", "Log the passage.", "Not yet, kupo."]
+    assert rows[-2].get("save") is True and "save" not in rows[-1]
+
+
+def test_lint_rejects_dialogue_plus_ferry_on_one_npc(tmp_path):
+    """A ferry REPLACES the talk window, so a `dialogue` on the same NPC is dead text."""
+    toml = FERRY_TOML.replace("model = 220", 'model = 220\ndialogue = "Never seen."')
+    problems = [p for p in build.validate(_load(tmp_path, toml)) if "[[ferry]]" in p]
+    assert any("also has dialogue" in p for p in problems), problems
