@@ -31,6 +31,7 @@
 | **W2** | **THE CONTENT RESCORE** — reframe a real summon's shot (pose / aim / projection distance) with **durations UNCHANGED**, so the two clocks stay aligned and no program byte moves | the op-146 read-vs-write probe row settled FIRST; then a deployed, **cast** proof: the camera looks different, the beats land where they always did, stock data reverts clean |
 | **W3** | **THE TIMING RESCORE** — durations change, so the program's phase thresholds must move WITH them (R3 recovered exactly where those constants live) | the retimed cast holds phase↔cut alignment; a deliberate mis-retime is shown to drift (the law demonstrated, not just asserted) |
 | **W4** | **THE RESKIN** — retexture a stock creature in place | a cast showing our texture on the stock cinematic, stock bytes untouched |
+| **W5** | **THE GENERALISATION** — the W tools take ANY stock summon (scaffold verbs, derivation-first, named refusals: texanim / multi-writer / dual-depth / dynamic-op / half-patch / headroom) | offline: 372/372 corpus sweeps + ef227 byte-compat pinned in gates; in-game: a SECOND summon's cast on each lever — Phoenix ef211 (scenery + camera) and Madeen ef251 (creature) |
 
 **Done = "editable in place":** a stock summon can be re-framed, re-timed, and re-skinned from our own
 declarative surface, with the stock install revertible at every step.
@@ -169,3 +170,19 @@ scenery must be re-authored *together*.
   rung but must gate any future one past ef227. Staged under `C:\gd\SCRATCH\summon-format\reskin-w4\`
   (13 previews reviewed offline); the cast protocol is `W4-RESKIN.md` §6, and the rung does not close
   until the cast is judged.
+- **W5 — ★ BUILT + DEPLOYED, casts pending** (`W5-GENERALIZE.md`, `retime_derive.py`, `w_survey.py`,
+  `w5_gates.py`, `phoenix_reskin.toml`/`phoenix_rescore.toml`/`madeen_reskin.toml`; commit
+  `b3ebdbf8`; suite 358/0/1 single-process, gates 5/5·8/8·8/8·8/8·9/9; every headline claim
+  adversarially re-derived from bytes). The three levers generalise with named refusals: reskin
+  refuses texanim (ef038/177/493-495 creature scope, unconditionally), multi-writer-unless-all-named
+  (ef381), dual-depth (ef447), zero-headroom blow-outs; camera refuses undisclosed dynamic ops
+  (324/372 effects carry one — ef227 was the outlier); retime's writer refuses unresolved peer-lui
+  (THE HALF-PATCH TRAP), non-derivable dividends, and anything failing the N=0 stock-identity gate —
+  its READER (`report --corpus`: lock tables + pairing quality + per-boundary derivability, 45/88)
+  ships; its writer deliberately stays uncast. NEW LAWS: THE SATURATED-RAMP / TWO-LOBE LAW (hue
+  headroom shrinks with creature saturation; the refusal trough sits on the stock hue's complement —
+  Phoenix/Rebirth-Flame alone can reach NO cold hue, so ef211 ships GLACIAL FRONTIER scenery-only and
+  **Madeen ef251 carries the creature-lever proof**, GLACIAL MADEEN +160°, rho 0.9156). Bench rows
+  Stock Phoenix **198** / Stock Madeen **199** on STEINIV's Rune menu (Spark would renumber the live
+  Iron Edge 197). Cast protocol = `W5-GENERALIZE.md` §5 (one relaunch, three judgments); the rung
+  does not close until the casts are judged.
