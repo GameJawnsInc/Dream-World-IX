@@ -2569,3 +2569,80 @@ override PNG; restore nothing (all-new). The relocated `.bak`s stay in backups.
 3. The south hill (132,−204): climbs naturally from all sides.
 4. The all-world map shows the bench + Lamplight (the minimap redraw).
 5. Ring sanity: one ferry hop + Lamplight still behave (nothing in the ring was touched).
+
+---
+
+# 26. R4b — THE TABLE IS THE LAW: the safe road AUTHORED via area 14 — **APPLIED** (hot; re-playtest pending)
+
+Run 2026-07-26, from the owner's R4 playtest: *"ragtime mouse appears in the forest as well...
+still getting normal encounters in the grass of the island though (Lizard man, serpion (swampy),
+axe beak, ironite (beach)) — all sorts of backgrounds."*
+
+## 26.1 THE 36-38 "ENGINE LAW" IS FALSIFIED IN-GAME — the diagnosis chain, fully grounded
+
+The ratified law ("battles fire ONLY on forest/brush; open ground is the safe road") is FALSE as an
+engine absolute. The roll path is `EventEngine.ProcessEncount` (usercontrol + step accumulator, NO
+topograph clause) → `SelectScene()` → `w_worldGetBattleScenePtr()` = **zone × topograph × fog off
+the WALKED TILE's area bits** (`m_GetIDArea(m_moveActorID)`; `status.id` is per-step fresh from the
+movement raycast — no caching). The case-205 topo∈[36,38] sysvar exists but is NOT the operative
+gate (exactly as OVERWORLD_ENGINE.md's own 2026-07-02 correction warned; the design round's
+"verified" law repeated the misreading). **Safety is a TABLE property: ground is safe iff its
+(zone, topograph, fog) triple has NO record.** Prior "no battles on ring grass" observations were
+exposure time, not law.
+
+Fingerprint (three hypotheses fell before the right one — each killed by data, in order):
+1. "zone 0's topo-0 rows" — REFUTED: those are Python/Goblin/Mu (scenes 357-364), not the report.
+2. "donor (0,0) free-riders / area 63" — REFUTED: zone 24 = Adamantoise/Worm Hydra, and (0,0) has
+   only {terrain, object, sea4}, all overridden.
+3. "cached area from the save" — REFUTED: `status.id` refreshes per movement step.
+4. **CONFIRMED: Grimhorn's bench** — its carried ground is **area 12 → zone 5** (records 44-57,
+   topos 0/3/10/16/30/31/41 = scenes 174-209): topo-16/41 walkable bench ground rolls **Lizard
+   Man/Skeleton (201-209), Axe Beak (177/180, 206-209), Sand Scorpion (174-180 — the owner's
+   "serpion")**, Ironite in the records' alternate scene slots — mixed battle backgrounds per
+   scene metadata. The mints' area-0 grass is separately LIVE for zone 0's Pythons (unobserved).
+   Ragtime Mouse in the canopy = the stock forest special (any topo-37 worldwide) — kept, stock-lawful.
+
+## 26.2 The fix — THE SAFE-ROAD AREA STAMP (area 14)
+
+Every kit island's OPEN walkable ground is stamped **area 14 → zone 6**, whose only records are
+topos 10/36 — a TABLE HOLE for every topograph our ground carries ({0,3,16,17,31,32,41,...}).
+The stamp rule per vert-tangent: `event==0 AND topo∉{36,37,38} → area:=14` (area bits only; topo/
+event/flags byte-preserved). The canopy (36-38) keeps **area 0 → zone 0**: Python/Goblin/Mu remain
+the region's uniform encounter fauna. Event tiles untouched (ours stay area 0 — the probes'
+invariant; the horseshoe carry's 270 STOCK event verts keep their carried area 12 — pre-existing,
+⚠ flagged for a future audit: carried stock event tiles can summon dispatcher cases).
+
+Area choice is cosmetically free: `WorldLocationText(area)`'s only gameplay caller is the Memoria
+debug PlayerWindow title (ff9.cs:3750) — no player-facing surface reads tile area for naming.
+
+**Scope**: 56 Terrain files per disc (112 total) across the junction (r16-19 c0-4), Tidefall's isle,
+Larkspur's relief island, Sandreach (areas 49/50 were zone 18 — live rows for its topo-17 sand!),
+Grimhorn's bench (the area-12 offender), Lamplight, and the R4 bench. 85,236 open-ground verts
+stamped; 1,068 canopy verts kept area 0; 456 event verts byte-identical; full disc parity.
+Probe: `probe_r3/probe_area14_stamp.py` — ALL CHECKS PASS; the ring's 5-site probe + ring closure
+ALL PASS after the stamp. Write-set: 112 changed, 0 added/removed, all Terrain
+(`probe_r3/md5_after_r4b.txt`).
+
+## 26.3 Standing consequences
+
+* **New mints/carves must re-run the stamp** (or inherit it once the kit's emitters default open
+  ground to area 14 — a follow-up kit change deliberately NOT made now: it would break the island-E
+  byte-identity nets; do it with fresh identity baselines).
+* The DESIGN's law is rewritten: **THE TABLE IS THE LAW** — "open ground is the safe road" is an
+  AUTHORED property (a table-hole area), not an engine gift.
+* Encounter-bearing ground anywhere on kit land = stamp it area 0 (zone 0) topo 36-38, or (for
+  bespoke fauna) the future `WorldEncounters.csv` engine seam.
+
+## 26.4 Undo
+
+Restore the 112 Terrain files from
+`backups/r3-lamplight.20260726-r3lamplight/pre-area14-terrains/` (returns the encounter-exposed
+state). Re-enter the overworld; no relaunch.
+
+## 26.5 Re-playtest ask (owner) — no relaunch, re-enter the world
+
+1. **Grimhorn's bench**: walk the same ground that fought you — several minutes. Expect ZERO
+   encounters now.
+2. **The R4 bench island**: open grass + hill — ZERO encounters; the north canopy still fights
+   (Python/Goblin/Mu — and Ragtime Mouse may still quiz you: stock, welcome).
+3. Any quay island + Lamplight: plates, entrances, ferry all unchanged.
