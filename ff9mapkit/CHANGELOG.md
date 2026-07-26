@@ -26,9 +26,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   right at the release. Without `win_flash`, the proven announce-on-detect shape is
   byte-unchanged. Win-lane only by design: a loss cue on the base would race its
   die-on-`lost` `TerminateEntry`, so a loss keeps its own drama (the cry / the battle).
-  Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421); rung A cast-proven
-  ("victory sound fired once, nothing on defeat"), the rung-B wash cast-proven
-  ("white wash works now, pause feels right").
+  Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421). All three rounds
+  cast-proven: rung A ("victory sound fired once, nothing on defeat"), the wash
+  ("white wash works now, pause feels right"), the reveal beat ("the beat landed").
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
