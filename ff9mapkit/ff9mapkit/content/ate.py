@@ -28,12 +28,14 @@ from __future__ import annotations
 
 import struct
 
+from .. import flags as _flags
 from ..eb import EbScript, edit, opcodes
 from . import choice as _choice, region as _region
 
-# Availability-flag band: GLOB bools, clear of events (8000), cutscene (8100), choice (8200). Each [[ate]]
-# on a field claims ATE_FLAG_BASE + i so multiple ATEs don't collide.
-ATE_FLAG_BASE = 8300
+# Availability-flag band: GLOB bools, in the safe-band auto bands and clear of the event/cutscene/
+# choice/on_entry lanes (the map lives in flags.py). The legacy default (8300) aliased on_entry's band
+# AND sat inside the stock Mognet mailbox slot bytes. Override with `[ate] flag = N`.
+ATE_FLAG_BASE = _flags.AUTO_ATE_BASE
 
 # ATE(mode) presets -- the arg is a 3-bit FLAG WORD, not an enum (see opcodes.ate / EIcon.cs:416-454 /
 # docs/ATE_SYSTEM.md): >0 enable (0=off); &3==2 Gray (else Blue); &4 force-show (draw without user control).

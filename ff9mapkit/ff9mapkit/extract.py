@@ -1281,8 +1281,9 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     falling back to Memoria's `[Export] Field=1` dump if the atlas can't be read; places each overlay
     by the .bgs overlay positions/depths and skips additive/subtractive light+shadow overlays (the
     "splotches"). When `draw_footprint` (default), also draws the walkable footprint -- the .bgi tris
-    projected by the EXACT GTE->canvas map (cam.to_canvas), with NO offset: the engine projects the raw
-    walkmesh frame directly, so this lands exactly where the player walks in-game. The walkmesh may
+    projected by the EXACT GTE->canvas map (cam.to_canvas, which folds in the camera's GTE
+    centerOffset), in the raw walkmesh frame, so this lands exactly where the player walks in-game
+    (a real camera's nonzero centerOffset shifts the whole canvas map -- see cam.to_canvas). The walkmesh may
     extend past the canvas edges (tunnels) -- that's correct, not a misalignment. `upscale` defaults to
     the active export factor (TileSize // 16) so placement matches the overlay PNGs' own pixels-per-tile;
     pass a value only to force it. Returns (w, h), or None if the field has no readable art at all.

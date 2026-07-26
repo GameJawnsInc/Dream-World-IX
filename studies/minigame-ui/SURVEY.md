@@ -75,7 +75,7 @@ clean Item-shop type; items are real inventory (survive saves, sellable);
 speaks the 0xFF-prefix page (`opcodes.py:44`) — only `_optables.py` arg-shape
 rows past 0x10A are missing (a small add, scoped in the behavior-trees PLAN).
 
-### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split
+### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split (★★ built as `[[qte]]` and FULLY IN-GAME PROVEN, bench 30419 "ENGARDE", 3 rounds — prompts/poll/scoring/flag/replay all pass, calibration closed at a 98 — `engarde_bench.py`; one modal entry, since stock's 3-entry split existed only for its actor choreography. THE PAR LESSON: stock's forgiveness lives in the COMBO channel, which only pays over LENGTH — short bouts need a kinder divisor, `par` default 65 at rounds=10, raise toward 80+ for stock-length bouts)
 `test2_15.txt` entries 2/3/4: one entry ISSUES prompts (8 text ids, random with
 a no-repeat blocklist), a PARALLEL entry polls `IsButton(mask)` per frame, a
 third aggregates. The reaction timer is a countdown byte decremented by the
@@ -85,17 +85,52 @@ grey out individual menu rows by bitmask (complement to our requires_flag row
 VANISHING). Engine's only field-64 hook is a +30% Steam-assist rewrite
 (`EMinigame.cs:9-31`) — cosmetic, skippable.
 
-### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge
+### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge (★★ built as `[[gauge]]` and FULLY IN-GAME PROVEN, bench 30420 "WATERWORKS", 3 rounds — bars/stepper-feed/shimmer/cover/reload round 1, live shop-follow + `item:` source rounds 2-3, closed at "all checks out" — `waterworks_bench.py`)
 `SetTileColor` 0x59 / `ShowTile` 0x5B / `SetTilePositionEx` 0x5A /
 `MoveTileLoop` 0x5C / `SetTileAnimationFrame` 0xE7 / `AttachTile` 0x92 (follows
 an actor) — ~25K combined uses; field 64 pulses a tile by a Sin-driven color.
-A background-art bar filled by `SetTilePositionEx`/`ShowTile` per segment is a
-DLL-free gauge. Text-side alternative: `[TBLE=bank]` value-indexed string swap
+**The build**: NOT per-segment ShowTile — `EBG_animShowFrame` decode showed a
+scene ANIMATION is a list of TARGET overlays with frame *i* showing exactly
+overlay *i* (255 = all off), so `[[gauge]]` generates segments+1 fill-state
+PNGs as pure-Memoria overlays + one `Loop`-less (SingleFrame) ANIMATION and
+drives the bar with ONE SetTileAnimationFrame per tick (level = a branchless
+clamp expression inline in the opcode arg). One daemon entry for all gauges,
+state in ENTRY LOCALS (stock field 64's `allocate 2` — the kit's first loc>0
+mint), so `[behavior]` coexists. Scene hosts: novel .bgx / NATIVE own-scene
+`USE_BASE_SCENE` hybrid (base indices read from the field's own .bgs header;
+the minigame-arena path) / BG-borrow (donor-name .bgx + pinned counts;
+scene-shared, bench-only). The pulse carries field 64's shade VERBATIM
+(`Sin(t<<2)/360+144`, `EBG_overlaySetShadeColor` rgb/128). ⚠ REAL cameras
+need `centerOffset` added to `cam.to_canvas`'s novel-field convention (this
+donor: [26, 400]) — the naive spawn-column anchor landed OFF the boot view;
+the bench projects the boot window and pins the bars inside it.
+Two more laws from the playtests: **THE OVERLAY-TEXTURE-CACHE LAW** —
+`MemoriaOverlayTextureCache` is a STATIC dict keyed by PATH, so same-name art
+edits survive ~Reload showing the OLD texture; gauge art ships with sha1
+CONTENT-HASHED filenames (changed art = new path = true hot reload) at 4×
+texel resolution on canvas-size quads (uniform cells under the engine
+upscale). And a saturation lesson: a gil bar showing FULL against a small
+`max` IS the live read working — calibrate `max` to the expected range
+(round 1's "nothing when buying" was a ≥5000 purse pegging max=5000).
+Text-side alternative (unbuilt): `[TBLE=bank]` value-indexed string swap
 (`ETb.cs:270-283`) — one `.mes` entry holding N bar states indexed by a
 `gMesValue` slot.
 
 ## Smaller confirmed facts (keep, they cost playtests elsewhere)
 
+- **`AddShopItem` 0x115 — ★★ FULLY IN-GAME PROVEN (ARMOURY rounds 2-4)** as the
+  `add_shop_item`/`remove_shop_item` behavior verbs (event-Once lane, remove-then-add
+  idempotence, unknown-shop lint). Session semantics decoded: `ff9buy.ShopItems` is a
+  STATIC process table — mutations survive New Game AND ~ Reload, reset only at
+  relaunch. Two laws minted en route: THE INVENTORY-SNAPSHOT LAW (have_item reads a
+  top-of-tick mirror; the pool's live consumption raced a live read) and THE
+  DRAINING-CONDITION LAW (one branch/unit/tick — several once-effects on a transient
+  moment must flag-latch it). **`AddShopSynthesis` 0x116 — ★★ ALSO FULLY PROVEN
+  (ARMOURY round 5, "phoenix down forges")** as `add_shop_synth`/`remove_shop_synth`:
+  the mutation is INVERTED (shop grafted onto the RECIPE, guard on the recipe);
+  result-NAME selectors resolve to the deterministic CSV mint (keyed by resolved item
+  id); lint refuses BUY-shop targets; THE HIDDEN-RECIPE IDIOM = declare the locked
+  recipe on a PARKED shop id, graft the real shop at runtime.
 - **`0xAE MINIGAME` (Tetra Master)** launches from any field but is a FLOW
   TERMINATOR (`return 7`) — must be the last thing its function does; gate on
   `B_SYSVAR[19]` ≥ 5 cards (`DoEventCode.cs:2378-86`). The uid-keyed

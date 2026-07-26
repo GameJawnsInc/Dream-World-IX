@@ -28,14 +28,16 @@ from __future__ import annotations
 
 import struct
 
+from .. import flags as _flags
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
 from . import event as _event
 
-# Default flag for a "play once" cutscene: the SAVE-PERSISTENT Global bool (survives reloads), high in
-# gEventGlobal and clear of the event auto-once band (8000+).
+# Default flag for a "play once" cutscene: the SAVE-PERSISTENT Global bool (survives reloads), in the
+# provably-safe custom band and clear of the event auto-once band (flags.AUTO_EVENT_BASE -- the band
+# map lives there).
 CUTSCENE_FLAG_CLASS = _region.GLOB_BOOL
-DEFAULT_CUTSCENE_FLAG = 8100        # GLOB (save-persistent) once-flag: plays once EVER
+DEFAULT_CUTSCENE_FLAG = _flags.AUTO_CUTSCENE_BASE   # GLOB (save-persistent) once-flag: plays once EVER
 DEFAULT_CUTSCENE_MAP_FLAG = 80      # MAP-bit (transient, byte 10 -- clear of the field's init bits 144-159
                                     # and the camera Map-byte 24): replays each visit, still once per visit
 
@@ -274,8 +276,10 @@ def once_flag_for(cs: dict, k: int = 0):
     (plays once ever); ``once=false`` -> a TRANSIENT Map bool (replays each visit -- the Map var resets
     on field load -- but still runs once per visit). An explicit ``flag = N`` overrides the index.
     ``k`` = the block's index in the ``[[cutscene]]`` dispatch -- each block auto-allocates its own
-    default (GLOB ``8100+k`` / MAP ``80+k``), so two scenes never share a once-flag; ``k=0`` reproduces
-    the singleton's historical defaults byte-for-byte."""
+    default (GLOB ``DEFAULT_CUTSCENE_FLAG+k`` / MAP ``80+k``), so two scenes never share a once-flag;
+    ``k=0`` reproduces the singleton's defaults byte-for-byte. NB build._FlagAlloc is the authoritative
+    single-field allocator (it also SKIPS the project's authored flags); this bare default is its
+    reserved-free fallback for callers without a project."""
     if cs.get("once", True):
         return _region.GLOB_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_FLAG + k))
     return _region.MAP_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_MAP_FLAG + k))

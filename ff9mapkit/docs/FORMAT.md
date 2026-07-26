@@ -807,7 +807,7 @@ once = false
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
-| `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `8000`, a high band clear of base-game flags; override for a shipped mod to avoid clashes). |
+| `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
@@ -825,7 +825,8 @@ variable scope — `gEventGlobal`) that an event SETs (`set_flag = [N, 1]`) and 
 looted chest stays looted, a one-time scene stays played. (The kit uses the persistent *Global* bool,
 not the transient per-field *Map* bool.) That's how the world gains state: hit a switch (event
 `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door unlocks (`[[gateway]]
-requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**). **Pick your explicit
+requires_flag`). The kit's auto `once` flags occupy per-lane bands inside the safe band (event **9100+** /
+cutscene **9200+** / choice **9300+** / on_entry **9400+** / ate **9500+**). **Pick your explicit
 flag indices in the provably-safe band [8712, 16320)** — real FF9 uses the Mognet lock band (bits **8376–8511**) and the
 read-mail payload bytes (bits **8512–8711**, whole-byte-written by ordinary play at any moogle), so an index there silently corrupts the
 player's save. The lint enforces this. For unbounded mod state beyond simple flags, Memoria also
@@ -914,7 +915,7 @@ set_flags = [{ flag = "saw_intro", value = 1 }]
 items = [["Potion", 5], ["Tent", 1]]        # SCRIPTED, once-gated give (the per-journey starting bag)
 gil = 1000                                  # gil to add (negative subtracts)
 once = true                                 # default: fire once ever (a save-persistent once-flag). false → every entry
-# flag = 8300                               # explicit once-flag index (REQUIRED in a campaign member; auto 8300+ otherwise)
+# flag = 8712                               # explicit once-flag index (REQUIRED in a campaign member; auto 9400+ otherwise)
 ```
 
 - It's a **list** — author several entry beats, each independently gated.
@@ -1368,6 +1369,71 @@ description  = "Restores 15 HP."      # optional — the help + battle descripti
 
 ---
 
+## `[[ferry]]` (optional, repeatable)
+
+**Boat travel booked through a PERSON** — stock FF9's own idiom (the Blue Narciss captain's
+"Where to?"). Talk to an NPC, pick a port, sail to the **overworld** at that port's landing.
+
+Use this instead of one walk-on `[[gateway]]` per destination whenever the art does not *paint* a
+distinct, readable door for each one. Four unmarked trigger zones in one corridor are mutually
+adjacent and unreadable — a menu is self-describing and cannot be entered by accident. (Learned the
+hard way: the Lantern Hall shipped four invisible east-wall berths and the playtester could not tell
+what to do, only that they "randomly triggered 1 of 2 warps".)
+
+```toml
+[[npc]]
+name = "Purser"
+pos = [130, -1650]
+model = 220
+dialogue = "Talk to me and I will sail you anywhere on the ring."
+
+[[ferry]]
+npc = "Purser"                       # must name an [[npc]] (or use zone = [...] for a booth)
+prompt = "Where shall we sail?"      # the line above the rows
+decline = "Not yet."                 # REQUIRED -- the stay-ashore row
+decline_reply = "The ferry keeps her berth."   # optional line after declining
+
+[[ferry.destination]]
+name = "Ashvale"                     # the menu row
+arrive = [60.0, -1168.0]             # where you land on the overworld
+arrive_face = 192                    # 0=south 64=west 128=north 192=east
+reply = "The Lantern Quay it is!"    # optional line before the fade
+```
+
+| key | meaning |
+|---|---|
+| `npc` / `zone` | the trigger — exactly one, same semantics as [`[[choice]]`](#choice-optional-repeatable). |
+| `prompt` | the "Where to?" line above the rows. **Required.** |
+| `decline` | the stay-ashore row's text. **Required** — it is appended LAST because the engine's CANCEL (B) returns the last row, so without it a cancelled menu would sail you to the final destination. |
+| `decline_reply` | optional line shown after declining. |
+| `instant` | default `true` — the menu pops fully drawn instead of typing on (a travel menu wants to snap). |
+| `destination[].name` | the menu row. |
+| `destination[].arrive` | `[x, z]` — the overworld landing. Keep it **≥ 8 u** from the quay's own entrance tile or stepping out re-fires the entrance you just used (THE ARRIVAL-CLEARANCE LAW). |
+| `destination[].arrive_face` | raw facing byte 0–255 at the landing. |
+| `destination[].reply` | optional line before the fade. |
+| `save` | *(optional)* text for a **save row** — opens the real save menu (latched `Menu(4,0)`), so one NPC can be ferry *and* save point instead of standing beside a twin save-moogle prop. Inserted before the decline row. |
+| `save_reply` | optional line after saving. |
+
+> **How it compiles.** A `[[ferry]]` desugars into an ordinary `[[choice]]` whose destination rows
+> carry a worldmap-exit action, so it inherits the whole choice pipeline — the one-text-entry
+> prompt+rows assembly (and with it the window-geometry law), CANCEL-picks-last, the runtime
+> availability mask, flag gating. Each destination arm emits the **same body a walk-out worldmap
+> gateway does** (`worldexit.worldmap_exit_body`): usercontrol guard → fade → *both* position blocks →
+> `POSITION_PRESET_KEY` 35 → computed `WorldMap`. So a ferry row and a door behave identically once
+> taken. The decline arm emits no transition at all.
+>
+> ⚠ **Do not also give the NPC a `dialogue` line** — the ferry prompt *replaces* the talk window, so that
+> line would be allocated a txid and never shown. Lint rejects it.
+>
+> ⚠ **Why the arm is emitted with `gate=False`** (`worldexit.worldmap_exit_body`): a walk-on exit region
+> opens with `ifnot (IsMovementEnabled) { return }`, but a talk handler has *already* disabled movement,
+> so that prologue would return early, skip the exit, and leave the player frozen with no window — a
+> softlock. It shipped that way once; there is a regression test.
+>
+> The underlying capability is also available directly as `[[choice]]` `options[].worldmap =
+> { arrive = [x, z], face = N }` for hand-built menus; `[[ferry]]` is the productized surface and the
+> one that gets linted (≥1 destination, a decline arm, and arrive/face validated like a gateway's).
+
 ## `[[choice]]` (optional, repeatable)
 
 A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /
@@ -1413,7 +1479,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `zone` | 4 convex `(x,z)` corners — a zone trigger (lever/sign). **Exactly one of `npc` / `zone`.** |
 | `trigger` | *(zone only)* `"action"` (default) = stand on the zone and **press** to open it — re-usable, "decline" is non-destructive (like an FF9 lever/sign). `"walk"` = auto-pops the moment you tread the zone. |
 | `once` | *(zone + `trigger="walk"` only)* `true` (default) = once ever (persistent flag); `false` = once per field visit. A `walk` menu must be flag-gated to avoid re-popping every frame, so a `walk` decline still consumes that arming — prefer `action` for a re-usable lever. |
-| `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `8200`, GLOB). |
+| `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `9300`, GLOB). |
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (the faithful name-line + quotes form + window pointer). |
 | `instant` | *(optional, bool)* `true` → FF9's `[IMME]` tag: the menu **pops fully drawn** with no character-by-character type-on (snappy menus; the World-Hub journey selector uses it). |
@@ -1497,7 +1563,9 @@ Cancel aborts. Movement is locked the whole time (the stepper only opens from a 
 ```toml
 [[numeric_input]]
 name = "bid"                    # what a [[choice]] option's `input = "bid"` opens
-result = 2000                   # gEventGlobal BYTE offset: Global.Int16[2000] <- the value on submit
+result = 2000                   # gEventGlobal BYTE offset 4..2016: Global.Int16[2000] <- the value
+                                # on submit (both bytes must clear the reserved save regions;
+                                # 2018+ is the game's own scratch / the co-op cells)
 digits = 3                      # 1..4 digit places
 multiplier = 100                # 1/10/100/1000 — display-only trailing zeros (a x100 bid, stock's shape)
 max = 999                       # (optional) ceiling in STEPPED units (default all-nines)
@@ -1525,6 +1593,97 @@ bank; validate refuses the combination). Synthesized fields only for now (not ve
 
 ---
 
+## `[[qte]]` (optional)
+
+The game's **button-prompt reaction minigame** — the Blank sword duel's core (FF9's one QTE),
+re-emitted with the round count, reaction window, prompt set, and texts as parameters. Random
+button prompts (stock's own glyph lines, never the same twice running), a per-prompt reaction
+countdown, and stock's two-channel scoring: a hit banks the **countdown leftover** (speed IS
+the score) plus the current combo; a miss or timeout breaks the combo. The finale shows a
+1–100 score, a tiered verdict, and optionally pays stock's gil-purse formula with the
+gold-lettered shower line. Opened from a `[[choice]]` option's `qte = "<name>"` (modal — the
+choice bracket holds movement; re-picking the row replays with fresh state).
+
+```toml
+[[qte]]
+name = "duel"                   # the [[choice]] option's `qte =` target
+result = 2006                   # gEventGlobal byte offset 4..2016: Global.Int16 <- the 1..100
+                                # score (both bytes must clear the reserved save regions — the
+                                # Mognet mailbox/lock/read-mail bytes 1024-1088 are refused;
+                                # 2018+ is the game's own scratch / the co-op cells)
+rounds = 10                     # 1..99 prompts per bout
+window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
+par = 65                        # (optional) % of the THEORETICAL max that scores 100 —
+                                # default 65, tuned for short bouts (stock's forgiveness is
+                                # its combo channel, which only pays over stock's 48 rounds;
+                                # raise toward 80+ for stock-length bouts). 100 = merciless.
+                                # default 65, tuned for short bouts (stock's forgiveness
+                                # lives in its combo channel, which only pays over its 48
+                                # rounds). 100 = merciless.
+buttons = ["cross", "circle"]   # (optional) the prompt set, >= 2 of the 8 stock names
+gil = true                      # (optional) pay stock's purse at the finale
+flag = 8712                     # (optional) story-flag BIT raised when a bout completes —
+                                # safe band [8712, 16144) only, like a [[flag]] index (16144+
+                                # is the game's scratch / co-op cells / choice-mask territory)
+verdicts = ["...", "...", "...", "..."]   # (optional) the 4 score tiers (<25/<50/<75/75+)
+```
+
+Holding **Start** bails the current beat (a deliberate miss — stock's courtesy). The score is
+always written (there is no cancel). Synthesized fields only; a field can't carry both
+`[[qte]]` and `[behavior]` yet (the game's scratch sits inside the blackboard's headroom
+band). Deferred theater, by design: per-prompt actor choreography, hit/miss SFX, the stock
+combo-gated difficulty ramp.
+
+---
+
+## `[[gauge]]` (optional)
+
+A **live value bar drawn in the background art** — the DLL-free gauge. FF9 has no gauge
+opcode; this is built from the game's own tile vocabulary: the kit generates `segments+1`
+fill-state PNGs (a complete self-backed bar per state) as scene overlays plus one
+script-controlled tile ANIMATION over them, and a looping daemon drives it with **one
+`SetTileAnimationFrame` per tick** (an out-of-range frame hides the whole bar — that's how
+`requires_flag` works). Low values can shimmer with the game's own Sin color pulse (field
+64's glow, carried verbatim). The bar is **world-anchored** scene furniture in canvas
+pixels (the `[[layers]]` frame) — perfect on a single-screen minigame arena; on a
+scrolling field it stays where the art is (there is no screen-anchored HUD path).
+
+```toml
+[[gauge]]
+name = "cistern"
+source = "global:2000"          # what drives it: "global:<byteoff>" = a save-backed
+                                # Global.Int16 your scripts write; "item:<name-or-id>" =
+                                # live inventory count; "gil" = the party's gil
+max = 100                       # the value that reads FULL (values clamp to 0..max)
+segments = 10                   # 2..24 cells (= segments+1 generated art states)
+pos = [140, 24]                 # canvas px, top-left of the bar
+width = 96                      # bar art size in canvas px
+height = 10
+color = "#40c8ff"               # (optional) filled-cell color; back_color = empty cells
+pulse_below = 2                 # (optional) level <= this -> the field-64 shimmer (0 = off)
+requires_flag = 8320            # (optional) GLOB bit; CLEAR -> the whole bar hides
+depth = 1                       # (optional) overlay z: smaller = nearer the camera
+```
+
+The generated art ships at 4× resolution on canvas-size quads (crisp under the engine
+upscale) with **content-hashed filenames** — the engine's overlay-texture cache is static
+and path-keyed, so same-name art edits would survive a field reload; hashed names make
+gauge art changes true hot reloads.
+
+Several `[[gauge]]` blocks share ONE daemon entry whose state lives in **entry locals**
+(stock's `allocate 2`), so gauges coexist with `[behavior]` — a fort-condor field can carry
+both. Three scene hosts: **novel scenes** (the states append to the field's own `.bgx`);
+**native scenes** (`[field] bgs` + atlas — the preferred minigame-arena path: the build adds
+an own-scene `USE_BASE_SCENE` `.bgx` that re-loads the shipped `.bgs` first, so per-tile
+depth is untouched and the base indices come from that header automatically); and
+**BG-borrow** fields — the borrow ships the `USE_BASE_SCENE` `.bgx` under the *donor
+scene's* name and needs `[field] borrow_scene_counts = [<overlayCount>, <animCount>]` (the
+donor `.bgs` header's counts, via `ff9mapkit.scene.bgs.parse_header`). ⚠ Borrow gauges are
+scene-name keyed: any field borrowing the same donor sees the overlays — keep them to
+scratch benches. Verbatim forks: not yet supported.
+
+---
+
 ## `[cutscene]` / `[[cutscene]]` (optional)
 
 An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the
@@ -1533,7 +1692,7 @@ declarative content can't express (steps run *in order*). The player can't move 
 A field can carry **several** — write repeated `[[cutscene]]` blocks (the **story-event dispatch**: each
 scene gated to its own beat via `requires_scenario`, so one field plays a different scene at each stage of
 the story). The dispatch rule: every block needs a **distinct gate** (two scenes that could fire on the
-same load are a build error). Auto once-flags are per-block (`8100`, `8101`, …); in a campaign member only
+same load are a build error). Auto once-flags are per-block (`9200`, `9201`, …); in a campaign member only
 the *first* block has a reserved flag slot — give later blocks an explicit `flag`. A single `[cutscene]`
 table is exactly the one-block case, unchanged.
 
@@ -1544,7 +1703,7 @@ writes only); `actors = ["<npc>", …]` = a **cast scene** — the scene drives 
 ```toml
 [cutscene]
 once = true          # play once, then never again (default; save-persistent flag). false = every entry.
-# flag = 8100        # explicit GlobBool for the once-guard (default 8100, save-backed)
+# flag = 8712        # explicit GlobBool for the once-guard (default auto 9200+, save-backed)
 steps = [
   { say = "The hut is silent..." },   # a window; blocks until the player dismisses it
   { wait = 30 },                        # pause 30 frames
@@ -1566,7 +1725,7 @@ Cutscene-level keys (alongside `steps`):
 | key | meaning |
 |---|---|
 | `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
-| `flag` | explicit GlobBool index for the once-guard (default `8100`). |
+| `flag` | explicit GlobBool index for the once-guard (default auto `9200+`). |
 | `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |

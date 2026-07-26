@@ -32,6 +32,38 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   derived from the compiler's own verb tables, so new verbs render with zero GUI changes.
   Charter: `studies/behavior-trees/GUI-VISION.md`.
 
+### Fixed — `cam.to_canvas` now folds in a real camera's GTE `centerOffset`
+- The painted-canvas map (`cam.to_canvas`, and through it `solve_z_for_canvasY` /
+  `horizon_canvas_y`) omitted the camera's GTE `centerOffset` — correct for every kit-authored
+  camera (always `[0, 0]`, byte-identical there) but wrong for imported REAL cameras. Proven
+  case: donor `fbg_n11_ldbm_map158_lb_plz_0` (field 559, centerOffset `[26, 400]`) projected
+  its spawn OFF-canvas at (-9.5, -13.8) instead of the true (16.5, 386.2). The map is now
+  `canvasX = rawProj.x + centerOffset.x + w/2`, `canvasY = h/2 + centerOffset.y - rawProj.y`
+  (the exact canvas-frame image of the engine's `project_screen`). Downstream, this corrects
+  import spawn selection (`extract`'s on-camera test), the `compose_background` walkmesh
+  footprint / Blender backdrop, the repaint-native walkmesh outline, `field_layout_probe`'s
+  camview, and the Blender editable-fork view-offset fit on offset donors. Regression pinned
+  against the real map158 camera in `tests/test_cameras.py`.
+
+### Fixed — single-field auto story-flags moved into the provably-safe band (save-corrupter default)
+- The single-field auto once/gate-flag defaults (an unflagged `[[event]]` / `[[cutscene]]` /
+  zone-`[[choice]]` / `[[on_entry]]` / `[ate]`) allocated from the legacy 8000/8100/8200/8300
+  bands — all below `FIRST_SAFE_FLAG` (8712), and the on_entry/ate band (8300+) sat **inside the
+  stock Mognet MAILBOX slot bytes** (`Byte[1024-1045]` = bits 8192-8367 — wipe-guard, delivered
+  counter, and the 12 live letter-slot bytes, whole-byte-written by ordinary play at any real
+  moogle): a defaulted `[[on_entry]]` hook corrupted real letter state, and reading a letter
+  cleared the hook's once-flag. `[ate]` and `[[on_entry]]` #0 also shared index 8300 outright.
+  The defaults now live in per-lane bands inside the safe band (`flags.AUTO_*_BASE`: event 9100+ /
+  cutscene 9200+ / choice 9300+ / on_entry 9400+ / ate 9500+, width 100, placed clear of the
+  `[behavior]` compiler's blackboard bands), and `build._FlagAlloc` **skips any flag index the
+  same project references explicitly** (`flags.collect_safe_flag_indices`) — a defaulted block can
+  no longer alias an authored story flag in the same build; band exhaustion is a loud `BuildError`.
+  `flags.py` gains the `mognet_mailbox` reserved region (8192-8367), so `lint` / `flags-inspect`
+  now name a write there. Campaign/journey member allocation (per-member `flag_base` windows) is
+  unchanged. Migration note: a save that had legacy auto flags set replays those once-blocks one
+  time; a toml that hand-referenced a legacy auto index (e.g. gating on 8000 to read event #0's
+  implicit flag) should switch to an explicit `flag = N` — the dangling-flag lint points at it.
+
 ### Changed — every import mode now emits `entry_settle = "auto"`
 - `ff9mapkit import` (native / editable / BG-borrow / lightweight) and `import-chain`
   logic-only members now write `entry_settle = "auto"` under `[camera]` — the computed
@@ -68,6 +100,64 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Added — `[[gauge]]`: the tiles-as-sprites value bar (the DLL-free gauge)
+- FF9 has no gauge opcode; `[[gauge]]` builds one from the tile vocabulary
+  (`content/gauge.py`): the kit GENERATES `segments+1` fill-state PNGs (a complete
+  self-backed bar per state), appends them as pure-Memoria overlays plus one
+  script-controlled (`SingleFrame`) tile ANIMATION, and a looping daemon drives the
+  bar with ONE `SetTileAnimationFrame` per tick — the level is a branchless
+  clamp expression computed inline in the opcode arg (`EBG_animShowFrame`: frame i
+  shows target overlay i; 255 hides all, which is how `requires_flag` hides the bar).
+  Sources: `global:<off>` / `item:<name-or-id>` / `gil`. `pulse_below` shimmers low
+  values with field 64's Sin color pulse, carried VERBATIM (`Sin(t<<2)/360+144` on
+  the visible overlay via `SetTileColor`). The daemon's state lives in ENTRY LOCALS
+  (stock's `allocate 2` — `eb.edit.append_entry`/`seat_entry` grew a `loc` param),
+  so gauges coexist with `[behavior]`. Three scene hosts: novel (appends to the
+  field's own `.bgx`), NATIVE (`[field] bgs` — an own-scene `USE_BASE_SCENE` hybrid
+  re-loads the shipped `.bgs` first, per-tile depth untouched, base indices read
+  from that header offline; the minigame-arena path), and BG-borrow (the hybrid
+  under the DONOR scene name, pinned by `[field] borrow_scene_counts`; scene-name
+  keyed — bench-scoped). `scene/bgx.py` grew the typed `Animation` block
+  (+ bare-flag `Loop`/`Palindrome` parse). Verbatim forks refused in v1.
+
+### Added — `[[qte]]`: the Blank-duel reaction game as kit vocabulary
+- FF9's one QTE (the Prima Vista sword fight, field 64) decoded and re-emitted with
+  rounds / reaction window / prompt set / texts as parameters (`content/qte.py`):
+  random no-repeat button prompts (stock's own [DBTN]/[MOBI] glyph lines, verbatim),
+  the nine-button edge poll with Start-bail, and stock's exact two-channel scoring —
+  a hit banks the countdown LEFTOVER (speed is the score) plus the current combo.
+  Finale: a 1..100 score into `Global.Int16[result]`, tiered verdicts, the optional
+  gold-lettered gil purse (stock's formula), an optional completion flag. One modal
+  seated entry opened from a `[[choice]]` option's `qte =` (the numeric_input
+  architecture — stock only split issuer/poller across entries for its actor
+  choreography, which is deferred theater along with hit/miss SFX and the
+  combo-gated difficulty ramp). Synth-only; refuses [behavior] coexistence (scratch
+  band overlap).
+- The modal scratch band moved to bytes 2018-2031 (was 2026-2039): the old band's four
+  Int16 channels (combo / max-combo / points / bonus) sat exactly on the netsync co-op
+  cells (bytes 2032-2039), which the engine rewrites EVERY FRAME while `[Netsync]` co-op
+  runs — on any field, `[[coop]]` gates or none — so a bout under live co-op had its
+  scoring clobbered per frame. The band is now the `qte_scratch` reserved region in
+  `flags.py` (bits 16144-16255), so a `[[qte]]` `flag`/`result` — or any lint-walked
+  story flag — can no longer be allocated inside the scratch; `result` caps at 2016.
+
+### Fixed — a `[[numeric_input]]` result word can no longer land on live engine state
+- The stepper's `result` cap dropped 2038 → 2016 and the word's 16 bits now walk the
+  reserved save regions (the same validation a `[[qte]]` result gets): the old cap
+  admitted a result inside the netsync co-op cells (bytes 2032-2039) — which the engine
+  rewrites every frame while co-op runs, clobbering the submitted value — and did not
+  refuse the Mognet mailbox/lock/read-mail bytes or the byte-23 menu handshake either.
+
+### Added — `add_shop_synth` / `remove_shop_synth`: runtime synthesis recipes (0x116)
+- The AddShopItem twin with the mutation inverted: grafts the SHOP onto the RECIPE's
+  shop list (the engine's silent no-op guard is on the recipe). `recipe` = a vanilla
+  int id, or a `[[synthesis]]` RESULT name resolved at build to the CSV emitter's
+  deterministic mint (keyed by resolved item id — "Phoenix Down"/"PhoenixDown" both
+  land; a string selector needs a reachable install). Lint refuses a BUY-shop target
+  (a `[[shop]]` id or vanilla 0-31 opens as Buy and never renders recipes). The
+  hidden-recipe idiom: declare the locked recipe on a PARKED shop id, graft the real
+  shop at runtime. Same event-Once + remove-then-add + session semantics as 0x115.
+
 ### Fixed — `have_item` reads a top-of-tick snapshot (the pool-consumption race)
 - Pool activation runs before the tree blocks, so a live `have_item` read raced an
   item pool consuming the same item — holding exactly N never satisfied

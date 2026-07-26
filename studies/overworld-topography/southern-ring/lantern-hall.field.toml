@@ -50,33 +50,62 @@ spawn = [0, -2000]                   # just inside the hall door, on the y=0 cor
 # player collision radius off each wall). The example's Mopli at x=170 measured only
 # 37u from the east wall -- the player could not have walked up to talk; that is the
 # one real defect the probe caught, and both actors moved inward and split along z.
+# The Purser is back at R1's PROVEN spot. The berth-row pass had moved him to the west wall
+# because (130,-1650) became berth 4's mouth; with the row deleted that conflict is gone, and
+# the west wall is now the WRONG side -- at x -130 the restored south-door quad reaches
+# z -2353, so a west-wall purser at -2400 would have been standing INSIDE the home door and
+# warped out on his first nudge. (Same class of bug as berth 4, found by re-deriving the quad
+# edge rather than assuming the old position was still safe.)
+# Measured here: 373u from the spawn, 328u from the ledger, in no zone.
 [[npc]]
 name = "Purser"                      # the ferry purser (white save-moogle rig)
-pos = [130, -1650]                   # 75u off the east wall; 373u from the spawn
+pos = [130, -1650]                   # 75u off the east wall -- R1's measured position
 model = 220
-dialogue = "Kupo! Lantern Hall, southern berth. The ferry lies out the door behind me -- log your passage on the ledger to the west first, kupo!"
 
-# the passage ledger (save point): its own press area WEST of and DEEPER IN than the
-# purser -- 75u off the west wall, 328u from the purser, 565u from the spawn (the
-# example's 280u prop/spawn pair projected only 12px apart at this near-level camera).
-[[prop]]
-model = 220                          # the stock standing save moogle (the purser's rig)
-pos = [-130, -1450]
+# =====================================================================================
+# THE FERRY -- the hall's ONLY exit, and its save point
+# =====================================================================================
+# Three playtest defects closed here, all of them "too many invisible/duplicated things":
+#
+#  1. R2's first try put FOUR walk-on berths as east-wall alcoves. Unreadable: the borrowed
+#     art paints nothing at any of them, the spawn sat inside one, and adjacent triggers were
+#     a nudge apart -- "I can randomly trigger 1 of 2 warps."
+#  2. The follow-up kept ONE walk-on door at the south end. Redundant once the Purser sails
+#     you anywhere (its arrive was literally his Ashvale row), and it is the same invisible
+#     walk-on quad class -- so it is GONE. The hall is exit-by-ferry-only.
+#  3. The ledger was a SECOND model-220 moogle ~330u from the Purser: on screen, two identical
+#     moogles clumped beside Zidane. Merged -- the Purser now carries a "Log the passage" row
+#     that opens the real save menu, so the prop and its press-zone are gone too.
+#
+# The hall therefore contains exactly TWO things: the spawn, and the Purser. No zones at all.
+[[ferry]]
+npc = "Purser"
+prompt = "Kupo! I am the purser of this hall -- I keep the ledger and I sail the ferry. What do you need, kupo?"
+save = "Log the passage."
+save_reply = "Kupo! Signed and sealed."
+decline = "Nothing for now."
+decline_reply = "Kupo! The ferry keeps her berth."
 
-[[savepoint]]
-zone = [[-195, -1550], [-65, -1550], [-65, -1350], [-195, -1350]]   # the prop centred in
-                                     # its own press area -- the example's proven relation,
-                                     # translated with it
+[[ferry.destination]]
+name = "Sail to Ashvale"
+arrive = [60.0, -1168.0]
+arrive_face = 192                    # east = inland
+reply = "The Lantern Quay it is, kupo!"
 
-# THE BERTH DOOR -- walking out returns to the world map. The zone is field 2800's
-# OWN real exit region, verbatim (the borrowed art's door sits exactly there).
-# arrive pins the world landing DETERMINISTICALLY on Ashvale's west shore (the
-# engine's position-mirror return is racy for teleported/short visits).
-[[gateway]]
-to = "worldmap"
-zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
-arrive = [60.0, -1168.0]             # Ashvale west shore, 12u inland (east) of the
-                                     # quay trigger tile (48,-1168) -- THE
-                                     # ARRIVAL-CLEARANCE LAW's >=8u, so no instant
-                                     # re-entry loop
-arrive_face = 192                    # facing east = inland, back turned to the sea
+[[ferry.destination]]
+name = "Sail to Tidefall"
+arrive = [432.0, -1232.0]
+arrive_face = 192
+reply = "Tidefall, kupo! Mind the spray."
+
+[[ferry.destination]]
+name = "Sail to Grimhorn"
+arrive = [1214.0, -1192.0]
+arrive_face = 192
+reply = "Grimhorn, kupo. Cold water there."
+
+[[ferry.destination]]
+name = "Sail to Larkspur"
+arrive = [688.0, -616.0]
+arrive_face = 64                     # WEST = inland on Larkspur -- the one that differs
+reply = "Larkspur, kupo! The long crossing."

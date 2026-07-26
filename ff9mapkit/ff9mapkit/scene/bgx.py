@@ -71,6 +71,49 @@ class Overlay:
         return o
 
 
+@dataclass
+class Animation:
+    """One tile-block animation (``BGANIM_DEF``): an ordered list of TARGET overlay indices --
+    frame *i* shows overlay ``overlays[i]`` and hides the rest. Without ``loop`` the engine
+    parses it ``SingleFrame`` (script-controlled): ``SetTileAnimationFrame`` (0xE7) selects the
+    visible frame, an out-of-range frame (255) hides them all -- the ``[[gauge]]`` selector.
+    Schema per Memoria ``BGSCENE_DEF.ProcessMemoriaAnimation``: CameraId / FrameRate (default
+    256 = 1 frame per tick) / Loop / Palindrome / Overlays."""
+
+    overlays: list
+    camera_id: int = 0
+    frame_rate: int = 256
+    loop: bool = False
+    palindrome: bool = False
+
+    def to_lines(self) -> list[str]:
+        lines = ["ANIMATION"]
+        lines.append(f"CameraId: {self.camera_id}")
+        lines.append(f"FrameRate: {self.frame_rate}")
+        if self.loop:
+            lines.append("Loop")
+        if self.palindrome:
+            lines.append("Palindrome")
+        lines.append("Overlays: " + ", ".join(str(int(o)) for o in self.overlays))
+        return lines
+
+    @classmethod
+    def from_fields(cls, fields: list[tuple]) -> "Animation":
+        a = cls(overlays=[])
+        for key, val in fields:
+            if key == "CameraId":
+                a.camera_id = int(val.strip())
+            elif key == "FrameRate":
+                a.frame_rate = int(val.strip())
+            elif key == "Loop":
+                a.loop = True
+            elif key == "Palindrome":
+                a.palindrome = True
+            elif key == "Overlays":
+                a.overlays = [int(s.strip()) for s in val.split(",")]
+        return a
+
+
 def _camera_to_lines(cam: _cam.Cam) -> list[str]:
     # reuse cam.format_bgx_camera (already validated faithful) minus its trailing newline
     return _cam.format_bgx_camera(cam).rstrip("\n").split("\n")
@@ -111,6 +154,9 @@ class BgxScene:
             if cur is not None and ":" in s:
                 key, _, val = s.partition(":")
                 cur.fields.append((key.strip(), val.strip()))
+            elif cur is not None:
+                # bare flag line (ANIMATION "Loop"/"Palindrome"): keyword, no value
+                cur.fields.append((s, ""))
         return self
 
     @classmethod
@@ -128,7 +174,7 @@ class BgxScene:
                 out += _camera_to_lines(self.camera_of(blk))
             else:
                 out.append(blk.type)
-                out += [f"{k}: {v}" for k, v in blk.fields]
+                out += [f"{k}: {v}" if v else k for k, v in blk.fields]
             out.append("")  # blank line between blocks
         return "\n".join(out).rstrip("\n") + "\n"
 
@@ -142,9 +188,17 @@ class BgxScene:
         text = "CAMERA\n" + "\n".join(f"{k}: {v}" for k, v in blk.fields) + "\n"
         return _cam.parse_bgx_cameras_text(text)[0]
 
+    @staticmethod
+    def animation_of(blk: _Block) -> Animation:
+        return Animation.from_fields(blk.fields)
+
     @property
     def overlays(self) -> list[Overlay]:
         return [self.overlay_of(b) for b in self.blocks if b.type == "OVERLAY"]
+
+    @property
+    def animations(self) -> list[Animation]:
+        return [self.animation_of(b) for b in self.blocks if b.type == "ANIMATION"]
 
     @property
     def cameras(self) -> list[_cam.Cam]:
@@ -163,21 +217,29 @@ class BgxScene:
 
 
 def build(camera, overlays: list[Overlay], *, header_comment: str | None = None,
-          base_scene: str | None = None) -> str:
+          base_scene: str | None = None, animations: list[Animation] | None = None) -> str:
     """Assemble a complete ``.bgx`` text from a camera (or list of cameras) + ordered overlays.
 
     ``camera`` may be a single ``cam.Cam`` (one CAMERA block, unchanged) or a list of Cams for a
     MULTI-CAMERA field -- N CAMERA blocks in order (camera index = list position). Each overlay's
     ``camera_id`` selects which camera shows it; the script switches the active camera via
-    SetFieldCamera (see content.camera). The engine reads cameras in file order (camIdx 0..N-1)."""
-    cameras = camera if isinstance(camera, (list, tuple)) else [camera]
+    SetFieldCamera (see content.camera). The engine reads cameras in file order (camIdx 0..N-1).
+
+    ``camera=None`` (with ``base_scene``) emits NO CAMERA block -- the USE_BASE_SCENE hybrid keeps
+    the donor's own cameras, and appended OVERLAY/ANIMATION blocks index after the donor's counts."""
+    cameras = camera if isinstance(camera, (list, tuple)) else ([camera] if camera is not None else [])
     out: list[str] = []
     if header_comment:
         out.append(f"# {header_comment}")
     if base_scene:
-        out += ["USE_BASE_SCENE", f"Name: {base_scene}", ""]
+        # the engine keys the base load off the .bgx FILENAME (BGSCENE_DEF.LoadResources sets
+        # this.name before ReadMemoriaBGS); a "Name:" FIELD would only log a parse warning.
+        out += ["USE_BASE_SCENE", f"# base: {base_scene}", ""]
     for ov in overlays:
         out += ov.to_lines()
+        out.append("")
+    for an in animations or []:
+        out += an.to_lines()
         out.append("")
     for c in cameras:
         out += _camera_to_lines(c)

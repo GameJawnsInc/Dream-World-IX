@@ -255,6 +255,15 @@ do = { add_shop_item = [40, "Elite Contract"] }   # [shop_id, item]
 once = "stock2"                                    # REQUIRED — the event-Once lane
 ```
 
+> **THE DRAINING-CONDITION LAW (ARMOURY round 3):** the selector picks **one branch per
+> unit per tick**, so two once-branches on the same condition fire on *consecutive*
+> ticks — and a condition an item pool is draining (`have_item >= N` while the pool
+> converts) may hold for exactly ONE tick: the first branch fires, the second finds it
+> already false. To hang several once-effects on one transient moment, latch it: the
+> first branch carries `raise_flags = ["moment"]` and the others gate on
+> `when = [{ flag = "moment" }]` — a raised flag doesn't drain. (Monotonic conditions —
+> kill tallies, spent waves — don't need this; the event-Once lane alone serves them.)
+
 Mutates a shop's buy list at runtime (Memoria's extended `AddShopItem`, 0x115) — the
 wave-by-wave armoury unlock. Engine semantics the compiler bakes in: the shop must already
 exist in `ShopItems.csv` (a `[[shop]]` in this field, or a vanilla 0–31 — lint refuses
@@ -264,6 +273,17 @@ the mutation is **session-global in-memory state** — it survives field transit
 `~ Reload`, resets at relaunch, and is never saved. `once` is required and is what makes
 the semantics clean: the latch resets per field entry, so each session simply re-asserts
 the unlock whenever its condition holds — shop state follows the seed law, like tables.
+
+**The synthesis twin — `add_shop_synth` / `remove_shop_synth`** (`[shop_id, recipe]`,
+`once` required, same lane): Memoria's `AddShopSynthesis` (0x116), with the mutation
+inverted — it grafts the SHOP onto the RECIPE's `Shops` list, and the engine's silent
+no-op guard is on the *recipe*. `recipe` is a vanilla row's int id, or a **result item
+name** matched against this project's own `[[synthesis]]` recipes and resolved at build
+to the id the CSV emitter mints (deterministic base-max+1; a string selector therefore
+needs a reachable install at build — int selectors don't). The target shop must open as
+SYNTHESIS — absent from `ShopItems.csv`; lint refuses a `[[shop]]` buy id or vanilla
+0–31. The hidden-recipe idiom: declare the locked recipe against a PARKED shop id (no
+opener) and graft the real shop onto it at runtime.
 
 > **Why a relaunch resets it but New Game does not:** `ff9buy.ShopItems` is a static,
 > process-lifetime table loaded from the CSV once at engine startup. `AddShopItem`

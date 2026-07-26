@@ -11,9 +11,9 @@ Quoted verbatim from CLAUDE.md §7:
 >   field load.** HW naming is INVERTED (HW "GlobBool" = engine **Map** = transient).
 > - `EventContext.mapvar` is **only 80 bytes** → a high flag index in MAP space is out-of-bounds
 >   = hard crash. **Use GLOB for chests / story flags / cutscene-once.** The kit uses `GLOB_BOOL
->   = 0xC4` (transient dev twin = `MAP_BOOL = 0xC5`) with flag bases in the **8000+** band (clear
->   of base-game flags); indices > 0xFF need the long-index token encoding (`class|0x20` + 2-byte
->   LE) — which is why the 8000 band works. `gEventGlobal` index N → byte `N>>3`, bit `N&7`.
+>   = 0xC4` (transient dev twin = `MAP_BOOL = 0xC5`) with flag bases in the safe band (auto bands
+>   9100+, authored flags 8712+); indices > 0xFF need the long-index token encoding (`class|0x20`
+>   + 2-byte LE) — which is why the high bands work. `gEventGlobal` index N → byte `N>>3`, bit `N&7`.
 > - A `once=true` event/cutscene won't replay for *testing* once its persistent flag is set —
 >   use `once=false`, a fresh New Game, a distinct flag index, or ~ → Flags → reset.
 
@@ -43,7 +43,7 @@ Quoted verbatim from `project-ff9-story-flags`:
 > `campaign.py` default `flag_base` 8300 → 8512 → **8712** (`FIRST_SAFE_FLAG`; the 8512 stop missed stock's BYTE-addressed vars — bits 8512-8711 are read-mail's payload Byte[1064-1073]/[1079-1088], whole-byte-written by ordinary play; true max real-used bit = 8711).
 > **Safe-band audit:** ≥8712 is CLEAN — the ENGINE tops at byte 975 (TH) + 510-525 (voice) + ≤207 (scenario/words), and FIELD SCRIPTS top at byte 1088 (the read-mail sender payload; 2026-07-19 census incl. byte-addressed vars).
 
-Historical per-category bands when no `flag_base` is given: EVENT 8000 / CUTSCENE 8100 / CHOICE 8200 (single-field builds stay byte-identical); campaign members get `flag_base + i*K` packed (cutscene `+0`, events `+1..+31`, choices `+32..+63`).
+Single-field per-category auto bands when no `flag_base` is given (since 1.0.0b18, `flags.AUTO_*_BASE`): EVENT 9100+ / CUTSCENE 9200+ / CHOICE 9300+ / ON_ENTRY 9400+ / ATE 9500+, width 100 each, and the allocator SKIPS any index the project references explicitly. (The pre-b18 bands 8000/8100/8200/8300 sat below `FIRST_SAFE_FLAG` — 8300+ landed INSIDE the stock Mognet MAILBOX slot bytes, Byte[1024-1045] = bits 8192-8367, now a reserved region in `flags.py`.) Campaign members get `flag_base + i*K` packed (cutscene `+0`, events `+1..+31`, choices `+32..+63`).
 
 ## The 5 verbs
 

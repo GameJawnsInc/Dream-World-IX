@@ -46,10 +46,17 @@ HALF_FIELD_H = 112.0
 # (cx - HalfFieldWidth, HalfFieldHeight - cy) (BGSCENE_DEF.CreateScene_OverlayGo, scale 1); the field
 # actor/walkmesh is placed at its GTE-projected (px, py). Both render through the same ortho FieldMap
 # camera, so a world point appears under canvas pixel (cx, cy) exactly when (px, py) == (cx - HFW,
-# HFH - cy). Writing px,py as the RAW GTE projection plus the engine offset (range/2 - HFW in x,
-# -range/2 + HFH in y), the HalfField terms cancel and the map is EXACTLY scale-1, no fudge:
-#       canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
-# Verified noise-free against an in-engine projection probe (overlay corners + actor grid, 2026-06-02).
+# HFH - cy). Writing px,py as the RAW GTE projection plus the engine offset (compute_offset:
+# centerOffset.x + range/2 - HFW in x, -centerOffset.y - range/2 + HFH in y), the HalfField terms
+# cancel and the map is EXACTLY scale-1, no fudge:
+#       canvasX = rawProj.x + centerOffset.x + range.w/2
+#       canvasY = range.h/2 + centerOffset.y - rawProj.y
+# Kit-authored (novel) cameras always have centerOffset [0,0], so there the map reduces to the
+# offset-less form verified noise-free against an in-engine projection probe (overlay corners +
+# actor grid, 2026-06-02). REAL imported cameras carry a nonzero GTE centerOffset that survives as a
+# constant canvas shift -- proven on donor fbg_n11_ldbm_map158_lb_plz_0 (field 559, centerOffset
+# [26, 400]), where the offset-less map put the spawn OFF-canvas at (-9.5, -13.8) instead of the
+# true (16.5, 386.2) (WATERWORKS bench 30420, scroll-viewport + boot-window check).
 # The earlier S_CANVAS_X/Y = 0.926/0.889 were an eyeball fit that silently absorbed the player
 # COLLISION_RADIUS_W (below) -- removed; kept here as 1.0 for any external caller.
 S_CANVAS_X = 1.0
@@ -179,13 +186,18 @@ def depth(P, cam):
 def to_canvas(P, cam):
     """Painted-canvas pixel (top-left origin, Y down) where a world point appears.
     EXACT, scale-1 (no calibration fudge):
-      canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
-    Derived from the engine overlay placement (BGSCENE_DEF) + the GTE actor projection (FieldMap),
-    and verified noise-free against an in-engine projection probe.
+      canvasX = rawProj.x + centerOffset.x + range.w/2
+      canvasY = range.h/2 + centerOffset.y - rawProj.y
+    Derived from the engine overlay placement (BGSCENE_DEF) + the GTE actor projection with the
+    engine's real projectionOffset (compute_offset); equivalently, project_screen mapped into the
+    canvas frame. Kit-authored cameras have centerOffset [0,0] (identical to the historical
+    offset-less form); REAL imported cameras need their GTE centerOffset (see the block comment
+    above -- the map158 donor's [26, 400] is the proven case).
     NB: this is pure geometry -- the player's COLLISION_RADIUS_W keeps the player CENTRE a constant
     ~48 world units inside any painted edge; account for it in the walkmesh, not here."""
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
-    return (px + cam.range[0]/2.0, cam.range[1]/2.0 - py)
+    return (px + cam.centerOffset[0] + cam.range[0]/2.0,
+            cam.range[1]/2.0 + cam.centerOffset[1] - py)
 
 
 def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0):

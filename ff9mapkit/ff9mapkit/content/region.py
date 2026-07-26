@@ -55,7 +55,7 @@ GLOB_INT16 = 0xD8     # Global + Int16. Idx 2 (D8:2) is the engine's ARRIVAL-ENT
 VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8, "glob_byte": GLOB_BYTE}
 
 # A scratch word high in gEventGlobal (byte offset; vars index BYTES, bits index BITS -- so byte 2040
-# is bits 16320+, clear of base-game vars [low offsets] AND the kit's 8000+ bit-flags [bytes ~1000]).
+# is bits 16320+, clear of base-game vars [low offsets] AND the kit's safe-band bit-flags [bytes ~1100]).
 # Rebuilt every time a choice opens (set_var -> or_var), so its transient value never matters across
 # opens; F10's gEventGlobal reset is harmless to it.
 MASK_SCRATCH_IDX = 2040

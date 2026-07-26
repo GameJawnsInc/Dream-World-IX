@@ -25,18 +25,20 @@ The prompt/option TEXT (the ``[CHOO][MOVE=18,0]`` rows) is assembled in :mod:`ff
 
 from __future__ import annotations
 
+from .. import flags as _flags
 from ..eb import opcodes
 from . import event as _event, region as _region
 
-# zone-triggered choices auto-allocate a GLOB gate flag from here (clear of events 8000 + cutscene
-# 8100). It must be GLOB (gEventGlobal is large); the per-field MAP array is only 80 bytes, so a high
-# index there is out of bounds and crashes. once-per-visit is done by resetting this flag in the
-# region's Init (re-runs each field load), not by a transient MAP flag.
-CHOICE_FLAG_BASE = 8200
+# zone-triggered choices auto-allocate a GLOB gate flag from here (the safe-band auto bands -- the map
+# + why they moved off the legacy 8200 base live in flags.py). It must be GLOB (gEventGlobal is
+# large); the per-field MAP array is only 80 bytes, so a high index there is out of bounds and
+# crashes. once-per-visit is done by resetting this flag in the region's Init (re-runs each field
+# load), not by a transient MAP flag.
+CHOICE_FLAG_BASE = _flags.AUTO_CHOICE_BASE
 
 
 def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,
-                input_specs: dict | None = None) -> bytes:
+                input_specs: dict | None = None, qte_slots: dict | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
@@ -55,6 +57,13 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
             raise ValueError(f"choice option input {opt['input']!r} has no seated "
                              f"[[numeric_input]] entry (validate should have caught this)")
         parts.append(_numinput.call_bytes(slot))
+    if "qte" in opt:
+        from . import qte as _qte_mod
+        qslot = (qte_slots or {}).get(str(opt["qte"]))
+        if qslot is None:
+            raise ValueError(f"choice option qte {opt['qte']!r} has no seated "
+                             f"[[qte]] entry (validate should have caught this)")
+        parts.append(_qte_mod.call_bytes(qslot))
     if "recall" in opt:
         # re-load gMesValue slot 0 from that input's RESULT var so this row's reply
         # renders the SAVED number — slot 0 is transient and shared by every stepper's
@@ -80,12 +89,43 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
+    if opt.get("save"):
+        # A SAVE row -- open the real save menu from a dialogue choice, so one NPC can be the
+        # innkeeper/purser AND the save point instead of standing next to a twin save-moogle prop.
+        # `savepoint.save_act` is the same latched Menu(4,0) both real save families use
+        # (GLOB(184)=1; Wait(3); Menu(4,0); Wait(3); GLOB(184)=0). It RETURNS to the menu's caller,
+        # so it is NOT a transition and may sit before other actions.
+        from . import savepoint as _sp
+        parts.append(_sp.save_act())
     if "warp" in opt:
         # A choice that warps is ALWAYS a field transition, so it fades out first (fade=True) -- exactly
         # like a gateway/ladder. Without the fade the destination loads in the clear and you see its
         # camera-init frames (the World-Hub static-screen bug). entrance (optional) sets the arrival
         # entrance var; it is not the camera fix (the fade is) -- see event.warp.
         parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance"), fade=True))  # LAST: away
+    elif "worldmap" in opt:
+        # THE FERRY ARM -- this row sails to the OVERWORLD at a named landing, instead of warping to a
+        # field. It is the same primitive a walk-out worldmap gateway uses (`worldexit.worldmap_exit_body`
+        # with an explicit `arrive`), so a ferry destination and a door behave identically once taken:
+        # usercontrol guard -> fade -> BOTH position blocks -> POSITION_PRESET_KEY -> computed WorldMap.
+        #
+        # Why a choice row and not four doors: stock FF9 books boat travel through a PERSON (the Blue
+        # Narciss "Where to?"), and the alternative -- one walk-on zone per destination -- needs four
+        # readable doors in the art. Borrowed art has none, so four invisible zones in one corridor are
+        # unreadable and mutually triggerable. A menu is self-describing and cannot be entered by accident.
+        #
+        # Mutually exclusive with `warp` (both end the function by transitioning away).
+        # ⚠ gate=False IS LOAD-BEARING. `worldmap_exit_body` defaults to emitting the walk-on region
+        # prologue `ifnot (IsMovementEnabled) { return }`. We are inside a TALK handler, which opens with
+        # DisableMove, so IsMovementEnabled is 0: the gate would take its early return, skip the entire
+        # exit, and leave the player frozen with no window -- a SOFTLOCK. That is exactly how the first
+        # Lantern Hall ferry shipped; the deployed bytes showed the `7a 02` gate returning before the
+        # fade. A region prologue is not portable into a menu context.
+        from . import worldexit as _wx
+        wm = opt["worldmap"]
+        parts.append(_wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
+                                            arrive_face=int(wm.get("face", 0)),
+                                            fade=True, gate=False, game=opt.get("_game")))  # LAST: away
     return b"".join(parts)
 
 

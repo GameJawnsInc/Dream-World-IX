@@ -20,13 +20,16 @@
 #   * --no-tile-area   : R1 deployed the trigger tiles with area KEPT (idall 16384, area 0). Without
 #                        this flag the tiles would be re-stamped area=53 and the probe's expectation
 #                        (and possibly the entrance) would change.
-#   * --building-at 48 -1160.5 : pass 4's re-site (THE TRIGGER-AT-THE-FOOT LAW). Pass 3 stood the tower
-#                        at z -1157, ~12u north of the trigger cluster, and the owner reported "the
-#                        entrance is heavily offset to the south" -- the "!" fired in open grass with
-#                        the tower standing apart. -1160.5 puts the footprint's south edge at z -1162.8,
-#                        1.2u off the trigger rect's north edge (z -1164). Do NOT go further south than
-#                        -1160.70: below that the hull comes within 1u of the trigger tris and the
-#                        retriangulating split can reach them. MUST match ANCHOR in mint_quay_beacon.py.
+#   * --building-at 48 -1160.2 : THE TRIGGER-AT-THE-FOOT LAW (pass 4), re-solved for pass 5's entrance
+#                        steps. Pass 3 stood the tower at z -1157, ~12u north of the trigger cluster,
+#                        and the owner reported "the entrance is heavily offset to the south" -- the "!"
+#                        fired in open grass with the tower standing apart. The hull must stay >=1u off
+#                        the trigger rect (z -1164), and the hull is the mesh's FULL XZ extent:
+#                            pass 4, half-depth 2.30           ->  cz >= -1160.70  (used -1160.5)
+#                            pass 5, half-depth 2.30 + 0.45    ->  cz >= -1160.25  (uses  -1160.2)
+#                        The steps reach z -1162.95, so the STRUCTURE is 0.15u closer to the trigger
+#                        than pass 4 even though the centre moved 0.30u north. Do NOT go south of
+#                        -1160.25 while the steps exist. MUST match ANCHOR in mint_quay_beacon.py.
 #   * --no-seat        : the OBJ is authored in WORLD coords with its skirt 0.5u BELOW the y=3.00
 #                        plateau. Seating would lift the lowest point ONTO the ground and un-bury the
 #                        skirt, reintroducing the coplanar-face z-fighting the beacon exists to avoid.
@@ -50,26 +53,43 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 
-# (re)generate the beacon OBJ -- it is committed, but this keeps the mesh and the deploy in lockstep
-# and re-runs the 20 geometry gates (closed / orientable / outward / buried skirt / panel scale / UVs)
-py "$HERE/mint_quay_beacon.py"
+SITE="${1:-}"
+if [ -z "$SITE" ]; then
+  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur>" >&2
+  exit 2
+fi
+
+# Per-site deploy arguments. Each row is: cell  trigger  --building-at  obj
+#
+# ⚠ AT IS THE MESH'S BBOX CENTRE, NOT THE ANCHOR -- they differ by 0.225u since pass 5.
+# `build_from_obj` re-anchors the XZ BOUNDING-BOX CENTRE onto --building-at. The entrance steps
+# project 0.45u south, so the bbox centre sits 0.225u south of the tower centre; passing the anchor
+# slides the whole beacon 0.225u NORTH of where the 29 gates measured it. `mint_quay_beacon.py`
+# prints the correct value (Site.building_at) at the end of every generate -- use that, never the
+# anchor. (Caught on the first Tidefall deploy; the gap to the trigger merely grew, but the deployed
+# mesh no longer matched the gated one, which is how drift starts.)
+# The beacon anchor's SOUTHERN LIMIT is derived per site in mint_quay_beacon.py's SITES table: the hull
+# must stay >= 1.0u clear of the trigger rect, and the hull is the mesh's FULL XZ extent, which since
+# pass 5 includes the entrance steps projecting 0.45u south. So the limit is
+#     cz >= (trigger north edge) + 1.0 + 2.30 + 0.45
+# Ashvale: trigger north -1164.0 -> cz >= -1160.25, uses -1160.2 (0.05u slack).
+# Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
+# was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
+case "$SITE" in
+  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj" ;;
+  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.425";   OBJ="quay_beacon_tidefall.obj" ;;
+  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.425";  OBJ="quay_beacon_grimhorn.obj" ;;
+  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj" ;;
+  *) echo "unknown site: $SITE" >&2; exit 2 ;;
+esac
+
+# (re)generate this site's OBJ -- committed, but this keeps mesh and deploy in lockstep and re-runs
+# the 29 geometry gates (closed / orientable / outward / buried skirt / siting / panel scale / UVs)
+py "$HERE/mint_quay_beacon.py" --site "$SITE"
 
 cd "$ROOT/ff9mapkit"
-py -m ff9mapkit world-entrance \
-    --cell 1 36 \
-    --field-direct 6601 \
-    --nameplate-name "Lantern Quay" \
-    --nameplate-case 53 \
-    --trigger-at 48 -1168 \
-    --trigger-radius 3.0 \
-    --no-tile-area \
-    --mod-folder FF9CustomMap-world \
-    --building "../studies/overworld-topography/southern-ring/quay_beacon.obj" \
-    --building-at 48 -1160.5 \
-    --no-seat \
-    --replace-town \
-    --building-idall 4078
+py -m ff9mapkit world-entrance     --cell $CELL     --field-direct 6601     --nameplate-name "Lantern Quay"     --nameplate-case 53     --trigger-at $TRIG     --trigger-radius 3.0     --no-tile-area     --mod-folder FF9CustomMap-world     --building "../studies/overworld-topography/southern-ring/$OBJ"     --building-at $AT     --no-seat     --replace-town     --building-idall 4078
 
 echo
-echo "Re-deployed. Now verify from the DEPLOYED bytes:"
+echo "Re-deployed $SITE. Now verify from the DEPLOYED bytes:"
 echo "  py \"$HERE/probe_marker/probe_quay_beacon.py\""

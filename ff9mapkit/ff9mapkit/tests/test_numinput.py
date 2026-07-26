@@ -167,6 +167,15 @@ def test_option_body_recall_before_reply():
     ({"start": 998, "max": 20}, "start"),
     ({"result": 2041}, "result"),
     ({"result": None}, "result"),
+    # the co-op clobber class: the cap (2016) keeps the word below the [[qte]] scratch band
+    # AND the netsync co-op cells (2032-2039, engine-rewritten every frame under live co-op)
+    # -- the old 2038 cap admitted a result the engine clobbered per frame
+    ({"result": 2032}, "4..2016"),
+    ({"result": 2018}, "4..2016"),
+    # the reserved-region walk over both bytes of the word (same as a [[qte]] result)
+    ({"result": 1030}, "mognet_mailbox"),
+    ({"result": 1046}, "mognet_give_locks"),              # the straddle: byte 1047 is reserved
+    ({"result": 23}, "field_menu_guard"),
     ({"window": 4}, "window"),                            # 4 - 3 digits < 2
     ({"label": "a\nb"}, "label"),
     ({"pos": [400, 80]}, "pos"),

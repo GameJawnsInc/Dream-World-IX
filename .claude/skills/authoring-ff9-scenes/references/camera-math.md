@@ -24,14 +24,18 @@ Clean equivalent pinhole (validated to ~1e-13), with `F = diag(1,-1,1)`:
 
 ## The canvas map — EXACT, scale-1
 
-Quoted verbatim (memory `project-ff9-camera-math`; supersedes the old sx=0.926/sy=0.889 eyeball fit):
+Supersedes the old sx=0.926/sy=0.889 eyeball fit:
 
 ```
-canvasX = rawProj.x + range.w/2          # rawProj = project(P,cam) with offset (0,0)
-canvasY = range.h/2 - rawProj.y          # scale 1.0 BOTH axes, no fudge
+canvasX = rawProj.x + centerOffset.x + range.w/2   # rawProj = project(P,cam) with offset (0,0)
+canvasY = range.h/2 + centerOffset.y - rawProj.y   # scale 1.0 BOTH axes, no fudge
 ```
 
-Reproduces an in-engine projection probe to **0.0005 px**; EXACT at any pitch. `cam.to_canvas(P, cam)`
+Kit-authored (novel) cameras always have `centerOffset [0,0]`, where this reduces to the historical
+offset-less form that reproduces an in-engine projection probe to **0.0005 px**; EXACT at any pitch.
+REAL imported cameras carry a nonzero GTE centerOffset that shifts the whole canvas map — proven on
+donor `fbg_n11_ldbm_map158_lb_plz_0` (centerOffset [26, 400]; regression in
+`ff9mapkit/tests/test_cameras.py::test_map158_center_offset_regression`). `cam.to_canvas(P, cam)`
 is the implementation; `solve_z_for_canvasY` is the inverse (painted floor row → world z).
 
 Engine offsets (what the GTE actually receives — `FieldMap.cs`, quoted from the memory):

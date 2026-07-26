@@ -36,3 +36,70 @@ an abutting trigger read as offset, because the trigger IS "the door." **R2 must
 entrance feature (recessed doorway/lintel/steps) to the beacon generator**; all four quays (including
 this one, on its R2 rebuild) pick it up. The beacon + `rebuild_quay_marker.sh` + `--building-idall` are
 the reusable kit for the three remaining quays.
+
+## R2 — THE ONE-CASE FERRY ★ DEPLOYED (2026-07-26, playtest pending)
+
+**Site ruling (owner, AskUserQuestion):** the quays are **Ashvale + Tidefall + Grimhorn + Larkspur** — the
+judgment's measured dock list. The "four southern-band clusters" prose was unsatisfiable from measurement
+(Sandreach is dockless; Larkspur is mid-map): the ferry reads as a ROUTE, not a band. Tidefall's trigger
+moved to the rank-2 dock **(420,−1232)** — the design coord (412,−1224) cannot host the doored beacon
+(hull crosses the (6,19)/(6,18) seam).
+
+**The build (93 install files, NO relaunch, `FF9CustomMap` untouched; full record REVERT.md §13–16):**
+3 new case-53 quay entrances (63 dispatcher files, +3 funcs each, every pre-existing body byte-identical)
++ the doored beacon at all four quays (Ashvale rebuilt restore-first; THE ENTRANCE-FACE LAW satisfied)
++ 4 **east-wall depth-staggered berth alcoves** in 6601 (the lateral 4-door row is REFUTED by projection —
+all four lanes land off-painting within 54 px) + per-berth **sign zones** (a placard actor cannot satisfy
+the 300u spacing law in a 410u corridor; zones cost nothing) + the Purser moved to the west wall (he stood
+inside berth IV's mouth). Sign flags **8760–8763 set EXPLICITLY** — the `[[event]]` default allocates
+below `FIRST_SAFE_FLAG` (kit-audit chip filed).
+
+**Laws minted en route:** THE BBOX-CENTRE DRIFT (`--building-at` re-anchors the bbox centre — an
+asymmetric mesh slides off its gated anchor; `Site.building_at` publishes the corrected value) · the
+trigger-idall invariant is **event/area, never raw equality** (Grimhorn's desert ground makes 16452) ·
+the SITES↔hall-arrive duplication is now cross-probed (`probe_quay_sites.py` parses the hall toml —
+editing one side can no longer silently half-break the ring).
+
+**A0 dropped (owner disposability ruling):** the Grimhorn horseshoe aux was WIPED by a later island run
+(no runnable script; reconstruction = a `world-mountain` re-run through the quay site). Grimhorn ships
+without its falls.
+
+**Deferred:** per-quay nameplates (3 dead high AREA cases + 3 block-68 locIds — cosmetic; all four plates
+read "Lantern Quay", and one visit names all four via the shared explored bit) · R3 Lamplight · R4 the
+forest/encounter pass · R5 the sea lanes.
+
+**Playtest loop:** New Game → hub → hall → read each berth sign → out each berth → land on each shore
+facing inland → beacon at the trigger's foot, door facing you → "?" → "Lantern Quay" → re-enter the hall.
+No relaunch required (`~ → Reload field` / world re-entry applies everything).
+
+## R2c — THE FERRY LANE (2026-07-26): the berth row superseded by stock's own idiom
+
+**The alcove row FAILED playtest comprehension** ("super clustered... randomly trigger 1 of 2 warps"):
+the spawn sat inside berth III's depth band, the sign zones occupied the corridor's CENTER, the warp
+zones ate the east half of the walk lane, and the borrowed art paints no doors — **THE INVISIBLE-DOOR
+LESSON** (now in the `laying-out-ff9-fields` skill): a layout can pass every spacing warning and still
+be unplayable; the probe measures geometry, not comprehension.
+
+**Replaced by the productized `[[ferry]]` kit lane** (owner-ruled): an NPC dialogue-choice worldmap
+exit — the Purser asks "Where shall we sail, kupo?", rows for the four ports, a MANDATORY decline arm
+appended LAST (bare CANCEL returns the last row). Desugars to the proven `[[choice]]` pipeline; each
+destination arm runs the same `worldexit` body as a gateway (both blocks + key 35). The hall now holds
+exactly four things — spawn, ledger+savepoint, Purser, and the single restored R1 south-door exit
+(home port Ashvale). The Purser moved BACK east: at the west-wall spot the restored door quad reached
+him — **re-derive every actor-vs-zone relation after ANY zone reshape** (second instance of the class).
+Flags 8760–8763 freed; ring-closure probe parses ferry rows + door vs `SITES` (169 checks). 14 files,
+hot. Record: REVERT.md §17.
+
+**R2c fix (2026-07-26):** the Purser softlock root-caused — **THE MOVEMENT-GATE CONTEXT LAW**: a walk-on
+region's usercontrol prologue (`ifnot IsMovementEnabled → return`) is NOT portable into a talk handler,
+which has already disabled movement — the exit silently bails after the reply window and the player is
+frozen with no window. `worldmap_exit_body(gate=)` now context-aware (ferry arms gate=False; gateways
+unchanged); lint rejects `dialogue` + `[[ferry]]` on one NPC (was shipping dead text). Hall final form:
+spawn + the Purser, ZERO regions — the south door and the ledger/savepoint deleted, saving is the menu's
+"Log the passage" row (latched `Menu(4,0)`), decline still LAST. `.eb` 7703→5600 B, 14 files, hot.
+Record: REVERT.md §18.
+
+**R2 PLAYTEST CONFIRMED (2026-07-26):** all four ferry choices sail correctly and the Confirm hijack is
+gone. En-route casualty: boarding the crimson boat at its islet no longer fires (the range window's true
+branch fails in-game) — logged in `studies/custom-vehicle/README.md`, boat DORMANT until R5 by owner
+ruling. R2 is CLOSED; next rungs R3 Lamplight · R4 forest pass · R5 sea lanes + proper boarding.

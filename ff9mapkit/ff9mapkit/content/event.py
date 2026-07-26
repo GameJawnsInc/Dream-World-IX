@@ -16,16 +16,18 @@ from __future__ import annotations
 
 import struct
 
+from .. import flags as _flags
 from .. import items as _items
 from ..eb import EbScript, edit, opcodes
 from . import folklore as _folklore
 from . import region as _region
 
 # 'once' flags live in the SAVE-PERSISTENT Global bool (region.GLOB_BOOL) so a looted chest / one-time
-# event stays done across field reloads + saves. The base is high in gEventGlobal (byte ~1000) to stay
-# clear of the base game's flags (which sit low); override per event with `flag = N`.
+# event stays done across field reloads + saves. The single-field default band lives in the provably-
+# safe custom band (flags.AUTO_EVENT_BASE -- the band map + why it moved off the legacy 8000 base are
+# documented there); override per event with `flag = N`.
 EVENT_FLAG_CLASS = _region.GLOB_BOOL
-EVENT_FLAG_BASE = 8000
+EVENT_FLAG_BASE = _flags.AUTO_EVENT_BASE
 
 
 def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:

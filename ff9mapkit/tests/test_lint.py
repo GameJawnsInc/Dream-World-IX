@@ -4,7 +4,7 @@
 logic (lint_logic), reserved flag-band use (lint_flag_bands), walkmesh geometry + content placement
 (verify_walkmesh), and camera pitch. These tests pin the new flag-band check and prove the geometry /
 placement / camera sections now surface through `lint` (they used to be reachable only via `walkmesh
-verify` or a full build), without false-positives on the kit's established 8000+ flag band.
+verify` or a full build), without false-positives on unmapped free bits (e.g. 8000-8191).
 """
 
 from __future__ import annotations
@@ -70,11 +70,20 @@ def _load(tmp_path, *, set_flag=200, requires_flag=200, body=None):
 
 # ---------------------------------------------------------------- lint_flag_bands (the new check)
 
-def test_flag_bands_clean_on_kit_working_band(tmp_path):
-    """The kit's established 8000+ band (and the unmapped 200 used by the docs example) is free space --
-    NOT reserved -- so an explicit write/read there draws no flag warning."""
+def test_flag_bands_clean_on_unmapped_free_space(tmp_path):
+    """Unmapped bits (8000-8191, and the 200 used by the docs example) are free space -- NOT reserved --
+    so an explicit write/read there draws no flag warning. (8000+ was the pre-b18 event auto band; the
+    auto bands now live in the safe band, but these bits themselves are still stock-clear.)"""
     assert lint_flag_bands(_load(tmp_path, set_flag=8001, requires_flag=8000)) == []
     assert lint_flag_bands(_load(tmp_path, set_flag=200, requires_flag=200)) == []
+
+
+def test_flag_bands_warns_mognet_mailbox_write(tmp_path):
+    """A raw write into the stock Mognet MAILBOX (Byte[1024-1045] = bits 8192-8367 -- live letter slots,
+    whole-byte-written by ordinary play; where the pre-b18 on_entry/ate auto band landed) is flagged."""
+    w = lint_flag_bands(_load(tmp_path, set_flag=8300, requires_flag=200))
+    assert len(w) == 1
+    assert "mognet_mailbox" in w[0] and "8300" in w[0]
 
 
 def test_flag_bands_warns_chest_write(tmp_path):
@@ -254,6 +263,41 @@ def test_flag_bands_scans_prop_gates(tmp_path):
     p.write_text(PROP, encoding="utf-8")
     w = lint_flag_bands(FieldProject.load(p))
     assert any("8400" in m and "advisory" in m for m in w)
+
+
+# ---------------------------------------------------------------- lint_flag_bands: [[qte]] (was a gap)
+
+def _qte_proj(**qte):
+    """A raw-only project (lint_flag_bands touches nothing but .raw) carrying one [[qte]] block."""
+    p = FieldProject.__new__(FieldProject)
+    p.raw = {"field": {"id": 4003, "name": "Q", "area": 11},
+             "qte": [{"name": "duel", **qte}]}
+    return p
+
+
+def test_flag_bands_walks_qte_finale_flag():
+    """A [[qte]] finale `flag` in a reserved region is flagged like any other literal write (the
+    bench's original 8300 sat on a live Mognet letter-slot byte)."""
+    w = lint_flag_bands(_qte_proj(result=2006, flag=8300))
+    assert len(w) == 1
+    assert "[[qte]]" in w[0] and "mognet_mailbox" in w[0] and "8300" in w[0]
+
+
+def test_flag_bands_walks_qte_result_word():
+    """The result Int16 spans TWO bytes; the straddle case -- byte 1046 free, byte 1047 in the
+    Mognet lock band -- must still be caught."""
+    w = lint_flag_bands(_qte_proj(result=1046))
+    assert len(w) == 1
+    assert "[[qte]]" in w[0] and "mognet_give_locks" in w[0]
+
+
+def test_flag_bands_qte_clean_and_malformed(tmp_path):
+    """A safe-band flag + clear result draws no warning; a malformed block never crashes the lint."""
+    assert lint_flag_bands(_qte_proj(result=2006, flag=8712)) == []
+    assert lint_flag_bands(_qte_proj(result=None)) == []
+    p = FieldProject.__new__(FieldProject)
+    p.raw = {"field": {"id": 4003}, "qte": ["not-a-dict"]}
+    assert lint_flag_bands(p) == []
 
 
 def test_lint_all_missing_borrow_does_not_crash(tmp_path):

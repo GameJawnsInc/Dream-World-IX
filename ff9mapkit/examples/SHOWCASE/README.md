@@ -15,9 +15,9 @@ anything; everything else stays the same.
 ### What it demonstrates
 - **Camera + walkmesh + layers** — a 48° room with a flat walkmesh on the painted floor.
 - **NPC + custom dialogue** — "Sage", with your own line (written into the `.mes` for you).
-- **Story branching** — "Guardian" is gated behind flag `8000`: absent until the chest is opened, then
+- **Story branching** — "Guardian" is gated behind flag `8712`: absent until the chest is opened, then
   revealed live (same visit).
-- **Event** — a chest that gives an item + 1000 gil, shows a message, and sets flag `8000` (fires once).
+- **Event** — a chest that gives an item + 1000 gil, shows a message, and sets flag `8712` (fires once).
 - **Encounter + field BGM** — random battles (scene 67) with the battle theme, plus Vivi's Theme on
   entry; the build adds the after-battle reinit automatically.
 - **Cutscene** — a control-locked narration that plays once on entry.

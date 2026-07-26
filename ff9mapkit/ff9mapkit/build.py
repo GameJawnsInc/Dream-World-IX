@@ -38,7 +38,9 @@ from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
+from .content import gauge as _gauge
 from .content import numinput as _numinput
+from .content import qte as _qte
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -189,12 +191,82 @@ class PathTraversalError(ValueError):
     existing ``except ValueError`` handlers still catch it."""
 
 
+def _desugar_ferries(raw: dict) -> None:
+    """Expand every ``[[ferry]]`` into an ordinary ``[[choice]]`` with worldmap-exit option rows.
+
+    THE FERRY LANE. Stock FF9 books boat travel through a PERSON -- you talk to the Blue Narciss's
+    captain and pick a port -- not by walking through one unmarked door per destination. This block is
+    that idiom, productized: an NPC whose talk menu sails you to any of several OVERWORLD landings.
+
+    It desugars rather than growing a parallel implementation, so a ferry inherits the whole proven
+    choice pipeline for free: the ONE-text-entry prompt+rows assembly (and with it the window-geometry
+    law -- the entry carries its own [STRT]/[TAIL] geometry, which is why a ferry menu is authored as
+    text, never hand-pointed), CANCEL-picks-the-last-row, the runtime availability mask, flag gating,
+    and every existing ``raw["choice"]`` consumer in this module. The only genuinely new byte-level
+    behaviour is the per-row worldmap exit itself (``choice.option_body``'s ``worldmap`` arm), which
+    reuses ``worldexit.worldmap_exit_body`` -- the same primitive a walk-out gateway uses.
+
+    Shape::
+
+        [[ferry]]
+        npc = "Purser"                 # must name an [[npc]]
+        prompt = "Where shall we sail?"
+        decline = "Stay ashore."       # REQUIRED -- the last row, which CANCEL/B also picks
+        decline_reply = "..."          # optional line after declining
+        instant = true                 # optional -- pop the menu fully drawn (default true here)
+
+        [[ferry.destination]]
+        name = "Ashvale"               # the menu row
+        arrive = [60.0, -1168.0]       # where you land on the overworld
+        arrive_face = 192              # facing there (0=S 64=W 128=N 192=E)
+        reply = "..."                  # optional line before the fade
+
+    The decline row is appended LAST on purpose: with no ``[PCHC]`` pre-tags the engine's CANCEL (B)
+    returns the last row, so "changed my mind" is the free default and a mis-press can never sail you
+    somewhere. Validation lives in :func:`lint_project` under the ``[[ferry]]`` label so errors point at
+    the surface the author wrote, not at the generated choice."""
+    ferries = raw.get("ferry") or []
+    if not ferries:
+        return
+    choices = raw.setdefault("choice", [])
+    for f in ferries:
+        opts = []
+        for d in (f.get("destination") or []):
+            o = {"text": d.get("name", "?")}
+            if "reply" in d:
+                o["reply"] = d["reply"]
+            if "arrive" in d:
+                o["worldmap"] = {"arrive": d["arrive"], "face": d.get("arrive_face", 0)}
+            opts.append(o)
+        if "save" in f:
+            # the SAVE row -- one NPC is both ferry and save point, so the hall needs no twin
+            # save-moogle prop standing beside him (the Lantern Hall shipped two identical
+            # model-220 moogles 330u apart and the playtester read them as clutter).
+            sv = {"text": f["save"], "save": True}
+            if "save_reply" in f:
+                sv["reply"] = f["save_reply"]
+            opts.append(sv)
+        if "decline" in f:
+            dec = {"text": f["decline"]}
+            if "decline_reply" in f:
+                dec["reply"] = f["decline_reply"]
+            opts.append(dec)                       # LAST: CANCEL/B lands here
+        ch = {"options": opts}
+        for k in ("npc", "zone", "prompt", "speaker", "tail", "trigger", "default", "cancel"):
+            if k in f:
+                ch[k] = f[k]
+        ch["instant"] = f.get("instant", True)     # a travel menu wants to pop, not type on
+        ch["_ferry"] = True                        # provenance, so lint can label errors correctly
+        choices.append(ch)
+
+
 @dataclass
 class FieldProject:
     raw: dict
     base_dir: Path
-    # Per-member campaign once-flag base (set by campaign.build_campaign). None => single-field defaults
-    # (event 8000+ / cutscene 8100 / choice 8200+), which keeps single-field builds BYTE-IDENTICAL.
+    # Per-member campaign once-flag base (set by campaign.build_campaign). None => the single-field
+    # safe-band auto bands (flags.AUTO_*_BASE via _FlagAlloc, which also skips this project's own
+    # authored flag indices).
     flag_base: int | None = None
     flags_per_field: int = 64    # width of this member's flag block -> the overflow guard's choice cap
 
@@ -209,6 +281,7 @@ class FieldProject:
         # integer indices BEFORE any int() reads them. A project with no named flags is left unchanged
         # (numeric flags pass through), so single-field builds stay byte-identical.
         _flags.resolve_project_flags(raw, flag_names)
+        _desugar_ferries(raw)
         return cls(raw, p.parent)
 
     # convenience accessors
@@ -2213,8 +2286,115 @@ def validate(project: FieldProject) -> list[str]:
     if ni_blocks and "verbatim_eb" in project.raw:
         problems.append("[[numeric_input]] is not supported on a verbatim fork yet -- its entry "
                         "seating is synthesize-path only")
+    # [[qte]] blocks (the Blank-duel reaction game, content.qte)
+    qte_names = set()
+    qte_blocks = project.raw.get("qte", []) or []
+    for qi, blk in enumerate(qte_blocks):
+        try:
+            qs = _qte.from_raw(blk, qi)
+        except _qte.QteError as e:
+            problems.append(str(e))
+            continue
+        if qs.name in qte_names:
+            problems.append(f"[[qte]] duplicate name {qs.name!r}")
+        qte_names.add(qs.name)
+    if qte_blocks:
+        if "verbatim_eb" in project.raw:
+            problems.append("[[qte]] is not supported on a verbatim fork yet -- its entry "
+                            "seating is synthesize-path only")
+        if project.raw.get("behavior"):
+            problems.append("[[qte]] and [behavior] can't share a field yet -- the game's "
+                            "scratch (gEventGlobal bytes 2018-2031) sits inside the behavior "
+                            "blackboard's headroom band")
+    # [[gauge]] tile bars (the tiles-as-sprites substrate, content.gauge): validate each block; the
+    # daemon's state is ENTRY LOCALS (no global scratch), so [behavior] coexistence is fine.
+    g_names = set()
+    g_blocks = project.raw.get("gauge", []) or []
+    g_overlay_cells = 0
+    for gi, blk in enumerate(g_blocks):
+        try:
+            gs = _gauge.from_raw(blk, gi, resolve_item=_items.resolve)
+        except _gauge.GaugeError as e:
+            problems.append(str(e))
+            continue
+        if gs.name in g_names:
+            problems.append(f"[[gauge]] duplicate name {gs.name!r}")
+        g_names.add(gs.name)
+        g_overlay_cells += gs.segments + 1
+    if g_blocks:
+        if "verbatim_eb" in project.raw:
+            problems.append("[[gauge]] is not supported on a verbatim fork yet -- its daemon "
+                            "seating is synthesize-path only")
+        if project.field.get("bgs"):
+            # own-scene hybrid: the base counts come from the field's own .bgs header
+            try:
+                from .scene import bgs as _bgs_mod
+                _hdr = _bgs_mod.parse_header(project.path(project.field["bgs"]).read_bytes())
+                if _hdr.overlayCount + g_overlay_cells > 255:
+                    problems.append(f"[[gauge]] overlay budget: native scene {_hdr.overlayCount} "
+                                    f"+ gauge {g_overlay_cells} states > 255")
+            except (OSError, ValueError, KeyError) as e:
+                problems.append(f"[[gauge]] could not read the native scene's .bgs header "
+                                f"(needed for the appended overlay/anim indices): {e}")
+        elif project.field.get("borrow_bg"):
+            counts = project.field.get("borrow_scene_counts")
+            if not (isinstance(counts, list) and len(counts) == 2
+                    and all(isinstance(c, int) and 0 <= c <= 255 for c in counts)):
+                problems.append(
+                    "[[gauge]] on a BG-borrow field needs [field] borrow_scene_counts = "
+                    "[<overlayCount>, <animCount>] -- the donor scene's own block counts, so "
+                    "the appended USE_BASE_SCENE overlays/anims land at known indices. Read "
+                    "them from the donor's .bgs header (ff9mapkit.scene.bgs.parse_header on "
+                    "the extracted <FBG>.bgs.bytes).")
+            else:
+                if counts[0] + g_overlay_cells > 255:
+                    problems.append(f"[[gauge]] overlay budget: donor {counts[0]} + gauge "
+                                    f"{g_overlay_cells} states > 255 (overlay index is a byte)")
+        elif len(project.raw.get("layers", []) or []) + g_overlay_cells > 255:
+            problems.append(f"[[gauge]] overlay budget: {len(project.raw.get('layers', []) or [])} "
+                            f"layers + gauge {g_overlay_cells} states > 255")
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
+    # THE FERRY LANE -- validated against the surface the author WROTE ([[ferry]]), before the desugared
+    # [[choice]] rules below see the generated rows. See _desugar_ferries for the shape + why the decline
+    # arm is mandatory (CANCEL/B picks the last row, so without it a mis-press sails you somewhere).
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
+    for fi, f in enumerate(project.raw.get("ferry", []) or []):
+        dests = f.get("destination") or []
+        if not dests:
+            problems.append(f"[[ferry]] #{fi} needs at least one [[ferry.destination]] "
+                            f"(a ferry with nowhere to sail is just an NPC)")
+        if "decline" not in f:
+            problems.append(f"[[ferry]] #{fi} needs decline = \"<text>\" -- the stay-ashore row. It is "
+                            f"appended LAST because the engine's CANCEL (B) returns the last row; "
+                            f"without it a cancelled menu would sail to the final destination")
+        if ("npc" in f) == ("zone" in f):
+            problems.append(f"[[ferry]] #{fi} needs exactly one of npc = \"<name>\" or zone = [...]")
+        if "npc" in f and f["npc"] not in npc_names:
+            problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} is not a defined [[npc]] name")
+        if "prompt" not in f:
+            problems.append(f"[[ferry]] #{fi} needs a prompt (the \"Where to?\" line above the rows)")
+        # A ferry REPLACES its NPC's talk window (build's talk-body selection takes the choice), so a
+        # `dialogue` on the same NPC is allocated a txid and then never shown -- silently dead text that
+        # reads, in the toml, as if the player would see it. Say so instead of letting it rot.
+        if "npc" in f:
+            host = next((n for n in project.raw.get("npc", []) if n.get("name") == f["npc"]), None)
+            if host is not None and "dialogue" in host:
+                problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} also has dialogue = \"...\" -- the ferry "
+                                f"prompt REPLACES the talk window, so that line would never be shown. "
+                                f"Fold it into the ferry's prompt and remove dialogue.")
+        for di, d in enumerate(dests):
+            if not d.get("name"):
+                problems.append(f"[[ferry]] #{fi} destination {di} needs a name (the menu row)")
+            arr = d.get("arrive")
+            if not (isinstance(arr, (list, tuple)) and len(arr) == 2
+                    and all(isinstance(v, (int, float)) for v in arr)):
+                problems.append(f"[[ferry]] #{fi} destination {di} needs arrive = [x, z] "
+                                f"(the overworld landing) -- got {arr!r}")
+            fc = d.get("arrive_face", 0)
+            if not (isinstance(fc, int) and 0 <= fc <= 255):
+                problems.append(f"[[ferry]] #{fi} destination {di} arrive_face {fc!r} must be a raw "
+                                f"facing byte 0..255 (0=south 64=west 128=north 192=east)")
+    # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     for c, ch in enumerate(project.raw.get("choice", [])):
         has_npc, has_zone = "npc" in ch, "zone" in ch
         if has_npc == has_zone:                  # need exactly one trigger
@@ -2264,6 +2444,12 @@ def validate(project: FieldProject) -> list[str]:
                 if "recall" in o and (not isinstance(o["recall"], str) or o["recall"] not in ni_names):
                     problems.append(f"[[choice]] #{c} option {oi} recall {o.get('recall')!r} is not a "
                                     f"defined [[numeric_input]] name")
+                if "qte" in o and (not isinstance(o["qte"], str) or o["qte"] not in qte_names):
+                    problems.append(f"[[choice]] #{c} option {oi} qte {o.get('qte')!r} is not a "
+                                    f"defined [[qte]] name")
+                if "qte" in o and "input" in o:
+                    problems.append(f"[[choice]] #{c} option {oi}: one modal game per row -- "
+                                    f"qte and input can't share an option")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -2479,7 +2665,7 @@ def lint_logic(project: FieldProject) -> list[str]:
                            f"null-ref). Pick a real battle scene (the encounter picker hides the model bucket).")
         except ValueError:
             pass                                   # an unknown name is a separate resolve_scene error at build
-    _auto = _FlagAlloc(getattr(project, "flag_base", None))   # mirror build_script's auto-allocation EXACTLY
+    _auto = _FlagAlloc.for_project(project)    # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
     settable, auto_once, explicit = set(), set(), set()
@@ -2569,11 +2755,14 @@ def lint_logic(project: FieldProject) -> list[str]:
         if flag not in settable:
             out.append(f"{who} requires flag {flag}, but no event sets it -- it can never appear/fire. "
                        f"Add an event with set_flag = [{flag}, 1] (or fix the flag index).")
+    # The allocator already SKIPS flags the reservation net collects (flags.collect_safe_flag_indices);
+    # this catches the lanes outside that net (e.g. a [[coop]] gate's set_flag) landing in an auto band.
     clash = sorted(explicit & auto_once)
     if clash:
-        out.append(f"flag index(es) {clash} are used explicitly AND auto-allocated for 'once' events "
-                   f"(base {_event.EVENT_FLAG_BASE}+) -- they will clash. Put an explicit `flag = N` on "
-                   f"your once-events, or move story flags out of the {_event.EVENT_FLAG_BASE}+ band.")
+        out.append(f"flag index(es) {clash} are used explicitly AND auto-allocated for a defaulted "
+                   f"'once' block (the auto bands start at {_event.EVENT_FLAG_BASE}) -- they will "
+                   f"clash. Put an explicit `flag = N` on the defaulted blocks, or move the explicit "
+                   f"flags out of the auto bands.")
     for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
         counts = {}
         for e in raw.get(coll, []):
@@ -2721,8 +2910,8 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     and a READ is meaningless. Named ``[[flag]]``s
     are already validated into the safe custom band (``flags.resolve_project_flags``); this catches the
     literal indices that bypass that path (``set_flag = [N, 1]`` / a hand-written once ``flag = N`` /
-    ``requires_flag = N``). Lint-only -- NOT run during the build, so the golden output is byte- AND
-    warning-identical."""
+    ``requires_flag = N`` / a ``[[qte]]`` finale ``flag`` or ``result`` word). Lint-only -- NOT run
+    during the build, so the golden output is byte- AND warning-identical."""
     raw = project.raw
     out: list[str] = []
 
@@ -2819,6 +3008,23 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             _write(h["flag"], f"[[on_entry]] #{k} once-flag")
         if "requires_flag" in h:
             _read(h["requires_flag"], f"[[on_entry]] #{k}")
+    for k, q in enumerate(raw.get("qte", []) or []):   # [[qte]] finale writes: the flag bit + the result Int16
+        if not isinstance(q, dict):
+            continue
+        who = f"[[qte]] {q.get('name', '#' + str(k))!r}"
+        if "flag" in q:
+            _write(q["flag"], f"{who} finale flag")
+        try:
+            r = int(q.get("result"))
+        except (TypeError, ValueError):
+            continue
+        # the result Int16 spans bits r*8..r*8+15 -- flag ANY overlap with a reserved region
+        hit = next((b for b in range(r * 8, r * 8 + 16) if _flags.is_reserved(b)), None)
+        if hit is not None:
+            reg = _flags.bit_region(hit)
+            out.append(f"{who} result word (bytes {r}-{r + 1}) overlaps FF9's reserved "
+                       f"'{reg.name}' region ({reg.meaning}) -- an Int16 write here corrupts "
+                       f"real save/engine state. Pick a clear byte offset.")
     return out
 
 
@@ -3575,6 +3781,43 @@ def build_overlays(project: FieldProject, range_wh=(384, 448)) -> list:
     return overlays
 
 
+def gauge_layout(project: FieldProject):
+    """Resolve every ``[[gauge]]`` to ``(spec, anim_id, overlay_base)`` + the donor FBG name
+    (None on a novel scene) -- the ONE index authority shared by the scene emitter (which
+    appends the OVERLAY/ANIMATION blocks at those indices) and the script emitter (whose
+    daemon drives those ids), so the two sides cannot drift.
+
+    Novel scene: gauge overlays append after the ``[[layers]]`` (base = layer count), anims
+    are the scene's only ANIMATION blocks (ids 0..). BG-borrow: ``USE_BASE_SCENE`` appends
+    after the DONOR's own overlay/anim counts, pinned by ``[field] borrow_scene_counts =
+    [overlays, anims]`` (from the donor ``.bgs`` header -- ``scene.bgs.parse_header``).
+    Assumes validate() vetted the blocks; raises GaugeError on a raw build."""
+    blocks = project.raw.get("gauge", []) or []
+    if not blocks:
+        return [], None
+    specs = [_gauge.from_raw(b, i, resolve_item=_items.resolve) for i, b in enumerate(blocks)]
+    borrow = project.field.get("borrow_bg")
+    native = project.field.get("bgs")
+    donor_fbg = None
+    if native:
+        # own-scene USE_BASE_SCENE hybrid: the field ships its own .bgs+atlas, so the base
+        # counts come straight from that header -- offline, no pinning key, scene-private.
+        from .scene import bgs as _bgs
+        hdr = _bgs.parse_header(project.path(native).read_bytes())
+        ov_base, anim_base = int(hdr.overlayCount), int(hdr.animCount)
+    elif borrow:
+        donor_fbg = f"FBG_N{int(project.field.get('area', 0)):02d}_{borrow}"
+        counts = project.field.get("borrow_scene_counts") or [0, 0]
+        ov_base, anim_base = int(counts[0]), int(counts[1])
+    else:
+        ov_base, anim_base = len(project.raw.get("layers", []) or []), 0
+    out = []
+    for i, gs in enumerate(specs):
+        out.append((gs, anim_base + i, ov_base))
+        ov_base += gs.segments + 1
+    return out, donor_fbg
+
+
 # --------------------------------------------------------------------------- script assembly
 
 def resolve_control_value(project: FieldProject, camera: cam.Cam) -> int:
@@ -3749,26 +3992,83 @@ EVENTS_PER_FIELD = 31
 
 
 class _FlagAlloc:
-    """Auto once-flag allocator. ``base is None`` (single-field build) reproduces the historical
-    per-category bands EXACTLY (event 8000+, cutscene 8100, choice 8200+) -> byte-identical output.
-    When a campaign assigns a per-member ``flag_base``, the field's auto once-flags pack into that
-    member's own block via a FIXED sub-partition (order-independent, so :func:`lint_logic` mirrors
-    :func:`build_script` regardless of which it allocates first), keeping every member's once-flags
-    disjoint from its siblings' -- the fix for the per-field-counter-resets-per-build aliasing bug."""
+    """Auto once-flag allocator. ``base is None`` (single-field build): each category allocates from
+    its own safe-band auto band (``flags.AUTO_*_BASE`` -- event/cutscene/choice/on_entry/[ate], all in
+    [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR)), SKIPPING any index the project itself references
+    (``reserved``, from :func:`flags.collect_safe_flag_indices`) so a defaulted block never aliases an
+    authored story flag. The per-category index is a pure function of ``(i, reserved)`` -- order-
+    independent, so :func:`lint_logic` mirrors :func:`build_script` regardless of which allocates
+    first. When a campaign assigns a per-member ``flag_base``, the field's auto once-flags pack into
+    that member's own block via a FIXED sub-partition instead, keeping every member's once-flags
+    disjoint from its siblings' -- the fix for the per-field-counter-resets-per-build aliasing bug.
+    (Pre-b18 the single-field bands were event 8000+/cutscene 8100+/choice 8200+/on_entry+ate 8300+ --
+    below FIRST_SAFE_FLAG, with 8300+ inside the stock Mognet MAILBOX slot bytes: a save-corrupter.)"""
 
-    def __init__(self, base: int | None):
+    def __init__(self, base: int | None, reserved=()):
         self.base = base
+        self.reserved = frozenset(reserved)
+
+    @classmethod
+    def for_project(cls, project) -> "_FlagAlloc":
+        """The allocator every build/lint site must construct, so all of them skip the SAME authored
+        flags. Campaign members (``flag_base`` set) don't skip -- their window partition is validated
+        campaign-side and must stay byte-stable."""
+        base = getattr(project, "flag_base", None)
+        reserved = ()
+        if base is None:
+            try:
+                reserved = set(_flags.collect_safe_flag_indices(project.raw))
+                # [[logic_add]] sits outside the collector's section walk (its `flag`/`guard` keys are
+                # int-only, never name-resolved) -- reserve its explicit indices here so a defaulted
+                # block can't alias a verbatim fork's authored once-guard or set_flag target.
+                for it in project.raw.get("logic_add", []) or []:
+                    if isinstance(it, dict):
+                        for key in ("guard", "flag"):
+                            v = it.get(key)
+                            if isinstance(v, int) and not isinstance(v, bool) and _flags.is_safe_custom(v):
+                                reserved.add(v)
+                # [[qte]] is outside the walk too: reserve its explicit finale `flag` bit AND the
+                # 16-bit span of its `result` Int16 (a BYTE offset -- a safe-band result word overlaps
+                # 16 bit-flags, which a defaulted block must not land inside).
+                for it in project.raw.get("qte", []) or []:
+                    if isinstance(it, dict):
+                        v = it.get("flag")
+                        if isinstance(v, int) and not isinstance(v, bool) and _flags.is_safe_custom(v):
+                            reserved.add(v)
+                        r = it.get("result")
+                        if isinstance(r, int) and not isinstance(r, bool):
+                            reserved.update(b for b in range(r * 8, r * 8 + 16) if _flags.is_safe_custom(b))
+            except Exception:                    # noqa: BLE001 -- flag collection must never break the build
+                reserved = ()
+        return cls(base, reserved)
+
+    def _band(self, band_base: int, i: int, what: str) -> int:
+        """The (i+1)-th index in ``[band_base, band_base + AUTO_BAND_WIDTH)`` not claimed by the
+        project's authored flags. Raises (rather than silently spilling into the next lane's band or
+        an unsafe region) when the band is exhausted."""
+        idx, remaining = band_base, i
+        while idx < band_base + _flags.AUTO_BAND_WIDTH:
+            if idx not in self.reserved:
+                if remaining == 0:
+                    return idx
+                remaining -= 1
+            idx += 1
+        raise BuildError(
+            f"too many auto-flagged {what} blocks (or too many authored flags inside this lane's auto "
+            f"band [{band_base}, {band_base + _flags.AUTO_BAND_WIDTH})) -- give later blocks an "
+            f"explicit `flag = N` in [{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
 
     def event(self, i: int) -> int:
-        return (_event.EVENT_FLAG_BASE + i) if self.base is None else (self.base + 1 + i)
+        return self._band(_event.EVENT_FLAG_BASE, i, "[[event]]") if self.base is None \
+            else (self.base + 1 + i)
 
     def cutscene(self, k: int = 0) -> int:
-        """Auto once-flag for the k-th ``[[cutscene]]`` block. Single-field: ``8100+k`` (k=0 = the
-        historical singleton, byte-identical). Campaign member: only the FIRST block has a reserved slot
-        (the member's K-wide partition allocates exactly one cutscene flag) -- later blocks need an
-        explicit ``flag = N`` (same policy as ``[[on_entry]]``)."""
+        """Auto once-flag for the k-th ``[[cutscene]]`` block. Single-field: the k-th free index of the
+        cutscene auto band. Campaign member: only the FIRST block has a reserved slot (the member's
+        K-wide partition allocates exactly one cutscene flag) -- later blocks need an explicit
+        ``flag = N`` (same policy as ``[[on_entry]]``)."""
         if self.base is None:
-            return _cutscene.DEFAULT_CUTSCENE_FLAG + k
+            return self._band(_cutscene.DEFAULT_CUTSCENE_FLAG, k, "[[cutscene]]")
         if k == 0:
             return self.base
         raise BuildError(
@@ -3777,18 +4077,30 @@ class _FlagAlloc:
             "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
     def choice(self, i: int) -> int:
-        return (_choice.CHOICE_FLAG_BASE + i) if self.base is None else (self.base + 1 + EVENTS_PER_FIELD + i)
+        return self._band(_choice.CHOICE_FLAG_BASE, i, "walk-[[choice]]") if self.base is None \
+            else (self.base + 1 + EVENTS_PER_FIELD + i)
 
     def on_entry(self, i: int) -> int:
         """Auto once-flag for an ``[[on_entry]]`` hook. Single-field only -- a campaign member's
         K-wide block is already fully partitioned (cutscene/events/choices), so an on_entry hook there
         needs an explicit ``flag = N`` (build_script raises a clear error rather than alias a sibling)."""
         if self.base is None:
-            return _onentry.ONENTRY_FLAG_BASE + i
+            return self._band(_onentry.ONENTRY_FLAG_BASE, i, "[[on_entry]]")
         raise BuildError(
             "an [[on_entry]] hook in a campaign member needs an explicit `flag = N` -- the per-member "
             "flag block is fully reserved for cutscene/events/choices, so an auto once-flag would alias "
             "a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
+
+    def ate(self) -> int:
+        """The ``[ate]`` availability flag. Single-field only -- like ``on_entry``, a campaign member's
+        block has no slot for it (and the pre-b18 behavior of a FIXED shared index would alias every
+        sibling member's [ate] onto one bit)."""
+        if self.base is None:
+            return self._band(_ate.ATE_FLAG_BASE, 0, "[ate]")
+        raise BuildError(
+            "an [ate] block in a campaign member needs an explicit `flag = N` -- the per-member flag "
+            "block is fully reserved for cutscene/events/choices, so an auto availability flag would "
+            "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
 
 def _apply_wipe_warp(project, eb: bytes) -> bytes:
@@ -4020,13 +4332,9 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
             if "flag" in h:
                 once_flag = int(h["flag"])
             else:
-                once_flag = auto.on_entry(k)            # single-field 8300+k (campaign: raises -> explicit flag)
-                if once_flag >= _flags.MOGNET_LOCK_LO:  # would write into FF9's Mognet lock band
-                    raise BuildError(
-                        f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
-                        f"once-flag {once_flag} reaches FF9's Mognet lock band "
-                        f"({_flags.MOGNET_LOCK_LO}-{_flags.MOGNET_LOCK_HI}) -> save corruption. Give the later "
-                        f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
+                # single-field: the safe-band on_entry auto band, skipping authored flags (the
+                # allocator raises on band exhaustion); campaign: raises -> explicit flag
+                once_flag = auto.on_entry(k)
         txid = on_entry_txids.get(k)
         if drop_messages and txid is not None:
             txid = None                                 # no authored-text channel in a verbatim fork
@@ -4117,7 +4425,7 @@ def _write_authored_sps(project: FieldProject, layout: "ModLayout", fbg: str, *,
                              "(see `ff9mapkit sps <this field>` for its effect ids).")
 
 
-def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes:
+def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto: "_FlagAlloc") -> bytes:
     """Synthesize the field's ``[ate]`` block (an Active Time Event) into ``eb``: a SELECT-polling menu
     code-entry (opened by the real ``usercontrol AND avail AND B_KEYON(SELECT)`` gate) + the Main_Init
     wiring (the ``ATE(mode)`` prompt + the avail flag + ``InitCode``). Each menu row's body reuses the
@@ -4131,7 +4439,7 @@ def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes
     replies = ate_txids.get("replies", {})
     opt_bodies = [_choice.option_body(o, replies.get(oi)) for oi, o in enumerate(a["options"])]
     setup, _ = _choice.pre_choose(a)
-    avail_idx = int(a["flag"]) if "flag" in a else _ate.ATE_FLAG_BASE
+    avail_idx = int(a["flag"]) if "flag" in a else auto.ate()
     mode = int(a.get("mode", _ate.MODE_BLUE))
     return _ate.inject_ate(eb, ate_txids["prompt"], opt_bodies, avail_idx=avail_idx, mode=mode, setup=setup)
 
@@ -4504,7 +4812,7 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
     events = project.raw.get("event", []) or []
     if not events:
         return eb
-    auto = _FlagAlloc(getattr(project, "flag_base", None))
+    auto = _FlagAlloc.for_project(project)
     specs, flag_counter = [], 0
     for j, ev in enumerate(events):
         if "zone" not in ev:
@@ -4770,10 +5078,11 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     # tag-kind beats -> a choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
     # synth path's mechanism; here the actor entries sit below the band); a parallel walk also gets a join tag.
     eb, tag_calls, join_tags = _gen_conductor_step_tags(project, eb, steps, npc_slots)
-    auto = _FlagAlloc(getattr(project, "flag_base", None))   # campaign-safe once-flag (matches the other verbatim blocks)
+    auto = _FlagAlloc.for_project(project)     # campaign-safe once-flag (matches the other verbatim blocks)
     c_fclass, c_fidx = _cutscene.once_flag_for(cs)
-    if auto.base is not None and "flag" not in cs and cs.get("once", True):
-        c_fidx = auto.cutscene()
+    if "flag" not in cs and cs.get("once", True):
+        c_fidx = auto.cutscene()               # single-field: safe-band auto (skips authored flags);
+                                               # campaign: pack into this member's flag block
     _, cs_gate, cs_end = _cutscene_story_bits(cs)            # the director gate + story advance (#13)
     _ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs.get("ate") else None)
     _wd = None
@@ -4885,7 +5194,7 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
     oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
     eb = _field_load_inject("[[on_entry]]", project.name,
                             lambda: _apply_on_entry(project, eb, oe_msg_txids,
-                                                    _FlagAlloc(getattr(project, "flag_base", None)),
+                                                    _FlagAlloc.for_project(project),
                                                     warnings=warnings))
     eb = _field_load_inject("[[sps]]", project.name,
                             lambda: _apply_sps_triggers(project, eb, warnings=warnings))
@@ -4906,7 +5215,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     """Build one language's .eb by applying the project's content to the blank field. ``warnings``
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
     requested ``entry_settle`` that could not be inserted."""
-    _auto = _FlagAlloc(getattr(project, "flag_base", None))
+    _auto = _FlagAlloc.for_project(project)
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
@@ -4941,15 +5250,33 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.
     input_slots: dict = {}
     input_specs: dict = {}
-    if project.raw.get("numeric_input"):
+    qte_slots: dict = {}
+    if project.raw.get("numeric_input") or project.raw.get("qte"):
         from .eb import edit as _ni_edit
         for _ii, _blk in enumerate(project.raw.get("numeric_input", []) or []):
             _sp = _numinput.from_raw(_blk, _ii)           # validate() already vetted; raises on a raw build
-            _tx = {p: t for (bi, p), t in numinput_txids.items() if bi == _ii}
+            _tx = {k[1]: t for k, t in numinput_txids.items()
+                   if len(k) == 2 and k[0] == _ii}
             eb, _slot = _object.seat_entry(eb, _numinput.entry_bytes(_sp, _tx))
             eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
             input_slots[_sp.name] = _slot
             input_specs[_sp.name] = _sp                   # recall rows need the result var
+        for _qi, _blk in enumerate(project.raw.get("qte", []) or []):
+            _qs = _qte.from_raw(_blk, _qi)
+            _tx = {k[2]: t for k, t in numinput_txids.items()
+                   if len(k) == 3 and k[0] == "qte" and k[1] == _qi}
+            eb, _slot = _object.seat_entry(eb, _qte.entry_bytes(_qs, _tx))
+            eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
+            qte_slots[_qs.name] = _slot
+    # [[gauge]] tile bars: ONE looping daemon entry for all gauges (the behavior-ticker shape),
+    # seated with loc=2 (stock field 64's `allocate 2` -- Instance.Byte shade + phase counter) and
+    # armed from the activate block. The anim/overlay ids come from gauge_layout -- the SAME
+    # authority the scene emitter used, so the .bgx blocks and the daemon cannot drift.
+    if project.raw.get("gauge"):
+        from .eb import edit as _g_edit
+        _g_resolved, _g_donor = gauge_layout(project)
+        eb, _g_slot = _object.seat_entry(eb, _gauge.entry_bytes(_g_resolved), loc=_gauge.LOC_BYTES)
+        eb = _g_edit.activate_block(eb, opcodes.init_code(_g_slot, 0))
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
     _enc_raw = project.raw.get("encounter")
@@ -4969,7 +5296,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # director code entry that drives every cast member by uid (the old single-actor loop-splice flavor is
     # REMOVED; a one-name cast expresses it through the conductor). A castless scene is narration.
     # cutscene_txids is FLAT in block-then-step order (build_field registers say lines the same way), so each
-    # block consumes its own SLICE. Auto once-flags are per-block (8100+k / MAP 80+k; campaign k>0 needs an
+    # block consumes its own SLICE. Auto once-flags are per-block (the cutscene auto band +k / MAP 80+k; campaign k>0 needs an
     # explicit flag). Validate enforces the dispatch rule (pairwise-distinct gates).
     cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     _cs_slices, _cs_off = [], 0
@@ -5020,10 +5347,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             ct = choice_txids.get(c, {})
             replies = ct.get("replies", {})
             opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                              input_specs=input_specs)
+                                              input_specs=input_specs, qte_slots=qte_slots)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
-            if any("input" in o for o in ch.get("options", [])):
+            if any("input" in o or "qte" in o for o in ch.get("options", [])):
                 # an `input` row opens the stepper's windows -> switch dispatch (sysvar-9 law)
                 sb = _choice.switch_body(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
             else:
@@ -5202,12 +5529,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         ct = choice_txids.get(c, {})
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                          input_specs=input_specs)
+                                          input_specs=input_specs, qte_slots=qte_slots)
                       for oi, o in enumerate(ch.get("options", []))]
         setup, _ = _choice.pre_choose(ch)
-        # an `input` row opens the stepper's own windows -> the nested-window sysvar-9 law:
+        # an `input`/`qte` row opens its own windows -> the nested-window sysvar-9 law:
         # dispatch that menu via the ONE-READ switch, not the re-reading per-row branch.
-        _rbody = (_choice.switch_body if any("input" in o for o in ch.get("options", []))
+        _rbody = (_choice.switch_body
+                  if any("input" in o or "qte" in o for o in ch.get("options", []))
                   else _choice.region_body)
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
@@ -5319,8 +5647,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         c_steps = _resolve_conductor_steps(cs["steps"], project, cast=[str(a) for a in cast],
                                            walkmesh=walkmesh, beat=_scene_beat(cs))
         c_fclass, c_fidx = _cutscene.once_flag_for(cs, _k)     # GLOB (once ever) or MAP (per-visit)
-        if _auto.base is not None and "flag" not in cs and cs.get("once", True):
-            c_fidx = _auto.cutscene(_k)                        # campaign: pack into this member's flag block
+        if "flag" not in cs and cs.get("once", True):
+            c_fidx = _auto.cutscene(_k)        # single-field: safe-band auto (skips authored flags);
+                                               # campaign: pack into this member's flag block
         cs_ate_mode, cs_say_flags = _cs_ate(cs)
         eb, tag_calls, join_tags = _gen_conductor_step_tags(project, eb, c_steps, npc_slots,
                                                             tag_state=_cs_tag_state)
@@ -6834,6 +7163,16 @@ def collect_text(project: FieldProject):
             # tail "" = explicitly NO [TAIL] tag -- every stepper window is pinned ([MPOS])
             # or a system ack; stock's own entries (909's 203-208) carry no tail at all
             ni_pos[(_ii, _part)] = _add_raw(_txt, "", strt=_strt)
+    # [[qte]] texts ride the SAME dict under ("qte", i, part) keys (numinput keys are
+    # (int, str) pairs -- no collision), so the tuple shape stays put. Stock-verbatim
+    # prompt glyph lines + verdicts/score/payout; tail-less system windows all.
+    for _qi, _blk in enumerate(project.raw.get("qte", []) or []):
+        try:
+            _qs = _qte.from_raw(_blk, _qi)
+        except _qte.QteError:
+            continue
+        for _part, _txt, _strt in _qte.mes_texts(_qs):
+            ni_pos[("qte", _qi, _part)] = _add_raw(_txt, "", strt=_strt)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
@@ -7069,6 +7408,21 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.field.get("atlas"):
             shutil.copyfile(project.path(project.field["atlas"]), fm / "atlas.png")
         (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+        # [[gauge]] on a native scene: the OWN-SCENE USE_BASE_SCENE hybrid -- a <fbg>.bgx that
+        # first re-loads THIS field's shipped .bgs+atlas (so per-tile depth is untouched), then
+        # appends the gauge fill-state overlays + selector anims after the header's own counts
+        # (gauge_layout read them from the same .bgs). Scene-private: fbg is ours, nothing shared.
+        _g_resolved, _ = gauge_layout(project)
+        if _g_resolved:
+            _g_ovls, _g_anims = [], []
+            for _gs, _ga, _gb in _g_resolved:
+                _g_ovls += _gauge.overlay_blocks(_gs)
+                _g_anims.append(_gauge.animation_block(_gs, _gb))
+                for _gn, _gpng in _gauge.art_pngs(_gs):
+                    (fm / _gn).write_bytes(_gpng)
+            _g_text = bgx.build(None, _g_ovls, base_scene=fbg, animations=_g_anims,
+                                header_comment=f"{project.name} [[gauge]] blocks (own-scene hybrid)")
+            (fm / f"{fbg}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
         # carry the field's SPS effect bins + spt.tcb (per-scene fire / smoke / magic; they load by the
         # RUNNING scene name, so a fork must ship them under its OWN FBG folder -- else RunSPSCode finds no
         # bin and the effect never draws). The importer staged them in <member>/sps/. -> project-ff9-sps-fork.
@@ -7115,11 +7469,19 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
         overlays = build_overlays(project, range_wh=tuple(camera.range))
+        # [[gauge]] fill-state overlays + their SingleFrame ANIMATION selectors append AFTER the
+        # layers (gauge_layout is the shared index authority with the script daemon).
+        _g_resolved, _ = gauge_layout(project)
+        _g_anims = []
+        for _gs, _ga, _gb in _g_resolved:
+            overlays += _gauge.overlay_blocks(_gs)
+            _g_anims.append(_gauge.animation_block(_gs, _gb))
         # multi-camera: write all N CAMERA blocks (overlays carry their camera_id); single-camera
         # fields pass one Cam and are byte-identical to before.
         cameras = resolve_cameras(project)
         scene_cam = cameras if len(cameras) > 1 else camera
-        bgx_text = bgx.build(scene_cam, overlays, header_comment=project.field.get("title", project.name))
+        bgx_text = bgx.build(scene_cam, overlays, header_comment=project.field.get("title", project.name),
+                             animations=_g_anims or None)
 
         fm = layout.fieldmap_dir(fbg)
         (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")
@@ -7127,6 +7489,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         for layer in project.raw.get("layers", []):
             src = project.path(layer["image"])
             shutil.copyfile(src, fm / Path(layer["image"]).name)
+        for _gs, _ga, _gb in _g_resolved:
+            for _gn, _gpng in _gauge.art_pngs(_gs):
+                (fm / _gn).write_bytes(_gpng)
     else:
         # BG-borrow ships no walkmesh (the engine uses the borrowed field's real one), but we can still
         # validate content placement against it: [walkmesh] reference (or the sibling walkmesh.bgi the
@@ -7135,6 +7500,25 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         cutscene_wmesh = ref
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
+        # [[gauge]] on a borrow: ship a USE_BASE_SCENE .bgx under the DONOR scene's name -- the
+        # engine loads the donor atlas+EBG first, then appends our fill-state overlays + selector
+        # anims at indices after the donor's own counts ([field] borrow_scene_counts pins them).
+        # ⚠ scene-name keyed: every field borrowing this donor sees the .bgx; the gauge overlays
+        # sit at the authored canvas pos even there, so keep borrow gauges to scratch benches or
+        # park them off-canvas until v1.1 grows a per-field guard.
+        _g_resolved, _g_donor = gauge_layout(project)
+        if _g_resolved:
+            _gfm = layout.fieldmap_dir(_g_donor)
+            _gfm.mkdir(parents=True, exist_ok=True)
+            _g_ovls, _g_anims = [], []
+            for _gs, _ga, _gb in _g_resolved:
+                _g_ovls += _gauge.overlay_blocks(_gs)
+                _g_anims.append(_gauge.animation_block(_gs, _gb))
+                for _gn, _gpng in _gauge.art_pngs(_gs):
+                    (_gfm / _gn).write_bytes(_gpng)
+            _g_text = bgx.build(None, _g_ovls, base_scene=_g_donor, animations=_g_anims,
+                                header_comment=f"{project.name} [[gauge]] blocks on {_g_donor}")
+            (_gfm / f"{_g_donor}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
 
     # [[sps]] Tier-2 from-scratch effects: auto-ground any pos=[x,z] from the walkmesh (so authors needn't
     # hand-compute floor heights), then write each authored <id>.sps.bytes + supply its tcb into the FBG folder
