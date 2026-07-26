@@ -863,3 +863,177 @@ of the quay tile on its axis. Confirm:
 
 If the silhouette or siting wants tuning, `PROFILE` / `ANCHOR` in `mint_quay_beacon.py` are the dials;
 re-run `rebuild_quay_marker.sh`.
+
+**⚠ The ANCHOR in §10 is SUPERSEDED by §11** — the beacon itself was accepted; only its siting moved.
+
+---
+
+# 11. PASS 4 — THE TRIGGER-AT-THE-FOOT RE-SITE — **APPLIED**
+
+Run 2026-07-25 (seventh pass), same worktree/branch. **No new backups were needed or taken** — this
+pass restored from, and re-verified against, §10.6's `quay-beacon-prebuild.20260725-230801` set.
+
+## 11.1 The defect
+
+Pass 3's beacon was **accepted on look and feel** — it rendered correctly, was solid from every angle,
+and had working collision. One defect: *"the entrance is heavily offset to the south."* The beacon sat
+at z −1157 while the 6 trigger tris sit at z[−1172, −1164] — about **12 u apart**, so the "!" fired in
+open grass with the tower standing off by itself. Stock's idiom, and our own waystation precedent
+(*"the tower landmark…, 7 trigger tiles at its foot"*), puts the trigger **at the structure's foot**.
+
+Nothing about the mesh changed. Only the anchor moved.
+
+## 11.2 The new anchor, and why it is exactly here
+
+Solved rather than guessed. The hull must stay ≥ 1.0 u clear of the trigger rect (below that, the
+retriangulating split can reach a trigger tri), and the footprint half-width is 2.30 u:
+
+```
+south edge = cz − 2.30  ≥  −1164.0 + 1.0    ⇒    cz ≥ −1160.70
+```
+
+**`ANCHOR = (48.0, −1160.5)`** — 0.20 u of slack inside that bound. `cz = −1161.00` was computed and
+**REJECTED** (0.70 u clearance). Resulting footprint:
+
+| | pass 3 | **pass 4** |
+|---|---|---|
+| centre | (48, −1157.0) | **(48, −1160.5)** |
+| span | x[45.70, 50.30] z[−1159.30, −1154.70] | **x[45.70, 50.30] z[−1162.80, −1158.20]** |
+| gap to the trigger rect | 4.70 u | **1.20 u** |
+| distance to the arrive point | 13.03 u | **11.006 u** (gate ≥ 6 u) |
+| block north-edge margin | 2.70 u | **6.20 u** |
+
+The siting constraints are now **gates in `mint_quay_beacon.py` itself** (overlap, ≥1 u clearance, a
+`< 3 u` "close enough to read as at the foot" upper bound, arrive clearance, in-block) — a gate that
+lives only in the probe is one the next re-site can forget. 25 gates now run on every generate.
+
+## 11.3 ⚠ ORDERING — restore before re-running, or you orphan the old hull
+
+The live install carried pass 3's hull: **12 terrain tris stamped topo 59 at the OLD anchor**. A naive
+re-run would have stamped the new hull while those 12 stayed blocked — **invisible walls standing in
+open grass** ~5 u north of the tower, with nothing rendered above them. The building layer *stacks* on
+the deployed override; it does not clean up after itself.
+
+So pass 4 **restored first**, and proved it:
+
+* `Block[0][18] Terrain.ff9mesh` ← `quay-beacon-prebuild…/Disc{1,4}-r18/`, md5
+  **`1225065193757d7a12efcb324ab05c07`** (35900 B);
+* `Block[0][18] Object.ff9mesh` ← the 176 B stub, md5 **`e4a62c30d82899d19f86bdd6e19df0c9`**;
+* then the **whole `FF9CustomMap-world` tree was confirmed byte-identical to the pre-pass-3 baseline**
+  before a single byte of pass 4 was written.
+
+Only then was the placement re-run with the new `--building-at`. The final probe *proves* the old hull
+is gone (§11.5), rather than assuming the restore worked.
+
+## 11.4 What was written — the same 4 files
+
+Pure re-invocation: **no kit code changed in this pass.**
+
+| # | File | Baseline | After pass 4 |
+|---|---|---|---|
+| 1–2 | `…/Disc{1,4}/0_1/r18/Block[0][18] Terrain.ff9mesh` | 35900 B | **40580 B** |
+| 3–4 | `…/Disc{1,4}/0_1/r18/Block[0][18] Object.ff9mesh` | 176 B | **34652 B** |
+
+Terrain md5 **`db6e94d780f5923bfc9eaefe6c2f0ce8`**, Object md5 **`4acc87aba56ab8e5e164cb790c94d92b`** —
+identical across discs. **891 files before and after; none added or removed.** Terrain grew
+230 → **260 tris** (690 → 780 verts) from the hull split — 4 more than pass 3, because the new footprint
+straddles a different set of donor triangles. Proof:
+`probe_marker/writeset_md5_diff_pass4.txt`.
+
+**Dispatchers: 0 files written**, all 9 skipped (`probe_marker/dryrun_pass4.txt`). The 7 nameplate
+`68.mes` files were rewritten and are again byte-identical to their backups.
+
+## 11.5 The four hard gates — ALL PASS, both discs
+
+`probe_marker/probe_quay_beacon.py` → `probe_marker/probe_output_pass4.txt` (59 PASS, 0 FAIL).
+
+**Gate 1 — the hull never touches or SPLITS a trigger tri.** Presence is not enough: the split
+retriangulates, so a hull that reached the cluster would fragment it into pieces that *still* carry
+idall 16384 and *still* cover the same area — every naive check would pass while the cluster silently
+became 8 or 10 tris of different shape. So the probe now compares **actual vertex triples** against the
+pre-run mesh: **the 6 trigger tris are GEOMETRY-IDENTICAL**. Union bbox unmoved
+(x[44.00, 52.00] z[−1172.00, −1164.00]); (48,−1168) → idall 16384 @ y 3.00; closest hull tile is
+**+1.70 u** north of the trigger rect.
+
+**Gate 2 — arrival intact.** (60,−1168) → Terrain, idall 0, topo 0, y 3.00 in **both** query modes;
+**11.006 u** from the footprint (measured, not assumed).
+
+**Gate 3 — the approach survives.** All 25 sampled steps of arrival→trigger are walkable topographs,
+and so is the **±6 u corridor**. The tower is now directly north of the trigger, so this mattered more
+than in pass 3: the footprint's x span [45.70, 50.30] lies **west** of the eastern approach samples
+(x 52–60) and its z span is ≥ 5.20 u north of the z = −1168 path, so walking in from the east cannot
+clip the hull.
+
+**Gate 4 — disc parity.** Terrain and Object byte-identical between Disc1 and Disc4.
+
+**Old-hull-cleared proof (the §11.3 hazard):** zero topo-59 tris anywhere in pass 3's footprint
+(z[−1159.30, −1154.70]) outside the new hull; a 5-point spot-probe of the old anchor area reads walkable
+again; and **the block's total topo-59 count (14) equals the number of tiles this pass changed (14)** —
+so the new hull is the *only* impassable geometry in the cell, with nothing orphaned.
+
+**The NEW hull — 14 tiles, all `idall 0 → 236` (topo 0 → 59):**
+
+| tri | centroid (x, z) | x range | z range |
+|---|---|---|---|
+| 58 | (47.40, −1158.80) | 46.2–48.0 | −1160.0…−1158.2 |
+| 61 | (48.77, −1161.70) | 48.0–50.3 | −1162.8…−1160.0 |
+| 62 | (49.53, −1162.63) | 48.0–50.3 | −1162.8…−1162.3 |
+| 78 | (46.07, −1162.43) | 45.7–46.8 | −1162.8…−1161.7 |
+| 107 | (50.27, −1158.23) | 50.2–50.3 | −1158.3…−1158.2 |
+| 152 | (49.53, −1160.77) | 48.0–50.3 | −1162.3…−1160.0 |
+| 165 | (48.73, −1158.80) | 48.0–50.2 | −1160.0…−1158.2 |
+| 166 | (49.50, −1158.83) | 48.0–50.3 | −1160.0…−1158.2 |
+| 167 | (49.53, −1159.43) | 48.0–50.3 | −1160.0…−1158.3 |
+| 180 | (47.23, −1160.93) | 45.7–48.0 | −1162.8…−1160.0 |
+| 181 | (46.83, −1161.87) | 45.7–48.0 | −1162.8…−1160.0 |
+| 182 | (46.07, −1161.50) | 45.7–46.8 | −1162.8…−1160.0 |
+| 198 | (46.63, −1158.80) | 45.7–48.0 | −1160.0…−1158.2 |
+| 199 | (46.47, −1159.40) | 45.7–48.0 | −1160.0…−1158.2 |
+
+Render-only re-confirmed at the **new** centre: the walk query passes through the mesh to the topo-59
+hull (`Terrain idall 236`), while a sky-cast hits `Object idall 4078`.
+
+## 11.6 A probe bug this pass caught — worth keeping in mind
+
+The render-only test was hard-coded to (48, −1157) — pass 3's anchor. After the re-site that is open
+grass, so its "the walk query reaches Terrain" half **passed for the wrong reason: nothing was there at
+all.** Only the *paired* assertion ("a sky-cast DOES hit the Object") failed and exposed it. The probe
+now derives the sample point from `BEACON_SPAN` and additionally asserts the walk query lands on
+**topo 59**, so a miss can't masquerade as a pass. **Keep both halves of a positive/negative pair** —
+a one-sided liveness check on a moved target is worthless.
+
+## 11.7 Undo
+
+Identical to §10.10 (the same backup set restores the pre-marker state):
+
+```sh
+G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+B="backups/quay-beacon-prebuild.20260725-230801"
+for D in 1 4; do
+  cp "$B/Disc$D-r18/Block[0][18] Terrain.ff9mesh" "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc$D/0_1/r18/"
+  cp "$B/Disc$D-r18/Block[0][18] Object.ff9mesh"  "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc$D/0_1/r18/"
+done
+```
+
+Re-enter the overworld (no relaunch). Nothing else was modified.
+
+## 11.8 Files updated
+
+| Path | Change |
+|---|---|
+| `mint_quay_beacon.py` | `ANCHOR` → (48, −1160.5) with the derivation in a comment; **+5 siting gates** (trigger overlap / ≥1 u clearance / <3 u "at the foot" / arrive clearance / in-block) |
+| `quay_beacon.obj` | regenerated at the new anchor (same 222 tris / 113 verts / 666 UVs — a pure translation) |
+| `rebuild_quay_marker.sh` | recorded anchor → `--building-at 48 -1160.5`, **with the −1160.70 southern limit documented** so a future clobber-rebuild can't drift into the trigger |
+| `probe_marker/probe_quay_beacon.py` | new `BEACON_SPAN`; +trigger-geometry-identity gate; +old-hull-cleared gate; +hull-clearance gate; the §11.6 fix |
+| `probe_marker/probe_output_pass4.txt`, `dryrun_pass4.txt`, `writeset_md5_diff_pass4.txt`, `plan_pass4.png` | pass-4 evidence (the plan view shows trigger, hull, footprint, arrival + path in one image) |
+
+## 11.9 Playtest ask (owner)
+
+No relaunch — re-enter the overworld. Expect the beacon **immediately north of the quay tile, at its
+foot** (1.2 u between the tower's south face and the trigger's north edge). Confirm:
+
+1. the "!" now fires **at the tower's foot**, not in open grass;
+2. you can still reach the trigger walking in **from the east** — the tower is north of it, and its
+   collision hull starts 1.2 u north of the tile;
+3. nothing invisible remains ~5 u north of the tower where pass 3's hull used to be (walk through it);
+4. entry still works and the "Lantern Quay" plate still appears.
