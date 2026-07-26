@@ -306,6 +306,8 @@ _ACTION_EXAMPLES = {
     "announce_npc": '{ announce_npc = "..." }',
     "add_shop_item": '{ add_shop_item = [0, "item"] }',
     "remove_shop_item": '{ remove_shop_item = [0, "item"] }',
+    "add_shop_synth": '{ add_shop_synth = [0, "item"] }',
+    "remove_shop_synth": '{ remove_shop_synth = [0, "item"] }',
     "hold_ground": "{ hold_ground = true }",
 }
 
