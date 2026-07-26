@@ -134,3 +134,11 @@ verified laws) + explored-bit on the warp branch + a navimap-EXTENDED block-68 (
 stock bytes touched** (63 dispatchers = pre-R3 + one added func each, byte-proven; quicksand intact,
 its per-language stock labels restored exactly). Named-entrance budget: 1 → 5 (53 + 61-64). Record:
 REVERT.md §22; re-playtest = §22.8.
+
+**R3 PLAYTEST CONFIRMED (2026-07-26, "good"):** the case-61 loop works in-game — plate → Confirm →
+the lamp room → walk out → the name registers; no battle. The quicksand leg (§22.8 item 4) was not
+in-game checked (no Cleyra-era save available) and doesn't need to be: its branch, cell tag, and
+per-language labels are byte-identical to stock in every dispatcher — our deploy has nothing left
+that could touch it. **R3 is CLOSED.** Next rungs: R4 the forest/encounter pass (carve_forest per
+the encounter law; island E's re-site at the free r96 pocket (136,−168)) · R5 the sea lanes +
+proper boat boarding.
