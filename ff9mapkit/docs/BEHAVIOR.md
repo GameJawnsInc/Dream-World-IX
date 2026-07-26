@@ -241,6 +241,25 @@ Two companion pieces speak inventory directly: the **`have_item` cond** —
 `when = [{ have_item = ["Soldier Contract", 2] }]` (count optional, default 1; the engine's
 live `GetItemCount`) — and the **`item:` hud source** (below).
 
+### Runtime shop stock — `add_shop_item` / `remove_shop_item`
+
+```toml
+[[behavior.unit.branch]]
+when = [{ counter_ge = ["wave", 2] }]
+do = { add_shop_item = [40, "Elite Contract"] }   # [shop_id, item]
+once = "stock2"                                    # REQUIRED — the event-Once lane
+```
+
+Mutates a shop's buy list at runtime (Memoria's extended `AddShopItem`, 0x115) — the
+wave-by-wave armoury unlock. Engine semantics the compiler bakes in: the shop must already
+exist in `ShopItems.csv` (a `[[shop]]` in this field, or a vanilla 0–31 — lint refuses
+anything else, because the engine *silently no-ops* on an unknown id); an add emits
+**remove-then-add** (the engine's raw list-add would duplicate the row on a re-fire); and
+the mutation is **session-global in-memory state** — it survives field transitions and
+`~ Reload`, resets at relaunch, and is never saved. `once` is required and is what makes
+the semantics clean: the latch resets per field entry, so each session simply re-asserts
+the unlock whenever its condition holds — shop state follows the seed law, like tables.
+
 **Honest hire rows — the published `hireable` flag.** Every pool also gets a
 `pool.<name>.hireable` flag (index printed at build and in `behavior compile`):
 `(gil ≥ price, when priced) AND not sold out`, refreshed by the ticker every pass. Put

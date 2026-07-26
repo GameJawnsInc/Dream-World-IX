@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `add_shop_item` / `remove_shop_item`: runtime shop stock (AddShopItem 0x115)
+- Behavior branches can now mutate a shop's buy list mid-run — the wave-by-wave
+  armoury unlock (`do = { add_shop_item = [40, "Elite Contract"] }`, `once` required).
+  First use of Memoria's extended `AddShopItem` opcode anywhere (zero shipping fields
+  carry it). The compiler bakes in the engine semantics: remove-then-add idempotence
+  (the raw list-add duplicates), lint refusal of a shop id absent from ShopItems.csv
+  (the engine silently no-ops), and the event-Once lane so the session-global
+  mutation re-asserts per field entry (the seed law; resets at relaunch, never saved).
+
 ### Added — the ITEM pool: the native shop as a hire menu
 - `[[behavior.pool]] item = "<item>"` makes a pooled roster's currency an ITEM: no
   request-flag lane at all — holding the item IS the request. Each ticker pass converts

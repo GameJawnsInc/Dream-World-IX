@@ -442,6 +442,27 @@ class Award(Action):
             raise BehaviorError("Award needs gil and/or an item")
 
 
+@dataclass
+class ShopStock(Action):
+    """Add or remove one item in a shop's BUY list at runtime — Memoria's extended
+    ``AddShopItem`` (0x115: ``shopId, itemId, add`` — used by ZERO shipping fields;
+    the wave-unlock armoury lever). Engine facts that shape the emission: the shop
+    must already exist in ``ShopItems.csv`` (the engine silently no-ops otherwise —
+    validate refuses an unknown shop id); the list mutation is SESSION-global
+    in-memory state (survives field transitions, resets at relaunch, never saved);
+    and the engine's ``List.Add`` DUPLICATES — so an add emits remove-then-add,
+    idempotent per fire. MUST be Once-wrapped (the event-Once lane, Award's
+    machinery): the once-latch resets per field entry, so each session re-asserts
+    the unlock when its condition holds — the seed law for shop state."""
+    shop: int
+    item: object                     # item name ("Elixir") or numeric id
+    add: bool = True
+
+    def __post_init__(self):
+        if not 0 <= int(self.shop) <= 255:
+            raise BehaviorError("ShopStock shop id must be 0..255 (the Menu byte)")
+
+
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
                                          # ("Special never fires on this user's binding")
 
@@ -1369,7 +1390,7 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, (Announce, Award)):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
@@ -1380,15 +1401,15 @@ class FieldBehavior:
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award)):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock)):
                 bare.add(ids[id(n.action)])
-                if isinstance(n.action, Award):
+                if isinstance(n.action, (Award, ShopStock)):
                     bare_awards.add(ids[id(n.action)])
         walk(u.tree)
         if bare_awards:
             raise BehaviorError(
-                f"{u.name}: an Award must be wrapped in Once (the payout is "
-                f"exactly-once BY that machinery — a bare Award would re-pay "
+                f"{u.name}: an Award / shop-stock action must be wrapped in Once "
+                f"(exactly-once BY that machinery — a bare one would re-fire "
                 f"every selection)")
         clash = set(onced) & bare
         if clash:
@@ -1573,7 +1594,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, (Announce, Award)) and aid in once_ann:
+                elif isinstance(a, (Announce, Award, ShopStock)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -2021,7 +2042,7 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, (Announce, Award)):
+            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock)):
                 # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
                 # "once" means fire-and-release — the sticky form over a MONOTONIC
                 # cond (a kill tally, a spent wave counter) would hold the selection
@@ -2506,6 +2527,22 @@ class FieldBehavior:
                 _set_flag(oneshot_latch, 1),              # latch FIRST — pay once ever
                 _set_byte(run, 255),
             ] + pay + [
+                _set_byte(run, 0),
+                opcodes.RETURN,
+            ])
+        if isinstance(a, ShopStock):
+            if oneshot_latch is None:
+                raise BehaviorError(
+                    f"{u.name}: add/remove_shop_item must be Once-wrapped")
+            from .. import items as _items
+            iid = _items.resolve(a.item)
+            ops = [opcodes.encode(0x115, int(a.shop), iid, 0)]   # remove first —
+            if a.add:                                            # List.Add dupes,
+                ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
+            return asm([
+                _set_flag(oneshot_latch, 1),              # latch FIRST (Battle's shape)
+                _set_byte(run, 255),
+            ] + ops + [
                 _set_byte(run, 0),
                 opcodes.RETURN,
             ])
