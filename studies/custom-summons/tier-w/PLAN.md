@@ -67,6 +67,21 @@ pages — the FORMAT round's "32 eff slots = the effect's beams and props." R3's
 entrance phase we rescored (`c0` state 0, f57–126) **draws effect models**, and other phases do not.
 So: effect-owned geometry, drawn on a schedule we can already read.
 
+> ⚠ **CORRECTION 2026-07-26 (W4 recon, `w4-recon/A2-ATTRIBUTION.md` §8) — the resource attribution above
+> is WRONG about `MARK_7`.** Both `MARK_7` payloads (`0x090800` and `0x099800`) open with the ASCII tag
+> `AKAO` and contain **zero** `GEOM` blocks; the corpus-wide `GEOM` census (FORMAT §2.3) also lists no
+> id-7 blocks anywhere. `MARK_7` is **AKAO audio, not geometry.** The effect's own scenery actually lives
+> in **`MARK_6` (6 models: sky gradient shell + cloud sheet + cloud bands A/B, 26 KB) and the two id-2
+> sub-file archives** (2 models in chunk 0's archive — the aerial ground plane + the water/ice sheet —
+> plus 7 in chunk 1's, including the fire column and the impact/energy rings; 11 textured effect models
+> total, per A2 §3.2). **The law itself stands** — the scenery is still effect-owned, self-contained, and
+> drawn on the schedule R3's phase table already read — **only the byte-level resource attribution was
+> wrong.** Left visible rather than silently fixed, per this tier's own house rule: a wrong reading stays
+> on the record so a later reader does not re-cite it. (Note: `W2-RESCORE.md`'s own retracted-finding
+> section at the bottom of that report repeats the same `MARK_7`-is-geometry mistake, inherited from this
+> paragraph before it was corrected — not re-edited there, since W2-RESCORE.md is a closed, cast-verified
+> report and this correction lives at its source.)
+
 **THE LAW:** *a summon's cinematic is a self-contained set — creature, props, AND scenery — authored to
 look right from its own camera. Rescoring the camera without regard for that set will show the set's
 edges.* The constraint is **per-SUMMON and lives INSIDE the container**, not per-battle-location.
@@ -105,4 +120,52 @@ scenery must be re-authored *together*.
   them before its single `ret`, and only READS `gteH`; 121/122 have no corpus call site) — so no
   effect program sets zoom and a rescore is a sequence/camera-data edit, as W1 assumed. STAGED only,
   under `C:\gd\SCRATCH\summon-format\rescore-w2\`; the cast protocol is `W2-RESCORE.md` §6.
-- W3–W4 — pending the W2 cast.
+- **W3 — ★★ CAST-PROVEN 2026-07-26 ("worked as described"; both casts + revert run; live install
+  verified back at W2's resting state)** (`W3-RETIME.md`, `retime.py`, `w3_program_edits.py`,
+  `w3_clock_emu.py`, `bahamut_retime.toml`, `test_retime.py`, `w3_gates.py`; X0-X7 all PASS, 256
+  tests, two independent from-bytes re-derivations (V1/V2) could not refute the offline proof).
+  `ef227:c0` state 0 stretched 70→118 ticks (N=+48, exactly two loops of the creature's 24-frame
+  float clip) and all four clocks it touches moved with it in one build: the effect program (7
+  splices, 12 differing bytes — the threshold plus the two magic reciprocals that normalise the
+  arrival/progress ramps to the new length), the sequence stream (1 byte, a `WAIT` delta), the
+  camera's shot-A frame words (10 writes, 11 bytes, zero duration bytes touched), and the outer
+  text `Sequence.seq` clock (1 `Wait:` line) that SFXRework silently substitutes for the binary's
+  own sounds/fades/damage cue. A twin MIS-RETIME artifact ships the same three edits with the
+  program edit omitted, byte-identical to the ALIGNED build outside those 12 bytes — the offline
+  lock table (12 pairs, recovered from stock and re-timed by identity) shows ALIGNED keeping every
+  authored camera-vs-phase lead and MIS-RETIME drifting by exactly N on every post-cut `c0` pair
+  while all six `c1` pairs stay put, which is the two-clocks law made falsifiable rather than
+  asserted. Residual risk is small and disclosed (the light column reads 38% through its ramp
+  instead of 65% at the cut, by the locked policy's own design — the one place a discrete-beat
+  constraint stops a ramp from being retuned in full); nothing else moves that shouldn't.
+  Staged under `C:\gd\SCRATCH\summon-format\retime-w3\`; **the ALIGNED artifact + text co-retime
+  are LIVE in FF9CustomMap** (deployed during verification by an errant sandbox harness, then
+  byte-verified and adopted — `W3-RETIME.md` §6.1's LIVE-STATE NOTE; snapshot + revert chain
+  verified intact). Cast 1 needs no deploy step; `deploy_misretime.py` swaps to the falsifier;
+  `revert_summon_retime_227.py` restores W2's resting state. The cast protocol is `W3-RETIME.md`
+  §6, and the rung does not close until both casts are judged.
+- **W4 — ★★ CAST-PROVEN 2026-07-26 ("all good", after cast 1 minted THE HYBRID MASK law and the
+  recast ran with `[SfxHybrid]` disarmed). THE TIER IS COMPLETE — 4/4: re-framed, re-timed,
+  re-skinned, all in place, all revertible. Resting: the reskin LIVE, SfxHybrid disarmed.**
+  (`W4-RESKIN.md`, `reskin.py`,
+  `bahamut_reskin.toml`, `test_reskin.py`, `w4_gates.py`; X0–X6 + 7/7 negative refusals, 38 new tests
+  / 294 tier-wide). **THE WHOLE-SET CLUT RECOLOUR of ef227 — creature AND the effect's own scenery,
+  lever #1 (CLUT recolour) only, no texel moved.** 4,832 of 823,296 bytes changed (0.587 %, a 2×
+  margin under A2's 8,192-byte whole-set ceiling), all inside four header-derived spans, all palette
+  data — 0 geometry/UV/program/sequence/camera bytes touched, proven by rebuilding W2's rescore and
+  W3's retime from their own specs and intersecting the changed-offset sets (both empty). One hue for
+  the creature's six pages (+182°, settled by sweep so the shared hide material does not fracture
+  across pages) turns Bahamut spectral-mist-green with cold silver-blue plating; the scenery (sky
+  dome, aerial ground, fire column, energy rings) recolours independently into a matching deep-teal /
+  ghost-blue key, licensed by A2's proof the creature and scenery share no page, no CLUT, not one VRAM
+  halfword. `scenery.cloud_bands` is measured pure greyscale (S=0.00) and reports 0 changed bytes,
+  declared ON anyway so the gap is stated rather than hidden. STP population, the 234 transparent
+  entries and every `0x0000` cutout held identical stock-vs-patched on all 13 palettes; a B3 finding
+  (a channel-clamp counter that could never fire) was fixed into a real HSV blow-out gate, worst
+  target 4.7 % against its 10 % refusal ceiling, artifact bit-identical before/after the fix. Lever #2
+  (texel repaint) is explicitly DEFERRED — A2's dual-depth VRAM pack and time-shared upload columns are
+  named repaint hazards a palette edit is structurally immune to — and the texanim generalisation gate
+  (A1: `ef038`/`ef177`/`ef493-495` carry a nonzero texanim region ef227 does not) does not gate this
+  rung but must gate any future one past ef227. Staged under `C:\gd\SCRATCH\summon-format\reskin-w4\`
+  (13 previews reviewed offline); the cast protocol is `W4-RESKIN.md` §6, and the rung does not close
+  until the cast is judged.

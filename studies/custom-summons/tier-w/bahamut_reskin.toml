@@ -1,0 +1,272 @@
+# TIER W rung 4 -- THE RESKIN.  Stock Bahamut (ef227) recoloured in place: the creature AND the
+# effect's own scenery, one whole-set key, not one texel moved.
+#
+# WHAT EACH NUMBER BELOW IS.  Two kinds only:
+#   * GUARDS (`expect_*`) -- what the tool's own derivation from the container's headers MUST have
+#     found.  They instruct nothing; they refuse.  If a Steam/Moguri patch or another mod ever moves
+#     a span, `reskin.py` stops instead of splicing a palette into the wrong bytes.
+#   * AUTHORED DECISIONS -- `hue_rotate` / `saturation` / `value`, per target.  These are the whole
+#     artistic surface, and every one is meant to be retuned by the owner against the PREVIEWS under
+#     C:\gd\SCRATCH\summon-format\reskin-w4\previews\.
+#
+# THE KEY: SPECTRAL MIST.  Bahamut's stock palette is violet wing membrane, gold belly plating,
+# cream claws and dark plum hide over a blue sky, green satellite terrain and an amber fire column.
+# The reskin rotates the whole set roughly half a turn and cools it: the dragon reads as a spectral
+# mist-green wraith with cold silver-blue plating, the sky and ground go deep teal, the fire burns
+# ghost-blue.  Loud on purpose -- the silent-failure rule: a cast that looks stock is a cast that
+# proves nothing.
+#
+# WHY ONE ROTATION FOR THE CREATURE, AND SAT/VAL PER PART.  A single body material (the dark hide)
+# appears on five of the six pages.  Give each page its own hue and that one material lands on five
+# different hues and the dragon falls apart.  So the hue is ONE number for the whole creature and
+# the per-part knobs are saturation and value -- which is exactly what separates "gold plating" from
+# "cream claw" from "membrane" inside a page that carries all three.
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`reskin.py`'s module docstring, each one a refusal):
+# 0x0000 stays 0x0000; bit 15 (STP) is carried, never recomputed; channels clamp to 0..31; the
+# transform runs in HSV over the decoded BGR555 and re-encodes to 5 bits; every changed byte must
+# land inside a derived palette inside a derived span.
+
+[reskin]
+effect = 227
+label  = "bahamut-w4-spectral-mist"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+
+# ==============================================================================================
+# THE SPANS -- guards on the derivation, matching A2's edit menu (c) "WHOLE SET, 4 spans, 8,192 B".
+# `reskin.py` derives all four from the container's own headers (the id-4 model package and each
+# chunk's id-0 payload header); these lines only assert it found what this spec was written against.
+[reskin.spans.creature_clut_strip]
+offset = 0x0621A0    # id-4: texOffset 0x1a0 + texBytes 0x18000, inside the 0x4a000 resource
+length = 3072        # 6 rows x 256 entries x 2 B
+
+[reskin.spans.c0_clut_band0]
+offset = 0x000870    # chunk 0 id-0 inline rect 0: VRAM (x=0, y=244, w=256, h=6) -> rows 244..249
+length = 3072
+
+[reskin.spans.c1_clut_band0]
+offset = 0x0A2048    # chunk 1 id-0 inline rect 0: VRAM (x=0, y=242, w=256, h=2) -> rows 242..243
+length = 1024
+
+[reskin.spans.c1_clut_band1]
+offset = 0x0A2450    # chunk 1 id-0 inline rect 1: VRAM (x=0, y=250, w=256, h=2) -> rows 250..251
+length = 1024
+
+
+# ==============================================================================================
+# DEFAULTS -- any target that omits a knob inherits these.
+[reskin.defaults]
+hue_rotate = 0.0
+saturation = 1.0
+value      = 1.0
+
+
+# ==============================================================================================
+# THE CREATURE -- six 256-entry rows, 1:1 with the six texture pages, no sharing anywhere.
+# ONE hue for all six (see the header note).  +182 deg is where the preview sweep settled, and it is
+# a COMPROMISE, deliberately: the membrane reads best anywhere in +178..+205 (all of them green), but
+# the plating only reads as COLD SILVER at the bottom of that range -- at +190 the gold lands on 225
+# and goes periwinkle, at +170 the membrane starts drifting to a warm emerald.  +182 puts the stock
+# violet membrane (its own live entries measure H ~ 305-320) on ~127 spectral green and the stock
+# gold (H ~ 30-45) on ~212-227, which the 0.55 saturation then reads as brushed silver-blue.
+#
+# `value` above 1.0 is spent ONLY where the stock page is dark enough to afford it -- A3 section 3.3:
+# the effect's own colorIntensity multiplies 1.5x/2x over the palette and stock was authored with
+# exactly that headroom (its brightest 5-bit channel is 28 of 31, never 31).  The build runs an HSV
+# CLIP CENSUS per target -- how many live entries a knob pushed past the top of the cube, as a
+# fraction of that palette's live entries -- and REFUSES above `reskin.BLOWOUT_FRACTION` (10%), so an
+# over-bright knob is caught rather than silent.
+#
+# AT THESE NUMBERS THE CENSUS IS NOT ZERO, and the honest count is:
+#   * creature.part4  12 of 255 live entries (4.7%) VALUE-clipped -- stock's brightest channel is 28
+#     of 31 (V = 0.9032) and 0.9032 x 1.12 = 1.0116, a 1.2% overshoot on the twelve brightest
+#     entries.  They merge with neighbours 1-2 of 31 away, i.e. inside the grid the 5-bit palette
+#     already lives on, and the previews show no banding.  Accepted, not unnoticed.
+#   * scenery.cloud_sheet  7 of 255 (2.7%) SATURATION-clipped -- seven entries are already at
+#     S = 1.00, so the 1.30 lift meant for the near-grey bulk (S ~ 0.16) cannot move them at all.
+#     That is the intended shape of a lift on a mostly-achromatic palette, not a loss.
+# Every other target clips nothing.  Worst fraction 4.7% against the 10% gate -- a 2x margin.
+# (An earlier draft of this comment claimed ZERO across the set.  It was reading a counter that
+# could not fire: `_clamp01` bounds s/v before hsv_to_rgb, so the 0..31 channel clamp it counted is
+# structurally unreachable.  The census above is the measured replacement.)
+
+[[reskin.target]]
+name = "creature.part0"
+expect_entries = 256
+expect_vram = [256, 230]
+expect_offset = 0x0621A0
+hue_rotate = 182.0
+saturation = 0.95        # the hero surface: keep it luminous
+value      = 1.05
+note = "wing membrane (violet, veined) + horn -> spectral mist-green, the silhouette's read"
+
+[[reskin.target]]
+name = "creature.part1"
+expect_entries = 256
+expect_vram = [256, 231]
+hue_rotate = 182.0
+saturation = 0.80        # cream claws/spurs -> pale spectral, not a coloured claw
+value      = 1.02
+note = "dark plum hide + cream/ivory claws, spurs and horn tips"
+
+[[reskin.target]]
+name = "creature.part2"
+expect_entries = 256
+expect_vram = [256, 232]
+hue_rotate = 182.0
+saturation = 0.55        # gold -> COLD SILVER-blue: the desaturation is what makes it metal
+value      = 1.12
+note = "amber-gold neck and belly plating over dark hide"
+
+[[reskin.target]]
+name = "creature.part3"
+expect_entries = 256
+expect_vram = [256, 233]
+hue_rotate = 182.0
+saturation = 0.90
+value      = 1.08
+note = "the dark plum-black body mass -- the least colourful page, keep it a shadow"
+
+[[reskin.target]]
+name = "creature.part4"
+expect_entries = 256
+expect_vram = [256, 234]
+hue_rotate = 182.0
+saturation = 0.55        # matches part2: the same plating material must land on the same hue+sat
+value      = 1.12
+note = "gold ribbed underbelly / tail segments + bone-cream claw"
+
+[[reskin.target]]
+name = "creature.part5"
+expect_entries = 256
+expect_vram = [256, 235]
+hue_rotate = 182.0
+saturation = 0.68
+value      = 1.06
+note = "scale rows, gold plates and cream claws -- the mixed page"
+
+
+# ==============================================================================================
+# THE EFFECT'S OWN SCENERY -- THE EFFECT-OWNED SCENERY LAW: the set is authored to look right from
+# its own camera, and A2 proved it is texture-DISJOINT from the creature (no shared page, no shared
+# CLUT, not one shared VRAM halfword).  So these rotations are chosen independently of the dragon's
+# and only have to agree with each other.
+#
+# Each rotation is `target hue - the palette's own measured mean hue`, so the numbers are derived
+# from the stock palette rather than guessed: the build prints `mean H before -> after` per target
+# and the swatch sheet shows it.
+
+[[reskin.target]]
+name = "scenery.sky_dome"
+expect_entries = 256
+expect_vram = [0, 245]
+hue_rotate = -54.0       # measured mean H 243.8 (deep blue) -> ~190 deep teal
+saturation = 1.00
+value      = 0.98        # a shade deeper; its white cumulus are S=0 and stay white by construction
+note = "the sky dome, the largest scenery mesh -- deep teal"
+
+[[reskin.target]]
+name = "scenery.water_and_sky_gradient"
+acknowledge_shared = true    # A2 guard-rail 3: this 16-entry 4bpp palette is read by TWO models --
+                             # the water/ice sheet AND the sky gradient shell. Naming it moves both.
+expect_entries = 16
+expect_vram = [0, 244]
+hue_rotate = -18.0       # measured mean H 206 -> ~188, matching the dome
+saturation = 1.00
+value      = 1.00
+note = "SHARED: water/ice sheet + sky gradient shell -- kept in the dome's key"
+
+[[reskin.target]]
+name = "scenery.aerial_ground"
+expect_entries = 256
+expect_vram = [0, 249]
+hue_rotate = 52.0        # measured mean H 131.4 (desaturated green terrain) -> ~183 grey-teal
+saturation = 1.30        # stock S is 0.18: without a lift the rotation is invisible at this depth.
+                         # 1.30 lands S ~ 0.24 -- still grey, now legibly TEAL grey.
+value      = 1.15        # the darkest palette in the set (brightest 5-bit channel is 13 of 31), so
+                         # this lift cannot clip; it is what turns "dark terrain" into "mist"
+note = "the aerial ground plane, the satellite-view terrain the W2 cast saw -- mist grey-teal"
+
+[[reskin.target]]
+name = "scenery.fire_column"
+expect_entries = 256
+expect_vram = [0, 251]
+hue_rotate = 186.0       # measured mean H 18.8 (amber/red flame) -> ~205 ghost blue
+saturation = 0.82        # a ghost flame is not a blue fire: bleed the saturation
+value      = 1.00
+note = "the fire column -> ghost-blue flame"
+
+[[reskin.target]]
+name = "scenery.energy_rings"
+expect_entries = 256
+expect_vram = [0, 246]
+hue_rotate = 158.0       # measured mean H 28.4 (orange energy) -> ~186 cyan
+saturation = 0.90
+value      = 1.00
+note = "the impact / energy rings -> cyan"
+
+[[reskin.target]]
+name = "scenery.cloud_sheet"
+expect_entries = 256
+expect_vram = [0, 248]
+hue_rotate = 40.0        # measured mean H 147 but at S = 0.16 -- a near-grey sheet with a faint
+                         # green cast; this only cools that cast, it cannot tint the greys
+saturation = 1.30        # the same trick as the ground, at the same modest strength
+value      = 1.00
+note = "the cloud sheet -- near-achromatic, so it stays cloud-coloured and only its cast cools"
+
+[[reskin.target]]
+name = "scenery.cloud_bands"
+acknowledge_shared = true    # SHARED by cloud bands A, B and C.
+expect_entries = 16
+expect_vram = [192, 244]
+hue_rotate = -18.0
+saturation = 1.00
+value      = 1.00
+# MEASURED AND HONEST: this palette is a PURE GREYSCALE RAMP -- S = 0.00 on all 15 live entries.
+# A hue rotation and a saturation scale are both mathematically INERT on it, so it will report 0
+# changed bytes and the build says so out loud rather than pretending the clouds moved.  Only a
+# channel-mix / tint (lever #2's vocabulary, deliberately not taken this rung) could colour it.
+# It is declared ON anyway so the set's key is stated in one place, gaps included.
+note = "SHARED: cloud bands A/B/C -- pure greyscale, INVARIANT under this transform"
+
+
+# ==============================================================================================
+# DECLARED BUT OFF -- the palettes the container's header declares that A2's 675-model census could
+# attribute to NO GEOM model.  They are almost certainly drawn by something (a sprite, a particle),
+# but nothing in the recon says WHAT, so recolouring them would be authoring blind.  They are listed
+# here, measured, so the decision is one `enabled = true` away after the first cast shows whether
+# anything stayed stock-coloured.
+#
+# Also declared by the header and NOT listed here: thirteen more 16-entry 4bpp palettes in row 244
+# (VRAM x = 16,32,48,64,80,96,112,128,144,160,176,208,224) and four in row 250 (x = 0,16,32,48).
+# `py reskin.py plan` prints every one of them with its offset, so nothing is hidden.
+
+[[reskin.target]]
+name = "spare.c1_x0_y242"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 242]
+hue_rotate = 186.0       # if turned on: the fire family's rotation (measured mean H 14.1, S 0.96)
+saturation = 0.82
+note = "UNATTRIBUTED, 109 live entries, hot saturated ramp -- reads like a flash/flame sprite"
+
+[[reskin.target]]
+name = "spare.c1_x0_y243"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 243]
+hue_rotate = 186.0
+saturation = 0.82
+note = "UNATTRIBUTED, 80 live entries, hot saturated ramp (measured mean H 37.3, S 1.00)"
+
+[[reskin.target]]
+name = "spare.c0_x0_y247"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 247]
+hue_rotate = 52.0        # if turned on: the ground family's rotation (measured mean H 104.7)
+note = "UNATTRIBUTED, 254 live entries, green -- the only row in the c0 band no model references"
