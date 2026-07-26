@@ -58,7 +58,7 @@ DEFAULT_PROMPT = "WAR COUNCIL — deploy on this spot:"
 DEFAULT_REPLY = "Deployed!  He holds this very spot."
 
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
-         "loss_battle", "button", "council_prompt", "hud", "hud_text",
+         "win_sfx", "loss_battle", "button", "council_prompt", "hud", "hud_text",
          "flag_base", "alarm_radius", "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
@@ -141,6 +141,7 @@ class SiegeSpec:
     stipend: int = 0
     win_gil: int = 0
     win_item: str | None = None
+    win_sfx: int | None = None       # the purse fanfare cue (`ff9mapkit sfx-list` ids)
     loss_battle: int | None = None
     button: bool = True
     council_prompt: str = DEFAULT_PROMPT
@@ -265,6 +266,11 @@ def from_raw(s: dict) -> SiegeSpec:
     names = [base.name] + [a.name for a in allies] + [r.name for r in raiders]
     if len(set(names)) != len(names):
         raise SiegeError(f"{ctx}: base/ally/raider names must be distinct (got {names})")
+    ws = s.get("win_sfx")
+    if ws is not None and (isinstance(ws, bool) or not isinstance(ws, int)
+                           or not 0 <= ws <= 0xFFFF):
+        raise SiegeError(f"{ctx}: win_sfx must be a sound id int 0..65535 "
+                         f"(`ff9mapkit sfx-list`; 108 = the item-get jingle)")
     fb = s.get("flag_base", REQUEST_FLAG_BASE)
     if not isinstance(fb, int) or not 8712 <= fb <= 16300:
         raise SiegeError(f"{ctx}: flag_base must be a GLOB bit in the safe band "
@@ -278,6 +284,7 @@ def from_raw(s: dict) -> SiegeSpec:
         raiders=tuple(raiders), warmup=int(s.get("warmup", 45)),
         stipend=int(s.get("stipend", 0)), win_gil=int(s.get("win_gil", 0)),
         win_item=(str(s["win_item"]) if s.get("win_item") else None),
+        win_sfx=(int(ws) if ws is not None else None),
         loss_battle=(int(s["loss_battle"]) if s.get("loss_battle") is not None else None),
         button=bool(s.get("button", True)),
         council_prompt=str(s.get("council_prompt", DEFAULT_PROMPT)),
@@ -365,6 +372,12 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         if spec.win_item:
             pay["item"] = spec.win_item
         bb.append(_branch(when=[{"flag": "won"}], once="paid", do=pay))
+    if spec.win_sfx is not None:
+        # the purse FANFARE — its own event-Once branch below the pay, gated on
+        # the same `won` flag (flags don't drain, so the pay fires one tick and
+        # the cue the next — THE DRAINING-CONDITION LAW's authoring shape)
+        bb.append(_branch(when=[{"flag": "won"}], once="fanfare",
+                          do={"sfx": spec.win_sfx}))
     bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
                       once="alarm", do={"announce": spec.text_alarm}))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))

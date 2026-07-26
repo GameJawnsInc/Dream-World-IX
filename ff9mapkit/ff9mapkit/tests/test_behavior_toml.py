@@ -1157,3 +1157,58 @@ def test_shop_synth_validation():
                    add_shop_synth=[50, "Bogusite"])))
     assert any("needs `once" in p for p in
                mut(lambda r: r["behavior"]["unit"][0]["branch"][0].pop("once")))
+
+
+# ------------------------------------------------- Sfx (RunSoundCode3 0xC8)
+def _sfx_raw(do=None, **branch_over):
+    br = {"when": [{"flag": "go"}], "do": do or {"sfx": 108},
+          "once": "fanfare", **branch_over}
+    return {
+        "player": {"spawn": [0, -900]},
+        "npc": [{"name": "crier", "pos": [0, -300], "dialogue": "..."}],
+        "behavior": {"public_flags": ["go"], "unit": [
+            {"npc": "crier", "branch": [br, {"do": {"hold": [0, -300]}}]},
+        ]},
+    }
+
+
+def test_sfx_compiles_event_once():
+    """Once-wrapped: ONE RunSoundCode3 with the chest-proven bank + pan/volume
+    triple (content.chest — in-game on fields 200/407), on the event-Once lane."""
+    raw = _sfx_raw()
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    cb = fb.compile()
+    _verify_all(cb)
+    plays = []
+    for _tag, body in cb.action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "RunSoundCode3":
+                plays.append(tuple(ins.imm(i) for i in range(5)))
+    assert plays == [(53248, 108, 0, 128, 125)]           # bank, id, pan/volume
+    # a custom bank passes through
+    fb2 = BT.build(_sfx_raw(do={"sfx": 640, "bank": 4096}), npc_slots={"crier": 2},
+                   npc_txids_by_name={"crier": 0}, behavior_txids={})
+    plays2 = [(ins.imm(0), ins.imm(1))
+              for _t, body in fb2.compile().action_funcs["crier"]
+              for ins in D.iter_code(body, 0, len(body))
+              if ins.name == "RunSoundCode3"]
+    assert plays2 == [(4096, 640)]
+
+
+def test_sfx_bare_and_validation():
+    # BARE is legal (Announce's shape: play at dispatch, idle while selected)
+    raw = _sfx_raw()
+    del raw["behavior"]["unit"][0]["branch"][0]["once"]
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    _verify_all(fb.compile())
+    # id / bank / option-key validation
+    assert any("sound id int" in p for p in BT.validate(_sfx_raw(do={"sfx": "boom"})))
+    assert any("sound id int" in p for p in BT.validate(_sfx_raw(do={"sfx": 70000})))
+    assert any("sfx bank" in p for p in
+               BT.validate(_sfx_raw(do={"sfx": 108, "bank": "loud"})))
+    assert any("unknown option key" in p for p in
+               BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))

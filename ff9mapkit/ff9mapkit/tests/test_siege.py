@@ -118,6 +118,25 @@ def test_behavior_raw_structure():
     assert shoot["branch"][2]["do"] == {"hold_post": True}
 
 
+def test_win_sfx_fanfare_branch():
+    """`win_sfx` adds ONE event-Once fanfare branch below the pay, gated on the
+    same monotonic `won` flag (THE DRAINING-CONDITION LAW's authoring shape:
+    the purse fires one tick, the cue the next)."""
+    b = S.behavior_raw(_spec(win_sfx=108))
+    base = b["unit"][0]
+    fan = [br for br in base["branch"]
+           if isinstance(br["do"], dict) and "sfx" in br["do"]]
+    assert len(fan) == 1 and fan[0]["do"] == {"sfx": 108}
+    assert fan[0]["when"] == [{"flag": "won"}] and fan[0]["once"] == "fanfare"
+    dos = [br["do"] for br in base["branch"]]
+    assert dos.index({"award": 2000, "item": "Phoenix Down"}) < dos.index({"sfx": 108})
+    # absent key -> no fanfare branch; a non-int id is refused
+    assert not any(isinstance(br["do"], dict) and "sfx" in br["do"]
+                   for br in S.behavior_raw(_spec())["unit"][0]["branch"])
+    with pytest.raises(S.SiegeError, match="win_sfx"):
+        _spec(win_sfx="loud")
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)
@@ -151,7 +170,8 @@ def _siege_toml() -> str:
     out = io.StringIO()
     out.write(_FIELD)
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
-              'win_gil = 2000\nwin_item = "Phoenix Down"\nloss_battle = 35\n'
+              'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
+              "loss_battle = 35\n"
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")
@@ -186,6 +206,14 @@ def test_full_build_compiles(tmp_path):
                   behavior_txids=txids)
     cb = fb.compile()
     assert len(cb.ticker_body) > 1000
+    # the fanfare (win_sfx = 108) compiled through: one RunSoundCode3 in the
+    # base's dispatch bodies, chest-proven bank first
+    from ff9mapkit.eb import disasm as D
+    plays = [(ins.imm(0), ins.imm(1))
+             for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body))
+             if ins.name == "RunSoundCode3"]
+    assert plays == [(53248, 108)]
     # determinism: a second load desugars to the identical raw
     p2 = BLD.FieldProject.load(f)
     assert p2.raw["behavior"] == p.raw["behavior"]

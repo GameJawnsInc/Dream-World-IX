@@ -314,6 +314,24 @@ a win condition like `time_below = 1` holds forever. Pair it with a separate `an
 branch for the fanfare text. Field reload re-arms it (bench semantics — a shipped minigame
 gates the whole match behind a story flag instead).
 
+### `sfx` — a sound-effect cue
+
+```toml
+[[behavior.unit.branch]]
+when = [{ flag = "won" }]
+do = { sfx = 108 }                 # the item-get jingle; ids -> `ff9mapkit sfx-list`
+once = "fanfare"
+```
+
+Plays one SFX through `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the
+kit's treasure chest plays in-game (`bank = 53248` by default; the only option key).
+**Once-wrapped** it rides the event-Once lane — fire-and-release, the purse-fanfare shape:
+gate it on the same *monotonic* flag as an `award` branch and the pay fires one tick, the
+cue the next (flags don't drain — the draining-condition law's authoring fix). **Bare**, it
+behaves like a bare `announce`: it plays when the branch dispatches and cannot re-fire
+until the tree deselects and re-selects it (an alarm sting each time raiders close in, not
+a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>`.
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:

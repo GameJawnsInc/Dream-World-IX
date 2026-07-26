@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the `sfx` behavior verb + `[siege] win_sfx` (theater rung A)
+- `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
+  branch — `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the kit's
+  treasure chest plays in-game (bank 53248; ids via `ff9mapkit sfx-list`). Once-wrapped it
+  rides the event-Once lane (fire-and-release — the purse-fanfare shape, gated on the same
+  monotonic flag as an `award`); bare, it plays at dispatch and idles while selected (a
+  bare `announce`'s no-spam shape). Lint checks id/bank ranges; unknown option keys refuse.
+- `[siege]` grew `win_sfx = <id>`: one generated event-Once fanfare branch below the pay,
+  gated on `won` — the purse pays one tick, the cue rings the next (the draining-condition
+  law's authoring shape). Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421).
+
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
   the program), Edit, and Delete; the unit bar adds branches and removes units; the cast rail
