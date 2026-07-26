@@ -1229,6 +1229,28 @@ def test_sfx_bare_and_validation():
                BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))
 
 
+def test_announce_delay_sustain():
+    """delay = a silent level-hold BEFORE the window opens (the staged-text
+    primitive: the previous line's read time), sustain = the hold AFTER (ring
+    before a queued Battle) — emission order pinned."""
+    raw = _sfx_raw(do={"announce": "The city holds.", "delay": 120, "sustain": 30})
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2}, npc_txids_by_name={"crier": 0},
+                  behavior_txids={(0, 0): 905})
+    seq = []
+    for _t, body in fb.compile().action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.op == 0x22:                            # Wait
+                seq.append(("wait", ins.imm(0)))
+            elif ins.op == 0x20:                          # WindowAsync
+                seq.append("open")
+    assert seq == [("wait", 120), "open", ("wait", 30)]
+    assert any("announce delay" in p for p in
+               BT.validate(_sfx_raw(do={"announce": "x", "delay": 999})))
+    assert any("announce sustain" in p for p in
+               BT.validate(_sfx_raw(do={"announce": "x", "sustain": True})))
+
+
 def test_flash_compiles_stock_add_pair():
     """The flash body is stock's ADD-channel white-out idiom (field 682, twice):
     CalcScreenPos + FadeFilter(0,24,255,rgb) + Wait(25 = out+1, stock's own

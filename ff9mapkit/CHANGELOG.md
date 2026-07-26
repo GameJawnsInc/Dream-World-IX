@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
+- `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
+  Hunt scenes (id 35 + the `LB_E080x` family — what a Lindblum-plaza fork borrows as its
+  donor-native fight) run `B_SYSVAR[17] B_NOT → RunBattleCode` end, terminating themselves
+  the instant the countdown reads 0. A siege's ending theater takes seconds, so a late
+  loss let the clock hit 0:00 before the `battle` fired and the fight ended the moment
+  combat started — nothing wrong in the generated script. New `stop_timer` behavior verb
+  (`RunTimer(0)`, needs a field `timer`), and `[siege]` now freezes the clock at the TOP
+  of its loss lane (above the sting and the staged text) and on the rout. Diagnosed with
+  `ff9mapkit battle-ai` — verify any scene a timed field fires. Cast-proven: "the fight
+  works now, clock froze."
+
 ### Fixed — the `[[qte]]`/`[[numeric_input]]` result caps clear the nameplate words
 - The extended-nameplate band claimed gEventGlobal bytes 2006-2017 as live overworld
   visited state (the explored words), but the modal `result` caps still read 4..2016 —
@@ -33,6 +45,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   button: the walkmesh comes from the SAVED file, the geometry from the open document; the
   first press is the only disk read, after which every committed edit re-judges on the warm
   mesh, debounced, on a worker.
+
+### Added — staged win/lose text (`announce` delay/sustain + `[siege]` list texts, theater rung D)
+- `announce` (and `announce_npc`) grew `delay = <frames>` — hold the dispatch level
+  SILENTLY before the window opens (the staged-text primitive: a chain of once-announces
+  on one monotonic flag pages like a cutscene, each delay the previous line's read time) —
+  and `sustain = <frames>` (hold after the open, so a line is read before a queued
+  `battle` takes the screen). Same level-holding law as `sfx`/`flash`.
+- `[siege] text_win` / `text_rout` / `text_loss` now also take a LIST of lines, paged at
+  `text_pace` frames (default 120). Win/rout aftermath lines page AFTER the proven
+  cry → purse → jingle beat; loss lines page PRE-detect (the sting idiom scaled to text),
+  the last line sustained before a `loss_battle`. Flashless staging grows `routed` on the
+  rout detect so win stages can tell the endings apart. Plain strings keep the proven
+  single-window shapes byte-for-byte (regression-pinned).
 
 ### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
 - `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
