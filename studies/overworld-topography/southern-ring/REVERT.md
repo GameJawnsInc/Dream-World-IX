@@ -2646,3 +2646,58 @@ state). Re-enter the overworld; no relaunch.
 2. **The R4 bench island**: open grass + hill — ZERO encounters; the north canopy still fights
    (Python/Goblin/Mu — and Ragtime Mouse may still quiz you: stock, welcome).
 3. Any quay island + Lamplight: plates, entrances, ferry all unchanged.
+
+---
+
+# 27. R4c — s60: THE ENCOUNTER TABLE HOLE (engine) — **BUILT + DEPLOYED** (relaunch + re-test pending)
+
+Run 2026-07-26, from the owner's §26.5 re-test: *"still getting battles on the grass. reading area
+14 topo 0, Lindblum Plateau."* The area-14 stamp had LANDED (the debug title showing "Lindblum
+Plateau" IS area 14's name) — the engine defeated it.
+
+## 27.1 ROOT CAUSE — the one line never read: the lookup-miss fallthrough
+
+`ff9.w_worldGetBattleScenePtr` (ff9.cs:9209) ends `return w_frameBattleScenePtr[i + useAlternate - 1]`
+— on a (zone, topograph, fog) MISS it returns the zone slice's **LAST record**. An authored table
+hole was impossible: area-14 topo-0 grass resolved to zone 6, matched nothing, and was handed
+zone 6's final row (the Lindblum Plateau topo-36 brush set). §26's model was right about the lookup
+and wrong about the miss path — the lesson: **read the no-match tail before betting on a hole.**
+
+## 27.2 THE FIX — s60, two functional lines at the seam we own
+
+`memoria-patches/s60-encounter-table-hole.patch`: the miss returns **null**; `SelectScene` returns
+0 on null (= no battle — the contract `ProcessEncount` already honors). Stock blast radius censused
+BEFORE authoring: exactly ONE spot map-wide exercises the fallthrough — 22 stray area-10 topo-0
+tiles in blocks (20,14)/(21,14)/(22,14) (plains slivers inside the zone-4 mountain region, which in
+stock fight rec 43's brush set there) — those become encounter-silent under s60; every other
+walkable stock (zone, topograph, fog) triple has a real record, byte-censused. Also checked: no
+zone's last record carries zero scenes (a data-only fix was impossible), and no benign fallthrough
+exists anywhere.
+
+## 27.3 Build + deploy (owner-approved after the classifier gate)
+
+Pre-build full DLL backup **`20260726-162739`** (`py tools/restore_memoria_dll.py 20260726-162739`
+reverts the whole engine). MSBuild clean; `Output\Assembly-CSharp.dll` == both deployed x64/x86
+copies, sha256 `79935c1bfdbaafcf…`. ⚠ Build lesson (it failed for the owner first): from Git Bash,
+MSBuild switches MUST be dash-style (`-t:Build -p:…`) — MSYS path-conversion mangles `/t:`/`/m`
+into paths (`M:/`).
+
+## 27.4 The complete encounter architecture, as now deployed
+
+**THE TABLE IS THE LAW** — data half: open kit ground = area 14 (zone 6, a record hole for every
+ground topo we carry; §26); canopy = area 0 (zone 0: Python/Goblin/Mu). Engine half: s60 makes the
+hole real. Consequence for the kit: forked fields / the stock game are untouched except the 22
+censused tiles; the ring + bench become exactly the ratified design — canopy fights, open ground
+safe, Ragtime Mouse optional garnish.
+
+## 27.5 Undo
+
+`py tools/restore_memoria_dll.py 20260726-162739` (the engine) · §26.4 (the area stamp) ·
+earlier layers per their own sections.
+
+## 27.6 Re-test (owner) — RELAUNCH (the DLL), then:
+
+1. The same grass that fought you (Grimhorn's bench + the R4 bench's open grass/hill): several
+   minutes each — **zero encounters**.
+2. The bench canopy still fights (Python/Goblin/Mu; Ragtime Mouse possible).
+3. A stock sanity spot if convenient (e.g. any real plains): stock encounters unchanged.
