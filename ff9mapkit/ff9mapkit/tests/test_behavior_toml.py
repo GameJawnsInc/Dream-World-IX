@@ -917,3 +917,80 @@ def test_scoreboard_toml_negatives():
     assert any("already carries" in p for p in
                mut(lambda b: b["hud"].append({"window": 6, "values": ["fallen"],
                                               "text": "[NUMB=0]"})))
+
+
+# ------------------------------------------------- the ITEM POOL (the shop bridge)
+ITEM_RAW = {
+    "player": {"spawn": [0, -900]},
+    "npc": [
+        {"name": "s0", "pos": [800, 800], "dialogue": "Levy!"},
+        {"name": "s1", "pos": [850, 800], "dialogue": "Levy!"},
+        {"name": "watch", "pos": [0, -300], "dialogue": "..."},
+    ],
+    "behavior": {"unit": [
+        {"npc": "s0", "pooled": True, "pool": "levy",
+         "branch": [{"do": {"hold_post": True}}]},
+        {"npc": "s1", "pooled": True, "pool": "levy",
+         "branch": [{"do": {"hold_post": True}}]},
+        {"npc": "watch", "branch": [
+            {"when": [{"have_item": ["Potion", 2]}],
+             "do": {"announce": "Stocked!"}, "once": "st"},
+            {"do": {"hold": [0, -300]}},
+        ]},
+    ], "pool": [{"name": "levy", "item": "Potion"}],
+        "hud": [{"text": "[MPOS=10,48]P [NUMB=0]", "values": ["item:Potion"]}]},
+}
+
+
+def _item_fb():
+    return BT.build(ITEM_RAW, npc_slots={"s0": 2, "s1": 3, "watch": 4},
+                    npc_txids_by_name={"s0": 0, "s1": 0, "watch": 0},
+                    behavior_txids={(2, 0): 900, ("hud", 0): 901})
+
+
+def test_item_pool_toml_surface():
+    """The shop-as-hire-menu bridge: an item pool has NO request-flag lane (holding
+    the contract IS the request), RemoveItem sits at each spawn site, and the
+    hireable flag reads the live inventory."""
+    assert BT.validate(ITEM_RAW) == []
+    fb = _item_fb()
+    cb = fb.compile()
+    _verify_all(cb)
+    assert fb.pool_flags == {}                       # no request flag allocated
+    assert "levy" in fb.pool_hireable                # hireable still published
+    names = [ins.name for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))]
+    assert names.count("RemoveItem") == 2            # one per pooled unit's spawn site
+    assert names.count("InitObject") == 2
+    polls = [D.pretty_expr(cb.ticker_body, ins.off + 1)[0]
+             for ins in D.iter_code(cb.ticker_body, 0, len(cb.ticker_body))
+             if ins.op == 0x05]
+    assert sum("B_HAVE_ITEM" in t for t in polls) == 3   # pool poll + hireable + cond
+    # determinism
+    assert _item_fb().compile().ticker_body == cb.ticker_body
+
+
+def test_item_pool_report_names_the_item():
+    assert "ITEM POOL (one Potion converts" in _item_fb().compile().report
+
+
+def test_item_pool_validation():
+    def mut(f):
+        import copy
+        r = copy.deepcopy(ITEM_RAW)
+        f(r["behavior"])
+        return BT.validate(r)
+
+    assert any("does not resolve" in p for p in
+               mut(lambda b: b["pool"][0].update(item="Bogusite")))
+    assert any("exclusive with price" in p for p in
+               mut(lambda b: b["pool"][0].update(price=300)))
+    assert any("exclusive with request_flag" in p for p in
+               mut(lambda b: b["pool"][0].update(request_flag=8848)))
+    assert any("have_item" in p and "does not resolve" in p for p in
+               mut(lambda b: b["unit"][2]["branch"][0]["when"][0].update(
+                   have_item=["Bogusite", 1])))
+    assert any("have_item count" in p for p in
+               mut(lambda b: b["unit"][2]["branch"][0]["when"][0].update(
+                   have_item=["Potion", 0])))
+    assert any("item does not resolve" in p for p in
+               mut(lambda b: b["hud"][0].update(values=["item:Bogusite"])))
