@@ -224,7 +224,7 @@ def exit_fade() -> bytes:
 
 def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, arrive=None,
                        arrive_face: int = 0, on_exit_body: bytes = b"", fade: bool = True,
-                       game=None) -> bytes:
+                       gate: bool = True, game=None) -> bytes:
     """The Range body of a walk-out worldmap exit.
 
     With ``arrive = (x, z)`` (THE DETERMINISTIC RETURN): [usercontrol guard] ->
@@ -239,20 +239,32 @@ def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, arrive=None,
     arrival model above). The cascade's arms terminate the function.
 
     ``fade`` (default True) prepends :func:`exit_fade` so leaving DIMS before the WorldMap
-    transition (the real exit behavior); the carried cascade has no fade of its own."""
+    transition (the real exit behavior); the carried cascade has no fade of its own.
+
+    ⚠ ``gate`` (default True) emits ``region.MOVEMENT_GATE`` -- ``ifnot (IsMovementEnabled) { return }``,
+    the verbatim prologue every real walk-on exit region carries. **It MUST be False in a TALK or MENU
+    context.** Talking to an NPC disables movement (the talk body itself opens with ``DisableMove``), so
+    ``IsMovementEnabled`` is 0 and the gate takes its early ``return`` -- the whole exit is silently
+    skipped, and because the talk body has already disabled movement and nothing re-enables it, the
+    player is left frozen with no window: a SOFTLOCK.
+
+    That is exactly how the first ferry shipped (Lantern Hall 6601, found at playtest and diagnosed from
+    the deployed bytes: the arm's ``7a 02`` gate at [1143] returned before the fade at [1152]). A
+    region-context prologue is not portable to a talk handler; the caller has to say which context it is
+    in, so this parameter exists rather than a guess inside the body."""
     import struct
     from . import region as R
     pre = exit_fade() if fade else b""
     if arrive is not None:
         ax, az = arrive
         wm = worldmap_to_var()
-        return (R.MOVEMENT_GATE + bytes(on_exit_body) + pre
+        return ((R.MOVEMENT_GATE if gate else b"") + bytes(on_exit_body) + pre
                 + arrive_writes(float(ax), float(az), face=arrive_face)
                 + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, POSITION_PRESET_KEY)
                 + R.cond_truthy(0xD8, WORLD_STATE_VAR)
                 + bytes([R.JMP_FALSE]) + struct.pack("<h", len(wm))
                 + wm
                 + cascade_bytes(game))
-    return R.MOVEMENT_GATE + bytes(on_exit_body) + pre \
+    return (R.MOVEMENT_GATE if gate else b"") + bytes(on_exit_body) + pre \
         + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, region_key) \
         + cascade_bytes(game)

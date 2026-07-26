@@ -278,7 +278,13 @@ def ring_closure() -> None:
             ferry.append((nm.group(1), float(a.group(1)), float(a.group(2)),
                           int(f.group(1)) if f else 0))
     check(len(ferry) == 4, "the ferry declares exactly 4 destinations", f"got {len(ferry)}")
-    by_name = {n.lower(): (x, z, fc) for (n, x, z, fc) in ferry}
+    # Match by the island name APPEARING in the row, not by exact equality: the rows are player-facing
+    # copy ("Sail to Ashvale"), and pinning the prose would make every re-voicing a false failure.
+    by_name = {}
+    for (n, x, z, fc) in ferry:
+        for k in ("ashvale", "tidefall", "grimhorn", "larkspur"):
+            if k in n.lower():
+                by_name[k] = (x, z, fc)
     for k in ("ashvale", "tidefall", "grimhorn", "larkspur"):
         S = SITES[k]
         want = (S.arrive[0], S.arrive[1], S.arrive_face)
@@ -286,21 +292,15 @@ def ring_closure() -> None:
         check(got == want, f"ferry row {S.name!r} lands at its quay's gated arrive point",
               f"hall {got} vs quay {want}")
 
-    # --- the home door: the ONE walk-out gateway, which must be Ashvale
-    doors = []
-    for blk in toml.split("[[gateway]]")[1:]:
-        a = re.search(r"arrive\s*=\s*\[\s*([-\d.]+)\s*,\s*([-\d.]+)", blk)
-        f = re.search(r"arrive_face\s*=\s*(\d+)", blk)
-        if a:
-            doors.append((float(a.group(1)), float(a.group(2)), int(f.group(1)) if f else 0))
-    A = SITES["ashvale"]
-    check(len(doors) == 1, "exactly ONE walk-on exit (the home door) -- the berth row is gone",
-          f"got {len(doors)}")
-    check(doors and doors[0] == (A.arrive[0], A.arrive[1], A.arrive_face),
-          "the home door lands at Ashvale, the home port",
-          f"door {doors[0] if doors else None} vs {(A.arrive[0], A.arrive[1], A.arrive_face)}")
+    # --- ZERO walk-on exits. The hall is exit-by-ferry-only: the last invisible walk-on quad (the
+    # south home door) was removed after playtest, since its arrive duplicated the Purser's Ashvale
+    # row and it was the same unreadable class as the four berths before it.
+    doors = [b for b in toml.split("[[gateway]]")[1:] if "arrive" in b]
+    check(not doors, "ZERO walk-on exits -- the hall exits by ferry only", f"{len(doors)} gateway(s) left")
+    check("[[savepoint]]" not in toml, "the savepoint press-zone is gone (merged into the ferry menu)")
+    check(toml.count("[[prop]]") == 0, "the twin save-moogle prop is gone (one NPC, not two)")
+    check("save =" in toml, "the ferry carries a save row instead")
 
-    # --- no stale berth-row leftovers
     # Look for an ASSIGNMENT, not the bare digits -- the file's own comment explains that these flags
     # were returned to the pool, and a substring test matches that prose and fails on a correct file.
     live = re.findall(r"^\s*flag\s*=\s*(876[0-3])", toml, re.M)

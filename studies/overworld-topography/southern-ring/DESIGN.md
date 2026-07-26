@@ -89,3 +89,12 @@ exactly four things — spawn, ledger+savepoint, Purser, and the single restored
 him — **re-derive every actor-vs-zone relation after ANY zone reshape** (second instance of the class).
 Flags 8760–8763 freed; ring-closure probe parses ferry rows + door vs `SITES` (169 checks). 14 files,
 hot. Record: REVERT.md §17.
+
+**R2c fix (2026-07-26):** the Purser softlock root-caused — **THE MOVEMENT-GATE CONTEXT LAW**: a walk-on
+region's usercontrol prologue (`ifnot IsMovementEnabled → return`) is NOT portable into a talk handler,
+which has already disabled movement — the exit silently bails after the reply window and the player is
+frozen with no window. `worldmap_exit_body(gate=)` now context-aware (ferry arms gate=False; gateways
+unchanged); lint rejects `dialogue` + `[[ferry]]` on one NPC (was shipping dead text). Hall final form:
+spawn + the Purser, ZERO regions — the south door and the ledger/savepoint deleted, saving is the menu's
+"Log the passage" row (latched `Menu(4,0)`), decline still LAST. `.eb` 7703→5600 B, 14 files, hot.
+Record: REVERT.md §18.
