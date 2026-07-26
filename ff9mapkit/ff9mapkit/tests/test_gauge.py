@@ -89,16 +89,41 @@ def test_art_pngs_deterministic_and_shaped():
     from PIL import Image
     import io as _io
     spec = _spec()
+    eff = G.effective_width(spec)
+    assert eff == 2 + 8 * 10 + 9                         # the exact uniform-cell fit (91 <= 96)
     pngs = G.art_pngs(spec)
     assert [n for n, _ in pngs] == [f"gauge_cistern_{k:02d}.png" for k in range(11)]
     assert pngs == G.art_pngs(spec)                      # byte-deterministic
     fills = []
     for _n, data in pngs:
         im = Image.open(_io.BytesIO(data)).convert("RGBA")
-        assert im.size == (96, 10)
+        assert im.size == (eff, 10)
         fills.append(sum(1 for px in im.getdata() if px[:3] == spec.color))
     assert fills[0] == 0                                 # empty state: no fill pixels
     assert all(b > a for a, b in zip(fills, fills[1:]))  # each state adds one cell
+
+
+def test_art_cells_are_uniform():
+    """WATERWORKS round 1 (owner): 'the last cell is shorter than the rest' —
+    the old remainder-px scheme widened the leftmost cells. Now every cell run
+    on the mid row is the SAME width, for a segments/width pair that doesn't
+    divide evenly."""
+    from PIL import Image
+    import io as _io
+    spec = _spec(segments=12, width=96)                  # inner 83 / 12 -> the round-1 shape
+    _n, data = G.art_pngs(spec)[-1]                      # full bar: every cell filled
+    im = Image.open(_io.BytesIO(data)).convert("RGBA")
+    row = [im.getpixel((x, im.height // 2))[:3] == spec.color for x in range(im.width)]
+    runs, cur = [], 0
+    for v in row:
+        if v:
+            cur += 1
+        elif cur:
+            runs.append(cur)
+            cur = 0
+    if cur:
+        runs.append(cur)
+    assert len(runs) == 12 and len(set(runs)) == 1       # 12 cells, one width
 
 
 # ------------------------------------------------------------------- .bgx blocks
@@ -106,7 +131,8 @@ def test_bgx_blocks_and_build():
     spec = _spec()
     ovls = G.overlay_blocks(spec)
     assert len(ovls) == 11
-    assert ovls[0].position == (140, 24, 1) and ovls[0].size == (96, 10)
+    assert ovls[0].position == (140, 24, 1)
+    assert ovls[0].size == (G.effective_width(spec), 10)  # Size == PNG size, no quad stretch
     anim = G.animation_block(spec, 7)
     assert anim.to_lines() == ["ANIMATION", "CameraId: 0", "FrameRate: 256",
                                "Overlays: 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"]
