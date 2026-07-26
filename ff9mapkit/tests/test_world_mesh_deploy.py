@@ -75,3 +75,23 @@ def test_idall_is_masked_to_16_bits():
            "faces": [((1, 0, 0), (2, 0, 0), (3, 0, 0))]}
     bm = BIO.obj_to_blockmesh(obj, into_block=(0, 18), idall=0x1_0FEE)
     assert {t[0] for t in bm.chan_arrays[CH_TAN]} == {4078.0}
+
+
+def test_idall_survives_the_keep_block_merge(tmp_path, monkeypatch):
+    """`world-entrance --building` defaults to keep_block=True (merge, don't replace the town). The
+    render-only stamp must survive that merge, or a building placed beside a stock town silently
+    becomes collision again -- `place_building` is called with no `set_idall`, so the appended mesh has
+    to carry 4078 in its OWN tangents."""
+    stock = BIO.obj_to_blockmesh(                                  # a fake 1-tri "stock town", topo 59
+        {"V": [(1024.0, 0.0, -896.0), (1026.0, 0.0, -896.0), (1026.0, 0.0, -894.0)], "VT": [], "VN": [],
+         "faces": [((1, 0, 0), (2, 0, 0), (3, 0, 0))]}, into_block=(16, 14))
+    captured = {}
+    monkeypatch.setattr(BIO.W, "read_block", lambda *a, **k: stock)
+    monkeypatch.setattr(BIO.M, "deploy_override", lambda bm, **k: captured.setdefault("bm", bm)
+                        or (tmp_path / "out.ff9mesh"))
+    BIO.build_from_obj(_tri_obj(tmp_path), into_block=(16, 14), mod_folder="X", part="object",
+                       keep_block=True, idall=4078)
+    tans = [t[0] for t in captured["bm"].chan_arrays[CH_TAN]]
+    assert len(tans) == 6                                          # 3 stock corners + 3 ours
+    assert set(tans[3:]) == {4078.0}                               # OUR tris are render-only
+    assert set(tans[:3]) == {float(encode_id(topograph=59))}        # the stock town keeps its collision

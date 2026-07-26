@@ -3627,8 +3627,11 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     building = None
     try:
         if args.building:
+            if args.building_idall is not None and not 0 <= args.building_idall <= 0xFFFF:
+                raise ValueError("--building-idall must be 0..65535 (the raw 16-bit tangent.x IDALL)")
             building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
                         "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph,
+                        "idall": args.building_idall,
                         "texture": args.texture, "tile": (_parse_tile_spec(args.tile) if args.tile else None),
                         "tile_uv": (_parse_tile_uv_spec(args.tile_uv) if args.tile_uv else None)}
         info = EN.author_entrance(
@@ -3675,7 +3678,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     else:
         pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
         blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
-        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
+        # report the area field HONESTLY: --no-tile-area leaves each tile's own area untouched, and printing
+        # the case there reads as "we stamped it", which is exactly how a wrong deploy gets believed
+        area = f"area={info['case']}" if info.get("tile_area_stamped", True) else "area=KEPT (--no-tile-area)"
+        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} {area} "
               f"in block{tuple(info['block'])}{pad}{blk}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
@@ -7141,6 +7147,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "(default: keep e.g. an existing town)")
     wen.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on the building's tiles (default 59 = impassable structure)")
+    wen.add_argument("--building-idall", type=int, metavar="N",
+                     help="stamp this RAW IDALL on the building mesh instead of encoding --topograph. ⚠ NEEDED to "
+                          "keep the building RENDER-ONLY on a cell whose block prefab already HAS an Object "
+                          "component (a reclaimed/Donor.txt cell, or a real town block): there the engine feeds the "
+                          "Object override to AddWalkMeshForm1, so the model becomes collision and its culled walls "
+                          "+ buried base become INVISIBLE COLLISION. Pass 4078 (the WMPhysics skip id) to make it "
+                          "genuinely render-only; footprint collision still comes from the topo-59 terrain hull. On "
+                          "a BARE block RegisterBareObjectOverride is already render-only and this is unnecessary")
     wen.add_argument("--texture", action="store_true",
                      help="stamp real atlas tiles onto the building's UV-less faces from the learned palette (same "
                           "as world-mesh-build --texture; a Blender OBJ without UVs otherwise renders [0,0] white). "
