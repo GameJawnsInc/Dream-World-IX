@@ -1,0 +1,2485 @@
+[
+ {
+  "block": [
+   18,
+   11
+  ],
+  "tris": 1,
+  "verts": 3,
+  "foot": 7.1,
+  "dx": 1.72,
+  "dz": 4.14,
+  "dy": 0.39,
+  "comps": 1,
+  "min_comp": 1,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   0
+  ],
+  "place": "(no .eb case)",
+  "topos": [
+   0
+  ],
+  "events": [
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   1214.3,
+   1216.0
+  ],
+  "worldz": [
+   -748.8,
+   -744.6
+  ],
+  "cell": [
+   37,
+   23
+  ]
+ },
+ {
+  "block": [
+   4,
+   4
+  ],
+  "tris": 2,
+  "verts": 6,
+  "foot": 12.6,
+  "dx": 4.06,
+  "dz": 3.11,
+  "dy": 5.75,
+  "comps": 1,
+  "min_comp": 2,
+  "edge_water_d": 20.5,
+  "water_part": "sea3",
+  "areas": [
+   54
+  ],
+  "place": "(no field)",
+  "topos": [
+   49
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   315.9,
+   320.0
+  ],
+  "worldz": [
+   -259.1,
+   -256.0
+  ],
+  "cell": [
+   9,
+   8
+  ]
+ },
+ {
+  "block": [
+   6,
+   10
+  ],
+  "tris": 2,
+  "verts": 6,
+  "foot": 12.6,
+  "dx": 3.16,
+  "dz": 4.0,
+  "dy": 6.38,
+  "comps": 1,
+  "min_comp": 2,
+  "edge_water_d": 18.8,
+  "water_part": "sea3",
+  "areas": [
+   41
+  ],
+  "place": "Qu's Marsh (Outer)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   422.9,
+   426.1
+  ],
+  "worldz": [
+   -648.0,
+   -644.0
+  ],
+  "cell": [
+   13,
+   20
+  ]
+ },
+ {
+  "block": [
+   16,
+   1
+  ],
+  "tris": 2,
+  "verts": 6,
+  "foot": 14.8,
+  "dx": 3.55,
+  "dz": 4.16,
+  "dy": 4.32,
+  "comps": 1,
+  "min_comp": 2,
+  "edge_water_d": 16.63,
+  "water_part": "sea4",
+  "areas": [
+   57
+  ],
+  "place": "(no field)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": true,
+  "worldx": [
+   1073.5,
+   1077.0
+  ],
+  "worldz": [
+   -108.5,
+   -104.4
+  ],
+  "cell": [
+   33,
+   3
+  ]
+ },
+ {
+  "block": [
+   9,
+   1
+  ],
+  "tris": 2,
+  "verts": 6,
+  "foot": 14.9,
+  "dx": 3.77,
+  "dz": 3.95,
+  "dy": 3.71,
+  "comps": 1,
+  "min_comp": 2,
+  "edge_water_d": 21.89,
+  "water_part": "sea3",
+  "areas": [
+   56
+  ],
+  "place": "(no field)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   576.0,
+   579.8
+  ],
+  "worldz": [
+   -92.9,
+   -89.0
+  ],
+  "cell": [
+   18,
+   2
+  ]
+ },
+ {
+  "block": [
+   5,
+   11
+  ],
+  "tris": 2,
+  "verts": 6,
+  "foot": 20.6,
+  "dx": 4.55,
+  "dz": 4.53,
+  "dy": 4.64,
+  "comps": 1,
+  "min_comp": 2,
+  "edge_water_d": 45.19,
+  "water_part": "sea4",
+  "areas": [
+   41
+  ],
+  "place": "Qu's Marsh (Outer)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   374.9,
+   379.5
+  ],
+  "worldz": [
+   -732.5,
+   -728.0
+  ],
+  "cell": [
+   11,
+   22
+  ]
+ },
+ {
+  "block": [
+   16,
+   15
+  ],
+  "tris": 3,
+  "verts": 9,
+  "foot": 4.2,
+  "dx": 4.0,
+  "dz": 1.05,
+  "dy": 4.21,
+  "comps": 1,
+  "min_comp": 3,
+  "edge_water_d": 32.0,
+  "water_part": "beach1",
+  "areas": [
+   15
+  ],
+  "place": "N.Gate/Melda Arch",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": true,
+  "worldx": [
+   1084.0,
+   1088.0
+  ],
+  "worldz": [
+   -961.1,
+   -960.0
+  ],
+  "cell": [
+   33,
+   30
+  ]
+ },
+ {
+  "block": [
+   17,
+   15
+  ],
+  "tris": 3,
+  "verts": 9,
+  "foot": 4.2,
+  "dx": 4.0,
+  "dz": 1.05,
+  "dy": 4.4,
+  "comps": 1,
+  "min_comp": 3,
+  "edge_water_d": 31.19,
+  "water_part": "beach1",
+  "areas": [
+   15
+  ],
+  "place": "N.Gate/Melda Arch",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": true,
+  "worldx": [
+   1088.0,
+   1092.0
+  ],
+  "worldz": [
+   -961.1,
+   -960.0
+  ],
+  "cell": [
+   34,
+   30
+  ]
+ },
+ {
+  "block": [
+   13,
+   4
+  ],
+  "tris": 4,
+  "verts": 12,
+  "foot": 43.6,
+  "dx": 7.56,
+  "dz": 5.77,
+  "dy": 0.88,
+  "comps": 1,
+  "min_comp": 4,
+  "edge_water_d": 7.73,
+  "water_part": "sea4",
+  "areas": [
+   34
+  ],
+  "place": "Madain Sari",
+  "topos": [
+   17,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   851.7,
+   859.2
+  ],
+  "worldz": [
+   -276.7,
+   -270.9
+  ],
+  "cell": [
+   26,
+   8
+  ]
+ },
+ {
+  "block": [
+   0,
+   0
+  ],
+  "tris": 5,
+  "verts": 15,
+  "foot": 12.2,
+  "dx": 4.0,
+  "dz": 3.04,
+  "dy": 2.77,
+  "comps": 1,
+  "min_comp": 5,
+  "edge_water_d": 10.27,
+  "water_part": "sea4",
+  "areas": [
+   63
+  ],
+  "place": "(no .eb case)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   32.0,
+   36.0
+  ],
+  "worldz": [
+   -36.0,
+   -33.0
+  ],
+  "cell": [
+   1,
+   1
+  ]
+ },
+ {
+  "block": [
+   7,
+   14
+  ],
+  "tris": 6,
+  "verts": 18,
+  "foot": 57.4,
+  "dx": 4.78,
+  "dz": 12.0,
+  "dy": 6.63,
+  "comps": 1,
+  "min_comp": 6,
+  "edge_water_d": 32.0,
+  "water_part": "sea3",
+  "areas": [
+   45
+  ],
+  "place": "Ipsen's Castle",
+  "topos": [
+   59
+  ],
+  "events": [
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   507.2,
+   512.0
+  ],
+  "worldz": [
+   -908.0,
+   -896.0
+  ],
+  "cell": [
+   15,
+   28
+  ]
+ },
+ {
+  "block": [
+   7,
+   13
+  ],
+  "tris": 7,
+  "verts": 21,
+  "foot": 27.4,
+  "dx": 1.71,
+  "dz": 16.0,
+  "dy": 6.63,
+  "comps": 1,
+  "min_comp": 7,
+  "edge_water_d": 36.01,
+  "water_part": "sea3",
+  "areas": [
+   45
+  ],
+  "place": "Ipsen's Castle",
+  "topos": [
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   506.7,
+   508.4
+  ],
+  "worldz": [
+   -896.0,
+   -880.0
+  ],
+  "cell": [
+   15,
+   27
+  ]
+ },
+ {
+  "block": [
+   8,
+   13
+  ],
+  "tris": 7,
+  "verts": 21,
+  "foot": 60.3,
+  "dx": 3.77,
+  "dz": 16.0,
+  "dy": 6.63,
+  "comps": 1,
+  "min_comp": 7,
+  "edge_water_d": 46.52,
+  "water_part": "sea4",
+  "areas": [
+   45
+  ],
+  "place": "Ipsen's Castle",
+  "topos": [
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   513.0,
+   516.8
+  ],
+  "worldz": [
+   -896.0,
+   -880.0
+  ],
+  "cell": [
+   16,
+   27
+  ]
+ },
+ {
+  "block": [
+   6,
+   16
+  ],
+  "tris": 8,
+  "verts": 24,
+  "foot": 10.4,
+  "dx": 4.36,
+  "dz": 2.38,
+  "dy": 1.18,
+  "comps": 1,
+  "min_comp": 8,
+  "edge_water_d": 39.53,
+  "water_part": "sea3",
+  "areas": [
+   48
+  ],
+  "place": "Esto Gaza",
+  "topos": [
+   52
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   384.0,
+   388.4
+  ],
+  "worldz": [
+   -1026.4,
+   -1024.0
+  ],
+  "cell": [
+   12,
+   32
+  ]
+ },
+ {
+  "block": [
+   18,
+   13
+  ],
+  "tris": 9,
+  "verts": 27,
+  "foot": 1.4,
+  "dx": 1.71,
+  "dz": 0.82,
+  "dy": 6.39,
+  "comps": 1,
+  "min_comp": 9,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   0
+  ],
+  "place": "(no .eb case)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1166.4,
+   1168.1
+  ],
+  "worldz": [
+   -896.0,
+   -895.2
+  ],
+  "cell": [
+   36,
+   27
+  ]
+ },
+ {
+  "block": [
+   8,
+   14
+  ],
+  "tris": 10,
+  "verts": 30,
+  "foot": 46.9,
+  "dx": 3.91,
+  "dz": 12.0,
+  "dy": 8.28,
+  "comps": 2,
+  "min_comp": 3,
+  "edge_water_d": 33.85,
+  "water_part": "sea3",
+  "areas": [
+   45
+  ],
+  "place": "Ipsen's Castle",
+  "topos": [
+   59
+  ],
+  "events": [
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   512.9,
+   516.8
+  ],
+  "worldz": [
+   -908.0,
+   -896.0
+  ],
+  "cell": [
+   16,
+   28
+  ]
+ },
+ {
+  "block": [
+   20,
+   11
+  ],
+  "tris": 13,
+  "verts": 39,
+  "foot": 95.2,
+  "dx": 7.97,
+  "dz": 11.95,
+  "dy": 3.93,
+  "comps": 2,
+  "min_comp": 5,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   22
+  ],
+  "place": "Qu's Marsh (Mist)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1280.6,
+   1288.6
+  ],
+  "worldz": [
+   -715.9,
+   -704.0
+  ],
+  "cell": [
+   40,
+   22
+  ]
+ },
+ {
+  "block": [
+   4,
+   3
+  ],
+  "tris": 14,
+  "verts": 42,
+  "foot": 129.4,
+  "dx": 6.4,
+  "dz": 20.22,
+  "dy": 11.74,
+  "comps": 1,
+  "min_comp": 14,
+  "edge_water_d": 22.1,
+  "water_part": "sea4",
+  "areas": [
+   54
+  ],
+  "place": "(no field)",
+  "topos": [
+   49
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   313.6,
+   320.0
+  ],
+  "worldz": [
+   -256.0,
+   -235.8
+  ],
+  "cell": [
+   9,
+   7
+  ]
+ },
+ {
+  "block": [
+   18,
+   4
+  ],
+  "tris": 15,
+  "verts": 45,
+  "foot": 23.4,
+  "dx": 4.65,
+  "dz": 5.04,
+  "dy": 3.81,
+  "comps": 1,
+  "min_comp": 15,
+  "edge_water_d": 23.15,
+  "water_part": "sea3",
+  "areas": [
+   60
+  ],
+  "place": "Gizamaluke/Cavern(706)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1181.6,
+   1186.3
+  ],
+  "worldz": [
+   -286.6,
+   -281.6
+  ],
+  "cell": [
+   36,
+   8
+  ]
+ },
+ {
+  "block": [
+   18,
+   5
+  ],
+  "tris": 15,
+  "verts": 45,
+  "foot": 408.3,
+  "dx": 21.86,
+  "dz": 18.68,
+  "dy": 2.38,
+  "comps": 3,
+  "min_comp": 5,
+  "edge_water_d": 34.17,
+  "water_part": "sea4",
+  "areas": [
+   60
+  ],
+  "place": "Gizamaluke/Cavern(706)",
+  "topos": [
+   59
+  ],
+  "events": [
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   1157.1,
+   1178.9
+  ],
+  "worldz": [
+   -375.4,
+   -356.7
+  ],
+  "cell": [
+   36,
+   11
+  ]
+ },
+ {
+  "block": [
+   14,
+   3
+  ],
+  "tris": 16,
+  "verts": 48,
+  "foot": 47.2,
+  "dx": 11.79,
+  "dz": 4.0,
+  "dy": 4.3,
+  "comps": 1,
+  "min_comp": 16,
+  "edge_water_d": 28.19,
+  "water_part": "sea3",
+  "areas": [
+   32
+  ],
+  "place": "Fossil Roo exit",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   904.2,
+   916.0
+  ],
+  "worldz": [
+   -196.0,
+   -192.0
+  ],
+  "cell": [
+   28,
+   6
+  ]
+ },
+ {
+  "block": [
+   21,
+   14
+  ],
+  "tris": 18,
+  "verts": 54,
+  "foot": 21.0,
+  "dx": 5.18,
+  "dz": 4.05,
+  "dy": 4.77,
+  "comps": 1,
+  "min_comp": 18,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1397.0,
+   1402.2
+  ],
+  "worldz": [
+   -923.3,
+   -919.2
+  ],
+  "cell": [
+   43,
+   28
+  ]
+ },
+ {
+  "block": [
+   14,
+   10
+  ],
+  "tris": 20,
+  "verts": 60,
+  "foot": 15.5,
+  "dx": 4.87,
+  "dz": 3.18,
+  "dy": 4.61,
+  "comps": 1,
+  "min_comp": 20,
+  "edge_water_d": 43.6,
+  "water_part": "sea3",
+  "areas": [
+   9
+  ],
+  "place": "S.Gate/Dali Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   955.1,
+   960.0
+  ],
+  "worldz": [
+   -704.0,
+   -700.8
+  ],
+  "cell": [
+   29,
+   21
+  ]
+ },
+ {
+  "block": [
+   5,
+   15
+  ],
+  "tris": 20,
+  "verts": 60,
+  "foot": 38.9,
+  "dx": 9.73,
+  "dz": 4.0,
+  "dy": 12.99,
+  "comps": 2,
+  "min_comp": 6,
+  "edge_water_d": 34.71,
+  "water_part": "sea3",
+  "areas": [
+   48
+  ],
+  "place": "Esto Gaza",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   370.7,
+   380.4
+  ],
+  "worldz": [
+   -1024.0,
+   -1020.0
+  ],
+  "cell": [
+   11,
+   31
+  ]
+ },
+ {
+  "block": [
+   3,
+   9
+  ],
+  "tris": 22,
+  "verts": 66,
+  "foot": 4.0,
+  "dx": 1.89,
+  "dz": 2.14,
+  "dy": 3.41,
+  "comps": 3,
+  "min_comp": 3,
+  "edge_water_d": 0.0,
+  "water_part": "sea4",
+  "areas": [
+   0
+  ],
+  "place": "(no .eb case)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   222.9,
+   224.8
+  ],
+  "worldz": [
+   -608.9,
+   -606.8
+  ],
+  "cell": [
+   6,
+   18
+  ]
+ },
+ {
+  "block": [
+   19,
+   11
+  ],
+  "tris": 22,
+  "verts": 66,
+  "foot": 2972.2,
+  "dx": 63.59,
+  "dz": 46.74,
+  "dy": 23.93,
+  "comps": 3,
+  "min_comp": 1,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   0,
+   22
+  ],
+  "place": "(no .eb case)/Qu's Marsh (Mist)",
+  "topos": [
+   0,
+   49,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   1216.0,
+   1279.6
+  ],
+  "worldz": [
+   -750.7,
+   -704.0
+  ],
+  "cell": [
+   38,
+   22
+  ]
+ },
+ {
+  "block": [
+   9,
+   17
+  ],
+  "tris": 26,
+  "verts": 78,
+  "foot": 79.7,
+  "dx": 8.99,
+  "dz": 8.87,
+  "dy": 6.83,
+  "comps": 1,
+  "min_comp": 26,
+  "edge_water_d": 0.0,
+  "water_part": "sea3",
+  "areas": [
+   0,
+   49
+  ],
+  "place": "(no .eb case)/Fire Shrine (airship-only)",
+  "topos": [
+   55,
+   58,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": true,
+  "worldx": [
+   591.0,
+   600.0
+  ],
+  "worldz": [
+   -1132.9,
+   -1124.0
+  ],
+  "cell": [
+   18,
+   35
+  ]
+ },
+ {
+  "block": [
+   19,
+   10
+  ],
+  "tris": 28,
+  "verts": 84,
+  "foot": 96.0,
+  "dx": 12.0,
+  "dz": 8.0,
+  "dy": 5.38,
+  "comps": 2,
+  "min_comp": 9,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   22
+  ],
+  "place": "Qu's Marsh (Mist)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1268.0,
+   1280.0
+  ],
+  "worldz": [
+   -704.0,
+   -696.0
+  ],
+  "cell": [
+   39,
+   21
+  ]
+ },
+ {
+  "block": [
+   5,
+   4
+  ],
+  "tris": 29,
+  "verts": 87,
+  "foot": 137.0,
+  "dx": 24.0,
+  "dz": 5.71,
+  "dy": 12.93,
+  "comps": 1,
+  "min_comp": 29,
+  "edge_water_d": 18.91,
+  "water_part": "sea3",
+  "areas": [
+   54
+  ],
+  "place": "(no field)",
+  "topos": [
+   49
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   320.0,
+   344.0
+  ],
+  "worldz": [
+   -261.7,
+   -256.0
+  ],
+  "cell": [
+   10,
+   8
+  ]
+ },
+ {
+  "block": [
+   15,
+   10
+  ],
+  "tris": 34,
+  "verts": 102,
+  "foot": 18.0,
+  "dx": 5.34,
+  "dz": 3.38,
+  "dy": 4.64,
+  "comps": 1,
+  "min_comp": 34,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   9
+  ],
+  "place": "S.Gate/Dali Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   960.0,
+   965.3
+  ],
+  "worldz": [
+   -704.0,
+   -700.6
+  ],
+  "cell": [
+   30,
+   21
+  ]
+ },
+ {
+  "block": [
+   17,
+   14
+  ],
+  "tris": 35,
+  "verts": 105,
+  "foot": 147.6,
+  "dx": 8.8,
+  "dz": 16.77,
+  "dy": 7.89,
+  "comps": 1,
+  "min_comp": 35,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   15
+  ],
+  "place": "N.Gate/Melda Arch",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1088.0,
+   1096.8
+  ],
+  "worldz": [
+   -960.0,
+   -943.2
+  ],
+  "cell": [
+   34,
+   29
+  ]
+ },
+ {
+  "block": [
+   22,
+   14
+  ],
+  "tris": 37,
+  "verts": 111,
+  "foot": 9.4,
+  "dx": 3.05,
+  "dz": 3.07,
+  "dy": 3.41,
+  "comps": 1,
+  "min_comp": 37,
+  "edge_water_d": 44.7,
+  "water_part": "sea4",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   49,
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1412.6,
+   1415.7
+  ],
+  "worldz": [
+   -903.8,
+   -900.7
+  ],
+  "cell": [
+   44,
+   28
+  ]
+ },
+ {
+  "block": [
+   14,
+   14
+  ],
+  "tris": 38,
+  "verts": 114,
+  "foot": 8.4,
+  "dx": 1.78,
+  "dz": 4.71,
+  "dy": 1.36,
+  "comps": 1,
+  "min_comp": 38,
+  "edge_water_d": 34.55,
+  "water_part": "sea3",
+  "areas": [
+   6
+  ],
+  "place": "Treno",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   933.3,
+   935.1
+  ],
+  "worldz": [
+   -944.3,
+   -939.5
+  ],
+  "cell": [
+   29,
+   29
+  ]
+ },
+ {
+  "block": [
+   5,
+   16
+  ],
+  "tris": 47,
+  "verts": 141,
+  "foot": 73.8,
+  "dx": 9.23,
+  "dz": 8.0,
+  "dy": 9.98,
+  "comps": 1,
+  "min_comp": 47,
+  "edge_water_d": 26.03,
+  "water_part": "sea3",
+  "areas": [
+   48
+  ],
+  "place": "Esto Gaza",
+  "topos": [
+   52,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   374.8,
+   384.0
+  ],
+  "worldz": [
+   -1032.0,
+   -1024.0
+  ],
+  "cell": [
+   11,
+   32
+  ]
+ },
+ {
+  "block": [
+   14,
+   6
+  ],
+  "tris": 54,
+  "verts": 162,
+  "foot": 723.4,
+  "dx": 45.24,
+  "dz": 15.99,
+  "dy": 6.97,
+  "comps": 2,
+  "min_comp": 24,
+  "edge_water_d": 5.65,
+  "water_part": "sea3",
+  "areas": [
+   27,
+   28
+  ],
+  "place": "Earth Shrine (airship-only)/Desert Palace",
+  "topos": [
+   49,
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   913.1,
+   958.3
+  ],
+  "worldz": [
+   -401.7,
+   -385.7
+  ],
+  "cell": [
+   29,
+   12
+  ]
+ },
+ {
+  "block": [
+   13,
+   16
+  ],
+  "tris": 55,
+  "verts": 165,
+  "foot": 41.0,
+  "dx": 6.19,
+  "dz": 6.62,
+  "dy": 13.14,
+  "comps": 1,
+  "min_comp": 55,
+  "edge_water_d": 62.68,
+  "water_part": "sea3",
+  "areas": [
+   14
+  ],
+  "place": "Dali",
+  "topos": [
+   59
+  ],
+  "events": [
+   2
+  ],
+  "has_beach": false,
+  "worldx": [
+   889.8,
+   896.0
+  ],
+  "worldz": [
+   -1088.0,
+   -1081.4
+  ],
+  "cell": [
+   27,
+   33
+  ]
+ },
+ {
+  "block": [
+   11,
+   4
+  ],
+  "tris": 55,
+  "verts": 165,
+  "foot": 67.4,
+  "dx": 8.86,
+  "dz": 7.61,
+  "dy": 23.02,
+  "comps": 1,
+  "min_comp": 55,
+  "edge_water_d": 32.05,
+  "water_part": "sea4",
+  "areas": [
+   34
+  ],
+  "place": "Madain Sari",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   759.1,
+   768.0
+  ],
+  "worldz": [
+   -320.0,
+   -312.4
+  ],
+  "cell": [
+   23,
+   9
+  ]
+ },
+ {
+  "block": [
+   13,
+   5
+  ],
+  "tris": 56,
+  "verts": 168,
+  "foot": 42.2,
+  "dx": 6.79,
+  "dz": 6.22,
+  "dy": 3.88,
+  "comps": 1,
+  "min_comp": 56,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   27
+  ],
+  "place": "Earth Shrine (airship-only)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   889.2,
+   896.0
+  ],
+  "worldz": [
+   -354.9,
+   -348.7
+  ],
+  "cell": [
+   27,
+   10
+  ]
+ },
+ {
+  "block": [
+   11,
+   5
+  ],
+  "tris": 61,
+  "verts": 183,
+  "foot": 74.8,
+  "dx": 8.83,
+  "dz": 8.47,
+  "dy": 23.02,
+  "comps": 1,
+  "min_comp": 61,
+  "edge_water_d": 36.35,
+  "water_part": "sea4",
+  "areas": [
+   34
+  ],
+  "place": "Madain Sari",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   759.2,
+   768.0
+  ],
+  "worldz": [
+   -328.5,
+   -320.0
+  ],
+  "cell": [
+   23,
+   10
+  ]
+ },
+ {
+  "block": [
+   12,
+   4
+  ],
+  "tris": 62,
+  "verts": 186,
+  "foot": 76.4,
+  "dx": 8.78,
+  "dz": 8.7,
+  "dy": 23.02,
+  "comps": 1,
+  "min_comp": 62,
+  "edge_water_d": 31.26,
+  "water_part": "sea4",
+  "areas": [
+   34
+  ],
+  "place": "Madain Sari",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   768.0,
+   776.8
+  ],
+  "worldz": [
+   -320.0,
+   -311.3
+  ],
+  "cell": [
+   24,
+   9
+  ]
+ },
+ {
+  "block": [
+   14,
+   2
+  ],
+  "tris": 67,
+  "verts": 201,
+  "foot": 102.8,
+  "dx": 12.85,
+  "dz": 8.0,
+  "dy": 6.27,
+  "comps": 1,
+  "min_comp": 67,
+  "edge_water_d": 0.0,
+  "water_part": "sea3",
+  "areas": [
+   32
+  ],
+  "place": "Fossil Roo exit",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   903.2,
+   916.0
+  ],
+  "worldz": [
+   -192.0,
+   -184.0
+  ],
+  "cell": [
+   28,
+   5
+  ]
+ },
+ {
+  "block": [
+   14,
+   15
+  ],
+  "tris": 68,
+  "verts": 204,
+  "foot": 40.7,
+  "dx": 8.88,
+  "dz": 4.58,
+  "dy": 6.02,
+  "comps": 1,
+  "min_comp": 68,
+  "edge_water_d": 29.9,
+  "water_part": "beach1",
+  "areas": [
+   7
+  ],
+  "place": "S.Gate/Treno Arch",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": true,
+  "worldx": [
+   912.0,
+   920.9
+  ],
+  "worldz": [
+   -1024.0,
+   -1019.4
+  ],
+  "cell": [
+   28,
+   31
+  ]
+ },
+ {
+  "block": [
+   16,
+   14
+  ],
+  "tris": 75,
+  "verts": 225,
+  "foot": 1001.0,
+  "dx": 59.69,
+  "dz": 16.77,
+  "dy": 13.72,
+  "comps": 2,
+  "min_comp": 35,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   15
+  ],
+  "place": "N.Gate/Melda Arch",
+  "topos": [
+   52,
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1028.3,
+   1088.0
+  ],
+  "worldz": [
+   -960.0,
+   -943.2
+  ],
+  "cell": [
+   33,
+   29
+  ]
+ },
+ {
+  "block": [
+   12,
+   5
+  ],
+  "tris": 78,
+  "verts": 234,
+  "foot": 74.4,
+  "dx": 8.78,
+  "dz": 8.47,
+  "dy": 23.02,
+  "comps": 1,
+  "min_comp": 78,
+  "edge_water_d": 41.6,
+  "water_part": "sea4",
+  "areas": [
+   34
+  ],
+  "place": "Madain Sari",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   768.0,
+   776.8
+  ],
+  "worldz": [
+   -328.5,
+   -320.0
+  ],
+  "cell": [
+   24,
+   10
+  ]
+ },
+ {
+  "block": [
+   20,
+   15
+  ],
+  "tris": 86,
+  "verts": 258,
+  "foot": 61.8,
+  "dx": 7.96,
+  "dz": 7.76,
+  "dy": 2.32,
+  "comps": 1,
+  "min_comp": 86,
+  "edge_water_d": 49.07,
+  "water_part": "sea4",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1280.0,
+   1288.0
+  ],
+  "worldz": [
+   -967.8,
+   -960.0
+  ],
+  "cell": [
+   40,
+   30
+  ]
+ },
+ {
+  "block": [
+   19,
+   15
+  ],
+  "tris": 92,
+  "verts": 276,
+  "foot": 62.1,
+  "dx": 8.0,
+  "dz": 7.76,
+  "dy": 2.32,
+  "comps": 1,
+  "min_comp": 92,
+  "edge_water_d": 51.41,
+  "water_part": "sea3",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1272.0,
+   1280.0
+  ],
+  "worldz": [
+   -967.8,
+   -960.0
+  ],
+  "cell": [
+   39,
+   30
+  ]
+ },
+ {
+  "block": [
+   14,
+   16
+  ],
+  "tris": 95,
+  "verts": 285,
+  "foot": 42.6,
+  "dx": 6.43,
+  "dz": 6.62,
+  "dy": 12.7,
+  "comps": 1,
+  "min_comp": 95,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   14
+  ],
+  "place": "Dali",
+  "topos": [
+   59
+  ],
+  "events": [
+   2
+  ],
+  "has_beach": false,
+  "worldx": [
+   896.0,
+   902.4
+  ],
+  "worldz": [
+   -1088.0,
+   -1081.4
+  ],
+  "cell": [
+   28,
+   33
+  ]
+ },
+ {
+  "block": [
+   14,
+   5
+  ],
+  "tris": 96,
+  "verts": 288,
+  "foot": 49.1,
+  "dx": 7.89,
+  "dz": 6.22,
+  "dy": 4.93,
+  "comps": 1,
+  "min_comp": 96,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   27
+  ],
+  "place": "Earth Shrine (airship-only)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   896.0,
+   903.9
+  ],
+  "worldz": [
+   -355.2,
+   -349.0
+  ],
+  "cell": [
+   28,
+   11
+  ]
+ },
+ {
+  "block": [
+   21,
+   10
+  ],
+  "tris": 104,
+  "verts": 312,
+  "foot": 52.7,
+  "dx": 6.28,
+  "dz": 8.39,
+  "dy": 5.53,
+  "comps": 1,
+  "min_comp": 104,
+  "edge_water_d": 0.0,
+  "water_part": "sea4",
+  "areas": [
+   24
+  ],
+  "place": "Lindblum/Dragon's Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1344.0,
+   1350.3
+  ],
+  "worldz": [
+   -683.4,
+   -675.1
+  ],
+  "cell": [
+   42,
+   21
+  ]
+ },
+ {
+  "block": [
+   13,
+   17
+  ],
+  "tris": 109,
+  "verts": 327,
+  "foot": 584.7,
+  "dx": 36.18,
+  "dz": 16.16,
+  "dy": 38.14,
+  "comps": 2,
+  "min_comp": 30,
+  "edge_water_d": 0.0,
+  "water_part": "sea4",
+  "areas": [
+   7,
+   14
+  ],
+  "place": "S.Gate/Treno Arch/Dali",
+  "topos": [
+   59
+  ],
+  "events": [
+   0,
+   2
+  ],
+  "has_beach": false,
+  "worldx": [
+   859.8,
+   896.0
+  ],
+  "worldz": [
+   -1104.2,
+   -1088.0
+  ],
+  "cell": [
+   27,
+   34
+  ]
+ },
+ {
+  "block": [
+   14,
+   11
+  ],
+  "tris": 111,
+  "verts": 333,
+  "foot": 57.0,
+  "dx": 4.87,
+  "dz": 11.7,
+  "dy": 10.02,
+  "comps": 1,
+  "min_comp": 111,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   9
+  ],
+  "place": "S.Gate/Dali Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   955.1,
+   960.0
+  ],
+  "worldz": [
+   -715.7,
+   -704.0
+  ],
+  "cell": [
+   29,
+   22
+  ]
+ },
+ {
+  "block": [
+   14,
+   17
+  ],
+  "tris": 113,
+  "verts": 339,
+  "foot": 40.3,
+  "dx": 7.39,
+  "dz": 5.45,
+  "dy": 10.43,
+  "comps": 1,
+  "min_comp": 113,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   14
+  ],
+  "place": "Dali",
+  "topos": [
+   59
+  ],
+  "events": [
+   2
+  ],
+  "has_beach": false,
+  "worldx": [
+   896.0,
+   903.4
+  ],
+  "worldz": [
+   -1093.5,
+   -1088.0
+  ],
+  "cell": [
+   28,
+   34
+  ]
+ },
+ {
+  "block": [
+   2,
+   7
+  ],
+  "tris": 121,
+  "verts": 363,
+  "foot": 18.3,
+  "dx": 2.69,
+  "dz": 6.79,
+  "dy": 9.42,
+  "comps": 1,
+  "min_comp": 121,
+  "edge_water_d": 16.5,
+  "water_part": "sea4",
+  "areas": [
+   44
+  ],
+  "place": "Water Shrine (airship-only)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   189.3,
+   192.0
+  ],
+  "worldz": [
+   -477.3,
+   -470.5
+  ],
+  "cell": [
+   5,
+   14
+  ]
+ },
+ {
+  "block": [
+   3,
+   7
+  ],
+  "tris": 121,
+  "verts": 363,
+  "foot": 18.5,
+  "dx": 2.72,
+  "dz": 6.79,
+  "dy": 9.42,
+  "comps": 1,
+  "min_comp": 121,
+  "edge_water_d": 21.44,
+  "water_part": "sea4",
+  "areas": [
+   44
+  ],
+  "place": "Water Shrine (airship-only)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   192.0,
+   194.7
+  ],
+  "worldz": [
+   -477.3,
+   -470.5
+  ],
+  "cell": [
+   6,
+   14
+  ]
+ },
+ {
+  "block": [
+   20,
+   14
+  ],
+  "tris": 131,
+  "verts": 393,
+  "foot": 69.1,
+  "dx": 7.96,
+  "dz": 8.68,
+  "dy": 2.56,
+  "comps": 1,
+  "min_comp": 131,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1280.0,
+   1288.0
+  ],
+  "worldz": [
+   -960.0,
+   -951.3
+  ],
+  "cell": [
+   40,
+   29
+  ]
+ },
+ {
+  "block": [
+   16,
+   11
+  ],
+  "tris": 131,
+  "verts": 393,
+  "foot": 90.4,
+  "dx": 5.88,
+  "dz": 15.38,
+  "dy": 7.04,
+  "comps": 1,
+  "min_comp": 131,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   0,
+   9
+  ],
+  "place": "(no .eb case)/S.Gate/Dali Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1034.1,
+   1040.0
+  ],
+  "worldz": [
+   -762.7,
+   -747.3
+  ],
+  "cell": [
+   32,
+   23
+  ]
+ },
+ {
+  "block": [
+   18,
+   14
+  ],
+  "tris": 131,
+  "verts": 393,
+  "foot": 208.7,
+  "dx": 15.67,
+  "dz": 13.32,
+  "dy": 7.04,
+  "comps": 1,
+  "min_comp": 131,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   0
+  ],
+  "place": "(no .eb case)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1163.4,
+   1179.0
+  ],
+  "worldz": [
+   -909.3,
+   -896.0
+  ],
+  "cell": [
+   36,
+   28
+  ]
+ },
+ {
+  "block": [
+   6,
+   12
+  ],
+  "tris": 149,
+  "verts": 447,
+  "foot": 137.1,
+  "dx": 11.12,
+  "dz": 12.33,
+  "dy": 7.21,
+  "comps": 1,
+  "min_comp": 149,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   41
+  ],
+  "place": "Qu's Marsh (Outer)",
+  "topos": [
+   20,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   388.9,
+   400.0
+  ],
+  "worldz": [
+   -804.0,
+   -791.7
+  ],
+  "cell": [
+   12,
+   24
+  ]
+ },
+ {
+  "block": [
+   19,
+   14
+  ],
+  "tris": 155,
+  "verts": 465,
+  "foot": 69.4,
+  "dx": 8.0,
+  "dz": 8.68,
+  "dy": 2.56,
+  "comps": 1,
+  "min_comp": 155,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   10
+  ],
+  "place": "S.Gate/Bohden Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1272.0,
+   1280.0
+  ],
+  "worldz": [
+   -960.0,
+   -951.3
+  ],
+  "cell": [
+   39,
+   29
+  ]
+ },
+ {
+  "block": [
+   15,
+   11
+  ],
+  "tris": 156,
+  "verts": 468,
+  "foot": 84.3,
+  "dx": 7.27,
+  "dz": 11.59,
+  "dy": 9.07,
+  "comps": 1,
+  "min_comp": 156,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   9
+  ],
+  "place": "S.Gate/Dali Gate",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   960.0,
+   967.3
+  ],
+  "worldz": [
+   -715.6,
+   -704.0
+  ],
+  "cell": [
+   30,
+   22
+  ]
+ },
+ {
+  "block": [
+   17,
+   12
+  ],
+  "tris": 168,
+  "verts": 504,
+  "foot": 477.7,
+  "dx": 22.46,
+  "dz": 21.27,
+  "dy": 5.44,
+  "comps": 2,
+  "min_comp": 82,
+  "edge_water_d": null,
+  "water_part": "-",
+  "areas": [
+   2
+  ],
+  "place": "Alexandria",
+  "topos": [
+   10,
+   59
+  ],
+  "events": [
+   0,
+   1
+  ],
+  "has_beach": false,
+  "worldx": [
+   1092.0,
+   1114.5
+  ],
+  "worldz": [
+   -812.9,
+   -791.6
+  ],
+  "cell": [
+   34,
+   25
+  ]
+ },
+ {
+  "block": [
+   20,
+   10
+  ],
+  "tris": 232,
+  "verts": 696,
+  "foot": 94.1,
+  "dx": 9.22,
+  "dz": 10.21,
+  "dy": 16.77,
+  "comps": 1,
+  "min_comp": 232,
+  "edge_water_d": 60.88,
+  "water_part": "sea4",
+  "areas": [
+   22
+  ],
+  "place": "Qu's Marsh (Mist)",
+  "topos": [
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   1280.0,
+   1289.2
+  ],
+  "worldz": [
+   -704.0,
+   -693.8
+  ],
+  "cell": [
+   40,
+   21
+  ]
+ },
+ {
+  "block": [
+   5,
+   3
+  ],
+  "tris": 239,
+  "verts": 717,
+  "foot": 1825.0,
+  "dx": 59.7,
+  "dz": 30.57,
+  "dy": 31.67,
+  "comps": 2,
+  "min_comp": 83,
+  "edge_water_d": 10.07,
+  "water_part": "sea3",
+  "areas": [
+   54
+  ],
+  "place": "(no field)",
+  "topos": [
+   49,
+   59
+  ],
+  "events": [
+   0
+  ],
+  "has_beach": false,
+  "worldx": [
+   320.0,
+   379.7
+  ],
+  "worldz": [
+   -256.0,
+   -225.4
+  ],
+  "cell": [
+   10,
+   7
+  ]
+ }
+]
