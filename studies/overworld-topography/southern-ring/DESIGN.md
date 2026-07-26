@@ -148,6 +148,17 @@ entrance-only: the case space serves per-quay names, plate-only POIs (summon wit
 the explored bits are save-persistent per-place "visited" state any `.eb` can read. Record:
 REVERT.md §23.
 
+**PER-QUAY NAMES ★ DEPLOYED (2026-07-26, owner-directed; playtest pending):** the four quays moved
+off the shared case 53 onto **virgin cases 65–68** (Ashvale/Tidefall/Grimhorn/Larkspur — the
+extended band's first consumers; same Field(6601) destination, per-island explored bits at word
+2006 bits 0–3). En route the widened ALL-entries census found **THE AIRBORNE SUMMONER**: WORLD08/09
+carry a stock airship-flight func summoning case 54 ("Memoria") and case 53 (pre-reveal '  ???  ')
+— so case 53's label was NEVER free and R1's "Lantern Quay" rename had been hijacking pre-reveal
+Memoria's disc-4 plate (cosmetic, warp-safe). Fixed fully: split[53] restored to stock per
+language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY is retired** — the
+ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
+entries, not just cell tags. Record: REVERT.md §24.
+
 **R3 PLAYTEST CONFIRMED (2026-07-26, "good"):** the case-61 loop works in-game — plate → Confirm →
 the lamp room → walk out → the name registers; no battle. The quicksand leg (§22.8 item 4) was not
 in-game checked (no Cleyra-era save available) and doesn't need to be: its branch, cell tag, and

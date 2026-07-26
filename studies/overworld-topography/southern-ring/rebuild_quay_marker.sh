@@ -75,23 +75,25 @@ fi
 # Ashvale: trigger north -1164.0 -> cz >= -1160.25, uses -1160.2 (0.05u slack).
 # Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
 # was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
-# The four QUAYS share one destination (the hall), one name and one dead case (53) -- THE ONE-CASE
-# FERRY. Lamplight (R3) is the ring's one NAMED landmark: its own field (6602, the lamp room), its
-# own name, VIRGIN case 61.
+# All five sites ride the VIRGIN nameplate lane (self-summon trigger, no switch surgery): the four
+# quays warp to the hall (6601) under their OWN island names on cases 65-68 (the EXTENDED band --
+# needs `world-entrance --extend-nameplate-band` deployed, which any 65+ deploy auto-runs), and
+# Lamplight warps to the lamp room (6602) on case 61. THE ONE-CASE FERRY (all quays on dead case 53,
+# shared "Lantern Quay" plate) is SUPERSEDED by the per-quay pass; case 53's switch arm is still
+# deployed but orphaned (no tile summons it), and split[53] keeps "Lantern Quay" as the network name.
 #
 # ⚠ NEVER use case 52: it looks switch-dead but the main loop hardcodes `Byte[24]==52 && Confirm ->
 # Battle(0,144)` -- the desert quicksand's Antlion ambush (the R3 playtest fired it at the beacon).
-# Case 53 is the ONLY clean SURGERY slot; additional names use the VIRGIN band 61-64 (past the stock
-# table and switch; the trigger self-summons the plate and block-68 is extended -- no stock bytes).
+# ⚠ NEVER use cases 91-93: the vehicle HUD trio (Byte[24] 191-193).
 case "$SITE" in
   ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj"
-            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+            FIELD=6601; NAME="Ashvale"; CASE=65 ;;
   tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.425";   OBJ="quay_beacon_tidefall.obj"
-            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+            FIELD=6601; NAME="Tidefall"; CASE=66 ;;
   grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.425";  OBJ="quay_beacon_grimhorn.obj"
-            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+            FIELD=6601; NAME="Grimhorn"; CASE=67 ;;
   larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj"
-            FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
+            FIELD=6601; NAME="Larkspur"; CASE=68 ;;
   lamplight) CELL="44 36"; TRIG="1424 -1168";  AT="1424 -1160.425";  OBJ="quay_beacon_lamplight.obj"
             FIELD=6602; NAME="Lamplight"; CASE=61 ;;
   *) echo "unknown site: $SITE" >&2; exit 2 ;;

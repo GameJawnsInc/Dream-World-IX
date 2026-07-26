@@ -1,16 +1,39 @@
 # THE RING'S NAMEPLATE REGISTRY -- the single source of truth for every block-68 rename the
 # Southern Ring owns. deploy_marker_renames MERGES with the live deployed 68.mes (the R3 fix in
-# world/navimap.py), so re-running this file is idempotent -- but keep every ring name HERE so a
+# world/navimap.py) and EXTENDS the table for locids past the stock 61 entries (the R3-fix
+# extension), so re-running this file is idempotent -- but keep every ring name HERE so a
 # from-scratch rebuild (no deployed 68.mes) still registers them all in one pass.
 #
 # ⚠ locId 51 (split[52], case 52) is NOT ours and must NEVER be renamed: case 52 is the overworld
 # quicksand's hardcoded main-loop battle case (`Byte[24]==52 && Confirm -> Battle(0,144)`, the
 # Antlion ambush -- the R3 playtest found it), and its stock '  ?  ' label is the quicksand's own
 # mystery-spot plate. The R3 deploy briefly renamed it; restored 2026-07-26.
-[[marker_rename]]
-locid = 52          # split[53] -- dead AREA case 53, THE ONE-CASE FERRY: all four quays share it
-to = "Lantern Quay"
 
 [[marker_rename]]
-locid = 60          # split[61] -- VIRGIN case 61 (past the stock table; navimap EXTENDS it):
-to = "Lamplight"    # the ring's ONE named landmark (R3), self-summon lane, no switch surgery
+locid = 52          # split[53] -- dead AREA case 53, the R1/R2 shared-quay case. Since the per-quay
+to = "Lantern Quay" # pass (cases 65-68) no tile summons it: kept as the ferry NETWORK's name and as
+                    # the working label for any future shared-plate content. Its switch arm
+                    # (explored w98 bit 4 + Field(6601)) is still deployed, orphaned, harmless.
+
+[[marker_rename]]
+locid = 60          # split[61] -- VIRGIN case 61: the ring's ONE named landmark (R3),
+to = "Lamplight"    # self-summon lane, no switch surgery.
+
+# THE PER-QUAY NAMES (cases 65-68, the EXTENDED band's first consumers): each quay's trigger is the
+# virgin self-summon form warping Field(6601) -- the hall -- exactly as the shared case did, but the
+# plate reads the island's own name and each island keeps its own explored bit (word 2006 bits 0-3).
+[[marker_rename]]
+locid = 64          # split[65] -- case 65
+to = "Ashvale"
+
+[[marker_rename]]
+locid = 65          # split[66] -- case 66
+to = "Tidefall"
+
+[[marker_rename]]
+locid = 66          # split[67] -- case 67
+to = "Grimhorn"
+
+[[marker_rename]]
+locid = 67          # split[68] -- case 68
+to = "Larkspur"

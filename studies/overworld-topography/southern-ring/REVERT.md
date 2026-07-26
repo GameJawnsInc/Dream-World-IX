@@ -2410,3 +2410,76 @@ The splice byte-preserves every stock computation, so nothing SHOULD look differ
 session simply confirm: a stock town plate still shows (walk near any real entrance), a quay still
 reads "Lantern Quay", Lamplight still reads "Lamplight", and vehicle overlays (gil/time on
 board/dismount) still behave. First consumer of a 65+ case: the R4/R5 named spots when they come.
+
+---
+
+# 24. PER-QUAY NAMES (cases 65–68) + THE AIRBORNE SUMMONER — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26, owner-directed ("do the per-quay names now") — the extended band's first consumers.
+Backups: `backups/r3-lamplight.20260726-r3lamplight/dispatchers-post-band/` + `text68-post-band/`
+(the §23 state).
+
+## 24.1 The change
+
+Each quay's trigger func converted from the shared case-53 SURGERY form to its own VIRGIN case
+(the Lamplight-proven A2 self-summon body, same `Field(6601)` destination, per-dispatcher
+world-state record, own explored bit):
+
+| quay | case | locId / split | explored bit |
+|---|---|---|---|
+| Ashvale | 65 | 64 / split[65] | word 2006 bit 0 (gEventGlobal bit 16048) |
+| Tidefall | 66 | 65 / split[66] | word 2006 bit 1 |
+| Grimhorn | 67 | 66 / split[67] | word 2006 bit 2 |
+| Larkspur | 68 | 67 / split[68] | word 2006 bit 3 |
+
+Nothing else moved: meshes, beacons, and trigger TILES are case-agnostic (`--no-tile-area` kept
+every tile at area 0 since R1), so this was four `world-entrance --trigger-only` runs + the
+registry. `rebuild_quay_marker.sh` carries the new per-site CASE/NAME.
+
+## 24.2 ⚠ THE AIRBORNE SUMMONER — case 53's label was NEVER free (found by the widened census)
+
+The per-quay verification swept `Byte[39]=K` setters across **ALL entries** (the earlier censuses
+swept only entry-0 cell tags — the same class of miss as the quicksand, one level milder):
+**WORLD08/09 entry-6/7 tag-12 is a stock airship-flight summoner** — over the Memoria site with
+`var190==8||9` it summons case **54** ("Memoria") or case **53** (the pre-reveal `'  ???  '`
+plate). So R1's "Lantern Quay" rename had been cosmetically hijacking pre-reveal Memoria's plate
+on disc-4 airship flight since it shipped (warp-safe — airborne states never reach the AREA
+switch; unreachable in ring playtests). Complete census verdict: cases 55-59 and **61+ have ZERO
+setters anywhere** (the virgin band is confirmed virgin at the all-entries level); the surgery
+band has **zero** truly clean slots — the virgin band is the only honest lane, which the ring now
+uses exclusively.
+
+**The fix (both halves, since nothing of ours uses case 53 anymore):**
+* split[53] restored to each language's OWN stock label (`'  ???  '` us/uk, `'????'` fr/gr/it/jp,
+  `'¿¿??'` es) — verified per language against fresh stock extraction;
+* the case-53 AREA-switch reloffset restored to the DEFAULT target in all 63 dispatchers
+  (verified; R1's appended 15-B handler remains as unreachable padding — removing it would shift
+  the function layout for nothing).
+
+Residual on old ring saves: w98 bit 4 (the old shared explored bit) stays set — flying over
+pre-reveal Memoria on such a save shows the explored `'  ???  '` variant instead of the
+unexplored `?`. Visually near-identical, disc-4-airship-only, new saves unaffected.
+
+## 24.3 Verified from the DEPLOYED bytes
+
+* **63 dispatchers vs the §23 baseline: exactly the FOUR quay trigger funcs changed per file**,
+  each byte-exact to `entrance_func_body_direct(6601, ws=900N, case=65..68)`; nothing added or
+  removed (the case-53 un-repoint compared separately: reloffset now == the default in all 63).
+* **No function anywhere sets Byte[39]=53** except the stock airborne summoner (as designed).
+* **68.mes ×7 langs**: split[53] stock-exact, split[61] "Lamplight", split[65-68] the four island
+  names, `'  ?  '` padding at 62-64, table length 69.
+* 5-site probe + ring closure ALL PASS; 109 tests green.
+
+## 24.4 Undo
+
+Restore `dispatchers-post-band/` (63 files) + `text68-post-band/` (7 files) — returns the shared
+"Lantern Quay" state (including its Memoria-plate defect). Re-enter the overworld; no relaunch.
+
+## 24.5 Playtest ask (owner) — no relaunch, re-enter the world
+
+1. Visit each quay (ferry or walk): the plate now reads **"?"** on first approach (fresh per-island
+   bits — previously-visited quays reset once), then the ISLAND's name after entering the hall from
+   it: **Ashvale · Tidefall · Grimhorn · Larkspur**. Entering still lands in the Lantern Hall.
+2. Lamplight still reads "Lamplight"; a stock town plate still works.
+3. (Disc-4 airship over the Memoria site, only if ever handy: the plate shows `???`/`?` again, not
+   "Lantern Quay".)
