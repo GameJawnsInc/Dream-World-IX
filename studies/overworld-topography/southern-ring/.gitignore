@@ -8,7 +8,8 @@
 # `mint_quay_marker.py` regenerates it from your own install -- the SCRIPT is the committed part.
 *.obj
 
-# ...but quay_beacon.obj is OUR OWN procedural geometry (mint_quay_beacon.py -- no game bytes at all,
-# only UV coordinates pointing into the shared atlas), so the provenance rule above does not apply and
-# the mesh itself is committed alongside its generator.
+# ...but the quay_beacon meshes are OUR OWN procedural geometry (mint_quay_beacon.py -- no game bytes
+# at all, only UV coordinates pointing into the shared atlas), so the provenance rule above does not
+# apply and they are committed alongside their generator. One per Southern Ring quay.
 !quay_beacon.obj
+!quay_beacon_*.obj

@@ -1151,3 +1151,91 @@ existing one-command script — and the §11.3 **restore-first** ordering still 
 live, and the new footprint differs, so restore `quay-beacon-prebuild.20260725-230801`'s Terrain +
 Object stub before re-running, or the old hull tiles orphan as invisible walls. `probe_quay_beacon.py`
 is already primed with the pass-5 expectations and its old-hull-cleared gate points at pass 4's span.
+
+---
+
+# 13. R2 PHASE A0/A1 — the aux STOP, and the multi-site generator — **REPO ONLY, NOT DEPLOYED**
+
+Run 2026-07-26. **ZERO install writes** (verified by whole-folder md5 against the pass-4/5 state).
+Stopped at the A1/A2 boundary; A2 (the three new site deploys) and A3 (the Ashvale rebuild) are
+dry-run-verified and ready but unwritten.
+
+## 13.1 A0 — GRIMHORN AUX RE-DEPLOY: **STOPPED, severable by owner intent**
+
+The directive allowed stopping if the aux restore turned out to be "more than a recorded re-run
+(missing scripts, drifted state)". It is both:
+
+* **The aux parts do not exist anywhere in the deployed tree.** A tree-wide search for `*Falls*` /
+  `*River*` returns **nothing** — they were not stubbed, they were wiped. Every block in the bench span
+  (18–21, 17–19) carries only the island-mint part set (`Beach1 / Donor / Object / Sea1-5 / Terrain`).
+* **The Object files are island-mint blanking stubs dated Jul 21 01:59** — i.e. written by a LATER
+  `world-island` / `world-reclaim` run than the mountain deploy. This is the same `HIDDEN_PARTS` trap
+  recorded in §10.11, and it took the horseshoe's aux with it.
+* **No runnable script or recorded command exists.** `studies/overworld-topography/README.md:346-351`
+  is prose describing the *result* (r72 seed-42 bench at (1280,−1184), horseshoe at (1288,−1190) rot 0);
+  the only grep hit for an invocation is a catalog row in `continent_layout.py`. Reconstructing it means
+  re-running `world-mountain` across a 10-block span — a large terrain rewrite that would itself pass
+  straight through the Grimhorn quay site.
+
+**Consequence for R2 (good):** block (18,18)'s Object is a plain 176 B stub, so the Grimhorn beacon is
+the same clean case as the other three — there is no aux to compose with and nothing to clobber.
+
+## 13.2 A1 — the generator is now multi-site
+
+`mint_quay_beacon.py` grew a `SITES` table (`Site` NamedTuple: anchor, ground_y, trigger rect, arrive
+point + face, host block, cell, trigger_at). The geometry, the door and all 29 gates are unchanged and
+run **per site** — a new quay is a row, not a fork. `--site <name>|all`; Ashvale keeps `quay_beacon.obj`
+so the pass-4/5 history and deploy paths still resolve, the others get `quay_beacon_<site>.obj`.
+
+`rebuild_quay_marker.sh <site>` now takes the site as an argument and carries the per-site deploy
+arguments plus the shared southern-limit derivation.
+
+**All four sites generate clean — 29/29 gates each, 270 tris / 141 verts / 810 UVs.**
+
+| site | anchor | ground_y | hull→trigger | hull→arrive | arrive face |
+|---|---|---|---|---|---|
+| Ashvale | (48, −1160.2) | 3.00 | 1.05 u | 10.936 u | 192 (east) |
+| Tidefall | (420, −1224.2) | 3.20 | 1.05 u | 10.936 u | 192 (east) |
+| Grimhorn | (1204, −1184.2) | 3.20 | 1.05 u | 9.208 u | 192 (east) |
+| Larkspur | (700, −608.2) | **3.03** | 1.05 u | 10.936 u | 64 (west) |
+
+## 13.3 Contradictions with the plan-of-record (resolved, none blocking)
+
+1. **Larkspur `GROUND_Y` is 3.03, NOT 3.15.** The plan said "GROUND_Y from probe (y 3.04..3.15)". The
+   footprint has 0.116 u of relief (measured 3.037..3.154). Seating on the **max** keeps the skirt
+   buried but leaves the plinth **floating 0.113 u over the low corner** — a visible gap with a shadow.
+   Seating on the **min** buries the base 0.11 u into the high corner instead, which is invisible.
+   **Sink, never float**; the rule is now a comment on the `SITES` table.
+2. **`--no-tile-area` IS wanted at the new sites.** The directive said it was not, then said to match the
+   live quay's tiles. Those are **idall 16384 = event 1 / area 0**, and `--no-tile-area` is exactly what
+   keeps the area field at 0; omitting it stamps area 53 → idall 29952. Verified against the live block.
+   The instruction's two halves conflicted; the *measurement* decided it.
+3. **The kit lints both Tidefall and Grimhorn as "POOR SPOT"** (33 % / 23 % of the entrance cell is
+   non-walkable) — a gate the scout's suite did not run. **Quantified and cleared, not waved through:**
+   an 8-connected flood from each arrive point to its trigger, with the new topo-59 hull simulated, is
+   **reachable at all three sites**, with a minimum corridor width of 13–14 of 17 sampled units and both
+   endpoints walkable. The blocked fraction is coastline elsewhere in the 32 u cell, not the approach.
+
+## 13.4 A2/A3 are dry-run-verified and ready
+
+Each new site's dry run plans exactly what the directive predicted: **9 dispatchers × 7 langs = 63 `.eb`
+files** (the trigger-func add), 6 event tris with `area=KEPT`, 16 hull tiles, and the beacon at the site
+anchor. The case-53 repoint and the text-block-68 write are re-runs of already-live content (the repoint
+is idempotent when the handler bytes match; block 68 was byte-identical on both prior passes) — to be
+byte-confirmed per site on the real run.
+
+**A3 still needs the §11.3 restore-first ordering**: Ashvale's live Object is the pass-4 beacon
+(34652 B, 222 tris) and its hull sits at the pass-4 footprint, so restore
+`quay-beacon-prebuild.20260725-230801`'s Terrain + Object stub before re-deploying, or the old hull
+tiles orphan as invisible walls.
+
+## 13.5 Files
+
+| Path | Change |
+|---|---|
+| `mint_quay_beacon.py` | `Site`/`SITES` table + `--site`; `_ring`/`build_beacon`/`gates`/`write_obj` take the site; per-site OBJ path; the sink-never-float rule; docstring refreshed for multi-site |
+| `quay_beacon.obj` | regenerated (unchanged content — Ashvale's anchor did not move) |
+| `quay_beacon_{tidefall,grimhorn,larkspur}.obj` | **new**, 270 tris each |
+| `rebuild_quay_marker.sh` | takes `<site>`; per-site args + the shared southern-limit derivation |
+
+No kit code changed. World/mesh set: **300 passed, 4 skipped**.
