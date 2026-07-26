@@ -506,7 +506,7 @@ MEASURED walls, all binding at roughly the same scale:
 
 | wall | limit | measured onset | nature |
 |---|---|---|---|
-| blackboard band | 820 bytes of `gEventGlobal` scratch (physical: `Byte[2048]` minus reserved) | ~40 units × 6 swing pairs (a 7th pair/unit exhausts; ~14B unit kit + ~1B per swing timer) | HARD, loud |
+| blackboard band | 786 bytes of `gEventGlobal` scratch (bytes 1220-2005: `Byte[2048]` minus reserved bytes at BOTH ends — the ceiling `behavior.BYTE_END_DEFAULT` sits flush below the nameplate explored words / qte scratch / co-op cells / choice mask; the original 2040 ceiling admitted that live state) | ~40 units × 5 swing pairs (a 6th pair/unit exhausts; ~14B unit kit + ~1B per swing timer) | HARD, loud |
 | ticker span | old: ±32767 jump reach; now RELAXED via islands | ~240 lean pair branches (~135B each) | SOFT since the island pass — first in-game crossing = the ISLES bench (30416) |
 | the FILE | u16 entry table ≈ 64KB whole file | ~50-55KB of new bytes on the plaza donor; CONDOR round 3 ships 49.4KB | HARD, engine-fixed, loud since the strict guards |
 

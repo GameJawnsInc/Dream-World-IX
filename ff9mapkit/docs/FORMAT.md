@@ -1629,9 +1629,9 @@ verdicts = ["...", "...", "...", "..."]   # (optional) the 4 score tiers (<25/<5
 
 Holding **Start** bails the current beat (a deliberate miss — stock's courtesy). The score is
 always written (there is no cancel). Synthesized fields only; a field can't carry both
-`[[qte]]` and `[behavior]` yet (the game's scratch sits inside the blackboard's headroom
-band). Deferred theater, by design: per-prompt actor choreography, hit/miss SFX, the stock
-combo-gated difficulty ramp.
+`[[qte]]` and `[behavior]` yet (belt-and-braces — the blackboard's byte band now tops out
+at 2005, below the qte scratch). Deferred theater, by design: per-prompt actor
+choreography, hit/miss SFX, the stock combo-gated difficulty ramp.
 
 ---
 

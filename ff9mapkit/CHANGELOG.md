@@ -27,6 +27,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   floor move carries them along; docs and error messages updated, and `lint_flag_bands`
   regression-pins that a result word in the nameplate words is named as such.
 
+### Fixed — the behavior Blackboard byte band clears the reserved heap top
+- The compiler's blackboard allocator handed out gEventGlobal bytes 1220..2040 linearly
+  with no reserved-region guard — but the top of that range is live state: the nameplate
+  explored words (2006-2017, save-persistent overworld visited bits), the `[[qte]]`
+  scratch, the netsync co-op cells (engine-written every frame under co-op), and the
+  choice mask (2040). A field needing ~786+ blackboard bytes silently allocated into all
+  of it. The ceiling is now `behavior.BYTE_END_DEFAULT` (2005, derived from
+  `flags.NAMEPLATE_EXPLORED_FLOOR` so a floor move carries it), the sibling of the
+  `RESULT_WORD_CAP` fix above; overflow stays a loud build-time `BehaviorError`. The
+  measured swarm wall moved with it (~5 swing pairs per unit at 40 units, was ~6 — the
+  6th only ever fit inside the reserved bytes), and a regression test exhausts the band
+  proving every handed-out word clears `flags.is_reserved`.
+
 ### Added — the Behavior tab AUTHORS ON THE STAGE (rung C)
 - **Stage edit** (the ✥ toggle): every writable point on the stage grows a drag handle —
   unit posts, the player spawn, patrol/march/flee route points (a point that is a NAME

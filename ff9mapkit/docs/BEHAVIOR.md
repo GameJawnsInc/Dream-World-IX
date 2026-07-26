@@ -605,8 +605,10 @@ nothing.
   engine-fixed — and the entry table caps at **255 slots**. On a donor fork that leaves
   ~50-55KB for all compiled behavior (ticker + every dispatch body); each unit×target
   pair branch costs ~135B of ticker plus ~90B of body, so pair-target scope is the knob.
-  A third budget binds at swarm scale: the blackboard scratch band is **820 bytes** of
-  `gEventGlobal` (~40 units with ~6 swing pairs each; ~14B per unit + ~1B per swing).
+  A third budget binds at swarm scale: the blackboard scratch band is **786 bytes** of
+  `gEventGlobal` (bytes 1220–2005, capped flush below the reserved heap top — the nameplate
+  explored words / qte scratch / co-op cells / choice mask; ~40 units with ~5 swing pairs
+  each; ~14B per unit + ~1B per swing).
   Every over-budget build fails loudly at build time (never a wrapped offset), and
   `CompiledBehavior.size_report()` prints the per-unit **byte histogram** — where the
   bytes actually went — so the trim is a decision, not a hunt.
