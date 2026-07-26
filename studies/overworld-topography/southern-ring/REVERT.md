@@ -1822,3 +1822,114 @@ states see §17.8 (four-alcove row) and §15.6 (R1 single door). **~ → Reload 
 3. **Cancel (B)** lands on "Nothing for now." and closes clean — never sails, never saves.
 4. The hall contains **only** Zidane and the Purser. No second moogle, no invisible warps anywhere.
 5. Larkspur still lands you facing **west**.
+
+---
+
+# 19. THE QUAY/BOAT CONFIRM RACE — the bench boat now MOORS HOME — APPLIED (hot; no relaunch)
+
+Run 2026-07-26. Backups: **`backups/boat-moorhome.20260726/`** (all 7 `EVT_WORLD_WORLD11.eb.bytes`).
+
+## 19.1 The bug
+
+Pressing Enter at a Southern Ring quay entrance *sometimes* boarded the crimson Blue Narciss instead.
+The bench boat (WORLD11 entry 15, uid 15, `studies/custom-vehicle/build_boat_world11.py`) had a v1
+dismount that **parked the boat where it floated** while snapping only the player to its home dock
+(493, −1114). A boat left floating near a quay leaves its own per-frame **bare-Confirm board check**
+(`0x24000`, ~100 u radius) sitting right there, racing the quay's confirm gate.
+
+Owner ruling: **MOOR-HOME** — the dismount returns the boat to its mooring too, so it can only ever
+board at the block-(7,17) islet, 125 u+ from any quay. Proper boarding UX (a prompt, shore-legality)
+stays R5.
+
+## 19.2 The change — two ops, +24 bytes, in one function
+
+Amended the dismount branch of the boat's tag-1 loop, after the existing detach/player-snap:
+
+```
+ L115:
+   SET({Global.Byte[190] const(7) B_EQ const4(147456) B_KEYON B_ANDAND B_EXPR_END})
+   JMP_IFNOT(L184)
+   DisableMove()
+   DetachObject(14)
+   RunScriptSync(6, 14, 60)                                              # player -> DOCK  (unchanged)
++  MoveInstantXZY({const4(125952)}, {const(200)}, {const4(4294678016)})   # the BOAT -> BOAT_SPAWN
++  TurnInstant({const(0)})                                               # -> BOAT_FACE
+   SET({Global.Byte[190] const(0) B_LET B_EXPR_END})                      # (unchanged from here)
+   RunWorldCode(1, 0)
+   op_22(8) ; EnableMove() ; EnableMenu()
+ L184:
+```
+
+`125952/256 = 492`, `(4294678016 − 2³²)/256 = −1130`, y `200`, face `0` — i.e. exactly
+`BOAT_SPAWN` / `BOAT_Y` / `BOAT_FACE`. Body **166 → 190 B**; the assembler recomputed every label
+(`L160` → `L184`), so no hand jump-fixup was involved. Before/after disassembly archived at
+`studies/custom-vehicle/moor_home/{before,after}_entry15.txt`.
+
+## 19.3 (4) LOAD-PATH VERDICT — already covered, no extension needed
+
+Checked from the deployed bytes rather than assumed. Entry 15's Init ends:
+
+```
+   JMP(L86)          <- the mode-7 attach arm jumps here
+ L100: ...           <- the not-boarded arm falls through to here
+ L86:
+   MoveInstantXZY({const4(125952)}, {const(200)}, {const4(4294678016)})
+   TurnInstant({const(0)})
+   RET()
+```
+
+`L86` is the merge point of **both** branches, and a scan of the whole entry finds **no
+`Global[74..82]` parked-record read anywhere** — consistent with the script's own "POSITION IS
+HARD-CODED for the bench — NO gEventGlobal reads/writes" (an earlier build did use that stock record
+and parked at garbage after relaunch, in-game 2026-07-22). So **a world load already re-moors the boat
+at `BOAT_SPAWN` unconditionally**, whatever happened in the previous session. The fix did not need to
+be extended to the load path.
+
+## 19.4 How it was applied
+
+**In place on the live deployed dispatchers** — `eb.edit.replace_function_body(data, 15, 1, new_body)`,
+each of the 7 languages patched from **its own** bytes. `build_boat_world11.py` was **not** re-run
+wholesale: the deployed WORLD11 carries the Southern Ring R1/R2 surgery (the case-53 nameplate handler
+and four quay trigger funcs) that the study script's baseline predates, so a wholesale rebuild would
+have clobbered it.
+
+The study script's `BOAT_LOOP` source was updated to match, with a comment naming this bug, so any
+future rebuild emits the fix. Safe to regenerate from source because the deployed bodies were first
+proven **byte-identical** to `assemble_block(BOAT_INIT)` / `assemble_block(BOAT_LOOP)` (111 B and
+166 B) before any edit.
+
+## 19.5 Write-set — 7 files, 891 before and after
+
+| file | before | after |
+|---|---|---|
+| `world/{us,uk,es,fr,gr,it}/EVT_WORLD_WORLD11.eb.bytes` | 9817 B | **9841 B** |
+| `world/jp/EVT_WORLD_WORLD11.eb.bytes` | 9805 B | **9829 B** |
+
+JP's 12-byte difference is its own legitimate layout (it carries localized inline dialogue) — which is
+exactly why each language was patched from its own bytes and never cloned from `us`. Zero world meshes,
+zero field `.eb`, zero `DictionaryPatch`, zero `FF9CustomMap`. Proof:
+`studies/custom-vehicle/moor_home/writeset_md5_diff.txt`.
+
+## 19.6 Assertions
+
+* **Per language: the ONLY changed function is entry 15 / tag 1.** Every one of the other **102**
+  functions in WORLD11 is byte-identical (compared body-by-body via `EbScript`, not by file hash).
+* **The other 8 dispatchers: zero changed functions**, each still carrying its 3 new quay trigger
+  funcs from the R2 sweep.
+* **The case-53 nameplate handler and all four quay triggers are intact** — the ring's dispatcher
+  assertions still hold across all 63 files.
+* The 16 world marker meshes are byte-identical (WORLD11 dispatchers are not disc-scoped, so there is
+  no disc mirror to re-run).
+
+## 19.7 Undo
+
+Restore the 7 files from `backups/boat-moorhome.20260726/` into
+`FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/<lang>/EVT_WORLD_WORLD11.eb.bytes`.
+That returns the float-park dismount (and the quay race). Exit and re-enter the overworld; no relaunch.
+
+## 19.8 Playtest ask (owner) — no relaunch
+
+1. Board the boat at the islet, sail somewhere far (e.g. past a quay), press Enter to dismount: **the
+   player lands on the islet dock AND the boat is back on its beach** — not floating where you left it.
+2. **At every quay, Enter now only ever enters the field** — no boarding.
+3. Sail out and back a few times: the boat should always be found beached at the islet.

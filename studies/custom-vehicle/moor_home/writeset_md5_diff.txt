@@ -1,0 +1,34 @@
+# Boat moor-home write-set -- md5 of FF9CustomMap-world, before vs after.
+# 891 files before and after. 7 changed: EVT_WORLD_WORLD11.eb.bytes in each language, +24 B each.
+# us/uk/es/fr/gr/it 9817 -> 9841 B; jp 9805 -> 9829 B (its layout legitimately differs -- each
+# language was patched from ITS OWN bytes, never cloned from us).
+# Every OTHER function in every dispatcher is byte-identical; zero world meshes; zero field .eb.
+
+835c835
+< 3b60e0247d20a07f021ba3015496e0dc *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD11.eb.bytes
+---
+> bcc9715171f029bfc5d481e9043dcd2d *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD11.eb.bytes
+844c844
+< e3110c2dccfd46e91ca460886e398be8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD11.eb.bytes
+---
+> 5c9991f4414001b1a65b83253501aaaa *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD11.eb.bytes
+853c853
+< 515d2cff0e8d61d4fdeea32cef17d760 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD11.eb.bytes
+---
+> 96857d4081502fd8d658c027bda87079 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD11.eb.bytes
+862c862
+< 9f6f2cfb5c788fbd0c809f3842dffca1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD11.eb.bytes
+---
+> 7322453e80fe1e4f90e3f8945499cfe8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD11.eb.bytes
+871c871
+< 9c99e6af674ec6fbb7793ed155c025f1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD11.eb.bytes
+---
+> cfd720e27be6a08785ab091101aee82c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD11.eb.bytes
+880c880
+< 0be624c6596cea8feab39025a4e08c59 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD11.eb.bytes
+---
+> 59d24544a4d08bad0e3ba8ebfb38e241 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD11.eb.bytes
+889c889
+< 0be624c6596cea8feab39025a4e08c59 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD11.eb.bytes
+---
+> 59d24544a4d08bad0e3ba8ebfb38e241 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD11.eb.bytes
