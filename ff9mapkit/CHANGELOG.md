@@ -12,10 +12,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   rides the event-Once lane (fire-and-release — the purse-fanfare shape, gated on the same
   monotonic flag as an `award`); bare, it plays at dispatch and idles while selected (a
   bare `announce`'s no-spam shape). Lint checks id/bank ranges; unknown option keys refuse.
-- `do = { flash = [r, g, b] }` washes the screen to a colour and back — the donor rest
-  bracket's `FadeFilter` (0xEC) pair, field 300's exact mode/frame/intensity shape, already
-  in-game proven through the savepoint tent. Same once/bare stances as `sfx`; the body
-  holds the dispatch level ~40 frames and queued one-shots fire on release.
+- `do = { flash = [r, g, b] }` (+ optional `pause` frames) washes the screen to a colour,
+  holds a beat, and releases — stock's ADD-channel `FadeFilter` (0xEC) flash idiom, field
+  682's exact `(0,24,white) → Wait(25) → (1,16,black)` pair. THE FADE-CHANNEL LESSON
+  (REDOUBT round 2): `mode & 2` = the SUB filter, and SUB toward white is the stock warp
+  fade to BLACK — a flash must ride the ADD channel or it reads as a field transition.
+  Same once/bare stances as `sfx`; queued one-shots fire when the body releases.
 - `[siege]` grew the win-theater dials `win_sfx = <id>` and `win_flash = true | [r,g,b]`:
   generated event-Once branches below the pay, all gated on the monotonic `won` flag —
   purse, jingle, wash on consecutive ticks (the draining-condition law's authoring shape).

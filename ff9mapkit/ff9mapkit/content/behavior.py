@@ -504,26 +504,35 @@ class Sfx(Action):
             raise BehaviorError("Sfx bank must be 0..65535 (default 53248 = 0xD000)")
 
 
-FLASH_OUT_FRAMES = 24               # the donor rest bracket's fade-out (field 300 @4925)
-FLASH_IN_FRAMES = 16                # ... and its restore — both in-game proven via the
-                                    # kit savepoint's tent rest (content.savepoint)
+FLASH_OUT_FRAMES = 24               # the stock white-out: FadeFilter(0, 24, x, colour) —
+FLASH_IN_FRAMES = 16                # — released by FadeFilter(1, 16, x, black); field
+                                    # 682's exact pair (21 / 11 uses across the 817
+                                    # exports; stock Waits 25 = out + 1 before moving on)
+FLASH_PAUSE_FRAMES = 20              # the beat held AT the colour between out and release
+                                    # (stock does its scene work there; we just hold)
 
 
 @dataclass
 class Flash(Action):
-    """ONE screen flash — the donor rest bracket's proven ``FadeFilter`` (0xEC,
-    WIPERGB) pair minus the rest: ``CalculateScreenPosition(player)`` + SUB out to
-    the colour over 24 frames, wait it through, restore over 16 (field 300's exact
-    mode/frame/intensity shape, in-game proven via the kit savepoint). Same two
-    stances as Sfx: Once-wrapped = event-Once fire-and-release (the win-flash
-    lane); bare = play at dispatch, idle while selected. The body holds the
-    dispatch level ~40 frames — queued one-shots fire when it releases."""
+    """ONE screen wash — stock's ADD-channel ``FadeFilter`` (0xEC) flash pair:
+    ``CalculateScreenPosition(player)`` + mode-0 out to the colour over 24 frames,
+    ``Wait(25)`` (stock's out+1), a held beat at the colour, then the mode-1
+    release to black over 16 (field 682's exact idiom, twice in that field).
+    ⚠ NOT modes 6/7 — bit 1 selects the SUB channel, and SUB toward white is the
+    stock warp fade to BLACK (the REDOUBT round-2 playtest lesson; the correct
+    lore was already in content.event.WARP_FADE's comment). Same two stances as
+    Sfx: Once-wrapped = event-Once fire-and-release (the win-flash lane); bare =
+    play at dispatch, idle while selected. The body holds the dispatch level
+    ~out+hold+in frames — queued one-shots fire when it releases."""
     rgb: tuple = (255, 255, 255)
+    pause: int = FLASH_PAUSE_FRAMES  # TOML key `pause` — `hold` is taken (the feed verb)
 
     def __post_init__(self):
         self.rgb = tuple(int(c) for c in self.rgb)
         if len(self.rgb) != 3 or not all(0 <= c <= 255 for c in self.rgb):
             raise BehaviorError("Flash rgb must be three ints 0..255")
+        if not 0 <= int(self.pause) <= 255:
+            raise BehaviorError("Flash pause must be 0..255 frames")
 
 
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
@@ -2674,11 +2683,12 @@ class FieldBehavior:
         if isinstance(a, Flash):
             r, g, bl = a.rgb
             burst = [
-                opcodes.encode(0xA9, PLAYER_UID),        # CalculateScreenPosition —
-                opcodes.encode(0xEC, 6, FLASH_OUT_FRAMES, 255, r, g, bl),
-                opcodes.wait(FLASH_OUT_FRAMES),          # the donor bracket runs it
-                opcodes.encode(0xA9, PLAYER_UID),        # before EACH FadeFilter
-                opcodes.encode(0xEC, 7, FLASH_IN_FRAMES, 255, 0, 0, 0),
+                opcodes.encode(0xA9, PLAYER_UID),        # stock runs CalcScreenPos
+                opcodes.encode(0xEC, 0, FLASH_OUT_FRAMES, 255, r, g, bl),
+                opcodes.wait(FLASH_OUT_FRAMES + 1),      # before EACH FadeFilter;
+            ] + ([opcodes.wait(int(a.pause))] if a.pause else []) + [
+                opcodes.encode(0xA9, PLAYER_UID),        # Wait(25) = field 682's
+                opcodes.encode(0xEC, 1, FLASH_IN_FRAMES, 255, 0, 0, 0),  # out + 1
                 opcodes.wait(FLASH_IN_FRAMES),
             ]
             if oneshot_latch is not None:

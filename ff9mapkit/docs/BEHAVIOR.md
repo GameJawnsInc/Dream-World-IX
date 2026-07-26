@@ -337,16 +337,26 @@ a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>`.
 ```toml
 [[behavior.unit.branch]]
 when = [{ flag = "won" }]
-do = { flash = [255, 255, 255] }   # wash to this colour and back
-once = "winflash"
+do = { flash = [255, 255, 255] }   # wash to this colour, hold a beat, release
+once = "winflash"                  # + optional pause = <frames> (default 20;
+                                   #   the option is `pause` — `hold` is a verb)
 ```
 
-One screen wash — the donor rest bracket's `FadeFilter` pair (field 300's exact
-mode/frame/intensity shape, already in-game proven through the savepoint tent):
-`CalculateScreenPosition(player)` + SUB out to the colour over 24 frames, then restore
-over 16. Same two stances as `sfx`: once-wrapped = event-Once fire-and-release (the
-win-wash lane); bare = fires per dispatch. The body holds the unit's dispatch level for
-~40 frames while the wash runs — queued one-shots (a pending purse, an announce) fire the
+One screen wash — stock's ADD-channel `FadeFilter` flash idiom (field 682's exact pair,
+the most common ADD pattern across all 817 field exports): `CalculateScreenPosition
+(player)` + mode-0 out to the colour over 24 frames + `Wait(25)` (stock's out+1), a held
+beat at the colour (`pause` frames), then the mode-1 release to black over 16.
+
+> **THE FADE-CHANNEL LESSON (REDOUBT round 2):** `FadeFilter`'s mode is a channel bit —
+> `mode & 2` selects the SUB filter (screen − colour), else ADD (screen + colour). SUB
+> toward *white* is therefore the stock **warp fade to BLACK** (modes 6/7 — what gateways
+> and ladders emit), and a "flash" built on it reads as a field transition. A true colour
+> wash lives on the ADD channel (modes 0/1). The engine ignores bit 0; stock uses it to
+> mark the release half of a pair.
+
+Same two stances as `sfx`: once-wrapped = event-Once fire-and-release (the win-wash
+lane); bare = fires per dispatch. The body holds the unit's dispatch level for
+~out+hold+release frames — queued one-shots (a pending purse, an announce) fire the
 moment it releases, so stack theater as separate branches on one monotonic flag: pay,
 jingle, wash on consecutive rungs. `[siege]` exposes it as `win_flash = true` (white)
 or `[r, g, b]`.

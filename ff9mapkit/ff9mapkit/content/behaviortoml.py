@@ -114,7 +114,7 @@ ACTION_VERBS = {
     "add_shop_synth": (),
     "remove_shop_synth": (),
     "sfx": ("bank",),
-    "flash": (),
+    "flash": ("pause",),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -658,8 +658,10 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # sfx = <sound id> (+ bank) — RunSoundCode3 with the chest-proven params
         return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)))
     if verb == "flash":
-        # flash = [r, g, b] — the donor rest bracket's FadeFilter pair
-        return B.Flash(tuple(int(c) for c in v))
+        # flash = [r, g, b] (+ pause frames) — stock's ADD-channel flash pair
+        # (the option is `pause`, not `hold` — `hold` is the feed verb)
+        return B.Flash(tuple(int(c) for c in v),
+                       pause=int(d.get("pause", B.FLASH_PAUSE_FRAMES)))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -1353,6 +1355,12 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                                        and 0 <= c <= 255 for c in v)):
                         problems.append(f"{ctx}: flash takes [r, g, b] — three ints "
                                         f"0..255 (the screen-flash colour)")
+                    hd = do.get("pause")
+                    if hd is not None and (isinstance(hd, bool)
+                                           or not isinstance(hd, int)
+                                           or not 0 <= hd <= 255):
+                        problems.append(f"{ctx}: flash pause must be an int 0..255 "
+                                        f"frames (the beat held at the colour)")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):

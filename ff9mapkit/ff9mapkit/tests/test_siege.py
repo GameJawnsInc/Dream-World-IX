@@ -234,12 +234,13 @@ def test_full_build_compiles(tmp_path):
              for ins in D.iter_code(body, 0, len(body))
              if ins.name == "RunSoundCode3"]
     assert plays == [(53248, 108)]
-    # ... and the flash (win_flash = true): one white FadeFilter pair
+    # ... and the flash (win_flash = true): one white ADD-channel pair (the
+    # stock white-out, NOT the mode-6/7 warp fade)
     fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))
              for _tag, body in cb.action_funcs["base"]
              for ins in D.iter_code(body, 0, len(body))
              if ins.op == 0xEC]
-    assert fades == [(6, 255, 255, 255), (7, 0, 0, 0)]
+    assert fades == [(0, 255, 255, 255), (1, 0, 0, 0)]
     # determinism: a second load desugars to the identical raw
     p2 = BLD.FieldProject.load(f)
     assert p2.raw["behavior"] == p.raw["behavior"]

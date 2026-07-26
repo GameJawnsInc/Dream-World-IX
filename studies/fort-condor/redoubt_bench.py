@@ -79,7 +79,7 @@ stipend = {cfb.STIPEND}
 win_gil = {cfb.WIN_GIL}
 win_item = "{cfb.WIN_ITEM}"
 win_sfx = 108                # theater rung A (CAST-PROVEN): the item-get jingle on the purse
-win_flash = true             # theater rung B: the donor rest bracket's white wash on the win
+win_flash = true             # theater rung B round 2: the stock ADD-channel white wash (field 682's pair)
 loss_battle = {cfb.LOSS_SCENE}
 
 [siege.base]
@@ -200,11 +200,11 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
   3 the three waves (0:55 NW, 0:40 SW, 0:20 SW heavies) march their lanes,
     PIN onto blockers, leakers beat the depot; allies fight by stance.
   4 endings: hold to 0:00 -> the win cry + ONE purse (2000 gil + a Phoenix
-    Down) + the jingle (rung A, cast-proven) + THE WHITE WASH (rung B: the
-    screen washes to white and back exactly ONCE, right after the jingle --
-    the savepoint tent's fade pair); or rout wave 3 early -> the same cry/
-    purse/jingle/wash; or lose the depot -> the boss battle (NO jingle, NO
-    wash on a loss).
+    Down) + the jingle (rung A, cast-proven) + THE WHITE WASH (rung B round
+    2: the screen BRIGHTENS to white -- not the warp fade-to-black -- holds
+    a beat at white, then releases; exactly ONCE, right after the jingle);
+    or rout wave 3 early -> the same cry/purse/jingle/wash; or lose the
+    depot -> the boss battle (NO jingle, NO wash on a loss).
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")

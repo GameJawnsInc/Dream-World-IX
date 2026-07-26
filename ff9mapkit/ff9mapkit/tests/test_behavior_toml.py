@@ -1214,11 +1214,12 @@ def test_sfx_bare_and_validation():
                BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))
 
 
-def test_flash_compiles_donor_bracket():
-    """The flash body is the donor rest bracket minus the rest (field 300, proven
-    via the savepoint tent): CalcScreenPos + FadeFilter(6,24,255,rgb) + Wait(24)
-    + CalcScreenPos + FadeFilter(7,16,255,black) + Wait(16), on the event-Once
-    lane when once-wrapped."""
+def test_flash_compiles_stock_add_pair():
+    """The flash body is stock's ADD-channel white-out idiom (field 682, twice):
+    CalcScreenPos + FadeFilter(0,24,255,rgb) + Wait(25 = out+1, stock's own
+    pause) + the held beat + CalcScreenPos + FadeFilter(1,16,255,black) +
+    Wait(16). NOT modes 6/7 — SUB toward white is the warp fade to BLACK
+    (the REDOUBT round-2 playtest)."""
     raw = _sfx_raw(do={"flash": [255, 200, 120]})
     assert BT.validate(raw) == []
     fb = BT.build(raw, npc_slots={"crier": 2},
@@ -1234,12 +1235,22 @@ def test_flash_compiles_donor_bracket():
                 seq.append("csp")
             elif ins.op == 0x22:                          # Wait
                 seq.append(("wait", ins.imm(0)))
-    assert seq == ["csp", (6, 24, 255, 255, 200, 120), ("wait", 24),
-                   "csp", (7, 16, 255, 0, 0, 0), ("wait", 16)]
-    # validation: three ints 0..255, no bool smuggling
+    assert seq == ["csp", (0, 24, 255, 255, 200, 120), ("wait", 25), ("wait", 20),
+                   "csp", (1, 16, 255, 0, 0, 0), ("wait", 16)]
+    # pause is a dial (`hold` is the feed verb — the key would double-match);
+    # pause = 0 drops its wait entirely
+    fb2 = BT.build(_sfx_raw(do={"flash": [255, 255, 255], "pause": 0}),
+                   npc_slots={"crier": 2}, npc_txids_by_name={"crier": 0},
+                   behavior_txids={})
+    waits = [ins.imm(0) for _t, body in fb2.compile().action_funcs["crier"]
+             for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x22]
+    assert waits == [25, 16]
+    # validation: three ints 0..255, no bool smuggling; pause range-checked
     assert any("flash takes [r, g, b]" in p for p in
                BT.validate(_sfx_raw(do={"flash": [255, 255]})))
     assert any("flash takes [r, g, b]" in p for p in
                BT.validate(_sfx_raw(do={"flash": [255, 300, 0]})))
     assert any("flash takes [r, g, b]" in p for p in
                BT.validate(_sfx_raw(do={"flash": True})))
+    assert any("flash pause" in p for p in
+               BT.validate(_sfx_raw(do={"flash": [255, 255, 255], "pause": 999})))
