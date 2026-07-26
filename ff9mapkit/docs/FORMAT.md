@@ -1543,6 +1543,9 @@ name = "duel"                   # the [[choice]] option's `qte =` target
 result = 2006                   # gEventGlobal byte offset: Global.Int16 <- the 1..100 score
 rounds = 10                     # 1..99 prompts per bout
 window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
+par = 80                        # (optional) % of the THEORETICAL max that scores 100 —
+                                # default 80 mirrors stock's calibration (a great human run
+                                # reaches 100; the clamp absorbs the top). 100 = merciless.
 buttons = ["cross", "circle"]   # (optional) the prompt set, >= 2 of the 8 stock names
 gil = true                      # (optional) pay stock's purse at the finale
 flag = 8300                     # (optional) story-flag BIT raised when a bout completes
