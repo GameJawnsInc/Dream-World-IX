@@ -60,6 +60,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Added — `[[gauge]]`: the tiles-as-sprites value bar (the DLL-free gauge)
+- FF9 has no gauge opcode; `[[gauge]]` builds one from the tile vocabulary
+  (`content/gauge.py`): the kit GENERATES `segments+1` fill-state PNGs (a complete
+  self-backed bar per state), appends them as pure-Memoria overlays plus one
+  script-controlled (`SingleFrame`) tile ANIMATION, and a looping daemon drives the
+  bar with ONE `SetTileAnimationFrame` per tick — the level is a branchless
+  clamp expression computed inline in the opcode arg (`EBG_animShowFrame`: frame i
+  shows target overlay i; 255 hides all, which is how `requires_flag` hides the bar).
+  Sources: `global:<off>` / `item:<name-or-id>` / `gil`. `pulse_below` shimmers low
+  values with field 64's Sin color pulse, carried VERBATIM (`Sin(t<<2)/360+144` on
+  the visible overlay via `SetTileColor`). The daemon's state lives in ENTRY LOCALS
+  (stock's `allocate 2` — `eb.edit.append_entry`/`seat_entry` grew a `loc` param),
+  so gauges coexist with `[behavior]`. Three scene hosts: novel (appends to the
+  field's own `.bgx`), NATIVE (`[field] bgs` — an own-scene `USE_BASE_SCENE` hybrid
+  re-loads the shipped `.bgs` first, per-tile depth untouched, base indices read
+  from that header offline; the minigame-arena path), and BG-borrow (the hybrid
+  under the DONOR scene name, pinned by `[field] borrow_scene_counts`; scene-name
+  keyed — bench-scoped). `scene/bgx.py` grew the typed `Animation` block
+  (+ bare-flag `Loop`/`Palindrome` parse). Verbatim forks refused in v1.
+
 ### Added — `[[qte]]`: the Blank-duel reaction game as kit vocabulary
 - FF9's one QTE (the Prima Vista sword fight, field 64) decoded and re-emitted with
   rounds / reaction window / prompt set / texts as parameters (`content/qte.py`):

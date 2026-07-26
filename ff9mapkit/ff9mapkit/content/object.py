@@ -246,19 +246,22 @@ def insert_entry_before_band(data, entry_bytes, *, band_size: int = PARTY_BAND_S
     return out, band_lo
 
 
-def seat_entry(data, entry_bytes, *, reserve_party_band: bool = False, slot=None):
+def seat_entry(data, entry_bytes, *, reserve_party_band: bool = False, slot=None, loc: int = 0):
     """Place a new entry and return ``(new_bytes, slot)`` -- the shared allocator behind every content
     injector (NPC / region / gateway / event). On the SYNTHESIZE path it appends into a free slot (a blank
     field has spare NPC slots); on a VERBATIM fork (``reserve_party_band``) it INSERTS just below the engine's
     reserved party-character band (:func:`insert_entry_before_band`), so the new entry is a true below-band
     NPC/region and the 9 characters stay the top slots. Sequential calls compose: each insert shifts the band
-    up one and remaps band refs, leaving earlier-seated entries (which sit below the band) untouched."""
+    up one and remaps band refs, leaving earlier-seated entries (which sit below the band) untouched.
+
+    ``loc``: local-variable bytes for the new entry (stock ``allocate N`` -- see
+    :func:`ff9mapkit.eb.edit.append_entry`). Append path only; the party-band insert has no caller needing it."""
     if reserve_party_band:
         return insert_entry_before_band(data, entry_bytes)
     eb = EbScript.from_bytes(data)
     if slot is None:
         slot = eb.first_free_slot()
-    return edit.append_entry(data, slot, entry_bytes), slot
+    return edit.append_entry(data, slot, entry_bytes, loc=loc), slot
 
 
 def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None, out_skipped=None) -> bytes:

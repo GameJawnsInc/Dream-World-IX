@@ -1614,6 +1614,9 @@ result = 2006                   # gEventGlobal byte offset 4..2016: Global.Int16
 rounds = 10                     # 1..99 prompts per bout
 window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
 par = 65                        # (optional) % of the THEORETICAL max that scores 100 —
+                                # default 65, tuned for short bouts (stock's forgiveness is
+                                # its combo channel, which only pays over stock's 48 rounds;
+                                # raise toward 80+ for stock-length bouts). 100 = merciless.
                                 # default 65, tuned for short bouts (stock's forgiveness
                                 # lives in its combo channel, which only pays over its 48
                                 # rounds). 100 = merciless.
@@ -1630,6 +1633,49 @@ always written (there is no cancel). Synthesized fields only; a field can't carr
 `[[qte]]` and `[behavior]` yet (the game's scratch sits inside the blackboard's headroom
 band). Deferred theater, by design: per-prompt actor choreography, hit/miss SFX, the stock
 combo-gated difficulty ramp.
+
+---
+
+## `[[gauge]]` (optional)
+
+A **live value bar drawn in the background art** — the DLL-free gauge. FF9 has no gauge
+opcode; this is built from the game's own tile vocabulary: the kit generates `segments+1`
+fill-state PNGs (a complete self-backed bar per state) as scene overlays plus one
+script-controlled tile ANIMATION over them, and a looping daemon drives it with **one
+`SetTileAnimationFrame` per tick** (an out-of-range frame hides the whole bar — that's how
+`requires_flag` works). Low values can shimmer with the game's own Sin color pulse (field
+64's glow, carried verbatim). The bar is **world-anchored** scene furniture in canvas
+pixels (the `[[layers]]` frame) — perfect on a single-screen minigame arena; on a
+scrolling field it stays where the art is (there is no screen-anchored HUD path).
+
+```toml
+[[gauge]]
+name = "cistern"
+source = "global:2000"          # what drives it: "global:<byteoff>" = a save-backed
+                                # Global.Int16 your scripts write; "item:<name-or-id>" =
+                                # live inventory count; "gil" = the party's gil
+max = 100                       # the value that reads FULL (values clamp to 0..max)
+segments = 10                   # 2..24 cells (= segments+1 generated art states)
+pos = [140, 24]                 # canvas px, top-left of the bar
+width = 96                      # bar art size in canvas px
+height = 10
+color = "#40c8ff"               # (optional) filled-cell color; back_color = empty cells
+pulse_below = 2                 # (optional) level <= this -> the field-64 shimmer (0 = off)
+requires_flag = 8320            # (optional) GLOB bit; CLEAR -> the whole bar hides
+depth = 1                       # (optional) overlay z: smaller = nearer the camera
+```
+
+Several `[[gauge]]` blocks share ONE daemon entry whose state lives in **entry locals**
+(stock's `allocate 2`), so gauges coexist with `[behavior]` — a fort-condor field can carry
+both. Three scene hosts: **novel scenes** (the states append to the field's own `.bgx`);
+**native scenes** (`[field] bgs` + atlas — the preferred minigame-arena path: the build adds
+an own-scene `USE_BASE_SCENE` `.bgx` that re-loads the shipped `.bgs` first, so per-tile
+depth is untouched and the base indices come from that header automatically); and
+**BG-borrow** fields — the borrow ships the `USE_BASE_SCENE` `.bgx` under the *donor
+scene's* name and needs `[field] borrow_scene_counts = [<overlayCount>, <animCount>]` (the
+donor `.bgs` header's counts, via `ff9mapkit.scene.bgs.parse_header`). ⚠ Borrow gauges are
+scene-name keyed: any field borrowing the same donor sees the overlays — keep them to
+scratch benches. Verbatim forks: not yet supported.
 
 ---
 

@@ -54,4 +54,24 @@ R1/R2 surgery that this script's baseline predates, so a wholesale re-run would 
 JP's file is legitimately 12 B smaller than the rest. Before/after disassembly and the write-set
 proof: `moor_home/`. Full record: `studies/overworld-topography/southern-ring/REVERT.md` §19.
 
+## ⚠ The board gate was a NO-OP until 2026-07-26 (a 256× unit mismatch)
+
+The board arm always had a proximity term — a two-sided `B_MINUS`/`B_LT` difference test on X and Z —
+but it compared **world-unit** differences against `const4(25600)`, a constant authored as "100 u × 256"
+in the **fixed-point** domain that `MoveInstantXZY` args and the gEventGlobal position record use.
+`obj(uid).f[0]`/`.f[2]` do **not** return fixed point: `getvobj` case 0/2 (`EBin.cs:1751-1793`) returns
+`CastFloatToIntWithChecking(pos[i])`, and that cast (`EBin.cs:1830-1840`) is a plain round-to-int with
+**no scaling**.
+
+The overworld spans ~1536 u × ~1280 u, so the largest possible |Δ| anywhere (~2000 u) is still far below
+25600 — **every term was unconditionally true, everywhere on the map.** Rung 1's "I boarded at the islet"
+proof was consistent with this: it boarded everywhere, and nobody pressed Confirm far away until the
+Southern Ring quays existed. Owner symptom: pressing Enter at a quay teleport-boarded the boat.
+
+**Fixed** by replacing that term with an absolute window on the player's position, in the domain the
+source proves — inclusive **[452, 532] × [−1170, −1090]**, an islet-sized box around the mooring that
+reaches no event tile (nearest quay trigger is 125 u away). `wu()` now sits beside `fp()` in the build
+script with the domain trap spelled out. Offline verification replicating the decompiled ops over five
+probe points: `range_gate/eval_gate.py`. Full record: REVERT.md §20.
+
 Proper boarding UX — a prompt instead of a bare-Confirm radius, plus shore-legality — is **R5**.

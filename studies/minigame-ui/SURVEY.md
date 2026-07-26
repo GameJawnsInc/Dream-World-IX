@@ -85,12 +85,26 @@ grey out individual menu rows by bitmask (complement to our requires_flag row
 VANISHING). Engine's only field-64 hook is a +30% Steam-assist rewrite
 (`EMinigame.cs:9-31`) — cosmetic, skippable.
 
-### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge
+### 5. Tiles as script-driven 2D sprites — the closest thing to a custom gauge (★ built as `[[gauge]]`, bench 30420 "WATERWORKS" DEPLOYED — relaunch+playtest pending — `waterworks_bench.py`)
 `SetTileColor` 0x59 / `ShowTile` 0x5B / `SetTilePositionEx` 0x5A /
 `MoveTileLoop` 0x5C / `SetTileAnimationFrame` 0xE7 / `AttachTile` 0x92 (follows
 an actor) — ~25K combined uses; field 64 pulses a tile by a Sin-driven color.
-A background-art bar filled by `SetTilePositionEx`/`ShowTile` per segment is a
-DLL-free gauge. Text-side alternative: `[TBLE=bank]` value-indexed string swap
+**The build**: NOT per-segment ShowTile — `EBG_animShowFrame` decode showed a
+scene ANIMATION is a list of TARGET overlays with frame *i* showing exactly
+overlay *i* (255 = all off), so `[[gauge]]` generates segments+1 fill-state
+PNGs as pure-Memoria overlays + one `Loop`-less (SingleFrame) ANIMATION and
+drives the bar with ONE SetTileAnimationFrame per tick (level = a branchless
+clamp expression inline in the opcode arg). One daemon entry for all gauges,
+state in ENTRY LOCALS (stock field 64's `allocate 2` — the kit's first loc>0
+mint), so `[behavior]` coexists. Scene hosts: novel .bgx / NATIVE own-scene
+`USE_BASE_SCENE` hybrid (base indices read from the field's own .bgs header;
+the minigame-arena path) / BG-borrow (donor-name .bgx + pinned counts;
+scene-shared, bench-only). The pulse carries field 64's shade VERBATIM
+(`Sin(t<<2)/360+144`, `EBG_overlaySetShadeColor` rgb/128). ⚠ REAL cameras
+need `centerOffset` added to `cam.to_canvas`'s novel-field convention (this
+donor: [26, 400]) — the naive spawn-column anchor landed OFF the boot view;
+the bench projects the boot window and pins the bars inside it.
+Text-side alternative (unbuilt): `[TBLE=bank]` value-indexed string swap
 (`ETb.cs:270-283`) — one `.mes` entry holding N bar states indexed by a
 `gMesValue` slot.
 
