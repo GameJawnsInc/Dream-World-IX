@@ -41,6 +41,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Added — `[[qte]]`: the Blank-duel reaction game as kit vocabulary
+- FF9's one QTE (the Prima Vista sword fight, field 64) decoded and re-emitted with
+  rounds / reaction window / prompt set / texts as parameters (`content/qte.py`):
+  random no-repeat button prompts (stock's own [DBTN]/[MOBI] glyph lines, verbatim),
+  the nine-button edge poll with Start-bail, and stock's exact two-channel scoring —
+  a hit banks the countdown LEFTOVER (speed is the score) plus the current combo.
+  Finale: a 1..100 score into `Global.Int16[result]`, tiered verdicts, the optional
+  gold-lettered gil purse (stock's formula), an optional completion flag. One modal
+  seated entry opened from a `[[choice]]` option's `qte =` (the numeric_input
+  architecture — stock only split issuer/poller across entries for its actor
+  choreography, which is deferred theater along with hit/miss SFX and the
+  combo-gated difficulty ramp). Synth-only; refuses [behavior] coexistence (scratch
+  band overlap).
+
 ### Added — `add_shop_synth` / `remove_shop_synth`: runtime synthesis recipes (0x116)
 - The AddShopItem twin with the mutation inverted: grafts the SHOP onto the RECIPE's
   shop list (the engine's silent no-op guard is on the recipe). `recipe` = a vanilla
