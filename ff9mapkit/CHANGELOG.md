@@ -14,7 +14,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   combat started — nothing wrong in the generated script. New `stop_timer` behavior verb
   (`RunTimer(0)`, needs a field `timer`), and `[siege]` now freezes the clock at the TOP
   of its loss lane (above the sting and the staged text) and on the rout. Diagnosed with
-  `ff9mapkit battle-ai` — verify any scene a timed field fires.
+  `ff9mapkit battle-ai` — verify any scene a timed field fires. Cast-proven: "the fight
+  works now, clock froze."
 
 ### Added — staged win/lose text (`announce` delay/sustain + `[siege]` list texts, theater rung D)
 - `announce` (and `announce_npc`) grew `delay = <frames>` — hold the dispatch level
