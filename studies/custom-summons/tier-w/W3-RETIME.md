@@ -424,10 +424,12 @@ reverts. No relaunch needed, same as deploy.
 
 ---
 
-## CAST VERDICT — PENDING
+## CAST VERDICT — 2026-07-26 ★★ BOTH CASTS PROVEN, THE RUNG IS CLOSED
 
-Both casts are staged and ready; **neither has been run against the live game by this report.** W3 is
-not ★ until an owner runs `deploy_aligned.py`, judges §6.2 against the failure table, runs
-`deploy_misretime.py`, judges §6.3 against its own failure table, and reverts. Update this section (and
-`PLAN.md`'s Status) with what was actually seen — including if either cast surprises the offline proof,
-which per §6.2/§6.3's failure tables is itself a reportable finding, not something to paper over.
+**"worked as described"** — the owner ran the full protocol: cast 1 (ALIGNED) showed the ~3.2 s longer
+entrance with every camera cut landing on its beat; cast 2 (MIS-RETIME) showed the drift as designed;
+the revert was run and the live install verified back at W2's resting state byte-for-byte (container
+sha `8146eff4…`, text override pruned). **TIER W rung 3 is ★★: a stock summon's TIMING is editable in
+place — durations, phase thresholds, ramp normalisers, camera schedule and the outer text clock moved
+as one — and the two-clocks law is demonstrated by A/B in-game, not asserted.** No cast surprised the
+offline proof; the disclosed light-column residual drew no owner objection.

@@ -105,7 +105,8 @@ scenery must be re-authored *together*.
   them before its single `ret`, and only READS `gteH`; 121/122 have no corpus call site) — so no
   effect program sets zoom and a rescore is a sequence/camera-data edit, as W1 assumed. STAGED only,
   under `C:\gd\SCRATCH\summon-format\rescore-w2\`; the cast protocol is `W2-RESCORE.md` §6.
-- **W3 — ★ BUILT + ALIGNED DEPLOYED LIVE, both casts pending** (`W3-RETIME.md`, `retime.py`, `w3_program_edits.py`,
+- **W3 — ★★ CAST-PROVEN 2026-07-26 ("worked as described"; both casts + revert run; live install
+  verified back at W2's resting state)** (`W3-RETIME.md`, `retime.py`, `w3_program_edits.py`,
   `w3_clock_emu.py`, `bahamut_retime.toml`, `test_retime.py`, `w3_gates.py`; X0-X7 all PASS, 256
   tests, two independent from-bytes re-derivations (V1/V2) could not refute the offline proof).
   `ef227:c0` state 0 stretched 70→118 ticks (N=+48, exactly two loops of the creature's 24-frame
@@ -128,4 +129,5 @@ scenery must be re-authored *together*.
   verified intact). Cast 1 needs no deploy step; `deploy_misretime.py` swaps to the falsifier;
   `revert_summon_retime_227.py` restores W2's resting state. The cast protocol is `W3-RETIME.md`
   §6, and the rung does not close until both casts are judged.
-- W4 — pending the W3 cast.
+- W4 — THE RESKIN, in flight (scope per THE EFFECT-OWNED SCENERY LAW: the effect's whole set,
+  creature AND scenery).
