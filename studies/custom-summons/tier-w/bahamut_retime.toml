@@ -1,0 +1,118 @@
+# TIER W rung 3 -- THE TIMING RESCORE.  Stock Bahamut (ef227): the entrance phase stretched, and
+# every clock locked to it moved with it.
+#
+# WHAT EACH NUMBER BELOW IS.  Almost nothing here is an INSTRUCTION -- the tool derives the edit
+# sites from the container and the install itself.  These are GUARDS: the stock value each derived
+# site must already hold.  If the bytes underneath ever disagree, `retime.py` refuses instead of
+# splicing a delta into a container it was never derived against.  (The two exceptions, marked, are
+# the two authored decisions: `ticks` and the anchor's `delta`.)
+#
+# THE FOUR CLOCKS, and who owns each recon:
+#   E1  the effect PROGRAM's own clock      B0-CLOCK-AUDIT.md  -> `w3_program_edits.py`, consumed verbatim
+#   E2  the SEQUENCE stream's delta clock   A1-SEQUENCE.md     -> [retime.sequence] below
+#   E3  the CAMERA's per-block frame clock  A3-CAMERA.md       -> [retime.camera] below
+#   E4  the OUTER text Sequence.seq clock   A4-LIVESTATE.md    -> [retime.text] below
+#
+# THE MIS-RETIME TWIN is not configured here: it is the SAME build with E1 omitted entirely, emitted
+# alongside the aligned artifact by the same `build`.  The two are then a controlled A/B of exactly
+# one thing -- whether the creature's own clock moved with the presentation.
+
+[retime]
+effect = 227
+label  = "bahamut-w3-retime"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+# ---- AUTHORED DECISION 1 ---------------------------------------------------------------------
+# N = +48 ticks = 3.2 s at the live BattleTPS = 15, and -- the reason for this exact number -- it is
+# EXACTLY TWO LOOPS of the creature's 24-frame float clip, so the clip frame at the new phase end is
+# the one stock ends on.  The clip keeps looping through the extension and lands on its stock pose.
+# `w3_program_edits.py` is locked to the same N and the tool refuses if the two ever disagree.
+ticks = 48
+
+
+# ==============================================================================================
+# E1 -- THE PROGRAM CLOCK.  Not authored here; `w3_program_edits.PROGRAM_EDITS` is consumed verbatim
+# (7 in-place splices, 14 bytes written, 12 actually different, all inside chunk 0's id-3 image).
+# These three numbers only assert that the spec module in front of us is the one this spec was
+# written against -- a threshold, a count, nothing derived from stock data.
+[retime.program]
+expect_threshold = 69     # `slti $v0,$s5,69` at image 0x1278 -- s0 lasts clock 0..69 = 70 ticks
+new_threshold    = 117    # ... 0..117 = 118 ticks
+sites            = 7
+
+
+# ==============================================================================================
+# E2 -- THE SEQUENCE CLOCK.  Time in the binary stream is PURE DELTA: no op carries a timestamp, and
+# the only carrier of time is `WAIT (0x01, arg1 == 0)`, whose arg2 is one byte of ticks.  So shifting
+# every op at and after the cut is a ONE-BYTE edit and not one of the 74 shifted ops changes a byte
+# of its own.
+#
+# THE CUT IS AT 81, NOT 82 -- A3 section 4's one-tick correction to the recon brief.  Tick 82 is where
+# c0 enters state 10; tick 81 is the LAST tick of state 0, and it carries both the sequence's
+# `0x2A` background-intensity op and shot A's f71 camera keyframe.  Those are authored TO the end of
+# the entrance, so they must ride the phase's end.  Cutting at 82 instead leaves them parked while
+# the beat they anticipate walks away -- which is precisely the drift this rung exists to avoid.
+# (That variant is A3's `E3-alt`, a deliberately subtler mis-retime, and is not what this ships.)
+[retime.sequence]
+cut_tick           = 81      # the derivation: the WAIT whose span ENDS here is the anchor (A1's anchor B)
+expect_wait_offset = 0x432   # guard -- the arg2 byte of the WAIT record at file 0x430
+expect_wait_time   = 46      # guard -- it spans tick 35 -> 81.  46 + 48 = 94, inside the corpus
+                             # envelope [1, 240] over 1,931 stock WAITs (arg2 == 0 occurs ZERO times)
+
+
+# ==============================================================================================
+# E3 -- THE CAMERA CLOCK.  The native stepper fires a Code on an EQUALITY compare between the block's
+# own per-frame counter and the Code's frame word masked with 0x3FF; durations are NOT the schedule
+# (they seed a `(remaining, total)` lerp), which is why a timeline shift is a frame-word-only edit
+# and every one of shot A's 5 movement and 3 focal durations stays byte-identical.
+#
+# Only the shot that STRADDLES the cut needs in-block work.  Shots B and C install at sequence ticks
+# that are themselves after the cut, so E2 moves them wholesale and ZERO bytes change inside either.
+[retime.camera]
+shot                     = "A"
+chunk                    = 0
+subfile                  = 6
+install_tick             = 11   # guard -- abs = install + local - 1, so the cut's local frame is 71
+expect_first_local_frame = 71   # guard on that arithmetic, not an instruction
+expect_frame_words       = 10   # guard -- 10 of shot A's 11 Codes move; only its frame-1 Code stays,
+                                # because that one is locked to c0's ENTRY, which a length change
+                                # does not move
+
+
+# ==============================================================================================
+# E4 -- THE OUTER TEXT CLOCK (A4 section 7.2's THIRD CLOCK, and the biggest finding of the recon).
+# Under `SFXRework` -- default true, and forced by the live `Speed = 5` -- the engine SWALLOWS the
+# binary sequence's sounds, background fades, show/hide and the damage EffectPoint, and re-issues
+# them from this separate managed text file.  A retime of the container alone therefore moves the
+# camera and the creature and NOTHING else: the damage cue and every sound cluster would stay on the
+# old schedule and drift by N.  That is not a defect in the retime, but it would be misread as one.
+#
+# The fix is one line.  Every tick in that file is a running sum of its `Wait: Time=` values, so the
+# ONE Wait whose span straddles the boundary carries every downstream beat -- both EffectPoint calls,
+# the flare ramp, all the remaining sound clusters, the closing fade -- uniformly by the delta.
+#
+# THE ANCHOR IS FOUND BY ITS SPAN, NOT BY ITS TEXT: the stock file has TWO `Wait: Time=56` lines and
+# only one of them covers the boundary.  A text match would be a coin flip.
+[retime.text]
+seq_file            = "Sequence.seq"
+expect_sha256       = "0452a785e90c206c21f5c9b5464310f6d73186fe001dfd12abf60eda292611d0"
+boundary_outer_tick = 82        # the container boundary, mapped onto the outer clock (A4 section 4.2:
+                                # near-1:1, offset unmeasured and single-digit -- stated as inference)
+anchor_wait_index   = 2         # guard -- the 3rd `Wait: Time=` line in the file
+expect_wait_time    = 56        # guard
+expect_wait_span    = [60, 116] # guard -- it is the one that contains 82
+# ---- AUTHORED DECISION 2 -----------------------------------------------------------------------
+# The delta, kept a SEPARATE field from `ticks` on purpose: a recast-only bisect can move this one
+# number (the text file is re-read from disc on EVERY cast, no relaunch, no field reload) to find
+# the true cross-clock offset without rebuilding either container.
+delta = 48
+
+# The OUTER-OUTER script gets AUDITED, not edited -- and the audit is a check, not an assumption.
+# `retime.py` reconstructs its clock and refuses to leave it alone if any beat lands after the
+# boundary.  It does not: the file has zero literal `Wait: Time=` lines (every wait it uses is
+# animation- or signal-gated), so its main-thread clock never advances and nothing in it can drift.
+[retime.text.player_audit]
+file          = "PlayerSequence.seq"
+expect_sha256 = "4bc643bfb3ec478dcc1f5b51261f59637faac9d775cccd38c0055afee14ece63"
