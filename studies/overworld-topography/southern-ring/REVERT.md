@@ -1380,3 +1380,174 @@ the tower's foot; you can walk in from the arrive side without snagging; the "La
 appears. (All four currently share the case-53 name — per-berth naming is a B-phase concern.)
 Larkspur's base is seated on the footprint **minimum** (0.116 u of relief there), so check it does not
 read as sunk on the high side.
+
+---
+
+# 15. R2 PHASE B — THE BERTH ROW — **APPLIED** (hot; no relaunch)
+
+Run 2026-07-26, same worktree/branch. Backups: **`backups/r2-sweep.20260726-r2sweep/field6601/`**
+(all 7 `.eb`, all 7 `.mes`, and the pre-deploy `DictionaryPatch.txt`).
+
+## 15.1 What the hall became
+
+R1 shipped ONE berth door — field 2800's own exit region, a big quad across the hall's south end.
+R2 replaces it with **four east-wall, depth-staggered alcoves**, one per ring island, so the saloon
+reads as a ferry hall with a berth per destination.
+
+| berth | gateway zone | sign zone | arrive | face |
+|---|---|---|---|---|
+| I Ashvale | x[80,205] z[−2790,−2610] | x[10,78], same z | (60, −1168) | 192 E |
+| II Tidefall | x[80,205] z[−2440,−2260] | x[10,78], same z | (432, −1232) | 192 E |
+| III Grimhorn | x[80,205] z[−2090,−1910] | x[10,78], same z | (1214, −1192) | 192 E |
+| IV Larkspur | x[80,205] z[−1740,−1560] | x[10,78], same z | (688, −616) | **64 W** |
+
+350 u of clear corridor between mouths, so you can never stand in two at once. Every arrive is the
+quay's own gate-verified point — the same coords `mint_quay_beacon.SITES` gates the beacons against.
+
+**The signs are `[[event]]` zones, not props.** A placard with a model would be an *actor* in a 410 u
+corridor and would breach the ≥300 u spacing the probe enforces — in a shaft this narrow, any west-wall
+actor lands 195–262 u from an east-wall sign and there is no arrangement that clears 300. A zone has no
+collision and no footprint, so the sign costs nothing spatially. Each sits in the 68 u of corridor just
+WEST of its mouth: you read the berth name on approach, then cross into the gateway.
+
+Sign once-flags are **8760–8763**, explicitly set. The `[[event]]` default allocates from **8000**,
+which is *below* `FIRST_SAFE_FLAG` = 8712 (`flags.py:46-48`) — the band CLAUDE.md flags as a live
+save-corrupter. Never take the default here.
+
+## 15.2 The Purser moved to the west wall — he was standing in a gateway
+
+He stood at **(130, −1650)**, which the new layout turns into the **mouth of berth 4**: x 130 ∈ [80,205]
+and z −1650 ∈ [−1740,−1560]. An actor inside a gateway zone is an instant warp the moment he is nudged.
+Now at **(−130, −2400)** — 75 u off the west wall, facing the berth row across the hall, **420 u** from
+the spawn and **950 u** from the ledger. His line is re-voiced to name the four berths and to point at
+the ledger *up the hall* (it is now north of him, not west).
+
+## 15.3 Layout probe — **WARNINGS: none**
+
+`tools/field_layout_probe.py` → archived at `probe_marker/layout_pass7/`. Both PNGs read.
+
+* Camera is the borrowed Daguerreo one: **pitch 2.5°, yaw −12.2°**, canvas 512×320. Yawed, so
+  cardinals do not align with screen edges — the COMPASS table says world **north → up-right (66°)**,
+  east → right, south → down-left. Narrate from that table, not from coordinates.
+* `topdown.png`: the four gateway/sign pairs stack cleanly up the corridor's east side, all on the
+  measured floor (x[−205,205] for z[−3400,−1000]); Purser opposite them on the west wall; ledger and
+  spawn north and clear.
+* `camview.png`: the berths recede up-screen as a staggered row — the depth-stagger reads exactly as
+  intended at this near-level camera.
+* Reachability: the player centre stops 48 u off the wall, so it enters each gateway across
+  x ∈ [80, 157] — 77 u of usable depth per berth.
+
+`ff9mapkit lint`: **0 errors**, 1 advisory (`entry_settle = "auto"` → 50 frames).
+
+## 15.4 Write-set — 14 files, 891 before and after
+
+| class | count | detail |
+|---|---|---|
+| `EVT_LANTERN_HALL.eb.bytes` | 7 | **3198 → 6962 B** (+3764) — four gateways + four sign events |
+| `6601.mes` | 7 | sign text + the re-voiced purser line |
+| everything else | **0** | zero world meshes, zero dispatchers, zero `FF9CustomMap` |
+
+**The `DictionaryPatch` line SET is byte-identical** (`MessageFile`/`FieldScene 6601` were already
+registered by R1), so despite `deploy_field`'s generic *"RELAUNCH to register"* notice, **no relaunch is
+required** — `.eb`/`.mes` content hot-reloads. Proof: `probe_marker/writeset_md5_diff_pass7.txt`.
+
+## 15.5 Verified from the DEPLOYED `.eb`, all 7 languages
+
+Each language's shipped script was re-scanned for the exact byte blocks `worldexit.arrive_writes`
+emits:
+
+* **all four arrive blocks present, each exactly ONCE** (Ashvale / Tidefall / Grimhorn / Larkspur,
+  with their own coords and face);
+* **`D8:2 = 35` written 4×** — one preset key per berth (key 35 is the disc-correct bare-`WorldMap`
+  idiom from §8);
+* **`D8:2 = 62` written 0×** — the band-invariant key that caused the original 9009 fall-through
+  never appears.
+
+## 15.6 Undo
+
+```sh
+G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+B="backups/r2-sweep.20260726-r2sweep/field6601"
+for L in us uk fr gr it es jp; do
+  cp "$B/$L.eb.bytes"  "$G/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/$L/EVT_LANTERN_HALL.eb.bytes"
+  cp "$B/$L.6601.mes"  "$G/FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/$L/field/6601.mes"
+done
+```
+
+Returns the hall to R1's single south-end berth door. **~ → Reload field** (no relaunch). To remove
+6601 entirely: `py tools/scroll_out/revert_deploy_6601.py`.
+
+## 15.7 Playtest ask (owner) — no relaunch, ~ → Reload field or re-enter
+
+1. Four berth mouths along the **east** wall, staggered in depth; each announces its island as you
+   approach (sign fires **once ever** per berth — the kit has no once-per-visit region yet).
+2. Each berth lands you at its own quay: Ashvale (60,−1168) · Tidefall (432,−1232) · Grimhorn
+   (1214,−1192) · **Larkspur (688,−616) facing WEST** — Larkspur is the one where inland is west.
+3. Stepping out of a quay never instantly re-enters it (every arrive is ≥8 u off its trigger).
+4. The Purser is on the **west** wall now and no longer standing in berth 4's doorway; his line names
+   the four berths.
+5. The ledger/save point still works and is reachable.
+
+⚠ Known cosmetic gap: all four **overworld** quays still raise the same case-53 **"Lantern Quay"**
+nameplate — per-quay naming needs three more dead AREA-switch cases and is not in this pass.
+
+---
+
+# 16. R2 PHASE D — WRAP-UP CROSS-CHECKS
+
+Run 2026-07-26, immediately after §15. **Zero install writes** — verification only, plus one new
+offline gate.
+
+## 16.1 THE RING-CLOSURE CHECK (new)
+
+The four berth arrives live in `lantern-hall.field.toml`; the four quay arrives live in
+`mint_quay_beacon.SITES`. **They are the same four points written down in two files, and nothing tied
+them together** — edit a quay's arrive without editing the hall (or the reverse) and the ring silently
+half-breaks: you sail to a berth and land somewhere that is no longer beside its beacon. Offline, cheap,
+and exactly the class of drift that only shows up in a playtest.
+
+`probe_quay_sites.py` now parses the hall's `[[gateway]]` blocks and asserts each arrive **and face**
+against `SITES`. Current state — **all four match**:
+
+| berth | hall | quay table |
+|---|---|---|
+| Ashvale | (60, −1168) f192 | (60, −1168) f192 |
+| Tidefall | (432, −1232) f192 | (432, −1232) f192 |
+| Grimhorn | (1214, −1192) f192 | (1214, −1192) f192 |
+| Larkspur | (688, −616) **f64** | (688, −616) **f64** |
+
+## 16.2 Full-R2 install footprint — 93 files, 891 before and after
+
+Re-measured end-to-end against the pre-A2 baseline, after every phase:
+
+| class | count |
+|---|---|
+| world dispatchers (`EVT_WORLD_WORLDxx`, 9 × 7 langs) | 63 |
+| world meshes (4 sites × Terrain/Object × 2 discs) | 16 |
+| field 6601 `.eb` | 7 |
+| field 6601 `.mes` | 7 |
+| **total** | **93** |
+
+No file added or removed. Zero `DictionaryPatch` content change, zero writes to `FF9CustomMap`.
+**No relaunch was performed and none is required** for any of it.
+
+## 16.3 Final verification state
+
+* **`probe_quay_sites.py --backup-root backups/r2-sweep.20260726-r2sweep`: 162 checks, ALL PASS** —
+  four sites × two discs, re-run *after* the 6601 deploy to confirm the field work regressed nothing,
+  plus the new ring-closure section.
+* **Deployed 6601 `.eb`, all 7 langs**: four `arrive_writes` blocks each exactly once, `D8:2 = 35` ×4,
+  `D8:2 = 62` ×0.
+* **Dispatchers**: every pre-existing function body byte-identical and in order, +3 functions each.
+* **Layout probe**: zero warnings; both PNGs archived at `probe_marker/layout_pass7/`.
+* **Tests**: world/mesh + worldexit + hub sets green (134 in the phase-B run; 310 in the A-phase run,
+  with the one known pre-existing `test_world_nameplate_surgery` live-dispatcher failure).
+
+## 16.4 What R2 did NOT do (open, deliberately)
+
+* **Per-quay nameplates.** All four overworld quays raise the same case-53 *"Lantern Quay"* plate.
+  Distinct names need three more dead high AREA-switch cases (49–59 band, avoiding 54–59/49/50) plus
+  three more text-block-68 locId registrations. Cosmetic; flagged, not attempted.
+* **The Grimhorn falls.** A0 dropped by owner ruling — see the §13 preamble. Not to be re-costed.
+* **The ferry berth rows beyond four.** The design's Lamplight island (R3) and the forest pass (R4)
+  are separate rungs.

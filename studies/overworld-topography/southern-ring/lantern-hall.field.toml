@@ -50,11 +50,15 @@ spawn = [0, -2000]                   # just inside the hall door, on the y=0 cor
 # player collision radius off each wall). The example's Mopli at x=170 measured only
 # 37u from the east wall -- the player could not have walked up to talk; that is the
 # one real defect the probe caught, and both actors moved inward and split along z.
+# R2: the Purser moved to the WEST wall. He stood at (130,-1650), which the berth layout
+# below turns into the mouth of berth 4 -- an actor standing INSIDE a gateway zone, i.e. an
+# instant warp the moment he was nudged. Now he faces the berth row from across the hall,
+# 420u from the spawn and 950u from the ledger (both >= the 300u comfortable spacing).
 [[npc]]
 name = "Purser"                      # the ferry purser (white save-moogle rig)
-pos = [130, -1650]                   # 75u off the east wall; 373u from the spawn
+pos = [-130, -2400]                  # 75u off the WEST wall, opposite the middle of the row
 model = 220
-dialogue = "Kupo! Lantern Hall, southern berth. The ferry lies out the door behind me -- log your passage on the ledger to the west first, kupo!"
+dialogue = "Kupo! Lantern Hall. Four berths along the east wall -- Ashvale, Tidefall, Grimhorn, Larkspur. Step into the one you want. Log your passage on the ledger up the hall first, kupo!"
 
 # the passage ledger (save point): its own press area WEST of and DEEPER IN than the
 # purser -- 75u off the west wall, 328u from the purser, 565u from the spawn (the
@@ -68,15 +72,72 @@ zone = [[-195, -1550], [-65, -1550], [-65, -1350], [-195, -1350]]   # the prop c
                                      # its own press area -- the example's proven relation,
                                      # translated with it
 
-# THE BERTH DOOR -- walking out returns to the world map. The zone is field 2800's
-# OWN real exit region, verbatim (the borrowed art's door sits exactly there).
-# arrive pins the world landing DETERMINISTICALLY on Ashvale's west shore (the
-# engine's position-mirror return is racy for teleported/short visits).
+# =====================================================================================
+# THE BERTH ROW (R2) -- four EAST-WALL, DEPTH-STAGGERED ALCOVES
+# =====================================================================================
+# R1 shipped ONE berth door using field 2800's own real exit region (a big quad across
+# the hall's south end). R2 replaces it with four alcoves ranged up the east wall, so the
+# hall reads as a ferry saloon with a berth per island rather than a single exit.
+#
+# Layout (owner-ruled): each zone is x[80,205] -- from 125u short of the east wall out to
+# the wall itself -- by +/-90u deep, centred at z -2700 / -2350 / -2000 / -1650. 350u of
+# clear corridor between mouths, so you cannot be in two at once, and every zone sits on
+# the measured floor (x[-205,205] for z[-3400,-1000]).
+#
+# ⚠ EACH BERTH NEEDS ITS OWN `arrive`. The engine's position-mirror return is racy for
+# teleported/short visits, so the landing is pinned explicitly per berth -- and each one
+# is the quay's OWN gate-verified arrive point, >=8u clear of that quay's trigger tile
+# (THE ARRIVAL-CLEARANCE LAW) so stepping out never re-fires the entrance you arrived at.
+# The four coords are the same ones `mint_quay_beacon.SITES` gates the beacons against.
+#
+# The signs below sit in the 68u of corridor just WEST of each mouth: you read the berth
+# name on approach, THEN cross into the gateway. They are `[[event]]` zones, not props --
+# a sign with a model would be an actor in a 410u-wide corridor and would breach the
+# spacing rules the probe enforces; a zone has no collision and no footprint.
+
+# berth 1 -- ASHVALE (the Lantern Quay, junction island west shore)
+[[event]]
+zone = [[10, -2790], [78, -2790], [78, -2610], [10, -2610]]
+message = "Berth I -- ASHVALE.   The Lantern Quay, on the junction island's west shore."
+flag = 8760                          # >= FIRST_SAFE_FLAG (8712); the kit's 8000 default
+                                     # sits below the safe band (flags.py:46-48)
 [[gateway]]
 to = "worldmap"
-zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
-arrive = [60.0, -1168.0]             # Ashvale west shore, 12u inland (east) of the
-                                     # quay trigger tile (48,-1168) -- THE
-                                     # ARRIVAL-CLEARANCE LAW's >=8u, so no instant
-                                     # re-entry loop
-arrive_face = 192                    # facing east = inland, back turned to the sea
+zone = [[80, -2790], [205, -2790], [205, -2610], [80, -2610]]
+arrive = [60.0, -1168.0]             # 12u east (inland) of trigger (48,-1168)
+arrive_face = 192                    # east = inland, back to the sea
+
+# berth 2 -- TIDEFALL
+[[event]]
+zone = [[10, -2440], [78, -2440], [78, -2260], [10, -2260]]
+message = "Berth II -- TIDEFALL."
+flag = 8761
+[[gateway]]
+to = "worldmap"
+zone = [[80, -2440], [205, -2440], [205, -2260], [80, -2260]]
+arrive = [432.0, -1232.0]            # 12u east of trigger (420,-1232)
+arrive_face = 192
+
+# berth 3 -- GRIMHORN
+[[event]]
+zone = [[10, -2090], [78, -2090], [78, -1910], [10, -1910]]
+message = "Berth III -- GRIMHORN."
+flag = 8762
+[[gateway]]
+to = "worldmap"
+zone = [[80, -2090], [205, -2090], [205, -1910], [80, -1910]]
+arrive = [1214.0, -1192.0]           # 10u east of trigger (1204,-1192) -- the tightest of
+                                     # the four, still >=8u
+arrive_face = 192
+
+# berth 4 -- LARKSPUR
+[[event]]
+zone = [[10, -1740], [78, -1740], [78, -1560], [10, -1560]]
+message = "Berth IV -- LARKSPUR."
+flag = 8763
+[[gateway]]
+to = "worldmap"
+zone = [[80, -1740], [205, -1740], [205, -1560], [80, -1560]]
+arrive = [688.0, -616.0]             # 12u WEST of trigger (700,-616) -- inland is WEST on
+                                     # Larkspur, hence the different face below
+arrive_face = 64                     # west = inland
