@@ -93,12 +93,16 @@ def grow_entry_table(data, new_count: int) -> bytes:
     return bytes(b[:ins_at]) + bytes(k) + bytes(b[ins_at:])
 
 
-def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
+def append_entry(data, slot: int, entry_bytes: bytes, *, loc: int = 0) -> bytes:
     """Append ``entry_bytes`` at end-of-file and register it in entry-table ``slot``.
 
     The slot must currently be empty. If ``slot`` is beyond the current table (``slot >= entry_count``
     -- what :meth:`EbScript.first_free_slot` returns when the table is full), the table is grown
     on-demand to accommodate it first. Returns new bytes. Does not shift existing bytecode.
+
+    ``loc``: the slot record's local-variable byte count (stock ``allocate N``). The engine sizes the
+    object's per-instance var area from it (``Obj.ctor``: ``sObjTable[sid].varn``), read/written in
+    expressions as ``Instance.Byte[0..loc-1]`` -- the field-64 daemon's own ``allocate 2`` mechanism.
     """
     b = bytearray(_as_bytes(data))
     if slot >= b[3]:                                  # table full -> grow (chunked) to fit this slot
@@ -123,7 +127,7 @@ def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     b += entry_bytes
     set_u16(b, so, new_off)
     set_u16(b, so + 2, len(entry_bytes))
-    b[so + 4] = 0  # loc
+    b[so + 4] = int(loc) & 0xFF  # local-var bytes (stock `allocate N`; 0 = no locals)
     b[so + 5] = 0  # flags
     b[so + 6] = 0  # pad
     b[so + 7] = 0
