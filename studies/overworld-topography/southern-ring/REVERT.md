@@ -1551,3 +1551,140 @@ No file added or removed. Zero `DictionaryPatch` content change, zero writes to 
 * **The Grimhorn falls.** A0 dropped by owner ruling — see the §13 preamble. Not to be re-costed.
 * **The ferry berth rows beyond four.** The design's Lamplight island (R3) and the forest pass (R4)
   are separate rungs.
+
+---
+
+# 17. R2 REDESIGN — **THE PURSER RUNS THE FERRY** — APPLIED (hot; no relaunch)
+
+Run 2026-07-26. Backups: **`backups/r2-ferry.20260726/`** (all 7 `.eb`, all 7 `.mes`, pre-deploy
+`DictionaryPatch.txt`).
+
+## 17.1 Why the berth row was replaced, not tuned
+
+Owner playtest of §15: *"everything is super clustered... I can't tell what I'm supposed to do. I can
+randomly trigger 1 of 2 warps."* The causes are structural:
+
+* the **spawn (0,−2000) sat inside berth III's z-band**, 10 u west of its sign zone;
+* the **sign zones occupied the CENTRE** of a ±157 u walk band — you crossed them just walking up the hall;
+* the **four warp zones ate the whole east half** of that band, so adjacent triggers were one nudge apart;
+* and **the borrowed art paints nothing at any alcove** — an invisible door cannot be read.
+
+Four unmarked, mutually-adjacent trigger zones in one corridor is not a layout problem with a tuning
+fix; it is the wrong *mechanism* for borrowed art. Owner chose stock FF9's own boat-travel idiom.
+
+## 17.2 The kit lane — `[[ferry]]` (productized, documented, tested)
+
+A dialogue-CHOICE worldmap exit. **Talk to a person, pick a port.** Documented in
+`ff9mapkit/docs/FORMAT.md` beside `[[choice]]`.
+
+```toml
+[[ferry]]
+npc = "Purser"
+prompt = "Where shall we sail, kupo?"
+decline = "Not yet, kupo."                # REQUIRED
+decline_reply = "Kupo! The ferry keeps her berth."
+
+[[ferry.destination]]
+name = "Ashvale"
+arrive = [60.0, -1168.0]
+arrive_face = 192
+reply = "The Lantern Quay it is, kupo!"
+```
+
+**It desugars into an ordinary `[[choice]]`** (`build._desugar_ferries`, run in `FieldProject.load`)
+whose destination rows carry a new `worldmap` action. That was deliberate: a ferry then inherits the
+entire proven choice pipeline — the one-text-entry prompt+rows assembly (and with it the
+**window-geometry law**, since the entry carries its own `[STRT]`/`[TAIL]`), CANCEL-picks-the-last-row,
+the runtime availability mask, flag gating, and all 12 existing `raw["choice"]` consumers — instead of
+growing a parallel implementation. A field with no `[[ferry]]` never gains a `choice` key, so existing
+builds stay byte-identical.
+
+The only new byte-level behaviour is the row action itself (`choice.option_body`'s `worldmap` arm),
+which calls **`worldexit.worldmap_exit_body`** — the same primitive a walk-out gateway uses. So a ferry
+row and a door behave identically once taken: usercontrol guard, fade, **both** position blocks,
+`POSITION_PRESET_KEY` 35, computed `WorldMap`. The decline arm emits no transition at all.
+
+**The decline arm is mandatory and appended LAST** because with no `[PCHC]` pre-tags the engine's
+CANCEL (B) returns the last row — without it, a cancelled menu would sail you to the final destination.
+Lint enforces it, along with at-least-one destination, a prompt, a real `[[npc]]` target, and
+gateway-grade `arrive`/`arrive_face` validation. Errors are labelled `[[ferry]]`, pointing at what the
+author wrote rather than at generated rows.
+
+Existing worldmap-gateway restrictions were left untouched.
+
+**Tests: `ff9mapkit/tests/test_ferry_lane.py`, 15 cases** — desugar shape and decline-last ordering,
+`instant` default, the no-ferry no-op, six negative lint cases, and the byte contract (arrive block
+verbatim, exactly one key-35 write, never key 62, per-destination coords differ, decline emits no
+transition, `warp` and `worldmap` mutually exclusive).
+
+## 17.3 The hall, redesigned
+
+* **DELETED** all four `[[event]]` sign zones and all four berth `[[gateway]]`s. **Flags 8760-8763 are
+  returned to the pool** — nothing references them (the probe asserts no `flag = 876x` assignment
+  survives, and that no `[[event]]` remains).
+* **RESTORED the R1-proven walk-on home door** — field 2800's own real exit region, the quad
+  `[[201,-3377],[-193,-3305],[-193,-2315],[188,-2547]]`, recovered from git — landing at **Ashvale
+  (60,-1168) f192**. This is the one exit the borrowed art actually paints.
+* **THE FERRY** on the Purser, with all four ports at the `SITES`-gated arrives.
+* **The Purser went back to R1's (130,-1650)** — and this mattered. The §15 pass had moved him to the
+  west wall at (-130,-2400) to escape berth 4's mouth; with the row gone, the *west* wall is now the
+  wrong side, because at x -130 the restored door quad reaches **z -2353**, so a west-wall purser at
+  -2400 would have been standing **inside the home door** and warped out on his first nudge. Caught by
+  re-deriving the quad's slanted edge instead of assuming the previous position was still safe — the
+  same class of bug the berth row had, one pass later.
+
+## 17.4 Layout probe — **WARNINGS: none**, and the corridor is legible
+
+`probe_marker/layout_pass8/`; both PNGs read. The corridor now contains **exactly four things**, north
+to south: the **ledger prop + savepoint press area** (west, z -1450 / -1550..-1350) · the **Purser**
+(east, 130,-1650) · the **spawn** (centre, 0,-2000) · **one large door zone** filling the south end
+(z -2315..-3377). Nothing overlaps, and there is a single obvious exit at the end you face.
+
+Spawn clearance re-verified: at x 0 the door quad's slanted north edge sits at z ~ -2432, so the spawn
+is **432 u clear** of the only remaining zone. `lint`: 0 errors, 1 advisory (`entry_settle` -> 50 frames).
+
+## 17.5 Write-set — 14 files, 891 before and after
+
+7 × `EVT_LANTERN_HALL.eb.bytes` (**6962 -> 7703 B**) + 7 × `6601.mes`. **DictionaryPatch line set
+byte-identical, so no relaunch.** Zero world meshes, zero dispatchers, zero `FF9CustomMap`. Proof:
+`probe_marker/writeset_md5_diff_pass8.txt`.
+
+## 17.6 Verified from the DEPLOYED `.eb`, all 7 languages
+
+* **Ashvale's arrive block appears exactly 2x** — once as the ferry row, once as the walk-out home door;
+* **Tidefall / Grimhorn / Larkspur exactly 1x each**, with their own coords and face;
+* **`D8:2 = 35` written 5x** (four ferry arms + the door), **`D8:2 = 62` written 0x**;
+* **`[CHOO]` present in every `6601.mes`** — the choice window is really there;
+* the script still parses to 10 entries / 24 functions.
+
+## 17.7 The ring-closure check now covers BOTH declarations
+
+`probe_marker/probe_quay_sites.py` previously parsed the hall's four `[[gateway]]` arrives. It now
+parses the **`[[ferry.destination]]` rows** *and* the **single home-door gateway**, asserting each
+against `SITES`, plus that exactly one walk-on exit remains and that the deleted sign flags are
+unassigned. **169 checks, ALL PASS** (four sites × two discs + ring closure).
+
+One self-inflicted lesson worth keeping: the first version of the "flags are gone" check was a
+substring test for `"8760"`, which matched **this file's own explanatory comment** and failed on a
+correct hall. It now matches a `flag = 876x` **assignment**. A prose-sensitive gate is a false-alarm
+generator.
+
+## 17.8 Undo
+
+Restore the 7 `.eb` + 7 `.mes` from `backups/r2-ferry.20260726/` into
+`FF9CustomMap-world/StreamingAssets/.../field/<lang>/EVT_LANTERN_HALL.eb.bytes` and
+`FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/<lang>/field/6601.mes` respectively.
+
+That returns the hall to §15's four-alcove berth row. **~ -> Reload field** (no relaunch). For R1's
+single door, use `backups/r2-sweep.20260726-r2sweep/field6601/` instead.
+
+## 17.9 Playtest ask (owner) — no relaunch, ~ -> Reload field
+
+1. The hall reads as **one room with one door and one person**: ledger north, Purser on the east wall,
+   the south door out to our own quay.
+2. **Talk to the Purser** -> a menu pops (fully drawn, no type-on) -> Ashvale / Tidefall / Grimhorn /
+   Larkspur / "Not yet". Picking a port fades and lands you at that quay, beside its beacon.
+3. **Cancel (B) declines** — it must never sail you anywhere.
+4. **Walking out the south door** lands you at Ashvale, the home port.
+5. No accidental warps anywhere in the corridor: the only walk-on trigger is the door itself.
+6. Larkspur is the one that lands you facing **west** (inland is west there).

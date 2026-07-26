@@ -190,6 +190,67 @@ class PathTraversalError(ValueError):
     existing ``except ValueError`` handlers still catch it."""
 
 
+def _desugar_ferries(raw: dict) -> None:
+    """Expand every ``[[ferry]]`` into an ordinary ``[[choice]]`` with worldmap-exit option rows.
+
+    THE FERRY LANE. Stock FF9 books boat travel through a PERSON -- you talk to the Blue Narciss's
+    captain and pick a port -- not by walking through one unmarked door per destination. This block is
+    that idiom, productized: an NPC whose talk menu sails you to any of several OVERWORLD landings.
+
+    It desugars rather than growing a parallel implementation, so a ferry inherits the whole proven
+    choice pipeline for free: the ONE-text-entry prompt+rows assembly (and with it the window-geometry
+    law -- the entry carries its own [STRT]/[TAIL] geometry, which is why a ferry menu is authored as
+    text, never hand-pointed), CANCEL-picks-the-last-row, the runtime availability mask, flag gating,
+    and every existing ``raw["choice"]`` consumer in this module. The only genuinely new byte-level
+    behaviour is the per-row worldmap exit itself (``choice.option_body``'s ``worldmap`` arm), which
+    reuses ``worldexit.worldmap_exit_body`` -- the same primitive a walk-out gateway uses.
+
+    Shape::
+
+        [[ferry]]
+        npc = "Purser"                 # must name an [[npc]]
+        prompt = "Where shall we sail?"
+        decline = "Stay ashore."       # REQUIRED -- the last row, which CANCEL/B also picks
+        decline_reply = "..."          # optional line after declining
+        instant = true                 # optional -- pop the menu fully drawn (default true here)
+
+        [[ferry.destination]]
+        name = "Ashvale"               # the menu row
+        arrive = [60.0, -1168.0]       # where you land on the overworld
+        arrive_face = 192              # facing there (0=S 64=W 128=N 192=E)
+        reply = "..."                  # optional line before the fade
+
+    The decline row is appended LAST on purpose: with no ``[PCHC]`` pre-tags the engine's CANCEL (B)
+    returns the last row, so "changed my mind" is the free default and a mis-press can never sail you
+    somewhere. Validation lives in :func:`lint_project` under the ``[[ferry]]`` label so errors point at
+    the surface the author wrote, not at the generated choice."""
+    ferries = raw.get("ferry") or []
+    if not ferries:
+        return
+    choices = raw.setdefault("choice", [])
+    for f in ferries:
+        opts = []
+        for d in (f.get("destination") or []):
+            o = {"text": d.get("name", "?")}
+            if "reply" in d:
+                o["reply"] = d["reply"]
+            if "arrive" in d:
+                o["worldmap"] = {"arrive": d["arrive"], "face": d.get("arrive_face", 0)}
+            opts.append(o)
+        if "decline" in f:
+            dec = {"text": f["decline"]}
+            if "decline_reply" in f:
+                dec["reply"] = f["decline_reply"]
+            opts.append(dec)                       # LAST: CANCEL/B lands here
+        ch = {"options": opts}
+        for k in ("npc", "zone", "prompt", "speaker", "tail", "trigger", "default", "cancel"):
+            if k in f:
+                ch[k] = f[k]
+        ch["instant"] = f.get("instant", True)     # a travel menu wants to pop, not type on
+        ch["_ferry"] = True                        # provenance, so lint can label errors correctly
+        choices.append(ch)
+
+
 @dataclass
 class FieldProject:
     raw: dict
@@ -211,6 +272,7 @@ class FieldProject:
         # integer indices BEFORE any int() reads them. A project with no named flags is left unchanged
         # (numeric flags pass through), so single-field builds stay byte-identical.
         _flags.resolve_project_flags(raw, flag_names)
+        _desugar_ferries(raw)
         return cls(raw, p.parent)
 
     # convenience accessors
@@ -2235,8 +2297,38 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[qte]] and [behavior] can't share a field yet -- the game's "
                             "scratch (gEventGlobal bytes 2026-2039) sits inside the behavior "
                             "blackboard's headroom band")
-    # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
+    # THE FERRY LANE -- validated against the surface the author WROTE ([[ferry]]), before the desugared
+    # [[choice]] rules below see the generated rows. See _desugar_ferries for the shape + why the decline
+    # arm is mandatory (CANCEL/B picks the last row, so without it a mis-press sails you somewhere).
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
+    for fi, f in enumerate(project.raw.get("ferry", []) or []):
+        dests = f.get("destination") or []
+        if not dests:
+            problems.append(f"[[ferry]] #{fi} needs at least one [[ferry.destination]] "
+                            f"(a ferry with nowhere to sail is just an NPC)")
+        if "decline" not in f:
+            problems.append(f"[[ferry]] #{fi} needs decline = \"<text>\" -- the stay-ashore row. It is "
+                            f"appended LAST because the engine's CANCEL (B) returns the last row; "
+                            f"without it a cancelled menu would sail to the final destination")
+        if ("npc" in f) == ("zone" in f):
+            problems.append(f"[[ferry]] #{fi} needs exactly one of npc = \"<name>\" or zone = [...]")
+        if "npc" in f and f["npc"] not in npc_names:
+            problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} is not a defined [[npc]] name")
+        if "prompt" not in f:
+            problems.append(f"[[ferry]] #{fi} needs a prompt (the \"Where to?\" line above the rows)")
+        for di, d in enumerate(dests):
+            if not d.get("name"):
+                problems.append(f"[[ferry]] #{fi} destination {di} needs a name (the menu row)")
+            arr = d.get("arrive")
+            if not (isinstance(arr, (list, tuple)) and len(arr) == 2
+                    and all(isinstance(v, (int, float)) for v in arr)):
+                problems.append(f"[[ferry]] #{fi} destination {di} needs arrive = [x, z] "
+                                f"(the overworld landing) -- got {arr!r}")
+            fc = d.get("arrive_face", 0)
+            if not (isinstance(fc, int) and 0 <= fc <= 255):
+                problems.append(f"[[ferry]] #{fi} destination {di} arrive_face {fc!r} must be a raw "
+                                f"facing byte 0..255 (0=south 64=west 128=north 192=east)")
+    # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     for c, ch in enumerate(project.raw.get("choice", [])):
         has_npc, has_zone = "npc" in ch, "zone" in ch
         if has_npc == has_zone:                  # need exactly one trigger

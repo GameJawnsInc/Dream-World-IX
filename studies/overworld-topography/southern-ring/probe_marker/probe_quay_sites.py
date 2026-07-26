@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import re
 import hashlib
 import math
 import sys
@@ -253,31 +254,59 @@ def probe_site(key, backup_root: Path) -> None:
 def ring_closure() -> None:
     """THE RING-CLOSURE CHECK -- the one invariant nothing else enforces.
 
-    The four berth arrives live in `lantern-hall.field.toml` and the four quay arrives live in
-    `mint_quay_beacon.SITES`. They are the SAME four points written down in two files, and nothing
-    ties them together: edit a quay's arrive without editing the hall (or vice versa) and the ring
-    silently half-breaks -- you sail to a berth and land somewhere that is no longer beside its
-    beacon. Cheap to check, so check it every run."""
-    import re
+    The quay arrives live in `mint_quay_beacon.SITES`; the hall's landings live in
+    `lantern-hall.field.toml`. They are the same points written down in two files, and nothing ties
+    them together: change one side and the ring silently half-breaks -- you sail somewhere that is no
+    longer beside its beacon. Playtest-only otherwise; milliseconds here.
+
+    Since the berth-row redesign the hall declares them in TWO places, and BOTH are checked:
+      * the FERRY -- `[[ferry.destination]]` rows on the Purser (all four ports);
+      * the HOME DOOR -- the single walk-out `[[gateway]]`, which must land at Ashvale.
+    """
     toml = (STUDY / "lantern-hall.field.toml").read_text(encoding="utf-8")
-    got = []
+    print("=" * 100)
+    print("RING CLOSURE -- lantern-hall (ferry + home door) vs mint_quay_beacon.SITES")
+    print("=" * 100)
+
+    # --- the ferry destinations
+    ferry = []
+    for blk in toml.split("[[ferry.destination]]")[1:]:
+        nm = re.search(r'name\s*=\s*"([^"]+)"', blk)
+        a = re.search(r"arrive\s*=\s*\[\s*([-\d.]+)\s*,\s*([-\d.]+)", blk)
+        f = re.search(r"arrive_face\s*=\s*(\d+)", blk)
+        if nm and a:
+            ferry.append((nm.group(1), float(a.group(1)), float(a.group(2)),
+                          int(f.group(1)) if f else 0))
+    check(len(ferry) == 4, "the ferry declares exactly 4 destinations", f"got {len(ferry)}")
+    by_name = {n.lower(): (x, z, fc) for (n, x, z, fc) in ferry}
+    for k in ("ashvale", "tidefall", "grimhorn", "larkspur"):
+        S = SITES[k]
+        want = (S.arrive[0], S.arrive[1], S.arrive_face)
+        got = by_name.get(k)
+        check(got == want, f"ferry row {S.name!r} lands at its quay's gated arrive point",
+              f"hall {got} vs quay {want}")
+
+    # --- the home door: the ONE walk-out gateway, which must be Ashvale
+    doors = []
     for blk in toml.split("[[gateway]]")[1:]:
         a = re.search(r"arrive\s*=\s*\[\s*([-\d.]+)\s*,\s*([-\d.]+)", blk)
         f = re.search(r"arrive_face\s*=\s*(\d+)", blk)
         if a:
-            got.append((float(a.group(1)), float(a.group(2)), int(f.group(1)) if f else None))
-    want = [(SITES[k].arrive[0], SITES[k].arrive[1], SITES[k].arrive_face)
-            for k in ("ashvale", "tidefall", "grimhorn", "larkspur")]
-    print("=" * 100)
-    print("RING CLOSURE -- lantern-hall berths vs mint_quay_beacon.SITES")
-    print("=" * 100)
-    check(len(got) == 4, "the hall declares exactly 4 worldmap berths", f"got {len(got)}")
-    check(sorted(got) == sorted(want), "every berth arrive matches its quay's gated arrive point",
-          f"hall {sorted(got)} vs quays {sorted(want)}")
-    for k, g in zip(("ashvale", "tidefall", "grimhorn", "larkspur"), got):
-        S = SITES[k]
-        ok = (g[0], g[1], g[2]) == (S.arrive[0], S.arrive[1], S.arrive_face)
-        print(f"    {'OK  ' if ok else 'BAD '} {S.name:9s} hall {g} -> quay {S.arrive} face {S.arrive_face}")
+            doors.append((float(a.group(1)), float(a.group(2)), int(f.group(1)) if f else 0))
+    A = SITES["ashvale"]
+    check(len(doors) == 1, "exactly ONE walk-on exit (the home door) -- the berth row is gone",
+          f"got {len(doors)}")
+    check(doors and doors[0] == (A.arrive[0], A.arrive[1], A.arrive_face),
+          "the home door lands at Ashvale, the home port",
+          f"door {doors[0] if doors else None} vs {(A.arrive[0], A.arrive[1], A.arrive_face)}")
+
+    # --- no stale berth-row leftovers
+    # Look for an ASSIGNMENT, not the bare digits -- the file's own comment explains that these flags
+    # were returned to the pool, and a substring test matches that prose and fails on a correct file.
+    live = re.findall(r"^\s*flag\s*=\s*(876[0-3])", toml, re.M)
+    check(not live, "the deleted berth-sign flags 8760-8763 are no longer ASSIGNED (returned to the pool)",
+          f"still assigned: {live}")
+    check(toml.count("[[event]]") == 0, "no [[event]] sign zones remain")
     print()
 
 
