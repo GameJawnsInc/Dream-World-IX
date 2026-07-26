@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Behavior ARCHETYPES: stamp a whole proven tree (rung D, first slice)
+- The Behavior tab's cast rail (and its no-behavior guide) gained **＋ Archetype…**: pick a
+  proven tree, pick a named `[[npc]]`, and the unit is seated in one undo step — **sentry**
+  (announces once and raises `alarm` when the player closes, chases from mid range, walks a
+  minted beat), **patroller** (die guard + beat), **civilian** (bolts from the player to
+  refuge points, strolls a wander box at home). Sentry/patroller mint a closed 4-point beat
+  marker around the post (220u legs — clear of the ~192u actor-jam spacing; names dedupe)
+  with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
+  Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
+  and is CI-fenced by a real dry-compile of the stamped document.
+
 ### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
 - `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
   Hunt scenes (id 35 + the `LB_E080x` family — what a Lindblum-plaza fork borrows as its
