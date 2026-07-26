@@ -55,7 +55,9 @@ def test_sfxhybrid_updates_match_the_live_memoria_ini():
     if not ini.is_file():
         pytest.skip(f"{ini} absent")
     live = _read_ini_section(ini.read_text(encoding="utf-8", errors="replace"), "SfxHybrid")
-    if not live:
+    if not live or str(live.get("Enabled", "0")).strip() == "0":
+        # absent OR disarmed (Enabled = 0 -- the TIER W cast-1 state: the hybrid mask
+        # off so the native creature shows): the lane is not live, nothing to compare
         pytest.skip("[SfxHybrid] not armed in the live Memoria.ini -- nothing to compare")
     updates = deploy.sfxhybrid_updates(summon.resolve_spec(acceptance_block()), log=True)
     for key, want in updates.items():
