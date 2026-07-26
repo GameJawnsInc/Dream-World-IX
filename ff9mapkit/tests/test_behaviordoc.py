@@ -298,7 +298,9 @@ def test_compile_now_sync_fills_the_instruments(doc, tmp_path):
     p = make_behavior_field(tmp_path)
     doc.show_field("BGLADE", demo_raw(), p)
     doc.compile_now(sync=True)
-    assert doc.report_box.isVisibleTo(doc)         # bare isVisible lies under a hidden ancestor
+    # judged against the INSTRUMENTS column (the shell docks it into its inspector; it is
+    # deliberately NOT a child of the doc) -- bare isVisible lies under a hidden ancestor
+    assert doc.report_box.isVisibleTo(doc.instruments)
     text = doc.report_box.toPlainText()
     assert "blackboard" in text and "byte histogram" in text
     assert "Compiles" in doc.compile_note.text()
@@ -312,16 +314,16 @@ def test_compile_without_a_saved_path_teaches_instead_of_failing(doc):
     doc.show_field("BGLADE", demo_raw(), None)
     doc.compile_now(sync=True)
     assert "save it first" in doc.compile_note.text()
-    assert not doc.report_box.isVisibleTo(doc)
+    assert not doc.report_box.isVisibleTo(doc.instruments)
 
 
 def test_a_field_switch_drops_the_stale_report(doc, tmp_path):
     p = make_behavior_field(tmp_path)
     doc.show_field("BGLADE", demo_raw(), p)
     doc.compile_now(sync=True)
-    assert doc.report_box.isVisibleTo(doc) and doc._has_result()
+    assert doc.report_box.isVisibleTo(doc.instruments) and doc._has_result()
     doc.show_field("OTHER", demo_raw(), None)      # a different member, same shape
-    assert not doc.report_box.isVisibleTo(doc)     # another field's numbers must not linger
+    assert not doc.report_box.isVisibleTo(doc.instruments)   # no lingering numbers
     assert not doc._has_result()
     assert "Nothing compiled yet" in doc.compile_note.text()
 
@@ -352,6 +354,16 @@ def test_the_shell_spends_every_mechanism_this_doc_exposes():
         .read_text(encoding="utf-8")
     for needle in ("behavior_doc.retheme", "behavior_doc.set_scale",
                    "self._feed_behavior()", 'addTab(self.behavior_doc, "Behavior")',
-                   "Go to Behavior"):
+                   "Go to Behavior", "_mount_behavior_instruments("):
         assert needle in src, f"shell.py no longer spends {needle!r}"
     assert src.count("self._feed_behavior()") >= 2   # tab show AND tree select
+    assert src.count("_mount_behavior_instruments(") >= 2   # the def AND the tab-change call
+
+
+def test_the_instruments_column_is_standalone_for_the_inspector_dock(doc):
+    """The shell docks doc.instruments into ITS inspector -- so the column must exist, hold
+    the compile widgets, and not be seated inside the doc's own splitter."""
+    assert doc.instruments.parent() is None
+    assert doc.report_box in doc.instruments.findChildren(type(doc.report_box))
+    doc.show_none()                                # a closed project resets the docked column
+    assert not doc._has_result() and doc.problems_lbl.text() == ""

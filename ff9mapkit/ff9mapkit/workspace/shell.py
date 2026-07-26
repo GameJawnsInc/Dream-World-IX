@@ -1817,6 +1817,7 @@ class Workspace(QMainWindow):
         self._refresh_insp_empty()                 # seed the tab-aware empty-state (tabs + tree exist by here)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
+        self._insp_lay = iv                        # the Behavior tab docks its Instruments here
         # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
         # scroll area its minimumSizeHint would also make the whole window un-shrinkable.
         insp_scroll = QScrollArea()
@@ -4840,6 +4841,7 @@ class Workspace(QMainWindow):
         if not hasattr(self, "tabs"):
             return
         w = self.tabs.currentWidget()
+        self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -4873,6 +4875,26 @@ class Workspace(QMainWindow):
         if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
             self._sync_rail()
         self._refresh_insp_empty()                  # the untouched inspector's empty-state is tab-aware (#14)
+
+    def _mount_behavior_instruments(self, on):
+        """Dock the Behavior doc's Problems/Compile column into the INSPECTOR while that tab
+        shows (owner's call -- a third in-doc column starved the ladder of width). The SAME
+        widget moves, so a filled compile report survives the tab round-trip; the ordinary
+        inspector card hides under it and returns when the tab changes away."""
+        doc = getattr(self, "behavior_doc", None)
+        if doc is None or getattr(self, "_insp_lay", None) is None:
+            return
+        w = doc.instruments
+        mounted = w.parent() is not None
+        if on and not mounted:
+            self.insp_body.hide()
+            self._insp_lay.addWidget(w, 1)
+            w.show()
+        elif not on and mounted:
+            self._insp_lay.removeWidget(w)
+            w.setParent(None)                      # kept alive by the doc's own reference
+            w.hide()
+            self.insp_body.show()
 
     def _behavior_target(self):
         """The field member the Behavior tab renders: the tree selection's owning field, else the

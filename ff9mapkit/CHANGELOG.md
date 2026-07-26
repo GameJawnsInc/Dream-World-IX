@@ -11,7 +11,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   unit's LADDER (branches as guarded priority rows in TOML order — the compiled semantics —
   with decorator chips and the required fallback labeled), and the STAGE (posts, patrol/march
   routes, flee refuges, scan/wander boxes, and the selected unit's engagement radii drawn on
-  a zoomable canvas in the layout probe's +z-up frame). The Instruments rail shows the
+  a zoomable canvas in the layout probe's +z-up frame). The Instruments column docks into
+  the shell's INSPECTOR while the tab shows (the ladder keeps the doc's width): the
   compiler's own `validate()` problems live, and a **Compile (dry)** button runs the real
   `behavior compile` lane off the saved file on a worker thread — blackboard map, byte
   histogram, and public/pool flag indices with copy-ready `set_flag = [N, 1]` rows. Fully

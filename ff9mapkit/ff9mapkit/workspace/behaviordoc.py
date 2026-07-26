@@ -389,6 +389,10 @@ class BehaviorDoc(QWidget):
         self._busy = False
         self._guide_state = "nofield"
         self._compile_done.connect(self._finish_compile)
+        # The Instruments column is NOT one of this doc's panes: the shell docks it into its
+        # INSPECTOR while this tab shows (owner's call -- a third in-doc column starved the
+        # ladder of width). Built here, owned here; the shell only mounts/unmounts it.
+        self.instruments = self._build_instruments()
         self._stack = QStackedLayout(self)
         self._stack.setContentsMargins(0, 0, 0, 0)
         self._guide_page = self._build_guide(self._guide_state)
@@ -460,20 +464,20 @@ class BehaviorDoc(QWidget):
         k = self._scale / 100
         mid.setSizes([int(340 * k), int(280 * k)])
         split.addWidget(mid)
-        # instruments rail
-        split.addWidget(self._build_instruments())
         split.setStretchFactor(1, 1)
-        # The doc shares the window with the shell's own tree + inspector, so its pane budget is
-        # ~700px at a 1280 window -- ask for LESS than that (snap-measured: a request over the
-        # available width let Qt starve the CENTER pane to ~190px while the rails kept theirs).
-        split.setSizes([int(170 * k), int(330 * k), int(200 * k)])
+        # Ask for LESS than the realistic ~700px budget at a 1280 window (snap-measured: a
+        # request over the available width let Qt starve the CENTER pane while rails kept theirs).
+        split.setSizes([int(170 * k), int(530 * k)])
         outer.addWidget(split, 1)
         return page
 
     def _build_instruments(self):
+        """The Problems/Compile column. A PLAIN widget, no scroll wrapper of its own -- its
+        host (the shell inspector) already scrolls, and its h-bar is off, so everything in
+        here must wrap or scroll internally (the report box scrolls itself)."""
         col = QWidget()
         v = QVBoxLayout(col)
-        v.setContentsMargins(4, 0, 0, 0)
+        v.setContentsMargins(0, 8, 0, 0)
         v.setSpacing(7)
         v.addWidget(widgets.role_label("PROBLEMS", "subtle"))
         self.problems_lbl = widgets.caption("")
@@ -503,14 +507,10 @@ class BehaviorDoc(QWidget):
         self.report_box.setAccessibleName("Compile report")
         self.report_box.setVisible(False)
         fm = QFontMetrics(self.report_box.font())
-        self.report_box.setMinimumHeight(fm.lineSpacing() * 6)
+        self.report_box.setMinimumHeight(fm.lineSpacing() * 12)
         v.addWidget(self.report_box, 1)
         v.addStretch(0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(col)
-        return scroll
+        return col
 
     # -- shell hooks --
     def crumb_label(self):
@@ -534,6 +534,9 @@ class BehaviorDoc(QWidget):
     # -- the feed (shell-pushed, in-memory, no file I/O) --
     def show_none(self):
         self._member = self._path = self._raw = None
+        self._set_result(None)                     # the docked inspector column must not keep a
+        self.problems_lbl.setText("")              # dead project's report or problems
+        widgets.set_state(self.problems_lbl, "")
         self._show_guide("nofield")
 
     def show_field(self, member, raw, path=None, *, dirty=False):
