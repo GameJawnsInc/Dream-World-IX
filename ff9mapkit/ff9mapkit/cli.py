@@ -337,13 +337,10 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
 
 
 def _pursuit_extent(wmesh) -> float:
-    """The walkmesh's larger XZ extent -- the radius an UNGATED chase's pursuit family
-    spans (its quarry can be anywhere on the field)."""
-    wv = wmesh.world_verts()
-    if not wv:
-        return 0.0
-    return float(max(max(v[0] for v in wv) - min(v[0] for v in wv),
-                     max(v[2] for v in wv) - min(v[2] for v in wv)))
+    """Moved to :func:`ff9mapkit.scene.routes.pursuit_extent` (the Workspace's stage
+    sweep shares it); kept as an alias for the lint lane below."""
+    from .scene.routes import pursuit_extent
+    return pursuit_extent(wmesh)
 
 
 def _cmd_behavior(args: argparse.Namespace) -> int:

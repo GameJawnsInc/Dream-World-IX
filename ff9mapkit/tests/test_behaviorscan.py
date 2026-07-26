@@ -200,3 +200,157 @@ def test_pooled_units_read_pooled_on_cast_and_stage():
     cast = BS.cast_model(raw)
     assert cast["units"][0]["pooled"] and cast["pools"][0]["note"] == "10 gil"
     assert BS.stage_model(raw)["posts"][0]["pooled"]
+
+
+# --------------------------------------------------------------------------- rung C: stage authoring
+def _stagey():
+    return _field([
+        _unit("a", [{"when": [{"near_point": [[50, 60], 300]}], "do": {"chase": "b"}},
+                    {"do": {"patrol": "loop"}}]),
+        _unit("b", [{"when": [{"hp_le": 1}], "do": {"flee": "a", "to": ["nook", [5, 6]]}},
+                    {"do": {"wander": [700, -300], "radius": 150}}]),
+    ], scan=[{"name": "s", "units": ["a"], "point": [50, 50], "radius": 200, "count": "c"}],
+       counters=["c"])
+
+
+def test_stage_handles_cover_every_writable_point():
+    hs = {h["id"]: h for h in BS.stage_handles(_stagey())}
+    assert hs[("pos", "a")]["kind"] == "post"
+    assert ("player",) in hs
+    assert hs[("path", "loop", 2)]["list_id"] == ("path", "loop", 2)
+    # a NAME refuge moves the NAMED owner; its list slot rides along for the point ops
+    assert hs[("pos", "nook")]["kind"] == "refuge"
+    assert hs[("pos", "nook")]["list_id"] == ("route_pt", 1, 0, "to", 0)
+    assert ("route_pt", 1, 0, "to", 1) in hs       # the literal refuge point owns itself
+    assert ("wander", 1, 1) in hs
+    assert ("near_point", 0, 0, 0) in hs
+    assert ("scan_pt", 0) in hs
+
+
+def test_apply_move_writes_every_kind_as_ints():
+    raw = _stagey()
+    assert BS.apply_move(raw, ("pos", "a"), 111.6, -22.4) == "move a"
+    assert raw["npc"][0]["pos"] == [112, -22]
+    BS.apply_move(raw, ("player",), 9.5, 8.5)
+    assert raw["player"]["spawn"] == [10, 8]       # ints, trailing components preserved
+    BS.apply_move(raw, ("path", "loop", 1), 150, 10)
+    assert raw["marker"][0]["path"][1] == [150, 10]
+    BS.apply_move(raw, ("route_pt", 1, 0, "to", 1), 44, 55)
+    assert raw["behavior"]["unit"][1]["branch"][0]["do"]["to"][1] == [44, 55]
+    BS.apply_move(raw, ("wander", 1, 1), 650, -250)
+    assert raw["behavior"]["unit"][1]["branch"][1]["do"]["wander"] == [650, -250]
+    BS.apply_move(raw, ("near_point", 0, 0, 0), 70, 80)
+    assert raw["behavior"]["unit"][0]["branch"][0]["when"][0]["near_point"][0] == [70, 80]
+    BS.apply_move(raw, ("scan_pt", 0), 60, 61)
+    assert raw["behavior"]["scan"][0]["point"] == [60, 61]
+
+
+def test_apply_move_matches_the_resolvers_marker_over_npc_precedence():
+    """_npc_marker_positions lets a [[marker]] OVERWRITE an [[npc]] of the same name --
+    the write must land where the resolver reads or a drag silently forks the truth."""
+    raw = _stagey()
+    raw["marker"].append({"name": "a", "pos": [1, 2]})
+    BS.apply_move(raw, ("pos", "a"), 500, 600)
+    assert raw["marker"][-1]["pos"] == [500, 600]
+    assert raw["npc"][0]["pos"] == [100, 200]      # the npc row untouched
+
+
+def test_apply_radius_floors_and_names_its_cond():
+    raw = _stagey()
+    rid = ("radius", 0, 0, 0, "near_point")
+    label = BS.apply_radius(raw, rid, 449.7)
+    assert raw["behavior"]["unit"][0]["branch"][0]["when"][0]["near_point"][1] == 450
+    assert "450" in label
+    BS.apply_radius(raw, rid, 3)                   # a 3u gate is a typo, not a ring
+    assert raw["behavior"]["unit"][0]["branch"][0]["when"][0]["near_point"][1] == BS.RADIUS_FLOOR
+
+
+def test_insert_route_point_defaults_to_the_leg_midpoint():
+    raw = _stagey()
+    BS.insert_route_point(raw, ("path", "loop", 0))
+    assert raw["marker"][0]["path"][1] == [50, 0]  # ON the leg, ready to drag
+    BS.insert_route_point(raw, ("path", "loop", 3))    # after the tail -> a small offset
+    assert raw["marker"][0]["path"][4] == [180, 180]
+    BS.insert_route_point(raw, ("route_pt", 1, 0, "to", 0), 7, 8)   # explicit coords
+    assert raw["behavior"]["unit"][1]["branch"][0]["do"]["to"][1] == [7, 8]
+
+
+def test_delete_route_point_refuses_below_two():
+    import pytest
+    raw = _stagey()
+    BS.delete_route_point(raw, ("path", "loop", 2))
+    assert len(raw["marker"][0]["path"]) == 2
+    with pytest.raises(ValueError, match="at least 2 points"):
+        BS.delete_route_point(raw, ("path", "loop", 0))
+    assert len(raw["marker"][0]["path"]) == 2      # the refusal wrote nothing
+
+
+def test_ring_rids_point_back_at_their_own_cond():
+    raw = _stagey()
+    ring = BS.stage_model(raw)["rings"]["a"][0]
+    assert ring["rid"] == ("radius", 0, 0, 0, "near_point")
+    BS.apply_radius(raw, ring["rid"], 512)
+    assert BS.stage_model(raw)["rings"]["a"][0]["radius"] == 512
+
+
+# --------------------------------------------------------------------------- rung C: the sweep lane
+def _u_mesh(notch_z=-400):
+    """The pursuit suite's WELDED U floor: outer x[-800,800] z[-800,200] minus the notch
+    x(-400,400) z(notch_z, 200] -- a leg crossing the notch mouth jams."""
+    from ff9mapkit.scene import bgi
+    xs = (-800, -400, 400, 800)
+    verts = [(x, 0, z) for z in (200, notch_z, -800) for x in xs]
+    tris = [(0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+            (4, 5, 9), (4, 9, 8), (5, 6, 10), (5, 10, 9), (6, 7, 11), (6, 11, 10)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(verts, tris).to_bytes())
+
+
+def _sweep_field(**patrol_extra):
+    return {
+        "player": {"spawn": [0, -600]},
+        "npc": [{"name": "w", "pos": [-600, -600]}],
+        "marker": [{"name": "line", "path": [[-600, -100], [600, -100]]}],
+        "behavior": {"unit": [{"npc": "w", "hp": 1, "branch": [
+            {"when": [{"hp_le": 0}], "do": {"die": True}},
+            {"do": {"patrol": "line", **patrol_extra}}]}]},
+    }
+
+
+def test_sweep_geometry_names_the_jam_where_the_cli_would():
+    res = BS.sweep_geometry(_sweep_field(), _u_mesh(), pursuit=False)
+    assert res.ok
+    (jam, *_rest) = res.jams                       # the z=-100 line crosses the notch mouth
+    assert -400 < jam["mid"][0] < 400 and jam["name"] == "line"
+    assert any(k == "error" and "OFF-MESH" in t for k, t in res.lines)
+    assert any("route = \"auto\"" in t for _k, t in res.lines)   # the CLI's own hint
+
+
+def test_sweep_geometry_judges_the_routed_line_for_autoroute():
+    """route = "auto" compiles the PATHFOUND line, so lint (and the stage) judge THAT --
+    the authored jam heals and the sweep reports clean."""
+    res = BS.sweep_geometry(_sweep_field(route="auto"), _u_mesh(), pursuit=False)
+    assert res.ok and res.jams == []
+    assert not any(k == "error" for k, _t in res.lines)
+    # the detour legally HUGS the notch corner -- a warn, not a jam; clean is not promised
+
+
+def test_sweep_geometry_flags_the_pursuit_family():
+    raw = _sweep_field()
+    raw["npc"].append({"name": "q", "pos": [600, -600]})
+    raw["behavior"]["unit"][0]["branch"].insert(
+        1, {"when": [{"near": ["q", 900]}], "do": {"chase": "q"}})
+    res = BS.sweep_geometry(raw, _u_mesh())
+    assert res.ok and res.pursuits
+    p = res.pursuits[0]
+    assert p["blocked"] > 0 and p["worst"] and p["unit"] == "w"
+    assert any("pursuit" in t for k, t in res.lines if k == "warn")
+
+
+def test_sweep_geometry_without_a_mesh_is_an_error_not_a_crash():
+    res = BS.sweep_geometry(_sweep_field(), None)
+    assert not res.ok and "walkmesh" in res.error
+
+
+def test_load_walkmesh_reports_the_reason(tmp_path):
+    wm, err = BS.load_walkmesh(tmp_path / "nope" / "field.toml")
+    assert wm is None and err
