@@ -111,6 +111,19 @@ class Site(NamedTuple):
     cell: tuple                  # the entrance cell, for the surgery command
     trigger_at: tuple            # --trigger-at for world-entrance
 
+    @property
+    def building_at(self) -> tuple:
+        """The value to pass to ``--building-at``, which is NOT the anchor.
+
+        ⚠ `build_from_obj` re-anchors the mesh's XZ **BOUNDING-BOX CENTRE** onto ``--building-at``
+        (blendio.py:198-203). Until pass 5 the footprint was symmetric (+/-2.30), so the bbox centre
+        WAS the anchor and passing the anchor was an identity shift. Pass 5's entrance steps project
+        0.45u south, moving the bbox centre 0.225u south of the tower's centre -- so passing the
+        anchor silently slid the whole beacon 0.225u NORTH of where every gate had measured it.
+        Caught on the Tidefall deploy by the probe's span check. Publish the real value instead of
+        re-deriving it at each call site."""
+        return (self.anchor[0], self.anchor[1] + (DEEP_N - DEEP_S) / 2.0)
+
 
 def _blk(bx, by):
     return (bx * 64.0, bx * 64.0 + 64.0, -(by + 1) * 64.0, -by * 64.0)
@@ -191,6 +204,13 @@ STEP_TIERS = [                  # (half-width, top height above ground, south pr
     (1.20, 0.20, 0.45),         # lower/outer tread
     (1.00, 0.42, 0.22),         # upper tread -- 0.03u under DOOR_SILL so it is never COPLANAR with it
 ]
+
+# The footprint the beacon occupies about its anchor, published so the deploy probe measures the SAME
+# rectangle the generator gates against (a probe with its own copy of these numbers is a probe that
+# silently drifts -- pass 4 lost an afternoon to exactly that).
+HALF_X_SPAN = 2.30              # widest half-width in X (the plinth)
+DEEP_N = 2.30                   # north half-depth (the plain plinth face)
+DEEP_S = 2.30 + STEP_OUT        # south half-depth -- the entrance steps project past the plinth
 
 # ---- atlas tiles -----------------------------------------------------------------------------------
 # UVs into the SHARED `res(1_24)_objects` atlas (the engine-resolved one: a Moguri install renders a
@@ -595,7 +615,10 @@ def build_site(key: str) -> int:
         return bad
     path = write_obj(S, verts, faces, normals, uvs, obj_path(S))
     print(f"\nwrote {path}  ({len(verts)} verts, {len(faces)} tris, {len(uvs)} uvs)")
-    print(f"  deploy with --building-at {S.anchor[0]:g} {S.anchor[1]:g} --no-seat --building-idall 4078")
+    ba = S.building_at
+    print(f"  deploy with --building-at {ba[0]:g} {ba[1]:g} --no-seat --building-idall 4078")
+    print(f"    (that is the mesh's BBOX CENTRE, {S.anchor[1] - ba[1]:+.3f}u off the anchor "
+          f"{S.anchor} -- the steps make the footprint asymmetric; see Site.building_at)")
     return 0
 
 
