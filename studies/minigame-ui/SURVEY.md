@@ -58,7 +58,7 @@ Memoria's author even ships the single-dialog modern form as a source comment:
 `[NUMB=digitVar,selVar]` renders the selected digit pink (`Dialog.cs:1429-74`,
 `DialogBoxSymbols.cs:161-170`).
 
-### 3. Shop-as-hire-menu — native armoury, zero DLL, mostly already in the kit
+### 3. Shop-as-hire-menu — native armoury, zero DLL (★ built as the ITEM POOL — `[[behavior.pool]] item=` + `have_item` cond + `item:` hud source, bench 30418 "ARMOURY" — `armoury_bench.py`, playtest pending)
 `Menu(2, shopId)` (opcode 0x75) opens `ShopUI` from ANY field, no id gate
 (`DoEventCode.cs:2317-2342`; the full Menu enum: 0=main 1=name-entry 2=shop
 4=save 5=chocograph; 3/6/7/8 dead). Stock lives in `Data/Items/ShopItems.csv`
