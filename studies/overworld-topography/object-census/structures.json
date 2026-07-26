@@ -1,0 +1,2443 @@
+[
+ {
+  "tris": 2,
+  "verts": 4,
+  "blocks": [
+   [
+    6,
+    10
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   422.9,
+   426.1
+  ],
+  "wz": [
+   -648.0,
+   -644.0
+  ],
+  "y": [
+   3.86,
+   10.23
+  ],
+  "dx": 3.2,
+  "dz": 4.0,
+  "dy": 6.4,
+  "cx": 424.5,
+  "cz": -646.0,
+  "nearest": "Air Garden (Canyon)",
+  "nearest_loc": 56,
+  "nearest_d": 50.4,
+  "markers_in_bbox": [],
+  "coast_d": 18.8,
+  "coast_part": "sea3",
+  "idalls": {
+   "10734": 2
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   41
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 2,
+  "verts": 4,
+  "blocks": [
+   [
+    9,
+    1
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   576.0,
+   579.8
+  ],
+  "wz": [
+   -92.9,
+   -89.0
+  ],
+  "y": [
+   3.71,
+   7.42
+  ],
+  "dx": 3.8,
+  "dz": 3.9,
+  "dy": 3.7,
+  "cx": 577.9,
+  "cz": -90.9,
+  "nearest": "Fire Shrine",
+  "nearest_loc": 48,
+  "nearest_d": 78.1,
+  "markers_in_bbox": [],
+  "coast_d": 21.9,
+  "coast_part": "sea3",
+  "idalls": {
+   "14574": 2
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   56
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 2,
+  "verts": 4,
+  "blocks": [
+   [
+    16,
+    1
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1073.5,
+   1077.0
+  ],
+  "wz": [
+   -108.5,
+   -104.4
+  ],
+  "y": [
+   2.73,
+   7.05
+  ],
+  "dx": 3.6,
+  "dz": 4.2,
+  "dy": 4.3,
+  "cx": 1075.2,
+  "cz": -106.4,
+  "nearest": "Mognet Central",
+  "nearest_loc": 28,
+  "nearest_d": 0.4,
+  "markers_in_bbox": [
+   "Mognet Central"
+  ],
+  "coast_d": 16.6,
+  "coast_part": "sea4",
+  "idalls": {
+   "14830": 2
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   57
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 2,
+  "verts": 4,
+  "blocks": [
+   [
+    5,
+    11
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   374.9,
+   379.5
+  ],
+  "wz": [
+   -732.5,
+   -728.0
+  ],
+  "y": [
+   6.88,
+   11.51
+  ],
+  "dx": 4.6,
+  "dz": 4.5,
+  "dy": 4.6,
+  "cx": 377.2,
+  "cz": -730.3,
+  "nearest": "Oeilvert",
+  "nearest_loc": 41,
+  "nearest_d": 70.2,
+  "markers_in_bbox": [],
+  "coast_d": 45.4,
+  "coast_part": "sea4",
+  "idalls": {
+   "10734": 2
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   41
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 3,
+  "verts": 4,
+  "blocks": [
+   [
+    3,
+    9
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   224.5,
+   224.8
+  ],
+  "wz": [
+   -608.5,
+   -608.2
+  ],
+  "y": [
+   0.0,
+   1.39
+  ],
+  "dx": 0.4,
+  "dz": 0.3,
+  "dy": 1.4,
+  "cx": 224.6,
+  "cz": -608.3,
+  "nearest": "Water Shrine",
+  "nearest_loc": 43,
+  "nearest_d": 1.8,
+  "markers_in_bbox": [
+   "Water Shrine"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "238": 3
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   0
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 3,
+  "verts": 5,
+  "blocks": [
+   [
+    8,
+    14
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   512.9,
+   514.0
+  ],
+  "wz": [
+   -908.0,
+   -907.4
+  ],
+  "y": [
+   1.0,
+   6.5
+  ],
+  "dx": 1.1,
+  "dz": 0.6,
+  "dy": 5.5,
+  "cx": 513.5,
+  "cz": -907.7,
+  "nearest": "Wind Shrine",
+  "nearest_loc": 38,
+  "nearest_d": 3.9,
+  "markers_in_bbox": [
+   "Wind Shrine"
+  ],
+  "coast_d": 33.7,
+  "coast_part": "sea3",
+  "idalls": {
+   "28142": 3
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   45
+  ],
+  "events": [
+   1
+  ]
+ },
+ {
+  "tris": 4,
+  "verts": 5,
+  "blocks": [
+   [
+    3,
+    9
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   223.3,
+   223.8
+  ],
+  "wz": [
+   -608.9,
+   -608.2
+  ],
+  "y": [
+   0.0,
+   2.04
+  ],
+  "dx": 0.6,
+  "dz": 0.7,
+  "dy": 2.0,
+  "cx": 223.5,
+  "cz": -608.6,
+  "nearest": "Water Shrine",
+  "nearest_loc": 43,
+  "nearest_d": 1.3,
+  "markers_in_bbox": [
+   "Water Shrine"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "238": 4
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   0
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 4,
+  "verts": 6,
+  "blocks": [
+   [
+    13,
+    4
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   851.7,
+   859.2
+  ],
+  "wz": [
+   -276.7,
+   -270.9
+  ],
+  "y": [
+   6.01,
+   6.89
+  ],
+  "dx": 7.6,
+  "dz": 5.8,
+  "dy": 0.9,
+  "cx": 855.4,
+  "cz": -273.8,
+  "nearest": "CP Mountain Path",
+  "nearest_loc": 35,
+  "nearest_d": 5.5,
+  "markers_in_bbox": [
+   "CP Mountain Path"
+  ],
+  "coast_d": 7.7,
+  "coast_part": "sea4",
+  "idalls": {
+   "8942": 2,
+   "25158": 2
+  },
+  "topos": [
+   17,
+   59
+  ],
+  "areas": [
+   34
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 5,
+  "verts": 6,
+  "blocks": [
+   [
+    18,
+    5
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1157.1,
+   1159.3
+  ],
+  "wz": [
+   -371.6,
+   -369.1
+  ],
+  "y": [
+   3.88,
+   6.14
+  ],
+  "dx": 2.2,
+  "dz": 2.6,
+  "dy": 2.3,
+  "cx": 1158.2,
+  "cz": -370.3,
+  "nearest": "Earth Shrine",
+  "nearest_loc": 26,
+  "nearest_d": 10.3,
+  "markers_in_bbox": [],
+  "coast_d": 40.9,
+  "coast_part": "sea4",
+  "idalls": {
+   "31982": 5
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   60
+  ],
+  "events": [
+   1
+  ]
+ },
+ {
+  "tris": 5,
+  "verts": 6,
+  "blocks": [
+   [
+    18,
+    5
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1168.7,
+   1171.2
+  ],
+  "wz": [
+   -359.4,
+   -356.7
+  ],
+  "y": [
+   3.82,
+   6.21
+  ],
+  "dx": 2.6,
+  "dz": 2.7,
+  "dy": 2.4,
+  "cx": 1170.0,
+  "cz": -358.0,
+  "nearest": "Earth Shrine",
+  "nearest_loc": 26,
+  "nearest_d": 9.8,
+  "markers_in_bbox": [],
+  "coast_d": 41.4,
+  "coast_part": "sea3",
+  "idalls": {
+   "31982": 5
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   60
+  ],
+  "events": [
+   1
+  ]
+ },
+ {
+  "tris": 5,
+  "verts": 6,
+  "blocks": [
+   [
+    18,
+    5
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1176.5,
+   1178.9
+  ],
+  "wz": [
+   -375.4,
+   -372.4
+  ],
+  "y": [
+   3.93,
+   5.75
+  ],
+  "dx": 2.4,
+  "dz": 3.0,
+  "dy": 1.8,
+  "cx": 1177.7,
+  "cz": -373.9,
+  "nearest": "Earth Shrine",
+  "nearest_loc": 26,
+  "nearest_d": 11.4,
+  "markers_in_bbox": [],
+  "coast_d": 27.9,
+  "coast_part": "sea4",
+  "idalls": {
+   "31982": 5
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   60
+  ],
+  "events": [
+   1
+  ]
+ },
+ {
+  "tris": 5,
+  "verts": 7,
+  "blocks": [
+   [
+    0,
+    0
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   32.0,
+   36.0
+  ],
+  "wz": [
+   -36.0,
+   -33.0
+  ],
+  "y": [
+   5.27,
+   8.04
+  ],
+  "dx": 4.0,
+  "dz": 3.0,
+  "dy": 2.8,
+  "cx": 34.0,
+  "cz": -34.5,
+  "nearest": "Esto Gaza",
+  "nearest_loc": 47,
+  "nearest_d": 395.5,
+  "markers_in_bbox": [],
+  "coast_d": 11.1,
+  "coast_part": "sea4",
+  "idalls": {
+   "16366": 5
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   63
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 8,
+  "verts": 9,
+  "blocks": [
+   [
+    18,
+    11
+   ],
+   [
+    19,
+    11
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   1214.3,
+   1220.9
+  ],
+  "wz": [
+   -750.7,
+   -743.5
+  ],
+  "y": [
+   3.2,
+   7.3
+  ],
+  "dx": 6.6,
+  "dz": 7.3,
+  "dy": 4.1,
+  "cx": 1217.6,
+  "cz": -747.1,
+  "nearest": "Evil Forest",
+  "nearest_loc": 2,
+  "nearest_d": 0.3,
+  "markers_in_bbox": [
+   "Evil Forest"
+  ],
+  "coast_d": 116.6,
+  "coast_part": "beach1",
+  "idalls": {
+   "198": 4,
+   "16386": 4
+  },
+  "topos": [
+   0,
+   49
+  ],
+  "areas": [
+   0
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 8,
+  "verts": 9,
+  "blocks": [
+   [
+    20,
+    11
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1280.6,
+   1288.6
+  ],
+  "wz": [
+   -715.9,
+   -707.7
+  ],
+  "y": [
+   26.43,
+   27.27
+  ],
+  "dx": 8.0,
+  "dz": 8.3,
+  "dy": 0.8,
+  "cx": 1284.6,
+  "cz": -711.8,
+  "nearest": "Alexandria",
+  "nearest_loc": 1,
+  "nearest_d": 13.0,
+  "markers_in_bbox": [],
+  "coast_d": 65.2,
+  "coast_part": "sea4",
+  "idalls": {
+   "5870": 8
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   22
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 10,
+  "verts": 11,
+  "blocks": [
+   [
+    19,
+    10
+   ],
+   [
+    19,
+    11
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   1268.0,
+   1276.0
+  ],
+  "wz": [
+   -704.8,
+   -696.0
+  ],
+  "y": [
+   26.46,
+   27.12
+  ],
+  "dx": 8.0,
+  "dz": 8.8,
+  "dy": 0.7,
+  "cx": 1272.0,
+  "cz": -700.4,
+  "nearest": "Alexandria",
+  "nearest_loc": 1,
+  "nearest_d": 12.0,
+  "markers_in_bbox": [],
+  "coast_d": 71.7,
+  "coast_part": "sea4",
+  "idalls": {
+   "5870": 10
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   22
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 13,
+  "verts": 15,
+  "blocks": [
+   [
+    7,
+    13
+   ],
+   [
+    7,
+    14
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   506.7,
+   512.0
+  ],
+  "wz": [
+   -908.0,
+   -880.0
+  ],
+  "y": [
+   -1.79,
+   4.84
+  ],
+  "dx": 5.3,
+  "dz": 28.0,
+  "dy": 6.6,
+  "cx": 509.3,
+  "cz": -894.0,
+  "nearest": "Wind Shrine",
+  "nearest_loc": 38,
+  "nearest_d": 10.5,
+  "markers_in_bbox": [
+   "Wind Shrine"
+  ],
+  "coast_d": 33.4,
+  "coast_part": "sea3",
+  "idalls": {
+   "11758": 5,
+   "28142": 8
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   45
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 14,
+  "verts": 13,
+  "blocks": [
+   [
+    5,
+    15
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   370.7,
+   374.1
+  ],
+  "wz": [
+   -1024.0,
+   -1020.0
+  ],
+  "y": [
+   25.1,
+   29.4
+  ],
+  "dx": 3.4,
+  "dz": 4.0,
+  "dy": 4.3,
+  "cx": 372.4,
+  "cz": -1022.0,
+  "nearest": "Daguerreo",
+  "nearest_loc": 39,
+  "nearest_d": 8.6,
+  "markers_in_bbox": [],
+  "coast_d": 24.3,
+  "coast_part": "sea3",
+  "idalls": {
+   "12526": 14
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   48
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 14,
+  "verts": 13,
+  "blocks": [
+   [
+    19,
+    11
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1269.5,
+   1279.6
+  ],
+  "wz": [
+   -714.5,
+   -704.0
+  ],
+  "y": [
+   26.46,
+   27.13
+  ],
+  "dx": 10.1,
+  "dz": 10.5,
+  "dy": 0.7,
+  "cx": 1274.6,
+  "cz": -709.2,
+  "nearest": "Alexandria",
+  "nearest_loc": 1,
+  "nearest_d": 14.0,
+  "markers_in_bbox": [
+   "Alexandria"
+  ],
+  "coast_d": 72.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "5870": 14
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   22
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 14,
+  "verts": 16,
+  "blocks": [
+   [
+    8,
+    13
+   ],
+   [
+    8,
+    14
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   513.0,
+   516.8
+  ],
+  "wz": [
+   -908.0,
+   -880.0
+  ],
+  "y": [
+   -1.79,
+   4.84
+  ],
+  "dx": 3.8,
+  "dz": 28.0,
+  "dy": 6.6,
+  "cx": 514.9,
+  "cz": -894.0,
+  "nearest": "Wind Shrine",
+  "nearest_loc": 38,
+  "nearest_d": 10.0,
+  "markers_in_bbox": [
+   "Wind Shrine"
+  ],
+  "coast_d": 34.5,
+  "coast_part": "sea3",
+  "idalls": {
+   "11758": 5,
+   "28142": 9
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   45
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 15,
+  "verts": 11,
+  "blocks": [
+   [
+    3,
+    9
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   222.9,
+   223.8
+  ],
+  "wz": [
+   -607.8,
+   -606.8
+  ],
+  "y": [
+   0.0,
+   3.41
+  ],
+  "dx": 0.9,
+  "dz": 1.1,
+  "dy": 3.4,
+  "cx": 223.4,
+  "cz": -607.3,
+  "nearest": "Water Shrine",
+  "nearest_loc": 43,
+  "nearest_d": 0.2,
+  "markers_in_bbox": [
+   "Water Shrine"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "238": 15
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   0
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 15,
+  "verts": 14,
+  "blocks": [
+   [
+    18,
+    4
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1181.6,
+   1186.3
+  ],
+  "wz": [
+   -286.6,
+   -281.6
+  ],
+  "y": [
+   7.0,
+   10.81
+  ],
+  "dx": 4.6,
+  "dz": 5.0,
+  "dy": 3.8,
+  "cx": 1184.0,
+  "cz": -284.1,
+  "nearest": "Desert Palace",
+  "nearest_loc": 27,
+  "nearest_d": 6.8,
+  "markers_in_bbox": [
+   "Desert Palace"
+  ],
+  "coast_d": 23.1,
+  "coast_part": "sea3",
+  "idalls": {
+   "15598": 15
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   60
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 18,
+  "verts": 14,
+  "blocks": [
+   [
+    21,
+    14
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1397.0,
+   1402.2
+  ],
+  "wz": [
+   -923.3,
+   -919.2
+  ],
+  "y": [
+   26.07,
+   30.84
+  ],
+  "dx": 5.2,
+  "dz": 4.0,
+  "dy": 4.8,
+  "cx": 1399.6,
+  "cz": -921.2,
+  "nearest": "Quan Dwelling",
+  "nearest_loc": 4,
+  "nearest_d": 1.5,
+  "markers_in_bbox": [
+   "Quan Dwelling"
+  ],
+  "coast_d": 38.3,
+  "coast_part": "sea4",
+  "idalls": {
+   "2798": 18
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   10
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 24,
+  "verts": 17,
+  "blocks": [
+   [
+    14,
+    6
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   949.6,
+   958.3
+  ],
+  "wz": [
+   -394.3,
+   -385.7
+  ],
+  "y": [
+   5.86,
+   8.57
+  ],
+  "dx": 8.8,
+  "dz": 8.6,
+  "dy": 2.7,
+  "cx": 953.9,
+  "cz": -390.0,
+  "nearest": "Black Mage Village",
+  "nearest_loc": 30,
+  "nearest_d": 0.7,
+  "markers_in_bbox": [
+   "Black Mage Village"
+  ],
+  "coast_d": 32.4,
+  "coast_part": "sea3",
+  "idalls": {
+   "7406": 24
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   28
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 26,
+  "verts": 20,
+  "blocks": [
+   [
+    9,
+    17
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   591.0,
+   600.0
+  ],
+  "wz": [
+   -1132.9,
+   -1124.0
+  ],
+  "y": [
+   -0.06,
+   6.77
+  ],
+  "dx": 9.0,
+  "dz": 8.9,
+  "dy": 6.8,
+  "cx": 595.5,
+  "cz": -1128.4,
+  "nearest": "Chocobo Lagoon",
+  "nearest_loc": 37,
+  "nearest_d": 3.5,
+  "markers_in_bbox": [
+   "Chocobo Lagoon"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea3",
+  "idalls": {
+   "234": 5,
+   "238": 4,
+   "12782": 14,
+   "16606": 3
+  },
+  "topos": [
+   55,
+   58,
+   59
+  ],
+  "areas": [
+   0,
+   49
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 30,
+  "verts": 21,
+  "blocks": [
+   [
+    14,
+    6
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   913.1,
+   928.0
+  ],
+  "wz": [
+   -401.7,
+   -396.7
+  ],
+  "y": [
+   1.6,
+   5.53
+  ],
+  "dx": 14.9,
+  "dz": 5.0,
+  "dy": 3.9,
+  "cx": 920.5,
+  "cz": -399.2,
+  "nearest": "Fossil Roo",
+  "nearest_loc": 31,
+  "nearest_d": 2.9,
+  "markers_in_bbox": [
+   "Fossil Roo"
+  ],
+  "coast_d": 5.6,
+  "coast_part": "sea3",
+  "idalls": {
+   "7110": 2,
+   "7150": 28
+  },
+  "topos": [
+   49,
+   59
+  ],
+  "areas": [
+   27
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 37,
+  "verts": 24,
+  "blocks": [
+   [
+    22,
+    14
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1412.6,
+   1415.7
+  ],
+  "wz": [
+   -903.8,
+   -900.7
+  ],
+  "y": [
+   26.41,
+   29.81
+  ],
+  "dx": 3.1,
+  "dz": 3.1,
+  "dy": 3.4,
+  "cx": 1414.1,
+  "cz": -902.2,
+  "nearest": "Quan Dwelling",
+  "nearest_loc": 4,
+  "nearest_d": 25.4,
+  "markers_in_bbox": [],
+  "coast_d": 15.6,
+  "coast_part": "sea4",
+  "idalls": {
+   "2758": 20,
+   "2798": 17
+  },
+  "topos": [
+   49,
+   59
+  ],
+  "areas": [
+   10
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 38,
+  "verts": 24,
+  "blocks": [
+   [
+    14,
+    14
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   933.3,
+   935.1
+  ],
+  "wz": [
+   -944.3,
+   -939.5
+  ],
+  "y": [
+   3.77,
+   5.13
+  ],
+  "dx": 1.8,
+  "dz": 4.7,
+  "dy": 1.4,
+  "cx": 934.2,
+  "cz": -941.9,
+  "nearest": "Qu Marsh (Mist)",
+  "nearest_loc": 21,
+  "nearest_d": 1.0,
+  "markers_in_bbox": [
+   "Qu Marsh (Mist)"
+  ],
+  "coast_d": 37.6,
+  "coast_part": "sea3",
+  "idalls": {
+   "1774": 38
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   6
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 40,
+  "verts": 25,
+  "blocks": [
+   [
+    16,
+    14
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1028.3,
+   1035.1
+  ],
+  "wz": [
+   -960.0,
+   -954.7
+  ],
+  "y": [
+   2.12,
+   4.09
+  ],
+  "dx": 6.7,
+  "dz": 5.3,
+  "dy": 2.0,
+  "cx": 1031.7,
+  "cz": -957.3,
+  "nearest": "Chocobo Forest",
+  "nearest_loc": 19,
+  "nearest_d": 56.5,
+  "markers_in_bbox": [],
+  "coast_d": 33.6,
+  "coast_part": "sea3",
+  "idalls": {
+   "4050": 16,
+   "4078": 24
+  },
+  "topos": [
+   52,
+   59
+  ],
+  "areas": [
+   15
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 61,
+  "verts": 46,
+  "blocks": [
+   [
+    5,
+    15
+   ],
+   [
+    5,
+    16
+   ],
+   [
+    6,
+    16
+   ]
+  ],
+  "nblocks": 3,
+  "wx": [
+   374.8,
+   388.4
+  ],
+  "wz": [
+   -1032.0,
+   -1022.8
+  ],
+  "y": [
+   15.23,
+   25.21
+  ],
+  "dx": 13.6,
+  "dz": 9.2,
+  "dy": 10.0,
+  "cx": 381.6,
+  "cz": -1027.4,
+  "nearest": "Daguerreo",
+  "nearest_loc": 39,
+  "nearest_d": 2.3,
+  "markers_in_bbox": [
+   "Daguerreo"
+  ],
+  "coast_d": 23.3,
+  "coast_part": "sea4",
+  "idalls": {
+   "12498": 14,
+   "12526": 39,
+   "28882": 8
+  },
+  "topos": [
+   52,
+   59
+  ],
+  "areas": [
+   48
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 68,
+  "verts": 42,
+  "blocks": [
+   [
+    14,
+    15
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   912.0,
+   920.9
+  ],
+  "wz": [
+   -1024.0,
+   -1019.4
+  ],
+  "y": [
+   2.97,
+   8.99
+  ],
+  "dx": 8.9,
+  "dz": 4.6,
+  "dy": 6.0,
+  "cx": 916.4,
+  "cz": -1021.7,
+  "nearest": "Lindblum Dragon Gate",
+  "nearest_loc": 23,
+  "nearest_d": 2.9,
+  "markers_in_bbox": [
+   "Lindblum Dragon Gate"
+  ],
+  "coast_d": 30.2,
+  "coast_part": "beach1",
+  "idalls": {
+   "2030": 68
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   7
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 76,
+  "verts": 45,
+  "blocks": [
+   [
+    16,
+    14
+   ],
+   [
+    16,
+    15
+   ],
+   [
+    17,
+    14
+   ],
+   [
+    17,
+    15
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   1079.1,
+   1096.8
+  ],
+  "wz": [
+   -961.1,
+   -943.2
+  ],
+  "y": [
+   7.95,
+   15.85
+  ],
+  "dx": 17.7,
+  "dz": 17.8,
+  "dy": 7.9,
+  "cx": 1088.0,
+  "cz": -952.1,
+  "nearest": "Chocobo Forest",
+  "nearest_loc": 19,
+  "nearest_d": 0.3,
+  "markers_in_bbox": [
+   "Chocobo Forest"
+  ],
+  "coast_d": 35.5,
+  "coast_part": "beach1",
+  "idalls": {
+   "4078": 76
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   15
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 79,
+  "verts": 54,
+  "blocks": [
+   [
+    13,
+    17
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   859.8,
+   871.4
+  ],
+  "wz": [
+   -1104.2,
+   -1096.7
+  ],
+  "y": [
+   0.0,
+   6.2
+  ],
+  "dx": 11.6,
+  "dz": 7.4,
+  "dy": 6.2,
+  "cx": 865.6,
+  "cz": -1100.5,
+  "nearest": "Lindblum Harbour",
+  "nearest_loc": 25,
+  "nearest_d": 1.9,
+  "markers_in_bbox": [
+   "Lindblum Harbour"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "2030": 79
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   7
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 82,
+  "verts": 47,
+  "blocks": [
+   [
+    17,
+    12
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1109.4,
+   1114.5
+  ],
+  "wz": [
+   -796.3,
+   -791.6
+  ],
+  "y": [
+   26.07,
+   31.51
+  ],
+  "dx": 5.1,
+  "dz": 4.7,
+  "dy": 5.4,
+  "cx": 1111.9,
+  "cz": -794.0,
+  "nearest": "Observatory Mtn",
+  "nearest_loc": 12,
+  "nearest_d": 0.3,
+  "markers_in_bbox": [
+   "Observatory Mtn"
+  ],
+  "coast_d": 108.8,
+  "coast_part": "sea3",
+  "idalls": {
+   "750": 82
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   2
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 83,
+  "verts": 48,
+  "blocks": [
+   [
+    14,
+    2
+   ],
+   [
+    14,
+    3
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   903.2,
+   916.0
+  ],
+  "wz": [
+   -196.0,
+   -184.0
+  ],
+  "y": [
+   0.0,
+   6.27
+  ],
+  "dx": 12.8,
+  "dz": 12.0,
+  "dy": 6.3,
+  "cx": 909.6,
+  "cz": -190.0,
+  "nearest": "Madain Sari",
+  "nearest_loc": 33,
+  "nearest_d": 1.0,
+  "markers_in_bbox": [
+   "Madain Sari"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea3",
+  "idalls": {
+   "8430": 83
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   32
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 86,
+  "verts": 53,
+  "blocks": [
+   [
+    17,
+    12
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1092.0,
+   1108.0
+  ],
+  "wz": [
+   -812.9,
+   -800.0
+  ],
+  "y": [
+   26.07,
+   30.39
+  ],
+  "dx": 16.0,
+  "dz": 12.9,
+  "dy": 4.3,
+  "cx": 1100.0,
+  "cz": -806.5,
+  "nearest": "Dali",
+  "nearest_loc": 13,
+  "nearest_d": 5.3,
+  "markers_in_bbox": [
+   "Dali"
+  ],
+  "coast_d": 116.1,
+  "coast_part": "sea3",
+  "idalls": {
+   "554": 7,
+   "750": 64,
+   "16938": 3,
+   "17134": 12
+  },
+  "topos": [
+   10,
+   59
+  ],
+  "areas": [
+   2
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 104,
+  "verts": 66,
+  "blocks": [
+   [
+    21,
+    10
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1344.0,
+   1350.3
+  ],
+  "wz": [
+   -683.4,
+   -675.1
+  ],
+  "y": [
+   0.0,
+   5.53
+  ],
+  "dx": 6.3,
+  "dz": 8.4,
+  "dy": 5.5,
+  "cx": 1347.1,
+  "cz": -679.2,
+  "nearest": "Alexandria Harbour",
+  "nearest_loc": 0,
+  "nearest_d": 3.0,
+  "markers_in_bbox": [
+   "Alexandria Harbour"
+  ],
+  "coast_d": 0.0,
+  "coast_part": "sea4",
+  "idalls": {
+   "6382": 104
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   24
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 128,
+  "verts": 96,
+  "blocks": [
+   [
+    4,
+    3
+   ],
+   [
+    4,
+    4
+   ],
+   [
+    5,
+    3
+   ],
+   [
+    5,
+    4
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   313.6,
+   356.0
+  ],
+  "wz": [
+   -261.7,
+   -225.4
+  ],
+  "y": [
+   21.09,
+   38.44
+  ],
+  "dx": 42.4,
+  "dz": 36.3,
+  "dy": 17.3,
+  "cx": 334.8,
+  "cz": -243.6,
+  "nearest": "Esto Gaza",
+  "nearest_loc": 47,
+  "nearest_d": 38.0,
+  "markers_in_bbox": [],
+  "coast_d": 20.4,
+  "coast_part": "sea3",
+  "idalls": {
+   "14022": 128
+  },
+  "topos": [
+   49
+  ],
+  "areas": [
+   54
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 131,
+  "verts": 77,
+  "blocks": [
+   [
+    16,
+    11
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   1034.1,
+   1040.0
+  ],
+  "wz": [
+   -762.7,
+   -747.3
+  ],
+  "y": [
+   32.9,
+   39.93
+  ],
+  "dx": 5.9,
+  "dz": 15.4,
+  "dy": 7.0,
+  "cx": 1037.1,
+  "cz": -755.0,
+  "nearest": "North Gate",
+  "nearest_loc": 14,
+  "nearest_d": 0.4,
+  "markers_in_bbox": [
+   "North Gate",
+   "North Gate"
+  ],
+  "coast_d": 69.2,
+  "coast_part": "sea3",
+  "idalls": {
+   "238": 72,
+   "2542": 59
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   0,
+   9
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 140,
+  "verts": 83,
+  "blocks": [
+   [
+    18,
+    13
+   ],
+   [
+    18,
+    14
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   1163.4,
+   1179.0
+  ],
+  "wz": [
+   -909.3,
+   -895.2
+  ],
+  "y": [
+   32.9,
+   39.93
+  ],
+  "dx": 15.7,
+  "dz": 14.1,
+  "dy": 7.0,
+  "cx": 1171.2,
+  "cz": -902.2,
+  "nearest": "South Gate",
+  "nearest_loc": 6,
+  "nearest_d": 1.0,
+  "markers_in_bbox": [
+   "South Gate",
+   "South Gate",
+   "South Gate",
+   "South Gate",
+   "South Gate"
+  ],
+  "coast_d": 86.6,
+  "coast_part": "sea3",
+  "idalls": {
+   "238": 140
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   0
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 149,
+  "verts": 81,
+  "blocks": [
+   [
+    6,
+    12
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   388.9,
+   400.0
+  ],
+  "wz": [
+   -804.0,
+   -791.7
+  ],
+  "y": [
+   2.95,
+   10.15
+  ],
+  "dx": 11.1,
+  "dz": 12.3,
+  "dy": 7.2,
+  "cx": 394.4,
+  "cz": -797.8,
+  "nearest": "Oeilvert",
+  "nearest_loc": 41,
+  "nearest_d": 0.4,
+  "markers_in_bbox": [
+   "Oeilvert"
+  ],
+  "coast_d": 44.8,
+  "coast_part": "sea3",
+  "idalls": {
+   "10578": 12,
+   "10734": 132,
+   "26962": 5
+  },
+  "topos": [
+   20,
+   59
+  ],
+  "areas": [
+   41
+  ],
+  "events": [
+   0,
+   1
+  ]
+ },
+ {
+  "tris": 152,
+  "verts": 88,
+  "blocks": [
+   [
+    13,
+    5
+   ],
+   [
+    14,
+    5
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   889.2,
+   903.9
+  ],
+  "wz": [
+   -355.2,
+   -348.7
+  ],
+  "y": [
+   8.41,
+   13.34
+  ],
+  "dx": 14.7,
+  "dz": 6.5,
+  "dy": 4.9,
+  "cx": 896.6,
+  "cz": -351.9,
+  "nearest": "Conde Petie",
+  "nearest_loc": 32,
+  "nearest_d": 1.9,
+  "markers_in_bbox": [
+   "Conde Petie"
+  ],
+  "coast_d": 44.7,
+  "coast_part": "sea3",
+  "idalls": {
+   "7150": 152
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   27
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 156,
+  "verts": 87,
+  "blocks": [
+   [
+    5,
+    3
+   ]
+  ],
+  "nblocks": 1,
+  "wx": [
+   369.2,
+   379.7
+  ],
+  "wz": [
+   -243.2,
+   -234.9
+  ],
+  "y": [
+   6.77,
+   13.33
+  ],
+  "dx": 10.5,
+  "dz": 8.3,
+  "dy": 6.6,
+  "cx": 374.5,
+  "cz": -239.0,
+  "nearest": "Esto Gaza",
+  "nearest_loc": 47,
+  "nearest_d": 2.0,
+  "markers_in_bbox": [
+   "Esto Gaza"
+  ],
+  "coast_d": 10.2,
+  "coast_part": "sea3",
+  "idalls": {
+   "14062": 156
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   54
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 242,
+  "verts": 137,
+  "blocks": [
+   [
+    2,
+    7
+   ],
+   [
+    3,
+    7
+   ]
+  ],
+  "nblocks": 2,
+  "wx": [
+   189.3,
+   194.7
+  ],
+  "wz": [
+   -477.3,
+   -470.5
+  ],
+  "y": [
+   -3.35,
+   6.07
+  ],
+  "dx": 5.4,
+  "dz": 6.8,
+  "dy": 9.4,
+  "cx": 192.0,
+  "cz": -473.9,
+  "nearest": "Ipsen Castle",
+  "nearest_loc": 44,
+  "nearest_d": 0.7,
+  "markers_in_bbox": [
+   "Ipsen Castle"
+  ],
+  "coast_d": 16.5,
+  "coast_part": "sea4",
+  "idalls": {
+   "11502": 242
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   44
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 256,
+  "verts": 134,
+  "blocks": [
+   [
+    19,
+    10
+   ],
+   [
+    20,
+    10
+   ],
+   [
+    20,
+    11
+   ]
+  ],
+  "nblocks": 3,
+  "wx": [
+   1279.0,
+   1289.2
+  ],
+  "wz": [
+   -704.0,
+   -693.8
+  ],
+  "y": [
+   26.29,
+   43.06
+  ],
+  "dx": 10.3,
+  "dz": 10.2,
+  "dy": 16.8,
+  "cx": 1284.1,
+  "cz": -698.9,
+  "nearest": "Alexandria",
+  "nearest_loc": 1,
+  "nearest_d": 0.2,
+  "markers_in_bbox": [
+   "Alexandria"
+  ],
+  "coast_d": 59.4,
+  "coast_part": "sea4",
+  "idalls": {
+   "5870": 256
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   22
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 256,
+  "verts": 133,
+  "blocks": [
+   [
+    11,
+    4
+   ],
+   [
+    11,
+    5
+   ],
+   [
+    12,
+    4
+   ],
+   [
+    12,
+    5
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   759.1,
+   776.8
+  ],
+  "wz": [
+   -328.5,
+   -311.3
+  ],
+  "y": [
+   12.49,
+   35.5
+  ],
+  "dx": 17.6,
+  "dz": 17.2,
+  "dy": 23.0,
+  "cx": 768.0,
+  "cz": -319.9,
+  "nearest": "Iifa Tree",
+  "nearest_loc": 36,
+  "nearest_d": 13.7,
+  "markers_in_bbox": [
+   "Iifa Tree"
+  ],
+  "coast_d": 32.7,
+  "coast_part": "sea4",
+  "idalls": {
+   "8942": 256
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   34
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 293,
+  "verts": 154,
+  "blocks": [
+   [
+    13,
+    16
+   ],
+   [
+    13,
+    17
+   ],
+   [
+    14,
+    16
+   ],
+   [
+    14,
+    17
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   889.8,
+   903.4
+  ],
+  "wz": [
+   -1093.5,
+   -1081.4
+  ],
+  "y": [
+   27.05,
+   40.61
+  ],
+  "dx": 13.6,
+  "dz": 12.1,
+  "dy": 13.6,
+  "cx": 896.6,
+  "cz": -1087.4,
+  "nearest": "Lindblum",
+  "nearest_loc": 24,
+  "nearest_d": 1.0,
+  "markers_in_bbox": [
+   "Lindblum"
+  ],
+  "coast_d": 25.1,
+  "coast_part": "sea4",
+  "idalls": {
+   "36590": 293
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   14
+  ],
+  "events": [
+   2
+  ]
+ },
+ {
+  "tris": 321,
+  "verts": 172,
+  "blocks": [
+   [
+    14,
+    10
+   ],
+   [
+    14,
+    11
+   ],
+   [
+    15,
+    10
+   ],
+   [
+    15,
+    11
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   955.1,
+   967.3
+  ],
+  "wz": [
+   -715.7,
+   -700.6
+  ],
+  "y": [
+   2.77,
+   12.79
+  ],
+  "dx": 12.1,
+  "dz": 15.1,
+  "dy": 10.0,
+  "cx": 961.2,
+  "cz": -708.2,
+  "nearest": "Burmecia",
+  "nearest_loc": 17,
+  "nearest_d": 3.0,
+  "markers_in_bbox": [
+   "Burmecia"
+  ],
+  "coast_d": 43.6,
+  "coast_part": "sea3",
+  "idalls": {
+   "2542": 321
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   9
+  ],
+  "events": [
+   0
+  ]
+ },
+ {
+  "tris": 464,
+  "verts": 244,
+  "blocks": [
+   [
+    19,
+    14
+   ],
+   [
+    19,
+    15
+   ],
+   [
+    20,
+    14
+   ],
+   [
+    20,
+    15
+   ]
+  ],
+  "nblocks": 4,
+  "wx": [
+   1272.0,
+   1288.0
+  ],
+  "wz": [
+   -967.8,
+   -951.3
+  ],
+  "y": [
+   26.07,
+   28.62
+  ],
+  "dx": 16.0,
+  "dz": 16.4,
+  "dy": 2.6,
+  "cx": 1280.0,
+  "cz": -959.5,
+  "nearest": "Treno",
+  "nearest_loc": 5,
+  "nearest_d": 2.5,
+  "markers_in_bbox": [
+   "Treno"
+  ],
+  "coast_d": 48.3,
+  "coast_part": "sea4",
+  "idalls": {
+   "2798": 464
+  },
+  "topos": [
+   59
+  ],
+  "areas": [
+   10
+  ],
+  "events": [
+   0
+  ]
+ }
+]

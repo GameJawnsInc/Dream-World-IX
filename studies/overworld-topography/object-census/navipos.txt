@@ -1,0 +1,26 @@
+loc  0 Alexandria Harbor      world=(  1349.8,   -678.0) block=(21,10) obj=True
+loc  1 Alexandria             world=(  1283.9,   -698.9) block=(20,10) obj=True
+loc  2 Evil Forest            world=(  1217.5,   -747.4) block=(19,11) obj=True
+loc  3 Ice Cavern             world=(  1197.3,   -799.6) block=(18,12) obj=False
+loc  4 Quan Dwelling          world=(  1398.7,   -922.3) block=(21,14) obj=True
+loc  5 Treno                  world=(  1282.2,   -958.4) block=(20,14) obj=False
+loc  6 South Gate             world=(  1172.2,   -902.0) block=(18,14) obj=True
+loc  7 South Gate             world=(  1172.2,   -902.0) block=(18,14) obj=True
+loc  8 South Gate             world=(  1172.2,   -902.0) block=(18,14) obj=True
+loc  9 South Gate             world=(  1172.2,   -902.0) block=(18,14) obj=True
+loc 10 South Gate             world=(  1172.2,   -902.0) block=(18,14) obj=True
+loc 11 Ice Cavern             world=(  1160.4,   -843.1) block=(18,13) obj=True
+loc 12 Observatory Mtn        world=(  1111.7,   -793.9) block=(17,12) obj=True
+loc 13 Dali                   world=(  1094.7,   -806.4) block=(17,12) obj=True
+loc 14 North Gate             world=(  1037.4,   -755.2) block=(16,11) obj=True
+loc 15 North Gate             world=(  1037.4,   -755.2) block=(16,11) obj=True
+loc 16 Gizamaluke             world=(   992.6,   -803.6) block=(15,12) obj=False
+loc 17 Burmecia               world=(   961.7,   -711.2) block=(15,11) obj=True
+loc 18 Cleyra                 world=(   896.7,   -775.3) block=(14,12) obj=False
+loc 19 Chocobo Forest         world=(  1088.0,   -952.4) block=(16,14) obj=True
+loc 20 Gizamaluke             world=(   979.4,   -875.3) block=(15,13) obj=False
+loc 21 Qu Marsh               world=(   934.8,   -942.7) block=(14,14) obj=True
+loc 22 Pinnacle Rocks         world=(   942.4,  -1092.1) block=(14,17) obj=True
+loc 23 Lindblum Dragon Gate   world=(   916.0,  -1018.8) block=(14,15) obj=True
+loc 24 Lindblum               world=(   895.9,  -1086.8) block=(13,16) obj=True
+loc 25 Lindblum Harbor        world=(   865.2,  -1102.3) block=(13,17) obj=True

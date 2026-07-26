@@ -139,14 +139,24 @@ def trim_floor(obj: dict, *, base_height: float = 6.0, up_threshold: float = 0.5
 
 
 def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "object", lod: str = "0_1",
-                     topograph: int = _TOPO_IMPASSABLE):
+                     topograph: int = _TOPO_IMPASSABLE, idall: int | None = None):
     """Build a :class:`~ff9mapkit.world.extract.BlockMesh` (flat/unindexed, in the TARGET block's local frame) from a
     parsed OBJ. Each face corner becomes one vertex (pos/uv/normal); ``tangent.x`` is STAMPED with the IDALL
-    ``encode_id(event=0, area=0, topograph=topograph)`` -- uniform, the right model for a solid building."""
+    ``encode_id(event=0, area=0, topograph=topograph)`` -- uniform, the right model for a solid building.
+
+    ``idall`` (optional) stamps a RAW 16-bit IDALL instead, bypassing the topograph encode -- the only way to reach
+    the ``area`` and ``flags`` bit-fields, which ``topograph=`` alone leaves at 0. The case that needs it:
+    **4078** (``0x0FEE`` = area 15, topo 59, flags 2), the engine's designated RENDER-ONLY id --
+    ``WMPhysics.Raycast`` skips 4078/4088/2040 triangles outright (so the on-foot walk query never sees them,
+    i.e. the mesh is walk-through and cannot shadow an entrance trigger), and ``ff9.w_movementUpdate``'s
+    non-controlled-actor path keeps the actor's own Y on a 4078 hit instead of snapping to it. Use it for a baked
+    landmark/marker whose only job is to be SEEN. Note it is NOT a blanket exemption: every sky-cast placement path
+    (``ff9.w_nwpHitBool`` callers) sets ``WMPhysics.IgnoreExceptions = true``, so 4078 geometry under a spawn or an
+    arrive point is still hit -- keep marker triangles clear of those."""
     from .extract import BlockMesh, encode_id, block_world_origin
     tx, ty = into_block
     ox, oz = block_world_origin(tx, ty)
-    idall = float(encode_id(event=0, area=0, topograph=topograph))
+    idall = float(encode_id(event=0, area=0, topograph=topograph) if idall is None else int(idall) & 0xFFFF)
     V, VT, VN, faces = obj["V"], obj["VT"], obj["VN"], obj["faces"]
 
     def rez(i, arr):                                               # 1-based, negative = from end
@@ -172,9 +182,9 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
-                   topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
-                   solid_base: bool = False, texture: bool = False, tile=None, tile_uv=None, stock_bm=None,
-                   terrain_bm=None, game=None, skip_mirror: bool = False) -> dict:
+                   topograph: int = _TOPO_IMPASSABLE, idall: int | None = None, at=None, seat: bool = False,
+                   keep_block: bool = False, solid_base: bool = False, texture: bool = False, tile=None, tile_uv=None,
+                   stock_bm=None, terrain_bm=None, game=None, skip_mirror: bool = False) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -182,6 +192,10 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     the mesh so its XZ centroid lands at that world spot; ``seat=True`` then drops it so its lowest point rests on the
     terrain surface there (samples the block's Terrain mesh). Omit both to treat the OBJ as already world-positioned
     (e.g. a `world-mesh-export` file).
+
+    ``idall`` stamps a RAW IDALL on every emitted triangle instead of the ``topograph`` encode -- pass ``4078`` for a
+    RENDER-ONLY marker (see :func:`obj_to_blockmesh`). It does NOT reach a ``solid_base`` hull: that hull exists to
+    COLLIDE, so it keeps its ``topograph``-derived id.
 
     ``terrain_bm`` / ``stock_bm`` let a caller supply the seat-reference terrain and the ``keep_block`` merge base
     explicitly (e.g. an already-deployed override so a placement STACKS on a prior edit / seats on a flattened pad,
@@ -209,7 +223,7 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
                                                                          part="terrain", game=game)
             dy = M.sample_ground_y(ter, wx - ox, wz - oz) - ymin      # lowest point -> ground
         obj["V"] = [(v[0] + dx, v[1] + dy, v[2] + dz) for v in V]
-    bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
+    bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph, idall=idall)
     if solid_base:                                                 # fill the footprint so a hollow model can't box you
         bm = M.add_solid_base(bm, topograph=topograph)
     merged_with_stock, replaced_stock_tris = False, 0
@@ -244,6 +258,8 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     from . import discmirror as DM
     DM.auto_mirror([dest], mod_folder=mod_folder, skip_mirror=skip_mirror)
+    from .extract import encode_id
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
             "kept_stock": merged_with_stock, "replaced_stock_tris": replaced_stock_tris, "textured": bool(textured),
+            "idall": (int(idall) & 0xFFFF) if idall is not None else encode_id(topograph=topograph),
             "written": [str(dest)]}

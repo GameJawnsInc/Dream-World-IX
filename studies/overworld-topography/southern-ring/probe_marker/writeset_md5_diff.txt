@@ -1,0 +1,14 @@
+# Install write-set proof -- md5 of every file in FF9CustomMap-world, BEFORE the marker work vs AFTER.
+# 891 files before, 891 after (no file added or removed). Only these 2 changed CONTENT:
+#   176 B blanking stub  ->  16244 B harbour-gate marker (104 tris, idall 4078); both discs identical.
+# (An intermediate pass wrote a 2828 B / 18-tri two-post version, md5 6fe27586f1fffc216dd9c292afed6fbe;
+#  the harbour-gate build replaced the block's Object part wholesale, superseding it. See REVERT.md sec 9.)
+
+152c152
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> c56e30d40cce10ad06648f8b849e0179 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+541c541
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> c56e30d40cce10ad06648f8b849e0179 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh

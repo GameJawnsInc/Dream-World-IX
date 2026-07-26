@@ -1,0 +1,1229 @@
+{
+ "disc": 1,
+ "n_object_blocks": 63,
+ "blocks": [
+  {
+   "block": [
+    0,
+    0
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 5,
+   "verts": 15,
+   "footprint_x": 4.0,
+   "footprint_z": 3.0,
+   "footprint_max": 4.0,
+   "height": 2.77,
+   "y_min": 5.27,
+   "y_max": 8.04
+  },
+  {
+   "block": [
+    2,
+    7
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 121,
+   "verts": 363,
+   "footprint_x": 2.7,
+   "footprint_z": 6.8,
+   "footprint_max": 6.8,
+   "height": 9.42,
+   "y_min": -3.35,
+   "y_max": 6.07
+  },
+  {
+   "block": [
+    3,
+    7
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4"
+   ],
+   "tris": 121,
+   "verts": 363,
+   "footprint_x": 2.7,
+   "footprint_z": 6.8,
+   "footprint_max": 6.8,
+   "height": 9.42,
+   "y_min": -3.35,
+   "y_max": 6.07
+  },
+  {
+   "block": [
+    3,
+    9
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 22,
+   "verts": 66,
+   "footprint_x": 1.9,
+   "footprint_z": 2.1,
+   "footprint_max": 2.1,
+   "height": 3.41,
+   "y_min": 0.0,
+   "y_max": 3.41
+  },
+  {
+   "block": [
+    4,
+    3
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 14,
+   "verts": 42,
+   "footprint_x": 6.4,
+   "footprint_z": 20.2,
+   "footprint_max": 20.2,
+   "height": 11.74,
+   "y_min": 21.94,
+   "y_max": 33.68
+  },
+  {
+   "block": [
+    4,
+    4
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 2,
+   "verts": 6,
+   "footprint_x": 4.1,
+   "footprint_z": 3.1,
+   "footprint_max": 4.1,
+   "height": 5.75,
+   "y_min": 23.06,
+   "y_max": 28.82
+  },
+  {
+   "block": [
+    5,
+    3
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4"
+   ],
+   "tris": 239,
+   "verts": 717,
+   "footprint_x": 59.7,
+   "footprint_z": 30.6,
+   "footprint_max": 59.7,
+   "height": 31.67,
+   "y_min": 6.77,
+   "y_max": 38.44
+  },
+  {
+   "block": [
+    5,
+    4
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 29,
+   "verts": 87,
+   "footprint_x": 24.0,
+   "footprint_z": 5.7,
+   "footprint_max": 24.0,
+   "height": 12.93,
+   "y_min": 21.09,
+   "y_max": 34.02
+  },
+  {
+   "block": [
+    5,
+    11
+   ],
+   "names": [
+    "Marsh/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 2,
+   "verts": 6,
+   "footprint_x": 4.6,
+   "footprint_z": 4.5,
+   "footprint_max": 4.6,
+   "height": 4.64,
+   "y_min": 6.88,
+   "y_max": 11.51
+  },
+  {
+   "block": [
+    5,
+    15
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 20,
+   "verts": 60,
+   "footprint_x": 9.7,
+   "footprint_z": 4.0,
+   "footprint_max": 9.7,
+   "height": 12.99,
+   "y_min": 16.41,
+   "y_max": 29.4
+  },
+  {
+   "block": [
+    5,
+    16
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 47,
+   "verts": 141,
+   "footprint_x": 9.2,
+   "footprint_z": 8.0,
+   "footprint_max": 9.2,
+   "height": 9.98,
+   "y_min": 15.23,
+   "y_max": 25.21
+  },
+  {
+   "block": [
+    6,
+    10
+   ],
+   "names": [
+    "Marsh/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3"
+   ],
+   "tris": 2,
+   "verts": 6,
+   "footprint_x": 3.2,
+   "footprint_z": 4.0,
+   "footprint_max": 4.0,
+   "height": 6.38,
+   "y_min": 3.86,
+   "y_max": 10.23
+  },
+  {
+   "block": [
+    6,
+    12
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 149,
+   "verts": 447,
+   "footprint_x": 11.1,
+   "footprint_z": 12.3,
+   "footprint_max": 12.3,
+   "height": 7.21,
+   "y_min": 2.95,
+   "y_max": 10.15
+  },
+  {
+   "block": [
+    6,
+    16
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 8,
+   "verts": 24,
+   "footprint_x": 4.4,
+   "footprint_z": 2.4,
+   "footprint_max": 4.4,
+   "height": 1.18,
+   "y_min": 15.23,
+   "y_max": 16.41
+  },
+  {
+   "block": [
+    7,
+    13
+   ],
+   "names": [
+    "I. Castle/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4"
+   ],
+   "tris": 7,
+   "verts": 21,
+   "footprint_x": 1.7,
+   "footprint_z": 16.0,
+   "footprint_max": 16.0,
+   "height": 6.63,
+   "y_min": -1.79,
+   "y_max": 4.84
+  },
+  {
+   "block": [
+    7,
+    14
+   ],
+   "names": [
+    "I. Castle/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 6,
+   "verts": 18,
+   "footprint_x": 4.8,
+   "footprint_z": 12.0,
+   "footprint_max": 12.0,
+   "height": 6.63,
+   "y_min": -1.79,
+   "y_max": 4.84
+  },
+  {
+   "block": [
+    8,
+    13
+   ],
+   "names": [
+    "I. Castle/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 7,
+   "verts": 21,
+   "footprint_x": 3.8,
+   "footprint_z": 16.0,
+   "footprint_max": 16.0,
+   "height": 6.63,
+   "y_min": -1.79,
+   "y_max": 4.84
+  },
+  {
+   "block": [
+    8,
+    14
+   ],
+   "names": [
+    "I. Castle/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4"
+   ],
+   "tris": 10,
+   "verts": 30,
+   "footprint_x": 3.9,
+   "footprint_z": 12.0,
+   "footprint_max": 12.0,
+   "height": 8.28,
+   "y_min": -1.79,
+   "y_max": 6.5
+  },
+  {
+   "block": [
+    9,
+    1
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 2,
+   "verts": 6,
+   "footprint_x": 3.8,
+   "footprint_z": 3.9,
+   "footprint_max": 3.9,
+   "height": 3.71,
+   "y_min": 3.71,
+   "y_max": 7.42
+  },
+  {
+   "block": [
+    9,
+    17
+   ],
+   "names": [],
+   "coastal_subs": [
+    "beach1",
+    "sea1",
+    "sea2",
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 26,
+   "verts": 78,
+   "footprint_x": 9.0,
+   "footprint_z": 8.9,
+   "footprint_max": 9.0,
+   "height": 6.83,
+   "y_min": -0.06,
+   "y_max": 6.77
+  },
+  {
+   "block": [
+    11,
+    4
+   ],
+   "names": [
+    "Mdn. Sari/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 55,
+   "verts": 165,
+   "footprint_x": 8.9,
+   "footprint_z": 7.6,
+   "footprint_max": 8.9,
+   "height": 23.02,
+   "y_min": 12.49,
+   "y_max": 35.5
+  },
+  {
+   "block": [
+    11,
+    5
+   ],
+   "names": [
+    "Mdn. Sari/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 61,
+   "verts": 183,
+   "footprint_x": 8.8,
+   "footprint_z": 8.5,
+   "footprint_max": 8.8,
+   "height": 23.02,
+   "y_min": 12.49,
+   "y_max": 35.5
+  },
+  {
+   "block": [
+    12,
+    4
+   ],
+   "names": [
+    "Mdn. Sari/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 62,
+   "verts": 186,
+   "footprint_x": 8.8,
+   "footprint_z": 8.7,
+   "footprint_max": 8.8,
+   "height": 23.02,
+   "y_min": 12.49,
+   "y_max": 35.5
+  },
+  {
+   "block": [
+    12,
+    5
+   ],
+   "names": [
+    "Mdn. Sari/Entrance"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 78,
+   "verts": 234,
+   "footprint_x": 8.8,
+   "footprint_z": 8.5,
+   "footprint_max": 8.8,
+   "height": 23.02,
+   "y_min": 12.49,
+   "y_max": 35.5
+  },
+  {
+   "block": [
+    13,
+    4
+   ],
+   "names": [
+    "Mdn. Sari/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 4,
+   "verts": 12,
+   "footprint_x": 7.6,
+   "footprint_z": 5.8,
+   "footprint_max": 7.6,
+   "height": 0.88,
+   "y_min": 6.01,
+   "y_max": 6.89
+  },
+  {
+   "block": [
+    13,
+    5
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 56,
+   "verts": 168,
+   "footprint_x": 6.8,
+   "footprint_z": 6.2,
+   "footprint_max": 6.8,
+   "height": 3.88,
+   "y_min": 8.65,
+   "y_max": 12.53
+  },
+  {
+   "block": [
+    13,
+    16
+   ],
+   "names": [
+    "Dali/???",
+    "Dali/Village Road"
+   ],
+   "coastal_subs": [
+    "sea3"
+   ],
+   "tris": 55,
+   "verts": 165,
+   "footprint_x": 6.2,
+   "footprint_z": 6.6,
+   "footprint_max": 6.6,
+   "height": 13.14,
+   "y_min": 27.46,
+   "y_max": 40.61
+  },
+  {
+   "block": [
+    13,
+    17
+   ],
+   "names": [
+    "Dali/???",
+    "Dali/Village Road"
+   ],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 109,
+   "verts": 327,
+   "footprint_x": 36.2,
+   "footprint_z": 16.2,
+   "footprint_max": 36.2,
+   "height": 38.14,
+   "y_min": 0.0,
+   "y_max": 38.14
+  },
+  {
+   "block": [
+    14,
+    2
+   ],
+   "names": [
+    "Fossil Roo/Exit"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 67,
+   "verts": 201,
+   "footprint_x": 12.8,
+   "footprint_z": 8.0,
+   "footprint_max": 12.8,
+   "height": 6.27,
+   "y_min": 0.0,
+   "y_max": 6.27
+  },
+  {
+   "block": [
+    14,
+    3
+   ],
+   "names": [
+    "Fossil Roo/Exit"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 16,
+   "verts": 48,
+   "footprint_x": 11.8,
+   "footprint_z": 4.0,
+   "footprint_max": 11.8,
+   "height": 4.3,
+   "y_min": 0.43,
+   "y_max": 4.73
+  },
+  {
+   "block": [
+    14,
+    5
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 96,
+   "verts": 288,
+   "footprint_x": 7.9,
+   "footprint_z": 6.2,
+   "footprint_max": 7.9,
+   "height": 4.93,
+   "y_min": 8.41,
+   "y_max": 13.34
+  },
+  {
+   "block": [
+    14,
+    6
+   ],
+   "names": [
+    "Palace/Entrance"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 54,
+   "verts": 162,
+   "footprint_x": 45.2,
+   "footprint_z": 16.0,
+   "footprint_max": 45.2,
+   "height": 6.97,
+   "y_min": 1.6,
+   "y_max": 8.57
+  },
+  {
+   "block": [
+    14,
+    10
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 20,
+   "verts": 60,
+   "footprint_x": 4.9,
+   "footprint_z": 3.2,
+   "footprint_max": 4.9,
+   "height": 4.61,
+   "y_min": 7.23,
+   "y_max": 11.84
+  },
+  {
+   "block": [
+    14,
+    11
+   ],
+   "names": [
+    "Ice Cavern/Exit",
+    "Ice Cavern/Outside",
+    "S. Gate/Dali Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 111,
+   "verts": 333,
+   "footprint_x": 4.9,
+   "footprint_z": 11.7,
+   "footprint_max": 11.7,
+   "height": 10.02,
+   "y_min": 2.77,
+   "y_max": 12.79
+  },
+  {
+   "block": [
+    14,
+    14
+   ],
+   "names": [
+    "Treno/Gate"
+   ],
+   "coastal_subs": [
+    "sea3"
+   ],
+   "tris": 38,
+   "verts": 114,
+   "footprint_x": 1.8,
+   "footprint_z": 4.7,
+   "footprint_max": 4.7,
+   "height": 1.36,
+   "y_min": 3.77,
+   "y_max": 5.13
+  },
+  {
+   "block": [
+    14,
+    15
+   ],
+   "names": [
+    "S. Gate/Treno Arch"
+   ],
+   "coastal_subs": [
+    "beach1"
+   ],
+   "tris": 68,
+   "verts": 204,
+   "footprint_x": 8.9,
+   "footprint_z": 4.6,
+   "footprint_max": 8.9,
+   "height": 6.02,
+   "y_min": 2.97,
+   "y_max": 8.99
+  },
+  {
+   "block": [
+    14,
+    16
+   ],
+   "names": [
+    "Dali/???",
+    "Dali/Village Road"
+   ],
+   "coastal_subs": [],
+   "tris": 95,
+   "verts": 285,
+   "footprint_x": 6.4,
+   "footprint_z": 6.6,
+   "footprint_max": 6.6,
+   "height": 12.7,
+   "y_min": 27.05,
+   "y_max": 39.76
+  },
+  {
+   "block": [
+    14,
+    17
+   ],
+   "names": [
+    "Dali/???",
+    "Dali/Village Road"
+   ],
+   "coastal_subs": [],
+   "tris": 113,
+   "verts": 339,
+   "footprint_x": 7.4,
+   "footprint_z": 5.5,
+   "footprint_max": 7.4,
+   "height": 10.43,
+   "y_min": 27.81,
+   "y_max": 38.24
+  },
+  {
+   "block": [
+    15,
+    10
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 34,
+   "verts": 102,
+   "footprint_x": 5.3,
+   "footprint_z": 3.4,
+   "footprint_max": 5.3,
+   "height": 4.64,
+   "y_min": 7.2,
+   "y_max": 11.84
+  },
+  {
+   "block": [
+    15,
+    11
+   ],
+   "names": [
+    "S. Gate/Dali Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 156,
+   "verts": 468,
+   "footprint_x": 7.3,
+   "footprint_z": 11.6,
+   "footprint_max": 11.6,
+   "height": 9.07,
+   "y_min": 2.77,
+   "y_max": 11.84
+  },
+  {
+   "block": [
+    16,
+    1
+   ],
+   "names": [],
+   "coastal_subs": [
+    "beach1",
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 2,
+   "verts": 6,
+   "footprint_x": 3.6,
+   "footprint_z": 4.2,
+   "footprint_max": 4.2,
+   "height": 4.32,
+   "y_min": 2.73,
+   "y_max": 7.05
+  },
+  {
+   "block": [
+    16,
+    11
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 131,
+   "verts": 393,
+   "footprint_x": 5.9,
+   "footprint_z": 15.4,
+   "footprint_max": 15.4,
+   "height": 7.04,
+   "y_min": 32.9,
+   "y_max": 39.93
+  },
+  {
+   "block": [
+    16,
+    14
+   ],
+   "names": [
+    "N. Gate/Melda Arch"
+   ],
+   "coastal_subs": [],
+   "tris": 75,
+   "verts": 225,
+   "footprint_x": 59.7,
+   "footprint_z": 16.8,
+   "footprint_max": 59.7,
+   "height": 13.72,
+   "y_min": 2.12,
+   "y_max": 15.85
+  },
+  {
+   "block": [
+    16,
+    15
+   ],
+   "names": [
+    "N. Gate/Melda Arch"
+   ],
+   "coastal_subs": [
+    "beach1",
+    "sea1",
+    "sea2",
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 3,
+   "verts": 9,
+   "footprint_x": 4.0,
+   "footprint_z": 1.1,
+   "footprint_max": 4.0,
+   "height": 4.21,
+   "y_min": 8.14,
+   "y_max": 12.36
+  },
+  {
+   "block": [
+    17,
+    12
+   ],
+   "names": [
+    "Alexandria/Main Street"
+   ],
+   "coastal_subs": [],
+   "tris": 168,
+   "verts": 504,
+   "footprint_x": 22.5,
+   "footprint_z": 21.3,
+   "footprint_max": 22.5,
+   "height": 5.44,
+   "y_min": 26.07,
+   "y_max": 31.51
+  },
+  {
+   "block": [
+    17,
+    14
+   ],
+   "names": [
+    "N. Gate/Melda Arch",
+    "S. Gate/Bohden Arch"
+   ],
+   "coastal_subs": [],
+   "tris": 35,
+   "verts": 105,
+   "footprint_x": 8.8,
+   "footprint_z": 16.8,
+   "footprint_max": 16.8,
+   "height": 7.89,
+   "y_min": 7.95,
+   "y_max": 15.85
+  },
+  {
+   "block": [
+    17,
+    15
+   ],
+   "names": [
+    "N. Gate/Melda Arch"
+   ],
+   "coastal_subs": [
+    "beach1",
+    "sea1",
+    "sea2",
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 3,
+   "verts": 9,
+   "footprint_x": 4.0,
+   "footprint_z": 1.1,
+   "footprint_max": 4.0,
+   "height": 4.4,
+   "y_min": 7.95,
+   "y_max": 12.36
+  },
+  {
+   "block": [
+    18,
+    4
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3"
+   ],
+   "tris": 15,
+   "verts": 45,
+   "footprint_x": 4.6,
+   "footprint_z": 5.0,
+   "footprint_max": 5.0,
+   "height": 3.81,
+   "y_min": 7.0,
+   "y_max": 10.81
+  },
+  {
+   "block": [
+    18,
+    5
+   ],
+   "names": [
+    "Gizamaluke/Cavern"
+   ],
+   "coastal_subs": [
+    "sea3",
+    "sea4"
+   ],
+   "tris": 15,
+   "verts": 45,
+   "footprint_x": 21.9,
+   "footprint_z": 18.7,
+   "footprint_max": 21.9,
+   "height": 2.38,
+   "y_min": 3.82,
+   "y_max": 6.21
+  },
+  {
+   "block": [
+    18,
+    11
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 1,
+   "verts": 3,
+   "footprint_x": 1.7,
+   "footprint_z": 4.1,
+   "footprint_max": 4.1,
+   "height": 0.39,
+   "y_min": 3.37,
+   "y_max": 3.76
+  },
+  {
+   "block": [
+    18,
+    13
+   ],
+   "names": [
+    "Alexandria/Main Street",
+    "Pinnacle Rocks/Entry"
+   ],
+   "coastal_subs": [],
+   "tris": 9,
+   "verts": 27,
+   "footprint_x": 1.7,
+   "footprint_z": 0.8,
+   "footprint_max": 1.7,
+   "height": 6.39,
+   "y_min": 33.55,
+   "y_max": 39.93
+  },
+  {
+   "block": [
+    18,
+    14
+   ],
+   "names": [
+    "S. Gate/Bohden Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 131,
+   "verts": 393,
+   "footprint_x": 15.7,
+   "footprint_z": 13.3,
+   "footprint_max": 15.7,
+   "height": 7.04,
+   "y_min": 32.9,
+   "y_max": 39.93
+  },
+  {
+   "block": [
+    19,
+    10
+   ],
+   "names": [
+    "Marsh/Entrance"
+   ],
+   "coastal_subs": [],
+   "tris": 28,
+   "verts": 84,
+   "footprint_x": 12.0,
+   "footprint_z": 8.0,
+   "footprint_max": 12.0,
+   "height": 5.38,
+   "y_min": 26.29,
+   "y_max": 31.67
+  },
+  {
+   "block": [
+    19,
+    11
+   ],
+   "names": [],
+   "coastal_subs": [],
+   "tris": 22,
+   "verts": 66,
+   "footprint_x": 63.6,
+   "footprint_z": 46.7,
+   "footprint_max": 63.6,
+   "height": 23.93,
+   "y_min": 3.2,
+   "y_max": 27.13
+  },
+  {
+   "block": [
+    19,
+    14
+   ],
+   "names": [
+    "S. Gate/Bohden Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 155,
+   "verts": 465,
+   "footprint_x": 8.0,
+   "footprint_z": 8.7,
+   "footprint_max": 8.7,
+   "height": 2.56,
+   "y_min": 26.07,
+   "y_max": 28.62
+  },
+  {
+   "block": [
+    19,
+    15
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 92,
+   "verts": 276,
+   "footprint_x": 8.0,
+   "footprint_z": 7.8,
+   "footprint_max": 8.0,
+   "height": 2.32,
+   "y_min": 26.07,
+   "y_max": 28.38
+  },
+  {
+   "block": [
+    20,
+    10
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 232,
+   "verts": 696,
+   "footprint_x": 9.2,
+   "footprint_z": 10.2,
+   "footprint_max": 10.2,
+   "height": 16.77,
+   "y_min": 26.29,
+   "y_max": 43.06
+  },
+  {
+   "block": [
+    20,
+    11
+   ],
+   "names": [
+    "Marsh/Entrance"
+   ],
+   "coastal_subs": [],
+   "tris": 13,
+   "verts": 39,
+   "footprint_x": 8.0,
+   "footprint_z": 11.9,
+   "footprint_max": 11.9,
+   "height": 3.93,
+   "y_min": 26.29,
+   "y_max": 30.21
+  },
+  {
+   "block": [
+    20,
+    14
+   ],
+   "names": [
+    "S. Gate/Bohden Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 131,
+   "verts": 393,
+   "footprint_x": 8.0,
+   "footprint_z": 8.7,
+   "footprint_max": 8.7,
+   "height": 2.56,
+   "y_min": 26.07,
+   "y_max": 28.62
+  },
+  {
+   "block": [
+    20,
+    15
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea3",
+    "sea4",
+    "sea5"
+   ],
+   "tris": 86,
+   "verts": 258,
+   "footprint_x": 8.0,
+   "footprint_z": 7.8,
+   "footprint_max": 8.0,
+   "height": 2.32,
+   "y_min": 26.07,
+   "y_max": 28.38
+  },
+  {
+   "block": [
+    21,
+    10
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 104,
+   "verts": 312,
+   "footprint_x": 6.3,
+   "footprint_z": 8.4,
+   "footprint_max": 8.4,
+   "height": 5.53,
+   "y_min": 0.0,
+   "y_max": 5.53
+  },
+  {
+   "block": [
+    21,
+    14
+   ],
+   "names": [
+    "S. Gate/Bohden Gate"
+   ],
+   "coastal_subs": [],
+   "tris": 18,
+   "verts": 54,
+   "footprint_x": 5.2,
+   "footprint_z": 4.0,
+   "footprint_max": 5.2,
+   "height": 4.77,
+   "y_min": 26.07,
+   "y_max": 30.84
+  },
+  {
+   "block": [
+    22,
+    14
+   ],
+   "names": [],
+   "coastal_subs": [
+    "sea4"
+   ],
+   "tris": 37,
+   "verts": 111,
+   "footprint_x": 3.1,
+   "footprint_z": 3.1,
+   "footprint_max": 3.1,
+   "height": 3.41,
+   "y_min": 26.41,
+   "y_max": 29.81
+  }
+ ]
+}

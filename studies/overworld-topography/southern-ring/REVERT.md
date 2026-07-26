@@ -345,3 +345,264 @@ the next time it is built (real arrive + key 35 → 9011). It was **not** rebuil
 6500 if it is ever redeployed.
 
 **No git commit was made.**
+
+---
+
+# 9. THE LANTERN QUAY MARKER — a baked Object landmark on the quay (R2b) — **APPLIED**
+
+Run 2026-07-25 (fifth pass), worktree `gui-workspace-improvements-277c74`, branch
+`claude/lantern-quay-marker-5b076a`. Gives the case-53 quay entrance something to LOOK at: until now
+it was an invisible 6-tile trigger cluster on featureless grass. Backup timestamp for this pass:
+**`20260725-212836`**.
+
+**EXACTLY 2 install files written, both in `FF9CustomMap-world`. Zero Terrain bytes, zero `.eb`,
+zero `DictionaryPatch`, zero text, zero files added or removed (891 before, 891 after).
+`FF9CustomMap` untouched. NO relaunch required and none performed** — the s34 override is re-read
+when the block streams in, so re-entering the overworld picks it up. **The game was never launched
+during this pass.**
+
+## 9.1 The design (as executed)
+
+| | |
+|---|---|
+| Lane | a baked per-block **Object** mesh — stock's own landmark substrate — through the s34 `transform.name`-GENERIC override seam the ring already requires. NOT the scripted 3DModel/`.eb` lane, NOT SPS |
+| Asset | **Alexandria Harbour, `Block[21][10] Object`** (disc 1) — FF9's literal harbour/quay gate, and the block's ENTIRE Object part, so it exports whole with no trimming or index slicing: **104 tris / 312 verts**, one submesh `(0, 312)`, single connected component over 66 shared positions, uniform IDALL **6382** (`0x18EE` = area 24, topo 59, flags 2). LOCAL bbox x[0.000, 6.277] y[0.000, 5.531] z[−43.441, −35.055] → footprint **6.277 × 8.387 u**, height **5.531 u**. Carried **verbatim** (positions + UVs + normals) |
+| Placement | **ONE** instance, `--at (48, −1157)` → world span x[44.861, 51.139] z[−1161.193, −1152.807], base at **y 3.00** (Block[0][18]'s measured plateau) |
+| IDALL | **4078** (`0x0FEE` = area 15, topo 59, flags 2) on all 104 tris — the engine's render-only skip id. Note the donor's own 6382 is *also* topo 59 / flags 2, so the restamp moves **only** the area field and keeps the donor's structural invariants |
+
+**Placement arithmetic.** `--at` anchors the mesh's XZ **bounding-box centre** (`blendio.py:198-203` —
+the bbox centre, *not* the vertex centroid) and shifts XZ only (`dy = 0`), so the base is
+pre-translated to y 3.00 in the OBJ. The lawful window north of the trigger keep-out is
+z ∈ (−1162, −1152] = 10 u for an 8.387 u gate; −1157 is its exact centre, giving **0.807 u** to spare
+on each side. Measured clearances: **2.807 u** to the nearest real trigger tile (z ≤ −1164),
+**11.565 u** to the arrive point, **0.807 u** to the block's north edge (fully inside block (0,18)).
+
+## 9.1a ⚠ The donor was CORRECTED mid-run — two passes, second supersedes
+
+This section covers **two builds of the same block**, both by the same script and pipeline:
+
+| Pass | Donor | Result | Status |
+|---|---|---|---|
+| 1 | `Block[18][13] Object` — 9 tris, two instances flanking the trigger at (48, −1158)/(48, −1178) | 2828 B, 18 tris, md5 `6fe27586f1fffc216dd9c292afed6fbe` | **SUPERSEDED** |
+| 2 | `Block[21][10] Object` — 104 tris, one instance at (48, −1157) | **16244 B**, 104 tris, md5 `c56e30d40cce10ad06648f8b849e0179` | **LIVE** |
+
+Pass 1 passed all its own gates and probes, but its donor identity rested on `world/locate.py`'s
+area→place join, which a deeper 63-block census then **proved broken**: the engine packs **CELL**
+coordinates into the world dispatch key, not the IDALL (`ff9.cs:2233`
+`num = 0x8000 | (z<<8 & 0x3F00) | (x<<2 & 0xFC) | (id&3)` with `x = cell%48`, `z = cell/48` from
+`w_worldPos2Cell`, `ff9.cs:5299-5303`). Names checked against the engine's own navipos autopilot
+table contradict `locate()` everywhere. The 9 carried tris are real geometry but a **fragment** of the
+South Gate complex — which spans (18,13)+(18,14) at 140 tris — so the carry risked reading in-game as
+a cut-off piece rather than a free-standing marker.
+
+Pass 2 needed no separate revert: `world-mesh-build` replaces the block's Object part **wholesale**, so
+it overwrote pass 1's file in place. The §9.3 backups are of the ORIGINAL 176-byte stub, so the undo in
+§9.5 still returns the install to the true pre-marker state regardless of which pass ran.
+
+## 9.2 Why 4078 is load-bearing, not cosmetic
+
+`WMWorld.LoadBlock` registers `prefab.ObjectForm1` **before** `prefab.TerrainForm1`, and
+`RegisterBlockComponent(block, ObjectForm1, form1: true, …)` feeds the loose Object override to
+`block.AddWalkMeshForm1(mesh)` (`WMWorld.cs:775-814`). Block (0,18) is a reclaimed cell whose
+`Donor.txt` names donor **(0,0)**, and (0,0) *does* have a stock Object component — so our override
+takes the `RegisterBlockComponent` path and **enters the walkmesh ahead of Terrain**. Since the ground
+query is first-mesh/first-tri-wins, an ordinary `--topograph 59` stamp would have made the gate
+**shadow the quay trigger** and the entrance would have stopped firing.
+
+`WMPhysics.Raycast` (`WMPhysics.cs:15-20`) skips triangles whose `tangent.x` is 4078 / 4088 / 2040
+outright, so the on-foot walk query never sees the gate: walk-through, no shadow.
+`ff9.w_movementUpdate` (`ff9.cs:5160-5164`) additionally keeps a *non-controlled* actor's own Y on a
+4078 hit (remapping the id to `0xFD2`) instead of snapping it to the gate top, so followers don't
+climb it. Both halves are **measured on the deployed bytes** in §9.8, not merely asserted.
+
+**Stock precedent** (measured, disc 1): Chocobo's Forest ships **100** Object tris of 4078 —
+(16,14) = 59, (17,14) = 35, (16,15) = 3, (17,15) = 3. 4078 is the shipping render-only idiom, not a
+trick. (The donor's own 6382 / `0x18EE` is separately special-cased in the same `w_movementUpdate`
+block, but it is *not* in `WMPhysics`'s skip set — which is why the stock harbour gate is solid and
+ours needs the restamp.)
+
+⚠ **4078 is NOT a blanket exemption.** Every sky-cast placement path (`ff9.w_nwpHitBool` callers, e.g.
+`ff9.cs:4750`, `4849`) sets `WMPhysics.IgnoreExceptions = true`, which DEFEATS the skip. Marker
+geometry under a spawn or an arrive point would still be hit. Hence the hard exclusion: nothing
+within 6 u of the berth-exit arrive point (60, −1168) — measured clearance **11.565 u**.
+
+## 9.3 Backups taken BEFORE writing
+
+| Backup | Covers |
+|---|---|
+| `backups/quay-marker-premint.20260725-212836/Disc1-r18/Block[0][18] Object.ff9mesh` | the live Disc1 Object file, **176 B** (md5 `e4a62c30d82899d19f86bdd6e19df0c9`) |
+| `backups/quay-marker-premint.20260725-212836/Disc4-r18/Block[0][18] Object.ff9mesh` | the live Disc4 Object file, **176 B** (same md5 — the two discs were identical) |
+
+Both were the 176-byte **blanking stub** (one down-facing degenerate tri, idall 1, at y −80) that
+`world-island` deploys to suppress reclaim-donor (0,0)'s 5 object tris. Pre-state archived at
+`probe_marker/probe_before.txt`.
+
+## 9.4 What was written
+
+| # | File | Before | After (LIVE, pass 2) |
+|---|---|---|---|
+| 1 | `FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh` | 176 B | **16244 B** |
+| 2 | `FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh` | 176 B | **16244 B** |
+
+Both discs are byte-identical (md5 `c56e30d40cce10ad06648f8b849e0179`); #2 came from
+`discmirror.auto_mirror`, which ran as the build's post-step and re-copied the cell's 9 files —
+only the Object file differed in content. Whole-folder md5 proof (**891 files before and after — no
+file added or removed** — these two the only content changes):
+`probe_marker/writeset_md5_diff.txt`.
+
+Pass 1 had written 2828 B / md5 `6fe27586f1fffc216dd9c292afed6fbe` to the same two paths; pass 2
+overwrote both (see §9.1a). **No third file was ever touched by either pass.**
+
+The build reported `replaced 0 stub tri(s)` because the replacement check reads **pristine** p0data,
+and block (0,18) has no pristine parts (it is reclaimed ocean). The stub it actually replaced was a
+mod-folder override. Either way the donor's tris stay overridden — that is the intended outcome.
+
+## 9.5 Undo
+
+```sh
+G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+B="backups/quay-marker-premint.20260725-212836"
+cp "$B/Disc1-r18/Block[0][18] Object.ff9mesh" "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/"
+cp "$B/Disc4-r18/Block[0][18] Object.ff9mesh" "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/"
+```
+
+Re-enter the overworld (no relaunch). That restores the blanking stub — the quay goes back to an
+invisible trigger, everything else in R1/R2a untouched. Nothing else in the install was modified, so
+there is nothing else to undo.
+
+To rebuild the marker instead:
+`py studies/overworld-topography/southern-ring/mint_quay_marker.py --build`.
+
+## 9.6 ⚠ STANDING TRAP — `world-island` WIPES this marker
+
+`ff9mapkit/ff9mapkit/world/island.py` (`:955-957` and `:966-969`, via `HIDDEN_PARTS` at `:53`)
+**unconditionally** deploys `M.hidden_block_mesh` for the `Object` part of every cell it mints — the
+same 176-byte blanking stub this pass replaced. Any future re-run of the island mint over block
+(0,18) therefore **silently wipes the marker**. It is not merged, not warned about, not conditional
+on an existing override.
+
+**Re-run `mint_quay_marker.py --build` after any `world-island` pass that touches (0,18).** The same
+applies to the three remaining R2 quays once they carry markers.
+
+## 9.7 The kit lever added (repo side)
+
+`world-mesh-build --topograph` can only reach IDALL bits 2-7: `obj_to_blockmesh` hard-coded
+`encode_id(event=0, area=0, topograph=topograph)`, so **4078 was unreachable** (it needs area 15 +
+flags 2). Closed with a raw `--idall N` lever:
+
+| File | Change |
+|---|---|
+| `ff9mapkit/ff9mapkit/world/blendio.py` | `obj_to_blockmesh(..., idall=None)` stamps a raw 16-bit IDALL instead of the topograph encode (masked `& 0xFFFF`); `build_from_obj(..., idall=None)` plumbs it and reports the effective `idall` in its summary. Docstrings carry the WMPhysics/`w_movementUpdate` mechanism **and** the IgnoreExceptions caveat |
+| `ff9mapkit/ff9mapkit/cli.py` | `world-mesh-build --idall N` (0..65535, validated), decoded in the receipt, plus a render-only note when the stamp is 4078/4088/2040 |
+| `ff9mapkit/tests/test_world_mesh_deploy.py` | 4 new tests: the gap itself (`no topograph encodes to 4078`), the raw stamp lands on every corner of every tri **with UVs still carried**, `idall=None` keeps the old default, and the 16-bit mask |
+
+`add_solid_base` deliberately does **not** take the raw id: that hull exists to COLLIDE, so it keeps
+its topograph-derived id.
+
+Also fixed, one-line doc drift (patch untouched): `memoria-patches/README.md`'s s34 row described the
+override as terrain-only and never mentioned `RegisterBareObjectOverride`, which the patch has
+carried all along. The row now states that the override is generic over `transform.name`, that an
+`ObjectForm1` override IS fed to the Form1 walkmesh ahead of Terrain (the shadowing hazard above),
+and that `RegisterBareObjectOverride` is the separate render-only path for a block with no stock
+Object component.
+
+## 9.8 Verified from the DEPLOYED bytes, both discs (offline — the game was not launched)
+
+`probe_marker/probe_quay_marker.py` → `probe_marker/probe_output.txt`. **All checks PASS on disc 1 and
+disc 4**:
+
+* **the trigger is untouched** — exactly 6 event tris, all idall 16384, union bbox
+  x[44.00, 52.00] z[−1172.00, −1164.00]; the ground query at (48, −1168) still returns idall 16384 @ y 3.00;
+* **the arrive point is untouched** — (60, −1168) → Terrain, idall 0, topograph 0, y 3.00, in **both**
+  query modes (walk-with-skip *and* sky-cast-with-IgnoreExceptions);
+* **the marker is present** — the WHOLE donor part, **104 tris / 312 verts**, **every** tri idall 4078,
+  per-face normal-Y distribution identical to the donor's (34 up / 60 vertical / 10 down — a pure
+  translation must not alter one face normal), world span x[44.861, 51.139] y[3.000, 8.531]
+  z[−1161.193, −1152.807] matching the planned footprint to ≤ 0.01 u, base exactly on y 3.00, inside
+  the block (0.807 u north-edge margin), ≥ 6 u from the arrive point (**11.565 u**) and clear of the
+  keep-out rect (**2.807 u** to the nearest real trigger tile);
+* **the UVs carried** — one per vertex, none degenerate, U and V sets byte-equal to the donor's,
+  u[0.00391, 0.12793] v[0.12305, 0.18457] on the shared `res(1_24)_objects` atlas (a UV-less carry
+  would render flat white off the atlas's alpha-0 corner);
+* **the behavioural pair** — at the gate's centre (48, −1157) the walk query passes *through* to
+  Terrain (idall 0, y 3.00) while the sky-cast query hits `Object` idall 4078 at y 7.34. That is both
+  halves proven at once: the gate really IS in the walkmesh set (so the shadowing hazard was real) and
+  the 4078 stamp really does make it walk-through.
+
+## 9.9 Deviations from the written plan (and why)
+
+1. **The donor was corrected mid-run** — see §9.1a. Pass 1's `Block[18][13]` post rested on a
+   `world/locate.py` join that a later census proved broken; pass 2 carries Alexandria Harbour's gate
+   instead. Both passes are recorded because both touched the install.
+2. **`world-mesh-trim --floor` was SKIPPED** in both passes, for opposite reasons — which is why it is
+   worth recording as a general finding rather than a footnote. The trim drops LOW UP-FACING faces (a
+   building's dirt apron), and neither donor has an apron to drop:
+   * the pass-1 post is 6.387 u tall, so at the default `base_height=6.0` its single up-facing face
+     (the top cap) survived by just **0.387 u** — and is **decapitated at 6.5**;
+   * the pass-2 harbour gate is only **5.531 u** tall, i.e. entirely *below* the default 6.0 threshold,
+     so the trim would drop **all 34** of its up-facing faces and gut the structure.
+
+   Lesson: `--floor` is calibrated for a tall building. On a SHORT landmark it is not a no-op, it is
+   destructive — check the height against `base_height` before running it.
+3. **`quay_marker.obj` is NOT committed** — it is a verbatim copy of stock FF9 mesh geometry
+   (312 verts + UVs + normals from p0data), the same class as the battle-map FBX in
+   `ff9mapkit/docs/PROVENANCE.md`: read from your own install, gitignored, never committed. The study's
+   `.gitignore` now excludes `*.obj` with that reason, and `mint_quay_marker.py` regenerates it.
+   (The task brief had listed the OBJ as a repo file; committing it would have breached the provenance
+   gate, so the generator is committed in its place.)
+4. `--seat` and `--keep-block` were omitted as planned (`--seat` samples pristine terrain and block
+   (0,18) has none; `--keep-block` is a no-op against a stub). The base is pre-translated to y 3.00 in
+   the OBJ because `--at` shifts XZ only.
+
+## 9.10 Working files added (repo side)
+
+| Path | Note |
+|---|---|
+| `studies/overworld-topography/southern-ring/mint_quay_marker.py` | the authoring + build script — the full decided design as executable constants, with 11 offline gates (whole-part carry, anchor identity, base y, in-block, UV carry ×3, normal-Y fidelity, both exclusions). `--build` writes the install |
+| `studies/overworld-topography/southern-ring/quay_marker.obj` | the generated OBJ, 31387 B — **gitignored** (provenance, §9.9) |
+| `studies/overworld-topography/southern-ring/probe_marker/probe_quay_marker.py` | the acceptance probe (reads the DEPLOYED bytes, both discs; exits non-zero on any failure) |
+| `studies/overworld-topography/southern-ring/probe_marker/probe_output.txt` | its output — all checks pass |
+| `studies/overworld-topography/southern-ring/probe_marker/probe_before.txt` | the pre-mint state, probed from the backups |
+| `studies/overworld-topography/southern-ring/probe_marker/writeset_md5_diff.txt` | whole-folder md5 before/after — the 2-file write-set proof |
+
+Two untracked research-round paths sit in this worktree but are **not** part of this commit (they were
+written by the census agents, not this pass): `studies/overworld-topography/object-census/` and
+`studies/overworld-topography/WORLD-SCRIPTED-OBJECT-LANE-2026-07-25.md`.
+
+## 9.10a Test state (honest)
+
+`py -m pytest` in `ff9mapkit/`, **after** `extract-templates` (the fresh-worktree template trap — the
+first run warned "base templates not extracted" and would have silently skipped the byte-level slice):
+
+**5286 passed, 10 skipped, 1 failed in 7m39s.** The one failure is
+`tests/test_world_nameplate_surgery.py::test_author_entrance_surgery_summary`:
+`dispatcher case 53 is already mapped (target 4642) to a different handler`.
+
+**It is PRE-EXISTING and unrelated** — verified by `git stash`ing this pass's changes and re-running:
+it fails identically on a clean tree (1 failed, 10 passed). The test reads the LIVE world dispatcher,
+and R1 (§3b) legitimately occupies case 53 with the Lantern Quay handler, so the test now collides with
+the install state it reads. Nothing in this pass touches `world/entrance.py` or any dispatcher byte.
+Worth fixing separately: the test should use a synthetic dispatcher or a dead case, not the live one.
+
+## 9.11 Playtest ask (owner)
+
+No relaunch needed — re-enter the overworld (or `~ → World` teleport near the junction island's west
+shore). Expect **Alexandria Harbour's gate** standing just north of the quay tile, on the trigger's
+own x axis. Confirm:
+
+1. it **renders**, and renders **textured** — not flat white (white = the UV carry failed) and not
+   missing (missing = the s34 Object override didn't bind on this reclaimed cell);
+2. it reads as a marker at the overworld camera's scale — 6.3 × 8.4 u footprint, 5.5 u tall, its south
+   face 2.8 u from the trigger. Sizing/offset is the most likely thing to want tuning;
+3. you can **walk through it** (the 4078 stamp) — and specifically that walking onto the quay tile
+   still works from every direction;
+4. the quay entrance still fires and the "Lantern Quay" plate still appears (the shadowing test);
+5. arriving from the berth still lands you on the west shore with nothing underfoot;
+6. nothing looks wrong at the block seam 0.8 u north of the gate, where block (0,17) begins.
+
+The gate's base sits at y 3.00 on flat ground; in stock it stood at sea level with its foot in the
+water, so if it reads as "floating" or "buried" the fix is a y nudge in `mint_quay_marker.py`'s
+`BASE_Y`, not a re-carry.
+
+**Commit:** this pass IS committed (the kit lever + study files + this section) — see the branch
+`claude/lantern-quay-marker-5b076a`.
