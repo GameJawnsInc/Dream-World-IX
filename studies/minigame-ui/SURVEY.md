@@ -96,6 +96,15 @@ DLL-free gauge. Text-side alternative: `[TBLE=bank]` value-indexed string swap
 
 ## Smaller confirmed facts (keep, they cost playtests elsewhere)
 
+- **`AddShopItem` 0x115 — ★★ FULLY IN-GAME PROVEN (ARMOURY rounds 2-4)** as the
+  `add_shop_item`/`remove_shop_item` behavior verbs (event-Once lane, remove-then-add
+  idempotence, unknown-shop lint). Session semantics decoded: `ff9buy.ShopItems` is a
+  STATIC process table — mutations survive New Game AND ~ Reload, reset only at
+  relaunch. Two laws minted en route: THE INVENTORY-SNAPSHOT LAW (have_item reads a
+  top-of-tick mirror; the pool's live consumption raced a live read) and THE
+  DRAINING-CONDITION LAW (one branch/unit/tick — several once-effects on a transient
+  moment must flag-latch it). `AddShopSynthesis` 0x116 = the same handler shape for
+  synth recipes, still unbenched.
 - **`0xAE MINIGAME` (Tetra Master)** launches from any field but is a FLOW
   TERMINATOR (`return 7`) — must be the last thing its function does; gate on
   `B_SYSVAR[19]` ≥ 5 cards (`DoEventCode.cs:2378-86`). The uid-keyed
