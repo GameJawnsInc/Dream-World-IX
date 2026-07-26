@@ -255,6 +255,15 @@ do = { add_shop_item = [40, "Elite Contract"] }   # [shop_id, item]
 once = "stock2"                                    # REQUIRED — the event-Once lane
 ```
 
+> **THE DRAINING-CONDITION LAW (ARMOURY round 3):** the selector picks **one branch per
+> unit per tick**, so two once-branches on the same condition fire on *consecutive*
+> ticks — and a condition an item pool is draining (`have_item >= N` while the pool
+> converts) may hold for exactly ONE tick: the first branch fires, the second finds it
+> already false. To hang several once-effects on one transient moment, latch it: the
+> first branch carries `raise_flags = ["moment"]` and the others gate on
+> `when = [{ flag = "moment" }]` — a raised flag doesn't drain. (Monotonic conditions —
+> kill tallies, spent waves — don't need this; the event-Once lane alone serves them.)
+
 Mutates a shop's buy list at runtime (Memoria's extended `AddShopItem`, 0x115) — the
 wave-by-wave armoury unlock. Engine semantics the compiler bakes in: the shop must already
 exist in `ShopItems.csv` (a `[[shop]]` in this field, or a vanilla 0–31 — lint refuses
