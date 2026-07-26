@@ -62,13 +62,13 @@ preset = "vivi"
 pos = [-340, -520]
 dialogue = "Every line you read here lives in a .mes file the kit wrote for you."
 
-# --- a flag-gated NPC: absent until the chest sets flag 8000, then revealed live ---
+# --- a flag-gated NPC: absent until the chest sets flag 8712, then revealed live ---
 [[npc]]
 name = "Guardian"
 preset = "zidane"
 pos = [380, -520]
 dialogue = "You opened the chest, so here I am — story flags, in one line of TOML."
-requires_flag = 8000
+requires_flag = 8712
 
 # --- a chest: gives an item + gil, shows a message, raises the story flag (fires once) ---
 [[event]]
@@ -76,9 +76,9 @@ name = "Chest"
 message = "Opened the chest: 1000 gil and an item!"
 give_item = [232, 1]
 gil = 1000
-set_flag = [8000, 1]
+set_flag = [8712, 1]
 once = true
-flag = 8001
+flag = 8713
 zone = [[300, -900], [760, -900], [760, -1320], [300, -1320]]
 
 # --- an exit back to the world (retarget `to` to your own room or a real field) ---
