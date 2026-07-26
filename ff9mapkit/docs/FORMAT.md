@@ -1429,6 +1429,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `options[].warp` | *(optional)* a **field id** (a positive int) this row **warps to** — the World-Hub journey destination the choice launches. |
 | `options[].set_scenario` | *(optional)* a ScenarioCounter value (`0`–`32767`) set alongside the `warp` (seed the destination's story beat as you enter it). |
 | `options[].input` | *(optional)* a `[[numeric_input]]` **name** — picking this row opens that number stepper (modal; blocks until Confirm/Cancel). It runs FIRST, so the row's `reply` can echo the entered number with `[NUMB=0]`. |
+| `options[].recall` | *(optional)* a `[[numeric_input]]` **name** — re-loads `[NUMB=0]` from that input's **saved result** before this row's `reply`. Required on any row that renders the number at a *later* time than the input itself: slot 0 is transient display state shared by every stepper's echo, so without `recall` a readback row shows whatever number was displayed last (possibly another stepper's). |
 
 **Pre-choose config (default / cancel / disable).** `default` sets the initially-highlighted row,
 `cancel` sets which row B/Cancel picks, and `options[].disabled = true` **removes** a row from the menu

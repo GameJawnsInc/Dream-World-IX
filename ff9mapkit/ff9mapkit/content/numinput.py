@@ -387,3 +387,15 @@ def call_bytes(slot: int) -> bytes:
     """The ``[[choice]]`` option's dispatch: block the talk body until the stepper
     returns (REQEW at the house dispatch level)."""
     return opcodes.run_script_sync(DISPATCH_LEVEL, slot, INPUT_TAG)
+
+
+def recall_bytes(spec: InputSpec) -> bytes:
+    """Re-load gMesValue slot 0 from the input's RESULT var (stepped x multiplier) —
+    the ``recall`` option key. Slot 0 is TRANSIENT display state shared by every
+    stepper's submit echo, so a row that renders ``[NUMB=0]`` at any LATER time
+    (the bench's Report row: it showed the previous BID's 3500 as "soldiers")
+    must recall from the save-backed ``Global.Int16[result]`` first."""
+    expr = f"Global.Int16[{spec.result}]"
+    if spec.multiplier > 1:
+        expr += f" const({spec.multiplier}) B_MULT"
+    return opcodes.encode(0x66, 0, exprasm.assemble(expr + " B_EXPR_END"), arg_flags=0b10)

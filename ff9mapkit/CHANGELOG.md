@@ -31,6 +31,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Added — the ITEM pool: the native shop as a hire menu
+- `[[behavior.pool]] item = "<item>"` makes a pooled roster's currency an ITEM: no
+  request-flag lane at all — holding the item IS the request. Each ticker pass converts
+  one held item into one spawn at the player (`B_HAVE_ITEM` gate; `RemoveItem` at the
+  spawn site, so an exhausted pool consumes nothing — contracts are real inventory).
+  The hire UX is the native `Menu(2, id)` shop (`[[shop]]` + `opens_shop`, both already
+  shipped): the shop hard-pauses the ticker while open, so purchases muster on the
+  first tick after it closes. Companions: the `have_item = ["<item>", n]` cond (live
+  GetItemCount) and the `item:<item>` hud value source. `item` is exclusive with
+  price/button/request_flag; the pool's `hireable` flag reads the inventory.
+
+### Added — choice `recall`: render a numeric input's SAVED value later
+- A `[[choice]]` option's `recall = "<numeric_input>"` re-loads `[NUMB=0]` from the
+  input's save-backed result var (× multiplier) before the row's reply — the NUMPAD
+  round-3 lesson: gMesValue slot 0 is transient display state shared by every
+  stepper's submit echo, so a readback row without `recall` renders whatever number
+  was displayed last (the bench's muster Report row showed the previous *bid*).
 
 ### Added — `[[numeric_input]]`: the Treno bid stepper as kit vocabulary
 - The game's one number-entry idiom — the Treno auction's 3-digit ×100 stepper, carried

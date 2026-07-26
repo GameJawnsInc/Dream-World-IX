@@ -135,6 +135,29 @@ def test_call_bytes():
     assert NI.call_bytes(12) == opcodes.run_script_sync(NI.DISPATCH_LEVEL, 12, NI.INPUT_TAG)
 
 
+def test_recall_bytes_reads_the_result_var():
+    """`recall` re-loads slot 0 from the SAVE-BACKED result var (x multiplier) — the
+    NUMPAD round-3 lesson: slot 0 is transient shared display state (the Report row
+    rendered the previous BID without this)."""
+    from ff9mapkit.eb import exprasm
+    rb = NI.recall_bytes(_spec())                        # result 2000, multiplier 100
+    assert rb == opcodes.encode(
+        0x66, 0, exprasm.assemble("Global.Int16[2000] const(100) B_MULT B_EXPR_END"),
+        arg_flags=0b10)
+    rb1 = NI.recall_bytes(_spec(multiplier=1))
+    assert rb1 == opcodes.encode(
+        0x66, 0, exprasm.assemble("Global.Int16[2000] B_EXPR_END"), arg_flags=0b10)
+
+
+def test_option_body_recall_before_reply():
+    from ff9mapkit.content import choice as CH
+    spec = _spec()
+    body = CH.option_body({"recall": "bid"}, reply_txid=600, input_specs={"bid": spec})
+    assert body.startswith(NI.recall_bytes(spec))        # recall FIRST, then the reply
+    with pytest.raises(ValueError):
+        CH.option_body({"recall": "nope"}, input_specs={"bid": spec})
+
+
 # ------------------------------------------------------------------------ validation
 @pytest.mark.parametrize("over,frag", [
     ({"digits": 5}, "digits"),

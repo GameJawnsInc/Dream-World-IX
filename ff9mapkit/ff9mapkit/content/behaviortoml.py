@@ -91,6 +91,7 @@ COND_VERBS = {
     "time_below": (), "time_above": (),
     "counter_ge": (), "counter_le": (), "counter_eq": (),
     "table_ge": (), "table_le": (), "table_eq": (),
+    "have_item": (),
 }
 ACTION_VERBS = {
     "walk_to": ("speed",),
@@ -114,7 +115,7 @@ BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud"}
-POOL_KEYS = {"name", "price", "button", "request_flag"}
+POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
@@ -197,12 +198,18 @@ def pool_specs(raw: dict) -> list:
             btn = B.DEFAULT_HIRE_BUTTONS
         elif btn is False:
             btn = None
+        item = row.get("item")
+        if item is not None:
+            from .. import items as _items
+            item = _items.resolve(item)                   # name or id -> resolved id
         out.append(B.PoolSpec(
             name=str(row.get("name", "")),
             price=(int(row["price"]) if row.get("price") is not None else None),
             button=(int(btn) if btn is not None else None),
             request_flag=(int(row["request_flag"])
-                          if row.get("request_flag") is not None else None)))
+                          if row.get("request_flag") is not None else None),
+            item=item,
+            item_name=(str(row.get("item")) if isinstance(row.get("item"), str) else "")))
     return out
 
 
@@ -230,6 +237,17 @@ def hud_lines(raw: dict) -> list:
     like an announce (``collect_text`` keys them ``("hud", i)``)."""
     b = table(raw)
     return list(enumerate((b.get("hud", []) if b else []) or []))
+
+
+def hud_value(v) -> str:
+    """Resolve one hud VALUE SOURCE for :meth:`behavior.FieldBehavior.hud`: an
+    ``item:<name-or-id>`` source gets its item resolved to the numeric id here
+    (the compiler layer only speaks ids); everything else passes through."""
+    v = str(v)
+    if v.startswith("item:"):
+        from .. import items as _items
+        return f"item:{_items.resolve(v[5:])}"
+    return v
 
 
 def hud_mes_text(row: dict) -> str:
@@ -511,6 +529,11 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
         return fb.time_below(int(v))
     if verb == "time_above":
         return fb.time_above(int(v))
+    if verb == "have_item":
+        # "Potion" (>= 1) or ["Potion", 2]; names resolved like every item key
+        from .. import items as _items
+        entry, n = (v, 1) if not isinstance(v, list) else (v[0], int(v[1]) if len(v) > 1 else 1)
+        return fb.have_item(_items.resolve(entry), n)
     if verb in ("counter_ge", "counter_le", "counter_eq"):
         return getattr(fb, verb)(str(v[0]), int(v[1]))
     if verb in ("table_ge", "table_le", "table_eq"):
@@ -658,7 +681,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 group=(str(s["group"]) if s.get("group") else None),
                 alive_only=bool(s.get("alive_only", False)))
     for hi, h in hud_lines(raw):
-        fb.hud(str(h.get("text", "")), [str(v) for v in h.get("values", []) or []],
+        fb.hud(str(h.get("text", "")),
+               [hud_value(v) for v in h.get("values", []) or []],
                window=int(h.get("window", 6)),
                txid=behavior_txids.get(("hud", hi)),
                digits=(list(h["digits"]) if isinstance(h.get("digits"), list)
@@ -827,6 +851,18 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         if row.get("price") is not None and (not isinstance(row["price"], int)
                                              or not 0 <= row["price"] <= 0xFFFFFF):
             problems.append(f"{ctx}: price must be an int 0..16777215 (24-bit gil)")
+        if row.get("item") is not None:
+            # THE ITEM POOL (the shop bridge): holding the item IS the request —
+            # no flag lane, so the request/button/price machinery is off-limits
+            try:
+                from .. import items as _items
+                _items.resolve(row["item"])
+            except Exception as e:
+                problems.append(f"{ctx}: item {row['item']!r} does not resolve ({e})")
+            for bad in ("price", "button", "request_flag"):
+                if row.get(bad) is not None:
+                    problems.append(f"{ctx}: item is exclusive with {bad} — the item IS "
+                                    f"the price and the request (the shop is the menu)")
         btn = row.get("button")
         if btn is not None and not isinstance(btn, (bool, int)):
             problems.append(f"{ctx}: button must be true or a PSX button-mask int")
@@ -1056,9 +1092,17 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     elif s[3:] not in _hp_units:
                         problems.append(f"{ctx}: value {v!r} — {s[3:]!r} has no `hp`")
                     continue
+                if s.startswith("item:"):
+                    try:
+                        from .. import items as _items
+                        _items.resolve(s[5:])
+                    except Exception as e:
+                        problems.append(f"{ctx}: value {v!r} — item does not "
+                                        f"resolve ({e})")
+                    continue
                 if s not in declared_counters:
                     problems.append(f"{ctx}: value {v!r} is not a counter, "
-                                    f"'gil', 'timer', or 'hp:<unit>'")
+                                    f"'gil', 'timer', 'hp:<unit>', or 'item:<item>'")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
@@ -1181,6 +1225,18 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                                             f"`timer = <seconds>` (the countdown HUD)")
                         if not isinstance(c[_cv], int) or not 0 <= c[_cv] <= 30000:
                             problems.append(f"{ctx}: {_cv} takes seconds 0..30000")
+                    if _cv == "have_item":
+                        _hv = c[_cv]
+                        _entry = _hv[0] if isinstance(_hv, list) else _hv
+                        try:
+                            from .. import items as _items
+                            _items.resolve(_entry)
+                        except Exception as e:
+                            problems.append(f"{ctx}: have_item {_entry!r} does not "
+                                            f"resolve ({e})")
+                        if isinstance(_hv, list) and len(_hv) > 1 and (
+                                not isinstance(_hv[1], int) or not 1 <= _hv[1] <= 99):
+                            problems.append(f"{ctx}: have_item count must be 1..99")
                 if verb == "announce_npc":
                     npc = next((n for n in raw.get("npc", []) or []
                                 if n.get("name") == str(v)), None)

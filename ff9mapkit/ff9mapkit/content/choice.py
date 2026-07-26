@@ -35,7 +35,8 @@ from . import event as _event, region as _region
 CHOICE_FLAG_BASE = 8200
 
 
-def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None) -> bytes:
+def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,
+                input_specs: dict | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
@@ -54,6 +55,16 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
             raise ValueError(f"choice option input {opt['input']!r} has no seated "
                              f"[[numeric_input]] entry (validate should have caught this)")
         parts.append(_numinput.call_bytes(slot))
+    if "recall" in opt:
+        # re-load gMesValue slot 0 from that input's RESULT var so this row's reply
+        # renders the SAVED number — slot 0 is transient and shared by every stepper's
+        # echo (the NUMPAD Report row rendered the previous bid without this)
+        from . import numinput as _numinput
+        sp = (input_specs or {}).get(str(opt["recall"]))
+        if sp is None:
+            raise ValueError(f"choice option recall {opt['recall']!r} names no "
+                             f"[[numeric_input]] (validate should have caught this)")
+        parts.append(_numinput.recall_bytes(sp))
     if reply_txid is not None:
         parts.append(_event.message(reply_txid))
     if "give_item" in opt:

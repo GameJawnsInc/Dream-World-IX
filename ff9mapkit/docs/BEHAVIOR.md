@@ -215,6 +215,32 @@ The build matches the menu to the pool by that flag (exactly one zone choice mus
 wires the poller automatically. `price` also works without `button` — an NPC-talk or walk-in
 hire menu pays the same way, since the gate lives in the activation block, not the menu.
 
+### The ITEM pool — the shop as the hire menu
+
+```toml
+[[behavior.pool]]
+name = "levy"
+item = "Soldier Contract"   # name or id — the pool's currency is this ITEM
+```
+
+An **item pool** has no request-flag lane at all: *holding the item is the request*. Every
+ticker pass, if the party holds ≥ 1 of `item` and a dormant member remains, one item converts
+into one spawn at the player's position (`B_HAVE_ITEM` gate; `RemoveItem` sits at the spawn
+site, so an exhausted pool consumes **nothing** — contracts are real inventory, they survive
+saves and can be sold back). One convert per tick gives a natural stagger. `item` is exclusive
+with `price`/`button`/`request_flag`.
+
+The hire UX is the **native shop**: author a `[[shop]]` that sells the contract item and a
+shopkeeper `[[npc]] opens_shop = N`. The shop UI hard-pauses field scripts while open (the
+engine's `SetEventEnable(false)` — the countdown timer keeps ticking), so purchases convert
+on the first tick after it closes: buy three contracts, leave the counter, three soldiers
+muster at your feet. The pool's `hireable` flag reads the live inventory (`have_item`-shaped)
+instead of a gil compare.
+
+Two companion pieces speak inventory directly: the **`have_item` cond** —
+`when = [{ have_item = ["Soldier Contract", 2] }]` (count optional, default 1; the engine's
+live `GetItemCount`) — and the **`item:` hud source** (below).
+
 **Honest hire rows — the published `hireable` flag.** Every pool also gets a
 `pool.<name>.hireable` flag (index printed at build and in `behavior compile`):
 `(gil ≥ price, when priced) AND not sold out`, refreshed by the ticker every pass. Put
@@ -393,9 +419,11 @@ text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  RAIDERS [NUMB=2]  DEPOT [NUMB=3
 ```
 
 A **value source** is a counter name, `"gil"` (the live purse), `"timer"` (the
-countdown HUD's remaining seconds), or `"hp:<unit>"` (a unit's hit points —
-the roster cell for a group member). Slots are written every pass; the engine
-itself re-renders only when a number actually changed.
+countdown HUD's remaining seconds), `"hp:<unit>"` (a unit's hit points — the
+roster cell for a group member), or `"item:<item>"` (the live held count of an
+item, name or id — watch contracts tick down as an item pool converts them).
+Slots are written every pass; the engine itself re-renders only when a number
+actually changed.
 
 The stock substrate every PC minigame HUD uses (the hunt points, the auction
 bid, the jump-rope count — there is no number opcode in FF9): slot i's
