@@ -1,0 +1,437 @@
+# TIER W rung 5 -- THE RESKIN, SECOND PROOF.  Stock Phoenix (ef211) recoloured in place.
+#
+# SCAFFOLDED, NOT TYPED.  Every `expect_*` guard, every span offset and the drift hash below came
+# out of `py reskin.py scaffold --ef 211`.  Do not retype them; re-scaffold if the install changes.
+# What is authored here is only the ART: `hue_to` / `saturation` / `value` / `enabled`.
+#
+# ==============================================================================================
+# READ THIS FIRST -- THE CREATURE IS OFF, AND IT IS OFF BECAUSE THE TOOL REFUSES IT.
+#
+# The rung was commissioned as GLACIAL PHOENIX: the fire bird rotated to one global cold hue
+# (~200 deg ice-blue/cyan) with the scenery co-keyed.  THE SCENERY HALF SHIPPED.  THE CREATURE
+# HALF IS REFUSED -- not by taste, and not by a tuning failure, but by `reskin.py`'s own frozen
+# quality gate at :1720 (unchanged since W4, so this is the ef227-PROVEN rule, not a new one):
+#
+#     Gate(min Spearman rho >= 0.90, "relative luminance ordering survives inside every palette")
+#
+# ef211's six creature rows are pure FIRE RAMPS -- dark-red -> orange -> yellow -> white -- where
+# an entry's relative LUMINANCE is carried by its HUE, not by its V.  Rotate the hue and the ramp's
+# light/dark modelling inverts: the wing root that was the brightest thing on the page becomes one
+# of the darkest.  That is precisely what the rho gate measures, and it fires hard.
+#
+#   MEASURED EXHAUSTIVELY over the tool's WHOLE knob space
+#   (hue delta on a 5-deg grid x saturation 0.0..1.1 x value 0.7..1.0, blowout gate honoured):
+#     part0  passes at deltas   0-20, 245-285, 335-355
+#     part1  passes at deltas   0-25,          330-355     <- BINDING
+#     part2  passes at deltas   0-25,          325-355     <- BINDING
+#     part3  passes at deltas   0-25, 245-275, 340-355
+#     part4  passes at deltas   0-25, 240-270, 335-355
+#     part5  passes at deltas   0-25, 115-120, 230-355
+#   THE ONE-HUE RULE takes the INTERSECTION (a shared body material must land on one hue):
+#     {0, 5, 10, 15, 20, 340, 345, 350, 355} -- stock +/- 25 deg, ALL OF IT INSIDE THE FIRE BAND.
+#     Landing the creature's mean hue anywhere in 180..240 is UNREACHABLE at every saturation and
+#     every value.  `value` cannot rescue it by construction: Spearman is rank-based and a scalar
+#     V multiplier is monotone, so value moves rho only through 5-bit re-quantisation ties.
+#
+#   AND THE HEADROOM LAW SEPARATELY FORBIDS A VALUE LIFT: all six rows peak at 31/31 (headroom 0,
+#   value ceiling x1.000), so `value > 1.0` refuses without `acknowledge_headroom`.  ef227 was the
+#   corpus OUTLIER at <=28.  EVERY `value` IN THIS FILE IS 1.0 -- the whole set is hue+saturation
+#   work, which is also why the unspent headroom on the low-peak rows is left unspent.
+#
+# THE LAW THIS PROVED -- measured over all 17 stock summon creature packages, free saturation,
+# one-hue rule applied.  Reachable hue arc, and whether a cold (180-240) key is reachable at all:
+#     Ark 381    Sbar 0.310  arc 360  YES        Bahamut 227 Sbar 0.559  arc 360  YES
+#     Leviathan  Sbar 0.386  arc 360  YES        Madeen 251  Sbar 0.448  arc 340  YES
+#     Odin 261   Sbar 0.501  arc 360  YES        Atomos 184  Sbar 0.459  arc 360  YES
+#     Ifrit 276  Sbar 0.656  arc 250  YES        Fenrir x2   Sbar 0.436  arc 140  YES
+#     PHOENIX 211 Sbar 0.711 arc  50  NO         REBIRTH 225 Sbar 0.711  arc  50  NO
+#   The reskin lever's hue headroom is INVERSELY proportional to the creature's mean saturation.
+#   Phoenix and Rebirth Flame are the ONLY two summons in the corpus that cannot reach a cold hue,
+#   and they are the two MOST saturated.  The census chose ef211 *because* it was the most
+#   saturated ("visually distinctive under a hue shift") -- that criterion was exactly backwards
+#   for THIS lever.  For a CREATURE second-proof of the reskin, use Madeen ef251.
+#
+# The creature rows below are kept at the briefed key with `enabled = false`.  They are not a
+# placeholder; they are the authored intent, parked one gate away.  Flipping them true today still
+# refuses: there is no `acknowledge_*` key for the rho gate (only `acknowledge_headroom`,
+# `acknowledge_shared`, `acknowledge_texanim`).
+#
+# ==============================================================================================
+# WHAT DID SHIP: THE GLACIAL FRONTIER, SET KEY 250 deg.
+#
+# The second thing the sweep proved: for a fire ramp the structurally CLEAN cold direction is
+# BLUE-VIOLET (240-290), not cyan (180-210).  Under the gate's Rec.601 weights (R .299, G .587,
+# B .114) a red->yellow ramp rotated toward violet keeps its bright end bright (R stays high, B is
+# a light channel); rotated toward cyan it hands the bright end to B and the mid to G, which is
+# exactly the inversion.  Measured on the fire field (`pal.s0.x0_y247.e256`, the one page the id-9
+# preview map resolves and the largest thing on screen):
+#     hue_to 160  rho 0.935   -- passes, but the previews show the bright flame filaments go DARK
+#     hue_to 250  rho 0.995   -- the filaments stay bright; deep cold blue with magenta-hot cores
+# 250 is therefore the set key, and it is cold, dramatic and self-evidencing rather than merely
+# legal.  `previews/sweep-fire-h250.png` vs `previews/sweep-fire-h160.png` is the A/B.
+#
+# Every enabled row below was derived by searching (hue_to x saturation) against the same rho gate
+# and taking the set key where the palette can hold it.  ONE palette cannot: `pal.s0.x0_y245.e256`
+# tops out at 240, so it sits 10 deg off key -- stated, not hidden.  TWO are WARM-LOCKED and are
+# declared OFF rather than dragged out of key.  Min rho across the shipped set: 0.9445.
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`reskin.py`'s module docstring, each one a refusal):
+# 0x0000 stays 0x0000; bit 15 (STP) is carried, never recomputed; channels clamp to 0..31; the
+# transform runs in HSV over the decoded BGR555 and re-encodes to 5 bits; every changed byte must
+# land inside a derived palette inside a derived span.
+
+[reskin]
+effect = 211
+label  = "phoenix-w5-glacial-frontier"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+
+# ==============================================================================================
+# THE SIBLING LANES (D10).  Without this table the self-check falls back to `bahamut_*.toml`,
+# notices those target ef227, and SKIPS both orthogonality gates with that stated -- honest, but
+# it proves nothing about ef211.  Naming ef211's own camera spec turns the skip into a real
+# proof: the reskin's changed-offset set and the rescore's are rebuilt and INTERSECTED, and the
+# gate fails if they overlap.  There is no `phoenix_retime.toml` (W5 ships no retime artifact for
+# ef211 -- the writing half of that lane is refusal-gated), so `retime` is deliberately left
+# unset and keeps skipping against ef227's, which is the truthful state.
+[reskin.orthogonality]
+rescore = "phoenix_rescore.toml"
+
+
+# ==============================================================================================
+# THE SPANS -- guards on the derivation, auto-named by chunk SLOT (`s{slot}`).  ef211 is
+# SINGLE-CHUNK, so W4's cross-chunk second-writer trap is structurally absent; the scaffold's
+# hazard census confirms it ("every declared CLUT cell has exactly one writer at one bit depth").
+# Envelope 6656 B over 3 spans -- ef227 derives 8192 B over 4.
+
+[reskin.spans.creature_clut_strip]
+offset = 0x05f190    # id-4 header: texOffset 0x47190 + texBytes 0x18000, clutBytes 0xc00
+length = 3072
+
+[reskin.spans.s0_clut_band0]
+offset = 0x000870    # id-0 inline rect 0: VRAM (x=0 y=242 w=256 h=2)
+length = 1024
+
+[reskin.spans.s0_clut_band1]
+offset = 0x000c78    # id-0 inline rect 1: VRAM (x=0 y=244 w=256 h=5)
+length = 2560
+
+
+# ==============================================================================================
+# DEFAULTS -- any target that omits a knob inherits these.  `value` is 1.0 for the whole set and
+# no row overrides it (the headroom law).
+[reskin.defaults]
+saturation = 1.0
+value      = 1.0
+
+
+# ==============================================================================================
+# THE CREATURE -- SIX ROWS, ALL OFF.  The briefed cold key is kept verbatim on each row so the
+# intent survives; the measured refusal is recorded beside it so the NUMBER, not the claim, is
+# what a later reader checks.
+
+[[reskin.target]]
+name = "creature.part0"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 230]
+expect_offset = 0x05f190
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 354.0 S 0.72 V 0.92 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.499 (gate 0.90).  Its own best cold-ward key would be
+# hue_to 260 @ sat 0.55 (rho 0.931) -- outside the one-hue intersection, so unusable here.
+note = "the flame crest / eye tiles + a wing sliver -- the brightest page (V 0.92)"
+
+[[reskin.target]]
+name = "creature.part1"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 231]
+expect_offset = 0x05f390
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 31.9 S 0.67 V 0.81 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.565.  ONE OF THE TWO BINDING ROWS: its entire passing set is
+# deltas 0-25 and 330-355, so the shared creature hue can never leave the fire band.
+note = "the big feather fans with violet/green/rose accents"
+
+[[reskin.target]]
+name = "creature.part2"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 232]
+expect_offset = 0x05f590
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 36.8 S 0.70 V 0.80 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.581.  The second binding row (passing deltas 0-25, 325-355).
+note = "feather fans + the dark claw"
+
+[[reskin.target]]
+name = "creature.part3"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 233]
+expect_offset = 0x05f790
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 13.4 S 0.78 V 0.92 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.093 -- the worst measured anywhere in this corpus.  The most
+# saturated page of the most saturated creature: its luminance is almost entirely hue-carried.
+note = "the great orange-to-white wing sweep -- the silhouette's read"
+
+[[reskin.target]]
+name = "creature.part4"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 234]
+expect_offset = 0x05f990
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 21.2 S 0.72 V 0.81 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.209.
+note = "banded feather rows + beak"
+
+[[reskin.target]]
+name = "creature.part5"
+enabled = false
+expect_entries = 256
+expect_vram = [256, 235]
+expect_offset = 0x05fb90
+hue_to = 200.0
+saturation = 0.95
+value      = 1.00
+# stock: 255 live, mean H 12.1 S 0.68 V 0.73 | peak 31/31, headroom 0, value ceiling x1.000
+# REFUSED at hue_to 200: luma rho 0.700 -- the closest of the six, and still far from 0.90.  It is
+# also the only one of the six that reaches the SET key: 270-290 at rho >= 0.95.  It cannot be
+# used alone; the one-hue rule binds it to the other five.
+note = "the crosshatched body mass + talons"
+
+
+# ==============================================================================================
+# THE EFFECT'S OWN SCENERY -- THE GLACIAL FRONTIER.
+#
+# ATTRIBUTION IS DERIVED, NOT LABELLED.  ef211's `so`-record coverage is 5/5 = 100% COMPLETE, so
+# "UNBOUND" below means genuinely bound by no GEOM model -- a sprite or particle draw, not a hole
+# in the recon.  That is why NO `acknowledge_shared` appears anywhere in this file: nothing here is
+# shared-UNKNOWN.  (ef227 needed two.)  No English semantic names are invented: the slot-based
+# `pal.s{slot}.x{X}_y{Y}` name IS the identity, and each `note` says only what the container proves.
+
+# ---- the two 248-entry ramps.  Byte-for-byte identical measured stats (mean H 13.4 S 0.65
+# V 0.41); between them the largest recolour in the set, and they hold the set key exactly.
+[[reskin.target]]
+name = "pal.s0.x0_y242.e256"
+expect_entries = 256
+expect_vram = [0, 242]
+expect_offset = 0x000870
+hue_to = 250.0
+saturation = 0.80        # rho 0.9983; the pull reads as cold LIGHT rather than as neon
+note = "248-live dark->bright ramp, unbound at complete coverage -- on the set key"
+
+[[reskin.target]]
+name = "pal.s0.x0_y243.e256"
+expect_entries = 256
+expect_vram = [0, 243]
+expect_offset = 0x000a70
+hue_to = 250.0
+saturation = 0.80
+note = "the twin of x0_y242 -- identical measured stats, so identical knobs"
+
+# ---- THE ONE ROW OFF KEY.  Its passing arc at rho >= 0.95 is 60-240: 240 is its ceiling and the
+# set key is 250, so it sits 10 deg warm of the set.  Declared, not hidden.
+[[reskin.target]]
+name = "pal.s0.x0_y245.e256"
+expect_entries = 256
+expect_vram = [0, 245]
+expect_offset = 0x000e78
+hue_to = 240.0
+saturation = 0.85        # rho 0.9445 -- the MINIMUM of the shipped set, gate is 0.90
+# headroom 12 (value ceiling x1.632) deliberately UNSPENT: the set's value law is 1.0 everywhere.
+note = "254-live blue-green ramp, unbound at complete coverage -- 10 deg warm of key, its ceiling"
+
+# ---- THE FIRE FIELD.  The one page the id-9 preview map resolves
+# (previews/pal-s0-x0_y247-e256.png): a full-screen roiling flame texture and the single most
+# visible thing in the cast.  See the header for the 160-vs-250 A/B that chose the set key.
+[[reskin.target]]
+name = "pal.s0.x0_y247.e256"
+expect_entries = 256
+expect_vram = [0, 247]
+expect_offset = 0x001278
+hue_to = 250.0
+saturation = 0.85        # rho 0.9947 -- the filaments keep their bright cores
+note = "DERIVED PRIVATE (exactly one GEOM model, 0x2b668) -- the full-screen flame field"
+
+# ---- the near-achromatic 207-entry sheet: S 0.09, so this is a tint, not a recolour.
+[[reskin.target]]
+name = "pal.s0.x0_y248.e256"
+expect_entries = 256
+expect_vram = [0, 248]
+expect_offset = 0x001478
+hue_to = 250.0
+saturation = 0.80        # rho 0.9986.  peak 31/31, headroom 0 -- `value > 1.0` would refuse here.
+note = "207-live near-grey sheet, unbound at complete coverage"
+
+# ---- the 16-entry material palettes that carry a hue.  All four reach the set key at rho 1.0000.
+[[reskin.target]]
+name = "pal.s0.x32_y244.e16"
+expect_entries = 16
+expect_vram = [32, 244]
+expect_offset = 0x000cb8
+hue_to = 250.0
+saturation = 0.85
+note = "hot 15-live ramp (S 0.99), unbound at complete coverage"
+
+[[reskin.target]]
+name = "pal.s0.x80_y244.e16"
+expect_entries = 16
+expect_vram = [80, 244]
+expect_offset = 0x000d18
+hue_to = 250.0
+saturation = 0.90
+# headroom 8 (ceiling x1.348), unspent per the set's value law.
+note = "DERIVED PRIVATE: exactly one GEOM model (0x2d344) binds this cell"
+
+[[reskin.target]]
+name = "pal.s0.x112_y244.e16"
+expect_entries = 16
+expect_vram = [112, 244]
+expect_offset = 0x000d58
+hue_to = 250.0
+saturation = 0.95
+# stock mean H is already 174 at S 0.20, so this is the set's SHORTEST rotation (+76) and it lands
+# at 234 rather than 250 -- a low-saturation palette's mean is pulled by its grey mass.
+# peak 31/31, headroom 0: a value lift would refuse here too.
+note = "15-live near-grey with a cyan cast already, unbound at complete coverage"
+
+[[reskin.target]]
+name = "pal.s0.x144_y244.e16"
+expect_entries = 16
+expect_vram = [144, 244]
+expect_offset = 0x000d98
+hue_to = 250.0
+saturation = 0.95
+note = "15-live saturated orange ramp (S 1.00), unbound at complete coverage"
+
+[[reskin.target]]
+name = "pal.s0.x160_y244.e16"
+expect_entries = 16
+expect_vram = [160, 244]
+expect_offset = 0x000db8
+hue_to = 250.0
+saturation = 0.90
+# peak 31/31, headroom 0.
+note = "15-live red ramp (S 0.95), unbound at complete coverage"
+
+[[reskin.target]]
+name = "pal.s0.x176_y244.e16"
+expect_entries = 16
+expect_vram = [176, 244]
+expect_offset = 0x000dd8
+hue_to = 250.0
+saturation = 1.00
+# S 0.09 -- a tint.  Lands at 264 for the same grey-mass reason as x112.  peak 31/31, headroom 0.
+note = "15-live near-grey, unbound at complete coverage"
+
+
+# ==============================================================================================
+# WARM-LOCKED -- declared, measured, and OFF.  Neither can reach the key, and dragging each to its
+# own frontier would put a green element and an orange element inside a blue set.  Leaving them
+# stock is the honest choice: the cast will show exactly two small stock-warm elements, and that is
+# a KNOWN rather than a surprise.
+
+[[reskin.target]]
+name = "pal.s0.x0_y246.e256"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 246]
+expect_offset = 0x001078
+hue_to = 250.0
+# stock: 247 live, mean H 81.2 S 1.00 V 0.37 | peak 25/31, headroom 6.
+# MEASURED FRONTIER: the passing arc at rho >= 0.95 is 70-100, at the 0.90 gate 70-110.  At the
+# set key rho is 0.115.  Its coldest legal key is 110 -- green, 140 deg off the set.  OFF.
+note = "247-live banded multi-hue palette, unbound at complete coverage -- WARM-LOCKED"
+
+[[reskin.target]]
+name = "pal.s0.x192_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [192, 244]
+expect_offset = 0x000df8
+hue_to = 250.0
+# stock: 15 live, mean H 25.7 S 0.85 V 0.36 | peak 14/31, headroom 17.
+# MEASURED FRONTIER: passing arc is 10-30 -- 20 degrees wide, the narrowest in the container.  At
+# hue_to 195 rho is NEGATIVE (-0.243): the ordering does not merely degrade, it INVERTS.  OFF.
+note = "15-live multi-material palette, unbound at complete coverage -- WARM-LOCKED"
+
+
+# ==============================================================================================
+# DECLARED, ON, AND MATHEMATICALLY INERT -- the seven pure-greyscale 16-entry palettes (S = 0.00 on
+# every live entry).  A hue rotation and a saturation scale cannot move an achromatic colour, so
+# each reports 0 changed bytes and the build says so out loud in its "targets the transform cannot
+# move" line rather than pretending they moved.  They are declared ON anyway so the set's key is
+# stated in ONE place, gaps included -- W4 did exactly this with `scenery.cloud_bands`.  Only a
+# channel-mix / tint (lever #2's vocabulary, deliberately not taken this rung) could colour them.
+
+[[reskin.target]]
+name = "pal.s0.x0_y244.e16"
+expect_entries = 16
+expect_vram = [0, 244]
+expect_offset = 0x000c78
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live), peak 29/31"
+
+[[reskin.target]]
+name = "pal.s0.x16_y244.e16"
+expect_entries = 16
+expect_vram = [16, 244]
+expect_offset = 0x000c98
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live), peak 15/31"
+
+[[reskin.target]]
+name = "pal.s0.x48_y244.e16"
+expect_entries = 16
+expect_vram = [48, 244]
+expect_offset = 0x000cd8
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live), peak 30/31"
+
+[[reskin.target]]
+name = "pal.s0.x64_y244.e16"
+expect_entries = 16
+expect_vram = [64, 244]
+expect_offset = 0x000cf8
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live), peak 30/31"
+
+[[reskin.target]]
+name = "pal.s0.x96_y244.e16"
+expect_entries = 16
+expect_vram = [96, 244]
+expect_offset = 0x000d38
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 14 live) -- DERIVED PRIVATE, one GEOM model (0x2ed7c)"
+
+[[reskin.target]]
+name = "pal.s0.x128_y244.e16"
+expect_entries = 16
+expect_vram = [128, 244]
+expect_offset = 0x000d78
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live) -- DERIVED PRIVATE, one GEOM model (0x30340)"
+
+[[reskin.target]]
+name = "pal.s0.x208_y244.e16"
+expect_entries = 16
+expect_vram = [208, 244]
+expect_offset = 0x000e18
+hue_to = 250.0
+note = "INERT: pure greyscale (S 0.00, 15 live) -- DERIVED PRIVATE, one GEOM model (0x33960)"

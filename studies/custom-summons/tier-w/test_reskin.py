@@ -11,14 +11,22 @@ and ``test_retime.py`` do.
     py -m pytest studies/custom-summons/tier-w/test_reskin.py -q
 
 THE SYNTHETIC CONTAINER (section 0) is deliberately minimal: ONE chunk carrying an id-0 scenery
-resource (one inline CLUT rect spanning VRAM rows 244-245, so the two named cells the real
-``ATTRIBUTION`` table already declares -- ``(0,244)`` SHARED ``water_and_sky_gradient`` and
-``(0,245)`` ``sky_dome`` -- resolve without inventing new attribution), an id-3 filler resource (a
-stand-in "program image", any bytes), and an id-4/id-5 creature package (N parts, each an 8bpp page
-+ a whole 256-entry CLUT row, laid out exactly as ``ff9mapkit.summons.texture.texture_check``
-requires).  No camera archive (id-2) is included -- the all-zero sequence stream decodes to a single
-immediate END op, so ``summon_camera.extract_shots`` resolves zero shots, which is a legitimate
-(if unusually quiet) container rather than an error.
+resource (one inline CLUT rect spanning VRAM rows 244-245, declaring a 16-entry palette at
+``(0,244)`` and a 256-entry one at ``(0,245)``), an id-3 filler resource (a stand-in "program
+image", any bytes), an id-4/id-5 creature package (N parts, each an 8bpp page + a whole 256-entry
+CLUT row, laid out exactly as ``ff9mapkit.summons.texture.texture_check`` requires) and an id-6
+payload of ``so``+GEOM pairs so the DERIVED attribution has real bindings to read.  No camera
+archive (id-2) is included -- the all-zero sequence stream decodes to a single immediate END op, so
+``summon_camera.extract_shots`` resolves zero shots, which is a legitimate (if unusually quiet)
+container rather than an error.
+
+W5 -- THE GENERALISATION -- widened the fixture rather than the assertions.  W4's version leaned on
+``reskin.ATTRIBUTION``, a hand table keyed on bare VRAM cells, to make ``(0,244)`` come back SHARED;
+that table is gone, so the fixture now WRITES the ``so`` records that make the sharing true and the
+tests read the derivation's answer.  A two-chunk variant (``build_synth_multiwriter_container``)
+carries a multi-writer cell and a dual-depth cell -- synthetic stand-ins for ef381 and ef447 -- and
+a texanim-armed variant stands in for the ef038/ef177/ef493-495 class, so every W5 refusal has a
+test that runs with no corpus and no install at all.
 
 Every CLUT word in this file is COMPUTED (a small arithmetic generator), never a byte run copied from
 the corpus or the install -- ``ff9mapkit``'s provenance rule applies to this file exactly as it does
@@ -66,12 +74,31 @@ needs_install = pytest.mark.skipif(not _has_install(), reason="no FF9 install re
 SPEC = os.path.join(_HERE, "bahamut_reskin.toml")
 SECTOR = W.SECTOR
 
+#: THE FROZEN ARTIFACT.  ef227's reskin is deployed and cast-proven, so W5's generalisation is only
+#: allowed if `bahamut_reskin.toml` still builds THESE bytes.  A hash, not data.
+W4_PATCHED_SHA256 = "7fef205ffbe547545374de9d1017613448777f0251d9d425b55f7796f688b89a"
+
+try:                                                          # py3.11+ stdlib, else the backport
+    import tomllib as _toml
+except ModuleNotFoundError:                                   # pragma: no cover
+    import tomli as _toml                                     # type: ignore
+
+
+def _load_toml_text(text: str) -> dict:
+    """Parse a scaffold's emitted TOML -- proving it is real TOML, not just a string that looks it."""
+    return _toml.loads(text)
+
 
 # ============================================================ (0) the synthetic container
-#: the two real VRAM cells ``ATTRIBUTION`` already names -- reused so the synthetic scenery
-#: resolves to real (SHARED / non-shared) names rather than inventing new attribution rows.
-_SHARED_WORD = 0x3D00          # VRAM (0, 244) -> scenery.water_and_sky_gradient (16-entry, SHARED)
-_SKYDOME_WORD = 0x3D40         # VRAM (0, 245) -> scenery.sky_dome (256-entry, not shared)
+#: the two VRAM cells the fixture declares.  W4's fixture leaned on ``reskin.ATTRIBUTION`` to give
+#: them English names and a SHARED flag; W5 DERIVES both from the container's own ``so`` bindings,
+#: so the fixture now writes real ``so`` records and real (degenerate) GEOM blocks and the names
+#: come back as the slot-keyed auto-names.
+_CELL_4BPP = 0x3D00            # VRAM (0, 244), 16-entry 4bpp  -> ONE binder  => derived PRIVATE
+_CELL_8BPP = 0x3D40            # VRAM (0, 245), 256-entry 8bpp -> TWO binders => derived SHARED
+#: the derived names those two cells resolve to (chunk slot 0)
+PAL_4BPP = "pal.s0.x0_y244.e16"
+PAL_8BPP = "pal.s0.x0_y245.e256"
 
 
 def _pad_sector(payload: bytes):
@@ -80,15 +107,34 @@ def _pad_sector(payload: bytes):
 
 
 def synth_clut16(zero_first: bool = True):
-    """16 COMPUTED BGR555 words (never a byte run copied from anywhere)."""
+    """16 COMPUTED BGR555 words (never a byte run copied from anywhere).
+
+    Channels are taken mod 25, so this palette's peak lands BELOW the 5-bit ceiling and it can serve
+    as the fixture's headroom-positive row -- the counterpart to the 256-entry rows, which sweep the
+    whole 0..31 range and peak at 31 like 46 of the corpus's 93 creature rows do."""
     out = []
     for i in range(16):
         if i == 0 and zero_first:
             out.append(0)
             continue
-        r, g, b = (i * 3 + 1) & 0x1F, (i * 7 + 2) & 0x1F, (i * 11 + 5) & 0x1F
+        r, g, b = (i * 3 + 1) % 25, (i * 7 + 2) % 25, (i * 11 + 5) % 25
         stp = 0x8000 if i % 4 == 0 else 0
         out.append(stp | r | (g << 5) | (b << 10))
+    return out
+
+
+def synth_clut256_warm(seed: int = 1):
+    """256 COMPUTED words with a deliberate RED CAST.
+
+    ``synth_clut256`` sweeps the whole hue wheel, so its saturation-weighted mean hue comes out at
+    the same angle for every seed -- useless for proving that ``hue_to`` lands two writers with
+    DIFFERENT stock means on the same absolute hue.  This one has a mean nowhere near it."""
+    out = [0]
+    for i in range(1, 256):
+        r = 18 + (i * seed) % 10
+        g = (i * seed * 3) % 7
+        b = (i * seed * 5) % 5
+        out.append((0x8000 if i % 6 == 0 else 0) | r | (g << 5) | (b << 10))
     return out
 
 
@@ -117,7 +163,7 @@ def _build_scenery_id0(pal16, pal256) -> bytes:
     buf = bytearray(0x424)
     struct.pack_into("<iii", buf, 0x00, 0x14, 0x1C, 1)      # pageBlockRel, inlineRel, nInline=1
     struct.pack_into("<HH", buf, 0x0C, 1, 1)                 # nClut4=1, nClut8=1
-    struct.pack_into("<HH", buf, 0x10, _SHARED_WORD, _SKYDOME_WORD)
+    struct.pack_into("<HH", buf, 0x10, _CELL_4BPP, _CELL_8BPP)
     struct.pack_into("<ii", buf, 0x14, 0x424, 0)             # pixelDataRel, nPageRects=0
     struct.pack_into("<HHHH", buf, 0x1C, 0, 244, 256, 2)     # inline rect: x=0 y=244 w=256 h=2
     row244 = bytearray(512)
@@ -127,48 +173,163 @@ def _build_scenery_id0(pal16, pal256) -> bytes:
     return bytes(buf)
 
 
-def _build_creature_id4(npart: int, pal256_list) -> bytes:
-    """One id-4 payload: a header (``texOffset=0x180``, ``motionCount=0``) + ``npart`` 8bpp pages
+def _build_creature_id4(npart: int, pal256_list, texanim: int = 0) -> bytes:
+    """One id-4 payload: a header (``texOffset == 0x180 + 4*motionCount``) + ``npart`` 8bpp pages
     (zero pixel data -- the palette tests never sample the pixels) + ``npart`` 256-entry CLUT rows,
     one per part, at consecutive strip rows starting ``KT.CLUT_STRIP_Y`` (matching
-    ``texture_check``'s decodable layout exactly: mode-1 tpage, entry0 == 0, row in range)."""
-    tex_off = 0x180
+    ``texture_check``'s decodable layout exactly: mode-1 tpage, entry0 == 0, row in range).
+
+    ``texanim > 0`` ARMS the texanim region (D3): it declares one motion clip and puts
+    ``motionOffsets[0]`` that many bytes past ``firstBlock``, which is exactly the shape the five
+    corpus effects have (ef038 = 116 B, ef177/493/494/495 = 364 B each) and exactly what
+    ``reskin.texanim_region`` measures.
+    """
+    nmotion = 1 if texanim else 0
+    tex_off = 0x180 + 4 * nmotion
     tex_bytes = npart * KT.PAGE_BYTES
     clut_rows = npart
     clut_bytes = clut_rows * 0x200
     header = bytearray(tex_off)
-    struct.pack_into("<hhhH", header, 0, tex_off, 0, npart, clut_rows)
+    struct.pack_into("<hhhH", header, 0, tex_off, nmotion, npart, clut_rows)
     struct.pack_into("<II", header, 8, tex_bytes, clut_bytes)
-    struct.pack_into("<II", header, 0x10, 0, 0)               # modelBytes/firstBlock -- unused here
+    # modelBytes / firstBlock: firstBlock == texOffset means the GEOM block ends where the model
+    # image starts, so the texanim region begins at the id-5 payload's own first byte.
+    struct.pack_into("<II", header, 0x10, tex_off + 0x1000, tex_off)
     for i in range(npart):
         struct.pack_into("<H", header, 0x18 + 2 * i, 0x80)    # tpage: mode 1 (8bpp)
         clutword = ((KT.CLUT_STRIP_Y + i) << 6) | 0x10        # row i, entry0 == 0
         struct.pack_into("<H", header, 0x24 + 2 * i, clutword)
         struct.pack_into("<H", header, 0x30 + 2 * i, 0)       # v_offset
+    if nmotion:
+        struct.pack_into("<I", header, 0x180, tex_off + texanim)
     pages = bytes(npart * KT.PAGE_BYTES)
     cluts = b"".join(_words(w) for w in pal256_list)
     return bytes(header) + pages + cluts
 
 
-def build_synth_container(npart: int = 2, id3_size: int = 1) -> bytes:
+def _so_geom(tpage: int, clut: int) -> bytes:
+    """One 16-byte ``so`` binding record + the smallest GEOM block ``ef_container.scan_geom`` accepts.
+
+    This is what lets the fixture exercise the DERIVED attribution (D5) on bytes this file wrote,
+    instead of leaning on a hard-coded table.  The GEOM is degenerate on purpose -- 1 bone, 1 mesh,
+    every primitive bucket empty -- but it satisfies the scanner's whole acceptance law: the
+    ``pBoneTable == 0x14`` needle, ``pMeshTable == 0x18 + (boneCount-1)*4``, and all four chain
+    identities (each pool starts at the 4-byte-aligned end of the previous, which for empty pools
+    means they all coincide).
+
+    Layout, geom-relative::
+
+        0x00  flags(bit0 clear) / 0 / boneCount=1 / meshCount=1
+        0x0c  pBoneTable = 0x14      <- the scanner's needle
+        0x10  pMeshTable = 0x18
+        0x18  MeshDesc[0], 0x28 bytes: eight zero counts, then the five pool pointers
+        0x40  vertsPerBone[1] = {0}
+        0x44  positions == primitives == uv == colours (all empty, all coincident)
+    """
+    so = struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HHHH", tpage, clut, 0, 0)
+    g = bytearray(0x48)
+    g[0:4] = bytes([0x00, 0x00, 1, 1])                        # flags, zero, boneCount, meshCount
+    struct.pack_into("<II", g, 0x04, 0, 0)                    # +0x04/+0x08 OPAQUE
+    struct.pack_into("<I", g, 0x0C, 0x14)                     # pBoneTable -- the needle
+    struct.pack_into("<I", g, 0x10, 0x18)                     # pMeshTable == 0x18+(1-1)*4
+    struct.pack_into("<I", g, 0x14, 0)                        # listHead
+    # MeshDesc[0] at 0x18: unknown0, the eight counts (all 0 by construction), +0x12 zero byte,
+    # +0x13 otBias, then vertsPerBone / positions / primitives / uv / colours.
+    struct.pack_into("<IIIII", g, 0x18 + 0x14, 0x40, 0x44, 0x44, 0x44, 0x44)
+    struct.pack_into("<H", g, 0x40, 0)                        # vertsPerBone[0] = 0 vertices
+    return so + bytes(g)
+
+
+def _build_models_id6(bindings) -> bytes:
+    """An id-6 (``MARK_6``) payload carrying one ``so``+GEOM pair per binding."""
+    return b"".join(_so_geom(tp, cw) for tp, cw in bindings)
+
+
+#: the fixture's default model list -- TWO models on the 8bpp cell (so it derives SHARED) and ONE on
+#: the 4bpp cell (so it derives PRIVATE), at COMPLETE `so` coverage (3 of 3 GEOM blocks bound).
+DEFAULT_BINDINGS = ((0x88, _CELL_8BPP), (0x89, _CELL_8BPP), (0x08, _CELL_4BPP))
+
+
+def _assemble(chunks) -> bytes:
+    """``[(chunkIndex, [(resourceId, payload), ...]), ...]`` -> a whole container, header included."""
+    head = bytearray(struct.pack("<h", len(chunks)))
+    body = bytearray()
+    for ci, resources in chunks:
+        padded = [(rid,) + _pad_sector(p) for rid, p in resources]
+        head += struct.pack("<hh", ci, len(padded))
+        for rid, _p, n in padded:
+            head += struct.pack("<bbh", rid, 0, n)
+        for _rid, p, _n in padded:
+            body += p
+    assert len(head) <= SECTOR
+    return bytes(bytearray(head.ljust(SECTOR, b"\x00")) + body)
+
+
+def build_synth_container(npart: int = 2, id3_size: int = 1, bindings=DEFAULT_BINDINGS,
+                          texanim: int = 0) -> bytes:
     """A whole ``ef###.bytes``-shaped container: one chunk with id-0 (scenery), id-3 (a filler
-    "program image"), id-4+id-5 (the creature).  No id-2 camera archive -- the all-zero sequence
-    stream decodes to a single immediate END op, so ``extract_shots`` resolves zero shots."""
+    "program image"), id-4+id-5 (the creature) and id-6 (the ``so``-bound scenery models).  No id-2
+    camera archive -- the all-zero sequence stream decodes to a single immediate END op, so
+    ``extract_shots`` resolves zero shots.
+
+    Pass ``bindings=()`` for the OTHER attribution regime: a container with no GEOM models at all,
+    where coverage is NO EVIDENCE and every scenery palette is SHARED-UNKNOWN.  Pass ``texanim=N``
+    to arm the texanim region with an N-byte table.
+    """
     id0 = _build_scenery_id0(synth_clut16(), synth_clut256(seed=3))
     id3 = bytes([0x55]) * (id3_size * SECTOR)
-    id4 = _build_creature_id4(npart, [synth_clut256(seed=5 + i) for i in range(npart)])
+    id4 = _build_creature_id4(npart, [synth_clut256(seed=5 + i) for i in range(npart)],
+                              texanim=texanim)
     id5 = bytes([0x66]) * SECTOR
     resources = [(0, id0), (3, id3), (4, id4), (5, id5)]
-    padded = [(rid,) + _pad_sector(p) for rid, p in resources]
-    head = bytearray(struct.pack("<h", 1))                    # chunk_count = 1
-    head += struct.pack("<hh", 0, len(padded))                # chunkIndex=0, resourceCount
-    for rid, _p, n in padded:
-        head += struct.pack("<bbh", rid, 0, n)
-    assert len(head) <= SECTOR
-    blob = bytearray(head.ljust(SECTOR, b"\x00"))
-    for _rid, p, _n in padded:
-        blob += p
-    return bytes(blob)
+    if bindings:
+        resources.append((6, _build_models_id6(bindings)))
+    return _assemble([(0, resources)])
+
+
+def build_synth_creatureless_container(bindings=DEFAULT_BINDINGS) -> bytes:
+    """D9's fixture: the 348-of-372 shape -- scenery palettes, no id-4/id-5 creature package at all."""
+    id0 = _build_scenery_id0(synth_clut16(), synth_clut256(seed=3))
+    resources = [(0, id0), (3, bytes([0x55]) * SECTOR)]
+    if bindings:
+        resources.append((6, _build_models_id6(bindings)))
+    return _assemble([(0, resources)])
+
+
+def _build_second_chunk_id0(pal256_a, pal256_b) -> bytes:
+    """A SECOND chunk's id-0, declaring TWO 256-entry palettes over the same VRAM rows chunk 0 used:
+    ``(0,245)`` again -- a MULTI-WRITER cell (two file offsets, one depth) -- and ``(0,244)`` at
+    256 entries where chunk 0 declared 16 -- a DUAL-DEPTH cell.  This is ef381's and ef447's shape
+    in miniature, written by hand so both refusals have a corpus-free test.
+
+    ``pal256_a`` lands on VRAM row 244 and ``pal256_b`` on row 245 (the rect starts at 244, so the
+    second 512-byte row is 245) -- the second writer of ``(0,245)`` is deliberately given a mean hue
+    far from chunk 0's, which is what the ``hue_to`` co-transform test needs."""
+    buf = bytearray(0x424)
+    struct.pack_into("<iii", buf, 0x00, 0x14, 0x1C, 1)       # pageBlockRel, inlineRel, nInline=1
+    struct.pack_into("<HH", buf, 0x0C, 0, 2)                 # nClut4=0, nClut8=2
+    struct.pack_into("<HH", buf, 0x10, _CELL_8BPP, _CELL_4BPP)
+    struct.pack_into("<ii", buf, 0x14, 0x424, 0)             # pixelDataRel, nPageRects=0
+    struct.pack_into("<HHHH", buf, 0x1C, 0, 244, 256, 2)     # inline rect: x=0 y=244 w=256 h=2
+    buf[0x24:0x24 + 512] = _words(pal256_a)
+    buf[0x224:0x224 + 512] = _words(pal256_b)
+    return bytes(buf)
+
+
+def build_synth_multiwriter_container(chunk_indices=(0, 1)) -> bytes:
+    """Two chunks that both upload VRAM rows 244-245 -- the D2 fixture.
+
+    * ``(0,245)``: 256 entries from BOTH chunks at different file offsets => MULTI-WRITER.
+    * ``(0,244)``: 16 entries from chunk slot 0, 256 from chunk slot 1  => MULTI-WRITER + DUAL-DEPTH.
+
+    ``chunk_indices`` exists to test the legacy alias map's own precondition: W4's ``c{chunk_index}``
+    tag is only unambiguous when those indices are distinct, so ``(0, 0)`` must suppress the aliases
+    rather than resolve one of two spans arbitrarily.
+    """
+    c0 = [(0, _build_scenery_id0(synth_clut16(), synth_clut256(seed=3))),
+          (3, bytes([0x55]) * SECTOR)]
+    c1 = [(0, _build_second_chunk_id0(synth_clut256(seed=7), synth_clut256_warm(seed=3)))]
+    return _assemble([(chunk_indices[0], c0), (chunk_indices[1], c1)])
 
 
 def _spec(blob: bytes, targets, effect: int = 999, spans=None) -> dict:
@@ -191,12 +352,53 @@ def test_synth_container_is_well_formed_and_resolves_the_expected_palettes():
     assert chk["decodable"], chk["reasons"]
     pmap = RS.palette_map(blob)
     names = sorted(p.name for p in pmap.palettes)
-    assert names == ["creature.part0", "creature.part1",
-                     "scenery.sky_dome", "scenery.water_and_sky_gradient"]
+    assert names == ["creature.part0", "creature.part1", PAL_4BPP, PAL_8BPP]
     shared = {p.name: p.shared for p in pmap.palettes}
-    assert shared["scenery.water_and_sky_gradient"] is True
-    assert shared["scenery.sky_dome"] is False
+    assert shared[PAL_8BPP] is True                            # two `so` binders -> DERIVED shared
+    assert shared[PAL_4BPP] is False                           # one binder      -> DERIVED private
     assert shared["creature.part0"] is False
+    assert pmap.envelope == sum(s.size for s in pmap.spans)
+
+
+def test_slot_keyed_auto_names_and_the_derived_envelope():
+    """D1: names are keyed on (chunk SLOT, VRAM cell, entry count), never on ``chunk_index``, and
+    the whole-set envelope is DERIVED (``sum(span.size)``) rather than the ef227 constant."""
+    blob = build_synth_container(npart=1)
+    pmap = RS.palette_map(blob)
+    assert RS.palette_auto_name(3, 192, 244, 16) == "pal.s3.x192_y244.e16"
+    assert RS.span_auto_name(7, 2) == "s7_clut_band2"
+    # one creature row (0x200) + one 2-row 256-halfword inline band (0x400)
+    assert pmap.envelope == 0x200 + 0x400
+    assert [s.name for s in pmap.spans] == ["creature_clut_strip", "s0_clut_band0"]
+
+
+def test_attribution_is_derived_from_the_containers_own_so_records():
+    """D5: the ``so`` scan (magic 0x6F73) is committable code now, and the SHARED flag is its
+    output -- not a hand table keyed on bare VRAM cells."""
+    blob = build_synth_container(npart=1)
+    a = RS.attribution(blob)
+    assert (a.geom_with_so, a.geom_total) == (3, 3) and a.complete
+    assert len(a.binders((0, 245), 256)) == 2
+    assert len(a.binders((0, 244), 16)) == 1
+    assert a.binders((0, 999), 256) == []
+
+
+def test_incomplete_so_coverage_makes_every_unattributed_palette_shared_unknown():
+    """The honest half of D5.  With no models at all there is NO EVIDENCE, not 100% coverage, so a
+    palette nothing binds is SHARED-UNKNOWN and the spec must acknowledge it -- which is the guard
+    W4's table defeated by construction on every effect but ef227."""
+    blob = build_synth_container(npart=1, bindings=())
+    a = RS.attribution(blob)
+    assert (a.geom_total, a.geom_with_so) == (0, 0)
+    assert not a.complete and a.coverage == 0.0
+    pmap = RS.palette_map(blob)
+    for name in (PAL_4BPP, PAL_8BPP):
+        p = pmap.by_name(name)
+        assert p.shared is True
+        assert "SHARED-UNKNOWN" in p.shared_reason
+    spec = _spec(blob, [{"name": PAL_4BPP, "hue_rotate": 30.0}])
+    with pytest.raises(RS.ReskinError, match="SHARED palette"):
+        RS.build(spec, "t", blob=blob)
 
 
 # ============================================================ (1) BGR555 decode/encode round-trip
@@ -418,7 +620,8 @@ def test_self_check_blowout_gate_FAILS_on_an_over_bright_knob_and_refuses_the_st
     ceiling must make ``self_check`` report NOT ok, which is what stops ``reskin.py build`` from
     staging it.  This is the failure the old always-True gate would have printed as PASS."""
     blob = build_synth_container(npart=1)
-    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 0.0, "value": 3.0}])
+    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 0.0, "value": 3.0,
+                         "acknowledge_headroom": True}])   # the fixture peaks at 31 (D4)
     b = RS.build(spec, "t", blob=blob)
     c = RS.self_check(b)
     blow = [g for g in c.rules if "flattens more than" in g.name]
@@ -439,7 +642,8 @@ def test_self_check_blowout_gate_PASSES_when_only_a_few_ceiling_entries_clip():
                  if 0 < RS.apply_palette(blob, pal, RS.Transform(val=v)).clip_fraction
                  <= RS.BLOWOUT_FRACTION), None)
     assert knob is not None, "the fixture palette admits no small-clip value knob"
-    spec = _spec(blob, [{"name": "creature.part0", "value": knob}])
+    spec = _spec(blob, [{"name": "creature.part0", "value": knob,
+                         "acknowledge_headroom": True}])   # the fixture peaks at 31 (D4)
     b = RS.build(spec, "t", blob=blob)
     c = RS.self_check(b)
     blow = [g for g in c.rules if "flattens more than" in g.name][0]
@@ -465,14 +669,14 @@ def test_self_check_channel_belt_gate_is_reported_separately_from_the_hsv_census
 #     matching the B1 report's "7/7 negative tests refuse")
 def test_build_refuses_a_shared_clut_named_without_acknowledgment():
     blob = build_synth_container(npart=1)
-    spec = _spec(blob, [{"name": "scenery.water_and_sky_gradient", "hue_rotate": 30.0}])
+    spec = _spec(blob, [{"name": PAL_8BPP, "hue_rotate": 30.0}])
     with pytest.raises(RS.ReskinError, match="SHARED palette"):
         RS.build(spec, "t", blob=blob)
 
 
 def test_build_accepts_a_shared_clut_named_with_acknowledgment():
     blob = build_synth_container(npart=1)
-    spec = _spec(blob, [{"name": "scenery.water_and_sky_gradient", "hue_rotate": 30.0,
+    spec = _spec(blob, [{"name": PAL_8BPP, "hue_rotate": 30.0,
                          "acknowledge_shared": True}])
     b = RS.build(spec, "t", blob=blob)
     assert b.targets[0].enabled and b.targets[0].result is not None
@@ -600,7 +804,8 @@ def test_self_check_passes_accounting_and_regions_for_a_real_target_driven_build
     asserted directly in section (4), on both sides."""
     blob = build_synth_container(npart=2)
     spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 90.0},
-                        {"name": "scenery.sky_dome", "hue_rotate": 45.0, "saturation": 0.8}])
+                        {"name": PAL_8BPP, "hue_rotate": 45.0, "saturation": 0.8,
+                         "acknowledge_shared": True}])
     b = RS.build(spec, "t", blob=blob)
     chk = RS.self_check(b)
     for g in chk.accounting + chk.rules:
@@ -751,8 +956,555 @@ def test_the_shipped_spec_builds_and_self_checks_against_this_install():
 
 
 @needs_install
+def test_every_reskin_spec_beside_this_tool_builds_and_self_checks():
+    """THE SPEC-REGISTRY GATE (W5 reconcile).
+
+    ``w4_gates`` builds ONE spec -- ``bahamut_reskin.toml``, its hardcoded ``SPEC`` -- while W5 added
+    ``phoenix_reskin.toml`` and ``madeen_reskin.toml`` beside it.  A committable spec that no runner
+    ever builds is a file that can rot silently through the next refactor, which is exactly the hole
+    ``rescore.discover_specs`` closed on the camera lane.  Here every ``*_reskin.toml`` in this
+    directory must load, build, keep its length and pass its own self-check; ef227's is additionally
+    pinned to the deployed artifact's sha."""
+    specs = sorted(glob.glob(os.path.join(os.path.dirname(SPEC), "*_reskin.toml")))
+    assert len(specs) >= 3, specs                       # bahamut + phoenix + madeen at minimum
+    seen = {}
+    for path in specs:
+        b = RS.build(RS.load_spec(path), path)
+        b.check = RS.self_check(b)
+        assert len(b.patched) == len(b.orig), path
+        assert b.check.ok, "%s:\n%s" % (path, "\n".join("%s: %s" % (g.name, g.detail)
+                                                        for g in b.check.gates if not g.ok))
+        assert b.guard != "none -- UNGUARDED (allow_unguarded = true)", \
+            "%s ships without a drift guard" % path
+        seen[b.effect] = b.sha_out
+    assert seen.get(227) == W4_PATCHED_SHA256
+    assert len(seen) == len(specs), "two specs target the same effect: %s" % seen
+
+
+@needs_install
 def test_the_install_still_matches_the_registered_drift_hash():
     import rescore as R
     blob, src = R.read_stock_effect(227)
     assert R.drift_guard(227, blob) == RS.R.EXPECTED_STOCK_SHA[227]
     assert "resources.assets" in src
+
+
+@needs_install
+def test_the_shipped_ef227_artifact_is_still_byte_identical_after_the_generalisation():
+    """THE W5 BYTE-COMPAT GATE, at the unit level.  W5 renamed every derived span and palette, moved
+    attribution from a table to a derivation, and added five refusals -- and the artifact ef227's own
+    spec produces must not have moved by ONE BYTE, because it is deployed and cast-proven."""
+    b = RS.build(RS.load_spec(SPEC), SPEC)
+    assert b.sha_out == W4_PATCHED_SHA256
+    assert b.pmap.envelope == 8192                          # A2's edit menu (c), now DERIVED
+    assert len(b.pmap.spans) == 4
+
+
+@needs_install
+def test_ef227s_legacy_span_and_target_names_still_resolve_through_the_alias_map():
+    """D1's compatibility half.  The shipped spec says ``c1_clut_band0`` and ``scenery.sky_dome``;
+    the derivation now says ``s1_clut_band0`` and ``pal.s0.x0_y245.e256``.  Both must resolve, and
+    the ef227 overlay must be an ALIAS on the derived palette -- never a second palette."""
+    import rescore as R
+    blob, _src = R.read_stock_effect(227)
+    pmap = RS.palette_map(blob, effect=227)
+    assert pmap.span("c1_clut_band0") is pmap.span("s1_clut_band0")
+    assert pmap.span("creature_clut_strip").size == 3072
+    sky = pmap.by_name("scenery.sky_dome")
+    assert sky.name == "pal.s0.x0_y245.e256" and sky.alias == "scenery.sky_dome"
+    assert pmap.by_name("spare.c1_x0_y242").name == "pal.s1.x0_y242.e256"
+    # ...and WITHOUT the overlay the English names are simply not there
+    plain = RS.palette_map(blob)
+    with pytest.raises(RS.ReskinError, match="no palette named"):
+        plain.by_name("scenery.sky_dome")
+
+
+@needs_install
+def test_the_derived_shared_flags_reproduce_ef227s_hand_table_exactly():
+    """The claim D5 rests on: the ``so``-record derivation is not a NEW answer, it is the SAME answer
+    W4 typed out by hand -- on the one effect where the hand answer was checked.  ef227 has COMPLETE
+    coverage (15 of 15 non-creature GEOM blocks bound), ``(0,244)`` comes back with 2 binders and
+    ``(192,244)`` with 3 (both SHARED, exactly the two rows the shipped spec acknowledges), and the
+    other five attributed cells come back single-bound."""
+    import rescore as R
+    blob, _src = R.read_stock_effect(227)
+    pmap = RS.palette_map(blob, effect=227)
+    assert pmap.attrib.complete and (pmap.attrib.geom_with_so, pmap.attrib.geom_total) == (15, 15)
+    shared = {p.alias for p in pmap.palettes if p.shared and p.alias}
+    assert shared == {"scenery.water_and_sky_gradient", "scenery.cloud_bands"}
+    for alias in ("scenery.sky_dome", "scenery.energy_rings", "scenery.cloud_sheet",
+                  "scenery.aerial_ground", "scenery.fire_column"):
+        p = pmap.by_name(alias)
+        assert p.shared is False and len(p.binders) == 1, (alias, p.shared_reason)
+
+
+@needs_install
+def test_ef227s_preview_page_columns_are_derived_and_match_the_hand_table():
+    """D5 (iii) / D6.  W4 hard-coded ``PREVIEW_PAGE`` (5 rows) and ``ID9_SLOT_FILE`` (2 offsets);
+    both are now derived from the ``so`` binding's own TPAGE plus the id-9 ``info`` bitmask, and the
+    derivation reproduces every one -- including the two that disagree with the naive reading."""
+    import rescore as R
+    blob, _src = R.read_stock_effect(227)
+    pmap = RS.palette_map(blob, effect=227)
+    want = {"scenery.sky_dome": ("s0", 704), "scenery.energy_rings": ("s0", 448),
+            "scenery.aerial_ground": ("s0", 576), "scenery.cloud_sheet": ("id9.s0", 832),
+            "scenery.fire_column": ("s1", 832)}
+    for alias, (src, x) in want.items():
+        rects = RS.preview_source(blob, pmap.by_name(alias), pmap.attrib)
+        assert rects and (rects[0].source, rects[0].x) == (src, x), alias
+        assert sum(r.nbytes for r in rects) == 0x8000
+    # the id-9 slot arithmetic, against the two offsets W4 measured by hand
+    assert [r.off for r in RS.id9_pages(blob)[("s0", 832)]] == [0x03A000, 0x03E000]
+
+
+# ============================================================ (10) W5 -- THE GENERALISATION
+# Every refusal this rung added, on bytes this file wrote (no corpus, no install), plus the corpus
+# sweep as a corpus-gated test.  The naming/derivation half lives in section (0)'s own sanity tests.
+def test_id9_slot_vram_is_the_loops_own_arithmetic():
+    """D6: ``fn 0x3E4AB``'s destination math, read off ``0x3e50d..0x3e553``.  A1 states the eight
+    landing sites for ef227's ``info = 51``; this pins the FORMULA that produces them."""
+    assert [RS.id9_slot_vram(i) for i in range(8)] == [
+        (768, 256), (768, 384), (832, 256), (832, 384),
+        (320, 256), (320, 384), (384, 256), (384, 384)]
+    assert RS.ID9_SLOT_BIT == (0, 0, 1, 1, 2, 3, 4, 5)
+
+
+def test_the_multiwriter_and_dual_depth_detectors_fire_on_a_hand_built_container():
+    """D2's detector, before its refusals: two chunks writing the same VRAM cells."""
+    blob = build_synth_multiwriter_container()
+    pmap = RS.palette_map(blob)
+    haz = pmap.hazards
+    assert set(haz) == {(0, 244), (0, 245)}
+    assert haz[(0, 245)].multi_writer and not haz[(0, 245)].dual_depth
+    assert haz[(0, 244)].multi_writer and haz[(0, 244)].dual_depth
+    assert len(set(haz[(0, 245)].offsets)) == 2
+    # a single-chunk container has none of this
+    assert RS.palette_map(build_synth_container(npart=1)).hazards == {}
+
+
+def test_build_refuses_a_dual_depth_cell_outright():
+    """D2: the 16-entry and 256-entry readings of one cell are two pictures over the same bytes.
+    No acknowledgement lifts this -- there is no evidence either way (ef447's (0,242))."""
+    blob = build_synth_multiwriter_container()
+    spec = _spec(blob, [{"name": "pal.s0.x0_y244.e16", "hue_to": 200.0,
+                         "acknowledge_shared": True}])
+    with pytest.raises(RS.ReskinError, match="DUAL-DEPTH"):
+        RS.build(spec, "t", blob=blob)
+
+
+def test_build_refuses_a_multiwriter_cell_when_only_some_writers_are_named():
+    blob = build_synth_multiwriter_container()
+    spec = _spec(blob, [{"name": "pal.s0.x0_y245.e256", "hue_to": 200.0,
+                         "acknowledge_shared": True}])
+    with pytest.raises(RS.ReskinError, match="MULTI-WRITER"):
+        RS.build(spec, "t", blob=blob)
+
+
+def test_build_refuses_a_multiwriter_co_transform_authored_as_a_hue_rotate_delta():
+    """The subtle half of D2: naming every writer is not enough.  Each writer has its OWN mean hue,
+    so one shared ``hue_rotate`` delta lands them on different hues -- the exact flicker the gate
+    exists to stop.  Only the absolute ``hue_to`` form is coherent."""
+    blob = build_synth_multiwriter_container()
+    rows = [{"name": n, "hue_rotate": 40.0, "acknowledge_shared": True}
+            for n in ("pal.s0.x0_y245.e256", "pal.s1.x0_y245.e256")]
+    with pytest.raises(RS.ReskinError, match="ABSOLUTE `hue_to`"):
+        RS.build(_spec(blob, rows), "t", blob=blob)
+
+
+def test_build_accepts_a_multiwriter_co_transform_authored_with_hue_to():
+    """...and with ``hue_to`` it builds, with both writers landing on the SAME absolute hue even
+    though their stock means differ -- which is the whole point."""
+    blob = build_synth_multiwriter_container()
+    names = ("pal.s0.x0_y245.e256", "pal.s1.x0_y245.e256")
+    rows = [{"name": n, "hue_to": 200.0, "acknowledge_shared": True} for n in names]
+    b = RS.build(_spec(blob, rows), "t", blob=blob)
+    assert len(b.enabled) == 2
+    means = [RS.palette_mean_hue(blob, t.pal) for t in b.enabled]
+    assert abs(means[0] - means[1]) > 1e-6, "the fixture's two writers must differ to prove this"
+    for t in b.enabled:
+        assert abs(((t.result.hue_after - 200.0 + 180.0) % 360.0) - 180.0) < 12.0
+
+
+def test_hue_to_is_hue_rotate_minus_the_measured_mean_and_they_cannot_both_be_declared():
+    """D8, at the arithmetic."""
+    blob = build_synth_container(npart=1)
+    pmap = RS.palette_map(blob)
+    pal = pmap.by_name("creature.part0")
+    mean = RS.palette_mean_hue(blob, pal)
+    b = RS.build(_spec(blob, [{"name": "creature.part0", "hue_to": 210.0}]), "t", blob=blob)
+    t = b.targets[0].t
+    assert t.hue_to == 210.0
+    assert abs(((t.hue - (210.0 - mean) + 180.0) % 360.0) - 180.0) < 1e-9
+    with pytest.raises(RS.ReskinError, match="BOTH `hue_to` and `hue_rotate`"):
+        RS.build(_spec(blob, [{"name": "creature.part0", "hue_to": 1.0, "hue_rotate": 2.0}]),
+                 "t", blob=blob)
+
+
+def test_a_row_level_hue_to_beats_an_inherited_default_hue_rotate():
+    """``[reskin.defaults] hue_rotate = 0.0`` is what every shipped spec writes, so an absolute row
+    has to win over it rather than colliding with it."""
+    blob = build_synth_container(npart=1)
+    spec = _spec(blob, [{"name": "creature.part0", "hue_to": 90.0}])
+    spec["reskin"]["defaults"] = {"hue_rotate": 0.0, "saturation": 1.0, "value": 1.0}
+    b = RS.build(spec, "t", blob=blob)
+    assert b.targets[0].t.hue_to == 90.0 and b.targets[0].t.hue != 0.0
+
+
+def test_texanim_region_is_measured_from_the_id4_header():
+    """D3's instrument: ``firstBlock`` vs ``motionOffsets[0]``, both header-relative."""
+    assert not RS.texanim_region(build_synth_container(npart=1)).armed
+    ta = RS.texanim_region(build_synth_container(npart=1, texanim=364))
+    assert ta.present and ta.armed and ta.nbytes == 364 and ta.hi - ta.lo == 364
+    none = RS.texanim_region(build_synth_creatureless_container())
+    assert not none.present and not none.armed
+
+
+def test_build_refuses_a_creature_target_under_an_armed_texanim_with_no_key_to_lift_it():
+    blob = build_synth_container(npart=1, texanim=116)
+    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 30.0}])
+    with pytest.raises(RS.ReskinError, match="TEXANIM ARMED"):
+        RS.build(spec, "t", blob=blob)
+    # ...and `acknowledge_texanim` does NOT lift it: the record is per creature PART
+    spec["reskin"]["acknowledge_texanim"] = True
+    with pytest.raises(RS.ReskinError, match="recolours the CREATURE"):
+        RS.build(spec, "t", blob=blob)
+
+
+def test_build_refuses_scenery_under_an_armed_texanim_unless_acknowledged():
+    blob = build_synth_container(npart=1, texanim=116)
+    rows = [{"name": PAL_4BPP, "hue_rotate": 30.0}]
+    with pytest.raises(RS.ReskinError, match="acknowledge_texanim"):
+        RS.build(_spec(blob, rows), "t", blob=blob)
+    spec = _spec(blob, rows)
+    spec["reskin"]["acknowledge_texanim"] = True
+    b = RS.build(spec, "t", blob=blob)
+    assert len(b.enabled) == 1 and b.check is None
+
+
+def test_a_disabled_target_does_not_trip_the_texanim_or_shared_gates():
+    """A row that splices nothing states an INTENT; its acknowledgements become mandatory the moment
+    it is switched on.  This is what lets a scaffold ship every declared palette, pre-seeded off."""
+    blob = build_synth_container(npart=1, texanim=116)
+    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 30.0, "enabled": False},
+                        {"name": PAL_8BPP, "hue_rotate": 30.0, "enabled": False}])
+    b = RS.build(spec, "t", blob=blob)
+    assert b.enabled == [] and b.patched == b.orig
+
+
+def test_headroom_is_derived_per_target_and_a_zero_headroom_value_lift_refuses():
+    """D4.  A palette already on the 5-bit ceiling has NO headroom, so a ``value > 1`` can only
+    flatten -- and 46 of the corpus's 93 creature rows are in that class, where ef227's six are not.
+    The refusal is answerable with ``acknowledge_headroom``, and a ``value <= 1`` never trips it."""
+    blob = build_synth_container(npart=1)
+    pmap = RS.palette_map(blob)
+    pal = pmap.by_name("creature.part0")
+    assert RS.palette_peak(blob, pal) == 31                  # the fixture's own precondition
+    res = RS.apply_palette(blob, pal, RS.Transform())
+    assert res.peak_stock == 31 and res.headroom == 0 and res.value_ceiling == 1.0
+
+    with pytest.raises(RS.ReskinError, match="ZERO HEADROOM"):
+        RS.build(_spec(blob, [{"name": "creature.part0", "value": 1.05}]), "t", blob=blob)
+    ack = RS.build(_spec(blob, [{"name": "creature.part0", "value": 1.05,
+                                 "acknowledge_headroom": True}]), "t", blob=blob)
+    assert ack.enabled[0].result.clipped > 0
+    calm = RS.build(_spec(blob, [{"name": "creature.part0", "value": 1.0,
+                                  "saturation": 0.8}]), "t", blob=blob)
+    assert calm.enabled[0].result.peak_stock == 31
+
+
+def test_a_palette_with_real_headroom_is_not_refused():
+    """The other side of D4: the gate is about ZERO headroom, not about `value > 1` in general --
+    otherwise it would refuse ef227's own shipped spec, whose worst row peaks at 28 of 31."""
+    blob = build_synth_container(npart=1)
+    pmap = RS.palette_map(blob)
+    pal = pmap.by_name(PAL_4BPP)
+    peak = RS.palette_peak(blob, pal)
+    assert peak < 31, "the fixture's 4bpp row must have headroom for this test to mean anything"
+    b = RS.build(_spec(blob, [{"name": PAL_4BPP, "value": 1.05,
+                               "acknowledge_shared": True}]), "t", blob=blob)
+    assert b.enabled[0].result.headroom == 31 - peak
+
+
+def test_build_refuses_an_effect_with_no_drift_guard_at_all():
+    """Refusal 2 of the gate list.  W4 merely PRINTED "unguarded" here, so a patched install could
+    move a span under the edit and nothing would notice."""
+    blob = build_synth_container(npart=1)
+    spec = {"reskin": {"effect": 999, "target": [{"name": "creature.part0"}]}}
+    with pytest.raises(RS.ReskinError, match="NO drift guard"):
+        RS.build(spec, "t", blob=blob)
+    spec["reskin"]["allow_unguarded"] = True
+    assert RS.build(spec, "t", blob=blob).sha_in
+
+
+def test_describe_names_the_drift_guard_that_actually_applied():
+    """B5 defect 4.  `describe` decided "guarded" from ``effect in rescore.EXPECTED_STOCK_SHA``
+    alone, so every generalised effect -- the normal case on this tool -- printed
+    "(drift guard none -- unguarded)" even while :func:`build` was ENFORCING the spec's own
+    ``expect_sha256`` (proven by the StockDriftError tests).  A report that says "unguarded" about a
+    guarded build is a lie in the one direction that gets a guard deleted."""
+    blob = build_synth_container(npart=1)
+    sha = hashlib.sha256(blob).hexdigest()
+
+    guarded = {"reskin": {"effect": 999, "expect_sha256": sha,
+                          "target": [{"name": "creature.part0"}]}}
+    b = RS.build(guarded, "t", blob=blob)
+    assert b.guard == "the spec's own expect_sha256 -- MATCHES"
+    line = next(l for l in RS.describe(b) if "drift guard" in l)
+    assert "expect_sha256" in line and "unguarded" not in line.lower()
+
+    bare = {"reskin": {"effect": 999, "allow_unguarded": True,
+                       "target": [{"name": "creature.part0"}]}}
+    b2 = RS.build(bare, "t", blob=blob)
+    assert "UNGUARDED" in b2.guard
+    assert "UNGUARDED" in next(l for l in RS.describe(b2) if "drift guard" in l)
+
+    # ...and a REGISTERED effect (no spec hash) still reports the registry
+    registered = {"reskin": {"effect": 227, "target": [{"name": "creature.part0"}]}}
+    monkey = dict(RS.R.EXPECTED_STOCK_SHA)
+    monkey[227] = sha
+    old, RS.R.EXPECTED_STOCK_SHA = RS.R.EXPECTED_STOCK_SHA, monkey
+    try:
+        b3 = RS.build(registered, "t", blob=blob)
+        assert b3.guard.startswith("REGISTERED in rescore.EXPECTED_STOCK_SHA")
+    finally:
+        RS.R.EXPECTED_STOCK_SHA = old
+
+
+def test_two_target_rows_naming_the_same_derived_palette_refuse():
+    """The alias map makes two spellings of one palette possible, so the duplicate check has to run
+    on the DERIVED name, not on the spelling."""
+    blob = build_synth_container(npart=1)
+    rows = [{"name": PAL_4BPP, "hue_rotate": 10.0, "acknowledge_shared": True},
+            {"name": "spare.c0_x0_y244", "hue_rotate": 20.0, "acknowledge_shared": True}]
+    with pytest.raises(RS.ReskinError, match="both resolve to the derived palette"):
+        RS.build(_spec(blob, rows), "t", blob=blob)
+
+
+def test_legacy_chunk_index_aliases_are_suppressed_when_chunk_index_is_ambiguous():
+    """D1's precondition, enforced.  ef381's nine chunks all carry ``chunk_index`` 1 except the
+    first, so a ``c1_...`` name cannot mean anything -- and the alias map must be EMPTY rather than
+    resolve one of eight spans arbitrarily (which is what W4's ``span()`` did: it returned the
+    first match, so a TOML guard silently validated the wrong span)."""
+    ok = RS.palette_map(build_synth_multiwriter_container((0, 1)))
+    assert ok.span_aliases and ok.span("c1_clut_band0").name == "s1_clut_band0"
+    ambiguous = RS.palette_map(build_synth_multiwriter_container((0, 0)))
+    assert ambiguous.aliases == {} and ambiguous.span_aliases == {}
+    with pytest.raises(RS.ReskinError, match="no span named"):
+        ambiguous.span("c1_clut_band0")
+
+
+def test_scenery_only_reskin_of_a_creature_less_container(tmp_path):
+    """D9.  348 of the 372 corpus containers have no id-4 at all; W4 raised on all of them."""
+    blob = build_synth_creatureless_container()
+    pmap = RS.palette_map(blob)
+    assert pmap.creature_error and not any(p.name.startswith("creature.") for p in pmap.palettes)
+    b = RS.build(_spec(blob, [{"name": PAL_8BPP, "hue_rotate": 40.0,
+                               "acknowledge_shared": True}]), "t", blob=blob)
+    b.check = RS.self_check(b)
+    for g in b.check.accounting + b.check.rules + b.check.regions:
+        assert g.ok, (g.name, g.detail)
+    texel = [g for g in b.check.regions if "TEXEL region" in g.name][0]
+    assert "NOT APPLICABLE" in texel.detail
+    with pytest.raises(RS.ReskinError, match="creature scope is unavailable"):
+        RS.build(_spec(blob, [{"name": "creature.part0"}]), "t", blob=blob)
+
+
+def test_orthogonality_skips_a_sibling_spec_that_targets_another_effect():
+    """D10.  Rebuilding *Bahamut's* camera and clocks proves nothing about a reskin of ef211, so the
+    gate must SKIP with the reason stated rather than pass or fail silently."""
+    blob = build_synth_container(npart=1)
+    b = RS.build(_spec(blob, [{"name": "creature.part0", "hue_rotate": 10.0}]), "t", blob=blob)
+    gates = RS._orthogonality(b, set())
+    assert len(gates) == 2 and all(g.ok for g in gates)
+    assert all("SKIPPED" in g.detail and "ef227" in g.detail for g in gates)
+
+
+def test_orthogonality_fails_loudly_when_the_spec_names_a_sibling_that_does_not_exist():
+    """...but a spec that NAMES a sibling and is wrong about it must not be quietly skipped."""
+    blob = build_synth_container(npart=1)
+    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 10.0}])
+    spec["reskin"]["orthogonality"] = {"rescore": "no_such_spec.toml"}
+    b = RS.build(spec, "t", blob=blob)
+    gates = {g.name: g for g in RS._orthogonality(b, set())}
+    bad = [g for g in gates.values() if "rescore" in g.name][0]
+    assert not bad.ok and "NAMED it" in bad.detail
+
+
+def test_staging_root_is_per_effect_and_ef227_keeps_w4s_layout():
+    """D11.  W4 had ONE root, so two effects staged in one session overwrote each other."""
+    assert RS.staging_root(227) == RS.SCRATCH_W4_ROOT
+    assert RS.staging_root(211) == os.path.join(RS.SCRATCH_W5_BASE, "ef211")
+    assert RS.staging_root(211) != RS.staging_root(251)
+    assert RS.SCRATCH_ROOT == RS.SCRATCH_W4_ROOT             # the W4 gate runner's own name
+
+
+def test_stage_defaults_to_the_per_effect_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(RS, "SCRATCH_W5_BASE", str(tmp_path / "w5"))
+    b = _minimal_build(effect=998)
+    out = RS.stage(b, game_root=None, previews=False)
+    assert out["staging_root"] == str(tmp_path / "w5" / "ef998")
+    assert os.path.isfile(out["container"])
+
+
+def test_scaffold_emits_a_toml_that_parses_builds_and_changes_nothing(tmp_path):
+    """D7.  A scaffold is only useful if it is COMPLETE and INERT: every guard emitted, every knob at
+    identity, every acknowledgement pre-seeded false -- so the first build is provably a no-op and
+    the author moves one number at a time."""
+    blob = build_synth_container(npart=2)
+    text, pmap = RS.scaffold(999, blob=blob, source="(fixture)")
+    doc = _load_toml_text(text)
+    assert doc["reskin"]["effect"] == 999
+    assert doc["reskin"]["expect_sha256"] == hashlib.sha256(blob).hexdigest()
+    assert len(doc["reskin"]["target"]) == len(pmap.palettes)
+    assert set(doc["reskin"]["spans"]) == {s.name for s in pmap.spans}
+    for row in doc["reskin"]["target"]:
+        p = pmap.by_name(row["name"])
+        assert row["expect_offset"] == p.off and row["expect_entries"] == p.entries
+        assert tuple(row["expect_vram"]) == p.vram
+        assert (row["hue_rotate"], row["saturation"], row["value"]) == (0.0, 1.0, 1.0)
+        assert row.get("acknowledge_shared", False) is False
+    b = RS.build(doc, "scaffold", blob=blob)
+    assert b.patched == b.orig                               # identity: not one byte moved
+
+
+def test_scaffold_pre_disables_every_row_a_refusal_would_stop():
+    """The scaffold has to be buildable OUT OF THE BOX on a hazardous effect too -- which means the
+    rows that would refuse arrive switched off, with the reason on the line."""
+    text, _pm = RS.scaffold(999, blob=build_synth_multiwriter_container(), source="(fixture)")
+    doc = _load_toml_text(text)
+    for row in doc["reskin"]["target"]:
+        assert row.get("enabled") is False, row["name"]
+    assert "DUAL-DEPTH" in text and "MULTI-WRITER" in text
+
+    armed = build_synth_container(npart=1, texanim=116)
+    text2, _pm2 = RS.scaffold(999, blob=armed, source="(fixture)")
+    doc2 = _load_toml_text(text2)
+    assert doc2["reskin"]["acknowledge_texanim"] is False
+    assert all(r.get("enabled") is False for r in doc2["reskin"]["target"])
+    b = RS.build(doc2, "scaffold", blob=armed)
+    assert b.patched == b.orig
+
+
+def test_scaffold_refuses_a_container_that_declares_no_palettes_at_all():
+    """3 of the 372 corpus containers (ef252, ef253, ef302) declare an id-0 with an inline rect and
+    ZERO CLUT words.  Emitting a target-less toml would hand back a file that cannot even load, so
+    the scaffold says what is actually true: lever #1 has no surface on this effect."""
+    blob = build_synth_creatureless_container(bindings=())
+    # strip the id-0's CLUT words: nClut4 = nClut8 = 0
+    head = EC.parse_header(blob).chunks[0].resources[0].offset
+    stripped = bytearray(blob)
+    struct.pack_into("<HH", stripped, head + 0x0C, 0, 0)
+    stripped = bytes(stripped)
+    assert RS.palette_map(stripped).palettes == []
+    with pytest.raises(RS.ReskinError, match="NO CLUT palettes at all"):
+        RS.scaffold(999, blob=stripped, source="(fixture)")
+
+
+def test_scaffold_of_a_creature_less_container_emits_only_scenery():
+    text, pmap = RS.scaffold(999, blob=build_synth_creatureless_container(), source="(fixture)")
+    doc = _load_toml_text(text)
+    assert doc["reskin"]["target"] and not any(r["name"].startswith("creature.")
+                                               for r in doc["reskin"]["target"])
+    assert "no id-4 creature package" in text
+
+
+@needs_corpus
+def test_palette_map_resolves_every_container_in_the_corpus_without_crashing():
+    """THE W5 SWEEP.  W4's ``palette_map`` refused 348 of 372 containers outright (no creature) and
+    refused ef381 with an opaque duplicate-name error that was really a multi-writer hazard.  All
+    372 must now resolve, and the two hazard fixtures must be the ONLY ones flagged."""
+    multi, dual, texanim, scenery_only, resolved = [], [], [], 0, 0
+    for path in sorted(glob.glob(os.path.join(CORPUS, "ef*.bytes"))):
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        pmap = RS.palette_map(blob)                          # must not raise, for any of them
+        resolved += 1
+        name = os.path.basename(path)
+        scenery_only += 1 if pmap.creature_error else 0
+        for _vram, cell in pmap.hazards.items():
+            if cell.multi_writer:
+                multi.append(name)
+            if cell.dual_depth:
+                dual.append(name)
+        if pmap.texanim and pmap.texanim.armed:
+            texanim.append(name)
+    assert resolved == 372
+    assert scenery_only == 348
+    assert sorted(set(multi)) == ["ef381.bytes", "ef447.bytes"]
+    assert sorted(set(dual)) == ["ef447.bytes"]
+    assert multi.count("ef381.bytes") == 19                  # 19 cells, the recon's own count
+    assert sorted(texanim) == ["ef038.bytes", "ef177.bytes", "ef493.bytes", "ef494.bytes",
+                               "ef495.bytes"]
+
+
+@needs_corpus
+def test_ef381_and_ef447_are_the_corpus_fixtures_the_detectors_were_written_against():
+    """The measured shape, pinned: ef381 streams up to FIVE different palettes into one cell per
+    phase; ef447 declares one cell at two bit depths."""
+    with open(os.path.join(CORPUS, "ef381.bytes"), "rb") as fh:
+        p381 = RS.palette_map(fh.read())
+    mw = {k: c for k, c in p381.hazards.items() if c.multi_writer}
+    assert len(mw) == 19
+    assert max(len(set(c.offsets)) for c in mw.values()) == 5
+    assert not any(c.dual_depth for c in p381.hazards.values())
+
+    with open(os.path.join(CORPUS, "ef447.bytes"), "rb") as fh:
+        p447 = RS.palette_map(fh.read())
+    assert [k for k, c in p447.hazards.items() if c.dual_depth] == [(0, 242)]
+    cell = p447.cells[(0, 242)]
+    assert sorted(set(cell.depths)) == [16, 256]
+    assert set(cell.names) == {"pal.s0.x0_y242.e16", "pal.s2.x0_y242.e256"}
+
+
+@needs_corpus
+@pytest.mark.parametrize("effect", [38, 177, 493, 494, 495])
+def test_the_texanim_refusal_fires_on_every_effect_in_the_corpus_class(effect):
+    path = os.path.join(CORPUS, "ef%03d.bytes" % effect)
+    with open(path, "rb") as fh:
+        blob = fh.read()
+    assert RS.texanim_region(blob).armed
+    spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 30.0}], effect=effect)
+    spec["reskin"]["acknowledge_texanim"] = True             # cannot help a creature target
+    with pytest.raises(RS.ReskinError, match="recolours the CREATURE"):
+        RS.build(spec, "t", blob=blob)
+
+
+@needs_corpus
+def test_ef211s_six_creature_rows_all_have_zero_headroom():
+    """W5's second-proof target is the corpus's L5 counter-example: where ef227 peaks at
+    28/28/24/22/28/27, ef211 peaks at 31 on every part."""
+    with open(os.path.join(CORPUS, "ef211.bytes"), "rb") as fh:
+        blob = fh.read()
+    pmap = RS.palette_map(blob)
+    peaks = [RS.palette_peak(blob, pmap.by_name("creature.part%d" % i)) for i in range(6)]
+    assert peaks == [31] * 6
+    spec = _spec(blob, [{"name": "creature.part0", "hue_to": 200.0, "value": 1.02}], effect=211)
+    with pytest.raises(RS.ReskinError, match="ZERO HEADROOM"):
+        RS.build(spec, "t", blob=blob)
+
+
+@needs_corpus
+def test_scaffold_round_trips_on_the_whole_corpus():
+    """The strongest single statement W5 can make offline: for EVERY container in the corpus the
+    scaffold emits a toml that PARSES, BUILDS and changes ZERO bytes -- creature or not, hazardous
+    or not, texanim-armed or not.  The only exceptions are the three containers that declare no CLUT
+    palette at all, and those REFUSE with that stated rather than emitting an unloadable file."""
+    ok, creature, refused = 0, 0, []
+    for path in sorted(glob.glob(os.path.join(CORPUS, "ef*.bytes"))):
+        with open(path, "rb") as fh:
+            blob = fh.read()
+        effect = int(os.path.basename(path)[2:5])
+        pmap = RS.palette_map(blob)
+        creature += 0 if pmap.creature_error else 1
+        try:
+            text, _pm = RS.scaffold(effect, blob=blob, source=path)
+        except RS.ReskinError as exc:
+            assert "NO CLUT palettes at all" in str(exc), path
+            refused.append(os.path.basename(path))
+            continue
+        b = RS.build(_load_toml_text(text), "scaffold", blob=blob)
+        assert b.patched == b.orig, path
+        ok += 1
+    assert creature == 24
+    assert refused == ["ef252.bytes", "ef253.bytes", "ef302.bytes"]
+    assert ok == 369

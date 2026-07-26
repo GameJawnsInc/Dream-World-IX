@@ -1,0 +1,80 @@
+# TIER W rung 5 -- THE CONTENT RESCORE, SECOND PROOF.  Stock Phoenix (ef211), reframed.
+# DURATIONS UNCHANGED -- W3 owns timing, and the tool refuses a duration edit rather than trusting
+# this comment.
+#
+# SCAFFOLDED, NOT TYPED: the shot letter, the (chunk, sub-file) pair, the local frame, the sequence
+# count and the drift hash all came out of `py rescore.py init --ef 211`.  What is authored here is
+# only the ART -- one number.
+#
+# ==============================================================================================
+# WHY THIS KEYFRAME, AND WHY IT IS THE ONLY ONE.
+#
+# ef211 has exactly ONE camera op: shot A, chunk 0 sub-file 8, PLAY_CAMERA, 264 B, installed at
+# sequence tick 0, span 404 local frames, ONE sequence (no alternate takes, so `check_alternates`
+# has nothing to refuse) and 17 keyframes.  Of those seventeen, EXACTLY ONE carries a `focal`
+# section: f87.  `summon_camera.py read 211` prints it as
+#     f87   abs 86   flags 0x0802
+#           camera  code=24 flags=0x00 pitch=131 orientation=27 roll=128 distance=21
+#           move    duration=57 ease=type-10
+#           focal   H=384 duration=40 flags=2
+# W2 may not change a block's BYTE LENGTH (the id-2 directory delta is the ceiling, slack 0-2 B
+# corpus-wide), so a focal section cannot be ADDED to a keyframe that has none.  The "choose the
+# keyframe against the phase table" instruction is therefore satisfiable only vacuously on ef211:
+# there is one H site and it is f87.  Recorded so a later reader does not mistake this for a choice.
+#
+# THE PHASE TABLE IT LANDS IN (R3's state machine and the camera on ONE clock, both derived):
+#     s0  ticks   1..67    draws effect models, draws the creature, starts a motion clip, recolours
+#     s1  ticks  68..105   (NO DRAWING ROLE)          <- the focal installs at tick 86, inside s1
+#     s2  ticks 106..138   draws effect models, recolours effect models
+#     s3  ticks 139..162   draws effect models, draws the creature, motion clip, projects vertices
+#     s4  ticks 163..177   draws the creature, motion clip, projects vertices  (CREATURE-ONLY)
+#     s5  ticks 178..238   draws effect models, draws the creature, projects, reads bone positions
+#     s6  ticks 239..term  (no drawing role)
+# The single available site is the BEST of the seventeen against THE EFFECT-OWNED SCENERY LAW: it
+# fires in s1, the one mid-cast phase that draws nothing, so the change begins on an empty frame.
+# `rescore.py init` classifies shot A's reframe budget as TIGHT (a phase under it draws effect
+# models) and prescribes H over a pose change -- which is what this spec does.
+#
+# ==============================================================================================
+# WHY THIS SIZE, AND WHY IT IS SMALLER THAN W2's.
+#
+# ef227's W2 edit could be enormous (H 256 -> 96, x0.375) because shot A had a LATER focal at f71
+# that snapped the framing back: the reframe ran ~70 ticks and then the rest of the cast played
+# exactly as remembered, which is what made it self-evidencing rather than merely broken.
+#
+# ef211 HAS NO SECOND FOCAL.  H is written once, at tick 86, and nothing in the container writes it
+# again -- so this edit governs ticks 86..403, i.e. the WHOLE REST OF THE 31.3 s CAST, including
+# s2/s3/s5 which all draw the effect's own scenery.  A W2-sized pull-back would widen the frame for
+# 20+ seconds over a set authored for the stock framing, which is exactly the failure the scenery
+# law warns about.  So the proportion is deliberately modest:
+#
+#     H 384 -> 288   (x0.750, a 33% wider frame)
+#
+# It is a pull-BACK (lower H = wider), the same DIRECTION W2 proved, at a third of W2's magnitude
+# because it persists ~4.5x longer.  It is still far outside "did anything change?" -- a third again
+# of the frame is unmistakable on a 31-second cinematic, and the glide into it is the stock 40-tick
+# ease, untouched.
+#
+# ONE MORE THING THE READER SHOULD KNOW: the focal record's `duration = 40` means H eases to its
+# target over ticks 86..126, so the new framing completes inside s2.  The DURATION IS NOT TOUCHED --
+# only the endpoint moves.  Every W2 refusal stays armed: no duration field, no frame word, no
+# length change, alternates symmetry (vacuous here: 1 track), flag-declared fields only.
+#
+# NO DYNAMIC OPS: `init` reports 0 runtime-chosen camera ops, so the set of blocks this edit can
+# reach IS enumerable offline -- the property ef227 has and most of the corpus does not.  No
+# `acknowledge_dynamic_ops` is needed or present.
+
+[rescore]
+effect = 211
+label  = "phoenix-w5-focal-pull"
+# The drift guard: sha256 of the pristine container in the user's OWN install.  A HASH, not data.
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+
+[[edit]]
+shot     = "A"
+chunk    = 0
+subfile  = 8
+sequence = 0
+frame    = 87
+focal    = { distance = 288 }

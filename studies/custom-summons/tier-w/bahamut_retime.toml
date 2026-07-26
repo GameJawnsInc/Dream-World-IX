@@ -41,6 +41,11 @@ ticks = 48
 expect_threshold = 69     # `slti $v0,$s5,69` at image 0x1278 -- s0 lasts clock 0..69 = 70 ticks
 new_threshold    = 117    # ... 0..117 = 118 ticks
 sites            = 7
+# `machine` / `state` name WHICH phase's threshold E1 moves.  They default to `c0` / 0, which is what
+# this spec has always meant, and the alignment checker uses them instead of assuming chunk 0.  A
+# generalised spec on another effect sets them; ef227's does not need to.
+# machine = "c0"
+# state   = 0
 
 
 # ==============================================================================================
