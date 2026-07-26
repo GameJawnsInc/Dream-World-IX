@@ -24,7 +24,11 @@ own seated code entry -- the ``[[numeric_input]]`` architecture verbatim: opened
 from a ``[[choice]]`` option's ``qte = "<name>"`` inside the DisableMove
 bracket, scratch in high gEventGlobal, texts minted on the field's block.
 
-THE SCRATCH BAND (bytes 2026-2039) overlaps the behavior blackboard's headroom
+THE SCRATCH BAND (bytes 2018-2031, ``flags.QTE_SCRATCH_FLOOR``, kit-reserved)
+sits ON PURPOSE below the netsync co-op cells (bytes 2032-2039): the engine
+rewrites those EVERY FRAME while [Netsync] co-op runs -- on any field, gates or
+no gates -- so scratch there would have its combo/points channels clobbered
+mid-bout. The band still overlaps the behavior blackboard's headroom
 (1220-2040), so v1 refuses a field carrying both ``[[qte]]`` and ``[behavior]``
 -- relaxable later by teaching the blackboard to reserve the band. gMesValue
 slots 0 (score) and 1 (purse) are loaded at the finale.
@@ -57,18 +61,21 @@ BUTTONS = {
 }
 START_MASK = 8                    # held Start = stock's deliberate bail-to-miss
 
-# Modal scratch (gEventGlobal BYTE offsets) -- 2026-2039, below the choice-mask
-# word (2040) and the numeric_input scratch (2042+; both modal, never live at
-# once, but distinct bands keep the map legible). Re-seeded on every open.
+# Modal scratch (gEventGlobal BYTE offsets) -- 2018-2031 (the flags.py
+# `qte_scratch` reserved region), STRICTLY below the netsync co-op cells
+# (2032-2039; engine-written every frame under live co-op -- never touch them),
+# the choice-mask word (2040) and the numeric_input scratch (2042+; modal like
+# this band, never live at once, but distinct bands keep the map legible).
+# Re-seeded on every open.
+S_COMBO = 2018                    # Int16 -- current combo (stock's 40)
+S_MAXC = 2020                     # Int16 -- max combo (stock's 42)
+S_POINTS = 2022                   # Int16 -- the speed channel (stock's 30)
+S_BONUS = 2024                    # Int16 -- the combo channel (stock's 32)
 S_STATE = 2026                    # 0 idle / 1 prompt live / 2 hit / 3 miss (stock's 47)
 S_EXPECT = 2027                   # the expected prompt index (stock's 46)
 S_LAST = 2028                     # last prompt (the no-repeat blocklist, stock's 44)
 S_COUNT = 2029                    # the reaction countdown (stock's 52)
 S_ROUND = 2030                    # rounds played (stock's 34)
-S_COMBO = 2032                    # Int16 -- current combo (stock's 40)
-S_MAXC = 2034                     # Int16 -- max combo (stock's 42)
-S_POINTS = 2036                   # Int16 -- the speed channel (stock's 30)
-S_BONUS = 2038                    # Int16 -- the combo channel (stock's 32)
 
 QTE_TAG = 3                       # the game function's tag on its seated entry
 DISPATCH_LEVEL = 4                # the house remote-dispatch level
@@ -136,9 +143,9 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         raise QteError(f"{ctx}: needs a name (the [[choice]] option's qte = target)")
     ctx = f"[[qte]] {name!r}"
     result = block.get("result")
-    if not isinstance(result, int) or not 4 <= result <= 2024:
-        raise QteError(f"{ctx}: result must be a gEventGlobal byte offset 4..2024 "
-                       f"(an Int16; 2026+ is the game's own scratch). It receives "
+    if not isinstance(result, int) or not 4 <= result <= 2016:
+        raise QteError(f"{ctx}: result must be a gEventGlobal byte offset 4..2016 "
+                       f"(an Int16; 2018+ is the game's own scratch). It receives "
                        f"the 1..100 score at the finale.")
     # the Int16 spans bytes result..result+1 = bits result*8..result*8+15; NONE of them may land
     # in a reserved save region (the Mognet mailbox/locks/read-mail bytes, the byte-23 menu

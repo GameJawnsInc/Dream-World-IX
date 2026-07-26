@@ -10,9 +10,14 @@ This bench also proves the substrates COMPOSE: the numeric stepper (#2) sets
 the water bar, the native shop (#3's lane) moves the gil bar.
 
 Beats:
-  THE STRONGBOX  a 12-cell gold bar sits over the plaza from frame 1 — the
-                 party's gil against 5000, live. Buy potions from the CLERK
-                 -> it falls as you spend; sell them back -> it climbs.
+  THE SHELF      (round 2) a green 10-cell bar tracks your POTION count —
+                 buy one from the CLERK -> it climbs a cell the moment the
+                 shop closes; sell -> it falls. Purse-independent, so it is
+                 the live-follow proof (and the `item:` source's).
+  THE STRONGBOX  a 12-cell gold bar: the party's gil against 12000 (round 1
+                 shipped max 5000 — a >=5000 purse pegged it FULL and small
+                 buys read as "nothing when buying"; the full bar WAS the
+                 live gil read working). Still pegged if the purse > 12000.
   THE COVER      the blue CISTERN bar is HIDDEN on arrival (its flag is
                  clear). KEEPER -> "Uncover the well" -> it appears; "Cover"
                  -> gone again (frame 255 = the whole-bar hide).
@@ -23,6 +28,11 @@ Beats:
                  field 64's own Sin glow; raise it -> steady color again.
   THE RELOAD     ~ -> Reload field: water, gil, and the cover state all hold
                  (save-backed GLOB + gil; the scene .bgx re-parses).
+
+Round-1 verdicts (owner): stepper/shimmer/cover/reload all pass; "the last
+cell is shorter than the rest" -> the kit now normalizes bars to an exact
+uniform-cell fit (gauge.effective_width); "nothing when buying" -> the max-
+5000 saturation above, answered by the recalibration + THE SHELF.
 
 Usage (repo root):   py studies/minigame-ui/waterworks_bench.py gen | deploy
 First deploy of 30420 = RELAUNCH once (id registration), then ~ -> Warp.
@@ -167,12 +177,22 @@ requires_flag = {COVER_FLAG}
 [[gauge]]
 name = "strongbox"
 source = "gil"
-max = 5000
+max = 12000
 segments = 12
 pos = [{bx}, {by + BAR_H + 6}]
 width = {BAR_W}
 height = {BAR_H}
 color = "#e8c040"
+
+[[gauge]]
+name = "shelf"
+source = "item:Potion"
+max = 10
+segments = 10
+pos = [{bx}, {by + 2 * (BAR_H + 6)}]
+width = {BAR_W}
+height = {BAR_H}
+color = "#58d858"
 
 [[npc]]
 name = "keeper"
@@ -237,18 +257,17 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-PLAYTEST (first deploy of {FIELD_ID} = RELAUNCH once, then ~ -> Warp -> {FIELD_ID}):
-  1 THE STRONGBOX: a gold segmented bar floats over the plaza from frame 1 —
-    your gil against 5000. (The blue cistern bar is NOT there yet.)
-  2 THE CLERK (near spawn): buy a few potions -> the gold bar drops a cell or
-    two AS the shop closes; sell them back -> it climbs. Live, no window.
-  3 THE KEEPER (up-right): "Uncover the well" -> the blue bar appears above
-    the gold one. "Draw water" -> the stepper; submit 80 -> the blue bar
-    fills to 8/10 the moment the menu closes.
-  4 THE PULSE: draw <= 20 pails -> the low blue bar SHIMMERS (the field-64
-    glow); draw 50+ -> steady again.
-  5 THE COVER: "Cover the well" -> the blue bar vanishes whole; uncover ->
-    back at the same level. ~ Reload -> water, gil, cover all hold.
+PLAYTEST round 2 (same id -> ~ -> Reload field is enough; no relaunch):
+  1 THE CELLS: every bar cell is now the SAME width (round 1's short last
+    cell is the regression pin).
+  2 THE SHELF (new, green, third bar): buy ONE Potion from the CLERK -> it
+    climbs one cell the moment the shop closes; sell one -> it drops. This
+    is the live-follow proof no purse size can hide.
+  3 THE STRONGBOX (gold): now your gil against 12000 — if your purse is
+    under 12000 it sits partway and a Tent or two moves it; if it is still
+    pegged FULL, tell me your gil and I'll calibrate a third round.
+  4 Everything round 1 already proved (stepper/shimmer/cover/reload) should
+    still hold — a spot check is plenty.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

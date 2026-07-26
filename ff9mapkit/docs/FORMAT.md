@@ -1563,7 +1563,9 @@ Cancel aborts. Movement is locked the whole time (the stepper only opens from a 
 ```toml
 [[numeric_input]]
 name = "bid"                    # what a [[choice]] option's `input = "bid"` opens
-result = 2000                   # gEventGlobal BYTE offset: Global.Int16[2000] <- the value on submit
+result = 2000                   # gEventGlobal BYTE offset 4..2016: Global.Int16[2000] <- the value
+                                # on submit (both bytes must clear the reserved save regions;
+                                # 2018+ is the game's own scratch / the co-op cells)
 digits = 3                      # 1..4 digit places
 multiplier = 100                # 1/10/100/1000 — display-only trailing zeros (a x100 bid, stock's shape)
 max = 999                       # (optional) ceiling in STEPPED units (default all-nines)
@@ -1605,9 +1607,10 @@ choice bracket holds movement; re-picking the row replays with fresh state).
 ```toml
 [[qte]]
 name = "duel"                   # the [[choice]] option's `qte =` target
-result = 2006                   # gEventGlobal byte offset: Global.Int16 <- the 1..100 score
-                                # (both bytes must clear the reserved save regions — the
-                                # Mognet mailbox/lock/read-mail bytes 1024-1088 are refused)
+result = 2006                   # gEventGlobal byte offset 4..2016: Global.Int16 <- the 1..100
+                                # score (both bytes must clear the reserved save regions — the
+                                # Mognet mailbox/lock/read-mail bytes 1024-1088 are refused;
+                                # 2018+ is the game's own scratch / the co-op cells)
 rounds = 10                     # 1..99 prompts per bout
 window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
 par = 65                        # (optional) % of the THEORETICAL max that scores 100 —
@@ -1620,7 +1623,8 @@ par = 65                        # (optional) % of the THEORETICAL max that score
 buttons = ["cross", "circle"]   # (optional) the prompt set, >= 2 of the 8 stock names
 gil = true                      # (optional) pay stock's purse at the finale
 flag = 8712                     # (optional) story-flag BIT raised when a bout completes —
-                                # safe band [8712, 16320) only, like a [[flag]] index
+                                # safe band [8712, 16144) only, like a [[flag]] index (16144+
+                                # is the game's scratch / co-op cells / choice-mask territory)
 verdicts = ["...", "...", "...", "..."]   # (optional) the 4 score tiers (<25/<50/<75/75+)
 ```
 
