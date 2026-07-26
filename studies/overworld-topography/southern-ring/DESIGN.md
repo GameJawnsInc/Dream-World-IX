@@ -160,6 +160,23 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
+## R4b — THE TABLE IS THE LAW ★ DEPLOYED (2026-07-26; re-playtest pending): the 36-38 law FALSIFIED in-game, the safe road AUTHORED
+
+The R4 playtest fought Lizard Man/Sand Scorpion/Axe Beak/Ironite on "the grass of the island" —
+fingerprinted to **Grimhorn's bench** (carried area 12 → zone 5's topo-16/41 rows; three earlier
+hypotheses each killed by data). The "topo 36-38 engine law" is FALSE: `ProcessEncount` has no
+topograph clause; the roll resolves **zone × topograph × fog off the walked tile's AREA bits**, and
+safety is a TABLE HOLE, not an engine gift (the doc's own 2026-07-02 correction was right; the
+design round's "verified" law repeated the misreading). **THE FIX — THE SAFE-ROAD AREA STAMP:**
+every kit island's open walkable ground → **area 14 (zone 6**, records only at topos 10/36 — a hole
+for all our ground topos); canopy keeps area 0 → zone 0 (Python/Goblin/Mu = the region's uniform
+fauna); event tiles untouched; 85,236 verts across 112 Terrain files, byte-verified area-bits-only,
+full parity, all probes pass. Area choice is cosmetically free (WorldLocationText's only gameplay
+caller is the debug title). Ragtime Mouse in canopy = the stock forest special, kept. ⚠ flagged:
+the horseshoe carry's 270 STOCK event verts (area 12) — a future audit item. New mints must re-run
+the stamp until the kit emitters default it (deferred: identity-net rebaseline). Record: REVERT.md
+§26; re-playtest = §26.5.
+
 ## R4 — THE FOREST/ENCOUNTER PASS ★ DEPLOYED (2026-07-26; relaunch for the minimap; teleport playtest pending)
 
 The encounter architecture costs ZERO table edits: our tiles' **area 0 → zone 0**, whose topo-37

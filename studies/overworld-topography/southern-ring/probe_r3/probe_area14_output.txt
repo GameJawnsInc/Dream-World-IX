@@ -1,0 +1,3 @@
+open-ground verts area-14: 85236  canopy verts area-0: 1068  event verts untouched: 456
+event-tile areas (incl. the horseshoe carry's stock tiles): {0: 186, 12: 270}
+ALL CHECKS PASS
