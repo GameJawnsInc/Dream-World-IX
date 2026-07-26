@@ -1,7 +1,10 @@
-# HANDOFF — Promote single-field deploy into the package (`deploy_field` gap)
+# PLAN — Promote single-field deploy into the package (`deploy_field` gap)
 
 > **Status:** planned, not started. Self-contained brief for a fresh session. Everything below was
 > established by reading the code; file:line refs are so you *verify*, not trust. No code has been written yet.
+>
+> *Was `HANDOFF_DEPLOY_FIELD_PROMOTION.md` at the repo root; moved here 2026-07-26 in the root-clutter
+> cleanup. Its file:line links are now `../../`-relative — verify them against current code before trusting.*
 
 ---
 
@@ -12,7 +15,7 @@ got promoted into the `ff9mapkit` package. Consequences on a **fresh exe install
 
 1. **Convenience gap:** there is no `ff9mapkit deploy` verb. Only `deploy-campaign` / `deploy-journey`
    ship. A user who authors one `field.toml` can install it *standalone* via `build --out <game>/Folder`
-   (documented at [cli.py:426](ff9mapkit/ff9mapkit/cli.py:426)) but gets no reversible/iterative loop.
+   (documented at [cli.py:426](../../ff9mapkit/ff9mapkit/cli.py:426)) but gets no reversible/iterative loop.
 2. **Correctness bug (the important one):** `build_mod` emits a **complete** standalone mod folder —
    DictionaryPatch/BattlePatch/TextPatch/ModDescription + all assets — **EXCEPT `ForkDonorPatch.txt`**.
    That file is written only at deploy time. So `build --out` on a **forked real field** silently drops
@@ -38,7 +41,7 @@ The toolkit has two homes with different assumptions:
 - **Repo checkout (the workshop)** — repo-flavored paths (`backups/`, `tools/scroll_out/`, `.ff9deploy.toml`).
 
 A **dev-loop shim** is a thin wrapper that injects the repo flavor around package logic. `deploy_campaign.py`
-is a *true* shim ([tools/deploy_campaign.py:3](tools/deploy_campaign.py:3) — "Thin repo shim over
+is a *true* shim ([tools/deploy_campaign.py:3](../../tools/deploy_campaign.py:3) — "Thin repo shim over
 `ff9mapkit.deploy.deploy_campaign`"). `deploy_field.py` is **not** — its whole deploy algorithm lives in the
 script, so there's nothing for a subcommand to call. Because development always ran from the repo, the
 fresh-install path was never exercised.
@@ -48,25 +51,25 @@ fresh-install path was never exercised.
 ## The core finding (verify these first)
 
 `build_mod` writes a complete mod folder into `--out`:
-- `def build_mod` — [build.py:6766](ff9mapkit/ff9mapkit/build.py:6766)
-- DictionaryPatch.txt — [build.py:6814](ff9mapkit/ff9mapkit/build.py:6814)
-- BattlePatch.txt — [build.py:6843](ff9mapkit/ff9mapkit/build.py:6843)
-- TextPatch.txt — [build.py:6849](ff9mapkit/ff9mapkit/build.py:6849)
-- ModDescription.xml — [build.py:6865](ff9mapkit/ff9mapkit/build.py:6865)
-- **ForkDonorPatch.txt — NOT emitted here.** Only `_verbatim_donor_id` helper exists: [build.py:3965](ff9mapkit/ff9mapkit/build.py:3965)
+- `def build_mod` — [build.py:6766](../../ff9mapkit/ff9mapkit/build.py:6766)
+- DictionaryPatch.txt — [build.py:6814](../../ff9mapkit/ff9mapkit/build.py:6814)
+- BattlePatch.txt — [build.py:6843](../../ff9mapkit/ff9mapkit/build.py:6843)
+- TextPatch.txt — [build.py:6849](../../ff9mapkit/ff9mapkit/build.py:6849)
+- ModDescription.xml — [build.py:6865](../../ff9mapkit/ff9mapkit/build.py:6865)
+- **ForkDonorPatch.txt — NOT emitted here.** Only `_verbatim_donor_id` helper exists: [build.py:3965](../../ff9mapkit/ff9mapkit/build.py:3965)
 
 Three ad-hoc emitters exist *around* `build_mod` (all should eventually collapse to the Phase-0 emit):
-- `build_campaign` — post-build write from `plan.members`: [campaign.py:624](ff9mapkit/ff9mapkit/campaign.py:624)
-- `deploy_field.py` — inline write from `_verbatim_donor_id`: [deploy_field.py:237](tools/deploy_field.py:237)
+- `build_campaign` — post-build write from `plan.members`: [campaign.py:624](../../ff9mapkit/ff9mapkit/campaign.py:624)
+- `deploy_field.py` — inline write from `_verbatim_donor_id`: [deploy_field.py:237](../../tools/deploy_field.py:237)
 - `merge_dists` (single-folder journey) — concatenates every `*Patch.txt`, incl. ForkDonorPatch:
-  [journey.py:1917](ff9mapkit/ff9mapkit/journey.py:1917). Its comment names the past bug: *"the bug
+  [journey.py:1917](../../ff9mapkit/ff9mapkit/journey.py:1917). Its comment names the past bug: *"the bug
   ForkDonorPatch first exposed"* — the same silent-drop, one layer up.
 
 ---
 
 ## Phase 0 — `build_mod` emits `ForkDonorPatch.txt` (DO FIRST)
 
-**Change:** after the other patch-file writes in `build_mod` (~[build.py:6849](ff9mapkit/ff9mapkit/build.py:6849)),
+**Change:** after the other patch-file writes in `build_mod` (~[build.py:6849](../../ff9mapkit/ff9mapkit/build.py:6849)),
 compute donor lines per project and write the file **guarded on non-empty**:
 
 ```python
@@ -83,7 +86,7 @@ if donor_lines:                                  # NOVEL fields -> no file (matc
         encoding="utf-8", newline="\n")
 ```
 (Check whether `ModLayout` already has a `fork_donor_patch` property; if not, write to `out_root` directly
-like campaign does at [campaign.py:631](ff9mapkit/ff9mapkit/campaign.py:631).)
+like campaign does at [campaign.py:631](../../ff9mapkit/ff9mapkit/campaign.py:631).)
 
 ### Safety (analysis done — HIGH confidence as an additive change)
 - **No test asserts build_mod's file set or ForkDonorPatch absence.** Searched `test_build*.py`/
@@ -100,7 +103,7 @@ like campaign does at [campaign.py:631](ff9mapkit/ff9mapkit/campaign.py:631).)
 Not proven by inspection: that `build_mod`'s per-project lines are byte-identical to `build_campaign`'s
 `plan.members` lines. **Neutralize by sequencing:**
 1. Add the guarded emit to `build_mod`.
-2. **Leave `build_campaign`'s emit in place** ([campaign.py:624–633](ff9mapkit/ff9mapkit/campaign.py:624)) —
+2. **Leave `build_campaign`'s emit in place** ([campaign.py:624–633](../../ff9mapkit/ff9mapkit/campaign.py:624)) —
    it runs *after* build_mod and overwrites, so campaign/journey output stays byte-identical regardless.
 3. Run the suite. `test_campaign.py:842` now exercises both paths = a live equivalence check.
 4. **Only if green**, delete campaign's redundant emit as a *separate* commit.
@@ -126,7 +129,7 @@ folder (default = the field's own name) so no surgical merge/guards are needed �
 to preserve, so build_mod's complete output IS the correct install (now incl. ForkDonorPatch from Phase 0).
 
 **Add** `deploy_field()` to `ff9mapkit/deploy.py`, mirroring `deploy_campaign`
-([deploy.py:153](ff9mapkit/ff9mapkit/deploy.py:153)):
+([deploy.py:153](../../ff9mapkit/ff9mapkit/deploy.py:153)):
 
 ```python
 def deploy_field(target, *, game=None, mod_folder=None, apply=False,
@@ -138,15 +141,15 @@ def deploy_field(target, *, game=None, mod_folder=None, apply=False,
     # 4. dry-run by default (print plan); --apply to touch the game
 ```
 Reuse existing pieces:
-- `_render_folder_revert` (snapshot-restore revert) — [deploy.py:434](ff9mapkit/ff9mapkit/deploy.py:434)
+- `_render_folder_revert` (snapshot-restore revert) — [deploy.py:434](../../ff9mapkit/ff9mapkit/deploy.py:434)
 - `DeployError` / `_emit` / the `backups_dir`+`reverts_dir` injection pattern from `deploy_campaign`
 - ModDescription auto-detect means a fresh folder self-registers into `Memoria.ini` on next launch
   (first deploy of a NEW folder needs one relaunch — note this in output).
 
 **Wire it:**
 - CLI subcommand `deploy` (or `deploy-field`) → calls `deploy.deploy_field(..., backups_dir=provision.deploy_backups_dir(), reverts_dir=provision.deploy_reverts_dir())`.
-  Register near the other deploy parsers ([cli.py:6318](ff9mapkit/ff9mapkit/cli.py:6318)); per-user dirs at
-  [provision.py:103](ff9mapkit/ff9mapkit/provision.py:103) / [:110](ff9mapkit/ff9mapkit/provision.py:110).
+  Register near the other deploy parsers ([cli.py:6318](../../ff9mapkit/ff9mapkit/cli.py:6318)); per-user dirs at
+  [provision.py:103](../../ff9mapkit/ff9mapkit/provision.py:103) / [:110](../../ff9mapkit/ff9mapkit/provision.py:110).
 - **Shrink `tools/deploy_field.py`** to a thin shim calling the same function with `REPO/"backups"` +
   `tools/scroll_out/` — mirror `tools/deploy_campaign.py` exactly. **But keep the repo-only dev features
   the shim needs** (see Out-of-scope): the sandbox id-forcing, `.ff9deploy.toml` resolution, prior-id

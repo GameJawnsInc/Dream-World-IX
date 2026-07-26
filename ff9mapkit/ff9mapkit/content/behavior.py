@@ -56,6 +56,7 @@ from dataclasses import dataclass
 
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
+from .chest import RUN_SOUND_CODE3, SFX_BANK, SFX_PARAMS   # the in-game-proven SFX triple (chest owns it)
 
 OP_SET_OBJECT_FLAGS = 0x93
 OP_WALK = 0x23
@@ -484,6 +485,54 @@ class ShopSynth(Action):
     def __post_init__(self):
         if not 0 <= int(self.shop) <= 255:
             raise BehaviorError("ShopSynth shop id must be 0..255 (the Menu byte)")
+
+
+@dataclass
+class Sfx(Action):
+    """Play ONE sound-effect cue — ``RunSoundCode3`` (0xC8) with the chest's proven
+    bank + pan/volume triple (content.chest; in-game on fields 200/407 and the kit's
+    own chests). Once-wrapped it rides the event-Once lane (fire-and-release — the
+    purse-fanfare shape); bare, it plays at dispatch then idles while selected
+    (Announce's shape: no re-fire until the tree deselects and re-selects it)."""
+    sound: int
+    bank: int = SFX_BANK
+
+    def __post_init__(self):
+        if not 0 <= int(self.sound) <= 0xFFFF:
+            raise BehaviorError("Sfx sound id must be 0..65535 (`ff9mapkit sfx-list`)")
+        if not 0 <= int(self.bank) <= 0xFFFF:
+            raise BehaviorError("Sfx bank must be 0..65535 (default 53248 = 0xD000)")
+
+
+FLASH_OUT_FRAMES = 24               # the stock white-out: FadeFilter(0, 24, x, colour) —
+FLASH_IN_FRAMES = 16                # — released by FadeFilter(1, 16, x, black); field
+                                    # 682's exact pair (21 / 11 uses across the 817
+                                    # exports; stock Waits 25 = out + 1 before moving on)
+FLASH_PAUSE_FRAMES = 20              # the beat held AT the colour between out and release
+                                    # (stock does its scene work there; we just hold)
+
+
+@dataclass
+class Flash(Action):
+    """ONE screen wash — stock's ADD-channel ``FadeFilter`` (0xEC) flash pair:
+    ``CalculateScreenPosition(player)`` + mode-0 out to the colour over 24 frames,
+    ``Wait(25)`` (stock's out+1), a held beat at the colour, then the mode-1
+    release to black over 16 (field 682's exact idiom, twice in that field).
+    ⚠ NOT modes 6/7 — bit 1 selects the SUB channel, and SUB toward white is the
+    stock warp fade to BLACK (the REDOUBT round-2 playtest lesson; the correct
+    lore was already in content.event.WARP_FADE's comment). Same two stances as
+    Sfx: Once-wrapped = event-Once fire-and-release (the win-flash lane); bare =
+    play at dispatch, idle while selected. The body holds the dispatch level
+    ~out+hold+in frames — queued one-shots fire when it releases."""
+    rgb: tuple = (255, 255, 255)
+    pause: int = FLASH_PAUSE_FRAMES  # TOML key `pause` — `hold` is taken (the feed verb)
+
+    def __post_init__(self):
+        self.rgb = tuple(int(c) for c in self.rgb)
+        if len(self.rgb) != 3 or not all(0 <= c <= 255 for c in self.rgb):
+            raise BehaviorError("Flash rgb must be three ints 0..255")
+        if not 0 <= int(self.pause) <= 255:
+            raise BehaviorError("Flash pause must be 0..255 frames")
 
 
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
@@ -1422,7 +1471,7 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth)):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
@@ -1433,7 +1482,7 @@ class FieldBehavior:
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth)):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                 bare.add(ids[id(n.action)])
                 if isinstance(n.action, (Award, ShopStock, ShopSynth)):
                     bare_awards.add(ids[id(n.action)])
@@ -1446,8 +1495,8 @@ class FieldBehavior:
         clash = set(onced) & bare
         if clash:
             raise BehaviorError(
-                f"{u.name}: an Announce object is shared between a Once-wrapped site "
-                f"and a bare site — give each site its own Announce instance")
+                f"{u.name}: an Announce/Sfx object is shared between a Once-wrapped site "
+                f"and a bare site — give each site its own instance")
         return onced
 
     def has_battle_actions(self) -> bool:
@@ -1626,7 +1675,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth)) and aid in once_ann:
+                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -2083,7 +2132,7 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth)):
+            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
                 # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
                 # "once" means fire-and-release — the sticky form over a MONOTONIC
                 # cond (a kill tally, a spent wave counter) would hold the selection
@@ -2626,6 +2675,51 @@ class FieldBehavior:
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + [opcodes.window_async(a.window, 128, int(a.txid))]
+                       + [label("loop"),
+                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          (JMP_IFNOT, "out"),
+                          opcodes.wait(1), (JMP, "loop"),
+                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+        if isinstance(a, Flash):
+            r, g, bl = a.rgb
+            burst = [
+                opcodes.encode(0xA9, PLAYER_UID),        # stock runs CalcScreenPos
+                opcodes.encode(0xEC, 0, FLASH_OUT_FRAMES, 255, r, g, bl),
+                opcodes.wait(FLASH_OUT_FRAMES + 1),      # before EACH FadeFilter;
+            ] + ([opcodes.wait(int(a.pause))] if a.pause else []) + [
+                opcodes.encode(0xA9, PLAYER_UID),        # Wait(25) = field 682's
+                opcodes.encode(0xEC, 1, FLASH_IN_FRAMES, 255, 0, 0, 0),  # out + 1
+                opcodes.wait(FLASH_IN_FRAMES),
+            ]
+            if oneshot_latch is not None:
+                return asm([
+                    _set_flag(oneshot_latch, 1),         # latch FIRST (Battle's shape)
+                    _set_byte(run, 255),
+                ] + burst + [
+                    _set_byte(run, 0),
+                    opcodes.RETURN,
+                ])
+            return asm(head[:1] + burst
+                       + [label("loop"),
+                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          (JMP_IFNOT, "out"),
+                          opcodes.wait(1), (JMP, "loop"),
+                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+        if isinstance(a, Sfx):
+            play = opcodes.encode(RUN_SOUND_CODE3, int(a.bank), int(a.sound),
+                                  *SFX_PARAMS)
+            if oneshot_latch is not None:
+                # the EVENT-Once variant (the purse-fanfare lane): Announce's
+                # one-shot shape with a sound for a window — latch FIRST, play,
+                # release.
+                return asm([
+                    _set_flag(oneshot_latch, 1),
+                    _set_byte(run, 255),
+                    play,
+                    _set_byte(run, 0),
+                    opcodes.RETURN,
+                ])
+            return asm(head[:1] + [play]
                        + [label("loop"),
                           _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),

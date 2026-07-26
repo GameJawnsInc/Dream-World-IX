@@ -231,6 +231,15 @@ backups/
 
 # throwaway proof/scratch files (not committed)
 scratch/
+# repo-root scratch that kept getting committed by accident: `.eb` disasm dumps
+# (regenerable via tools/eb_disasm.py) and save-state snapshots from flag probes.
+/scratch_*.txt
+/before.json
+/after.json
+/*_before.json
+/*_after.json
+# stray captured stderr (a CLI run redirected into the package dir)
+ff9mapkit/err.log
 
 # Pandemonium elevator verbatim forks -- SE-derived scene/.eb/walkmesh binaries + their tomls (local
 # scratch; the kit recipe + the byte361/362 lift-config lives in git log + project memory, not these forks).

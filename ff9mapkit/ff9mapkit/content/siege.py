@@ -58,8 +58,8 @@ DEFAULT_PROMPT = "WAR COUNCIL — deploy on this spot:"
 DEFAULT_REPLY = "Deployed!  He holds this very spot."
 
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
-         "loss_battle", "button", "council_prompt", "hud", "hud_text",
-         "flag_base", "alarm_radius", "base", "ally", "raider",
+         "win_sfx", "win_flash", "loss_battle", "button", "council_prompt",
+         "hud", "hud_text", "flag_base", "alarm_radius", "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
@@ -141,6 +141,8 @@ class SiegeSpec:
     stipend: int = 0
     win_gil: int = 0
     win_item: str | None = None
+    win_sfx: int | None = None       # the purse fanfare cue (`ff9mapkit sfx-list` ids)
+    win_flash: tuple | None = None   # the win screen-flash colour (true = white)
     loss_battle: int | None = None
     button: bool = True
     council_prompt: str = DEFAULT_PROMPT
@@ -265,6 +267,21 @@ def from_raw(s: dict) -> SiegeSpec:
     names = [base.name] + [a.name for a in allies] + [r.name for r in raiders]
     if len(set(names)) != len(names):
         raise SiegeError(f"{ctx}: base/ally/raider names must be distinct (got {names})")
+    ws = s.get("win_sfx")
+    if ws is not None and (isinstance(ws, bool) or not isinstance(ws, int)
+                           or not 0 <= ws <= 0xFFFF):
+        raise SiegeError(f"{ctx}: win_sfx must be a sound id int 0..65535 "
+                         f"(`ff9mapkit sfx-list`; 108 = the item-get jingle)")
+    wf = s.get("win_flash")
+    if wf is True:
+        wf = (255, 255, 255)                     # win_flash = true -> white
+    elif wf is not None:
+        if (not isinstance(wf, list) or len(wf) != 3
+                or not all(isinstance(c, int) and not isinstance(c, bool)
+                           and 0 <= c <= 255 for c in wf)):
+            raise SiegeError(f"{ctx}: win_flash takes true (white) or [r, g, b] "
+                             f"ints 0..255")
+        wf = tuple(wf)
     fb = s.get("flag_base", REQUEST_FLAG_BASE)
     if not isinstance(fb, int) or not 8712 <= fb <= 16300:
         raise SiegeError(f"{ctx}: flag_base must be a GLOB bit in the safe band "
@@ -278,6 +295,8 @@ def from_raw(s: dict) -> SiegeSpec:
         raiders=tuple(raiders), warmup=int(s.get("warmup", 45)),
         stipend=int(s.get("stipend", 0)), win_gil=int(s.get("win_gil", 0)),
         win_item=(str(s["win_item"]) if s.get("win_item") else None),
+        win_sfx=(int(ws) if ws is not None else None),
+        win_flash=wf,
         loss_battle=(int(s["loss_battle"]) if s.get("loss_battle") is not None else None),
         button=bool(s.get("button", True)),
         council_prompt=str(s.get("council_prompt", DEFAULT_PROMPT)),
@@ -353,18 +372,43 @@ def behavior_raw(spec: SiegeSpec) -> dict:
                           do={"announce": spec.text_stipend.format(stipend=spec.stipend)}))
     # THE WIN-CONDITION SHAPE: endings DETECT (raise `won` once, mutually
     # excluded via not_flag), ONE branch PAYS (the double-payout playtest law).
-    bb.append(_branch(when=[{"counter_ge": ["wave", len(spec.waves)]},
-                            {"counter_eq": ["raiders_up", 0]},
-                            {"not_flag": "won"}], once="routcry",
-                      raise_flags=["won"], do={"announce": spec.text_rout}))
-    bb.append(_branch(when=[{"time_below": 1}, {"not_flag": "won"}],
-                      once="wincry", raise_flags=["won"],
-                      do={"announce": spec.text_win}))
+    # With win_flash, the detect branch CARRIES the wash and the cries move
+    # below it — THE REVEAL BEAT (round-3 playtest: a window opening as the
+    # white-out starts fights it): the wash's ~65-frame body holds the base's
+    # dispatch level, and the request lane only fires on run==0 in LADDER
+    # order — so the queued cry, purse, and jingle land on consecutive ticks
+    # right at the release. The serialization IS the choreography.
+    rout_when = [{"counter_ge": ["wave", len(spec.waves)]},
+                 {"counter_eq": ["raiders_up", 0]}, {"not_flag": "won"}]
+    win_when = [{"time_below": 1}, {"not_flag": "won"}]
+    if spec.win_flash is not None:
+        # win-lane only — a loss cue on the base would race its die-on-`lost`
+        # TerminateEntry, so the loss keeps its own drama (the cry / the battle)
+        bb.append(_branch(when=rout_when, once="routdet",
+                          raise_flags=["won", "routed"],
+                          do={"flash": list(spec.win_flash)}))
+        bb.append(_branch(when=win_when, once="windet", raise_flags=["won"],
+                          do={"flash": list(spec.win_flash)}))
+        bb.append(_branch(when=[{"flag": "routed"}], once="routcry",
+                          do={"announce": spec.text_rout}))
+        bb.append(_branch(when=[{"flag": "won"}, {"not_flag": "routed"}],
+                          once="wincry", do={"announce": spec.text_win}))
+    else:
+        bb.append(_branch(when=rout_when, once="routcry",
+                          raise_flags=["won"], do={"announce": spec.text_rout}))
+        bb.append(_branch(when=win_when, once="wincry", raise_flags=["won"],
+                          do={"announce": spec.text_win}))
     if spec.win_gil > 0 or spec.win_item:
         pay: dict = {"award": spec.win_gil}
         if spec.win_item:
             pay["item"] = spec.win_item
         bb.append(_branch(when=[{"flag": "won"}], once="paid", do=pay))
+    if spec.win_sfx is not None:
+        # the purse FANFARE — its own event-Once branch below the pay, gated on
+        # the same `won` flag (flags don't drain, so the pay fires one tick and
+        # the cue the next — THE DRAINING-CONDITION LAW's authoring shape)
+        bb.append(_branch(when=[{"flag": "won"}], once="fanfare",
+                          do={"sfx": spec.win_sfx}))
     bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
                       once="alarm", do={"announce": spec.text_alarm}))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))
