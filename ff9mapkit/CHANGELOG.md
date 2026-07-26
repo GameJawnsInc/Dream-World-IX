@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — choice `recall`: render a numeric input's SAVED value later
+- A `[[choice]]` option's `recall = "<numeric_input>"` re-loads `[NUMB=0]` from the
+  input's save-backed result var (× multiplier) before the row's reply — the NUMPAD
+  round-3 lesson: gMesValue slot 0 is transient display state shared by every
+  stepper's submit echo, so a readback row without `recall` renders whatever number
+  was displayed last (the bench's muster Report row showed the previous *bid*).
+
 ### Added — `[[numeric_input]]`: the Treno bid stepper as kit vocabulary
 - The game's one number-entry idiom — the Treno auction's 3-digit ×100 stepper, carried
   byte-for-byte by nine shipping fields (852/909/1600/1607/1909/2800/2950/2951/2952) —
