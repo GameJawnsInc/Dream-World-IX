@@ -418,6 +418,32 @@ def test_add_unit_through_the_seam_and_remove_back_to_guide(edoc):
         "add behavior unit lone", "remove behavior unit lone"]
 
 
+def test_row_clears_hide_before_reparenting(app, edoc):
+    """The phantom-window class (playtest-caught): clearing ladder rows reparented VISIBLE
+    widgets to None, and each flashed as its own native OS window before deleteLater -- a
+    reorder sprayed 'pythonw' windows across the screen. The checkable contract is the ORDER
+    (hide, THEN reparent): ``isVisible`` is blind to the native flash -- probed offscreen,
+    Qt reports False after setParent(None) in the buggy order too -- so this fence records
+    the calls per row instead of trusting the property."""
+    edoc.show_field("BGLADE", demo_raw(), None)
+    edoc.show()                                    # rows must be genuinely visible to regress
+    old_rows = _ladder_rows(edoc.ladder)
+    calls = []
+
+    def tap(w):
+        oh, osp = w.hide, w.setParent
+        w.hide = lambda: (calls.append((id(w), "hide")), oh())
+        w.setParent = lambda p: (calls.append((id(w), "setParent")), osp(p))
+
+    for w in old_rows:
+        tap(w)
+    edoc._move_row(0, +1)
+    for w in old_rows:
+        seq = [k for i, k in calls if i == id(w)]
+        assert seq[:1] == ["hide"] and "setParent" in seq, seq
+    edoc.hide()
+
+
 def test_structural_ops_close_the_editor_first(edoc):
     edoc.show_field("BGLADE", demo_raw(), None)
     edoc._edit_branch(2)

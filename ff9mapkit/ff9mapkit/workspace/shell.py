@@ -4901,10 +4901,10 @@ class Workspace(QMainWindow):
             self._insp_lay.addWidget(w, 1)
             w.show()
         elif not on and mounted:
-            self._insp_lay.removeWidget(w)
-            w.setParent(None)                      # kept alive by the doc's own reference
-            w.hide()
-            self.insp_body.show()
+            w.hide()                               # hide BEFORE the reparent: a visible widget
+            self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
+            w.setParent(None)                      # window (the ladder's phantom-window lesson);
+            self.insp_body.show()                  # kept alive by the doc's own reference
 
     def _behavior_target(self):
         """The field member the Behavior tab renders: the tree selection's owning field, else the

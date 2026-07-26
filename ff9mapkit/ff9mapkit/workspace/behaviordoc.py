@@ -309,9 +309,14 @@ class LadderView(QWidget):
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
             if w is not None:
-                w.setParent(None)                  # reparent NOW: a deleteLater-only clear leaves
-                w.deleteLater()                    # zombie children until the loop runs (the
-        #                                            harness's own DeferredDelete lesson)
+                w.hide()                           # HIDE FIRST: reparenting a VISIBLE widget to
+                w.setParent(None)                  # None makes it a top-level OS window for the
+                w.deleteLater()                    # instant before deleteLater lands -- a reorder
+        #                                            sprayed phantom "pythonw" windows (playtest-
+        #                                            caught). The reparent itself stays: a
+        #                                            deleteLater-only clear leaves zombie children
+        #                                            until the loop runs (the harness's own
+        #                                            DeferredDelete lesson).
         last_uncond = max((i for i, r in enumerate(rows) if r["unconditional"]), default=None)
         for i, row in enumerate(rows):
             self._lay.addWidget(self._row(row, fallback=(i == last_uncond and i == len(rows) - 1)))
@@ -937,7 +942,8 @@ class BehaviorDoc(QWidget):
         while self.flags_lay.count():
             w = self.flags_lay.takeAt(0).widget()
             if w is not None:
-                w.setParent(None)                  # see LadderView.set_rows -- no zombie rows
+                w.hide()                           # hide BEFORE the reparent -- see set_rows
+                w.setParent(None)
                 w.deleteLater()
         if res is None:
             self.report_box.setVisible(False)
