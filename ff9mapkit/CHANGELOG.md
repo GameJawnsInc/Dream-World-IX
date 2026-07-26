@@ -93,6 +93,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   choreography, which is deferred theater along with hit/miss SFX and the
   combo-gated difficulty ramp). Synth-only; refuses [behavior] coexistence (scratch
   band overlap).
+- The modal scratch band moved to bytes 2018-2031 (was 2026-2039): the old band's four
+  Int16 channels (combo / max-combo / points / bonus) sat exactly on the netsync co-op
+  cells (bytes 2032-2039), which the engine rewrites EVERY FRAME while `[Netsync]` co-op
+  runs — on any field, `[[coop]]` gates or none — so a bout under live co-op had its
+  scoring clobbered per frame. The band is now the `qte_scratch` reserved region in
+  `flags.py` (bits 16144-16255), so a `[[qte]]` `flag`/`result` — or any lint-walked
+  story flag — can no longer be allocated inside the scratch; `result` caps at 2016.
+
+### Fixed — a `[[numeric_input]]` result word can no longer land on live engine state
+- The stepper's `result` cap dropped 2038 → 2016 and the word's 16 bits now walk the
+  reserved save regions (the same validation a `[[qte]]` result gets): the old cap
+  admitted a result inside the netsync co-op cells (bytes 2032-2039) — which the engine
+  rewrites every frame while co-op runs, clobbering the submitted value — and did not
+  refuse the Mognet mailbox/lock/read-mail bytes or the byte-23 menu handshake either.
 
 ### Added — `add_shop_synth` / `remove_shop_synth`: runtime synthesis recipes (0x116)
 - The AddShopItem twin with the mutation inverted: grafts the SHOP onto the RECIPE's

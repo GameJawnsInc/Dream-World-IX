@@ -49,6 +49,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
+from .. import flags as _flags
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
 
@@ -159,12 +160,22 @@ def from_raw(block: dict, idx: int) -> InputSpec:
     if not isinstance(start, int) or not 0 <= start <= vmax:
         raise NumericInputError(f"{ctx}: start must be 0..max ({vmax})")
     result = block.get("result")
-    if not isinstance(result, int) or not 4 <= result <= 2038:
-        raise NumericInputError(f"{ctx}: result must be a gEventGlobal byte offset 4..2038 "
-                                f"(an Int16 lands at [result, result+1]; 2042+ is the stepper's "
-                                f"own scratch). It receives the STEPPED value on submit.")
-    if result in (2040, 2041):
-        raise NumericInputError(f"{ctx}: result {result} collides with the choice-mask scratch word")
+    if not isinstance(result, int) or not 4 <= result <= 2016:
+        raise NumericInputError(f"{ctx}: result must be a gEventGlobal byte offset 4..2016 "
+                                f"(an Int16 lands at [result, result+1]; 2018+ is the game's own "
+                                f"scratch -- the [[qte]] band, the netsync co-op cells the engine "
+                                f"rewrites every frame under live co-op, the choice mask, this "
+                                f"stepper's own scratch). It receives the STEPPED value on submit.")
+    # the Int16's 16 bits must also clear the reserved save regions (Mognet mailbox/locks/
+    # read-mail, the byte-23 menu handshake, ...) -- same walk as a [[qte]] result word
+    hit = next((b for b in range(result * 8, result * 8 + 16) if _flags.is_reserved(b)), None)
+    if hit is not None:
+        r = _flags.bit_region(hit)
+        raise NumericInputError(f"{ctx}: result {result} -- the Int16 word (bytes {result}-"
+                                f"{result + 1}) overlaps FF9's reserved '{r.name}' region (bits "
+                                f"{r.lo}-{r.hi}): a write there corrupts real save/engine state, "
+                                f"and ordinary play clobbers the value right back. Pick a clear "
+                                f"byte offset (e.g. 2000, or {_flags.READMAIL_PAYLOAD_HI // 8 + 1}+).")
     flag = block.get("flag")
     if flag is not None and not (isinstance(flag, int) and 0 <= flag <= 16383):
         raise NumericInputError(f"{ctx}: flag must be a gEventGlobal BIT index (raised on submit)")
