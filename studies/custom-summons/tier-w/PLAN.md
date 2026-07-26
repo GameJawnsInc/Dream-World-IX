@@ -186,3 +186,16 @@ scenery must be re-authored *together*.
   Stock Phoenix **198** / Stock Madeen **199** on STEINIV's Rune menu (Spark would renumber the live
   Iron Edge 197). Cast protocol = `W5-GENERALIZE.md` §5 (one relaunch, three judgments); the rung
   does not close until the casts are judged.
+  **CAST RESULTS so far (2026-07-26): Madeen ★ PROVEN ("madeen looked glacial") — the CREATURE
+  lever generalises in-game, second witness after ef227. Phoenix cast A read STOCK — the scenery
+  recolor did not visibly land, the first-ever cast of a PURE id-0-palette recolor (W4's ef227 cast
+  bundled creature+scenery, so the scenery half was never proven in isolation and is now also in
+  question). Offline discriminators run: the 5 so-bound cells were exactly the recolored ones; ef211's
+  program does NO VRAM re-upload (one StoreImage = a read; 0 LoadImage/MoveImage; ef227/ef251 have
+  none); one bound model has neutral (128,128,128) prim colors. THE MAGENTA PROBE is LIVE on ef211
+  (sha f625ea32…, all 315 live entries of the five bound palettes → pure magenta, STP/cutouts
+  preserved; `reskin-w5/ef211/probe-magenta/`): any magenta in the next Stock Phoenix cast ⇒ upload
+  path works, the glacial key was perceptually swamped (prim modulation — L17 was only ever proven
+  for the CREATURE path); still stock ⇒ the id-0 scenery-palette path is DEAD at runtime — a
+  structural finding that re-opens W4's scenery attribution. Cast B (camera) deliberately held
+  until this resolves.**
