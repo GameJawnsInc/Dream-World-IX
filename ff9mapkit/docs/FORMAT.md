@@ -1753,6 +1753,12 @@ default 8840), per-class `contact`/`damage`/`interval`/`reply`, per-raider
 `contact`/`damage`/`interval`/`dialogue`, `autoroute = false` (marches use your waypoints
 verbatim instead of walkmesh routing).
 
+**Staged ending text:** `text_win` / `text_rout` / `text_loss` also take a **list of
+lines**, paged at `text_pace` frames each (default 120). Win/rout lines page *after* the
+cry → purse → jingle beat (the first line is the cry); loss lines page *before* the loss
+battle or final cry, with the last line held long enough to be read before the battle
+takes the screen. A plain string keeps the single-window shape exactly.
+
 `[siege]` **owns the field's `[behavior]` table** (a hand-written one is a build error —
 drop to raw `[behavior]` authoring for anything the block can't express). It composes with
 everything else: `[[gauge]]` bars (`gil` makes a live war-chest bar), `[[npc]]` flavor cast,

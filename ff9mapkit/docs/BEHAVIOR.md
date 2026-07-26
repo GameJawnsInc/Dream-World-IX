@@ -339,6 +339,13 @@ one-shot (a `battle`, an `announce`) otherwise gets exactly one ~33ms frame of a
 the next dispatch takes the audio (the loss-sting round-1 playtest). Sustain is how a cue
 buys its beat: the queued request fires the moment the sustain releases.
 
+`announce` takes the same pair: **`delay`** holds the level *silently before* the window
+opens — the STAGED-TEXT primitive (a chain of once-announces on one monotonic flag, each
+delayed by the previous line's read time, pages like a cutscene) — and **`sustain`** holds
+*after* the open, for a line that must be read before a queued `battle` takes the screen.
+`[siege]` stages its ending texts this way when `text_win`/`text_rout`/`text_loss` are
+lists (paged at `text_pace`).
+
 ### `flash` — a screen flash
 
 ```toml

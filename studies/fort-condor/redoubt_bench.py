@@ -80,8 +80,11 @@ win_gil = {cfb.WIN_GIL}
 win_item = "{cfb.WIN_ITEM}"
 win_sfx = 108                # theater rung A (CAST-PROVEN): the item-get jingle on the purse
 win_flash = true             # theater rung B (CAST-PROVEN): the stock white wash + THE REVEAL BEAT
-loss_sfx = 1942              # theater rung C: the loss sting (field 682's dramatic-moment cue;
-                             # one number to swap if the timbre reads wrong)
+loss_sfx = 1942              # theater rung C (CAST-PROVEN): "a good defeat noise"
+# theater rung D: STAGED ending text -- lists page at text_pace; text_rout stays a
+# single string on purpose (proving the two shapes mix)
+text_win = ["WE HELD THE DEPOT!", "The city pays in full -- and doubles the guard.", "The Colonel will hear of this."]
+text_loss = ["The depot has fallen...", "To the last of us, then. CHARGE!"]
 loss_battle = {cfb.LOSS_SCENE}
 
 [siege.base]
@@ -201,13 +204,17 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
     rows vanishing when unaffordable/sold out; troops deploy at your feet.
   3 the three waves (0:55 NW, 0:40 SW, 0:20 SW heavies) march their lanes,
     PIN onto blockers, leakers beat the depot; allies fight by stance.
-  4 endings: the win beat is CAST-PROVEN (wash -> held white -> release ->
-    cry/purse/jingle) -- it should be unchanged. THE NEW CLAIM IS THE LOSS
-    (rung C): let the depot fall -> THE STING rings FIRST (sound 1942, field
-    682's dramatic cue), THEN the boss battle takes the screen. If the sting
-    plays after the battle instead, or not at all, that is the bug. Still NO
-    wash and NO win-jingle on a loss. (Sting timbre wrong for a defeat?
-    Say so -- it is one number to swap.)
+  4 endings -- THE NEW CLAIM IS STAGED TEXT (rung D), on both lanes:
+    WIN (hold to 0:00): the proven beat runs (wash -> reveal -> "WE HELD THE
+      DEPOT!" + purse + jingle), THEN the text PAGES: ~2s later the window
+      swaps to "The city pays in full -- and doubles the guard.", ~2s later
+      to "The Colonel will hear of this." (which stays). Three lines, one
+      window, no input needed.
+    ROUT (kill wave 3 early): SINGLE-line cry as before -- text_rout is
+      deliberately unstaged; if it pages, that is the bug.
+    LOSS: the sting (proven) -> "The depot has fallen..." -> ~2s ->
+      "To the last of us, then. CHARGE!" -> ~2s (readable!) -> THEN the boss
+      battle. If the battle eats line 2 instantly, that is the bug.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")

@@ -64,7 +64,8 @@ _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
          "win_sfx", "win_flash", "loss_sfx", "loss_battle", "button",
          "council_prompt", "hud", "hud_text", "flag_base", "alarm_radius",
          "base", "ally", "raider",
-         "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss"}
+         "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss",
+         "text_pace"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
               "radius", "contact", "damage", "interval", "speed", "reply"}
@@ -156,10 +157,13 @@ class SiegeSpec:
     flag_base: int = REQUEST_FLAG_BASE
     alarm_radius: int = ALARM_RADIUS
     text_stipend: str = DEFAULT_STIPEND_TEXT
-    text_win: str = DEFAULT_WIN_TEXT
-    text_rout: str = DEFAULT_ROUT_TEXT
+    # the three ENDING texts take a string (one window — today's proven shape)
+    # or a tuple of lines (STAGED text, paged at text_pace)
+    text_win: "str | tuple" = DEFAULT_WIN_TEXT
+    text_rout: "str | tuple" = DEFAULT_ROUT_TEXT
     text_alarm: str = DEFAULT_ALARM_TEXT
-    text_loss: str = DEFAULT_LOSS_TEXT
+    text_loss: "str | tuple" = DEFAULT_LOSS_TEXT
+    text_pace: int = 120             # frames each staged line holds before the next
 
 
 def _need(d: dict, key, ctx: str):
@@ -174,6 +178,25 @@ def _point(v, ctx: str) -> tuple:
             and all(isinstance(c, (int, float)) for c in v)):
         raise SiegeError(f"{ctx}: must be an [x, z] point")
     return (int(v[0]), int(v[1]))
+
+
+def _ending_text(s: dict, key: str, default: str, ctx: str):
+    """An ending text: a string (one window) or a list of lines -> a tuple
+    (STAGED text — the list IS the request to stage)."""
+    v = s.get(key)
+    if v is None:
+        return default
+    if isinstance(v, str) and v:
+        return v
+    if isinstance(v, list) and v and all(isinstance(x, str) and x for x in v):
+        return tuple(v)
+    raise SiegeError(f"{ctx}: {key} must be a non-empty string or a non-empty "
+                     f"list of non-empty strings (a list = staged text, paged "
+                     f"at text_pace)")
+
+
+def _lines(v) -> list:
+    return list(v) if isinstance(v, tuple) else [v]
 
 
 def from_raw(s: dict) -> SiegeSpec:
@@ -282,6 +305,10 @@ def from_raw(s: dict) -> SiegeSpec:
                            or not 0 <= ls <= 0xFFFF):
         raise SiegeError(f"{ctx}: loss_sfx must be a sound id int 0..65535 "
                          f"(`ff9mapkit sfx-list`)")
+    tp = s.get("text_pace", 120)
+    if isinstance(tp, bool) or not isinstance(tp, int) or not 15 <= tp <= 255:
+        raise SiegeError(f"{ctx}: text_pace must be an int 15..255 frames "
+                         f"(the read time each staged line holds)")
     wf = s.get("win_flash")
     if wf is True:
         wf = (255, 255, 255)                     # win_flash = true -> white
@@ -315,10 +342,11 @@ def from_raw(s: dict) -> SiegeSpec:
         hud_text=(str(s["hud_text"]) if s.get("hud_text") else None),
         flag_base=fb, alarm_radius=int(s.get("alarm_radius", ALARM_RADIUS)),
         text_stipend=str(s.get("text_stipend", DEFAULT_STIPEND_TEXT)),
-        text_win=str(s.get("text_win", DEFAULT_WIN_TEXT)),
-        text_rout=str(s.get("text_rout", DEFAULT_ROUT_TEXT)),
+        text_win=_ending_text(s, "text_win", DEFAULT_WIN_TEXT, ctx),
+        text_rout=_ending_text(s, "text_rout", DEFAULT_ROUT_TEXT, ctx),
         text_alarm=str(s.get("text_alarm", DEFAULT_ALARM_TEXT)),
-        text_loss=str(s.get("text_loss", DEFAULT_LOSS_TEXT)))
+        text_loss=_ending_text(s, "text_loss", DEFAULT_LOSS_TEXT, ctx),
+        text_pace=tp)
 
 
 # ----------------------------------------------------------------- the emission
@@ -382,11 +410,33 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         bb.append(_branch(when=[{"hp_le": 0}], once="losssting",
                           do={"sfx": spec.loss_sfx,
                               "sustain": LOSS_STING_SUSTAIN}))
+    ll, pace = _lines(spec.text_loss), spec.text_pace
     if spec.loss_battle is not None:
+        # a STAGED text_loss pages pre-detect (the sting idiom scaled to text);
+        # each stage's `delay` is the previous line's read time, and the LAST
+        # line sustains so it rings before the battle takes the screen. A plain
+        # string keeps today's shape byte-for-byte: the battle IS the loss text.
+        if isinstance(spec.text_loss, tuple):
+            for i, ln in enumerate(ll):
+                stage = {"announce": ln}
+                if i:
+                    stage["delay"] = pace
+                if i == len(ll) - 1:
+                    stage["sustain"] = pace
+                bb.append(_branch(when=[{"hp_le": 0}], once=f"losstext{i}",
+                                  do=stage))
         bb.append(_branch(when=[{"hp_le": 0}], do={"battle": spec.loss_battle},
                           raise_flags=["lost"]))
     else:
-        bb.append(_branch(when=[{"hp_le": 0}], do={"announce": spec.text_loss},
+        for i, ln in enumerate(ll[:-1]):
+            stage = {"announce": ln}
+            if i:
+                stage["delay"] = pace
+            bb.append(_branch(when=[{"hp_le": 0}], once=f"losstext{i}", do=stage))
+        final = {"announce": ll[-1]}
+        if len(ll) > 1:
+            final["delay"] = pace
+        bb.append(_branch(when=[{"hp_le": 0}], do=final,
                           once="losscry", raise_flags=["lost"]))
     if spec.stipend > 0:
         bb.append(_branch(when=[{"time_above": spec.timer - 5}], once="stipend",
@@ -404,6 +454,10 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     rout_when = [{"counter_ge": ["wave", len(spec.waves)]},
                  {"counter_eq": ["raiders_up", 0]}, {"not_flag": "won"}]
     win_when = [{"time_below": 1}, {"not_flag": "won"}]
+    wl, rl = _lines(spec.text_win), _lines(spec.text_rout)
+    # staging needs `routed` even without a flash — win stages gate on
+    # won && !routed, so the rout detect must distinguish the endings
+    staged_ends = isinstance(spec.text_win, tuple) or isinstance(spec.text_rout, tuple)
     if spec.win_flash is not None:
         # win-lane only — a loss cue on the base would race its die-on-`lost`
         # TerminateEntry, so the loss keeps its own drama (the cry / the battle)
@@ -413,14 +467,16 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         bb.append(_branch(when=win_when, once="windet", raise_flags=["won"],
                           do={"flash": list(spec.win_flash)}))
         bb.append(_branch(when=[{"flag": "routed"}], once="routcry",
-                          do={"announce": spec.text_rout}))
+                          do={"announce": rl[0]}))
         bb.append(_branch(when=[{"flag": "won"}, {"not_flag": "routed"}],
-                          once="wincry", do={"announce": spec.text_win}))
+                          once="wincry", do={"announce": wl[0]}))
     else:
         bb.append(_branch(when=rout_when, once="routcry",
-                          raise_flags=["won"], do={"announce": spec.text_rout}))
+                          raise_flags=(["won", "routed"] if staged_ends
+                                       else ["won"]),
+                          do={"announce": rl[0]}))
         bb.append(_branch(when=win_when, once="wincry", raise_flags=["won"],
-                          do={"announce": spec.text_win}))
+                          do={"announce": wl[0]}))
     if spec.win_gil > 0 or spec.win_item:
         pay: dict = {"award": spec.win_gil}
         if spec.win_item:
@@ -432,6 +488,16 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         # the cue the next — THE DRAINING-CONDITION LAW's authoring shape)
         bb.append(_branch(when=[{"flag": "won"}], once="fanfare",
                           do={"sfx": spec.win_sfx}))
+    # the STAGED AFTERMATH: extra ending lines page AFTER the proven
+    # cry/purse/jingle beat — each stage's `delay` is the previous line's read
+    # time, spent holding the dispatch level (the reveal-beat serialization)
+    for i, ln in enumerate(rl[1:], 1):
+        bb.append(_branch(when=[{"flag": "routed"}], once=f"routtext{i}",
+                          do={"announce": ln, "delay": spec.text_pace}))
+    for i, ln in enumerate(wl[1:], 1):
+        bb.append(_branch(when=[{"flag": "won"}, {"not_flag": "routed"}],
+                          once=f"wintext{i}",
+                          do={"announce": ln, "delay": spec.text_pace}))
     bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
                       once="alarm", do={"announce": spec.text_alarm}))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))

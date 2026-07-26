@@ -204,6 +204,52 @@ def test_loss_sfx_pre_detect_sting():
         _spec(loss_sfx="thud")
 
 
+def test_staged_ending_text():
+    """Ending texts as LISTS page on held dispatch levels: loss lines page
+    PRE-detect (the sting idiom scaled to text — last line sustained before a
+    battle); win/rout aftermath lines page AFTER the proven cry/purse/jingle
+    beat, gated per-ending (the flashless rout detect grows `routed` so the
+    win stages can tell the endings apart). Plain strings keep today's bytes."""
+    over = {"text_win": ["WE HELD!", "The city pays.", "The Colonel smiles."],
+            "text_rout": ["BROKEN!", "None left standing."],
+            "text_loss": ["The depot burns.", "Fall back!"]}
+    b = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), **over}))
+    br = b["unit"][0]["branch"]
+    # loss (battle path): both lines pre-detect, the last sustained, then battle
+    lt = [x for x in br if str(x.get("once", "")).startswith("losstext")]
+    assert [x["do"]["announce"] for x in lt] == ["The depot burns.", "Fall back!"]
+    assert "delay" not in lt[0]["do"] and lt[1]["do"]["delay"] == 120
+    assert lt[1]["do"]["sustain"] == 120
+    i_battle = next(i for i, x in enumerate(br) if "battle" in x["do"])
+    assert br.index(lt[1]) < i_battle
+    # flashless staging: the rout detect raises `routed`
+    rout_det = next(x for x in br if x.get("once") == "routcry")
+    assert rout_det["raise_flags"] == ["won", "routed"]
+    # aftermath stages sit BELOW pay (below fanfare too when present) and
+    # gate per ending
+    wt = [x for x in br if str(x.get("once", "")).startswith("wintext")]
+    assert [x["do"]["announce"] for x in wt] == ["The city pays.",
+                                                 "The Colonel smiles."]
+    assert all(x["do"]["delay"] == 120 for x in wt)
+    assert all(x["when"] == [{"flag": "won"}, {"not_flag": "routed"}] for x in wt)
+    rt = [x for x in br if str(x.get("once", "")).startswith("routtext")]
+    assert [x["do"]["announce"] for x in rt] == ["None left standing."]
+    assert rt[0]["when"] == [{"flag": "routed"}]
+    i_pay = next(i for i, x in enumerate(br) if "award" in x["do"])
+    assert i_pay < br.index(rt[0]) < br.index(wt[0])
+    # announce-path loss (no battle): the FINAL line is the losscry, delayed
+    b2 = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), "loss_battle": None,
+                                    "text_loss": ["l1", "l2"]}))
+    cry = next(x for x in b2["unit"][0]["branch"] if x.get("once") == "losscry")
+    assert cry["do"] == {"announce": "l2", "delay": 120}
+    assert cry["raise_flags"] == ["lost"]
+    # refusals
+    with pytest.raises(S.SiegeError, match="text_pace"):
+        _spec(text_pace=5)
+    with pytest.raises(S.SiegeError, match="text_win"):
+        _spec(text_win=[])
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)
@@ -239,6 +285,7 @@ def _siege_toml() -> str:
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
               'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
               "win_flash = true\nloss_sfx = 1942\nloss_battle = 35\n"
+              'text_win = ["WE HELD THE DEPOT!", "The city pays in full."]\n'
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")

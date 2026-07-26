@@ -418,9 +418,19 @@ class Announce(Action):
     """Open a dialogue window ONCE per engagement (a breach popup, a war cry). The body
     shows the window then idles while selected — re-dispatch (and window spam) can't
     happen until the tree deselects and later re-selects the branch; wrap in Once for
-    a once-ever announcement."""
+    a once-ever announcement.
+    ``delay``: hold the dispatch level SILENTLY for N frames before opening — the
+    staged-text primitive (the previous line's reading time; queued requests wait).
+    ``sustain``: hold for N frames AFTER opening — for a line that must ring before a
+    queued Battle takes the screen (Sfx's sustain, same law: order ≠ duration)."""
     txid: int
     window: int = 0
+    delay: int = 0
+    sustain: int = 0
+
+    def __post_init__(self):
+        if not 0 <= int(self.delay) <= 255 or not 0 <= int(self.sustain) <= 255:
+            raise BehaviorError("Announce delay/sustain must be 0..255 frames")
 
 
 @dataclass
@@ -2670,18 +2680,23 @@ class FieldBehavior:
                 opcodes.RETURN,
             ])
         if isinstance(a, Announce):
+            show = (([opcodes.wait(int(a.delay))] if a.delay else [])
+                    + [opcodes.window_async(a.window, 128, int(a.txid))]
+                    + ([opcodes.wait(int(a.sustain))] if a.sustain else []))
             if oneshot_latch is not None:
                 # the EVENT-Once variant: latch FIRST (Battle's one-shot shape —
                 # a re-request can never re-fire), show the window (async — it
                 # persists on screen without a body idling), release the level.
+                # delay/sustain hold the level around the open — queued one-shots
+                # (the NEXT staged line, a Battle) fire when it drops.
                 return asm([
                     _set_flag(oneshot_latch, 1),
                     _set_byte(run, 255),
-                    opcodes.window_async(a.window, 128, int(a.txid)),
+                ] + show + [
                     _set_byte(run, 0),
                     opcodes.RETURN,
                 ])
-            return asm(head[:1] + [opcodes.window_async(a.window, 128, int(a.txid))]
+            return asm(head[:1] + show
                        + [label("loop"),
                           _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),

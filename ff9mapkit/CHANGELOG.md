@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — staged win/lose text (`announce` delay/sustain + `[siege]` list texts, theater rung D)
+- `announce` (and `announce_npc`) grew `delay = <frames>` — hold the dispatch level
+  SILENTLY before the window opens (the staged-text primitive: a chain of once-announces
+  on one monotonic flag pages like a cutscene, each delay the previous line's read time) —
+  and `sustain = <frames>` (hold after the open, so a line is read before a queued
+  `battle` takes the screen). Same level-holding law as `sfx`/`flash`.
+- `[siege] text_win` / `text_rout` / `text_loss` now also take a LIST of lines, paged at
+  `text_pace` frames (default 120). Win/rout aftermath lines page AFTER the proven
+  cry → purse → jingle beat; loss lines page PRE-detect (the sting idiom scaled to text),
+  the last line sustained before a `loss_battle`. Flashless staging grows `routed` on the
+  rout detect so win stages can tell the endings apart. Plain strings keep the proven
+  single-window shapes byte-for-byte (regression-pinned).
+
 ### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
 - `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
   branch — `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the kit's
