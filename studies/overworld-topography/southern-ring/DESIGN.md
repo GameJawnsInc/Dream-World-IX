@@ -71,3 +71,21 @@ forest/encounter pass · R5 the sea lanes.
 **Playtest loop:** New Game → hub → hall → read each berth sign → out each berth → land on each shore
 facing inland → beacon at the trigger's foot, door facing you → "?" → "Lantern Quay" → re-enter the hall.
 No relaunch required (`~ → Reload field` / world re-entry applies everything).
+
+## R2c — THE FERRY LANE (2026-07-26): the berth row superseded by stock's own idiom
+
+**The alcove row FAILED playtest comprehension** ("super clustered... randomly trigger 1 of 2 warps"):
+the spawn sat inside berth III's depth band, the sign zones occupied the corridor's CENTER, the warp
+zones ate the east half of the walk lane, and the borrowed art paints no doors — **THE INVISIBLE-DOOR
+LESSON** (now in the `laying-out-ff9-fields` skill): a layout can pass every spacing warning and still
+be unplayable; the probe measures geometry, not comprehension.
+
+**Replaced by the productized `[[ferry]]` kit lane** (owner-ruled): an NPC dialogue-choice worldmap
+exit — the Purser asks "Where shall we sail, kupo?", rows for the four ports, a MANDATORY decline arm
+appended LAST (bare CANCEL returns the last row). Desugars to the proven `[[choice]]` pipeline; each
+destination arm runs the same `worldexit` body as a gateway (both blocks + key 35). The hall now holds
+exactly four things — spawn, ledger+savepoint, Purser, and the single restored R1 south-door exit
+(home port Ashvale). The Purser moved BACK east: at the west-wall spot the restored door quad reached
+him — **re-derive every actor-vs-zone relation after ANY zone reshape** (second instance of the class).
+Flags 8760–8763 freed; ring-closure probe parses ferry rows + door vs `SITES` (169 checks). 14 files,
+hot. Record: REVERT.md §17.
