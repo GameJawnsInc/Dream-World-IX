@@ -333,7 +333,23 @@ X4-proven EXACT RESTORE in all three sandbox cases (fresh folder, already-overri
 
 ---
 
-## CAST VERDICT — PENDING
+## ⚠ CAST 1 FINDING (2026-07-26) — THE HYBRID MASK
+
+The first W4 cast showed **Thomas, not the reskinned dragon**. Root cause, verified in the live ini and
+the s58 patch source: **`[SfxHybrid]` was still armed from M1b** (`Enabled=1 EffectId=227 HideNative=1`)
+— the hybrid drive hides the native creature and poses the Thomas FBX from its skeleton, so a CLUT
+recolor of the native creature is invisible behind it. It never mattered for W2/W3 (camera and timing
+rungs); W4 is the first rung whose subject the hybrid MASKS. The s58 config is `static readonly` —
+read ONCE at launch — so the fix is an ini edit **plus a relaunch**: `[SfxHybrid] Enabled = 0` (done
+2026-07-26, ini backed up to `backups/Memoria.ini.20260726-104439`; restore Thomas afterward by setting
+it back to 1 and relaunching).
+
+**THE LAW (tier-level, add to any future creature-visual rung's preflight):** *an armed engine
+instrument that substitutes or hides the thing under test masks the test — check `[SfxHybrid]` (and any
+future s5x drive keyed on the same EffectId) BEFORE judging a native-creature change.* Same class as
+THE WARM-MIRROR MASK: the proven instrument in the loop was proving itself, not the artifact.
+
+## CAST VERDICT — PENDING (recast required: relaunch with SfxHybrid disarmed, then cast)
 
 Staged and self-checked (18/18 `reskin.py` gates, `w4_gates.py` X0–X6 + 7/7 negative refusals, 294 tests
 tier-wide), previews rendered and reviewed offline (this report opened four of the thirteen directly), and
