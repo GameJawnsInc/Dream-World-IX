@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — every import mode now emits `entry_settle = "auto"`
+- `ff9mapkit import` (native / editable / BG-borrow / lightweight) and `import-chain`
+  logic-only members now write `entry_settle = "auto"` under `[camera]` — the computed
+  camera-settle hold behind the entry fade — so a fork never boots with visible warp-in
+  drift unless the author deletes the key. Verbatim forks stay bare: the donor `.eb`
+  carries its own real entry sequence, so the key would be a lint-flagged dead no-op
+  there. Tomls without the key build byte-identically (the settle machinery is unchanged;
+  only the generated scaffold gained the line).
+
 ### Fixed — `world-locate`: geography now follows the engine's CELL-tag dispatch, not tile IDALL areas
 - The area→place join was measured wrong (2026-07-25 Object-mesh census): the engine packs the
   walked tile's CELL COORDINATES into the world dispatch key (`WorldEvent`:

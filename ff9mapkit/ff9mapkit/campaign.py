@@ -167,7 +167,7 @@ def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_s
         f"#    walkmesh and camera here are correct + retargeted; only the background art is missing.\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg.\n\n"
         f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{_tb_line}\n"
-        f"[camera]\nborrow = \"camera.bgx\"\n{control_line}{scroll}\n"
+        f"[camera]\n{extract._ENTRY_SETTLE_LINE}borrow = \"camera.bgx\"\n{control_line}{scroll}\n"
         f"[walkmesh]\nbgi = \"walkmesh.bgi\"\n\n"
         f"{extract._player_block(meta)}"
         f"{extract._content_section(content_blocks, x, z)}"

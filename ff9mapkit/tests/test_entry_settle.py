@@ -2,6 +2,8 @@
 follower converges UNSEEN (no visible warp-in ease). content.entry_settle + the [camera] entry_settle wiring."""
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit import data
 from ff9mapkit.content import entry_settle as ES
 from ff9mapkit.eb import EbScript, opcodes, _optables
@@ -232,6 +234,52 @@ def test_hub_auto_passes_through_and_renders_quoted():
     assert spec.entry_settle == "auto"
     toml_text = hub.render_hub_field_toml(spec)
     assert 'entry_settle = "auto"' in toml_text
+
+
+# ---- the owner directive (2026-07-25): import EMITS the settle --------------------------------
+# Every import-generated field.toml carries `entry_settle = "auto"` under [camera] -- a warp-in
+# must never show the camera easing in the clear ("i want the player experience"). The ONE
+# exemption is a verbatim fork: the donor .eb carries its own real entry sequence, so the key
+# would be a dead no-op there (lint_entry_settle flags it).
+
+def test_the_import_settle_line_is_the_auto_form():
+    import tomllib
+    from ff9mapkit import extract
+    cfg = tomllib.loads("[camera]\n" + extract._ENTRY_SETTLE_LINE)
+    assert cfg["camera"]["entry_settle"] == "auto"
+    assert ES.is_auto(cfg["camera"]["entry_settle"])
+
+
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401,PLC0415
+        from ff9mapkit import config  # noqa: PLC0415
+        return config.find_game_path(None) is not None
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_emits_entry_settle_auto_except_verbatim(tmp_path):
+    import tomllib
+    from ff9mapkit import campaign, extract
+
+    def _cam(p):
+        return tomllib.loads(p.read_text(encoding="utf-8")).get("camera", {})
+
+    donor = "fbg_n06_vgdl_map101_dl_inn_0"                     # Dali Inn, the proven small donor
+    _, p = extract.write_native_project(donor, tmp_path / "nat", name="DV")
+    assert _cam(p)["entry_settle"] == "auto"                   # native fork
+    _, p = extract.write_lightweight_project(donor, tmp_path / "lw", name="DV")
+    assert _cam(p)["entry_settle"] == "auto"                   # lightweight (area<10 stub form)
+    (tmp_path / "mem").mkdir()
+    _, p = campaign._emit_logic_only_member(donor, tmp_path / "mem", "MEM", 30011, {}, False, None)
+    assert _cam(p)["entry_settle"] == "auto"                   # import-chain logic-only member
+    _, p = extract.write_field_project("fbg_n11_ldbm_map158_lb_plz_0", tmp_path / "bor", name="LB")
+    assert _cam(p)["entry_settle"] == "auto"                   # BG-borrow (needs an area>=10 donor)
+    # verbatim: the donor .eb IS the entry sequence -- no dead key emitted, and the toml lints clean
+    _, p = extract.write_native_project(donor, tmp_path / "vb", name="DV", verbatim=True)
+    assert "entry_settle" not in _cam(p)
 
 
 def test_estimator_matches_the_proven_calibration_points():

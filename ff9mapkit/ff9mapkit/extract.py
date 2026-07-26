@@ -1573,6 +1573,13 @@ def safe_custom_area(area: int) -> int:
     return area if area >= MIN_CUSTOM_AREA else 11
 
 
+# Owner directive (2026-07-25, the field-entry arc): every generated field.toml carries the computed
+# entry-settle hold so a warp-in never shows the camera easing in the clear. Emitted by every import
+# writer EXCEPT verbatim -- a verbatim fork runs the donor's real entry sequence, so the key would be
+# a dead no-op there (lint_entry_settle flags it).
+_ENTRY_SETTLE_LINE = 'entry_settle = "auto"   # computed hold: the camera settles behind the entry fade\n'
+
+
 def _player_block(meta) -> str:
     """The ``[player]`` block an emitted (non-verbatim) fork toml gets: the collapsed default spawn
     (``meta['player_start']``, the proven real-arrival-nearest-centroid choice -- the menu-warp/unmatched
@@ -1757,6 +1764,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"{_walkmesh_hotfix_line(field)}"
         f"{_area_title_hide_lines(meta)}\n"
         f"[camera]\n"
+        f"{_ENTRY_SETTLE_LINE}"
         f'borrow = "camera.bgx"\n'
         f"{control_line}"
         f"{scroll}\n"
@@ -2087,7 +2095,9 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
            if mc_bytes else "")
         + "\n"
         f"[camera]\n"
-        f'borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs\n'
+        # a VERBATIM fork runs the donor's real entry sequence -- entry_settle would be a dead key there
+        + ("" if verbatim else _ENTRY_SETTLE_LINE)
+        + f'borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs\n'
         f"{control_line}"
         f"{scroll}\n"
         f"[walkmesh]\n"
@@ -2315,6 +2325,7 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f'borrow_bg = "{meta["mapid"]}"\n'
         f"text_block = {text_block}\n\n"
         f"[camera]\n"
+        f"{_ENTRY_SETTLE_LINE}"
         f'borrow = "camera.bgx"\n'
         f"{control_line}"
         f"{scroll}\n"
@@ -2385,7 +2396,7 @@ def write_lightweight_project(field: str, out_dir, *, name: str | None = None, f
         f"# repaintable per-depth layers / reshape into a custom scene.  Walkmesh bounds: x {wb['x']} z {wb['z']}.\n"
         f"{note}"
         f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{borrow_line}text_block = {text_block}\n\n"
-        f"[camera]\nborrow = \"camera.bgx\"\n{scroll}\n"
+        f"[camera]\n{_ENTRY_SETTLE_LINE}borrow = \"camera.bgx\"\n{scroll}\n"
         f"[walkmesh]\n{wm_stanza}\n\n"
         f"{_player_block(meta)}"
         f"{_content_section('', x, z)}"
