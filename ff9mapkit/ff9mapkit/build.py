@@ -2303,7 +2303,7 @@ def validate(project: FieldProject) -> list[str]:
                             "seating is synthesize-path only")
         if project.raw.get("behavior"):
             problems.append("[[qte]] and [behavior] can't share a field yet -- the game's "
-                            "scratch (gEventGlobal bytes 2026-2039) sits inside the behavior "
+                            "scratch (gEventGlobal bytes 2018-2031) sits inside the behavior "
                             "blackboard's headroom band")
     # THE FERRY LANE -- validated against the surface the author WROTE ([[ferry]]), before the desugared
     # [[choice]] rules below see the generated rows. See _desugar_ferries for the shape + why the decline

@@ -44,15 +44,18 @@ from dataclasses import dataclass, field
 #                     A custom flag here is CLOBBERED by ordinary play -- never allocate in either run.
 #   bits 8592-8631  = the payload hole (bytes 1074-1078), stock-clear; the kit's outpost word lives
 #                     here (battle/deathrules.py OUTPOST_BYTE = 1074, bits 8592-8607).
-# The choice-visibility scratch sits at byte 2040 = bits 16320+, and the netsync co-op cells
-# (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it.
-# So custom story flags MUST live in [8712, 16256): 8712 (start of byte 1089) is the first bit clear
-# of ALL real-FF9 usage -- bools AND byte-addressed vars.
+# The choice-visibility scratch sits at byte 2040 = bits 16320+, the netsync co-op cells
+# (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it,
+# and the [[qte]] modal scratch band (bytes 2018-2031 = bits 16144-16255, content/qte.py) just below
+# THAT -- deliberately clear of the co-op cells, which the engine rewrites EVERY FRAME while co-op
+# runs. So custom story flags MUST live in [8712, 16144): 8712 (start of byte 1089) is the first bit
+# clear of ALL real-FF9 usage -- bools AND byte-addressed vars.
 FIRST_SAFE_FLAG = 8712
 MOGNET_MAILBOX_LO, MOGNET_MAILBOX_HI = 8192, 8367   # stock Mognet mailbox Byte[1024-1045] (reserved)
 MOGNET_LOCK_LO, MOGNET_LOCK_HI = 8376, 8511    # the Mognet lock bands + their margin (real-FF9; reserved)
 CHEST_FLAG_LO, CHEST_FLAG_HI = MOGNET_LOCK_LO, MOGNET_LOCK_HI   # deprecated alias (the old mislabel)
 READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI = 8512, 8711   # stock read-mail scratch bytes 1064-1088 (reserved)
+QTE_SCRATCH_FLOOR = 16144                      # bytes 2018-2031: the [[qte]] modal scratch (content/qte.py)
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
 
@@ -201,6 +204,11 @@ BIT_REGIONS = [
               "1074-1078 (bits 8592-8631) holds the kit's outpost word (deathrules OUTPOST_BYTE 1074). "
               "NEVER allocate anywhere in this band.", True, "a",
               "census 2026-07-19 (byte-var sweep: 1064-1073/1079-1088 are the ONLY stock byte vars >= 1046)"),
+    BitRegion("qte_scratch", QTE_SCRATCH_FLOOR, COOP_CELLS_FLOOR - 1,
+              "The [[qte]] modal scratch band (bytes 2018-2031: bout state, combo/points channels; "
+              "re-seeded on every open). Sits BELOW the netsync co-op cells on purpose -- the engine "
+              "rewrites those every frame while co-op runs, which would clobber a bout's scoring. "
+              "Kit-reserved.", True, "a", "content/qte.py scratch band"),
     BitRegion("netsync_coop_cells", COOP_CELLS_FLOOR, CHOICE_SCRATCH_FLOOR - 1,
               "Netsync co-op cells (bytes 2032-2039): the engine writes the peer's presence + walkmesh "
               "X/Z here every frame while co-op is on; [[coop]] gates read them. Kit-reserved.", True, "a",

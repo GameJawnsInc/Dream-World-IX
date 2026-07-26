@@ -118,12 +118,15 @@ def test_entry_and_call():
     ({"bogus": 1}, "unknown"),
     # `flag` must sit in the safe custom band [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR), like a
     # [[flag]] index -- the reserved regions below/inside it are live save state (Mognet letters,
-    # read-mail scratch, the co-op cells) that ordinary play whole-byte-writes.
+    # read-mail scratch, the co-op cells) plus the game's own scratch band.
     ({"flag": 8300}, "mognet_mailbox"),          # a live letter-slot byte (the old bench value)
     ({"flag": 8400}, "mognet_give_locks"),
     ({"flag": 8600}, "mognet_readmail_payload"),
+    ({"flag": 16200}, "qte_scratch"),            # the game's OWN scratch (bytes 2018-2031)
     ({"flag": 16256}, "netsync_coop_cells"),     # reserved INSIDE the band's numeric range
     ({"flag": 16320}, "choice_scratch"),
+    # the result cap 2016 keeps the word strictly below the scratch band (2018+)
+    ({"result": 2018}, "4..2016"),
     ({"flag": 200}, "safe custom band"),         # free stock space, but outside the audited band
     ({"flag": True}, "BIT index"),
     # the result Int16 spans TWO bytes -- both must clear the reserved regions
@@ -142,11 +145,43 @@ def test_from_raw_rejects(over, frag):
 
 def test_from_raw_safe_flag_and_clear_result_pass():
     """The tightened validation must not over-reject: the first safe bit, a result word just past
-    the read-mail payload (bytes 1089-1090), and the flagless form all load."""
+    the read-mail payload (bytes 1089-1090), the last clear word below the scratch band (2016-2017),
+    and the flagless form all load."""
     spec = _spec(flag=8712, result=1100)
     assert spec.flag == 8712 and spec.result == 1100
     assert _spec(flag=None, result=1089).result == 1089
+    assert _spec(flag=None, result=2016).result == 2016
     assert _spec(flag=None).flag is None
+
+
+def test_scratch_band_clears_the_coop_cells():
+    """THE CO-OP CLOBBER REGRESSION: the engine rewrites the netsync co-op cells (bytes
+    2032-2039) EVERY FRAME while [Netsync] co-op runs -- on ANY field, [[coop]] gates or
+    none -- so the scratch band must sit strictly clear of them. The original band's four
+    Int16 channels (combo/max/points/bonus at 2032/2034/2036/2038) landed exactly on the
+    cells: a bout under live co-op had its scoring clobbered per frame."""
+    from ff9mapkit import flags as F
+    from ff9mapkit.content import coop as C, numinput as NI, region as R
+
+    scratch = {Q.S_STATE, Q.S_EXPECT, Q.S_LAST, Q.S_COUNT, Q.S_ROUND}
+    for w in (Q.S_COMBO, Q.S_MAXC, Q.S_POINTS, Q.S_BONUS):
+        scratch |= {w, w + 1}                    # each Int16 spans two bytes
+    coop_cells = set(range(F.COOP_CELLS_FLOOR // 8, F.CHOICE_SCRATCH_FLOOR // 8))
+    assert {C.COOP_PRESENCE_BYTE, C.COOP_PEER_X, C.COOP_PEER_X + 1,
+            C.COOP_PEER_Z, C.COOP_PEER_Z + 1} <= coop_cells
+    assert not scratch & coop_cells
+    # ... and of the neighbors: the choice-mask word + the numeric_input stepper scratch
+    assert not scratch & {R.MASK_SCRATCH_IDX, R.MASK_SCRATCH_IDX + 1}
+    assert not scratch & {NI.SCRATCH_VAL, NI.SCRATCH_VAL + 1,
+                          NI.SCRATCH_RAMP, NI.SCRATCH_RAMP + 1, NI.SCRATCH_SEL}
+    # every scratch bit sits inside the flags.py RESERVED region, so no flag/result
+    # validation path (here or in lint_flag_bands) can admit an offset that collides
+    for b in scratch:
+        for bit in range(b * 8, b * 8 + 8):
+            r = F.bit_region(bit)
+            assert r is not None and r.reserved and r.name == "qte_scratch", (b, bit)
+    # and the result cap admits no word touching the band
+    assert (2016 + 1) * 8 + 7 < F.QTE_SCRATCH_FLOOR
 
 
 _TOML = (
@@ -208,6 +243,19 @@ def test_validate_negatives(tmp_path):
     f2.write_text(beh, encoding="utf-8")
     probs2 = BLD.validate(BLD.FieldProject.load(f2))
     assert any("blackboard" in pr for pr in probs2)
+
+
+def test_qte_and_coop_share_a_field(tmp_path):
+    """[[qte]] + [[coop]] on one field is LEGAL -- the scratch band was moved below the
+    co-op cells precisely so a bout under live co-op keeps its scoring (and a refusal
+    could not have closed the hole anyway: the engine writes the cells whenever co-op
+    runs, [[coop]] gates or none)."""
+    both = _TOML + ('\n[[coop]]\nname = "twin-seals"\nplate_a = [0, 0, 100, 100]\n'
+                    'plate_b = [300, 0, 400, 100]\nset_flag = 8720\n')
+    f = tmp_path / "both.field.toml"
+    f.write_text(both, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    assert BLD.validate(p) == []
 
 
 def test_par_calibrates_the_score_divisor():
