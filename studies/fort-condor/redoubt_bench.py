@@ -214,7 +214,12 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       deliberately unstaged; if it pages, that is the bug.
     LOSS: the sting (proven) -> "The depot has fallen..." -> ~2s ->
       "To the last of us, then. CHARGE!" -> ~2s (readable!) -> THEN the boss
-      battle. If the battle eats line 2 instantly, that is the bug.
+      battle -- WHICH MUST NOW BE FIGHTABLE. Round 1 of this rung ended the
+      fight the instant combat started: scene 35 is a Festival of the Hunt
+      battle whose own AI reads B_SYSVAR[17] (= TimerUI.Time) and terminates
+      itself when the countdown reads 0, and the ending theater let the clock
+      run out first. The siege now FREEZES the clock the moment the depot
+      falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")

@@ -398,6 +398,17 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     bb: list = []
     bctx_die = {"die": True}
     bb.append(_branch(when=[{"flag": "lost"}], do=bctx_die))
+    # ⚠ THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest, byte-proven in the
+    # donor's own AI): B_SYSVAR[17] IS TimerUI.Time, and real battle scripts read
+    # it — the Festival of the Hunt scenes (35 and the LB_E080x family, which a
+    # 559-donor siege naturally borrows) run `B_SYSVAR[17] B_NOT -> RunBattleCode`
+    # end, so they TERMINATE THEMSELVES the moment the countdown reads 0. The
+    # ending's own theater (sting + staged text) takes seconds, so a late loss let
+    # the clock reach 0:00 before the battle fired and the fight died on entry.
+    # Freezing the clock FIRST — the very top of the loss lane, above every cue —
+    # keeps the reading nonzero for whatever the ending fires.
+    bb.append(_branch(when=[{"hp_le": 0}], once="clockstop",
+                      do={"stop_timer": True}))
     if spec.loss_sfx is not None:
         # THE PRE-DETECT STING: an event-Once branch HOLDS selection until it
         # delivers, so seated between die-on-`lost` and the loss detect it is
@@ -458,6 +469,11 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     # staging needs `routed` even without a flash — win stages gate on
     # won && !routed, so the rout detect must distinguish the endings
     staged_ends = isinstance(spec.text_win, tuple) or isinstance(spec.text_rout, tuple)
+    # the ROUT also freezes the clock (it wins EARLY, so the countdown is still
+    # running through its aftermath); the timer win is already at 0:00 by
+    # definition, so it needs no stop.
+    bb.append(_branch(when=[{"flag": "routed"}], once="routclock",
+                      do={"stop_timer": True}))
     if spec.win_flash is not None:
         # win-lane only — a loss cue on the base would race its die-on-`lost`
         # TerminateEntry, so the loss keeps its own drama (the cry / the battle)

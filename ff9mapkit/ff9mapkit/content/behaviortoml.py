@@ -115,6 +115,7 @@ ACTION_VERBS = {
     "remove_shop_synth": (),
     "sfx": ("bank", "sustain"),
     "flash": ("pause",),
+    "stop_timer": (),
     "announce": ("window", "delay", "sustain"),
     "announce_npc": ("window", "delay", "sustain"),
 }
@@ -658,6 +659,9 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # sfx = <sound id> (+ bank, sustain) — RunSoundCode3, chest-proven params
         return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)),
                      sustain=int(d.get("sustain", 0)))
+    if verb == "stop_timer":
+        # stop_timer = true — RunTimer(0); freezes the countdown at its reading
+        return B.StopTimer()
     if verb == "flash":
         # flash = [r, g, b] (+ pause frames) — stock's ADD-channel flash pair
         # (the option is `pause`, not `hold` — `hold` is the feed verb)
@@ -1361,6 +1365,14 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: sfx sustain must be an int 0..255 "
                                         f"frames (holds the dispatch level while "
                                         f"the cue rings)")
+                if verb == "stop_timer":
+                    if v is not True:
+                        problems.append(f"{ctx}: stop_timer takes `true` (it pauses "
+                                        f"the field countdown — no argument)")
+                    elif b.get("timer") is None:
+                        problems.append(f"{ctx}: stop_timer needs field-level "
+                                        f"`timer = <seconds>` (there is no "
+                                        f"countdown to stop)")
                 if verb == "flash":
                     if (not isinstance(v, list) or len(v) != 3
                             or not all(isinstance(c, int) and not isinstance(c, bool)

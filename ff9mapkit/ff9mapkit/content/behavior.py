@@ -521,6 +521,25 @@ class Sfx(Action):
             raise BehaviorError("Sfx sustain must be 0..255 frames")
 
 
+OP_RUN_TIMER = 0x7D                 # RunTimer(0|1) — the countdown's own pause switch
+
+
+@dataclass
+class StopTimer(Action):
+    """PAUSE the field countdown — ``RunTimer(0)``, the stop half of the Hunt's
+    start triplet the ticker already emits (ChangeTimerTime/ShowTimer/RunTimer).
+    The clock FREEZES at its current reading and stays on screen.
+
+    ⚠ THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest): ``B_SYSVAR[17]``
+    IS ``TimerUI.Time``, and real battle AI reads it — the Festival of the Hunt
+    scenes (e.g. 35, the ``LB_E080x`` family) end themselves the instant the
+    countdown reads 0 (``B_SYSVAR[17] B_NOT`` → ``RunBattleCode`` end). So a
+    timed minigame whose ENDING runs any theater before firing a battle must
+    stop its clock first, or the clock hits 0:00 during the aftermath and the
+    battle dies the moment combat starts. Stopping keeps the reading nonzero."""
+    pass
+
+
 FLASH_OUT_FRAMES = 24               # the stock white-out: FadeFilter(0, 24, x, colour) —
 FLASH_IN_FRAMES = 16                # — released by FadeFilter(1, 16, x, black); field
                                     # 682's exact pair (21 / 11 uses across the 817
@@ -1488,7 +1507,7 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
@@ -1499,7 +1518,7 @@ class FieldBehavior:
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)):
                 bare.add(ids[id(n.action)])
                 if isinstance(n.action, (Award, ShopStock, ShopSynth)):
                     bare_awards.add(ids[id(n.action)])
@@ -1692,7 +1711,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)) and aid in once_ann:
+                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -2149,7 +2168,7 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash)):
+            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)):
                 # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
                 # "once" means fire-and-release — the sticky form over a MONOTONIC
                 # cond (a kill tally, a spent wave counter) would hold the selection
@@ -2697,6 +2716,22 @@ class FieldBehavior:
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + show
+                       + [label("loop"),
+                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          (JMP_IFNOT, "out"),
+                          opcodes.wait(1), (JMP, "loop"),
+                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+        if isinstance(a, StopTimer):
+            stop = opcodes.encode(OP_RUN_TIMER, 0)
+            if oneshot_latch is not None:
+                return asm([
+                    _set_flag(oneshot_latch, 1),
+                    _set_byte(run, 255),
+                    stop,
+                    _set_byte(run, 0),
+                    opcodes.RETURN,
+                ])
+            return asm(head[:1] + [stop]
                        + [label("loop"),
                           _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),

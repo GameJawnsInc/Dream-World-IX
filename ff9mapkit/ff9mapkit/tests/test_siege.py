@@ -176,6 +176,39 @@ def test_win_flash_reveal_beat():
         _spec(win_flash="white")
 
 
+def test_clock_stops_before_the_ending_theater():
+    """THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest): B_SYSVAR[17] IS
+    TimerUI.Time and real battle AI reads it — the donor's own Hunt scenes
+    (35 / LB_E080x) run `B_SYSVAR[17] B_NOT -> RunBattleCode` end, so they
+    terminate themselves when the countdown reads 0. The ending's theater takes
+    seconds, so the clock MUST freeze before any of it runs."""
+    b = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), "loss_sfx": 1942,
+                                   "text_loss": ["l1", "l2"]}))
+    br = b["unit"][0]["branch"]
+    stops = [x for x in br
+             if isinstance(x["do"], dict) and x["do"].get("stop_timer")]
+    assert len(stops) == 2                                  # the loss + the rout
+    loss_stop = next(x for x in stops if x["when"] == [{"hp_le": 0}])
+    assert loss_stop["once"] == "clockstop"
+    # it outranks EVERY loss cue — sting, staged text, and the battle
+    i_stop = br.index(loss_stop)
+    for once in ("losssting", "losstext0", "losstext1"):
+        assert i_stop < next(i for i, x in enumerate(br) if x.get("once") == once)
+    assert i_stop < next(i for i, x in enumerate(br) if "battle" in x["do"])
+    # the rout freezes too (it wins EARLY — the clock is still running); the
+    # timer win is at 0:00 by definition and needs no stop
+    rout_stop = next(x for x in stops if x["when"] == [{"flag": "routed"}])
+    assert rout_stop["once"] == "routclock"
+    # stop_timer without a field timer is refused by lint
+    bad = {"player": {"spawn": [0, -900]},
+           "npc": [{"name": "c", "pos": [0, -300], "dialogue": "..."}],
+           "behavior": {"unit": [{"npc": "c", "branch": [
+               {"when": [{"hp_le": 0}], "do": {"stop_timer": True},
+                "once": "s"},
+               {"do": {"hold": [0, -300]}}]}]}}
+    assert any("needs field-level" in p for p in BT.validate(bad))
+
+
 def test_loss_sfx_pre_detect_sting():
     """`loss_sfx` seats an event-Once sting BETWEEN die-on-`lost` and the loss
     detect — the branch holds selection until it delivers (the reveal-beat
@@ -329,6 +362,10 @@ def test_full_build_compiles(tmp_path):
              if ins.name == "RunSoundCode3"]
     assert plays == [(53248, 1942), (53248, 108)]     # the sting body seats first
                                                       # (ladder order); then the fanfare
+    # the clock freeze compiled through: RunTimer(0) bodies (loss + rout)
+    stops = [ins.imm(0) for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x7D]
+    assert stops == [0, 0]
     # ... and the flash (win_flash = true): white ADD-channel pairs (the stock
     # white-out, NOT the mode-6/7 warp fade) — one body per detect branch
     fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))

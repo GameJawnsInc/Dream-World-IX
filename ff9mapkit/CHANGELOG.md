@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
+- `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
+  Hunt scenes (id 35 + the `LB_E080x` family — what a Lindblum-plaza fork borrows as its
+  donor-native fight) run `B_SYSVAR[17] B_NOT → RunBattleCode` end, terminating themselves
+  the instant the countdown reads 0. A siege's ending theater takes seconds, so a late
+  loss let the clock hit 0:00 before the `battle` fired and the fight ended the moment
+  combat started — nothing wrong in the generated script. New `stop_timer` behavior verb
+  (`RunTimer(0)`, needs a field `timer`), and `[siege]` now freezes the clock at the TOP
+  of its loss lane (above the sting and the staged text) and on the rout. Diagnosed with
+  `ff9mapkit battle-ai` — verify any scene a timed field fires.
+
 ### Added — staged win/lose text (`announce` delay/sustain + `[siege]` list texts, theater rung D)
 - `announce` (and `announce_npc`) grew `delay = <frames>` — hold the dispatch level
   SILENTLY before the window opens (the staged-text primitive: a chain of once-announces
