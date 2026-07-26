@@ -110,9 +110,14 @@ def test_new_project_writes_placeholder_art(tmp_path):
 
 
 def test_new_project_builds_clean(tmp_path):
-    """A fresh scaffold (placeholder art) builds with no errors AND no warnings -- the from-scratch
-    path is end-to-end out of the box."""
+    """A fresh scaffold (placeholder art) builds with no errors AND no problem warnings -- the
+    from-scratch path is end-to-end out of the box. The scaffold's entry_settle = "auto" surfaces
+    its computed hold as ONE informational line (by design); anything else is a regression."""
     proj = pack.new_project("SMOKE", tmp_path, area=11)
     info = build_mod([FieldProject.load(proj / "smoke.field.toml")], tmp_path / "mod")
     assert info["dictionary"][0].split()[2:4] == ["11", "SMOKE"]
-    assert info["warnings"] == []
+    settle, rest = [], []
+    for w in info["warnings"]:
+        (settle if 'entry_settle = "auto" ->' in w else rest).append(w)
+    assert len(settle) == 1 and "frames" in settle[0]   # the auto hold resolved (not the fallback path)
+    assert rest == []

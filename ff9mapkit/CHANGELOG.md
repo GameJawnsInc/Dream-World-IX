@@ -18,6 +18,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   it silently dropped the settle on re-export, the same silent-loss class the `_merge_scene`
   camera graft closed. The line is a byte-for-byte mirror of the CLI's constant, pinned by
   a blender test (the add-on can't import `ff9mapkit` inside Blender).
+- The remaining generators now emit the same line: the `ff9mapkit new` scaffold (its
+  template camera resolves, so the scaffold still builds clean — the one surfaced line is
+  the computed hold, asserted) and the experimental `image-field` toml. Every field.toml
+  generator in the kit now carries the settle; the ONLY bare `[camera]` left is a verbatim
+  fork's, by design.
 
 ### Fixed — `world-locate`: geography now follows the engine's CELL-tag dispatch, not tile IDALL areas
 - The area→place join was measured wrong (2026-07-25 Object-mesh census): the engine packs the

@@ -250,6 +250,17 @@ def test_the_import_settle_line_is_the_auto_form():
     assert ES.is_auto(cfg["camera"]["entry_settle"])
 
 
+def test_new_scaffold_emits_entry_settle_auto(tmp_path):
+    # the directive covers every generator, not just import: the `ff9mapkit new` scaffold carries
+    # the settle in the CLI form (the exact line, first key under [camera])
+    import tomllib
+    from ff9mapkit import extract, pack
+    proj = pack.new_project("SETTLE_ROOM", tmp_path, area=11)
+    text = (proj / "settle_room.field.toml").read_text(encoding="utf-8")
+    assert "[camera]\n" + extract._ENTRY_SETTLE_LINE in text
+    assert tomllib.loads(text)["camera"]["entry_settle"] == "auto"
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401,PLC0415

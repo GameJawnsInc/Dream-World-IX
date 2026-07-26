@@ -109,6 +109,7 @@ area = {area}            # must be >= 10
 title = "{title}"
 
 [camera]
+entry_settle = "auto"   # computed hold: the camera settles behind the entry fade
 pitch = {pitch}          # downward tilt (degrees); real FF9 fields are <= ~48
 distance = 4500
 fov = 42.2

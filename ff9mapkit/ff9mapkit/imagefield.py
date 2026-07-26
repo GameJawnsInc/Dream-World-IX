@@ -554,7 +554,8 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     lines = [f"# EXPERIMENTAL image->field (auto-generated from {Path(image_path).name})",
              # text_block omitted on purpose: it derives from the field id and auto-registers.
              "[field]", f"id = {field_id}", f'name = "{name}"', f"area = {area}", "",
-             "[camera]", f"pitch = {pitch:g}", f"distance = {int(distance)}", f"fov = {fov:g}",
+             "[camera]", 'entry_settle = "auto"   # computed hold: the camera settles behind the entry fade',
+             f"pitch = {pitch:g}", f"distance = {int(distance)}", f"fov = {fov:g}",
              f"range = [{CANVAS_W}, {CANVAS_H}]", "",
              "[walkmesh]", 'obj = "walkmesh.obj"', 'frame = "world"', ""]
     for img_rel, z in layers:

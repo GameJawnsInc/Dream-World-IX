@@ -102,6 +102,10 @@ def test_build_image_field_end_to_end(tmp_path):
     toml = (out / "PICROOM.field.toml").read_text()
     assert 'obj = "walkmesh.obj"' in toml and 'frame = "world"' in toml
     assert "[[layers]]" in toml and "z = 4000" in toml
+    # the owner directive (field-entry arc): every generator emits the computed settle, in the CLI
+    # form -- the exact extract._ENTRY_SETTLE_LINE, first key under [camera]
+    from ff9mapkit import extract
+    assert "[camera]\n" + extract._ENTRY_SETTLE_LINE in toml
     # spawn is inside the world floor bbox
     xs = [p[0] for p in man["world_floor"]]
     zs = [p[1] for p in man["world_floor"]]

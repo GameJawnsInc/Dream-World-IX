@@ -82,6 +82,13 @@
 > Workspace Camera panel, fork-report's suggestion; the waystation example now ships "auto" (→ 50)
 > as the in-game check. Best-effort by design: CameraStabilizer is per-user (baked for default 85);
 > spawn y taken as 0 (inside a log — ±1-2 frames). 9 tests incl. an install-gated calibration pin.
+> **DIRECTIVE EXTENSION (2026-07-25):** every generated field.toml now carries
+> `entry_settle = "auto"` under `[camera]` (the owner directive). Emitters: the 4 import writers +
+> `import-chain` members (shared `extract._ENTRY_SETTLE_LINE`), the Blender bridge's
+> `editable_field_toml` (byte-for-byte mirror, add-on 0.9.29 — the add-on can't import the kit),
+> the `ff9mapkit new` scaffold, and `image-field`. Verbatim forks stay bare by design (the donor
+> `.eb` carries its own entry sequence; the key would be a lint-flagged dead no-op). The inventory
+> notes below saying the scaffold "omits it entirely" are the pre-directive record.
 > The rest of this document is the investigation that shaped it.
 >
 > Original opening framing: this was the gap map for the two halves of
