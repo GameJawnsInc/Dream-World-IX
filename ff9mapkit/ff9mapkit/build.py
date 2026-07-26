@@ -38,6 +38,7 @@ from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
+from .content import gauge as _gauge
 from .content import numinput as _numinput
 from .content import qte as _qte
 from .content import object as _object
@@ -2234,6 +2235,46 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[qte]] and [behavior] can't share a field yet -- the game's "
                             "scratch (gEventGlobal bytes 2026-2039) sits inside the behavior "
                             "blackboard's headroom band")
+    # [[gauge]] tile bars (the tiles-as-sprites substrate, content.gauge): validate each block; the
+    # daemon's state is ENTRY LOCALS (no global scratch), so [behavior] coexistence is fine.
+    g_names = set()
+    g_blocks = project.raw.get("gauge", []) or []
+    g_overlay_cells = 0
+    for gi, blk in enumerate(g_blocks):
+        try:
+            gs = _gauge.from_raw(blk, gi, resolve_item=_items.resolve)
+        except _gauge.GaugeError as e:
+            problems.append(str(e))
+            continue
+        if gs.name in g_names:
+            problems.append(f"[[gauge]] duplicate name {gs.name!r}")
+        g_names.add(gs.name)
+        g_overlay_cells += gs.segments + 1
+    if g_blocks:
+        if "verbatim_eb" in project.raw:
+            problems.append("[[gauge]] is not supported on a verbatim fork yet -- its daemon "
+                            "seating is synthesize-path only")
+        if project.field.get("bgs"):
+            problems.append("[[gauge]] on a NATIVE-scene field (.bgs + atlas) is unbenched -- "
+                            "the USE_BASE_SCENE hybrid should carry it but has not been "
+                            "in-game proven; use a novel scene or a BG-borrow for now")
+        if project.field.get("borrow_bg"):
+            counts = project.field.get("borrow_scene_counts")
+            if not (isinstance(counts, list) and len(counts) == 2
+                    and all(isinstance(c, int) and 0 <= c <= 255 for c in counts)):
+                problems.append(
+                    "[[gauge]] on a BG-borrow field needs [field] borrow_scene_counts = "
+                    "[<overlayCount>, <animCount>] -- the donor scene's own block counts, so "
+                    "the appended USE_BASE_SCENE overlays/anims land at known indices. Read "
+                    "them from the donor's .bgs header (ff9mapkit.scene.bgs.parse_header on "
+                    "the extracted <FBG>.bgs.bytes).")
+            else:
+                if counts[0] + g_overlay_cells > 255:
+                    problems.append(f"[[gauge]] overlay budget: donor {counts[0]} + gauge "
+                                    f"{g_overlay_cells} states > 255 (overlay index is a byte)")
+        elif len(project.raw.get("layers", []) or []) + g_overlay_cells > 255:
+            problems.append(f"[[gauge]] overlay budget: {len(project.raw.get('layers', []) or [])} "
+                            f"layers + gauge {g_overlay_cells} states > 255")
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for c, ch in enumerate(project.raw.get("choice", [])):
@@ -3600,6 +3641,36 @@ def build_overlays(project: FieldProject, range_wh=(384, 448)) -> list:
             camera_id=int(layer.get("camera", 0)),
         ))
     return overlays
+
+
+def gauge_layout(project: FieldProject):
+    """Resolve every ``[[gauge]]`` to ``(spec, anim_id, overlay_base)`` + the donor FBG name
+    (None on a novel scene) -- the ONE index authority shared by the scene emitter (which
+    appends the OVERLAY/ANIMATION blocks at those indices) and the script emitter (whose
+    daemon drives those ids), so the two sides cannot drift.
+
+    Novel scene: gauge overlays append after the ``[[layers]]`` (base = layer count), anims
+    are the scene's only ANIMATION blocks (ids 0..). BG-borrow: ``USE_BASE_SCENE`` appends
+    after the DONOR's own overlay/anim counts, pinned by ``[field] borrow_scene_counts =
+    [overlays, anims]`` (from the donor ``.bgs`` header -- ``scene.bgs.parse_header``).
+    Assumes validate() vetted the blocks; raises GaugeError on a raw build."""
+    blocks = project.raw.get("gauge", []) or []
+    if not blocks:
+        return [], None
+    specs = [_gauge.from_raw(b, i, resolve_item=_items.resolve) for i, b in enumerate(blocks)]
+    borrow = project.field.get("borrow_bg")
+    donor_fbg = None
+    if borrow:
+        donor_fbg = f"FBG_N{int(project.field.get('area', 0)):02d}_{borrow}"
+        counts = project.field.get("borrow_scene_counts") or [0, 0]
+        ov_base, anim_base = int(counts[0]), int(counts[1])
+    else:
+        ov_base, anim_base = len(project.raw.get("layers", []) or []), 0
+    out = []
+    for i, gs in enumerate(specs):
+        out.append((gs, anim_base + i, ov_base))
+        ov_base += gs.segments + 1
+    return out, donor_fbg
 
 
 # --------------------------------------------------------------------------- script assembly
@@ -4986,6 +5057,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _slot = _object.seat_entry(eb, _qte.entry_bytes(_qs, _tx))
             eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
             qte_slots[_qs.name] = _slot
+    # [[gauge]] tile bars: ONE looping daemon entry for all gauges (the behavior-ticker shape),
+    # seated with loc=2 (stock field 64's `allocate 2` -- Instance.Byte shade + phase counter) and
+    # armed from the activate block. The anim/overlay ids come from gauge_layout -- the SAME
+    # authority the scene emitter used, so the .bgx blocks and the daemon cannot drift.
+    if project.raw.get("gauge"):
+        from .eb import edit as _g_edit
+        _g_resolved, _g_donor = gauge_layout(project)
+        eb, _g_slot = _object.seat_entry(eb, _gauge.entry_bytes(_g_resolved), loc=_gauge.LOC_BYTES)
+        eb = _g_edit.activate_block(eb, opcodes.init_code(_g_slot, 0))
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
     _enc_raw = project.raw.get("encounter")
@@ -7162,11 +7242,19 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
         overlays = build_overlays(project, range_wh=tuple(camera.range))
+        # [[gauge]] fill-state overlays + their SingleFrame ANIMATION selectors append AFTER the
+        # layers (gauge_layout is the shared index authority with the script daemon).
+        _g_resolved, _ = gauge_layout(project)
+        _g_anims = []
+        for _gs, _ga, _gb in _g_resolved:
+            overlays += _gauge.overlay_blocks(_gs)
+            _g_anims.append(_gauge.animation_block(_gs, _gb))
         # multi-camera: write all N CAMERA blocks (overlays carry their camera_id); single-camera
         # fields pass one Cam and are byte-identical to before.
         cameras = resolve_cameras(project)
         scene_cam = cameras if len(cameras) > 1 else camera
-        bgx_text = bgx.build(scene_cam, overlays, header_comment=project.field.get("title", project.name))
+        bgx_text = bgx.build(scene_cam, overlays, header_comment=project.field.get("title", project.name),
+                             animations=_g_anims or None)
 
         fm = layout.fieldmap_dir(fbg)
         (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")
@@ -7174,6 +7262,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         for layer in project.raw.get("layers", []):
             src = project.path(layer["image"])
             shutil.copyfile(src, fm / Path(layer["image"]).name)
+        for _gs, _ga, _gb in _g_resolved:
+            for _gn, _gpng in _gauge.art_pngs(_gs):
+                (fm / _gn).write_bytes(_gpng)
     else:
         # BG-borrow ships no walkmesh (the engine uses the borrowed field's real one), but we can still
         # validate content placement against it: [walkmesh] reference (or the sibling walkmesh.bgi the
@@ -7182,6 +7273,25 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         cutscene_wmesh = ref
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
+        # [[gauge]] on a borrow: ship a USE_BASE_SCENE .bgx under the DONOR scene's name -- the
+        # engine loads the donor atlas+EBG first, then appends our fill-state overlays + selector
+        # anims at indices after the donor's own counts ([field] borrow_scene_counts pins them).
+        # ⚠ scene-name keyed: every field borrowing this donor sees the .bgx; the gauge overlays
+        # sit at the authored canvas pos even there, so keep borrow gauges to scratch benches or
+        # park them off-canvas until v1.1 grows a per-field guard.
+        _g_resolved, _g_donor = gauge_layout(project)
+        if _g_resolved:
+            _gfm = layout.fieldmap_dir(_g_donor)
+            _gfm.mkdir(parents=True, exist_ok=True)
+            _g_ovls, _g_anims = [], []
+            for _gs, _ga, _gb in _g_resolved:
+                _g_ovls += _gauge.overlay_blocks(_gs)
+                _g_anims.append(_gauge.animation_block(_gs, _gb))
+                for _gn, _gpng in _gauge.art_pngs(_gs):
+                    (_gfm / _gn).write_bytes(_gpng)
+            _g_text = bgx.build(None, _g_ovls, base_scene=_g_donor, animations=_g_anims,
+                                header_comment=f"{project.name} [[gauge]] blocks on {_g_donor}")
+            (_gfm / f"{_g_donor}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
 
     # [[sps]] Tier-2 from-scratch effects: auto-ground any pos=[x,z] from the walkmesh (so authors needn't
     # hand-compute floor heights), then write each authored <id>.sps.bytes + supply its tcb into the FBG folder
