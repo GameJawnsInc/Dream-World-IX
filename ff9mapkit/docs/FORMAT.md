@@ -1684,6 +1684,73 @@ scratch benches. Verbatim forks: not yet supported.
 
 ---
 
+## `[siege]` (optional)
+
+A whole **tower-defense minigame in one block** — the fort-condor game shape (proven across
+seven bench rounds on field 30400), productized. You declare the clock, the waves, one
+`[[siege.ally]]` class per hireable troop type, one `[[siege.raider]]` block per attacker
+type, and the base to defend; the build generates everything the game needs: the data-table
+wave clock, the two rosters with alive-headcount scans, the live war-room HUD strip, priced
+hire pools, every unit's behavior tree (raiders march their lane, PIN onto whoever blocks
+them, and commit to the base; allies fight by **stance**), the win/loss machinery in the
+proven detect-then-pay shape (two endings, ONE payout), and the WAR COUNCIL — press
+**Select** anywhere to deploy a troop **on the very spot you stand**, with hire rows that
+vanish while unaffordable or sold out.
+
+```toml
+[siege]
+timer = 60                         # the siege clock, seconds
+waves = [55, 40, 20]               # wave start times in REMAINING seconds (descending)
+stipend = 3000                     # (optional) opening war chest, paid + announced at boot
+win_gil = 2000                     # (optional) the purse for holding to 0:00 / the rout
+win_item = "Phoenix Down"          # (optional) rides the same single payout
+loss_battle = 35                   # (optional) battle scene when the base falls
+                                   # (absent = an announce-only loss)
+
+[siege.base]                       # the thing to defend
+model = "GEO_NPC_F4_CSO"
+pos = [1687, -539]
+hp = 24
+
+[[siege.ally]]                     # one block per HIREABLE CLASS
+name = "soldier"                   # units minted soldier0..count-1
+label = "Soldier (chases, melee)"  # the council row (price auto-appended)
+model = "GEO_NPC_F0_CSO"
+count = 8                          # the cap (pool size)
+price = 300
+hp = 4
+stance = "chase"                   # "chase" = pursues into melee; "hold" = artillery
+radius = 2000                      # acquire range (a "hold" unit NEVER leaves its post)
+speed = 65
+
+[[siege.raider]]                   # one block per ATTACKER TYPE
+name = "mu"
+model = "GEO_MON_F0_MUU"
+count = 2
+wave = 1                           # released by this wave (1-based index into waves)
+hp = 3
+entrance = [[-2900, 2600], [-3100, 2650]]   # one stage point per unit
+route = [[-1200, 800], [800, -300]]         # the march lane toward the base
+speeds = [50, 45]                  # (optional) per-unit stagger; or one `speed`
+leash = 750                        # (optional) counter-engage radius (THE PIN)
+```
+
+Optional dials: `warmup`, `button = false` (no Select council — author your own hire
+`[[choice]]` zone), `council_prompt`, `hud = false` / `hud_text` (the strip's `[NUMB=0..3]`
+= gil / troops / raiders / base hp), `alarm_radius`, per-text overrides (`text_win`,
+`text_rout`, `text_loss`, `text_alarm`, `text_stipend`), `flag_base` (request-flag mint,
+default 8840), per-class `contact`/`damage`/`interval`/`reply`, per-raider
+`contact`/`damage`/`interval`/`dialogue`, `autoroute = false` (marches use your waypoints
+verbatim instead of walkmesh routing).
+
+`[siege]` **owns the field's `[behavior]` table** (a hand-written one is a build error —
+drop to raw `[behavior]` authoring for anything the block can't express). It composes with
+everything else: `[[gauge]]` bars (`gil` makes a live war-chest bar), `[[npc]]` flavor cast,
+`[[numeric_input]]`, shops. Positions are yours to author — run the layout probe
+(`tools/field_layout_probe.py`) before trusting a layout. Synthesized fields only.
+
+---
+
 ## `[cutscene]` / `[[cutscene]]` (optional)
 
 An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the

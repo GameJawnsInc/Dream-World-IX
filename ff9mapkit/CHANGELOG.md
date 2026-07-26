@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[siege]`: the fort-condor tower-defense as ONE declarative block
+- THE PRODUCTIZATION of the fort-condor arc (`content/siege.py`): the 557-line
+  bench script's authoring decisions — clock, waves, hireable classes, raider
+  types, base, economy, positions — as a single TOML table. Desugars at project
+  load (the `[[ferry]]` pattern) into the round-4 GROUP RE-FIT shape proven on
+  field 30400: the data-table wave clock, the two rosters + alive-headcount
+  scans, the war-room `[[behavior.hud]]` strip, priced pools (the SELECT
+  poller on the first), every unit tree (raiders march/PIN/commit; allies
+  fight by STANCE — "chase" pursues, "hold" is contact=radius-1 artillery),
+  THE WIN-CONDITION SHAPE (endings detect, ONE payout), parked 9000-band
+  pooled seats, and the honest WAR COUNCIL (rows gated on the pools' hireable
+  flags, resolved by an internal allocation pass — the bench's two-pass,
+  productized). `[siege]` OWNS `[behavior]` (conflict = build error); refuses
+  verbatim forks. Named for the game shape, like [[gauge]]/[[qte]]/[[ferry]].
+
 ### Fixed — `cam.to_canvas` now folds in a real camera's GTE `centerOffset`
 - The painted-canvas map (`cam.to_canvas`, and through it `solve_z_for_canvasY` /
   `horizon_canvas_y`) omitted the camera's GTE `centerOffset` — correct for every kit-authored
