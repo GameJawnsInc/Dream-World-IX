@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the Behavior tab EDITS (rung B: the ladder is writable)
+- The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
+  the program), Edit, and Delete; the unit bar adds branches and removes units; the cast rail
+  (and the no-behavior guide) gained **Add unit…**, seating a minimal legal tree (death branch
+  + `hold_post` fallback) on any named `[[npc]]`. Edit opens the **branch editor**: the branch
+  as its own TOML fragment — exactly the text the chips render — with When/Do insert menus
+  generated from the compiler's verb tables and a live readout (parse errors, then
+  `validate()`'s own words over the applied copy, then the quiet go-ahead). Apply writes into
+  the open document through the Workspace's real undo (one labeled step per edit; Ctrl+Z lands
+  back on the Behavior tab), dirty-dots the member, and re-renders ladder + stage + problems.
+  A new inert branch (`flag = "never"` guard) opens ready to shape.
+
 ### Added — the Workspace **Behavior** tab (read-only, rung A)
 - A new Author-group tab rendering the open field's `[behavior]` block: the CAST rail
   (units / groups / pools / counters, tables, schedules, scans, HUD strips), the selected

@@ -87,8 +87,15 @@ belong painted on the field, not printed as text. That is the second surface: **
   Owner rulings taken at build time: ladder+stage STACKED (Q1), archetypes will stamp a
   high-level `[minigame]` block (Q2, rung D's design), stepper after archetypes (Q3), live
   watch bookmarked (Q4).
-- **Rung B — EDIT the ladder.** Add/remove/reorder branches and units; verb pickers and option
-  forms from the derived vocabulary; decorators; live `validate()`. Writes TOML.
+- **Rung B — EDIT the ladder. ★ BUILT 2026-07-26** (same modules; snap `behavior:edit`).
+  Structural ops are first-class GUI (reorder/add/delete branches, add/remove units); branch
+  CONTENT edits as the branch's own TOML fragment in an inline editor with insert menus
+  derived from the verb tables + live `validate()` — chip-level pickers stay open for a later
+  rung without changing the data path. Edits ride the shell's real undo (one step per edit,
+  focus `"behavior"` lands undo back on the tab). Two snap-caught laws: a right-aligned
+  control inside an h-scrolling row lives off-screen (row buttons pin LEFT, the unit bar sits
+  OUTSIDE the scroll), and an opening editor must take height from the ladder, not crush the
+  stage.
 - **Rung C — AUTHOR on the stage.** Drag a refuge, resize a radius ring, draw a route (with
   the layout-probe's spacing/cardinal guides shown); the sweeps re-run in a worker and repaint
   their verdicts. The engagement-radius dial becomes literally a dial you drag while its jam

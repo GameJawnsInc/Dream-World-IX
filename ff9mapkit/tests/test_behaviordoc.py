@@ -337,6 +337,95 @@ def test_a_dirty_doc_names_which_truth_the_compile_read(doc, tmp_path):
     assert "SAVED file" in doc.compile_note.text()
 
 
+# --------------------------------------------------------------------------- rung B: the edits
+@pytest.fixture()
+def edoc(app):
+    """An editable doc + its on_edit spy (the shell seam): [(member, label), ...]."""
+    edits = []
+    d = BehaviorDoc(pick_palette("mist"), on_edit=lambda m, lab: edits.append((m, lab)))
+    d._edits = edits
+    yield d
+    d.deleteLater()
+
+
+def test_edit_apply_writes_the_open_dict_and_hands_the_shell_one_step(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc._edit_branch(4)                           # the watchman's chase row
+    assert edoc.editor.isVisibleTo(edoc) and "chase" in edoc.editor.box.toPlainText()
+    edoc.editor.box.setPlainText(
+        'when = [{ active = "raider" }, { near = ["raider", 700] }]\n'
+        'do = { chase = "raider", standoff = 200, speed = 65 }\n')
+    edoc._apply_branch()
+    br = raw["behavior"]["unit"][0]["branch"][4]
+    assert br["do"]["standoff"] == 200 and br["when"][1] == {"near": ["raider", 700]}
+    assert edoc._edits == [("BGLADE", "edit watchman branch 5")]
+    texts = _labels(edoc.ladder)
+    assert any("standoff 200" in t for t in texts)  # the ladder re-rendered the committed edit
+
+
+def test_apply_refuses_bad_toml_with_the_reason(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc._edit_branch(0)
+    edoc.editor.box.setPlainText("when = [")
+    edoc._apply_branch()
+    assert "not valid TOML" in edoc.editor.note.text()
+    assert edoc._edits == []                       # a refused apply is not an undo step
+    assert raw["behavior"]["unit"][0]["branch"][0]["do"] == {"die": True}
+
+
+def test_live_check_speaks_parse_then_validate_then_ok(edoc):
+    edoc.show_field("BGLADE", demo_raw(), None)
+    edoc._edit_branch(0)
+    _b, note, state = edoc._check_branch("do = {")
+    assert state == "error" and "not valid TOML" in note
+    _b, note, state = edoc._check_branch('do = { patrol = "ghost" }')
+    assert state == "warn" and "ghost" in note     # validate's own words on the applied copy
+    _b, note, state = edoc._check_branch('when = [{ hp_le = 0 }]\ndo = { die = true }')
+    assert state == "" and "Apply" in note
+
+
+def test_move_delete_add_branch_go_through_the_shell_contract(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc._move_row(0, +1)
+    br = raw["behavior"]["unit"][0]["branch"]
+    assert br[1]["do"] == {"die": True}
+    edoc._delete_row(1)
+    assert len(br) == 5 and not any(b["do"] == {"die": True} for b in br)
+    edoc._add_branch()                             # lands above the fallback + opens the editor
+    assert br[-2]["when"] == [{"flag": "never"}]
+    assert edoc.editor.isVisibleTo(edoc)
+    assert [lab for _m, lab in edoc._edits] == [
+        "reorder watchman branches", "delete watchman branch 2", "add watchman branch"]
+
+
+def test_add_unit_through_the_seam_and_remove_back_to_guide(edoc):
+    raw = {"field": {"name": "PLAIN"},
+           "npc": [{"name": "lone", "pos": [10, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    assert edoc._stack.currentWidget() is edoc._guide_page   # no [behavior] yet
+    edoc._ask_unit = lambda names: names[0]        # the modal seam -- never the real dialog
+    edoc._add_unit()                               # the guide's own action button calls this
+    assert edoc._stack.currentWidget() is edoc._content
+    assert raw["behavior"]["unit"][0]["npc"] == "lone"
+    assert behaviorscan.validate_problems(raw) == []   # the seeded unit is legal
+    edoc._remove_unit()
+    assert not behaviorscan.has_behavior(raw)
+    assert edoc._stack.currentWidget() is edoc._guide_page   # back to the teaching guide
+    assert [lab for _m, lab in edoc._edits] == [
+        "add behavior unit lone", "remove behavior unit lone"]
+
+
+def test_structural_ops_close_the_editor_first(edoc):
+    edoc.show_field("BGLADE", demo_raw(), None)
+    edoc._edit_branch(2)
+    assert edoc.editor.isVisibleTo(edoc)
+    edoc._move_row(2, +1)                          # indices shift -> a stale editor would write
+    assert not edoc.editor.isVisibleTo(edoc)       # into the wrong row
+
+
 # --------------------------------------------------------------------------- dial + theme + call sites
 def test_retheme_and_the_text_dial_reach_the_painted_canvas(doc):
     doc.show_field("BGLADE", demo_raw(), None)
@@ -354,7 +443,10 @@ def test_the_shell_spends_every_mechanism_this_doc_exposes():
         .read_text(encoding="utf-8")
     for needle in ("behavior_doc.retheme", "behavior_doc.set_scale",
                    "self._feed_behavior()", 'addTab(self.behavior_doc, "Behavior")',
-                   "Go to Behavior", "_mount_behavior_instruments("):
+                   "Go to Behavior", "_mount_behavior_instruments(",
+                   "on_edit=self._on_behavior_edit",           # rung B: the edit contract...
+                   '_checkpoint(member, label, "behavior")',   # ...records ONE undo step
+                   'if key == "behavior":'):                   # ...whose undo lands on this tab
         assert needle in src, f"shell.py no longer spends {needle!r}"
     assert src.count("self._feed_behavior()") >= 2   # tab show AND tree select
     assert src.count("_mount_behavior_instruments(") >= 2   # the def AND the tab-change call

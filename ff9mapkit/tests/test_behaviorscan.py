@@ -26,7 +26,7 @@ def _field(units, **behavior_extra):
 def _unit(npc="a", branches=None):
     return {"npc": npc, "hp": 3,
             "branch": branches or [{"when": [{"hp_le": 0}], "do": {"die": True}},
-                                   {"do": {"hold": True}}]}
+                                   {"do": {"hold_post": True}}]}
 
 
 def test_has_behavior_needs_unit_rows():
@@ -115,6 +115,83 @@ def test_validate_problems_are_the_compilers_own_words():
     raw = _field([_unit("ghost")])                 # not a named [[npc]]
     assert any("not a named [[npc]]" in p for p in BS.validate_problems(raw))
     assert BS.validate_problems({"field": {}}) == []
+
+
+# --------------------------------------------------------------------------- rung B: edit ops
+def test_branch_toml_round_trips_every_shape():
+    """The editor shows branch_toml and Apply parses it back -- a lossy round trip would
+    corrupt a branch the user merely opened and closed."""
+    branches = [
+        {"when": [{"hp_le": 0}], "do": {"die": True}},
+        {"when": [{"active": "b"}, {"near": ["b", 900]}],
+         "do": {"chase": "b", "standoff": 180, "speed": 65}, "once": "cry",
+         "raise_flags": ["alarm", "seen"]},
+        {"do": {"patrol": "loop", "route": "auto"}},
+        {"when": [{"table_eq": ["t", 0, 1]}], "do": {"announce": 'He said "run"'},
+         "cooldown": 40},
+    ]
+    for b in branches:
+        parsed, err = BS.parse_branch(BS.branch_toml(b))
+        assert err is None and parsed == b, (b, parsed, err)
+
+
+def test_every_insert_template_is_valid_toml():
+    """The When/Do menus insert these snippets -- a template that does not parse teaches a
+    syntax error. Membership comes from the compiler's tables (the anti-rot half)."""
+    import tomllib
+    conds = BS.cond_templates()
+    acts = BS.action_templates()
+    assert [v for v, _s in conds] == sorted(BT.COND_VERBS)
+    assert [v for v, _s in acts] == sorted(BT.ACTION_VERBS)
+    for _verb, snippet in conds:
+        tomllib.loads(f"when = [{snippet}]")
+    for _verb, snippet in acts:
+        tomllib.loads(f"do = {snippet}")
+
+
+def test_parse_branch_speaks_its_refusals():
+    assert "not valid TOML" in BS.parse_branch("when = [")[1]
+    assert "unknown branch key" in BS.parse_branch('do = { hold = true }\nwhne = []')[1]
+    assert "needs `do" in BS.parse_branch('when = [{ hp_le = 0 }]')[1]
+    assert "LIST of condition rows" in BS.parse_branch('when = 3\ndo = { hold = true }')[1]
+
+
+def test_move_add_delete_duplicate_branch():
+    raw = _field([_unit()])                        # 2 branches: die guard + hold fallback
+    assert BS.move_branch(raw, "a", 0, +1) == 1    # swap -> the fallback is now first
+    br = raw["behavior"]["unit"][0]["branch"]
+    assert "when" not in br[0] and br[1]["do"] == {"die": True}
+    assert BS.move_branch(raw, "a", 0, -1) == 0    # clamped at the top
+    at = BS.add_branch(raw, "a")
+    assert at == len(br) - 2                       # just above the fallback
+    assert br[at]["when"] == [{"flag": "never"}]   # inert until edited
+    ni = BS.duplicate_branch(raw, "a", at)
+    assert ni == at + 1 and br[ni] == br[at] and br[ni] is not br[at]
+    BS.delete_branch(raw, "a", ni)
+    BS.delete_branch(raw, "a", at)
+    assert len(br) == 2
+
+
+def test_add_unit_delete_unit_and_candidates():
+    raw = _field([_unit("a")])
+    assert BS.npc_candidates(raw) == ["b"]
+    BS.add_unit(raw, "b")
+    assert BS.npc_candidates(raw) == []
+    rows = BS.ladder_model(raw, "b")
+    assert rows[-1]["unconditional"]               # the seeded unit is LEGAL out of the box
+    assert BS.validate_problems(raw) == []
+    BS.delete_unit(raw, "a")
+    assert [u["npc"] for u in raw["behavior"]["unit"]] == ["b"]
+    BS.delete_unit(raw, "b")
+    assert not BS.has_behavior(raw)                # an empty unit list is no behavior at all
+
+
+def test_check_edit_judges_a_copy_never_the_original():
+    raw = _field([_unit("a")])
+    bad = {"do": {"patrol": "ghost_route"}}        # an unknown route marker -- validate refuses
+    problems = BS.check_edit(raw, "a", 0, bad)
+    assert problems and any("ghost_route" in p for p in problems)
+    assert raw["behavior"]["unit"][0]["branch"][0]["do"] == {"die": True}   # untouched
 
 
 def test_pooled_units_read_pooled_on_cast_and_stage():

@@ -290,36 +290,28 @@ class StageCanvas(QGraphicsView):
 
 
 class LadderView(QWidget):
-    """The selected unit's branches as read-only priority rows. Rebuilt per render (rows are
-    few); each row: priority number, WHEN chips (ANDed), the DO verb + detail, decorator chips
-    on the shoulder. The LAST unconditional row is the compiler's required fallback and says
-    so. Rung B replaces these rows with editable ones -- keep this a plain vertical list."""
+    """The selected unit's branches as priority rows -- rung B makes them EDITABLE: each row
+    carries move-up/down (the priority edit), Edit (opens the branch editor), and Delete; the
+    header offers Add branch / Remove unit. ``actions`` is a dict of callbacks the host doc
+    provides (move/edit/delete/add/remove_unit); rows stay dumb -- every mutation goes through
+    the host, which owns the raw dict and the shell's undo contract."""
 
-    def __init__(self, pal):
+    def __init__(self, pal, actions=None):
         super().__init__()
         self.pal = pal
+        self.actions = actions or {}
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(10, 8, 10, 8)
         self._lay.setSpacing(6)
         self.setAccessibleName("Behavior ladder")
 
-    def set_rows(self, unit_name, stats, rows):
+    def set_rows(self, unit_name, rows):
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
             if w is not None:
                 w.setParent(None)                  # reparent NOW: a deleteLater-only clear leaves
                 w.deleteLater()                    # zombie children until the loop runs (the
         #                                            harness's own DeferredDelete lesson)
-        head = QHBoxLayout()
-        head.setSpacing(10)
-        title = widgets.role_label(unit_name or "—", "cardtitle")
-        head.addWidget(title)
-        if stats:
-            head.addWidget(widgets.role_label(stats, "caption"))
-        head.addStretch(1)
-        hw = QWidget()
-        hw.setLayout(head)
-        self._lay.addWidget(hw)
         last_uncond = max((i for i, r in enumerate(rows) if r["unconditional"]), default=None)
         for i, row in enumerate(rows):
             self._lay.addWidget(self._row(row, fallback=(i == last_uncond and i == len(rows) - 1)))
@@ -342,6 +334,23 @@ class LadderView(QWidget):
         prio = widgets.role_label(str(row["index"]), "caption")
         prio.setProperty("mono", True)
         h.addWidget(prio)
+        # the action buttons sit LEFT, pinned beside the priority number: a long row h-scrolls,
+        # and a right-aligned control inside a scrolling row lives off-screen (snap-caught)
+        if self.actions:
+            bi = row["index"] - 1
+            for glyph, tip, cb in (
+                    ("↑", "Raise this branch's priority", lambda _=False, b=bi: self.actions["move"](b, -1)),
+                    ("↓", "Lower this branch's priority", lambda _=False, b=bi: self.actions["move"](b, +1)),
+                    ("✎", "Edit this branch (its own TOML, with insert menus)",
+                     lambda _=False, b=bi: self.actions["edit"](b)),
+                    ("✕", "Delete this branch (Ctrl+Z undoes)",
+                     lambda _=False, b=bi: self.actions["delete"](b))):
+                btn = QPushButton(glyph)
+                btn.setProperty("role", "quiet")
+                btn.setToolTip(tip)
+                btn.setAccessibleName(f"{tip} — branch {row['index']}")
+                btn.clicked.connect(cb)
+                h.addWidget(btn)
         if row["conds"]:
             for ci, c in enumerate(row["conds"]):
                 if ci:
@@ -369,16 +378,106 @@ class LadderView(QWidget):
         return frame
 
 
+class BranchEditor(QFrame):
+    """The inline branch editor: one branch as its own TOML (the ladder's chips are LITERALLY
+    this text), with When/Do insert menus generated from the compiler's verb tables and a live
+    parse + validate() readout. Apply hands the parsed branch to the host; nothing here touches
+    the raw dict."""
+
+    def __init__(self, pal, *, on_apply, on_close, check):
+        super().__init__()
+        self.setProperty("role", "card")
+        self.pal = pal
+        self.on_apply = on_apply
+        self.on_close = on_close
+        self.check = check                          # (text) -> (branch|None, note, state)
+        self.unit = None
+        self.bi = None
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 8, 10, 8)
+        v.setSpacing(6)
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self.title = widgets.role_label("Branch", "cardtitle")
+        head.addWidget(self.title)
+        head.addStretch(1)
+        from PySide6.QtWidgets import QMenu, QToolButton
+        for label, rows in (("When ▾", behaviorscan.cond_templates()),
+                            ("Do ▾", behaviorscan.action_templates())):
+            btn = QToolButton()
+            btn.setText(label)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            btn.setToolTip("Insert a template at the cursor — the verb list IS the compiler's "
+                           "own table, so it can never go stale.")
+            btn.setAccessibleName(f"Insert {label[:-2].strip().lower()} template")
+            menu = QMenu(btn)
+            for verb, snippet in rows:
+                act = menu.addAction(verb)
+                act.setToolTip(snippet)
+                act.triggered.connect(lambda _=False, s=snippet: self.box.insertPlainText(s))
+            btn.setMenu(menu)
+            head.addWidget(btn)
+        self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setToolTip("Write this branch into the open document (Ctrl+Z undoes).")
+        self.apply_btn.clicked.connect(lambda: self.on_apply())
+        head.addWidget(self.apply_btn)
+        close_btn = QPushButton("Close")
+        close_btn.setProperty("role", "quiet")
+        close_btn.clicked.connect(lambda: self.on_close())
+        head.addWidget(close_btn)
+        hw = QWidget()
+        hw.setLayout(head)
+        v.addWidget(hw)
+        self.box = QPlainTextEdit()
+        self.box.setAccessibleName("Branch TOML")
+        fm = QFontMetrics(self.box.font())
+        self.box.setMinimumHeight(fm.lineSpacing() * 5)
+        self.box.textChanged.connect(self._on_typed)
+        v.addWidget(self.box, 1)
+        self.note = widgets.caption("")
+        self.note.setWordWrap(True)
+        v.addWidget(self.note)
+        from PySide6.QtCore import QTimer
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(250)
+        self._debounce.timeout.connect(self._judge)
+
+    def open_branch(self, unit, bi, text):
+        self.unit, self.bi = unit, bi
+        self.title.setText(f"{unit} — branch {bi + 1}")
+        self.box.blockSignals(True)
+        self.box.setPlainText(text)
+        self.box.blockSignals(False)
+        self._judge()
+        self.show()
+        self.box.setFocus()
+
+    def _on_typed(self):
+        self._debounce.start()
+
+    def _judge(self):
+        """The live legality readout -- the compiler's words, never a paraphrase."""
+        if self.unit is None:
+            return
+        _branch, note, state = self.check(self.box.toPlainText())
+        self.note.setText(note)
+        widgets.set_state(self.note, state)
+
+
 class BehaviorDoc(QWidget):
     """The Behavior tab. The shell feeds it the OPEN field's parsed dict (``show_field``) on
     tab show / tree select -- never a file read; the Compile click is the only disk touch."""
 
     _compile_done = Signal(object)                 # CompileResult (worker -> GUI thread)
 
-    def __init__(self, pal, *, scale=100):
+    def __init__(self, pal, *, scale=100, on_edit=None):
         super().__init__()
         self.pal = pal
         self._scale = scale
+        self.on_edit = on_edit                     # (member, label) after each committed edit --
+        #                                            the shell's touch/checkpoint/re-feed hook
+        self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
         self._member = None
         self._path = None
         self._dirty = False
@@ -410,6 +509,7 @@ class BehaviorDoc(QWidget):
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
                       "combat — as priority branches in the field.toml. The format lives in "
                       "docs/BEHAVIOR.md; benches 30410-30418 are worked examples.",
+                actions=[("Add a behavior unit…", self._add_unit)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -441,7 +541,11 @@ class BehaviorDoc(QWidget):
         outer.addLayout(head)
         split = QSplitter()
         split.setChildrenCollapsible(False)
-        # cast rail
+        # cast rail (+ the Add-unit door)
+        cast_col = QWidget()
+        cv = QVBoxLayout(cast_col)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(4)
         self.cast = QTreeWidget()
         self.cast.setHeaderHidden(True)
         self.cast.setAccessibleName("Behavior cast")
@@ -449,21 +553,62 @@ class BehaviorDoc(QWidget):
             "Units, groups, pools, and data (counters, tables, schedules, scans, HUD strips). "
             "Selecting a unit shows its ladder and lights its radii on the stage.")
         self.cast.itemSelectionChanged.connect(self._on_cast_select)
-        split.addWidget(self.cast)
-        # center: ladder over stage (stacked -- the ratified answer to open question #1)
-        mid = QSplitter(Qt.Orientation.Vertical)
-        mid.setChildrenCollapsible(False)
-        self.ladder = LadderView(self.pal)
+        cv.addWidget(self.cast, 1)
+        self.add_unit_btn = QPushButton("＋ Add unit…")
+        self.add_unit_btn.setProperty("role", "quiet")
+        self.add_unit_btn.setToolTip("Give a named [[npc]] a behavior tree (a minimal legal "
+                                     "ladder: a death branch + a hold fallback).")
+        self.add_unit_btn.clicked.connect(self._add_unit)
+        cv.addWidget(self.add_unit_btn)
+        split.addWidget(cast_col)
+        # center: the unit bar OUTSIDE the scroll (right-aligned controls inside an h-scrolling
+        # container live off-screen -- snap-caught), then ladder over stage (stacked -- the
+        # ratified answer to open question #1) with the branch editor between them
+        center = QWidget()
+        cl = QVBoxLayout(center)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(4)
+        bar = QWidget()
+        bh = QHBoxLayout(bar)
+        bh.setContentsMargins(10, 4, 10, 0)
+        bh.setSpacing(10)
+        self.unit_title = widgets.role_label("—", "cardtitle")
+        bh.addWidget(self.unit_title)
+        self.unit_stats = widgets.role_label("", "caption")
+        bh.addWidget(self.unit_stats)
+        bh.addStretch(1)
+        self.add_branch_btn = QPushButton("＋ Branch")
+        self.add_branch_btn.setProperty("role", "quiet")
+        self.add_branch_btn.setToolTip("Insert a new branch just above the fallback row "
+                                       "(inert until you edit it — its guard flag starts unraised).")
+        self.add_branch_btn.clicked.connect(self._add_branch)
+        bh.addWidget(self.add_branch_btn)
+        self.remove_unit_btn = QPushButton("− Unit")
+        self.remove_unit_btn.setProperty("role", "quiet")
+        self.remove_unit_btn.setToolTip("Remove this behavior unit (the [[npc]] stays; "
+                                        "Ctrl+Z undoes).")
+        self.remove_unit_btn.clicked.connect(self._remove_unit)
+        bh.addWidget(self.remove_unit_btn)
+        cl.addWidget(bar)
+        self._vsplit = QSplitter(Qt.Orientation.Vertical)
+        self._vsplit.setChildrenCollapsible(False)
+        self.ladder = LadderView(self.pal, actions={
+            "move": self._move_row, "edit": self._edit_branch, "delete": self._delete_row})
         lscroll = QScrollArea()
         lscroll.setWidgetResizable(True)
         lscroll.setWidget(self.ladder)             # h-bar stays as-needed: a denied width must
         lscroll.setFrameShape(QFrame.Shape.NoFrame)  # scroll, never clip (the round-13 law)
-        mid.addWidget(lscroll)
+        self._vsplit.addWidget(lscroll)
+        self.editor = BranchEditor(self.pal, on_apply=self._apply_branch,
+                                   on_close=self._close_editor, check=self._check_branch)
+        self.editor.hide()
+        self._vsplit.addWidget(self.editor)
         self.canvas = StageCanvas(self.pal, scale=self._scale)
-        mid.addWidget(self.canvas)
+        self._vsplit.addWidget(self.canvas)
         k = self._scale / 100
-        mid.setSizes([int(340 * k), int(280 * k)])
-        split.addWidget(mid)
+        self._vsplit.setSizes([int(340 * k), 0, int(280 * k)])
+        cl.addWidget(self._vsplit, 1)
+        split.addWidget(center)
         split.setStretchFactor(1, 1)
         # Ask for LESS than the realistic ~700px budget at a 1280 window (snap-measured: a
         # request over the available width let Qt starve the CENTER pane while rails kept theirs).
@@ -631,7 +776,9 @@ class BehaviorDoc(QWidget):
                 stats.append("pooled")
         rows = behaviorscan.ladder_model(self._raw, self._selected_unit) \
             if self._selected_unit else []
-        self.ladder.set_rows(self._selected_unit, " · ".join(stats), rows)
+        self.unit_title.setText(self._selected_unit or "—")
+        self.unit_stats.setText(" · ".join(stats))
+        self.ladder.set_rows(self._selected_unit, rows)
 
     def _on_cast_select(self):
         items = self.cast.selectedItems()
@@ -640,6 +787,117 @@ class BehaviorDoc(QWidget):
             self._selected_unit = payload[1]
             self._fill_ladder(behaviorscan.cast_model(self._raw))
             self.canvas.select_unit(payload[1])
+
+    # -- rung B: edits (all through behaviorscan's pure ops; the shell checkpoints via on_edit) --
+    def _after_edit(self, label):
+        """One committed mutation of the open dict: re-render, then hand the shell its undo
+        step. The doc renders FIRST so a standalone (shell-less) host still shows the edit."""
+        if not behaviorscan.has_behavior(self._raw):
+            self._show_guide("nobehavior")         # the last unit was removed
+        else:
+            self._render()
+        if self.on_edit and self._member:
+            self.on_edit(self._member, label)
+
+    def _move_row(self, bi, delta):
+        if not self._selected_unit:
+            return
+        self._close_editor()                       # indices shift under a structural edit
+        behaviorscan.move_branch(self._raw, self._selected_unit, bi, delta)
+        self._after_edit(f"reorder {self._selected_unit} branches")
+
+    def _delete_row(self, bi):
+        if not self._selected_unit:
+            return
+        self._close_editor()
+        behaviorscan.delete_branch(self._raw, self._selected_unit, bi)
+        self._after_edit(f"delete {self._selected_unit} branch {bi + 1}")
+
+    def _add_branch(self):
+        if not self._selected_unit:
+            return
+        at = behaviorscan.add_branch(self._raw, self._selected_unit)
+        self._after_edit(f"add {self._selected_unit} branch")
+        self._edit_branch(at)                      # a fresh branch opens ready to shape
+
+    def _edit_branch(self, bi):
+        unit = self._selected_unit
+        rows = behaviorscan.ladder_model(self._raw, unit) if unit else []
+        if not unit or not 0 <= bi < len(rows):
+            return
+        branch = behaviorscan._unit_row(self._raw, unit)["branch"][bi]
+        self.editor.open_branch(unit, bi, behaviorscan.branch_toml(branch))
+        s = self._vsplit.sizes()                   # opening must not crush the stage to a sliver
+        if s[1] < 120:                             # (snap-caught): take from the LADDER first,
+            e = max(150, min(240, self.editor.sizeHint().height()))   # keep the canvas usable
+            total = sum(s)
+            canvas = max(140, min(s[2], total - e - 160))
+            self._vsplit.setSizes([max(120, total - e - canvas), e, canvas])
+
+    def _close_editor(self):
+        self.editor.hide()
+        self.editor.unit = self.editor.bi = None
+
+    def _check_branch(self, text):
+        """The editor's live readout: (branch, note, state) -- parse errors in red, doc-level
+        validate() problems in the compiler's own words, else the quiet go-ahead."""
+        branch, err = behaviorscan.parse_branch(text)
+        if err:
+            return None, err, "error"
+        problems = behaviorscan.check_edit(self._raw, self.editor.unit, self.editor.bi, branch)
+        if problems:
+            return branch, "\n".join(f"• {p}" for p in problems), "warn"
+        return branch, "Valid — Apply writes it into the open document.", ""
+
+    def _apply_branch(self):
+        unit, bi = self.editor.unit, self.editor.bi
+        if unit is None:
+            return
+        branch, err = behaviorscan.parse_branch(self.editor.box.toPlainText())
+        if err:
+            self.editor.note.setText(err)
+            widgets.set_state(self.editor.note, "error")
+            return
+        behaviorscan.set_branch(self._raw, unit, bi, branch)
+        self._after_edit(f"edit {unit} branch {bi + 1}")
+
+    def _ask_unit_dialog(self, names):
+        """Prod's picker (an INSTANCE QInputDialog -- the static execs in C++ past every test
+        patch); tests/snaps inject ``_ask_unit`` instead."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Add a behavior unit")
+        dlg.setLabelText("Which [[npc]] gets a behavior tree?")
+        dlg.setComboBoxItems(names)
+        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
+        return (dlg.textValue() if dlg.exec() else None)
+
+    def _add_unit(self):
+        if self._raw is None:
+            return
+        names = behaviorscan.npc_candidates(self._raw)
+        if not names:
+            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
+                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            widgets.set_state(self.problems_lbl, "warn")
+            return
+        name = self._ask_unit(names)
+        if not name:
+            return
+        behaviorscan.add_unit(self._raw, name)
+        self._selected_unit = name
+        if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
+            self._stack.setCurrentWidget(self._content)
+        self._after_edit(f"add behavior unit {name}")
+
+    def _remove_unit(self):
+        unit = self._selected_unit
+        if not unit:
+            return
+        self._close_editor()
+        behaviorscan.delete_unit(self._raw, unit)
+        self._selected_unit = None
+        self._after_edit(f"remove behavior unit {unit}")
 
     # -- the Compile lane (the doc's only disk touch; user-invoked, worker thread) --
     def compile_now(self, *, sync=False):

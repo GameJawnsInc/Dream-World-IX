@@ -268,6 +268,183 @@ def validate_problems(raw: dict) -> list:
     return BT.validate(raw, verbatim="verbatim_eb" in raw)
 
 
+# ------------------------------------------------------------------ rung B: edit operations
+# All pure, in-place mutations of the raw dict (the OPEN document -- the shell checkpoints the
+# whole doc around each call, so undo needs nothing from us). Every op is LENIENT about the
+# surrounding doc but STRICT about its own indices (an out-of-range index is a caller bug).
+
+# Verb templates for the insert menus. MEMBERSHIP is derived (the menus list the tables' own
+# keys); this map only supplies an exemplar ARG SHAPE, with a generic fallback -- so a brand-new
+# compiler verb appears in the menu the day it ships, merely with a plainer template.
+_COND_EXAMPLES = {
+    "hp_le": "{ hp_le = 1 }", "hp_gt": "{ hp_gt = 0 }",
+    "near": '{ near = ["unit", 300] }', "not_near": '{ not_near = ["unit", 300] }',
+    "near_point": '{ near_point = [[0, 0], 300] }',
+    "not_near_point": '{ not_near_point = [[0, 0], 300] }',
+    "flag": '{ flag = "name" }', "not_flag": '{ not_flag = "name" }',
+    "any_flag": '{ any_flag = ["a", "b"] }',
+    "active": '{ active = "unit" }', "not_active": '{ not_active = "unit" }',
+    "any_near": '{ any_near = [["a", "b"], 300] }', "any_active": '{ any_active = ["a", "b"] }',
+    "time_below": "{ time_below = 60 }", "time_above": "{ time_above = 60 }",
+    "counter_ge": '{ counter_ge = ["name", 1] }', "counter_le": '{ counter_le = ["name", 1] }',
+    "counter_eq": '{ counter_eq = ["name", 1] }',
+    "table_ge": '{ table_ge = ["table", 0, 1] }', "table_le": '{ table_le = ["table", 0, 1] }',
+    "table_eq": '{ table_eq = ["table", 0, 1] }',
+    "have_item": '{ have_item = ["Potion", 1] }',
+}
+_ACTION_EXAMPLES = {
+    "walk_to": '{ walk_to = [0, 0], speed = 40 }', "hold": "{ hold = [0, 0] }",
+    "hold_post": "{ hold_post = true }",
+    "chase": '{ chase = "unit", standoff = 160, speed = 60 }',
+    "patrol": '{ patrol = "route_marker" }', "march": '{ march = "route_marker" }',
+    "flee": '{ flee = "threat", to = ["a", "b"], speed = 70 }',
+    "wander": '{ wander = [0, 0], radius = 300 }',
+    "swing_at": '{ swing_at = "unit", damage = 1, interval = 25 }',
+    "engage": '{ engage = "group", radius = 900, contact = 170, damage = 1 }',
+    "die": "{ die = true }", "battle": "{ battle = 35 }",
+    "award": "{ award = 1000 }", "announce": '{ announce = "..." }',
+    "announce_npc": '{ announce_npc = "..." }',
+    "add_shop_item": '{ add_shop_item = [0, "item"] }',
+    "remove_shop_item": '{ remove_shop_item = [0, "item"] }',
+    "hold_ground": "{ hold_ground = true }",
+}
+
+
+def cond_templates() -> list:
+    """(verb, snippet) for the When insert menu -- one row per COND_VERBS key."""
+    return [(v, _COND_EXAMPLES.get(v, f"{{ {v} = 0 }}")) for v in sorted(BT.COND_VERBS)]
+
+
+def action_templates() -> list:
+    """(verb, snippet) for the Do insert menu -- one row per ACTION_VERBS key."""
+    return [(v, _ACTION_EXAMPLES.get(v, f"{{ {v} = 0 }}")) for v in sorted(BT.ACTION_VERBS)]
+
+
+def _toml_value(v) -> str:
+    """A TOML literal for the values a branch holds (str/int/float/bool/list/inline dict)."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_value(x)}" for k, x in v.items()) + " }"
+    return str(v)
+
+
+def branch_toml(branch: dict) -> str:
+    """One branch as editable TOML text -- `when` on its own line per cond (readable), the rest
+    inline. Round-trip pinned: ``parse_branch(branch_toml(b)) == b``."""
+    lines = []
+    when = branch.get("when")
+    if when:
+        if len(when) == 1:
+            lines.append(f"when = [{_toml_value(when[0])}]")
+        else:
+            rows = ",\n        ".join(_toml_value(c) for c in when)
+            lines.append(f"when = [ {rows} ]")
+    for k in ("do", *_DECO_KEYS):
+        if k in branch:
+            lines.append(f"{k} = {_toml_value(branch[k])}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_branch(text: str):
+    """``(branch dict, None)`` or ``(None, error text)``. Structure only -- key membership per
+    the compiler's BRANCH_KEYS; verb legality stays validate()'s job on the applied doc."""
+    import tomllib as _toml
+    try:
+        d = _toml.loads(text)
+    except Exception as e:                         # noqa: BLE001 -- the message IS the feedback
+        return None, f"not valid TOML: {e}"
+    extra = set(d) - BT.BRANCH_KEYS
+    if extra:
+        return None, (f"unknown branch key(s) {sorted(extra)} — a branch takes "
+                      f"{sorted(BT.BRANCH_KEYS)}")
+    if "do" not in d:
+        return None, "a branch needs `do = { <action verb> ... }`"
+    if "when" in d and not isinstance(d["when"], list):
+        return None, "`when` is a LIST of condition rows: when = [{ verb = ... }, ...]"
+    return d, None
+
+
+def _unit_row(raw: dict, unit_name: str):
+    for u in BT.units(raw):
+        if str(u.get("npc")) == unit_name:
+            return u
+    raise KeyError(f"no behavior unit {unit_name!r}")
+
+
+def set_branch(raw: dict, unit_name: str, bi: int, branch: dict) -> None:
+    _unit_row(raw, unit_name)["branch"][bi] = branch
+
+
+def move_branch(raw: dict, unit_name: str, bi: int, delta: int) -> int:
+    """Swap a branch up/down the priority ladder; returns its new index (clamped)."""
+    br = _unit_row(raw, unit_name).setdefault("branch", [])
+    nj = max(0, min(len(br) - 1, bi + delta))
+    br[bi], br[nj] = br[nj], br[bi]
+    return nj
+
+
+NEW_BRANCH = {"when": [{"flag": "never"}], "do": {"hold_post": True}}   # inert until edited:
+#                                                 the flag starts unraised, so it never fires
+
+
+def add_branch(raw: dict, unit_name: str, at: int | None = None) -> int:
+    """Insert a fresh (inert) branch; default position is just above the fallback row."""
+    br = _unit_row(raw, unit_name).setdefault("branch", [])
+    at = max(0, len(br) - 1) if at is None else max(0, min(len(br), at))
+    br.insert(at, {"when": [dict(c) for c in NEW_BRANCH["when"]], "do": dict(NEW_BRANCH["do"])})
+    return at
+
+
+def duplicate_branch(raw: dict, unit_name: str, bi: int) -> int:
+    import copy as _copy
+    br = _unit_row(raw, unit_name)["branch"]
+    br.insert(bi + 1, _copy.deepcopy(br[bi]))
+    return bi + 1
+
+
+def delete_branch(raw: dict, unit_name: str, bi: int) -> None:
+    del _unit_row(raw, unit_name)["branch"][bi]
+
+
+def npc_candidates(raw: dict) -> list:
+    """Named [[npc]]s not already behavior units -- the Add-unit picker's rows."""
+    taken = {str(u.get("npc")) for u in BT.units(raw)}
+    return [n["name"] for n in raw.get("npc", []) or []
+            if n.get("name") and n["name"] not in taken]
+
+
+def add_unit(raw: dict, npc_name: str) -> None:
+    """Seat a minimal LEGAL unit: a death branch + an unconditional hold fallback."""
+    b = raw.setdefault("behavior", {})
+    b.setdefault("unit", []).append({
+        "npc": npc_name, "hp": 3,
+        "branch": [{"when": [{"hp_le": 0}], "do": {"die": True}},
+                   {"do": {"hold_post": True}}],   # holds its own spawn post -- position-free
+    })
+
+
+def delete_unit(raw: dict, unit_name: str) -> None:
+    b = BT.table(raw) or {}
+    b["unit"] = [u for u in b.get("unit", []) if str(u.get("npc")) != unit_name]
+
+
+def check_edit(raw: dict, unit_name: str, bi: int, branch: dict) -> list:
+    """validate() over a COPY with the edit applied -- the live legality feed while typing.
+    Never mutates ``raw``."""
+    import copy as _copy
+    trial = _copy.deepcopy(raw)
+    try:
+        set_branch(trial, unit_name, bi, branch)
+    except (KeyError, IndexError) as e:
+        return [str(e)]
+    return validate_problems(trial)
+
+
 # ------------------------------------------------------------------ the Instruments' feed
 @dataclass
 class CompileResult:

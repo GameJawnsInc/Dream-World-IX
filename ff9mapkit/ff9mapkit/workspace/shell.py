@@ -1743,7 +1743,8 @@ class Workspace(QMainWindow):
         # rung A of the Behavior GUI (studies/behavior-trees/GUI-VISION.md): a READ-ONLY render of
         # the open field's [behavior] block. The shell PUSHES the parsed open doc (tab show / tree
         # select) -- the doc itself reads no files; its Compile button is the one disk touch.
-        self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale)
+        self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale,
+                                        on_edit=self._on_behavior_edit)
         self.tabs.addTab(self.behavior_doc, "Behavior")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -4876,6 +4877,15 @@ class Workspace(QMainWindow):
             self._sync_rail()
         self._refresh_insp_empty()                  # the untouched inspector's empty-state is tab-aware (#14)
 
+    def _on_behavior_edit(self, member, label):
+        """A Behavior-tab edit landed in the open doc (the doc mutated it in place through
+        behaviorscan's pure ops): dirty-dot the member, record ONE undo step whose focus lands
+        back on the Behavior tab, and re-feed so the compile note's dirty hint follows the
+        real baseline."""
+        self._touch(member)
+        self._checkpoint(member, label, "behavior")
+        self._feed_behavior()
+
     def _mount_behavior_instruments(self, on):
         """Dock the Behavior doc's Problems/Compile column into the INSPECTOR while that tab
         shows (owner's call -- a third in-doc column starved the ladder of width). The SAME
@@ -5248,6 +5258,15 @@ class Workspace(QMainWindow):
 
     def _goto_focus(self, member, key):
         """Select + mount the node ``(member, key)`` after an undo/redo (falls back to the member row)."""
+        if key == "behavior":                        # a Behavior-tab edit -> land back on THAT tab, not the
+            node = getattr(self, "_member_items", {}).get(member)    # Editor (the edit lives there)
+            if getattr(self, "behavior_doc", None) is not None:
+                self.tabs.setCurrentWidget(self.behavior_doc)        # fires _feed_behavior on show
+            if node is not None and self.tree.currentItem() is not node:
+                self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
+            else:
+                self._feed_behavior()
+            return
         if key and key.startswith("logic_n:"):       # a verbatim logic-node edit -> re-open its edit panel
             parts = key.split(":")
             if len(parts) == 3 and member in self._docs:

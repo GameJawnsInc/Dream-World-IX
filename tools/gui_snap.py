@@ -775,7 +775,7 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "doc", "compiled")
+BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit")
 
 
 def _load_behavior_demo():
@@ -814,6 +814,9 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     if state == "compiled":
         win.behavior_doc.compile_now(sync=True)        # the deterministic lane; production compiles
         _settle(4)                                     # on a worker behind the user's own click
+    elif state == "edit":
+        win.behavior_doc._edit_branch(4)               # the chase row open in the branch editor
+        _settle(4)
     _grab(ctx, f"behavior-{state}", win)
     _close(win)
 
