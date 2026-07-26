@@ -3660,10 +3660,17 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
               "frame on the tile via SetTextVariable + WindowAsync(6/7) -- no Byte[24]/Byte[38] writes; Confirm warps")
     if info.get("surgery"):
         nr = info["name_rename"]
-        print(f"  nameplate SURGERY: the entrance runs the game's REAL native flow; the location nameplate shows "
-              f"\"{nr['to']}\" (a CUSTOM name)")
-        print(f"    dead AREA-switch case {info['case']} repointed -> [set explored word {info['explored_word']} "
-              f"bit {info['explored_bit']} (gEventGlobal bit {info['explored_bit_index']})] + Field({info['field']})")
+        if info["case"] > 60:
+            print(f"  VIRGIN-CASE nameplate ({info['case']}): the trigger self-summons the native HUD with its own "
+                  f"case; NO stock bytes are edited (the AREA switch tops out at 60, so there is nothing to repoint)")
+            print(f"    warp branch: [Byte[24]=100 mute] + [set explored word {info['explored_word']} bit "
+                  f"{info['explored_bit']} (gEventGlobal bit {info['explored_bit_index']})] + zone-in + "
+                  f"Field({info['field']})")
+        else:
+            print(f"  nameplate SURGERY: the entrance runs the game's REAL native flow; the location nameplate shows "
+                  f"\"{nr['to']}\" (a CUSTOM name)")
+            print(f"    dead AREA-switch case {info['case']} repointed -> [set explored word {info['explored_word']} "
+                  f"bit {info['explored_bit']} (gEventGlobal bit {info['explored_bit_index']})] + Field({info['field']})")
         print(f"    name registered into world text block {nr['text_block']} at locId {nr['locid']} "
               f"(split[{info['case']}]) -- shows \"?\" until first visit, then the name (faithful)")
         for p in info.get("name_text_files", []):
@@ -7132,10 +7139,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "in every carrying dispatcher/lang, and registers NAME into world text block 68. The name "
                           "shows \"?\" until first visit then the name -- faithful town behaviour. RELAUNCH to apply")
     wen.add_argument("--nameplate-case", type=int, default=53, metavar="N",
-                     help="the DEAD AREA-switch case the nameplate surgery repoints (default 53 -> name slot 53, a "
-                          "\"???\" placeholder; explored bit = navi locId 52, also a coord-less placeholder, so no "
-                          "stray map dot). Must be dead in every free-roam dispatcher (the tool verifies + refuses "
-                          "a live case). High cases 49-59 are the free ones; avoid 54-59/49/50 (live names)")
+                     help="the nameplate case. 2-60: the SURGERY lane -- a DEAD AREA-switch case is repointed "
+                          "(default 53 -> the \"???\" placeholder slot; the tool verifies + refuses a live case). "
+                          "!! Switch-dead is NOT enough: case 52 is the quicksand's hardcoded main-loop "
+                          "Battle(0,144) branch (the only such case; census 2026-07-26) and 43/54-59 carry real "
+                          "labels -- 53 is the ONLY clean surgery slot. 61-64: the VIRGIN band -- past the stock "
+                          "table and switch entirely, no stock bytes touched (the trigger self-summons the plate, "
+                          "block-68 is extended); the robust lane for additional named entrances")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

@@ -242,18 +242,25 @@ ONFOOT_GATE = bytes([0x05, 0xD4, 0xBE, 0x0E, 0x7F])   # EXPR{ !var190 } == "on f
                        # term WITHOUT its Byte[24]==100 term, so our trigger stays armed while the nameplate is up.
 
 
-def nameplate_summon() -> bytes:
-    """Summon the native entrance HUD via the real dispatcher handshake: ``Byte[39] = NAMEPLATE_CASE`` +
-    ``RunScriptAsync(6, 1, 11)`` -> func-0xB sets Byte[38]/Byte[24]=101, so the main loop shows the nameplate +
+def nameplate_summon(case: int = NAMEPLATE_CASE) -> bytes:
+    """Summon the native entrance HUD via the real dispatcher handshake: ``Byte[39] = case`` +
+    ``RunScriptAsync(6, 1, 11)`` -> func-0xB sets Byte[38]/Byte[24]=case+100, so the main loop shows the nameplate +
     "Enter with [X]" and (crucially) keeps ``Byte[24] > 100`` so the idle loop does NOT close the windows -- the
     ONLY spam-free way to show them (self-paint fights the idle-loop close). ``RunScriptAsync(6,1,11)`` is
-    byte-verbatim from the trigger template. Runs on the approach frames only; our own Confirm gate does the warp."""
+    byte-verbatim from the trigger template. Runs on the approach frames only; our own Confirm gate does the warp.
+
+    ``case`` defaults to :data:`NAMEPLATE_CASE` (=1, the "Alexandria Harbor" name-locked slot). A VIRGIN-band
+    case (61-64, see :func:`author_entrance`) shows a CUSTOM name instead: func-0xB's 49+ range arm has no upper
+    bound (``Byte[38] = w98 >> (case-49)``, byte-verified), and the plate window indexes block-68 split[case],
+    which the kit ships extended."""
     from ..eb import opcodes as O
-    return (bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE & 0xFF, (NAMEPLATE_CASE >> 8) & 0xFF, 0x2C, 0x7F])
+    c = int(case)
+    return (bytes([0x05, 0xD5, 0x27, 0x7D, c & 0xFF, (c >> 8) & 0xFF, 0x2C, 0x7F])
             + O.run_script_async(6, 1, 11))
 
 
-def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, nameplate=False, game=None,
+def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, nameplate=False,
+                              nameplate_case: int = None, explored_case: int = None, game=None,
                               dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
     vehicle/state GATE verbatim (its leading expression + conditional skip), then the
@@ -328,16 +335,23 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     # [1,90]; func-0xB had left it there), so on the Confirm frame OUR fade is the only one -- no cosmetic double
     # fade-to-black regardless of which object the engine processes first. It runs ONLY on Confirm (never on the
     # approach frames), so it does not disturb the nameplate summon (which needs Byte[24]>100).
+    #
+    # ``nameplate_case`` (61-64, the VIRGIN band) swaps the summoned case so the plate shows a CUSTOM name from the
+    # kit-extended block-68 table, and ``explored_case`` adds the explored-bit set to the WARP branch (the surgery
+    # handler's own proven expr) so the plate faithfully upgrades "?" -> the name after first entry. The "!" bubble
+    # is dropped in that mode for parity with the surgery-form entrances (the plate + "Enter with [X]" are the cue).
     settle = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x2C, 0x7F])   # Byte[24] = 100 -> suppress the native confirm
-    warp_branch = settle + warp_core + b"\x04"                     # confirm held: single-fade guard, warp, return
+    explored = explored_set_expr(int(explored_case)) if explored_case is not None else b""
+    warp_branch = settle + explored + warp_core + b"\x04"          # confirm held: single-fade guard, warp, return
     # APPROACH branch: gate the SUMMON on Byte[24]==100. func-0xB needs a clean Byte[24]==100 on entry (it was
     # the whole trigger gate in the version that DID show "Alexandria Harbor"); firing it every frame with a dirty
     # Byte[24] (already 101/1 from the prior summon) broke its slot setup so the main loop never showed the plate.
     # Byte[24] cycles back to 100 each time the idle loop reclaims it, so the summon re-fires and the HUD persists.
-    summon = nameplate_summon()
+    summon = nameplate_summon(nameplate_case if nameplate_case is not None else NAMEPLATE_CASE)
+    ficon = b"" if nameplate_case is not None else FICON_EXCLAM
     eq100 = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x20, 0x7F])    # EXPR: Byte[24] == 100
-    approach = (eq100 + bytes([0x02]) + struct.pack("<h", len(summon))   # Byte[24]!=100 -> skip summon -> "!"
-                + summon + FICON_EXCLAM)
+    approach = (eq100 + bytes([0x02]) + struct.pack("<h", len(summon))   # Byte[24]!=100 -> skip summon
+                + summon + ficon)
     after_gate = (CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp_branch))   # !Confirm -> APPROACH
                   + warp_branch + approach)
     return (ONFOOT_GATE + bytes([0x02]) + struct.pack("<h", len(after_gate)) + after_gate + b"\x04")
@@ -666,14 +680,39 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                              "(the superseded self-summon path)")
         the_case = int(nameplate_case)
         exp_word, exp_bit = explored_word_bit(the_case)
-        handler = nameplate_handler(int(direct_field), the_case)
-        body = entrance_func_body(the_case, dispatchers=us_disp)    # the STOCK trigger (language-independent)
-        dest = {"case": the_case, "field": int(direct_field),
-                "note": f"NAMEPLATE SURGERY: dead case {the_case} -> Field({int(direct_field)}); "
-                        f"name {nameplate_name!r} (locId {the_case - 1}); explored word {exp_word} bit {exp_bit}"}
-        # dispatchers whose AREA switch carries this case (its contiguous range) -- every free-roam state
-        targets = sorted(name for name, L in alld.items()
-                         if "us" in L and (cs := dispatcher_cases(L["us"])) is not None and the_case in cs)
+        if the_case > 60:
+            # THE VIRGIN CASE BAND (61-64) -- the robust custom-name lane, NO stock-byte surgery at all.
+            # The stock world has 61 name-table entries (cases 0-60): the AREA switch is base 2 x 59 cases
+            # (2..60, so 61+ falls to its benign out-of-range default), func-0xB's 49+ range arm has NO
+            # upper bound (explored bit = w98 >> (case-49), cases 49-64 exactly fill word 98), the plate
+            # window admits any case < 90, and the ONLY main-loop special branch anywhere is case 52
+            # (the quicksand's hardcoded `Byte[24]==52 && Confirm -> Battle(0,144)` -- the collision that
+            # forced this lane; census 2026-07-26, all 9 free-roam dispatchers). So 61-64 are untouched by
+            # every stock system EXCEPT the ones we want: the name table (which WE ship, extended by
+            # navimap) and the explored bit. The trigger is the SELF-SUMMON body (fix-A2's verified laws:
+            # summon gated on Byte[24]==100, warp on the on-foot gate, warp-branch Byte[24]=100 mute) with
+            # the case's own summon + explored-bit set; the switch is never repointed -- there is no slot.
+            if not 61 <= the_case <= 64:
+                raise ValueError(f"nameplate_case {the_case} is past the explored-bit range (61-64 is the "
+                                 f"virgin band; 65+ has no w98 bit and no plate machinery)")
+            handler = None
+            body = None                                    # per-dispatcher: carries the world-state record
+            dest = {"case": the_case, "field": int(direct_field),
+                    "note": f"VIRGIN-CASE nameplate: self-summon case {the_case} (no switch surgery; the "
+                            f"AREA switch tops out at 60) -> Field({int(direct_field)}); name "
+                            f"{nameplate_name!r} (locId {the_case - 1}, table extended); "
+                            f"explored word {exp_word} bit {exp_bit}"}
+            targets = sorted(name for name, L in alld.items()
+                             if "us" in L and dispatcher_cases(L["us"]) is not None)
+        else:
+            handler = nameplate_handler(int(direct_field), the_case)
+            body = entrance_func_body(the_case, dispatchers=us_disp)    # the STOCK trigger (language-independent)
+            dest = {"case": the_case, "field": int(direct_field),
+                    "note": f"NAMEPLATE SURGERY: dead case {the_case} -> Field({int(direct_field)}); "
+                            f"name {nameplate_name!r} (locId {the_case - 1}); explored word {exp_word} bit {exp_bit}"}
+            # dispatchers whose AREA switch carries this case (its contiguous range) -- every free-roam state
+            targets = sorted(name for name, L in alld.items()
+                             if "us" in L and (cs := dispatcher_cases(L["us"])) is not None and the_case in cs)
     elif direct_field is not None:
         if field is not None or case is not None:
             raise ValueError("give a destination as EITHER direct_field=<custom id> OR "
@@ -720,20 +759,30 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         fname = name.upper() + ".eb.bytes"
         us_mod = eb_root / "us" / fname
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
-        # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
-        b = body if body is not None else entrance_func_body_direct(
-            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, nameplate=nameplate,
-            dispatchers=us_disp)
+        # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo. The VIRGIN-band nameplate
+        # (surgery with case 61-64, handler None) is a direct body too -- the self-summon form with the
+        # case's own plate + explored bit; it composes additively exactly like a plain --field-direct.
+        if body is not None:
+            b = body
+        elif surgery:
+            b = entrance_func_body_direct(
+                int(direct_field), world_state=9000 + int(name[-2:]), prompt=True, nameplate=True,
+                nameplate_case=the_case, explored_case=the_case, dispatchers=us_disp)
+        else:
+            b = entrance_func_body_direct(
+                int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, nameplate=nameplate,
+                dispatchers=us_disp)
 
         def _patch(base_l, _b=b):
-            """Write the trigger func into object-0 (retagged to the cell) and, in surgery mode, ALSO repoint the
-            dead AREA-switch case to the handler. Idempotent -- an in-place re-run returns the input unchanged."""
+            """Write the trigger func into object-0 (retagged to the cell) and, in switch-surgery mode, ALSO
+            repoint the dead AREA-switch case to the handler (the virgin band has no slot to repoint --
+            handler is None there). Idempotent -- an in-place re-run returns the input unchanged."""
             ex = EbScript.from_bytes(base_l).entry(0).func_by_tag(tag)
             if ex is None:
                 base_l = E.add_function(base_l, 0, tag, _b)
             elif base_l[ex.abs_start:ex.abs_end] != _b:
                 base_l = E.replace_function_body(base_l, 0, tag, _b)
-            if surgery:
+            if surgery and handler is not None:
                 base_l = _repoint_dead_case(base_l, the_case, handler)
             return base_l
 

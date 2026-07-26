@@ -224,3 +224,63 @@ def test_worldmap_exit_arrive_shape():
     assert b[p:p + 3] == bytes([0x02, len(wm), 0x00])         # skip the computed op
     assert b[p + 3:p + 3 + len(wm)] == wm                     # WorldMap(<GLOB 1062>)
     assert b.endswith(cascade_bytes())
+
+
+def test_entrance_func_body_virgin_case_nameplate():
+    """THE VIRGIN CASE BAND (61-64): a custom-name entrance with ZERO stock-byte surgery. Case 52 --
+    the surgery band's other 'dead' slot -- turned out to carry the quicksand's hardcoded main-loop
+    `Byte[24]==52 && Confirm -> Battle(0,144)` branch (the R3 Lamplight playtest fired an Antlion
+    ambush instead of the warp), and every other switch-dead case wears a real label. Cases 61-64 sit
+    past the stock table AND the AREA switch (base 2 x 59 = cases 2..60), inside func-0xB's unbounded
+    49+ explored-bit arm (w98 bits 12-15): the self-summon body shows the case's plate from the
+    kit-extended block-68 table and warps itself -- nothing in stock ever dispatches the case."""
+    from ff9mapkit.eb import disasm as D
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM, ONFOOT_GATE, dispatcher_cases,
+                                          entrance_func_body_direct, explored_set_expr,
+                                          load_world_dispatchers, nameplate_summon)
+    disp = load_world_dispatchers()
+    named = entrance_func_body_direct(6602, world_state=9011, prompt=True, nameplate=True,
+                                      nameplate_case=61, explored_case=61, dispatchers=disp)
+    summon = nameplate_summon(61)
+    settle = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x2C, 0x7F])
+    field = bytes([0x2B, 0x00, 6602 & 0xFF, 6602 >> 8])
+    explored = explored_set_expr(61)
+    # the summon carries CASE 61, not the case-1 default
+    assert summon == bytes([0x05, 0xD5, 0x27, 0x7D, 61, 0x00, 0x2C, 0x7F]) + bytes([0x10, 0x00, 0x06, 0x01, 0x0B])
+    assert summon in named
+    # explored bit = word 98 bit 12 (case-49): `w98 |= 0x1000`, set on the WARP branch (before the fade),
+    # so the plate faithfully upgrades "?" -> "Lamplight" after first entry -- same expr the surgery uses
+    assert explored == bytes([0x05, 0xDC, 0x62, 0xDC, 0x62, 0x7D, 0x00, 0x10, 0x26, 0x2C, 0x7F])
+    assert named.index(settle) < named.index(explored) < named.index(bytes([0xEC])) < named.index(field)
+    # no "!" bubble in the virgin-name mode (parity with the surgery-form entrances: plate + Enter-with-X)
+    assert FICON_EXCLAM not in named[named.index(summon):]
+    # structure otherwise the proven A2 shape: on-foot gate, Confirm before settle, summon on approach only
+    assert named.startswith(ONFOOT_GATE + bytes([0x02]))
+    assert named.index(CONFIRM_PRESSED) < named.index(settle) < named.index(field) < named.index(summon)
+    assert summon not in named[:named.index(field)]
+    # 61 is beyond every free-roam AREA switch -- there is nothing to collide with, ever
+    for name, b in disp.items():
+        cs = dispatcher_cases(b)
+        if cs is not None:
+            assert 61 not in cs, f"{name} maps case 61 -- the virgin band is not virgin"
+    tail = list(D.iter_code(named, 0, len(named)))
+    assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
+    # 65+ has no explored bit: author-level validation depends on explored_word_bit raising
+    with pytest.raises(ValueError):
+        explored_set_expr(65)
+
+
+def test_marker_rename_extends_the_table_for_the_virgin_band():
+    """A locId past the stock table's end EXTENDS it (padding with the game's own '  ?  ' mystery-spot
+    placeholder) instead of silently dropping the rename -- the write-lands failure class."""
+    from ff9mapkit.world import navimap
+    body = ("[STRT=0,0][TBLE=1,2,3,]Dummy\nAlexandria\nSouth Gate[ENDN]"
+            "[STRT=1,0]unrelated[ENDN]")
+    out = navimap.apply_marker_renames(body, {5: "Lamplight"})
+    from ff9mapkit.dialogue import parse_mes
+    t0 = parse_mes(out)[0].text
+    entries = t0[t0.find("]") + 1:].split("\n")
+    assert entries[6] == "Lamplight"                      # locId 5 -> split[6]
+    assert entries[3:6] == [navimap.EXTEND_PLACEHOLDER] * 3   # the minted gap wears the '  ?  ' class
+    assert entries[:3] == ["Dummy", "Alexandria", "South Gate"]
+    assert "unrelated" in out                             # txid-1 untouched

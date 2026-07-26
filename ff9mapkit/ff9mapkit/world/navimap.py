@@ -132,10 +132,22 @@ def resolve_renames(cfg_list) -> dict:
     return out
 
 
+#: what a table slot minted only to reach a HIGHER one reads if anything ever indexes it: the game's own
+#: mystery-spot placeholder (stock split[51]/[52] -- the quicksand class -- are exactly this string).
+EXTEND_PLACEHOLDER = "  ?  "
+
+
 def apply_marker_renames(mes_body: str, renames: dict) -> str:
     """Return ``mes_body`` (a world text block 68 ``.mes``) with the marker labels in ``renames`` ({locId: name})
     applied to txid-0. Byte-preserving elsewhere (a single splice of the one message's text). A no-op (returns the
-    input) if ``renames`` is empty or txid-0 is absent."""
+    input) if ``renames`` is empty or txid-0 is absent.
+
+    A locId PAST the table's end EXTENDS it (padding any gap with :data:`EXTEND_PLACEHOLDER`): the stock table
+    has 61 entries (cases 0-60), and the VIRGIN nameplate band (cases 61-64, locIds 60-63 -- see
+    ``entrance.author_entrance``) lives in slots the stock game never shipped. The engine reads the slot as
+    ``GetTableText(0)[case]`` -- a plain split-array index -- so the entry existing in OUR deployed 68.mes is
+    exactly what makes the custom name renderable. (``resolve_renames`` already caps locIds at 63, which caps
+    the table at the engine's 65-slot case space.)"""
     if not renames:
         return mes_body
     from ..dialogue import parse_mes
@@ -148,8 +160,11 @@ def apply_marker_renames(mes_body: str, renames: dict) -> str:
     entries = rest.split("\n")
     for loc, name in renames.items():
         idx = loc + 1                                                  # [0]=Dummy, [locId+1]=the label
-        if 0 <= idx < len(entries):
-            entries[idx] = name
+        if idx < 0:
+            continue
+        while idx >= len(entries):                                     # the virgin band: extend, don't drop
+            entries.append(EXTEND_PLACEHOLDER)
+        entries[idx] = name
     new_text = prefix + "\n".join(entries)
     return mes_body.replace(text, new_text, 1) if new_text != text else mes_body
 
