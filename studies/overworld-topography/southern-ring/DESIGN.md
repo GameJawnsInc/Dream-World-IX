@@ -18,3 +18,21 @@ Playtest: "i hit 9009 docked at the airship" — the predicted diagnostic, but t
 **THE WARM-MIRROR MASK (the law):** the in-game-proven waystation-6500 loop had proven THE MIRROR, not the preset — its arrive bytes were inert (the direct route records 1062 → the computed lane; D8:2 stayed nonzero; the per-frame mirror held the walked-in tile 8u from the authored arrive). A COLD START (fresh New Game, mirror at 0,0,0) is the discriminating test for any arrival mechanism.
 **The fix (owner-authorized v2):** `arrive_writes()` now writes BOTH blocks (72 B, on-foot first) + `POSITION_PRESET_KEY 62→35`; REGION_KEY_RETURN stays 62 (the no-arrive path is untouched). The stale test expectation updated with a key-62 regression guard; 193 tests green (game-gated tests genuinely ran). Redeployed 6601 only (7 .eb files, +36 B each, hot-reload). The 1062 lane: unnecessary for the ring; additive-only if ever wanted, seeded by the entry handler, never hardcoded. Flagged: the waystation example will emit corrected bytes on its next build (behavior improves; the deployed 6500 is untouched).
 **Re-test:** fresh New Game (no relaunch) → expect the west shore, facing inland, `~ → World` = 9011.
+
+## R2b — THE LANTERN BEACON (2026-07-25/26): the quay marker, playtested through four passes
+
+The quay's visible marker is DEPLOYED + PLAYTESTED: a from-scratch closed lantern-beacon tower
+(generator `mint_quay_beacon.py`, 25 siting gates baked in) on the proven building layer — Object mesh
+idall 4078, collision = 14 terrain-hull tiles topo-59, anchor (48,−1160.5) with the trigger at its foot
+(the ≥1u hull-to-trigger margin and cz ≥ −1160.70 southern limit live in the generator + rebuild script).
+En-route: the harbour-gate carry was REJECTED in playtest (embedded water z-fight + single-sided culling —
+a carried structure is authored for its stock site) and fully reverted; **the render-only building law is
+CONDITIONAL** (a donor-backed/reclaimed cell's Object override IS walkmeshed ahead of Terrain —
+`--building-idall 4078` is the fix, doc'd in OVERWORLD_ENGINE.md); locate.py's area→place naming was
+refuted (census in `../object-census/`). Full record + undo: REVERT.md §9–11.
+
+**Owner acceptance with one folded-forward item — THE ENTRANCE-FACE LAW:** a symmetric tower makes even
+an abutting trigger read as offset, because the trigger IS "the door." **R2 must add a south-face
+entrance feature (recessed doorway/lintel/steps) to the beacon generator**; all four quays (including
+this one, on its R2 rebuild) pick it up. The beacon + `rebuild_quay_marker.sh` + `--building-idall` are
+the reusable kit for the three remaining quays.
