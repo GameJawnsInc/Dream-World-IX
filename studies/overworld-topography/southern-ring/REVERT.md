@@ -202,3 +202,146 @@ reachable via the Lantern Quay entrance, New Game stock. To go further back, fol
 | `tools/scroll_out/revert_deploy_4600.py`, `tools/scroll_out/revert_newgame_from_stock.py` | the generated revert scripts |
 
 **No git commit was made.**
+
+---
+
+# 7. R2a — THE STATE-RECORD FIX — **STOPPED BEFORE ANY WRITE** (historical; superseded by §8)
+
+Run 2026-07-25 (third pass, same worktree), owner-authorized for install writes
+(AskUserQuestion → "Fix + redeploy"). **The authorization was NOT spent.**
+
+**0 install files written. 0 kit-source files written. 0 backups taken (none needed).
+Nothing to revert — the install is byte-identical to the post-§6 state.**
+
+The run was read-only by design after the diagnosis contradicted the designed fix. Full
+machine-readable record: `studies/overworld-topography/out/world-design/r2a_fix_report.json`.
+
+**Why it stopped.** The designed fix (seed `GLOB[1062] = 9011` hub-side + re-stamp it from the
+quay handler) correctly repairs the ROUTING half of the 9009 fall-through — that half is
+byte-confirmed. It does **not** repair the ARRIVAL half, and applying it alone is a
+**regression**: the kit's `arrive=` preset writes the world player's position into
+`C8:83 / D8:86 / C8:88 / D4:91`, which is the **vehicle-composite** actor's mirror block. The
+**on-foot** world avatar — the object that actually takes control when `D4:190 == 0`, in all
+nine free-roam dispatchers — reads `C8:64 / D8:67 / C8:69 / D4:72`. With `1062` seeded, `D8:2`
+stays nonzero, which SUPPRESSES the destination world's own default-point write, so the player
+would be `MoveInstantXZY`'d to the on-foot block's fresh-save value `(0, 0, 0)` — world origin,
+which the live ground query resolves to **Sea4, topograph 57, open ocean**. That is the
+actor-brick class, and strictly worse than today's playable-but-wrong 9009 landing.
+
+**The corrected fix awaiting re-authorization** is smaller than the designed one and touches
+only `ff9mapkit/ff9mapkit/content/worldexit.py`:
+
+1. `_POS_X/_POS_Y/_POS_Z/_POS_FACE` → `(0xC8,64)/(0xD8,67)/(0xC8,69)/(0xD4,72)` (the on-foot block).
+2. `POSITION_PRESET_KEY` `62` → `35` — key 62 is the ONE key whose cascade arm writes `D8:2 = 0`
+   in every scenario band; key 35 is a real disc-1 → 9011 key (13 shipping fields write it) whose
+   arm is a bare `WorldMap`, so the preset survives and the world state re-derives from the
+   CURRENT band on later discs.
+
+That needs **no** hub edit, **no** `--trigger-only` re-stamp and **no** dispatcher bytes — only a
+rebuild + redeploy of field 6601 (7 `.eb` files, hot-reloadable, no relaunch).
+
+**No git commit was made.**
+
+---
+
+# 8. R2a fix2 — THE CORRECTED FIX — **APPLIED**
+
+Run 2026-07-25 (fourth pass, same worktree). The owner was asked a second time (AskUserQuestion,
+2026-07-25) and selected **"Fix + redeploy"**, authorizing exactly the two constant-level edits in
+`ff9mapkit/ff9mapkit/content/worldexit.py` plus a rebuild + redeploy of field 6601 — the fix §7
+specified. Backup timestamp for this pass: **`20260725-202011`**.
+
+**15 install files written, all in `FF9CustomMap-world`. `FF9CustomMap` untouched (0 files).
+Zero terrain bytes, zero dispatcher bytes, zero hub bytes. NO relaunch required** — the
+`DictionaryPatch` line SET is byte-identical (the two 6601 lines were removed and re-appended, so
+only line ORDER changed), and `.eb`/`.mes` content hot-reloads via **~ → Reload field** or a fresh
+New Game.
+
+Machine-readable record: `studies/overworld-topography/out/world-design/r2a_fix2_report.json`.
+
+## 8.1 Backups taken BEFORE writing
+
+| Backup | Covers |
+|---|---|
+| `backups/r2a-fix2-preredeploy.20260725-202011/{us,uk,fr,gr,it,es,jp}/EVT_LANTERN_HALL.eb.bytes` | **all 7 langs** of the live field-6601 event script, 3162 B each (the pre-fix state) |
+| `backups/r2a-fix2-preredeploy.20260725-202011/DictionaryPatch.txt` | the `-world` registry as of the pre-fix state |
+
+No pre-image was kept for the 7 `6601.mes` text files: text was out of scope, no text source
+changed, and the build is deterministic.
+
+## 8.2 What was written
+
+| # | Class | Files | Where |
+|---|---|---|---|
+| 1 | `DictionaryPatch.txt` (line reorder only, same set) | 1 (edit) | `FF9CustomMap-world/DictionaryPatch.txt` |
+| 2 | Field 6601 event scripts | 7 | `.../eventbinary/field/<lang>/EVT_LANTERN_HALL.eb.bytes` — 3162 → **3198 B** (+36) in every lang |
+| 3 | Field 6601 text block | 7 | `FF9CustomMap-world/FF9_Data/EmbeddedAsset/text/<lang>/field/6601.mes` |
+
+Repo side (kit source — the orchestrator commits these, this pass did NOT):
+`ff9mapkit/ff9mapkit/content/worldexit.py` (both edits + the ARRIVAL-MODEL docstring) and
+`ff9mapkit/tests/test_worldexit.py` (the one stale-constant expectation, which had pinned the
+*wrong* position block).
+
+## 8.3 The change, in bytes
+
+The deployed `us` `.eb` differs from the backup in exactly **three** things (whole-file byte diff +
+a 24-function table comparison):
+
+1. **+36 bytes inserted** in entry-4/tag-2 (the berth-exit Range body): the **on-foot** position
+   block `C8:64 / D8:67 / C8:69 / D4:72` = `(60.0, 4.0, −1168.0)` face 192, written *before* the
+   pre-existing vehicle block `C8:83 / D8:86 / C8:88 / D4:91`, which now carries the same values.
+2. **One byte 0x3E → 0x23** — the `D8:2` position-preset key, **62 → 35**.
+3. **Five offset-table bytes, each +36** — the header entries for the functions after the exit.
+
+Every function before the exit is byte-identical and unmoved; every function after it shifted by
+exactly 36. All 7 langs are identical in delta and content shape.
+
+## 8.4 Undo
+
+The redeploy is covered by the same generated revert script as §3a, but that **removes** 6601
+entirely. To go back to the pre-fix *state of the field* instead (6601 still installed, exit lane
+as it was), restore the 7 backed-up `.eb` files:
+
+```sh
+G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+B="backups/r2a-fix2-preredeploy.20260725-202011"
+for L in us uk fr gr it es jp; do
+  cp "$B/$L/EVT_LANTERN_HALL.eb.bytes" \
+     "$G/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/$L/"
+done
+```
+
+Then **~ → Reload field** (no relaunch). To also undo the kit source, `git checkout` the two files
+listed in §8.2 — but note the redeploy above must happen *after* that, or the next build re-emits
+the fixed bytes.
+
+To remove 6601 altogether: `py tools/scroll_out/revert_deploy_6601.py` (§3a).
+
+## 8.5 Verified from the DEPLOYED bytes (not the build output)
+
+* both position blocks present exactly once, on-foot first, both `(60, −1168)` face 192;
+* `D8:2 = 35` written once; **zero** `D8:2 = 62` writes remain in the file;
+* the carried cascade is intact and verbatim — band gate `ScenarioCounter < 5990`, and key **35**'s
+  arms are BARE `WorldMap`: band1 **9011**, band2 9003, band3 9007, band4 9008 (key 62's four arms
+  still run `D8:2 = 0; WorldMap(9009)` and are simply no longer reached);
+* the arrive point `(60, −1168)` ground-queried against the **live stacked meshes** → block (0,18),
+  `Terrain`, y 3.0, `idall` 0, topograph 0 = walkable land, 12u clear of the quay trigger tile
+  (which carries `idall` 16384) — THE ARRIVAL-CLEARANCE LAW holds. The same probe returns
+  `Sea4` / topograph 57 at world (0,0), i.e. the open ocean this fix avoids.
+
+## 8.6 The waystation-6500 precedent (read-only finding — nothing was modified)
+
+The in-game-proven waystation loop used the **same defective constants** (vehicle block + key 62).
+It worked because its entrance took the DIRECT route, which records `GLOB[1062]`, so the exit used
+the computed lane and never hit key 62's `D8:2 = 0`; `D8:2` stayed nonzero, the destination skipped
+its default write — and the on-foot block still held the tile the player had **walked in from**,
+because that object's own main loop mirrors it every frame. The authored arrive point was 8u away
+from that tile by construction, so the preset being inert was invisible. **The precedent proved the
+mirror, not the preset.** The Lantern Hall exposed it because a New-Game player reaches 6601 without
+ever walking the overworld, leaving the mirror at its fresh-save `(0,0,0)`.
+
+⚠ Consequence: `ff9mapkit/examples/continent-v1/waystation.field.toml` will emit *different* bytes
+the next time it is built (real arrive + key 35 → 9011). It was **not** rebuilt here; re-playtest
+6500 if it is ever redeployed.
+
+**No git commit was made.**
