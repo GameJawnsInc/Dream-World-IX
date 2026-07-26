@@ -372,13 +372,32 @@ def behavior_raw(spec: SiegeSpec) -> dict:
                           do={"announce": spec.text_stipend.format(stipend=spec.stipend)}))
     # THE WIN-CONDITION SHAPE: endings DETECT (raise `won` once, mutually
     # excluded via not_flag), ONE branch PAYS (the double-payout playtest law).
-    bb.append(_branch(when=[{"counter_ge": ["wave", len(spec.waves)]},
-                            {"counter_eq": ["raiders_up", 0]},
-                            {"not_flag": "won"}], once="routcry",
-                      raise_flags=["won"], do={"announce": spec.text_rout}))
-    bb.append(_branch(when=[{"time_below": 1}, {"not_flag": "won"}],
-                      once="wincry", raise_flags=["won"],
-                      do={"announce": spec.text_win}))
+    # With win_flash, the detect branch CARRIES the wash and the cries move
+    # below it — THE REVEAL BEAT (round-3 playtest: a window opening as the
+    # white-out starts fights it): the wash's ~65-frame body holds the base's
+    # dispatch level, and the request lane only fires on run==0 in LADDER
+    # order — so the queued cry, purse, and jingle land on consecutive ticks
+    # right at the release. The serialization IS the choreography.
+    rout_when = [{"counter_ge": ["wave", len(spec.waves)]},
+                 {"counter_eq": ["raiders_up", 0]}, {"not_flag": "won"}]
+    win_when = [{"time_below": 1}, {"not_flag": "won"}]
+    if spec.win_flash is not None:
+        # win-lane only — a loss cue on the base would race its die-on-`lost`
+        # TerminateEntry, so the loss keeps its own drama (the cry / the battle)
+        bb.append(_branch(when=rout_when, once="routdet",
+                          raise_flags=["won", "routed"],
+                          do={"flash": list(spec.win_flash)}))
+        bb.append(_branch(when=win_when, once="windet", raise_flags=["won"],
+                          do={"flash": list(spec.win_flash)}))
+        bb.append(_branch(when=[{"flag": "routed"}], once="routcry",
+                          do={"announce": spec.text_rout}))
+        bb.append(_branch(when=[{"flag": "won"}, {"not_flag": "routed"}],
+                          once="wincry", do={"announce": spec.text_win}))
+    else:
+        bb.append(_branch(when=rout_when, once="routcry",
+                          raise_flags=["won"], do={"announce": spec.text_rout}))
+        bb.append(_branch(when=win_when, once="wincry", raise_flags=["won"],
+                          do={"announce": spec.text_win}))
     if spec.win_gil > 0 or spec.win_item:
         pay: dict = {"award": spec.win_gil}
         if spec.win_item:
@@ -390,12 +409,6 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         # the cue the next — THE DRAINING-CONDITION LAW's authoring shape)
         bb.append(_branch(when=[{"flag": "won"}], once="fanfare",
                           do={"sfx": spec.win_sfx}))
-    if spec.win_flash is not None:
-        # the win FLASH rides the same ladder one rung lower: pay, jingle, wash.
-        # Win-lane only — a loss cue on the base would race its die-on-`lost`
-        # TerminateEntry, so the loss keeps its own drama (the cry / the battle).
-        bb.append(_branch(when=[{"flag": "won"}], once="winflash",
-                          do={"flash": list(spec.win_flash)}))
     bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
                       once="alarm", do={"announce": spec.text_alarm}))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))

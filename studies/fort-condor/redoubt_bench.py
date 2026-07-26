@@ -199,12 +199,12 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
     rows vanishing when unaffordable/sold out; troops deploy at your feet.
   3 the three waves (0:55 NW, 0:40 SW, 0:20 SW heavies) march their lanes,
     PIN onto blockers, leakers beat the depot; allies fight by stance.
-  4 endings: hold to 0:00 -> the win cry + ONE purse (2000 gil + a Phoenix
-    Down) + the jingle (rung A, cast-proven) + THE WHITE WASH (rung B round
-    2: the screen BRIGHTENS to white -- not the warp fade-to-black -- holds
-    a beat at white, then releases; exactly ONCE, right after the jingle);
-    or rout wave 3 early -> the same cry/purse/jingle/wash; or lose the
-    depot -> the boss battle (NO jingle, NO wash on a loss).
+  4 endings, now on THE REVEAL BEAT (round 3): winning fires THE WHITE WASH
+    FIRST (brighten -> a held beat at white -> release), and the win cry,
+    the ONE purse (2000 gil + a Phoenix Down), and the jingle all land
+    RIGHT AT THE RELEASE, in that order a tick apart -- no more dialogue
+    fighting the white-out. Same beat on the early rout (its own cry text);
+    lose the depot -> the boss battle (NO wash, NO jingle on a loss).
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")

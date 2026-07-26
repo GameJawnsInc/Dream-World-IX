@@ -137,20 +137,39 @@ def test_win_sfx_fanfare_branch():
         _spec(win_sfx="loud")
 
 
-def test_win_flash_branch():
-    """`win_flash` adds the wash one rung below the jingle: pay -> fanfare ->
-    flash, all event-Once on the monotonic `won` flag. `true` means white."""
+def test_win_flash_reveal_beat():
+    """With win_flash the DETECT branches carry the wash (the rout one also
+    raises `routed`) and the cries move BELOW it — THE REVEAL BEAT (round-3
+    playtest: a window opening as the white-out starts fights it): the wash
+    body holds the dispatch level and the request lane fires on run==0 in
+    ladder order, so cry -> purse -> jingle land at the release."""
     b = S.behavior_raw(_spec(win_sfx=108, win_flash=True))
-    base = b["unit"][0]
-    dos = [br["do"] for br in base["branch"]]
-    assert dos.index({"sfx": 108}) < dos.index({"flash": [255, 255, 255]})
-    fl = next(br for br in base["branch"]
-              if isinstance(br["do"], dict) and "flash" in br["do"])
-    assert fl["when"] == [{"flag": "won"}] and fl["once"] == "winflash"
-    # a colour list passes through; junk is refused
+    br = b["unit"][0]["branch"]
+    flashes = [x for x in br if isinstance(x["do"], dict) and "flash" in x["do"]]
+    assert len(flashes) == 2                      # one per ending, both the colour
+    assert all(x["do"] == {"flash": [255, 255, 255]} for x in flashes)
+    assert flashes[0]["raise_flags"] == ["won", "routed"]     # the rout detect
+    assert flashes[1]["raise_flags"] == ["won"]               # the timer detect
+    crys = [x for x in br if isinstance(x["do"], dict) and "announce" in x["do"]
+            and x.get("once") in ("routcry", "wincry")]
+    assert crys[0]["when"] == [{"flag": "routed"}]
+    assert crys[1]["when"] == [{"flag": "won"}, {"not_flag": "routed"}]
+    assert not crys[0].get("raise_flags") and not crys[1].get("raise_flags")
+    dos = [x["do"] for x in br]
+    i_flash = dos.index({"flash": [255, 255, 255]})
+    i_cry = br.index(crys[0])
+    i_pay = dos.index({"award": 2000, "item": "Phoenix Down"})
+    i_sfx = dos.index({"sfx": 108})
+    assert i_flash < i_cry < i_pay < i_sfx        # wash -> cry -> purse -> jingle
+    # a colour list passes through; WITHOUT win_flash the proven announce-on-
+    # detect shape is unchanged; junk is refused
     b2 = S.behavior_raw(_spec(win_flash=[255, 60, 60]))
-    assert any(br["do"] == {"flash": [255, 60, 60]} for br in b2["unit"][0]["branch"]
-               if isinstance(br["do"], dict))
+    assert any(x["do"] == {"flash": [255, 60, 60]} for x in b2["unit"][0]["branch"]
+               if isinstance(x["do"], dict))
+    plain = S.behavior_raw(_spec(win_sfx=108))["unit"][0]["branch"]
+    det = [x for x in plain if x.get("once") in ("routcry", "wincry")]
+    assert all(x.get("raise_flags") == ["won"] and "announce" in x["do"]
+               for x in det)
     with pytest.raises(S.SiegeError, match="win_flash"):
         _spec(win_flash=[255, 300, 0])
     with pytest.raises(S.SiegeError, match="win_flash"):
@@ -234,13 +253,13 @@ def test_full_build_compiles(tmp_path):
              for ins in D.iter_code(body, 0, len(body))
              if ins.name == "RunSoundCode3"]
     assert plays == [(53248, 108)]
-    # ... and the flash (win_flash = true): one white ADD-channel pair (the
-    # stock white-out, NOT the mode-6/7 warp fade)
+    # ... and the flash (win_flash = true): white ADD-channel pairs (the stock
+    # white-out, NOT the mode-6/7 warp fade) — one body per detect branch
     fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))
              for _tag, body in cb.action_funcs["base"]
              for ins in D.iter_code(body, 0, len(body))
              if ins.op == 0xEC]
-    assert fades == [(0, 255, 255, 255), (1, 0, 0, 0)]
+    assert fades == [(0, 255, 255, 255), (1, 0, 0, 0)] * 2
     # determinism: a second load desugars to the identical raw
     p2 = BLD.FieldProject.load(f)
     assert p2.raw["behavior"] == p.raw["behavior"]

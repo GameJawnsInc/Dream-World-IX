@@ -18,13 +18,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (REDOUBT round 2): `mode & 2` = the SUB filter, and SUB toward white is the stock warp
   fade to BLACK — a flash must ride the ADD channel or it reads as a field transition.
   Same once/bare stances as `sfx`; queued one-shots fire when the body releases.
-- `[siege]` grew the win-theater dials `win_sfx = <id>` and `win_flash = true | [r,g,b]`:
-  generated event-Once branches below the pay, all gated on the monotonic `won` flag —
-  purse, jingle, wash on consecutive ticks (the draining-condition law's authoring shape).
-  Win-lane only by design: a loss cue on the base would race its die-on-`lost`
-  `TerminateEntry`, so a loss keeps its own drama (the cry / the boss battle).
+- `[siege]` grew the win-theater dials `win_sfx = <id>` and `win_flash = true | [r,g,b]`,
+  choreographed on THE REVEAL BEAT (round-3 playtest: the win cry opening as the white-out
+  starts fights it): with `win_flash`, the DETECT branch carries the wash and the cries
+  move below it — the wash body holds the base's dispatch level, and the request lane
+  fires on run==0 in ladder order, so cry → purse → jingle land on consecutive ticks
+  right at the release. Without `win_flash`, the proven announce-on-detect shape is
+  byte-unchanged. Win-lane only by design: a loss cue on the base would race its
+  die-on-`lost` `TerminateEntry`, so a loss keeps its own drama (the cry / the battle).
   Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421); rung A cast-proven
-  ("victory sound fired once, nothing on defeat").
+  ("victory sound fired once, nothing on defeat"), the rung-B wash cast-proven
+  ("white wash works now, pause feels right").
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
