@@ -1,0 +1,203 @@
+# R2 A2+A3 sweep -- md5 of every file in FF9CustomMap-world, before vs after.
+# 891 files before, 891 after; none added or removed. 79 files changed:
+#   63 world dispatcher .eb (9 dispatchers x 7 langs), +99 B each = +3 functions
+#      (the Tidefall, Grimhorn and Larkspur cell triggers). Every pre-existing function body
+#      byte-identical and in order -- proven by parsing both versions; the case-53 handler and
+#      the Ashvale trigger are untouched.
+#   16 world meshes = 4 sites x {Terrain, Object} x {Disc1, Disc4}, disc-identical per site.
+#   0 text files: the 7 text-block-68 .mes were rewritten by the surgery step but are
+#      BYTE-IDENTICAL to their backups, so they do not appear below.
+#   0 DictionaryPatch, 0 field .eb, 0 files in FF9CustomMap.
+
+152c152
+< 4acc87aba56ab8e5e164cb790c94d92b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> 80b61eba1ad9a8ffbd4b844672f992ae *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Object.ff9mesh
+158c158
+< db6e94d780f5923bfc9eaefe6c2f0ce8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Terrain.ff9mesh
+---
+> 1960bbc83f9168a4786f6fae851458fc *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[0][18] Terrain.ff9mesh
+174c174
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[18][18] Object.ff9mesh
+---
+> d3f4ea684e65fb1ddff38b8f63808faf *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[18][18] Object.ff9mesh
+180c180
+< 8fda030f0b6f611684857b0fb7aa1bff *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[18][18] Terrain.ff9mesh
+---
+> c780845b8d4a8556dda9e57fc07911c1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r18/Block[18][18] Terrain.ff9mesh
+341c341
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r19/Block[6][19] Object.ff9mesh
+---
+> d998028ff951c3816c81e35cebe3e9f4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r19/Block[6][19] Object.ff9mesh
+347c347
+< ab2d736498615de81563fc7e2f389792 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r19/Block[6][19] Terrain.ff9mesh
+---
+> 7b295c29eb1093500b1283f9552b4322 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r19/Block[6][19] Terrain.ff9mesh
+388c388
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r9/Block[10][9] Object.ff9mesh
+---
+> dcfc945d0f43b80b4fd522d0f65e10ea *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r9/Block[10][9] Object.ff9mesh
+394c394
+< 2013deb42019817bd973ace33c62e17c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r9/Block[10][9] Terrain.ff9mesh
+---
+> 37b7300f79f76fb1b8f6665765248210 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r9/Block[10][9] Terrain.ff9mesh
+541c541
+< 4acc87aba56ab8e5e164cb790c94d92b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh
+---
+> 80b61eba1ad9a8ffbd4b844672f992ae *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Object.ff9mesh
+547c547
+< db6e94d780f5923bfc9eaefe6c2f0ce8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Terrain.ff9mesh
+---
+> 1960bbc83f9168a4786f6fae851458fc *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[0][18] Terrain.ff9mesh
+564c564
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[18][18] Object.ff9mesh
+---
+> d3f4ea684e65fb1ddff38b8f63808faf *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[18][18] Object.ff9mesh
+570c570
+< 8fda030f0b6f611684857b0fb7aa1bff *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[18][18] Terrain.ff9mesh
+---
+> c780845b8d4a8556dda9e57fc07911c1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r18/Block[18][18] Terrain.ff9mesh
+729c729
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r19/Block[6][19] Object.ff9mesh
+---
+> d998028ff951c3816c81e35cebe3e9f4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r19/Block[6][19] Object.ff9mesh
+735c735
+< ab2d736498615de81563fc7e2f389792 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r19/Block[6][19] Terrain.ff9mesh
+---
+> 7b295c29eb1093500b1283f9552b4322 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r19/Block[6][19] Terrain.ff9mesh
+774c774
+< e4a62c30d82899d19f86bdd6e19df0c9 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r9/Block[10][9] Object.ff9mesh
+---
+> dcfc945d0f43b80b4fd522d0f65e10ea *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r9/Block[10][9] Object.ff9mesh
+780c780
+< 2013deb42019817bd973ace33c62e17c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r9/Block[10][9] Terrain.ff9mesh
+---
+> 37b7300f79f76fb1b8f6665765248210 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r9/Block[10][9] Terrain.ff9mesh
+827,889c827,889
+< fc61126605323625c475b3af03af254e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD00.eb.bytes
+< 508a74faacfbe3ac8e8aaa6ab8232f83 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD02.eb.bytes
+< 768e335ce1a0255acac3aa40935c0516 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD03.eb.bytes
+< 0ca04ff35c79b3512cf4ae7818f9b5f8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD05.eb.bytes
+< ade0f6107165f72870c660ed71ca4962 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD07.eb.bytes
+< 3766ebf285872597578cfd709b463813 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD08.eb.bytes
+< ae68c1ddc59b70d04cfc30bb060c5ad0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD09.eb.bytes
+< 6f1f01d64269707b44dd95c4f98ad034 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD10.eb.bytes
+< 224992eb8a6b52f4cedd317e95ceb08f *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD11.eb.bytes
+< 555ddd17ec7f97e98c4bc4112c9783b4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD00.eb.bytes
+< 4260bef83829a6fbe2703d819e61c3d4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD02.eb.bytes
+< 7d97381f279911ff382adb0bbd478084 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD03.eb.bytes
+< 1a5a992ace31a4d47d5229e73bd0212a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD05.eb.bytes
+< c12765b112230631994de868fb74cf5c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD07.eb.bytes
+< 230e65d98e345b8bbdc9d6ac8a8e9d96 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD08.eb.bytes
+< ebd76ef6ee9faf356aac5fecd64daaa6 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD09.eb.bytes
+< 5c7364ab6b921e2402b52a03b04127b0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD10.eb.bytes
+< 9f22cfe3b21b5d0eb092db91d6cc7975 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD11.eb.bytes
+< 402ff6753653a608fab2fdb4cc664e52 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD00.eb.bytes
+< 96b6d6c813663ce6093f10bb4e2ef72e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD02.eb.bytes
+< a254f695db689e1039199b77e7018d67 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD03.eb.bytes
+< 08d4ff3cbd44e2ca2fa64543aac3f0f6 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD05.eb.bytes
+< 3fe97a164a45899231f57ea29685b180 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD07.eb.bytes
+< 29308e33602e7a858a53d06ac6190e1c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD08.eb.bytes
+< 5cc79e2349cfe403c4b1955154ca9f77 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD09.eb.bytes
+< 149b4d2ae19366a5162bb6787aaf6003 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD10.eb.bytes
+< 771291fbb4f008f9fa33266958610f83 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD11.eb.bytes
+< d9edf2520d57b06c98e6db93eee5f3ae *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD00.eb.bytes
+< 857a4a6e17cc9e6770a6836c3bfc56ba *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD02.eb.bytes
+< cb32cf57a0ebb6ac5fdebe354fd01e74 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD03.eb.bytes
+< da0586f7a7b146dc68a98b32a389a827 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD05.eb.bytes
+< 205e2835f095c1b5e0f7aef0727b4a0b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD07.eb.bytes
+< 60a3319ee489b9a7425ee3ae61a07a45 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD08.eb.bytes
+< ee26092393f12e39977dbc68a2995f73 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD09.eb.bytes
+< a6b60dabd99256d0202f81e43017bb41 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD10.eb.bytes
+< aae17e2a36ddb4087f073f07957d5759 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD11.eb.bytes
+< 08aaaaa7691dd895cca955c7ebbd66c8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD00.eb.bytes
+< f2d62e226d9ecab4eff7e01d066792e8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD02.eb.bytes
+< 1ee09865cdd883e2bae34c726bc8acb1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD03.eb.bytes
+< b6975f746e1140baa9b7b12ccfeb4cac *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD05.eb.bytes
+< b139dff34b288c8f820eecef11cfbd30 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD07.eb.bytes
+< d294e5acd8925d33696d587b4fa4004c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD08.eb.bytes
+< ca0031d53f1d481a6a5d139f19071b61 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD09.eb.bytes
+< 86749d06c74deba247df5a59e099a8b5 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD10.eb.bytes
+< 65873fb4630311fc5346d6430875371d *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD11.eb.bytes
+< c486bce73284fda7d36c1b9a94723d97 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD00.eb.bytes
+< b13fe89ef6bcb5d4110cee50b3574fb0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD02.eb.bytes
+< 5f374b50954f944163561aa97b29b8ec *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD03.eb.bytes
+< 4c4b519e2cb4d2b2905325bf86f6554a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD05.eb.bytes
+< 94339c4a67bf2d4549da9bb3c0adaf2e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD07.eb.bytes
+< de6b0b81117923584b15cfcaef779bf2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD08.eb.bytes
+< b0f4d89fdf569035882e01dbcc141255 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD09.eb.bytes
+< 19845bea43388fe4e6f6ae49cce95812 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD10.eb.bytes
+< 6f2acf7dd13c6f1100996b0052fa7a3f *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD11.eb.bytes
+< c486bce73284fda7d36c1b9a94723d97 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD00.eb.bytes
+< b13fe89ef6bcb5d4110cee50b3574fb0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD02.eb.bytes
+< 5f374b50954f944163561aa97b29b8ec *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD03.eb.bytes
+< 4c4b519e2cb4d2b2905325bf86f6554a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD05.eb.bytes
+< 94339c4a67bf2d4549da9bb3c0adaf2e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD07.eb.bytes
+< de6b0b81117923584b15cfcaef779bf2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD08.eb.bytes
+< b0f4d89fdf569035882e01dbcc141255 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD09.eb.bytes
+< 19845bea43388fe4e6f6ae49cce95812 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD10.eb.bytes
+< 6f2acf7dd13c6f1100996b0052fa7a3f *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD11.eb.bytes
+---
+> c1b6b32ed60a2bae06edc597bcbdb747 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD00.eb.bytes
+> 3c223cb0514dd68b447642e4bf88f7a0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD02.eb.bytes
+> a4141c9b0bc83252c7acb9f1e890ea3a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD03.eb.bytes
+> 8aa742b34930328b0cb3d73128f9f0e1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD05.eb.bytes
+> 057107dea79353bad9ecc23cb40880b8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD07.eb.bytes
+> 43f0e9b2e6af2a6a414c39a6784c2ca1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD08.eb.bytes
+> 65727ef9756766b6386d2b40208a4143 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD09.eb.bytes
+> 029dc99aeba82f927e0f5b645564efbb *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD10.eb.bytes
+> 3b60e0247d20a07f021ba3015496e0dc *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/es/EVT_WORLD_WORLD11.eb.bytes
+> d88d0c6f5bc803e83379a3b09ce8eaca *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD00.eb.bytes
+> daa93326fe408e697c69ceca5a82a8c6 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD02.eb.bytes
+> a8bbcd4be30e809c1a75cda599a0c287 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD03.eb.bytes
+> 74580f592589fe66c156708495e9afa0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD05.eb.bytes
+> dcd2f692e783974fc3a956502c06b1e5 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD07.eb.bytes
+> 3ad85b1126ed243cb6002580a5708bc4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD08.eb.bytes
+> 76da37acf11027815592c546cf591a18 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD09.eb.bytes
+> 750d6d1206f3780a26b3cc5fa7830ee4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD10.eb.bytes
+> e3110c2dccfd46e91ca460886e398be8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/fr/EVT_WORLD_WORLD11.eb.bytes
+> 2d3cb539f569224d437bfeb88f232905 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD00.eb.bytes
+> e704feec40e098a66cd4198e20ad1890 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD02.eb.bytes
+> 00fb0737afd5348caa7cda25ef820fbd *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD03.eb.bytes
+> dae7433bcab2a332999b3e4bc9f163ca *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD05.eb.bytes
+> bcc1a6077899e01c385ab09adfb7ac48 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD07.eb.bytes
+> 3f24542d2bbf8bf3b5935d34339da94f *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD08.eb.bytes
+> 4b40e0391ff6ac129f4da56e8d2a0a32 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD09.eb.bytes
+> da453a2a8be2d3cedf64c55ea457db8c *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD10.eb.bytes
+> 515d2cff0e8d61d4fdeea32cef17d760 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/gr/EVT_WORLD_WORLD11.eb.bytes
+> 4c5ad8e404f8a3a30e807fac907ea3c1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD00.eb.bytes
+> 06db34e1c919df635d56e14be82549f8 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD02.eb.bytes
+> 845c427df5720ce2d49c54c4112b2763 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD03.eb.bytes
+> a50121da97574ce22cd63a8977938466 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD05.eb.bytes
+> 011cc1aa9021f947d4808593ec22ca19 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD07.eb.bytes
+> 672ffe5302def8fb13ac9bcb600adc65 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD08.eb.bytes
+> 259f6ac0b857da13210de15e7d618b3e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD09.eb.bytes
+> 4663d577f839c1f494f98fb28dbec4ea *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD10.eb.bytes
+> 9f6f2cfb5c788fbd0c809f3842dffca1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/it/EVT_WORLD_WORLD11.eb.bytes
+> 5aa7c1be03a02dfbbf8a9fc45e62b542 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD00.eb.bytes
+> c9093910296c6fb9d8df3f95530105e1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD02.eb.bytes
+> 05c8f122f986b55a69b422a7d7c44b19 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD03.eb.bytes
+> 83b9b564f9121ab7d020d88111235378 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD05.eb.bytes
+> 45b1a8a1de8da0b2c834cecef77a18c4 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD07.eb.bytes
+> c957d109cfb337c48b05aaaf5283f27e *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD08.eb.bytes
+> 6246837aae2a9710e6010a64a913f6f0 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD09.eb.bytes
+> b539bb935738e849513b5d1ce94d2c82 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD10.eb.bytes
+> 9c99e6af674ec6fbb7793ed155c025f1 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/jp/EVT_WORLD_WORLD11.eb.bytes
+> 6d91ec9d6f09c0546fe36a844b14ec2b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD00.eb.bytes
+> da1afb170f785caa8c86616f268a42e2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD02.eb.bytes
+> e75bd75f5215aef59efbdb557189a752 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD03.eb.bytes
+> 85960872adc52e9374964a2f142bba03 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD05.eb.bytes
+> 233be120dd0dc6ebe9228ce08e797f3a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD07.eb.bytes
+> 7bbd3cd5db85e15de04020db0d36c7df *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD08.eb.bytes
+> ee1a572d0fe12f975790a7c36c3611a2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD09.eb.bytes
+> 41d82085ead9d01168e4c292f4505f6b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD10.eb.bytes
+> 0be624c6596cea8feab39025a4e08c59 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/uk/EVT_WORLD_WORLD11.eb.bytes
+> 6d91ec9d6f09c0546fe36a844b14ec2b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD00.eb.bytes
+> da1afb170f785caa8c86616f268a42e2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD02.eb.bytes
+> e75bd75f5215aef59efbdb557189a752 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD03.eb.bytes
+> 85960872adc52e9374964a2f142bba03 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD05.eb.bytes
+> 233be120dd0dc6ebe9228ce08e797f3a *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD07.eb.bytes
+> 7bbd3cd5db85e15de04020db0d36c7df *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD08.eb.bytes
+> ee1a572d0fe12f975790a7c36c3611a2 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD09.eb.bytes
+> 41d82085ead9d01168e4c292f4505f6b *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD10.eb.bytes
+> 0be624c6596cea8feab39025a4e08c59 *C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/us/EVT_WORLD_WORLD11.eb.bytes

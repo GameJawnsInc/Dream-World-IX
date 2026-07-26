@@ -59,7 +59,15 @@ if [ -z "$SITE" ]; then
   exit 2
 fi
 
-# Per-site deploy arguments. Each row is: cell-x cell-y  trigger-x trigger-z  beacon-x beacon-z  obj
+# Per-site deploy arguments. Each row is: cell  trigger  --building-at  obj
+#
+# ⚠ AT IS THE MESH'S BBOX CENTRE, NOT THE ANCHOR -- they differ by 0.225u since pass 5.
+# `build_from_obj` re-anchors the XZ BOUNDING-BOX CENTRE onto --building-at. The entrance steps
+# project 0.45u south, so the bbox centre sits 0.225u south of the tower centre; passing the anchor
+# slides the whole beacon 0.225u NORTH of where the 29 gates measured it. `mint_quay_beacon.py`
+# prints the correct value (Site.building_at) at the end of every generate -- use that, never the
+# anchor. (Caught on the first Tidefall deploy; the gap to the trigger merely grew, but the deployed
+# mesh no longer matched the gated one, which is how drift starts.)
 # The beacon anchor's SOUTHERN LIMIT is derived per site in mint_quay_beacon.py's SITES table: the hull
 # must stay >= 1.0u clear of the trigger rect, and the hull is the mesh's FULL XZ extent, which since
 # pass 5 includes the entrance steps projecting 0.45u south. So the limit is
@@ -68,10 +76,10 @@ fi
 # Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
 # was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
 case "$SITE" in
-  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.2";    OBJ="quay_beacon.obj" ;;
-  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.2";   OBJ="quay_beacon_tidefall.obj" ;;
-  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.2";  OBJ="quay_beacon_grimhorn.obj" ;;
-  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.2";    OBJ="quay_beacon_larkspur.obj" ;;
+  ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj" ;;
+  tidefall) CELL="13 38";  TRIG="420 -1232";   AT="420 -1224.425";   OBJ="quay_beacon_tidefall.obj" ;;
+  grimhorn) CELL="37 37";  TRIG="1204 -1192";  AT="1204 -1184.425";  OBJ="quay_beacon_grimhorn.obj" ;;
+  larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj" ;;
   *) echo "unknown site: $SITE" >&2; exit 2 ;;
 esac
 

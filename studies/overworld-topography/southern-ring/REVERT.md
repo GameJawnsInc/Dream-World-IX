@@ -1154,7 +1154,18 @@ is already primed with the pass-5 expectations and its old-hull-cleared gate poi
 
 ---
 
-# 13. R2 PHASE A0/A1 — the aux STOP, and the multi-site generator — **REPO ONLY, NOT DEPLOYED**
+# 13. R2 PHASE A0/A1 — the aux STOP, and the multi-site generator
+
+> **WHY GRIMHORN SHIPS WITHOUT ITS FALLS — the closing word on the horseshoe aux.**
+> The Daguerreo-horseshoe carry that once gave the Grimhorn bench its animated Falls / River /
+> RiverJoint / Object ensemble (★ in-game proven 2026-07-15, closed over 3 rounds) **no longer exists in
+> the deployed tree** — a later `world-island` / `world-reclaim` run over the bench span wiped it via the
+> `HIDDEN_PARTS` stub trap (§10.11), leaving 176 B blanking stubs dated Jul 21 01:59 in its place.
+> Restoring it is not a re-run: no runnable script or recorded command survives (README:346-351 is prose
+> describing the *result*), so it would mean reconstructing a `world-mountain` invocation and rewriting
+> terrain across a **10-block span** — through the very cell the Grimhorn quay now stands on.
+> **A0 is formally DROPPED from R2 by owner ruling.** Grimhorn ships as a plain bench with a beacon.
+> This paragraph is the record; do not re-litigate or re-cost it.
 
 Run 2026-07-26. **ZERO install writes** (verified by whole-folder md5 against the pass-4/5 state).
 Stopped at the A1/A2 boundary; A2 (the three new site deploys) and A3 (the Ashvale rebuild) are
@@ -1239,3 +1250,133 @@ tiles orphan as invisible walls.
 | `rebuild_quay_marker.sh` | takes `<site>`; per-site args + the shared southern-limit derivation |
 
 No kit code changed. World/mesh set: **300 passed, 4 skipped**.
+
+---
+
+# 14. R2 PHASE A2 + A3 — THE FOUR QUAYS ARE LIVE — **APPLIED**
+
+Run 2026-07-26, same worktree/branch. Backup set: **`backups/r2-sweep.20260726-r2sweep/`**
+(per-site Terrain+Object on both discs, the 7 text-block-68 `.mes`, and **all 63 world dispatchers**).
+**No relaunch performed or required** — dispatcher `.eb` and world meshes hot-reload on world re-entry.
+
+## 14.1 Write-set — 79 files, 891 before and after
+
+| class | count | detail |
+|---|---|---|
+| world dispatchers | **63** | 9 dispatchers × 7 langs, **+99 B each = +3 functions** (the Tidefall, Grimhorn, Larkspur cell triggers) |
+| world meshes | **16** | 4 sites × {Terrain, Object} × {Disc1, Disc4}; disc-identical per site |
+| text block 68 | **0 changed** | rewritten by the surgery step, **byte-identical** to backup (verified all 7 langs, twice) |
+| DictionaryPatch / field `.eb` / `FF9CustomMap` | **0** | untouched |
+
+Proof: `probe_marker/writeset_md5_diff_pass6.txt`.
+
+**Dispatcher integrity, proven by parsing rather than asserting:** both versions of all 63 files were
+parsed with `EbScript` and their function bodies compared. **Every pre-existing body survives
+byte-identical and in order**, with exactly +3 new functions each. The case-53 handler, the Ashvale
+trigger and every stock function are untouched. (A byte-level "pure insertion" test *fails* here and
+that is expected — the `.eb` header's offset table shifts too, and a new table entry is inserted. The
+function-body comparison is the check that actually means something.)
+
+| site | block | terrain tris | Object | trigger idall | hull tiles |
+|---|---|---|---|---|---|
+| Ashvale | (0,18) | 230 → 270 | 42140 B | 16384 (topo 0) | 16 |
+| Tidefall | (6,19) | 293 → 333 | 42140 B | 16384 (topo 0) | 16 |
+| Grimhorn | (18,18) | 209 → 249 | 42140 B | **16452 (topo 17)** | 16 |
+| Larkspur | (10,9) | 566 → 606 | 42140 B | 16384 (topo 0) | 16 |
+
+## 14.2 ⚠ THE BBOX-CENTRE DRIFT — caught on the first deploy, fixed at the source
+
+`--building-at` re-anchors the mesh's **XZ BOUNDING-BOX CENTRE** (`blendio.py:198-203`), not its design
+anchor. Until pass 5 the footprint was symmetric (±2.30), so the two coincided and passing the anchor
+was an identity shift. **Pass 5's entrance steps project 0.45 u south, moving the bbox centre 0.225 u
+south of the tower centre** — so passing the anchor slid the whole beacon **0.225 u NORTH of where all
+29 gates had measured it**.
+
+The first Tidefall deploy did exactly that; the probe's span check caught it (`z[-1226.73,-1221.68]`
+against an expected `z[-1226.95,-1221.90]`). The clearance merely *improved*, so nothing was unsafe —
+but the deployed mesh no longer matched the gated one, and that is how drift starts.
+
+**Fixed at the source, not per call site:** `Site.building_at` now publishes the correct value
+(`anchor_z + (DEEP_N − DEEP_S)/2`), the generator prints it after every build, and
+`rebuild_quay_marker.sh` carries it with the derivation. Tidefall was **restored from backup and
+re-deployed** with the corrected value before any other site was touched.
+
+| site | anchor | `--building-at` |
+|---|---|---|
+| Ashvale | (48, −1160.2) | (48, **−1160.425**) |
+| Tidefall | (420, −1224.2) | (420, **−1224.425**) |
+| Grimhorn | (1204, −1184.2) | (1204, **−1184.425**) |
+| Larkspur | (700, −608.2) | (700, **−608.425**) |
+
+## 14.3 Verification — 160 checks, ALL PASS
+
+`probe_marker/probe_quay_sites.py` (site-driven: expectations come from `mint_quay_beacon.SITES`, so
+the probe cannot drift from the mesh it checks) → `probe_marker/probe_output_pass6.txt`. Per site, both
+discs: trigger intact (6 tris, event 1 / area 0, bbox == the site rect, geometry-identical to the
+pre-deploy mesh where one existed); arrive walkable in **both** query modes; beacon 270 tris / 810 verts
+all idall 4078 with the walk query passing **through** to the topo-59 hull while a sky-cast hits the
+Object; hull tiles enumerated, topo-59 only, inside the footprint, clear of the trigger, and the only
+topo-59 geometry in the block; UVs valid; **Disc1/Disc4 byte-identical**.
+
+**Two probe-expectation bugs found and fixed (not deploy bugs):**
+1. **Grimhorn's trigger tiles read idall 16452, not 16384** — and that is CORRECT. `retarget_tiles`
+   sets the event bit and (with `--no-tile-area`) leaves area alone, but it also **preserves each
+   tile's own topograph**. Grimhorn's bench ground is topo 17; the other three sit on topo 0. The
+   invariant is **event 1 / area 0**, never a raw idall equality — demanding 16384 everywhere would
+   have condemned a correct deploy.
+2. **Ashvale's delta baseline was the pass-4 state** (which already carried a hull), so the enumeration
+   showed "16 blocked vs 1 stamped". The true pre-deploy baseline is the pass-3 backup that A3 restored
+   from; corrected, and Ashvale's old hull is proven cleared by the same `n59 == len(hull)` gate.
+
+## 14.4 A3 restore-first (the §11.3 ordering, honoured)
+
+Ashvale's live Object was the pass-4 beacon with its hull at the pass-4 footprint. Restored from
+`quay-beacon-prebuild.20260725-230801` (md5 `1225065193757d7a…` Terrain, `e4a62c30…` Object, verified
+against the live files after copying) **before** deploying, so the old hull tiles could not orphan.
+The probe's `n59 == len(hull)` gate confirms the block's only impassable geometry is the new hull.
+
+## 14.5 Undo
+
+Per site, restore its two meshes on both discs from the sweep backup; to remove the new entrances
+entirely, also restore the 63 dispatchers:
+
+```sh
+G="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+B="backups/r2-sweep.20260726-r2sweep"
+# meshes -- per site: ashvale 0 18 / tidefall 6 19 / grimhorn 18 18 / larkspur 10 9
+for D in 1 4; do
+  cp "$B/tidefall/Disc$D/Block[6][19] "*.ff9mesh "$G/FF9CustomMap-world/FF9_Data/WorldMap/Disc$D/0_1/r19/"
+done
+# all nine dispatchers, all seven langs (removes the three new triggers; Ashvale's stays)
+cp -r "$B/dispatchers/." \
+  "$G/FF9CustomMap-world/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/world/"
+```
+
+⚠ Restoring the **Ashvale** meshes from this sweep's backup returns it to the **pass-4** beacon, not to
+bare ground — the sweep snapshot was taken while pass 4 was live. For bare ground use
+`quay-beacon-prebuild.20260725-230801` (§10.10).
+
+Re-enter the overworld; no relaunch.
+
+## 14.6 Standing trap, now ×4
+
+`island.py`'s `HIDDEN_PARTS` re-stubs the Object part and a `world-island`/`world-reclaim` re-run
+rewrites the terrain, so **each** quay is two things to restore. `rebuild_quay_marker.sh <site>` does
+both for one site; run it per affected site.
+
+## 14.7 Playtest ask (owner) — no relaunch
+
+Re-enter the overworld (or `~ → World` teleport). All four quays should now be live:
+
+| quay | trigger | beacon | arrive |
+|---|---|---|---|
+| Ashvale | (48, −1168) | (48, −1160.2) | (60, −1168) face 192 |
+| Tidefall | (420, −1232) | (420, −1224.2) | (432, −1232) face 192 |
+| Grimhorn | (1204, −1192) | (1204, −1184.2) | (1214, −1192) face 192 |
+| Larkspur | (700, −616) | (700, −608.2) | (688, −616) **face 64 (west)** |
+
+Confirm at each: the beacon renders textured with its dark doorway facing the trigger; the "!" fires at
+the tower's foot; you can walk in from the arrive side without snagging; the "Lantern Quay" plate
+appears. (All four currently share the case-53 name — per-berth naming is a B-phase concern.)
+Larkspur's base is seated on the footprint **minimum** (0.116 u of relief there), so check it does not
+read as sunk on the high side.
