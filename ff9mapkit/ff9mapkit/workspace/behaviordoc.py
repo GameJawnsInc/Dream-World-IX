@@ -748,6 +748,7 @@ class BehaviorDoc(QWidget):
         self.on_edit = on_edit                     # (member, label) after each committed edit --
         #                                            the shell's touch/checkpoint/re-feed hook
         self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
+        self._ask_archetype = self._ask_archetype_dialog   # same seam shape for the stamp picker
         self._member = None
         self._path = None
         self._dirty = False
@@ -793,7 +794,8 @@ class BehaviorDoc(QWidget):
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
                       "combat — as priority branches in the field.toml. The format lives in "
                       "docs/BEHAVIOR.md; benches 30410-30418 are worked examples.",
-                actions=[("Add a behavior unit…", self._add_unit)],
+                actions=[("Add a behavior unit…", self._add_unit),
+                         ("Stamp an archetype…", self._stamp_archetype)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -844,6 +846,14 @@ class BehaviorDoc(QWidget):
                                      "ladder: a death branch + a hold fallback).")
         self.add_unit_btn.clicked.connect(self._add_unit)
         cv.addWidget(self.add_unit_btn)
+        self.archetype_btn = QPushButton("＋ Archetype…")
+        self.archetype_btn.setProperty("role", "quiet")
+        self.archetype_btn.setToolTip(
+            "Stamp a whole proven tree onto a named [[npc]] — sentry (watch + alarm), "
+            "patroller (a minted beat), civilian (panics and flees). One undo step; "
+            "shape the minted geometry with Stage edit.")
+        self.archetype_btn.clicked.connect(self._stamp_archetype)
+        cv.addWidget(self.archetype_btn)
         split.addWidget(cast_col)
         # center: the unit bar OUTSIDE the scroll (right-aligned controls inside an h-scrolling
         # container live off-screen -- snap-caught), then ladder over stage (stacked -- the
@@ -1220,6 +1230,43 @@ class BehaviorDoc(QWidget):
         behaviorscan.delete_unit(self._raw, unit)
         self._selected_unit = None
         self._after_edit(f"remove behavior unit {unit}")
+
+    # -- rung D: archetype stamps (whole proven trees through ONE pure op + one undo step) --
+    def _ask_archetype_dialog(self):
+        """Prod's picker (instance QInputDialog, the modal-seam law); returns a key or None."""
+        from PySide6.QtWidgets import QInputDialog
+        rows = [a["name"] for a in behaviorscan.BEHAVIOR_ARCHETYPES]
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Stamp a behavior archetype")
+        dlg.setLabelText("Which proven tree? (shape its minted geometry with Stage edit)")
+        dlg.setComboBoxItems(rows)
+        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
+        if not dlg.exec():
+            return None
+        picked = dlg.textValue()
+        return next((a["key"] for a in behaviorscan.BEHAVIOR_ARCHETYPES
+                     if a["name"] == picked), None)
+
+    def _stamp_archetype(self):
+        if self._raw is None:
+            return
+        names = behaviorscan.npc_candidates(self._raw)
+        if not names:
+            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
+                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            widgets.set_state(self.problems_lbl, "warn")
+            return
+        key = self._ask_archetype()
+        if not key:
+            return
+        name = self._ask_unit(names)
+        if not name:
+            return
+        label = behaviorscan.stamp_archetype(self._raw, key, name)
+        self._selected_unit = name
+        if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
+            self._stack.setCurrentWidget(self._content)
+        self._after_edit(label)
 
     # -- rung C: authoring on the stage (drops commit through behaviorscan's pure ops;
     # the canvas only reports — it never touches the raw dict) --

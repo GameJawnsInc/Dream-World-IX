@@ -112,10 +112,18 @@ belong painted on the field, not printed as text. That is the second surface: **
   insert/move/delete shipped; a from-scratch route still starts in the branch editor), and
   the live-updating jam %% WHILE dragging the ring (it updates on drop via the armed
   re-sweep).
-- **Rung D — ARCHETYPES.** Info Hub cards that stamp whole proven trees: placement defender,
-  watchman + alarm, shift patrol pair, panicking civilian, siege template. This is the
-  `[minigame]`/`[condor]` productization lane's GUI face — a roster of 20 units becomes a
-  card + a count, not 15 hand-written blocks.
+- **Rung D — ARCHETYPES. D1 ★ BUILT 2026-07-26** (`behaviorscan.BEHAVIOR_ARCHETYPES` +
+  `stamp_archetype`; the cast rail's "＋ Archetype…" + the no-behavior guide's second
+  action). Three player-bound proven trees stamp through one pure op + one undo step:
+  sentry (watch/alarm/chase + a minted auto-routed beat), patroller, civilian (flee to
+  refuges, wander home) — all fenced by a REAL dry-compile of the stamped doc
+  (`editor.model.dumps` → disk → the genuine lane, `route="auto"` resolved over the
+  fixture's walkmesh). Minted beat markers dedupe (`<npc>_beat_2`); rung C's drag handles
+  are the shaping tool. **D's remainder:** combat archetypes that bind a TARGET unit
+  (watchman-vs-unit, shift patrol pair), the Info Hub archetype cards, and the `[siege]`
+  whole-block stamp (the productization lane's GUI face — a roster of 20 units as a card +
+  a count; note `[siege]` OWNS `[behavior]` and desugars at load, so its surface is its own
+  design, not a free extension of this tab).
 - **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
   documented tree semantics stepping simulated positions — scrub a timeline, watch selection
   sweep the ladder rows and units move on the stage. Catches the priority/starvation family of
