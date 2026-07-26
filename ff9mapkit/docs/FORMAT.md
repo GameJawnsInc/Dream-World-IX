@@ -1591,13 +1591,15 @@ depth = 1                       # (optional) overlay z: smaller = nearer the cam
 
 Several `[[gauge]]` blocks share ONE daemon entry whose state lives in **entry locals**
 (stock's `allocate 2`), so gauges coexist with `[behavior]` — a fort-condor field can carry
-both. Works on **novel scenes** (the states append to the field's own `.bgx`) and on
-**BG-borrow** fields — the borrow ships a `USE_BASE_SCENE` `.bgx` under the *donor scene's*
-name and needs `[field] borrow_scene_counts = [<overlayCount>, <animCount>]` (the donor
-`.bgs` header's own block counts, via `ff9mapkit.scene.bgs.parse_header`). ⚠ Borrow gauges
-are scene-name keyed: any field borrowing the same donor sees the overlays — keep them to
-scratch benches for now. Not yet supported: native-scene (`.bgs` + atlas) fields and
-verbatim forks.
+both. Three scene hosts: **novel scenes** (the states append to the field's own `.bgx`);
+**native scenes** (`[field] bgs` + atlas — the preferred minigame-arena path: the build adds
+an own-scene `USE_BASE_SCENE` `.bgx` that re-loads the shipped `.bgs` first, so per-tile
+depth is untouched and the base indices come from that header automatically); and
+**BG-borrow** fields — the borrow ships the `USE_BASE_SCENE` `.bgx` under the *donor
+scene's* name and needs `[field] borrow_scene_counts = [<overlayCount>, <animCount>]` (the
+donor `.bgs` header's counts, via `ff9mapkit.scene.bgs.parse_header`). ⚠ Borrow gauges are
+scene-name keyed: any field borrowing the same donor sees the overlays — keep them to
+scratch benches. Verbatim forks: not yet supported.
 
 ---
 

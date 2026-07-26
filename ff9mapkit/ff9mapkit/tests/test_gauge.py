@@ -196,6 +196,24 @@ def test_gauge_layout_novel_and_borrow(tmp_path):
     assert [(a, b) for _g, a, b in resolved2] == [(4, 30), (5, 41)]
 
 
+def test_gauge_layout_native_reads_the_bgs_header(tmp_path):
+    """The own-scene hybrid: base overlay/anim indices come straight from the
+    field's OWN shipped .bgs header (offline, no pinning key)."""
+    import struct as _struct
+    from ff9mapkit.scene import bgs as _bgs
+    hdr = _struct.pack("<6H4I12h", 0, 0, 4, 30, 0, 1, 0, 0, 0, 0, *([0] * 12))
+    assert (_bgs.parse_header(hdr).animCount, _bgs.parse_header(hdr).overlayCount) == (4, 30)
+    (tmp_path / "scene.bgs.bytes").write_bytes(hdr)
+    nat = _TOML.replace('area = 11\n', 'area = 11\nbgs = "scene.bgs.bytes"\n')
+    f = tmp_path / "n.field.toml"
+    f.write_text(nat, encoding="utf-8")
+    p = BLD.FieldProject.load(f)
+    resolved, donor = BLD.gauge_layout(p)
+    assert donor is None                                 # own scene, nothing shared
+    assert [(a, b) for _g, a, b in resolved] == [(4, 30), (5, 41)]
+    assert not any("gauge" in pr.lower() for pr in BLD.validate(p))
+
+
 def test_full_build_seats_and_arms(tmp_path):
     f = tmp_path / "g.field.toml"
     f.write_text(_TOML, encoding="utf-8")

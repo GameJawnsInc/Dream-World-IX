@@ -17,11 +17,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   values with field 64's Sin color pulse, carried VERBATIM (`Sin(t<<2)/360+144` on
   the visible overlay via `SetTileColor`). The daemon's state lives in ENTRY LOCALS
   (stock's `allocate 2` — `eb.edit.append_entry`/`seat_entry` grew a `loc` param),
-  so gauges coexist with `[behavior]`. Novel scenes append to their own `.bgx`;
-  BG-borrow ships a `USE_BASE_SCENE` `.bgx` under the DONOR scene name (pinned by
-  `[field] borrow_scene_counts`; scene-name keyed — bench-scoped for now).
-  `scene/bgx.py` grew the typed `Animation` block (+ bare-flag `Loop`/`Palindrome`
-  parse). Native-scene fields and verbatim forks refused in v1.
+  so gauges coexist with `[behavior]`. Three scene hosts: novel (appends to the
+  field's own `.bgx`), NATIVE (`[field] bgs` — an own-scene `USE_BASE_SCENE` hybrid
+  re-loads the shipped `.bgs` first, per-tile depth untouched, base indices read
+  from that header offline; the minigame-arena path), and BG-borrow (the hybrid
+  under the DONOR scene name, pinned by `[field] borrow_scene_counts`; scene-name
+  keyed — bench-scoped). `scene/bgx.py` grew the typed `Animation` block
+  (+ bare-flag `Loop`/`Palindrome` parse). Verbatim forks refused in v1.
 
 ### Added — `[[qte]]`: the Blank-duel reaction game as kit vocabulary
 - FF9's one QTE (the Prima Vista sword fight, field 64) decoded and re-emitted with

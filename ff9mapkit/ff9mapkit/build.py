@@ -2255,10 +2255,17 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[gauge]] is not supported on a verbatim fork yet -- its daemon "
                             "seating is synthesize-path only")
         if project.field.get("bgs"):
-            problems.append("[[gauge]] on a NATIVE-scene field (.bgs + atlas) is unbenched -- "
-                            "the USE_BASE_SCENE hybrid should carry it but has not been "
-                            "in-game proven; use a novel scene or a BG-borrow for now")
-        if project.field.get("borrow_bg"):
+            # own-scene hybrid: the base counts come from the field's own .bgs header
+            try:
+                from .scene import bgs as _bgs_mod
+                _hdr = _bgs_mod.parse_header(project.path(project.field["bgs"]).read_bytes())
+                if _hdr.overlayCount + g_overlay_cells > 255:
+                    problems.append(f"[[gauge]] overlay budget: native scene {_hdr.overlayCount} "
+                                    f"+ gauge {g_overlay_cells} states > 255")
+            except (OSError, ValueError, KeyError) as e:
+                problems.append(f"[[gauge]] could not read the native scene's .bgs header "
+                                f"(needed for the appended overlay/anim indices): {e}")
+        elif project.field.get("borrow_bg"):
             counts = project.field.get("borrow_scene_counts")
             if not (isinstance(counts, list) and len(counts) == 2
                     and all(isinstance(c, int) and 0 <= c <= 255 for c in counts)):
@@ -3659,8 +3666,15 @@ def gauge_layout(project: FieldProject):
         return [], None
     specs = [_gauge.from_raw(b, i, resolve_item=_items.resolve) for i, b in enumerate(blocks)]
     borrow = project.field.get("borrow_bg")
+    native = project.field.get("bgs")
     donor_fbg = None
-    if borrow:
+    if native:
+        # own-scene USE_BASE_SCENE hybrid: the field ships its own .bgs+atlas, so the base
+        # counts come straight from that header -- offline, no pinning key, scene-private.
+        from .scene import bgs as _bgs
+        hdr = _bgs.parse_header(project.path(native).read_bytes())
+        ov_base, anim_base = int(hdr.overlayCount), int(hdr.animCount)
+    elif borrow:
         donor_fbg = f"FBG_N{int(project.field.get('area', 0)):02d}_{borrow}"
         counts = project.field.get("borrow_scene_counts") or [0, 0]
         ov_base, anim_base = int(counts[0]), int(counts[1])
@@ -7196,6 +7210,21 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.field.get("atlas"):
             shutil.copyfile(project.path(project.field["atlas"]), fm / "atlas.png")
         (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+        # [[gauge]] on a native scene: the OWN-SCENE USE_BASE_SCENE hybrid -- a <fbg>.bgx that
+        # first re-loads THIS field's shipped .bgs+atlas (so per-tile depth is untouched), then
+        # appends the gauge fill-state overlays + selector anims after the header's own counts
+        # (gauge_layout read them from the same .bgs). Scene-private: fbg is ours, nothing shared.
+        _g_resolved, _ = gauge_layout(project)
+        if _g_resolved:
+            _g_ovls, _g_anims = [], []
+            for _gs, _ga, _gb in _g_resolved:
+                _g_ovls += _gauge.overlay_blocks(_gs)
+                _g_anims.append(_gauge.animation_block(_gs, _gb))
+                for _gn, _gpng in _gauge.art_pngs(_gs):
+                    (fm / _gn).write_bytes(_gpng)
+            _g_text = bgx.build(None, _g_ovls, base_scene=fbg, animations=_g_anims,
+                                header_comment=f"{project.name} [[gauge]] blocks (own-scene hybrid)")
+            (fm / f"{fbg}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
         # carry the field's SPS effect bins + spt.tcb (per-scene fire / smoke / magic; they load by the
         # RUNNING scene name, so a fork must ship them under its OWN FBG folder -- else RunSPSCode finds no
         # bin and the effect never draws). The importer staged them in <member>/sps/. -> project-ff9-sps-fork.
