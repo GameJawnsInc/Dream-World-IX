@@ -274,6 +274,17 @@ the mutation is **session-global in-memory state** — it survives field transit
 the semantics clean: the latch resets per field entry, so each session simply re-asserts
 the unlock whenever its condition holds — shop state follows the seed law, like tables.
 
+**The synthesis twin — `add_shop_synth` / `remove_shop_synth`** (`[shop_id, recipe]`,
+`once` required, same lane): Memoria's `AddShopSynthesis` (0x116), with the mutation
+inverted — it grafts the SHOP onto the RECIPE's `Shops` list, and the engine's silent
+no-op guard is on the *recipe*. `recipe` is a vanilla row's int id, or a **result item
+name** matched against this project's own `[[synthesis]]` recipes and resolved at build
+to the id the CSV emitter mints (deterministic base-max+1; a string selector therefore
+needs a reachable install at build — int selectors don't). The target shop must open as
+SYNTHESIS — absent from `ShopItems.csv`; lint refuses a `[[shop]]` buy id or vanilla
+0–31. The hidden-recipe idiom: declare the locked recipe against a PARKED shop id (no
+opener) and graft the real shop onto it at runtime.
+
 > **Why a relaunch resets it but New Game does not:** `ff9buy.ShopItems` is a static,
 > process-lifetime table loaded from the CSV once at engine startup. `AddShopItem`
 > mutates that table directly — *above* the save layer. New Game swaps the save
