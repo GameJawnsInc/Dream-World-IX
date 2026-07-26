@@ -75,7 +75,7 @@ clean Item-shop type; items are real inventory (survive saves, sellable);
 speaks the 0xFF-prefix page (`opcodes.py:44`) — only `_optables.py` arg-shape
 rows past 0x10A are missing (a small add, scoped in the behavior-trees PLAN).
 
-### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split (★ built as `[[qte]]`, bench 30419 "ENGARDE" — `engarde_bench.py`, playtest pending; one modal entry, since stock's 3-entry split existed only for its actor choreography)
+### 4. The QTE core (Blank sword duel, field 64) — prompt/poll/score split (★★ built as `[[qte]]` and FULLY IN-GAME PROVEN, bench 30419 "ENGARDE", 3 rounds — prompts/poll/scoring/flag/replay all pass, calibration closed at a 98 — `engarde_bench.py`; one modal entry, since stock's 3-entry split existed only for its actor choreography. THE PAR LESSON: stock's forgiveness lives in the COMBO channel, which only pays over LENGTH — short bouts need a kinder divisor, `par` default 65 at rounds=10, raise toward 80+ for stock-length bouts)
 `test2_15.txt` entries 2/3/4: one entry ISSUES prompts (8 text ids, random with
 a no-repeat blocklist), a PARALLEL entry polls `IsButton(mask)` per frame, a
 third aggregates. The reaction timer is a countdown byte decremented by the
