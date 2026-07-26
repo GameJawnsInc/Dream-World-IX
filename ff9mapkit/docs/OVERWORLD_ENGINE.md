@@ -412,6 +412,16 @@ What it does, generalizing + hardening the manual recipe:
   topo has ZERO render effect (UV-only, byte-verified) so it's invisible. (4) **place by bbox-CENTRE, not vertex
   centroid** (`build_from_obj`/`_building_world_hull`) — an asymmetric model's centroid bulges it ~15u off-cell.
   `world-entrance` does all this by default; triggers use `exclude_polygon=<hull>`.
+- **⚠⚠ "Render-only" is CONDITIONAL — it holds ONLY on a BARE block (found 2026-07-25).** The bare-block path
+  (`RegisterBareObjectOverride`) never walkmeshes the override. But on a block whose EFFECTIVE prefab already exposes an
+  Object component — every real town block, and every reclaimed cell whose `Donor.txt` donor has one (the
+  `world-island` default donor (0,0) DOES) — the override takes `RegisterBlockComponent(form1: true)` →
+  `AddWalkMeshForm1` (WMWorld.cs:775-814) and registers BEFORE Terrain, so it wins the first-mesh ground query. There a
+  plain topo-59 building becomes INVISIBLE COLLISION and SHADOWS any event tiles under its footprint. Fix:
+  **`--building-idall 4078`** (the `WMPhysics` skip id: walk queries pass through to Terrain; sky-cast placement paths
+  set `IgnoreExceptions` and still hit it, so keep arrivals off the footprint) with the terrain hull carrying collision
+  as usual. Proven on the Lantern Quay beacon, block (0,18): the deployed-bytes probe measured the walk query passing
+  through to Terrain while a sky-cast hit Object 4078.
 - **⚠⚠ Pick a genuinely OPEN cell — check the WHOLE BLOCK, not a 16u radius.** A repeated stuck + "dirt mounds"
   symptom was (a) the placed footprint block, and (b) the block's OWN natural terrain (block[18][12] = 195 topo-49 dirt/river tiles;
   the cell centre was walkable so a 16u scan passed it, but the surroundings are river). Scan the block's blocked-
