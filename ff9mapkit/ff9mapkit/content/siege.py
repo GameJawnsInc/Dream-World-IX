@@ -47,6 +47,9 @@ ALARM_RADIUS = 500
 RAIDER_CONTACT = 210              # the proven melee reach for a marching raider
 CHASE_CONTACT = 170               # a mobile ally's melee reach
 COUNTER_IVL_PAD = 8               # a raider counter-swings a touch slower than its siege swing
+LOSS_STING_SUSTAIN = 55           # ~1s of held dispatch level so the sting rings CLEAR before
+                                  # the loss_battle/cry (rung-C round 1: zero sustain gave the
+                                  # sting one ~33ms frame before the battle took the audio)
 
 DEFAULT_STIPEND_TEXT = ("The city fronts you {stipend} gil for the defense, kupo!"
                         "  Press Select anywhere to deploy troops where you stand.")
@@ -58,8 +61,9 @@ DEFAULT_PROMPT = "WAR COUNCIL — deploy on this spot:"
 DEFAULT_REPLY = "Deployed!  He holds this very spot."
 
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
-         "win_sfx", "win_flash", "loss_battle", "button", "council_prompt",
-         "hud", "hud_text", "flag_base", "alarm_radius", "base", "ally", "raider",
+         "win_sfx", "win_flash", "loss_sfx", "loss_battle", "button",
+         "council_prompt", "hud", "hud_text", "flag_base", "alarm_radius",
+         "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
@@ -143,6 +147,7 @@ class SiegeSpec:
     win_item: str | None = None
     win_sfx: int | None = None       # the purse fanfare cue (`ff9mapkit sfx-list` ids)
     win_flash: tuple | None = None   # the win screen-flash colour (true = white)
+    loss_sfx: int | None = None      # the loss sting — rings BEFORE the cry/battle
     loss_battle: int | None = None
     button: bool = True
     council_prompt: str = DEFAULT_PROMPT
@@ -272,6 +277,11 @@ def from_raw(s: dict) -> SiegeSpec:
                            or not 0 <= ws <= 0xFFFF):
         raise SiegeError(f"{ctx}: win_sfx must be a sound id int 0..65535 "
                          f"(`ff9mapkit sfx-list`; 108 = the item-get jingle)")
+    ls = s.get("loss_sfx")
+    if ls is not None and (isinstance(ls, bool) or not isinstance(ls, int)
+                           or not 0 <= ls <= 0xFFFF):
+        raise SiegeError(f"{ctx}: loss_sfx must be a sound id int 0..65535 "
+                         f"(`ff9mapkit sfx-list`)")
     wf = s.get("win_flash")
     if wf is True:
         wf = (255, 255, 255)                     # win_flash = true -> white
@@ -297,6 +307,7 @@ def from_raw(s: dict) -> SiegeSpec:
         win_item=(str(s["win_item"]) if s.get("win_item") else None),
         win_sfx=(int(ws) if ws is not None else None),
         win_flash=wf,
+        loss_sfx=(int(ls) if ls is not None else None),
         loss_battle=(int(s["loss_battle"]) if s.get("loss_battle") is not None else None),
         button=bool(s.get("button", True)),
         council_prompt=str(s.get("council_prompt", DEFAULT_PROMPT)),
@@ -359,6 +370,18 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     bb: list = []
     bctx_die = {"die": True}
     bb.append(_branch(when=[{"flag": "lost"}], do=bctx_die))
+    if spec.loss_sfx is not None:
+        # THE PRE-DETECT STING: an event-Once branch HOLDS selection until it
+        # delivers, so seated between die-on-`lost` and the loss detect it is
+        # guaranteed to ring BEFORE the detect raises `lost` (and before a
+        # loss_battle transition suspends the field) and before the die branch
+        # can terminate the base — the reveal-beat serialization, pointed the
+        # other way. hp<=0 is monotonic (swings gate on target hp > 0), so the
+        # stacked once-branches ride THE DRAINING-CONDITION LAW's exemption.
+        # The sustain is the beat: order alone gave the sting ONE frame of air.
+        bb.append(_branch(when=[{"hp_le": 0}], once="losssting",
+                          do={"sfx": spec.loss_sfx,
+                              "sustain": LOSS_STING_SUSTAIN}))
     if spec.loss_battle is not None:
         bb.append(_branch(when=[{"hp_le": 0}], do={"battle": spec.loss_battle},
                           raise_flags=["lost"]))

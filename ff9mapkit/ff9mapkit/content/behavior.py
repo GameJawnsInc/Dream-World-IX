@@ -493,15 +493,22 @@ class Sfx(Action):
     bank + pan/volume triple (content.chest; in-game on fields 200/407 and the kit's
     own chests). Once-wrapped it rides the event-Once lane (fire-and-release — the
     purse-fanfare shape); bare, it plays at dispatch then idles while selected
-    (Announce's shape: no re-fire until the tree deselects and re-selects it)."""
+    (Announce's shape: no re-fire until the tree deselects and re-selects it).
+    ``sustain``: hold the dispatch level for N frames AFTER the play, so queued
+    one-shots (a Battle, an announce) cannot stomp the cue — the event-once lane
+    guarantees ORDER, not DURATION (rung-C round-1 playtest: a loss sting got one
+    ~33ms frame of air before the boss battle took the audio)."""
     sound: int
     bank: int = SFX_BANK
+    sustain: int = 0
 
     def __post_init__(self):
         if not 0 <= int(self.sound) <= 0xFFFF:
             raise BehaviorError("Sfx sound id must be 0..65535 (`ff9mapkit sfx-list`)")
         if not 0 <= int(self.bank) <= 0xFFFF:
             raise BehaviorError("Sfx bank must be 0..65535 (default 53248 = 0xD000)")
+        if not 0 <= int(self.sustain) <= 255:
+            raise BehaviorError("Sfx sustain must be 0..255 frames")
 
 
 FLASH_OUT_FRAMES = 24               # the stock white-out: FadeFilter(0, 24, x, colour) —
@@ -2708,7 +2715,9 @@ class FieldBehavior:
         if isinstance(a, Sfx):
             play = opcodes.encode(RUN_SOUND_CODE3, int(a.bank), int(a.sound),
                                   *SFX_PARAMS)
-            if oneshot_latch is not None:
+            if a.sustain:
+                play += opcodes.wait(int(a.sustain))     # hold the level: queued
+            if oneshot_latch is not None:                # one-shots wait their turn
                 # the EVENT-Once variant (the purse-fanfare lane): Announce's
                 # one-shot shape with a sound for a window — latch FIRST, play,
                 # release.
