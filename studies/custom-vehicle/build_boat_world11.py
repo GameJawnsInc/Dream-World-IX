@@ -94,6 +94,26 @@ def fp(v: int) -> int:
     return (v * 256) & 0xFFFFFFFF
 
 
+def wu(v: int) -> int:
+    """World units, UNSCALED, as the unsigned const4 literal.
+
+    ⚠ THE DOMAIN THAT BROKE THE BOARD GATE. `obj(uid).f[0]` / `.f[2]` do NOT return fixed point --
+    EBin.cs:1751-1793 `getvobj` case 0/2 returns `CastFloatToIntWithChecking(((PosObj)obj).pos[i])`,
+    and EBin.cs:1830-1840 shows that cast is a plain round-to-int with NO scaling. So anything compared
+    against an f[] read must be in PLAIN WORLD UNITS; use this, never fp(). (B_CONST4 keeps 26 signed
+    bits -- EBin.cs:1241-1246 masks 0x3FFFFFF, EBin.cs:1682-1684 sign-extends -- so negatives are fine.)
+    """
+    return v & 0xFFFFFFFF
+
+
+# The BOARD WINDOW: an absolute box around the mooring, in world units (see wu() and BOAT_LOOP).
+# Strict bounds sit one unit outside, so the inclusive box is exactly [452,532] x [-1170,-1090]:
+# a +/-40u box on BOAT_SPAWN that covers the beached hull and DOCK (16u away) and reaches no event
+# tile and no other interactable -- the nearest quay trigger (Tidefall) is 125u from the mooring.
+BOARD_X_LO, BOARD_X_HI = 451, 533
+BOARD_Z_LO, BOARD_Z_HI = -1171, -1089
+
+
 BOAT_INIT = f"""
 SetObjectIndex(8)
 SetModel({MODEL_ID}, 100)
@@ -143,7 +163,7 @@ BOAT_LOOP = f"""
 L0:
 SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEY B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
-SET({{obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({NEAR}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({NEAR}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({NEAR}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
+SET({{const4({wu(BOARD_X_LO)}) obj(uid=250).f[0] B_LT obj(uid=250).f[0] const4({wu(BOARD_X_HI)}) B_LT B_ANDAND const4({wu(BOARD_Z_LO)}) obj(uid=250).f[2] B_LT obj(uid=250).f[2] const4({wu(BOARD_Z_HI)}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
 DisableMove()
 DisableMenu()

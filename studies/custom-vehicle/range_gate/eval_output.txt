@@ -1,0 +1,39 @@
+====================================================================================================
+SANITY: does const4 round-trip a negative through the 26-bit Int26 encoding?
+====================================================================================================
+  const4(  67107693) [raw -1171] -> reads back    -1171   OK
+  const4(  67107775) [raw -1089] -> reads back    -1089   OK
+  const4(     25600) [raw 25600] -> reads back    25600   OK
+  const4(       100) [raw 100] -> reads back      100   OK
+  const4(  66819584) [raw -289280] -> reads back  -289280   OK
+  (and the deployed MoveInstantXZY z arg 4294678016 reads back -289280 = -1130*256)
+
+====================================================================================================
+THE DEPLOYED GATE -- two-sided difference vs const4(25600)
+  25600 was authored as '100u x 256' (the FIXED-POINT domain of MoveInstantXZY args and the
+  gEventGlobal position record) but f[] reads WORLD UNITS. The FF9 overworld spans ~1536u in x
+  and ~1280u in z, so the largest possible |delta| anywhere (~2000u) is still far below 25600.
+====================================================================================================
+  probe                                    |dx|    |dz|    gate   expected
+  mooring   (beside the beached boat)         0       0    True   True
+  dock      (493,-1114)                       1      16    True   True
+  Ashvale quay      (48,-1168)              444      38    True   False   <-- WRONG
+  Tidefall trigger  (420,-1232)              72     102    True   False   <-- WRONG
+  far ocean         (1200,-400)             708     730    True   False   <-- WRONG
+  => the deployed gate is ALWAYS TRUE (broken open)
+
+====================================================================================================
+THE CORRECTED GATE -- absolute window, world units: x in (451,533) z in (-1171,-1089)
+====================================================================================================
+  probe                                       x        z    gate   expected
+  mooring   (beside the beached boat)       492    -1130    True   True
+  dock      (493,-1114)                     493    -1114    True   True
+  Ashvale quay      (48,-1168)               48    -1168   False   False
+  Tidefall trigger  (420,-1232)             420    -1232   False   False
+  far ocean         (1200,-400)            1200     -400   False   False
+
+====================================================================================================
+VERDICT
+  deployed gate always-true everywhere (the bug): True   <- must be True
+  corrected gate matches every probe:             True   <- must be True
+====================================================================================================
