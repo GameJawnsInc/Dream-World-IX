@@ -1933,3 +1933,125 @@ That returns the float-park dismount (and the quay race). Exit and re-enter the 
    player lands on the islet dock AND the boat is back on its beach** — not floating where you left it.
 2. **At every quay, Enter now only ever enters the field** — no boarding.
 3. Sail out and back a few times: the boat should always be found beached at the islet.
+
+---
+
+# 20. THE BOARD GATE WAS A NO-OP — a 256× unit mismatch, broken open since rung 1 — FIXED
+
+Run 2026-07-26. Backups: **`backups/boat-rangegate.20260726/`** (all 7 `EVT_WORLD_WORLD11.eb.bytes`).
+
+## 20.1 First, a correction to the diagnosis
+
+The brief said the board arm was "gated on input alone — no proximity term". **That was wrong**, and the
+deployed bytes falsified it: there were always **two** gates, and gate 2 was a two-sided proximity test.
+I stopped rather than build on it. The real defect is inside that existing gate.
+
+## 20.2 ROOT CAUSE — `f[]` reads WORLD UNITS, the constant was FIXED POINT
+
+Grounded in the decompiled evaluator, line by line (`C:\gd\FFIX\Memoria`):
+
+| element | source | semantics |
+|---|---|---|
+| `obj(uid).f[0]` / `.f[2]` | `EBin.cs:1751-1793` (`getvobj` case 0/2) | `CastFloatToIntWithChecking(((PosObj)obj).pos[0 or 2])` |
+| that cast | `EBin.cs:1830-1840` | Floor/Ceil/Round agreement — **a plain round-to-int, NO scaling** |
+| `B_MINUS` | `EBin.cs:691-698` | `Int32` subtract, pushed via `expr_Push_v0_Int24` |
+| `B_LT` | `EBin.cs:715-730` | **signed** `Int32 <`. Its two hardcoded hacks (Treno `fldMapNo` 908/1908 with `gCur.uid == 0 && t3 == 80`; `gCur.uid == 13 && t3 == -300`) do **not** apply to WORLD11 / uid 15 / our constants |
+| `B_CONST4` | `EBin.cs:1241-1246` + read-back `EBin.cs:1682-1684` | `& 0x3FFFFFF` then sign-extend `(t0 << 6) >> 6` ⇒ signed 26-bit, so negatives are fine |
+| `GetObjUID(250)` | `EventEngine.cs:943-955` | `uid = _context.controlUID` — whoever holds control (the walking avatar while on foot) |
+
+So **`f[]` is the actor's position in plain world units**, while the gate compared differences against
+`const4(25600)` — a constant authored as "100 u × 256", i.e. the **fixed-point** domain of
+`MoveInstantXZY`'s arguments and the gEventGlobal position record. Two different domains, 256× apart.
+
+**Why it passed at 445 u:** the FF9 overworld spans ~1536 u in x and ~1280 u in z, so the largest
+possible |Δ| anywhere on the map (~2000 u) is still far below 25600. Every one of the four `B_LT` terms
+is therefore **unconditionally true everywhere**. Measured at the Ashvale quay: |Δx| = 444, |Δz| = 38 —
+both < 25600 ⇒ gate true ⇒ teleport-board, exactly the owner's *"it does do the boat-beach warp"*.
+
+**The gate has been a no-op since rung 1.** Boarding "worked at the islet" because it worked
+*everywhere*; nobody pressed Confirm far from the boat until now. The intended radius was 100 u; the
+emitted constant expressed 25600 world units — about 12× the map diagonal.
+
+The other two suspects are **ruled out**: uid resolution is fine (`250` → the walking avatar, `15` → the
+boat; they are distinct, and a null or non-actor would have NullReferenced on `obj.cid` or read 0
+asymmetrically, neither of which matches), and there is no float/int coercion problem — the cast is a
+clean round-to-int and both `B_MINUS`/`B_LT` are signed integer ops.
+
+## 20.3 The fix — an absolute window in the proven domain
+
+Gate 2 is replaced (not preceded) by a constant window on the **player's** position, in world units:
+
+```
+SET({const4(451)  obj(uid=250).f[0] B_LT      # 451 < x   ->  x >= 452
+     obj(uid=250).f[0] const4(533)  B_LT B_ANDAND   # x < 533   ->  x <= 532
+     const4(4294966125) obj(uid=250).f[2] B_LT      # -1171 < z ->  z >= -1170
+     obj(uid=250).f[2] const4(4294966207) B_LT B_ANDAND B_ANDAND B_EXPR_END})
+```
+
+`4294966125` / `4294966207` are −1171 / −1089 in the unsigned literal form; the 26-bit sign-extension
+recovers them exactly (asserted in the test). The inclusive box is **[452, 532] × [−1170, −1090]** — the
+±40 u window specified, which covers the beached hull and `DOCK` (16 u away) and reaches no event tile
+and no other interactable (the nearest quay trigger, Tidefall, is 125 u from the mooring).
+
+Absolute rather than relative on purpose: it no longer depends on the boat's own position, so it is
+belt-and-braces with §19's moor-home rather than relying on it, and only the player's coordinates enter
+the comparison. A new `wu()` helper sits beside `fp()` in the study script with the domain trap written
+out, so the next author cannot repeat the mistake.
+
+Gate 1 (`[190]==0 && KEY(Confirm)`) and the dismount arm are unchanged — a global Confirm while
+`[190]==7` is correct, since the player is on the boat.
+
+Once the gate actually works, §19's observation that *the dock is permanently inside the 100 u radius*
+stops mattering: the window is deliberately islet-sized.
+
+## 20.4 Offline verification against the proven semantics
+
+`studies/custom-vehicle/range_gate/eval_gate.py` re-implements each op above from its cited source line
+and evaluates **both** expressions over five probes. Output archived at `range_gate/eval_output.txt`.
+
+| probe | deployed gate | corrected gate | expected |
+|---|---|---|---|
+| mooring (492, −1130) | true | **true** | yes |
+| dock (493, −1114) | true | **true** | yes |
+| Ashvale quay (48, −1168) | **true ← the bug** | **false** | no |
+| Tidefall trigger (420, −1232) | **true ← the bug** | **false** | no |
+| far ocean (1200, −400) | **true ← the bug** | **false** | no |
+
+The test asserts *both* halves — that the deployed gate is always-true (the bug reproduced) and that the
+corrected one matches every probe — so it fails if either claim stops holding.
+
+## 20.5 Write-set — 7 files, 891 before and after
+
+| file | before | after |
+|---|---|---|
+| `world/{us,uk,es,fr,gr,it}/EVT_WORLD_WORLD11.eb.bytes` | 9841 B | **9825 B** |
+| `world/jp/…` | 9829 B | **9813 B** |
+
+**−16 B each**: the 4-term absolute window is shorter than the 8-term difference test it replaces
+(tag-1 body 190 → 174 B). Applied with `eb.edit.replace_function_body(data, 15, 1, …)`, each language
+patched from **its own** bytes; `build_boat_world11.py` was again **not** re-run wholesale, since the
+deployed WORLD11 carries the ring's R1/R2 surgery. Zero world meshes, zero field `.eb`, zero
+`DictionaryPatch`, zero `FF9CustomMap`. Proof: `range_gate/writeset_md5_diff.txt`.
+
+## 20.6 Assertions
+
+* per language the **only** changed function is entry 15 / tag 1; the other **102** WORLD11 functions
+  byte-identical (compared body-by-body via `EbScript`);
+* the **other 8 dispatchers: zero changed functions**, each still carrying its 3 quay triggers;
+* the **case-53 nameplate handler and all four quay triggers intact** across all 63 files;
+* `25600` no longer appears anywhere in the boat loop;
+* before/after tag-1 disassembly archived at `range_gate/{before,after}_tag1.txt`.
+
+## 20.7 Undo
+
+Restore the 7 files from `backups/boat-rangegate.20260726/` (that returns the broken-open gate). For the
+pre-moor-home state use `backups/boat-moorhome.20260726/` (§19.7). Exit and re-enter the overworld; no
+relaunch.
+
+## 20.8 Playtest ask (owner) — no relaunch
+
+1. **Press Confirm far from the islet — nothing should happen.** Try it at each quay, mid-ocean, and
+   inland. No boat warp.
+2. **At the islet, boarding still works** — stand by the beached hull or on the dock and press Confirm.
+3. Dismount still lands you on the dock with the boat back on its beach (§19 unchanged).
+4. The quay entrances should now respond to Confirm normally and exclusively.
