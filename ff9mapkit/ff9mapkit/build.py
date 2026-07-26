@@ -2261,6 +2261,9 @@ def validate(project: FieldProject) -> list[str]:
                 if "input" in o and (not isinstance(o["input"], str) or o["input"] not in ni_names):
                     problems.append(f"[[choice]] #{c} option {oi} input {o.get('input')!r} is not a "
                                     f"defined [[numeric_input]] name")
+                if "recall" in o and (not isinstance(o["recall"], str) or o["recall"] not in ni_names):
+                    problems.append(f"[[choice]] #{c} option {oi} recall {o.get('recall')!r} is not a "
+                                    f"defined [[numeric_input]] name")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -4937,6 +4940,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # parked code entry FIRST -- appends only, so the slot is fixed before any NPC/region injection --
     # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.
     input_slots: dict = {}
+    input_specs: dict = {}
     if project.raw.get("numeric_input"):
         from .eb import edit as _ni_edit
         for _ii, _blk in enumerate(project.raw.get("numeric_input", []) or []):
@@ -4945,6 +4949,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _slot = _object.seat_entry(eb, _numinput.entry_bytes(_sp, _tx))
             eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
             input_slots[_sp.name] = _slot
+            input_specs[_sp.name] = _sp                   # recall rows need the result var
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
     _enc_raw = project.raw.get("encounter")
@@ -5014,7 +5019,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             c, ch = choice_by_npc[n["name"]]
             ct = choice_txids.get(c, {})
             replies = ct.get("replies", {})
-            opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots)
+            opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
+                                              input_specs=input_specs)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
             if any("input" in o for o in ch.get("options", [])):
@@ -5195,7 +5201,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             continue
         ct = choice_txids.get(c, {})
         replies = ct.get("replies", {})
-        opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots)
+        opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
+                                          input_specs=input_specs)
                       for oi, o in enumerate(ch.get("options", []))]
         setup, _ = _choice.pre_choose(ch)
         # an `input` row opens the stepper's own windows -> the nested-window sysvar-9 law:

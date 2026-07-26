@@ -22,6 +22,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Added — choice `recall`: render a numeric input's SAVED value later
+- A `[[choice]]` option's `recall = "<numeric_input>"` re-loads `[NUMB=0]` from the
+  input's save-backed result var (× multiplier) before the row's reply — the NUMPAD
+  round-3 lesson: gMesValue slot 0 is transient display state shared by every
+  stepper's submit echo, so a readback row without `recall` renders whatever number
+  was displayed last (the bench's muster Report row showed the previous *bid*).
 
 ### Added — `[[numeric_input]]`: the Treno bid stepper as kit vocabulary
 - The game's one number-entry idiom — the Treno auction's 3-digit ×100 stepper, carried

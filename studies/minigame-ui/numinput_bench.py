@@ -183,6 +183,7 @@ input = "muster"
 [[choice.options]]
 text = "Report"
 requires_flag = {MUSTER_FLAG}
+recall = "muster"
 reply = "The order stands at [NUMB=0] soldiers."
 [[choice.options]]
 text = "Never mind"
