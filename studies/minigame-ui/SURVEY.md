@@ -46,7 +46,7 @@ the already-proven timer triplet (0x69/0x8D/0x7D) for clock + score.
 **Kit shape:** a `[[behavior.hud]]` lane — compiler emits the daemon entry +
 the `.mes` line; ticker publishes values by writing the mirrored globals.
 
-### 2. The numeric stepper (Treno auction) — the game's numeric INPUT (★ built as `[[numeric_input]]`, bench 30417 "NUMPAD" — `numinput_bench.py`)
+### 2. The numeric stepper (Treno auction) — the game's numeric INPUT (★★ built as `[[numeric_input]]` + choice `recall`, FULLY IN-GAME PROVEN on bench 30417 "NUMPAD", 4 rounds — `numinput_bench.py`)
 `test2_249.txt:1783-1908` (field 909, `Code10_31`): 3-digit ×100 bid stepper —
 window 6 = frame + legend; windows 3/4/5 = per-digit CURSORS, each a transparent
 (`flags=16`) empty-text window positioned under one digit; Left/Right swaps
