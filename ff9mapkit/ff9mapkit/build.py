@@ -39,6 +39,7 @@ from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
 from .content import numinput as _numinput
+from .content import qte as _qte
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -2213,6 +2214,26 @@ def validate(project: FieldProject) -> list[str]:
     if ni_blocks and "verbatim_eb" in project.raw:
         problems.append("[[numeric_input]] is not supported on a verbatim fork yet -- its entry "
                         "seating is synthesize-path only")
+    # [[qte]] blocks (the Blank-duel reaction game, content.qte)
+    qte_names = set()
+    qte_blocks = project.raw.get("qte", []) or []
+    for qi, blk in enumerate(qte_blocks):
+        try:
+            qs = _qte.from_raw(blk, qi)
+        except _qte.QteError as e:
+            problems.append(str(e))
+            continue
+        if qs.name in qte_names:
+            problems.append(f"[[qte]] duplicate name {qs.name!r}")
+        qte_names.add(qs.name)
+    if qte_blocks:
+        if "verbatim_eb" in project.raw:
+            problems.append("[[qte]] is not supported on a verbatim fork yet -- its entry "
+                            "seating is synthesize-path only")
+        if project.raw.get("behavior"):
+            problems.append("[[qte]] and [behavior] can't share a field yet -- the game's "
+                            "scratch (gEventGlobal bytes 2026-2039) sits inside the behavior "
+                            "blackboard's headroom band")
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for c, ch in enumerate(project.raw.get("choice", [])):
@@ -2264,6 +2285,12 @@ def validate(project: FieldProject) -> list[str]:
                 if "recall" in o and (not isinstance(o["recall"], str) or o["recall"] not in ni_names):
                     problems.append(f"[[choice]] #{c} option {oi} recall {o.get('recall')!r} is not a "
                                     f"defined [[numeric_input]] name")
+                if "qte" in o and (not isinstance(o["qte"], str) or o["qte"] not in qte_names):
+                    problems.append(f"[[choice]] #{c} option {oi} qte {o.get('qte')!r} is not a "
+                                    f"defined [[qte]] name")
+                if "qte" in o and "input" in o:
+                    problems.append(f"[[choice]] #{c} option {oi}: one modal game per row -- "
+                                    f"qte and input can't share an option")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -4941,15 +4968,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.
     input_slots: dict = {}
     input_specs: dict = {}
-    if project.raw.get("numeric_input"):
+    qte_slots: dict = {}
+    if project.raw.get("numeric_input") or project.raw.get("qte"):
         from .eb import edit as _ni_edit
         for _ii, _blk in enumerate(project.raw.get("numeric_input", []) or []):
             _sp = _numinput.from_raw(_blk, _ii)           # validate() already vetted; raises on a raw build
-            _tx = {p: t for (bi, p), t in numinput_txids.items() if bi == _ii}
+            _tx = {k[1]: t for k, t in numinput_txids.items()
+                   if len(k) == 2 and k[0] == _ii}
             eb, _slot = _object.seat_entry(eb, _numinput.entry_bytes(_sp, _tx))
             eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
             input_slots[_sp.name] = _slot
             input_specs[_sp.name] = _sp                   # recall rows need the result var
+        for _qi, _blk in enumerate(project.raw.get("qte", []) or []):
+            _qs = _qte.from_raw(_blk, _qi)
+            _tx = {k[2]: t for k, t in numinput_txids.items()
+                   if len(k) == 3 and k[0] == "qte" and k[1] == _qi}
+            eb, _slot = _object.seat_entry(eb, _qte.entry_bytes(_qs, _tx))
+            eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
+            qte_slots[_qs.name] = _slot
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
     _enc_raw = project.raw.get("encounter")
@@ -5020,10 +5056,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             ct = choice_txids.get(c, {})
             replies = ct.get("replies", {})
             opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                              input_specs=input_specs)
+                                              input_specs=input_specs, qte_slots=qte_slots)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
-            if any("input" in o for o in ch.get("options", [])):
+            if any("input" in o or "qte" in o for o in ch.get("options", [])):
                 # an `input` row opens the stepper's windows -> switch dispatch (sysvar-9 law)
                 sb = _choice.switch_body(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
             else:
@@ -5202,12 +5238,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         ct = choice_txids.get(c, {})
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                          input_specs=input_specs)
+                                          input_specs=input_specs, qte_slots=qte_slots)
                       for oi, o in enumerate(ch.get("options", []))]
         setup, _ = _choice.pre_choose(ch)
-        # an `input` row opens the stepper's own windows -> the nested-window sysvar-9 law:
+        # an `input`/`qte` row opens its own windows -> the nested-window sysvar-9 law:
         # dispatch that menu via the ONE-READ switch, not the re-reading per-row branch.
-        _rbody = (_choice.switch_body if any("input" in o for o in ch.get("options", []))
+        _rbody = (_choice.switch_body
+                  if any("input" in o or "qte" in o for o in ch.get("options", []))
                   else _choice.region_body)
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
@@ -6834,6 +6871,16 @@ def collect_text(project: FieldProject):
             # tail "" = explicitly NO [TAIL] tag -- every stepper window is pinned ([MPOS])
             # or a system ack; stock's own entries (909's 203-208) carry no tail at all
             ni_pos[(_ii, _part)] = _add_raw(_txt, "", strt=_strt)
+    # [[qte]] texts ride the SAME dict under ("qte", i, part) keys (numinput keys are
+    # (int, str) pairs -- no collision), so the tuple shape stays put. Stock-verbatim
+    # prompt glyph lines + verdicts/score/payout; tail-less system windows all.
+    for _qi, _blk in enumerate(project.raw.get("qte", []) or []):
+        try:
+            _qs = _qte.from_raw(_blk, _qi)
+        except _qte.QteError:
+            continue
+        for _part, _txt, _strt in _qte.mes_texts(_qs):
+            ni_pos[("qte", _qi, _part)] = _add_raw(_txt, "", strt=_strt)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
