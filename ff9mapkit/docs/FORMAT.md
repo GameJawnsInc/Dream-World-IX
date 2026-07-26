@@ -1710,6 +1710,10 @@ win_flash = true                   # (optional) win screen-wash: true = white, o
                                    # THE REVEAL BEAT: the wash fires FIRST (it rides the
                                    # detect branch) and the cry, purse, and jingle land
                                    # right at its release instead of under the white-out
+loss_sfx = 1942                    # (optional) loss sting — rings ~1s CLEAR before the loss
+                                   # cry / the loss_battle transition (the sting branch holds
+                                   # selection until it delivers, and its built-in sustain
+                                   # holds the dispatch level while the cue rings)
 loss_battle = 35                   # (optional) battle scene when the base falls
                                    # (absent = an announce-only loss)
 

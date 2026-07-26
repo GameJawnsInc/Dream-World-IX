@@ -176,6 +176,34 @@ def test_win_flash_reveal_beat():
         _spec(win_flash="white")
 
 
+def test_loss_sfx_pre_detect_sting():
+    """`loss_sfx` seats an event-Once sting BETWEEN die-on-`lost` and the loss
+    detect — the branch holds selection until it delivers (the reveal-beat
+    serialization pointed the other way), so it rings before the detect raises
+    `lost`, before a loss_battle suspends the field, and before the die branch
+    terminates the base. hp<=0 is monotonic (swings gate on target hp > 0)."""
+    for over in ({}, {"loss_battle": None}):      # the battle AND announce paths
+        b = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), "loss_sfx": 1942,
+                                       **over}))
+        br = b["unit"][0]["branch"]
+        sting = next(x for x in br
+                     if isinstance(x["do"], dict) and x["do"].get("sfx") == 1942)
+        assert sting["when"] == [{"hp_le": 0}] and sting["once"] == "losssting"
+        assert not sting.get("raise_flags")       # detection stays the detect's job
+        # the SUSTAIN is the beat: order alone gave the sting ONE ~33ms frame
+        # before the battle took the audio (rung-C round-1 playtest)
+        assert sting["do"]["sustain"] == S.LOSS_STING_SUSTAIN
+        i_die = next(i for i, x in enumerate(br) if x["do"] == {"die": True})
+        i_det = next(i for i, x in enumerate(br)
+                     if x.get("raise_flags") == ["lost"])
+        assert i_die < br.index(sting) < i_det    # die > sting > detect
+    # absent key -> no sting; junk refused
+    assert not any(isinstance(x["do"], dict) and x["do"].get("sfx") == 1942
+                   for x in S.behavior_raw(_spec())["unit"][0]["branch"])
+    with pytest.raises(S.SiegeError, match="loss_sfx"):
+        _spec(loss_sfx="thud")
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)
@@ -210,7 +238,7 @@ def _siege_toml() -> str:
     out.write(_FIELD)
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
               'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
-              "win_flash = true\nloss_battle = 35\n"
+              "win_flash = true\nloss_sfx = 1942\nloss_battle = 35\n"
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")
@@ -252,7 +280,8 @@ def test_full_build_compiles(tmp_path):
              for _tag, body in cb.action_funcs["base"]
              for ins in D.iter_code(body, 0, len(body))
              if ins.name == "RunSoundCode3"]
-    assert plays == [(53248, 108)]
+    assert plays == [(53248, 1942), (53248, 108)]     # the sting body seats first
+                                                      # (ladder order); then the fanfare
     # ... and the flash (win_flash = true): white ADD-channel pairs (the stock
     # white-out, NOT the mode-6/7 warp fade) — one body per detect branch
     fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))

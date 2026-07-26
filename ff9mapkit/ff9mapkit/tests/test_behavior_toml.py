@@ -1195,6 +1195,21 @@ def test_sfx_compiles_event_once():
               for ins in D.iter_code(body, 0, len(body))
               if ins.name == "RunSoundCode3"]
     assert plays2 == [(4096, 640)]
+    # sustain holds the level: play then Wait(N) BEFORE the run release (the
+    # rung-C lesson — the event-once lane guarantees order, not duration)
+    fb3 = BT.build(_sfx_raw(do={"sfx": 1942, "sustain": 55}),
+                   npc_slots={"crier": 2}, npc_txids_by_name={"crier": 0},
+                   behavior_txids={})
+    seq = []
+    for _t, body in fb3.compile().action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "RunSoundCode3":
+                seq.append("play")
+            elif ins.op == 0x22:                  # Wait
+                seq.append(("wait", ins.imm(0)))
+    assert seq == ["play", ("wait", 55)]
+    assert any("sfx sustain" in p for p in
+               BT.validate(_sfx_raw(do={"sfx": 1942, "sustain": 999})))
 
 
 def test_sfx_bare_and_validation():
