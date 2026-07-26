@@ -89,8 +89,8 @@ def posts() -> dict:
     def nearest(x, z):
         return min(pts, key=lambda p: (p[0] - x) ** 2 + (p[1] - z) ** 2)
 
-    lay = {"broker": nearest(spawn[0] + 350, spawn[1]),
-           "quarter": nearest(spawn[0] - 350, spawn[1])}
+    lay = {"broker": nearest(spawn[0] + 500, spawn[1] + 550),    # SE flank — clear of donor
+           "quarter": nearest(spawn[0] - 350, spawn[1])}         # arrival 9 (jam radius, probe-caught)
     bx, bz = lay["broker"]
     qx, qz = lay["quarter"]
     if max(abs(bx - qx), abs(bz - qz)) < 250:                    # the ~192u actor-jam law + margin
@@ -111,6 +111,10 @@ def gen() -> None:
     text = re.sub(r"(?m)^id = \d+", f"id = {FIELD_ID}", text)
     text = re.sub(r'(?m)^name = "[^"]+"', f'name = "{FIELD_NAME}"', text)
     text = re.sub(r"(?ms)^\[\[gateway\]\].*?(?=^\[|\Z)", "", text)   # a closed room
+    # strip the carried donor bystanders (Zidane-object, townsfolk, the TGR creature) —
+    # the condor-bench lesson: dressing that LOOKS like cast makes the real cast
+    # unfindable (round 1 here: "the broker is MIA" with both NPCs present)
+    text = re.sub(r"(?ms)^\[\[object\]\].*?(?=^\[|\Z)", "", text)
 
     lay = posts()
     bx, bz = lay["broker"]
@@ -193,8 +197,12 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-PLAYTEST (first deploy of {FIELD_ID} = RELAUNCH once, then ~ -> Warp -> {FIELD_ID}):
-  THE BID (the broker, EAST of spawn — screen-right on this yaw-0 camera):
+PLAYTEST (round 2 — ~ Reload / re-warp is enough, {FIELD_ID} is registered):
+  The plaza now holds EXACTLY TWO people (donor bystanders stripped): the two
+  City Soldiers. The BROKER stands UP-RIGHT of spawn (toward the fountain);
+  the QUARTERMASTER is just LEFT of spawn. The menus name themselves
+  (probe-verified: screen-up = north on this camera).
+  THE BID (the broker — "Care to bid on the lot, kupo?"):
    1 Talk -> "Place a bid" -> the stepper: a "00100 Gil"-style line mid-left,
      the RIGHTMOST digit tinted PINK, a button legend below. No walking while
      it's open (the choice bracket holds control).
