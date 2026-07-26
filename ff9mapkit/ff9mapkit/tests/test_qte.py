@@ -182,3 +182,22 @@ def test_validate_negatives(tmp_path):
     f2.write_text(beh, encoding="utf-8")
     probs2 = BLD.validate(BLD.FieldProject.load(f2))
     assert any("blackboard" in pr for pr in probs2)
+
+
+def test_par_calibrates_the_score_divisor():
+    """ENGARDE round-1 calibration: scoring against 100% of theoretical made 100
+    impossible (~85 superhuman ceiling, a good human run ~70). Default par 80
+    mirrors stock's divisor feel: a great run reaches 100, the clamp absorbs
+    the top."""
+    spec = _spec()                                       # rounds 8, window 45
+    body = Q.game_body(spec, _tx(spec))
+    exprs = [D.pretty_expr(body, ins.off + 1)[0]
+             for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x05]
+    assert any(f"const({8 * 45 * 80 // 100})" in e and "B_DIV" in e for e in exprs)
+    hard = _spec(par=100)
+    bh = Q.game_body(hard, _tx(hard))
+    exprs_h = [D.pretty_expr(bh, ins.off + 1)[0]
+               for ins in D.iter_code(bh, 0, len(bh)) if ins.op == 0x05]
+    assert any(f"const({8 * 45})" in e and "B_DIV" in e for e in exprs_h)
+    with pytest.raises(Q.QteError, match="par"):
+        _spec(par=5)
