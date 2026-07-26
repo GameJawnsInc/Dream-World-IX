@@ -2,10 +2,15 @@
 # Southern Ring owns. deploy_marker_renames MERGES with the live deployed 68.mes (the R3 fix in
 # world/navimap.py), so re-running this file is idempotent -- but keep every ring name HERE so a
 # from-scratch rebuild (no deployed 68.mes) still registers them all in one pass.
+#
+# ⚠ locId 51 (split[52], case 52) is NOT ours and must NEVER be renamed: case 52 is the overworld
+# quicksand's hardcoded main-loop battle case (`Byte[24]==52 && Confirm -> Battle(0,144)`, the
+# Antlion ambush -- the R3 playtest found it), and its stock '  ?  ' label is the quicksand's own
+# mystery-spot plate. The R3 deploy briefly renamed it; restored 2026-07-26.
 [[marker_rename]]
 locid = 52          # split[53] -- dead AREA case 53, THE ONE-CASE FERRY: all four quays share it
 to = "Lantern Quay"
 
 [[marker_rename]]
-locid = 51          # split[52] -- dead AREA case 52, the ring's ONE named landmark (R3)
-to = "Lamplight"
+locid = 60          # split[61] -- VIRGIN case 61 (past the stock table; navimap EXTENDS it):
+to = "Lamplight"    # the ring's ONE named landmark (R3), self-summon lane, no switch surgery

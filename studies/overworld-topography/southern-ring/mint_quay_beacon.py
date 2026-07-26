@@ -146,11 +146,13 @@ SITES = {
     "larkspur": Site("Larkspur", (700.0, -608.2),   3.03,
                      (696.0, 704.0, -620.0, -612.0),   (688.0, -616.0),  _blk(10, 9),   64,
                      (21, 19), (700.0, -616.0)),
-    # R3 -- NOT a quay: the ring's one NAMED landmark (the reserved case-52 slot; every quay shares
-    # case 53). Same beacon, same laws, on the Lamplight island mint (r44, seed 44, block (22,18),
-    # plateau y 3.20 -- probed flat across the footprint, probe_r3/probe_mint_output.txt). Southern
-    # limit: trigger north edge -1164 + 1.0 hull clearance + 2.30 + 0.45 steps => cz >= -1160.25,
-    # uses -1160.2 (the Ashvale derivation verbatim, translated +1376 in x).
+    # R3 -- NOT a quay: the ring's one NAMED landmark, on VIRGIN case 61 (the design's "reserved
+    # case 52" proved to be the quicksand's hardcoded Battle(0,144) main-loop case -- playtest-found;
+    # 61-64 sit past the stock table + AREA switch and are the robust custom-name band). Same beacon,
+    # same laws, on the Lamplight island mint (r44, seed 44, block (22,18), plateau y 3.20 -- probed
+    # flat across the footprint, probe_r3/probe_mint_output.txt). Southern limit: trigger north edge
+    # -1164 + 1.0 hull clearance + 2.30 + 0.45 steps => cz >= -1160.25, uses -1160.2 (the Ashvale
+    # derivation verbatim, translated +1376 in x).
     "lamplight": Site("Lamplight", (1424.0, -1160.2), 3.20,
                      (1420.0, 1428.0, -1172.0, -1164.0), (1436.0, -1168.0), _blk(22, 18), 192,
                      (44, 36), (1424.0, -1168.0)),

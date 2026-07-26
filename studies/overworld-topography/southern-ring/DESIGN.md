@@ -120,3 +120,17 @@ from the BASE text, erasing "Lantern Quay" (any 2nd named entrance wiped the 1st
 post-deploy byte check); FIXED to merge with the deployed override + regression test + the standing
 `marker_renames.toml` registry. Full record + undo: REVERT.md §21. ONE RELAUNCH required (FieldScene
 6602); playtest = §21.10 (teleport to (1432,−1176)).
+
+**R3 fix — THE QUICKSAND CASE + THE VIRGIN NAMEPLATE BAND (2026-07-26, re-playtest pending):** the
+§21 playtest hit *battle 144 (Antlion)* at the plate — **case 52 is the overworld quicksand's
+hardcoded main-loop branch** (`Byte[24]==52 && Confirm → Battle(0,144)`, before the AREA switch in
+all 9 free-roam dispatchers; the real quicksand tag lives in WORLD03/09 cell (38,8)). **THE
+QUICKSAND CASE LAW: switch-dead is NOT dead** — the corrected census (switch ∧ main-loop ∧ cell-tags
+∧ labels) leaves NO clean surgery slot beyond 53: the ratified "ceiling is 2" was wrong. The robust
+replacement: **THE VIRGIN CASE BAND 61–64** — past the stock 61-entry name table AND the base-2×59
+AREA switch, yet inside func-0xB's unbounded 49+ explored-bit arm (w98 bits 12–15) and the plate
+window. Lamplight now rides **case 61**: the A2 self-summon trigger (prior nameplate research's
+verified laws) + explored-bit on the warp branch + a navimap-EXTENDED block-68 (split[61]) — **zero
+stock bytes touched** (63 dispatchers = pre-R3 + one added func each, byte-proven; quicksand intact,
+its per-language stock labels restored exactly). Named-entrance budget: 1 → 5 (53 + 61-64). Record:
+REVERT.md §22; re-playtest = §22.8.

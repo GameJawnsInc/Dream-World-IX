@@ -2241,3 +2241,115 @@ to open ocean.
 **Committed** (this worktree, branch `claude/r3-lamplight-island-overworld-44317f`): the study files
 (toml, SITES row, rebuild script, marker registry, probes, this section), the navimap kit fix + its
 regression test, and the probe's per-site trigger table.
+
+---
+
+# 22. R3 FIX — THE QUICKSAND CASE + THE VIRGIN NAMEPLATE BAND — **APPLIED** (playtest pending)
+
+Run 2026-07-26, after the owner's playtest of §21: *"the ? plate at 1432 -1176 puts me in battle 144
+against Antlion. it doesn't warp me to 6602."* Owner ruling on the first two proposed fixes: both
+hacky; note the prior nameplate research; find a robust solution.
+
+## 22.1 ROOT CAUSE — case 52 was never dead: it is THE QUICKSAND
+
+Decoded from the deployed bytes (`us/WORLD00` entry-1/tag-1 @2885, present in ALL NINE free-roam
+dispatchers, BEFORE the AREA-switch confirm path):
+
+```
+if (Byte[24]==52 && B_KEYON(Confirm) && !Byte[35] && !bit(44,3) && !bit(43,3) && !Byte[37]) {
+    CloseWindow(6); CloseWindow(7); Battle(0, 144);      // the desert quicksand -> Antlion
+}
+```
+
+**THE QUICKSAND CASE LAW: switch-dead is NOT dead.** The AREA switch's case-52 arm genuinely routes
+to default — because the main loop consumes case 52 first. The surgery's deadness check measures the
+switch; its *model* (dead-in-switch ⇒ safe) was wrong for exactly one case in the game. The real
+quicksand cell tag (0x8899 → cell (38,8), the Cleyra desert) exists only in WORLD03/WORLD09, but the
+battle branch ships in every free-roam main loop — so OUR case-52 tile armed it in world 9011.
+
+Corrected-model census (all 9 free-roam dispatchers: switch-dead ∧ no `Byte[24]==K` main-loop branch
+∧ no stock cell tag ∧ no real label): **no clean surgery slot remains** — 43 = "Landing Site",
+54 = "Memoria", 55–59 = "Chocobo's Air Garden", 52 = the quicksand. The judgment's "nameplate
+ceiling is 2" collapses to **1** (case 53, spent on the quays). Census + branch decode preserved in
+the session log; the enduring law lives in `--nameplate-case`'s help text and the memory store.
+
+## 22.2 THE ROBUST SOLUTION — THE VIRGIN CASE BAND (61–64)
+
+Grounded in the prior nameplate research (the fix-A2 saga's verified laws — summon gated on
+`Byte[24]==100`, warp on the on-foot gate, warp-branch `Byte[24]=100` mute — plus the surgery's
+explored-bit/name-table map), with three new byte-verified facts:
+
+* the stock name table has 61 entries (cases 0–60) and the plate read is a plain split-array index —
+  a table WE ship and can extend;
+* the AREA switch is base 2 × 59 cases (2..60): 61+ takes the benign out-of-range default;
+* func-0xB's 49+ arm has NO upper bound (`Byte[38] = w98 >> (case−49)`; `Byte[24] = case+100`), so
+  cases 49–64 exactly fill explored word 98, and the plate window admits any case < 90.
+
+**Cases 61–64 are therefore VIRGIN**: no stock cell tag, no switch slot, no main-loop branch, no
+label, no navi marker — but full plate + explored-bit machinery. A custom-name entrance there needs
+ZERO stock-byte edits: the trigger self-summons the plate with its own case and does its own warp.
+This also raises the ring's named-entrance budget from 1 to 5 (53 + 61-64).
+
+## 22.3 Kit changes
+
+| File | Change |
+|---|---|
+| `ff9mapkit/ff9mapkit/world/entrance.py` | `nameplate_summon(case=)` parameterized; `entrance_func_body_direct(nameplate_case=, explored_case=)` — the A2 body with a custom summoned case + the surgery's own explored-bit expr on the WARP branch (before the fade), "!" bubble dropped in that mode (parity with the surgery-form quays); `author_entrance`: `nameplate_case` 61–64 routes to the VIRGIN lane (no repoint — there is no slot; validation rejects 65+, which has no w98 bit) |
+| `ff9mapkit/ff9mapkit/world/navimap.py` | `apply_marker_renames` EXTENDS the table for a locId past its end (padding gaps with the game's own `'  ?  '` mystery-spot placeholder) instead of silently dropping the rename — the write-lands failure class |
+| `ff9mapkit/ff9mapkit/cli.py` | `--nameplate-case` help carries THE QUICKSAND CASE LAW + the virgin band; the receipt honestly describes the virgin lane (no "repointed" claim) |
+| `ff9mapkit/tests/test_worldexit.py` | +2: the virgin body (summon-61 bytes, `w98\|=0x1000` on the warp branch before the fade, no FICON, A2 structure, case 61 absent from every switch, 65+ raises) and the navimap table-extension (pad values + target + other txids untouched) |
+
+Tests: **146 green** across the targeted world / entrance / worldexit / ferry / navimap suites.
+
+## 22.4 Install repair + redeploy (backups: the §21.7 set, reused)
+
+1. **All 63 dispatchers restored** from `backups/r3-lamplight.20260726-r3lamplight/dispatchers/` —
+   removes the §21 case-52 repoint, its appended handler, and the old trigger func in one step.
+2. **All 7 `68.mes` restored** from `text68/` — split[52] back to each language's OWN stock
+   quicksand label (`'  ?  '` us/uk, `'?'` fr/gr/it/jp, `'¿?'` es; verified stock-exact per
+   language, ring deltas only).
+3. `marker_renames.toml`: the locid-51 entry REMOVED (never ours — documented in the file), replaced
+   by **locid 60** ("Lamplight" at split[61]).
+4. Redeploy: `world-entrance --cell 44 36 --field-direct 6602 --nameplate-name "Lamplight"
+   --nameplate-case 61 --trigger-at 1424 -1168 --trigger-radius 3.0 --no-tile-area
+   --mod-folder FF9CustomMap-world --trigger-only` — dispatch funcs + the name only; the §21 terrain
+   / tiles / beacon were probe-verified and are untouched. `rebuild_quay_marker.sh` lamplight row →
+   `CASE=61` (+ the law in its header).
+
+## 22.5 Verified from the DEPLOYED bytes
+
+* **63 dispatchers vs the pre-R3 baseline: ZERO changed functions, ZERO removed, exactly ONE new
+  function (entry 0, tag 0xA4B1)** — the entrance is now purely additive; every stock byte,
+  including the quicksand branch, is byte-identical to pre-R3 (entry-1/tag-1 compared whole).
+* The deployed WORLD11/us trigger body (127 B) is **byte-exact** to
+  `entrance_func_body_direct(6602, world_state=9011, prompt=True, nameplate=True, nameplate_case=61,
+  explored_case=61)`: on-foot gate → Confirm → [Byte[24]=100 mute + `w98|=0x1000` + zone-in fade +
+  D8:2=9999 + Field(6602)] / approach → gated summon(61).
+* Block-68, all 7 languages: **stock-exact except the ring's two deltas** — split[53]="Lantern Quay",
+  appended split[61]="Lamplight" (len 61 → 62). Registry re-run proven **idempotent** (md5 unchanged).
+* Site probe (5 sites × 2 discs + ring closure): **ALL CHECKS PASS**
+  (`probe_r3/probe_sites_output_fix.txt`).
+
+## 22.6 Undo
+
+Repeat §22.4 steps 1–2 (restore dispatchers + text) and skip the redeploy — that is the pre-R3
+state. The §21.8 island/field undo steps are unchanged.
+
+## 22.7 Why the battle can never fire at Lamplight now (and the quicksand still works)
+
+Our tile sets `Byte[39]=61` → `Byte[24]=161→61` — the quicksand branch tests `==52`, never true on
+the island. The real quicksand cells still set 52 in WORLD03/09 and battle exactly as stock (their
+bytes are untouched). The two features share nothing: not a case, not a label, not an explored bit.
+Residual known cosmetic: NONE — the §21 caveat about the quicksand plate reading "Lamplight" is GONE
+(split[52] is stock again).
+
+## 22.8 Playtest ask (owner) — RELAUNCH once if you haven't since the R3 deploy, then:
+
+1. `~ → World → Teleport` to **(1432, −1176)**: walk to the beacon's foot → the plate shows **"?"**
+   + "Enter with [X]" (no "!" bubble — parity with the quays) → **Confirm → fade → the lamp room**
+   (no battle, ever).
+2. Moglow's line, then walk out the SE stairway → land beside the beacon facing east, plate now reads
+   **"Lamplight"**.
+3. A quay sanity pass: one ferry hop still lands beside its beacon, plate "Lantern Quay".
+4. (Only if you happen to have a stock save near Cleyra: the quicksand still ambushes with Antlion
+   and its plate still shows the stock "?" — nothing borrowed, nothing renamed.)

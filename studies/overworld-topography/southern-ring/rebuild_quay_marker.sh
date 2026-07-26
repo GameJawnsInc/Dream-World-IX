@@ -76,8 +76,13 @@ fi
 # Tidefall/Grimhorn/Larkspur: same derivation against each site's own trigger rect; every value below
 # was gate-verified by `mint_quay_beacon.py` (29 gates) before being recorded here.
 # The four QUAYS share one destination (the hall), one name and one dead case (53) -- THE ONE-CASE
-# FERRY. Lamplight (R3) is the ring's one NAMED landmark and spends the region's OTHER clean slot:
-# its own field (6602, the lamp room), its own name, dead case 52.
+# FERRY. Lamplight (R3) is the ring's one NAMED landmark: its own field (6602, the lamp room), its
+# own name, VIRGIN case 61.
+#
+# ⚠ NEVER use case 52: it looks switch-dead but the main loop hardcodes `Byte[24]==52 && Confirm ->
+# Battle(0,144)` -- the desert quicksand's Antlion ambush (the R3 playtest fired it at the beacon).
+# Case 53 is the ONLY clean SURGERY slot; additional names use the VIRGIN band 61-64 (past the stock
+# table and switch; the trigger self-summons the plate and block-68 is extended -- no stock bytes).
 case "$SITE" in
   ashvale)  CELL="1 36";   TRIG="48 -1168";    AT="48 -1160.425";    OBJ="quay_beacon.obj"
             FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
@@ -88,7 +93,7 @@ case "$SITE" in
   larkspur) CELL="21 19";  TRIG="700 -616";    AT="700 -608.425";    OBJ="quay_beacon_larkspur.obj"
             FIELD=6601; NAME="Lantern Quay"; CASE=53 ;;
   lamplight) CELL="44 36"; TRIG="1424 -1168";  AT="1424 -1160.425";  OBJ="quay_beacon_lamplight.obj"
-            FIELD=6602; NAME="Lamplight"; CASE=52 ;;
+            FIELD=6602; NAME="Lamplight"; CASE=61 ;;
   *) echo "unknown site: $SITE" >&2; exit 2 ;;
 esac
 
