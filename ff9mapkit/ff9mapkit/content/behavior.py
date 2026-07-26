@@ -466,6 +466,15 @@ class PoolSpec:
     price: int | None = None
     button: int | None = None
     request_flag: int | None = None
+    # THE ITEM POOL (the shop-as-hire-menu bridge): the pool's currency is an ITEM —
+    # each ticker pass, holding >= 1 of ``item`` converts one contract into one spawn
+    # (B_HAVE_ITEM gate + RemoveItem at the spawn site; the native Menu(2,id) shop is
+    # the entire hire UX — it hard-pauses the ticker while open, so contracts convert
+    # the tick after it closes). Exclusive with price/button/request_flag: the item IS
+    # the request, no flag lane exists. An exhausted pool consumes NOTHING (contracts
+    # are real inventory). ``item`` is a RESOLVED id; ``item_name`` for reports.
+    item: int | None = None
+    item_name: str = ""
 
 
 # ---------------------------------------------------------------- data tables
@@ -736,6 +745,13 @@ class FieldBehavior:
                 raise BehaviorError(f"[behavior] pool spec {ps.name!r} given twice")
             if ps.price is not None and not 0 <= int(ps.price) <= 0xFFFFFF:
                 raise BehaviorError(f"pool {ps.name!r}: price must be 0..16777215 (24-bit gil)")
+            if ps.item is not None:
+                if not 0 <= int(ps.item) <= 254:          # 255 = NoItem
+                    raise BehaviorError(f"pool {ps.name!r}: item must be a regular item id 0..254")
+                if ps.price is not None or ps.button is not None or ps.request_flag is not None:
+                    raise BehaviorError(f"pool {ps.name!r}: item is exclusive with price/"
+                                        f"button/request_flag — the item IS the request "
+                                        f"(the shop is the menu; no flag lane exists)")
             if ps.button is not None and ps.request_flag is None:
                 raise BehaviorError(f"pool {ps.name!r}: button needs an explicit "
                                     f"request_flag = N (the parked hire [[choice]] row "
@@ -753,6 +769,8 @@ class FieldBehavior:
         self.pool_flags: dict[str, int] = {}
         for pname in self._pools:
             ps = self.pool_specs.get(pname)
+            if ps is not None and ps.item is not None:
+                continue                                  # an item pool has no request lane
             if ps is not None and ps.request_flag is not None:
                 idx = int(ps.request_flag)
             else:
@@ -921,6 +939,19 @@ class FieldBehavior:
         if not 0 <= int(seconds) <= 30000:
             raise BehaviorError("time_above seconds must be 0..30000")
         return Cond(f"B_SYSVAR[17] const({int(seconds)}) B_GT", _trusted=True)
+
+    def have_item(self, item_id: int, n: int = 1) -> Cond:
+        """True while the party holds >= ``n`` of item ``item_id`` — ``B_HAVE_ITEM``
+        (0x64, GetItemCount), the engine's LIVE inventory read. Items are save
+        state and the native ``Menu(2, id)`` shop writes them, so this cond is the
+        inventory half of the shop-as-hire-menu bridge: the shop pauses the ticker
+        while open, and the first pass after it closes sees the purchase."""
+        if not 0 <= int(item_id) <= 254:                  # 255 = NoItem
+            raise BehaviorError("have_item: item id must be 0..254")
+        if not 1 <= int(n) <= 99:
+            raise BehaviorError("have_item: count must be 1..99 (the inventory cap)")
+        return Cond(f"const({int(item_id)}) B_HAVE_ITEM const({int(n)}) B_GE",
+                    _trusted=True)
 
     # ---------------- data tables + counters (the 0xD3 VECTOR lane)
     def _counter_ref(self, name: str) -> str:
@@ -1186,13 +1217,24 @@ class FieldBehavior:
 
     def _hud_ref(self, src: str) -> str:
         """Resolve a hud VALUE SOURCE to an RPN fragment: a counter name, the
-        live ``gil`` / ``timer`` sysvars, or ``hp:<unit>`` (a unit's hit
-        points — the group cell for a roster member)."""
+        live ``gil`` / ``timer`` sysvars, ``hp:<unit>`` (a unit's hit points —
+        the group cell for a roster member), or ``item:<id>`` (the live held
+        count via ``B_HAVE_ITEM`` — the TOML lane resolves an item NAME to the
+        id before registration)."""
         src = str(src)
         if src == "gil":
             return "B_SYSVAR[6]"
         if src == "timer":
             return "B_SYSVAR[17]"
+        if src.startswith("item:"):
+            try:
+                iid = int(src[5:])
+            except ValueError:
+                raise BehaviorError(f"hud value {src!r}: item: takes a resolved item "
+                                    f"ID (the TOML lane resolves names)")
+            if not 0 <= iid <= 254:
+                raise BehaviorError(f"hud value {src!r}: item id must be 0..254")
+            return f"const({iid}) B_HAVE_ITEM"
         if src.startswith("hp:"):
             unit = src[3:]
             if unit not in self.units:
@@ -1742,10 +1784,20 @@ class FieldBehavior:
         pmx = f"Global.Int16[{self.bb.int16(f'{PLAYER}.mx')}]"
         pmz = f"Global.Int16[{self.bb.int16(f'{PLAYER}.mz')}]"
         for pname, unames in self._pools.items():
-            req = self.pool_flags[pname]
             price = getattr(self.pool_specs.get(pname), "price", None)
-            cd_blocks += [label(f"__seg pool {pname}"),
-                          _stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
+            item = getattr(self.pool_specs.get(pname), "item", None)
+            if item is not None:
+                # THE ITEM POOL: no request flag — holding a contract IS the request.
+                # Polled every run pass; one convert per tick (natural stagger), and
+                # RemoveItem sits at the SPAWN site so an exhausted pool consumes
+                # NOTHING (contracts are real inventory, keep them honest).
+                cd_blocks += [label(f"__seg pool {pname}"),
+                              _stmt(f"const({int(item)}) B_HAVE_ITEM const(0) B_GT"),
+                              (JMP_IFNOT, f"pl_{pname}_end")]
+            else:
+                req = self.pool_flags[pname]
+                cd_blocks += [label(f"__seg pool {pname}"),
+                              _stmt(f"Global.Bit[{req}]"), (JMP_IFNOT, f"pl_{pname}_end")]
             if price:
                 # the gil gate (the inn-553 idiom): broke -> consume the request,
                 # charge NOTHING (RemoveGil sits at the SPAWN site below, so an
@@ -1760,7 +1812,8 @@ class FieldBehavior:
                 nxt = f"pl_{pname}_t{i + 1}" if i + 1 < len(unames) else f"pl_{pname}_done"
                 cd_blocks += [
                     _stmt(f"Global.Bit[{spawned}]"), (JMP_IF, nxt),
-                ] + ([opcodes.remove_gil(int(price))] if price else []) + [
+                ] + ([opcodes.remove_gil(int(price))] if price else []) \
+                  + ([opcodes.remove_item(int(item), 1)] if item is not None else []) + [
                     # the placement post = the press-time player position
                     _stmt(f"Global.Int16[{upx}] {pmx} B_LET"),
                     _stmt(f"Global.Int16[{upz}] {pmz} B_LET"),
@@ -1781,9 +1834,13 @@ class FieldBehavior:
                 ]
                 if i + 1 < len(unames):
                     cd_blocks.append(label(nxt))
-            cd_blocks += [label(f"pl_{pname}_done"),     # exhausted pool falls through
-                          _set_flag(req, 0),             # here too: consume the request
-                          label(f"pl_{pname}_end")]
+            if item is not None:
+                cd_blocks += [label(f"pl_{pname}_done"),  # exhausted: keep the contracts
+                              label(f"pl_{pname}_end")]
+            else:
+                cd_blocks += [label(f"pl_{pname}_done"),  # exhausted pool falls through
+                              _set_flag(req, 0),          # here too: consume the request
+                              label(f"pl_{pname}_end")]
         # hireable refresh — AFTER the activation blocks, so the tick that spawns a
         # pool's last unit flips it un-hireable the same pass
         if self._pools:
@@ -1791,7 +1848,11 @@ class FieldBehavior:
         for pname, unames in self._pools.items():
             hidx = self.pool_hireable[pname]
             price = getattr(self.pool_specs.get(pname), "price", None)
-            afford = f"B_SYSVAR[6] {_cnum(int(price))} B_GE" if price else "const(1)"
+            item = getattr(self.pool_specs.get(pname), "item", None)
+            if item is not None:
+                afford = f"const({int(item)}) B_HAVE_ITEM const(0) B_GT"
+            else:
+                afford = f"B_SYSVAR[6] {_cnum(int(price))} B_GE" if price else "const(1)"
             sp = [f"Global.Bit[{self.bb.flag(f'{un}.spawned')}]" for un in unames]
             allsp = sp[0] + "".join(f" {s} B_ANDAND" for s in sp[1:])
             cd_blocks.append(_stmt(f"Global.Bit[{hidx}] {afford} {allsp} B_NOT "
@@ -1862,6 +1923,11 @@ class FieldBehavior:
                     extra += f", price {ps.price} gil"
                 if ps is not None and ps.button is not None:
                     extra += f", hire button mask 0x{ps.button:X}"
+                if ps is not None and ps.item is not None:
+                    label = ps.item_name or f"item {ps.item}"
+                    return (f"  {p}: ITEM POOL (one {label} converts to one spawn per "
+                            f"tick), hireable flag {self.pool_hireable[p]}{extra}, "
+                            f"units [{', '.join(self._pools[p])}]")
                 return (f"  {p}: spawn-request flag {self.pool_flags[p]}, hireable "
                         f"flag {self.pool_hireable[p]}{extra}, "
                         f"units [{', '.join(self._pools[p])}]")
