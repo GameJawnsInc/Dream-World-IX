@@ -144,7 +144,10 @@ scenery must be re-authored *together*.
   verified intact). Cast 1 needs no deploy step; `deploy_misretime.py` swaps to the falsifier;
   `revert_summon_retime_227.py` restores W2's resting state. The cast protocol is `W3-RETIME.md`
   §6, and the rung does not close until both casts are judged.
-- **W4 — ★ BUILT + STAGED, preview-gated, cast pending** (`W4-RESKIN.md`, `reskin.py`,
+- **W4 — ★★ CAST-PROVEN 2026-07-26 ("all good", after cast 1 minted THE HYBRID MASK law and the
+  recast ran with `[SfxHybrid]` disarmed). THE TIER IS COMPLETE — 4/4: re-framed, re-timed,
+  re-skinned, all in place, all revertible. Resting: the reskin LIVE, SfxHybrid disarmed.**
+  (`W4-RESKIN.md`, `reskin.py`,
   `bahamut_reskin.toml`, `test_reskin.py`, `w4_gates.py`; X0–X6 + 7/7 negative refusals, 38 new tests
   / 294 tier-wide). **THE WHOLE-SET CLUT RECOLOUR of ef227 — creature AND the effect's own scenery,
   lever #1 (CLUT recolour) only, no texel moved.** 4,832 of 823,296 bytes changed (0.587 %, a 2×

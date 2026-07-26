@@ -349,7 +349,14 @@ instrument that substitutes or hides the thing under test masks the test — che
 future s5x drive keyed on the same EffectId) BEFORE judging a native-creature change.* Same class as
 THE WARM-MIRROR MASK: the proven instrument in the loop was proving itself, not the artifact.
 
-## CAST VERDICT — PENDING (recast required: relaunch with SfxHybrid disarmed, then cast)
+## CAST VERDICT — 2026-07-26 ★★ PROVEN ("all good") — THE RUNG IS CLOSED, AND WITH IT THE TIER
+
+The recast (relaunch with `[SfxHybrid]` disarmed) showed our texture on the stock cinematic — the
+spectral-mist dragon and the recolored effect-owned set — and the owner approved. **TIER W is COMPLETE,
+4/4:** a stock summon can be re-framed (W2), re-timed (W3), and re-skinned (W4) from our own
+declarative surface, each rung cast-proven and revertible. Resting state: the W4 reskin is LIVE
+(container sha `7fef205f…`), `[SfxHybrid]` stays DISARMED (re-arm + relaunch to bring Thomas back);
+`revert_summon_reskin_227.py` restores W2's resting override at any time.
 
 Staged and self-checked (18/18 `reskin.py` gates, `w4_gates.py` X0–X6 + 7/7 negative refusals, 294 tests
 tier-wide), previews rendered and reviewed offline (this report opened four of the thirteen directly), and
