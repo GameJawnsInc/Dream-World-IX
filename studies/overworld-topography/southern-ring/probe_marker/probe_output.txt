@@ -1,0 +1,83 @@
+donor Block[21, 10] Object: 312 verts / 104 tris, idall=[6382], normal-Y up=34 vert=60 down=10
+
+====================================================================================================
+DISC 1  --  C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\FF9CustomMap-world\FF9_Data\WorldMap\Disc1\0_1\r18
+====================================================================================================
+Terrain 35900 B: 690 verts / 230 tris
+Object  16244 B: 312 verts / 104 tris
+
+(a) the quay TRIGGER cluster (Terrain) is untouched
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all carry idall 16384  -- [16384]
+  [PASS] union bbox == x[44,52] z[-1172,-1164]  -- got x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+
+(b) the ARRIVE point (60,-1168) is untouched -- a sky-cast IGNORES the 4078 skip
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 topo=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 topo=0 y=3.000
+
+(c) the MARKER geometry
+  [PASS] the WHOLE donor part landed (104 tris / 312 verts)  -- got 104 tris / 312 verts
+  [PASS] EVERY tri carries idall 4078 (0x0FEE)  -- {4078: 104}
+       decoded 4078 = {'event': 0, 'area': 15, 'topograph': 59, 'flags': 2}   (donor was 6382 = {'event': 0, 'area': 24, 'topograph': 59, 'flags': 2} -- same topograph + flags, area only)
+  [PASS] per-face normal-Y distribution == the donor's (pure translation, no face altered)  -- up=34 vertical=60 down=10
+       world span x[44.861,51.139] y[3.000,8.531] z[-1161.193,-1152.807]
+  [PASS] world span == the planned footprint  -- planned x[44.861,51.139] z[-1161.193,-1152.807]
+  [PASS] base rests on the y 3.0 plateau  -- y min 3.0000
+  [PASS] inside the block's 64x64 footprint  -- N edge margin 0.807u
+  [PASS] EXCLUSION 1: every vertex >= 6.0u from the arrive point  -- nearest 11.565u
+  [PASS] EXCLUSION 2: no vertex in the keep-out rect x[42.0,54.0] z[-1174.0,-1162.0]  -- nearest real trigger tile 2.807u away
+
+(d) the UV carry (a UV-less carry renders flat WHITE off the atlas's alpha-0 corner)
+  [PASS] one UV per vertex  -- 312 vs 312
+  [PASS] no degenerate [0,0] UV
+  [PASS] U set byte-equal to the donor's
+  [PASS] V set byte-equal to the donor's
+       u[0.00391,0.12793] v[0.12305,0.18457]  (shared res(1_24)_objects atlas)
+
+(+) what the 4078 stamp buys, measured on the deployed bytes
+  [PASS] gate centre (48.0, -1157.0): the WALK query passes THROUGH to Terrain (walk-through, no trigger shadow)  -- hit Terrain idall=0 y=3.00
+  [PASS] the same spot IS visible to a sky-cast (proves the gate is really in the walkmesh set)  -- hit Object idall=4078 y=7.34
+
+====================================================================================================
+DISC 4  --  C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\FF9CustomMap-world\FF9_Data\WorldMap\Disc4\0_1\r18
+====================================================================================================
+Terrain 35900 B: 690 verts / 230 tris
+Object  16244 B: 312 verts / 104 tris
+
+(a) the quay TRIGGER cluster (Terrain) is untouched
+  [PASS] exactly 6 event tris  -- got 6
+  [PASS] all carry idall 16384  -- [16384]
+  [PASS] union bbox == x[44,52] z[-1172,-1164]  -- got x[44.00,52.00] z[-1172.00,-1164.00]
+  [PASS] ground query (48,-1168) -> idall 16384 @ y 3.00  -- Terrain idall=16384 y=3.000
+
+(b) the ARRIVE point (60,-1168) is untouched -- a sky-cast IGNORES the 4078 skip
+  [PASS] walk (skip 4078): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 topo=0 y=3.000
+  [PASS] sky-cast (IgnoreExceptions): Terrain, idall 0, topo 0, y 3.00  -- Terrain idall=0 topo=0 y=3.000
+
+(c) the MARKER geometry
+  [PASS] the WHOLE donor part landed (104 tris / 312 verts)  -- got 104 tris / 312 verts
+  [PASS] EVERY tri carries idall 4078 (0x0FEE)  -- {4078: 104}
+       decoded 4078 = {'event': 0, 'area': 15, 'topograph': 59, 'flags': 2}   (donor was 6382 = {'event': 0, 'area': 24, 'topograph': 59, 'flags': 2} -- same topograph + flags, area only)
+  [PASS] per-face normal-Y distribution == the donor's (pure translation, no face altered)  -- up=34 vertical=60 down=10
+       world span x[44.861,51.139] y[3.000,8.531] z[-1161.193,-1152.807]
+  [PASS] world span == the planned footprint  -- planned x[44.861,51.139] z[-1161.193,-1152.807]
+  [PASS] base rests on the y 3.0 plateau  -- y min 3.0000
+  [PASS] inside the block's 64x64 footprint  -- N edge margin 0.807u
+  [PASS] EXCLUSION 1: every vertex >= 6.0u from the arrive point  -- nearest 11.565u
+  [PASS] EXCLUSION 2: no vertex in the keep-out rect x[42.0,54.0] z[-1174.0,-1162.0]  -- nearest real trigger tile 2.807u away
+
+(d) the UV carry (a UV-less carry renders flat WHITE off the atlas's alpha-0 corner)
+  [PASS] one UV per vertex  -- 312 vs 312
+  [PASS] no degenerate [0,0] UV
+  [PASS] U set byte-equal to the donor's
+  [PASS] V set byte-equal to the donor's
+       u[0.00391,0.12793] v[0.12305,0.18457]  (shared res(1_24)_objects atlas)
+
+(+) what the 4078 stamp buys, measured on the deployed bytes
+  [PASS] gate centre (48.0, -1157.0): the WALK query passes THROUGH to Terrain (walk-through, no trigger shadow)  -- hit Terrain idall=0 y=3.00
+  [PASS] the same spot IS visible to a sky-cast (proves the gate is really in the walkmesh set)  -- hit Object idall=4078 y=7.34
+
+====================================================================================================
+ALL CHECKS PASS
+====================================================================================================

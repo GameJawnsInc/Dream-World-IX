@@ -1,3 +1,9 @@
 # game-derived bytes (extract-field 2800) -- provenance gate: NEVER commit
 *.bgx
 *.bgi
+
+# game-derived GEOMETRY -- quay_marker.obj is a verbatim copy of stock FF9's Block[18][13] Object
+# mesh (54 verts + UVs + normals lifted from p0data). Same class as the battle-map FBX / minted-scene
+# raw16 in ff9mapkit/docs/PROVENANCE.md: read from YOUR install, gitignored, never committed.
+# `mint_quay_marker.py` regenerates it from your own install -- the SCRIPT is the committed part.
+*.obj

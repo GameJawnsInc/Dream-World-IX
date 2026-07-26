@@ -2769,17 +2769,27 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     try:
         tile = _parse_tile_spec(args.tile) if args.tile else None
         tile_uv = _parse_tile_uv_spec(args.tile_uv) if args.tile_uv else None
+        if args.idall is not None and not 0 <= args.idall <= 0xFFFF:
+            raise ValueError("--idall must be 0..65535 (the raw 16-bit tangent.x IDALL)")
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
-                                  at=(tuple(args.at) if args.at else None), seat=args.seat,
+                                  idall=args.idall, at=(tuple(args.at) if args.at else None), seat=args.seat,
                                   keep_block=args.keep_block, texture=args.texture, tile=tile, tile_uv=tile_uv,
                                   game=args.game, skip_mirror=args.skip_mirror)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     bx, by = info["into_block"]
+    from .world.extract import decode_id
+    d = decode_id(info["idall"])
+    stamp = (f"IDALL {info['idall']} (0x{info['idall']:04X} = event {d['event']}, area {d['area']}, "
+             f"topo {d['topograph']}, flags {d['flags']})" if args.idall is not None
+             else f"topograph {args.topograph}")
     print(f"built {args.part} override for block[{bx}][{by}] "
-          f"({info['verts']} verts, {info['tris']} tris, topograph {args.topograph}) -> {info['dest']}")
+          f"({info['verts']} verts, {info['tris']} tris, {stamp}) -> {info['dest']}")
+    if info["idall"] in (4078, 4088, 2040):
+        print("  ⓘ RENDER-ONLY stamp: WMPhysics.Raycast skips this id, so the mesh is walk-through and cannot "
+              "shadow an entrance trigger. Sky-cast placement (spawn/arrive) still hits it -- keep it clear of those.")
     if info.get("replaced_stock_tris") and not args.keep_block:
         print(f"  ⚠ this REPLACED the block's stock {args.part} mesh ({info['replaced_stock_tris']} tris -- e.g. "
               f"trees/bridges/town). Re-run with --keep-block to append instead of replace.")
@@ -6420,6 +6430,11 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on every triangle's IDALL (default 59 = the stock impassable structure "
                           "type; a building blocks on-foot)")
+    wmb.add_argument("--idall", type=int, metavar="N",
+                     help="stamp this RAW 16-bit IDALL on every triangle instead of encoding --topograph -- the only "
+                          "way to set the area/flags bit-fields. Pass 4078 (0x0FEE) for a RENDER-ONLY marker: "
+                          "WMPhysics skips 4078/4088/2040, so the mesh is walk-through and cannot shadow an entrance "
+                          "trigger (a spawn/arrive sky-cast still hits it -- keep marker tris clear of those)")
     wmb.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
     wmb.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"),
                      help="place the mesh's XZ centre at this WORLD spot (so you can MODEL AT THE ORIGIN in Blender "

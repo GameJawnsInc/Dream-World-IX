@@ -1,0 +1,13 @@
+PRE-MINT STATE of Block[0][18] Object -- probed from the backups taken 20260725-212836
+(the Terrain files are byte-unchanged by this run, so they are read live)
+
+disc1 Object backup: 176 B  3 verts / 1 tris  (the blanking stub)
+   tri0: idall=1 ny=-1.000 y=-80.00 x[0.00,0.10] z[-1152.00,-1151.90] uv=[0.0, 0.0]
+   Terrain: 690 verts / 230 tris; 6 event tris idall=[16384]
+            trigger union bbox x[44.00,52.00] z[-1172.00,-1164.00] y[3.00,3.00]
+
+disc4 Object backup: 176 B  3 verts / 1 tris  (the blanking stub)
+   tri0: idall=1 ny=-1.000 y=-80.00 x[0.00,0.10] z[-1152.00,-1151.90] uv=[0.0, 0.0]
+   Terrain: 690 verts / 230 tris; 6 event tris idall=[16384]
+            trigger union bbox x[44.00,52.00] z[-1172.00,-1164.00] y[3.00,3.00]
+
