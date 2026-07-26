@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — single-field auto story-flags moved into the provably-safe band (save-corrupter default)
+- The single-field auto once/gate-flag defaults (an unflagged `[[event]]` / `[[cutscene]]` /
+  zone-`[[choice]]` / `[[on_entry]]` / `[ate]`) allocated from the legacy 8000/8100/8200/8300
+  bands — all below `FIRST_SAFE_FLAG` (8712), and the on_entry/ate band (8300+) sat **inside the
+  stock Mognet MAILBOX slot bytes** (`Byte[1024-1045]` = bits 8192-8367 — wipe-guard, delivered
+  counter, and the 12 live letter-slot bytes, whole-byte-written by ordinary play at any real
+  moogle): a defaulted `[[on_entry]]` hook corrupted real letter state, and reading a letter
+  cleared the hook's once-flag. `[ate]` and `[[on_entry]]` #0 also shared index 8300 outright.
+  The defaults now live in per-lane bands inside the safe band (`flags.AUTO_*_BASE`: event 9100+ /
+  cutscene 9200+ / choice 9300+ / on_entry 9400+ / ate 9500+, width 100, placed clear of the
+  `[behavior]` compiler's blackboard bands), and `build._FlagAlloc` **skips any flag index the
+  same project references explicitly** (`flags.collect_safe_flag_indices`) — a defaulted block can
+  no longer alias an authored story flag in the same build; band exhaustion is a loud `BuildError`.
+  `flags.py` gains the `mognet_mailbox` reserved region (8192-8367), so `lint` / `flags-inspect`
+  now name a write there. Campaign/journey member allocation (per-member `flag_base` windows) is
+  unchanged. Migration note: a save that had legacy auto flags set replays those once-blocks one
+  time; a toml that hand-referenced a legacy auto index (e.g. gating on 8000 to read event #0's
+  implicit flag) should switch to an explicit `flag = N` — the dangling-flag lint points at it.
+
 ### Changed — every import mode now emits `entry_settle = "auto"`
 - `ff9mapkit import` (native / editable / BG-borrow / lightweight) and `import-chain`
   logic-only members now write `entry_settle = "auto"` under `[camera]` — the computed

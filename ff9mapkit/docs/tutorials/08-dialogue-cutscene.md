@@ -49,10 +49,11 @@ dialogue = "So you found a Potion..."
 requires_flag = 8720                   # hidden until the flag is set (an index or a [[flag]] name)
 ```
 
-Hand-picked flag indices belong in the safe author band **[8712, 16320)** — indices from 8000 up
-to 8511 are the kit's auto-allocation band (once-guards for cutscenes, choices, chests), and
-base-game state sits below that. `lint` flags collisions. Mechanics (save-persistent GLOB vs.
-per-visit MAP, scopes): [FORMAT.md §Story flags](../FORMAT.md#story-flags--branching).
+Hand-picked flag indices belong in the safe author band **[8712, 16320)**. The kit's auto
+once-guards (events/cutscenes/choices/on_entry/ate) live there too, in per-lane bands from **9100**
+— the allocator skips any index your project uses explicitly, so a hand-picked flag never collides
+with an auto one in the same build. `lint` flags the remaining collisions. Mechanics (save-persistent
+GLOB vs. per-visit MAP, scopes): [FORMAT.md §Story flags](../FORMAT.md#story-flags--branching).
 
 ## 3. An entry cutscene
 

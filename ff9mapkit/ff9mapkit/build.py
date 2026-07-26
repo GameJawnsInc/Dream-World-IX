@@ -193,8 +193,9 @@ class PathTraversalError(ValueError):
 class FieldProject:
     raw: dict
     base_dir: Path
-    # Per-member campaign once-flag base (set by campaign.build_campaign). None => single-field defaults
-    # (event 8000+ / cutscene 8100 / choice 8200+), which keeps single-field builds BYTE-IDENTICAL.
+    # Per-member campaign once-flag base (set by campaign.build_campaign). None => the single-field
+    # safe-band auto bands (flags.AUTO_*_BASE via _FlagAlloc, which also skips this project's own
+    # authored flag indices).
     flag_base: int | None = None
     flags_per_field: int = 64    # width of this member's flag block -> the overflow guard's choice cap
 
@@ -2479,7 +2480,7 @@ def lint_logic(project: FieldProject) -> list[str]:
                            f"null-ref). Pick a real battle scene (the encounter picker hides the model bucket).")
         except ValueError:
             pass                                   # an unknown name is a separate resolve_scene error at build
-    _auto = _FlagAlloc(getattr(project, "flag_base", None))   # mirror build_script's auto-allocation EXACTLY
+    _auto = _FlagAlloc.for_project(project)    # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
     settable, auto_once, explicit = set(), set(), set()
@@ -2569,11 +2570,14 @@ def lint_logic(project: FieldProject) -> list[str]:
         if flag not in settable:
             out.append(f"{who} requires flag {flag}, but no event sets it -- it can never appear/fire. "
                        f"Add an event with set_flag = [{flag}, 1] (or fix the flag index).")
+    # The allocator already SKIPS flags the reservation net collects (flags.collect_safe_flag_indices);
+    # this catches the lanes outside that net (e.g. a [[coop]] gate's set_flag) landing in an auto band.
     clash = sorted(explicit & auto_once)
     if clash:
-        out.append(f"flag index(es) {clash} are used explicitly AND auto-allocated for 'once' events "
-                   f"(base {_event.EVENT_FLAG_BASE}+) -- they will clash. Put an explicit `flag = N` on "
-                   f"your once-events, or move story flags out of the {_event.EVENT_FLAG_BASE}+ band.")
+        out.append(f"flag index(es) {clash} are used explicitly AND auto-allocated for a defaulted "
+                   f"'once' block (the auto bands start at {_event.EVENT_FLAG_BASE}) -- they will "
+                   f"clash. Put an explicit `flag = N` on the defaulted blocks, or move the explicit "
+                   f"flags out of the auto bands.")
     for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
         counts = {}
         for e in raw.get(coll, []):
@@ -3749,26 +3753,72 @@ EVENTS_PER_FIELD = 31
 
 
 class _FlagAlloc:
-    """Auto once-flag allocator. ``base is None`` (single-field build) reproduces the historical
-    per-category bands EXACTLY (event 8000+, cutscene 8100, choice 8200+) -> byte-identical output.
-    When a campaign assigns a per-member ``flag_base``, the field's auto once-flags pack into that
-    member's own block via a FIXED sub-partition (order-independent, so :func:`lint_logic` mirrors
-    :func:`build_script` regardless of which it allocates first), keeping every member's once-flags
-    disjoint from its siblings' -- the fix for the per-field-counter-resets-per-build aliasing bug."""
+    """Auto once-flag allocator. ``base is None`` (single-field build): each category allocates from
+    its own safe-band auto band (``flags.AUTO_*_BASE`` -- event/cutscene/choice/on_entry/[ate], all in
+    [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR)), SKIPPING any index the project itself references
+    (``reserved``, from :func:`flags.collect_safe_flag_indices`) so a defaulted block never aliases an
+    authored story flag. The per-category index is a pure function of ``(i, reserved)`` -- order-
+    independent, so :func:`lint_logic` mirrors :func:`build_script` regardless of which allocates
+    first. When a campaign assigns a per-member ``flag_base``, the field's auto once-flags pack into
+    that member's own block via a FIXED sub-partition instead, keeping every member's once-flags
+    disjoint from its siblings' -- the fix for the per-field-counter-resets-per-build aliasing bug.
+    (Pre-b18 the single-field bands were event 8000+/cutscene 8100+/choice 8200+/on_entry+ate 8300+ --
+    below FIRST_SAFE_FLAG, with 8300+ inside the stock Mognet MAILBOX slot bytes: a save-corrupter.)"""
 
-    def __init__(self, base: int | None):
+    def __init__(self, base: int | None, reserved=()):
         self.base = base
+        self.reserved = frozenset(reserved)
+
+    @classmethod
+    def for_project(cls, project) -> "_FlagAlloc":
+        """The allocator every build/lint site must construct, so all of them skip the SAME authored
+        flags. Campaign members (``flag_base`` set) don't skip -- their window partition is validated
+        campaign-side and must stay byte-stable."""
+        base = getattr(project, "flag_base", None)
+        reserved = ()
+        if base is None:
+            try:
+                reserved = set(_flags.collect_safe_flag_indices(project.raw))
+                # [[logic_add]] sits outside the collector's section walk (its `flag`/`guard` keys are
+                # int-only, never name-resolved) -- reserve its explicit indices here so a defaulted
+                # block can't alias a verbatim fork's authored once-guard or set_flag target.
+                for it in project.raw.get("logic_add", []) or []:
+                    if isinstance(it, dict):
+                        for key in ("guard", "flag"):
+                            v = it.get(key)
+                            if isinstance(v, int) and not isinstance(v, bool) and _flags.is_safe_custom(v):
+                                reserved.add(v)
+            except Exception:                    # noqa: BLE001 -- flag collection must never break the build
+                reserved = ()
+        return cls(base, reserved)
+
+    def _band(self, band_base: int, i: int, what: str) -> int:
+        """The (i+1)-th index in ``[band_base, band_base + AUTO_BAND_WIDTH)`` not claimed by the
+        project's authored flags. Raises (rather than silently spilling into the next lane's band or
+        an unsafe region) when the band is exhausted."""
+        idx, remaining = band_base, i
+        while idx < band_base + _flags.AUTO_BAND_WIDTH:
+            if idx not in self.reserved:
+                if remaining == 0:
+                    return idx
+                remaining -= 1
+            idx += 1
+        raise BuildError(
+            f"too many auto-flagged {what} blocks (or too many authored flags inside this lane's auto "
+            f"band [{band_base}, {band_base + _flags.AUTO_BAND_WIDTH})) -- give later blocks an "
+            f"explicit `flag = N` in [{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
 
     def event(self, i: int) -> int:
-        return (_event.EVENT_FLAG_BASE + i) if self.base is None else (self.base + 1 + i)
+        return self._band(_event.EVENT_FLAG_BASE, i, "[[event]]") if self.base is None \
+            else (self.base + 1 + i)
 
     def cutscene(self, k: int = 0) -> int:
-        """Auto once-flag for the k-th ``[[cutscene]]`` block. Single-field: ``8100+k`` (k=0 = the
-        historical singleton, byte-identical). Campaign member: only the FIRST block has a reserved slot
-        (the member's K-wide partition allocates exactly one cutscene flag) -- later blocks need an
-        explicit ``flag = N`` (same policy as ``[[on_entry]]``)."""
+        """Auto once-flag for the k-th ``[[cutscene]]`` block. Single-field: the k-th free index of the
+        cutscene auto band. Campaign member: only the FIRST block has a reserved slot (the member's
+        K-wide partition allocates exactly one cutscene flag) -- later blocks need an explicit
+        ``flag = N`` (same policy as ``[[on_entry]]``)."""
         if self.base is None:
-            return _cutscene.DEFAULT_CUTSCENE_FLAG + k
+            return self._band(_cutscene.DEFAULT_CUTSCENE_FLAG, k, "[[cutscene]]")
         if k == 0:
             return self.base
         raise BuildError(
@@ -3777,18 +3827,30 @@ class _FlagAlloc:
             "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
     def choice(self, i: int) -> int:
-        return (_choice.CHOICE_FLAG_BASE + i) if self.base is None else (self.base + 1 + EVENTS_PER_FIELD + i)
+        return self._band(_choice.CHOICE_FLAG_BASE, i, "walk-[[choice]]") if self.base is None \
+            else (self.base + 1 + EVENTS_PER_FIELD + i)
 
     def on_entry(self, i: int) -> int:
         """Auto once-flag for an ``[[on_entry]]`` hook. Single-field only -- a campaign member's
         K-wide block is already fully partitioned (cutscene/events/choices), so an on_entry hook there
         needs an explicit ``flag = N`` (build_script raises a clear error rather than alias a sibling)."""
         if self.base is None:
-            return _onentry.ONENTRY_FLAG_BASE + i
+            return self._band(_onentry.ONENTRY_FLAG_BASE, i, "[[on_entry]]")
         raise BuildError(
             "an [[on_entry]] hook in a campaign member needs an explicit `flag = N` -- the per-member "
             "flag block is fully reserved for cutscene/events/choices, so an auto once-flag would alias "
             "a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
+
+    def ate(self) -> int:
+        """The ``[ate]`` availability flag. Single-field only -- like ``on_entry``, a campaign member's
+        block has no slot for it (and the pre-b18 behavior of a FIXED shared index would alias every
+        sibling member's [ate] onto one bit)."""
+        if self.base is None:
+            return self._band(_ate.ATE_FLAG_BASE, 0, "[ate]")
+        raise BuildError(
+            "an [ate] block in a campaign member needs an explicit `flag = N` -- the per-member flag "
+            "block is fully reserved for cutscene/events/choices, so an auto availability flag would "
+            "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
 
 def _apply_wipe_warp(project, eb: bytes) -> bytes:
@@ -4020,13 +4082,9 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
             if "flag" in h:
                 once_flag = int(h["flag"])
             else:
-                once_flag = auto.on_entry(k)            # single-field 8300+k (campaign: raises -> explicit flag)
-                if once_flag >= _flags.MOGNET_LOCK_LO:  # would write into FF9's Mognet lock band
-                    raise BuildError(
-                        f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
-                        f"once-flag {once_flag} reaches FF9's Mognet lock band "
-                        f"({_flags.MOGNET_LOCK_LO}-{_flags.MOGNET_LOCK_HI}) -> save corruption. Give the later "
-                        f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
+                # single-field: the safe-band on_entry auto band, skipping authored flags (the
+                # allocator raises on band exhaustion); campaign: raises -> explicit flag
+                once_flag = auto.on_entry(k)
         txid = on_entry_txids.get(k)
         if drop_messages and txid is not None:
             txid = None                                 # no authored-text channel in a verbatim fork
@@ -4117,7 +4175,7 @@ def _write_authored_sps(project: FieldProject, layout: "ModLayout", fbg: str, *,
                              "(see `ff9mapkit sps <this field>` for its effect ids).")
 
 
-def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes:
+def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto: "_FlagAlloc") -> bytes:
     """Synthesize the field's ``[ate]`` block (an Active Time Event) into ``eb``: a SELECT-polling menu
     code-entry (opened by the real ``usercontrol AND avail AND B_KEYON(SELECT)`` gate) + the Main_Init
     wiring (the ``ATE(mode)`` prompt + the avail flag + ``InitCode``). Each menu row's body reuses the
@@ -4131,7 +4189,7 @@ def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes
     replies = ate_txids.get("replies", {})
     opt_bodies = [_choice.option_body(o, replies.get(oi)) for oi, o in enumerate(a["options"])]
     setup, _ = _choice.pre_choose(a)
-    avail_idx = int(a["flag"]) if "flag" in a else _ate.ATE_FLAG_BASE
+    avail_idx = int(a["flag"]) if "flag" in a else auto.ate()
     mode = int(a.get("mode", _ate.MODE_BLUE))
     return _ate.inject_ate(eb, ate_txids["prompt"], opt_bodies, avail_idx=avail_idx, mode=mode, setup=setup)
 
@@ -4504,7 +4562,7 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
     events = project.raw.get("event", []) or []
     if not events:
         return eb
-    auto = _FlagAlloc(getattr(project, "flag_base", None))
+    auto = _FlagAlloc.for_project(project)
     specs, flag_counter = [], 0
     for j, ev in enumerate(events):
         if "zone" not in ev:
@@ -4770,10 +4828,11 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     # tag-kind beats -> a choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
     # synth path's mechanism; here the actor entries sit below the band); a parallel walk also gets a join tag.
     eb, tag_calls, join_tags = _gen_conductor_step_tags(project, eb, steps, npc_slots)
-    auto = _FlagAlloc(getattr(project, "flag_base", None))   # campaign-safe once-flag (matches the other verbatim blocks)
+    auto = _FlagAlloc.for_project(project)     # campaign-safe once-flag (matches the other verbatim blocks)
     c_fclass, c_fidx = _cutscene.once_flag_for(cs)
-    if auto.base is not None and "flag" not in cs and cs.get("once", True):
-        c_fidx = auto.cutscene()
+    if "flag" not in cs and cs.get("once", True):
+        c_fidx = auto.cutscene()               # single-field: safe-band auto (skips authored flags);
+                                               # campaign: pack into this member's flag block
     _, cs_gate, cs_end = _cutscene_story_bits(cs)            # the director gate + story advance (#13)
     _ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs.get("ate") else None)
     _wd = None
@@ -4885,7 +4944,7 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
     oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
     eb = _field_load_inject("[[on_entry]]", project.name,
                             lambda: _apply_on_entry(project, eb, oe_msg_txids,
-                                                    _FlagAlloc(getattr(project, "flag_base", None)),
+                                                    _FlagAlloc.for_project(project),
                                                     warnings=warnings))
     eb = _field_load_inject("[[sps]]", project.name,
                             lambda: _apply_sps_triggers(project, eb, warnings=warnings))
@@ -4906,7 +4965,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     """Build one language's .eb by applying the project's content to the blank field. ``warnings``
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
     requested ``entry_settle`` that could not be inserted."""
-    _auto = _FlagAlloc(getattr(project, "flag_base", None))
+    _auto = _FlagAlloc.for_project(project)
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
@@ -4969,7 +5028,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # director code entry that drives every cast member by uid (the old single-actor loop-splice flavor is
     # REMOVED; a one-name cast expresses it through the conductor). A castless scene is narration.
     # cutscene_txids is FLAT in block-then-step order (build_field registers say lines the same way), so each
-    # block consumes its own SLICE. Auto once-flags are per-block (8100+k / MAP 80+k; campaign k>0 needs an
+    # block consumes its own SLICE. Auto once-flags are per-block (the cutscene auto band +k / MAP 80+k; campaign k>0 needs an
     # explicit flag). Validate enforces the dispatch rule (pairwise-distinct gates).
     cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     _cs_slices, _cs_off = [], 0
@@ -5319,8 +5378,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         c_steps = _resolve_conductor_steps(cs["steps"], project, cast=[str(a) for a in cast],
                                            walkmesh=walkmesh, beat=_scene_beat(cs))
         c_fclass, c_fidx = _cutscene.once_flag_for(cs, _k)     # GLOB (once ever) or MAP (per-visit)
-        if _auto.base is not None and "flag" not in cs and cs.get("once", True):
-            c_fidx = _auto.cutscene(_k)                        # campaign: pack into this member's flag block
+        if "flag" not in cs and cs.get("once", True):
+            c_fidx = _auto.cutscene(_k)        # single-field: safe-band auto (skips authored flags);
+                                               # campaign: pack into this member's flag block
         cs_ate_mode, cs_say_flags = _cs_ate(cs)
         eb, tag_calls, join_tags = _gen_conductor_step_tags(project, eb, c_steps, npc_slots,
                                                             tag_state=_cs_tag_state)

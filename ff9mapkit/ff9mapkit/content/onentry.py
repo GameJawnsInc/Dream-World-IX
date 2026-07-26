@@ -31,15 +31,17 @@ from __future__ import annotations
 
 import struct
 
+from .. import flags as _flags
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
 from . import cutscene as _cutscene
 from . import startup as _startup
 
 # Auto once-flag band for a single-field build (a campaign member must pass an explicit `flag = N` --
-# its per-member block is fully reserved for cutscene/events/choices). 8300+ sits clear of the event
-# (8000+), cutscene (8100) and choice (8200+) auto-bands and below the Mognet lock band (8376+).
-ONENTRY_FLAG_BASE = 8300
+# its per-member block is fully reserved for cutscene/events/choices). In the safe-band auto bands,
+# clear of the event/cutscene/choice/[ate] lanes (the map lives in flags.py; the legacy 8300 base sat
+# INSIDE the stock Mognet mailbox slot bytes -- a live save-corrupter).
+ONENTRY_FLAG_BASE = _flags.AUTO_ONENTRY_BASE
 
 
 def scenario_gate(value: int) -> bytes:

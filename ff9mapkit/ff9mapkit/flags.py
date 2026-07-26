@@ -31,6 +31,9 @@ from dataclasses import dataclass, field
 # --- the provably-safe story-flag allocation band (single source of truth; campaign.py imports these) ---
 # THE TOP OF REAL FF9 USAGE (re-censused 2026-07-19, byte-addressed vars INCLUDED this time -- the
 # earlier "first clear bit = 8512" claim came from a BOOL-only census and missed stock's byte writes):
+#   bits 8192-8367  = the stock MOGNET MAILBOX (Byte[1024-1045]: wipe-guard 1024, delivered counter
+#                     1032, Stiltzkin tally 1033, the 12 live letter-slot bytes 1034-1045) -- written
+#                     by ~48 real moogle fields during ordinary give/read play (content/mognet.py).
 #   bits 8376-8503  = the MOGNET variant one-shot locks (GIVE 8376-8439 / READ 8440-8503) -- long
 #                     mislabelled "the treasure-chest bitfield"; the ~58 writers are the moogle fields'
 #                     twin switch-64 lock tables, decoded to the instruction (content/mognet.py).
@@ -46,11 +49,31 @@ from dataclasses import dataclass, field
 # So custom story flags MUST live in [8712, 16256): 8712 (start of byte 1089) is the first bit clear
 # of ALL real-FF9 usage -- bools AND byte-addressed vars.
 FIRST_SAFE_FLAG = 8712
+MOGNET_MAILBOX_LO, MOGNET_MAILBOX_HI = 8192, 8367   # stock Mognet mailbox Byte[1024-1045] (reserved)
 MOGNET_LOCK_LO, MOGNET_LOCK_HI = 8376, 8511    # the Mognet lock bands + their margin (real-FF9; reserved)
 CHEST_FLAG_LO, CHEST_FLAG_HI = MOGNET_LOCK_LO, MOGNET_LOCK_HI   # deprecated alias (the old mislabel)
 READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI = 8512, 8711   # stock read-mail scratch bytes 1064-1088 (reserved)
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
+
+# --- the single-field AUTO once-flag bands (consumed by build._FlagAlloc; content modules alias them) ---
+# A single-field build auto-allocates a GLOB once/gate flag per unflagged [[event]]/[[cutscene]]/
+# [[choice]]/[[on_entry]]/[ate] block. These bands replaced the pre-b18 legacy bands (event 8000+ /
+# cutscene 8100+ / choice 8200+ / on_entry+ate 8300+): the 8300 band sat INSIDE the stock Mognet
+# mailbox slots (bits 8272-8367 -- whole-byte-written by ordinary play at any real moogle), the 8200
+# band bordered the mailbox counters, and everything sat below FIRST_SAFE_FLAG, outside the audited
+# contract. The new bands live in the safe band, placed ABOVE the behavior compiler's flag band
+# (content/behavior.py Blackboard, 8860-9080) and BELOW its blackboard byte band (bytes 1220+ = bits
+# 9760+), so a field using [behavior] plus defaulted content cannot self-collide. The allocator also
+# skips any flag index the same project references explicitly (collect_safe_flag_indices), so a
+# defaulted block never aliases an authored story flag. Campaign members don't use these bands at all
+# (they pack into per-member windows from `flag_base`, default FIRST_SAFE_FLAG).
+AUTO_BAND_WIDTH = 100                          # per-lane band width; the allocator raises on exhaustion
+AUTO_EVENT_BASE = 9100                         # [[event]] auto once-flags: 9100-9199
+AUTO_CUTSCENE_BASE = 9200                      # [[cutscene]] GLOB once-flags: 9200-9299
+AUTO_CHOICE_BASE = 9300                        # zone-[[choice]] gate flags: 9300-9399
+AUTO_ONENTRY_BASE = 9400                       # [[on_entry]] once-flags: 9400-9499
+AUTO_ATE_BASE = 9500                           # the [ate] availability flag: 9500-9599
 
 
 # ============================ the registry ============================
@@ -150,6 +173,14 @@ BIT_REGIONS = [
     BitRegion("worldmap_unlocks", 736, 823, "Worldmap/Navi cursor + location-unlock/first-visit bits "
               "(consumed by engine C#; mostly write-only on the field side).", True, "a/b",
               "ff9.cs:2259-2333; census"),
+    BitRegion("mognet_mailbox", MOGNET_MAILBOX_LO, MOGNET_MAILBOX_HI, "The stock MOGNET MAILBOX "
+              "(Byte[1024-1045]): wipe-guard 1024, lifetime-delivered counter 1032, Stiltzkin tally "
+              "1033, and the 12 live letter-slot bytes 1034-1045 -- read AND whole-byte-written by "
+              "~48 real moogle fields during ordinary give/read play (a custom bit here corrupts a "
+              "player's letters, and play clobbers the bit right back). The pre-b18 on_entry/[ate] "
+              "auto band (8300+) sat inside the slot bytes -- why the auto bands moved to the safe "
+              "band. NEVER allocate here.", True, "a",
+              "content/mognet.py decode (fields 300/407/1102; live-save verified); census (48-field byte access)"),
     BitRegion("mognet_give_locks", 8376, 8439, "The MOGNET give-side variant one-shot locks (anchor "
               "8383, bit(v) = anchor + 8*(v//8) - (v%8)): set when a moogle hands the player letter "
               "variant v to carry. The band every moogle field's switch-64 lock table writes -- the "

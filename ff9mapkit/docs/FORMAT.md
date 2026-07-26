@@ -807,7 +807,7 @@ once = false
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
-| `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `8000`, a high band clear of base-game flags; override for a shipped mod to avoid clashes). |
+| `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
@@ -825,7 +825,8 @@ variable scope — `gEventGlobal`) that an event SETs (`set_flag = [N, 1]`) and 
 looted chest stays looted, a one-time scene stays played. (The kit uses the persistent *Global* bool,
 not the transient per-field *Map* bool.) That's how the world gains state: hit a switch (event
 `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door unlocks (`[[gateway]]
-requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**). **Pick your explicit
+requires_flag`). The kit's auto `once` flags occupy per-lane bands inside the safe band (event **9100+** /
+cutscene **9200+** / choice **9300+** / on_entry **9400+** / ate **9500+**). **Pick your explicit
 flag indices in the provably-safe band [8712, 16320)** — real FF9 uses the Mognet lock band (bits **8376–8511**) and the
 read-mail payload bytes (bits **8512–8711**, whole-byte-written by ordinary play at any moogle), so an index there silently corrupts the
 player's save. The lint enforces this. For unbounded mod state beyond simple flags, Memoria also
@@ -914,7 +915,7 @@ set_flags = [{ flag = "saw_intro", value = 1 }]
 items = [["Potion", 5], ["Tent", 1]]        # SCRIPTED, once-gated give (the per-journey starting bag)
 gil = 1000                                  # gil to add (negative subtracts)
 once = true                                 # default: fire once ever (a save-persistent once-flag). false → every entry
-# flag = 8300                               # explicit once-flag index (REQUIRED in a campaign member; auto 8300+ otherwise)
+# flag = 8712                               # explicit once-flag index (REQUIRED in a campaign member; auto 9400+ otherwise)
 ```
 
 - It's a **list** — author several entry beats, each independently gated.
@@ -1413,7 +1414,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `zone` | 4 convex `(x,z)` corners — a zone trigger (lever/sign). **Exactly one of `npc` / `zone`.** |
 | `trigger` | *(zone only)* `"action"` (default) = stand on the zone and **press** to open it — re-usable, "decline" is non-destructive (like an FF9 lever/sign). `"walk"` = auto-pops the moment you tread the zone. |
 | `once` | *(zone + `trigger="walk"` only)* `true` (default) = once ever (persistent flag); `false` = once per field visit. A `walk` menu must be flag-gated to avoid re-popping every frame, so a `walk` decline still consumes that arming — prefer `action` for a re-usable lever. |
-| `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `8200`, GLOB). |
+| `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `9300`, GLOB). |
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (the faithful name-line + quotes form + window pointer). |
 | `instant` | *(optional, bool)* `true` → FF9's `[IMME]` tag: the menu **pops fully drawn** with no character-by-character type-on (snappy menus; the World-Hub journey selector uses it). |
@@ -1533,7 +1534,7 @@ declarative content can't express (steps run *in order*). The player can't move 
 A field can carry **several** — write repeated `[[cutscene]]` blocks (the **story-event dispatch**: each
 scene gated to its own beat via `requires_scenario`, so one field plays a different scene at each stage of
 the story). The dispatch rule: every block needs a **distinct gate** (two scenes that could fire on the
-same load are a build error). Auto once-flags are per-block (`8100`, `8101`, …); in a campaign member only
+same load are a build error). Auto once-flags are per-block (`9200`, `9201`, …); in a campaign member only
 the *first* block has a reserved flag slot — give later blocks an explicit `flag`. A single `[cutscene]`
 table is exactly the one-block case, unchanged.
 
@@ -1544,7 +1545,7 @@ writes only); `actors = ["<npc>", …]` = a **cast scene** — the scene drives 
 ```toml
 [cutscene]
 once = true          # play once, then never again (default; save-persistent flag). false = every entry.
-# flag = 8100        # explicit GlobBool for the once-guard (default 8100, save-backed)
+# flag = 8712        # explicit GlobBool for the once-guard (default auto 9200+, save-backed)
 steps = [
   { say = "The hut is silent..." },   # a window; blocks until the player dismisses it
   { wait = 30 },                        # pause 30 frames
@@ -1566,7 +1567,7 @@ Cutscene-level keys (alongside `steps`):
 | key | meaning |
 |---|---|
 | `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
-| `flag` | explicit GlobBool index for the once-guard (default `8100`). |
+| `flag` | explicit GlobBool index for the once-guard (default auto `9200+`). |
 | `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |

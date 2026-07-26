@@ -38,7 +38,7 @@ Only TWO mutable blobs survive a save. Everything per-field is session-transient
 - Bit-indexed: `byte = N>>3`, `bit = N&7` — `EBin.cs:1845`.
 - **It is a SHARED namespace, not "your flags":** ScenarioCounter = bytes [0..1] (FF9 master story int),
   second counter [2..3], navi/worldmap cursors 92–102 (`ff9.cs:2315`; WorldConfiguration reads [101]/[102]).
-  Kit flags deliberately sit HIGH (8000+) + choice scratch at byte 2040 to clear all of it.
+  Kit flags deliberately sit HIGH (the safe band 8712+) + choice scratch at byte 2040 to clear all of it.
 
 ### A2. `FF9StateGlobal` (`FF9StateSystem.Common.FF9`) — player data
 - `Global/ff9/State/FF9StateGlobal.cs:8`. The kit barely touches this today. Major tables:
@@ -72,9 +72,11 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 
 | Namespace | Band | Defined at | Alloc scope TODAY | Persistence |
 |---|---|---|---|---|
-| Event once-flags | 8000+ (single-field) | `content/event.py:27` | single-field default; campaign → per-member block via `build._FlagAlloc` | GLOB / save |
-| Cutscene once-flags | 8100 (single-field) | `content/cutscene.py:37` | single-field default; campaign → member `base+0` | GLOB / save |
-| Choice gate flags | 8200+ (single-field) | `content/choice.py:35` | single-field default; campaign → member `base+32..` | GLOB / save |
+| Event once-flags | 9100+ (single-field; `flags.AUTO_EVENT_BASE`) | `content/event.py` | single-field default (skips the project's authored flags); campaign → per-member block via `build._FlagAlloc` | GLOB / save |
+| Cutscene once-flags | 9200+ (single-field; `flags.AUTO_CUTSCENE_BASE`) | `content/cutscene.py` | single-field default (authored-flag skip); campaign → member `base+0` | GLOB / save |
+| Choice gate flags | 9300+ (single-field; `flags.AUTO_CHOICE_BASE`) | `content/choice.py` | single-field default (authored-flag skip); campaign → member `base+32..` | GLOB / save |
+| on_entry once-flags | 9400+ (single-field; `flags.AUTO_ONENTRY_BASE`) | `content/onentry.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
+| [ate] availability flag | 9500+ (single-field; `flags.AUTO_ATE_BASE`) | `content/ate.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
 | Campaign flags | **8712+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → lock-band collision, then 8512 → sat on stock read-mail's payload bytes 1064–1088; both FIXED**) | GLOB / save |
 | Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
 | Field ids | 10–3100 real (locked) · 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
@@ -87,7 +89,7 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 ### Var-class token bytes (for raw-byte scanning) — `content/region.py:40-49`
 `GLOB_BOOL=0xC4` (persistent) · `MAP_BOOL=0xC5` (transient) · `GLOB_UINT8=0xD5` (transient) ·
 `GLOB_INT16=0xD8` (arrival-entrance var, idx 2) · `MAP_INT16=0xD9` · `GLOB_UINT16=0xDC` (choice mask).
-Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the 8000 band works.
+Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the high safe-band indices work.
 
 ---
 
@@ -109,6 +111,17 @@ bits 8512–8711 are the read-mail payload Byte[1064–1073]/[1079–1088], whol
 `FIRST_SAFE_FLAG` = 8712 = byte 1089 is the true first-clear bit). `lint_campaign` errors on any member
 block / explicit flag inside the Mognet band 8376–8711 or at/above the choice scratch (bit 16320).
 (CAMPAIGN_IMPORT.md §4.1; tests in `test_campaign.py` / `test_build.py` / `test_flags.py`.)
+
+**Second fix (1.0.0b18): the SINGLE-FIELD defaults moved into the safe band too.** The historical
+8000/8100/8200/8300 constants sat below `FIRST_SAFE_FLAG`, and the 2026-07-26 re-audit showed the
+on_entry/[ate] band (8300+) landed **inside the stock Mognet MAILBOX slot bytes** (Byte[1024–1045] =
+bits 8192–8367 — whole-byte-written by ordinary play at any real moogle; now a reserved region in
+`flags.py`), with `[ate]` and `[[on_entry]]` also sharing index 8300. The single-field bands are now
+`flags.AUTO_*_BASE` (event 9100+ / cutscene 9200+ / choice 9300+ / on_entry 9400+ / ate 9500+, width
+100 each — placed above the behavior compiler's flag band 8860–9080 and below its blackboard byte
+band, bits 9760+), and `_FlagAlloc` **skips any index the project references explicitly**
+(`flags.collect_safe_flag_indices`), so a defaulted block can never alias an authored story flag in
+the same build. Old saves that had legacy auto flags set will re-fire those once-events one time.
 
 ---
 

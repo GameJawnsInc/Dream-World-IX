@@ -25,14 +25,16 @@ The prompt/option TEXT (the ``[CHOO][MOVE=18,0]`` rows) is assembled in :mod:`ff
 
 from __future__ import annotations
 
+from .. import flags as _flags
 from ..eb import opcodes
 from . import event as _event, region as _region
 
-# zone-triggered choices auto-allocate a GLOB gate flag from here (clear of events 8000 + cutscene
-# 8100). It must be GLOB (gEventGlobal is large); the per-field MAP array is only 80 bytes, so a high
-# index there is out of bounds and crashes. once-per-visit is done by resetting this flag in the
-# region's Init (re-runs each field load), not by a transient MAP flag.
-CHOICE_FLAG_BASE = 8200
+# zone-triggered choices auto-allocate a GLOB gate flag from here (the safe-band auto bands -- the map
+# + why they moved off the legacy 8200 base live in flags.py). It must be GLOB (gEventGlobal is
+# large); the per-field MAP array is only 80 bytes, so a high index there is out of bounds and
+# crashes. once-per-visit is done by resetting this flag in the region's Init (re-runs each field
+# load), not by a transient MAP flag.
+CHOICE_FLAG_BASE = _flags.AUTO_CHOICE_BASE
 
 
 def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,

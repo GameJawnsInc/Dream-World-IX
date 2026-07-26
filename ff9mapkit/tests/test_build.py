@@ -62,10 +62,11 @@ def test_cutscene_director_gate_and_advance_in_built_eb(tmp_path):
 def test_cutscene_dispatch_plural_blocks(tmp_path):
     """[[cutscene]] (#13 v2): several beat-gated scenes per field. A one-block [[cutscene]] builds
     byte-identical to the legacy [cutscene] singleton; a two-scene dispatch emits BOTH gates + BOTH
-    advances with DISTINCT auto once-flags (8100+k)."""
+    advances with DISTINCT auto once-flags (the cutscene auto band + k)."""
     import struct as _s
     from ff9mapkit import build as B
     from ff9mapkit.content import region as R
+    from ff9mapkit.content.cutscene import DEFAULT_CUTSCENE_FLAG
     cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
     base = '[field]\nid = 30000\nname = "DISP"\narea = 11' + cam
     def _eb(txt, tag, txids):
@@ -82,8 +83,8 @@ def test_cutscene_dispatch_plural_blocks(tmp_path):
                "disp", [500, 501])
     for v in (2600, 2610, 2620):                           # both gates + both advances land
         assert bytes([0x05, 0xDC, 0x00, 0x7D]) + _s.pack("<H", v) in disp
-    assert R.set_var(R.GLOB_BOOL, 8100, 1) in disp         # block 0's auto once-flag
-    assert R.set_var(R.GLOB_BOOL, 8101, 1) in disp         # block 1's -- distinct, never shared
+    assert R.set_var(R.GLOB_BOOL, DEFAULT_CUTSCENE_FLAG, 1) in disp      # block 0's auto once-flag
+    assert R.set_var(R.GLOB_BOOL, DEFAULT_CUTSCENE_FLAG + 1, 1) in disp  # block 1's -- distinct, never shared
 
 
 def test_validate_cutscene_dispatch_rules(tmp_path):
@@ -884,26 +885,93 @@ def test_lint_satisfied_flag_is_clean(tmp_path):
     assert lints == []                                          # 200 is set by the event -> no warning
 
 
-def test_lint_flag_collision_with_auto_once(tmp_path):
-    # the event is once (default) -> auto-allocates EVENT_FLAG_BASE (8000); the NPC also uses 8000
+def test_lint_auto_once_skips_an_authored_flag_in_the_auto_band(tmp_path):
+    # An authored flag sitting AT the event auto base is SKIPPED by the allocator (no aliasing, no
+    # clash lint) -- the defaulted once-event takes the next free index, so the NPC's gate is simply
+    # dangling (nothing sets it) and the dangling lint says so.
     from ff9mapkit.content.event import EVENT_FLAG_BASE
     lints = _lint(tmp_path,
                   f'[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\ndialogue="hi"\n'
                   f'requires_flag={EVENT_FLAG_BASE}\n'
                   '[[event]]\nname="e"\nzone=[[100,-100],[200,-100],[200,-200],[100,-200]]\nmessage="x"\n')
-    assert any("clash" in m and str(EVENT_FLAG_BASE) in m for m in lints)
+    assert not any("clash" in m for m in lints)
+    assert any("no event sets it" in m and str(EVENT_FLAG_BASE) in m for m in lints)
 
 
-def test_flag_alloc_single_field_reproduces_historical_bands():
-    # base=None MUST reproduce the historical per-category bands exactly -> single-field builds byte-identical
+def test_flag_alloc_single_field_bands_sit_in_the_safe_band():
+    # base=None allocates each category from its own safe-band auto band (flags.AUTO_*_BASE): every
+    # index provably clear of ALL real-FF9 usage (the pre-b18 8000/8100/8200/8300 bands were below
+    # FIRST_SAFE_FLAG -- 8300+ sat INSIDE the stock Mognet mailbox slot bytes).
+    from ff9mapkit import flags as F
     from ff9mapkit.build import _FlagAlloc
     from ff9mapkit.content.event import EVENT_FLAG_BASE
     from ff9mapkit.content.cutscene import DEFAULT_CUTSCENE_FLAG
     from ff9mapkit.content.choice import CHOICE_FLAG_BASE
+    from ff9mapkit.content.onentry import ONENTRY_FLAG_BASE
+    from ff9mapkit.content.ate import ATE_FLAG_BASE
     a = _FlagAlloc(None)
     assert (a.event(0), a.event(3)) == (EVENT_FLAG_BASE, EVENT_FLAG_BASE + 3)
     assert a.cutscene() == DEFAULT_CUTSCENE_FLAG
     assert (a.choice(0), a.choice(5)) == (CHOICE_FLAG_BASE, CHOICE_FLAG_BASE + 5)
+    assert (a.on_entry(0), a.ate()) == (ONENTRY_FLAG_BASE, ATE_FLAG_BASE)
+    # regression (the 2026-07-26 audit): every band's every index is safe -- in [FIRST_SAFE_FLAG,
+    # CHOICE_SCRATCH_FLOOR), not reserved, and in particular NOT in the stock Mognet mailbox
+    # (8192-8367), lock band (8376-8511), or read-mail payload (8512-8711).
+    bands = (EVENT_FLAG_BASE, DEFAULT_CUTSCENE_FLAG, CHOICE_FLAG_BASE, ONENTRY_FLAG_BASE, ATE_FLAG_BASE)
+    for base in bands:
+        for idx in range(base, base + F.AUTO_BAND_WIDTH):
+            assert F.is_safe_custom(idx), f"auto index {idx} is not provably safe"
+    # the five bands are pairwise disjoint (the pre-b18 [ate]/on_entry bands BOTH sat at 8300)
+    spans = [set(range(b, b + F.AUTO_BAND_WIDTH)) for b in bands]
+    for i in range(len(spans)):
+        for j in range(i + 1, len(spans)):
+            assert spans[i].isdisjoint(spans[j])
+    # clear of the behavior compiler's default GLOB flag band (a field can host both systems)
+    from ff9mapkit.content.behavior import Blackboard
+    bb = Blackboard()
+    behavior_band = set(range(bb.flag_band[0], bb.flag_band[1] + 1))
+    for s in spans:
+        assert s.isdisjoint(behavior_band)
+
+
+def test_flag_alloc_skips_the_projects_authored_flags():
+    # collision avoidance: an authored safe-band flag inside an auto band is never handed out. The
+    # allocation is a pure function of (i, reserved) -> lint_logic mirrors build_script exactly.
+    import pytest
+    from ff9mapkit.build import BuildError, _FlagAlloc
+    from ff9mapkit.content.event import EVENT_FLAG_BASE
+    a = _FlagAlloc(None, reserved={EVENT_FLAG_BASE, EVENT_FLAG_BASE + 2})
+    assert (a.event(0), a.event(1), a.event(2)) == (
+        EVENT_FLAG_BASE + 1, EVENT_FLAG_BASE + 3, EVENT_FLAG_BASE + 4)
+    # band exhaustion raises (never silently spills into the next lane's band / unsafe space)
+    from ff9mapkit import flags as F
+    full = _FlagAlloc(None, reserved=set(range(EVENT_FLAG_BASE, EVENT_FLAG_BASE + F.AUTO_BAND_WIDTH)))
+    with pytest.raises(BuildError):
+        full.event(0)
+
+
+def test_flag_alloc_for_project_reserves_logic_add_indices():
+    # [[logic_add]]'s explicit `guard`/`flag` sit outside collect_safe_flag_indices' section walk;
+    # for_project must reserve them so a defaulted block on a verbatim fork can't alias them.
+    from ff9mapkit.build import _FlagAlloc
+    from ff9mapkit.content.event import EVENT_FLAG_BASE
+
+    class _P:                                  # duck-typed project (raw + flag_base is all for_project reads)
+        flag_base = None
+        raw = {"logic_add": [{"kind": "set_flag", "flag": EVENT_FLAG_BASE,
+                              "guard": EVENT_FLAG_BASE + 1}]}
+    a = _FlagAlloc.for_project(_P())
+    assert a.event(0) == EVENT_FLAG_BASE + 2
+
+
+def test_mognet_mailbox_region_is_reserved():
+    # the 2026-07-26 audit's root finding: bytes 1024-1045 (bits 8192-8367) are the stock Mognet
+    # MAILBOX (wipe-guard / counters / the 12 live letter-slot bytes) -- flags.py must know.
+    from ff9mapkit import flags as F
+    for bit in (F.MOGNET_MAILBOX_LO, 8300, F.MOGNET_MAILBOX_HI):    # 8300 = the pre-b18 on_entry/ate base
+        r = F.bit_region(bit)
+        assert r is not None and r.reserved and r.name == "mognet_mailbox"
+    assert F.bit_region(8191) is None or F.bit_region(8191).name != "mognet_mailbox"
 
 
 def test_flag_alloc_campaign_member_blocks_are_disjoint():

@@ -250,23 +250,25 @@ def test_campaign_member_on_entry_needs_explicit_flag(tmp_path):
         build_script(proj, "us", {}, on_entry_txids={0: 500})
 
 
-def test_on_entry_auto_flag_overflow_into_chest_band_is_blocked(tmp_path):
-    """The single-field auto once-flag band is 8300+k; at k=76 it would reach FF9's reserved chest bitfield
-    (8376+) -> save corruption. The build must REFUSE rather than silently corrupt (the band is unguarded by
-    lint_flag_bands, which only checks explicit indices). 77 once-hooks with no explicit flag -> BuildError."""
+def test_on_entry_auto_flag_band_overflow_is_blocked(tmp_path):
+    """The single-field auto once-flag band is AUTO_ONENTRY_BASE + k, capped at AUTO_BAND_WIDTH; past the
+    cap the build must REFUSE rather than silently spill into the next lane's band (the pre-b18 band,
+    8300+, could walk into FF9's Mognet lock band -- the new band sits in the safe band, but the guard
+    stays so exhaustion is loud). WIDTH+1 once-hooks with no explicit flag -> BuildError."""
     import pytest
     from ff9mapkit.build import BuildError
     from ff9mapkit.content import onentry
     from ff9mapkit import flags
-    assert onentry.ONENTRY_FLAG_BASE + 76 == flags.CHEST_FLAG_LO          # the exact overflow point
-    hooks = "".join('\n[[on_entry]]\nset_flags = [{flag = 2600, value = 1}]\n' for _ in range(77))
+    assert onentry.ONENTRY_FLAG_BASE == flags.AUTO_ONENTRY_BASE >= flags.FIRST_SAFE_FLAG
+    n = flags.AUTO_BAND_WIDTH
+    hooks = "".join('\n[[on_entry]]\nset_flags = [{flag = 2600, value = 1}]\n' for _ in range(n + 1))
     p = tmp_path / "f.field.toml"; p.write_text(BASE + hooks, encoding="utf-8")
     proj = FieldProject.load(p)
     assert validate(proj) == []                                          # individually all valid
     with pytest.raises(BuildError):
         build_script(proj, "us", {})
-    # 76 hooks (k max = 75 -> 8375, still below the chest band) builds fine
-    p.write_text(BASE + "".join('\n[[on_entry]]\nset_flags = [{flag = 2600, value = 1}]\n' for _ in range(76)),
+    # exactly WIDTH hooks (k max = WIDTH-1, the band's last index) builds fine
+    p.write_text(BASE + "".join('\n[[on_entry]]\nset_flags = [{flag = 2600, value = 1}]\n' for _ in range(n)),
                  encoding="utf-8")
     build_script(FieldProject.load(p), "us", {})                         # no raise
 

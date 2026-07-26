@@ -92,8 +92,8 @@ _FLAG_MAX = 2048 * 8 - 1                          # gEventGlobal is Byte[2048] -
 # The kit-reserved WIPE-MARKER bit (on_defeat's default `flag`): the DLL sets it at the canceled game
 # over, the field's tag-10 clears it and warps. 8508 sits in the Mognet lock band's margin byte (1063):
 # bits 8504-8509 are stock-clear, stock's own bools 8510/8511 share the byte but everything touches it
-# bit-wise, so they never collide. Above every kit auto-band (event 8000+ / cutscene 8100 / choice
-# 8200+ / on_entry 8300+) and below the author band (>= 8712, flags.py FIRST_SAFE_FLAG).
+# bit-wise, so they never collide. Below the author band (>= 8712, flags.py FIRST_SAFE_FLAG) and so
+# disjoint from the kit's safe-band auto bands (flags.AUTO_*_BASE, 9100+).
 WIPE_FLAG_DEFAULT = 8508
 # The OUTPOST var ("the last outpost the player ENTERED"): a kit-reserved save-backed GLOB_UINT16 at
 # gEventGlobal bytes 1074-1075 (bits 8592-8607, inside stock read-mail's payload HOLE -- the 2026-07-19

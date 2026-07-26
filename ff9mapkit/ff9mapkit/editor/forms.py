@@ -318,7 +318,7 @@ STEP_LABEL = {
 STEP_HELP = {
     "say": "dialogue text shown in a window",
     "wait": "frames to pause (30 ≈ 1 second)",
-    "set_flag": "story flag as \"index, value\" -- e.g. 8000, 1",
+    "set_flag": "story flag as \"index, value\" -- e.g. 8712, 1 (custom flags live in 8712+)",
     "walk": "a marker name, @player, or \"x, z\" (auto-routes around obstacles)",
     "path": "a route through waypoints: \"a; b; c\" (names or x z)",
     "teleport": "instantly move to a marker / @player / \"x, z\"",
