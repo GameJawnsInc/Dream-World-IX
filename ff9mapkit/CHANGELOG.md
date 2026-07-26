@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — fight theater: strike clips, hit cues, and the death beat (theater rung E)
+- `swing_at` / `engage` take `anim` (a one-shot clip on the striker) + `hit_sfx` (the impact
+  cue), fired on the DAMAGE tick — inside the interval gate, never per frame. The clip is
+  fire-and-forget (no `WaitAnimation`), so a strike stays interruptible and a looping clip
+  can't wedge the swing loop.
+- `die` takes `anim` + `linger`: the long-standing "instant vanish" becomes a collapse —
+  active drops first (the corpse is inert immediately), the clip runs to completion
+  (`RunAnimation` + `WaitAnimation`), then the body holds `linger` frames before
+  `TerminateEntry`.
+- **THE OWN-CLIP LAW, now enforced at the call site:** `anim` takes a gesture NAME resolved
+  against that unit's own model, and a foreign name is a lint error listing what the model
+  owns. Field rigs are not battle rigs — the CSO soldiers own `attack_cid_1/2/3` + `hiza_*`,
+  but `GEO_MON_F0_MUU` owns only locomotion + `jump` and `GEO_MON_F0_FFG` adds `howl_*`;
+  there is no attack/death clip to borrow. Raw ids bypass the lookup.
+- `[siege]`: per-class `anim` / `death_anim` / `linger` + a siege-wide `hit_sfx`. A siege
+  with no theater dials emits the proven shapes byte-for-byte (regression-pinned).
+
 ### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
 - `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
   Hunt scenes (id 35 + the `LB_E080x` family — what a Lindblum-plaza fork borrows as its

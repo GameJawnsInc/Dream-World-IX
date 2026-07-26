@@ -346,6 +346,8 @@ class Engage(Action):
     interval: int = 25
     speed: int | None = None
     nearest: bool = False            # argmin acquire (Chebyshev) vs roster order
+    anim: int | None = None          # SwingAt's theater, same damage-tick timing
+    hit_sfx: int | None = None
 
     def __post_init__(self):
         if not 1 <= int(self.radius) <= 30000:
@@ -390,10 +392,29 @@ class HoldGround(Action):
 @dataclass
 class SwingAt(Action):
     """Melee ticks against another unit's HP byte (the proven fight-body shape,
-    minus death policy — death is a TREE branch, e.g. Cond(hp==0) -> Do(Die()))."""
+    minus death policy — death is a TREE branch, e.g. Cond(hp==0) -> Do(Die())).
+
+    THEATER (both optional, fired on the DAMAGE tick — the swing lands with its
+    own clip and sound, never per-frame): ``anim`` = a one-shot clip id played on
+    the swinger (``RunAnimation`` in its own object context), ``hit_sfx`` = the
+    impact cue. ``anim`` must be a clip of the unit model's OWN family — the TOML
+    layer resolves a gesture NAME against that model and refuses a foreign one
+    (the own-clip law); a raw id passes through."""
     target: str
     interval: int = 30
     damage: int = 1
+    anim: int | None = None
+    hit_sfx: int | None = None
+
+    def __post_init__(self):
+        for f in ("anim", "hit_sfx"):
+            v = getattr(self, f)
+            if v is not None and not 0 <= int(v) <= 0xFFFF:
+                raise BehaviorError(f"SwingAt {f} must be 0..65535")
+
+
+OP_RUN_ANIMATION = 0x40             # ANIM — one-shot clip on the running object
+OP_WAIT_ANIMATION = 0x41            # WAITANIM — block until it finishes
 
 
 @dataclass
@@ -402,8 +423,23 @@ class Die(Action):
     ``count``: bump that counter by 1 first — the dispatch body runs exactly once
     (the entry terminates), so the bump is edge-safe for free (the kill-counter
     idiom: every attacker dies with ``count="kills"``, a win branch gates on
-    ``counter_ge``)."""
+    ``counter_ge``).
+
+    THE DEATH BEAT (``anim`` / ``linger``): without them the unit VANISHES the
+    tick it dies — the fort-condor "instant vanish" complaint. ``anim`` plays a
+    one-shot clip (``RunAnimation`` + ``WaitAnimation``, so the whole clip runs)
+    and ``linger`` holds the corpse N more frames before ``TerminateEntry``.
+    The active flag drops FIRST either way, so the dying unit stops being a
+    target the same tick it starts falling — the corpse is already inert."""
     count: str | None = None
+    anim: int | None = None
+    linger: int = 0
+
+    def __post_init__(self):
+        if self.anim is not None and not 0 <= int(self.anim) <= 0xFFFF:
+            raise BehaviorError("Die anim must be 0..65535")
+        if not 0 <= int(self.linger) <= 255:
+            raise BehaviorError("Die linger must be 0..255 frames")
 
 
 @dataclass
@@ -2632,9 +2668,20 @@ class FieldBehavior:
                 # the body runs once ever (the entry terminates) — edge-safe free
                 cell = self._counter_ref(a.count)
                 bump = [_stmt(f"{cell} {cell} const(1) B_PLUS B_LET")]
+            # THE DEATH BEAT: the corpse plays its clip and lingers BEFORE the
+            # entry terminates. active=0 already ran, so it is inert while it
+            # falls (nothing targets it, its mirror stops) — the body holds the
+            # dispatch level throughout, which is exactly what we want: a dying
+            # unit does nothing else.
+            fall: list = []
+            if a.anim is not None:
+                fall += [opcodes.encode(OP_RUN_ANIMATION, int(a.anim)),
+                         opcodes.encode(OP_WAIT_ANIMATION)]
+            if a.linger:
+                fall.append(opcodes.wait(int(a.linger)))
             return asm([
                 _set_flag(self.bb.flag(f"{u.name}.active"), 0),   # mirrors stop first
-            ] + bump + [
+            ] + bump + fall + [
                 opcodes.terminate_entry(255),
                 opcodes.RETURN,
             ])
@@ -2812,7 +2859,7 @@ class FieldBehavior:
                 _set_byte(timer, 0),
                 opcodes.turn_toward_object(self.units[a.target].entry, 16),
                 _stmt(f"{t_hp} {t_hp} const({a.damage}) B_MINUS B_LET"),
-            ]
+            ] + self._swing_theater(a.anim, a.hit_sfx)
             return asm(head + work + tail)
         if isinstance(a, _GroupSwing):
             e = a.engage
@@ -2842,6 +2889,22 @@ class FieldBehavior:
                                exprasm.assemble(f"{pzc} B_EXPR_END"),
                                arg_flags=0b11),
                 _stmt(f"{hpc} {hpc} const({e.damage}) B_MINUS B_LET"),
-            ]
+            ] + self._swing_theater(e.anim, e.hit_sfx)
             return asm(head + work + tail)
         raise BehaviorError(f"no dispatch body for {type(a).__name__}")
+
+    @staticmethod
+    def _swing_theater(anim, hit_sfx) -> list:
+        """The strike's clip + impact cue, emitted on the DAMAGE tick (inside the
+        interval gate — never per frame). The clip is FIRE-AND-FORGET: no
+        ``WaitAnimation``, so the swing loop keeps ticking its sel-check and the
+        unit can still be retargeted or preempted mid-clip (a blocked wait here
+        would make every strike an uninterruptible commitment, and a LOOPING
+        clip would wedge the body outright)."""
+        out: list = []
+        if anim is not None:
+            out.append(opcodes.encode(OP_RUN_ANIMATION, int(anim)))
+        if hit_sfx is not None:
+            out.append(opcodes.encode(RUN_SOUND_CODE3, SFX_BANK, int(hit_sfx),
+                                      *SFX_PARAMS))
+        return out

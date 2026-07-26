@@ -81,6 +81,7 @@ win_item = "{cfb.WIN_ITEM}"
 win_sfx = 108                # theater rung A (CAST-PROVEN): the item-get jingle on the purse
 win_flash = true             # theater rung B (CAST-PROVEN): the stock white wash + THE REVEAL BEAT
 loss_sfx = 1942              # theater rung C (CAST-PROVEN): "a good defeat noise"
+hit_sfx = 636                # theater rung E: the impact cue every strike plays
 # theater rung D: STAGED ending text -- lists page at text_pace; text_rout stays a
 # single string on purpose (proving the two shapes mix)
 text_win = ["WE HELD THE DEPOT!", "The city pays in full -- and doubles the guard.", "The Colonel will hear of this."]
@@ -104,6 +105,8 @@ hp = 4
 stance = "chase"
 radius = 2000
 speed = 65
+anim = "attack_cid_1"        # rung E: the CSO rigs really do own an attack gesture
+death_anim = "hiza_1"        # ... and a kneel, which reads as a collapse
 
 [[siege.ally]]
 name = "shooter"
@@ -116,6 +119,8 @@ stance = "hold"
 radius = 600
 interval = 15
 speed = 50
+anim = "attack_cid_2"
+death_anim = "hiza_1"
 
 [[siege.ally]]
 name = "defender"
@@ -129,6 +134,8 @@ radius = 340
 damage = 2
 interval = 30
 speed = 45
+anim = "attack_cid_3"
+death_anim = "hiza_1"
 
 [[siege.raider]]
 name = "mun"
@@ -139,6 +146,8 @@ hp = 3
 entrance = {_pts(lay["nw_stage"][:2])}
 route = {_pts(lay["nw_route"])}
 speeds = [50, 45]
+anim = "jump"                # the MUU rig owns NO attack clip -- a lunge is the honest pick
+death_anim = "jump"
 
 [[siege.raider]]
 name = "mus"
@@ -162,6 +171,8 @@ entrance = {_pts(lay["sw_stage"][2:4])}
 route = {_pts(lay["sw_route"])}
 speeds = [40, 38]
 dialogue = "GRAAAH."
+anim = "howl_1"              # FFG owns howls + smells; the howl reads as a heavy's strike
+death_anim = "howl_3"
 '''
     BENCH_TOML.write_text(toml, encoding="utf-8")
     from ff9mapkit import build as BLD                            # noqa: E402
@@ -221,6 +232,17 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
+  6 THE NEW CLAIM (rung E) -- FIGHT THEATER, watch any melee:
+    - every landed hit plays an IMPACT SOUND (636) on the damage tick, not
+      per frame -- so it should read as a rhythm, not a buzz;
+    - soldiers/shooters/defenders swing with a real ATTACK clip
+      (attack_cid_1/2/3 -- the CSO rigs own these); mus LUNGE (jump) and
+      fangs HOWL, because those monster rigs own NO attack clip at all;
+    - nothing INSTANT-VANISHES any more: a dying unit plays its collapse
+      (soldiers kneel, monsters lunge/howl), holds ~0.5-1.5s, THEN
+      disappears. It stops fighting the moment it starts falling.
+    If a clip looks wrong for a rig, say which unit -- gestures are one
+    word each to swap (`ff9mapkit models <MODEL>` lists what it owns).
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

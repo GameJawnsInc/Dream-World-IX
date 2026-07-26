@@ -116,6 +116,34 @@ sparring partners, cowards that always flee at 1 HP, and last stands are all jus
 trees. `die` removes the unit (its `active` flag drops, so every `active`/`any_active` gate
 in other trees reacts the same tick).
 
+### Fight theater — `anim` / `hit_sfx` / the death beat
+
+```toml
+do = { swing_at = "raider", anim = "attack_cid_1", hit_sfx = 636 }
+do = { die = true, anim = "hiza_1", linger = 45 }     # collapse, hold, THEN vanish
+```
+
+`swing_at` and `engage` take **`anim`** (a one-shot clip on the striker) and **`hit_sfx`**
+(the impact cue), both fired on the **damage tick** — inside the interval gate, never per
+frame. The clip is deliberately **fire-and-forget** (no `WaitAnimation`): the swing loop
+keeps ticking its selection check, so a strike stays interruptible and a looping clip
+can't wedge the body.
+
+`die` takes **`anim`** + **`linger`** — without them a unit *vanishes* the tick it dies
+(the long-standing "instant vanish"). The active flag still drops first, so the dying unit
+stops being a target the moment it starts falling; then the clip runs to completion
+(`RunAnimation` + `WaitAnimation`) and the corpse holds `linger` frames before
+`TerminateEntry`.
+
+> **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
+> against *that unit's own model* (`catalog.animations_for_model` — the `(group, token)`
+> join), and a name the model doesn't own is a lint ERROR that lists what it does own. This
+> matters because **field rigs are not battle rigs**: the CSO soldier rigs own
+> `attack_cid_1/2/3` and `hiza_*` (a kneel), but a field monster like `GEO_MON_F0_MUU` owns
+> only locomotion plus `jump`, and `GEO_MON_F0_FFG` adds `howl_*`/`smell_*` — there is no
+> attack or death clip to borrow. Check with `ff9mapkit models <name>` before authoring, and
+> pick the gesture that *reads* as a strike for that rig. A raw clip id bypasses the lookup.
+
 ## Alarms, shifts, levers
 
 - **`raise_flags`** on a branch writes named flags while it's selected — the watcher pattern:

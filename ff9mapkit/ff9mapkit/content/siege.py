@@ -47,6 +47,8 @@ ALARM_RADIUS = 500
 RAIDER_CONTACT = 210              # the proven melee reach for a marching raider
 CHASE_CONTACT = 170               # a mobile ally's melee reach
 COUNTER_IVL_PAD = 8               # a raider counter-swings a touch slower than its siege swing
+DEATH_LINGER = 30                 # default frames a corpse holds after its death clip (the
+                                  # fort-condor "instant vanish" complaint — see BEHAVIOR.md)
 LOSS_STING_SUSTAIN = 55           # ~1s of held dispatch level so the sting rings CLEAR before
                                   # the loss_battle/cry (rung-C round 1: zero sustain gave the
                                   # sting one ~33ms frame before the battle took the audio)
@@ -61,17 +63,18 @@ DEFAULT_PROMPT = "WAR COUNCIL — deploy on this spot:"
 DEFAULT_REPLY = "Deployed!  He holds this very spot."
 
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
-         "win_sfx", "win_flash", "loss_sfx", "loss_battle", "button",
+         "win_sfx", "win_flash", "loss_sfx", "hit_sfx", "loss_battle", "button",
          "council_prompt", "hud", "hud_text", "flag_base", "alarm_radius",
          "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss",
          "text_pace"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
-              "radius", "contact", "damage", "interval", "speed", "reply"}
+              "radius", "contact", "damage", "interval", "speed", "reply",
+              "anim", "death_anim", "linger"}
 _RAIDER_KEYS = {"name", "model", "count", "wave", "hp", "damage", "interval",
                 "speed", "speeds", "leash", "contact", "entrance", "route",
-                "autoroute", "dialogue"}
+                "autoroute", "dialogue", "anim", "death_anim", "linger"}
 
 
 class SiegeError(ValueError):
@@ -104,6 +107,9 @@ class AllySpec:
     interval: int = 25
     speed: int = 60
     reply: str = DEFAULT_REPLY
+    anim: object = None              # strike clip (gesture name or id) — own-clip law
+    death_anim: object = None        # collapse clip
+    linger: int = DEATH_LINGER
 
     def contact_r(self) -> int:
         if self.contact is not None:
@@ -130,6 +136,9 @@ class RaiderSpec:
     contact: int = RAIDER_CONTACT
     autoroute: bool = True
     dialogue: str = "Kweeeh!"
+    anim: object = None
+    death_anim: object = None
+    linger: int = DEATH_LINGER
 
     def unit_names(self) -> list:
         return [f"{self.name}{i}" for i in range(self.count)]
@@ -149,6 +158,7 @@ class SiegeSpec:
     win_sfx: int | None = None       # the purse fanfare cue (`ff9mapkit sfx-list` ids)
     win_flash: tuple | None = None   # the win screen-flash colour (true = white)
     loss_sfx: int | None = None      # the loss sting — rings BEFORE the cry/battle
+    hit_sfx: int | None = None       # the impact cue every strike plays (both sides)
     loss_battle: int | None = None
     button: bool = True
     council_prompt: str = DEFAULT_PROMPT
@@ -250,7 +260,9 @@ def from_raw(s: dict) -> SiegeSpec:
             hp=int(a.get("hp", 4)),
             contact=(int(a["contact"]) if a.get("contact") is not None else None),
             damage=int(a.get("damage", 1)), interval=int(a.get("interval", 25)),
-            speed=int(a.get("speed", 60)), reply=str(a.get("reply", DEFAULT_REPLY))))
+            speed=int(a.get("speed", 60)), reply=str(a.get("reply", DEFAULT_REPLY)),
+            anim=a.get("anim"), death_anim=a.get("death_anim"),
+            linger=int(a.get("linger", DEATH_LINGER))))
     if not allies:
         raise SiegeError(f"{ctx}: needs at least one [[siege.ally]] class")
 
@@ -288,7 +300,9 @@ def from_raw(s: dict) -> SiegeSpec:
             interval=int(r.get("interval", 30)), speeds=tuple(speeds),
             leash=int(r.get("leash", 750)), contact=int(r.get("contact", RAIDER_CONTACT)),
             autoroute=bool(r.get("autoroute", True)),
-            dialogue=str(r.get("dialogue", "Kweeeh!"))))
+            dialogue=str(r.get("dialogue", "Kweeeh!")),
+            anim=r.get("anim"), death_anim=r.get("death_anim"),
+            linger=int(r.get("linger", DEATH_LINGER))))
     if not raiders:
         raise SiegeError(f"{ctx}: needs at least one [[siege.raider]] block")
 
@@ -304,6 +318,11 @@ def from_raw(s: dict) -> SiegeSpec:
     if ls is not None and (isinstance(ls, bool) or not isinstance(ls, int)
                            or not 0 <= ls <= 0xFFFF):
         raise SiegeError(f"{ctx}: loss_sfx must be a sound id int 0..65535 "
+                         f"(`ff9mapkit sfx-list`)")
+    hs = s.get("hit_sfx")
+    if hs is not None and (isinstance(hs, bool) or not isinstance(hs, int)
+                           or not 0 <= hs <= 0xFFFF):
+        raise SiegeError(f"{ctx}: hit_sfx must be a sound id int 0..65535 "
                          f"(`ff9mapkit sfx-list`)")
     tp = s.get("text_pace", 120)
     if isinstance(tp, bool) or not isinstance(tp, int) or not 15 <= tp <= 255:
@@ -335,6 +354,7 @@ def from_raw(s: dict) -> SiegeSpec:
         win_sfx=(int(ws) if ws is not None else None),
         win_flash=wf,
         loss_sfx=(int(ls) if ls is not None else None),
+        hit_sfx=(int(hs) if hs is not None else None),
         loss_battle=(int(s["loss_battle"]) if s.get("loss_battle") is not None else None),
         button=bool(s.get("button", True)),
         council_prompt=str(s.get("council_prompt", DEFAULT_PROMPT)),
@@ -360,6 +380,22 @@ def _branch(do, when=None, once=None, raise_flags=None) -> dict:
     if raise_flags:
         b["raise_flags"] = raise_flags
     return b
+
+
+def _theater(do: dict, *, anim=None, hit=None, death=None, linger=None) -> dict:
+    """Fold the FIGHT THEATER onto a generated action — the strike clip + impact
+    cue on a swing/engage, the collapse clip + corpse hold on a die. Absent dials
+    add no keys at all, so a siege without theater emits the proven shapes
+    byte-for-byte."""
+    if anim is not None:
+        do["anim"] = anim
+    if hit is not None:
+        do["hit_sfx"] = hit
+    if death is not None:
+        do["anim"] = death
+        if linger:
+            do["linger"] = int(linger)
+    return do
 
 
 def behavior_raw(spec: SiegeSpec) -> dict:
@@ -527,14 +563,20 @@ def behavior_raw(spec: SiegeSpec) -> dict:
             stage = list(r.entrance[i])
             speed = r.speeds[i]
             rb = [
-                _branch(when=[{"hp_le": 0}], do={"die": "kills"}),
+                _branch(when=[{"hp_le": 0}],
+                        do=_theater({"die": "kills"}, death=r.death_anim,
+                                    linger=r.linger)),
                 _branch(when=[{"active": spec.base.name},
                               {"near": [spec.base.name, 300]}],
-                        do={"swing_at": spec.base.name, "damage": r.damage,
-                            "interval": r.interval}),
-                _branch(do={"engage": "allies", "nearest": True, "radius": r.leash,
-                            "contact": r.contact, "damage": r.damage,
-                            "interval": r.interval + COUNTER_IVL_PAD, "speed": speed}),
+                        do=_theater({"swing_at": spec.base.name,
+                                     "damage": r.damage, "interval": r.interval},
+                                    anim=r.anim, hit=spec.hit_sfx)),
+                _branch(do=_theater({"engage": "allies", "nearest": True,
+                                     "radius": r.leash, "contact": r.contact,
+                                     "damage": r.damage,
+                                     "interval": r.interval + COUNTER_IVL_PAD,
+                                     "speed": speed},
+                                    anim=r.anim, hit=spec.hit_sfx)),
             ]
             march: dict = {"march": [stage] + [list(p) for p in r.route],
                            "arrive_r": 180, "speed": speed}
@@ -550,11 +592,16 @@ def behavior_raw(spec: SiegeSpec) -> dict:
             units.append({
                 "npc": uname, "hp": a.hp, "pooled": True, "pool": a.name,
                 "speed": a.speed, "branch": [
-                    _branch(when=[{"hp_le": 0}], do={"die": True}),
-                    _branch(do={"engage": "raiders", "nearest": True,
-                                "radius": a.radius, "contact": a.contact_r(),
-                                "damage": a.damage, "interval": a.interval,
-                                "speed": a.speed}),
+                    _branch(when=[{"hp_le": 0}],
+                            do=_theater({"die": True}, death=a.death_anim,
+                                        linger=a.linger)),
+                    _branch(do=_theater({"engage": "raiders", "nearest": True,
+                                         "radius": a.radius,
+                                         "contact": a.contact_r(),
+                                         "damage": a.damage,
+                                         "interval": a.interval,
+                                         "speed": a.speed},
+                                        anim=a.anim, hit=spec.hit_sfx)),
                     _branch(do={"hold_post": True}),
                 ]})
     b["unit"] = units
