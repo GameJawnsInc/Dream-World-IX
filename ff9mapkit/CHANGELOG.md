@@ -29,6 +29,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421). All three rounds
   cast-proven: rung A ("victory sound fired once, nothing on defeat"), the wash
   ("white wash works now, pause feels right"), the reveal beat ("the beat landed").
+- `[siege] loss_sfx = <id>` — the loss sting, via THE PRE-DETECT STING: an event-Once
+  branch holds selection until it delivers, so seated between die-on-`lost` and the loss
+  detect it is guaranteed to ring before the cry / the `loss_battle` transition / the
+  base's collapse — no watcher unit needed, the reveal-beat serialization pointed the
+  other way. (`hp <= 0` is monotonic — swings gate on target hp > 0 — so the stacked
+  once-branches ride the draining-condition law's exemption.)
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
