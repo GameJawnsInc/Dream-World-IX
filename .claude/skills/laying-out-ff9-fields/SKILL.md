@@ -65,6 +65,26 @@ The screen mapping above holds **only at yaw 0**. Real fields ship yaws up to +/
 On-screen size is `H / |z_cam|` -- a back-of-room NPC renders visibly smaller and two actors spaced
 fine in world can still stack on screen (depth foreshortening). The probe warns on exactly this.
 
+## THE INVISIBLE-DOOR LESSON (zones the player cannot see)
+
+A zone has no pixels. On borrowed/pre-rendered art nothing marks it, so a layout can pass every
+spacing warning and still be unplayable in-game -- **the probe measures geometry, not comprehension**
+(the Lantern Hall berth row, 2026-07-26: zero warnings, playtest verdict "I can't tell what I'm
+supposed to do... randomly trigger warps"). Laws:
+
+- **Walk-on zones (gateways, auto-pop events) must never occupy the casual walk lane.** Keep them at
+  room edges/dead-ends the player enters deliberately, anchored to a feature the ART actually shows
+  (a painted door, stair, archway). If the art shows nothing at that spot, do not put a walk-on
+  trigger there.
+- **The spawn must be clear of every zone's full x/z BAND, not merely outside the quads** -- a spawn
+  at the same depth as a zone row is one sideways step from firing it.
+- **N invisible destination doors in one room is the wrong shape.** Stock's idiom for
+  multi-destination travel is a DIALOG (the Blue Narciss "Where to?"); the kit's `[[ferry]]` lane
+  productizes it (choice window -> worldmap exit per arm, decline arm mandatory + last).
+- **After ANY zone reshape, re-derive every actor-vs-zone relation from the new quads.** The same
+  NPC coordinates were safe under one layout and inside a door under the next -- twice in one arc
+  (the Purser, R2 passes B and R2c).
+
 ## The probe -- run it, then LOOK
 
 ```
