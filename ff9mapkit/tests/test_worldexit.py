@@ -187,17 +187,32 @@ def test_entrance_func_body_nameplate():
 
 
 def test_worldmap_exit_arrive_shape():
-    """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
-    idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade
-    fallback for debug-warped-in visits]."""
+    """The deterministic return: [gate][arrive var writes -- BOTH player-object
+    blocks, in the Init's own 32-bit idiom][D8:2 = the position-preset key, which
+    must NOT be a key whose cascade arm re-zeroes D8:2][if GLOB[1062]:
+    WorldMap(<var>) computed][the cascade fallback for debug-warped-in visits]."""
     from ff9mapkit.content import region as R
-    from ff9mapkit.content.worldexit import (POSITION_PRESET_KEY, WORLD_STATE_VAR,
-                                             arrive_writes, cascade_bytes,
+    from ff9mapkit.content.worldexit import (_POS_ONFOOT, _POS_VEHICLE, POSITION_PRESET_KEY,
+                                             WORLD_STATE_VAR, arrive_writes, cascade_bytes,
                                              worldmap_exit_body, worldmap_to_var)
     b = worldmap_exit_body(arrive=(228.0, -1179.0), fade=False)   # fade tested separately
     aw = arrive_writes(228.0, -1179.0, face=0)
-    assert aw[:8] == bytes([0x05, 0xC8, 0x53, 0x7E]) + (228 * 256).to_bytes(4, "little")
+    # the ON-FOOT avatar's block first (C8:0x40 -- the object that takes control when
+    # D4:190 == 0, and the block the save mirrors at WORLD_POS_X_OFF = 64), then the
+    # model-308 vehicle-composite block (C8:0x53); the non-driving one is inert.
+    assert _POS_ONFOOT[0] == (0xC8, 0x40) and _POS_VEHICLE[0] == (0xC8, 0x53)
+    onfoot = bytes([0x05, 0xC8, 0x40, 0x7E]) + (228 * 256).to_bytes(4, "little")
+    vehicle = bytes([0x05, 0xC8, 0x53, 0x7E]) + (228 * 256).to_bytes(4, "little")
+    assert aw[:8] == onfoot
+    assert vehicle in aw and aw.index(onfoot) < aw.index(vehicle)
+    for cls, idx in (_POS_ONFOOT[2], _POS_VEHICLE[2]):          # both Z writes present
+        assert bytes([0x05, cls, idx, 0x7E]) + (-1179 * 256).to_bytes(4, "little", signed=True) in aw
+    assert len(aw) == 2 * (10 + 8 + 10 + 8)                     # two full blocks, no more
     assert b.startswith(R.MOVEMENT_GATE + aw)
+    # the preset key must NOT be 62: 62 is the one cascade key whose arm runs
+    # `D8:2 = 0; WorldMap(9009)` in all four SC bands, which discards the preset on
+    # the fall-through path. 35 is a real disc-1 key with BARE WorldMap arms.
+    assert POSITION_PRESET_KEY == 35 and POSITION_PRESET_KEY != 62
     p = len(R.MOVEMENT_GATE) + len(aw)
     key = R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, POSITION_PRESET_KEY)
     assert b[p:p + len(key)] == key

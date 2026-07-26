@@ -18,18 +18,29 @@ tables + arms + WORLD09 e5/tag0, the world player's Init; ``0x0E`` = T_NOT, so t
 Init's test is ``if (!D8:2)``):
 
 * The world player is ALWAYS placed by ``MoveInstantXZY`` from the persisted
-  position vars (``C8:0x53``/``D8:0x56``/``C8:0x58``).
+  position vars. **There are TWO such blocks, one per player OBJECT** (R2a byte
+  census over all 9 free-roam dispatchers): the ON-FOOT avatar (model 310, model
+  309 in WORLD02 -- the object that takes control when ``D4:190 == 0``) reads
+  ``C8:0x40``/``D8:0x43``/``C8:0x45``/``D4:0x48``; the VEHICLE-COMPOSITE object
+  (model 308, ``DefinePlayerCharacter`` only inside its ``1 <= D4:190 <= 6``
+  riding guard) reads ``C8:0x53``/``D8:0x56``/``C8:0x58``/``D4:0x5B``. Each
+  object's own tag-1 main loop mirrors its block from itself EVERY FRAME -- that
+  loop, not the engine, is the "position mirror". (The on-foot block is the same
+  one the SAVE carries: :data:`ff9mapkit.save.WORLD_POS_X_OFF` = 64.) The kit
+  writes BOTH blocks, so the preset holds whichever object is the player; the
+  block that is not the player is inert.
 * **arriving with ``D8:2 == 0``**: the Init FIRST overwrites those vars with the
   world's own DEFAULT point (each world has one; WORLD09's is the Mist-Continent
   door) -- "no arrival info -> the fallback door".
 * **arriving with ``D8:2 != 0``**: the vars are left alone -- for real doors that
-  is the engine mirror's record of where the player stood when they entered the
+  is the mirror's record of where the player stood when they entered the
   field (how real towns return you to their door), and for the kit's ``arrive=``
   exit it is the coordinates the exit just wrote.
 * In the CASCADE, key 62's arm runs ``D8:2 = 0; WorldMap(9009)`` (so the plain
-  cascade always lands at 9009's default point), and **key 0 / any un-cased key
-  hits the switch default -- a bare RETURN: the door does NOTHING** (playtest-
-  proven; the validator refuses 0).
+  cascade always lands at 9009's default point -- 62 is the ONLY key that zeroes
+  the arrival var, which is why it is the plain-return key and NOT the
+  position-preset key), and **key 0 / any un-cased key hits the switch default --
+  a bare RETURN: the door does NOTHING** (playtest-proven; the validator refuses 0).
 
 THE DETERMINISTIC RETURN (``arrive = [x, z]``): the entrance trigger records the
 CURRENT ``wldMapNo`` into the kit-reserved GLOB word :data:`WORLD_STATE_VAR`
@@ -53,9 +64,16 @@ CASCADE_DONORS = ((300, 2, 2), (2800, 21, 2))
 #: (the switch default is a bare return -- the arrival model above).
 REGION_KEY_RETURN = 62
 REGION_KEY_OPEN_SEA = 62  # back-compat alias
-#: the nonzero D8:2 value the arrive= exit lands with ("position preset" -- any
-#: nonzero works; the destination Init then leaves the position vars alone)
-POSITION_PRESET_KEY = 62
+#: the nonzero D8:2 value the arrive= exit lands with ("position preset"): the
+#: destination Init then leaves the position vars alone. It must be a key whose
+#: CASCADE arm does NOT re-zero D8:2, because the fall-through (no recorded world
+#: state) still runs the cascade -- 62 is the one key that does, in all four SC
+#: bands. 35 is a real disc-1 key (13 shipping fields write the idiom
+#: ``05 D8 02 7D 23 00 2C 7F``: ids 262, 350, 404, 450, 601, 617, 1367, 1419,
+#: 1605, 1661, 1663, 2170, 2356) whose arms are BARE WorldMaps -- band1 9011,
+#: band2 9003, band3 9007, band4 9008 -- so the preset survives AND the world
+#: state re-derives from the CURRENT scenario band (disc-correct for free).
+POSITION_PRESET_KEY = 35
 #: kit-reserved gEventGlobal WORD (bytes 1062-1063, the outpost var's sibling at
 #: 1060-1061): the entrance trigger records the CURRENT wldMapNo here; the
 #: arrive= exit returns to it (computed WorldMap)
@@ -138,15 +156,23 @@ def cascade_bytes(game=None) -> bytes:
     return out
 
 
-#: the world player's persisted-position vars (the Init's MoveInstantXZY sources,
-#: byte-decoded from WORLD09 e5/tag0): x/z are int32 fixed-point (world * 256, the
-#: 0x7E 32-bit const token), y an int16, facing a byte var. Writing them before the
-#: key-62 exit makes the arrival DETERMINISTIC -- the world places the player at
-#: these coords instead of wherever the position mirror last ticked.
-_POS_X = (0xC8, 0x53)
-_POS_Y = (0xD8, 0x56)
-_POS_Z = (0xC8, 0x58)
-_POS_FACE = (0xD4, 0x5B)
+#: the world player's persisted-position vars, as ``(x, y, z, face)`` var pairs:
+#: x/z are int32 fixed-point (world * 256, the 0x7E 32-bit const token), y an
+#: int16, facing a byte var. Writing them before the exit makes the arrival
+#: DETERMINISTIC -- the world places the player at these coords instead of
+#: wherever that object's own main-loop mirror last ticked.
+#:
+#: ON FOOT (``D4:190 == 0``) -- the object that actually takes control in all 9
+#: free-roam dispatchers (model 310; 309 in WORLD02). Byte-decoded from WORLD11
+#: e14 tag0/tag1 and cross-checked against every other dispatcher.
+_POS_ONFOOT = ((0xC8, 0x40), (0xD8, 0x43), (0xC8, 0x45), (0xD4, 0x48))
+#: RIDING (``1 <= D4:190 <= 6``) -- the model-308 vehicle-composite player object
+#: (WORLD09 e5/tag0). Inert while on foot.
+_POS_VEHICLE = ((0xC8, 0x53), (0xD8, 0x56), (0xC8, 0x58), (0xD4, 0x5B))
+#: both are written: only one of the two objects is the player on any given exit,
+#: and the other block's ~36 bytes are inert -- which removes the whole class of
+#: "wrote the preset into the object that is not driving" bug.
+_POS_BLOCKS = (_POS_ONFOOT, _POS_VEHICLE)
 
 
 def _set_var32(var_class: int, idx: int, value: int) -> bytes:
@@ -161,12 +187,16 @@ def _set_var32(var_class: int, idx: int, value: int) -> bytes:
 def arrive_writes(x: float, z: float, *, y: float = 4.0, face: int = 0) -> bytes:
     """Preset the world player's persisted-position vars to a WORLD coordinate --
     the walk-out's arrival point (the actor re-grounds on the next movement tick,
-    so ``y`` is a seed)."""
+    so ``y`` is a seed). BOTH player-object blocks are written (:data:`_POS_BLOCKS`)
+    so the preset lands whether the player leaves on foot or vehicle-borne."""
     from . import region as R
-    return (_set_var32(*_POS_X, round(x * 256))
-            + R.set_var(_POS_Y[0], _POS_Y[1], round(y * 256))
-            + _set_var32(*_POS_Z, round(z * 256))
-            + R.set_var(_POS_FACE[0], _POS_FACE[1], int(face) & 0xFF))
+    out = b""
+    for (xc, xi), (yc, yi), (zc, zi), (fc, fi) in _POS_BLOCKS:
+        out += (_set_var32(xc, xi, round(x * 256))
+                + R.set_var(yc, yi, round(y * 256))
+                + _set_var32(zc, zi, round(z * 256))
+                + R.set_var(fc, fi, int(face) & 0xFF))
+    return out
 
 
 def worldmap_to_var(var_class: int = 0xD8, idx: int = WORLD_STATE_VAR) -> bytes:
