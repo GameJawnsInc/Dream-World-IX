@@ -682,7 +682,27 @@ BEHAVIOR_ARCHETYPES = [
     {"key": "civilian", "name": "Civilian — panic and flee",
      "teach": "Bolts from the player to refuge points in priority order, strolls a small "
               "wander box at home otherwise (the speed contrast IS the character)."},
+    {"key": "guard", "name": "Guard — fight a unit (pick the enemy)", "needs_target": True,
+     "teach": "BEHAVIOR.md's own front example: the badly wounded run for minted refuges, "
+              "fight what's in reach, chase what's in sight, hold the post otherwise. Give "
+              "the TARGET a swing branch back and you have mutual combat, no referee."},
 ]
+
+
+def siege_view(raw: dict):
+    """A [siege] field's GENERATED behavior, for READ-ONLY rendering: the desugared copy
+    (the same expansion the build runs), or None when the field has no [siege]. The tab's
+    projections read this; edits stay refused — the [siege] block owns the table."""
+    if not raw.get("siege") or BT.table(raw):
+        return None
+    import copy as _copy
+    from ..content import siege as _siege
+    view = _copy.deepcopy(raw)
+    try:
+        _siege.desugar(view)
+    except Exception:                  # noqa: BLE001 -- malformed [siege]: validate's job
+        return None
+    return view if BT.table(view) else None
 
 
 def _mint_beat_marker(raw: dict, npc_name: str, pos) -> str:
@@ -700,12 +720,29 @@ def _mint_beat_marker(raw: dict, npc_name: str, pos) -> str:
     return name
 
 
-def stamp_archetype(raw: dict, key: str, npc_name: str) -> str:
+def stamp_archetype(raw: dict, key: str, npc_name: str, target: str | None = None) -> str:
     """Seat ``npc_name`` as a behavior unit wearing the archetype's proven tree; returns
-    the undo-step label. Unknown key/npc are caller bugs (the picker lists the tables)."""
+    the undo-step label. ``target`` binds a needs_target archetype to an existing unit.
+    Unknown key/npc are caller bugs (the picker lists the tables)."""
     positions = BT._npc_marker_positions(raw)
     x, z = positions.get(npc_name, (0, 0))
     die = {"when": [{"hp_le": 0}], "do": {"die": True}}
+    if key == "guard":
+        if not target:
+            raise KeyError("the guard archetype needs a target unit")
+        branches = [
+            die,
+            {"when": [{"hp_le": 1}],
+             "do": {"flee": target, "to": [[x + 400, z], [x - 400, z]], "speed": 75}},
+            {"when": [{"active": target}, {"near": [target, 300]}],
+             "do": {"swing_at": target, "damage": 1, "interval": 25}},
+            {"when": [{"active": target}, {"near": [target, 900]}],
+             "do": {"chase": target, "standoff": 180, "speed": 65}},
+            {"do": {"hold_post": True}},
+        ]
+        b = raw.setdefault("behavior", {})
+        b.setdefault("unit", []).append({"npc": npc_name, "hp": 5, "branch": branches})
+        return f"stamp guard archetype on {npc_name} vs {target}"
     if key == "sentry":
         beat = _mint_beat_marker(raw, npc_name, (x, z))
         branches = [
