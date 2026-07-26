@@ -238,8 +238,13 @@ muster at your feet. The pool's `hireable` flag reads the live inventory (`have_
 instead of a gil compare.
 
 Two companion pieces speak inventory directly: the **`have_item` cond** —
-`when = [{ have_item = ["Soldier Contract", 2] }]` (count optional, default 1; the engine's
-live `GetItemCount`) — and the **`item:` hud source** (below).
+`when = [{ have_item = ["Soldier Contract", 2] }]` (count optional, default 1) — and the
+**`item:` hud source** (below). `have_item` reads a **top-of-tick snapshot**, not the live
+count: pool activation runs before the tree blocks (a fresh spawn must tick the same
+pass), so a live read raced the pool's own consumption — holding exactly N never
+satisfied `have_item >= N` (the ARMOURY round-2 skew, owner-diagnosed). The snapshot is
+written with the mirrors, before any pool consumes: every cond in a pass judges the
+inventory as the player left it. The pool's own gate stays live — it is the consumer.
 
 ### Runtime shop stock — `add_shop_item` / `remove_shop_item`
 
@@ -259,6 +264,15 @@ the mutation is **session-global in-memory state** — it survives field transit
 `~ Reload`, resets at relaunch, and is never saved. `once` is required and is what makes
 the semantics clean: the latch resets per field entry, so each session simply re-asserts
 the unlock whenever its condition holds — shop state follows the seed law, like tables.
+
+> **Why a relaunch resets it but New Game does not:** `ff9buy.ShopItems` is a static,
+> process-lifetime table loaded from the CSV once at engine startup. `AddShopItem`
+> mutates that table directly — *above* the save layer. New Game swaps the save
+> (inventory, flags, gil) but never re-runs the static loaders, so a fresh game
+> inherits any unlock from the previous session until the owning field re-asserts or
+> the process restarts. An author who needs a lock to *re-engage* should assert both
+> directions per entry: an `add_shop_item` branch on the condition and a
+> `remove_shop_item` branch on its inverse (the two-sided assert).
 
 **Honest hire rows — the published `hireable` flag.** Every pool also gets a
 `pool.<name>.hireable` flag (index printed at build and in `behavior compile`):

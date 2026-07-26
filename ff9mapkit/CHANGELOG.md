@@ -41,6 +41,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `world-retarget` no longer implies a tile-area stamp routes anywhere: it now reports the
   block's actual dispatcher triggers. Landmark pins (Alexandria Harbour block (21,10),
   Lindblum Dragon's Gate (14,15)) + the cell-tag join are regression-tested.
+### Fixed — `have_item` reads a top-of-tick snapshot (the pool-consumption race)
+- Pool activation runs before the tree blocks, so a live `have_item` read raced an
+  item pool consuming the same item — holding exactly N never satisfied
+  `have_item >= N` (ARMOURY round 2, owner-diagnosed: the unlock needed 4 writs, not
+  3). The cond now reads a snapshot written with the mirrors, before any pool
+  consumes; the pool's own gate stays live (it is the consumer). Regression-pinned:
+  snapshot → consume → judge ordering asserted on the compiled ticker.
+
 ### Added — `add_shop_item` / `remove_shop_item`: runtime shop stock (AddShopItem 0x115)
 - Behavior branches can now mutate a shop's buy list mid-run — the wave-by-wave
   armoury unlock (`do = { add_shop_item = [40, "Elite Contract"] }`, `once` required).
