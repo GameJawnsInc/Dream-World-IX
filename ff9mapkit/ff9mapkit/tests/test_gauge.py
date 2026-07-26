@@ -86,21 +86,27 @@ def test_source_and_level_exprs():
 
 # ------------------------------------------------------------------- art
 def test_art_pngs_deterministic_and_shaped():
+    import re as _re
     from PIL import Image
     import io as _io
     spec = _spec()
     eff = G.effective_width(spec)
     assert eff == 2 + 8 * 10 + 9                         # the exact uniform-cell fit (91 <= 96)
     pngs = G.art_pngs(spec)
-    assert [n for n, _ in pngs] == [f"gauge_cistern_{k:02d}.png" for k in range(11)]
+    # content-hashed names (THE OVERLAY-TEXTURE-CACHE LAW: same-name art edits
+    # would keep serving the engine's static path-keyed texture cache)
+    assert all(_re.fullmatch(rf"gauge_cistern_{k:02d}_[0-9a-f]{{8}}\.png", n)
+               for k, (n, _) in enumerate(pngs))
+    assert len({n for n, _ in pngs}) == 11               # distinct art -> distinct hashes
     assert pngs == G.art_pngs(spec)                      # byte-deterministic
     fills = []
     for _n, data in pngs:
         im = Image.open(_io.BytesIO(data)).convert("RGBA")
-        assert im.size == (eff, 10)
+        assert im.size == (eff * G.ART_SCALE, 10 * G.ART_SCALE)   # hi-res texels, canvas-size quad
         fills.append(sum(1 for px in im.getdata() if px[:3] == spec.color))
     assert fills[0] == 0                                 # empty state: no fill pixels
     assert all(b > a for a, b in zip(fills, fills[1:]))  # each state adds one cell
+    assert G.overlay_blocks(spec)[0].image == pngs[0][0]  # .bgx references the hashed names
 
 
 def test_art_cells_are_uniform():
@@ -123,7 +129,7 @@ def test_art_cells_are_uniform():
             cur = 0
     if cur:
         runs.append(cur)
-    assert len(runs) == 12 and len(set(runs)) == 1       # 12 cells, one width
+    assert len(runs) == 12 and set(runs) == {6 * G.ART_SCALE}   # 12 cells, one width
 
 
 # ------------------------------------------------------------------- .bgx blocks
