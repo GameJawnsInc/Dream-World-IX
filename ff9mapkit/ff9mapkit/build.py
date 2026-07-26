@@ -2844,8 +2844,8 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     and a READ is meaningless. Named ``[[flag]]``s
     are already validated into the safe custom band (``flags.resolve_project_flags``); this catches the
     literal indices that bypass that path (``set_flag = [N, 1]`` / a hand-written once ``flag = N`` /
-    ``requires_flag = N``). Lint-only -- NOT run during the build, so the golden output is byte- AND
-    warning-identical."""
+    ``requires_flag = N`` / a ``[[qte]]`` finale ``flag`` or ``result`` word). Lint-only -- NOT run
+    during the build, so the golden output is byte- AND warning-identical."""
     raw = project.raw
     out: list[str] = []
 
@@ -2942,6 +2942,23 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             _write(h["flag"], f"[[on_entry]] #{k} once-flag")
         if "requires_flag" in h:
             _read(h["requires_flag"], f"[[on_entry]] #{k}")
+    for k, q in enumerate(raw.get("qte", []) or []):   # [[qte]] finale writes: the flag bit + the result Int16
+        if not isinstance(q, dict):
+            continue
+        who = f"[[qte]] {q.get('name', '#' + str(k))!r}"
+        if "flag" in q:
+            _write(q["flag"], f"{who} finale flag")
+        try:
+            r = int(q.get("result"))
+        except (TypeError, ValueError):
+            continue
+        # the result Int16 spans bits r*8..r*8+15 -- flag ANY overlap with a reserved region
+        hit = next((b for b in range(r * 8, r * 8 + 16) if _flags.is_reserved(b)), None)
+        if hit is not None:
+            reg = _flags.bit_region(hit)
+            out.append(f"{who} result word (bytes {r}-{r + 1}) overlaps FF9's reserved "
+                       f"'{reg.name}' region ({reg.meaning}) -- an Int16 write here corrupts "
+                       f"real save/engine state. Pick a clear byte offset.")
     return out
 
 

@@ -265,6 +265,41 @@ def test_flag_bands_scans_prop_gates(tmp_path):
     assert any("8400" in m and "advisory" in m for m in w)
 
 
+# ---------------------------------------------------------------- lint_flag_bands: [[qte]] (was a gap)
+
+def _qte_proj(**qte):
+    """A raw-only project (lint_flag_bands touches nothing but .raw) carrying one [[qte]] block."""
+    p = FieldProject.__new__(FieldProject)
+    p.raw = {"field": {"id": 4003, "name": "Q", "area": 11},
+             "qte": [{"name": "duel", **qte}]}
+    return p
+
+
+def test_flag_bands_walks_qte_finale_flag():
+    """A [[qte]] finale `flag` in a reserved region is flagged like any other literal write (the
+    bench's original 8300 sat on a live Mognet letter-slot byte)."""
+    w = lint_flag_bands(_qte_proj(result=2006, flag=8300))
+    assert len(w) == 1
+    assert "[[qte]]" in w[0] and "mognet_mailbox" in w[0] and "8300" in w[0]
+
+
+def test_flag_bands_walks_qte_result_word():
+    """The result Int16 spans TWO bytes; the straddle case -- byte 1046 free, byte 1047 in the
+    Mognet lock band -- must still be caught."""
+    w = lint_flag_bands(_qte_proj(result=1046))
+    assert len(w) == 1
+    assert "[[qte]]" in w[0] and "mognet_give_locks" in w[0]
+
+
+def test_flag_bands_qte_clean_and_malformed(tmp_path):
+    """A safe-band flag + clear result draws no warning; a malformed block never crashes the lint."""
+    assert lint_flag_bands(_qte_proj(result=2006, flag=8712)) == []
+    assert lint_flag_bands(_qte_proj(result=None)) == []
+    p = FieldProject.__new__(FieldProject)
+    p.raw = {"field": {"id": 4003}, "qte": ["not-a-dict"]}
+    assert lint_flag_bands(p) == []
+
+
 def test_lint_all_missing_borrow_does_not_crash(tmp_path):
     """A field that borrows a camera .bgx absent on disk (a fork whose game-derived input isn't copied in
     yet) must yield a clean reported error, NOT a traceback -- the pitch loop used to re-raise the

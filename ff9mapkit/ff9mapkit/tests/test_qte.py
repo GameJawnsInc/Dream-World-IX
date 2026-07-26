@@ -14,7 +14,7 @@ from ff9mapkit.eb import disasm as D, opcodes
 from ff9mapkit.eb.model import EbScript
 
 RAW = {"name": "duel", "result": 2006, "rounds": 8, "window": 45,
-       "gil": True, "flag": 8300}
+       "gil": True, "flag": 8712}
 
 
 def _spec(**over):
@@ -116,11 +116,37 @@ def test_entry_and_call():
     ({"buttons": ["cross", "bogus"]}, "unknown button"),
     ({"verdicts": ["a", "b"]}, "verdicts"),
     ({"bogus": 1}, "unknown"),
+    # `flag` must sit in the safe custom band [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR), like a
+    # [[flag]] index -- the reserved regions below/inside it are live save state (Mognet letters,
+    # read-mail scratch, the co-op cells) that ordinary play whole-byte-writes.
+    ({"flag": 8300}, "mognet_mailbox"),          # a live letter-slot byte (the old bench value)
+    ({"flag": 8400}, "mognet_give_locks"),
+    ({"flag": 8600}, "mognet_readmail_payload"),
+    ({"flag": 16256}, "netsync_coop_cells"),     # reserved INSIDE the band's numeric range
+    ({"flag": 16320}, "choice_scratch"),
+    ({"flag": 200}, "safe custom band"),         # free stock space, but outside the audited band
+    ({"flag": True}, "BIT index"),
+    # the result Int16 spans TWO bytes -- both must clear the reserved regions
+    ({"result": 1030}, "mognet_mailbox"),        # squarely inside the mailbox bytes 1024-1045
+    ({"result": 1046}, "mognet_give_locks"),     # the straddle: byte 1046 is free, byte 1047 is not
+    ({"result": 1088}, "mognet_readmail_payload"),   # low byte = the payload band's last byte
+    ({"result": 23}, "field_menu_guard"),        # the byte-23 engine menu handshake
+    # self-collision: a flag bit inside the result word's own 16 bits -- the finale writes both
+    ({"result": 1089, "flag": 8720}, "result word"),
 ])
 def test_from_raw_rejects(over, frag):
     with pytest.raises(Q.QteError) as ei:
         _spec(**over)
     assert frag in str(ei.value)
+
+
+def test_from_raw_safe_flag_and_clear_result_pass():
+    """The tightened validation must not over-reject: the first safe bit, a result word just past
+    the read-mail payload (bytes 1089-1090), and the flagless form all load."""
+    spec = _spec(flag=8712, result=1100)
+    assert spec.flag == 8712 and spec.result == 1100
+    assert _spec(flag=None, result=1089).result == 1089
+    assert _spec(flag=None).flag is None
 
 
 _TOML = (

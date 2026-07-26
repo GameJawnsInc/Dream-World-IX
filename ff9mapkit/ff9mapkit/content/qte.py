@@ -39,6 +39,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
+from .. import flags as _flags
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
 
@@ -113,7 +114,7 @@ class QteSpec:
                                       # stock-length bouts, 100 = merciless.
     buttons: tuple = tuple(BUTTONS)   # the prompt set (names, >= 2)
     gil: bool = False                 # pay stock's purse formula at the finale
-    flag: int | None = None           # optional GLOB bit raised at the finale
+    flag: int | None = None           # optional GLOB bit raised at the finale (safe band only)
     prompt_window: int = 1            # stock's window ids
     result_window: int = 5
     verdicts: tuple = DEFAULT_VERDICTS
@@ -139,6 +140,18 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         raise QteError(f"{ctx}: result must be a gEventGlobal byte offset 4..2024 "
                        f"(an Int16; 2026+ is the game's own scratch). It receives "
                        f"the 1..100 score at the finale.")
+    # the Int16 spans bytes result..result+1 = bits result*8..result*8+15; NONE of them may land
+    # in a reserved save region (the Mognet mailbox/locks/read-mail bytes, the byte-23 menu
+    # handshake, the worldmap unlocks, the netsync co-op cells) -- a score write there corrupts
+    # real letter/engine state and ordinary play clobbers the score right back.
+    hit = next((b for b in range(result * 8, result * 8 + 16) if _flags.is_reserved(b)), None)
+    if hit is not None:
+        r = _flags.bit_region(hit)
+        raise QteError(f"{ctx}: result {result} -- the Int16 word (bytes {result}-{result + 1}) "
+                       f"overlaps FF9's reserved '{r.name}' region (bits {r.lo}-{r.hi}): a write "
+                       f"there corrupts real save/engine state, and ordinary play writes it "
+                       f"right back over the score. Pick a clear byte offset (e.g. 2006, or "
+                       f"{_flags.READMAIL_PAYLOAD_HI // 8 + 1}+).")
     rounds = block.get("rounds", 10)
     if not isinstance(rounds, int) or not 1 <= rounds <= 99:
         raise QteError(f"{ctx}: rounds must be 1..99")
@@ -158,8 +171,25 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         raise QteError(f"{ctx}: buttons must be >= 2 distinct names (the no-repeat "
                        f"re-roll would spin forever on one)")
     flag = block.get("flag")
-    if flag is not None and not (isinstance(flag, int) and 0 <= flag <= 16383):
-        raise QteError(f"{ctx}: flag must be a gEventGlobal BIT index")
+    if flag is not None:
+        if not isinstance(flag, int) or isinstance(flag, bool):
+            raise QteError(f"{ctx}: flag must be a gEventGlobal BIT index")
+        if _flags.is_reserved(flag):
+            r = _flags.bit_region(flag)
+            raise QteError(f"{ctx}: flag {flag} is inside FF9's reserved '{r.name}' region "
+                           f"(bits {r.lo}-{r.hi}) -- a write there corrupts real save/engine "
+                           f"state. Use the safe band [{_flags.FIRST_SAFE_FLAG}, "
+                           f"{_flags.CHOICE_SCRATCH_FLOOR}), like a [[flag]] index.")
+        if not _flags.FIRST_SAFE_FLAG <= flag < _flags.CHOICE_SCRATCH_FLOOR:
+            raise QteError(f"{ctx}: flag {flag} is outside the safe custom band "
+                           f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}) -- "
+                           f"indices below it are real-FF9 story state (a write couples the "
+                           f"bout to stock progress or corrupts it). Pick an index in the band.")
+        if result * 8 <= flag < result * 8 + 16:
+            raise QteError(f"{ctx}: flag {flag} sits inside the result word's own bits "
+                           f"({result * 8}-{result * 8 + 15}) -- the finale writes both, so "
+                           f"each would corrupt the other. Pick a bit outside bytes "
+                           f"{result}-{result + 1}.")
     verd = block.get("verdicts", list(DEFAULT_VERDICTS))
     if not (isinstance(verd, list) and len(verd) == 4
             and all(isinstance(v, str) and v.strip() for v in verd)):

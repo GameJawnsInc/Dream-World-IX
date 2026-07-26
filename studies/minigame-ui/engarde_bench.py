@@ -17,8 +17,10 @@ Beats:
   THE SCORE     speed matters — a fast press banks more than a slow one
                 (the countdown leftover IS the points). The finale shows
                 "[NUMB] of 100", a tiered verdict, and pays the purse.
-  THE FLAG      completion raises flag 8300 — the "Bask in it" row exists
+  THE FLAG      completion raises flag 8712 — the "Bask in it" row exists
                 only after your first bout (and survives reloads: GLOB).
+                (Was 8300 — a live Mognet letter-slot byte; the kit now
+                rejects reserved-region qte flags, safe band 8712+ only.)
   THE REPLAY    re-talk = a fresh bout (scratch re-seeds; no encore menu —
                 the talk loop IS the encore).
 
@@ -48,7 +50,7 @@ MOD_FOLDER = "FF9CustomMap"
 DONOR = "fbg_n11_ldbm_map158_lb_plz_0"
 
 DUELIST_MODEL = "GEO_NPC_F0_CSO"
-DONE_FLAG = 8300
+DONE_FLAG = 8712                  # safe band (was 8300: inside the stock Mognet mailbox bytes)
 
 
 def read_spawn() -> tuple[int, int]:

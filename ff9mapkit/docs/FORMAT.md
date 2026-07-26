@@ -1596,14 +1596,18 @@ choice bracket holds movement; re-picking the row replays with fresh state).
 [[qte]]
 name = "duel"                   # the [[choice]] option's `qte =` target
 result = 2006                   # gEventGlobal byte offset: Global.Int16 <- the 1..100 score
+                                # (both bytes must clear the reserved save regions — the
+                                # Mognet mailbox/lock/read-mail bytes 1024-1088 are refused)
 rounds = 10                     # 1..99 prompts per bout
 window = 50                     # reaction frames per prompt (stock: 50; 30 = its hard mode)
-par = 80                        # (optional) % of the THEORETICAL max that scores 100 —
-                                # default 80 mirrors stock's calibration (a great human run
-                                # reaches 100; the clamp absorbs the top). 100 = merciless.
+par = 65                        # (optional) % of the THEORETICAL max that scores 100 —
+                                # default 65, tuned for short bouts (stock's forgiveness
+                                # lives in its combo channel, which only pays over its 48
+                                # rounds). 100 = merciless.
 buttons = ["cross", "circle"]   # (optional) the prompt set, >= 2 of the 8 stock names
 gil = true                      # (optional) pay stock's purse at the finale
-flag = 8300                     # (optional) story-flag BIT raised when a bout completes
+flag = 8712                     # (optional) story-flag BIT raised when a bout completes —
+                                # safe band [8712, 16320) only, like a [[flag]] index
 verdicts = ["...", "...", "...", "..."]   # (optional) the 4 score tiers (<25/<50/<75/75+)
 ```
 
