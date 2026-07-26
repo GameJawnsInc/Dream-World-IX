@@ -98,3 +98,8 @@ unchanged); lint rejects `dialogue` + `[[ferry]]` on one NPC (was shipping dead 
 spawn + the Purser, ZERO regions — the south door and the ledger/savepoint deleted, saving is the menu's
 "Log the passage" row (latched `Menu(4,0)`), decline still LAST. `.eb` 7703→5600 B, 14 files, hot.
 Record: REVERT.md §18.
+
+**R2 PLAYTEST CONFIRMED (2026-07-26):** all four ferry choices sail correctly and the Confirm hijack is
+gone. En-route casualty: boarding the crimson boat at its islet no longer fires (the range window's true
+branch fails in-game) — logged in `studies/custom-vehicle/README.md`, boat DORMANT until R5 by owner
+ruling. R2 is CLOSED; next rungs R3 Lamplight · R4 forest pass · R5 sea lanes + proper boarding.

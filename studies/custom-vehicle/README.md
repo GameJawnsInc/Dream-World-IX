@@ -75,3 +75,15 @@ script with the domain trap spelled out. Offline verification replicating the de
 probe points: `range_gate/eval_gate.py`. Full record: REVERT.md §20.
 
 Proper boarding UX — a prompt instead of a bare-Confirm radius, plus shore-legality — is **R5**.
+
+## KNOWN BROKEN (2026-07-26, owner playtest): boarding at the islet no longer fires
+
+The range-gate fix cured the global Confirm hijack (confirmed in-game: no board fires at any quay or in
+the open), **but Confirm at the beached boat now does nothing** — the corrected window's TRUE branch
+fails in-game even though the offline eval (range_gate/eval_gate.py) passes at the mooring and dock.
+Owner ruling: leave it — the boat is DORMANT until the R5 proper-entry rung. Whoever picks that up:
+re-derive the window against the player's ACTUAL in-game standing positions at the beach (the offline
+eval replicated the engine ops but fed AUTHORED coordinates; the live avatar's f[] values at the
+beach were never measured — capture them first, e.g. via a temporary probe arm or the debug menu),
+and re-check every eval assumption against a live reading before widening the window. The dismount arm
+and moor-home behavior are unaffected.
