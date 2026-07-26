@@ -118,6 +118,64 @@ def test_behavior_raw_structure():
     assert shoot["branch"][2]["do"] == {"hold_post": True}
 
 
+def test_win_sfx_fanfare_branch():
+    """`win_sfx` adds ONE event-Once fanfare branch below the pay, gated on the
+    same monotonic `won` flag (THE DRAINING-CONDITION LAW's authoring shape:
+    the purse fires one tick, the cue the next)."""
+    b = S.behavior_raw(_spec(win_sfx=108))
+    base = b["unit"][0]
+    fan = [br for br in base["branch"]
+           if isinstance(br["do"], dict) and "sfx" in br["do"]]
+    assert len(fan) == 1 and fan[0]["do"] == {"sfx": 108}
+    assert fan[0]["when"] == [{"flag": "won"}] and fan[0]["once"] == "fanfare"
+    dos = [br["do"] for br in base["branch"]]
+    assert dos.index({"award": 2000, "item": "Phoenix Down"}) < dos.index({"sfx": 108})
+    # absent key -> no fanfare branch; a non-int id is refused
+    assert not any(isinstance(br["do"], dict) and "sfx" in br["do"]
+                   for br in S.behavior_raw(_spec())["unit"][0]["branch"])
+    with pytest.raises(S.SiegeError, match="win_sfx"):
+        _spec(win_sfx="loud")
+
+
+def test_win_flash_reveal_beat():
+    """With win_flash the DETECT branches carry the wash (the rout one also
+    raises `routed`) and the cries move BELOW it — THE REVEAL BEAT (round-3
+    playtest: a window opening as the white-out starts fights it): the wash
+    body holds the dispatch level and the request lane fires on run==0 in
+    ladder order, so cry -> purse -> jingle land at the release."""
+    b = S.behavior_raw(_spec(win_sfx=108, win_flash=True))
+    br = b["unit"][0]["branch"]
+    flashes = [x for x in br if isinstance(x["do"], dict) and "flash" in x["do"]]
+    assert len(flashes) == 2                      # one per ending, both the colour
+    assert all(x["do"] == {"flash": [255, 255, 255]} for x in flashes)
+    assert flashes[0]["raise_flags"] == ["won", "routed"]     # the rout detect
+    assert flashes[1]["raise_flags"] == ["won"]               # the timer detect
+    crys = [x for x in br if isinstance(x["do"], dict) and "announce" in x["do"]
+            and x.get("once") in ("routcry", "wincry")]
+    assert crys[0]["when"] == [{"flag": "routed"}]
+    assert crys[1]["when"] == [{"flag": "won"}, {"not_flag": "routed"}]
+    assert not crys[0].get("raise_flags") and not crys[1].get("raise_flags")
+    dos = [x["do"] for x in br]
+    i_flash = dos.index({"flash": [255, 255, 255]})
+    i_cry = br.index(crys[0])
+    i_pay = dos.index({"award": 2000, "item": "Phoenix Down"})
+    i_sfx = dos.index({"sfx": 108})
+    assert i_flash < i_cry < i_pay < i_sfx        # wash -> cry -> purse -> jingle
+    # a colour list passes through; WITHOUT win_flash the proven announce-on-
+    # detect shape is unchanged; junk is refused
+    b2 = S.behavior_raw(_spec(win_flash=[255, 60, 60]))
+    assert any(x["do"] == {"flash": [255, 60, 60]} for x in b2["unit"][0]["branch"]
+               if isinstance(x["do"], dict))
+    plain = S.behavior_raw(_spec(win_sfx=108))["unit"][0]["branch"]
+    det = [x for x in plain if x.get("once") in ("routcry", "wincry")]
+    assert all(x.get("raise_flags") == ["won"] and "announce" in x["do"]
+               for x in det)
+    with pytest.raises(S.SiegeError, match="win_flash"):
+        _spec(win_flash=[255, 300, 0])
+    with pytest.raises(S.SiegeError, match="win_flash"):
+        _spec(win_flash="white")
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)
@@ -151,7 +209,8 @@ def _siege_toml() -> str:
     out = io.StringIO()
     out.write(_FIELD)
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
-              'win_gil = 2000\nwin_item = "Phoenix Down"\nloss_battle = 35\n'
+              'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
+              "win_flash = true\nloss_battle = 35\n"
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")
@@ -186,6 +245,21 @@ def test_full_build_compiles(tmp_path):
                   behavior_txids=txids)
     cb = fb.compile()
     assert len(cb.ticker_body) > 1000
+    # the fanfare (win_sfx = 108) compiled through: one RunSoundCode3 in the
+    # base's dispatch bodies, chest-proven bank first
+    from ff9mapkit.eb import disasm as D
+    plays = [(ins.imm(0), ins.imm(1))
+             for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body))
+             if ins.name == "RunSoundCode3"]
+    assert plays == [(53248, 108)]
+    # ... and the flash (win_flash = true): white ADD-channel pairs (the stock
+    # white-out, NOT the mode-6/7 warp fade) — one body per detect branch
+    fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))
+             for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body))
+             if ins.op == 0xEC]
+    assert fades == [(0, 255, 255, 255), (1, 0, 0, 0)] * 2
     # determinism: a second load desugars to the identical raw
     p2 = BLD.FieldProject.load(f)
     assert p2.raw["behavior"] == p.raw["behavior"]

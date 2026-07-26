@@ -1157,3 +1157,100 @@ def test_shop_synth_validation():
                    add_shop_synth=[50, "Bogusite"])))
     assert any("needs `once" in p for p in
                mut(lambda r: r["behavior"]["unit"][0]["branch"][0].pop("once")))
+
+
+# ------------------------------------------------- Sfx (RunSoundCode3 0xC8)
+def _sfx_raw(do=None, **branch_over):
+    br = {"when": [{"flag": "go"}], "do": do or {"sfx": 108},
+          "once": "fanfare", **branch_over}
+    return {
+        "player": {"spawn": [0, -900]},
+        "npc": [{"name": "crier", "pos": [0, -300], "dialogue": "..."}],
+        "behavior": {"public_flags": ["go"], "unit": [
+            {"npc": "crier", "branch": [br, {"do": {"hold": [0, -300]}}]},
+        ]},
+    }
+
+
+def test_sfx_compiles_event_once():
+    """Once-wrapped: ONE RunSoundCode3 with the chest-proven bank + pan/volume
+    triple (content.chest — in-game on fields 200/407), on the event-Once lane."""
+    raw = _sfx_raw()
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    cb = fb.compile()
+    _verify_all(cb)
+    plays = []
+    for _tag, body in cb.action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "RunSoundCode3":
+                plays.append(tuple(ins.imm(i) for i in range(5)))
+    assert plays == [(53248, 108, 0, 128, 125)]           # bank, id, pan/volume
+    # a custom bank passes through
+    fb2 = BT.build(_sfx_raw(do={"sfx": 640, "bank": 4096}), npc_slots={"crier": 2},
+                   npc_txids_by_name={"crier": 0}, behavior_txids={})
+    plays2 = [(ins.imm(0), ins.imm(1))
+              for _t, body in fb2.compile().action_funcs["crier"]
+              for ins in D.iter_code(body, 0, len(body))
+              if ins.name == "RunSoundCode3"]
+    assert plays2 == [(4096, 640)]
+
+
+def test_sfx_bare_and_validation():
+    # BARE is legal (Announce's shape: play at dispatch, idle while selected)
+    raw = _sfx_raw()
+    del raw["behavior"]["unit"][0]["branch"][0]["once"]
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    _verify_all(fb.compile())
+    # id / bank / option-key validation
+    assert any("sound id int" in p for p in BT.validate(_sfx_raw(do={"sfx": "boom"})))
+    assert any("sound id int" in p for p in BT.validate(_sfx_raw(do={"sfx": 70000})))
+    assert any("sfx bank" in p for p in
+               BT.validate(_sfx_raw(do={"sfx": 108, "bank": "loud"})))
+    assert any("unknown option key" in p for p in
+               BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))
+
+
+def test_flash_compiles_stock_add_pair():
+    """The flash body is stock's ADD-channel white-out idiom (field 682, twice):
+    CalcScreenPos + FadeFilter(0,24,255,rgb) + Wait(25 = out+1, stock's own
+    pause) + the held beat + CalcScreenPos + FadeFilter(1,16,255,black) +
+    Wait(16). NOT modes 6/7 — SUB toward white is the warp fade to BLACK
+    (the REDOUBT round-2 playtest)."""
+    raw = _sfx_raw(do={"flash": [255, 200, 120]})
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    cb = fb.compile()
+    _verify_all(cb)
+    seq = []
+    for _tag, body in cb.action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.op == 0xEC:                            # FadeFilter
+                seq.append(tuple(ins.imm(i) for i in range(6)))
+            elif ins.op == 0xA9:                          # CalculateScreenPosition
+                seq.append("csp")
+            elif ins.op == 0x22:                          # Wait
+                seq.append(("wait", ins.imm(0)))
+    assert seq == ["csp", (0, 24, 255, 255, 200, 120), ("wait", 25), ("wait", 20),
+                   "csp", (1, 16, 255, 0, 0, 0), ("wait", 16)]
+    # pause is a dial (`hold` is the feed verb — the key would double-match);
+    # pause = 0 drops its wait entirely
+    fb2 = BT.build(_sfx_raw(do={"flash": [255, 255, 255], "pause": 0}),
+                   npc_slots={"crier": 2}, npc_txids_by_name={"crier": 0},
+                   behavior_txids={})
+    waits = [ins.imm(0) for _t, body in fb2.compile().action_funcs["crier"]
+             for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x22]
+    assert waits == [25, 16]
+    # validation: three ints 0..255, no bool smuggling; pause range-checked
+    assert any("flash takes [r, g, b]" in p for p in
+               BT.validate(_sfx_raw(do={"flash": [255, 255]})))
+    assert any("flash takes [r, g, b]" in p for p in
+               BT.validate(_sfx_raw(do={"flash": [255, 300, 0]})))
+    assert any("flash takes [r, g, b]" in p for p in
+               BT.validate(_sfx_raw(do={"flash": True})))
+    assert any("flash pause" in p for p in
+               BT.validate(_sfx_raw(do={"flash": [255, 255, 255], "pause": 999})))

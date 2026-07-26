@@ -1704,6 +1704,12 @@ waves = [55, 40, 20]               # wave start times in REMAINING seconds (desc
 stipend = 3000                     # (optional) opening war chest, paid + announced at boot
 win_gil = 2000                     # (optional) the purse for holding to 0:00 / the rout
 win_item = "Phoenix Down"          # (optional) rides the same single payout
+win_sfx = 108                      # (optional) fanfare on the purse (`ff9mapkit sfx-list` ids;
+                                   # 108 = the item-get jingle)
+win_flash = true                   # (optional) win screen-wash: true = white, or [r, g, b].
+                                   # THE REVEAL BEAT: the wash fires FIRST (it rides the
+                                   # detect branch) and the cry, purse, and jingle land
+                                   # right at its release instead of under the white-out
 loss_battle = 35                   # (optional) battle scene when the base falls
                                    # (absent = an announce-only loss)
 

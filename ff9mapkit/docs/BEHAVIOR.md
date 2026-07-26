@@ -314,6 +314,53 @@ a win condition like `time_below = 1` holds forever. Pair it with a separate `an
 branch for the fanfare text. Field reload re-arms it (bench semantics — a shipped minigame
 gates the whole match behind a story flag instead).
 
+### `sfx` — a sound-effect cue
+
+```toml
+[[behavior.unit.branch]]
+when = [{ flag = "won" }]
+do = { sfx = 108 }                 # the item-get jingle; ids -> `ff9mapkit sfx-list`
+once = "fanfare"
+```
+
+Plays one SFX through `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the
+kit's treasure chest plays in-game (`bank = 53248` by default; the only option key).
+**Once-wrapped** it rides the event-Once lane — fire-and-release, the purse-fanfare shape:
+gate it on the same *monotonic* flag as an `award` branch and the pay fires one tick, the
+cue the next (flags don't drain — the draining-condition law's authoring fix). **Bare**, it
+behaves like a bare `announce`: it plays when the branch dispatches and cannot re-fire
+until the tree deselects and re-selects it (an alarm sting each time raiders close in, not
+a per-tick klaxon). `[siege]` exposes the win lane directly as `win_sfx = <id>`.
+
+### `flash` — a screen flash
+
+```toml
+[[behavior.unit.branch]]
+when = [{ flag = "won" }]
+do = { flash = [255, 255, 255] }   # wash to this colour, hold a beat, release
+once = "winflash"                  # + optional pause = <frames> (default 20;
+                                   #   the option is `pause` — `hold` is a verb)
+```
+
+One screen wash — stock's ADD-channel `FadeFilter` flash idiom (field 682's exact pair,
+the most common ADD pattern across all 817 field exports): `CalculateScreenPosition
+(player)` + mode-0 out to the colour over 24 frames + `Wait(25)` (stock's out+1), a held
+beat at the colour (`pause` frames), then the mode-1 release to black over 16.
+
+> **THE FADE-CHANNEL LESSON (REDOUBT round 2):** `FadeFilter`'s mode is a channel bit —
+> `mode & 2` selects the SUB filter (screen − colour), else ADD (screen + colour). SUB
+> toward *white* is therefore the stock **warp fade to BLACK** (modes 6/7 — what gateways
+> and ladders emit), and a "flash" built on it reads as a field transition. A true colour
+> wash lives on the ADD channel (modes 0/1). The engine ignores bit 0; stock uses it to
+> mark the release half of a pair.
+
+Same two stances as `sfx`: once-wrapped = event-Once fire-and-release (the win-wash
+lane); bare = fires per dispatch. The body holds the unit's dispatch level for
+~out+hold+release frames — queued one-shots (a pending purse, an announce) fire the
+moment it releases, so stack theater as separate branches on one monotonic flag: pay,
+jingle, wash on consecutive rungs. `[siege]` exposes it as `win_flash = true` (white)
+or `[r, g, b]`.
+
 Every unit's `selected` byte is a **live trace** of which branch owns it this tick — the build
 report (and `behavior compile`) prints the full blackboard map, and the in-game debug menu's
 Flags panel becomes a behavior inspector for free. `~ → Reload field` resets everything:

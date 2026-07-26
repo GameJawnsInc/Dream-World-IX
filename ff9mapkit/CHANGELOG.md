@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
+- `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
+  branch — `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the kit's
+  treasure chest plays in-game (bank 53248; ids via `ff9mapkit sfx-list`). Once-wrapped it
+  rides the event-Once lane (fire-and-release — the purse-fanfare shape, gated on the same
+  monotonic flag as an `award`); bare, it plays at dispatch and idles while selected (a
+  bare `announce`'s no-spam shape). Lint checks id/bank ranges; unknown option keys refuse.
+- `do = { flash = [r, g, b] }` (+ optional `pause` frames) washes the screen to a colour,
+  holds a beat, and releases — stock's ADD-channel `FadeFilter` (0xEC) flash idiom, field
+  682's exact `(0,24,white) → Wait(25) → (1,16,black)` pair. THE FADE-CHANNEL LESSON
+  (REDOUBT round 2): `mode & 2` = the SUB filter, and SUB toward white is the stock warp
+  fade to BLACK — a flash must ride the ADD channel or it reads as a field transition.
+  Same once/bare stances as `sfx`; queued one-shots fire when the body releases.
+- `[siege]` grew the win-theater dials `win_sfx = <id>` and `win_flash = true | [r,g,b]`,
+  choreographed on THE REVEAL BEAT (round-3 playtest: the win cry opening as the white-out
+  starts fights it): with `win_flash`, the DETECT branch carries the wash and the cries
+  move below it — the wash body holds the base's dispatch level, and the request lane
+  fires on run==0 in ladder order, so cry → purse → jingle land on consecutive ticks
+  right at the release. Without `win_flash`, the proven announce-on-detect shape is
+  byte-unchanged. Win-lane only by design: a loss cue on the base would race its
+  die-on-`lost` `TerminateEntry`, so a loss keeps its own drama (the cry / the battle).
+  Docs: BEHAVIOR.md, FORMAT.md; bench: REDOUBT (30421). All three rounds
+  cast-proven: rung A ("victory sound fired once, nothing on defeat"), the wash
+  ("white wash works now, pause feels right"), the reveal beat ("the beat landed").
+
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
   the program), Edit, and Delete; the unit bar adds branches and removes units; the cast rail

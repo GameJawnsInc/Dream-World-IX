@@ -69,7 +69,8 @@ is re-routed through the walkmesh pathfinder and the detours spliced in; clear
 legs stay exactly as authored),
 ``flee`` (threat; +to = refuge points, avoid_r, speed), ``wander`` (centre
 point; +radius, every, speed), ``swing_at`` (unit; +damage, interval),
-``die``, ``announce`` (a text line — minted into the field's .mes) /
+``die``, ``sfx`` (a sound-effect cue; +bank), ``flash`` (a [r, g, b] screen
+flash), ``announce`` (a text line — minted into the field's .mes) /
 ``announce_npc`` (reuse that NPC's own dialogue line; +window).
 
 Branch keys: ``when`` (optional), ``do`` (required), ``once = "name"`` OR
@@ -112,6 +113,8 @@ ACTION_VERBS = {
     "remove_shop_item": (),
     "add_shop_synth": (),
     "remove_shop_synth": (),
+    "sfx": ("bank",),
+    "flash": ("pause",),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -651,6 +654,14 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # [shop_id, recipe] — AddShopSynthesis 0x116; recipe = a vanilla int id or
         # a [[synthesis]] RESULT name (resolved via fb.synth_mints at compile)
         return B.ShopSynth(shop=int(v[0]), synth=v[1], add=(verb == "add_shop_synth"))
+    if verb == "sfx":
+        # sfx = <sound id> (+ bank) — RunSoundCode3 with the chest-proven params
+        return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)))
+    if verb == "flash":
+        # flash = [r, g, b] (+ pause frames) — stock's ADD-channel flash pair
+        # (the option is `pause`, not `hold` — `hold` is the feed verb)
+        return B.Flash(tuple(int(c) for c in v),
+                       pause=int(d.get("pause", B.FLASH_PAUSE_FRAMES)))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -1325,6 +1336,31 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: {verb} needs `once = \"name\"` — the "
                                         f"mutation is session state, asserted "
                                         f"exactly-once per entry by that machinery")
+                if verb == "sfx":
+                    if isinstance(v, bool) or not isinstance(v, int) \
+                            or not 0 <= v <= 0xFFFF:
+                        problems.append(f"{ctx}: sfx takes a sound id int 0..65535 "
+                                        f"(`ff9mapkit sfx-list`; 108 = the item-get "
+                                        f"jingle)")
+                    bk = do.get("bank")
+                    if bk is not None and (isinstance(bk, bool)
+                                           or not isinstance(bk, int)
+                                           or not 0 <= bk <= 0xFFFF):
+                        problems.append(f"{ctx}: sfx bank must be an int 0..65535 "
+                                        f"(default 53248 = 0xD000, the field-SFX "
+                                        f"bank)")
+                if verb == "flash":
+                    if (not isinstance(v, list) or len(v) != 3
+                            or not all(isinstance(c, int) and not isinstance(c, bool)
+                                       and 0 <= c <= 255 for c in v)):
+                        problems.append(f"{ctx}: flash takes [r, g, b] — three ints "
+                                        f"0..255 (the screen-flash colour)")
+                    hd = do.get("pause")
+                    if hd is not None and (isinstance(hd, bool)
+                                           or not isinstance(hd, int)
+                                           or not 0 <= hd <= 255):
+                        problems.append(f"{ctx}: flash pause must be an int 0..255 "
+                                        f"frames (the beat held at the colour)")
                 for c in (br.get("when") or []):
                     _cv = _one_verb(c, COND_VERBS, ctx)
                     if _cv in ("time_below", "time_above"):

@@ -180,7 +180,8 @@ def tent_rest_body() -> bytes:
     # ⚠ THE REST PRESENTATION IS NOT OPTIONAL. The heals above are byte-identical to the donor's, but a
     # tent that silently edits HP reads in-game as "it took my tent and did nothing" -- which is exactly
     # what the first shipped version did (playtest, 2026-07-19). The donor wraps the heals in a
-    # fade-to-WHITE rest bracket (field 300 @4925-5608) and that bracket IS the feedback:
+    # fade-to-BLACK rest bracket (field 300 @4925-5608; mode 6 = SUB toward white == the screen
+    # dimming to black -- see content.event.WARP_FADE) and that bracket IS the feedback:
     #   sfx 1363 ; CalculateScreenPosition(player) ; FadeFilter(6,24, 255,255,255)   -- out to white
     #   Wait(16) ; sfx 1230 (the rest chime) ; Wait(8) ; HideAllObjects
     #   <the heals>
@@ -190,7 +191,7 @@ def tent_rest_body() -> bytes:
     # same simplification content.mognet.letter_display already makes for the letter bracket.
     return (act_sfx(TENT_SFX_REST)
             + opcodes.encode(0xA9, PLAYER_UID)                       # CalculateScreenPosition(player)
-            + opcodes.encode(0xEC, 6, 24, 255, 255, 255, 255)        # fade OUT to white
+            + opcodes.encode(0xEC, 6, 24, 255, 255, 255, 255)        # fade OUT to black (SUB white)
             + opcodes.wait(16)
             + act_sfx(TENT_SFX_SLEEP)
             + opcodes.wait(8)
