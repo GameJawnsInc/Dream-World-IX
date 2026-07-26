@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the Behavior tab AUTHORS ON THE STAGE (rung C)
+- **Stage edit** (the ✥ toggle): every writable point on the stage grows a drag handle —
+  unit posts, the player spawn, patrol/march/flee route points (a point that is a NAME
+  reference moves the NAMED marker/NPC, never a silent literal copy), wander/scan centres,
+  `near_point` centres — and the selected unit's engagement rings grow a resize grip (the
+  radius dial, floored at 16u). One drop = one labeled undo step; right-click a route point
+  to insert (lands on the leg's midpoint, ready to drag) or delete (2-point floor). Guides
+  while you drag: the world compass in the layout probe's own words (+z back ▲ · −z front/
+  camera ▼ · +x east ▶), the ~192u actor-jam spacing ring around a dragged post, and a live
+  coordinate readout.
+- **Sweep routes** (the Instruments' WALKABILITY section): the `behavior lint` walkability
+  lane painted in place — every route leg swept against the field's walkmesh (an OFF-MESH
+  sub-segment draws in error with a ✕ at the exact named spot; a wall-hugging leg in warn
+  dashes) plus the chase/wander pursuit families (worst position-pairs drawn with the
+  blocked rate). The findings text is the CLI's word for word. Two truths, stated on the
+  button: the walkmesh comes from the SAVED file, the geometry from the open document; the
+  first press is the only disk read, after which every committed edit re-judges on the warm
+  mesh, debounced, on a worker.
+
 ### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
 - `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior
   branch — `RunSoundCode3` (0xC8) with the exact bank + pan/volume triple the kit's

@@ -96,10 +96,22 @@ belong painted on the field, not printed as text. That is the second surface: **
   control inside an h-scrolling row lives off-screen (row buttons pin LEFT, the unit bar sits
   OUTSIDE the scroll), and an opening editor must take height from the ladder, not crush the
   stage.
-- **Rung C — AUTHOR on the stage.** Drag a refuge, resize a radius ring, draw a route (with
-  the layout-probe's spacing/cardinal guides shown); the sweeps re-run in a worker and repaint
-  their verdicts. The engagement-radius dial becomes literally a dial you drag while its jam
-  percentage updates.
+- **Rung C — AUTHOR on the stage. ★ BUILT 2026-07-26** (same modules; snaps
+  `behavior:stage|sweep`; the fixture gained a REAL synthetic walkmesh sidecar so the sweep
+  lane runs genuinely end-to-end). Stage-edit mode: draggable handles over every writable
+  point (`stage_handles` ids — a NAME reference moves the NAMED owner, never silently
+  literalised; its list slot rides along for right-click insert/delete, floor 2 points),
+  ring-resize grips on the selected unit's rings, the layout-probe guides (world compass in
+  the probe's own words, the ~192u jam-spacing ring while dragging a post, live coords).
+  Sweeps: `sweep_geometry` is the CLI lint lane AS DATA (same refs, dedupe, routed-line-for-
+  autoroute, `describe_*` text verbatim) — verdicts paint IN PLACE (jam sub-segment + ✕,
+  wall-hug dashes, pursuit worst-pairs + rate caption on its own tier); first Sweep press =
+  the disk touch (walkmesh from the SAVED file, geometry always the OPEN doc), then edits
+  re-judge debounced on the warm mesh; a generation guard drops in-flight sweeps on field
+  switch. Deferred within C: drawing a NEW route point-by-point on an empty stage (point
+  insert/move/delete shipped; a from-scratch route still starts in the branch editor), and
+  the live-updating jam %% WHILE dragging the ring (it updates on drop via the armed
+  re-sweep).
 - **Rung D — ARCHETYPES.** Info Hub cards that stamp whole proven trees: placement defender,
   watchman + alarm, shift patrol pair, panicking civilian, siege template. This is the
   `[minigame]`/`[condor]` productization lane's GUI face — a roster of 20 units becomes a
