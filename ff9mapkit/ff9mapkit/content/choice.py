@@ -35,14 +35,25 @@ from . import event as _event, region as _region
 CHOICE_FLAG_BASE = 8200
 
 
-def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
+def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
-    another field. Order: reply -> give_item -> remove_item -> gil -> set_flag -> set_scenario -> warp.
-    ``warp`` is last because a Field op transitions away (anything after it is unreachable) -- this is the
-    World-Hub journey-pick primitive: a menu row that seeds the beat then warps into the chosen field."""
+    another field. Order: input -> reply -> give_item -> remove_item -> gil -> set_flag -> set_scenario
+    -> warp. ``input`` (a ``[[numeric_input]]`` name -> its seated entry slot via ``input_slots``) runs
+    FIRST -- the modal stepper blocks until Confirm/Cancel, and a submit loads gMesValue slot 0, so a
+    ``reply`` can echo the number with ``[NUMB=0]``. ``warp`` is last because a Field op transitions away
+    (anything after it is unreachable) -- this is the World-Hub journey-pick primitive: a menu row that
+    seeds the beat then warps into the chosen field. NOTE: a choice with any ``input`` row must dispatch
+    via :func:`switch_body` (the stepper opens windows -- the nested-window sysvar-9 law)."""
     parts = []
+    if "input" in opt:
+        from . import numinput as _numinput
+        slot = (input_slots or {}).get(str(opt["input"]))
+        if slot is None:
+            raise ValueError(f"choice option input {opt['input']!r} has no seated "
+                             f"[[numeric_input]] entry (validate should have caught this)")
+        parts.append(_numinput.call_bytes(slot))
     if reply_txid is not None:
         parts.append(_event.message(reply_txid))
     if "give_item" in opt:

@@ -1428,6 +1428,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `options[].give_item` / `remove_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item`/`remove_item = ["Potion", 1]` (id or name; a trade row gives one item and takes another), `gil` negative charges, `set_flag` raises a story flag. |
 | `options[].warp` | *(optional)* a **field id** (a positive int) this row **warps to** — the World-Hub journey destination the choice launches. |
 | `options[].set_scenario` | *(optional)* a ScenarioCounter value (`0`–`32767`) set alongside the `warp` (seed the destination's story beat as you enter it). |
+| `options[].input` | *(optional)* a `[[numeric_input]]` **name** — picking this row opens that number stepper (modal; blocks until Confirm/Cancel). It runs FIRST, so the row's `reply` can echo the entered number with `[NUMB=0]`. |
 
 **Pre-choose config (default / cancel / disable).** `default` sets the initially-highlighted row,
 `cancel` sets which row B/Cancel picks, and `options[].disabled = true` **removes** a row from the menu
@@ -1481,6 +1482,45 @@ The door it opens would then use `[[gateway]] requires_flag = 8001`. Once spent,
 disappears** — the consuming option removes the region (no leftover interaction prompt), and the Init
 won't re-create it on later visits while the flag is set. (Want an "it won't budge" message instead?
 Add a second interactable on the same spot gated `requires_flag = 8001`.)
+
+---
+
+## `[[numeric_input]]` (optional)
+
+The game's own **number-entry widget** — the Treno auction's 3-digit bid stepper (nine shipping
+fields carry it byte-for-byte), re-emitted with the digit count, step ceiling, and texts as
+parameters. The player picks a digit with Left/Right (the selected digit renders **pink**, FF9's own
+highlight), steps it with Up/Down (held keys auto-repeat, stock's ramp), and Confirm submits /
+Cancel aborts. Movement is locked the whole time (the stepper only opens from a `[[choice]]` row).
+
+```toml
+[[numeric_input]]
+name = "bid"                    # what a [[choice]] option's `input = "bid"` opens
+result = 2000                   # gEventGlobal BYTE offset: Global.Int16[2000] <- the value on submit
+digits = 3                      # 1..4 digit places
+multiplier = 100                # 1/10/100/1000 — display-only trailing zeros (a x100 bid, stock's shape)
+max = 999                       # (optional) ceiling in STEPPED units (default all-nines)
+start = 1                       # (optional) initial stepped value (shows 100 with multiplier 100)
+gil_ceiling = true              # (optional) ALSO clamp to the party's current gil (live, stock's clamp)
+label = "Bid"                   # (optional) heading on the button-legend window
+suffix = " Gil"                 # (optional) literal text after the digits
+echo = "You bid [NUMB=0] Gil."  # (optional) ack line on submit ([NUMB=0] = the full value)
+flag = 8712                     # (optional) story-flag BIT raised on submit
+```
+
+| key | meaning |
+|---|---|
+| `name` | unique — the `[[choice]]` option `input =` target. |
+| `result` | **the contract**: a `Global.Int16` gEventGlobal byte offset receiving the **stepped** value on submit (the multiplier is display-only — a `999` bid with `multiplier = 100` stores `999`). Untouched on cancel. |
+| `digits` / `multiplier` / `max` / `start` | the number's shape — `max`/`start` are stepped units; `multiplier` renders literal trailing zeros exactly like stock's ×100 bid. |
+| `gil_ceiling` | `true` = the up-step also clamps against current gil ÷ multiplier, live (the stock bid guard). |
+| `label` / `suffix` / `echo` | texts — all minted on the field's own text block. `echo` (shown on submit only) and any option `reply` can render the value with `[NUMB=0]`. |
+| `flag` | *(optional)* a story-flag bit raised on submit — gate follow-up content on it. |
+| `window` / `pos` / `help` / `help_pos` | *(advanced)* window id + screen placement on the 320×224 dialog grid (defaults are stock's: the digits at (33,80), the legend below). The stepper uses windows `window-digits..window` + the legend on window 1 + the ack on window 0. |
+
+**Slots note:** the digits drive gMesValue slots `8-digits..7` and the submit loads slot 0 — a field
+can't carry both a stepper and a `[[behavior.hud]]` strip yet (they share the engine's one 8-slot
+bank; validate refuses the combination). Synthesized fields only for now (not verbatim forks).
 
 ---
 

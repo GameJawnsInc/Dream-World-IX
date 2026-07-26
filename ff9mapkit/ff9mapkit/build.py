@@ -38,6 +38,7 @@ from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
+from .content import numinput as _numinput
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -2187,6 +2188,31 @@ def validate(project: FieldProject) -> list[str]:
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
+    # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): validate each block and
+    # collect the names the option-level `input =` key may reference.
+    ni_names = set()
+    ni_blocks = project.raw.get("numeric_input", []) or []
+    for ii, blk in enumerate(ni_blocks):
+        try:
+            sp = _numinput.from_raw(blk, ii)
+        except _numinput.NumericInputError as e:
+            problems.append(str(e))
+            continue
+        if sp.name in ni_names:
+            problems.append(f"[[numeric_input]] duplicate name {sp.name!r}")
+        ni_names.add(sp.name)
+        # gMesValue is ONE 8-slot bank: the stepper's digits live in slots 8-digits..7 and the submit
+        # echo loads slot 0, while a [[behavior.hud]] row drives slots 0..len(values)-1 -- any live
+        # strip would fight the stepper for slot 0 (and big strips for the digit slots too).
+        for hi, hrow in _behaviortoml.hud_lines(project.raw):
+            if len(hrow.get("values", []) or []) >= 1:
+                problems.append(f"[[numeric_input]] {sp.name!r} and [[behavior.hud]] #{hi} share the "
+                                f"8-slot gMesValue bank (the stepper owns slots {8 - sp.digits}..7 + "
+                                f"the echo slot 0) -- a field can't carry both yet")
+                break
+    if ni_blocks and "verbatim_eb" in project.raw:
+        problems.append("[[numeric_input]] is not supported on a verbatim fork yet -- its entry "
+                        "seating is synthesize-path only")
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for c, ch in enumerate(project.raw.get("choice", [])):
@@ -2232,6 +2258,9 @@ def validate(project: FieldProject) -> list[str]:
                 if "set_scenario" in o and not (isinstance(o["set_scenario"], int) and 0 <= o["set_scenario"] <= 32767):
                     problems.append(f"[[choice]] #{c} option {oi} set_scenario {o['set_scenario']!r} must be "
                                     f"a ScenarioCounter value 0..32767")
+                if "input" in o and (not isinstance(o["input"], str) or o["input"] not in ni_names):
+                    problems.append(f"[[choice]] #{c} option {oi} input {o.get('input')!r} is not a "
+                                    f"defined [[numeric_input]] name")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -4870,7 +4899,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
                  gateway_txids: dict | None = None, coop_txids: dict | None = None,
                  savepoint_txids: dict | None = None, behavior_txids: dict | None = None,
-                 warnings: list | None = None) -> bytes:
+                 numinput_txids: dict | None = None, warnings: list | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field. ``warnings``
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
     requested ``entry_settle`` that could not be inserted."""
@@ -4884,6 +4913,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     chest_txids = chest_txids or {}
     coop_txids = coop_txids or {}
     savepoint_txids = savepoint_txids or {}
+    numinput_txids = numinput_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -4903,6 +4933,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # would apply by real fldMapNo but skips on a custom id (e.g. Gulug's broken-wall block). Prepended to
     # Main_Init; absent -> byte-identical.
     eb = _apply_walkmesh_hotfix(project, eb)
+    # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): each block seats its own
+    # parked code entry FIRST -- appends only, so the slot is fixed before any NPC/region injection --
+    # and a [[choice]] option's `input = "<name>"` dispatches it by that slot. Absent -> byte-identical.
+    input_slots: dict = {}
+    if project.raw.get("numeric_input"):
+        from .eb import edit as _ni_edit
+        for _ii, _blk in enumerate(project.raw.get("numeric_input", []) or []):
+            _sp = _numinput.from_raw(_blk, _ii)           # validate() already vetted; raises on a raw build
+            _tx = {p: t for (bi, p), t in numinput_txids.items() if bi == _ii}
+            eb, _slot = _object.seat_entry(eb, _numinput.entry_bytes(_sp, _tx))
+            eb = _ni_edit.activate_block(eb, opcodes.init_code(_slot, 0))
+            input_slots[_sp.name] = _slot
     # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
     # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
     _enc_raw = project.raw.get("encounter")
@@ -4972,10 +5014,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             c, ch = choice_by_npc[n["name"]]
             ct = choice_txids.get(c, {})
             replies = ct.get("replies", {})
-            opt_bodies = [_choice.option_body(o, replies.get(oi))
+            opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
-            sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+            if any("input" in o for o in ch.get("options", [])):
+                # an `input` row opens the stepper's windows -> switch dispatch (sysvar-9 law)
+                sb = _choice.switch_body(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
+            else:
+                sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
         elif n.get("opens_shop") is not None:
             # a shopkeeper: talk -> (optional greeting window ->) open the shop (Menu(2, id)). The greeting
             # is this NPC's own `dialogue` line (txid assigned above); no dialogue -> straight to the shop.
@@ -5149,9 +5195,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             continue
         ct = choice_txids.get(c, {})
         replies = ct.get("replies", {})
-        opt_bodies = [_choice.option_body(o, replies.get(oi))
+        opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots)
                       for oi, o in enumerate(ch.get("options", []))]
         setup, _ = _choice.pre_choose(ch)
+        # an `input` row opens the stepper's own windows -> the nested-window sysvar-9 law:
+        # dispatch that menu via the ONE-READ switch, not the re-reading per-row branch.
+        _rbody = (_choice.switch_body if any("input" in o for o in ch.get("options", []))
+                  else _choice.region_body)
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
         if (ch.get("trigger") or "action") == "action":
@@ -5163,13 +5213,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # lever shows no prompt on later visits either.
             one_shot = gf is not None and not gs
             if one_shot:
-                body = (_choice.region_body(ct["prompt"], opt_bodies, setup=setup)
+                body = (_rbody(ct["prompt"], opt_bodies, setup=setup)
                         + _region.if_block(_region.cond_truthy(_region.GLOB_BOOL, gf),
                                            opcodes.terminate_entry(255)) + opcodes.RETURN)
                 body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = _region.gated_set_region(zone, _region.GLOB_BOOL, gf)
             else:
-                body = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+                body = _rbody(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
                 if gf is not None:
                     body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = None
@@ -5185,7 +5235,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             fidx = int(ch["flag"]) if "flag" in ch else _auto.choice(choice_flag_counter)
             if "flag" not in ch:
                 choice_flag_counter += 1
-            rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies, setup=setup), fidx,
+            rb = _event.event_range_body(_rbody(ct["prompt"], opt_bodies, setup=setup), fidx,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
@@ -6419,8 +6469,8 @@ def _wrap_width(project: FieldProject):
 
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-    chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids). All field text (NPC dialogue,
-    event messages, cutscene 'say'
+    chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids, numinput_txids). All field
+    text (NPC dialogue, event messages, cutscene 'say'
     lines, choice prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE
     gateway titles, [[coop]] gate fire messages) shares one .mes block, in that order
     (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
@@ -6763,8 +6813,22 @@ def collect_text(project: FieldProject):
     # prepended when absent so a live strip never types in
     for _hi, _h in _behaviortoml.hud_lines(project.raw):
         bh_pos[("hud", _hi)] = _add(_h, _behaviortoml.hud_mes_text(_h))
+    # [[numeric_input]] windows (the Treno-stepper substrate): each block mints its value
+    # window, per-digit pink cursor overlays, optional button legend + submit echo -- all
+    # RAW lines (pinned windows, no speaker/tail; the value/cursor [MPOS] pairs must land
+    # byte-exact for the overlay alignment). Keyed (block index, part name).
+    ni_pos = {}
+    for _ii, _blk in enumerate(project.raw.get("numeric_input", []) or []):
+        try:
+            _sp = _numinput.from_raw(_blk, _ii)
+        except _numinput.NumericInputError:
+            continue                                     # validate() reports it; keep minting sane
+        for _part, _txt, _strt in _numinput.mes_texts(_sp):
+            # tail "" = explicitly NO [TAIL] tag -- every stepper window is pinned ([MPOS])
+            # or a system ack; stock's own entries (909's 203-208) carry no tail at all
+            ni_pos[(_ii, _part)] = _add_raw(_txt, "", strt=_strt)
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     # a network moogle's field also ships text entry 0 = the ROSTER (install names + the new identity),
     # at its donor-fixed LOW txid -- legal only in this field's own minted block (validate enforces it)
@@ -6804,8 +6868,9 @@ def collect_text(project: FieldProject):
     for k, p in act_pos.items():                          # the act's save-line txid
         savepoint_txids.setdefault(k, {})["act"] = mapping[p]
     behavior_txids = {k: mapping[p] for k, p in bh_pos.items()}   # (unit, branch) -> announce txid
+    numinput_txids = {k: mapping[p] for k, p in ni_pos.items()}   # (block, part) -> stepper txid
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-            chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids)
+            chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids, numinput_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -7073,7 +7138,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids, numinput_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -7293,7 +7358,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
                               ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
                               coop_txids=coop_txids, savepoint_txids=savepoint_txids,
-                              behavior_txids=behavior_txids, warnings=warnings)
+                              behavior_txids=behavior_txids, numinput_txids=numinput_txids,
+                              warnings=warnings)
             base = mes_body or ""
             inplace = base
             suffix = ""

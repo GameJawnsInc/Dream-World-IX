@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[numeric_input]]`: the Treno bid stepper as kit vocabulary
+- The game's one number-entry idiom — the Treno auction's 3-digit ×100 stepper, carried
+  byte-for-byte by nine shipping fields (852/909/1600/1607/1909/2800/2950/2951/2952) —
+  re-emitted with digits (1–4), multiplier, ceiling, `gil_ceiling` (the live GetGil
+  clamp), start value, and texts as parameters (`content/numinput.py`, grounded on field
+  909's `Code10_31` + `.mes` 203–206; the kit's default-position cursor overlays
+  reproduce stock's entries BYTE-FOR-BYTE, pinned by test). Opens from a `[[choice]]`
+  option's `input = "<name>"` (modal, movement locked by the choice bracket; such menus
+  auto-dispatch via the one-read switch — the nested-window sysvar-9 law). On submit the
+  stepped value lands in `Global.Int16[result]`, gMesValue slot 0 loads the full value
+  for `[NUMB=0]` echoes/replies, and an optional `flag` bit raises; cancel touches
+  nothing. Layout is font-metric-free by construction: the digit run lives in its own
+  frameless window and each pink cursor overlay ([B880E0][HSHD], FFIXTextTagCode.Pink)
+  re-renders the same [NUMB] at `x + 7·i` — stock's own overlay mechanism, decoded.
+  Synthesized fields only for now; a field can't carry both a stepper and a
+  `[[behavior.hud]]` strip (one shared 8-slot gMesValue bank; validate refuses).
+
 ### Fixed — `world-forest`: the zip annulus' fallback cells wear the mint's own texture policy
 - The carve's fully-dropped ring cells — on a real island MOST of the ring (36 of 41
   cells on the island-E bench) — resolved through an uncoupled per-cell uniform pick,
