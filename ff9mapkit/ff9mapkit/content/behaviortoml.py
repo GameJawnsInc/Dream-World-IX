@@ -115,8 +115,9 @@ ACTION_VERBS = {
     "remove_shop_synth": (),
     "sfx": ("bank", "sustain"),
     "flash": ("pause",),
-    "announce": ("window",),
-    "announce_npc": ("window",),
+    "stop_timer": (),
+    "announce": ("window", "delay", "sustain"),
+    "announce_npc": ("window", "delay", "sustain"),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
@@ -658,6 +659,9 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # sfx = <sound id> (+ bank, sustain) — RunSoundCode3, chest-proven params
         return B.Sfx(int(v), bank=int(d.get("bank", B.SFX_BANK)),
                      sustain=int(d.get("sustain", 0)))
+    if verb == "stop_timer":
+        # stop_timer = true — RunTimer(0); freezes the countdown at its reading
+        return B.StopTimer()
     if verb == "flash":
         # flash = [r, g, b] (+ pause frames) — stock's ADD-channel flash pair
         # (the option is `pause`, not `hold` — `hold` is the feed verb)
@@ -667,11 +671,15 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
                                     f"(collect_text must register it)")
-        return B.Announce(int(txid), window=int(d.get("window", 0)))
+        return B.Announce(int(txid), window=int(d.get("window", 0)),
+                          delay=int(d.get("delay", 0)),
+                          sustain=int(d.get("sustain", 0)))
     # announce_npc
     if npc_txid is None:
         raise BehaviorTomlError(f"{ctx}: announce_npc = {v!r} — that NPC has no dialogue line")
-    return B.Announce(int(npc_txid), window=int(d.get("window", 0)))
+    return B.Announce(int(npc_txid), window=int(d.get("window", 0)),
+                      delay=int(d.get("delay", 0)),
+                      sustain=int(d.get("sustain", 0)))
 
 
 def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
@@ -1357,6 +1365,14 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: sfx sustain must be an int 0..255 "
                                         f"frames (holds the dispatch level while "
                                         f"the cue rings)")
+                if verb == "stop_timer":
+                    if v is not True:
+                        problems.append(f"{ctx}: stop_timer takes `true` (it pauses "
+                                        f"the field countdown — no argument)")
+                    elif b.get("timer") is None:
+                        problems.append(f"{ctx}: stop_timer needs field-level "
+                                        f"`timer = <seconds>` (there is no "
+                                        f"countdown to stop)")
                 if verb == "flash":
                     if (not isinstance(v, list) or len(v) != 3
                             or not all(isinstance(c, int) and not isinstance(c, bool)
@@ -1395,6 +1411,15 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     if npc is None or "dialogue" not in npc:
                         problems.append(f"{ctx}: announce_npc {v!r} — no such [[npc]] with "
                                         f"a `dialogue` line")
+                if verb in ("announce", "announce_npc"):
+                    for opt in ("delay", "sustain"):
+                        ov = do.get(opt)
+                        if ov is not None and (isinstance(ov, bool)
+                                               or not isinstance(ov, int)
+                                               or not 0 <= ov <= 255):
+                            problems.append(f"{ctx}: announce {opt} must be an int "
+                                            f"0..255 frames (holds the dispatch "
+                                            f"level around the window open)")
                 for c in (br.get("when") or []):
                     cv = _one_verb(c, COND_VERBS, ctx)
                     val = c[cv]

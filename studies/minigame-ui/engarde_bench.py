@@ -110,7 +110,7 @@ def gen() -> None:
     parts.append(f'''
 [[qte]]
 name = "duel"
-result = 2006
+result = 1998
 rounds = 10
 window = 50
 gil = true

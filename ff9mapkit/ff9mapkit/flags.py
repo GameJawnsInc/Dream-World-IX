@@ -59,6 +59,11 @@ NAMEPLATE_EXPLORED_FLOOR = 16048               # bytes 2006-2017: the EXTENDED-N
                                                # (world/entrance.py EXTENDED_EXPLORED_RANGES -- 6 UInt16
                                                # words, one save-persistent "visited" bit per virgin
                                                # nameplate case 65-155; flush below the QTE scratch)
+RESULT_WORD_CAP = NAMEPLATE_EXPLORED_FLOOR // 8 - 2   # 2004: the last gEventGlobal byte where a modal
+                                               # result Int16 (bytes N..N+1) still clears every kit
+                                               # floor above it -- the [[qte]]/[[numeric_input]]
+                                               # `result` caps derive from this, so a floor move
+                                               # can never strand them again (the 172c8b98 lesson)
 QTE_SCRATCH_FLOOR = 16144                      # bytes 2018-2031: the [[qte]] modal scratch (content/qte.py)
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch

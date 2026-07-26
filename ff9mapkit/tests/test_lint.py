@@ -278,7 +278,7 @@ def _qte_proj(**qte):
 def test_flag_bands_walks_qte_finale_flag():
     """A [[qte]] finale `flag` in a reserved region is flagged like any other literal write (the
     bench's original 8300 sat on a live Mognet letter-slot byte)."""
-    w = lint_flag_bands(_qte_proj(result=2006, flag=8300))
+    w = lint_flag_bands(_qte_proj(result=2000, flag=8300))
     assert len(w) == 1
     assert "[[qte]]" in w[0] and "mognet_mailbox" in w[0] and "8300" in w[0]
 
@@ -291,9 +291,19 @@ def test_flag_bands_walks_qte_result_word():
     assert "[[qte]]" in w[0] and "mognet_give_locks" in w[0]
 
 
+def test_flag_bands_walks_qte_result_into_nameplate_words():
+    """THE MASTER-RED REGRESSION (172c8b98): bytes 2006-2017 became the LIVE nameplate explored
+    words (overworld visited state, written by the deployed dispatchers), so a result word there
+    is a genuine save clobber -- the walk must name the region. Result 2006 was this suite's own
+    pinned example until the band landed."""
+    w = lint_flag_bands(_qte_proj(result=2006))
+    assert len(w) == 1
+    assert "[[qte]]" in w[0] and "nameplate_explored_words" in w[0]
+
+
 def test_flag_bands_qte_clean_and_malformed(tmp_path):
     """A safe-band flag + clear result draws no warning; a malformed block never crashes the lint."""
-    assert lint_flag_bands(_qte_proj(result=2006, flag=8712)) == []
+    assert lint_flag_bands(_qte_proj(result=2000, flag=8712)) == []
     assert lint_flag_bands(_qte_proj(result=None)) == []
     p = FieldProject.__new__(FieldProject)
     p.raw = {"field": {"id": 4003}, "qte": ["not-a-dict"]}

@@ -176,6 +176,39 @@ def test_win_flash_reveal_beat():
         _spec(win_flash="white")
 
 
+def test_clock_stops_before_the_ending_theater():
+    """THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest): B_SYSVAR[17] IS
+    TimerUI.Time and real battle AI reads it — the donor's own Hunt scenes
+    (35 / LB_E080x) run `B_SYSVAR[17] B_NOT -> RunBattleCode` end, so they
+    terminate themselves when the countdown reads 0. The ending's theater takes
+    seconds, so the clock MUST freeze before any of it runs."""
+    b = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), "loss_sfx": 1942,
+                                   "text_loss": ["l1", "l2"]}))
+    br = b["unit"][0]["branch"]
+    stops = [x for x in br
+             if isinstance(x["do"], dict) and x["do"].get("stop_timer")]
+    assert len(stops) == 2                                  # the loss + the rout
+    loss_stop = next(x for x in stops if x["when"] == [{"hp_le": 0}])
+    assert loss_stop["once"] == "clockstop"
+    # it outranks EVERY loss cue — sting, staged text, and the battle
+    i_stop = br.index(loss_stop)
+    for once in ("losssting", "losstext0", "losstext1"):
+        assert i_stop < next(i for i, x in enumerate(br) if x.get("once") == once)
+    assert i_stop < next(i for i, x in enumerate(br) if "battle" in x["do"])
+    # the rout freezes too (it wins EARLY — the clock is still running); the
+    # timer win is at 0:00 by definition and needs no stop
+    rout_stop = next(x for x in stops if x["when"] == [{"flag": "routed"}])
+    assert rout_stop["once"] == "routclock"
+    # stop_timer without a field timer is refused by lint
+    bad = {"player": {"spawn": [0, -900]},
+           "npc": [{"name": "c", "pos": [0, -300], "dialogue": "..."}],
+           "behavior": {"unit": [{"npc": "c", "branch": [
+               {"when": [{"hp_le": 0}], "do": {"stop_timer": True},
+                "once": "s"},
+               {"do": {"hold": [0, -300]}}]}]}}
+    assert any("needs field-level" in p for p in BT.validate(bad))
+
+
 def test_loss_sfx_pre_detect_sting():
     """`loss_sfx` seats an event-Once sting BETWEEN die-on-`lost` and the loss
     detect — the branch holds selection until it delivers (the reveal-beat
@@ -202,6 +235,52 @@ def test_loss_sfx_pre_detect_sting():
                    for x in S.behavior_raw(_spec())["unit"][0]["branch"])
     with pytest.raises(S.SiegeError, match="loss_sfx"):
         _spec(loss_sfx="thud")
+
+
+def test_staged_ending_text():
+    """Ending texts as LISTS page on held dispatch levels: loss lines page
+    PRE-detect (the sting idiom scaled to text — last line sustained before a
+    battle); win/rout aftermath lines page AFTER the proven cry/purse/jingle
+    beat, gated per-ending (the flashless rout detect grows `routed` so the
+    win stages can tell the endings apart). Plain strings keep today's bytes."""
+    over = {"text_win": ["WE HELD!", "The city pays.", "The Colonel smiles."],
+            "text_rout": ["BROKEN!", "None left standing."],
+            "text_loss": ["The depot burns.", "Fall back!"]}
+    b = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), **over}))
+    br = b["unit"][0]["branch"]
+    # loss (battle path): both lines pre-detect, the last sustained, then battle
+    lt = [x for x in br if str(x.get("once", "")).startswith("losstext")]
+    assert [x["do"]["announce"] for x in lt] == ["The depot burns.", "Fall back!"]
+    assert "delay" not in lt[0]["do"] and lt[1]["do"]["delay"] == 120
+    assert lt[1]["do"]["sustain"] == 120
+    i_battle = next(i for i, x in enumerate(br) if "battle" in x["do"])
+    assert br.index(lt[1]) < i_battle
+    # flashless staging: the rout detect raises `routed`
+    rout_det = next(x for x in br if x.get("once") == "routcry")
+    assert rout_det["raise_flags"] == ["won", "routed"]
+    # aftermath stages sit BELOW pay (below fanfare too when present) and
+    # gate per ending
+    wt = [x for x in br if str(x.get("once", "")).startswith("wintext")]
+    assert [x["do"]["announce"] for x in wt] == ["The city pays.",
+                                                 "The Colonel smiles."]
+    assert all(x["do"]["delay"] == 120 for x in wt)
+    assert all(x["when"] == [{"flag": "won"}, {"not_flag": "routed"}] for x in wt)
+    rt = [x for x in br if str(x.get("once", "")).startswith("routtext")]
+    assert [x["do"]["announce"] for x in rt] == ["None left standing."]
+    assert rt[0]["when"] == [{"flag": "routed"}]
+    i_pay = next(i for i, x in enumerate(br) if "award" in x["do"])
+    assert i_pay < br.index(rt[0]) < br.index(wt[0])
+    # announce-path loss (no battle): the FINAL line is the losscry, delayed
+    b2 = S.behavior_raw(S.from_raw({**copy.deepcopy(RAW), "loss_battle": None,
+                                    "text_loss": ["l1", "l2"]}))
+    cry = next(x for x in b2["unit"][0]["branch"] if x.get("once") == "losscry")
+    assert cry["do"] == {"announce": "l2", "delay": 120}
+    assert cry["raise_flags"] == ["lost"]
+    # refusals
+    with pytest.raises(S.SiegeError, match="text_pace"):
+        _spec(text_pace=5)
+    with pytest.raises(S.SiegeError, match="text_win"):
+        _spec(text_win=[])
 
 
 def test_npc_blocks_park_the_pools():
@@ -239,6 +318,7 @@ def _siege_toml() -> str:
     out.write("\n[siege]\ntimer = 60\nwaves = [55, 40, 20]\nstipend = 3000\n"
               'win_gil = 2000\nwin_item = "Phoenix Down"\nwin_sfx = 108\n'
               "win_flash = true\nloss_sfx = 1942\nloss_battle = 35\n"
+              'text_win = ["WE HELD THE DEPOT!", "The city pays in full."]\n'
               '\n[siege.base]\nmodel = "GEO_NPC_F4_CSO"\npos = [0, 400]\nhp = 24\n')
     for a in RAW["ally"]:
         out.write("\n[[siege.ally]]\n")
@@ -282,6 +362,10 @@ def test_full_build_compiles(tmp_path):
              if ins.name == "RunSoundCode3"]
     assert plays == [(53248, 1942), (53248, 108)]     # the sting body seats first
                                                       # (ladder order); then the fanfare
+    # the clock freeze compiled through: RunTimer(0) bodies (loss + rout)
+    stops = [ins.imm(0) for _tag, body in cb.action_funcs["base"]
+             for ins in D.iter_code(body, 0, len(body)) if ins.op == 0x7D]
+    assert stops == [0, 0]
     # ... and the flash (win_flash = true): white ADD-channel pairs (the stock
     # white-out, NOT the mode-6/7 warp fade) — one body per detect branch
     fades = [(ins.imm(0), ins.imm(3), ins.imm(4), ins.imm(5))
