@@ -1059,3 +1059,29 @@ def test_shop_stock_validation():
     assert any("takes [shop_id, item]" in p for p in
                mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
                    add_shop_item=40)))
+
+
+def test_have_item_snapshot_precedes_pool_consumption():
+    """THE ARMOURY ROUND-2 REGRESSION (owner-diagnosed): pool activation runs before
+    the tree blocks, so a LIVE have_item read raced the pool's RemoveItem — buying
+    exactly N contracts never satisfied `have_item >= N`. The cond must read a
+    top-of-tick SNAPSHOT written BEFORE any pool consumes."""
+    fb = _item_fb()
+    cb = fb.compile()
+    body = cb.ticker_body
+    from ff9mapkit import items as IT
+    iid = IT.resolve("Potion")
+    m = fb._item_mirrors[iid]
+    snap_off = pool_off = cond_off = None
+    for ins in D.iter_code(body, 0, len(body)):
+        if ins.op != 0x05:
+            if ins.name == "RemoveItem" and pool_off is None:
+                pool_off = ins.off
+            continue
+        t = D.pretty_expr(body, ins.off + 1)[0]
+        if "B_HAVE_ITEM" in t and f"Byte[{m}]" in t and snap_off is None:
+            snap_off = ins.off                            # the snapshot write
+        if f"Byte[{m}]" in t and "B_GE" in t and cond_off is None:
+            cond_off = ins.off                            # the cond's mirror read
+    assert snap_off is not None and pool_off is not None and cond_off is not None
+    assert snap_off < pool_off < cond_off                 # snapshot -> consume -> judge

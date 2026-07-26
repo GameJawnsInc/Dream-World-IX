@@ -242,12 +242,14 @@ the TextPatch rename all load at launch — then ~ -> Warp -> {FIELD_ID}):
   2 THE MUSTER: within a second of the shop closing, two soldiers pop at
     your feet, one tick apart, and WRITS drains 2 -> 1 -> 0. They hold where
     they mustered ("At your command!" on talk).
-  3 THE CRIER + THE UNLOCK (round 2 — AddShopItem 0x115, its FIRST run
-    anywhere): buy THREE in one visit -> on exit the crier calls "Three writs
-    and counting" ONCE, and the SAME moment unlocks new stock — reopen the
-    Sutler's shop: it now ALSO sells Elixir (it didn't at boot; two separate
-    once-branches on one condition = the event-Once no-starvation proof).
-    The unlock is SESSION state: it survives ~ Reload but resets at relaunch,
+  3 THE CRIER + THE UNLOCK (round 3 — the snapshot fix): buy THREE in one
+    visit (exactly 3 works now — round 2's four-writ skew was the pool eating
+    one before the cond counted; have_item reads a top-of-tick snapshot) ->
+    on exit the crier calls "Three writs and counting" ONCE and the SAME
+    moment unlocks new stock — reopen the Sutler's shop: it now ALSO sells
+    Elixir. Spawning in with 3 already held fires both too.
+    The unlock is SESSION state: it survives ~ Reload AND New Game (the shop
+    table is process memory, above the save layer) and resets at relaunch,
     where the condition simply re-asserts it when writs reach 3 again.
   4 THE CAP: keep buying — the levy stops at {LEVY} soldiers, and the extra
     contract STAYS in the bag (WRITS holds at 1+; an exhausted pool never

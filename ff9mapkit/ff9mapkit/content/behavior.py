@@ -819,6 +819,7 @@ class FieldBehavior:
         self._member: dict[str, tuple[str, int]] = {}    # unit -> (group, index)
         self._engages: dict[str, Engage] = {}            # unit -> its one Engage
         self._huds: list[HudSpec] = []                   # live counter strips
+        self._item_mirrors: dict[int, int] = {}          # item id -> snapshot byte (have_item)
         taken: set[int] = set()
         for ts in tables:
             if ts.id is not None:
@@ -962,17 +963,22 @@ class FieldBehavior:
         return Cond(f"B_SYSVAR[17] const({int(seconds)}) B_GT", _trusted=True)
 
     def have_item(self, item_id: int, n: int = 1) -> Cond:
-        """True while the party holds >= ``n`` of item ``item_id`` — ``B_HAVE_ITEM``
-        (0x64, GetItemCount), the engine's LIVE inventory read. Items are save
-        state and the native ``Menu(2, id)`` shop writes them, so this cond is the
-        inventory half of the shop-as-hire-menu bridge: the shop pauses the ticker
-        while open, and the first pass after it closes sees the purchase."""
+        """True while the party holds >= ``n`` of item ``item_id`` — via a
+        TOP-OF-TICK SNAPSHOT of ``B_HAVE_ITEM`` (0x64, GetItemCount), NOT the live
+        read. THE ARMOURY ROUND-2 LESSON (owner-diagnosed): pool activation runs
+        BEFORE the tree blocks (a fresh spawn must tick the same pass), so an item
+        pool consuming the same item ate one contract before a live cond could
+        count it — ``have_item >= 3`` needed FOUR held. The snapshot (written with
+        the mirrors, before any pool consumes) is the system's perception law
+        applied to inventory: every cond in a pass judges the count as the player
+        left it. The POOL's own gate stays live — it is the consumer."""
         if not 0 <= int(item_id) <= 254:                  # 255 = NoItem
             raise BehaviorError("have_item: item id must be 0..254")
         if not 1 <= int(n) <= 99:
             raise BehaviorError("have_item: count must be 1..99 (the inventory cap)")
-        return Cond(f"const({int(item_id)}) B_HAVE_ITEM const({int(n)}) B_GE",
-                    _trusted=True)
+        m = self.bb.byte(f"item.{int(item_id)}.held")     # one mirror per distinct item
+        self._item_mirrors[int(item_id)] = m
+        return Cond(f"Global.Byte[{m}] const({int(n)}) B_GE", _trusted=True)
 
     # ---------------- data tables + counters (the 0xD3 VECTOR lane)
     def _counter_ref(self, name: str) -> str:
@@ -1795,6 +1801,15 @@ class FieldBehavior:
                              (JMP_IF, f"scn_{sc.name}_top"),
                              _stmt(f"{self._counter_ref(sc.count)} "
                                    f"Global.Byte[{sc.acc}] B_LET")])
+        # ITEM SNAPSHOTS first — every have_item cond reads its item's count as it
+        # stood BEFORE any pool consumed this pass (the perception law for
+        # inventory; the ARMOURY round-2 skew: activation ran first and ate one
+        # contract, so a live `have_item >= 3` needed FOUR held)
+        if self._item_mirrors:
+            cd_blocks.append(label("__seg item mirrors"))
+            for iid, m in sorted(self._item_mirrors.items()):
+                cd_blocks.append(_stmt(f"Global.Byte[{m}] const({iid}) "
+                                       f"B_HAVE_ITEM B_LET"))
         # pool activation blocks — the runtime-activation lane (fort-condor rung-3's
         # in-game-proven spawn-at-feet shape, now a compiler invariant): a set request
         # flag spawns the FIRST never-spawned unit of that pool AT THE PLAYER'S
