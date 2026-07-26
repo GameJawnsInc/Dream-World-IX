@@ -59,6 +59,8 @@ SOLDIER_MODEL = "GEO_NPC_F0_CSO"
 CONTRACT = "Annoyntment"          # stock id 248, re-texted "Soldier Contract"
 CONTRACT_PRICE = 300
 SHOP_ID = 40
+SYNTH_SHOP = 50                   # the smith — SYNTHESIS iff absent from ShopItems
+PARKED_SHOP = 51                  # the hidden recipe's declared home (no opener)
 LEVY = 4                          # the pool cap — a 5th contract must stay held
 
 
@@ -102,11 +104,14 @@ def posts() -> dict:
         return min(pts, key=lambda p: (p[0] - x) ** 2 + (p[1] - z) ** 2)
 
     lay = {"sutler": nearest(spawn[0] + 500, spawn[1] + 550),    # NE, toward the fountain
-           "crier": nearest(spawn[0] + 100, spawn[1] + 500)}     # NNE, left of the sutler
-    sx, sz = lay["sutler"]
-    cx, cz = lay["crier"]
-    if max(abs(sx - cx), abs(sz - cz)) < 250:
-        raise SystemExit(f"posts collapsed: {lay}")
+           "crier": nearest(spawn[0] + 100, spawn[1] + 500),     # NNE, left of the sutler
+           "smith": nearest(spawn[0] + 850, spawn[1])}           # E, well clear of the
+                                                                 # sutler + arrival 9
+    pts_used = list(lay.values())
+    for i, a in enumerate(pts_used):
+        for b2 in pts_used[i + 1:]:
+            if max(abs(a[0] - b2[0]), abs(a[1] - b2[1])) < 250:
+                raise SystemExit(f"posts collapsed: {lay}")
     return lay
 
 
@@ -165,6 +170,26 @@ model = "{SUTLER_MODEL}"
 pos = [{cx}, {cz}]
 dialogue = "The muster grows."
 ''')
+    # the smith: a SYNTHESIS counter (shop 50 is absent from ShopItems -> synth UI).
+    # The Phoenix Down recipe is declared against PARKED shop 51 (no opener), so it
+    # is invisible until add_shop_synth grafts shop 50 onto it at runtime.
+    mx, mz = lay["smith"]
+    parts.append(f'''
+[[synthesis]]
+shop = {SYNTH_SHOP}
+recipes = [ {{ result = "Hi-Potion", ingredients = ["Potion", "Potion"], price = 60 }} ]
+
+[[synthesis]]
+shop = {PARKED_SHOP}
+recipes = [ {{ result = "Phoenix Down", ingredients = ["Potion", "Tent"], price = 100 }} ]
+
+[[npc]]
+name = "smith"
+model = "{SUTLER_MODEL}"
+pos = [{mx}, {mz}]
+dialogue = "The forge answers to writs, not words."
+opens_shop = {SYNTH_SHOP}
+''')
     # the levy: pooled soldiers whose currency is the contract item
     for i in range(LEVY):
         # PARKED dormant seats (the parked-choice idiom): a pooled unit never
@@ -201,6 +226,10 @@ npc = "crier"
   when = [{{ flag = "deep3" }}]
   do = {{ add_shop_item = [{SHOP_ID}, "Elixir"] }}
   once = "stock2"
+  [[behavior.unit.branch]]
+  when = [{{ flag = "deep3" }}]
+  do = {{ add_shop_synth = [{SYNTH_SHOP}, "Phoenix Down"] }}
+  once = "synth2"
   [[behavior.unit.branch]]
   do = {{ hold = [{cx}, {cz}] }}
 ''')
@@ -252,6 +281,13 @@ the TextPatch rename all load at launch — then ~ -> Warp -> {FIELD_ID}):
     The unlock is SESSION state: it survives ~ Reload AND New Game (the shop
     table is process memory, above the save layer) and resets at relaunch,
     where the condition simply re-asserts it when writs reach 3 again.
+  3b THE FORGE (round 5 — AddShopSynthesis 0x116, its first run anywhere;
+    RELAUNCH once for this round: Synthesis.csv is a startup CSV): the SMITH
+    (south of the Sutler) opens a SYNTHESIS shop — at boot it forges only
+    Hi-Potion (2x Potion, 60g). The SAME 3-writ moment that unlocks Elixir
+    also grafts a hidden recipe onto his list — reopen the smith: Phoenix
+    Down (Potion + Tent, 100g) is forgeable now. Same session semantics as
+    the Elixir row (survives Reload + New Game, resets at relaunch).
   4 THE CAP: keep buying — the levy stops at {LEVY} soldiers, and the extra
     contract STAYS in the bag (WRITS holds at 1+; an exhausted pool never
     consumes). Sellable back at the Sutler, it's a real item.

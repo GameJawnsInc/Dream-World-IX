@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `add_shop_synth` / `remove_shop_synth`: runtime synthesis recipes (0x116)
+- The AddShopItem twin with the mutation inverted: grafts the SHOP onto the RECIPE's
+  shop list (the engine's silent no-op guard is on the recipe). `recipe` = a vanilla
+  int id, or a `[[synthesis]]` RESULT name resolved at build to the CSV emitter's
+  deterministic mint (keyed by resolved item id — "Phoenix Down"/"PhoenixDown" both
+  land; a string selector needs a reachable install). Lint refuses a BUY-shop target
+  (a `[[shop]]` id or vanilla 0-31 opens as Buy and never renders recipes). The
+  hidden-recipe idiom: declare the locked recipe on a PARKED shop id, graft the real
+  shop at runtime. Same event-Once + remove-then-add + session semantics as 0x115.
+
 ### Fixed — `have_item` reads a top-of-tick snapshot (the pool-consumption race)
 - Pool activation runs before the tree blocks, so a live `have_item` read raced an
   item pool consuming the same item — holding exactly N never satisfied

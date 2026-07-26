@@ -110,6 +110,8 @@ ACTION_VERBS = {
     "award": ("item", "count"),
     "add_shop_item": (),
     "remove_shop_item": (),
+    "add_shop_synth": (),
+    "remove_shop_synth": (),
     "announce": ("window",),
     "announce_npc": ("window",),
 }
@@ -239,6 +241,34 @@ def hud_lines(raw: dict) -> list:
     like an announce (``collect_text`` keys them ``("hud", i)``)."""
     b = table(raw)
     return list(enumerate((b.get("hud", []) if b else []) or []))
+
+
+def synth_mint_map(raw: dict) -> dict:
+    """RESULT item id -> the recipe id the ``[[synthesis]]`` CSV emitter will mint —
+    the same deterministic base-max+1 allocation, recomputed here so a
+    ``add_shop_synth = [shop, "<result>"]`` string selector bakes the right literal
+    into the ``.eb``. Keyed by RESOLVED item id (authors write "Phoenix Down", the
+    catalog's canonical name is "PhoenixDown" — ``items.resolve`` bridges both, the
+    kit's convention for every item key). Two recipes minting the same result item:
+    the FIRST keeps the name — select the other by its int id. Needs the install's
+    base ``Synthesis.csv`` (the allocator's floor); unreachable install -> an empty
+    map, and a string selector fails at compile with a clear message (int selectors
+    never need this)."""
+    blocks = raw.get("synthesis", []) or []
+    if not blocks:
+        return {}
+    try:
+        from ..config import find_game_path            # ConfigError is a RuntimeError
+        from . import synthesis as _synth
+        from .itemdata import _read_text
+        base = _read_text(find_game_path(None) / "StreamingAssets" / "Data"
+                          / "Items" / "Synthesis.csv")
+        out: dict = {}
+        for mint, _shop, _price, result, _ing, _c in _synth.recipe_rows(blocks, base):
+            out.setdefault(int(result), mint)            # first wins on a dup result
+        return out
+    except (OSError, RuntimeError, ValueError):
+        return {}
 
 
 def hud_value(v) -> str:
@@ -617,6 +647,10 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         # [shop_id, item] — the AddShopItem 0x115 runtime stock mutation; the same
         # event-Once lane as award (session-global state, re-asserted per entry)
         return B.ShopStock(shop=int(v[0]), item=v[1], add=(verb == "add_shop_item"))
+    if verb in ("add_shop_synth", "remove_shop_synth"):
+        # [shop_id, recipe] — AddShopSynthesis 0x116; recipe = a vanilla int id or
+        # a [[synthesis]] RESULT name (resolved via fb.synth_mints at compile)
+        return B.ShopSynth(shop=int(v[0]), synth=v[1], add=(verb == "add_shop_synth"))
     if verb == "announce":
         if txid is None:
             raise BehaviorTomlError(f"{ctx}: no minted txid for this announce line "
@@ -668,6 +702,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          pools=pool_specs(raw),
                          timer=(int(b["timer"]) if b.get("timer") is not None else None),
                          tables=table_specs(raw), counters=counter_names(raw))
+    fb.synth_mints = synth_mint_map(raw)                  # ShopSynth string selectors
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
     for alt in b.get("alternators", []) or []:
@@ -1244,6 +1279,48 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         except Exception as e:
                             problems.append(f"{ctx}: {verb} item {v[1]!r} does not "
                                             f"resolve ({e})")
+                    if not br.get("once"):
+                        problems.append(f"{ctx}: {verb} needs `once = \"name\"` — the "
+                                        f"mutation is session state, asserted "
+                                        f"exactly-once per entry by that machinery")
+                if verb in ("add_shop_synth", "remove_shop_synth"):
+                    # AddShopSynthesis 0x116: the guard is on the RECIPE (silent
+                    # no-op on an unknown id), and the target shop only renders
+                    # recipes if it opens as SYNTHESIS = absent from ShopItems.csv
+                    if (not isinstance(v, list) or len(v) != 2
+                            or not isinstance(v[0], int)):
+                        problems.append(f"{ctx}: {verb} takes [shop_id, recipe]")
+                    else:
+                        buy_ids = {int(sh.get("id", -1))
+                                   for sh in raw.get("shop", []) or []}
+                        if not 0 <= v[0] <= 255:
+                            problems.append(f"{ctx}: {verb} shop id must be 0..255")
+                        elif v[0] in buy_ids or 0 <= v[0] <= 31:
+                            problems.append(f"{ctx}: {verb} shop {v[0]} is a BUY shop "
+                                            f"(a [[shop]] here, or vanilla 0-31 in "
+                                            f"ShopItems.csv) — it opens as Buy and "
+                                            f"can never render synthesis recipes")
+                        sel = v[1]
+                        if isinstance(sel, str):
+                            # compare RESOLVED item ids — authors may spell "Phoenix
+                            # Down" here and "PhoenixDown" there; resolve bridges both
+                            from .. import items as _items
+
+                            def _rid(x):
+                                try:
+                                    return _items.resolve(x)
+                                except (ValueError, TypeError):
+                                    return None
+                            results = {_rid(rc.get("result"))
+                                       for sb in raw.get("synthesis", []) or []
+                                       for rc in sb.get("recipes", []) or []}
+                            if _rid(sel) is None or _rid(sel) not in results:
+                                problems.append(f"{ctx}: {verb} recipe {sel!r} is not a "
+                                                f"[[synthesis]] result in this project "
+                                                f"(a vanilla recipe takes its int id)")
+                        elif not (isinstance(sel, int) and 0 <= sel <= 1023):
+                            problems.append(f"{ctx}: {verb} recipe must be an int id or "
+                                            f"a [[synthesis]] result name")
                     if not br.get("once"):
                         problems.append(f"{ctx}: {verb} needs `once = \"name\"` — the "
                                         f"mutation is session state, asserted "

@@ -463,6 +463,29 @@ class ShopStock(Action):
             raise BehaviorError("ShopStock shop id must be 0..255 (the Menu byte)")
 
 
+@dataclass
+class ShopSynth(Action):
+    """Add or remove a SYNTHESIS recipe in a shop — Memoria's extended
+    ``AddShopSynthesis`` (0x116), ``ShopStock``'s sibling with the mutation
+    INVERTED: it adds the SHOP to the RECIPE's ``Shops`` list (the engine guard is
+    on the recipe — an unknown synth id silently no-ops). ``synth``: a raw recipe
+    id (int — a vanilla 0..base-max row), or a RESULT item name (str) matched
+    against this project's own ``[[synthesis]]`` recipes and resolved at compile
+    to the id the CSV emitter mints (the deterministic base-max+1 allocator; a
+    string selector therefore needs a reachable install at build). Same session
+    semantics as ShopStock (a static process table; never saved; relaunch
+    resets), same event-Once + remove-then-add discipline. The target shop must
+    open as a SYNTHESIS shop — i.e. be ABSENT from ShopItems.csv (a [[shop]] buy
+    id or vanilla 0-31 can never render recipes; validate refuses them)."""
+    shop: int
+    synth: object                    # recipe id (int) or a [[synthesis]] result name (str)
+    add: bool = True
+
+    def __post_init__(self):
+        if not 0 <= int(self.shop) <= 255:
+            raise BehaviorError("ShopSynth shop id must be 0..255 (the Menu byte)")
+
+
 DEFAULT_HIRE_BUTTONS = 0x80001           # Special|Select — the rung-3 binding hedge
                                          # ("Special never fires on this user's binding")
 
@@ -820,6 +843,9 @@ class FieldBehavior:
         self._engages: dict[str, Engage] = {}            # unit -> its one Engage
         self._huds: list[HudSpec] = []                   # live counter strips
         self._item_mirrors: dict[int, int] = {}          # item id -> snapshot byte (have_item)
+        self.synth_mints: dict[str, int] = {}            # [[synthesis]] result name -> minted
+                                                         # recipe id (the TOML lane fills it —
+                                                         # ShopSynth string selectors resolve here)
         taken: set[int] = set()
         for ts in tables:
             if ts.id is not None:
@@ -1396,7 +1422,7 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
-                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock)):
+                if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth)):
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
@@ -1407,9 +1433,9 @@ class FieldBehavior:
                     onced[aid] = n.name
                 else:
                     walk(n.child)
-            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock)):
+            elif isinstance(n, Do) and isinstance(n.action, (Announce, Award, ShopStock, ShopSynth)):
                 bare.add(ids[id(n.action)])
-                if isinstance(n.action, (Award, ShopStock)):
+                if isinstance(n.action, (Award, ShopStock, ShopSynth)):
                     bare_awards.add(ids[id(n.action)])
         walk(u.tree)
         if bare_awards:
@@ -1600,7 +1626,7 @@ class FieldBehavior:
                 if isinstance(a, Battle):
                     li = self.bb.flag(f"{u.name}.battled{aid}")
                     ri = self.bb.flag(f"{u.name}.breq{aid}")
-                elif isinstance(a, (Announce, Award, ShopStock)) and aid in once_ann:
+                elif isinstance(a, (Announce, Award, ShopStock, ShopSynth)) and aid in once_ann:
                     li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
                     ri = self.bb.flag(f"{u.name}.areq{aid}")
                     latch_arg = li
@@ -2057,7 +2083,7 @@ class FieldBehavior:
             return [_stmt(node.child.text), (JMP_IF, fail)]
         if isinstance(node, Once):
             leaf = _terminal_do(node.child)
-            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock)):
+            if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth)):
                 # THE EVENT ONCE (BTTABLE round-2 law): over an Announce/Award,
                 # "once" means fire-and-release — the sticky form over a MONOTONIC
                 # cond (a kill tally, a spent wave counter) would hold the selection
@@ -2556,6 +2582,32 @@ class FieldBehavior:
                 ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
             return asm([
                 _set_flag(oneshot_latch, 1),              # latch FIRST (Battle's shape)
+                _set_byte(run, 255),
+            ] + ops + [
+                _set_byte(run, 0),
+                opcodes.RETURN,
+            ])
+        if isinstance(a, ShopSynth):
+            if oneshot_latch is None:
+                raise BehaviorError(
+                    f"{u.name}: add/remove_shop_synth must be Once-wrapped")
+            if isinstance(a.synth, str):
+                from .. import items as _items
+                sid = self.synth_mints.get(_items.resolve(a.synth))
+                if sid is None:
+                    raise BehaviorError(
+                        f"{u.name}: shop_synth recipe {a.synth!r} did not resolve — "
+                        f"string selectors match this project's [[synthesis]] result "
+                        f"names and need a reachable install at build (the minted-id "
+                        f"floor comes from the base Synthesis.csv); a vanilla row "
+                        f"takes its int id instead")
+            else:
+                sid = int(a.synth)
+            ops = [opcodes.encode(0x116, int(a.shop), sid, 0)]   # remove-then-add:
+            if a.add:                                            # same List dupe
+                ops.append(opcodes.encode(0x116, int(a.shop), sid, 1))
+            return asm([
+                _set_flag(oneshot_latch, 1),
                 _set_byte(run, 255),
             ] + ops + [
                 _set_byte(run, 0),

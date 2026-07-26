@@ -1085,3 +1085,75 @@ def test_have_item_snapshot_precedes_pool_consumption():
             cond_off = ins.off                            # the cond's mirror read
     assert snap_off is not None and pool_off is not None and cond_off is not None
     assert snap_off < pool_off < cond_off                 # snapshot -> consume -> judge
+
+
+# ------------------------------------------- ShopSynth (AddShopSynthesis 0x116)
+def _synth_raw(sel, **branch_over):
+    br = {"when": [{"flag": "deep3"}],
+          "do": {"add_shop_synth": [50, sel]}, "once": "synth2", **branch_over}
+    return {
+        "player": {"spawn": [0, -900]},
+        "synthesis": [{"shop": 50, "recipes": [
+            {"result": "Hi-Potion", "ingredients": ["Potion", "Potion"], "price": 60}]},
+            {"shop": 51, "recipes": [
+                {"result": "Phoenix Down", "ingredients": ["Potion", "Tent"], "price": 100}]}],
+        "npc": [{"name": "crier", "pos": [0, -300], "dialogue": "..."}],
+        "behavior": {"public_flags": ["deep3"], "unit": [
+            {"npc": "crier", "branch": [br, {"do": {"hold": [0, -300]}}]},
+        ]},
+    }
+
+
+def test_shop_synth_compiles_remove_then_add():
+    """String selectors resolve via fb.synth_mints (injected here — no install
+    dependency in tests); an add emits REMOVE then ADD of the 0x116 op."""
+    raw = _synth_raw("Phoenix Down")
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    from ff9mapkit import items as IT
+    fb.synth_mints = {IT.resolve("Hi-Potion"): 64,           # keyed by RESOLVED item
+                      IT.resolve("Phoenix Down"): 65}        # id (the mint map shape)
+    cb = fb.compile()
+    _verify_all(cb)
+    ops = []
+    for _tag, body in cb.action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "AddShopSynthesis":
+                ops.append((ins.imm(0), ins.imm(1), ins.imm(2)))
+    assert ops == [(50, 65, 0), (50, 65, 1)]             # remove first, then add
+    # an INT selector needs no mints map at all (a vanilla recipe row)
+    fb2 = BT.build(_synth_raw(3), npc_slots={"crier": 2},
+                   npc_txids_by_name={"crier": 0}, behavior_txids={})
+    ops2 = []
+    for _tag, body in fb2.compile().action_funcs["crier"]:
+        for ins in D.iter_code(body, 0, len(body)):
+            if ins.name == "AddShopSynthesis":
+                ops2.append(ins.imm(1))
+    assert ops2 == [3, 3]
+
+
+def test_shop_synth_unresolved_string_raises():
+    fb = BT.build(_synth_raw("Phoenix Down"), npc_slots={"crier": 2},
+                  npc_txids_by_name={"crier": 0}, behavior_txids={})
+    fb.synth_mints = {}                                   # e.g. no reachable install
+    with pytest.raises(B.BehaviorError, match="did not resolve"):
+        fb.compile()
+
+
+def test_shop_synth_validation():
+    def mut(f):
+        r = _synth_raw("Phoenix Down")
+        f(r)
+        return BT.validate(r)
+
+    assert any("BUY shop" in p for p in                   # vanilla 0-31 = buy
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
+                   add_shop_synth=[7, "Phoenix Down"])))
+    assert any("BUY shop" in p for p in                   # a [[shop]] id here = buy
+               mut(lambda r: r.update(shop=[{"id": 50, "sells": ["Potion"]}])))
+    assert any("is not a [[synthesis]] result" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0]["do"].update(
+                   add_shop_synth=[50, "Bogusite"])))
+    assert any("needs `once" in p for p in
+               mut(lambda r: r["behavior"]["unit"][0]["branch"][0].pop("once")))
