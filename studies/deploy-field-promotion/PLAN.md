@@ -184,10 +184,28 @@ templates are gitignored and in-tree, so point at the main repo's copy rather th
 FF9MAPKIT_DATA="C:/gd/Dream-World-IX/ff9mapkit/ff9mapkit/data" py -m pytest -n 6 -q
 ```
 
-With that set the new tests actually execute. The full suite in this worktree still reports **67 failed /
-35 skipped / 30 errors** — a pre-existing environment gap (no local `.ff9mapkit-cache/` extract cache),
-**not** regressions: the identical counts appear with the change stashed. The meaningful signal is the
-delta — `5235 → 5239` passed, exactly the 4 new tests. A true green still has to come from the main repo.
+With that set the new tests actually execute — but that env var only fixes the TEMPLATES. It is the wrong
+tool anyway: it also redirects `cache_dir()`, so a `deploy` run writes its revert script into whatever dir
+you pointed at (this polluted the main repo's `data/` once). **Copy the assets in instead.**
+
+### THE PROVISIONING RECIPE (what makes a worktree suite trustworthy)
+Three separate gitignored asset sets, all copied from the main repo — miss any one and tests silently skip
+or fail for environmental reasons that look exactly like regressions:
+
+```bash
+M=C:/gd/Dream-World-IX/ff9mapkit
+cp -r $M/ff9mapkit/data/blank_field  <wt>/ff9mapkit/ff9mapkit/data/     # 1. base templates
+cp    $M/ff9mapkit/data/region_template.bin <wt>/ff9mapkit/ff9mapkit/data/
+cp    $M/tests/fixtures/*.eb.bytes $M/tests/fixtures/*.bgx \
+      $M/tests/fixtures/*.bgi.bytes <wt>/ff9mapkit/tests/fixtures/      # 2. byte-level fixtures
+cp -r $M/.ff9mapkit-cache/{fields,thumbs,model_thumbs,battlemap} \
+      <wt>/ff9mapkit/.ff9mapkit-cache/                                  # 3. extract cache (~50M)
+```
+
+Measured on this arc: bare worktree **67 failed / 35 skipped / 30 errors** → provisioned **25 failed /
+12 skipped / 0 errors** → on current master **0 failed**. Every one of those 92 was environmental or a
+stale base; none was a regression. **Always compare against a base run, never against zero** — and check
+whether master has moved, because a stale merge-base produces failures that are nobody's fault.
 
 ---
 
@@ -321,9 +339,11 @@ These are dev-loop concerns with no meaning on a single-game install; they live 
 - ★ `ff9mapkit deploy <field.toml>` installs reversibly with **no repo**; revert restores (or removes) cleanly.
 - ⚠ `tools/deploy_field.py` is NOT a shim — correctly, it is blocked on Phase 2. The repo dev loop is
   untouched (the script was not modified at all).
-- ⚠ Full suite: **not verifiable in a worktree.** Delta vs the same tree without these changes is clean
-  (`5235 → 5250` passed = the 15 new tests; identical 67 failed / 35 skipped / 30 errors, all pre-existing
-  environment gaps). **A true green still has to come from the main repo.**
+- ★ **Full suite GREEN on current master + these changes: `5553 passed, 12 skipped, 0 failed, 0 errors`.**
+  Run in a throwaway `git worktree add --detach <master>` with the branch merged in and the gitignored
+  assets copied from the main repo (see the provisioning recipe below). The bare worktree numbers quoted
+  earlier in this doc (67 failed / 35 skipped / 30 errors) were ALL missing-asset artifacts, and a further
+  25 were a stale base — master had already fixed them.
 - ⚠ **No in-game playtest yet.** Nothing here changes the repo dev loop, and the fork-gate payoff is only
   observable on a standalone install — worth one confirmation that a `ff9mapkit deploy`'d fork boots with
   its occlusion intact.
