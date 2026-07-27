@@ -1710,6 +1710,9 @@ win_flash = true                   # (optional) win screen-wash: true = white, o
                                    # detect branch) and the cry, purse, and jingle land
                                    # right at its release instead of under the white-out
 hit_sfx = 636                      # (optional) impact cue every strike plays (both sides)
+text_waves = ["North road!", "", "HEAVIES!"]   # (optional) one cry per wave ("" skips one)
+wave_sfx = 683                     # (optional) cue on every wave arrival
+alarm_sfx = 638                    # (optional) cue with the breach alarm
 loss_sfx = 1942                    # (optional) loss sting — rings ~1s CLEAR before the loss
                                    # cry / the loss_battle transition (the sting branch holds
                                    # selection until it delivers, and its built-in sustain
@@ -1758,8 +1761,13 @@ clip), `death_anim` (its collapse) and `linger` (corpse hold, default 30) — ge
 resolved against that class's own model, so `ff9mapkit models <name>` tells you what a rig
 can actually play (field monster rigs generally own no attack clip).
 
-**Staged ending text:** `text_win` / `text_rout` / `text_loss` also take a **list of
-lines**, paged at `text_pace` frames each (default 120). Win/rout lines page *after* the
+**The wave herald:** without `text_waves` / `wave_sfx` a siege's waves arrive in silence —
+the player discovers a wave instead of being told. Each entry heralds its wave off the
+(monotonic) wave counter: the cue first, then the line. `alarm_sfx` does the same for the
+breach alarm.
+
+**Staged ending text:** `text_win` / `text_rout` / `text_loss` (and `text_alarm`) also take
+a **list of lines**, paged at `text_pace` frames each (default 120). Win/rout lines page *after* the
 cry → purse → jingle beat (the first line is the cry); loss lines page *before* the loss
 battle or final cry, with the last line held long enough to be read before the battle
 takes the screen. A plain string keeps the single-window shape exactly.

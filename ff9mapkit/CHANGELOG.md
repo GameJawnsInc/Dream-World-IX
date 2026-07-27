@@ -44,6 +44,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
   Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
   and is CI-fenced by a real dry-compile of the stamped document.
+### Added — `[siege]` per-siege announce theater: THE WAVE HERALD
+- A siege's waves used to arrive in **silence** — the one moment a player most needs told.
+  `text_waves = [...]` (one cry per wave, `""` skips a wave) and `wave_sfx` now herald each
+  arrival off the wave counter, cue first then line. Because that counter is **monotonic**,
+  the cries ride the event-Once lane straight (the draining-condition law's exemption), and
+  the `counter_ge` gate means a busy tick can never swallow one.
+- `alarm_sfx` cues the breach alarm the same way, and `text_alarm` now accepts a **list**,
+  staging like the ending texts. A siege declaring none of these emits the proven shapes
+  byte-for-byte — one plain alarm, no wave branches (regression-pinned). Cast-proven:
+  "wave heralds land, sounds read fine."
+
 ### Added — `behavior lint` catches THE CLOCK-COUPLED BATTLE LAW
 - A field with a `timer` that fires a `battle` now has that scene's own AI read from the
   install and scanned for `B_SYSVAR[17]` (= `TimerUI.Time`); a hit warns that the scene
