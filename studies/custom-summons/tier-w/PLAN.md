@@ -207,4 +207,9 @@ scenery must be re-authored *together*.
   never LOWER saturation on an already-max-sat ramp (v2's ×1.25 attempt clipped 100% of entries and
   the blow-out gate refused — stock fire IS max-sat; the lawful punch is hue at sat 1.0).**
   GLACIAL v2 deployed (hue_to 280, saturation 1.00 on the two vivid bound cells; container sha
-  4daab8ad…); combined-v2 (reskin+rescore, 17b6dcb6…) staged for cast B. Recast pending.
+  4daab8ad…); combined-v2 (reskin+rescore, 17b6dcb6…) staged for cast B.
+  **v2 RECAST ★ PROVEN ("stock phoenix has magenta/violet") — THE SCENERY LEVER IS CAST-PROVEN on
+  a second summon.** Two of three levers now have their second witness (creature = Madeen, scenery
+  = Phoenix v2); the calibrated key reads exactly as designed (violet with magenta-hot cores).
+  Combined-v2 (17b6dcb6…) swapped live for CAST B — the camera lever, the last judgment: same
+  violet, H 384→288 from f87 (~33% wider from ~t 5.7 s through the rest of the cast).
