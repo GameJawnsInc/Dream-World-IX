@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `examples/siege/`: the shipped `[siege]` example (+ two lint false positives fixed)
+- A whole tower-defense minigame as a bundled example: a **novel** field on **stock Memoria**
+  (no donor, no engine patches) that lints, builds offline with the generated placeholder art,
+  and shows the `[siege]` surface end to end — waves, priced hire pools, the war council, the
+  payout, and the theater dials. `examples/README.md` and `docs/FORMAT.md` point at it.
+- Writing it exposed **two lint false positives that fired on every `[siege]` field**, both now
+  fixed: a generated hire row's `requires_flag` reads a pool's `hireable` gate, which the
+  compiled TICKER publishes rather than an `[[event]]` (new `behaviortoml.published_flags`,
+  sharing the deterministic two-pass `siege.resolve_hireable` uses); and **pooled units are
+  parked off-play by design** (the ARMOURY idiom), so the placement check no longer calls
+  their 9000-band seats a misplacement. The example linted 10 warnings before, 1 advisory now.
+
 ### Added — `[siege]` per-siege announce theater: THE WAVE HERALD
 - A siege's waves used to arrive in **silence** — the one moment a player most needs told.
   `text_waves = [...]` (one cry per wave, `""` skips a wave) and `wave_sfx` now herald each

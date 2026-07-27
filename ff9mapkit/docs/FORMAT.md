@@ -1696,6 +1696,9 @@ proven detect-then-pay shape (two endings, ONE payout), and the WAR COUNCIL — 
 **Select** anywhere to deploy a troop **on the very spot you stand**, with hire rows that
 vanish while unaffordable or sold out.
 
+A complete, buildable example ships at [`examples/siege/`](../examples/siege) — start there
+if you'd rather read a working field than a reference table.
+
 ```toml
 [siege]
 timer = 60                         # the siege clock, seconds
