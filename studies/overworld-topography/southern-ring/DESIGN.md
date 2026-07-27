@@ -160,7 +160,11 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
-## R5e — THE STANDOFF BELT ★ DEPLOYED (2026-07-26; playtest pending): coast-nav v2.3 + THE COMPATIBILITY LAW
+## R5e — THE STANDOFF BELT ★★ PLAYTEST-CONFIRMED (2026-07-26, "that did the trick"): coast-nav v2.3 + THE COMPATIBILITY LAW
+
+**With this confirmation THE RING'S RATIFIED BOARD IS CLOSED IN-GAME — R1 through R5, every rung
+owner-confirmed.** The boat wakes, plates, lands anywhere, seals at the interiors, and stands off
+the walls.
 
 R5d's playtest (screenshots): the hull still buried its bow in fork rock — stock keeps more
 padding. Four rounds distilled to three laws: **THE ORIGIN INSTRUMENT BUG** (block origins are

@@ -2966,3 +2966,11 @@ restore undoes v2 through v2.3).
 2. Land everywhere you did before — beaches AND walls (wall dismounts hop you up onto the
    plateau; that is intended, it is the ring's land-anywhere property).
 3. The interior seal + the north voyage: unchanged.
+
+## 31.6 ★ PLAYTEST-CONFIRMED (owner, 2026-07-26): "that did the trick"
+
+The 3.5u standoff holds at the fork cliffs, landings stay everywhere, the seal and the voyage
+stand. With this, THE RING'S RATIFIED BOARD IS CLOSED IN-GAME: R1 (hub/hall/ferry) · R2 (the
+quays) · R3 (Lamplight + the virgin-case plates) · R4 (forest + the encounter table-hole chain)
+· R5 (the boat: wake, plate, engine landings, the interior seal, the standoff) — all
+owner-confirmed.
