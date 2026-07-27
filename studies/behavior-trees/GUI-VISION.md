@@ -125,9 +125,15 @@ belong painted on the field, not printed as text. That is the second surface: **
   (`behaviorscan.siege_view` — the build's own expansion) with full cast/ladders/stage/
   sweeps over the GENERATED routes, every edit affordance disabled and the banner naming
   the truth; rendering writes nothing into the open doc (fenced); snap `behavior:siege`.
-  **D's remainder:** the shift patrol pair archetype, the Info Hub archetype cards, and
-  the `[siege]` whole-block STAMP (authoring a new [siege] from the GUI — the read-only
-  view is the rendering half; the stamp is the authoring half).
+  **D3 ★ BUILT 2026-07-26:** the shift patrol pair archetype (needs_partner — two free
+  npcs trade one minted beat on a deduped `alternators` flag, BEHAVIOR.md's own shift
+  idiom) + THE [SIEGE] SKELETON STAMP (`stamp_siege`, the guide's third action): a
+  minimal legal [siege] sized COMPACTLY around the player spawn (skeleton points must
+  land on small floors too — the fixture mesh taught it), autoroute on, rendered by the
+  read-only view the same tick; refusals ([behavior] clash / double stamp / verbatim)
+  raise with the reason. Both dry-compile fenced. **D's remainder:** the Info Hub
+  archetype cards (the last D item — a browsing surface; the Behavior tab's picker
+  already stamps).
 - **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
   documented tree semantics stepping simulated positions — scrub a timeline, watch selection
   sweep the ladder rows and units move on the stage. Catches the priority/starvation family of

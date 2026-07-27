@@ -686,7 +686,48 @@ BEHAVIOR_ARCHETYPES = [
      "teach": "BEHAVIOR.md's own front example: the badly wounded run for minted refuges, "
               "fight what's in reach, chase what's in sight, hold the post otherwise. Give "
               "the TARGET a swing branch back and you have mutual combat, no referee."},
+    {"key": "shift_pair", "name": "Shift patrol pair — trade the beat on the clock",
+     "needs_partner": True,
+     "teach": "Two guards share one minted beat: an alternator flips a flag every ~13s, "
+              "the on-shift guard walks the route, the other stands watch at its post — "
+              "BEHAVIOR.md's own shift idiom (flag / not_flag on the same alternator)."},
 ]
+
+
+def stamp_siege(raw: dict) -> str:
+    """Write a minimal LEGAL [siege] skeleton (the REDOUBT fixture's proven shape, sized
+    around the player spawn, ``autoroute`` on so raider legs heal at build) — the authoring
+    half of the tab's [siege] face; the read-only view renders it the same tick and the
+    Editor form's [siege] section is the editing surface. Refusals raise ValueError with
+    the reason (the doc shows it): [siege] OWNS the behavior table, one block per field,
+    and a verbatim fork has no kit entries to seat."""
+    if BT.table(raw):
+        raise ValueError("this field already has [behavior] — [siege] OWNS the behavior "
+                         "table; delete the [behavior] block first (or author by hand)")
+    if raw.get("siege"):
+        raise ValueError("this field already has a [siege] block — edit it in the Editor "
+                         "form ([siege] section)")
+    if "verbatim_eb" in raw:
+        raise ValueError("[siege] is not wired on a VERBATIM fork (the donor's real .eb "
+                         "runs) — use a --native/--editable fork or a novel field")
+    sp = (raw.get("player", {}) or {}).get("spawn") or [0, 0]
+    px, pz = int(sp[0]), int(sp[1])
+    raw["siege"] = {
+        "timer": 60, "waves": [55, 40, 20], "stipend": 3000,
+        "win_gil": 2000, "loss_battle": 35,
+        "base": {"model": "GEO_NPC_F4_CSO", "pos": [px, pz + 400], "hp": 24},
+        "ally": [
+            {"name": "soldier", "label": "Soldier (chases, melee)",
+             "model": "GEO_NPC_F0_CSO", "count": 3, "price": 300,
+             "stance": "chase", "radius": 2000, "speed": 65},
+        ],
+        "raider": [   # a COMPACT footprint (~700u tall): skeleton points must land on
+            {"name": "mu", "model": "GEO_MON_F0_MUU", "count": 2, "wave": 1,   # small floors
+             "entrance": [[px - 600, pz - 300], [px - 750, pz - 300]],   # too -- drag from
+             "route": [[px - 300, pz], [px, pz + 300]], "autoroute": True},   # the Editor form
+        ],
+    }
+    return "stamp [siege] skeleton"
 
 
 def siege_view(raw: dict):
@@ -727,6 +768,24 @@ def stamp_archetype(raw: dict, key: str, npc_name: str, target: str | None = Non
     positions = BT._npc_marker_positions(raw)
     x, z = positions.get(npc_name, (0, 0))
     die = {"when": [{"hp_le": 0}], "do": {"die": True}}
+    if key == "shift_pair":
+        if not target:
+            raise KeyError("the shift_pair archetype needs a partner npc")
+        b = raw.setdefault("behavior", {})
+        taken = {str(a.get("name")) for a in (b.get("alternators") or [])}
+        flag, n = "shift", 2
+        while flag in taken:
+            flag, n = f"shift_{n}", n + 1
+        b.setdefault("alternators", []).append({"name": flag, "frames": 400})
+        beat = _mint_beat_marker(raw, npc_name, (x, z))
+        for nm, gate in ((npc_name, {"flag": flag}), (target, {"not_flag": flag})):
+            b.setdefault("unit", []).append({"npc": nm, "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": True}},   # fresh dicts per unit --
+                {"when": [gate],                                 # shared nesting would alias
+                 "do": {"patrol": beat, "route": "auto", "speed": 40}},
+                {"do": {"hold_post": True}},
+            ]})
+        return f"stamp shift pair on {npc_name} + {target}"
     if key == "guard":
         if not target:
             raise KeyError("the guard archetype needs a target unit")

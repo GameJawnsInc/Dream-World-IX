@@ -799,7 +799,8 @@ class BehaviorDoc(QWidget):
                       "combat — as priority branches in the field.toml. The format lives in "
                       "docs/BEHAVIOR.md; benches 30410-30418 are worked examples.",
                 actions=[("Add a behavior unit…", self._add_unit),
-                         ("Stamp an archetype…", self._stamp_archetype)],
+                         ("Stamp an archetype…", self._stamp_archetype),
+                         ("Stamp a [siege] skeleton…", self._stamp_siege)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -1021,12 +1022,24 @@ class BehaviorDoc(QWidget):
         lane; ``dirty`` labels which truth the instruments would read."""
         same_field = member == self._member
         self._member, self._raw, self._path, self._dirty = member, raw, path, dirty
-        self._view, self._readonly = raw, False
-        if not behaviorscan.has_behavior(raw):
-            view = behaviorscan.siege_view(raw)    # a [siege] field renders its GENERATED
-            if view is None:                       # behavior, read-only (the desugared copy)
-                self._show_guide("nobehavior")
-                return
+        if not self._resolve_view():
+            self._show_guide("nobehavior")
+            return
+        if not same_field:
+            self._selected_unit = None
+            self._set_result(None)                 # another field's report must not linger
+            self._reset_sweep()                    # ...nor its walkmesh or painted verdicts
+        self._stack.setCurrentWidget(self._content)
+        self._render(refit=not same_field)
+
+    def _resolve_view(self):
+        """What the projections render: the open dict, or a [siege] field's desugared copy
+        (read-only). Sets the edit affordances to match; False = nothing renderable."""
+        self._view, self._readonly = self._raw, False
+        if not behaviorscan.has_behavior(self._raw):
+            view = behaviorscan.siege_view(self._raw)
+            if view is None:
+                return False
             self._view, self._readonly = view, True
         for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
                   self.remove_unit_btn, self.edit_btn):
@@ -1034,12 +1047,7 @@ class BehaviorDoc(QWidget):
         if self._readonly and self.edit_btn.isChecked():
             self.edit_btn.setChecked(False)        # stage edit writes; a view has no writes
         self.ladder.actions = {} if self._readonly else self._ladder_actions
-        if not same_field:
-            self._selected_unit = None
-            self._set_result(None)                 # another field's report must not linger
-            self._reset_sweep()                    # ...nor its walkmesh or painted verdicts
-        self._stack.setCurrentWidget(self._content)
-        self._render(refit=not same_field)
+        return True
 
     def _render(self, *, refit=False):
         raw = self._view if self._view is not None else self._raw
@@ -1142,9 +1150,11 @@ class BehaviorDoc(QWidget):
     def _after_edit(self, label):
         """One committed mutation of the open dict: re-render, then hand the shell its undo
         step. The doc renders FIRST so a standalone (shell-less) host still shows the edit."""
-        if not behaviorscan.has_behavior(self._raw):
+        if not self._resolve_view():
             self._show_guide("nobehavior")         # the last unit was removed
         else:
+            if self._stack.currentWidget() is self._guide_page:
+                self._stack.setCurrentWidget(self._content)   # a [siege] stamp on a bare field
             self._render()
         if self.on_edit and self._member:
             self.on_edit(self._member, label)
@@ -1242,6 +1252,19 @@ class BehaviorDoc(QWidget):
             self._stack.setCurrentWidget(self._content)
         self._after_edit(f"add behavior unit {name}")
 
+    def _stamp_siege(self):
+        """The [siege] authoring half: write the skeleton, render its read-only view the
+        same tick (the Editor form's [siege] section is the editing surface from here)."""
+        if self._raw is None or self._readonly:
+            return
+        try:
+            label = behaviorscan.stamp_siege(self._raw)
+        except ValueError as e:
+            self.problems_lbl.setText(str(e))
+            widgets.set_state(self.problems_lbl, "warn")
+            return
+        self._after_edit(label)
+
     def _remove_unit(self):
         unit = self._selected_unit
         if not unit:
@@ -1306,6 +1329,16 @@ class BehaviorDoc(QWidget):
         name = self._ask_unit(names)
         if not name:
             return
+        if row.get("needs_partner"):
+            rest = [n for n in names if n != name]
+            if not rest:
+                self.problems_lbl.setText(f"The {key} archetype seats a PAIR — it needs two "
+                                          "free named [[npc]]s (add another first).")
+                widgets.set_state(self.problems_lbl, "warn")
+                return
+            target = self._ask_unit(rest)          # the partner, from the remaining free npcs
+            if not target:
+                return
         label = behaviorscan.stamp_archetype(self._raw, key, name, target)
         self._selected_unit = name
         if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
