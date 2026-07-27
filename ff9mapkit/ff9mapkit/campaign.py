@@ -28,7 +28,8 @@ from . import chain
 # payload bytes 1064-1088 (bits 8512-8711, whole-byte-clobbered by ordinary play); the choice scratch
 # is at bit 16320+; custom flags live in [8712, 16320). History: flag_base=8300 + 64/field collided
 # with the lock band from member index 1 onward; the 8512 default sat on the payload bytes.
-from .flags import (CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, MOGNET_LOCK_HI, MOGNET_LOCK_LO,
+from .flags import (CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, KIT_STANDING_FLOOR,
+                    MOGNET_LOCK_HI, MOGNET_LOCK_LO,
                     READMAIL_PAYLOAD_HI, READMAIL_PAYLOAD_LO,
                     collect_flag_defs, resolve_project_flags)
 from .tomlcache import load_toml
@@ -731,10 +732,13 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                           f"(locks {MOGNET_LOCK_LO}-{MOGNET_LOCK_HI} / read-mail payload "
                           f"{READMAIL_PAYLOAD_LO}-{READMAIL_PAYLOAD_HI}) -> SAVE CORRUPTION -- set "
                           f"[campaign] flag_base = {FIRST_SAFE_FLAG}.")
-        if hi >= CHOICE_SCRATCH_FLOOR:
-            cap = (CHOICE_SCRATCH_FLOOR - plan.flag_base) // K
-            errors.append(f"member {m.name}: flag block {lo}-{hi} reaches the choice-scratch floor "
-                          f"{CHOICE_SCRATCH_FLOOR} -- too many members for the band (max {cap} at this base/K).")
+        if hi >= KIT_STANDING_FLOOR:
+            cap = (KIT_STANDING_FLOOR - plan.flag_base) // K
+            errors.append(f"member {m.name}: flag block {lo}-{hi} crosses the kit-standing floor "
+                          f"{KIT_STANDING_FLOOR} (the safe-band partition: bits above it belong to the "
+                          f"kit's own allocators -- AUTO once-flag bands, the behavior blackboard, siege "
+                          f"requests; see flags.py). Max {cap} members at this base/K -- shrink "
+                          f"flags_per_field or the member set; do NOT raise flag_base past real saves.")
 
     try:                                          # (a4) shared [[flag]] names: valid + clear of member blocks
         shared = collect_flag_defs({"flag": plan.flags})
@@ -745,6 +749,10 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
         if plan.flag_base <= idx <= block_hi:
             errors.append(f"shared flag {nm!r} (index {idx}) falls inside the per-member auto-flag blocks "
                           f"[{plan.flag_base}, {block_hi}] -- put shared flags ABOVE them (>= {block_hi + 1}).")
+        elif idx >= KIT_STANDING_FLOOR:
+            errors.append(f"shared flag {nm!r} (index {idx}) sits at/above the kit-standing floor "
+                          f"{KIT_STANDING_FLOOR} -- the campaign lane is [{FIRST_SAFE_FLAG}, "
+                          f"{KIT_STANDING_FLOOR}); shared flags live there, outside the member blocks.")
 
     for e in plan.edges:                          # (b) edges resolve to members
         if e.get("frm") not in names:

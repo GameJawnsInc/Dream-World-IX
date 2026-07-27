@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
+- Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
+  band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO
+  once-flag bands, the behavior Blackboard, and `[siege]`'s request flags. `flags.py` now owns
+  the partition: windows grow up from `FIRST_SAFE_FLAG` and must end below
+  `KIT_STANDING_FLOOR` (14664, enforced by the campaign lint at the window validator); every
+  kit-standing allocator moved above it (AUTO bands 14664-14863 at width 40, Blackboard flags
+  14864-14959, siege requests 14960-14975, named world flags 14976-15007, Blackboard bytes
+  1876-1989). Bytes 1990-2005 stay unreserved as the `[[qte]]`/`[[numeric_input]]` `result`
+  landing. Deployed content keeps its baked indices until rebuilt; saves are untouched.
+- `[behavior]` gains `byte_band = "safe" | "wide"`: the default byte band is campaign-compatible
+  (114 bytes, ~11 grouped units); `"wide"` reclaims the historical 770-byte band (bytes
+  1220-1989) for standalone-world scale — it overlaps campaign flag windows, so never deploy
+  wide-band behavior content onto a save that also plays a campaign. `[siege]` generates
+  `"wide"` (a condor-scale siege cannot fit otherwise).
+
 ### Added — `behavior lint` catches THE DRAINING-CONDITION LAW (and it caught `[siege]`)
 - The selector fires **one branch per unit per tick**, so N `once` branches sharing a gate
   need it to hold for N consecutive ticks. Lint now warns when a stack of them rides a gate

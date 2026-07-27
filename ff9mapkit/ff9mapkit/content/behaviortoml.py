@@ -123,7 +123,7 @@ ACTION_VERBS = {
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
-              "counters", "table", "schedule", "scan", "group", "hud"}
+              "counters", "table", "schedule", "scan", "group", "hud", "byte_band"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
@@ -915,7 +915,14 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                 walk_speed=int(u.get("speed", 50)),
                                 pooled=bool(u.get("pooled", False)),
                                 pool=str(u.get("pool", "pool"))))
-    fb = B.FieldBehavior(specs, warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
+    band = str(b.get("byte_band", "safe"))
+    if band not in ("safe", "wide"):
+        raise BehaviorTomlError('[behavior] byte_band must be "safe" (campaign-compatible, the '
+                                'default) or "wide" (the historical 770-byte band, bytes 1220-1989 '
+                                '-- overlaps campaign per-member flag windows; standalone-only)')
+    bb = B.Blackboard(byte_base=B.WIDE_BYTE_BASE) if band == "wide" else None
+    fb = B.FieldBehavior(specs, blackboard=bb,
+                         warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
                          pools=pool_specs(raw),
                          timer=(int(b["timer"]) if b.get("timer") is not None else None),
                          tables=table_specs(raw), counters=counter_names(raw))

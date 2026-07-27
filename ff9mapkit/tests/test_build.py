@@ -972,7 +972,9 @@ def test_flag_alloc_for_project_reserves_logic_add_indices():
         raw = {"qte": [{"name": "duel", "result": res_byte, "flag": EVENT_FLAG_BASE}]}
     q = _FlagAlloc.for_project(_Q())
     assert EVENT_FLAG_BASE in q.reserved and span <= q.reserved
-    for i in range(30):                                    # no auto event flag lands on either reservation
+    # sweep most of the band (width 40 since the safe-band partition; 18 indices are reserved
+    # above, so 20 autos + 18 reserved fit with 2 spare -- the width-100-era sweep was 30)
+    for i in range(20):                                    # no auto event flag lands on either reservation
         got = q.event(i)
         assert got != EVENT_FLAG_BASE and got not in span
 

@@ -38,11 +38,15 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field as _field
 
+from ..flags import SIEGE_REQUEST_BASE
+
 # the war-council parking zone + the ally seat park (both far off-play; the
 # parked-choice / parked-seat idioms proven on the ARMOURY + CONDOR benches)
 COUNCIL_ZONE = [[9000, 9000], [9200, 9000], [9200, 8800], [9000, 8800]]
 SEAT_PARK_X, SEAT_PARK_Z, SEAT_PARK_STEP = 9000, 9000, 400
-REQUEST_FLAG_BASE = 8840          # outside the blackboard band; safe band starts 8712
+REQUEST_FLAG_BASE = SIEGE_REQUEST_BASE   # the kit-standing lane's siege sub-band (flags.py safe-band
+                                         # partition; the old 8840 sat inside the opening campaign's
+                                         # per-member windows)
 ALARM_RADIUS = 500
 RAIDER_CONTACT = 210              # the proven melee reach for a marching raider
 CHASE_CONTACT = 170               # a mobile ally's melee reach
@@ -425,6 +429,9 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     all_allies = [n for a in spec.allies for n in a.unit_names()]
     b: dict = {
         "warmup": spec.warmup, "timer": spec.timer,
+        "byte_band": "wide",                     # a condor-scale siege cannot fit the campaign-safe
+                                                 # band (flags.py partition); [siege] is standalone-
+                                                 # world content by contract
         "counters": ["wave", "kills", "troops", "raiders_up"],
         "table": [{"name": "sched", "values": list(spec.waves)}],
         "schedule": [{"counter": "wave", "table": "sched"}],

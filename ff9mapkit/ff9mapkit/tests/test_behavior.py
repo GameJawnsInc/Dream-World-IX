@@ -234,7 +234,7 @@ def test_pool_spec_negatives():
     with pytest.raises(B.BehaviorError, match="request_flag"):
         B.FieldBehavior(list(u), pools=[B.PoolSpec("p", button=1)])
     with pytest.raises(B.BehaviorError, match="blackboard band"):
-        B.FieldBehavior(list(u), pools=[B.PoolSpec("p", request_flag=8900)])
+        B.FieldBehavior(list(u), pools=[B.PoolSpec("p", request_flag=B.BEHAVIOR_FLAG_BASE + 40)])
     with pytest.raises(B.BehaviorError, match="no pooled unit"):
         B.FieldBehavior(list(u), pools=[B.PoolSpec("ghost")])
     with pytest.raises(B.BehaviorError, match="twice"):
@@ -593,20 +593,28 @@ def test_blackboard_allocation():
 
 
 def test_blackboard_default_band_clears_reserved_state():
-    """The default byte band must stop BELOW the reserved top of the heap: the
-    nameplate explored words (bytes 2006-2017, save-persistent), the [[qte]]
-    scratch, the netsync co-op cells (engine-written every frame under co-op),
-    and the choice mask. The old ceiling (2040) admitted all four, so a field
-    needing ~786+ blackboard bytes silently allocated into live state."""
+    """The default byte band is the CAMPAIGN-SAFE lane of the flags.py safe-band
+    partition (bytes 1876-1989): above the campaign per-member flag windows
+    (which a live playthrough owns), below the unreserved modal-result home
+    (bytes 1990-2005) and the reserved heap top -- the nameplate explored words
+    (2006-2017, save-persistent), the [[qte]] scratch, the netsync co-op cells,
+    the choice mask. Every handed-out byte must be either fully unreserved or
+    inside the blackboard's OWN named region (its band is itself registered in
+    flags.BIT_REGIONS so authored [[flag]]s steer clear) -- never any FOREIGN
+    reserved region."""
     bb = B.Blackboard()
-    assert bb._byte_end == B.BYTE_END_DEFAULT == flags.NAMEPLATE_EXPLORED_FLOOR // 8 - 1 == 2005
+    assert bb._byte_end == B.BYTE_END_DEFAULT == flags.BEHAVIOR_BYTE_END == 1989
+    assert B.BEHAVIOR_BYTE_BASE * 8 >= flags.KIT_STANDING_FLOOR   # clear of campaign windows
+    own = {"behavior_blackboard_bytes"}
     idx = None
     with pytest.raises(B.BehaviorError, match="byte band exhausted"):
         n = 0
         while True:
             idx = bb.int16(f"w{n}")
             for bit in (idx * 8, idx * 8 + 15):        # both bytes of the word
-                assert not flags.is_reserved(bit), f"blackboard handed out reserved byte {bit // 8}"
+                r = flags.bit_region(bit)
+                assert not (r and r.reserved and r.name not in own), \
+                    f"blackboard handed out byte {bit // 8} inside foreign reserved '{r.name}'"
             n += 1
     assert idx + 1 == bb._byte_end                     # the band fills flush to the ceiling
 
@@ -945,18 +953,18 @@ def test_swarm_stress_forty_units_relaxes_and_accounts():
     ±32K jump wall, every body still walks clean, the histogram still tiles the
     content bytes, and compilation stays deterministic.
 
-    MEASURED WALL pinned here: at 40 units the blackboard byte band (786 bytes
-    of gEventGlobal scratch, 1220-2005 — the ceiling sits flush BELOW the
-    reserved heap top, B.BYTE_END_DEFAULT) holds ~5 swing pairs per unit — a
-    6th exhausts it LOUDLY (~14B unit kit + ~1B per swing timer), never
-    silently spilling into the reserved live bytes 2006+. The band is physical
-    (Byte[2048] minus the reserved bytes at both ends), so v1's unrolled-pair
-    architecture tops out near this scale on THREE independent walls: band,
-    ticker content, file."""
+    MEASURED WALL pinned here: at 40 units the WIDE blackboard byte band (770
+    bytes of gEventGlobal scratch, 1220-1989 — the standalone band; the safe
+    default is the campaign-compatible 114-byte lane, far too small for this
+    scale) holds ~5 swing pairs per unit — a 6th exhausts it LOUDLY (~14B unit
+    kit + ~1B per swing timer), never silently spilling past the ceiling. The
+    band is physical (Byte[2048] minus the reserved bytes at both ends), so
+    v1's unrolled-pair architecture tops out near this scale on THREE
+    independent walls: band, ticker content, file."""
     def build(nfoes=5):
         units = [B.UnitSpec(f"w{i}", entry=2 + i, spawn=(i * 40, 0), hp=4)
                  for i in range(40)]
-        fb = B.FieldBehavior(units)
+        fb = B.FieldBehavior(units, blackboard=B.Blackboard(byte_base=B.WIDE_BYTE_BASE))
         for i, u in enumerate(units):
             foes = [f"w{j}" for j in range(40) if j != i][:nfoes]
             branches = [B.Sequence(fb.hp_le(u.name, 0), B.Do(B.Die()))]
@@ -1051,13 +1059,15 @@ def test_scan_table_ids_are_deterministic():
 
 
 # ------------------------------------------------------------------ the group loop
-def group_brawl_field(n=3):
-    """Two rosters engaging each other through the group loop — die/engage/hold."""
+def group_brawl_field(n=3, *, wide=False):
+    """Two rosters engaging each other through the group loop — die/engage/hold.
+    ``wide``: the standalone byte band (2n units past ~11 overflow the campaign-safe default)."""
     units = ([B.UnitSpec(f"a{i}", entry=2 + i, spawn=(0, i * 300), hp=3)
               for i in range(n)]
              + [B.UnitSpec(f"b{i}", entry=2 + n + i, spawn=(900, i * 300), hp=3)
                 for i in range(n)])
-    fb = B.FieldBehavior(units, counters=("fallen",))
+    fb = B.FieldBehavior(units, counters=("fallen",),
+                         blackboard=(B.Blackboard(byte_base=B.WIDE_BYTE_BASE) if wide else None))
     fb.group("reds", [f"a{i}" for i in range(n)])
     fb.group("blues", [f"b{i}" for i in range(n)])
     for i in range(n):
@@ -1096,13 +1106,16 @@ def test_group_loop_beats_unrolled_pairs_on_bytes():
     unrolled pair machinery (ticker + dispatch bodies together) — the reason
     this rung exists. If this ratio regresses, the three-walls win is gone."""
     n = 6
-    grouped = group_brawl_field(n).compile()
+    grouped = group_brawl_field(n, wide=True).compile()
 
     units = ([B.UnitSpec(f"a{i}", entry=2 + i, spawn=(0, i * 300), hp=3)
               for i in range(n)]
              + [B.UnitSpec(f"b{i}", entry=2 + n + i, spawn=(900, i * 300), hp=3)
                 for i in range(n)])
-    fb = B.FieldBehavior(units, counters=("fallen",))
+    # the unrolled machinery needs the WIDE standalone band (12 units of pair kit
+    # overflow the campaign-safe default -- that asymmetry is part of the economy win)
+    fb = B.FieldBehavior(units, counters=("fallen",),
+                         blackboard=B.Blackboard(byte_base=B.WIDE_BYTE_BASE))
     for i in range(n):
         for nm, foes in ((f"a{i}", [f"b{j}" for j in range(n)]),
                          (f"b{i}", [f"a{j}" for j in range(n)])):

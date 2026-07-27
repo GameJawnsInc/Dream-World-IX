@@ -68,24 +68,61 @@ QTE_SCRATCH_FLOOR = 16144                      # bytes 2018-2031: the [[qte]] mo
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
 
-# --- the single-field AUTO once-flag bands (consumed by build._FlagAlloc; content modules alias them) ---
+# --- THE SAFE-BAND PARTITION (2026-07-27, the flag-band collision fix) ---
+# The safe band [FIRST_SAFE_FLAG, NAMEPLATE_EXPLORED_FLOOR) is PARTITIONED so campaign/journey
+# per-member auto-flag windows can never alias the kit's own standing allocators:
+#   [FIRST_SAFE_FLAG, KIT_STANDING_FLOOR)           = the CAMPAIGN LANE. Per-member windows grow up
+#       from `flag_base` (campaign.py enforces the ceiling at the window validator) plus any
+#       campaign-shared authored [[flag]]s (also held below the floor there). The live opening
+#       campaign (372 members x 16 from 8712) spans 8712-14663 -- flush under the floor, and its
+#       windows are BAKED INTO A REAL SAVE: the floor must never move down, and the campaign lane
+#       must never be re-based while that playthrough lives.
+#   [KIT_STANDING_FLOOR, NAMEPLATE_EXPLORED_FLOOR)  = the KIT-STANDING LANE. The single-field AUTO
+#       bands, the behavior Blackboard (flags + byte band), siege request flags, and future named
+#       world-content flags (e.g. the boat parked-position rung). Reserved BIT_REGIONS below keep
+#       authored [[flag]] indices out of the consumed sub-bands.
+# History: pre-partition, the AUTO bands sat at 9100-9599, the Blackboard at flags 8860-9080 +
+# bytes 1220+ (bits 9760+), and siege requests at 8840 -- ALL inside the opening campaign's window
+# span (nothing observed broken: verbatim members had written no window bits yet). Standing fields
+# DEPLOYED under the old bands keep their baked indices until rebuilt -- their once-flags alias
+# campaign windows for members ~24-55 until then (bench-grade exposure). The still-earlier pre-b18
+# legacy bands (event 8000+/cutscene 8100+/choice 8200+/on_entry+ate 8300+) sat below
+# FIRST_SAFE_FLAG entirely (the 8300 band INSIDE the stock Mognet mailbox slots) -- twice moved,
+# both times for the same lesson: bands need one owner and an enforced ceiling.
+KIT_STANDING_FLOOR = 14664                     # first bit of the kit-standing lane; campaign windows end below
+
+# The single-field AUTO once-flag bands (consumed by build._FlagAlloc; content modules alias them).
 # A single-field build auto-allocates a GLOB once/gate flag per unflagged [[event]]/[[cutscene]]/
-# [[choice]]/[[on_entry]]/[ate] block. These bands replaced the pre-b18 legacy bands (event 8000+ /
-# cutscene 8100+ / choice 8200+ / on_entry+ate 8300+): the 8300 band sat INSIDE the stock Mognet
-# mailbox slots (bits 8272-8367 -- whole-byte-written by ordinary play at any real moogle), the 8200
-# band bordered the mailbox counters, and everything sat below FIRST_SAFE_FLAG, outside the audited
-# contract. The new bands live in the safe band, placed ABOVE the behavior compiler's flag band
-# (content/behavior.py Blackboard, 8860-9080) and BELOW its blackboard byte band (bytes 1220+ = bits
-# 9760+), so a field using [behavior] plus defaulted content cannot self-collide. The allocator also
-# skips any flag index the same project references explicitly (collect_safe_flag_indices), so a
-# defaulted block never aliases an authored story flag. Campaign members don't use these bands at all
-# (they pack into per-member windows from `flag_base`, default FIRST_SAFE_FLAG).
-AUTO_BAND_WIDTH = 100                          # per-lane band width; the allocator raises on exhaustion
-AUTO_EVENT_BASE = 9100                         # [[event]] auto once-flags: 9100-9199
-AUTO_CUTSCENE_BASE = 9200                      # [[cutscene]] GLOB once-flags: 9200-9299
-AUTO_CHOICE_BASE = 9300                        # zone-[[choice]] gate flags: 9300-9399
-AUTO_ONENTRY_BASE = 9400                       # [[on_entry]] once-flags: 9400-9499
-AUTO_ATE_BASE = 9500                           # the [ate] availability flag: 9500-9599
+# [[choice]]/[[on_entry]]/[ate] block. The allocator also skips any flag index the same project
+# references explicitly (collect_safe_flag_indices), so a defaulted block never aliases an authored
+# story flag. Campaign members don't use these bands at all (they pack into per-member windows from
+# `flag_base`, default FIRST_SAFE_FLAG).
+# The lane holds 1384 bits total (14664..16047) and the Blackboard BYTE band is the scarce resource
+# (the condor-scale hand map ran 113 bytes), so the budget is: AUTO 5x40 -> Blackboard flags 96 ->
+# siege 16 -> named world flags 32 -> Blackboard BYTES 114 -> the modal-result home (unreserved).
+AUTO_BAND_WIDTH = 40                           # per-lane band width; the allocator raises on exhaustion
+                                               # (was 100 pre-partition -- no real field carries 40+
+                                               # defaulted blocks of one type; explicit flags relieve it)
+AUTO_EVENT_BASE = 14664                        # [[event]] auto once-flags: 14664-14703
+AUTO_CUTSCENE_BASE = 14704                     # [[cutscene]] GLOB once-flags: 14704-14743
+AUTO_CHOICE_BASE = 14744                       # zone-[[choice]] gate flags: 14744-14783
+AUTO_ONENTRY_BASE = 14784                      # [[on_entry]] once-flags: 14784-14823
+AUTO_ATE_BASE = 14824                          # the [ate] availability flag: 14824-14863
+
+# The rest of the kit-standing lane (owners import these; flags.py is the single source of truth):
+BEHAVIOR_FLAG_BASE = 14864                     # content/behavior.py Blackboard flag band: 14864-14959
+BEHAVIOR_FLAG_END = 14959
+SIEGE_REQUEST_BASE = 14960                     # content/siege.py request flags: 14960-14975
+KIT_WORLD_FLAG_BASE = 14976                    # named standing world-content flags: 14976-15007
+                                               # (reserved for e.g. the boat parked-position rung)
+BEHAVIOR_BYTE_BASE = 1876                      # Blackboard byte band: bytes 1876-1989 (bits 15008-15919;
+BEHAVIOR_BYTE_END = 1989                       # byte 1876 = bit 15008, flush after the flag sub-bands).
+                                               # Ends BELOW the modal-result home: bytes 1990-2005 stay
+                                               # UNRESERVED so [[qte]]/[[numeric_input]] `result` words
+                                               # (canonical guidance "e.g. 2000", cap RESULT_WORD_CAP=
+                                               # 2004) keep a clear heap-top landing -- the 172c8b98
+                                               # lesson, nearly re-created by this very partition when
+                                               # the byte band first claimed 1928-2005.
 
 
 # ============================ the registry ============================
@@ -173,6 +210,29 @@ NAMED_WORDS = [
 # Specific named bits are listed BEFORE the broad band they sit inside, so bit_region() resolves the
 # precise name first (e.g. bit 815 -> "mognet_central_discovered", not the broad "worldmap_unlocks").
 BIT_REGIONS = [
+    BitRegion("kit_auto_once_bands", AUTO_EVENT_BASE, AUTO_ATE_BASE + AUTO_BAND_WIDTH - 1,
+              "The kit-standing AUTO once-flag bands (event/cutscene/choice/on_entry/ate, "
+              "AUTO_BAND_WIDTH bits each): build._FlagAlloc packs a single-field build's defaulted "
+              "content gates here. NOT reserved -- the documented contract is cooperative: an "
+              "authored [[flag]] may claim an index here and the allocator SKIPS it "
+              "(collect_safe_flag_indices), so refusal would break the skip mechanism.", False, "a",
+              "flags.py safe-band partition (2026-07-27)"),
+    BitRegion("behavior_blackboard_flags", BEHAVIOR_FLAG_BASE, BEHAVIOR_FLAG_END,
+              "The behavior compiler's Blackboard flag band (content/behavior.py): compiled tree "
+              "state, cleared/preset by the emitted Main_Init. Kit-owned.", True, "a",
+              "content/behavior.py Blackboard"),
+    BitRegion("siege_request_flags", SIEGE_REQUEST_BASE, KIT_WORLD_FLAG_BASE - 1,
+              "The [siege] war-council request flags (content/siege.py). Kit-owned.", True, "a",
+              "content/siege.py REQUEST_FLAG_BASE"),
+    BitRegion("kit_world_flags", KIT_WORLD_FLAG_BASE, KIT_WORLD_FLAG_BASE + 31,
+              "Named standing world-content flags (reserved ahead: the boat parked-position rung "
+              "and kin allocate here by name).", True, "a", "flags.py safe-band partition"),
+    BitRegion("behavior_blackboard_bytes", BEHAVIOR_BYTE_BASE * 8, BEHAVIOR_BYTE_END * 8 + 7,
+              "The behavior Blackboard BYTE band (bytes 1876-1989): compiled counters/timers/vars, "
+              "cleared/preset by the emitted Main_Init. A story bit here lands inside a compiled "
+              "variable. Bytes 1990-2005 above it are deliberately UNRESERVED -- the modal-result "
+              "home ([[qte]]/[[numeric_input]] `result` Int16s, cap RESULT_WORD_CAP).", True, "a",
+              "content/behavior.py Blackboard byte band"),
     BitRegion("nameplate_explored_words", 16048, 16143, "The kit's EXTENDED-NAMEPLATE explored words "
               "(bytes 2006-2017): one save-persistent 'visited' bit per virgin nameplate case 65-155, "
               "read by the kit-extended func-0xB in every free-roam dispatcher and set by virgin-band "
