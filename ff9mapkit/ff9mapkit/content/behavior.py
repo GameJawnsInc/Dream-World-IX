@@ -415,6 +415,8 @@ class SwingAt(Action):
 
 OP_RUN_ANIMATION = 0x40             # ANIM — one-shot clip on the running object
 OP_WAIT_ANIMATION = 0x41            # WAITANIM — block until it finishes
+OP_SET_STAND_ANIM = 0x33            # the object's IDLE clip (what it reverts to)
+OP_SET_WALK_ANIM = 0x34             # ... and its WALK clip (what a blocked walk drives)
 
 
 @dataclass
@@ -2674,16 +2676,26 @@ class FieldBehavior:
             # falls (nothing targets it, its mirror stops) — the body holds the
             # dispatch level throughout, which is exactly what we want: a dying
             # unit does nothing else.
-            # ⚠ NO WaitAnimation here (rung-E round-2 playtest: with it, NOTHING
-            # played). The one death shape PROVEN to render is the swing body's:
-            # a bare fire-and-forget RunAnimation, with the body then ticking
-            # ordinary Waits while the clip advances. Blocking the level-4 body
-            # in WAITANIM instead showed no clip at all, so the corpse holds on
-            # `linger` frames — which also makes the beat an authored number
-            # rather than a clip length we cannot measure offline.
+            # THE DEATH POSE (rung-E round 3 → 4, both halves playtest-driven):
+            #   * NO WaitAnimation — blocking the level-4 body in WAITANIM
+            #     rendered nothing at all (round 2). Fire-and-forget renders.
+            #   * RunAnimation ALONE is not enough either. A one-shot ENDS, and
+            #     the object then reverts to its STAND clip — round 3's soldier
+            #     knelt, stood back up, and only then vanished. And a unit that
+            #     dies mid-march is still driven by a blocked Walk, whose WALK
+            #     clip overrode the one-shot entirely — round 3's raiders showed
+            #     no clip at all. So the death clip is installed as the object's
+            #     stand AND walk animation first (the same 0x33/0x34 setters the
+            #     NPC Init uses for its movement slots): whatever the engine
+            #     drives next, it drives THIS clip, and the pose holds until the
+            #     corpse is removed.
             fall: list = []
             if a.anim is not None:
-                fall.append(opcodes.encode(OP_RUN_ANIMATION, int(a.anim)))
+                fall += [
+                    opcodes.encode(OP_SET_STAND_ANIM, int(a.anim)),
+                    opcodes.encode(OP_SET_WALK_ANIM, int(a.anim)),
+                    opcodes.encode(OP_RUN_ANIMATION, int(a.anim)),
+                ]
             if a.linger:
                 fall.append(opcodes.wait(int(a.linger)))
             return asm([

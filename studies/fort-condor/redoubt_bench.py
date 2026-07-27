@@ -234,17 +234,18 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
-  6 FIGHT THEATER -- round 3. THE DEATH CLIP IS THE OPEN QUESTION:
-    round 2 held the dispatch level (fixing "soldiers still swing after
-    death") but played NO clip at all. The difference from the swing clip
-    -- which demonstrably renders, that is what twisted the defender -- was
-    WaitAnimation. Death now uses the swing's proven shape: a bare
-    fire-and-forget RunAnimation, then the corpse holds `linger` frames
-    (now 60 = ~1s) while the clip plays.
-    WATCH A SOLDIER DIE (the F0 rig, kneel) and A MU DIE (lunge):
-      - does a clip actually play now, or does it still just stand and
-        vanish after a beat? Either answer is useful.
-      - and it must STILL not swing while dying (round 2's fix).
+  6 FIGHT THEATER -- round 4, THE DEATH POSE. Round 3 taught us two things
+    at once: the soldier's kneel PLAYED but then ENDED and he stood back up
+    before vanishing (a one-shot reverts to the STAND clip), and the mu
+    showed nothing at all (it dies mid-march, and the blocked walk's WALK
+    clip overrode the one-shot). So the death clip is now installed as the
+    object's stand AND walk animation before firing it -- whatever the
+    engine drives next, it drives the death clip, and the pose HOLDS.
+    WATCH A SOLDIER DIE and A MU DIE:
+      - the soldier should kneel and STAY down until he vanishes (no
+        standing back up);
+      - the mu should now actually play its lunge instead of blinking out;
+      - neither should swing while dying (round 2's fix, already good).
     Also unchanged from round 2: only the SHOOTER (the F3 rig) swings with
     a real attack clip -- the F0 soldier and F1 defender own none in their
     own form (the cross-form trap), so they simply do not play one; every

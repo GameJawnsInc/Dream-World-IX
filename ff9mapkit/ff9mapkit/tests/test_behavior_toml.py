@@ -1273,8 +1273,9 @@ def test_swing_and_death_theater():
                  if any(i.op == 0x1C for i in D.iter_code(body, 0, len(body))))
     seq = []
     for ins in D.iter_code(death, 0, len(death)):
-        if ins.op == 0x40:
-            seq.append(("anim", ins.imm(0)))
+        if ins.op in (0x33, 0x34, 0x40):
+            seq.append(({0x33: "stand", 0x34: "walk", 0x40: "anim"}[ins.op],
+                        ins.imm(0)))
         elif ins.op == 0x41:
             seq.append("waitanim")
         elif ins.op == 0x22:
@@ -1285,10 +1286,13 @@ def test_swing_and_death_theater():
     # never dispatch again (the rung-E "still swinging after death" playtest)
     runs = [ins for ins in D.iter_code(death, 0, len(death)) if ins.op == 0x05]
     assert any("const(255)" in D.pretty_expr(death, i.off + 1)[0] for i in runs)
-    # NO WaitAnimation: blocking the level-4 body in WAITANIM rendered NOTHING
-    # in-game (rung-E round 2). The proven shape is fire-and-forget + a Wait,
-    # so `linger` is the visible beat.
-    assert seq == [("anim", kneel), ("wait", 45), "terminate"]
+    # THE DEATH POSE, both halves playtest-driven: no WaitAnimation (round 2
+    # rendered nothing), and the clip is installed as the object's STAND + WALK
+    # animation before the one-shot — otherwise it ends and the model stands
+    # back up (round 3's soldier), or a blocked march's walk clip overrides it
+    # outright (round 3's raiders).
+    assert seq == [("stand", kneel), ("walk", kneel), ("anim", kneel),
+                   ("wait", 45), "terminate"]
     # the SWING body: the clip is FIRE-AND-FORGET (no WaitAnimation would wedge
     # the loop) and the hit cue rides with it, both after the damage write
     swing = next(body for _t, body in cb.action_funcs["guard"]
