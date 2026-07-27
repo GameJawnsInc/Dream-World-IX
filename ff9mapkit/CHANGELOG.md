@@ -13,7 +13,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the `counter_ge` gate means a busy tick can never swallow one.
 - `alarm_sfx` cues the breach alarm the same way, and `text_alarm` now accepts a **list**,
   staging like the ending texts. A siege declaring none of these emits the proven shapes
-  byte-for-byte — one plain alarm, no wave branches (regression-pinned).
+  byte-for-byte — one plain alarm, no wave branches (regression-pinned). Cast-proven:
+  "wave heralds land, sounds read fine."
 
 ### Added — `behavior lint` catches THE CLOCK-COUPLED BATTLE LAW
 - A field with a `timer` that fires a `battle` now has that scene's own AI read from the
