@@ -128,6 +128,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Custom-character animsets (`playable-anims`) | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
 | One-click add-on Import/Export FF9 Model | ✓ | [blender/README](../blender/README.md) |
 | **Summon transplants** (`[[summon]]`) — wear a stock summon's real bones/camera with your own model; `summon-export`/`summon-rig-ref`/`summon-import`/`summon-deploy` round-trip; hybrid (real motion, needs the custom engine) vs overlay (DLL-free, baked clips) lanes | ◐ *(experimental — the productized pipeline is offline-tested; the hand-built prototype it's built from is in-game proven)* | [SUMMONS](SUMMONS.md) |
+| **Summon recolour/reframe in place** (`summon-reskin` / `summon-rescore`) — CLUT-recolour a stock summon's creature *and* its own scenery, or reframe its camera's pose/focal distance, with durations and byte length untouched; stock bytes never edited, ships as a mod-folder override + revert script | ✓ *(cast-proven in-game on Bahamut ef227 — reframed, retimed, whole-set recoloured — and, after generalising past that one effect, on Phoenix ef211 and Madeen ef251)* | [SUMMONS](SUMMONS.md) |
 
 ## Overworld
 

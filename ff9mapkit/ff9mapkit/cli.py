@@ -2089,6 +2089,401 @@ def _cmd_summon_seq_lint(args: argparse.Namespace) -> int:
     return rc
 
 
+# ---------------------------------------------------------------- the summon CONTAINER-EDIT lanes
+# `summon-reskin` (palettes) and `summon-rescore` (camera) edit a STOCK effect container in place --
+# no model, no donor, no transplant.  They climb the same sub-verb ladder, stage into the same
+# local-only tree, deploy through the same ledger and refuse on the same ModFileList law, so the
+# machinery below is shared rather than written twice and left to drift.
+
+#: the sub-verb ladder, in the order an author walks it.
+_SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert")
+
+
+class _SummonEditUsage(Exception):
+    """A usage refusal in the edit lanes (a missing ``--ef``, a spec that cannot be resolved).
+
+    Raised rather than handed to ``argparse.error`` so it exits 2 like every other refusal in these
+    verbs: to the author, "you did not say which effect" and "this build refuses to stage" are the
+    same class of answer -- the tool declined and said why -- and giving them different exit codes
+    would make a wrapper script treat one of them as a verdict.
+    """
+
+    #: what the refusal banner calls this, instead of a private class name nobody can act on.
+    REFUSAL_LABEL = "usage"
+
+
+def _summon_edit_game(args, *, required: bool):
+    """The resolved FF9 install root, or ``None`` when absent and ``required`` is False.
+
+    Both edit verbs declare ``--game`` with ``default=argparse.SUPPRESS`` so a ROOT-level ``--game``
+    SURVIVES into the subcommand: a subparser option carrying a literal default silently OVERWRITES
+    the value the root parser already parsed (the live trap ``summon-deploy``/``summon-import`` still
+    carry).  Read through ``getattr`` rather than ``args.game`` because SUPPRESS means this subparser
+    contributes the attribute only when the flag was actually given -- whether it exists at all is
+    then the ROOT parser's business, and a handler that depends on another parser's defaults staying
+    put has a bug waiting for the day they do not.
+    """
+    from . import config
+    try:
+        return config.find_game_path(getattr(args, "game", None))
+    except config.ConfigError:
+        if required:
+            raise
+        return None
+
+
+def _summon_edit_mod_root(args):
+    """The mod folder ``deploy``/``revert`` act on: ``--root`` wins, else the documented resolver.
+
+    Below ``--root`` the order is :func:`ff9mapkit.config.resolve_mod_folder`'s --
+    ``--mod-folder`` > ``$FF9_MOD_FOLDER`` > the nearest ``.ff9deploy.toml`` > ``FF9CustomMap``.
+
+    THE ROOT-DEFAULT READING: the root parser gives ``--mod-folder`` the literal default
+    ``FF9CustomMap``, so by the time a handler sees it, "the user typed the default" and "the user
+    said nothing at all" are the same string.  It is read as UNSET, so a checkout that pinned its own
+    folder in ``.ff9deploy.toml`` is not overruled by a default nobody typed -- that silent overrule
+    is the shared-install collision the pin exists to prevent.  The cost is stated rather than
+    hidden: typing ``--mod-folder FF9CustomMap`` inside a pinned checkout still resolves the pin, and
+    ``--root`` is the way to name a folder unconditionally.
+    """
+    from pathlib import Path
+
+    from . import config
+    root = getattr(args, "root", None)
+    if root:
+        return Path(root)
+    explicit = getattr(args, "mod_folder", None)
+    if explicit == config.DEFAULT_MOD_FOLDER:
+        explicit = None
+    game = config.find_game_path(getattr(args, "game", None))
+    return config.find_mod_root(game, config.resolve_mod_folder(explicit))
+
+
+def _summon_edit_emit_spec(text: str, out, force: bool, what: str) -> int:
+    """Write a scaffolded spec to ``out``, or stream it to stdout when ``out`` is None.
+
+    Never over an existing file without ``--force``: silently replacing an author's finished spec
+    with a fresh identity scaffold is the single most destructive thing either scaffold verb could do
+    -- the law :func:`ff9mapkit.summons.rescore.write_scaffold` already enforces for the camera lane,
+    applied here so the palette lane cannot answer the same mistake differently.
+    """
+    from pathlib import Path
+
+    from . import fsutil
+    if not out:
+        sys.stdout.write(text)
+        return 0
+    p = Path(out)
+    if p.exists() and not force:
+        print("%s already exists. `scaffold` refuses to overwrite an authored spec -- pass --force "
+              "if you really mean to replace it." % p, file=sys.stderr)
+        return 2
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_text(p, text, encoding="utf-8", newline="\n")
+    print("wrote %s (%d lines) -- a guarded %s spec at IDENTITY (it builds 0 changed bytes; move one "
+          "number at a time)" % (p, text.count("\n"), what))
+    return 0
+
+
+def _summon_edit_spec_path(args, suffix: str):
+    """The spec to act on: the positional if given, else ``ef###_<suffix>.toml`` in the CWD.
+
+    Resolved against the CURRENT DIRECTORY, never against the package directory: a module-relative
+    default would resolve to a path inside site-packages that holds no toml, which is a refusal
+    dressed up as a lookup.
+    """
+    if args.spec:
+        return args.spec
+    if args.ef is None:
+        raise _SummonEditUsage(
+            "`%s` needs a spec file: pass the *_%s.toml as the positional argument, or --ef N to "
+            "resolve ef<NNN>_%s.toml in the current directory." % (args.action, suffix, suffix))
+    return "ef%03d_%s.toml" % (args.ef, suffix)
+
+
+def _summon_edit_effect(args, suffix: str, table: str) -> int:
+    """Which effect a sub-verb is about, WITHOUT reading the install or building anything.
+
+    ``revert`` has to work on a machine whose install has moved or gone, so the effect id comes from
+    ``--ef`` or straight out of the spec's own ``[<table>] effect`` -- never from a build.
+    """
+    import tomllib
+    if args.ef is not None:
+        return int(args.ef)
+    path = _summon_edit_spec_path(args, suffix)
+    try:
+        with open(path, "rb") as fh:
+            doc = tomllib.load(fh)
+        return int((doc.get(table) or {})["effect"])
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise _SummonEditUsage("cannot read the effect id from %s (%s) -- pass --ef N instead"
+                               % (path, e))
+
+
+def _summon_edit_revert(script, args, what: str) -> int:
+    """Run a ledger-emitted revert script.
+
+    Run as a SUBPROCESS, not exec'd in-process: that file is the offline handoff artifact -- stdlib
+    only, no ``ff9mapkit`` import, ``--root``-rebasable, ``--dry-run``-aware -- and running it exactly
+    the way a user without the kit installed would run it is what keeps the two paths honest.  A
+    handler that re-implemented the plan would be testing a second implementation.
+
+    THE RE-TARGETING LAW: a revert's destination is a HISTORICAL FACT, not a preference.  The plan
+    already knows the folder its writes landed in and bakes it in as the script's own default, so
+    this handler re-targets it ONLY on an explicit per-invocation ``--root`` or ``--mod-folder``.
+
+    Silently rebasing onto "whatever folder resolves right now" is destructive in a way nothing would
+    warn about: a ledger entry for a file the build newly CREATED records no backup, so the revert
+    DELETES it -- and rebased onto a mod folder that plate never wrote to, that deletes somebody
+    else's perfectly good override.  A staged build reverted against the live install, or a dry-run
+    deploy reverted after the pin changed, would both do exactly that.  The resolver's answer is
+    still printed, so a mismatch is visible rather than acted on.
+    """
+    import subprocess
+    from pathlib import Path
+
+    script = Path(script)
+    if not script.is_file():
+        print("nothing to revert: no ledger revert script at %s.\n"
+              "  `deploy` writes one the moment it touches a mod folder.  A `build` only stages into "
+              "a local tree and has nothing to undo in a mod folder -- delete the staging root "
+              "instead." % script, file=sys.stderr)
+        return 2
+    from . import config
+    explicit = bool(getattr(args, "root", None)) or \
+        getattr(args, "mod_folder", None) not in (None, config.DEFAULT_MOD_FOLDER)
+    cmd = [sys.executable, str(script)]
+    if explicit:
+        target = _summon_edit_mod_root(args)
+        cmd += ["--root", str(target)]
+        where = "RE-TARGETED to %s (you named it)" % target
+    else:
+        where = ("wherever this plan recorded its writes -- pass --root to re-target it deliberately "
+                 "(a revert's destination is history, not a preference)")
+    if args.dry_run:
+        cmd.append("--dry-run")
+    print("%s revert: %s\n  %s%s"
+          % (what, script, where, "\n  *** DRY RUN -- nothing will be written ***"
+             if args.dry_run else ""))
+    return subprocess.call(cmd)
+
+
+def _cmd_summon_reskin(args: argparse.Namespace) -> int:
+    """Recolour a STOCK summon's palettes in place -- no model, no donor, the container's own CLUTs.
+
+    `scaffold` reads the container and EMITS a fully guarded spec with every knob at identity;
+    `plan` resolves every target and prints the derivation, the transforms and all five gate groups
+    without writing a byte; `build` stages the patched container + previews + the deploy/revert
+    scripts under a local-only root; `verify` re-reads what is staged AS BYTES; `deploy` writes into
+    the resolved mod folder through the ledger; `revert` runs that ledger's own script."""
+    from pathlib import Path
+
+    from . import config
+    from .summons import camera as _cam
+    from .summons import ledger as _led
+    from .summons import reskin as rk
+
+    refusals = (rk.ReskinError, rk.R.RescoreError, _cam.SummonCameraError, _led.LedgerError,
+                config.ConfigError, _SummonEditUsage, ValueError, OSError)
+    try:
+        if args.action == "scaffold":
+            if args.ef is None:
+                raise _SummonEditUsage("`scaffold` needs --ef N (the stock effect id to read)")
+            blob, src = None, ""
+            if args.from_path:
+                blob, src = Path(args.from_path).read_bytes(), args.from_path
+            text, _pmap = rk.scaffold(args.ef, blob=blob, game=getattr(args, "game", None),
+                                      source=src)
+            return _summon_edit_emit_spec(text, args.out, args.force, "reskin")
+
+        if args.action == "revert":
+            ef = _summon_edit_effect(args, "reskin", "reskin")
+            root = Path(args.out or rk.staging_root(ef))
+            return _summon_edit_revert(root / ("revert_summon_reskin_ledger_%d.py" % ef),
+                                       args, "summon-reskin")
+
+        spec_path = _summon_edit_spec_path(args, "reskin")
+        # `--from` is honoured on every reading sub-verb, not only `scaffold`: the whole gate stack
+        # (span guards, per-target guards, shared/multi-writer/dual-depth/texanim/headroom, the drift
+        # guard) runs identically on caller-supplied bytes, so an offline container is checked exactly
+        # as hard as the install's -- a law that held on only one of two entry paths would not be one.
+        blob = Path(args.from_path).read_bytes() if args.from_path else None
+        b = rk.build(rk.load_spec(spec_path), spec_path, getattr(args, "game", None), blob=blob)
+        b.check = rk.self_check(b)
+        print("\n".join(rk.describe(b)))
+        print("\n".join(rk.check_lines(b)))
+        # A real deploy MUST resolve the install (that is where it writes); every other path, the
+        # dry run included, works without one -- a rehearsal that needs the thing it is rehearsing
+        # not to touch is not a rehearsal.
+        game_root = _summon_edit_game(args, required=args.action == "deploy" and not args.dry_run)
+
+        if args.action == "plan":
+            if args.previews:
+                files = rk.render_previews(b, Path(args.out or rk.staging_root(b.effect))
+                                           / "previews")
+                print("\n  previews (decoded STOCK art -- local-only, never committable):")
+                for f in files:
+                    print("    %s" % f)
+            else:
+                print("\nplan only -- nothing written.")
+            return 0 if b.check.ok else 1
+
+        if args.action == "verify":
+            res = rk.verify(b, root=args.out or None)
+            print("")
+            for line in res["lines"]:
+                print("  %s" % line)
+            ok = bool(res["ok"]) and b.check.ok
+            print("\n  VERIFY: %s" % ("PASS" if ok else "FAIL"))
+            return 0 if ok else 1
+
+        # build / deploy both WRITE, so both are gated on the self-check first.
+        if not b.check.ok:
+            print("\nREFUSING TO STAGE -- the self-check failed (see the gates above).",
+                  file=sys.stderr)
+            return 1
+
+        if args.action == "build":
+            out = rk.stage(b, root=args.out or None, game_root=game_root,
+                           previews=not args.no_previews)
+            print("\n  STAGED")
+        else:                                                    # deploy
+            root = Path(args.out or rk.staging_root(b.effect))
+            mod_root = (root / "dry-run-mod") if args.dry_run else _summon_edit_mod_root(args)
+            out = rk.stage(b, root=root, game_root=game_root, allow_install=not args.dry_run,
+                           previews=not args.no_previews, mod_root=mod_root,
+                           refuse_modfilelist=True)
+            print("\n  %s" % ("DRY RUN -- staged into a local mirror, the mod folder is untouched"
+                              if args.dry_run else "DEPLOYED"))
+        for k, v in out.items():
+            if k in ("transforms", "per_target_bytes"):
+                continue
+            if isinstance(v, dict):
+                for k2, v2 in v.items():
+                    print("    %-22s %s" % (k2, v2))
+            elif isinstance(v, list):
+                for v2 in v:
+                    print("    %-22s %s" % (k, v2))
+            else:
+                print("    %-22s %s" % (k, v))
+        if args.action == "deploy" and not args.dry_run:
+            print("    SFX.Play re-reads the container and wipes the texture cache on every cast, so "
+                  "the recolour is live on the NEXT cast -- no relaunch, no reload.")
+        return 0
+    except refusals as e:
+        # A refusal is a RESULT of these verbs, so it is presented as one -- a traceback would bury
+        # the paragraph the author is meant to read.  The CLASS is named alongside the message
+        # because `ValueError`/`OSError` are in the net for spec and IO problems, and an unexpected
+        # one of those must stay distinguishable from a gate that deliberately said no.
+        print("\nREFUSED (%s)\n%s" % (getattr(e, "REFUSAL_LABEL", type(e).__name__), e),
+              file=sys.stderr)
+        return 2
+
+
+def _cmd_summon_rescore(args: argparse.Namespace) -> int:
+    """Re-frame a STOCK summon's CAMERA in place -- pose/orientation/focal on its own camera blocks.
+
+    Same ladder as `summon-reskin`: `scaffold` emits a guarded identity spec derived from the
+    container's own id-2 camera archive, `plan` builds + prints the delta/splice/self-check without
+    writing, `build` stages, `verify` re-reads the staged bytes, `deploy` writes into the resolved
+    mod folder through the ledger and `revert` runs that ledger's script.  This lane may not touch a
+    duration, a frame word, or the block's byte length -- refused at the call site, not in a note."""
+    import os
+    from pathlib import Path
+
+    from . import config
+    from .summons import camera as _cam
+    from .summons import ledger as _led
+    from .summons import rescore as rs
+
+    refusals = (rs.RescoreError, _cam.SummonCameraError, _led.LedgerError, config.ConfigError,
+                _SummonEditUsage, ValueError, OSError)
+    try:
+        if args.action == "read":
+            if args.ef is None:
+                raise _SummonEditUsage("`read` needs --ef N (the stock effect id to read)")
+            if args.from_path:
+                blob, source = Path(args.from_path).read_bytes(), args.from_path
+            else:
+                blob, source = rs.read_stock_effect(args.ef, getattr(args, "game", None))
+            print("\n".join(_cam.read_out(blob, source, machines=())))
+            return 0
+
+        if args.action == "scaffold":
+            if args.ef is None:
+                raise _SummonEditUsage("`scaffold` needs --ef N (the stock effect id to read)")
+            if args.from_path:
+                blob, source = Path(args.from_path).read_bytes(), args.from_path
+            else:
+                blob, source = rs.read_stock_effect(args.ef, getattr(args, "game", None))
+            # `machines=()` always: the tier-R state-machine recovery is a study-only instrument and
+            # was deliberately not promoted, so the scaffold reports no reframe BUDGET column rather
+            # than dragging a MIPS disassembler into the package for one advisory line.
+            sc = rs.scaffold(args.ef, blob, source, machines=())
+            print("\n".join(rs.scaffold_summary(sc)), file=sys.stderr if not args.out else sys.stdout)
+            return _summon_edit_emit_spec(sc.text, args.out, args.force, "rescore")
+
+        if args.action == "revert":
+            ef = _summon_edit_effect(args, "rescore", "rescore")
+            work = Path(args.out or rs.staging_root(ef))
+            return _summon_edit_revert(work / ("revert_summon_camera_%d.py" % ef),
+                                       args, "summon-rescore")
+
+        spec_path = _summon_edit_spec_path(args, "rescore")
+        # See `_cmd_summon_reskin`: `--from` reads a container FILE on every sub-verb, and the drift
+        # guard, the alternates check and the self-check all run on those bytes unchanged.
+        blob = Path(args.from_path).read_bytes() if args.from_path else None
+        b = rs.build_patched(rs.load_spec(spec_path), spec_path, getattr(args, "game", None),
+                             blob=blob)
+        print("\n".join(rs.describe(b)))
+        # See `_cmd_summon_reskin`: only a REAL deploy needs the install resolved.
+        game_root = _summon_edit_game(args, required=args.action == "deploy" and not args.dry_run)
+
+        if args.action == "plan":
+            print("\nplan only -- nothing written.")
+            return 0 if (b.check is None or b.check.ok) else 1
+
+        if args.action == "verify":
+            res = rs.verify(b, mod_root=os.path.join(args.out, "mod") if args.out else None)
+            print("\n  VERIFY  %s\n    %d B on disc, sha %s\n    %s"
+                  % ("PASS" if res["ok"] else "FAIL", res["bytes"],
+                     (res["sha256"] or "-")[:16], res["reason"]))
+            return 0 if res["ok"] else 1
+
+        if b.check is not None and not b.check.ok:
+            print("\nREFUSING TO STAGE -- the self-check failed (see above).", file=sys.stderr)
+            return 1
+
+        if args.action == "build":
+            out = rs.stage(b, mod_root=os.path.join(args.out, "mod") if args.out else None,
+                           work_dir=args.out or None, game_root=game_root)
+            print("\n  STAGED")
+        else:                                                    # deploy
+            # The work dir is passed EXPLICITLY on this path.  `stage` derives its default from the
+            # resolved mod root's parent, which on a deploy is a directory inside the game install --
+            # backups and the revert script must never land there.
+            work = Path(args.out or rs.staging_root(b.effect))
+            mod_root = (work / "dry-run-mod") if args.dry_run else _summon_edit_mod_root(args)
+            out = rs.stage(b, mod_root=mod_root, work_dir=work, game_root=game_root,
+                           allow_install=not args.dry_run, refuse_modfilelist=True)
+            print("\n  %s" % ("DRY RUN -- staged into a local mirror, the mod folder is untouched"
+                              if args.dry_run else "DEPLOYED"))
+        for k, v in out.items():
+            print("    %-22s %s" % (k, v))
+        if not out["modfilelist_present"]:
+            print("    (no ModFileList.txt in this mod folder -- correct: one must never be CREATED, "
+                  "or every OTHER file in the folder becomes invisible at a stroke)")
+        return 0
+    except refusals as e:
+        # A refusal is a RESULT of these verbs, so it is presented as one -- a traceback would bury
+        # the paragraph the author is meant to read.  The CLASS is named alongside the message
+        # because `ValueError`/`OSError` are in the net for spec and IO problems, and an unexpected
+        # one of those must stay distinguishable from a gate that deliberately said no.
+        print("\nREFUSED (%s)\n%s" % (getattr(e, "REFUSAL_LABEL", type(e).__name__), e),
+              file=sys.stderr)
+        return 2
+
+
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
     from pathlib import Path
@@ -6248,6 +6643,88 @@ def build_parser() -> argparse.ArgumentParser:
                      help="comma-separated particle .sfxmodel file names that WILL be staged beside the "
                           "sequence; every `SFXModel=` path must resolve into this set")
     ssl.set_defaults(func=_cmd_summon_seq_lint)
+
+    def _add_summon_edit_args(sp, *, lane: str, suffix: str):
+        """The sub-verb ladder + the flags BOTH container-edit lanes share.
+
+        ``--game`` and ``--mod-folder`` are declared ``default=argparse.SUPPRESS`` deliberately: a
+        subparser option carrying a literal default OVERWRITES the value the ROOT parser already
+        parsed, so ``ff9mapkit --mod-folder X summon-reskin deploy ...`` would silently deploy into
+        FF9CustomMap.  That is not hypothetical -- ``summon-import``/``summon-deploy`` still carry it
+        (retro-fitting them changes where they deploy, a separate decision).  SUPPRESS means this
+        parser contributes the attribute only when the flag is actually given, so whatever the root
+        already parsed is what the handler sees; the handlers read both through
+        ``getattr(args, name, None)`` so they never depend on the root parser's own defaults.
+        """
+        actions = list(_SUMMON_EDIT_ACTIONS) + (["read"] if lane == "rescore" else [])
+        sp.add_argument("action", choices=actions,
+                        help="scaffold: read the stock container and EMIT a guarded spec, every knob "
+                             "at identity | plan: build + print every gate, write nothing | build: "
+                             "stage the patched container + its scripts under a local-only root | "
+                             "verify: re-read what is staged AS BYTES and diff it against a fresh "
+                             "rebuild | deploy: write into the resolved mod folder through the ledger "
+                             "| revert: run that ledger's own revert script"
+                             + (" | read: print the full shot read-out (W1's READ-OUT -- every "
+                                "keyframe in human terms), writing nothing" if lane == "rescore"
+                                else ""))
+        sp.add_argument("spec", nargs="?", default=None,
+                        help="the *_%s.toml (plan/build/verify/deploy, and revert when --ef is "
+                             "omitted). With only --ef N, ef###_%s.toml is resolved in the CURRENT "
+                             "directory -- never beside the package" % (suffix, suffix))
+        sp.add_argument("--ef", type=int, default=None,
+                        help="the stock effect id. REQUIRED by `scaffold`; resolves the spec (and, "
+                             "for `revert`, the staging root) for the others")
+        sp.add_argument("--from", dest="from_path", default=None,
+                        help="read this container FILE instead of the install's resources.assets -- "
+                             "for an effect this install cannot resolve, or to work offline. Honoured "
+                             "by every sub-verb that reads a container, not just scaffold: the drift "
+                             "guard runs on the supplied bytes exactly as it does on the install's, "
+                             "so a stale file is refused rather than trusted")
+        sp.add_argument("--out", default=None,
+                        help="scaffold: write the emitted toml here instead of stdout. Every other "
+                             "sub-verb: the STAGING ROOT (default: a per-effect dir under the kit's "
+                             "local-only summon output root; the repo, a mod-asset tree and the "
+                             "install are refused there, with no --force)")
+        sp.add_argument("--force", action="store_true",
+                        help="scaffold: overwrite an existing spec (refused by default -- replacing "
+                             "an authored spec with a fresh identity scaffold is unrecoverable)")
+        sp.add_argument("--root", default=None,
+                        help="the mod folder, named unconditionally. deploy: without it the "
+                             "destination comes from --mod-folder > $FF9_MOD_FOLDER > the nearest "
+                             ".ff9deploy.toml > FF9CustomMap. revert: without it (or an explicit "
+                             "--mod-folder) the revert runs where the plan RECORDED its writes -- a "
+                             "revert's destination is history, not a preference, and rebasing one "
+                             "onto a folder it never wrote to deletes somebody else's override")
+        sp.add_argument("--dry-run", dest="dry_run", action="store_true",
+                        help="deploy: stage into a local dry-run mirror instead of the mod folder "
+                             "(the ledger and its revert script are still exercised). revert: print "
+                             "what would be restored or deleted and write nothing")
+        sp.add_argument("--mod-folder", dest="mod_folder", default=argparse.SUPPRESS,
+                        help="mod folder name inside the install (deploy/revert). SUPPRESS-defaulted "
+                             "so a root-level --mod-folder survives into this subcommand")
+        sp.add_argument("--game", default=argparse.SUPPRESS,
+                        help="path to the FF9 install (default: auto-detect). SUPPRESS-defaulted so a "
+                             "root-level --game survives into this subcommand")
+
+    srk = sub.add_parser("summon-reskin",
+                         help="RECOLOUR a stock summon in place -- its own CLUT palettes, hue/"
+                              "saturation/value, no model and no donor. Every guard is derived from "
+                              "the container, and a shared / multi-writer / dual-depth / "
+                              "texanim-armed / zero-headroom palette REFUSES rather than flickers")
+    _add_summon_edit_args(srk, lane="reskin", suffix="reskin")
+    srk.add_argument("--previews", action="store_true",
+                     help="plan: ALSO render the before/after previews (decoded stock art -- staged "
+                          "local-only, never committable)")
+    srk.add_argument("--no-previews", dest="no_previews", action="store_true",
+                     help="build/deploy: skip the preview render")
+    srk.set_defaults(func=_cmd_summon_reskin)
+
+    srs = sub.add_parser("summon-rescore",
+                         help="RE-FRAME a stock summon's camera in place -- pose / orientation / roll "
+                              "/ focal distance on its own camera blocks. Refuses any duration, any "
+                              "frame word and any length change: the two clocks stay aligned")
+    _add_summon_edit_args(srs, lane="rescore", suffix="rescore")
+    srs.set_defaults(func=_cmd_summon_rescore)
 
     imf = sub.add_parser("image-field",
                          help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "

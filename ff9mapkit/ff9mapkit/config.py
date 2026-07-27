@@ -220,6 +220,82 @@ def find_mod_root(game_path: Path, mod_folder: str = DEFAULT_MOD_FOLDER) -> Path
     return (game_path / mod_folder).resolve()
 
 
+# --------------------------------------------------------------------------- the mod-FOLDER resolver
+#: the per-checkout deploy pin. A workspace that runs several agents/worktrees against ONE game install
+#: has exactly one way to keep their deploys apart: each checkout drops this file at its own root and
+#: names its own mod folder. Without it every session silently shares the default folder.
+DEPLOY_CONFIG_NAME = ".ff9deploy.toml"
+
+
+def _find_deploy_config(start: str | os.PathLike | None = None) -> Path | None:
+    """The nearest ``.ff9deploy.toml`` at or above ``start`` (default: the CWD), or ``None``.
+
+    BOUNDED, in two ways, because an unbounded walk to the filesystem root would let one checkout's pin
+    silently govern a command run from a sibling directory:
+
+      * it stops at a directory holding ``.git`` -- that directory IS checked first (a worktree keeps
+        its pin beside its ``.git``), and the walk ends there rather than escaping the checkout;
+      * it stops at the drive/filesystem root, which ``Path.parents`` terminates at anyway.
+
+    Searching from the CWD rather than from ``__file__`` is the point: the pin belongs to the checkout
+    the USER is working in, which is not necessarily the one this package was imported from (an
+    installed wheel has no checkout at all).
+    """
+    try:
+        here = Path(start or Path.cwd()).resolve()
+    except OSError:                                              # pragma: no cover - unreadable CWD
+        return None
+    for d in (here, *here.parents):
+        cand = d / DEPLOY_CONFIG_NAME
+        if cand.is_file():
+            return cand
+        if (d / ".git").exists():
+            break
+    return None
+
+
+def _read_deploy_config(start: str | os.PathLike | None = None) -> dict:
+    """The nearest ``.ff9deploy.toml`` parsed, or ``{}`` -- unreadable/malformed is treated as absent.
+
+    Soft-failing is deliberate: this file is a convenience pin, and a caller who passed ``--mod-folder``
+    or set the env var has already said what they want. A hard parse error here would break commands
+    that never needed the file.
+    """
+    p = _find_deploy_config(start)
+    if p is None or tomllib is None:
+        return {}
+    try:
+        with p.open("rb") as fh:
+            return tomllib.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def resolve_mod_folder(explicit: str | None = None, *, start: str | os.PathLike | None = None) -> str:
+    """The mod FOLDER NAME to deploy into, by the project's documented precedence:
+
+        explicit argument  >  ``$FF9_MOD_FOLDER``  >  ``.ff9deploy.toml`` [mod_folder]  >  ``FF9CustomMap``
+
+    This is the order ``tools/deploy_field.py`` and its siblings have always implemented; until now no
+    code inside the package did, so a CLI verb landed on the shared default even in a checkout that had
+    pinned its own folder. Only the verbs that opt in use this -- retro-fitting the existing verbs would
+    change where they deploy, which is a separate decision from adding it.
+
+    An EMPTY value at any level is treated as unset rather than as an empty folder name: ``FF9_MOD_FOLDER=``
+    means "I did not set this", and resolving it to the install root would be a destructive reading of a
+    blank string.
+    """
+    if explicit:
+        return str(explicit)
+    env = os.environ.get("FF9_MOD_FOLDER")
+    if env:
+        return env
+    pinned = _read_deploy_config(start).get("mod_folder")
+    if pinned:
+        return str(pinned)
+    return DEFAULT_MOD_FOLDER
+
+
 @dataclass(frozen=True)
 class ModLayout:
     """Canonical sub-paths within a Memoria mod root.
