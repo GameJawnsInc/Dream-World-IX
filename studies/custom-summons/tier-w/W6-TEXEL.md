@@ -7,9 +7,13 @@
 > into ONE container with ONE ledger and ONE revert, and their byte-disjointness is **proven by
 > rebuilding the sibling and intersecting the changed-offset sets**, not asserted.
 
-**STATUS: ★ BUILT, offline-proven, CAST PENDING.** 7/7 W6 gates, 250 kit tests, 358/1 tier-w suite,
-w4_gates 8/8, w5_gates 9/9. The deploy artifact is staged under `C:\gd\SCRATCH\summon-format\repaint-w6\ef227\`.
-**Nothing was deployed and nothing was committed by the build round.**
+**STATUS: ★★ CAST-PROVEN 2026-07-27 (posture (b), owner verdict "brand shows").** 7/7 W6 gates,
+250 kit tests, 358/1 tier-w suite, w4_gates 8/8, w5_gates 9/9. Deployed post-wipe as a FIRST deploy
+(snapshot recorded ABSENT → revert deletes); live ef227 sha independently verified `813a7ea4…`.
+The owner's cast frame shows the ivory ring-and-bars brand hard-edged on BOTH wing membranes
+(part 0 shared, exactly as predicted) inside the spectral key, no cutout artifacts, no page bleed —
+the texel lane is proven end-to-end: `export-art` → PNG edit → `build` → compose → deploy → in-game.
+The staging kit remains under `C:\gd\SCRATCH\summon-format\repaint-w6\ef227\`; cast details → §7.
 
 | | |
 |---|---|
@@ -525,6 +529,18 @@ observed live.
   folder. The cast then shows **two** deltas at once — the recolour *and* the brand — but the recolour
   half is already `★★ CAST-PROVEN` from W4 and its bytes are pinned identical (`w6_gates` G5), so the
   only **unproven** thing on screen is still the brand. Acceptable; just say so in the verdict.
+
+**Posture (b) was cast 2026-07-27 and PASSED.** The chain, as executed: live state re-verified
+(another session's campaign block FieldScene 6000–6371 now occupies the folder — our appends left it
+untouched; `[SfxHybrid] Enabled = 0` confirmed; no `ModFileList.txt`) → bench 30301 redeployed
+(`FieldScene 30301` + `MessageFile 30301` registered, Actions rows 192–199 all landed) →
+`deploy_repaint.py` (first-deploy, snapshot ABSENT) → live sha `813a7ea4…` re-hashed independently →
+RELAUNCH → Warp 30301 → Iviv → Spark → Stock Bahamut (row 196). **Verdict frame: the ivory
+ring-and-bars brand hard-edged on both wing membranes, spectral key intact, no cutout artifacts, no
+page bleed. Owner: "brand shows."** The armed `[SfxProbe]`'s cast log is archived at
+`C:\gd\SCRATCH\summon-format\repaint-w6\capture-logs\sfxmeshprobe.w6a-cast.2026-07-27.log`.
+Resting state after the cast: the composed W6a container is LIVE on ef227; the revert deletes it
+(stock fallback).
 
 ---
 
