@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `behavior lint` catches THE DRAINING-CONDITION LAW (and it caught `[siege]`)
+- The selector fires **one branch per unit per tick**, so N `once` branches sharing a gate
+  need it to hold for N consecutive ticks. Lint now warns when a stack of them rides a gate
+  that can stop holding, names the offending condition, and states the fix (latch the moment
+  on the first branch, gate the rest on that flag). Sticky and therefore exempt:
+  `flag`/`not_flag`/`any_flag` (unless something `clear_flags`es them), `time_below`,
+  `hp_le`, and `counter_ge` on a counter **no `[[behavior.scan]]` feeds** — a scan headcount
+  rises and falls, a schedule or kill tally only rises.
+- **It immediately found a real fragility in the shipped generator:** `[siege]`'s alarm cue
+  and alarm text both rode `any_near`, which drains the moment the raider that tripped it
+  dies or steps away — the lines below the cue could silently never fire. The alarm chain is
+  now generated latched (cue raises `alarmed`, the rest gate on it), pinned by tests.
+
 ### Fixed — a standalone-installed FORK silently lost every fork-donor behavior
 - `build_mod` now emits **`ForkDonorPatch.txt`**, the `<forkId> <donorRealId>` map the engine's
   s24–s33 fork gates resolve through. `build --out` already shipped a complete standalone mod —

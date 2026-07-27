@@ -585,17 +585,27 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         if line:
             bb.append(_branch(when=gate, once=f"wavecry{i}",
                               do={"announce": line}))
+    # THE ALARM CHAIN — ⚠ its gate DRAINS. `any_near` stops holding the moment the
+    # raider that tripped it dies or steps out of the radius, and one branch fires
+    # per tick, so a cue + line + staged lines stacked on that gate would starve
+    # everything below the first (THE DRAINING-CONDITION LAW — `behavior lint`
+    # catches this shape now, and caught exactly this). So the FIRST beat latches
+    # the moment and the rest gate on the flag, which cannot drain.
     alarm_gate = [{"any_near": [all_raiders, spec.alarm_radius]}]
+    chain: list = []
     if spec.alarm_sfx is not None:
-        bb.append(_branch(when=alarm_gate, once="alarmcue",
-                          do={"sfx": spec.alarm_sfx}))
-    al = _lines(spec.text_alarm)
-    for i, line in enumerate(al):
+        chain.append(("alarmcue", {"sfx": spec.alarm_sfx}))
+    for i, line in enumerate(_lines(spec.text_alarm)):
         stage = {"announce": line}
         if i:
             stage["delay"] = spec.text_pace          # staged like the endings
-        bb.append(_branch(when=alarm_gate, once=("alarm" if i == 0
-                                                 else f"alarm{i}"), do=stage))
+        chain.append(("alarm" if i == 0 else f"alarm{i}", stage))
+    for j, (once, do) in enumerate(chain):
+        if j == 0:
+            bb.append(_branch(when=alarm_gate, once=once, do=do,
+                              raise_flags=(["alarmed"] if len(chain) > 1 else None)))
+        else:
+            bb.append(_branch(when=[{"flag": "alarmed"}], once=once, do=do))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))
     units.append({"npc": spec.base.name, "hp": spec.base.hp,
                   "speed": spec.base.speed, "branch": bb})

@@ -1355,6 +1355,62 @@ def test_published_flags_are_visible_to_the_flag_lint():
     assert BT.published_flags({"behavior": {"unit": [{"npc": "ghost"}]}}) == set()
 
 
+def test_draining_condition_lint():
+    """THE DRAINING-CONDITION LAW as a lint: N once-branches on one gate need it to
+    hold for N consecutive ticks. Sticky gates are exempt; drainable ones warn."""
+    def unit(branches):
+        return {"player": {"spawn": [0, -900]},
+                "npc": [{"name": "u", "pos": [0, 0], "dialogue": "."}],
+                "behavior": {"timer": 60, "counters": ["kills", "seen"],
+                             "scan": [{"name": "s", "units": ["u"], "point": [0, 0],
+                                       "radius": 300, "count": "seen"}],
+                             "unit": [{"npc": "u", "hp": 5, "branch": branches + [
+                                 {"do": {"hold": [0, 0]}}]}]}}
+    stack = lambda when: [                                   # noqa: E731
+        {"when": when, "do": {"sfx": 1}, "once": "a"},
+        {"when": when, "do": {"announce": "x"}, "once": "b"}]
+    # DRAINABLE gates warn, and the message names the offending cond + the fix
+    w = BT.draining_once_warnings(unit(stack([{"any_near": [["u"], 400]}])))
+    assert len(w) == 1 and "any_near" in w[0] and "raise_flags" in w[0]
+    assert BT.draining_once_warnings(unit(stack([{"have_item": ["Potion", 2]}])))
+    assert BT.draining_once_warnings(unit(stack([{"counter_eq": ["kills", 3]}])))
+    assert BT.draining_once_warnings(unit(stack([{"time_above": 30}])))
+    # a counter a SCAN feeds rises AND falls -> counter_ge on it is NOT sticky
+    assert BT.draining_once_warnings(unit(stack([{"counter_ge": ["seen", 2]}])))
+    # STICKY gates are exempt: flags, a spent clock band, a dead unit, a tally
+    for when in ([{"flag": "won"}], [{"not_flag": "won"}], [{"time_below": 1}],
+                 [{"hp_le": 0}], [{"counter_ge": ["kills", 3]}]):
+        assert BT.draining_once_warnings(unit(stack(when))) == [], when
+    # ... unless something CLEARS that flag, which un-sticks it
+    cleared = unit(stack([{"flag": "won"}]))
+    cleared["behavior"]["unit"][0]["branch"][0]["clear_flags"] = ["won"]
+    assert BT.draining_once_warnings(cleared)
+    # ONE branch on a drainable gate is fine (nothing queues behind it)
+    assert BT.draining_once_warnings(unit(
+        [{"when": [{"any_near": [["u"], 400]}], "do": {"sfx": 1}, "once": "a"}])) == []
+
+
+def test_siege_alarm_chain_latches_the_moment():
+    """[siege]'s alarm gate (`any_near`) DRAINS, so its cue + lines latch a flag and
+    the rest gate on it -- the law's own authoring fix, generated. Found by the lint
+    above firing on the shipped generator."""
+    from ff9mapkit.content import siege as S
+    b = S.behavior_raw(S.from_raw({
+        "timer": 60, "waves": [45], "alarm_sfx": 638, "text_alarm": ["one", "two"],
+        "base": {"model": "GEO_NPC_F4_CSO", "pos": [0, 100]},
+        "ally": [{"name": "g", "label": "G", "model": "GEO_NPC_F0_CSO", "count": 1,
+                  "price": 100, "stance": "hold", "radius": 300}],
+        "raider": [{"name": "r", "model": "GEO_MON_F0_MUU", "count": 1, "wave": 1,
+                    "entrance": [[-800, -600]], "route": [[-400, 0]],
+                    "autoroute": False}]}))
+    chain = [x for x in b["unit"][0]["branch"]
+             if str(x.get("once", "")).startswith("alarm")]
+    assert [x["once"] for x in chain] == ["alarmcue", "alarm", "alarm1"]
+    assert chain[0]["raise_flags"] == ["alarmed"]            # the cue latches
+    assert all(x["when"] == [{"flag": "alarmed"}] for x in chain[1:])
+    assert BT.draining_once_warnings({"behavior": b}) == []  # and the lint agrees
+
+
 def test_clock_coupled_battle_lint():
     """THE CLOCK-COUPLED BATTLE LAW as a lint WARNING (not an error — stopping the
     clock makes the same design correct). Probe injected so the check is testable

@@ -340,7 +340,10 @@ def test_wave_herald_and_alarm_theater():
     assert acue["do"] == {"sfx": 701}
     assert br.index(acue) < br.index(a0) < br.index(a1)
     assert "delay" not in a0["do"] and a1["do"]["delay"] == 120
-    assert acue["when"] == a0["when"]            # same any_near gate
+    # the alarm gate (`any_near`) DRAINS, so only the FIRST beat rides it and
+    # latches; the rest gate on that flag (THE DRAINING-CONDITION LAW)
+    assert acue["raise_flags"] == ["alarmed"]
+    assert a0["when"] == a1["when"] == [{"flag": "alarmed"}]
     # a siege with none of these dials is byte-unchanged: one plain alarm, no waves
     plain = S.behavior_raw(_spec())["unit"][0]["branch"]
     assert not [x for x in plain if str(x.get("once", "")).startswith("wave")]
