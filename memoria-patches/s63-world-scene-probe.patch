@@ -1,0 +1,92 @@
+--- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s63	2026-07-27 17:52:42.290094000 -0400
++++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 17:53:30.521767400 -0400
+@@ -3739,6 +3739,89 @@
+             PlayerWindow.Instance.SetTitle($"World Map: {FF9StateSystem.Common.FF9.wldMapNo}");
+         else
+             PlayerWindow.Instance.SetTitle($"World Map: {FF9StateSystem.Common.FF9.wldMapNo}, {wldLocName}");
++        ff9.Ff9mkWorldSceneProbe();
++    }
++
++    // [ff9mapkit s63-PROBE] TEMPORARY diagnostic for THE 9001 FLIGHT-SCENE BUG (F2). Dumps the
++    // scripted-world state (director byte, EYE/AIM rig designation, full cid-4 cast, camera scripted
++    // + rendered position) so ONE playtest round discriminates the surviving theories: rig never
++    // designated / ship never advancing / camera elsewhere / exit-wait hang. Gated to the four
++    // cutscene worlds (9001/9004/9006/9012); a burst on the first 20 frames then 1 dump per 60.
++    // Wrapped so the instrument can never perturb the frame. REMOVE when F2 closes.
++    private static Int64 ff9mkProbeLastFrame = -1;
++    public static void Ff9mkWorldSceneProbe()
++    {
++        try
++        {
++            if (!ff9.eventWorldMaps.Contains(FF9StateSystem.Common.FF9.wldMapNo))
++                return;
++            Int64 fc = (Int64)ff9.w_frameCounter;
++            if (fc == ff9.ff9mkProbeLastFrame)
++                return;                                    // runs twice per tick (both phases)
++            if (fc > 20 && (fc % 60) != 0)
++                return;
++            ff9.ff9mkProbeLastFrame = fc;
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            if (ee == null)
++                return;
++            Byte[] mapVar = ee.GetMapVar();
++            Int32 b26 = mapVar != null && mapVar.Length > 26 ? mapVar[26] : -1;
++            Int32 i27 = mapVar != null && mapVar.Length > 29 ? mapVar[27] | (mapVar[28] << 8) | (mapVar[29] << 16) : -1;
++            PosObj eye = ee.GetEventEye();
++            PosObj aim = ee.GetEventAim();
++            String s = "[ff9mkprobe] f=" + fc
++                + " wld=" + FF9StateSystem.Common.FF9.wldMapNo
++                + " gmode=" + ee.gMode
++                + " B26=" + b26 + " I27=" + i27
++                + " ctl=" + ee.GetControlUID()
++                + " t190=" + FF9StateSystem.EventState.gEventGlobal[190]
++                + " SC=" + ff9.ushort_gEventGlobal(0);
++            String eyeS = eye == null ? "<none>" : "uid" + eye.uid + "@(" + eye.pos[0].ToString("F1") + "," + eye.pos[1].ToString("F1") + "," + eye.pos[2].ToString("F1") + ")";
++            String aimS = aim == null ? "<none>" : "uid" + aim.uid + "@(" + aim.pos[0].ToString("F1") + "," + aim.pos[1].ToString("F1") + "," + aim.pos[2].ToString("F1") + ")";
++            WMActor mp = ff9.w_moveActorPtr;
++            String mpS;
++            if (mp == (UnityEngine.Object)null)
++                mpS = "null";
++            else
++            {
++                String who = mp == ff9.w_moveDummyCharacter ? "DUMMY" : (mp.originalActor != null ? "uid" + mp.originalActor.uid : "noorig");
++                mpS = who + "@(" + mp.pos0.ToString("F1") + "," + mp.pos1.ToString("F1") + "," + mp.pos2.ToString("F1") + ")";
++            }
++            Vector3 ce = ff9.w_cameraGetEyePtr();
++            Vector3 ca = ff9.w_cameraGetAimPtr();
++            String camReal = "<none>";
++            if (ff9.w_frameCameraPtr != null)
++            {
++                Vector3 rp = ff9.w_frameCameraPtr.transform.position;
++                camReal = "(" + rp.x.ToString("F1") + "," + rp.y.ToString("F1") + "," + rp.z.ToString("F1") + ")";
++            }
++            s += "\n[ff9mkprobe] eye=" + eyeS + " aim=" + aimS + " movePtr=" + mpS
++                + " camEye=(" + ce.x.ToString("F1") + "," + ce.y.ToString("F1") + "," + ce.z.ToString("F1") + ")"
++                + " camAim=(" + ca.x.ToString("F1") + "," + ca.y.ToString("F1") + "," + ca.z.ToString("F1") + ")"
++                + " camReal=" + camReal;
++            for (ObjList ol = ff9.GetActiveObjList(); ol != null; ol = ol.next)
++            {
++                Obj o = ol.obj;
++                if (o.cid != 4)
++                    continue;
++                Actor a = (Actor)o;
++                String fl = "";
++                if ((a.actf & EventEngine.actEye) != 0) fl += "E";
++                if ((a.actf & EventEngine.actAim) != 0) fl += "A";
++                WMActor wa = a.wmActor;
++                String waS = wa == (UnityEngine.Object)null ? "<nowm>"
++                    : "(" + wa.pos0.ToString("F1") + "," + wa.pos1.ToString("F1") + "," + wa.pos2.ToString("F1") + ")";
++                s += "\n[ff9mkprobe] obj uid=" + o.uid + " sid=" + o.sid + " idx=" + o.index
++                    + " mdl=" + a.model + " fl=" + fl
++                    + " pos=(" + a.pos[0].ToString("F1") + "," + a.pos[1].ToString("F1") + "," + a.pos[2].ToString("F1") + ")"
++                    + " wm=" + waS;
++            }
++            global::Debug.Log(s);
++        }
++        catch (Exception err)
++        {
++            global::Debug.Log("[ff9mkprobe] probe failed: " + err.Message);
++        }
+     }
+ 
+     public static String w_worldLocationName()
