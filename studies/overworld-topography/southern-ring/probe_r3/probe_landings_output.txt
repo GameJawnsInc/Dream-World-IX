@@ -1,0 +1,7 @@
+boat islet (home): 16 landing sample(s)  west~(474,-1125)  east~(502,-1133)
+Ashvale: 39 landing sample(s)  west~(24,-1159)  east~(40,-1191)
+Tidefall: 48 landing sample(s)  west~(394,-1235)  east~(418,-1243)
+Grimhorn: 43 landing sample(s)  west~(1183,-1195)  east~(1215,-1215)
+Larkspur: 44 landing sample(s)  west~(702,-640)  east~(726,-592)
+Lamplight: 30 landing sample(s)  west~(1395,-1175)  east~(1455,-1135)
+the horseshoe: 90 landing sample(s)  west~(1260,-1130)  east~(1312,-1166)

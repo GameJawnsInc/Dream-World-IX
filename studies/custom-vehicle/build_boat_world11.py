@@ -17,14 +17,25 @@ The verbatim grounding (studies/custom-vehicle/recon_world03.txt):
 
 WORLD11 additions:
   entry 15 (new)  -- the boat: Init (verbatim-adapted) + the board/dismount loop (ours)
-  entry 14 tag 60 -- the shore-snap: DetachObject(14) + MoveInstantXZY(dock) (runs ON the anchor)
+  entry 14 tag 60 -- the shore-snap: MoveInstantXZY(SYSVAR[195..197]) -- the ENGINE's getoff
+                     landing point (runs ON the anchor; v2, stock entry-12 tag-22's own read)
   entry 0 tag 0   -- Main_Init gains InitObject(15, 0) (unconditional spawn -- the 9009 pattern)
 
-Seeding: Global.Bit[8712] (the kit's safe flag band) marks "boat record seeded"; first load
-parks the boat at BOAT_SPAWN. Dismount = Confirm while sailing: snaps the player to DOCK and
-MOORS THE BOAT HOME at BOAT_SPAWN (v1.1, 2026-07-26 -- see the MOOR-HOME note on BOAT_LOOP;
-still no shore-legality check, that is R5). v1 parked it where it floated, which let its
-board check race a Southern Ring quay's confirm gate.
+v2 (2026-07-26, R5c) = THE STOCK BOARDING UX, decoded from WORLD03 entry 3 tag 1 + entry 2's
+Byte[37] machine + ff9.w_movementGetGetoff:
+  * approach on foot (40u) -> the boat summons its OWN nameplate case (69, "Crimson Narciss"
+    via block-68 split[69]) -- the same self-summon lane as the ring's quays; board = Confirm
+    while THAT plate is armed (Byte[24]==169), so the case machine arbitrates every confirm
+    (no quay race by construction).
+  * dismount (Confirm or Cancel while sailing) = RunWorldCode(28,0) -- the engine's getoff
+    service: mode-7 gates on the tile AHEAD reading topograph 53 (beach-front), sweeps a
+    FOOT-walkable landing around the hull, answers in SYSVAR[195..197] (y==10000 = the refuse
+    sentinel -> silently no, stock's own behavior). Player lands at the engine's point; THE
+    BOAT PARKS WHERE IT FLOATS (stock semantics; v1.1's moor-home is retired -- it existed
+    only to kill the quay race the case machine now kills properly).
+Persistence gap (known): Init still re-moors at BOAT_SPAWN on every world (re)load -- the
+parked spot survives the session, not a save/field round-trip. Stock persists via
+Global[74..82]; ours needs kit-allocated storage (a later rung).
 
 Deploy: py build_boat_world11.py --deploy   (per-language into FF9CustomMap-world)
 Revert: restore the printed backups (or delete the .eb.bytes if none existed).
@@ -40,7 +51,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ff9mapkit"))
 
 from ff9mapkit import config                                          # noqa: E402
-from ff9mapkit.world.entrance import load_all_dispatchers, _WORLD_EB_SUBDIR   # noqa: E402
+from ff9mapkit.world.entrance import (load_all_dispatchers, _WORLD_EB_SUBDIR,   # noqa: E402
+                                      explored_set_expr)
 from ff9mapkit.eb.model import EbScript                               # noqa: E402
 from ff9mapkit.eb import edit as E                                    # noqa: E402
 from ff9mapkit.eb.cmdasm import assemble_block, disassemble_block     # noqa: E402
@@ -78,15 +90,17 @@ MODEL_ID = 6321                      # the minted crimson hull (mint_boat.py). R
 BOAT_SPAWN = (492, -1130)            # beached at the sand line (sand reaches z -1126 here)
 BOAT_Y = 200                         # sea-level fixed-point Y (the stock boat's own seed value)
 BOAT_FACE = 0
-DOCK = (493, -1114)                  # the islet's land centroid -- measured, walkable
-DOCK_Y = 768                         # ~3u; the engine ground-snaps on the next frame
-DOCK_FACE = 128
-NEAR = 100 * 256                     # board proximity (generous for the bench)
+# (The v1 fixed DOCK snap at the islet centroid (493, -1114) is retired: the landing point now
+#  comes from the ENGINE's getoff sweep, read back through SYSVAR[195..197] -- stock's own channel,
+#  see WORLD03 entry 12 tag 22.)
 
-CONFIRM = 147456                     # 0x24000 = logical Confirm (0x20000) | physical Cross (0x4000).
-                                     # The button-word bisection (2026-07-22) proved the held button
-                                     # lands in the LOW 16 (physical PSX) bits on this input path with
-                                     # the logical bit unset -- accept BOTH (EventInput.cs:549/554).
+CONFIRM_ON = 131072                  # 0x20000 logical Confirm with B_KEYON (press-edge) -- the exact
+                                     # gate the ring's quay entrances use, in-game proven. (The old
+                                     # held-key CONFIRM=0x24000 B_KEY form is retired with the bare-
+                                     # radius board; the 2026-07-22 input-bit law applied to B_KEY.)
+DISMOUNT_ON = 196608                 # 0x30000 = Confirm|Cancel with B_KEYON. Stock's boat dismount
+                                     # key is Cancel (0x10000, WORLD03 entry 3 tag 1 @L185); Confirm
+                                     # is accepted too (nothing else reads Confirm at sea).
 
 
 def fp(v: int) -> int:
@@ -111,11 +125,17 @@ def wu(v: int) -> int:
     return v & 0xFFFFFFFF
 
 
-# THE BOARD GATE (restored 2026-07-26, R5): the ORIGINAL stock-shaped relative test -- both actors'
-# f[] reads share the ×256 domain AND any world-wrap epoch, so the differences cancel; the radius is
-# fp-domain 25600 = 100u, stock's own boarding feel. Safe against the quay race because MOOR-HOME
-# guarantees the boat only ever waits at BOAT_SPAWN, 125u+ from the nearest trigger.
-BOARD_RADIUS_FP = 25600            # fp(100) -- the ×256 domain, per the law above
+# THE BOARD GATE (restored 2026-07-26, R5; tightened R5c): the ORIGINAL stock-shaped relative
+# test -- both actors' f[] reads share the ×256 domain AND any world-wrap epoch, so the differences
+# cancel. R5c tightens 100u -> 40u (hull-scale; stock boards on model CONTACT) because the boat now
+# parks where it floats: the radius must stay comfortably smaller than the boat-to-quay distances
+# the getoff sweep can produce. Within it, the boat's OWN plate (case 69) claims the confirm.
+BOARD_RADIUS_FP = 10240            # fp(40) -- the ×256 domain, per the law above
+
+# The boat's nameplate case: the next free VIRGIN case after the ring's quays (65-68). The plate
+# reads block-68 split[69] (locid 68, registered as "Crimson Narciss" in the ring's
+# marker_renames.toml); its explored bit lives in the kit's reserved word 2006 (bit 4).
+BOAT_CASE = 69
 
 
 BOAT_INIT = f"""
@@ -149,26 +169,37 @@ TurnInstant({{const({BOAT_FACE}) B_EXPR_END}})
 RET()
 """
 
-# The proven board/dismount loop (probe counters stripped after the rung-1 proof).
-# Board = on foot + Confirm|Cross HELD (B_KEY -- THE INPUT-BIT LAW) + within NEAR of the boat.
+# v2 -- THE STOCK BOARDING UX (2026-07-26, R5c). Three branches, all decoded from stock:
 #
-# ⚠ MOOR-HOME (2026-07-26, owner ruling). v1's dismount parked the boat WHERE IT FLOATED while
-# snapping the player to DOCK. That put the boat's own per-frame bare-Confirm board check (0x24000,
-# ~100u radius) anywhere the player had sailed -- including alongside a Southern Ring quay, where it
-# RACED that quay's confirm gate: pressing Enter at an entrance SOMETIMES boarded the crimson Narciss
-# instead of entering the field (owner playtest). The dismount now also returns the BOAT to
-# BOAT_SPAWN, so the board check can only ever fire at the block-(7,17) islet -- 125u+ from any quay,
-# and the two gates can never overlap. Proper boarding UX (a prompt, shore-legality) stays R5.
+# ON-FOOT + within 40u of the hull:
+#   * Confirm pressed AND the boat's plate armed (Byte[24]==BOAT_CASE+100) -> BOARD. The gate rides
+#     the case machine, so a quay plate and the boat plate can never both take one press (the R5
+#     quay race is dead by construction, not by mooring policy). The Byte[24]=100 settle write on
+#     the confirm frame is the ring entrances' proven single-fade guard (disarm the native confirm
+#     path); the explored-bit write upgrades the plate "?" -> "Crimson Narciss" (the entrance warp
+#     branch's own pattern).
+#   * otherwise, machine idle (Byte[24]==100) -> SELF-SUMMON the plate: Byte[39]=BOAT_CASE +
+#     RunScriptAsync(6,1,11) -- byte-shape of stock's own boat summoner (WORLD03 tag 38809, case
+#     92) and of the ring's quay triggers; re-fires each approach frame, the idle loop reclaims it
+#     when the player leaves. This is the "bubble": the native plate + "Enter with (X)" HUD.
 #
-# The load path needed no change: the Init's tail MoveInstantXZY at L86 is the merge of BOTH branches
-# and there is NO Global[74..82] parked-record read anywhere in the entry (position is hard-coded for
-# the bench), so a world load already re-moors unconditionally. Verified from the deployed bytes.
+# SAILING (Byte[190]==7) + Confirm|Cancel pressed -> THE ENGINE GETOFF SERVICE (stock's dismount,
+#   WORLD03 entry 3 tag 1 @L185): RunWorldCode(28,0) runs ff9.w_movementGetGetoff -- for mode 7 it
+#   demands the tile AHEAD of the hull read topograph 53 (beach-front water), then raycast-sweeps
+#   around the hull for FOOT-walkable ground -- and answers in SYSVAR[195..197] (w_frameScriptParam;
+#   y == 10000 is the refuse sentinel: open sea / no shore -> silently do nothing, stock behavior).
+#   On success: detach, snap the anchor to the ENGINE's landing point (entry 14 tag 60), back to
+#   foot mode. THE BOAT STAYS WHERE IT FLOATS -- no moor-home, no fixed dock snap.
 BOAT_LOOP = f"""
 L0:
-SET({{Global.Byte[190] B_NOT const4({CONFIRM}) B_KEY B_ANDAND B_EXPR_END}})
+SET({{Global.Byte[190] B_NOT obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({BOARD_RADIUS_FP}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({BOARD_RADIUS_FP}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({BOARD_RADIUS_FP}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({BOARD_RADIUS_FP}) B_LT B_ANDAND B_ANDAND B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L500)
-SET({{obj(uid=250).f[0] obj(uid={BOAT_UID}).f[0] B_MINUS const4({BOARD_RADIUS_FP}) B_LT obj(uid={BOAT_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({BOARD_RADIUS_FP}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={BOAT_UID}).f[2] B_MINUS const4({BOARD_RADIUS_FP}) B_LT obj(uid={BOAT_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({BOARD_RADIUS_FP}) B_LT B_ANDAND B_ANDAND B_EXPR_END}})
-JMP_IFNOT(L500)
+SET({{const4({CONFIRM_ON}) B_KEYON B_EXPR_END}})
+JMP_IFNOT(L300)
+SET({{Map.Byte[24] const({BOAT_CASE + 100}) B_EQ B_EXPR_END}})
+JMP_IFNOT(L900)
+SET({{Map.Byte[24] const(100) B_LET B_EXPR_END}})
+{{EXPLORED_TEXT}}
 DisableMove()
 DisableMenu()
 AttachObject({ANCHOR_UID}, {BOAT_UID}, 0)
@@ -181,14 +212,21 @@ DefinePlayerCharacter()
 op_22(8)
 EnableMove()
 JMP(L900)
-L500:
-SET({{Global.Byte[190] const(7) B_EQ const4({CONFIRM}) B_KEYON B_ANDAND B_EXPR_END}})
+L300:
+SET({{Map.Byte[24] const(100) B_EQ B_EXPR_END}})
 JMP_IFNOT(L900)
+SET({{Map.Byte[39] const({BOAT_CASE}) B_LET B_EXPR_END}})
+RunScriptAsync(6, 1, 11)
+JMP(L900)
+L500:
+SET({{Global.Byte[190] const(7) B_EQ const4({DISMOUNT_ON}) B_KEYON B_ANDAND B_EXPR_END}})
+JMP_IFNOT(L900)
+RunWorldCode(28, 0)
+SET({{B_SYSVAR[196] const(10000) B_EQ B_EXPR_END}})
+JMP_IF(L900)
 DisableMove()
 DetachObject({ANCHOR_UID})
 RunScriptSync(6, {ANCHOR_UID}, {SNAP_TAG})
-MoveInstantXZY({{const4({fp(BOAT_SPAWN[0])}) B_EXPR_END}}, {{const({BOAT_Y}) B_EXPR_END}}, {{const4({fp(BOAT_SPAWN[1])}) B_EXPR_END}})
-TurnInstant({{const({BOAT_FACE}) B_EXPR_END}})
 SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
 RunWorldCode(1, 0)
 op_22(8)
@@ -199,9 +237,18 @@ op_22(1)
 JMP(L0)
 """
 
+# The explored-bit write for BOAT_CASE, as canonical disassembly text (the entrance module owns the
+# byte form; disasm->asm round-trips byte-identically through this script's own asm()).
+_expl = explored_set_expr(BOAT_CASE)
+BOAT_LOOP = BOAT_LOOP.replace("{EXPLORED_TEXT}",
+                              disassemble_block(_expl, 0, len(_expl)).strip())
+
+# v2: the anchor lands at the ENGINE's getoff point -- SYSVAR[195..197] read w_frameScriptParam
+# exactly as stock's landing func does (WORLD03 entry 12 tag 22 stages them through Map[49/47/52];
+# ours reads them direct -- same values, same frame, nothing writes the params in between). SYSVAR
+# 196 already carries the eb-domain (negated) y. No TurnInstant: stock keeps the facing.
 ANCHOR_SNAP = f"""
-MoveInstantXZY({{const4({fp(DOCK[0])}) B_EXPR_END}}, {{const({DOCK_Y}) B_EXPR_END}}, {{const4({fp(DOCK[1])}) B_EXPR_END}})
-TurnInstant({{const({DOCK_FACE}) B_EXPR_END}})
+MoveInstantXZY({{B_SYSVAR[195] B_EXPR_END}}, {{B_SYSVAR[196] B_EXPR_END}}, {{B_SYSVAR[197] B_EXPR_END}})
 SetObjectFlags(5)
 RET()
 """

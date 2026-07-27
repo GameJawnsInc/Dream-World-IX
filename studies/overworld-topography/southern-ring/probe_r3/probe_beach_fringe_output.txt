@@ -1,0 +1,38 @@
+Block[0][17] Sea4.ff9mesh: 510 verts 57->53, everything else byte-identical, parity OK
+Block[0][18] Sea4.ff9mesh: 894 verts 57->53, everything else byte-identical, parity OK
+Block[10][10] Sea4.ff9mesh: 279 verts 57->53, everything else byte-identical, parity OK
+Block[10][8] Sea4.ff9mesh: 207 verts 57->53, everything else byte-identical, parity OK
+Block[10][9] Sea4.ff9mesh: 1200 verts 57->53, everything else byte-identical, parity OK
+Block[11][8] Sea4.ff9mesh: 63 verts 57->53, everything else byte-identical, parity OK
+Block[11][9] Sea4.ff9mesh: 573 verts 57->53, everything else byte-identical, parity OK
+Block[18][17] Sea4.ff9mesh: 114 verts 57->53, everything else byte-identical, parity OK
+Block[18][18] Sea4.ff9mesh: 834 verts 57->53, everything else byte-identical, parity OK
+Block[18][19] Sea4.ff9mesh: 141 verts 57->53, everything else byte-identical, parity OK
+Block[19][17] Sea4.ff9mesh: 564 verts 57->53, everything else byte-identical, parity OK
+Block[19][18] Sea4.ff9mesh: 1536 verts 57->53, everything else byte-identical, parity OK
+Block[19][19] Sea4.ff9mesh: 546 verts 57->53, everything else byte-identical, parity OK
+Block[1][17] Sea4.ff9mesh: 372 verts 57->53, everything else byte-identical, parity OK
+Block[1][18] Sea4.ff9mesh: 699 verts 57->53, everything else byte-identical, parity OK
+Block[20][17] Sea4.ff9mesh: 270 verts 57->53, everything else byte-identical, parity OK
+Block[20][18] Sea4.ff9mesh: 834 verts 57->53, everything else byte-identical, parity OK
+Block[20][19] Sea4.ff9mesh: 159 verts 57->53, everything else byte-identical, parity OK
+Block[21][17] Sea4.ff9mesh: 213 verts 57->53, everything else byte-identical, parity OK
+Block[21][18] Sea4.ff9mesh: 609 verts 57->53, everything else byte-identical, parity OK
+Block[22][17] Sea4.ff9mesh: 597 verts 57->53, everything else byte-identical, parity OK
+Block[22][18] Sea4.ff9mesh: 1410 verts 57->53, everything else byte-identical, parity OK
+Block[6][18] Sea4.ff9mesh: 723 verts 57->53, everything else byte-identical, parity OK
+Block[6][19] Sea4.ff9mesh: 1095 verts 57->53, everything else byte-identical, parity OK
+Block[7][18] Sea4.ff9mesh: 228 verts 57->53, everything else byte-identical, parity OK
+Block[7][19] Sea4.ff9mesh: 348 verts 57->53, everything else byte-identical, parity OK
+
+15018 stamped verts verified across 26 files
+SOUTH passage: 54 samples, 6 illegal sample(s)
+   !! (1291.0, -1200.0, 'Terrain topo 17')
+   !! (1283.5, -1195.0, 'Terrain topo 17')
+   !! (1276.0, -1190.0, 'Terrain topo 16')
+   !! (1276.0, -1190.0, 'Terrain topo 16')
+   !! (1284.4, -1192.5, 'Terrain topo 17')
+   !! (1292.8, -1195.0, 'Terrain topo 17')
+NORTH passage: 47 samples, FULLY SAILABLE
+
+FRINGE INTEGRITY: ALL CHECKS PASS

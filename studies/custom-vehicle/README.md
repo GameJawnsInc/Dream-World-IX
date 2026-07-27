@@ -107,6 +107,32 @@ not a newly derived window). `build_boat_world11.py`'s gate + `wu()` docstring c
 **on the world map, anything compared against an f[] read uses fp(); an offline eval must trace
 the WRITER of a variable, not just its reader.** Record: southern-ring REVERT.md §28.
 
+## ★ v2 — THE STOCK BOARDING UX (R5c, 2026-07-26): plate + engine-legality dismount
+
+The owner's R5 playtest surfaced the two deferred UX gaps (dismount always snapped home; no
+prompt). v2 replaces the whole board/dismount policy with the STOCK protocol, decoded from
+WORLD03 (entry 3 tag 1, entry 2's Byte[37] machine, entries 6/12 tags 21/22) + `ff9.cs`:
+
+* **The prompt**: within 40u on foot the boat self-summons nameplate **case 69** ("Crimson
+  Narciss", locid 68 in the ring's `marker_renames.toml`; "?" until first boarding — explored bit
+  = kit word 2006 bit 4). Stock's own parked Narciss does exactly this with case 92. Board =
+  Confirm while THAT plate is armed (`Byte[24]==169`) — the case machine arbitrates every press,
+  which kills the §19 quay race by construction, so **moor-home is retired: the boat parks where
+  it floats** (stock semantics).
+* **The dismount** (Confirm|Cancel while sailing): `RunWorldCode(28,0)` = the engine getoff
+  service `w_movementGetGetoff` — mode 7 demands the tile AHEAD read **topograph 53**, then
+  raycast-sweeps for foot-walkable ground; the answer comes back in `SYSVAR[195..197]` (y==10000
+  = refuse → silently nothing, stock's own behavior). The anchor snap (entry 14 tag 60) now lands
+  at the engine point instead of a fixed dock.
+* **THE BEACHABLE FRINGE**: the ring's ground-only mints had pure Sea4 topo-57 lapping the sand —
+  the getoff gate could never pass anywhere but the stock (7,17) islet. Fixed navigation-only
+  ("topo = tangent.x, look = UV+material"): near-shore Sea4 57→53 across 26 files ×2 discs
+  (`southern-ring/stamp_beach_fringe.py`, byte-probed by `probe_r3/probe_beach_fringe.py`).
+* **Known gap**: Init still re-moors on world (re)load — the parked spot survives the session,
+  not a save/field round-trip; kit-allocated parked-position storage is a later rung.
+
+Record: southern-ring REVERT.md §29.
+
 ## ★ THE SEA LANE (R5): the west arc is tile-proven sailable
 
 Blue Narciss legality mask decoded from TransportControls.csv (`limit0=39845888/limit1=0` →

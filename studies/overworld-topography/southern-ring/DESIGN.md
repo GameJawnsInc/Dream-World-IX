@@ -160,6 +160,22 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
+## R5c — THE STOCK BOARDING UX ★ DEPLOYED (2026-07-26; playtest pending): plate, engine landing, beachable coasts
+
+The §28.4 playtest surfaced the deferred UX half: dismount always snapped home (v1.1 moor-home, the
+§19 stopgap) and no prompt showed at the hull. Stock decode: the parked Narciss summons its OWN
+nameplate case (92) — the prompt IS the plate — and dismount is Cancel → `RunWorldCode(28,0)` =
+`w_movementGetGetoff` (mode 7: the tile ahead must read **topo 53**, then a sweep finds walkable
+ground; refuse = the 10000 sentinel, silently). v2 boat loop: 40u self-summon of **case 69
+"Crimson Narciss"** (locid 68; "?" until first boarding), board gated on THAT armed plate — the
+case machine arbitrates every Confirm, so **moor-home is retired and the boat parks where it
+floats**; dismount (Confirm|Cancel) lands you at the ENGINE's point. And the landing probe exposed
+**THE BARE-COAST GAP**: ground-only mints left pure Sea4 topo-57 lapping every sand line — no ring
+island was landable. **THE BEACHABLE FRINGE STAMP** (navigation-only, "topo = tangent.x, look =
+UV+material"): near-shore Sea4 57→53, 15,018 verts / 26 files ×2 discs, byte-probed, all seven
+shores now landable, the north lane still 47/47. Known gap: the parked spot survives the session,
+not a load (Init re-moors; kit-allocated persistence is a later rung). Record: REVERT.md §29.
+
 ## R5 — THE SEA LANES + THE BOAT WAKES ★ DEPLOYED (2026-07-26; playtest pending)
 
 **R5a:** the dormant boat was §20's DOMAIN mis-diagnosis — **THE ×256 DOMAIN LAW**: `WMActor.pos`'s

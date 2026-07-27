@@ -37,3 +37,8 @@ to = "Grimhorn"
 [[marker_rename]]
 locid = 67          # split[68] -- case 68
 to = "Larkspur"
+
+[[marker_rename]]
+locid = 68              # split[69] -- case 69: THE BOAT's own plate (R5c). Not an island: the
+to = "Crimson Narciss"  # crimson hull self-summons this case within 40u (build_boat_world11.py
+                        # BOAT_CASE); Confirm while it shows = board. Explored bit = word 2006 bit 4.
