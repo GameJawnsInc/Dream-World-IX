@@ -135,6 +135,34 @@ stops being a target the moment it starts falling; then the clip runs to complet
 (`RunAnimation` + `WaitAnimation`) and the corpse holds `linger` frames before
 `TerminateEntry`.
 
+#### THE FIELD-ANIMATION LAWS
+
+Playing a clip on a field object is the least self-evident surface in the kit — five
+separate in-game rounds, each a different mechanism. All five are compiler invariants now;
+they're written down because *every one of them fails silently or looks like a different
+bug*.
+
+1. **A blocking body must HOLD its dispatch level.** The ticker dispatches on `run == 0`.
+   A body that used to be instantaneous (the old `die`) can gain a `Wait` and suddenly the
+   ticker keeps dispatching that unit's *other* bodies underneath it — "soldiers still
+   swing after the death anim starts". The death body sets `run` and never releases it.
+2. **A different FORM is a different SKELETON** (the cross-form clip trap, above).
+3. **Never `WaitAnimation` inside a level-4 async body.** Blocking there rendered *nothing
+   at all*; the fire-and-forget shape renders. Hold the beat with an ordinary `Wait`.
+4. **A one-shot is a LAYER, not a state.** `RunAnimation` ends — and the object then
+   reverts to its **stand** clip (a corpse stands back up). Worse, an object still inside a
+   blocked `Walk` is being driven by its **walk** clip, which overrides the one-shot
+   outright — which is why units that die *in place* showed a clip and units that die
+   *mid-march* showed none. Install the clip as the object's stand **and** walk animation
+   (`0x33`/`0x34`) before firing it, and whatever the engine drives next drives your clip.
+5. **Then it must FREEZE AT END.** A stand clip loops by definition, so law 4 alone makes
+   the corpse replay its death for the whole hold. `SetAnimationFlags(1, 0)` (0x3F — the
+   engine's own *"1: freeze at end"*, the idiom `content.chest` uses before its lid clip)
+   plays it once and holds the final pose.
+
+Laws 3–5 are why the death beat emits `stand → walk → flags(1,0) → anim → wait`, in that
+order. A strike clip needs only the fire-and-forget half (it *should* return to idle).
+
 > **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
 > against *that unit's own model*, and a name the model doesn't own is a lint ERROR listing
 > what it does own. This matters because **field rigs are not battle rigs**: a field monster

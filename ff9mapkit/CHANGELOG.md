@@ -11,9 +11,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   fire-and-forget (no `WaitAnimation`), so a strike stays interruptible and a looping clip
   can't wedge the swing loop.
 - `die` takes `anim` + `linger`: the long-standing "instant vanish" becomes a collapse —
-  active drops first (the corpse is inert immediately), the clip runs to completion
-  (`RunAnimation` + `WaitAnimation`), then the body holds `linger` frames before
-  `TerminateEntry`.
+  active drops first (the corpse is inert immediately), the clip plays once and holds its
+  final pose, then the body vanishes after `linger` frames. Cast-proven over five rounds,
+  each a distinct mechanism, now written up as **THE FIELD-ANIMATION LAWS** in BEHAVIOR.md:
+  a blocking body must hold its dispatch level; a different form is a different skeleton;
+  never `WaitAnimation` in a level-4 async body; a one-shot is a LAYER (it ends → reverts to
+  the stand clip, and a blocked walk's clip overrides it → install as stand+walk); and it
+  must then FREEZE AT END (`SetAnimationFlags(1, 0)`) or a stand clip loops it forever.
 - **THE OWN-CLIP LAW, now enforced at the call site:** `anim` takes a gesture NAME resolved
   against that unit's own model, and a foreign name is a lint error listing what the model
   owns. Field rigs are not battle rigs — `GEO_MON_F0_MUU` owns only locomotion + `jump` and
