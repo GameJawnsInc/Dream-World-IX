@@ -160,13 +160,23 @@ def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_s
     _donor_tb = EVENT_ID_TO_MES.get(int(real_id)) if real_id is not None else None
     _tb_line = (f"text_block = {_donor_tb}   # the donor's own block (carries its dialogue)\n"
                 if _donor_tb is not None else "")
+    # Record the donor id too. It is what ForkDonorPatch keys off: build_mod emits `<forkId> <donorRealId>`
+    # from this key, so WITHOUT it a member built standalone (`ff9mapkit build --out`) loses every
+    # fork-donor behavior -- off-mesh exemptions, name-keyed overlay occlusion, scroll binds -- with no
+    # error anywhere. The campaign path was covered only because build_campaign emits the same map from
+    # plan.members' real_id; this closes the standalone hole and makes the two sets agree. It also completes
+    # the pairing the text-block line above already assumes (deploystack.donor_block_for / lint_text_block
+    # read source_field to grant this member its donor's block).
+    _src_line = (f"source_field = {int(real_id)}   # the real field this fork mirrors; the build emits "
+                 f"ForkDonorPatch so name-keyed fidelity (occlusion/location) resolves\n"
+                 if real_id and int(real_id) != int(field_id) else "")
     toml = (
         f"# EDITABLE member (logic + camera + walkmesh) of {meta['field']} (source area {meta['area']}).\n"
         f"# !! NEEDS ART: export this field in-game once (Memoria.ini [Export] Field=1), then re-run\n"
         f"#    `ff9mapkit import {folder} --editable` to add the repaintable layer_*.png. The gateways,\n"
         f"#    walkmesh and camera here are correct + retargeted; only the background art is missing.\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg.\n\n"
-        f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{_tb_line}\n"
+        f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{_tb_line}{_src_line}\n"
         f"[camera]\n{extract._ENTRY_SETTLE_LINE}borrow = \"camera.bgx\"\n{control_line}{scroll}\n"
         f"[walkmesh]\nbgi = \"walkmesh.bgi\"\n\n"
         f"{extract._player_block(meta)}"
@@ -639,6 +649,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     # the engine's behaviors hardcoded on a real fldMapNo (off-mesh exemptions, cutscene party-shape guards,
     # scroll player-binds -- docs/FORK_IDGATE_MAP.md) still fire for the fork. Read by the patched DataPatchers
     # (memoria-patches/s24-fork-donor-remap); a no-op on a stock engine that doesn't read the file.
+    #
+    # NOT redundant with build_mod's own emit above, which overwrites -- KEEP BOTH. build_mod derives the donor
+    # from each member TOML (build._verbatim_donor_id); an EDITABLE member emitted by _emit_logic_only_member
+    # (an art-less stub, and the degraded-verbatim fallback) records no donor key at all, so build_mod cannot
+    # see it -- only plan.members' real_id can. Deleting this write silently drops those members' mappings.
     donor_lines = [f"{m.new_id} {m.real_id}" for m in plan.members
                    if getattr(m, "real_id", None) and m.new_id != m.real_id]
     if donor_lines:

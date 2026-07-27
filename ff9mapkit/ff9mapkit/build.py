@@ -8555,6 +8555,27 @@ def _merge_foreign_registrations(dict_patch, new_lines) -> list:
     return keep + list(new_lines)
 
 
+def _foreign_donor_lines(fork_donor_patch, new_lines) -> list:
+    """An existing ForkDonorPatch's FOREIGN ``<forkId> <donorRealId>`` rows -- the mappings belonging to
+    forks this build does not emit. The DictionaryPatch twin of ``_merge_foreign_registrations``: the file
+    is rewritten wholesale, so installing one fork into a folder that already holds another would drop the
+    other's donor mapping and silently switch its fork-gated behaviors off. Comments + blank lines are
+    dropped (the header is regenerated); a row this build re-emits is dropped so the new one replaces it."""
+    try:
+        old = Path(fork_donor_patch).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []                                        # absent/unreadable -> nothing to keep
+    mine = {ln.split()[0] for ln in new_lines}
+    keep = []
+    for ln in old:
+        s = ln.strip()
+        if not s or s.startswith(("#", ";")):
+            continue
+        if s.split()[0] not in mine and s not in keep:
+            keep.append(s)
+    return keep
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None, preserve_existing=False) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -8659,6 +8680,28 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     text_lines, text_warnings = _emit_item_text(projects)
     if text_lines:
         layout.text_patch.write_text("\n".join(text_lines) + "\n", encoding="utf-8", newline="\n")
+
+    # ForkDonorPatch.txt = the fork-fidelity donor map (one `<forkId> <donorRealId>` per FORKED member), so
+    # the s24-s33 behaviors gated on a real fldMapNo -- off-mesh exemptions, the name-keyed overlay-occlusion
+    # offsets, scroll player-binds -- still fire for the custom id. A fork missing this file builds, boots and
+    # looks subtly wrong with NO error anywhere (most visibly: character-vs-overlay occlusion breaks for the
+    # whole donor field). Emitted HERE because `build --out` ships a COMPLETE standalone mod: it was previously
+    # written only at deploy time (tools/deploy_field.py), so a fork INSTALLED rather than deployed from the
+    # repo lost every fork-donor behavior. NOVEL fields have no donor -> no file (same non-empty guard as the
+    # battle/text patches above). build_campaign writes its own copy AFTER this one -- deliberately, and it
+    # must stay: its plan.members carry a real_id for EDITABLE members too, whose art-less stub toml records
+    # no donor at all, so campaign's set is a SUPERSET of what _verbatim_donor_id can see here.
+    donor_lines = []
+    for p in projects:
+        donor = _verbatim_donor_id(p)
+        if donor and p.id is not None and donor != p.id:
+            donor_lines.append(f"{p.id} {donor}")
+    if donor_lines:
+        if preserve_existing:      # installing INTO a shipping folder -> keep the OTHER forks' mappings
+            donor_lines = _foreign_donor_lines(layout.fork_donor_patch, donor_lines) + donor_lines
+        layout.fork_donor_patch.write_text(
+            "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(donor_lines) + "\n",
+            encoding="utf-8", newline="\n")
 
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)

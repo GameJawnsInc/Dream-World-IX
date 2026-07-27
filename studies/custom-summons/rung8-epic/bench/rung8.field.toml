@@ -138,7 +138,54 @@ menu_from = "steiner"
 
 [playable.abilities.command1]
 name = "Rune"
-abilities = [ { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 } ]
+# --- TIER W5: "Stock Phoenix" casts STOCK Phoenix (ef211) so the ef211 reskin/rescore overrides can be
+#     judged in-game, exactly as row 196 does for Bahamut/ef227.
+#
+#   IT LIVES HERE, ON STEINIV'S COMMAND, AND NOT ON VIVI'S "Spark" NEXT TO "Stock Bahamut" -- and that
+#   is FORCED, not preferred.  `content/playable.py:565` allocates the custom-ability band with ONE
+#   running counter (`act_alloc`, from `_CUSTOM_ACTION_MIN` = 192) walking specs in TOML order, then
+#   minted commands, then each command's ability list.  Vivi ([[playable]] id 12) is the first spec, so
+#   ANY row appended to her "Spark" pool takes 197 and pushes "Iron Edge" to 198 -- which renumbers an
+#   ALREADY-DEPLOYED row.  The three requirements "minted LAST", "id 198" and "on command 46" are
+#   jointly unsatisfiable through the declarative surface; the first two win, because a shifted id is a
+#   live-state break and a different menu is not.
+#   (MEASURED, not assumed: appending to Vivi's pool emits `Iron Edge;198`.  And referencing the row by
+#   NAME from Vivi's pool -- the obvious dodge -- is REFUSED: "[[command pool ability]] unknown name
+#   'Stock Phoenix' (not a row in the base CSV)", because a pool name resolves against the BASE CSV and
+#   a same-build minted ability is not in it.)
+#
+#   CONSEQUENCE THE TESTER MUST KNOW: cast it from STEINIV's "Rune" menu, not Vivi's "Spark".  It seeds
+#   Steiniv's learn list (`Characters/Abilities/21.csv`, AA:198 at ap 0), not Vivi's 20.csv, and joins
+#   command 35's pool, not command 46's.
+#
+#   from = "Bahamut"   NOT `from = "Phoenix"`.  Stock row 72 (Actions.csv line 80) carries scriptId 49 --
+#                      the damage+mass-revive script -- and `targets = Everyone(12)`.  The vfx played is
+#                      independent of scriptId (`btl_vfx.cs:99-101` reads only VfxIndex/Vfx2), so cloning
+#                      Bahamut's row 62 (scriptId 85, AllEnemy) and repointing the vfx pair gives the
+#                      Phoenix CINEMATIC without the Phoenix SCRIPT.  A bench row should test one thing.
+#   vfx1 = vfx2 = 211  forces the FULL cast structurally: `btl_vfx.cs:99` picks Vfx2 on a short-summon
+#                      roll, and with both cells equal the roll cannot change what plays.  (AllEnemy(8),
+#                      not ManyAny(3) -- ManyAny would take the Vfx2 path on cursor 0 regardless.)
+#   type = 0           THE TYPE-4 MP LAW, a third time.  Stock Phoenix already ships type = 0, but the
+#                      DONOR here is Bahamut, whose row ships type = 4; the override is what clears it.
+#   power/mp 30/8      cheap on purpose: this row exists to be cast repeatedly, not to be balanced.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef211 container override itself is hot.
+#
+# --- TIER W5 / M1: "Stock Madeen" casts STOCK Madeen (ef251).  SAME shape as "Stock Phoenix" above,
+#     same forced placement (the one 192+ counter walks specs in TOML order, so this must be appended
+#     LAST or it renumbers a deployed row), same donor and the same three overrides -- only the vfx
+#     pair moves.  It exists because ef211 could not carry the CREATURE half of the reskin: ef211's
+#     six creature rows refuse the rho >= 0.90 luminance gate at every cold key, so ef211 shipped
+#     SCENERY-only and the creature lever was still single-witness (ef227/W4).  ef251 IS the second
+#     witness: `madeen_reskin.toml` recolours all six of its creature pages, scenery untouched.
+#   vfx1 = vfx2 = 251  the FULL cast, structurally (both cells equal => the short-summon roll cannot
+#                      change what plays); ef251 is Madeen, Eiko's eidolon, 6 creature parts, 2 chunks.
+abilities = [
+  { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 },
+  { name = "Stock Phoenix", from = "Bahamut", targets = "AllEnemy", vfx1 = 211, vfx2 = 211, type = 0, power = 30, mp = 8 },
+  { name = "Stock Madeen", from = "Bahamut", targets = "AllEnemy", vfx1 = 251, vfx2 = 251, type = 0, power = 30, mp = 8 },
+]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------
 # THE BLOCK IS VALIDATED BY `build`/`lint` AND EMITTED BY `summon-deploy` -- two separate steps, by design

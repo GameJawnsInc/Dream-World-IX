@@ -3,6 +3,27 @@ r"""TIER W rung 3 -- THE TIMING RESCORE: stretch ``ef227:c0`` state 0 and move a
     py retime.py plan   bahamut_retime.toml     # resolve + print every edit, write nothing
     py retime.py build  bahamut_retime.toml     # stage BOTH artifacts + the deploy/revert scripts
     py retime.py verify bahamut_retime.toml     # re-run the whole self-check against what is staged
+    py retime.py report 211                     # W5: the two-clocks alignment report for one effect
+    py retime.py report --corpus                # ... for every clean-switch effect in the corpus
+
+WHAT W5 ADDED (rung 5, THE GENERALISATION -- the reading half only)
+-------------------------------------------------------------------
+The *writing* half of this rung stays ef227-shaped by choice: :mod:`w3_program_edits` is the frozen,
+cast-proven E1 record and is consumed verbatim.  What generalised is everything that READS:
+
+* ``report`` -- the per-effect two-clocks table, with **pairing quality** published beside it
+  (nearest-neighbour distances, duplicate-Code collisions, pairs-found over beats-total) and a
+  per-boundary derivability row for all four clocks.  37 of the corpus's 85 clock-guarded boundaries
+  have no lock pair at all, so a table that only printed leads would manufacture "locked" out of
+  "loosely correlated";
+* :mod:`retime_derive` -- E1's sites, found in any target's own bytes instead of tabulated, with the
+  peer-``lui`` reaching-definition pass that makes the half-patch trap mechanical;
+* **the alignment checker classifies machines by PROGRAM ORIGIN, not by chunk slot.**  The c0/c1
+  asymmetry this rung demonstrates is a property of *where each machine's ``RUN_PROGRAM`` sits
+  relative to the cut*, and ef227 merely happens to spell that as slot 0 versus slot 1;
+* ``PlayerAudit.needs_retime`` is ENFORCED at the call site.  It was dead code: the docstring
+  claimed a refusal that nothing raised, and ef227's own file (zero literal ``Wait`` lines) never
+  exercised it.
 
 WHAT THIS IS
 ------------
@@ -489,6 +510,9 @@ class Build:
     aligned: bytes = field(repr=False)
     misretime: bytes = field(repr=False)
     domains: List[Domain] = field(default_factory=list, repr=False)
+    #: ``(machine image, state)`` whose threshold E1 moves -- ``[retime.program] machine`` / ``state``.
+    #: ``None`` means the historical default, this effect's ``c0`` state 0, which is ef227's shape.
+    stretched: Optional[Tuple[str, int]] = None
     text: Optional["TextEdit"] = None
     player: Optional["PlayerAudit"] = None
     check: Optional["SelfCheck"] = None
@@ -578,10 +602,12 @@ def build_containers(spec: dict, spec_path: str = "?", game=None,
     misretime = apply_writes(blob, d_seq.writes + d_cam.writes)
     aligned = PE.apply_edits(misretime)                       # re-runs verify_stock on the E1 sites
 
+    stretched = ("ef%03d:%s" % (ef_id, str(prog.get("machine", "c0"))),
+                 int(prog.get("state", 0)))
     return Build(spec_path=spec_path, effect=ef_id, label=label, n=n, source=source, sha_in=sha_in,
                  cut_tick=cut_tick, cut_local=cut_local, anchor=anchor, frame_edits=frame_edits,
-                 shot_letter=letter, shot=shot, orig=blob, aligned=aligned, misretime=misretime,
-                 domains=[d_prog, d_seq, d_cam])
+                 shot_letter=letter, shot=shot, orig=blob, aligned=aligned,
+                 misretime=misretime, domains=[d_prog, d_seq, d_cam], stretched=stretched)
 
 
 # ============================================================ (4) E4 -- the OUTER text clock
@@ -646,10 +672,17 @@ class PlayerAudit:
     boundary: int
     timed_lines: List[Tuple[int, int, str]]      # (line no, cumulative tick, keyword)
     verdict: str
+    #: set only when the spec explicitly states the drift is intended
+    acknowledged: bool = False
 
     @property
     def needs_retime(self) -> bool:
         return self.max_tick > self.boundary
+
+    @property
+    def ok(self) -> bool:
+        """The self-check's view: clean, or drifting and explicitly acknowledged in the spec."""
+        return (not self.needs_retime) or self.acknowledged
 
 
 def _game_text_path(game_root, ef_id: int, name: str) -> Path:
@@ -761,6 +794,15 @@ def audit_player_sequence(spec: dict, game_root) -> PlayerAudit:
     pa = r["text"].get("player_audit", {})
     ef_id = int(r["effect"])
     boundary = int(r["text"]["boundary_outer_tick"])
+    _ack_raw = pa.get("acknowledge_uncoretimed", False)
+    if not isinstance(_ack_raw, bool):
+        # rescore.py's R3 rule, applied here too (V2's cross-lane finding): a TOML author writing
+        # `acknowledge_uncoretimed = "false"` must not silently ARM the acknowledgement.
+        raise RetimeError(
+            "[retime.text.player_audit] acknowledge_uncoretimed must be a BOOLEAN (true/false), "
+            "not %r. A safety acknowledgement must be stated, never inferred from a truthy string."
+            % (_ack_raw,))
+    _ack = _ack_raw
     name = str(pa.get("file", "PlayerSequence.seq"))
     src = _game_text_path(game_root, ef_id, name)
     if not src.exists():
@@ -787,13 +829,27 @@ def audit_player_sequence(spec: dict, game_root) -> PlayerAudit:
         verdict = ("%d Wait line(s), clock reaches tick %d > the boundary %d -- this file DOES carry "
                    "beats after the cut and needs the same one-line co-retime"
                    % (len(waits), max_tick, boundary))
+        # ENFORCED HERE, at the only place the verdict is produced.  Until W5 ``needs_retime`` was
+        # a property nothing ever read: the docstring claimed the tool "would refuse to leave it
+        # alone", and on ef227 (zero literal Wait lines) the claim was never exercised.  It is not
+        # hypothetical -- ef418's PlayerSequence.seq clock reaches tick 130, and ef125/151/251/381
+        # each carry a Wait line, so a generalised retime would silently ship an un-co-retimed
+        # outer-outer script whose failure mode looks exactly like a mistimed sound cue.
+        if not _ack:
+            raise RetimeError(
+                "%s CARRIES BEATS AFTER THE BOUNDARY: %s. This rung edits one Wait line in "
+                "Sequence.seq and leaves PlayerSequence.seq untouched, so those beats would keep "
+                "their stock schedule and drift by the retime's delta. Co-retime it, move the "
+                "boundary, or set `[retime.text.player_audit] acknowledge_uncoretimed = true` to "
+                "state in the spec that the drift is intended." % (name, verdict))
     else:
         verdict = ("%d literal `Wait: Time=` line(s); the main-thread clock never advances past tick "
                    "%d, so NO beat lands after the boundary %d. Its %d other `Time=` value(s) are "
                    "tween/hold DURATIONS internal to their own op, not schedule positions. SHIPPED "
                    "UNTOUCHED -- a checked fact, not an assumption."
                    % (len(waits), max_tick, boundary, len(timed) - len(waits)))
-    return PlayerAudit(str(src), got, len(waits), max_tick, boundary, timed, verdict)
+    return PlayerAudit(str(src), got, len(waits), max_tick, boundary, timed, verdict,
+                       acknowledged=_ack)
 
 
 # ============================================================ (5) THE ALIGNMENT CHECKER (self-check 3)
@@ -1016,27 +1072,39 @@ def check_alignment(stock: bytes, aligned: bytes, misretime: bytes, n: int, cut_
         add(not bad_rows, "%s: every pair lands where the edit sets predict" % tag,
             "%d pairs checked%s" % (len(rows), "" if not bad_rows else " -- " + "; ".join(bad_rows)))
 
-    # ---- MIS-RETIME: the asymmetry, stated as the falsifiable claim it is
-    c0 = [r for r in rows if r.ident.slot == 0]
-    c1 = [r for r in rows if r.ident.slot != 0]
-    c0_post = [r for r in c0 if r.cam >= cut_tick]
-    c0_pre = [r for r in c0 if r.cam < cut_tick]
-    off = [r for r in c0_post if m[r.ident].lead - r.lead != n]
-    add(bool(c0_post) and not off, "MIS-RETIME: c0's post-cut leads drift by exactly %+d" % n,
-        "%d post-cut c0 pairs, %d off%s" % (len(c0_post), len(off),
-                                            "" if not off else " -- " + ", ".join(
-                                                "%s s%d %+d -> %+d" % (x.ident.machine,
-                                                                       x.ident.state, x.lead,
-                                                                       m[x.ident].lead)
-                                                for x in off)))
-    still = [r for r in c0_pre if m[r.ident].lead != r.lead]
-    add(not still, "MIS-RETIME: c0's pre-cut lead is untouched",
-        "%d pre-cut c0 pair(s), %d drifted" % (len(c0_pre), len(still)))
-    c1bad = [r for r in c1 if m[r.ident].lead != r.lead]
-    add(bool(c1) and not c1bad, "MIS-RETIME: c1's leads are UNCHANGED",
-        "%d c1 pairs, %d drifted -- c1's program origin is a sequence op at tick %s, so its clock "
-        "rides the presentation and its locks survive a program-less retime"
-        % (len(c1), len(c1bad), res.origins["stock"].get("ef227:c1")))
+    # ---- MIS-RETIME: the asymmetry, stated as the falsifiable claim it is.
+    #
+    # THE CLASSIFIER IS THE PROGRAM ORIGIN, NOT THE CHUNK SLOT.  Until W5 this split was written as
+    # ``slot == 0`` vs ``slot != 0``, which is ef227's topology spelled as a rule: its c0 is started
+    # by a RUN_PROGRAM at sequence tick 0 and its c1 by one at tick 255.  The property that actually
+    # produces the asymmetry is WHERE THAT OP SITS RELATIVE TO THE CUT -- a machine whose
+    # RUN_PROGRAM fires at or after the cut rides the E2 shift wholesale, so its beats and its
+    # camera events move together and its leads survive a program-less retime; a machine started
+    # upstream of the cut does not move at all, so its post-cut leads drift by exactly N.  On ef227
+    # the two readings agree; on any other effect only this one is true.
+    origin_of = res.origins["stock"]
+    upstream = [r for r in rows if origin_of.get(r.ident.machine, 0) < cut_tick]
+    downstream = [r for r in rows if origin_of.get(r.ident.machine, 0) >= cut_tick]
+    up_post = [r for r in upstream if r.cam >= cut_tick]
+    up_pre = [r for r in upstream if r.cam < cut_tick]
+    off = [r for r in up_post if m[r.ident].lead - r.lead != n]
+    add(bool(up_post) and not off,
+        "MIS-RETIME: the UPSTREAM machines' post-cut leads drift by %+d" % n,
+        "%d post-cut pairs in machine(s) whose RUN_PROGRAM is before tick %d, %d off%s"
+        % (len(up_post), cut_tick, len(off),
+           "" if not off else " -- " + ", ".join(
+               "%s s%d %+d -> %+d" % (x.ident.machine, x.ident.state, x.lead, m[x.ident].lead)
+               for x in off)))
+    still = [r for r in up_pre if m[r.ident].lead != r.lead]
+    add(not still, "MIS-RETIME: the UPSTREAM machines' pre-cut leads are untouched",
+        "%d pre-cut pair(s), %d drifted" % (len(up_pre), len(still)))
+    dbad = [r for r in downstream if m[r.ident].lead != r.lead]
+    add(bool(downstream) and not dbad, "MIS-RETIME: the DOWNSTREAM machines' leads are UNCHANGED",
+        "%d pairs in machine(s) started at or after the cut (%s), %d drifted -- their program "
+        "origin IS a sequence op, so their clock rides the presentation and their locks survive a "
+        "program-less retime"
+        % (len(downstream), ", ".join("%s@%d" % (k, v) for k, v in sorted(origin_of.items())
+                                      if v >= cut_tick) or "none", len(dbad)))
     return res
 
 
@@ -1260,6 +1328,14 @@ def bounds_check(b: Build, patched_aligned: bytes) -> List[Tuple[bool, str, str]
                     "own end moves %d -> %d"
                     % (t.anchor.time, t.new_time, t.moved_beats, t.delta, t.stock_total,
                        t.new_total)))
+    if b.player is not None:
+        p = b.player
+        out.append((p.ok,
+                    "the OUTER-OUTER script carries no beat after the boundary",
+                    "%s: %d literal Wait line(s), clock reaches %d, boundary %d%s"
+                    % (os.path.basename(p.path), p.n_wait_lines, p.max_tick, p.boundary,
+                       "" if not p.needs_retime else
+                       "  <<< ACKNOWLEDGED DRIFT (acknowledge_uncoretimed = true)")))
     return out
 
 
@@ -1279,7 +1355,7 @@ def self_check(b: Build) -> SelfCheck:
           "MIS-RETIME": roundtrip_check(b, b.misretime, "MIS-RETIME")}
     al = check_alignment(b.orig, b.aligned, b.misretime, b.n, b.cut_tick, b.cut_local,
                          (b.shot.slot, b.shot.index), "ef%03d" % b.effect,
-                         stretched=("ef%03d:c0" % b.effect, 0))
+                         stretched=b.stretched or ("ef%03d:c0" % b.effect, 0))
     emu = emulator_gate(b)
     bnd = bounds_check(b, b.aligned)
     return SelfCheck(ba, bm, diff_ok, detail, rt, al, emu, bnd)
@@ -1653,6 +1729,320 @@ def residual_lines(b: Build) -> List[str]:
     return L
 
 
+# ============================================================ (8b) THE TWO-CLOCKS ALIGNMENT REPORT
+#
+# The reading half of this lane was always corpus-general -- ``lock_table``, ``relock``,
+# ``_machines_and_beats`` and ``_camera_events`` run unmodified on every clean-switch effect.  What
+# was missing is the thing that makes such a table trustworthy: its PAIRING QUALITY.  A
+# nearest-neighbour match inside a 6-tick window will happily return a "lock pair" for two events
+# that merely happen to be near each other, and 37 of the corpus's 85 clock-guarded boundaries have
+# no pair at all.  This report therefore publishes, per boundary, how good the pairing is and what
+# each of the four clocks could actually derive -- and never calls a loose correlation a lock.
+
+#: the pairing window ``lock_table`` uses.  Corpus-measured lead distribution over the 48 boundaries
+#: that DO pair: |lead| <= 1 on 35 of them, but the tail runs -6..+5.  ef227's uniform -1 is the
+#: tightest case in the corpus, not the norm -- so a cut is taken from the boundary's OWN lead.
+LOCK_WINDOW = 6
+
+#: the nominal stretch the report probes E2/E3 with.  Small on purpose: the point is whether an
+#: anchor and a frame-edit set EXIST at this boundary, not whether some particular N fits.
+PROBE_N = 1
+
+
+@dataclass
+class PairQuality:
+    """How well this effect's two clocks actually pair -- published, never assumed."""
+    beats_total: int
+    pairs_found: int
+    nn_distances: List[int]                      # |cam - beat| for the nearest camera event, per beat
+    duplicate_codes: Dict[Tuple[int, int, int, int], List[str]]
+    window: int = LOCK_WINDOW
+
+    @property
+    def collisions(self) -> int:
+        return sum(1 for v in self.duplicate_codes.values() if len(v) > 1)
+
+    @property
+    def verdict(self) -> str:
+        if not self.beats_total:
+            return "no beats"
+        if not self.pairs_found:
+            return "NO LOCK -- not one camera event lands within %d ticks of any beat" % self.window
+        frac = self.pairs_found / self.beats_total
+        tag = "LOCKED" if frac >= 0.75 and not self.collisions else "LOOSELY CORRELATED"
+        return ("%s -- %d of %d beats pair (%.0f%%), %d Code collision(s)"
+                % (tag, self.pairs_found, self.beats_total, 100 * frac, self.collisions))
+
+
+@dataclass
+class BoundaryFlags:
+    """What each of the four clocks could derive at ONE phase boundary.
+
+    A row is the boundary at the END of ``state`` -- the tick its successor begins on.  That is the
+    tick every clock in this rung is measured against: the threshold that moves belongs to ``state``,
+    but the lock pair, the sequence anchor, the camera cut and the outer text's ``Wait`` are all
+    anchored to where the NEXT phase starts.
+    """
+    machine: str
+    state: int
+    next_state: Optional[int]
+    beat: int                                    # the successor's start tick == the boundary
+    cut: Optional[int]                           # the paired camera event's tick, or None
+    lead: Optional[int]
+    origin: int
+    #: if THIS boundary were the cut: the machines whose RUN_PROGRAM fires before it (their clocks
+    #: do NOT ride the sequence shift, so an E1-less retime drifts their post-cut leads by N) and
+    #: the machines started at or after it (they ride the presentation and their leads survive).
+    #: This is the classification ``check_alignment`` now makes -- program origin, never chunk slot.
+    upstream_machines: Tuple[str, ...] = ()
+    downstream_machines: Tuple[str, ...] = ()
+    e1_threshold: str = ""                       # the slti site, or why not
+    e1_recips: str = ""                          # reciprocals found / peers / disposition, or refusal
+    e2: str = ""                                 # exact | containing (slack k) | none
+    e3: str = ""                                 # pass (k words) | straddle | no-shot | ...
+    e4: str = ""                                 # anchor + PlayerSequence verdict, or "(no install)"
+
+
+@dataclass
+class EffectReport:
+    effect: int
+    source: str
+    machines: List[Tuple[str, int, int, Optional[int]]]   # (image, phases, total ticks, origin)
+    quality: PairQuality
+    locks: List[LockRow]
+    boundaries: List[BoundaryFlags]
+    notes: List[str] = field(default_factory=list)
+
+
+def _nearest(cams: Dict, slot: int, beat: int) -> Optional[Tuple[Tuple, Tuple]]:
+    cand = [(k, v) for k, v in cams.items() if k[0] == slot]
+    if not cand:
+        return None
+    return min(cand, key=lambda kv: (abs(kv[1][1] - beat), kv[1][1]))
+
+
+def _e2_flag(blob: bytes, cut: int) -> str:
+    """Exact / containing / none, and the containing WAIT's slack when there is no exact anchor."""
+    try:
+        a = find_seq_anchor(blob, cut, PROBE_N)
+        return "exact (WAIT @%#x, %d -> %d)" % (a.op_at, a.from_tick, a.to_tick)
+    except RetimeError:
+        pass
+    waits = [o for o in seq_ops(blob) if o.code == OP_WAIT and o.arg1 == 0]
+    holding = [w for w in waits if w.tick < cut < w.tick + w.arg2]
+    if len(holding) == 1:
+        w = holding[0]
+        return ("containing (WAIT @%#x spans %d -> %d, slack %d) -- an exact anchor needs the "
+                "record SPLIT, a byte insert never cast" % (w.at, w.tick, w.tick + w.arg2,
+                                                            w.tick + w.arg2 - cut))
+    ending = [w for w in waits if w.tick + w.arg2 == cut]
+    if len(ending) > 1:
+        return "AMBIGUOUS (%d WAITs end on tick %d)" % (len(ending), cut)
+    return "none (no WAIT ends on or contains tick %d)" % cut
+
+
+def _e3_flag(ex: W.Extract, slot: int, subfile: int, cut: int) -> str:
+    shot = next((s for s in ex.shots if s.slot == slot and s.index == subfile), None)
+    if shot is None:
+        return "no-shot (chunk %d sub-file %d resolves to no camera block)" % (slot, subfile)
+    cut_local = cut - shot.op.seq_tick + 1
+    try:
+        edits = find_frame_edits(shot, cut_local, PROBE_N)
+        return "pass (%d frame word(s) at or after local %d)" % (len(edits), cut_local)
+    except RetimeError as exc:
+        head = str(exc).split(":")[0].split("--")[0].strip()
+        if "STRADDLE" in str(exc):
+            return "straddle (a pre-cut interpolation is still running at local %d)" % cut_local
+        return "refused (%s)" % head[:70]
+
+
+def _e4_flag(game_root, effect: int, boundary: int) -> str:
+    if game_root is None:
+        return "(no install -- not probed)"
+    src = _game_text_path(game_root, effect, "Sequence.seq")
+    if not src.exists():
+        return "no Sequence.seq"
+    try:
+        _lines, waits = parse_seq_text(src.read_bytes().decode("utf-8"))
+    except Exception as exc:                                 # pragma: no cover
+        return "Sequence.seq unreadable (%s)" % type(exc).__name__
+    hits = [w for w in waits if w.start <= boundary < w.end]
+    anchor = ("anchor Wait #%d (%d -> %d)" % (hits[0].index, hits[0].start, hits[0].end)
+              if len(hits) == 1 else "NO unique Wait spans outer tick %d (%d hits, %d Wait lines)"
+              % (boundary, len(hits), len(waits)))
+    ps = _game_text_path(game_root, effect, "PlayerSequence.seq")
+    if not ps.exists():
+        return "%s; no PlayerSequence.seq" % anchor
+    try:
+        _l2, pw = parse_seq_text(ps.read_bytes().decode("utf-8"))
+    except Exception:                                        # pragma: no cover
+        return "%s; PlayerSequence.seq unreadable" % anchor
+    pmax = pw[-1].end if pw else 0
+    return ("%s; PlayerSequence %d Wait line(s) reaching tick %d -- %s"
+            % (anchor, len(pw), pmax,
+               "CO-RETIME NEEDED" if pmax > boundary else "no beat after the boundary"))
+
+
+def effect_report(blob: bytes, effect: int, game_root=None, window: int = LOCK_WINDOW,
+                  derive: bool = True) -> EffectReport:
+    """The per-effect two-clocks alignment report: pairing quality + per-boundary derivability."""
+    source = "ef%03d" % effect
+    ex, beats, origins = _machines_and_beats(blob, source)
+    cams = _camera_events(ex)
+    rows = lock_table(blob, source, window)
+    machines = W.recover_machines(blob, source)
+    mach_rows = [(m.image, len(m.phases),
+                  (m.phases[-1].start_tick if m.phases else 0), origins.get(m.image))
+                 for m in machines]
+
+    nn: List[int] = []
+    dup: Dict[Tuple[int, int, int, int], List[str]] = {}
+    for image, slot, state, beat in beats:
+        hit = _nearest(cams, slot, beat)
+        if hit is None:
+            continue
+        k, v = hit
+        nn.append(abs(v[1] - beat))
+        if abs(v[1] - beat) <= window:
+            dup.setdefault(k, []).append("%s s%d" % (image, state))
+    quality = PairQuality(len(beats), len(rows), nn, dup, window)
+
+    by_ident = {(r.ident.machine, r.ident.state): r for r in rows}
+    beat_of = {(image, state): tick for image, _slot, state, tick in beats}
+    bounds: List[BoundaryFlags] = []
+    for m in machines:
+        origin = origins.get(m.image, 0)
+        for ph in m.phases:
+            # a terminal phase has no boundary to move -- it ends when something else ends it, and
+            # a self-transition is a per-tick loop, not a boundary between two phases
+            if ph.next_state is None or ph.next_state == ph.state \
+                    or (m.image, ph.next_state) not in beat_of:
+                continue
+            beat = beat_of[(m.image, ph.next_state)]
+            row = by_ident.get((m.image, ph.next_state))
+            cut = row.cam if row else None
+            lead = row.lead if row else None
+            e1_thr, e1_rec = _e1_flags(blob, effect, m.image, ph.state, derive)
+            e2 = _e2_flag(blob, cut) if cut is not None else "(no lock pair -- no cut to anchor)"
+            e3 = (_e3_flag(ex, row.ident.slot, row.ident.subfile, cut) if row is not None
+                  else "(no lock pair -- no shot named)")
+            e4 = _e4_flag(game_root, effect, beat)
+            ref = cut if cut is not None else beat
+            ups = tuple(sorted(k for k, v in origins.items() if v < ref))
+            downs = tuple(sorted(k for k, v in origins.items() if v >= ref))
+            bounds.append(BoundaryFlags(
+                machine=m.image, state=ph.state, next_state=ph.next_state, beat=beat,
+                cut=cut, lead=lead, origin=origin,
+                upstream_machines=ups, downstream_machines=downs,
+                e1_threshold=e1_thr, e1_recips=e1_rec, e2=e2, e3=e3, e4=e4))
+    notes = []
+    if ex.dynamic:
+        notes.append("%d camera op(s) resolve DYNAMICALLY -- their blocks are not statically named, "
+                     "so any boundary they carry is invisible to this table" % ex.dynamic)
+    if not rows:
+        notes.append("NO lock pair anywhere in this effect: the two clocks are not demonstrably "
+                     "locked here, and W1's law must not be quoted at it")
+    return EffectReport(effect, source, mach_rows, quality, rows, bounds, notes)
+
+
+def _e1_flags(blob: bytes, effect: int, image: str, state: int, derive: bool) -> Tuple[str, str]:
+    """``(threshold site, reciprocal census)`` from :mod:`retime_derive`, or the refusal that stopped it."""
+    if not derive:
+        return "(not probed)", "(not probed)"
+    try:
+        import retime_derive as RD
+    except Exception as exc:                                 # pragma: no cover
+        return "(unavailable: %s)" % exc, "(unavailable)"
+    try:
+        t = RD.analyse_target(blob, effect, image, state)
+    except RD.DeriveRefusal as exc:
+        return "x", "REFUSED: %s" % str(exc).splitlines()[0][:100]
+    except Exception as exc:            # one odd phase must not take down a whole effect's report
+        return "x", "ERROR in the E1 probe: %s: %s" % (type(exc).__name__, str(exc)[:80])
+    thr = "OK  slti imm %d at image %#06x = file %#08x" % (t.threshold, t.guard_off,
+                                                           t.guard_file_off)
+    if t.derivable:
+        # V2's finding: `t.derivable` is the ANALYSIS flag; the WRITER can still refuse (ef381:c4 s4,
+        # two retuned ramps wanting the same byte).  The label -- and therefore the --corpus footer,
+        # which counts this substring -- must be end-to-end, so run the mandatory N=0 identity gate
+        # before calling anything DERIVABLE.
+        try:
+            RD.assert_identity(t, blob)
+        except RD.DeriveRefusal as exc:
+            return thr, ("%d reciprocal(s), %d peer copy(ies); WRITER-REFUSED: %s"
+                         % (len(t.reciprocals), t.peer_count, str(exc).splitlines()[0][:100]))
+        rec = ("%d reciprocal(s), %d peer copy(ies); %d RETUNE, %d KEEP -- DERIVABLE"
+               % (len(t.reciprocals), t.peer_count, len(t.retuned),
+                  len(t.reciprocals) - len(t.retuned)))
+    else:
+        rec = ("%d reciprocal(s), %d peer copy(ies); REFUSED: %s"
+               % (len(t.reciprocals), t.peer_count, t.refusals[0][:100]))
+    return thr, rec
+
+
+def report_lines(rep: EffectReport) -> List[str]:
+    L = ["=" * 110,
+         "ef%03d -- THE TWO-CLOCKS ALIGNMENT REPORT" % rep.effect,
+         "=" * 110,
+         "  machines (clean-switch class only):"]
+    for image, nph, last, origin in rep.machines:
+        L.append("     %-12s %2d phases, last starts at program tick %-4d  RUN_PROGRAM origin = %s"
+                 % (image, nph, last, origin))
+    q = rep.quality
+    L.append("")
+    L.append("  PAIRING QUALITY (window %d): %s" % (q.window, q.verdict))
+    if q.nn_distances:
+        srt = sorted(q.nn_distances)
+        L.append("     nearest-neighbour |cam - beat| over %d beats: min %d, median %d, max %d"
+                 % (len(srt), srt[0], srt[len(srt) // 2], srt[-1]))
+    for k, v in sorted(q.duplicate_codes.items()):
+        if len(v) > 1:
+            L.append("     COLLISION: camera Code (slot %d sub %d seq %d code %d) is the nearest "
+                     "neighbour of %s -- one Code cannot be the lock of two beats"
+                     % (k[0], k[1], k[2], k[3], " and ".join(v)))
+    L.append("")
+    L.append("  PER-BOUNDARY DERIVABILITY")
+    for b in rep.boundaries:
+        L.append("   %-12s s%-3d -> %-5s beat %-5d cut %-6s lead %-5s  origin %d"
+                 % (b.machine, b.state, b.next_state if b.next_state is not None else "term",
+                    b.beat, b.cut if b.cut is not None else "--",
+                    ("%+d" % b.lead) if b.lead is not None else "--", b.origin))
+        L.append("       if this were the cut: %s do NOT ride the sequence shift; %s do"
+                 % (", ".join(b.upstream_machines) or "(none)",
+                    ", ".join(b.downstream_machines) or "(none)"))
+        L.append("       E1 threshold : %s" % b.e1_threshold)
+        L.append("       E1 program   : %s" % b.e1_recips)
+        L.append("       E2 sequence  : %s" % b.e2)
+        L.append("       E3 camera    : %s" % b.e3)
+        L.append("       E4 outer text: %s" % b.e4)
+    for n in rep.notes:
+        L.append("  NOTE: %s" % n)
+    return L
+
+
+def corpus_report(root: Optional[str] = None, game_root=None, derive: bool = True,
+                  window: int = LOCK_WINDOW) -> List[Tuple[int, Optional[EffectReport], str]]:
+    """``[(effect, report or None, error)]`` for every corpus container with a clean-switch image."""
+    import glob
+    root = root or W.SCRATCH_CORPUS
+    out = []
+    for p in sorted(glob.glob(os.path.join(root, "ef*.bytes"))):
+        name = os.path.splitext(os.path.basename(p))[0]
+        try:
+            ef = int(name[2:])
+        except ValueError:                                   # pragma: no cover
+            continue
+        with open(p, "rb") as fh:
+            blob = fh.read()
+        try:
+            if not W.recover_machines(blob, name):
+                continue
+            out.append((ef, effect_report(blob, ef, game_root, window, derive), ""))
+        except Exception as exc:                             # the sweep must never stop on one file
+            out.append((ef, None, "%s: %s" % (type(exc).__name__, exc)))
+    return out
+
+
 # ============================================================ (9) the spec
 def load_spec(path) -> dict:
     with open(path, "rb") as fh:
@@ -1672,10 +2062,53 @@ def load_spec(path) -> dict:
 
 
 # ============================================================ CLI
+def _read_effect_blob(effect: int, corpus_root: Optional[str], game=None) -> Tuple[bytes, str]:
+    """Prefer the corpus copy (offline, provenance-gated); fall back to the user's own install."""
+    root = corpus_root or W.SCRATCH_CORPUS
+    p = os.path.join(root, "ef%03d.bytes" % effect)
+    if os.path.isfile(p):
+        with open(p, "rb") as fh:
+            return fh.read(), p
+    return R.read_stock_effect(effect, game)
+
+
+def _report_main(a, game_root) -> int:                        # pragma: no cover - CLI wiring
+    if a.corpus:
+        rows = corpus_report(a.corpus_root, game_root, not a.no_derive, a.window)
+        ok = bad = 0
+        print("%-8s %-10s %-6s %-9s %s" % ("effect", "machines", "beats", "pairs", "verdict"))
+        for ef, rep, err in rows:
+            if rep is None:
+                bad += 1
+                print("ef%03d    ERROR      %s" % (ef, err[:90]))
+                continue
+            ok += 1
+            print("ef%03d    %-10s %-6d %-9d %s"
+                  % (ef, ",".join(m[0].split(":")[-1] for m in rep.machines),
+                     rep.quality.beats_total, rep.quality.pairs_found, rep.quality.verdict))
+        derivable = sum(1 for _e, rp, _x in rows if rp
+                        for b in rp.boundaries if "DERIVABLE" in b.e1_recips)
+        total_b = sum(len(rp.boundaries) for _e, rp, _x in rows if rp)
+        print("\n%d effect(s) reported, %d errored; %d of %d boundaries are E1-DERIVABLE"
+              % (ok, bad, derivable, total_b))
+        return 0 if not bad else 1
+    try:
+        effect = int(str(a.spec).lstrip("eEfF"))
+    except ValueError:
+        print("`report` takes an EFFECT ID (e.g. `retime.py report 211`), not %r" % a.spec)
+        return 2
+    blob, src = _read_effect_blob(effect, a.corpus_root, a.game)
+    rep = effect_report(blob, effect, game_root, a.window, not a.no_derive)
+    print("source: %s" % src)
+    print("\n".join(report_lines(rep)))
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("verb", choices=("plan", "build", "verify"))
-    ap.add_argument("spec", nargs="?", default=os.path.join(_HERE, "bahamut_retime.toml"))
+    ap.add_argument("verb", choices=("plan", "build", "verify", "report"))
+    ap.add_argument("spec", nargs="?", default=os.path.join(_HERE, "bahamut_retime.toml"),
+                    help="a retime spec for plan/build/verify; an EFFECT ID for `report`")
     ap.add_argument("--root", default=SCRATCH_ROOT,
                     help="staging root (default: SCRATCH; the repo and the install are refused)")
     ap.add_argument("--game", default=None)
@@ -1684,14 +2117,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--live", action="store_true",
                     help="allow a --root INSIDE the game install. Off by default: W3 stages, and the "
                          "generated deploy scripts are what touch the install, with the user present.")
+    ap.add_argument("--corpus", action="store_true",
+                    help="`report` only: sweep every clean-switch effect in the corpus")
+    ap.add_argument("--corpus-root", default=None, help="`report` only: where the ef*.bytes live")
+    ap.add_argument("--no-derive", action="store_true",
+                    help="`report` only: skip the E1 program probe (much faster, far less useful)")
+    ap.add_argument("--window", type=int, default=LOCK_WINDOW, help="`report` only: pairing window")
     a = ap.parse_args(argv)
 
-    spec = load_spec(a.spec)
     try:
         from ff9mapkit import config
         game_root = config.find_game_path(a.game)
     except Exception:                                        # pragma: no cover
         game_root = None
+
+    if a.verb == "report":
+        return _report_main(a, game_root)
+
+    spec = load_spec(a.spec)
 
     b = build_containers(spec, a.spec, a.game)
     if not a.no_text and game_root is not None:

@@ -1,5 +1,6 @@
 r"""TIER W rung 2 -- THE CONTENT RESCORE: reframe a stock summon's shot, durations UNCHANGED.
 
+    py rescore.py init   --ef 211                    # derive a guarded starter spec for ANY effect
     py rescore.py plan   bahamut_rescore.toml        # resolve + print the delta, write nothing
     py rescore.py build  bahamut_rescore.toml        # stage the override + emit the revert script
     py rescore.py verify bahamut_rescore.toml        # X1/X2 against a staged build
@@ -34,6 +35,23 @@ alternate takes, chosen at runtime by the bit-3 selector.  Editing one track of 
 produces a cast that may look unchanged.  ``check_alternates`` reports the verdict for the target
 block, and ``build`` REFUSES a single-sequence edit on a block whose alternates differ unless the
 spec says ``all_sequences = true`` (which fans the same delta across every declared track).
+
+THE DYNAMIC-OP DISCLOSURE (W5 -- the generalisation gate)
+---------------------------------------------------------
+ef227 is the EASIEST container in the corpus: every camera op it runs resolves to a literal
+sub-file index, so the set of blocks an edit can reach is fully enumerable offline.  That is NOT
+general.  ``PLAY_CAMERA`` with ``arg2 == 3`` picks its block from a **runtime table keyed by the
+battle field** (``summon_camera`` handler ``0x3bbd0``); the table is not merely undecoded, it is
+ABSENT from the container -- so from these bytes alone nothing can say whether the (chunk, sub-file)
+pair being edited is ALSO the target of a lookup under some other battle condition, nor which other
+blocks that lookup may reach instead.  324 of 1448 camera-naming ops corpus-wide are of this class.
+
+``build_patched`` therefore REFUSES any container carrying such an op unless the spec says
+``acknowledge_dynamic_ops = true`` -- a DISCLOSURE gate, not a hard block: the author states that
+the edited block's full reachability is unverifiable offline and that only an in-game cast across
+varied battle conditions can close it.  The converse is refused too: an ``= true`` on a container
+with ZERO dynamic ops is a stale acknowledgement copied from another effect, and a safety key that
+was never true here must not be allowed to look satisfied.
 
 THE SILENT-FAILURE RISK THIS BUILD IS SHAPED AROUND
 ---------------------------------------------------
@@ -83,9 +101,39 @@ try:                                                             # py3.11+ stdli
 except ModuleNotFoundError:                                      # pragma: no cover
     import tomli as _toml                                        # type: ignore
 
-#: default staging root -- SCRATCH, never the repo, never the live game folder (W2 stages only)
-SCRATCH_ROOT = os.environ.get("FF9_RESCORE_SCRATCH",
-                              r"C:\gd\SCRATCH\summon-format\rescore-w2")
+#: W2's staging root -- ef227's, and ONLY ef227's.  Its ``mod/``, its backups and its
+#: ``revert_summon_camera_227.py`` are the cast-proven W2/W3 revert chain; W5 does not move them.
+SCRATCH_W2_ROOT = os.environ.get("FF9_RESCORE_SCRATCH",
+                                 r"C:\gd\SCRATCH\summon-format\rescore-w2")
+
+#: W5's staging BASE -- every OTHER effect gets ``<base>\ef%03d\``.  Before this split ``--mod-root``
+#: defaulted to ``rescore-w2/mod`` for every effect, so building ef211 dropped its container and its
+#: ``revert_summon_camera_211.py`` INSIDE ef227's revert kit (B5 hit exactly this and had to clean it
+#: by hand).  Two effects staged in one session could then also overwrite each other's backups.
+SCRATCH_W5_BASE = os.environ.get("FF9_RESCORE_SCRATCH_W5",
+                                 r"C:\gd\SCRATCH\summon-format\rescore-w5")
+
+#: kept as a NAME for w2_gates and every caller that predates the split; it is ef227's root.
+SCRATCH_ROOT = SCRATCH_W2_ROOT
+
+#: the effect whose staging layout is frozen (W2 shipped and cast it); everything else is W5-lane.
+LEGACY_STAGING_EFFECT = 227
+
+
+def staging_root(effect: int) -> str:
+    """The per-effect staging WORK dir.  ef227 keeps W2's exact layout (its revert chain is a
+    deployed, cast-proven artifact); every other effect gets ``rescore-w5\\ef%03d``.  Mirrors
+    ``reskin.staging_root``, which already derived its root per effect -- this lane did not, and the
+    asymmetry was the defect."""
+    if int(effect) == LEGACY_STAGING_EFFECT:
+        return SCRATCH_W2_ROOT
+    return os.path.join(SCRATCH_W5_BASE, "ef%03d" % int(effect))
+
+
+def default_mod_root(effect: int) -> str:
+    """The staging mod root for one effect -- ``<staging_root>/mod``, ALWAYS under the same per-effect
+    directory the work dir resolves to, so the two can never point at different effects' kits."""
+    return os.path.join(staging_root(effect), "mod")
 
 #: the on-disc override path the engine's mod pass reads.  ``AssetManager.LoadBytes("SpecialEffects/
 #: ef227")`` is NOT "Data/"-prefixed, so ``IsMemoriaAssets`` is false and ``GetBelongingBundleFilename``
@@ -130,6 +178,23 @@ _REFUSED = {
 #: spec section -> the parsed Code sub-block it edits
 _SECTIONS = {"camera": "campos", "target": "tgtpos", "focal": "focal",
              "camera_move": "cammove", "target_move": "tgtmove"}
+
+#: every key ``[rescore]`` understands.  Unknown keys are REFUSED rather than ignored: a mistyped
+#: ``expect_sha256`` would silently drop the drift guard, which fails OPEN -- the one direction a
+#: provenance guard may never fail.  (A mistyped acknowledge key fails CLOSED, which is fine, but
+#: the author still deserves to be told the spec does not say what they think it says.)
+_RESCORE_KEYS = frozenset(("effect", "label", "expect_sha256", "acknowledge_dynamic_ops"))
+#: every key one ``[[edit]]`` understands: the addressing keys plus the five editable sections
+_EDIT_KEYS = frozenset(("shot", "chunk", "subfile", "sequence", "all_sequences",
+                        "frame", "occurrence")) | frozenset(_SECTIONS)
+#: every top-level table a rescore spec may declare
+_SPEC_KEYS = frozenset(("rescore", "edit"))
+
+#: how many STOCK VALUES a generated scaffold may quote.  The scaffold is a committable authored
+#: spec (bahamut_rescore.toml's class), not a decoded stock listing: it may name the values its own
+#: declared edit writes and nothing else.  ``summon_camera.py read N`` prints the full keyframe
+#: dump, to stdout, where it stays.
+SCAFFOLD_QUOTE_BUDGET = 4
 
 
 class RescoreError(RuntimeError):
@@ -227,6 +292,41 @@ def drift_guard(ef_id: int, blob: bytes, expect: Optional[str] = None) -> str:
             "shot indices with `summon_camera.py read %d` before trusting this delta."
             % (ef_id, want, got, ef_id))
     return got
+
+
+# ============================================================ (1b) THE DYNAMIC-OP DISCLOSURE
+def dynamic_ops(ex: W.Extract) -> List[W.CameraOp]:
+    """Every camera op this container resolves at RUNTIME (``PLAY_CAMERA arg2 = 3``).
+
+    ``extract_shots`` never letter-enumerates these -- they land in ``ex.skipped`` -- so a spec can
+    never name one by shot letter.  That is exactly why the risk is invisible without this call: an
+    edit addressed by (chunk, sub-file) reaches the physical block REGARDLESS of which op eventually
+    resolves to that index, and the table these ops read is battle-field-keyed data that is not in
+    the container at all.
+    """
+    return [o for o, why in ex.skipped if why == "dynamic"]
+
+
+def dynamic_disclosure(ef_id: int, ex: W.Extract) -> List[str]:
+    """The human disclosure text for a container's runtime-chosen camera ops (empty if none)."""
+    dyn = dynamic_ops(ex)
+    if not dyn:
+        return []
+    L = ["ef%03d runs %d RUNTIME-CHOSEN camera op(s) (PLAY_CAMERA arg2 = %d, %s):"
+         % (ef_id, len(dyn), W.ARG2_TABLE, W.ARG2_NAMES[W.ARG2_TABLE])]
+    for o in dyn:
+        L.append("  %s @file %#x, chunk %d, arg1 %d, seq tick %d"
+                 % (o.kind, o.at, o.chunk_slot, o.arg1, o.seq_tick))
+    L.append("Each picks its camera block from a table keyed by the BATTLE FIELD at run time. That "
+             "table is not undecoded -- it is ABSENT from these bytes, so no offline analysis can "
+             "say which sub-file indices it reaches, nor whether it also reaches the one being "
+             "edited. The consequences an offline gate CANNOT rule out:")
+    L.append("  * the edited block may also play under battle conditions this edit was not judged "
+             "against (a different enemy count, a different party, a different arena);")
+    L.append("  * a condition may pick a DIFFERENT block entirely, so the cast can look completely "
+             "unchanged -- the same symptom as a mis-resolved override.")
+    L.append("Only an in-game cast across VARIED battle conditions closes this. No offline gate can.")
+    return L
 
 
 # ============================================================ (2) the Code field map
@@ -581,12 +681,39 @@ class _Ledger:
     Every write is read back and compared -- a write that did not land is a silent failure and this
     whole rung's failure mode is silence."""
 
-    def __init__(self, backup_dir):
+    def __init__(self, backup_dir, mod_root=None):
         self.backup_dir = Path(backup_dir)
+        #: the mod folder every recorded destination lives under.  Recorded so the emitted revert
+        #: script can take ``--root`` and undo the same writes in a DIFFERENT folder (a sandbox
+        #: rehearsal, a re-pinned deploy target) instead of being welded to the one absolute path it
+        #: was born in -- ``reskin.py``'s deploy/revert scripts already work that way.
+        self.mod_root = Path(mod_root) if mod_root is not None else None
         self.stamp = time.strftime("%Y%m%d-%H%M%S")
-        self.files: List[Tuple[str, Optional[str]]] = []
+        self.files: List[dict] = []
         self.list_line: Optional[str] = None
         self.list_path: Optional[str] = None
+        self.list_rel: Optional[str] = None
+
+    def _rel(self, path) -> Optional[str]:
+        """``path`` expressed relative to the mod root, or ``None`` when it is not under it.
+
+        ``None`` is the honest answer, not a fallback: a file outside the mod root (nothing writes
+        one today, but the ledger must not lie about it) cannot be rebased by ``--root``, so the
+        script keeps its absolute path and says so.  An escaping ``../`` is rejected HERE rather
+        than at either call site -- a relative path that climbs out of the root would let a
+        ``--root`` point the revert at a file the caller never named."""
+        if self.mod_root is None:
+            return None
+        try:
+            rel = Path(os.path.relpath(Path(path).resolve(),
+                                       self.mod_root.resolve())).as_posix()
+        except (ValueError, OSError):                            # pragma: no cover - other drive
+            return None
+        return None if (rel == ".." or rel.startswith("../")) else rel
+
+    def _record(self, dest, backup) -> None:
+        self.files.append({"dest": str(dest), "backup": str(backup) if backup else None,
+                           "rel": self._rel(dest)})
 
     def write_bytes(self, dest, data: bytes) -> str:
         from ff9mapkit import fsutil
@@ -600,7 +727,7 @@ class _Ledger:
         fsutil.atomic_write_bytes(dest, data)
         if dest.read_bytes() != data:                            # pragma: no cover
             raise RescoreError("write verification failed at %s -- readback != what we wrote" % dest)
-        self.files.append((str(dest), str(backup) if backup else None))
+        self._record(dest, backup)
         return hashlib.sha256(data).hexdigest()
 
     def add_list_line(self, list_path, line: str) -> bool:
@@ -620,11 +747,14 @@ class _Ledger:
         lines.append(line)
         fsutil.atomic_write_text(lp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         self.list_line, self.list_path = line, str(lp)
-        self.files.append((str(lp), str(backup)))
+        self.list_rel = self._rel(lp)
+        self._record(lp, backup)
         return True
 
     def revert_plan(self) -> dict:
-        return {"files": self.files, "list_line": self.list_line, "list_path": self.list_path}
+        return {"files": self.files, "list_line": self.list_line, "list_path": self.list_path,
+                "list_rel": self.list_rel,
+                "mod_root": str(self.mod_root) if self.mod_root is not None else ""}
 
     def write_revert_script(self, out_dir, name: str) -> Path:
         from ff9mapkit import fsutil
@@ -641,50 +771,146 @@ _REVERT_TEMPLATE = '''#!/usr/bin/env python3
 """Auto-generated revert for a TIER W camera rescore -- stdlib only, no ff9mapkit import.
 
 Restores each backed-up file, deletes each file the rescore newly created, and drops the
-ModFileList line it added. Idempotent: safe to run more than once."""
-import json, shutil
+ModFileList line it added. Idempotent: safe to run more than once.
+
+    py revert_summon_camera_<ef>.py [--root <mod folder>] [--dry-run]
+
+``--root`` re-targets every path the plan recorded UNDER the mod root it was staged into.  The
+staged root is the DEFAULT, so the zero-argument invocation is byte-for-byte the old behaviour.  It
+exists because a script that can only undo itself in the one absolute directory it was born in is
+the shape the W3 staging incident warns about, and because the same plan is the thing a reviewer
+rehearses in a sandbox before pointing it at a real mod folder.  ``reskin.py``'s deploy/revert pair
+already took ``--root``; this lane did not, and the asymmetry was the defect.
+
+Paths the plan recorded OUTSIDE the mod root -- the backups, which live in the staging WORK dir --
+stay absolute and are never rebased: a backup is staging-side state, not mod-folder state.
+"""
+import json, shutil, sys
 from pathlib import Path
 
 PLAN = json.loads(__PLAN__)
 
-if PLAN.get("list_line") and PLAN.get("list_path"):
-    lp = Path(PLAN["list_path"])
-    if lp.exists():
-        kept = [ln for ln in lp.read_text(encoding="utf-8").splitlines()
-                if ln.strip().lower() != PLAN["list_line"]]
-        lp.write_text("\\n".join(kept) + ("\\n" if kept else ""), encoding="utf-8", newline="\\n")
+
+REBASABLE = any(e.get("rel") for e in PLAN["files"]) or bool(PLAN.get("list_rel"))
+
+
+def parse_argv(argv):
+    root, explicit, dry, rest = PLAN.get("mod_root") or "", False, False, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--root":
+            if i + 1 >= len(argv):
+                print("FAIL: --root needs a directory"); raise SystemExit(2)
+            root, explicit = argv[i + 1], True; i += 2; continue
+        if a.startswith("--root="):
+            root, explicit = a.split("=", 1)[1], True; i += 1; continue
+        if a == "--dry-run":
+            dry = True; i += 1; continue
+        if a in ("-h", "--help"):
+            print(__doc__); raise SystemExit(0)
+        rest.append(a); i += 1
+    if rest:
+        print(f"FAIL: unexpected argument(s): {' '.join(rest)}"); raise SystemExit(2)
+    # A plan built by a ledger that was given no mod root records ONLY absolute paths, so --root has
+    # nothing to rebase.  Refuse it loudly rather than accepting a flag that does nothing: silently
+    # ignoring --root would let a caller believe they had re-targeted a revert that in fact still
+    # points at the original folder -- a partial or wrong-folder revert is worse than no revert.
+    if explicit and not REBASABLE:
+        print("FAIL: --root has nothing to rebase -- this plan records no mod-root-relative path "
+              "(it was staged without a mod root, so every path in it is absolute).")
+        raise SystemExit(2)
+    if REBASABLE and not root:
+        print("FAIL: this plan records mod-root-relative paths but no mod root -- pass "
+              "--root <mod folder>")
+        raise SystemExit(2)
+    return (Path(root) if root else None), dry
+
+
+ROOT, DRY = parse_argv(sys.argv[1:])
+
+
+def target(entry):
+    """Where to restore to: rebased under ROOT when the plan recorded a mod-root-relative path,
+    else the absolute path the write actually landed at (which --root cannot honestly rebase)."""
+    rel = entry.get("rel")
+    return (ROOT / rel) if (rel and ROOT is not None) else Path(entry["dest"])
+
+
+list_path = (ROOT / PLAN["list_rel"]) if (PLAN.get("list_rel") and ROOT is not None) \
+    else Path(PLAN.get("list_path") or "")
+if PLAN.get("list_line") and PLAN.get("list_path") and list_path.exists():
+    kept = [ln for ln in list_path.read_text(encoding="utf-8").splitlines()
+            if ln.strip().lower() != PLAN["list_line"]]
+    if DRY:
+        print(f"would drop ModFileList line: {PLAN['list_line']}  ({list_path})")
+    else:
+        list_path.write_text("\\n".join(kept) + ("\\n" if kept else ""),
+                             encoding="utf-8", newline="\\n")
         print(f"dropped ModFileList line: {PLAN['list_line']}")
 
-for dest, backup in PLAN["files"]:
-    dest = Path(dest)
+stop = ROOT.resolve() if (ROOT is not None and ROOT.exists()) else None
+for entry in PLAN["files"]:
+    dest, backup = target(entry), entry.get("backup")
     if backup and Path(backup).exists():
+        if DRY:
+            print(f"would restore {dest} <- {Path(backup).name}")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(backup, dest)
         print(f"restored {dest} <- {Path(backup).name}")
     elif dest.exists():
+        if DRY:
+            print(f"would delete  {dest}")
+            continue
         dest.unlink()
         print(f"deleted  {dest}")
         parent = dest.parent
         while parent.exists() and parent.name and not any(parent.iterdir()):
+            if stop is not None and parent.resolve() == stop:
+                break                      # never prune the mod folder the caller pointed us at
             parent.rmdir()
             parent = parent.parent
-print("camera rescore revert complete.")
+print("dry run -- nothing written." if DRY else "camera rescore revert complete.")
 '''
 
 
 # ============================================================ (8) the spec
+def _unknown(where: str, got, known) -> None:
+    """Refuse an unrecognised key.  A spec key the reader ignores is a spec that does not say what
+    its author thinks it says -- and for ``expect_sha256`` specifically, a typo would fail OPEN."""
+    bad = sorted(k for k in got if k not in known)
+    if bad:
+        raise RescoreError("%s: unknown key(s) %s. Known keys: %s. (A key this reader ignores is a "
+                           "line of the spec that does nothing -- most dangerously a mistyped "
+                           "`expect_sha256`, which would silently drop the drift guard.)"
+                           % (where, ", ".join(repr(b) for b in bad), ", ".join(sorted(known))))
+
+
 def load_spec(path) -> dict:
     with open(path, "rb") as fh:
         spec = _toml.load(fh)
+    _unknown("%s top level" % path, spec, _SPEC_KEYS)
     r = spec.get("rescore")
     if not isinstance(r, dict):
         raise RescoreError("%s has no [rescore] table" % path)
+    _unknown("%s [rescore]" % path, r, _RESCORE_KEYS)
     if "effect" not in r:
         raise RescoreError("[rescore] needs `effect` (the stock ef### number)")
+    ack = r.get("acknowledge_dynamic_ops", False)
+    if not isinstance(ack, bool):
+        raise RescoreError("[rescore].acknowledge_dynamic_ops must be a BOOLEAN (true/false), not "
+                           "%r. A safety acknowledgement must be stated, never inferred from a "
+                           "truthy string." % (ack,))
     edits = spec.get("edit")
     if not edits:
         raise RescoreError("%s declares no [[edit]] -- nothing to rescore" % path)
     if not isinstance(edits, list):
         raise RescoreError("[[edit]] must be an array of tables")
+    for i, e in enumerate(edits):
+        if not isinstance(e, dict):
+            raise RescoreError("[[edit]] #%d is not a table" % i)
+        _unknown("%s [[edit]] #%d" % (path, i), e, _EDIT_KEYS)
     return spec
 
 
@@ -702,6 +928,27 @@ class Build:
     changes: List[Tuple[str, str, str, int, int]] = field(default_factory=list)
     verdicts: List[Tuple[str, AlternatesVerdict]] = field(default_factory=list)
     check: Optional[SelfCheck] = None
+    #: the container's runtime-chosen camera ops, and whether the spec acknowledged them
+    dynamic: Tuple[W.CameraOp, ...] = ()
+    acknowledged: bool = False
+    #: which drift guard actually applied.  Reported honestly: an effect with no entry in
+    #: ``EXPECTED_STOCK_SHA`` is still GUARDED when its own spec pins ``expect_sha256`` -- and on a
+    #: generalised tool that is the normal case, so "unguarded" must not be printed for it.
+    guard: str = "none -- UNGUARDED"
+
+
+def _ack_flag(r: dict) -> bool:
+    """``acknowledge_dynamic_ops``, refusing anything that is not literally ``true``/``false``.
+
+    Enforced HERE and not only in ``load_spec`` because ``build_patched`` also takes in-memory specs
+    (the gate runner's synthetic containers, the tests) -- a law checked on only one of two entry
+    paths is a law with a hole in it."""
+    ack = r.get("acknowledge_dynamic_ops", False)
+    if not isinstance(ack, bool):
+        raise RescoreError("[rescore].acknowledge_dynamic_ops must be a BOOLEAN (true/false), not "
+                           "%r. A safety acknowledgement must be stated, never inferred from a "
+                           "truthy string." % (ack,))
+    return ack
 
 
 def build_patched(spec: dict, spec_path: str = "?", game=None,
@@ -715,8 +962,32 @@ def build_patched(spec: dict, spec_path: str = "?", game=None,
     else:
         source = "(caller-supplied bytes)"
     sha_in = drift_guard(ef_id, blob, r.get("expect_sha256"))
+    guard = ("the spec's own expect_sha256 -- MATCHES" if r.get("expect_sha256") else
+             ("REGISTERED in EXPECTED_STOCK_SHA -- MATCHES" if ef_id in EXPECTED_STOCK_SHA
+              else "none -- UNGUARDED (this spec pins no expect_sha256)"))
     src_name = "ef%03d" % ef_id
     ex = W.extract_shots(blob, src_name)
+
+    # THE DYNAMIC-OP DISCLOSURE.  Before a single byte is resolved: a container whose camera ops are
+    # chosen from a runtime table cannot have its edit's reachability proven offline, so the author
+    # must SAY SO in the spec.  Refused in BOTH directions -- an unacknowledged risk, and an
+    # acknowledgement of a risk this container does not carry (a spec copied from another effect).
+    dyn = dynamic_ops(ex)
+    ack = _ack_flag(r)
+    if dyn and not ack:
+        raise RescoreError(
+            "THE DYNAMIC-OP DISCLOSURE: %s\nAdd `acknowledge_dynamic_ops = true` to [rescore] to "
+            "state you have read this and will prove the reframe by an in-game cast across varied "
+            "battle conditions. ef227 -- the effect this tool was proven on -- has ZERO such ops, "
+            "so W2's offline completeness claim does NOT carry to this container."
+            % "\n".join(dynamic_disclosure(ef_id, ex)))
+    if ack and not dyn:
+        raise RescoreError(
+            "[rescore].acknowledge_dynamic_ops = true, but ef%03d runs NO runtime-chosen camera op "
+            "(%d camera op(s), all statically resolved). A safety acknowledgement that was never "
+            "true for this container is a spec copied from another effect -- remove the key, or "
+            "you are re-reading a disclosure that does not describe these bytes."
+            % (ef_id, len(ex.walk.ops)))
 
     splices: List[Splice] = []
     changes: List[Tuple[str, str, str, int, int]] = []
@@ -769,27 +1040,36 @@ def build_patched(spec: dict, spec_path: str = "?", game=None,
                               chk.invariants, chk.directory_identical))
     return Build(spec_path, ef_id, label, source, sha_in,
                  hashlib.sha256(patched).hexdigest(), blob, patched, splices,
-                 changes, verdicts, chk)
+                 changes, verdicts, chk, tuple(dyn), ack, guard)
 
 
 # ============================================================ (9) staging
-def stage(b: Build, mod_root, work_dir=None, game_root=None, allow_install: bool = False) -> dict:
+def stage(b: Build, mod_root=None, work_dir=None, game_root=None,
+          allow_install: bool = False) -> dict:
     """Write the override + the revert script.
+
+    ``mod_root=None`` resolves :func:`default_mod_root` FOR THIS BUILD'S EFFECT -- ef227 keeps W2's
+    root, every other effect gets its own ``rescore-w5/ef###/mod``.
 
     STAGE by default: the repo is refused always, and a destination inside the game install is
     refused unless ``allow_install`` is passed.  That flag is the LIVE deploy the orchestrator runs
     with the user present -- it is deliberately not the default, because a build agent writing into
     the shared install is exactly the kind of thing several concurrent worktrees must not do by
     accident."""
-    mod_root = _refuse_repo_path(mod_root)
+    mod_root = _refuse_repo_path(mod_root if mod_root is not None
+                                 else default_mod_root(b.effect))
     if not allow_install:
         mod_root = _refuse_install_path(mod_root, game_root)
+    # COUPLED, deliberately: an explicit ``work_dir`` still wins, but its DEFAULT is derived from the
+    # resolved mod root rather than from a module constant.  The old default was ``SCRATCH_ROOT``
+    # itself, so pointing ``--mod-root`` at ef211's folder still wrote ef211's revert script into
+    # ef227's kit -- a correct flag was not enough to keep two effects apart.
     work_dir = Path(work_dir or Path(mod_root).parent)
     _refuse_repo_path(work_dir)
     dest = Path(mod_root).joinpath(*MOD_SUBPATH.split("/"), "ef%03d" % b.effect)
     if dest.suffix:                                              # pragma: no cover
         raise RescoreError("the override must be EXTENSIONLESS (LoadFromDisc reads the raw path)")
-    ledger = _Ledger(Path(work_dir) / "backups")
+    ledger = _Ledger(Path(work_dir) / "backups", mod_root=mod_root)
     sha = ledger.write_bytes(dest, b.patched)
     listed = ledger.add_list_line(Path(mod_root) / "ModFileList.txt",
                                   "%s/ef%03d" % (MOD_SUBPATH.split("/", 1)[1].lower(), b.effect))
@@ -805,7 +1085,7 @@ def describe(b: Build) -> List[str]:
     L = ["ef%03d  %s" % (b.effect, b.label),
          "  stock source : %s" % b.source,
          "  stock sha256 : %s  (drift guard %s)"
-         % (b.sha_in, "REGISTERED" if b.effect in EXPECTED_STOCK_SHA else "none -- unguarded"),
+         % (b.sha_in, b.guard),
          "  rescored sha : %s" % b.sha_out,
          "  container    : %d B in, %d B out (same length required)" % (len(b.orig), len(b.patched)),
          ""]
@@ -822,6 +1102,18 @@ def describe(b: Build) -> List[str]:
     L.append("  THE THREE-SEQUENCE CHECK (X3)")
     for letter, v in b.verdicts:
         L.append("    shot %s: %s" % (letter, v.line()))
+    L.append("")
+    L.append("  THE DYNAMIC-OP DISCLOSURE (X6)")
+    if not b.dynamic:
+        L.append("    0 runtime-chosen camera ops -- every camera this container plays resolves to "
+                 "a literal sub-file offline, so the edited block's reachability IS enumerable")
+    else:
+        L.append("    ACKNOWLEDGED by the spec -- %d runtime-chosen op(s); reachability is NOT "
+                 "enumerable offline and only an in-game cast across varied battle conditions "
+                 "closes it:" % len(b.dynamic))
+        for o in b.dynamic:
+            L.append("      %s @file %#x chunk %d arg1 %d seq tick %d"
+                     % (o.kind, o.at, o.chunk_slot, o.arg1, o.seq_tick))
     if b.check:
         c = b.check
         L.append("")
@@ -840,22 +1132,570 @@ def describe(b: Build) -> List[str]:
     return L
 
 
+# ============================================================ (11) `init --ef N` -- THE SCAFFOLD
+#: sub-block -> the spec section that writes it (the inverse of ``_SECTIONS``)
+_SUB_TO_SECTION = {v: k for k, v in _SECTIONS.items()}
+#: the levers the scaffold is allowed to pre-declare, in preference order.  H FIRST, deliberately:
+#: THE EFFECT-OWNED SCENERY LAW (PLAN.md) -- "focal distance is the safest lever, it reframes
+#: without moving the eye, so it exposes less of the effect's own set than a pose change does."
+_LEVERS: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
+    ("focal", "focal", ("distance",)),
+    ("campos", "camera", ("orientation", "roll")),
+)
+
+
+@dataclass
+class PhaseRow:
+    """One R3 phase placed on the SEQUENCE clock, so it can be read against a shot's tick span."""
+    image: str
+    state: int
+    start: int
+    end: Optional[int]
+    roles: Tuple[str, ...]
+
+    @property
+    def draws_set(self) -> bool:
+        """PLAN.md's reframe-budget test: a phase that draws effect models has the effect's OWN
+        scenery on screen, so a reframe can walk the camera off the edge of the authored set."""
+        return "draws effect models" in self.roles
+
+    def overlaps(self, lo: int, hi: int) -> bool:
+        return (self.end is None or self.end >= lo) and self.start <= hi
+
+
+@dataclass
+class ShotRow:
+    letter: str
+    slot: int
+    subfile: int
+    kind: str
+    seq_tick: int
+    span: int
+    n_sequences: int
+    signature: Tuple[bool, ...]
+    n_keyframes: int
+    frames: Tuple[Tuple[int, int], ...]      # (local frame, how many Codes sit on it) in sequence0
+    focal_frames: Tuple[int, ...]
+    phases: Tuple[PhaseRow, ...]
+
+    @property
+    def alternates_differ(self) -> bool:
+        return any(not s for s in self.signature[1:])
+
+    @property
+    def draws_set(self) -> bool:
+        return any(p.draws_set for p in self.phases)
+
+
+@dataclass
+class ScaffoldTarget:
+    """The one ``[[edit]]`` the scaffold pre-declares, and whether it is an IDENTITY."""
+    letter: str
+    slot: int
+    subfile: int
+    frame: int
+    occurrence: int
+    ambiguous: bool
+    section: str
+    all_sequences: bool
+    values: Dict[str, int]                   # sequence0's own values -- the identity, if there is one
+    per_track: Dict[int, Dict[str, int]]     # every target track's values (== ``values`` if identity)
+    identity: bool
+    why_not: str = ""
+
+
+@dataclass
+class Scaffold:
+    effect: int
+    source: str
+    sha256: str
+    shots: Tuple[ShotRow, ...]
+    dynamic: Tuple[W.CameraOp, ...]
+    disclosure: Tuple[str, ...]
+    target: ScaffoldTarget
+    quoted: Tuple[Tuple[str, int], ...]      # every STOCK VALUE the emitted toml names
+    text: str = ""
+
+
+def _phase_rows(ex: W.Extract, machines) -> List[PhaseRow]:
+    """R3's phases on the sequence clock -- ``merged_timeline``'s own derivation, reused verbatim.
+
+    A phase boundary is ``program_start_tick + phase.start_tick`` where the program start is the
+    ``0x80+N`` op's own tick in the SAME sequence walk (``summon_camera.merged_timeline``).  Like
+    that function this keys on program 0 of the machine's chunk; a machine whose chunk never ran a
+    program 0 contributes nothing rather than being placed at a guessed origin.
+    """
+    out: List[PhaseRow] = []
+    for sm in (machines or ()):
+        slot = W._machine_slot(sm)
+        start = ex.walk.program_starts.get((slot, 0))
+        if start is None:
+            continue
+        for ph in sm.phases:
+            end = None if ph.ticks is None else start + ph.start_tick + ph.ticks - 1
+            out.append(PhaseRow(str(sm.image), int(ph.state), start + ph.start_tick, end,
+                                tuple(ph.case.roles())))
+    out.sort(key=lambda p: (p.start, p.image, p.state))
+    return out
+
+
+def _codes_at(shot: W.Shot, seq: int, frame: int) -> List[int]:
+    seqs = shot.camera["sequences"]
+    if seq >= len(seqs):
+        return []
+    return [i for i, c in enumerate(seqs[seq])
+            if c.get("frame") and W.frame_number(c["frame"]) == frame]
+
+
+def shot_rows(ex: W.Extract, machines=()) -> List[ShotRow]:
+    """The shot table `init` prints -- STRUCTURE ONLY (letters, addresses, ticks, counts, frames).
+
+    Deliberately not a keyframe dump: a decoded stock listing is not a committable artefact, and
+    ``summon_camera.py read N`` already prints one, to stdout.  The only stock VALUES that reach the
+    generated file are the ones its own declared edit writes (``SCAFFOLD_QUOTE_BUDGET``).
+    """
+    phases = _phase_rows(ex, machines)
+    rows: List[ShotRow] = []
+    for i, s in enumerate(ex.shots):
+        ks = W.keyframes(s.camera, 0)
+        span = W.shot_span(s.camera)
+        lo = s.op.seq_tick
+        hi = lo + max(0, span - 1)
+        seen: Dict[int, int] = {}
+        for k in ks:
+            seen[k.local_frame] = seen.get(k.local_frame, 0) + 1
+        rows.append(ShotRow(
+            letter=W._SHOT_LETTERS[i % 26], slot=s.slot, subfile=s.index, kind=s.op.kind,
+            seq_tick=lo, span=span, n_sequences=len(s.camera["sequences"]),
+            signature=tuple(alternates_signature(s)), n_keyframes=len(ks),
+            frames=tuple(sorted(seen.items())),
+            focal_frames=tuple(sorted({k.local_frame for k in ks if "focal" in k.fields})),
+            phases=tuple(p for p in phases if p.overlaps(lo, hi))))
+    return rows
+
+
+def choose_target(ex: W.Extract) -> ScaffoldTarget:
+    """Pick the ONE keyframe the scaffold pre-declares, and decide whether it is an identity.
+
+    Preference order is the law's, not convenience: the first shot carrying a **focal** wins, because
+    H is the lever THE EFFECT-OWNED SCENERY LAW names as safest and the only camera value TIER R's
+    in-game capture observed directly.  Only if NO shot in the container carries a focal does the
+    scaffold fall back to the pose pair ef227's own reframe used.
+
+    An IDENTITY target writes back the value already there, so the generated spec builds a container
+    BYTE-IDENTICAL to stock -- the whole resolution path proven before the author changes a thing.
+    That claim is only sound when every track this edit fans across holds the SAME value, so when
+    the tracks disagree the scaffold says so and leaves the lever commented out rather than shipping
+    an "identity" that silently rewrites two of three alternate takes.
+    """
+    if not ex.shots:
+        raise RescoreError(
+            "no statically-resolved camera shot in this container (%d camera op(s), %d dynamic). "
+            "There is nothing for a rescore spec to address: an edit is placed by (chunk, sub-file) "
+            "and this container names none literally."
+            % (len(ex.walk.ops), len(dynamic_ops(ex))))
+    rows = shot_rows(ex)
+    pick = None
+    for sub, section, keys in _LEVERS:
+        for i, s in enumerate(ex.shots):
+            for k in W.keyframes(s.camera, 0):
+                if sub in k.fields:
+                    pick = (i, s, rows[i], k, sub, section, keys)
+                    break
+            if pick:
+                break
+        if pick:
+            break
+    if pick is None:
+        have = sorted({f for s in ex.shots for k in W.keyframes(s.camera, 0) for f in k.fields})
+        raise RescoreError(
+            "no keyframe in this container carries a focal or a camera pose, so there is no lever "
+            "for a rescore to pull. %d shot(s) resolve; between them their Codes carry only %s. "
+            "(30 of the 372 extracted containers are of this class -- a camera block whose only "
+            "Code is the trailing `unk6` marker. There is nothing to reframe; this is a refusal, "
+            "not a failure.)"
+            % (len(ex.shots), ", ".join(have) or "(no sub-block at all)"))
+    i, shot, row, kf, sub, section, keys = pick
+
+    hits = _codes_at(shot, 0, kf.local_frame)
+    seq0 = shot.camera["sequences"][0]
+    occ = next(j for j, ci in enumerate(hits)
+               if sub in CC._split_code(seq0[ci]["flags"], seq0[ci]["block"]))
+    fan = row.alternates_differ
+    seq_ids = list(range(row.n_sequences)) if fan else [0]
+
+    per: Dict[int, Dict[str, int]] = {}
+    why = ""
+    for si in seq_ids:
+        h = _codes_at(shot, si, kf.local_frame)
+        if occ >= len(h):
+            why = ("sequence%d has only %d Code(s) at local frame %d, so occurrence %d does not "
+                   "exist there" % (si, len(h), kf.local_frame, occ))
+            break
+        c = shot.camera["sequences"][si][h[occ]]
+        fields = CC._split_code(c["flags"], c["block"])
+        if sub not in fields:
+            why = ("sequence%d's Code at local frame %d occurrence %d carries no %s sub-block"
+                   % (si, kf.local_frame, occ, sub))
+            break
+        k2 = W.Keyframe(kf.local_frame, 0, c["flags"], fields)
+        got = k2.focal() if sub == "focal" else k2.pose(sub)
+        per[si] = {name: int(got[name]) for name in keys}
+    vals = per.get(0, {})
+    identity = bool(per) and not why and all(v == vals for v in per.values())
+    if not why and not identity:
+        why = ("the %d target tracks do not hold the same %s value(s), so no single number written "
+               "here is an identity on all of them" % (len(per), section))
+    return ScaffoldTarget(letter=row.letter, slot=shot.slot, subfile=shot.index,
+                          frame=kf.local_frame, occurrence=occ, ambiguous=len(hits) > 1,
+                          section=section, all_sequences=fan, values=vals, per_track=per,
+                          identity=identity, why_not=why)
+
+
+def _quote_check(quoted: Sequence[Tuple[str, int]]) -> None:
+    """The provenance ceiling, enforced at the write site rather than promised in a docstring."""
+    if len(quoted) > SCAFFOLD_QUOTE_BUDGET:
+        raise RescoreError(
+            "the scaffold would quote %d stock values (%s) but the budget is %d. A generated spec "
+            "is an AUTHORED file -- it may name the values its own declared edit writes and nothing "
+            "more; a decoded stock listing belongs in `summon_camera.py read`'s stdout, not in the "
+            "repo." % (len(quoted), ", ".join(n for n, _v in quoted), SCAFFOLD_QUOTE_BUDGET))
+
+
+def scaffold(ef_id: int, blob: bytes, source: str, machines=()) -> Scaffold:
+    """Derive a complete, guarded starter spec for ANY stock effect -- zero hand-typed offsets."""
+    src_name = "ef%03d" % ef_id
+    ex = W.extract_shots(blob, src_name)
+    rows = shot_rows(ex, machines)
+    tgt = choose_target(ex)
+    dyn = dynamic_ops(ex)
+    sha = hashlib.sha256(blob).hexdigest()
+
+    quoted: List[Tuple[str, int]] = []
+    if tgt.identity:
+        quoted = [(k, tgt.values[k]) for k in sorted(tgt.values)]
+    elif tgt.per_track and len(tgt.per_track) * max(1, len(tgt.values)) <= SCAFFOLD_QUOTE_BUDGET:
+        quoted = [("seq%d.%s" % (si, k), v)
+                  for si in sorted(tgt.per_track) for k, v in sorted(tgt.per_track[si].items())]
+    _quote_check(quoted)
+
+    sc = Scaffold(ef_id, source, sha, tuple(rows), tuple(dyn),
+                  tuple(dynamic_disclosure(ef_id, ex)), tgt, tuple(quoted))
+    sc.text = _scaffold_text(sc)
+    return sc
+
+
+def _scaffold_text(sc: Scaffold) -> str:
+    L: List[str] = []
+    A = L.append
+    A("# TIER W -- CONTENT RESCORE spec for ef%03d.  GENERATED by:" % sc.effect)
+    A("#     py rescore.py init --ef %d" % sc.effect)
+    A("#")
+    A("# Every address below was DERIVED from the container, not typed: the shot letter, the")
+    A("# (chunk, sub-file) pair, the local frame, the sequence count and the drift hash all come")
+    A("# out of `summon_camera.extract_shots`.  What is NOT derived is the ART -- which keyframe to")
+    A("# move and how far.  That is yours.")
+    A("#")
+    A("# WHAT THIS RUNG MAY NOT TOUCH, refused at the call site rather than trusted to this comment:")
+    A("#   * any DURATION (focal, camera_move, target_move) -- the two clocks stay aligned; W3 owns")
+    A("#     timing, and a timing move must carry the program's phase constants with it;")
+    A("#   * any FRAME word -- it carries undecoded marks in its top 3 bits (W1 s2.3);")
+    A("#   * anything that changes the block's BYTE LENGTH -- a camera sub-file's length is the")
+    A("#     delta to the next id-2 directory entry and the slack is 0-2 bytes corpus-wide (W1 s6).")
+    A("#")
+    A("# THE SHOT TABLE -- structure only.  For the full keyframe listing (poses, H, easing) run")
+    A("#     py summon_camera.py read %d" % sc.effect)
+    A("# and read it on stdout: a decoded stock listing is not a committable artefact.")
+    A("#")
+    for r in sc.shots:
+        A("#   shot %s   chunk %d sub-file %-3d  %-12s installs at seq tick %d, span %d local frames"
+          % (r.letter, r.slot, r.subfile, r.kind, r.seq_tick, r.span))
+        A("#     tracks    : %d sequence(s); %s"
+          % (r.n_sequences,
+             "no alternate takes -- the bit-3 selector has nothing to choose between"
+             if r.n_sequences == 1 else
+             ("alternates DIFFER -- a one-track edit here may produce a cast that looks completely "
+              "unchanged, so `all_sequences = true` is required" if r.alternates_differ else
+              "every alternate is BYTE-IDENTICAL to sequence0 -- whichever the selector picks is "
+              "the same move")))
+        A("#     keyframes : %d in sequence0, at local frames %s"
+          % (r.n_keyframes,
+             ", ".join("f%d%s" % (f, " x%d" % n if n > 1 else "") for f, n in r.frames) or "(none)"))
+        A("#     focal (H) : %s"
+          % (", ".join("f%d" % f for f in r.focal_frames) if r.focal_frames
+             else "NONE -- this shot has no projection-distance lever; only a pose edit reaches it"))
+        if r.phases:
+            A("#     phases live under this shot (R3's state machines on the SAME sequence clock):")
+            for p in r.phases:
+                A("#       %-12s s%-2d ticks %4d..%-6s %s"
+                  % (p.image, p.state, p.start, "term" if p.end is None else p.end,
+                     ", ".join(p.roles) or "(no drawing role)"))
+            A("#     reframe budget: %s"
+              % ("TIGHT -- a phase under this shot DRAWS EFFECT MODELS, so the effect's own scenery "
+                 "is on screen and the camera can be walked off the edge of the authored set. "
+                 "Prefer H; treat a pose change as high-risk (THE EFFECT-OWNED SCENERY LAW)."
+                 if r.draws_set else
+                 "looser -- no phase under this shot draws effect models, so less of the effect's "
+                 "own set is on screen here. H is still the safer lever."))
+        else:
+            A("#     phases    : none recovered for this shot (R3's inspector found no clean state")
+            A("#                 machine, or its chunk never ran program 0). The reframe budget is")
+            A("#                 then UNKNOWN, not loose -- judge it from an in-game cast.")
+        A("#")
+    A("# DYNAMIC (RUNTIME-CHOSEN) CAMERA OPS: %d" % len(sc.dynamic))
+    if not sc.dynamic:
+        A("#   Every camera op resolves to a literal sub-file index offline, so the set of blocks an")
+        A("#   edit can reach IS enumerable from these bytes -- the property ef227 has and most of")
+        A("#   the corpus does not.")
+    else:
+        for ln in sc.disclosure:
+            A("#   " + ln)
+        A("#   `acknowledge_dynamic_ops` below is pre-seeded FALSE.  The build REFUSES until you")
+        A("#   flip it, on purpose: flipping it is the record that you read the paragraph above.")
+    A("")
+    A("[rescore]")
+    A("effect = %d" % sc.effect)
+    A('label  = "ef%03d-rescore"' % sc.effect)
+    A("# The drift guard: sha256 of the pristine container in the user's OWN install.  A HASH, not")
+    A("# data.  If the install is patched, the build refuses rather than splicing a delta into bytes")
+    A("# it was never derived against.")
+    A('expect_sha256 = "%s"' % sc.sha256)
+    if sc.dynamic:
+        A("# MUST become `true` to build -- see THE DYNAMIC-OP DISCLOSURE above.")
+        A("acknowledge_dynamic_ops = false")
+    A("")
+    A("")
+    t = sc.target
+    A("# ---------------------------------------------------------------------------------------")
+    A("# THE EDIT.  Pre-aimed at shot %s's %s keyframe -- %s."
+      % (t.letter, "first focal-carrying" if t.section == "focal" else "first pose-carrying",
+         "H, the safest lever (THE EFFECT-OWNED SCENERY LAW: it reframes without moving the eye)"
+         if t.section == "focal" else
+         "the pose pair ef227's own reframe used, because no shot here carries a focal"))
+    if t.identity:
+        A("#")
+        A("# THIS IS AN IDENTITY as generated: it writes back the value already there, so `plan`")
+        A("# reports 0 changed bytes and `build` produces a container BYTE-IDENTICAL to stock.")
+        A("# Run it FIRST -- it proves the whole path resolves (install read, drift guard, shot")
+        A("# address, alternates, splice, self-check) before any judgement about art is involved.")
+        A("# Then change the number.")
+    else:
+        A("#")
+        A("# NOT AN IDENTITY: %s." % t.why_not)
+        A("# The lever is left COMMENTED OUT rather than pre-filled -- a value that is an identity on")
+        A("# one track is a real, unjudged change on the others.  Uncomment it and choose knowing")
+        A("# that.  (As generated this spec builds nothing: an [[edit]] that names no field is")
+        A("# refused, which is the correct outcome for a spec that has not been finished.)")
+    A("[[edit]]")
+    A('shot     = "%s"' % t.letter)
+    A("chunk    = %d" % t.slot)
+    A("subfile  = %d" % t.subfile)
+    if t.all_sequences:
+        A("# the alternate takes DIFFER, so the delta must fan across every track or the selector")
+        A("# may play one this edit never touched")
+        A("all_sequences = true")
+    else:
+        A("sequence = 0")
+    A("frame    = %d" % t.frame)
+    if t.ambiguous:
+        A("# local frame %d carries more than one Code (a placement and the move it starts," % t.frame)
+        A("# typically) -- `occurrence` says which, and the tool refuses the ambiguity without it.")
+        A("occurrence = %d" % t.occurrence)
+    body = ", ".join("%s = %d" % (k, t.values[k]) for k in sorted(t.values))
+    if t.identity:
+        A("%-8s = { %s }" % (t.section, body))
+    else:
+        pertrack = ("; ".join("seq%d %s" % (si, ", ".join("%s=%d" % kv for kv in
+                                                          sorted(t.per_track[si].items())))
+                              for si in sorted(t.per_track))
+                    if sc.quoted else "run `summon_camera.py read %d` to see them" % sc.effect)
+        A("# stock here: %s" % pertrack)
+        A("# %-6s = { %s }" % (t.section, body or "... = ..."))
+    return "\n".join(L) + "\n"
+
+
+def scaffold_bytes(ef_id: int, game=None, from_corpus: bool = False,
+                   cross_check: bool = True) -> Tuple[bytes, str]:
+    """The container `init` reads, and a REFUSAL when the two available copies disagree.
+
+    The drift hash the scaffold writes must be the hash of the bytes the BUILD will read, and the
+    build always reads the install.  So a corpus-derived scaffold is only sound while the corpus
+    copy still matches the install -- and when both are readable that is checked, not assumed.
+    """
+    if not from_corpus:
+        return read_stock_effect(ef_id, game)
+    blob, name = W._load(ef_id)
+    source = os.path.join(W.SCRATCH_CORPUS, "%s.bytes" % name)
+    if cross_check:
+        try:
+            live, live_src = read_stock_effect(ef_id, game)
+        except Exception:                                        # no install here -- corpus stands
+            return blob, source + "  (corpus copy; no install resolvable to cross-check against)"
+        if hashlib.sha256(live).hexdigest() != hashlib.sha256(blob).hexdigest():
+            raise StockDriftError(
+                "the extracted corpus copy of ef%03d does NOT match this install's bytes.\n"
+                "  corpus  %s\n  install %s\n  (%s)\n"
+                "A scaffold derived from the corpus would write a drift hash the build can never "
+                "satisfy. Re-extract the corpus, or drop --from-corpus and read the install."
+                % (ef_id, hashlib.sha256(blob).hexdigest(), hashlib.sha256(live).hexdigest(),
+                   live_src))
+        source += "  (corpus copy, sha-identical to %s)" % live_src
+    return blob, source
+
+
+def scaffold_summary(sc: Scaffold) -> List[str]:
+    """What `init` prints to the terminal -- the same facts the file carries, in one screen."""
+    t = sc.target
+    L = ["ef%03d  scaffold" % sc.effect,
+         "  read from    : %s" % sc.source,
+         "  sha256       : %s" % sc.sha256,
+         "  shots        : %d statically resolved, %d runtime-chosen (dynamic)"
+         % (len(sc.shots), len(sc.dynamic)),
+         ""]
+    L.append("  %-5s %-14s %-13s %-7s %-6s %-9s %-9s %s"
+             % ("shot", "chunk/subfile", "op", "tick", "span", "tracks", "keyframes", "focal at"))
+    for r in sc.shots:
+        L.append("  %-5s c%-2d idx%-9d %-13s %-7d %-6d %-9s %-9d %s"
+                 % (r.letter, r.slot, r.subfile, r.kind, r.seq_tick, r.span,
+                    "%d%s" % (r.n_sequences,
+                              " DIFFER" if r.alternates_differ else
+                              (" same" if r.n_sequences > 1 else "")),
+                    r.n_keyframes,
+                    ", ".join("f%d" % f for f in r.focal_frames) or "-"))
+    for r in sc.shots:
+        if r.phases:
+            L.append("  shot %s spans %d phase(s); reframe budget %s"
+                     % (r.letter, len(r.phases), "TIGHT (draws effect models)" if r.draws_set
+                        else "looser (no effect-model draw)"))
+        else:
+            L.append("  shot %s spans no recovered phase -- reframe budget UNKNOWN" % r.letter)
+    L.append("")
+    if sc.dynamic:
+        L.append("  THE DYNAMIC-OP DISCLOSURE")
+        for ln in sc.disclosure:
+            L.append("    " + ln)
+        L.append("    -> the scaffold pre-seeds `acknowledge_dynamic_ops = false`; the build REFUSES "
+                 "until it is flipped")
+    else:
+        L.append("  THE DYNAMIC-OP DISCLOSURE: none -- every camera op resolves literally offline")
+    L.append("")
+    L.append("  THE EDIT it pre-declares: shot %s (c%d idx%d) local frame %d%s, section `%s`%s"
+             % (t.letter, t.slot, t.subfile, t.frame,
+                " occurrence %d" % t.occurrence if t.ambiguous else "", t.section,
+                ", fanned across every track (all_sequences)" if t.all_sequences else ""))
+    L.append("    %s" % ("IDENTITY -- as generated it rebuilds the container BYTE-IDENTICAL to stock"
+                         if t.identity else "NOT an identity, lever left commented: %s" % t.why_not))
+    return L
+
+
+def write_scaffold(sc: Scaffold, out_path, force: bool = False) -> Path:
+    """Write the generated spec.  Never over an existing file without being told to: a scaffold is
+    a starting point, and silently replacing an author's finished spec with one is the single most
+    destructive thing this verb could do."""
+    p = Path(out_path)
+    if p.exists() and not force:
+        raise RescoreError("%s already exists. `init` refuses to overwrite an authored spec -- pass "
+                           "--force if you really mean to replace it." % p)
+    from ff9mapkit import fsutil
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_text(p, sc.text, encoding="utf-8", newline="\n")
+    return p
+
+
+# ============================================================ (12) the spec registry
+def discover_specs(root=None) -> List[Tuple[str, Optional[int]]]:
+    """``[(path, pinned effect or None)]`` -- the gate runner's registry, in a stable order.
+
+    ef227's spec is PINNED to 227 externally so a toml that changed its own ``effect`` would be
+    caught by the runner rather than quietly gated against a different container.  Any other
+    ``*_rescore.toml`` beside it is discovered and gated too, but unpinned: there is no external
+    expectation to check it against, and inventing one from a filename would be a guess.
+    """
+    here = Path(root or _HERE)
+    out: List[Tuple[str, Optional[int]]] = []
+    pinned = here / "bahamut_rescore.toml"
+    if pinned.is_file():
+        out.append((str(pinned), 227))
+    for p in sorted(here.glob("*_rescore.toml")):
+        if p.resolve() != pinned.resolve():
+            out.append((str(p), None))
+    return out
+
+
 # ============================================================ CLI
+def resolve_spec(spec: Optional[str], ef: Optional[int], root=None) -> str:
+    """Which toml a bare ``plan``/``build``/``verify`` acts on.
+
+    There used to be a silent default of ``bahamut_rescore.toml``.  On a one-effect tool that was
+    convenience; on a tool that now scaffolds ANY effect it is a footgun -- ``py rescore.py plan``
+    meaning "my new effect" and quietly rebuilding Bahamut is exactly the "nothing changed" symptom
+    this whole rung is shaped around.  So: name the spec, or name ``--ef N`` and let the standard
+    filename resolve it, or be told what is available.
+    """
+    here = Path(root or _HERE)
+    if spec:
+        return spec
+    if ef is not None:
+        for cand in (here / ("ef%03d_rescore.toml" % ef), here / ("ef%d_rescore.toml" % ef)):
+            if cand.is_file():
+                return str(cand)
+        raise RescoreError("no spec for ef%03d beside this tool (looked for %s). Generate one with "
+                           "`py rescore.py init --ef %d`."
+                           % (ef, ", ".join("%s" % c.name for c in
+                                            (here / ("ef%03d_rescore.toml" % ef),)), ef))
+    known = discover_specs(here)
+    raise RescoreError("name the spec to act on -- there is no default any more, because a tool "
+                       "that scaffolds any effect must not quietly rebuild Bahamut when you meant "
+                       "yours.\n  specs beside this tool: %s\n  or: py rescore.py init --ef N"
+                       % (", ".join(os.path.basename(p) for p, _e in known) or "(none)"))
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("verb", choices=("plan", "build", "verify"))
-    ap.add_argument("spec", nargs="?", default=os.path.join(_HERE, "bahamut_rescore.toml"))
-    ap.add_argument("--mod-root", default=os.path.join(SCRATCH_ROOT, "mod"),
-                    help="staging mod root (default: SCRATCH; the repo and the install are refused)")
-    ap.add_argument("--work-dir", default=SCRATCH_ROOT)
+    ap.add_argument("verb", choices=("init", "plan", "build", "verify"))
+    ap.add_argument("spec", nargs="?", default=None,
+                    help="the rescore toml (plan/build/verify). Omit it and pass --ef N to resolve "
+                         "ef###_rescore.toml beside this tool.")
+    ap.add_argument("--ef", type=int, default=None,
+                    help="the stock effect id. REQUIRED by `init`; resolves the spec for the others.")
+    ap.add_argument("--out", default=None,
+                    help="`init` output path (default: ef###_rescore.toml beside this tool)")
+    ap.add_argument("--from-corpus", action="store_true",
+                    help="`init` reads the extracted SCRATCH corpus instead of the install, and "
+                         "REFUSES if the two copies disagree")
+    ap.add_argument("--no-phases", action="store_true",
+                    help="`init` skips R3's state-machine recovery (faster; the scaffold then "
+                         "cannot report a reframe budget)")
+    ap.add_argument("--force", action="store_true", help="`init` may overwrite an existing spec")
+    ap.add_argument("--mod-root", default=None,
+                    help="staging mod root (default: the PER-EFFECT SCRATCH root -- ef227 keeps "
+                         "W2's rescore-w2/mod, everything else gets rescore-w5/ef###/mod; the repo "
+                         "and the install are refused)")
+    ap.add_argument("--work-dir", default=None,
+                    help="where backups + the revert script land (default: the resolved mod root's "
+                         "PARENT, so they can never end up in a different effect's kit)")
     ap.add_argument("--game", default=None)
     ap.add_argument("--live", action="store_true",
                     help="allow a --mod-root INSIDE the game install (the real deploy). Off by "
                          "default: W2 stages, the orchestrator deploys with the user present.")
     a = ap.parse_args(argv)
 
-    spec = load_spec(a.spec)
-    b = build_patched(spec, a.spec, a.game)
+    if a.verb == "init":
+        if a.ef is None:
+            raise SystemExit("init needs --ef N (the stock effect id to scaffold)")
+        blob, source = scaffold_bytes(a.ef, a.game, a.from_corpus)
+        machines = () if a.no_phases else W.recover_machines(blob, "ef%03d" % a.ef)
+        sc = scaffold(a.ef, blob, source, machines)
+        out = Path(a.out or os.path.join(_HERE, "ef%03d_rescore.toml" % a.ef))
+        p = write_scaffold(sc, out, a.force)
+        print("\n".join(scaffold_summary(sc)))
+        print("\n  WROTE %s" % p)
+        print("  next: py rescore.py plan %s" % p.name)
+        return 0
+
+    spec_path = resolve_spec(a.spec, a.ef)
+    spec = load_spec(spec_path)
+    b = build_patched(spec, spec_path, a.game)
     print("\n".join(describe(b)))
     if a.verb == "plan":
         print("\nplan only -- nothing written.")
@@ -876,7 +1716,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   "CREATED, or every other file in the folder becomes invisible)")
         return 0
 
-    dest = Path(a.mod_root).joinpath(*MOD_SUBPATH.split("/"), "ef%03d" % b.effect)
+    dest = Path(a.mod_root or default_mod_root(b.effect)).joinpath(*MOD_SUBPATH.split("/"),
+                                                                   "ef%03d" % b.effect)
     if not dest.exists():
         print("\nVERIFY FAILED: nothing staged at %s" % dest)
         return 1
@@ -888,5 +1729,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     return 0 if same else 1
 
 
+def cli(argv: Optional[Sequence[str]] = None) -> int:
+    """``main`` with the refusals presented as refusals.
+
+    A refusal is a RESULT of this tool, not a crash: a traceback buries the paragraph the author is
+    supposed to read (the disclosure, the drift, the ambiguous frame) under a stack.  ``main``
+    itself still RAISES, so every caller that wants the exception -- the tests, the gate runner --
+    keeps getting it.
+    """
+    try:
+        return main(argv)
+    except (RescoreError, W.SummonCameraError) as e:
+        print("\nREFUSED\n%s" % e, file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":                                       # pragma: no cover
-    raise SystemExit(main())
+    raise SystemExit(cli())

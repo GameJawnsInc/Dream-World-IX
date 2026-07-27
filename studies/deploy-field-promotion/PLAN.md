@@ -1,10 +1,18 @@
 # PLAN — Promote single-field deploy into the package (`deploy_field` gap)
 
-> **Status:** planned, not started. Self-contained brief for a fresh session. Everything below was
-> established by reading the code; file:line refs are so you *verify*, not trust. No code has been written yet.
+> **Status: Phases 0 + 1 ★ DONE. Phase 2 deferred (and still the right call).** Self-contained brief for a
+> fresh session; file:line refs are so you *verify*, not trust.
 >
 > *Was `HANDOFF_DEPLOY_FIELD_PROMOTION.md` at the repo root; moved here 2026-07-26 in the root-clutter
 > cleanup. Its file:line links are now `../../`-relative — verify them against current code before trusting.*
+>
+> ⚠ **Every file:line below is STALE** — the doc was written against a much older `build.py`. As of the
+> Phase-0 pass: `build_mod` is at **:8579** (not 6766) and `_verbatim_donor_id` at **:4926** (not 3965).
+> Grep for the symbol, don't jump to the line.
+>
+> ⚠ **Two claims in this doc were FALSIFIED while implementing Phase 0 — see the Phase-0 section for both.**
+> Short version: there is a **fourth** ad-hoc emitter the doc never listed (`coop.py`), and **suggested
+> commit step 2 — "delete `build_campaign`'s emit" — is WRONG and must not be done.**
 
 ---
 
@@ -58,18 +66,63 @@ fresh-install path was never exercised.
 - ModDescription.xml — [build.py:6865](../../ff9mapkit/ff9mapkit/build.py:6865)
 - **ForkDonorPatch.txt — NOT emitted here.** Only `_verbatim_donor_id` helper exists: [build.py:3965](../../ff9mapkit/ff9mapkit/build.py:3965)
 
-Three ad-hoc emitters exist *around* `build_mod` (all should eventually collapse to the Phase-0 emit):
-- `build_campaign` — post-build write from `plan.members`: [campaign.py:624](../../ff9mapkit/ff9mapkit/campaign.py:624)
-- `deploy_field.py` — inline write from `_verbatim_donor_id`: [deploy_field.py:237](../../tools/deploy_field.py:237)
+~~Three~~ **FOUR** ad-hoc emitters exist *around* `build_mod` (the doc missed one; and they do **not** all
+collapse to the Phase-0 emit — see Phase 0 below):
+- `build_campaign` — post-build write from `plan.members`: [campaign.py:638](../../ff9mapkit/ff9mapkit/campaign.py:638).
+  **KEEP THIS ONE — it is not redundant.** Reason in Phase 0.
+- `deploy_field.py` — inline write from `_verbatim_donor_id`: [deploy_field.py:240](../../tools/deploy_field.py:240)
 - `merge_dists` (single-folder journey) — concatenates every `*Patch.txt`, incl. ForkDonorPatch:
-  [journey.py:1917](../../ff9mapkit/ff9mapkit/journey.py:1917). Its comment names the past bug: *"the bug
+  [journey.py:1954](../../ff9mapkit/ff9mapkit/journey.py:1954). Its comment names the past bug: *"the bug
   ForkDonorPatch first exposed"* — the same silent-drop, one layer up.
+- **`setup_coop_room`** — hardcoded `<field_id> <COOP_DONOR>` write right after its own `build_mod` call,
+  under the comment *"build_mod doesn't emit ForkDonorPatch"*: [coop.py:476](../../ff9mapkit/ff9mapkit/coop.py:476).
+  That comment is now false — its project is a `write_native_project` fork, so build_mod emits the same
+  mapping and coop's write is a redundant (harmless, identical-content) overwrite. Safe to drop; left in
+  place in the Phase-0 commit as out-of-scope.
 
 ---
 
-## Phase 0 — `build_mod` emits `ForkDonorPatch.txt` (DO FIRST)
+## Phase 0 — `build_mod` emits `ForkDonorPatch.txt` ★ DONE (`c942899e`)
 
-**Change:** after the other patch-file writes in `build_mod` (~[build.py:6849](../../ff9mapkit/ff9mapkit/build.py:6849)),
+**Shipped as planned, plus two things this doc got wrong.** What actually landed:
+- `ModLayout.fork_donor_patch` added ([config.py](../../ff9mapkit/ff9mapkit/config.py)) — it did *not*
+  already exist.
+- The guarded emit in `build_mod`, right after the TextPatch write. Lines are emitted in **project order**
+  (matching every other emit in the function), not sorted — `build_mod` already rejects duplicate ids
+  upstream, so the doc's `sorted(set(...))` dedupe was unnecessary.
+- **NEW, not in this doc: `preserve_existing` needs a foreign-line merge** (`_foreign_donor_lines`, the twin
+  of `_merge_foreign_registrations`). `build --out <live folder> --preserve-existing` — the GUI's "Install to
+  game" — rewrites the file wholesale, so without it, installing one fork into a folder holding another
+  **drops the other's mapping and switches its fork gates off**: the exact bug this phase fixes, one folder
+  over. Foreign rows can only reach that write under `preserve_existing`; otherwise the DictionaryPatch
+  foreign-registration refusal fires first.
+- 4 tests in `test_build.py`: fork emits · novel doesn't · self-mapping (`donor == id`) skipped ·
+  `preserve_existing` keeps a foreign row and is idempotent.
+
+### ⚠ FALSIFIED: do NOT delete `build_campaign`'s emit (this doc's commit step 2)
+The doc calls it "redundant" and schedules its deletion. **It is not redundant — deleting it regresses
+editable campaigns.** `build_mod` derives the donor from each member TOML via `_verbatim_donor_id`, but an
+**EDITABLE** member is emitted by `_emit_logic_only_member` ([campaign.py:139](../../ff9mapkit/ff9mapkit/campaign.py:139))
+as an art-less stub whose TOML records **no donor key at all** — no `source_field`, no `[verbatim_eb] donor`.
+Only `plan.members`' `real_id` knows it. So campaign's set is a strict **superset** of what `build_mod` can
+see, and both writes must stay (campaign's runs second and overwrites — harmless). Encoded as a comment at
+both call sites.
+
+*Corollary — a real remaining bug, same class, not yet fixed:* an editable campaign member built standalone
+via `build --out` still gets no donor line. The clean fix is to have `_emit_logic_only_member` record
+`source_field = real_id` (it already sets the donor's `text_block`, and `source_field` is exactly the key
+`donor_block_for` / `lint_text_block` expect alongside it). That would also make the two sets equal and
+*then* make campaign's emit genuinely redundant.
+
+### ⚠ FALSIFIED: `test_campaign.py`'s fork-donor assert is not an equivalence check
+The doc claims it "now exercises both paths = a live equivalence check." It does not: campaign's write
+overwrites build_mod's, so the assert only ever sees campaign's output. It is also
+`skipif(not _game_ready())` — it needs the install + UnityPy + extracted templates, so in a worktree it
+**skips**. Equivalence has to be asserted directly, or not claimed.
+
+<details><summary>Original Phase-0 sketch (superseded by the above)</summary>
+
+**Change:** after the other patch-file writes in `build_mod`,
 compute donor lines per project and write the file **guarded on non-empty**:
 
 ```python
@@ -120,9 +173,76 @@ Then a manual check: `ff9mapkit build <a verbatim fork>.field.toml --out /tmp/x`
 `build_mod` on a verbatim/native fork emits ForkDonorPatch with the expected line; on a novel field emits
 none. (Mirror `test_campaign.py:842`.)
 
+</details>
+
+### How Phase 0 was actually verified (and the worktree trap it walked into)
+A **fresh worktree has no `data/` templates**, so the first run of the new tests reported `6 skipped` —
+including the two pre-existing `preserve_existing` tests. Green there means nothing (CLAUDE.md §5). The
+templates are gitignored and in-tree, so point at the main repo's copy rather than re-extracting:
+
+```bash
+FF9MAPKIT_DATA="C:/gd/Dream-World-IX/ff9mapkit/ff9mapkit/data" py -m pytest -n 6 -q
+```
+
+With that set the new tests actually execute — but that env var only fixes the TEMPLATES. It is the wrong
+tool anyway: it also redirects `cache_dir()`, so a `deploy` run writes its revert script into whatever dir
+you pointed at (this polluted the main repo's `data/` once). **Copy the assets in instead.**
+
+### THE PROVISIONING RECIPE (what makes a worktree suite trustworthy)
+Three separate gitignored asset sets, all copied from the main repo — miss any one and tests silently skip
+or fail for environmental reasons that look exactly like regressions:
+
+```bash
+M=C:/gd/Dream-World-IX/ff9mapkit
+cp -r $M/ff9mapkit/data/blank_field  <wt>/ff9mapkit/ff9mapkit/data/     # 1. base templates
+cp    $M/ff9mapkit/data/region_template.bin <wt>/ff9mapkit/ff9mapkit/data/
+cp    $M/tests/fixtures/*.eb.bytes $M/tests/fixtures/*.bgx \
+      $M/tests/fixtures/*.bgi.bytes <wt>/ff9mapkit/tests/fixtures/      # 2. byte-level fixtures
+cp -r $M/.ff9mapkit-cache/{fields,thumbs,model_thumbs,battlemap} \
+      <wt>/ff9mapkit/.ff9mapkit-cache/                                  # 3. extract cache (~50M)
+```
+
+Measured on this arc: bare worktree **67 failed / 35 skipped / 30 errors** → provisioned **25 failed /
+12 skipped / 0 errors** → on current master **0 failed**. Every one of those 92 was environmental or a
+stale base; none was a regression. **Always compare against a base run, never against zero** — and check
+whether master has moved, because a stale merge-base produces failures that are nobody's fault.
+
 ---
 
-## Phase 1 — the `ff9mapkit deploy` verb (dedicated folder, reversible)
+## Phase 1 — the `ff9mapkit deploy` verb ★ DONE
+
+**Shipped:** `deploy.deploy_field()` + `default_field_folder()` + `_render_field_revert()`, CLI verb
+**`deploy`** with alias **`deploy-field`** (both registered, so the naming question the doc left open is
+moot), 9 tests in `tests/test_deploy_field.py` running against a fake game dir under `tmp_path`.
+
+Decisions taken (the doc left these to ask):
+- **Verb name:** `deploy`, with `deploy-field` as an argparse alias. No reason to choose.
+- **Dedicated folder by default:** yes — `FF9CustomMap-<name>`, keeping the `FF9CustomMap*` family the
+  install already stacks. Sanitized, so a field name can't escape the path.
+- **`--mod-folder` is allowed but GATED.** Pointed at a folder holding other fields, the wholesale install
+  would unregister them, so it ABORTS (`--allow-drop` overrides) — reusing `_regs_wiped` +
+  `_wiped_regs_warning`. That is the same rule `build_mod` enforces for `--out`, and it is what keeps
+  Phase 2 genuinely deferred rather than half-done.
+
+Two things the sketch got wrong:
+- **`_render_folder_revert` could NOT be reused.** It only restores a snapshot; when the deploy CREATES
+  the folder there is no snapshot, and it would leave the install in place while reporting success. Hence
+  `_render_field_revert`, which removes the folder in that case. Both branches are tested by actually
+  running the emitted script.
+- **`tools/deploy_field.py` was NOT shrunk to a shim** — deliberately, see below.
+
+Also carried over from `deploy_campaign`: the offline lint gate (`lint_all`, aborts on errors), and the
+name / GLOBAL-EventDB-id / text-block-shadow guards run against the BUILT dist.
+
+### Why `tools/deploy_field.py` is still 590 lines (the doc's step 4, NOT done)
+The doc assumed the repo script could become a thin shim once the package had `deploy_field()`. It cannot,
+yet: the two do genuinely different installs. The package function OWNS a dedicated folder and replaces it
+wholesale; the repo script does a **surgical per-id merge into a SHARED folder** (splices BattlePatch /
+TextPatch under `//field-<id>` markers, merges DictionaryPatch and MusicMetaData non-destructively, handles
+the live Scripts-DLL recompile). That merge is exactly Phase 2. Until Phase 2 lands there is nothing for
+the shim to delegate to, so the script stays as-is and the dev loop is untouched.
+
+<details><summary>Original Phase-1 sketch (superseded)</summary>
 
 **Goal:** installed users get a one-command, reversible single-field install. Target a **dedicated** mod
 folder (default = the field's own name) so no surgical merge/guards are needed — a fresh folder has nothing
@@ -158,6 +278,8 @@ Reuse existing pieces:
 **Decision to make (ask the user):** verb name `deploy` vs `deploy-field`; and whether Phase 1 should default
 to a dedicated folder (recommended) or offer `--mod-folder FF9CustomMap` (which pulls in Phase 2's merge).
 
+</details>
+
 ---
 
 ## Phase 2 — shared-folder surgical merge parity (DEFERRED)
@@ -168,7 +290,7 @@ bulk of `tools/deploy_field.py`. Side-effect inventory (what deploy_field adds o
 | Side effect | Source | Deploy-only work | Needed for |
 |---|---|---|---|
 | scene/`.eb`/`.mes`, Models/Animations/Sounds/CSVs/Abilities/Scripts-DLL/face-atlas | `build_mod` | copy | ✅ already in `build --out` |
-| **ForkDonorPatch.txt** | script only | emit | **Phase 0** |
+| **ForkDonorPatch.txt** | ~~script only~~ `build_mod` | merge into shared file | **Phase 0 ★ DONE** · shared = P2 |
 | DictionaryPatch.txt | `build_mod` (complete) | non-destructive merge into shared file | dedicated ✅ · shared = P2 |
 | BattlePatch / TextPatch | `build_mod` (complete) | splice under `//field-<id>` markers | dedicated ✅ · shared = P2 |
 | MusicMetaData.txt | `build_mod` | merge custom-band entries | dedicated ✅ · shared = P2 |
@@ -200,14 +322,28 @@ These are dev-loop concerns with no meaning on a single-game install; they live 
 ---
 
 ## Suggested commit sequence
-1. `feat(build): emit ForkDonorPatch.txt from build_mod (fixes standalone fork installs)` + new test. Run suite.
-2. `refactor(campaign): drop redundant post-build ForkDonorPatch emit (now in build_mod)` — only after (1) green.
-3. `feat(deploy): ff9mapkit deploy — reversible single-field install into a dedicated folder`.
-4. `refactor(tools): deploy_field.py → thin shim over ff9mapkit.deploy.deploy_field`.
-5. (later / optional) Phase 2, restore-engine, deploy-battle.
+1. ★ **DONE** (`c942899e`) `feat(build): emit ForkDonorPatch.txt from build_mod` + 4 tests.
+2. ~~`refactor(campaign): drop redundant post-build ForkDonorPatch emit`~~ — **CANCELLED, it is not
+   redundant and dropping it regresses editable campaigns.** See the falsified note in Phase 0. The
+   prerequisite, if anyone wants this collapse: first make `_emit_logic_only_member` record
+   `source_field = real_id` (which is worth doing on its own — it closes the same standalone-install hole
+   for editable members).
+3. ★ **DONE** `feat(deploy): ff9mapkit deploy — reversible single-field install into a dedicated folder`.
+4. ~~`refactor(tools): deploy_field.py → thin shim`~~ — **BLOCKED ON PHASE 2, not skipped.** The repo script
+   does a surgical per-id merge into a SHARED folder; the package function owns a dedicated one. Different
+   installs, nothing to delegate to yet. See the Phase-1 note.
+5. (later / optional) Phase 2, restore-engine, deploy-battle, and dropping `coop.py`'s now-redundant write.
 
 ## Definition of done (Phases 0–1)
-- `ff9mapkit build <fork> --out <dir>` produces a correct ForkDonorPatch.txt; novel field produces none.
-- `ff9mapkit deploy <field.toml>` installs reversibly on a machine with **no repo**; revert restores cleanly.
-- `tools/deploy_field.py` is a thin shim; the repo dev loop (debug menu/sandbox/worktree) still works unchanged.
-- Full suite green: `py -m pytest -n 6`.
+- ★ `ff9mapkit build <fork> --out <dir>` produces a correct ForkDonorPatch.txt; novel field produces none.
+- ★ `ff9mapkit deploy <field.toml>` installs reversibly with **no repo**; revert restores (or removes) cleanly.
+- ⚠ `tools/deploy_field.py` is NOT a shim — correctly, it is blocked on Phase 2. The repo dev loop is
+  untouched (the script was not modified at all).
+- ★ **Full suite GREEN on current master + these changes: `5553 passed, 12 skipped, 0 failed, 0 errors`.**
+  Run in a throwaway `git worktree add --detach <master>` with the branch merged in and the gitignored
+  assets copied from the main repo (see the provisioning recipe below). The bare worktree numbers quoted
+  earlier in this doc (67 failed / 35 skipped / 30 errors) were ALL missing-asset artifacts, and a further
+  25 were a stale base — master had already fixed them.
+- ⚠ **No in-game playtest yet.** Nothing here changes the repo dev loop, and the fork-gate payoff is only
+  observable on a standalone install — worth one confirmation that a `ff9mapkit deploy`'d fork boots with
+  its occlusion intact.
