@@ -230,7 +230,8 @@ scenery must be re-authored *together*.
   `FF9CustomMap/FF9_Data/` was wholesale-replaced by another concurrent session on 2026-07-27 08:55
   and now holds only `embeddedasset/text`, so the ef211 / ef227 / ef251 overrides are all gone. The
   staged artifacts and their revert kits are intact under SCRATCH; only the live folder was wiped.
-- **W6a — ★ BUILT, offline-proven, CAST PENDING** (`W6-TEXEL.md`,
+- **W6a — ★★ CAST-PROVEN (posture (b); the brand read hard-edged on both wings in the spectral
+  key, owner-confirmed; cast record → `W6-TEXEL.md` §7)** (`W6-TEXEL.md`,
   `ff9mapkit/ff9mapkit/summons/repaint.py`, `ff9mapkit/tests/test_summon_repaint.py`,
   `bahamut_emblem.toml`, `emblem_stamp.py`, `w6_gates.py`; gates 7/7, kit summon tests 250, tier-w
   suite 358/1 single-process, w4_gates 8/8, w5_gates 9/9). **LEVER #2: THE TEXEL REPAINT.** `summon-reskin` grows
