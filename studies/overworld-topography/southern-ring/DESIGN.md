@@ -148,7 +148,8 @@ entrance-only: the case space serves per-quay names, plate-only POIs (summon wit
 the explored bits are save-persistent per-place "visited" state any `.eb` can read. Record:
 REVERT.md §23.
 
-**PER-QUAY NAMES ★ DEPLOYED (2026-07-26, owner-directed; playtest pending):** the four quays moved
+**PER-QUAY NAMES ★ PLAYTEST CONFIRMED (2026-07-26, "all passing and ?/name status holds over
+saves" — the extended band is thereby IN-GAME PROVEN, cases 65-68 live):** the four quays moved
 off the shared case 53 onto **virgin cases 65–68** (Ashvale/Tidefall/Grimhorn/Larkspur — the
 extended band's first consumers; same Field(6601) destination, per-island explored bits at word
 2006 bits 0–3). En route the widened ALL-entries census found **THE AIRBORNE SUMMONER**: WORLD08/09
@@ -158,6 +159,54 @@ Memoria's disc-4 plate (cosmetic, warp-safe). Fixed fully: split[53] restored to
 language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY is retired** — the
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
+
+## R5 — THE SEA LANES + THE BOAT WAKES ★ DEPLOYED (2026-07-26; playtest pending)
+
+**R5a:** the dormant boat was §20's DOMAIN mis-diagnosis — **THE ×256 DOMAIN LAW**: `WMActor.pos`'s
+setter writes `RealPosition * 256` into the eb-visible `PosObj.pos[]`, so world-map `obj.f[]` reads
+are fixed point; the ORIGINAL relative gate (|Δf|<25600 = 100u) was correct all along, the §19-era
+quay boarding was the float-parked boat legitimately in range (moor-home was the whole fix), and
+§20's world-unit window could never fire. Fixed by RESTORING the pre-§20 body from its backup (per
+language, only entry-15 tag-1, R3/R4 additions preserved) + source parity + the law in `wu()`'s
+docstring: trace the WRITER of a variable, not just its reader. **R5b:** the Blue Narciss mask
+decodes to topos {53,54,57} (validated by reproducing the foot-walk table); the sea-lane probe
+(8u sampling, stacked meshes, SeaBlockPrefab-aware) proves **the NORTH passage fully sailable
+47/47** — Ashvale → the wrap → north of Lamplight → the horseshoe's west channel. The ratified
+"only block-proven voyage" is now tile-proven, with a boat that boards. Record: REVERT.md §28.
+
+## R4b — THE TABLE IS THE LAW ★ DEPLOYED (2026-07-26; re-playtest pending): the 36-38 law FALSIFIED in-game, the safe road AUTHORED
+
+The R4 playtest fought Lizard Man/Sand Scorpion/Axe Beak/Ironite on "the grass of the island" —
+fingerprinted to **Grimhorn's bench** (carried area 12 → zone 5's topo-16/41 rows; three earlier
+hypotheses each killed by data). The "topo 36-38 engine law" is FALSE: `ProcessEncount` has no
+topograph clause; the roll resolves **zone × topograph × fog off the walked tile's AREA bits**, and
+safety is a TABLE HOLE, not an engine gift (the doc's own 2026-07-02 correction was right; the
+design round's "verified" law repeated the misreading). **THE FIX — THE SAFE-ROAD AREA STAMP:**
+every kit island's open walkable ground → **area 14 (zone 6**, records only at topos 10/36 — a hole
+for all our ground topos); canopy keeps area 0 → zone 0 (Python/Goblin/Mu = the region's uniform
+fauna); event tiles untouched; 85,236 verts across 112 Terrain files, byte-verified area-bits-only,
+full parity, all probes pass. Area choice is cosmetically free (WorldLocationText's only gameplay
+caller is the debug title). Ragtime Mouse in canopy = the stock forest special, kept. ⚠ flagged:
+the horseshoe carry's 270 STOCK event verts (area 12) — a future audit item. New mints must re-run
+the stamp until the kit emitters default it (deferred: identity-net rebaseline). Record: REVERT.md
+§26; re-playtest = §26.5.
+
+## R4 — THE FOREST/ENCOUNTER PASS ★ DEPLOYED (2026-07-26; relaunch for the minimap; teleport playtest pending)
+
+The encounter architecture costs ZERO table edits: our tiles' **area 0 → zone 0**, whose topo-37
+rows are the stock starter set (**Python/Goblin/Mu**, both fog rows) — we consume the stock table,
+never edit it (the corrected census REFUTED the "private zone 24": area 63 = the Yan island's live
+table; NO stock-dead 36-38 record exists anywhere). The law verified in-engine: no record ⇒ no
+battle + the case-205/EventCollision topo-36-38 gates — open ground is the safe road by
+construction. **THE SMALL-HOST LIMIT (measured):** every ring island refuses v1 `world-forest`
+(the junction CARRY fails the hole-cycle; r44-class mints fail THE CANOPY STEP LAW with a
+degenerate zip, `zipNyMin 0.00`) — route-island canopy awaits the verb's small-host calibration.
+**THE BENCH** (island E re-homed per the ratified sketch): seed **137** at (136,−168) — found by a
+driver testing hard-clean texture gates AND blob capacity together — carries the proven 132-tri
+canopy at (124,−156) (all gates + walk-in sim clean; **donor AREA 7 restamped to 0** — a verbatim
+canopy carry imports the donor's encounter zone; restamp to the host's area, now a recorded law)
++ the r13/h3.6 south-lobe hill + the minimap redraw. The region's first encounter island. Record:
+REVERT.md §25; playtest = §25.6.
 
 **R3 PLAYTEST CONFIRMED (2026-07-26, "good"):** the case-61 loop works in-game — plate → Confirm →
 the lamp room → walk out → the name registers; no battle. The quicksand leg (§22.8 item 4) was not

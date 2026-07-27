@@ -303,6 +303,17 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
             "grain": grain, "spacing": spacing, "sources": len(srcs), "worst": picked}
 
 
+def pursuit_extent(wmesh) -> float:
+    """The walkmesh's larger XZ extent — the radius an UNGATED chase's pursuit family
+    spans (its quarry can be anywhere on the field). Shared by ``behavior lint`` and
+    the Workspace's stage sweep so both size the family the same way."""
+    wv = wmesh.world_verts()
+    if not wv:
+        return 0.0
+    return float(max(max(v[0] for v in wv) - min(v[0] for v in wv),
+                     max(v[2] for v in wv) - min(v[2] for v in wv)))
+
+
 def describe_pursuit_problems(name: str, res: dict) -> list:
     """Human-readable warnings for a :func:`sweep_pursuit` result — the pursuit-line
     analogue of :func:`describe_leg_problems`, phrased the same way."""

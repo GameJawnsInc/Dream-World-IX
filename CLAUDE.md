@@ -267,7 +267,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★ COMPLETE — stock summons editable in place (camera/timing/whole-set reskin all cast-proven on ef227; two-clocks + scenery + hybrid-mask laws) → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★ COMPLETE incl. W5 GENERALISATION ⛳ (the W tools take any stock summon; creature/scenery/camera each cast-proven on a second summon — Madeen + Phoenix) → `studies/custom-summons/tier-w/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

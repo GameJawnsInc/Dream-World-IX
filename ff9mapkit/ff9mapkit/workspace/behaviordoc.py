@@ -1,5 +1,5 @@
-"""The Behavior document -- rung A of the Behavior GUI: a READ-ONLY render of a field's
-``[behavior]`` block (charter: ``studies/behavior-trees/GUI-VISION.md``).
+"""The Behavior document -- rungs A-C of the Behavior GUI: render, edit, and AUTHOR ON THE
+STAGE a field's ``[behavior]`` block (charter: ``studies/behavior-trees/GUI-VISION.md``).
 
 Three surfaces inside one doc, all fed by :mod:`.behaviorscan`'s pure projections:
 
@@ -29,9 +29,9 @@ import threading
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsEllipseItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
-    QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QStackedLayout,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QFrame, QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
+    QGraphicsView, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+    QStackedLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import behaviorscan, icons, widgets
@@ -41,13 +41,24 @@ _ZOOM_MIN, _ZOOM_MAX = 0.05, 6.0
 _POST_R = 5                                       # a post marker's screen radius (px, zoom-immune)
 
 
+SPACING_U = 192                                   # actors jam under ~192u (the layout skill's law)
+
+
 class StageCanvas(QGraphicsView):
     """The behavior geometry as a chart: +z up-screen (the layout probe's frame, so the two
     instruments agree), Ctrl+scroll zoom / Ctrl+0 fit / Ctrl+1 1:1 (the atlas grammar). Posts
     and labels are screen-fixed furniture (the nameplate trick); rings and routes are real
-    world geometry and scale with the zoom."""
+    world geometry and scale with the zoom.
 
-    def __init__(self, palette, *, scale=100):
+    Rung C adds EDIT mode: draggable handles over every writable point (the pure ids from
+    :func:`behaviorscan.stage_handles`), a resize grip on the selected unit's rings, the
+    layout-probe guides (world compass, the ~192u jam-spacing ring, live coordinates while
+    dragging), and painted sweep verdicts. The canvas never touches the raw dict — a drag
+    ends in ONE callback (``on_move``/``on_radius``/``on_insert``/``on_delete``) and the
+    host doc owns the write + the undo step."""
+
+    def __init__(self, palette, *, scale=100, on_move=None, on_radius=None,
+                 on_insert=None, on_delete=None):
         super().__init__()
         self.pal = palette
         self._model = None
@@ -55,6 +66,16 @@ class StageCanvas(QGraphicsView):
         self._scale = scale if scale in range(50, 301) else 100
         self._zoom = 1.0
         self._fit_pending = False
+        self._edit = False
+        self._handles = []                        # behaviorscan.stage_handles rows
+        self._verdicts = None                     # behaviorscan.SweepResult (persists redraws)
+        self._drag = None                         # live drag state, cleared by every _draw
+        self._move_items = []                     # [{anchor, handle}] rebuilt per draw
+        self._grip_items = []                     # [{anchor, rid, cx, cz, r, ellipse}]
+        self.on_move = on_move
+        self.on_radius = on_radius
+        self.on_insert = on_insert
+        self.on_delete = on_delete
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -68,6 +89,17 @@ class StageCanvas(QGraphicsView):
         self._hint = QLabel("Ctrl+scroll zooms · Ctrl+0 fits", self.viewport())
         self._hint.setObjectName("behaviorHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # the edit-mode guides: a WORLD compass (the laying-out skill's cardinal law — the
+        # room's FRONT is -z, the camera side, which this frame draws DOWN-screen) and the
+        # live coordinate readout while a drag is in flight
+        self._compass = QLabel("+z back ▲ · −z front (camera) ▼ · +x east ▶", self.viewport())
+        self._compass.setObjectName("behaviorHint")
+        self._compass.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._compass.hide()
+        self._coords = QLabel("", self.viewport())
+        self._coords.setObjectName("behaviorHint")
+        self._coords.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._coords.hide()
         self._style_hint()
 
     # -- text + geometry (CALIBRE) --
@@ -90,13 +122,15 @@ class StageCanvas(QGraphicsView):
         self._draw()
 
     def _style_hint(self):
-        self._hint.setFont(self._font(8))
         surf = QColor(self.pal["surface"])
-        self._hint.setStyleSheet(
-            "QLabel#behaviorHint {"
-            f"color: {self.pal['muted']};"
-            f"background: rgba({surf.red()},{surf.green()},{surf.blue()},0.86);"
-            "border-radius: 9px; padding: 2px 9px; }")
+        sheet = ("QLabel#behaviorHint {"
+                 f"color: {self.pal['muted']};"
+                 f"background: rgba({surf.red()},{surf.green()},{surf.blue()},0.86);"
+                 "border-radius: 9px; padding: 2px 9px; }")
+        for lab in (self._hint, self._compass, self._coords):
+            lab.setFont(self._font(8))
+            lab.setStyleSheet(sheet)
+        self._coords.setStyleSheet(sheet.replace(self.pal["muted"], self.pal["text"], 1))
         self._place_hint()
 
     def _place_hint(self):
@@ -104,17 +138,41 @@ class StageCanvas(QGraphicsView):
         vp = self.viewport()
         self._hint.move(vp.width() - self._hint.width() - 10,
                         vp.height() - self._hint.height() - 8)
+        self._compass.adjustSize()
+        self._compass.move(10, 8)                  # top-left: clear of the zoom hint's corner
+        self._coords.adjustSize()
+        self._coords.move(10, vp.height() - self._coords.height() - 8)
 
     # -- public --
-    def set_model(self, model, selected=None, *, refit=False):
+    def set_model(self, model, selected=None, *, refit=False, handles=None):
         """New geometry (+ the unit whose rings light). ``refit`` on a FIELD change only -- a
-        same-field re-render keeps the user's zoom/pan (the map's own contract)."""
+        same-field re-render keeps the user's zoom/pan (the map's own contract). ``handles``
+        is the edit mode's draggable-point list (None outside edit mode)."""
         self._model = model
         self._selected = selected
+        self._handles = handles or []
         if refit:
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True
+        self._draw()
+
+    def set_edit(self, on):
+        """Edit mode: handles + guides appear; panning stays (a drag starts only ON a
+        handle). The host re-feeds set_model with handles right after."""
+        on = bool(on)
+        if on == self._edit:
+            return
+        self._edit = on
+        self._compass.setVisible(on)
+        if not on:
+            self._handles = []
+        self._draw()
+
+    def set_verdicts(self, res):
+        """Paint (or clear, with None) a sweep's verdicts. They persist across redraws
+        until the host replaces them — a re-render must not silently un-say a finding."""
+        self._verdicts = res
         self._draw()
 
     def select_unit(self, name):
@@ -173,6 +231,144 @@ class StageCanvas(QGraphicsView):
                 return
         super().keyPressEvent(event)
 
+    # -- rung C: the drag machinery. Mouse handlers are thin wrappers over the world-frame
+    # methods below (the testable seam, the suite's own convention): press resolves an item
+    # to a handle/grip, move updates ONLY the grabbed items + guides, release commits ONE
+    # callback and the host's re-render redraws everything.
+    def _resolve_grab(self, item):
+        """Walk an itemAt() hit up to its tagged anchor; ('handle', i) / ('grip', i) / None."""
+        while item is not None:
+            tag = item.data(0)
+            if tag == "handle":
+                return ("handle", int(item.data(1)))
+            if tag == "ringgrip":
+                return ("grip", int(item.data(1)))
+            item = item.parentItem()
+        return None
+
+    def _begin_drag(self, grab):
+        kind, i = grab
+        if kind == "handle":
+            if not 0 <= i < len(self._move_items):
+                return False
+            row = self._move_items[i]
+            h = row["handle"]
+            d = {"kind": "move", "row": row, "x": h["x"], "z": h["z"], "spacing": None}
+            if h["kind"] in ("post", "player"):    # the jam-spacing guide rides the drag
+                pen = QPen(QColor(self.pal["muted"]), 1.0)
+                pen.setCosmetic(True)
+                pen.setDashPattern([2, 3])
+                rr = SPACING_U * _WORLD
+                sx, sy = self._pt(h["x"], h["z"])
+                d["spacing"] = self._scene.addEllipse(sx - rr, sy - rr, 2 * rr, 2 * rr, pen)
+            self._drag = d
+        else:
+            if not 0 <= i < len(self._grip_items):
+                return False
+            g = self._grip_items[i]
+            self._drag = {"kind": "ring", "g": g, "r": g["r"]}
+        self._update_coords()
+        return True
+
+    def _drag_world(self, x, z):
+        """One drag step, WORLD coords (the tests drive this directly)."""
+        d = self._drag
+        if not d:
+            return
+        if d["kind"] == "move":
+            d["x"], d["z"] = int(round(x)), int(round(z))
+            sx, sy = self._pt(d["x"], d["z"])
+            d["row"]["anchor"].setPos(sx, sy)
+            if d["spacing"] is not None:
+                rr = SPACING_U * _WORLD
+                d["spacing"].setRect(sx - rr, sy - rr, 2 * rr, 2 * rr)
+        else:
+            g = d["g"]
+            from math import hypot
+            from . import behaviorscan as _bs
+            d["r"] = max(_bs.RADIUS_FLOOR, int(round(hypot(x - g["cx"], z - g["cz"]))))
+            rr = d["r"] * _WORLD
+            sx, sy = self._pt(g["cx"], g["cz"])
+            g["ellipse"].setRect(sx - rr, sy - rr, 2 * rr, 2 * rr)
+            g["anchor"].setPos(sx + rr, sy)
+        self._update_coords()
+
+    def _end_drag(self):
+        """Commit: exactly one callback; the host's re-render rebuilds the scene."""
+        d, self._drag = self._drag, None
+        self._coords.hide()
+        if not d:
+            return
+        if d["kind"] == "move":
+            if d["spacing"] is not None:
+                self._scene.removeItem(d["spacing"])
+            h = d["row"]["handle"]
+            if (d["x"], d["z"]) != (h["x"], h["z"]) and self.on_move:
+                self.on_move(h["id"], d["x"], d["z"])
+        else:
+            g = d["g"]
+            if d["r"] != g["r"] and self.on_radius:
+                self.on_radius(g["rid"], d["r"])
+
+    def _update_coords(self):
+        d = self._drag
+        if not d:
+            return
+        if d["kind"] == "move":
+            self._coords.setText(f"{d['row']['handle']['label']} · x {d['x']} · z {d['z']}")
+        else:
+            self._coords.setText(f"radius {d['r']}u")
+        self._coords.show()
+        self._place_hint()
+
+    def mousePressEvent(self, event):              # noqa: N802 (Qt override)
+        if self._edit and event.button() == Qt.MouseButton.LeftButton:
+            grab = self._resolve_grab(self.itemAt(event.position().toPoint()))
+            if grab and self._begin_drag(grab):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):               # noqa: N802 (Qt override)
+        if self._drag:
+            sp = self.mapToScene(event.position().toPoint())
+            self._drag_world(sp.x() / _WORLD, -sp.y() / _WORLD)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):            # noqa: N802 (Qt override)
+        if self._drag:
+            self._end_drag()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+        """Right-click on a route point (edit mode): the list ops. The menu is built
+        through the ``_route_menu`` seam so tests drive the choices without a popup."""
+        if not self._edit:
+            return super().contextMenuEvent(event)
+        grab = self._resolve_grab(self.itemAt(event.pos()))
+        if not grab or grab[0] != "handle":
+            return super().contextMenuEvent(event)
+        h = self._move_items[grab[1]]["handle"]
+        if not h.get("list_id"):
+            return super().contextMenuEvent(event)
+        self._route_menu(h, event.globalPos())
+        event.accept()
+
+    def _route_menu(self, handle, global_pos):
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        ins = menu.addAction("Insert a point after this one")
+        rm = menu.addAction("Delete this point")
+        act = menu.exec(global_pos)
+        if act is ins and self.on_insert:
+            self.on_insert(handle["list_id"])
+        elif act is rm and self.on_delete:
+            self.on_delete(handle["list_id"])
+
     # -- drawing --
     def _fixed(self, item):
         """Screen-fixed chart furniture (labels, post markers) -- readable at any zoom."""
@@ -205,6 +401,9 @@ class StageCanvas(QGraphicsView):
 
     def _draw(self):
         sc, pal = self._scene, self.pal
+        self._drag = None                          # scene.clear() deletes any grabbed item
+        self._coords.hide()
+        self._move_items, self._grip_items = [], []
         sc.clear()
         m = self._model
         if not m or m.get("bounds") is None:
@@ -275,6 +474,16 @@ class StageCanvas(QGraphicsView):
             it = sc.addEllipse(sx - rr, sy - rr, 2 * rr, 2 * rr,
                                cosmetic(self.pal["accent"], 1.4, [5, 4]))
             it.setData(0, "ring")
+            if self._edit and ring.get("rid"):     # the resize grip sits on the ring's east edge
+                anchor = self._anchor(cx + ring["radius"], cz, "ringgrip")
+                anchor.setData(1, len(self._grip_items))
+                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq.setPen(QPen(QColor(pal["accent"]), 1.4))
+                sq.setBrush(QBrush(QColor(pal["surface"])))
+                anchor.setToolTip(f"Drag to resize — {ring['label']}")
+                self._grip_items.append({"anchor": anchor, "rid": tuple(ring["rid"]),
+                                         "cx": cx, "cz": cz, "r": ring["radius"],
+                                         "ellipse": it})
         # posts + player last (loudest)
         for p in m["posts"]:
             col = muted if p["pooled"] else pal["success"]
@@ -287,6 +496,59 @@ class StageCanvas(QGraphicsView):
             px, pz = m["player"]
             self._marker(px, pz, pal["text"], hollow=True, r=4, tag="player")
             self._label("player spawn", px, pz, color=pal["text"], dy=-18)
+        # sweep verdicts, in place (rung C): the jammed SUB-SEGMENT in error over its route
+        # leg, wall-hug legs re-traced in warn dashes, a pursuit family's worst pairs as
+        # dotted legs. Persist until the host clears/replaces them.
+        v = self._verdicts
+        if v is not None and getattr(v, "ok", False):
+            for j in v.jams:
+                (ax, az), (bx, bz) = j["a"], j["b"]
+                p0 = self._pt(ax + (bx - ax) * j["t0"], az + (bz - az) * j["t0"])
+                p1 = self._pt(ax + (bx - ax) * j["t1"], az + (bz - az) * j["t1"])
+                ln = sc.addLine(p0[0], p0[1], p1[0], p1[1], cosmetic(pal["error"], 3.0))
+                ln.setData(0, "jam")
+                self._marker(j["mid"][0], j["mid"][1], pal["error"], hollow=True, r=5,
+                             tag="jam")
+                self._label(f"✕ off-mesh ~{j['span']:.0f}u", j["mid"][0], j["mid"][1],
+                            color=pal["error"], dy=-20)
+            for hg in v.hugs:
+                (ax, az), (bx, bz) = hg["a"], hg["b"]
+                p0, p1 = self._pt(ax, az), self._pt(bx, bz)
+                ln = sc.addLine(p0[0], p0[1], p1[0], p1[1],
+                                cosmetic(pal["warn"], 2.0, [3, 3]))
+                ln.setData(0, "hug")
+                mx, mz = (ax + bx) / 2, (az + bz) / 2
+                self._label(f"{hg['minwall']:.0f}u from a wall", mx, mz,
+                            color=pal["warn"], dy=4)
+            for p in v.pursuits:
+                for k, h in enumerate(p["worst"]):
+                    (ax, az), (bx, bz) = h["a"], h["b"]
+                    p0, p1 = self._pt(ax, az), self._pt(bx, bz)
+                    ln = sc.addLine(p0[0], p0[1], p1[0], p1[1],
+                                    cosmetic(pal["warn"], 1.4, [1, 3]))
+                    ln.setData(0, "pursuit")
+                    self._marker(h["mid"][0], h["mid"][1], pal["warn"], hollow=True,
+                                 r=4, tag="pursuit")
+                    if k == 0:                     # one caption per family, on its worst pair --
+                        # its OWN tier (dy) because a pursuit's worst pair often crosses the
+                        # exact wall a route jam already labels (snap-caught collision)
+                        pct = 100.0 * p["blocked"] / max(1, p["tested"])
+                        self._label(f"{p['unit']} pursuit jams ({pct:.0f}% of pairs)",
+                                    h["mid"][0], h["mid"][1], color=pal["warn"], dy=-36)
+        # the edit handles, LAST (topmost for itemAt): a hollow grip square per writable
+        # point; the geometry underneath keeps its kind colour — the grip is an affordance,
+        # not a legend entry
+        if self._edit:
+            for i, h in enumerate(self._handles):
+                anchor = self._anchor(h["x"], h["z"], "handle")
+                anchor.setData(1, i)
+                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq.setPen(QPen(QColor(pal["text"]), 1.2))
+                sq.setBrush(QBrush(QColor(pal["surface"])))
+                anchor.setToolTip(h["label"] + (
+                    "\nDrag to move · right-click for point ops" if h.get("list_id")
+                    else "\nDrag to move"))
+                self._move_items.append({"anchor": anchor, "handle": h})
 
 
 class LadderView(QWidget):
@@ -472,9 +734,12 @@ class BranchEditor(QFrame):
 
 class BehaviorDoc(QWidget):
     """The Behavior tab. The shell feeds it the OPEN field's parsed dict (``show_field``) on
-    tab show / tree select -- never a file read; the Compile click is the only disk touch."""
+    tab show / tree select -- never a file read; the doc's ONLY disk touches are the two
+    user-invoked lanes, Compile (the saved file through the real compiler) and the first
+    Sweep (the saved field's walkmesh; re-sweeps ride the warm mesh)."""
 
     _compile_done = Signal(object)                 # CompileResult (worker -> GUI thread)
+    _sweep_done = Signal(object)                   # (gen, SweepResult, wmesh|None) -> GUI thread
 
     def __init__(self, pal, *, scale=100, on_edit=None):
         super().__init__()
@@ -483,6 +748,11 @@ class BehaviorDoc(QWidget):
         self.on_edit = on_edit                     # (member, label) after each committed edit --
         #                                            the shell's touch/checkpoint/re-feed hook
         self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
+        self._ask_archetype = self._ask_archetype_dialog   # same seam shape for the stamp picker
+        self._ask_target = self._ask_target_dialog          # ...and the guard's enemy picker
+        self._view = None                          # what the projections RENDER: the open dict,
+        self._readonly = False                     # or a [siege] field's desugared copy (read-only
+        #                                            -- the [siege] block owns the behavior table)
         self._member = None
         self._path = None
         self._dirty = False
@@ -492,7 +762,21 @@ class BehaviorDoc(QWidget):
         self._selected_unit = None
         self._busy = False
         self._guide_state = "nofield"
+        self._wmesh = None                         # the sweep lane's cached walkmesh (per field)
+        self._sweep_busy = False
+        self._sweep_armed = False                  # first EXPLICIT sweep arms auto re-sweeps --
+        #                                            after it, edits re-judge on the worker with
+        #                                            the warm mesh (no uninvited disk I/O before)
+        self._sweep_gen = 0                        # bumps on field switch/close: a worker still
+        #                                            in flight for the OLD field lands stale and
+        #                                            is dropped, never painted on the new one
         self._compile_done.connect(self._finish_compile)
+        self._sweep_done.connect(self._finish_sweep)
+        from PySide6.QtCore import QTimer
+        self._resweep_timer = QTimer(self)
+        self._resweep_timer.setSingleShot(True)
+        self._resweep_timer.setInterval(500)
+        self._resweep_timer.timeout.connect(self._resweep)
         # The Instruments column is NOT one of this doc's panes: the shell docks it into its
         # INSPECTOR while this tab shows (owner's call -- a third in-doc column starved the
         # ladder of width). Built here, owned here; the shell only mounts/unmounts it.
@@ -514,7 +798,8 @@ class BehaviorDoc(QWidget):
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
                       "combat — as priority branches in the field.toml. The format lives in "
                       "docs/BEHAVIOR.md; benches 30410-30418 are worked examples.",
-                actions=[("Add a behavior unit…", self._add_unit)],
+                actions=[("Add a behavior unit…", self._add_unit),
+                         ("Stamp an archetype…", self._stamp_archetype)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -565,6 +850,14 @@ class BehaviorDoc(QWidget):
                                      "ladder: a death branch + a hold fallback).")
         self.add_unit_btn.clicked.connect(self._add_unit)
         cv.addWidget(self.add_unit_btn)
+        self.archetype_btn = QPushButton("＋ Archetype…")
+        self.archetype_btn.setProperty("role", "quiet")
+        self.archetype_btn.setToolTip(
+            "Stamp a whole proven tree onto a named [[npc]] — sentry (watch + alarm), "
+            "patroller (a minted beat), civilian (panics and flees). One undo step; "
+            "shape the minted geometry with Stage edit.")
+        self.archetype_btn.clicked.connect(self._stamp_archetype)
+        cv.addWidget(self.archetype_btn)
         split.addWidget(cast_col)
         # center: the unit bar OUTSIDE the scroll (right-aligned controls inside an h-scrolling
         # container live off-screen -- snap-caught), then ladder over stage (stacked -- the
@@ -594,11 +887,21 @@ class BehaviorDoc(QWidget):
                                         "Ctrl+Z undoes).")
         self.remove_unit_btn.clicked.connect(self._remove_unit)
         bh.addWidget(self.remove_unit_btn)
+        self.edit_btn = QPushButton("✥ Stage edit")
+        self.edit_btn.setProperty("role", "quiet")
+        self.edit_btn.setCheckable(True)
+        self.edit_btn.setToolTip(
+            "Author on the stage: drag posts, route/refuge points, and centres; drag a "
+            "ring's grip to resize its radius; right-click a route point to insert/delete. "
+            "Every drop is one undo step (Ctrl+Z).")
+        self.edit_btn.toggled.connect(self._toggle_stage_edit)
+        bh.addWidget(self.edit_btn)
         cl.addWidget(bar)
         self._vsplit = QSplitter(Qt.Orientation.Vertical)
         self._vsplit.setChildrenCollapsible(False)
-        self.ladder = LadderView(self.pal, actions={
-            "move": self._move_row, "edit": self._edit_branch, "delete": self._delete_row})
+        self._ladder_actions = {
+            "move": self._move_row, "edit": self._edit_branch, "delete": self._delete_row}
+        self.ladder = LadderView(self.pal, actions=self._ladder_actions)
         lscroll = QScrollArea()
         lscroll.setWidgetResizable(True)
         lscroll.setWidget(self.ladder)             # h-bar stays as-needed: a denied width must
@@ -608,7 +911,11 @@ class BehaviorDoc(QWidget):
                                    on_close=self._close_editor, check=self._check_branch)
         self.editor.hide()
         self._vsplit.addWidget(self.editor)
-        self.canvas = StageCanvas(self.pal, scale=self._scale)
+        self.canvas = StageCanvas(self.pal, scale=self._scale,
+                                  on_move=self._on_stage_move,
+                                  on_radius=self._on_stage_radius,
+                                  on_insert=self._on_stage_insert,
+                                  on_delete=self._on_stage_delete)
         self._vsplit.addWidget(self.canvas)
         k = self._scale / 100
         self._vsplit.setSizes([int(340 * k), 0, int(280 * k)])
@@ -633,6 +940,25 @@ class BehaviorDoc(QWidget):
         self.problems_lbl = widgets.caption("")
         self.problems_lbl.setWordWrap(True)
         v.addWidget(self.problems_lbl)
+        v.addWidget(widgets.role_label("WALKABILITY", "subtle"))
+        srow = QHBoxLayout()
+        srow.setSpacing(8)
+        self.sweep_btn = QPushButton("Sweep routes")
+        self.sweep_btn.setToolTip(
+            "Sweep every route leg and pursuit family against the field's walkmesh — "
+            "jams paint on the stage at the exact spot. Walkmesh from the SAVED file; "
+            "geometry from the open document. After the first sweep, edits re-judge "
+            "automatically.")
+        self.sweep_btn.clicked.connect(lambda: self.sweep_now())
+        srow.addWidget(self.sweep_btn)
+        srow.addStretch(1)
+        v.addLayout(srow)
+        self.sweep_note = widgets.caption("")      # the summary + jam lines (error tier)
+        self.sweep_note.setWordWrap(True)
+        v.addWidget(self.sweep_note)
+        self.sweep_warns = widgets.caption("")     # warnings + hints on their OWN tier -- one
+        self.sweep_warns.setWordWrap(True)         # label would paint every hint jam-red
+        v.addWidget(self.sweep_warns)
         v.addWidget(widgets.role_label("COMPILE", "subtle"))
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -687,6 +1013,7 @@ class BehaviorDoc(QWidget):
         self._set_result(None)                     # the docked inspector column must not keep a
         self.problems_lbl.setText("")              # dead project's report or problems
         widgets.set_state(self.problems_lbl, "")
+        self._reset_sweep()
         self._show_guide("nofield")
 
     def show_field(self, member, raw, path=None, *, dirty=False):
@@ -694,26 +1021,42 @@ class BehaviorDoc(QWidget):
         lane; ``dirty`` labels which truth the instruments would read."""
         same_field = member == self._member
         self._member, self._raw, self._path, self._dirty = member, raw, path, dirty
+        self._view, self._readonly = raw, False
         if not behaviorscan.has_behavior(raw):
-            self._show_guide("nobehavior")
-            return
+            view = behaviorscan.siege_view(raw)    # a [siege] field renders its GENERATED
+            if view is None:                       # behavior, read-only (the desugared copy)
+                self._show_guide("nobehavior")
+                return
+            self._view, self._readonly = view, True
+        for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
+                  self.remove_unit_btn, self.edit_btn):
+            b.setEnabled(not self._readonly)
+        if self._readonly and self.edit_btn.isChecked():
+            self.edit_btn.setChecked(False)        # stage edit writes; a view has no writes
+        self.ladder.actions = {} if self._readonly else self._ladder_actions
         if not same_field:
             self._selected_unit = None
             self._set_result(None)                 # another field's report must not linger
+            self._reset_sweep()                    # ...nor its walkmesh or painted verdicts
         self._stack.setCurrentWidget(self._content)
         self._render(refit=not same_field)
 
     def _render(self, *, refit=False):
-        raw = self._raw
+        raw = self._view if self._view is not None else self._raw
         cast = behaviorscan.cast_model(raw)
         names = [u["name"] for u in cast["units"]]
         if self._selected_unit not in names:
             self._selected_unit = names[0] if names else None
         self.head_title.setText(self._member or "Behavior")
-        self.head_sum.setText(behaviorscan.summary(raw))
+        self.head_sum.setText(behaviorscan.summary(raw) + (
+            "  ·  generated from [siege] — read-only (edit the [siege] block in the "
+            "Editor form)" if self._readonly else ""))
         self._fill_cast(cast)
         self._fill_ladder(cast)
-        self.canvas.set_model(behaviorscan.stage_model(raw), self._selected_unit, refit=refit)
+        self.canvas.set_model(
+            behaviorscan.stage_model(raw), self._selected_unit, refit=refit,
+            handles=behaviorscan.stage_handles(raw) if self.edit_btn.isChecked()
+            and not self._readonly else None)
         problems = behaviorscan.validate_problems(raw)
         if problems:
             self.problems_lbl.setText("\n".join(f"• {p}" for p in problems))
@@ -779,7 +1122,8 @@ class BehaviorDoc(QWidget):
             stats.append(f"{n} branch{'es' if n != 1 else ''}")
             if u["pooled"]:
                 stats.append("pooled")
-        rows = behaviorscan.ladder_model(self._raw, self._selected_unit) \
+        src = self._view if self._view is not None else self._raw
+        rows = behaviorscan.ladder_model(src, self._selected_unit) \
             if self._selected_unit else []
         self.unit_title.setText(self._selected_unit or "—")
         self.unit_stats.setText(" · ".join(stats))
@@ -790,7 +1134,8 @@ class BehaviorDoc(QWidget):
         payload = items[0].data(0, Qt.ItemDataRole.UserRole) if items else None
         if payload and payload[0] == "unit" and payload[1] != self._selected_unit:
             self._selected_unit = payload[1]
-            self._fill_ladder(behaviorscan.cast_model(self._raw))
+            src = self._view if self._view is not None else self._raw
+            self._fill_ladder(behaviorscan.cast_model(src))
             self.canvas.select_unit(payload[1])
 
     # -- rung B: edits (all through behaviorscan's pure ops; the shell checkpoints via on_edit) --
@@ -803,6 +1148,8 @@ class BehaviorDoc(QWidget):
             self._render()
         if self.on_edit and self._member:
             self.on_edit(self._member, label)
+        if self._sweep_armed and self._wmesh is not None:
+            self._resweep_timer.start()            # the armed lane: re-judge on the warm mesh
 
     def _move_row(self, bi, delta):
         if not self._selected_unit:
@@ -878,7 +1225,7 @@ class BehaviorDoc(QWidget):
         return (dlg.textValue() if dlg.exec() else None)
 
     def _add_unit(self):
-        if self._raw is None:
+        if self._raw is None or self._readonly:
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
@@ -903,6 +1250,92 @@ class BehaviorDoc(QWidget):
         behaviorscan.delete_unit(self._raw, unit)
         self._selected_unit = None
         self._after_edit(f"remove behavior unit {unit}")
+
+    # -- rung D: archetype stamps (whole proven trees through ONE pure op + one undo step) --
+    def _ask_archetype_dialog(self):
+        """Prod's picker (instance QInputDialog, the modal-seam law); returns a key or None."""
+        from PySide6.QtWidgets import QInputDialog
+        rows = [a["name"] for a in behaviorscan.BEHAVIOR_ARCHETYPES]
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Stamp a behavior archetype")
+        dlg.setLabelText("Which proven tree? (shape its minted geometry with Stage edit)")
+        dlg.setComboBoxItems(rows)
+        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
+        if not dlg.exec():
+            return None
+        picked = dlg.textValue()
+        return next((a["key"] for a in behaviorscan.BEHAVIOR_ARCHETYPES
+                     if a["name"] == picked), None)
+
+    def _ask_target_dialog(self, names):
+        """The guard's enemy picker (instance QInputDialog, the modal-seam law)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Pick the enemy")
+        dlg.setLabelText("Which unit does this guard fight? (give it a swing branch back "
+                         "for mutual combat)")
+        dlg.setComboBoxItems(names)
+        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
+        return (dlg.textValue() if dlg.exec() else None)
+
+    def _stamp_archetype(self):
+        if self._raw is None or self._readonly:
+            return
+        names = behaviorscan.npc_candidates(self._raw)
+        if not names:
+            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
+                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            widgets.set_state(self.problems_lbl, "warn")
+            return
+        key = self._ask_archetype()
+        if not key:
+            return
+        target = None
+        row = next((a for a in behaviorscan.BEHAVIOR_ARCHETYPES if a["key"] == key), {})
+        if row.get("needs_target"):
+            units = [str(u.get("npc")) for u in self._raw["behavior"]["unit"]] \
+                if behaviorscan.has_behavior(self._raw) else []
+            if not units:
+                self.problems_lbl.setText(f"The {key} archetype fights an EXISTING unit — "
+                                          "seat its enemy first (Add unit / an archetype).")
+                widgets.set_state(self.problems_lbl, "warn")
+                return
+            target = self._ask_target(units)
+            if not target:
+                return
+        name = self._ask_unit(names)
+        if not name:
+            return
+        label = behaviorscan.stamp_archetype(self._raw, key, name, target)
+        self._selected_unit = name
+        if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
+            self._stack.setCurrentWidget(self._content)
+        self._after_edit(label)
+
+    # -- rung C: authoring on the stage (drops commit through behaviorscan's pure ops;
+    # the canvas only reports — it never touches the raw dict) --
+    def _toggle_stage_edit(self, on):
+        self.canvas.set_edit(on)
+        if self._raw is not None and behaviorscan.has_behavior(self._raw):
+            self._render()                         # feed/clear the handle layer
+
+    def _on_stage_move(self, hid, x, z):
+        self._after_edit(behaviorscan.apply_move(self._raw, hid, x, z))
+
+    def _on_stage_radius(self, rid, r):
+        self._after_edit(behaviorscan.apply_radius(self._raw, rid, r))
+
+    def _on_stage_insert(self, lid):
+        self._after_edit(behaviorscan.insert_route_point(self._raw, lid))
+
+    def _on_stage_delete(self, lid):
+        try:
+            label = behaviorscan.delete_route_point(self._raw, lid)
+        except ValueError as e:                    # the 2-point floor: refuse and say why
+            self.problems_lbl.setText(str(e))
+            widgets.set_state(self.problems_lbl, "warn")
+            return
+        self._after_edit(label)
 
     # -- the Compile lane (the doc's only disk touch; user-invoked, worker thread) --
     def compile_now(self, *, sync=False):
@@ -933,6 +1366,99 @@ class BehaviorDoc(QWidget):
         self.compile_btn.setEnabled(True)
         self.compile_btn.setText("Compile (dry)")
         self._set_result(res)
+
+    # -- the sweep lane (rung C): walkability verdicts painted in place. The FIRST press
+    # is the doc's other user-invoked disk touch (the SAVED field's walkmesh); once armed,
+    # every committed edit re-judges the OPEN geometry on the warm mesh, debounced, on a
+    # worker -- the two-truths split, stated on the button.
+    def sweep_now(self, *, sync=False):
+        src = self._view if self._view is not None else self._raw
+        if self._sweep_busy or src is None or not behaviorscan.has_behavior(src):
+            return
+        if self._wmesh is None and not self._path:
+            self.sweep_note.setText("This document has no saved file yet — the walkmesh "
+                                    "comes from disk, so save first, then sweep.")
+            widgets.set_state(self.sweep_note, "warn")
+            return
+        self._sweep_busy = True
+        self.sweep_btn.setEnabled(False)
+        self.sweep_btn.setText("Sweeping…")
+        import copy as _copy
+        raw = _copy.deepcopy(src)                  # the worker must never race the GUI's dict;
+        #                                            a [siege] view sweeps its GENERATED routes
+        gen, path, wmesh = self._sweep_gen, self._path, self._wmesh
+        if sync:                                   # the deterministic test/snap lane
+            self._finish_sweep((gen, *self._sweep_work(path, raw, wmesh)))
+            return
+        threading.Thread(target=self._sweep_worker, args=(gen, path, raw, wmesh),
+                         daemon=True).start()
+
+    @staticmethod
+    def _sweep_work(path, raw, wmesh):
+        if wmesh is None:
+            wmesh, err = behaviorscan.load_walkmesh(path)
+            if wmesh is None:
+                res = behaviorscan.SweepResult()
+                res.error = f"no walkmesh resolved — {err}"
+                return res, None
+        return behaviorscan.sweep_geometry(raw, wmesh), wmesh
+
+    def _sweep_worker(self, gen, path, raw, wmesh):
+        res, mesh = self._sweep_work(path, raw, wmesh)
+        try:
+            self._sweep_done.emit((gen, res, mesh))    # RuntimeError-guarded: doc may be dead
+        except RuntimeError:
+            pass
+
+    def _finish_sweep(self, payload):
+        gen, res, wmesh = payload
+        if gen != self._sweep_gen:
+            return                                 # a stale field's verdicts never paint
+        self._sweep_busy = False
+        self.sweep_btn.setEnabled(True)
+        self.sweep_btn.setText("Sweep routes")
+        if wmesh is not None:
+            self._wmesh = wmesh
+        if not res.ok:
+            self.sweep_note.setText(res.error or "Sweep failed.")
+            widgets.set_state(self.sweep_note, "error")
+            self.sweep_warns.setText("")
+            self.canvas.set_verdicts(None)         # a failed sweep must not leave stale paint
+            return
+        self._sweep_armed = True
+        self.canvas.set_verdicts(res)
+        errs = [t for k, t in res.lines if k == "error"]
+        rest = [t for k, t in res.lines if k != "error"]
+        warns = sum(1 for k, _t in res.lines if k == "warn")
+        bits = ([f"{len(errs)} jam{'s' if len(errs) != 1 else ''}"] if errs else []) \
+            + ([f"{warns} warning{'s' if warns != 1 else ''}"] if warns else [])
+        head = (" · ".join(bits) + " — painted on the stage.") if bits else ""
+        self.sweep_note.setText("\n".join(([head] if head else [])
+                                          + [f"• {t}" for t in errs]))
+        widgets.set_state(self.sweep_note, "error" if errs else "")
+        self.sweep_warns.setText("\n".join(f"• {t}" for t in rest))
+        widgets.set_state(self.sweep_warns, "warn" if warns else "")
+
+    def _resweep(self):
+        if self._sweep_busy:
+            self._resweep_timer.start()            # let the in-flight run land first
+            return
+        self.sweep_now()
+
+    def _reset_sweep(self):
+        """Field switch / project close: another field's mesh or verdicts must not linger."""
+        self._sweep_gen += 1
+        self._resweep_timer.stop()
+        self._wmesh = None
+        self._sweep_armed = False
+        self._sweep_busy = False
+        self.sweep_btn.setEnabled(True)
+        self.sweep_btn.setText("Sweep routes")
+        self.sweep_note.setText("")
+        widgets.set_state(self.sweep_note, "")
+        self.sweep_warns.setText("")
+        widgets.set_state(self.sweep_warns, "")
+        self.canvas.set_verdicts(None)
 
     def _has_result(self):
         return self._result is not None

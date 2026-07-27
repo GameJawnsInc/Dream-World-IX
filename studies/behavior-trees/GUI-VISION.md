@@ -96,14 +96,38 @@ belong painted on the field, not printed as text. That is the second surface: **
   control inside an h-scrolling row lives off-screen (row buttons pin LEFT, the unit bar sits
   OUTSIDE the scroll), and an opening editor must take height from the ladder, not crush the
   stage.
-- **Rung C — AUTHOR on the stage.** Drag a refuge, resize a radius ring, draw a route (with
-  the layout-probe's spacing/cardinal guides shown); the sweeps re-run in a worker and repaint
-  their verdicts. The engagement-radius dial becomes literally a dial you drag while its jam
-  percentage updates.
-- **Rung D — ARCHETYPES.** Info Hub cards that stamp whole proven trees: placement defender,
-  watchman + alarm, shift patrol pair, panicking civilian, siege template. This is the
-  `[minigame]`/`[condor]` productization lane's GUI face — a roster of 20 units becomes a
-  card + a count, not 15 hand-written blocks.
+- **Rung C — AUTHOR on the stage. ★ BUILT 2026-07-26** (same modules; snaps
+  `behavior:stage|sweep`; the fixture gained a REAL synthetic walkmesh sidecar so the sweep
+  lane runs genuinely end-to-end). Stage-edit mode: draggable handles over every writable
+  point (`stage_handles` ids — a NAME reference moves the NAMED owner, never silently
+  literalised; its list slot rides along for right-click insert/delete, floor 2 points),
+  ring-resize grips on the selected unit's rings, the layout-probe guides (world compass in
+  the probe's own words, the ~192u jam-spacing ring while dragging a post, live coords).
+  Sweeps: `sweep_geometry` is the CLI lint lane AS DATA (same refs, dedupe, routed-line-for-
+  autoroute, `describe_*` text verbatim) — verdicts paint IN PLACE (jam sub-segment + ✕,
+  wall-hug dashes, pursuit worst-pairs + rate caption on its own tier); first Sweep press =
+  the disk touch (walkmesh from the SAVED file, geometry always the OPEN doc), then edits
+  re-judge debounced on the warm mesh; a generation guard drops in-flight sweeps on field
+  switch. Deferred within C: drawing a NEW route point-by-point on an empty stage (point
+  insert/move/delete shipped; a from-scratch route still starts in the branch editor), and
+  the live-updating jam %% WHILE dragging the ring (it updates on drop via the armed
+  re-sweep).
+- **Rung D — ARCHETYPES. D1 ★ BUILT 2026-07-26** (`behaviorscan.BEHAVIOR_ARCHETYPES` +
+  `stamp_archetype`; the cast rail's "＋ Archetype…" + the no-behavior guide's second
+  action). Three player-bound proven trees stamp through one pure op + one undo step:
+  sentry (watch/alarm/chase + a minted auto-routed beat), patroller, civilian (flee to
+  refuges, wander home) — all fenced by a REAL dry-compile of the stamped doc
+  (`editor.model.dumps` → disk → the genuine lane, `route="auto"` resolved over the
+  fixture's walkmesh). Minted beat markers dedupe (`<npc>_beat_2`); rung C's drag handles
+  are the shaping tool. **D2 ★ BUILT 2026-07-26:** the guard archetype (needs_target — the
+  enemy picked through a third modal seam; BEHAVIOR.md's front example verbatim) + THE
+  [SIEGE] READ-ONLY VIEW: a [siege] field renders its DESUGARED behavior
+  (`behaviorscan.siege_view` — the build's own expansion) with full cast/ladders/stage/
+  sweeps over the GENERATED routes, every edit affordance disabled and the banner naming
+  the truth; rendering writes nothing into the open doc (fenced); snap `behavior:siege`.
+  **D's remainder:** the shift patrol pair archetype, the Info Hub archetype cards, and
+  the `[siege]` whole-block STAMP (authoring a new [siege] from the GUI — the read-only
+  view is the rendering half; the stamp is the authoring half).
 - **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
   documented tree semantics stepping simulated positions — scrub a timeline, watch selection
   sweep the ladder rows and units move on the stage. Catches the priority/starvation family of

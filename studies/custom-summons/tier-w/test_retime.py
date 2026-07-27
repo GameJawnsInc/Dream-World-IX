@@ -656,6 +656,220 @@ def test_staging_refuses_the_install_unless_allow_install(tmp_path):
         T.stage(b, root=game / "FF9CustomMap", game_root=str(game))
 
 
+# ============================================================ (8b) W5: the classifier is the PROGRAM
+#     ORIGIN, not the chunk slot
+def _build_swapped_two_clock_fixture(n: int = 5):
+    """The same two-clock container as section 4, with its TOPOLOGY REVERSED.
+
+    ef227's stretched machine is in chunk 0 and starts at sequence tick 0, while its other machine
+    is in a later chunk and is started by a sequence op after the cut.  Until W5 the alignment
+    checker read that arrangement literally -- ``slot == 0`` was "the machine that drifts" and
+    ``slot != 0`` was "the machine that does not".  Here the SAME arrangement is expressed with the
+    slots swapped: chunk 2's machine is the one started at tick 0 (so it is upstream of the cut and
+    its post-cut leads must drift by N in MIS-RETIME), and chunk 0's is started at the cut (so it
+    rides the presentation and its leads must not move).
+
+    A slot-based classifier gets both findings exactly backwards on this container; the origin-based
+    one gets both right.  That is the whole point of the fixture.
+    """
+    T0 = 10
+    img_up = machine([(1, T0, ()), (1, 4, ())])                # the STRETCHED machine -> chunk 2
+    img_down = machine([(1, 3, ()), (1, 3, ())])               # -> chunk 0
+
+    blk_up = camera_block([[ESTABLISH_LIKE, _plain(11), _plain(15)]])
+    cam_up = _id2_payload([blk_up, b"\x00" * 8])
+    blk_down = camera_block([[_plain(1)]])
+    cam_down = _id2_payload([blk_down, b"\x00" * 8])
+
+    ops = [
+        (W.OP_LOAD_CHUNK, 2, 0),                # tick 0
+        (W.OP_RUN_PROGRAM, 0, 0),               # tick 0: origin of synth:c2 == 0 (UPSTREAM)
+        (W.OP_PLAY_CAMERA, 0, 0),               # tick 0: install chunk2's shot
+        (W.OP_WAIT, 0, T0),                     # spans 0 -> T0 (== the cut)
+        (W.OP_LOAD_CHUNK, 0, 0),                # tick T0
+        (W.OP_RUN_PROGRAM, 0, 0),               # tick T0: origin of synth:c0 == T0 (DOWNSTREAM)
+        (W.OP_PLAY_CAMERA, 0, 0),               # tick T0
+    ]
+    stock = _build_two_chunk_container(ops, img_down, cam_down, img_up, cam_up)
+
+    import ef_container as EC
+    ex = W.extract_shots(stock, "synth")
+    shot_up = next(s for s in ex.shots if s.slot == 2)
+    cut_tick = T0
+    cut_local = cut_tick - shot_up.op.seq_tick + 1
+
+    anchor = T.find_seq_anchor(stock, cut_tick, n)
+    frame_edits = T.find_frame_edits(shot_up, cut_local, n)
+
+    c = EC.parse_header(stock, strict=True)
+    res2 = next(r for r in c.chunks[2].resources if r.id == 3)
+    needle = struct.pack("<I", _slti(V0, T9, T0))
+    local_off = img_up.payload.find(needle)
+    assert local_off >= 0 and img_up.payload.find(needle, local_off + 1) == -1
+    e1_write = (res2.offset + local_off, struct.pack("<I", _slti(V0, T9, T0 + n)), "synthetic E1")
+
+    misretime = T.apply_writes(stock, [anchor.write] + [e.write for e in frame_edits])
+    aligned = T.apply_writes(misretime, [e1_write])
+    return stock, aligned, misretime, n, cut_tick, cut_local, shot_up
+
+
+def test_alignment_classifies_machines_by_program_origin_not_by_chunk_slot():
+    stock, aligned, misretime, n, cut_tick, cut_local, shot = _build_swapped_two_clock_fixture()
+    al = T.check_alignment(stock, aligned, misretime, n, cut_tick, cut_local,
+                           (shot.slot, shot.index), "synth", stretched=("synth:c2", 0))
+    assert al.ok, "\n".join("%s %s -- %s" % (ok, tag, d) for ok, tag, d in al.findings if not ok)
+
+    # ... and the old slot-based reading would have got BOTH findings backwards here.
+    slot0 = [r for r in al.stock if r.ident.slot == 0]
+    slot_other = [r for r in al.stock if r.ident.slot != 0]
+    assert slot0 and slot_other
+    # every slot-0 pair is post-cut yet does NOT drift, so "c0's post-cut leads drift by N" fails
+    assert all(r.cam >= cut_tick for r in slot0)
+    assert all(al.misretime[r.ident].lead == r.lead for r in slot0)
+    # and the non-slot-0 pairs are exactly the ones that DO drift
+    drifting = [r for r in slot_other if al.misretime[r.ident].lead != r.lead]
+    assert drifting, "the swapped fixture must actually exercise a drift"
+
+
+def test_alignment_is_still_falsifiable_on_the_swapped_topology():
+    stock, aligned, misretime, n, cut_tick, cut_local, shot = _build_swapped_two_clock_fixture()
+    bad = T.apply_writes(aligned, [(next(e.site.file_off for e in
+                                         T.find_frame_edits(shot, cut_local, n)),
+                                    struct.pack("<H", 0x0011), "1-tick error")])
+    al = T.check_alignment(stock, bad, misretime, n, cut_tick, cut_local,
+                           (shot.slot, shot.index), "synth", stretched=("synth:c2", 0))
+    assert not al.ok
+
+
+def test_build_defaults_the_stretched_machine_to_c0_state_0():
+    b = _minimal_synth_build()
+    assert b.stretched is None                                # the historical default, unchanged
+
+
+# ============================================================ (8c) W5: PlayerAudit is ENFORCED
+def _fake_text_install(tmp_path, effect: int, player_body: str,
+                       seq_body: str = "Wait: Time=10\n") -> str:
+    d = tmp_path / T.TEXT_SUBPATH.replace("/", os.sep) / ("ef%03d" % effect)
+    d.mkdir(parents=True)
+    (d / "Sequence.seq").write_bytes(seq_body.encode("utf-8"))
+    (d / "PlayerSequence.seq").write_bytes(player_body.encode("utf-8"))
+    return str(tmp_path)
+
+
+def _audit_spec(effect: int, boundary: int, ack: bool = False) -> dict:
+    pa = {"file": "PlayerSequence.seq"}
+    if ack:
+        pa["acknowledge_uncoretimed"] = True
+    return {"retime": {"effect": effect, "ticks": 48,
+                       "text": {"boundary_outer_tick": boundary, "player_audit": pa}}}
+
+
+def test_player_audit_passes_a_script_whose_clock_never_reaches_the_boundary(tmp_path):
+    root = _fake_text_install(tmp_path, 900, "WaitAnimation\nWait: Time=20\n")
+    a = T.audit_player_sequence(_audit_spec(900, 82), root)
+    assert not a.needs_retime and a.ok and a.max_tick == 20
+
+
+def test_player_audit_REFUSES_a_script_carrying_beats_after_the_boundary(tmp_path):
+    """``needs_retime`` was defined and never read: the docstring claimed the tool "would refuse to
+    leave it alone", and on ef227 (zero literal Wait lines) the claim was never exercised.  ef418's
+    PlayerSequence.seq clock reaches tick 130, so on a generalised retime this is live."""
+    root = _fake_text_install(tmp_path, 900, "Wait: Time=60\nWait: Time=90\n")
+    with pytest.raises(T.RetimeError, match="CARRIES BEATS AFTER THE BOUNDARY"):
+        T.audit_player_sequence(_audit_spec(900, 82), root)
+
+
+def test_player_audit_lets_an_explicit_acknowledgement_through_and_records_it(tmp_path):
+    root = _fake_text_install(tmp_path, 900, "Wait: Time=60\nWait: Time=90\n")
+    a = T.audit_player_sequence(_audit_spec(900, 82, ack=True), root)
+    assert a.needs_retime and a.acknowledged and a.ok
+    assert "needs the same one-line co-retime" in a.verdict
+
+
+def test_player_audit_refuses_a_truthy_string_acknowledgement(tmp_path):
+    """rescore.py's R3 rule, here too: `acknowledge_uncoretimed = "false"` must refuse, not arm."""
+    root = _fake_text_install(tmp_path, 900, "Wait: Time=60\nWait: Time=90\n")
+    spec = _audit_spec(900, 82)
+    spec["retime"]["text"]["player_audit"]["acknowledge_uncoretimed"] = "false"
+    with pytest.raises(T.RetimeError, match="must be a BOOLEAN"):
+        T.audit_player_sequence(spec, root)
+
+
+def test_the_self_check_reports_the_player_audit_as_a_bounds_line(tmp_path):
+    b = _minimal_synth_build()
+    b.player = T.PlayerAudit("PlayerSequence.seq", "0" * 64, 2, 150, 82, [], "v", acknowledged=False)
+    rows = T.bounds_check(b, b.aligned)
+    hit = [r for r in rows if "OUTER-OUTER" in r[1]]
+    assert hit and hit[0][0] is False
+    b.player.acknowledged = True
+    hit = [r for r in T.bounds_check(b, b.aligned) if "OUTER-OUTER" in r[1]]
+    assert hit and hit[0][0] is True
+
+
+# ============================================================ (8d) W5: the two-clocks REPORT
+def test_pair_quality_never_calls_a_loose_correlation_a_lock():
+    assert "NO LOCK" in T.PairQuality(7, 0, [9, 11], {}).verdict
+    assert "LOOSELY CORRELATED" in T.PairQuality(7, 4, [1, 2], {}).verdict
+    assert "LOCKED" in T.PairQuality(8, 8, [1] * 8, {}).verdict
+    # a Code that is the nearest neighbour of two different beats is a COLLISION, not a lock
+    q = T.PairQuality(8, 8, [1] * 8, {(0, 6, 0, 3): ["a s1", "b s2"]})
+    assert q.collisions == 1 and "LOOSELY CORRELATED" in q.verdict
+
+
+def test_effect_report_publishes_pairing_quality_and_per_boundary_flags():
+    """Corpus-free: the report is built against the synthetic two-clock container, with the E1
+    program probe off (its image is a synthetic MIPS program, not a summon)."""
+    stock, _al, _mis, _n, cut_tick, _cl, _shot, _fe = _split_fixture_edits()
+    rep = T.effect_report(stock, 999, game_root=None, derive=False)
+    assert rep.quality.beats_total >= 4 and rep.quality.pairs_found >= 4
+    assert rep.boundaries
+    for b in rep.boundaries:
+        assert b.e1_threshold == "(not probed)"
+        assert b.e4 == "(no install -- not probed)"
+    # the origin classification is published per boundary, and both kinds are present
+    assert any(b.upstream_machines for b in rep.boundaries)
+    assert any(b.downstream_machines for b in rep.boundaries)
+    assert "\n".join(T.report_lines(rep)).count("PER-BOUNDARY DERIVABILITY") == 1
+
+
+def test_effect_report_flags_a_boundary_with_no_exact_sequence_anchor():
+    """71 of the corpus's 85 clock-guarded boundaries have no WAIT ending on their cut, only one
+    CONTAINING it -- the report must say which, because the fix for the second kind is a byte insert
+    that has never been cast."""
+    blob = _bare_sequence([(W.OP_WAIT, 0, 30), (W.OP_SETUP_CAMERA, 0xFF, 0)])
+    assert "exact" in T._e2_flag(blob, 30)
+    assert T._e2_flag(blob, 17).startswith("containing")
+    assert T._e2_flag(blob, 99).startswith("none")
+
+
+@needs_corpus
+def test_effect_report_runs_on_the_real_two_clock_effects():
+    for ef in (227, 211):
+        with open(os.path.join(CORPUS, "ef%03d.bytes" % ef), "rb") as fh:
+            blob = fh.read()
+        rep = T.effect_report(blob, ef, game_root=None, derive=True)
+        assert rep.machines and rep.boundaries
+        assert rep.quality.beats_total > 0
+        assert any("DERIVABLE" in b.e1_recips for b in rep.boundaries)
+        assert all(b.e2 and b.e3 and b.e4 for b in rep.boundaries)
+        assert T.report_lines(rep)
+
+
+@needs_corpus
+def test_ef227s_own_lock_table_reads_as_locked_and_names_the_upstream_machine():
+    with open(os.path.join(CORPUS, "ef227.bytes"), "rb") as fh:
+        blob = fh.read()
+    rep = T.effect_report(blob, 227, game_root=None, derive=False)
+    assert rep.quality.pairs_found >= 8
+    # the s0 -> s10 boundary is the one bahamut_retime.toml ships: cut 81, lead -1, and the two
+    # machines split by program origin exactly the way the alignment checker now classifies them
+    row = next(b for b in rep.boundaries if b.machine == "ef227:c0" and b.state == 0)
+    assert (row.beat, row.cut, row.lead) == (82, 81, -1)
+    assert row.upstream_machines == ("ef227:c0",)
+    assert row.downstream_machines == ("ef227:c1",)
+    assert row.e2.startswith("exact") and row.e3.startswith("pass")
+
+
 # ============================================================ (9) the real install + corpus (skipped)
 @needs_install
 def test_the_shipped_spec_builds_and_self_checks_against_this_install():

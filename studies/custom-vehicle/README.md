@@ -87,3 +87,32 @@ eval replicated the engine ops but fed AUTHORED coordinates; the live avatar's f
 beach were never measured — capture them first, e.g. via a temporary probe arm or the debug menu),
 and re-check every eval assumption against a live reading before widening the window. The dismount arm
 and moor-home behavior are unaffected.
+
+## ★ RESOLVED (2026-07-26, R5): the dormant boat was a DOMAIN mis-diagnosis — the original gate was right
+
+The §20 "no-op gate" claim rested on "f[] returns plain world units", which followed `getvobj`'s
+CAST but never traced the WRITER: **`WMActor.pos`'s setter (WMActor.cs:17-19) stores
+`RealPosition * 256f` into the eb-visible `PosObj.pos[]` — on the world map, f[] reads are ×256
+FIXED POINT.** Consequences, all now byte-verified:
+
+* the ORIGINAL relative gate (`|Δf| < 25600` = 100u in the ×256 domain) was CORRECT all along;
+* the §19-era "boarding at quays" was the v1 float-parked boat legitimately inside its 100u
+  radius — MOOR-HOME alone was the right and sufficient fix for the race;
+* §20's absolute window in world units could NEVER be true live (f[0] at the mooring reads
+  492×256 = 125,952, not 492) — the dormant-boat symptom exactly.
+
+**Fix: the pre-§20 body grafted back** (entry-15 tag-1, per language from each file's own bytes,
+`backups/.../boat-rangegate.20260726` as the byte oracle — a restoration to in-game-proven bytes,
+not a newly derived window). `build_boat_world11.py`'s gate + `wu()` docstring corrected — THE LAW:
+**on the world map, anything compared against an f[] read uses fp(); an offline eval must trace
+the WRITER of a variable, not just its reader.** Record: southern-ring REVERT.md §28.
+
+## ★ THE SEA LANE (R5): the west arc is tile-proven sailable
+
+Blue Narciss legality mask decoded from TransportControls.csv (`limit0=39845888/limit1=0` →
+topographs exactly **{53, 54, 57}**; the bit convention validated by reproducing the engine
+foot-walk table from the Walking row). `southern-ring/probe_r3/probe_sea_lane.py` walks the arc
+at 8u sampling over the stacked live meshes (pure-ocean cells = the runtime SeaBlockPrefab, topo
+57): **the NORTH passage (Ashvale → the wrap → north of Lamplight → the horseshoe's west channel)
+is FULLY SAILABLE, 47/47 samples.** The south passage clips the horseshoe's own SE ground on its
+final leg — route north, or give the bench a wider berth.

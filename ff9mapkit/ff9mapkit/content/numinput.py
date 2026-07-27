@@ -160,10 +160,11 @@ def from_raw(block: dict, idx: int) -> InputSpec:
     if not isinstance(start, int) or not 0 <= start <= vmax:
         raise NumericInputError(f"{ctx}: start must be 0..max ({vmax})")
     result = block.get("result")
-    if not isinstance(result, int) or not 4 <= result <= 2016:
-        raise NumericInputError(f"{ctx}: result must be a gEventGlobal byte offset 4..2016 "
-                                f"(an Int16 lands at [result, result+1]; 2018+ is the game's own "
-                                f"scratch -- the [[qte]] band, the netsync co-op cells the engine "
+    if not isinstance(result, int) or not 4 <= result <= _flags.RESULT_WORD_CAP:
+        raise NumericInputError(f"{ctx}: result must be a gEventGlobal byte offset "
+                                f"4..{_flags.RESULT_WORD_CAP} (an Int16 lands at [result, "
+                                f"result+1]; 2006+ is kit/game-owned -- the nameplate-explored "
+                                f"words, the [[qte]] band, the netsync co-op cells the engine "
                                 f"rewrites every frame under live co-op, the choice mask, this "
                                 f"stepper's own scratch). It receives the STEPPED value on submit.")
     # the Int16's 16 bits must also clear the reserved save regions (Mognet mailbox/locks/

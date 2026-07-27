@@ -187,7 +187,7 @@ def stage_model(raw: dict) -> dict:
     positions = BT._npc_marker_positions(raw)
     mpaths = BT.marker_paths(raw)
     posts, rings, wanders = [], {}, []
-    for u in BT.units(raw):
+    for ui, u in enumerate(BT.units(raw)):
         nm = str(u.get("npc", ""))
         if nm in positions:
             posts.append({"name": nm, "x": positions[nm][0], "z": positions[nm][1],
@@ -195,22 +195,26 @@ def stage_model(raw: dict) -> dict:
         for bi, br in enumerate(u.get("branch") or []):
             if not isinstance(br, dict):
                 continue
-            for c in (br.get("when") or []):
+            for ci, c in enumerate(br.get("when") or []):
                 if not isinstance(c, dict):
                     continue
                 try:
+                    # "rid" is the ring's RESIZE handle (rung C: apply_radius)
                     if isinstance(c.get("near"), (list, tuple)) and len(c["near"]) >= 2:
                         rings.setdefault(nm, []).append(
                             {"radius": int(c["near"][1]), "bi": bi,
+                             "rid": ("radius", ui, bi, ci, "near"),
                              "label": f"near {c['near'][0]} {int(c['near'][1])}"})
                     elif isinstance(c.get("any_near"), (list, tuple)) and len(c["any_near"]) >= 2:
                         rings.setdefault(nm, []).append(
                             {"radius": int(c["any_near"][1]), "bi": bi,
+                             "rid": ("radius", ui, bi, ci, "any_near"),
                              "label": f"any_near {int(c['any_near'][1])}"})
                     elif isinstance(c.get("near_point"), (list, tuple)) and len(c["near_point"]) >= 2:
                         px, pz = BT._resolve_point(c["near_point"][0], positions, "near_point")
                         rings.setdefault(nm, []).append(
                             {"radius": int(c["near_point"][1]), "bi": bi, "x": px, "z": pz,
+                             "rid": ("radius", ui, bi, ci, "near_point"),
                              "label": f"near_point {int(c['near_point'][1])}"})
                 except (BT.BehaviorTomlError, TypeError, ValueError):
                     continue
@@ -445,6 +449,453 @@ def check_edit(raw: dict, unit_name: str, bi: int, branch: dict) -> list:
     except (KeyError, IndexError) as e:
         return [str(e)]
     return validate_problems(trial)
+
+
+# ------------------------------------------------------------------ rung C: author on the stage
+# HANDLES are the stage's draggable points. Each carries a stable tuple id naming its
+# write-back path in the raw dict. A point that is a NAME REFERENCE moves the NAMED
+# owner's pos (the honest edit: everything referencing the marker follows) — it is never
+# silently converted to a literal; its LIST SLOT (for insert/delete) rides along as
+# ``list_id``. All ops are pure in-place mutations under the rung-B contract (the shell
+# checkpoints the whole doc around each commit).
+
+def _npc_row(raw: dict, name: str):
+    for n in raw.get("npc", []) or []:
+        if str(n.get("name")) == name:
+            return n
+    return None
+
+
+def _marker_row(raw: dict, name: str):
+    for m in raw.get("marker", []) or []:
+        if str(m.get("name")) == name:
+            return m
+    return None
+
+
+def stage_handles(raw: dict) -> list:
+    """Every draggable stage point: ``{"id", "x", "z", "kind", "label", "list_id"}``.
+    Ids: ``("pos", name)`` · ``("player",)`` · ``("path", marker, i)`` ·
+    ``("route_pt", ui, bi, key, i)`` · ``("wander", ui, bi)`` ·
+    ``("near_point"|"not_near_point", ui, bi, ci)`` · ``("scan_pt", si)``.
+    Unresolvable references are SKIPPED (validate names them); never raises."""
+    positions = BT._npc_marker_positions(raw)
+    out, seen_pos = [], set()
+
+    def add_point(hid_literal, v, kind, label, list_id=None):
+        """A point that is a literal [x,z] (owned by ``hid_literal``) or a name (moves
+        the named owner). A repeated CENTRE reference dedupes; a list slot never does
+        (its slot op is its own affordance)."""
+        try:
+            x, z = BT._resolve_point(v, positions, "stage")
+        except (BT.BehaviorTomlError, TypeError, ValueError):
+            return
+        if isinstance(v, (list, tuple)):
+            out.append({"id": hid_literal, "x": x, "z": z, "kind": kind,
+                        "label": label, "list_id": list_id})
+            return
+        hid = ("pos", str(v))
+        if list_id is None and hid in seen_pos:
+            return
+        seen_pos.add(hid)
+        out.append({"id": hid, "x": x, "z": z, "kind": kind,
+                    "label": f"{label} → {v}", "list_id": list_id})
+
+    for u in BT.units(raw):
+        nm = str(u.get("npc", ""))
+        if nm in positions:
+            seen_pos.add(("pos", nm))
+            out.append({"id": ("pos", nm), "x": positions[nm][0], "z": positions[nm][1],
+                        "kind": "post", "label": f"{nm}'s post", "list_id": None})
+    if positions.get("player"):
+        out.append({"id": ("player",), "x": positions["player"][0],
+                    "z": positions["player"][1], "kind": "player",
+                    "label": "player spawn", "list_id": None})
+    for ref in BT.movement_route_refs(raw):
+        ui, bi = ref["ui"], ref["bi"]
+        key = "to" if ref["verb"] == "flee" else ref["verb"]
+        kind = "refuge" if ref["verb"] == "flee" else "route"
+        v = ref["value"]
+        if isinstance(v, str):
+            m = _marker_row(raw, v)
+            if m and isinstance(m.get("path"), list):
+                for i, p in enumerate(m["path"]):
+                    out.append({"id": ("path", v, i), "x": int(p[0]), "z": int(p[1]),
+                                "kind": kind, "label": f"'{v}' point {i + 1}",
+                                "list_id": ("path", v, i)})
+        elif isinstance(v, (list, tuple)):
+            for i, p in enumerate(v):
+                add_point(("route_pt", ui, bi, key, i), p, kind,
+                          f"{ref['unit']} {ref['verb']} point {i + 1}",
+                          list_id=("route_pt", ui, bi, key, i))
+    for ui, u in enumerate(BT.units(raw)):
+        for bi, br in enumerate(u.get("branch") or []):
+            if not isinstance(br, dict):
+                continue
+            do = br.get("do")
+            if isinstance(do, dict) and "wander" in do:
+                add_point(("wander", ui, bi), do["wander"], "wander",
+                          f"{u.get('npc')}'s wander centre")
+            for ci, c in enumerate(br.get("when") or []):
+                if not isinstance(c, dict):
+                    continue
+                for verb in ("near_point", "not_near_point"):
+                    v = c.get(verb)
+                    if isinstance(v, (list, tuple)) and len(v) >= 2:
+                        add_point((verb, ui, bi, ci), v[0], "ring",
+                                  f"{u.get('npc')} {verb} centre")
+    b = BT.table(raw) or {}
+    for si, s in enumerate(b.get("scan") or []):
+        if s.get("point") is not None and s.get("radius"):
+            add_point(("scan_pt", si), s["point"], "scan",
+                      f"scan '{s.get('name', si)}' centre")
+    return out
+
+
+def apply_move(raw: dict, hid: tuple, x, z) -> str:
+    """Write a handle's new position (ints); returns the undo-step label. A bad id is
+    a caller bug (KeyError/IndexError, the rung-B convention)."""
+    x, z = int(round(x)), int(round(z))
+    k = hid[0]
+    if k == "pos":
+        # marker first: _npc_marker_positions lets a marker OVERWRITE an npc of the
+        # same name, so the write must land where the resolver reads
+        row = _marker_row(raw, hid[1]) or _npc_row(raw, hid[1])
+        if row is None:
+            raise KeyError(f"no [[npc]]/[[marker]] named {hid[1]!r}")
+        row["pos"] = [x, z]
+        return f"move {hid[1]}"
+    if k == "player":
+        sp = raw.setdefault("player", {}).setdefault("spawn", [0, 0])
+        sp[0], sp[1] = x, z                        # keep any trailing components
+        return "move player spawn"
+    if k == "path":
+        row = _marker_row(raw, hid[1])
+        if row is None or not isinstance(row.get("path"), list):
+            raise KeyError(f"no route marker {hid[1]!r}")
+        row["path"][hid[2]] = [x, z]
+        return f"move '{hid[1]}' point {hid[2] + 1}"
+    if k == "route_pt":
+        _k, ui, bi, key, i = hid
+        BT.units(raw)[ui]["branch"][bi]["do"][key][i] = [x, z]
+        return f"move route point {i + 1}"
+    if k == "wander":
+        _k, ui, bi = hid
+        u = BT.units(raw)[ui]
+        u["branch"][bi]["do"]["wander"] = [x, z]
+        return f"move {u.get('npc')}'s wander centre"
+    if k in ("near_point", "not_near_point"):
+        _k, ui, bi, ci = hid
+        u = BT.units(raw)[ui]
+        v = list(u["branch"][bi]["when"][ci][k])
+        v[0] = [x, z]
+        u["branch"][bi]["when"][ci][k] = v
+        return f"move {u.get('npc')} {k} centre"
+    if k == "scan_pt":
+        (BT.table(raw) or {})["scan"][hid[1]]["point"] = [x, z]
+        return "move scan centre"
+    raise KeyError(f"unknown stage handle {hid!r}")
+
+
+RADIUS_FLOOR = 16                    # below this a near ring is a contact test, not a gate
+
+
+def apply_radius(raw: dict, rid: tuple, r) -> str:
+    """Write a ring's new radius (``("radius", ui, bi, ci, verb)`` from stage_model);
+    floored at :data:`RADIUS_FLOOR`, always an int. Returns the undo-step label."""
+    _k, ui, bi, ci, verb = rid
+    u = BT.units(raw)[ui]
+    v = list(u["branch"][bi]["when"][ci][verb])
+    v[1] = max(RADIUS_FLOOR, int(round(r)))
+    u["branch"][bi]["when"][ci][verb] = v
+    return f"resize {u.get('npc')} {verb} radius to {v[1]}"
+
+
+def _route_list(raw: dict, lid: tuple):
+    if lid[0] == "path":
+        row = _marker_row(raw, lid[1])
+        if row is None or not isinstance(row.get("path"), list):
+            raise KeyError(f"no route marker {lid[1]!r}")
+        return row["path"], lid[2]
+    if lid[0] == "route_pt":
+        _k, ui, bi, key, i = lid
+        lst = BT.units(raw)[ui]["branch"][bi]["do"][key]
+        if not isinstance(lst, list):
+            raise KeyError("route is a marker reference, not an inline list")
+        return lst, i
+    raise KeyError(f"unknown route slot {lid!r}")
+
+
+def insert_route_point(raw: dict, lid: tuple, x=None, z=None) -> str:
+    """Insert a literal ``[x, z]`` AFTER the slot — default is the midpoint to the NEXT
+    point (a new point lands ON the leg, ready to drag), or a small offset at a route's
+    tail. Ceilings (patrol/march take 2..8 points) stay validate()'s job — the doc shows
+    its words instantly."""
+    lst, i = _route_list(raw, lid)
+    if x is None:
+        positions = BT._npc_marker_positions(raw)
+
+        def rp(e):
+            try:
+                return BT._resolve_point(e, positions, "insert")
+            except (BT.BehaviorTomlError, TypeError, ValueError):
+                return None
+
+        a = rp(lst[i])
+        b = rp(lst[i + 1]) if i + 1 < len(lst) else None
+        if a and b:
+            x, z = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+        elif a:
+            x, z = a[0] + 80, a[1] + 80
+        else:
+            x = z = 0
+    lst.insert(i + 1, [int(round(x)), int(round(z))])
+    return "insert route point"
+
+
+def delete_route_point(raw: dict, lid: tuple) -> str:
+    """Delete the slot's point. A 2-point route is the floor EVERY route verb shares —
+    below it the geometry is meaningless, so this one refusal lives in the op."""
+    lst, i = _route_list(raw, lid)
+    if len(lst) <= 2:
+        raise ValueError("a route needs at least 2 points — delete the branch instead")
+    del lst[i]
+    return "delete route point"
+
+
+# ------------------------------------------------------------------ rung D: archetype stamps
+# Whole PROVEN trees stamped onto a named [[npc]] — the charter's rung D, first slice. Every
+# shape below is grounded in BEHAVIOR.md's own idioms (the watcher pattern, the bolting
+# civilian, the beat walker) and the demo watchman's in-game-proven ladder; all bind against
+# "player" (a first-class target — the module's own front-page example) so a stamp needs no
+# second unit. Combat archetypes that need a TARGET unit binding are D's remainder, with the
+# Info Hub cards and the [siege] whole-block stamp. Each stamp is fenced by a REAL dry-compile.
+
+BEHAVIOR_ARCHETYPES = [
+    {"key": "sentry", "name": "Sentry — watch, alarm, chase",
+     "teach": "Announces once and raises 'alarm' when the player closes, chases from mid "
+              "range, and walks a minted beat otherwise. Gate other trees' combat on "
+              '{ flag = "alarm" } — the watcher pattern.'},
+    {"key": "patroller", "name": "Patroller — walk the beat",
+     "teach": "Walks a minted 4-point beat around its post forever (route = \"auto\" heals "
+              "jammed legs at build). Drag the points into place on the stage."},
+    {"key": "civilian", "name": "Civilian — panic and flee",
+     "teach": "Bolts from the player to refuge points in priority order, strolls a small "
+              "wander box at home otherwise (the speed contrast IS the character)."},
+    {"key": "guard", "name": "Guard — fight a unit (pick the enemy)", "needs_target": True,
+     "teach": "BEHAVIOR.md's own front example: the badly wounded run for minted refuges, "
+              "fight what's in reach, chase what's in sight, hold the post otherwise. Give "
+              "the TARGET a swing branch back and you have mutual combat, no referee."},
+]
+
+
+def siege_view(raw: dict):
+    """A [siege] field's GENERATED behavior, for READ-ONLY rendering: the desugared copy
+    (the same expansion the build runs), or None when the field has no [siege]. The tab's
+    projections read this; edits stay refused — the [siege] block owns the table."""
+    if not raw.get("siege") or BT.table(raw):
+        return None
+    import copy as _copy
+    from ..content import siege as _siege
+    view = _copy.deepcopy(raw)
+    try:
+        _siege.desugar(view)
+    except Exception:                  # noqa: BLE001 -- malformed [siege]: validate's job
+        return None
+    return view if BT.table(view) else None
+
+
+def _mint_beat_marker(raw: dict, npc_name: str, pos) -> str:
+    """A closed 4-point diamond beat around the post (220u legs — clear of the ~192u
+    actor-jam spacing), name-deduped. Rung C's drag handles shape it from there."""
+    taken = {str(m.get("name")) for m in raw.get("marker", []) or []}
+    base = f"{npc_name}_beat"
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}_{n}", n + 1
+    x, z = pos
+    raw.setdefault("marker", []).append(
+        {"name": name, "closed": True,
+         "path": [[x + 220, z], [x, z + 220], [x - 220, z], [x, z - 220]]})
+    return name
+
+
+def stamp_archetype(raw: dict, key: str, npc_name: str, target: str | None = None) -> str:
+    """Seat ``npc_name`` as a behavior unit wearing the archetype's proven tree; returns
+    the undo-step label. ``target`` binds a needs_target archetype to an existing unit.
+    Unknown key/npc are caller bugs (the picker lists the tables)."""
+    positions = BT._npc_marker_positions(raw)
+    x, z = positions.get(npc_name, (0, 0))
+    die = {"when": [{"hp_le": 0}], "do": {"die": True}}
+    if key == "guard":
+        if not target:
+            raise KeyError("the guard archetype needs a target unit")
+        branches = [
+            die,
+            {"when": [{"hp_le": 1}],
+             "do": {"flee": target, "to": [[x + 400, z], [x - 400, z]], "speed": 75}},
+            {"when": [{"active": target}, {"near": [target, 300]}],
+             "do": {"swing_at": target, "damage": 1, "interval": 25}},
+            {"when": [{"active": target}, {"near": [target, 900]}],
+             "do": {"chase": target, "standoff": 180, "speed": 65}},
+            {"do": {"hold_post": True}},
+        ]
+        b = raw.setdefault("behavior", {})
+        b.setdefault("unit", []).append({"npc": npc_name, "hp": 5, "branch": branches})
+        return f"stamp guard archetype on {npc_name} vs {target}"
+    if key == "sentry":
+        beat = _mint_beat_marker(raw, npc_name, (x, z))
+        branches = [
+            die,
+            {"when": [{"near": ["player", 450]}], "do": {"announce": "Who goes there?!"},
+             "once": True, "raise_flags": ["alarm"]},
+            {"when": [{"near": ["player", 900]}],
+             "do": {"chase": "player", "standoff": 180, "speed": 65}},
+            {"do": {"patrol": beat, "route": "auto"}},
+        ]
+    elif key == "patroller":
+        beat = _mint_beat_marker(raw, npc_name, (x, z))
+        branches = [die, {"do": {"patrol": beat, "route": "auto", "speed": 40}}]
+    elif key == "civilian":
+        branches = [
+            die,
+            {"when": [{"near": ["player", 350]}],
+             "do": {"flee": "player", "to": [[x + 400, z], [x - 400, z]], "speed": 80}},
+            {"do": {"wander": [x, z], "radius": 300, "speed": 30}},
+        ]
+    else:
+        raise KeyError(f"unknown behavior archetype {key!r}")
+    b = raw.setdefault("behavior", {})
+    b.setdefault("unit", []).append({"npc": npc_name, "hp": 3, "branch": branches})
+    return f"stamp {key} archetype on {npc_name}"
+
+
+# ------------------------------------------------------------------ rung C: the sweep lane
+@dataclass
+class SweepResult:
+    """What one walkability sweep produced — the ``behavior lint`` lane as DATA, so the
+    stage can paint verdicts IN PLACE while the text lines stay word-for-word the CLI's
+    (:func:`ff9mapkit.scene.routes.describe_leg_problems` / ``describe_pursuit_problems``)."""
+    ok: bool = False                       # the sweeps ran (walkmesh in hand)
+    error: str = ""                        # why not, when they did not
+    jams: list = field(default_factory=list)      # {"a","b","t0","t1","mid","span","name"}
+    hugs: list = field(default_factory=list)      # {"a","b","minwall","name"}
+    pursuits: list = field(default_factory=list)  # {"label","tested","blocked","worst":[...]}
+    lines: list = field(default_factory=list)     # [(kind, text)] kind: error|warn|info
+
+
+def load_walkmesh(toml_path):
+    """The sweep lane's one DISK read: the SAVED field's walkmesh (behavior edits never
+    change the mesh, so the two-truths split is honest — mesh from disk, geometry from
+    the open document). Returns ``(wmesh, "")`` or ``(None, why)``. Worker material."""
+    try:
+        from .. import build as _build
+        return _build.behavior_walkmesh(_build.FieldProject.load(toml_path)), ""
+    except Exception as e:                 # noqa: BLE001 -- the message is the teaching
+        return None, str(e)
+
+
+def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
+    """Sweep the OPEN document's routes and pursuit families against ``wmesh`` — the
+    ``behavior lint`` walkability lane, mirrored ref-for-ref (autoroute refs judge the
+    ROUTED line, dedupe included) so what the stage paints == what the CLI prints."""
+    from ..scene import routes as _routes
+    res = SweepResult()
+    if wmesh is None:
+        res.error = "no walkmesh"
+        return res
+    try:
+        bedges = _routes.mesh_boundary_edges(wmesh)
+        positions = BT._npc_marker_positions(raw)
+        mpaths = BT.marker_paths(raw)
+        plan = {}
+        if BT.wants_autoroute(raw):
+            try:
+                plan = BT.autoroute_plan(raw, wmesh)
+            except BT.BehaviorTomlError as e:
+                res.lines.append(("error", str(e)))
+        seen, jam_hint = set(), False
+        for ref in BT.movement_route_refs(raw):
+            key = (ref["ui"], ref["bi"])
+            if ref["autoroute"] and key in plan:
+                pts = plan[key]["points"]
+                closed = ref["verb"] == "patrol"
+                name = f"{ref['verb']} {BT._route_label(ref['value'])} ({ref['unit']!r})"
+            elif ref["autoroute"]:
+                continue                   # plan errored -- already a line above
+            else:
+                try:
+                    pts = BT._resolve_route(ref["value"], positions, mpaths,
+                                            ref["unit"] or "?")
+                except BT.BehaviorTomlError:
+                    continue               # unresolvable -> validate reported it
+                closed = (ref["verb"] == "patrol" or
+                          (ref["verb"] == "flee" and isinstance(ref["value"], str)
+                           and mpaths.get(ref["value"], ((), False))[1]))
+                name = (ref["value"] if isinstance(ref["value"], str)
+                        else f"{ref['unit']}#{ref['bi']} {ref['verb']}")
+            dk = (tuple(map(tuple, pts)), closed)
+            if dk in seen:
+                continue
+            seen.add(dk)
+            legs = _routes.sweep_polyline(pts, wmesh, bedges, closed=closed)
+            for p in _routes.describe_leg_problems(name, legs):
+                res.lines.append(("error" if "OFF-MESH" in p else "warn", p))
+            for leg in legs:
+                for t0, t1 in leg["spans"]:
+                    (ax, az), (bx, bz) = leg["a"], leg["b"]
+                    mt = (t0 + t1) / 2
+                    res.jams.append({"a": leg["a"], "b": leg["b"], "t0": t0, "t1": t1,
+                                     "mid": (ax + (bx - ax) * mt, az + (bz - az) * mt),
+                                     "span": max((t1 - t0) * leg["len"], 40.0),
+                                     "name": str(name)})
+                    if ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
+                        jam_hint = True
+                if not leg["spans"] and leg["minwall"] is not None \
+                        and leg["minwall"] < _routes.WALL_CLEARANCE_W:
+                    res.hugs.append({"a": leg["a"], "b": leg["b"],
+                                     "minwall": leg["minwall"], "name": str(name)})
+        if jam_hint:
+            res.lines.append(("info", 'hint: patrol/march accept route = "auto" -- the '
+                              'build re-routes jammed legs through the walkmesh '
+                              'pathfinder (clear legs stay as authored)'))
+        if pursuit:
+            extent = _routes.pursuit_extent(wmesh)
+            pseen = set()
+            for ref in BT.pursuit_refs(raw):
+                radius = ref["radius"]
+                ungated = radius is None
+                if ungated:
+                    radius = extent
+                dk = (ref["verb"], radius, ref["standoff"], ref["source_box"],
+                      ref["target_box"])
+                if dk in pseen:
+                    continue
+                pseen.add(dk)
+                pres = _routes.sweep_pursuit(wmesh, radius, standoff=ref["standoff"],
+                                             bedges=bedges,
+                                             source_box=ref["source_box"],
+                                             target_box=ref["target_box"])
+                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
+                         f"branch #{ref['bi']})")
+                if ungated:
+                    label += (" [UNGATED: no near/any_near row bounds this target, so "
+                              f"the family is the whole field ({extent:.0f}u)]")
+                probs = _routes.describe_pursuit_problems(label, pres)
+                res.lines.extend(("warn", p) for p in probs)
+                if probs and pres["blocked"]:
+                    res.pursuits.append({"label": label, "unit": ref["unit"],
+                                         "tested": pres["tested"],
+                                         "blocked": pres["blocked"],
+                                         "worst": pres["worst"]})
+        res.ok = True
+        if not res.lines:
+            res.lines.append(("info", "behavior sweep: clean — every authored leg stays "
+                              "on the walkmesh"))
+    except Exception as e:                 # noqa: BLE001 -- surfaced, never a crash
+        res.ok = False
+        res.error = f"sweep failed: {e}"
+    return res
 
 
 # ------------------------------------------------------------------ the Instruments' feed

@@ -1,4 +1,4 @@
-r"""TIER W rung 2 -- the gate runner.  `py w2_gates.py` prints X0..X5 with numbers and PASS/FAIL.
+r"""TIER W rung 2 -- the gate runner.  `py w2_gates.py` prints X0..X7 with numbers and PASS/FAIL.
 
 X0  NO REGRESSION: tier-r's r1/r2/r3 gate runners, tier-w's w1_gates, and every tier-r/tier-w test
     module still pass -- this rung adds a writer on top of W1's reader and changes neither
@@ -13,9 +13,15 @@ X4  REVERT: the generated revert script restores the mod folder to its exact pri
     a hash manifest of the whole tree -- in both the fresh-file and the overwrite-a-prior-file cases
 X5  PROVENANCE: no stock byte run in any committable file, the build reads the user's install at
     RUN TIME (never the repo, never a prior override), staged output lands under SCRATCH
+X6  THE DYNAMIC-OP DISCLOSURE (W5): a container carrying a runtime-chosen (arg2=3) camera op is
+    REFUSED until the spec acknowledges that the edited block's reachability is unverifiable
+    offline -- and an acknowledgement of a risk the container does not carry is refused too
+X7  THE SPEC REGISTRY (W5): every rescore spec beside this tool builds, and ef227's is pinned to
+    its effect EXTERNALLY so a spec that changed its own `effect` would be caught here
 
-Reads the user's own install.  Prints only structure -- offsets, counts, sizes, and the small
-number of stock camera VALUES the delta is expressed against.
+X1/X2/X3 run over the whole registry, not just ef227.  Reads the user's own install.  Prints only
+structure -- offsets, counts, sizes, and the small number of stock camera VALUES the delta is
+expressed against.
 """
 from __future__ import annotations
 
@@ -37,12 +43,21 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _STUDY = os.path.dirname(_HERE)
 _REPO = os.path.dirname(os.path.dirname(_STUDY))
 TIER_R = os.path.join(_STUDY, "tier-r")
-SPEC = os.path.join(_HERE, "bahamut_rescore.toml")
+
+#: THE SPEC REGISTRY -- ``[(toml, pinned effect or None)]``.  W5 turned this runner from "build the
+#: one shipped spec" into "build every spec beside this tool": ef227's entry keeps an EXTERNAL
+#: expectation (227) so a toml that changed its own ``effect`` is caught here rather than gated
+#: against the wrong container; a discovered sibling is unpinned, because inventing an expectation
+#: from a filename would be a guess.
+SPECS = R.discover_specs(_HERE)
+#: the ef227 spec specifically -- X4/X5's install-bound checks are still written against it
+SPEC = SPECS[0][0] if SPECS else os.path.join(_HERE, "bahamut_rescore.toml")
 REPORT = os.path.join(_HERE, "W2-RESCORE.md")
 
-#: the committable files this rung adds; X5 scans them for stock byte runs
-COMMITTABLE = ("rescore.py", "test_rescore.py", "w2_gates.py", "bahamut_rescore.toml",
-               "W2-RESCORE.md")
+#: the committable files this rung adds; X5 scans them for stock byte runs.  The discovered specs
+#: join the list so a new effect's toml is provenance-checked on the same terms as ef227's.
+COMMITTABLE = ("rescore.py", "test_rescore.py", "w2_gates.py", "W2-RESCORE.md") + \
+    tuple(os.path.basename(p) for p, _e in SPECS)
 #: the report may quote stock VALUES (a pose byte, an H distance) -- never stock BYTES.
 QUOTE_BUDGET = 12
 
@@ -98,63 +113,88 @@ def x0_no_regression():
     return gate("X0 no regression (r1/r2/r3 + w1 gates, all tests, reader untouched)", ok, *lines)
 
 
-# --------------------------------------------------------------------------- the shared build
-_BUILD = None
+# --------------------------------------------------------------------------- the shared builds
+_BUILDS = {}
 
 
-def build():
-    global _BUILD
-    if _BUILD is None:
-        _BUILD = R.build_patched(R.load_spec(SPEC), SPEC)
-    return _BUILD
+def build(path=None):
+    """The build for one registry entry, memoised.  Defaults to ef227's so every gate written
+    before the registry existed keeps meaning exactly what it meant."""
+    path = path or SPEC
+    if path not in _BUILDS:
+        _BUILDS[path] = R.build_patched(R.load_spec(path), path)
+    return _BUILDS[path]
 
 
 # --------------------------------------------------------------------------- X1
 def x1_unchanged_everything_else():
-    b = build()
-    lines, ok = [], True
+    ok = True
+    lines = []
+    for path, pinned in SPECS:
+        lines.append("")
+        lines.append("== %s (%s)" % (os.path.basename(path),
+                                     "pinned to ef%03d" % pinned if pinned is not None
+                                     else "discovered, unpinned"))
+        ok = _x1_one(build(path), lines.append) and ok
+    return gate("X1 the unchanged-everything-else proof (%d spec(s))" % len(SPECS), ok, *lines)
+
+
+def _x1_one(b, out):
+    ok = True
     changed = b.check.changed_offsets
-    sp, = b.splices
-    lines.append("container ef%03d: %d B in, %d B out -- %d byte(s) differ in the WHOLE file"
-                 % (b.effect, len(b.orig), len(b.patched), len(changed)))
+    out("container ef%03d: %d B in, %d B out -- %d byte(s) differ in the WHOLE file"
+        % (b.effect, len(b.orig), len(b.patched), len(changed)))
     ok = ok and len(b.orig) == len(b.patched)
 
-    # every changed byte named: sub-file -> sequence -> Code -> sub-block -> field
+    # every changed byte named: sub-file -> sequence -> Code -> sub-block -> field.  Keyed on the
+    # ABSOLUTE file offset so a spec with several [[edit]]s across several blocks is covered too --
+    # ef227 has exactly one splice, but the registry no longer promises that.
     ex = W.extract_shots(b.orig, "ef%03d" % b.effect)
-    shot = next(s for s in ex.shots if s.lo == sp.lo)
     meaning = {}
-    for si, seq in enumerate(shot.camera["sequences"]):
-        off = 0
-        # the sequence group's own base inside the block
-        for name, lo, hi in W.block_layout(shot.block):
-            if name == "sequence%d" % si:
-                off = lo
-        for ci, c in enumerate(seq):
-            if not c.get("frame"):
-                break
-            body = off + 4
-            for fname, (fo, fsz) in R.code_field_offsets(c["flags"]).items():
-                for k in range(fsz):
-                    meaning[body + fo + k] = (si, W.frame_number(c["frame"]), ci, fname, k)
-            off = body + len(c["block"])
+    for sp in b.splices:
+        shot = next(s for s in ex.shots if s.lo == sp.lo)
+        for si, seq in enumerate(shot.camera["sequences"]):
+            off = 0
+            # the sequence group's own base inside the block
+            for name, lo, hi in W.block_layout(shot.block):
+                if name == "sequence%d" % si:
+                    off = lo
+            for ci, c in enumerate(seq):
+                if not c.get("frame"):
+                    break
+                body = off + 4
+                for fname, (fo, fsz) in R.code_field_offsets(c["flags"]).items():
+                    for k in range(fsz):
+                        meaning[sp.lo + body + fo + k] = (sp.lo, si, W.frame_number(c["frame"]),
+                                                          ci, fname, k)
+                off = body + len(c["block"])
     for o in changed:
-        rel = o - sp.lo
-        m = meaning.get(rel)
+        m = meaning.get(o)
         if m is None:
             ok = False
-            lines.append("  file %#x (block+%d): UNEXPLAINED -- not inside any Code sub-block" % (o, rel))
+            out("  file %#x: UNEXPLAINED -- not inside any Code sub-block of an edited shot" % o)
             continue
-        si, frame, ci, fname, k = m
+        base, si, frame, ci, fname, k = m
         field = {("campos", 3): "orientation", ("campos", 4): "roll", ("campos", 2): "pitch",
                  ("campos", 5): "distance", ("campos", 0): "code", ("campos", 1): "flags",
                  ("focal", 2): "H (projection distance) lo", ("focal", 3): "H hi",
                  ("focal", 0): "duration", ("focal", 1): "flags"}.get((fname, k), "%s+%d" % (fname, k))
-        lines.append("  file %#x = block+%-3d  seq%d Code %d (local frame %d) %s -> %s"
-                     % (o, rel, si, ci, frame, fname, field))
+        out("  file %#x = block+%-3d  seq%d Code %d (local frame %d) %s -> %s"
+            % (o, o - base, si, ci, frame, fname, field))
         if "duration" in field:
             ok = False
-            lines.append("    ^^ A DURATION CHANGED -- W2 forbids it")
+            out("    ^^ A DURATION CHANGED -- W2 forbids it")
 
+    lines = []                                       # the rest of the gate, unchanged in substance
+    ok = _x1_tail(b, ex, lines) and ok
+    for ln in lines:
+        out(ln)
+    return ok
+
+
+def _x1_tail(b, ex, lines):
+    ok = True
+    changed = b.check.changed_offsets
     # every duration byte identical
     after = W.extract_shots(b.patched, "ef%03d" % b.effect)
     n_dur, dur_ok, n_frames = 0, True, 0
@@ -194,7 +234,7 @@ def x1_unchanged_everything_else():
                 lo, hi = a.bounds(i)
             except W.SummonCameraError:
                 continue
-            if (lo, hi) == (sp.lo, sp.hi):
+            if any((lo, hi) == (sp.lo, sp.hi) for sp in b.splices):
                 continue
             n_sub += 1
             sub_ok = sub_ok and b.orig[lo:hi] == b.patched[lo:hi]
@@ -205,41 +245,51 @@ def x1_unchanged_everything_else():
     ok = ok and sub_ok and dir_ok
 
     # everything outside the id-2 archives (the sequence stream, the programs, the art) untouched
-    outside = [o for o in changed if not (sp.lo <= o < sp.hi)]
-    lines.append("bytes outside the target block (sequence stream, programs, art, headers): %d"
+    outside = [o for o in changed
+               if not any(sp.lo <= o < sp.hi for sp in b.splices)]
+    lines.append("bytes outside the target block(s) (sequence stream, programs, art, headers): %d"
                  % len(outside))
     ok = ok and not outside
-    return gate("X1 the unchanged-everything-else proof", ok, *lines)
+    return ok
 
 
 # --------------------------------------------------------------------------- X2
 def x2_roundtrip():
-    b = build()
-    c = b.check
-    lines = ["container header re-parses STRICT: %s (native walker cursor_end %#x == size %#x)"
-             % (c.header_ok, c.cursor_end, c.size),
-             "every camera block in the rebuilt container round-trips: %d/%d byte-exact through "
-             "the UNMODIFIED camera_codec" % (c.roundtrip_ok, c.roundtrip_total)]
-    for k, v in sorted(c.invariants.items()):
-        lines.append("W1 invariant %-34s %s" % (k, v))
-    # the block itself, decoded and re-encoded standalone
-    sp, = b.splices
-    blk = bytes(b.patched[sp.lo:sp.hi])
-    again = W.serialize_camera_block(W.parse_camera_block(blk))
-    lines.append("the rescored block alone: %d B -> parse -> serialize -> %d B, %s"
-                 % (len(blk), len(again), "BYTE-EXACT" if again == blk else "DIVERGES"))
-    ok = c.header_ok and c.roundtrip_ok == c.roundtrip_total and all(c.invariants.values()) \
-        and again == blk
-    return gate("X2 round-trip + W1's four invariants on the block we WROTE", ok, *lines)
+    ok, lines = True, []
+    for path, _pinned in SPECS:
+        b = build(path)
+        c = b.check
+        lines.append("")
+        lines.append("== %s -- ef%03d" % (os.path.basename(path), b.effect))
+        lines.append("container header re-parses STRICT: %s (native walker cursor_end %#x == "
+                     "size %#x)" % (c.header_ok, c.cursor_end, c.size))
+        lines.append("every camera block in the rebuilt container round-trips: %d/%d byte-exact "
+                     "through the UNMODIFIED camera_codec" % (c.roundtrip_ok, c.roundtrip_total))
+        for k, v in sorted(c.invariants.items()):
+            lines.append("W1 invariant %-34s %s" % (k, v))
+        # each edited block itself, decoded and re-encoded standalone
+        block_ok = True
+        for sp in b.splices:
+            blk = bytes(b.patched[sp.lo:sp.hi])
+            again = W.serialize_camera_block(W.parse_camera_block(blk))
+            block_ok = block_ok and again == blk
+            lines.append("the rescored block @%#x alone: %d B -> parse -> serialize -> %d B, %s"
+                         % (sp.lo, len(blk), len(again),
+                            "BYTE-EXACT" if again == blk else "DIVERGES"))
+        ok = ok and c.header_ok and c.roundtrip_ok == c.roundtrip_total \
+            and all(c.invariants.values()) and block_ok
+    return gate("X2 round-trip + W1's four invariants on the block(s) we WROTE", ok, *lines)
 
 
 # --------------------------------------------------------------------------- X3
 def x3_three_sequence():
-    b = build()
     lines, ok = [], True
-    for letter, v in b.verdicts:
-        lines.append("shot %s: %s" % (letter, v.line()))
-        ok = ok and v.safe
+    for path, _pinned in SPECS:
+        b = build(path)
+        for letter, v in b.verdicts:
+            lines.append("%-24s ef%03d shot %s: %s"
+                         % (os.path.basename(path), b.effect, letter, v.line()))
+            ok = ok and v.safe
     lines.append("corpus context: 374 of 798 blocks declare three sequences and 332 of those carry "
                  "GENUINELY DIFFERENT alternates (W1 section 4.1) -- the check is not academic")
     # and prove the guard actually fires, on a synthetic block with differing alternates
@@ -361,12 +411,22 @@ def x5_provenance():
         lines.append("      " + h)
     ok = ok and not hits
 
-    # (b) the build reads the INSTALL at run time, not the repo and not a prior override
-    lines.append("stock source read this run: %s" % b.source)
-    ok = ok and "resources.assets" in b.source and _REPO not in b.source
-    lines.append("drift guard: registered sha256 for ef%03d, install %s"
-                 % (b.effect, "MATCHES" if b.sha_in == R.EXPECTED_STOCK_SHA.get(b.effect)
-                    else "DIFFERS"))
+    # (b) EVERY registered spec reads the INSTALL at run time, not the repo and not a prior
+    # override, and every one of them is GUARDED -- ef227 by the code-side constant, a generalised
+    # spec by its own expect_sha256.  An unguarded spec is a spec that would splice its delta into
+    # whatever bytes it found.
+    for path, _pinned in SPECS:
+        bb = build(path)
+        lines.append("%-24s ef%03d source: %s" % (os.path.basename(path), bb.effect, bb.source))
+        ok = ok and "resources.assets" in bb.source and _REPO not in bb.source
+        own = R.load_spec(path)["rescore"].get("expect_sha256")
+        guarded = (bb.sha_in == R.EXPECTED_STOCK_SHA.get(bb.effect)) or \
+                  (own is not None and bb.sha_in == own)
+        lines.append("%-24s drift guard: %s -- %s"
+                     % ("", bb.guard, "GUARDED" if guarded else "UNGUARDED (refused here)"))
+        ok = ok and guarded
+    lines.append("ef227 specifically: install sha %s the registered constant"
+                 % ("MATCHES" if b.sha_in == R.EXPECTED_STOCK_SHA.get(b.effect) else "DIFFERS from"))
     ok = ok and b.sha_in == R.EXPECTED_STOCK_SHA.get(b.effect)
 
     # (c) staged output lands under SCRATCH, and the repo is refused
@@ -387,6 +447,17 @@ def x5_provenance():
     lines.append("stock-shaped files in the repo working tree: %d" % len(big))
     ok = ok and not big
 
+    # (c2) the spec tomls are a committable class of their own now that `init` GENERATES them.  A
+    # generated spec may name the values its own declared edit writes; it must never become a
+    # decoded stock listing, so it is held to the report's own two rules.
+    for path, _pinned in SPECS:
+        text = open(path, "r", encoding="utf-8").read()
+        hexruns = re.findall(r"\b(?:[0-9a-f]{2}[ ]){3,}[0-9a-f]{2}\b", text)
+        posedump = re.findall(r"pitch\s*=?\s*\d+.{0,24}?distance\s*=?\s*\d+", text)
+        lines.append("%-24s %d hex byte run(s) (must be 0), %d decoded-keyframe row(s) (must be 0)"
+                     % (os.path.basename(path), len(hexruns), len(posedump)))
+        ok = ok and not hexruns and not posedump
+
     # (d) the report's quote budget
     if os.path.isfile(REPORT):
         text = open(REPORT, "r", encoding="utf-8").read()
@@ -405,6 +476,179 @@ def x5_provenance():
                 ok, *lines)
 
 
+# --------------------------------------------------------------------------- X6
+def _synthetic_dynamic_container():
+    """A container that runs BOTH a literal camera op and a runtime-chosen one -- ef227's shape plus
+    the trap ef227 does not have."""
+    from test_summon_camera import ESTABLISH, MOVE, TAIL, camera_block, synth
+    blk = camera_block([[ESTABLISH, MOVE, TAIL]])
+    return synth([b"\xaa" * 32, blk, b"\xbb" * 48],
+                 [(W.OP_WAIT, 0, 10), (W.OP_PLAY_CAMERA, 1, W.ARG2_LITERAL),
+                  (W.OP_WAIT, 0, 5), (W.OP_PLAY_CAMERA, 0, W.ARG2_TABLE)])
+
+
+def x6_dynamic_disclosure():
+    """W5's generalisation gate.  ef227 sidesteps this entirely -- which is exactly the problem: its
+    offline completeness claim does not carry to the 300-of-342 scaffoldable corpus containers that
+    DO run a runtime-chosen camera op."""
+    sys.path.insert(0, _HERE)
+    lines, ok = [], True
+
+    # (a) the shipped ef227 spec is unaffected -- it carries no such op and declares no key
+    b = build()
+    lines.append("ef%03d (the shipped spec): %d runtime-chosen op(s), acknowledge key %s"
+                 % (b.effect, len(b.dynamic), "declared" if b.acknowledged else "absent"))
+    ok = ok and not b.dynamic and not b.acknowledged
+
+    # (b) the gate FIRES on a container that has one
+    blob = _synthetic_dynamic_container()
+    ex = W.extract_shots(blob, "synthetic")
+    lines.append("synthetic container: %d literal shot(s) + %d runtime-chosen op(s)"
+                 % (len(ex.shots), len(R.dynamic_ops(ex))))
+    edit = [{"shot": "A", "frame": 1, "focal": {"distance": 96}}]
+    fired = ""
+    try:
+        R.build_patched({"rescore": {"effect": 998}, "edit": edit}, "t", blob=blob)
+    except R.RescoreError as e:
+        fired = str(e)
+    lines.append("build WITHOUT acknowledge_dynamic_ops: %s"
+                 % ("REFUSED -- " + fired.splitlines()[0][:88] if fired else "BUILT (WRONG)"))
+    ok = ok and "THE DYNAMIC-OP DISCLOSURE" in fired
+
+    # (c) and LIFTS when the spec acknowledges it
+    lifted = R.build_patched({"rescore": {"effect": 998, "acknowledge_dynamic_ops": True},
+                              "edit": edit}, "t", blob=blob)
+    lines.append("build WITH acknowledge_dynamic_ops = true: built, %d byte(s) changed, self-check %s"
+                 % (len(lifted.check.changed_offsets), lifted.check.ok))
+    ok = ok and lifted.check.ok and lifted.acknowledged
+
+    # (d) the converse: an acknowledgement of a risk this container does not carry is refused too
+    stale = ""
+    try:
+        R.build_patched({"rescore": {"effect": b.effect, "acknowledge_dynamic_ops": True},
+                         "edit": [{"shot": "A", "frame": 1, "camera": {"roll": 128}}]},
+                        "t", blob=b.orig)
+    except R.RescoreError as e:
+        stale = str(e)
+    lines.append("a STALE acknowledgement on ef%03d (0 dynamic ops): %s"
+                 % (b.effect, "REFUSED" if "runs NO runtime-chosen" in stale else "ACCEPTED (WRONG)"))
+    ok = ok and "runs NO runtime-chosen" in stale
+
+    # (e) a truthy non-boolean must never satisfy a safety key
+    typed = ""
+    try:
+        R.build_patched({"rescore": {"effect": 998, "acknowledge_dynamic_ops": "true"},
+                         "edit": edit}, "t", blob=blob)
+    except R.RescoreError as e:
+        typed = str(e)
+    lines.append("acknowledge_dynamic_ops = \"true\" (a STRING): %s"
+                 % ("REFUSED" if "must be a BOOLEAN" in typed else "ACCEPTED (WRONG)"))
+    ok = ok and "must be a BOOLEAN" in typed
+
+    # (f) the real corpus fixture -- ef000 carries all three traps ef227 sidesteps
+    try:
+        real, _src = W._load(0)
+    except Exception:
+        lines.append("ef000 (the corpus fixture): not extracted here -- synthetic cover only")
+    else:
+        rex = W.extract_shots(real, "ef000")
+        sc = R.scaffold(0, real, "ef000")
+        lines.append("ef000: %d shot(s) all via %s, %d runtime-chosen op(s), alternates differ on "
+                     "%d/%d shot(s)"
+                     % (len(rex.shots), ", ".join(sorted({s.op.kind for s in rex.shots})),
+                        len(R.dynamic_ops(rex)),
+                        sum(1 for r in sc.shots if r.alternates_differ), len(sc.shots)))
+        lines.append("ef000's generated scaffold pre-seeds the key FALSE: %s"
+                     % ("acknowledge_dynamic_ops = false" in sc.text))
+        ok = ok and len(R.dynamic_ops(rex)) >= 1 \
+            and "acknowledge_dynamic_ops = false" in sc.text
+        spec = _toml_loads(sc.text)
+        spec["edit"][0]["focal"] = {"distance": 240}
+        why = ""
+        try:
+            R.build_patched(spec, "ef000", blob=real)
+        except R.RescoreError as e:
+            why = str(e)
+        spec["rescore"]["acknowledge_dynamic_ops"] = True
+        got = R.build_patched(spec, "ef000", blob=real)
+        lines.append("ef000 build: refused without the key (%s), built with it (%d byte(s) changed "
+                     "across %d track(s))"
+                     % ("THE DYNAMIC-OP DISCLOSURE" in why, len(got.check.changed_offsets),
+                        got.verdicts[0][1].n_sequences))
+        ok = ok and "THE DYNAMIC-OP DISCLOSURE" in why and got.check.ok
+    lines.append("corpus context: 300 of the 342 scaffoldable containers carry at least one "
+                 "runtime-chosen camera op -- ef227's silence about this is the OUTLIER, not the "
+                 "rule, and no offline gate can close it (the table is battle-field-keyed runtime "
+                 "data absent from the container)")
+    return gate("X6 the dynamic-op disclosure gate (W5)", ok, *lines)
+
+
+def _toml_loads(text: str) -> dict:
+    try:
+        import tomllib
+    except ModuleNotFoundError:                                  # pragma: no cover
+        import tomli as tomllib                                  # type: ignore
+    return tomllib.loads(text)
+
+
+# --------------------------------------------------------------------------- X7
+def x7_spec_registry():
+    """Every rescore spec beside this tool builds, and ef227's is pinned EXTERNALLY.
+
+    Before W5 this runner only ever built ``bahamut_rescore.toml``: "it worked for Bahamut" was the
+    whole acceptance suite.  A spec that changed its own ``effect`` would have been gated against a
+    different container without a word."""
+    lines, ok = [], True
+    lines.append("registry: %d spec(s) discovered beside %s" % (len(SPECS), os.path.basename(_HERE)))
+    for path, pinned in SPECS:
+        name = os.path.basename(path)
+        try:
+            spec = R.load_spec(path)
+            b = build(path)
+        except Exception as e:
+            lines.append("  %-26s FAILED: %s: %s" % (name, type(e).__name__, str(e).splitlines()[0]))
+            ok = False
+            continue
+        agree = pinned is None or b.effect == pinned
+        lines.append("  %-26s ef%03d  %s  %d edit(s), %d byte(s) changed, self-check %s"
+                     % (name, b.effect,
+                        "pinned %d %s" % (pinned, "OK" if agree else "MISMATCH")
+                        if pinned is not None else "unpinned",
+                        len(spec["edit"]), len(b.check.changed_offsets), b.check.ok))
+        ok = ok and agree and b.check.ok
+    # and the ergonomics refusal that replaced the silent ef227 default
+    bare = ""
+    try:
+        R.resolve_spec(None, None)
+    except R.RescoreError as e:
+        bare = str(e)
+    lines.append("a bare `py rescore.py plan` no longer defaults to Bahamut: %s"
+                 % ("REFUSED, and lists the registry" if "no default any more" in bare
+                    else "STILL DEFAULTS (WRONG)"))
+    ok = ok and "no default any more" in bare
+    # the scaffold verb, end to end, on the rung's second-proof target
+    try:
+        blob, _s = W._load(211)
+    except Exception:
+        lines.append("ef211 (the second-proof target): not extracted here -- skipped")
+    else:
+        sc = R.scaffold(211, blob, "ef211", W.recover_machines(blob, "ef211"))
+        rebuilt = R.build_patched(_toml_loads(sc.text), "ef211", blob=blob)
+        (row,) = sc.shots
+        lines.append("`init --ef 211`: %d shot(s), shot %s = c%d idx%d, %d sequence(s), %d "
+                     "keyframes, focal at %s, %d dynamic op(s)"
+                     % (len(sc.shots), row.letter, row.slot, row.subfile, row.n_sequences,
+                        row.n_keyframes, ", ".join("f%d" % f for f in row.focal_frames),
+                        len(sc.dynamic)))
+        lines.append("   the generated spec is an IDENTITY and rebuilds ef211 byte-identical: %s"
+                     % (sc.target.identity and rebuilt.patched == rebuilt.orig))
+        lines.append("   phase cross-ref: %d phase(s) span shot %s; reframe budget %s"
+                     % (len(row.phases), row.letter,
+                        "TIGHT (a phase draws effect models)" if row.draws_set else "looser"))
+        ok = ok and sc.target.identity and rebuilt.patched == rebuilt.orig and row.phases
+    return gate("X7 the spec registry + the `init` scaffold (W5)", ok, *lines)
+
+
 # --------------------------------------------------------------------------- main
 def main() -> int:
     print(__doc__.splitlines()[0])
@@ -414,6 +658,8 @@ def main() -> int:
     x3_three_sequence()
     x4_revert()
     x5_provenance()
+    x6_dynamic_disclosure()
+    x7_spec_registry()
     print("\n" + "=" * 72)
     for name, ok in RESULTS:
         print("%-5s %s" % ("PASS" if ok else "FAIL", name))

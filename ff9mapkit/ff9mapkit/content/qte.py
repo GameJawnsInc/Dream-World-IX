@@ -28,9 +28,10 @@ THE SCRATCH BAND (bytes 2018-2031, ``flags.QTE_SCRATCH_FLOOR``, kit-reserved)
 sits ON PURPOSE below the netsync co-op cells (bytes 2032-2039): the engine
 rewrites those EVERY FRAME while [Netsync] co-op runs -- on any field, gates or
 no gates -- so scratch there would have its combo/points channels clobbered
-mid-bout. The band still overlaps the behavior blackboard's headroom
-(1220-2040), so v1 refuses a field carrying both ``[[qte]]`` and ``[behavior]``
--- relaxable later by teaching the blackboard to reserve the band. gMesValue
+mid-bout. The behavior blackboard's band now tops out at byte 2005
+(``behavior.BYTE_END_DEFAULT``, flush below the nameplate explored words), clear
+of this scratch; v1 still refuses a field carrying both ``[[qte]]`` and
+``[behavior]`` as belt-and-braces. gMesValue
 slots 0 (score) and 1 (purse) are loaded at the finale.
 
 Deferred theater (the stock duel's feel, deliberately out of v1): per-prompt
@@ -143,10 +144,11 @@ def from_raw(block: dict, idx: int) -> QteSpec:
         raise QteError(f"{ctx}: needs a name (the [[choice]] option's qte = target)")
     ctx = f"[[qte]] {name!r}"
     result = block.get("result")
-    if not isinstance(result, int) or not 4 <= result <= 2016:
-        raise QteError(f"{ctx}: result must be a gEventGlobal byte offset 4..2016 "
-                       f"(an Int16; 2018+ is the game's own scratch). It receives "
-                       f"the 1..100 score at the finale.")
+    if not isinstance(result, int) or not 4 <= result <= _flags.RESULT_WORD_CAP:
+        raise QteError(f"{ctx}: result must be a gEventGlobal byte offset "
+                       f"4..{_flags.RESULT_WORD_CAP} (an Int16; 2006-2017 are the kit's "
+                       f"nameplate-explored words, 2018+ the game's own scratch). It "
+                       f"receives the 1..100 score at the finale.")
     # the Int16 spans bytes result..result+1 = bits result*8..result*8+15; NONE of them may land
     # in a reserved save region (the Mognet mailbox/locks/read-mail bytes, the byte-23 menu
     # handshake, the worldmap unlocks, the netsync co-op cells) -- a score write there corrupts
@@ -158,8 +160,7 @@ def from_raw(block: dict, idx: int) -> QteSpec:
                        f"overlaps FF9's reserved '{r.name}' region (bits {r.lo}-{r.hi}): a write "
                        f"there corrupts real save/engine state, and ordinary play writes it "
                        f"right back over the score. Pick a clear byte offset (e.g. 1998, or "
-                       f"{_flags.READMAIL_PAYLOAD_HI // 8 + 1}+; 2006-2017 are the kit's "
-                       f"nameplate-explored words).")
+                       f"{_flags.READMAIL_PAYLOAD_HI // 8 + 1}+).")
     rounds = block.get("rounds", 10)
     if not isinstance(rounds, int) or not 1 <= rounds <= 99:
         raise QteError(f"{ctx}: rounds must be 1..99")

@@ -339,6 +339,31 @@ one-shot (a `battle`, an `announce`) otherwise gets exactly one ~33ms frame of a
 the next dispatch takes the audio (the loss-sting round-1 playtest). Sustain is how a cue
 buys its beat: the queued request fires the moment the sustain releases.
 
+`announce` takes the same pair: **`delay`** holds the level *silently before* the window
+opens — the STAGED-TEXT primitive (a chain of once-announces on one monotonic flag, each
+delayed by the previous line's read time, pages like a cutscene) — and **`sustain`** holds
+*after* the open, for a line that must be read before a queued `battle` takes the screen.
+`[siege]` stages its ending texts this way when `text_win`/`text_rout`/`text_loss` are
+lists (paged at `text_pace`).
+
+### `stop_timer` — freeze the countdown
+
+`do = { stop_timer = true }` emits `RunTimer(0)`: the clock stops where it stands and
+stays on screen. Needs field-level `timer` (lint refuses it otherwise).
+
+> **THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest, byte-proven):**
+> `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it. The Festival of the
+> Hunt scenes — id 35 and the whole `LB_E080x` family, exactly what a Lindblum-plaza fork
+> borrows for a "donor-native" fight — run `B_SYSVAR[17] B_NOT → RunBattleCode` and
+> **terminate themselves the instant the countdown reads 0** (that's the Hunt's "time's
+> up" rule living inside the battle, not the field). So a timed minigame whose ending
+> plays theater before firing a `battle` must **stop its clock first**: the sting and the
+> staged lines take seconds, and a late loss otherwise lets the clock reach 0:00 before
+> the battle fires — the fight then dies the moment combat starts, with nothing wrong in
+> your script at all. `[siege]` freezes the clock at the top of its loss lane and on the
+> rout for exactly this reason. When you fire a battle from a timed field, verify the
+> scene with `ff9mapkit battle-ai <scene>` and look for `B_SYSVAR[17]`.
+
 ### `flash` — a screen flash
 
 ```toml
@@ -580,8 +605,10 @@ nothing.
   engine-fixed — and the entry table caps at **255 slots**. On a donor fork that leaves
   ~50-55KB for all compiled behavior (ticker + every dispatch body); each unit×target
   pair branch costs ~135B of ticker plus ~90B of body, so pair-target scope is the knob.
-  A third budget binds at swarm scale: the blackboard scratch band is **820 bytes** of
-  `gEventGlobal` (~40 units with ~6 swing pairs each; ~14B per unit + ~1B per swing).
+  A third budget binds at swarm scale: the blackboard scratch band is **786 bytes** of
+  `gEventGlobal` (bytes 1220–2005, capped flush below the reserved heap top — the nameplate
+  explored words / qte scratch / co-op cells / choice mask; ~40 units with ~5 swing pairs
+  each; ~14B per unit + ~1B per swing).
   Every over-budget build fails loudly at build time (never a wrapped offset), and
   `CompiledBehavior.size_report()` prints the per-unit **byte histogram** — where the
   bytes actually went — so the trim is a decision, not a hunt.

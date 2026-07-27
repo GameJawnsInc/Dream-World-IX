@@ -1,0 +1,10 @@
+SOUTH passage (Ashvale -> wrap -> south of Lamplight -> horseshoe SE): 54 samples, 6 illegal sample(s)
+   !! (1291.0, -1200.0, 'Terrain topo 17')
+   !! (1283.5, -1195.0, 'Terrain topo 17')
+   !! (1276.0, -1190.0, 'Terrain topo 16')
+   !! (1276.0, -1190.0, 'Terrain topo 16')
+   !! (1284.4, -1192.5, 'Terrain topo 17')
+   !! (1292.8, -1195.0, 'Terrain topo 17')
+NORTH passage (Ashvale -> wrap -> north of Lamplight -> horseshoe NE): 47 samples, FULLY SAILABLE
+
+VERDICT: the west arc is sailable

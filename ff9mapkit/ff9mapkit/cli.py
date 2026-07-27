@@ -356,13 +356,10 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
 
 
 def _pursuit_extent(wmesh) -> float:
-    """The walkmesh's larger XZ extent -- the radius an UNGATED chase's pursuit family
-    spans (its quarry can be anywhere on the field)."""
-    wv = wmesh.world_verts()
-    if not wv:
-        return 0.0
-    return float(max(max(v[0] for v in wv) - min(v[0] for v in wv),
-                     max(v[2] for v in wv) - min(v[2] for v in wv)))
+    """Moved to :func:`ff9mapkit.scene.routes.pursuit_extent` (the Workspace's stage
+    sweep shares it); kept as an alias for the lint lane below."""
+    from .scene.routes import pursuit_extent
+    return pursuit_extent(wmesh)
 
 
 def _cmd_behavior(args: argparse.Namespace) -> int:
@@ -3625,7 +3622,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
         verb = "would extend" if args.dry_run else "extended"
         print(f"{verb} THE NAMEPLATE BAND (func-0xB range arms -> cases 65-{EN.VIRGIN_CASE_MAX}, minus "
               f"the 91-93 vehicle trio) in {len(s['written'])} dispatcher file(s); "
-              f"{len(s['skipped'])} already extended. Explored words: gEventGlobal bytes 2006-2016 "
+              f"{len(s['skipped'])} already extended. Explored words: gEventGlobal bytes 2006-2017 "
               f"(flags.NAMEPLATE_EXPLORED_FLOOR, kit-reserved). Stock cases 1-64/91-93/156+ compute "
               f"byte-equivalently (256-case interpreter proof in tests). Re-enter the world to apply.")
         return 0

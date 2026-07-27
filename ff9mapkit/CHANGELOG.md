@@ -34,6 +34,83 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - This is the installed-copy twin of `tools/deploy_field.py`. That script stays repo-only and
   unchanged — its sandbox id-forcing, `.ff9deploy.toml` resolution and prior-id auto-revert are
   dev-loop concerns with no meaning on a single-game install.
+### Added — Behavior ARCHETYPES: stamp a whole proven tree (rung D, first slice)
+- The Behavior tab's cast rail (and its no-behavior guide) gained **＋ Archetype…**: pick a
+  proven tree, pick a named `[[npc]]`, and the unit is seated in one undo step — **sentry**
+  (announces once and raises `alarm` when the player closes, chases from mid range, walks a
+  minted beat), **patroller** (die guard + beat), **civilian** (bolts from the player to
+  refuge points, strolls a wander box at home). Sentry/patroller mint a closed 4-point beat
+  marker around the post (220u legs — clear of the ~192u actor-jam spacing; names dedupe)
+  with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
+  Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
+  and is CI-fenced by a real dry-compile of the stamped document.
+
+### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
+- `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
+  Hunt scenes (id 35 + the `LB_E080x` family — what a Lindblum-plaza fork borrows as its
+  donor-native fight) run `B_SYSVAR[17] B_NOT → RunBattleCode` end, terminating themselves
+  the instant the countdown reads 0. A siege's ending theater takes seconds, so a late
+  loss let the clock hit 0:00 before the `battle` fired and the fight ended the moment
+  combat started — nothing wrong in the generated script. New `stop_timer` behavior verb
+  (`RunTimer(0)`, needs a field `timer`), and `[siege]` now freezes the clock at the TOP
+  of its loss lane (above the sting and the staged text) and on the rout. Diagnosed with
+  `ff9mapkit battle-ai` — verify any scene a timed field fires. Cast-proven: "the fight
+  works now, clock froze."
+
+### Fixed — the `[[qte]]`/`[[numeric_input]]` result caps clear the nameplate words
+- The extended-nameplate band claimed gEventGlobal bytes 2006-2017 as live overworld
+  visited state (the explored words), but the modal `result` caps still read 4..2016 —
+  the reserved-region walk already refused 2005-2016, so the caps promised offsets the
+  validator then rejected, and the QTE suite's own pinned example (`result = 2006`) sat
+  on the first explored word. Both caps now derive from one owner,
+  `flags.RESULT_WORD_CAP` (2004, flush below `NAMEPLATE_EXPLORED_FLOOR`), so a future
+  floor move carries them along; docs and error messages updated, and `lint_flag_bands`
+  regression-pins that a result word in the nameplate words is named as such.
+
+### Fixed — the behavior Blackboard byte band clears the reserved heap top
+- The compiler's blackboard allocator handed out gEventGlobal bytes 1220..2040 linearly
+  with no reserved-region guard — but the top of that range is live state: the nameplate
+  explored words (2006-2017, save-persistent overworld visited bits), the `[[qte]]`
+  scratch, the netsync co-op cells (engine-written every frame under co-op), and the
+  choice mask (2040). A field needing ~786+ blackboard bytes silently allocated into all
+  of it. The ceiling is now `behavior.BYTE_END_DEFAULT` (2005, derived from
+  `flags.NAMEPLATE_EXPLORED_FLOOR` so a floor move carries it), the sibling of the
+  `RESULT_WORD_CAP` fix above; overflow stays a loud build-time `BehaviorError`. The
+  measured swarm wall moved with it (~5 swing pairs per unit at 40 units, was ~6 — the
+  6th only ever fit inside the reserved bytes), and a regression test exhausts the band
+  proving every handed-out word clears `flags.is_reserved`.
+
+### Added — the Behavior tab AUTHORS ON THE STAGE (rung C)
+- **Stage edit** (the ✥ toggle): every writable point on the stage grows a drag handle —
+  unit posts, the player spawn, patrol/march/flee route points (a point that is a NAME
+  reference moves the NAMED marker/NPC, never a silent literal copy), wander/scan centres,
+  `near_point` centres — and the selected unit's engagement rings grow a resize grip (the
+  radius dial, floored at 16u). One drop = one labeled undo step; right-click a route point
+  to insert (lands on the leg's midpoint, ready to drag) or delete (2-point floor). Guides
+  while you drag: the world compass in the layout probe's own words (+z back ▲ · −z front/
+  camera ▼ · +x east ▶), the ~192u actor-jam spacing ring around a dragged post, and a live
+  coordinate readout.
+- **Sweep routes** (the Instruments' WALKABILITY section): the `behavior lint` walkability
+  lane painted in place — every route leg swept against the field's walkmesh (an OFF-MESH
+  sub-segment draws in error with a ✕ at the exact named spot; a wall-hugging leg in warn
+  dashes) plus the chase/wander pursuit families (worst position-pairs drawn with the
+  blocked rate). The findings text is the CLI's word for word. Two truths, stated on the
+  button: the walkmesh comes from the SAVED file, the geometry from the open document; the
+  first press is the only disk read, after which every committed edit re-judges on the warm
+  mesh, debounced, on a worker.
+
+### Added — staged win/lose text (`announce` delay/sustain + `[siege]` list texts, theater rung D)
+- `announce` (and `announce_npc`) grew `delay = <frames>` — hold the dispatch level
+  SILENTLY before the window opens (the staged-text primitive: a chain of once-announces
+  on one monotonic flag pages like a cutscene, each delay the previous line's read time) —
+  and `sustain = <frames>` (hold after the open, so a line is read before a queued
+  `battle` takes the screen). Same level-holding law as `sfx`/`flash`.
+- `[siege] text_win` / `text_rout` / `text_loss` now also take a LIST of lines, paged at
+  `text_pace` frames (default 120). Win/rout aftermath lines page AFTER the proven
+  cry → purse → jingle beat; loss lines page PRE-detect (the sting idiom scaled to text),
+  the last line sustained before a `loss_battle`. Flashless staging grows `routed` on the
+  rout detect so win stages can tell the endings apart. Plain strings keep the proven
+  single-window shapes byte-for-byte (regression-pinned).
 
 ### Added — the `sfx` + `flash` behavior verbs + `[siege]` win theater (theater rungs A+B)
 - `do = { sfx = <id> }` (+ optional `bank`) plays one sound-effect cue from a behavior

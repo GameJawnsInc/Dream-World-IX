@@ -31,6 +31,7 @@
 | **W2** | **THE CONTENT RESCORE** — reframe a real summon's shot (pose / aim / projection distance) with **durations UNCHANGED**, so the two clocks stay aligned and no program byte moves | the op-146 read-vs-write probe row settled FIRST; then a deployed, **cast** proof: the camera looks different, the beats land where they always did, stock data reverts clean |
 | **W3** | **THE TIMING RESCORE** — durations change, so the program's phase thresholds must move WITH them (R3 recovered exactly where those constants live) | the retimed cast holds phase↔cut alignment; a deliberate mis-retime is shown to drift (the law demonstrated, not just asserted) |
 | **W4** | **THE RESKIN** — retexture a stock creature in place | a cast showing our texture on the stock cinematic, stock bytes untouched |
+| **W5** | **THE GENERALISATION** — the W tools take ANY stock summon (scaffold verbs, derivation-first, named refusals: texanim / multi-writer / dual-depth / dynamic-op / half-patch / headroom) | offline: 372/372 corpus sweeps + ef227 byte-compat pinned in gates; in-game: a SECOND summon's cast on each lever — Phoenix ef211 (scenery + camera) and Madeen ef251 (creature) |
 
 **Done = "editable in place":** a stock summon can be re-framed, re-timed, and re-skinned from our own
 declarative surface, with the stock install revertible at every step.
@@ -169,3 +170,56 @@ scenery must be re-authored *together*.
   rung but must gate any future one past ef227. Staged under `C:\gd\SCRATCH\summon-format\reskin-w4\`
   (13 previews reviewed offline); the cast protocol is `W4-RESKIN.md` §6, and the rung does not close
   until the cast is judged.
+- **W5 — ★ BUILT + DEPLOYED, casts pending** (`W5-GENERALIZE.md`, `retime_derive.py`, `w_survey.py`,
+  `w5_gates.py`, `phoenix_reskin.toml`/`phoenix_rescore.toml`/`madeen_reskin.toml`; commit
+  `b3ebdbf8`; suite 358/0/1 single-process, gates 5/5·8/8·8/8·8/8·9/9; every headline claim
+  adversarially re-derived from bytes). The three levers generalise with named refusals: reskin
+  refuses texanim (ef038/177/493-495 creature scope, unconditionally), multi-writer-unless-all-named
+  (ef381), dual-depth (ef447), zero-headroom blow-outs; camera refuses undisclosed dynamic ops
+  (324/372 effects carry one — ef227 was the outlier); retime's writer refuses unresolved peer-lui
+  (THE HALF-PATCH TRAP), non-derivable dividends, and anything failing the N=0 stock-identity gate —
+  its READER (`report --corpus`: lock tables + pairing quality + per-boundary derivability, 45/88)
+  ships; its writer deliberately stays uncast. NEW LAWS: THE SATURATED-RAMP / TWO-LOBE LAW (hue
+  headroom shrinks with creature saturation; the refusal trough sits on the stock hue's complement —
+  Phoenix/Rebirth-Flame alone can reach NO cold hue, so ef211 ships GLACIAL FRONTIER scenery-only and
+  **Madeen ef251 carries the creature-lever proof**, GLACIAL MADEEN +160°, rho 0.9156). Bench rows
+  Stock Phoenix **198** / Stock Madeen **199** on STEINIV's Rune menu (Spark would renumber the live
+  Iron Edge 197). Cast protocol = `W5-GENERALIZE.md` §5 (one relaunch, three judgments); the rung
+  does not close until the casts are judged.
+  **CAST RESULTS so far (2026-07-26): Madeen ★ PROVEN ("madeen looked glacial") — the CREATURE
+  lever generalises in-game, second witness after ef227. Phoenix cast A read STOCK — the scenery
+  recolor did not visibly land, the first-ever cast of a PURE id-0-palette recolor (W4's ef227 cast
+  bundled creature+scenery, so the scenery half was never proven in isolation and is now also in
+  question). Offline discriminators run: the 5 so-bound cells were exactly the recolored ones; ef211's
+  program does NO VRAM re-upload (one StoreImage = a read; 0 LoadImage/MoveImage; ef227/ef251 have
+  none); one bound model has neutral (128,128,128) prim colors. THE MAGENTA PROBE is LIVE on ef211
+  (sha f625ea32…, all 315 live entries of the five bound palettes → pure magenta, STP/cutouts
+  preserved; `reskin-w5/ef211/probe-magenta/`): any magenta in the next Stock Phoenix cast ⇒ upload
+  path works, the glacial key was perceptually swamped (prim modulation — L17 was only ever proven
+  for the CREATURE path); still stock ⇒ the id-0 scenery-palette path is DEAD at runtime — a
+  structural finding that re-opens W4's scenery attribution. Cast B (camera) deliberately held
+  until this resolves.**
+  **PROBE VERDICT ("magenta showed up in the flames") — THE UPLOAD PATH IS LIVE.** The id-0
+  scenery-palette path works at runtime (W4's ef227 scenery mechanism re-grounded); cast A's miss
+  was COMPOSITIONAL — the v1 key was blue-leaning AND desaturated (×0.85) into additive compositing
+  where stock flame cores wash to white. **THE ADDITIVE-COMPOSITING COROLLARY: for VFX textures the
+  in-game read keeps the channel the blend favours — pick hues that keep R on warm effects, and
+  never LOWER saturation on an already-max-sat ramp (v2's ×1.25 attempt clipped 100% of entries and
+  the blow-out gate refused — stock fire IS max-sat; the lawful punch is hue at sat 1.0).**
+  GLACIAL v2 deployed (hue_to 280, saturation 1.00 on the two vivid bound cells; container sha
+  4daab8ad…); combined-v2 (reskin+rescore, 17b6dcb6…) staged for cast B.
+  **v2 RECAST ★ PROVEN ("stock phoenix has magenta/violet") — THE SCENERY LEVER IS CAST-PROVEN on
+  a second summon.** Two of three levers now have their second witness (creature = Madeen, scenery
+  = Phoenix v2); the calibrated key reads exactly as designed (violet with magenta-hot cores).
+  Combined-v2 (17b6dcb6…) swapped live for CAST B — the camera lever, the last judgment: same
+  violet, H 384→288 from f87 (~33% wider from ~t 5.7 s through the rest of the cast).
+  **CAST B ★ PROVEN ("the pull back works, set edges look fine - no custom fit viewport stuff this
+  time") — ⛳ W5 IS CLOSED, 3/3 levers cast-proven on SECOND summons: creature (Madeen ef251),
+  scenery (Phoenix ef211 v2), camera (Phoenix H-pull). The W2 failure mode (the widened ef227
+  frame exposing the effect's own set edges) did NOT recur — the SCENERY LAW's modest-pull +
+  phase-budget rules held on a persistent 33% widening, which is the law validated as a design
+  rule, not just a post-mortem. RESTING STATE: combined-v2 (17b6dcb6…) LIVE on ef211 (violet
+  scenery + wide camera, owner-approved as cast), GLACIAL MADEEN (78b395f8…) LIVE on ef251,
+  ef227's spectral-mist untouched; reverts in reskin-w5/ef{211,251}/artifacts/ (delete-vs-restore
+  aware; the artifacts' v1-pinned deploy variants are superseded by the *-v2 files + the committed
+  tomls, which regenerate v2).**

@@ -775,7 +775,7 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit")
+BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep", "siege")
 
 
 def _load_behavior_demo():
@@ -791,9 +791,10 @@ def _load_behavior_demo():
 
 
 def snap_behavior(ctx: _Ctx, state: str) -> None:
-    """The Behavior tab (rung A, read-only): its teaching guide ('guide'), the demo field's
-    cast + ladder + stage ('doc'), or the same with the dry-compile instruments filled
-    ('compiled' -- blackboard map, byte histogram, flag copy rows)."""
+    """The Behavior tab: its teaching guide ('guide'), the demo field's cast + ladder +
+    stage ('doc'), the dry-compile instruments filled ('compiled'), the branch editor open
+    ('edit'), stage-edit mode with its drag handles + guides ('stage'), or the walkability
+    sweep's painted verdicts over the demo's REAL synthetic walkmesh ('sweep')."""
     if state not in BEHAVIOR_STATES:
         raise ValueError(f"unknown behavior state {state!r} (know: {', '.join(BEHAVIOR_STATES)})")
     win = _make_win(ctx)
@@ -807,7 +808,21 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     root = _SCRATCH / "behavior_demo"                  # stable path -- mkdtemp breaks pixel-diffing
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
-    toml = demo.make_behavior_field(root)
+    if state == "siege":                               # the READ-ONLY generated view: test_siege's
+        import copy as _copy                           # own RAW through editor.model.dumps
+        import importlib.util as _ilu
+        from ff9mapkit.editor import model as _model
+        sp = _ilu.spec_from_file_location(
+            "_siege_fixture", REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_siege.py")
+        sm = _ilu.module_from_spec(sp)
+        sp.loader.exec_module(sm)
+        root.mkdir(parents=True, exist_ok=True)
+        toml = root / "field.toml"
+        toml.write_text(_model.dumps(
+            {"field": {"name": "REDOUBT", "id": 30991}, "player": {"spawn": [0, -600]},
+             "siege": _copy.deepcopy(sm.RAW)}), encoding="utf-8")
+    else:
+        toml = demo.make_behavior_field(root)
     assert win.open_field(toml), "the behavior demo field must open"
     win.tabs.setCurrentWidget(win.behavior_doc)        # the shell feed runs on tab show
     _settle(6)
@@ -817,7 +832,16 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     elif state == "edit":
         win.behavior_doc._edit_branch(4)               # the chase row open in the branch editor
         _settle(4)
+    elif state == "stage":
+        win.behavior_doc.edit_btn.setChecked(True)     # handles + compass + ring grips
+        _settle(4)
+    elif state == "sweep":
+        win.behavior_doc.edit_btn.setChecked(True)
+        win.behavior_doc.sweep_now(sync=True)          # the REAL lane over the fixture's own
+        _settle(4)                                     # walkmesh sidecar -- verdicts, not props
     _grab(ctx, f"behavior-{state}", win)
+    if state in ("stage", "sweep"):                    # the canvas is the subject -- grab IT too
+        _grab(ctx, f"behavior-{state}-canvas", win.behavior_doc.canvas)
     _close(win)
 
 

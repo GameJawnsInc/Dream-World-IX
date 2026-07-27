@@ -119,7 +119,8 @@ bits 8192–8367 — whole-byte-written by ordinary play at any real moogle; now
 `flags.py`), with `[ate]` and `[[on_entry]]` also sharing index 8300. The single-field bands are now
 `flags.AUTO_*_BASE` (event 9100+ / cutscene 9200+ / choice 9300+ / on_entry 9400+ / ate 9500+, width
 100 each — placed above the behavior compiler's flag band 8860–9080 and below its blackboard byte
-band, bits 9760+), and `_FlagAlloc` **skips any index the project references explicitly**
+band, bytes 1220–2005 = bits 9760–16047, itself capped flush below the reserved heap top), and
+`_FlagAlloc` **skips any index the project references explicitly**
 (`flags.collect_safe_flag_indices`), so a defaulted block can never alias an authored story flag in
 the same build. Old saves that had legacy auto flags set will re-fire those once-events one time.
 

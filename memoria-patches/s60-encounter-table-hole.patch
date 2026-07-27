@@ -1,0 +1,48 @@
+THE ENCOUNTER TABLE HOLE (s60) -- a (zone, topograph, fog) triple with NO record means NO encounter.
+
+Stock's w_worldGetBattleScenePtr returned the zone slice's LAST record on a lookup miss
+(ff9.cs:9209, `return w_frameBattleScenePtr[i + useAlternate - 1]` with i == zoneInfoEnd), which
+made an authored table hole IMPOSSIBLE: any area's unlisted terrain rolled its zone's final row.
+Found in-game (R4b, 2026-07-26): kit ground stamped area 14 (zone 6, records only at topos 10/36)
+still fought zone 6's last record on topo-0 grass. The fix returns null on the miss; SelectScene
+treats null as scene 0 (= no battle, the same contract ProcessEncount already honors).
+
+Stock blast radius, censused before authoring: EXACTLY ONE spot map-wide exercises the fallthrough
+-- 22 stray area-10 topo-0 tiles in blocks (20,14)/(21,14)/(22,14) (open-plains slivers inside the
+zone-4 mountain region), which in stock fight zone 4's topo-36 brush row (rec 43) there. Under s60
+those 22 tiles become encounter-silent -- arguably fixing a stock authoring quirk. Every other
+walkable stock (zone, topograph, fog) triple has a real record (full census in
+studies/overworld-topography/southern-ring/REVERT.md s27).
+
+This is the engine half of THE TABLE IS THE LAW: the kit authors safety by stamping open ground
+into a table-hole area (area 14, the SAFE-ROAD stamp, REVERT.md s26); s60 makes the hole real.
+
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -9206,7 +9206,13 @@
+                 return ff9.w_frameBattleScenePtr[i + useAlternate];
+             }
+         }
+-        return ff9.w_frameBattleScenePtr[i + useAlternate - 1];
++        // s60: a (zone, topograph, fog) TABLE HOLE means NO ENCOUNTER. Stock returned the zone
++        // slice's LAST record here, which made a hole impossible to author (unlisted terrain
++        // rolled the zone's final row). Stock terrain exercises this fallthrough in exactly one
++        // place map-wide (22 stray area-10 topo-0 tiles in blocks (20-22,14), which today fight
++        // zone 4's brush set on open plains slivers); everywhere else every walkable stock
++        // (zone, topograph, fog) triple has a real record. SelectScene treats null as scene 0.
++        return null;
+     }
+
+     public static void w_worldPos2Cell(Single x, Single z, out Int32 cell)
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -191,6 +191,9 @@
+     {
+         EncountData encountData = this.gMode != 1 ? ff9.w_worldGetBattleScenePtr() : this._enCountData;
+
++        if (encountData == null)
++            return 0;   // s60: a world-table (zone, topograph, fog) hole = no encounter
++
+         if (SettingsState.IsFriendlyBattleOnly == 1)
+         {
+             for (Int32 i = 0; i < encountData.scene.Length; i++)

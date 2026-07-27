@@ -44,6 +44,9 @@ id = 30991
 [player]
 spawn = [500, -200]
 
+[walkmesh]
+bgi = "walkmesh.bgi"
+
 [[npc]]
 name = "watchman"
 pos = [620, 170]
@@ -152,10 +155,25 @@ def demo_raw() -> dict:
     return tomllib.loads(FIELD_TOML)
 
 
+def stage_mesh_bytes() -> bytes:
+    """The demo field's synthetic walkmesh (kit-built, zero SE bytes): the BGLADE floor
+    x[-300,1000] · z[-300,600] with a notch x(640,680) reaching down from the back edge
+    to z=60 — it cuts the patrol ring's legs, so the rung-C sweep lane has REAL jams to
+    name (the pursuit suite's u_mesh pattern, resized to this field)."""
+    from ff9mapkit.scene import bgi
+    xs = (-300, 640, 680, 1000)
+    verts = [(x, 0, z) for z in (600, 60, -300) for x in xs]
+    tris = [(0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+            (4, 5, 9), (4, 9, 8), (5, 6, 10), (5, 10, 9), (6, 7, 11), (6, 11, 10)]
+    return bgi.build(verts, tris).to_bytes()
+
+
 def make_behavior_field(root: Path) -> Path:
-    """Write the demo field.toml under ``root`` and return its path (gui_snap's builder)."""
+    """Write the demo field.toml (+ its walkmesh sidecar) under ``root`` and return its
+    path (gui_snap's builder). The sidecar makes the sweep lane real end-to-end."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    (root / "walkmesh.bgi").write_bytes(stage_mesh_bytes())
     p = root / "field.toml"
     p.write_text(FIELD_TOML, encoding="utf-8")
     return p
@@ -213,11 +231,14 @@ def test_dry_compile_without_behavior_is_a_problem_not_a_crash(tmp_path):
 # --------------------------------------------------------------------------- construction laws
 def test_construction_and_feed_touch_no_files(doc, monkeypatch):
     """The startup-spend law: building the doc and feeding it the OPEN dict must never reach
-    the one disk lane (dry_compile). The tripwire fails the test if anything spends it."""
+    a disk lane (dry_compile / load_walkmesh). The tripwires fail the test if anything
+    spends one uninvited."""
     def boom(_p):                                  # pragma: no cover - the fence itself
-        raise AssertionError("dry_compile spent outside the user's Compile click")
+        raise AssertionError("a disk lane spent outside the user's own click")
     monkeypatch.setattr(behaviorscan, "dry_compile", boom)
+    monkeypatch.setattr(behaviorscan, "load_walkmesh", boom)
     doc.show_field("BGLADE", demo_raw(), Path("unused.toml"))
+    doc.edit_btn.setChecked(True)                  # stage-edit handles are pure projections too
     assert doc._stack.currentWidget() is doc._content
 
 
@@ -450,6 +471,228 @@ def test_structural_ops_close_the_editor_first(edoc):
     assert edoc.editor.isVisibleTo(edoc)
     edoc._move_row(2, +1)                          # indices shift -> a stale editor would write
     assert not edoc.editor.isVisibleTo(edoc)       # into the wrong row
+
+
+# --------------------------------------------------------------------------- rung C: the stage authors
+def test_stage_edit_toggle_grows_handles_grips_and_the_compass(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    assert _scene_tags(edoc.canvas).count("handle") == 0
+    edoc.edit_btn.setChecked(True)
+    tags = _scene_tags(edoc.canvas)
+    assert tags.count("handle") == len(behaviorscan.stage_handles(raw))
+    assert tags.count("ringgrip") == 3             # the selected watchman's three near rings
+    assert edoc.canvas._compass.isVisibleTo(edoc.canvas)
+    edoc.edit_btn.setChecked(False)
+    assert _scene_tags(edoc.canvas).count("handle") == 0
+    assert not edoc.canvas._compass.isVisibleTo(edoc.canvas)
+
+
+def _handle_index(canvas, hid):
+    return next(i for i, r in enumerate(canvas._move_items) if r["handle"]["id"] == hid)
+
+
+def test_a_post_drag_commits_one_step_and_shows_the_guides(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc.edit_btn.setChecked(True)
+    i = _handle_index(edoc.canvas, ("pos", "watchman"))
+    assert edoc.canvas._begin_drag(("handle", i))
+    assert edoc.canvas._drag["spacing"] is not None    # the ~192u jam-spacing ring rides along
+    assert edoc.canvas._coords.isVisibleTo(edoc.canvas)
+    edoc.canvas._drag_world(640, 210)
+    assert "640" in edoc.canvas._coords.text()
+    edoc.canvas._end_drag()
+    assert raw["npc"][0]["pos"] == [640, 210]
+    assert edoc._edits == [("BGLADE", "move watchman")]
+    assert not edoc.canvas._coords.isVisibleTo(edoc.canvas)
+
+
+def test_a_drag_dropped_in_place_commits_nothing(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc.edit_btn.setChecked(True)
+    edoc.canvas._begin_drag(("handle", _handle_index(edoc.canvas, ("pos", "watchman"))))
+    edoc.canvas._end_drag()                        # no movement -> no write, no undo step
+    assert edoc._edits == [] and raw["npc"][0]["pos"] == [620, 170]
+
+
+def test_a_ring_grip_drag_writes_that_conds_radius(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc.edit_btn.setChecked(True)
+    g = edoc.canvas._grip_items[0]
+    assert edoc.canvas._begin_drag(("grip", 0))
+    edoc.canvas._drag_world(g["cx"] + 512, g["cz"])
+    assert "512" in edoc.canvas._coords.text()
+    edoc.canvas._end_drag()
+    _r, ui, bi, ci, verb = g["rid"]
+    assert raw["behavior"]["unit"][ui]["branch"][bi]["when"][ci][verb][1] == 512
+    assert edoc._edits and "512" in edoc._edits[0][1]
+
+
+def test_route_point_ops_ride_the_undo_contract_and_the_floor_refuses(edoc):
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc._on_stage_insert(("path", "ring", 0))     # midpoint of the first leg, ready to drag
+    assert len(raw["marker"][0]["path"]) == 5
+    for _ in range(3):
+        edoc._on_stage_delete(("path", "ring", 0))
+    assert len(raw["marker"][0]["path"]) == 2
+    steps = len(edoc._edits)
+    edoc._on_stage_delete(("path", "ring", 0))     # the 2-point floor
+    assert len(raw["marker"][0]["path"]) == 2
+    assert len(edoc._edits) == steps               # a refusal is not an undo step
+    assert "at least 2 points" in edoc.problems_lbl.text()
+    assert edoc.problems_lbl.property("state") == "warn"
+
+
+# --------------------------------------------------------------------------- rung D: archetype stamps
+def test_stamp_flow_rides_both_seams_and_the_undo_contract(edoc):
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "lone", "pos": [10, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    assert edoc._stack.currentWidget() is edoc._guide_page   # no [behavior] yet
+    edoc._ask_archetype = lambda: "sentry"         # both modal seams injected, never a dialog
+    edoc._ask_unit = lambda names: names[0]
+    edoc._stamp_archetype()                        # the guide's own action button calls this
+    assert edoc._stack.currentWidget() is edoc._content
+    assert edoc._selected_unit == "lone"
+    assert raw["behavior"]["unit"][0]["npc"] == "lone"
+    assert any(m["name"] == "lone_beat" for m in raw["marker"])   # the minted beat
+    assert behaviorscan.validate_problems(raw) == []
+    assert edoc._edits == [("PLAIN", "stamp sentry archetype on lone")]
+
+
+def test_stamp_with_no_free_npc_teaches(edoc):
+    edoc.show_field("BGLADE", demo_raw(), None)    # every demo npc already has a unit
+    edoc._ask_archetype = lambda: "sentry"
+    edoc._stamp_archetype()
+    assert "add\nan [[npc]] first" in edoc.problems_lbl.text() or \
+           "add an [[npc]] first" in edoc.problems_lbl.text()
+    assert edoc._edits == []
+
+
+def test_a_cancelled_picker_stamps_nothing(edoc):
+    raw = {"field": {"name": "PLAIN"}, "npc": [{"name": "lone", "pos": [1, 2]}]}
+    edoc.show_field("PLAIN", raw, None)
+    edoc._ask_archetype = lambda: None             # user pressed Escape
+    edoc._ask_unit = lambda names: names[0]
+    edoc._stamp_archetype()
+    assert "behavior" not in raw and edoc._edits == []
+
+
+def test_guard_stamp_flow_binds_a_target_through_the_third_seam(edoc):
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "brute", "pos": [10, 20]}, {"name": "hero", "pos": [90, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    edoc._ask_archetype = lambda: "guard"
+    edoc._ask_unit = lambda names: "hero"
+    asked = []
+    edoc._ask_target = lambda units: (asked.append(list(units)), "brute")[1]
+    edoc._ask_archetype2 = None
+    # no unit exists yet -> the guard needs its enemy seated first
+    edoc._stamp_archetype()
+    assert "seat its enemy first" in edoc.problems_lbl.text()
+    behaviorscan.add_unit(raw, "brute")
+    edoc.show_field("PLAIN", raw, None)
+    edoc._stamp_archetype()
+    assert asked == [["brute"]]
+    assert raw["behavior"]["unit"][1]["npc"] == "hero"
+    assert behaviorscan.validate_problems(raw) == []
+    assert edoc._edits[-1] == ("PLAIN", "stamp guard archetype on hero vs brute")
+
+
+def test_a_siege_field_renders_its_generated_behavior_read_only(edoc):
+    import importlib.util
+    from ff9mapkit.workspace import behaviorscan as BS
+    p = (Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py")
+    spec = importlib.util.spec_from_file_location("_siege_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    import copy
+    raw = {"field": {"name": "REDOUBT", "id": 30991}, "player": {"spawn": [0, -600]},
+           "siege": copy.deepcopy(mod.RAW)}
+    edoc.show_field("REDOUBT", raw, None)
+    assert edoc._stack.currentWidget() is edoc._content      # NOT the no-behavior guide
+    assert edoc._readonly and edoc._view is not raw
+    assert "read-only" in edoc.head_sum.text()
+    assert not edoc.add_unit_btn.isEnabled() and not edoc.edit_btn.isEnabled()
+    rows = _ladder_rows(edoc.ladder)
+    assert rows and not any(w for r in rows for w in r.findChildren(QPushButton))
+    assert "behavior" not in raw                             # rendering wrote NOTHING
+    edoc._stamp_archetype()                                  # the programmatic doors refuse
+    edoc._add_unit()
+    assert "behavior" not in raw and edoc._edits == []
+    edoc.show_field("BGLADE", demo_raw(), None)              # a normal field re-arms editing
+    assert not edoc._readonly and edoc.add_unit_btn.isEnabled()
+    assert BS.has_behavior(edoc._view)
+
+
+# --------------------------------------------------------------------------- rung C: the sweep lane
+def test_sweep_sync_paints_verdicts_and_arms_the_resweep(edoc, tmp_path):
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    assert edoc._sweep_armed and edoc._wmesh is not None
+    tags = _scene_tags(edoc.canvas)
+    assert tags.count("jam") >= 2                  # the notch cuts the ring: line + marker each
+    assert tags.count("pursuit") >= 2              # the chase family's worst pairs
+    assert "jam" in edoc.sweep_note.text()
+    assert edoc.sweep_note.property("state") == "error"
+    edoc._move_row(2, +1)                          # an armed edit re-judges, debounced
+    assert edoc._resweep_timer.isActive()
+
+
+def test_sweep_without_a_saved_path_teaches(edoc):
+    edoc.show_field("BGLADE", demo_raw(), None)
+    edoc.sweep_now(sync=True)
+    assert "save first" in edoc.sweep_note.text()
+    assert not edoc._sweep_armed
+    edoc._move_row(0, +1)                          # unarmed edits must NOT start the timer
+    assert not edoc._resweep_timer.isActive()
+
+
+def test_a_field_switch_drops_the_mesh_and_the_painted_verdicts(edoc, tmp_path):
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    assert _scene_tags(edoc.canvas).count("jam")
+    edoc.show_field("OTHER", demo_raw(), None)
+    assert edoc._wmesh is None and not edoc._sweep_armed
+    assert _scene_tags(edoc.canvas).count("jam") == 0
+    assert edoc.sweep_note.text() == ""
+
+
+def test_a_stale_sweep_never_paints(edoc, tmp_path):
+    """The generation guard: a worker still in flight for the OLD field lands after a
+    switch and must be dropped, not painted onto the new one."""
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    stale = behaviorscan.SweepResult(ok=True)
+    stale.jams = [{"a": (0, 0), "b": (10, 0), "t0": 0.1, "t1": 0.4,
+                   "mid": (2, 0), "span": 40.0, "name": "ghost"}]
+    stale.lines = [("error", "ghost jam")]
+    edoc._finish_sweep((edoc._sweep_gen - 1, stale, None))
+    assert _scene_tags(edoc.canvas).count("jam") == 0
+    assert "ghost" not in edoc.sweep_note.text()
+
+
+def test_the_doc_spends_every_stage_mechanism(doc):
+    """The call-site law for the new surface: the canvas callbacks must be the doc's own
+    committers, and the toggle/sweep buttons must reach their spenders."""
+    assert doc.canvas.on_move == doc._on_stage_move
+    assert doc.canvas.on_radius == doc._on_stage_radius
+    assert doc.canvas.on_insert == doc._on_stage_insert
+    assert doc.canvas.on_delete == doc._on_stage_delete
+    src = (Path(__file__).resolve().parents[1] / "ff9mapkit" / "workspace"
+           / "behaviordoc.py").read_text(encoding="utf-8")
+    for needle in ("edit_btn.toggled.connect(self._toggle_stage_edit)",
+                   "self.sweep_btn.clicked.connect(lambda: self.sweep_now())",
+                   "self._resweep_timer.start()",
+                   "self._reset_sweep()"):
+        assert needle in src, f"behaviordoc.py no longer spends {needle!r}"
+    assert src.count("self._reset_sweep()") >= 2   # field switch AND project close
 
 
 # --------------------------------------------------------------------------- dial + theme + call sites
