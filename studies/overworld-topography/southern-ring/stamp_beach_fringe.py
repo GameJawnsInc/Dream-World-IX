@@ -1,6 +1,13 @@
 """R5c -- THE BEACHABLE-FRINGE STAMP: give each ring island the topo-53 water fringe the engine
 dismount gate demands.
 
+⚠ SUPERSEDED by stamp_coast_nav.py (R5d, same day): the hand boxes below UNDER-COVER the real
+landmasses (the junction spans blocks (0-4,16-19); the R4 bench is at (1-2,1-3)), and 53-within-
+16u-of-ANY-ground is wrong at cliffs (stock 53 fronts beaches only) and under land (it made the
+sail-through worse). The v2 stamp re-derives all three navigation classes (53/54/56) over every
+deployed sea cell; re-running THIS script against the v2 state is a near-no-op (it only touches
+all-57 tris) but don't -- keep it as the R5c record.
+
 WHY: ff9.w_movementGetGetoff (mode 7 -- the Narciss class) refuses unless the tile ahead of the
 hull reads topograph 53 (beach-front water). Stock coasts grade Sea1/Sea2 topo-53 at the sand
 (block (7,17) proves it: 53 at the sand line, 54/55/56/57 grading out). The ring's islands were

@@ -160,6 +160,20 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
+## R5d — THE SAIL-THROUGH SEAL ★ DEPLOYED (2026-07-26; playtest pending): the coast-nav stamp v2
+
+R5c's playtest: boarding + beach landings work, but **the boat sails through kit cliffs** (never
+stock ones). Cause: kit cells ship a FULL-CELL ocean under the land, and the movement probe
+(`w_cellHit` with the sailing cache) hits that under-land water (57/53 — mask-legal) instead of
+rock; stock's water conforms and simply ends. Stock survey law: **53 fronts beaches ONLY; cliff
+fronts read 54/55/56/57** — stock blocks by geometry. Fix = **THE COAST NAVIGATION STAMP**
+(supersedes the R5c fringe's hand boxes, which had under-covered the junction + R4 bench): every
+water tri in every deployed sea cell re-classes topo-only — under-high-land → **56 keel-block**
+(seals the interior), low shores → **53** (landable), cliff-front open water → **54** (sailable,
+not landable — also kills the cliff-face dismount beam-up). Keel wins shared verts (23 first-vert
+holes taught the priority). 42,159 verts / 64 files ×2 discs; THE SEAL probe: 4,541 high-ground
+samples, **0 leaks**; all seven shores still land; the lane still 47/47. Record: REVERT.md §30.
+
 ## R5c — THE STOCK BOARDING UX ★ DEPLOYED (2026-07-26; playtest pending): plate, engine landing, beachable coasts
 
 The §28.4 playtest surfaced the deferred UX half: dismount always snapped home (v1.1 moor-home, the

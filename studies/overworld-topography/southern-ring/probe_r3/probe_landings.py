@@ -35,7 +35,8 @@ BOXES = {
 
 
 def is_ground(g):
-    return g is not None and g[1] not in BOAT_TOPOS
+    # 55/56 are WATER classes outside the boat mask (56 = the R5d keel-block) -- never ground.
+    return g is not None and g[1] not in BOAT_TOPOS and g[1] not in (55, 56)
 
 
 def main() -> int:
