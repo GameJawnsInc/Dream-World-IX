@@ -1,0 +1,109 @@
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -4583,6 +4611,105 @@ public static class ff9
+         WMPhysics.UseInfiniteRaycast = false;
+     }
+ 
++    // [ff9mapkit] Overworld black-screen SELF-HEAL. Recovers the 'no controlled actor' state (project-ff9-overworld-
++    // actor-brick): editing overworld geometry under the saved spawn leaves the leader with no wmActor / no control
++    // designator -> ff9.GetControlChar() null -> w_frameUpdate keeps w_moveActorPtr on the DUMMY (ff9.cs:4388) ->
++    // camera has nothing to follow -> BLACK, baked into the save. This rebuilds the control body + force-grounds it.
++    // Called from w_frameUpdate case 0 ONLY when GetControlChar() is null, and it SELF-TERMINATES: once it binds a
++    // real actor, next frame GetControlChar() is non-null so the else-branch never calls it again (no one-shot flag).
++    // Never touches the Bee scene or a non-overworld frame. Wrapped in try/catch so recovery can't crash the frame
++    // loop. Returns true if it healed this call.
++    public static Boolean w_worldSelfHealControl()
++    {
++        try
++        {
++            if (FF9StateSystem.World.IsBeeScene)
++                return false;
++            WMWorld w = ff9.world;
++            if (w == (UnityEngine.Object)null || w.Settings == null || !w.Settings.WrapWorld)
++                return false;                                      // not a live wrapping overworld (e.g. mid-transition)
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            if (ee == null)
++                return false;
++
++            // [ff9mapkit s61] a SCRIPTED WORLD SCENE (9001 cargo-ship flight / 9004 / 9006) legitimately
++            // runs with NO controlled actor: its cast is scene actor indexes (15+), and no human actor
++            // (index <= 2) is ever inited. Healing there hijacks control onto a scene actor, sky-casts the
++            // whole airborne cast to the ground (w_movementChrInitSlice), and binds the camera pointer
++            // against the script's own camera -- the 9001 "cargo ship circling at South Gate under a white
++            // sky" regression (F2, 2026-07-27; the heal landed 2026-07-04, the flight was first crossed on
++            // a fork after it). Heal ONLY when a player-class actor exists to heal; every free-roam world
++            // (00/02/03/05/07/08/09/10/11, +12) inits index 1/2, the scene worlds (01/04/06) never do.
++            Boolean hasPlayerActor = false;
++            for (ObjList pol = ff9.GetActiveObjList(); pol != null; pol = pol.next)
++            {
++                Obj pobj = pol.obj;
++                if (pobj.cid == 4 && ((PosObj)pobj).index <= 2)
++                {
++                    hasPlayerActor = true;
++                    break;
++                }
++            }
++            if (!hasPlayerActor)
++                return false;
++
++            // Already healthy? -> no-op (the normal path never reaches here; also the F6 "nothing to do" case).
++            WMActor ctrl = ff9.GetControlChar();
++            Boolean ptrOk = ff9.w_moveActorPtr != (UnityEngine.Object)null && ff9.w_moveActorPtr != ff9.w_moveDummyCharacter;
++            if (ctrl != (UnityEngine.Object)null && ptrOk)
++                return false;
++
++            // (1) Re-designate control to the leader (fixes controlUID==0 / stale designator).
++            PosObj po = ee.SetControlToLeader();
++            if (po == null || po.pos == null || po.pos.Length < 3)
++                return false;                                      // no actor / malformed struct -> unrecoverable here
++            Actor leader = (Actor)po;
++
++            // (2) Ensure EVERY active world actor has a wmActor BEFORE grounding: w_movementChrInitSlice dereferences
++            //     ((Actor)posObj).wmActor.pos for every cid==4 actor with NO null check (ff9.cs ~4570), so one null NPEs.
++            for (ObjList ol = ff9.GetActiveObjList(); ol != null; ol = ol.next)
++            {
++                Obj obj = ol.obj;
++                if (obj.cid == 4 && ((Actor)obj).wmActor == (UnityEngine.Object)null)
++                    w.addWMActorOnly((Actor)obj);
++            }
++            if (leader.wmActor == (UnityEngine.Object)null)
++                return false;                                      // couldn't build the control body
++
++            // (3) Seat the actor at its saved pos; if that's degenerate/off-grid, fall back to a known-safe cell so
++            //     the sky-cast has valid geometry ("the save doesn't know where to spawn me"). Y is re-derived below.
++            Single fx = po.pos[0], fy = po.pos[1], fz = po.pos[2];
++            Single wx = fx * 0.00390625f, wz = fz * 0.00390625f;   // fixed-point -> Unity units
++            if ((fx == 0f && fz == 0f) || wx < 0f || wx >= 1536f || wz > 0f || wz <= -1280f)
++            {
++                Vector3 cur = leader.wmActor.RealPosition;
++                if (cur.x > 0f && cur.x < 1536f && cur.z < 0f && cur.z > -1280f)
++                { fx = cur.x * 256f; fz = cur.z * 256f; }
++                else
++                { fx = ff9.kWorldSafeFallbackX * 256f; fz = ff9.kWorldSafeFallbackZ * 256f; }
++                po.pos[0] = fx; po.pos[2] = fz;
++            }
++            leader.wmActor.SetPosition(fx, fy, fz);                // SetPosition takes FIXED-POINT (multiplies by 1/256)
++
++            // (4) Force the destination block ready (w_nwpHit returns Y=0 on a !IsReady block), then sky-cast ground.
++            w.ForceLoadBlockReadyAt(new Vector3(fx * 0.00390625f, fy * 0.00390625f, fz * 0.00390625f));
++            ff9.w_movementChrInitSlice();
++
++            // (5) Bind the camera actor NOW; skip the world smoother a couple ticks (same idiom as F6 teleport / CC).
++            WMActor healed = ff9.GetControlChar();
++            ff9.w_moveActorPtr = healed != (UnityEngine.Object)null ? healed : leader.wmActor;
++            Memoria.SmoothFrameUpdater_World.Skip = 2;
++            global::Debug.Log("[ff9mapkit] w_worldSelfHealControl: rebuilt overworld player actor at ("
++                + (fx * 0.00390625f) + ", " + (fz * 0.00390625f) + ")");
++            return true;
++        }
++        catch (Exception err)
++        {
++            global::Debug.LogError("[ff9mapkit] w_worldSelfHealControl failed: " + err);
++            return false;
++        }
++    }
++
+     public static void w_movementChrFixBug()
+     {
+         WMActor wmactor = null;
