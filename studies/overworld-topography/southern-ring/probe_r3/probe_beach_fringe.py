@@ -1,5 +1,9 @@
 """R5c -- THE FRINGE-STAMP INTEGRITY PROBE.
 
+⚠ HISTORICAL (R5c state only): after the R5d coast-nav stamp this probe's integrity gate FAILS by
+design (it only allows 57->53; R5d adds 53->56/53->54/57->56/...). Use probe_coast_nav.py, which
+verifies the current state end to end. Kept as the R5c record.
+
 For every Sea4 file backed up by stamp_beach_fringe.py, prove against the live deploy:
   1. same byte length; diffs confined to tangent-slot X floats (offset tan_off + 16*i);
   2. every differing tangent.x decodes as IDALL topo 57 -> 53 with event/area/flags bits

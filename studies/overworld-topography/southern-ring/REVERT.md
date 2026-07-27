@@ -2844,3 +2844,62 @@ saves corrupt for us (proven 2026-07-22); kit-allocated parked-position storage 
    land ON Lamplight's shore, walk to the tower, come back, re-board where you left the boat →
    sail into the horseshoe channel and land on the horseshoe. That is the ring's first true
    port-to-port sail.
+
+---
+
+# 30. R5d — THE SAIL-THROUGH SEAL (the coast-nav stamp v2) — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26, from the owner's R5c playtest: *"i'm able to board the boat and get off at any
+beach i please - but found a major issue. for any of the islands we've created/forked, the boat
+is able to sail right through the cliffs. this doesn't happen on the stock landmasses."*
+
+## 30.1 Root cause — full-cell ocean under kit land
+
+`w_movementRoundCheck` (ff9.cs:5633) legality = raycast the NEXT position via `w_cellHit` WITH
+THE ACTOR'S TRI CACHE, then test the hit topo against the vehicle mask. Sailing, the cache holds
+water tris — so at an under-land position the probe hits the kit cell's FULL-CELL ocean mesh
+underneath the terrain (topo 57, and R5c's fringe had even made near-shore under-land water 53 —
+both in the Narciss mask) → LEGAL → the hull crosses the cliff. Stock never has water under land
+(the conforming-waterline grammar): the probe there hits rock/land (mask-illegal) or nothing.
+Stock survey (cliff blocks (9,17)/(10,18)/(3,13)/(16,17) + beach (7,17)): **topo 53 fronts
+beaches ONLY — never cliffs**; cliff-front water is 54/55/56/57 (stock blocks boats at cliffs by
+GEOMETRY, not topo).
+
+## 30.2 The fix — THE COAST NAVIGATION STAMP (three classes, every deployed sea cell)
+
+`stamp_coast_nav.py` (supersedes stamp_beach_fringe.py's hand boxes — which had under-covered:
+the junction landmass spans blocks (0-4,16-19), the R4 bench sits at (1-2,1-3)): every water tri
+in every deployed kit Sea1..Sea5 override re-derives its NAVIGATION class, topo bits only:
+
+* under HIGH ground (any of centroid+3 corners tops out on ground y≥1.5u) → **56 KEEL-BLOCK**
+  (water-class, outside the Narciss mask, foot-illegal — the interior seals);
+* under LOW ground / open water ≤16u from low ground → **53 beach-front** (landable);
+* open water ≤16u from only-high ground → **54 cliff-front** (sailable up to the rock, NOT
+  landable — kills the cliff-face dismount beam-up exploit R5c's 53-everywhere had left);
+* open sea → unchanged.
+
+Shared verts resolve **KEEL > BEACH > CLIFF** (round 1 ran beach-first and left 23 first-vert
+holes in the seal; the flip's cost — a keel-adjacent beach tri can refuse a landing at that exact
+spot — is bounded and measured by the landing probe). Two passes total: 38,970 + 3,189 verts
+across **64 sea files ×2 discs**.
+
+**Verification** (`probe_r3/probe_coast_nav.py`, output archived): THE SEAL — 4,541 high-ground
+samples across all deployed sea cells, **0 sail-through leaks** (every water tri under high
+ground reads outside {53,54,57}); byte integrity — all 64 files differ only in tangent.x topo
+bits, old∈{53..57} new∈{53,54,56}, disc parity holds; landings — all seven shores keep healthy
+53 sites (16-63 samples each); the north lane stays 47/47 sailable.
+
+## 30.3 Undo
+
+Restore the 64×2 sea files from
+`backups/r3-lamplight.20260726-r3lamplight/pre-coastnav-sea/` (returns the sail-through state
+with R5c's fringe); the deeper `pre-fringe-sea4/` returns the pre-R5c unlandable coasts.
+
+## 30.4 Playtest ask (owner) — no relaunch, re-enter the world
+
+1. **The seal**: sail straight at a kit cliff (Lamplight's outline, the horseshoe walls, the
+   junction's high coast) — the boat now stops at the rock like stock, and cannot cross any
+   island.
+2. **Landings still work**: beaches still land (plate → Confirm ashore); a cliff face refuses
+   (nothing happens — and no more beaming up cliff tops).
+3. **The lanes**: the north voyage unchanged.
