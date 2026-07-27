@@ -136,13 +136,22 @@ stops being a target the moment it starts falling; then the clip runs to complet
 `TerminateEntry`.
 
 > **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
-> against *that unit's own model* (`catalog.animations_for_model` — the `(group, token)`
-> join), and a name the model doesn't own is a lint ERROR that lists what it does own. This
-> matters because **field rigs are not battle rigs**: the CSO soldier rigs own
-> `attack_cid_1/2/3` and `hiza_*` (a kneel), but a field monster like `GEO_MON_F0_MUU` owns
-> only locomotion plus `jump`, and `GEO_MON_F0_FFG` adds `howl_*`/`smell_*` — there is no
-> attack or death clip to borrow. Check with `ff9mapkit models <name>` before authoring, and
-> pick the gesture that *reads* as a strike for that rig. A raw clip id bypasses the lookup.
+> against *that unit's own model*, and a name the model doesn't own is a lint ERROR listing
+> what it does own. This matters because **field rigs are not battle rigs**: a field monster
+> like `GEO_MON_F0_MUU` owns only locomotion plus `jump`, and `GEO_MON_F0_FFG` adds
+> `howl_*`/`smell_*` — there is no attack or death clip to borrow. A raw clip id bypasses
+> the lookup.
+>
+> **⚠ THE CROSS-FORM CLIP TRAP (proven in-game):** resolution is **same-form only**
+> (`catalog.own_form_gestures`), *not* the `(group, token)` join `animations_for_model`
+> uses. **A different FORM is a different SKELETON.** The CSO token's `attack_cid_*` clips
+> exist only in the **F3** form; playing one on a `GEO_NPC_F1_CSO` rig twists the model
+> upside-down in-game. A cross-form name is refused with the offending clip named. The
+> practical consequence is worth internalizing: within one token family, *different forms
+> own wildly different gesture sets* — `GEO_NPC_F3_CSO` owns the attacks and `hiza_*`,
+> `GEO_NPC_F0_CSO` owns `hiza_*` but no attack, `GEO_NPC_F1_CSO` owns neither, and
+> `GEO_NPC_F4_CSO` owns almost nothing. Author per rig, and expect some units to have no
+> honest clip at all.
 
 ## Alarms, shifts, levers
 

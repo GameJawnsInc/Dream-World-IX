@@ -179,6 +179,32 @@ def animations_for_model(name_or_id) -> dict:
     return {action: rank_id[1] for action, rank_id in best.items()}
 
 
+def own_form_gestures(name_or_id) -> dict:
+    """``{action_label: anim_id}`` for clips of the model's OWN (group, **form**, token) —
+    the strictly-same-rig subset of :func:`animations_for_model`.
+
+    ⚠ **THE CROSS-FORM CLIP TRAP (in-game, REDOUBT rung E):** ``animations_for_model``
+    joins on (group, token) and deliberately ignores the FORM, because the baked
+    movement slots really do share clips across forms in shipping fields. That
+    allowance does **not** generalize to arbitrary gesture clips: the CSO token's
+    ``attack_cid_*`` clips exist only in the **F3** form, and playing
+    ``ANH_NPC_F3_CSO_ATTACK_CID_3`` on a ``GEO_NPC_F1_CSO`` rig twists the model
+    upside-down in-game. A DIFFERENT FORM IS A DIFFERENT SKELETON. Anything that
+    plays a one-shot gesture on a field model (the behavior compiler's `anim`)
+    must resolve through THIS function and refuse a cross-form name."""
+    m = model(name_or_id)
+    if not m or not m.token:
+        return {}
+    best = {}
+    for aid, nm in ANIMATIONS.items():
+        s = _split_anh(nm)
+        if not s or s[0] != m.group or s[1] != m.form or s[2] != m.token:
+            continue
+        if s[3] not in best or aid < best[s[3]]:
+            best[s[3]] = aid
+    return best
+
+
 def animation_actions(name_or_id) -> list:
     """Sorted ``[(action_label, anim_id), ...]`` for a model (for display / the CLI)."""
     return sorted(animations_for_model(name_or_id).items())

@@ -2681,6 +2681,13 @@ class FieldBehavior:
                 fall.append(opcodes.wait(int(a.linger)))
             return asm([
                 _set_flag(self.bb.flag(f"{u.name}.active"), 0),   # mirrors stop first
+                # HOLD THE LEVEL for the whole death beat and NEVER release it: a
+                # dead unit must never dispatch again. Without this the ticker sees
+                # run==0 while the corpse falls and keeps dispatching the unit's
+                # OTHER bodies — the rung-E playtest's "soldiers still swing after
+                # the death anim starts" (harmless when the body was instantaneous,
+                # a real bug the moment it blocks).
+                _set_byte(run, 255),
             ] + bump + fall + [
                 opcodes.terminate_entry(255),
                 opcodes.RETURN,

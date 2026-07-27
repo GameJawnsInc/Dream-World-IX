@@ -16,9 +16,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `TerminateEntry`.
 - **THE OWN-CLIP LAW, now enforced at the call site:** `anim` takes a gesture NAME resolved
   against that unit's own model, and a foreign name is a lint error listing what the model
-  owns. Field rigs are not battle rigs — the CSO soldiers own `attack_cid_1/2/3` + `hiza_*`,
-  but `GEO_MON_F0_MUU` owns only locomotion + `jump` and `GEO_MON_F0_FFG` adds `howl_*`;
-  there is no attack/death clip to borrow. Raw ids bypass the lookup.
+  owns. Field rigs are not battle rigs — `GEO_MON_F0_MUU` owns only locomotion + `jump` and
+  `GEO_MON_F0_FFG` adds `howl_*`; there is no attack/death clip to borrow. Raw ids bypass
+  the lookup.
+- **⚠ THE CROSS-FORM CLIP TRAP (in-game):** resolution is **same-form only** (new
+  `catalog.own_form_gestures`), not the `(group, token)` join — **a different FORM is a
+  different SKELETON**. The CSO token's `attack_cid_*` exist only in the F3 form, and one on
+  a `GEO_NPC_F1_CSO` rig renders the model twisted upside-down; cross-form names are now
+  refused with the offending clip named. Within a token family the forms own wildly
+  different sets (F3 = attacks + `hiza_*`, F0 = `hiza_*` only, F1 = neither, F4 = almost
+  nothing), so some units honestly have no clip.
+- **Fixed — a dying unit kept acting:** the `die` body never held the dispatch level, which
+  was harmless while it was instantaneous but let the ticker keep dispatching the unit's
+  other bodies (its swings) once the death beat made it block. It now holds the level and
+  never releases it.
 - `[siege]`: per-class `anim` / `death_anim` / `linger` + a siege-wide `hit_sfx`. A siege
   with no theater dials emits the proven shapes byte-for-byte (regression-pinned).
 

@@ -105,8 +105,9 @@ hp = 4
 stance = "chase"
 radius = 2000
 speed = 65
-anim = "attack_cid_1"        # rung E: the CSO rigs really do own an attack gesture
-death_anim = "hiza_1"        # ... and a kneel, which reads as a collapse
+# rung E round 2: NO attack clip -- the CSO token's attack_cid_* live only in the F3
+# form, and F3-on-F0 is the cross-form trap. F0 does own its own kneel.
+death_anim = "hiza_1"
 
 [[siege.ally]]
 name = "shooter"
@@ -119,8 +120,8 @@ stance = "hold"
 radius = 600
 interval = 15
 speed = 50
-anim = "attack_cid_2"
-death_anim = "hiza_1"
+anim = "attack_cid_2"        # the SHOOTER is the F3 rig -- it owns the attack clips natively
+death_anim = "hiza_1"        # (and its own hiza) -- the one class with full theater
 
 [[siege.ally]]
 name = "defender"
@@ -134,8 +135,9 @@ radius = 340
 damage = 2
 interval = 30
 speed = 45
-anim = "attack_cid_3"
-death_anim = "hiza_1"
+# the F1 defender owns NEITHER attack_cid_* NOR hiza_* in its own form -- it was the
+# upside-down twist in round 1. Its own-form gestures are all_right_*/safety_check,
+# none of which read as a strike or a death, so it gets NO clip theater (honest > pretty).
 
 [[siege.raider]]
 name = "mun"
@@ -232,17 +234,21 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
-  6 THE NEW CLAIM (rung E) -- FIGHT THEATER, watch any melee:
-    - every landed hit plays an IMPACT SOUND (636) on the damage tick, not
-      per frame -- so it should read as a rhythm, not a buzz;
-    - soldiers/shooters/defenders swing with a real ATTACK clip
-      (attack_cid_1/2/3 -- the CSO rigs own these); mus LUNGE (jump) and
-      fangs HOWL, because those monster rigs own NO attack clip at all;
-    - nothing INSTANT-VANISHES any more: a dying unit plays its collapse
-      (soldiers kneel, monsters lunge/howl), holds ~0.5-1.5s, THEN
-      disappears. It stops fighting the moment it starts falling.
-    If a clip looks wrong for a rig, say which unit -- gestures are one
-    word each to swap (`ff9mapkit models <MODEL>` lists what it owns).
+  6 FIGHT THEATER (rung E round 2) -- two fixes from the round-1 cast:
+    - "soldiers still swing after the death anim starts": the death body
+      never held the dispatch level, so the ticker kept dispatching the
+      dying unit's OTHER bodies while it fell. It now holds and never
+      releases -- A DYING UNIT MUST DO NOTHING ELSE. Watch a soldier die:
+      collapse, hold, vanish, with NO swing mixed in.
+    - "the defender's animation twists him upside-down": THE CROSS-FORM
+      CLIP TRAP. The CSO token's attack_cid_* clips exist only in the F3
+      form, and an F3 clip on the F1 defender's skeleton renders twisted.
+      Gestures now resolve SAME-FORM only and refuse cross-form at lint.
+      Honest fallout -- only the SHOOTER (the F3 rig) owns attack clips, so
+      it is the only class that swings with one; the F0 soldier keeps its
+      own kneel; THE DEFENDER GETS NO CLIP AT ALL (its rig owns neither).
+    - unchanged: every landed hit thuds (636) on the damage tick; mus lunge
+      (jump), fangs howl -- those are same-form and were always fine.
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

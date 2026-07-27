@@ -1229,7 +1229,7 @@ def test_sfx_bare_and_validation():
                BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))
 
 
-def _theater_raw(swing_over=None, die_over=None, model="GEO_NPC_F0_CSO"):
+def _theater_raw(swing_over=None, die_over=None, model="GEO_NPC_F3_CSO"):
     return {
         "player": {"spawn": [0, -900]},
         "npc": [{"name": "guard", "model": model, "pos": [0, 0], "dialogue": "!"},
@@ -1254,8 +1254,8 @@ def test_swing_and_death_theater():
     the fort-condor 'instant vanish' complaint. Gesture NAMES resolve against
     the unit's OWN model (the own-clip law)."""
     from ff9mapkit import catalog as C
-    attack = C.animations_for_model("GEO_NPC_F0_CSO")["attack_cid_1"]
-    kneel = C.animations_for_model("GEO_NPC_F0_CSO")["hiza_1"]
+    attack = C.own_form_gestures("GEO_NPC_F3_CSO")["attack_cid_1"]
+    kneel = C.own_form_gestures("GEO_NPC_F3_CSO")["hiza_1"]
     raw = _theater_raw(swing_over={"anim": "attack_cid_1", "hit_sfx": 640},
                        die_over={"anim": "hiza_1", "linger": 45})
     assert BT.validate(raw) == []
@@ -1281,6 +1281,10 @@ def test_swing_and_death_theater():
             seq.append(("wait", ins.imm(0)))
         elif ins.op == 0x1C:                              # TerminateEntry
             seq.append("terminate")
+    # run is HELD (255) for the whole beat and never released — a dead unit must
+    # never dispatch again (the rung-E "still swinging after death" playtest)
+    runs = [ins for ins in D.iter_code(death, 0, len(death)) if ins.op == 0x05]
+    assert any("const(255)" in D.pretty_expr(death, i.off + 1)[0] for i in runs)
     assert seq == [("anim", kneel), "waitanim", ("wait", 45), "terminate"]
     # the SWING body: the clip is FIRE-AND-FORGET (no WaitAnimation would wedge
     # the loop) and the hit cue rides with it, both after the damage write
@@ -1301,6 +1305,23 @@ def test_own_clip_law_refuses_a_foreign_gesture():
                                      model="GEO_MON_F0_MUU"))
     assert any("owns no gesture 'attack_cid_1'" in p and "It owns:" in p
                for p in probs), probs
+
+
+def test_cross_form_clip_trap_is_refused():
+    """THE CROSS-FORM CLIP TRAP (in-game, REDOUBT rung E): the CSO token's
+    attack clips live only in the F3 form, and playing one on an F1 rig twists
+    the model upside-down — a different FORM is a different SKELETON. The token
+    join finds it, so this must be refused explicitly, not resolved."""
+    from ff9mapkit import catalog as C
+    assert "attack_cid_1" in C.animations_for_model("GEO_NPC_F1_CSO")   # token join
+    assert "attack_cid_1" not in C.own_form_gestures("GEO_NPC_F1_CSO")  # ... not its rig
+    probs = BT.validate(_theater_raw(swing_over={"anim": "attack_cid_1"},
+                                     model="GEO_NPC_F1_CSO"))
+    assert any("only in ANOTHER FORM" in p and "ANH_NPC_F3_CSO_ATTACK_CID_1" in p
+               for p in probs), probs
+    # the F0 soldier's kneel is genuinely its own; the F1 defender's is NOT
+    assert "hiza_1" in C.own_form_gestures("GEO_NPC_F0_CSO")
+    assert "hiza_1" not in C.own_form_gestures("GEO_NPC_F1_CSO")
     # a raw id passes through untouched (no model lookup at all)
     assert BT.validate(_theater_raw(swing_over={"anim": 7336})) == []
     # ... and is refused out of range / by type

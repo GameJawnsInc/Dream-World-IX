@@ -182,15 +182,25 @@ def resolve_gesture(v, model, ctx: str) -> int:
                                 f"against — give a raw clip id instead")
     from .. import catalog as _cat
     try:
-        owned = _cat.animations_for_model(model)
+        owned = _cat.own_form_gestures(model)       # SAME-FORM only (the trap below)
+        any_form = _cat.animations_for_model(model)
     except Exception as e:                      # noqa: BLE001 — no install / unknown model
         raise BehaviorTomlError(f"{ctx}: cannot resolve gesture {v!r} for model "
                                 f"{model!r} ({e})")
-    if v not in owned:
+    if v in owned:
+        return int(owned[v])
+    if v in any_form:
+        # THE CROSS-FORM CLIP TRAP — proven in-game: an F3-form attack clip on an
+        # F1 rig twists the model upside-down. A different FORM is a different
+        # SKELETON, so this is refused, not silently played.
         raise BehaviorTomlError(
-            f"{ctx}: model {model!r} owns no gesture {v!r} — the own-clip law "
-            f"refuses a foreign clip. It owns: {sorted(owned) or '(no field clips)'}")
-    return int(owned[v])
+            f"{ctx}: gesture {v!r} exists for model {model!r}'s token but only in "
+            f"ANOTHER FORM ({_cat.ANIMATIONS.get(any_form[v])}) — a different form "
+            f"is a different skeleton and plays TWISTED in-game (the cross-form "
+            f"clip trap). This rig's own-form gestures: {sorted(owned)}")
+    raise BehaviorTomlError(
+        f"{ctx}: model {model!r} owns no gesture {v!r} — the own-clip law "
+        f"refuses a foreign clip. It owns: {sorted(owned) or '(no field clips)'}")
 
 
 def _resolve_point(v, positions: dict, ctx: str):
