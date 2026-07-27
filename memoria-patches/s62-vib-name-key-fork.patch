@@ -1,0 +1,84 @@
+diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+index f5a53fed..81200478 100644
+--- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
++++ b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+@@ -26,6 +26,7 @@ public class HonoluluFieldMain : HonoBehavior
+         this.scString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR).ToString();
+         this.mapIDString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR).ToString();
+         this.ff9InitStateFieldLocation(this.FF9.fldLocNo);
++        Memoria.Netsync.NetSyncClient.Ensure();   // [ff9mapkit] co-op ghost-sync client (idempotent; inert outside the co-op field)
+     }
+ 
+     public override void HonoStart()
+@@ -89,8 +90,21 @@ public class HonoluluFieldMain : HonoBehavior
+         }
+         String text = FF9DBAll.EventDB[MapNo];
+         map.evtPtr = EventEngineUtils.loadEventData(text, EventEngineUtils.ebSubFolderField);
+-        AnimationFactory.LoadAnimationUseInEvent(text);
+-        vib.LoadVibData(text);
++        // [ff9mapkit s62] the EventAnimation preload list and the VibrationData blob are NAME-KEYED on the
++        // field's own event name -- a FORK's minted name misses both (the s31/s33 name-key class). The anim
++        // miss is a benign lazy-load; the VIB miss leaves vib.Parms.vibPtr NULL and the donor script's VIB
++        // ops then THROW mid-DoEventCode (Nullable.get_Value), aborting the whole event frame: hung cutscene
++        // actors + skipped story writes (F2 2026-07-27: the 6003 walk-snap; VIB throws logged in the forked
++        // cargo-ship fields). Resolve the DONOR's event name for both loads.
++        String assetKeyName = text;
++        Int32 vibDonorId = Memoria.DataPatchers.EffectiveFieldId(MapNo);
++        if (vibDonorId != MapNo)
++        {
++            try { assetKeyName = FF9DBAll.EventDB[vibDonorId]; }
++            catch (Exception) { assetKeyName = text; }
++        }
++        AnimationFactory.LoadAnimationUseInEvent(assetKeyName);
++        vib.LoadVibData(assetKeyName);
+         map.mcfPtr = MapConfiguration.LoadMapConfigData(text);
+         GameObject mapRootGo = GameObject.Find("FieldMap Root");
+         GameObject mapGo = new GameObject("FieldMap");
+@@ -131,6 +145,7 @@ public class HonoluluFieldMain : HonoBehavior
+         Int32 sndEffectResSoundID2 = allSoundDispatchPlayer.GetSndEffectResSoundID(1);
+         FF9Snd.BGMFieldSongCounter = 0;
+         SFXData.Reinit();
++        Memoria.Netsync.NetSyncClient.ApplyStoryBeforeEvents();   // [ff9mapkit] co-op: a following guest mirrors the HOST's gEventGlobal before Main_Init reads it
+         this.ee.StartEvents(map.evtPtr);
+         FF9StateSystem.Field.SetTwistAD(this.ee.GetTwistA(), this.ee.GetTwistD());
+         ETb.InitMessage();
+@@ -311,7 +326,7 @@ public class HonoluluFieldMain : HonoBehavior
+                         }
+                     }
+                     // Suspend field music/sounds as soon as the battle swirl starts, not when the battle music starts
+-                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, FF9StateSystem.Common.FF9.fldMapNo, FF9StateSystem.Field.FF9Field.loc.map.nextMapNo);
++                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo), FF9StateSystem.Field.FF9Field.loc.map.nextMapNo); // [ff9mapkit] fork falls back to the donor's field battle BGM
+                     Int32 currentMusicId = FF9Snd.GetCurrentMusicId();
+                     if (btlMusicid != -1 && btlMusicid != currentMusicId)
+                         FF9Snd.ff9fldsnd_song_suspend(currentMusicId);
+diff --git a/Assembly-CSharp/Global/vib.cs b/Assembly-CSharp/Global/vib.cs
+index f9a6e7cf..0054a0c7 100644
+--- a/Assembly-CSharp/Global/vib.cs
++++ b/Assembly-CSharp/Global/vib.cs
+@@ -252,6 +252,8 @@ public class vib
+ 
+     public static void VIB_setTrackActive(Int32 trackNdx, Int32 sampleNdx, Boolean isActive)
+     {
++        if (vib.Parms.vibPtr == null)
++            return;   // [ff9mapkit s62] no vibration data loaded (e.g. a field with none) -> the op is a no-op, never a throw
+         VIB_TRACK_DEF vib_TRACK_DEF;
+         for (Int32 i = 0; i < (Int32)vib.Parms.vibPtr.Value.trackCount; i++)
+         {
+@@ -278,6 +280,8 @@ public class vib
+ 
+     public static void VIB_setTrackToModulate(UInt32 trackNdx, UInt32 sampleNdx, Boolean isActive)
+     {
++        if (vib.Parms.vibPtr == null)
++            return;   // [ff9mapkit s62] no vibration data -> no-op
+         VIB_TRACK_DEF vib_TRACK_DEF = vib.VIB_TRACK_PTR(vib.Parms.vibPtr.Value, (Int32)trackNdx, (BinaryReader)null);
+         if (isActive)
+         {
+@@ -323,6 +327,8 @@ public class vib
+ 
+     public static Boolean VIB_getTrackActive(Int32 trackNdx, Int32 sampleNdx)
+     {
++        if (vib.Parms.vibPtr == null)
++            return false;   // [ff9mapkit s62] no vibration data -> nothing active
+         return (vib.VIB_TRACK_PTR(vib.Parms.vibPtr.Value, trackNdx, (BinaryReader)null).sampleFlags[sampleNdx] & (UInt16)vib.VIB_SAMPLE_ACTIVE) != 0;
+     }
+ 
