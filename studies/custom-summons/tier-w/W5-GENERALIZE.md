@@ -4,7 +4,10 @@
 > ANY stock summon, derivation-first, with named refusals where the proof does not reach, and ef227
 > byte-compat pinned in gates. Second proof staged on TWO effects: **Phoenix ef211** (scenery reskin +
 > camera rescore) and **Madeen ef251** (creature reskin). Built commit `b3ebdbf8`.
-> **Status: BUILT + DEPLOYED, casts pending — the rung does not close until the casts are judged (§CAST).**
+> **Status: ⛳ CLOSED 2026-07-26 — 3/3 levers CAST-PROVEN on second summons: creature (Madeen ef251
+> glacial), scenery (Phoenix ef211 GLACIAL v2, after the magenta-probe calibration loop), camera
+> (Phoenix H-pull, set edges clean — the SCENERY LAW's modest-pull rule validated). Cast record in
+> PLAN.md §Status W5; resting state = combined-v2 live on ef211 + glacial ef251 + ef227 untouched.**
 
 Process: 3 workflows (recon 5 agents / build 5 / verify+Madeen 4), every headline claim adversarially
 re-derived from raw bytes by independent parsers (V1: 7/7 confirmed, rho reproduced to 4 dp; V2:

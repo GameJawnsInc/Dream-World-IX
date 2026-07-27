@@ -265,8 +265,13 @@ name = "pal.s0.x0_y247.e256"
 expect_entries = 256
 expect_vram = [0, 247]
 expect_offset = 0x001278
-hue_to = 250.0
-saturation = 0.85        # rho 0.9947 -- the filaments keep their bright cores
+# v2 (in-game calibrated 2026-07-26): cast A read STOCK at hue 250 / sat x0.85 -- the magenta probe
+# then PROVED the upload path live (magenta showed in the flames), so the miss was COMPOSITIONAL:
+# under additive blending + warm prim tint, a desaturated blue washes toward the stock white-out.
+# v2 pushes INTO the channel that survives (R): violet 280, saturation RAISED not lowered.
+hue_to = 280.0
+saturation = 1.00        # v2b: stock's ramp is ALREADY at max saturation (x1.25 clipped 100% of
+                         # entries -- the gate refused); keep it full, v1's real sin was LOWERING it
 note = "DERIVED PRIVATE (exactly one GEOM model, 0x2b668) -- the full-screen flame field"
 
 # ---- the near-achromatic 207-entry sheet: S 0.09, so this is a tint, not a recolour.
@@ -294,8 +299,8 @@ name = "pal.s0.x80_y244.e16"
 expect_entries = 16
 expect_vram = [80, 244]
 expect_offset = 0x000d18
-hue_to = 250.0
-saturation = 0.90
+hue_to = 280.0           # v2: co-keyed with the fire field (see its note)
+saturation = 1.00        # v2b: x1.25 clipped 100% -- stock is already max-sat
 # headroom 8 (ceiling x1.348), unspent per the set's value law.
 note = "DERIVED PRIVATE: exactly one GEOM model (0x2d344) binds this cell"
 

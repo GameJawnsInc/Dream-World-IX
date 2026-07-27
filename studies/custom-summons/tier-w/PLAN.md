@@ -199,3 +199,27 @@ scenery must be re-authored *together*.
   for the CREATURE path); still stock ⇒ the id-0 scenery-palette path is DEAD at runtime — a
   structural finding that re-opens W4's scenery attribution. Cast B (camera) deliberately held
   until this resolves.**
+  **PROBE VERDICT ("magenta showed up in the flames") — THE UPLOAD PATH IS LIVE.** The id-0
+  scenery-palette path works at runtime (W4's ef227 scenery mechanism re-grounded); cast A's miss
+  was COMPOSITIONAL — the v1 key was blue-leaning AND desaturated (×0.85) into additive compositing
+  where stock flame cores wash to white. **THE ADDITIVE-COMPOSITING COROLLARY: for VFX textures the
+  in-game read keeps the channel the blend favours — pick hues that keep R on warm effects, and
+  never LOWER saturation on an already-max-sat ramp (v2's ×1.25 attempt clipped 100% of entries and
+  the blow-out gate refused — stock fire IS max-sat; the lawful punch is hue at sat 1.0).**
+  GLACIAL v2 deployed (hue_to 280, saturation 1.00 on the two vivid bound cells; container sha
+  4daab8ad…); combined-v2 (reskin+rescore, 17b6dcb6…) staged for cast B.
+  **v2 RECAST ★ PROVEN ("stock phoenix has magenta/violet") — THE SCENERY LEVER IS CAST-PROVEN on
+  a second summon.** Two of three levers now have their second witness (creature = Madeen, scenery
+  = Phoenix v2); the calibrated key reads exactly as designed (violet with magenta-hot cores).
+  Combined-v2 (17b6dcb6…) swapped live for CAST B — the camera lever, the last judgment: same
+  violet, H 384→288 from f87 (~33% wider from ~t 5.7 s through the rest of the cast).
+  **CAST B ★ PROVEN ("the pull back works, set edges look fine - no custom fit viewport stuff this
+  time") — ⛳ W5 IS CLOSED, 3/3 levers cast-proven on SECOND summons: creature (Madeen ef251),
+  scenery (Phoenix ef211 v2), camera (Phoenix H-pull). The W2 failure mode (the widened ef227
+  frame exposing the effect's own set edges) did NOT recur — the SCENERY LAW's modest-pull +
+  phase-budget rules held on a persistent 33% widening, which is the law validated as a design
+  rule, not just a post-mortem. RESTING STATE: combined-v2 (17b6dcb6…) LIVE on ef211 (violet
+  scenery + wide camera, owner-approved as cast), GLACIAL MADEEN (78b395f8…) LIVE on ef251,
+  ef227's spectral-mist untouched; reverts in reskin-w5/ef{211,251}/artifacts/ (delete-vs-restore
+  aware; the artifacts' v1-pinned deploy variants are superseded by the *-v2 files + the committed
+  tomls, which regenerate v2).**
