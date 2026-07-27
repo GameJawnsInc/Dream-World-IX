@@ -1229,6 +1229,122 @@ def test_sfx_bare_and_validation():
                BT.validate(_sfx_raw(do={"sfx": 108, "volume": 5})))
 
 
+def _theater_raw(swing_over=None, die_over=None, model="GEO_NPC_F3_CSO"):
+    return {
+        "player": {"spawn": [0, -900]},
+        "npc": [{"name": "guard", "model": model, "pos": [0, 0], "dialogue": "!"},
+                {"name": "beast", "model": "GEO_MON_F0_MUU", "pos": [400, 0],
+                 "dialogue": "!"}],
+        "behavior": {"unit": [
+            {"npc": "guard", "hp": 5, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": True, **(die_over or {})}},
+                {"when": [{"near": ["beast", 300]}],
+                 "do": {"swing_at": "beast", **(swing_over or {})}},
+                {"do": {"hold": [0, 0]}}]},
+            {"npc": "beast", "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": True}},
+                {"do": {"hold": [400, 0]}}]},
+        ]},
+    }
+
+
+def test_swing_and_death_theater():
+    """The strike's clip + hit cue ride the DAMAGE tick (inside the interval
+    gate), and the death beat plays a clip + lingers BEFORE TerminateEntry —
+    the fort-condor 'instant vanish' complaint. Gesture NAMES resolve against
+    the unit's OWN model (the own-clip law)."""
+    from ff9mapkit import catalog as C
+    attack = C.own_form_gestures("GEO_NPC_F3_CSO")["attack_cid_1"]
+    kneel = C.own_form_gestures("GEO_NPC_F3_CSO")["hiza_1"]
+    raw = _theater_raw(swing_over={"anim": "attack_cid_1", "hit_sfx": 640},
+                       die_over={"anim": "hiza_1", "linger": 45})
+    assert BT.validate(raw) == []
+    fb = BT.build(raw, npc_slots={"guard": 2, "beast": 3},
+                  npc_txids_by_name={}, behavior_txids={})
+    cb = fb.compile()
+    _verify_all(cb)
+    bodies = {}
+    for tag, body in cb.action_funcs["guard"]:
+        bodies[tag] = [(ins.op, ins.name) for ins in D.iter_code(body, 0, len(body))]
+    flat = [op for ops in bodies.values() for op, _n in ops]
+    assert 0x40 in flat                                   # RunAnimation emitted
+    # the DEATH body: RunAnimation + WaitAnimation + Wait(45) BEFORE TerminateEntry
+    death = next(body for _t, body in cb.action_funcs["guard"]
+                 if any(i.op == 0x1C for i in D.iter_code(body, 0, len(body))))
+    seq = []
+    for ins in D.iter_code(death, 0, len(death)):
+        if ins.op in (0x33, 0x34, 0x40):
+            seq.append(({0x33: "stand", 0x34: "walk", 0x40: "anim"}[ins.op],
+                        ins.imm(0)))
+        elif ins.op == 0x3F:                              # SetAnimationFlags
+            seq.append(("flags", ins.imm(0), ins.imm(1)))
+        elif ins.op == 0x41:
+            seq.append("waitanim")
+        elif ins.op == 0x22:
+            seq.append(("wait", ins.imm(0)))
+        elif ins.op == 0x1C:                              # TerminateEntry
+            seq.append("terminate")
+    # run is HELD (255) for the whole beat and never released — a dead unit must
+    # never dispatch again (the rung-E "still swinging after death" playtest)
+    runs = [ins for ins in D.iter_code(death, 0, len(death)) if ins.op == 0x05]
+    assert any("const(255)" in D.pretty_expr(death, i.off + 1)[0] for i in runs)
+    # THE DEATH POSE, both halves playtest-driven: no WaitAnimation (round 2
+    # rendered nothing), and the clip is installed as the object's STAND + WALK
+    # animation before the one-shot — otherwise it ends and the model stands
+    # back up (round 3's soldier), or a blocked march's walk clip overrides it
+    # outright (round 3's raiders).
+    # ... and FREEZE AT END (mode 1, 0 repeats): a stand clip loops by
+    # definition, so without this the corpse replays its death for the whole
+    # linger (round 4: "loop their death animation 3 times").
+    assert seq == [("stand", kneel), ("walk", kneel), ("flags", 1, 0),
+                   ("anim", kneel), ("wait", 45), "terminate"]
+    # the SWING body: the clip is FIRE-AND-FORGET (no WaitAnimation would wedge
+    # the loop) and the hit cue rides with it, both after the damage write
+    swing = next(body for _t, body in cb.action_funcs["guard"]
+                 if any(i.op == 0xC8 for i in D.iter_code(body, 0, len(body))))
+    ops = [ins.name for ins in D.iter_code(swing, 0, len(swing))]
+    assert "WaitAnimation" not in ops
+    sw = [(ins.op, ins.imm(1) if ins.op == 0xC8 else ins.imm(0))
+          for ins in D.iter_code(swing, 0, len(swing)) if ins.op in (0x40, 0xC8)]
+    assert sw == [(0x40, attack), (0xC8, 640)]
+
+
+def test_own_clip_law_refuses_a_foreign_gesture():
+    """A gesture the model does not own is an ERROR naming what it does own —
+    field MONSTER rigs carry no attack clip at all (MUU owns only locomotive
+    gestures + jump), which is exactly the trap this catches."""
+    probs = BT.validate(_theater_raw(swing_over={"anim": "attack_cid_1"},
+                                     model="GEO_MON_F0_MUU"))
+    assert any("owns no gesture 'attack_cid_1'" in p and "It owns:" in p
+               for p in probs), probs
+
+
+def test_cross_form_clip_trap_is_refused():
+    """THE CROSS-FORM CLIP TRAP (in-game, REDOUBT rung E): the CSO token's
+    attack clips live only in the F3 form, and playing one on an F1 rig twists
+    the model upside-down — a different FORM is a different SKELETON. The token
+    join finds it, so this must be refused explicitly, not resolved."""
+    from ff9mapkit import catalog as C
+    assert "attack_cid_1" in C.animations_for_model("GEO_NPC_F1_CSO")   # token join
+    assert "attack_cid_1" not in C.own_form_gestures("GEO_NPC_F1_CSO")  # ... not its rig
+    probs = BT.validate(_theater_raw(swing_over={"anim": "attack_cid_1"},
+                                     model="GEO_NPC_F1_CSO"))
+    assert any("only in ANOTHER FORM" in p and "ANH_NPC_F3_CSO_ATTACK_CID_1" in p
+               for p in probs), probs
+    # the F0 soldier's kneel is genuinely its own; the F1 defender's is NOT
+    assert "hiza_1" in C.own_form_gestures("GEO_NPC_F0_CSO")
+    assert "hiza_1" not in C.own_form_gestures("GEO_NPC_F1_CSO")
+    # a raw id passes through untouched (no model lookup at all)
+    assert BT.validate(_theater_raw(swing_over={"anim": 7336})) == []
+    # ... and is refused out of range / by type
+    assert any("anim id must be" in p for p in
+               BT.validate(_theater_raw(swing_over={"anim": 70000})))
+    assert any("hit_sfx must be an int" in p for p in
+               BT.validate(_theater_raw(swing_over={"hit_sfx": "boom"})))
+    assert any("linger must be an int" in p for p in
+               BT.validate(_theater_raw(die_over={"linger": 999})))
+
+
 def test_announce_delay_sustain():
     """delay = a silent level-hold BEFORE the window opens (the staged-text
     primitive: the previous line's read time), sustain = the hold AFTER (ring

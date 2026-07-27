@@ -44,6 +44,37 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
   Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
   and is CI-fenced by a real dry-compile of the stamped document.
+### Added — fight theater: strike clips, hit cues, and the death beat (theater rung E)
+- `swing_at` / `engage` take `anim` (a one-shot clip on the striker) + `hit_sfx` (the impact
+  cue), fired on the DAMAGE tick — inside the interval gate, never per frame. The clip is
+  fire-and-forget (no `WaitAnimation`), so a strike stays interruptible and a looping clip
+  can't wedge the swing loop.
+- `die` takes `anim` + `linger`: the long-standing "instant vanish" becomes a collapse —
+  active drops first (the corpse is inert immediately), the clip plays once and holds its
+  final pose, then the body vanishes after `linger` frames. Cast-proven over five rounds,
+  each a distinct mechanism, now written up as **THE FIELD-ANIMATION LAWS** in BEHAVIOR.md:
+  a blocking body must hold its dispatch level; a different form is a different skeleton;
+  never `WaitAnimation` in a level-4 async body; a one-shot is a LAYER (it ends → reverts to
+  the stand clip, and a blocked walk's clip overrides it → install as stand+walk); and it
+  must then FREEZE AT END (`SetAnimationFlags(1, 0)`) or a stand clip loops it forever.
+- **THE OWN-CLIP LAW, now enforced at the call site:** `anim` takes a gesture NAME resolved
+  against that unit's own model, and a foreign name is a lint error listing what the model
+  owns. Field rigs are not battle rigs — `GEO_MON_F0_MUU` owns only locomotion + `jump` and
+  `GEO_MON_F0_FFG` adds `howl_*`; there is no attack/death clip to borrow. Raw ids bypass
+  the lookup.
+- **⚠ THE CROSS-FORM CLIP TRAP (in-game):** resolution is **same-form only** (new
+  `catalog.own_form_gestures`), not the `(group, token)` join — **a different FORM is a
+  different SKELETON**. The CSO token's `attack_cid_*` exist only in the F3 form, and one on
+  a `GEO_NPC_F1_CSO` rig renders the model twisted upside-down; cross-form names are now
+  refused with the offending clip named. Within a token family the forms own wildly
+  different sets (F3 = attacks + `hiza_*`, F0 = `hiza_*` only, F1 = neither, F4 = almost
+  nothing), so some units honestly have no clip.
+- **Fixed — a dying unit kept acting:** the `die` body never held the dispatch level, which
+  was harmless while it was instantaneous but let the ticker keep dispatching the unit's
+  other bodies (its swings) once the death beat made it block. It now holds the level and
+  never releases it.
+- `[siege]`: per-class `anim` / `death_anim` / `linger` + a siege-wide `hit_sfx`. A siege
+  with no theater dials emits the proven shapes byte-for-byte (regression-pinned).
 
 ### Fixed — the loss battle dying on entry: THE CLOCK-COUPLED BATTLE LAW
 - `B_SYSVAR[17]` **is** `TimerUI.Time`, and real battle AI reads it: the Festival of the
