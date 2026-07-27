@@ -1,0 +1,56 @@
+--- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s64	2026-07-27 18:15:00.984089800 -0400
++++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 18:15:42.443739100 -0400
+@@ -4715,14 +4715,34 @@
+             if (ee == null)
+                 return false;
+ 
++            // [ff9mapkit s64] HARD gates: NEVER heal a scripted cutscene world. The scene owns the
++            // camera via its own invisible EYE/AIM rig (opcodes 0xB7/0xB8) and legitimately runs with
++            // controlUID == 0 the whole time. The s61 index gate below is DEFEATED there: the rig
++            // entries carry no SetObjectIndex, so they default to index 0 and read as "player-class"
++            // (s63 probe, F2 2026-07-27: the heal bound control to the cargo ship at frame 1, and
++            // step (3) below re-seated the SHIP at the save's standing spot, tearing the flight off
++            // its waypoint frame -- THE 9001 FLIGHT-SCENE BUG, live-confirmed). Belt: the engine's
++            // own cutscene-world list. Braces: any actor already wearing the rig flags = a script-
++            // owned camera, so custom scene worlds the list doesn't know are covered too.
++            if (ff9.IsEventWorldMap)
++                return false;
++            for (ObjList rigScan = ff9.GetActiveObjList(); rigScan != null; rigScan = rigScan.next)
++            {
++                Obj rigObj = rigScan.obj;
++                if (rigObj.cid == 4 && (((Actor)rigObj).actf & (EventEngine.actEye | EventEngine.actAim)) != 0)
++                    return false;
++            }
++
+             // [ff9mapkit s61] a SCRIPTED WORLD SCENE (9001 cargo-ship flight / 9004 / 9006) legitimately
+             // runs with NO controlled actor: its cast is scene actor indexes (15+), and no human actor
+             // (index <= 2) is ever inited. Healing there hijacks control onto a scene actor, sky-casts the
+             // whole airborne cast to the ground (w_movementChrInitSlice), and binds the camera pointer
+             // against the script's own camera -- the 9001 "cargo ship circling at South Gate under a white
+             // sky" regression (F2, 2026-07-27; the heal landed 2026-07-04, the flight was first crossed on
+-            // a fork after it). Heal ONLY when a player-class actor exists to heal; every free-roam world
+-            // (00/02/03/05/07/08/09/10/11, +12) inits index 1/2, the scene worlds (01/04/06) never do.
++            // a fork after it). Heal ONLY when a player-class actor exists to heal. s64 CORRECTION: the
++            // claim "the scene worlds (01/04/06) never init index <= 2" was FALSIFIED by the s63 probe --
++            // their camera-rig entries DEFAULT to index 0, so this gate alone never protected them; it
++            // stays as the free-roam belt only, the s64 gates above are the real cutscene guard.
+             Boolean hasPlayerActor = false;
+             for (ObjList pol = ff9.GetActiveObjList(); pol != null; pol = pol.next)
+             {
+@@ -4782,13 +4802,13 @@
+             WMActor healed = ff9.GetControlChar();
+             ff9.w_moveActorPtr = healed != (UnityEngine.Object)null ? healed : leader.wmActor;
+             Memoria.SmoothFrameUpdater_World.Skip = 2;
+-            global::Debug.Log("[ff9mapkit] w_worldSelfHealControl: rebuilt overworld player actor at ("
+-                + (fx * 0.00390625f) + ", " + (fz * 0.00390625f) + ")");
++            Log.Message("[ff9mapkit] w_worldSelfHealControl: rebuilt overworld player actor at ("
++                + (fx * 0.00390625f) + ", " + (fz * 0.00390625f) + ")");   // s64: Memoria's channel -- Debug.Log never reaches Memoria.log
+             return true;
+         }
+         catch (Exception err)
+         {
+-            global::Debug.LogError("[ff9mapkit] w_worldSelfHealControl failed: " + err);
++            Log.Error(err, "[ff9mapkit] w_worldSelfHealControl failed");   // s64: visible channel
+             return false;
+         }
+     }
