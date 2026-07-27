@@ -520,7 +520,17 @@ class ModelPackage:
       +0x18  u16[partCount]  TPAGE
       +0x24  u16[partCount]  CLUT
       +0x30  u16[partCount]  texture V-offset
+      +0x3c  u32  LOADER-COMPUTED, ZERO ON DISK -- do NOT read it as data
+      +0x40  u32  LOADER-COMPUTED, ZERO ON DISK -- do NOT read it as data
       +0x180 u32[N] MOTION TABLE, header-relative
+
+    ``+0x3c`` and ``+0x40`` are a trap worth naming (W7 SYNTHESIS sec 2.1 / R5): the id-5 loader WRITES
+    them at load time -- ``header[+0x40] = psx(header + firstBlock)``, the pointer
+    ``Hi_RegisterSummonModel`` then stores into ``SummonData+0x70`` -- and both are **zero in the file**
+    on every package checked (ef038/177/227/493/494/495). An offline reader that treats ``+0x40`` as
+    the texanim pointer therefore concludes "absent", which is wrong on all five armed packages. The
+    texanim region is derived from ``firstBlock`` and the motion table instead
+    (:func:`ff9mapkit.summons.reskin.texanim_region`), which is the same arithmetic the loader does.
     """
     tex_offset: int
     motion_count: int

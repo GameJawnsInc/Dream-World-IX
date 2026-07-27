@@ -296,20 +296,44 @@ ff9mapkit summon-reskin deploy bahamut_emblem.toml --mod-folder FF9CustomMap
 
 `plan`/`build` print both lanes' self-checks when both tables are present — the recolour's gates,
 then a note that the texel lever is COMPOSING onto its patched bytes, then the texel lane's own
-gates (the inverted region partition, the cutout census, the dead-pad report, the texanim check).
+gates (the inverted region partition, the cutout census, the dead-pad report, the texanim
+co-transform check, and the region invariant).
 `deploy` writes through the same ledger every summon verb uses; `revert` undoes exactly what it
 wrote. The texel lever's hot-reload guarantee is the *stronger* of the two: `SFX.Play` re-reads the
 container and unconditionally resets the texture cache on every cast, and a page upload IS the
 event that invalidates it — so, like the CLUT lane, no `~ → Reload` and no relaunch, but here
 there is no "wrong track" ambiguity either, because the whole cache is always dropped.
 
-### The texanim refusal, unconditional
+### The texanim table — five summons that are no longer off-limits
 
-Five stock creature packages (ef038, ef177, ef493, ef494, ef495) carry a texture-animation table
-this lane cannot prove safe for an INDEX edit — a running texanim may blit a frame over a repainted
-window mid-cast. Unlike the CLUT lane's scenery-only escape hatch, a texel edit on any of these five
-**refuses outright the moment a creature target is enabled — no acknowledgement lifts it.** Bahamut
-carries none, which is why it's this tutorial's donor.
+Five stock creature packages carry a small **texture-animation** table: **ef038** (Shiva) and
+**ef177 / ef493 / ef494 / ef495** (Carbuncle, shipped four times over). Earlier releases refused
+*every* creature edit on those five — recolour and repaint alike — because the table's layout was
+unread and it might have been swapping the creature's palette mid-cast.
+
+**It isn't.** The table copies a small rectangle of palette *indices* from a spare strip into a live
+window inside one creature part's own texture page — Shiva's eyelid, Carbuncle's eye and mouth. It
+cannot touch a palette at all. So what changed for you:
+
+* **a recolour of any of the five now just works**, with no acknowledgement key. If your spec still
+  carries `acknowledge_texanim = true`, it keeps building — the key is a **deprecated no-op** now,
+  the build says so, and `scaffold` no longer writes it. Delete the line. (One corner keeps the key
+  meaningful, and it never applies to a stock container: an armed table the tool *cannot decode*
+  falls back to the old rules — creature refuses outright, scenery still needs the key.)
+* **a repaint of any of the five now works too.** A whole-page repaint needs no key. A *localised*
+  one only has to be consistent: if you repaint the animated window, repaint the frames it swaps in
+  as well. Leave them stock and the build refuses with a **work order** — the clip, what you painted,
+  and the exact rectangles you left behind — because the first time the clip runs, the window pops
+  back to art your repaint never touched. `acknowledge_texanim_frames = true` on that row says the
+  asymmetry is what you wanted.
+
+`plan` and `export-art` both print the table now (each clip's part, frames and rectangle, plus the
+protected set), so you can see what to avoid before you open the PNG. Bahamut carries no table at
+all, which is why it's still this tutorial's donor — but the five are no longer a wall.
+
+One rule the tool now enforces on your behalf, on every summon: it never resizes, moves or rewrites
+that region. The engine keys a real decision on where it starts, and both levers are in-place splices
+that never need to — so every build checks the region came out byte-identical and tells you so.
 
 ### The dead-texel report
 

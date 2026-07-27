@@ -31,6 +31,11 @@ confirmed + 3 real defects found, all fixed; M1 corrected a build-round colour l
   `acknowledge_texanim = true`, whose message states the claim exactly (orthogonality assumed, not
   proven). Side-recon: ef038's own id-3 programs reach NO VRAM-transfer HLE op (op 0/1/166 census) —
   evidence recorded, gate NOT lifted (the 116/364-byte table stays unread).
+  ⚠ **SUPERSEDED BY W7** (`W7-TEXANIM.md`): the table is READ — a texel-blit clip table, per-CLIP not
+  per-part (`0x18` was the x64 *runtime* stride; the file record is `0x14`) — the orthogonality
+  assumption is now a measurement, both refusals lifted on a decoded table, and the key survives only
+  for the armed-undecodable degrade path. Kept as written: this was the honest state of knowledge at
+  W5, and its refusal shape is what a decoded-table failure still degrades to.
 - **Headroom derivation** replaces the falsified L5: "stock leaves headroom" was an ef227 accident
   (its peaks are ≤28); 46/93 creature CLUT rows corpus-wide peak at 31, including all six of ef211's.
   Per-target `value_ceiling` = 31/peak; zero-headroom + `value > 1.0` refuses.

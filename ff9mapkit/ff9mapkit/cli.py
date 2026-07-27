@@ -2360,6 +2360,11 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                        "coverage UNAVAILABLE (%s)" % e["coverage_reason"])
                 print("    %-12s %#08x %dx%d  %s" % (e["name"], e["page_offset"], e["wh"][0],
                                                      e["wh"][1], cov))
+            tx = man.get("texanim") or {}
+            if tx.get("armed"):
+                print()
+                for line in tx.get("lines", ()):
+                    print("  %s" % line)
             print("\n  These PNGs are DECODED STOCK ART -- local-only, never committable.  Paint them")
             print("  IN INDEX SPACE keeping the file name (the name is the contract); the .coverage")
             print("  overlay hatches the texels no face ever samples, where paint is inert.")
@@ -6824,9 +6829,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "([[reskin.target]], hue/saturation/value) and/or its own texture "
                               "pages ([[reskin.texel]], the indices themselves: shape, edge and "
                               "silhouette). No model, no donor. Every guard is derived from the "
-                              "container, and a shared / multi-writer / dual-depth / texanim-armed / "
-                              "zero-headroom palette -- or a scenery / 15bpp / co-transformed page -- "
-                              "REFUSES rather than flickers")
+                              "container, and a shared / multi-writer / dual-depth / zero-headroom "
+                              "palette -- or a scenery / 15bpp / co-transformed page, or an armed "
+                              "texanim table that does not DECODE -- REFUSES rather than flickers")
     _add_summon_edit_args(srk, lane="reskin", suffix="reskin")
     srk.add_argument("--previews", action="store_true",
                      help="plan: ALSO render the before/after previews (decoded stock art -- staged "

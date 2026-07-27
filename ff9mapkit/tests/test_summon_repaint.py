@@ -43,10 +43,12 @@ from ff9mapkit.summons import container as KC
 from ff9mapkit.summons import export as KE
 from ff9mapkit.summons import repaint as RP
 from ff9mapkit.summons import reskin as RS
+from ff9mapkit.summons import texanim as TA
 from ff9mapkit.summons import texture as KT
 from tests.test_summon_reskin import (_assemble, _build_scenery_id0, _words, synth_clut16,
                                       synth_clut256, build_synth_container,
                                       build_synth_creatureless_container)
+from tests.test_summon_texanim import synth_region
 
 SECTOR = KC.SECTOR
 CORPUS = Path(r"C:/gd/SCRATCH/summon-format")
@@ -225,6 +227,52 @@ def _write_png(tmp_path, blob: bytes, name: str, px: bytes) -> Path:
 def _page_bytes(blob: bytes, name: str) -> bytes:
     p = RP.texel_page(blob, name)
     return blob[p.page_offset:p.page_offset + p.page_bytes]
+
+
+# ---- the W7 texanim fixtures ---------------------------------------------------------------------
+#: TWO clip families on part 0, each a live window plus ONE source frame it blits from -- the ef038
+#: shape (a window and its spare art), at coordinates this file chose.  The window/source x and w are
+#: VRAM HALFWORDS in the file, so the TEXEL rects below are doubled: window (20,30,10,8) <- source
+#: (60,30,10,8), and window (20,50,10,8) <- source (60,50,10,8).  All four sit clear of :data:`CUTOUT`
+#: so a whole-page repaint covers every one of their texels and the cutout law never enters the test.
+TEXANIM_CLIPS = [(0, 0x1000, 0, 0, 1, (10, 30, 5, 8), [(30, 30)]),
+                 (0, 0x1000, 0, 0, 1, (10, 50, 5, 8), [(30, 50)])]
+#: the same rects in TEXEL space, as the gate reports them -- window, source, per clip.
+TEXANIM_RECTS = [((20, 30, 10, 8), (60, 30, 10, 8)), ((20, 50, 10, 8), (60, 50, 10, 8))]
+
+
+def armed_texel_blob(nparts: int = 1, region: bytes = None) -> bytes:
+    """The texel fixture with a texanim region that actually DECODES spliced into its armed span.
+
+    ``build_texel_container(texanim=N)`` arms N bytes of filler, which the reader refuses -- correct,
+    and exactly the armed-and-unread case, but useless for proving a lift.  The region generator lives
+    with the reader's own tests and is imported rather than copied.
+    """
+    region = synth_region(TEXANIM_CLIPS) if region is None else region
+    blob = bytearray(build_texel_container(nparts=nparts, texanim=len(region)))
+    ta = RS.texanim_region(bytes(blob))
+    assert ta.armed and ta.nbytes == len(region)
+    blob[ta.lo:ta.hi] = region
+    return bytes(blob)
+
+
+def _bump(v: int) -> int:
+    """Move one index without ever crossing the transparent boundary in either direction: 0 stays 0,
+    and every other value maps to a DIFFERENT non-zero index.  So these edits exercise the texanim
+    gate alone, never the cutout law as well."""
+    return v if v == 0 else 1 + (v % 255)
+
+
+def _repaint_all(px: bytes) -> bytes:
+    return bytes(_bump(v) for v in px)
+
+
+def _repaint_rect(px: bytes, x: int, y: int, w: int, h: int) -> bytes:
+    out = bytearray(px)
+    for yy in range(y, y + h):
+        for xx in range(x, x + w):
+            out[yy * KT.PAGE_W + xx] = _bump(out[yy * KT.PAGE_W + xx])
+    return bytes(out)
 
 
 # ============================================================ (1) the fixture + the derivations
@@ -639,16 +687,103 @@ def test_the_cutout_census_uses_the_DERIVED_transparent_set(tmp_path):
 
 
 # ---- the scope refusals --------------------------------------------------------------------------
-def test_an_armed_texanim_refuses_a_creature_repaint_outright(tmp_path):
-    """Unconditional -- no key lifts it.  The record addresses a texel WINDOW inside the part's own
-    page, so a running animation either blits over the repaint or slides the sample window across art
-    the author never previewed."""
-    blob = build_texel_container(nparts=1, texanim=116)
-    assert RS.texanim_region(blob).armed
+def test_an_armed_texanim_whose_table_does_NOT_decode_refuses_a_creature_repaint_outright(tmp_path):
+    """THE FALLBACK CONTRACT.  W7 lifted the blanket refusal, but the lift is conditional on a
+    successful PARSE -- never on the absence of an exception -- so an armed region the reader cannot
+    decode still refuses exactly as it did pre-W7, with no key able to lift it."""
+    blob = build_texel_container(nparts=1, texanim=116)      # armed, contents are filler
+    assert RS.texanim_region(blob).armed and TA.read(blob).unparseable
     src = _write_png(tmp_path, blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    rows = [{"name": "tex.part0", "source": str(src)}]
     with pytest.raises(RP.RepaintError, match="TEXANIM ARMED"):
+        RP.build(_spec_dict(blob, rows), str(tmp_path / "x_reskin.toml"), blob=blob)
+    rows[0]["acknowledge_texanim_frames"] = True             # ...and the L4 hatch does not open it
+    with pytest.raises(RP.RepaintError, match="does not decode"):
+        RP.build(_spec_dict(blob, rows), str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_a_repaint_that_touches_no_protected_rect_builds_under_an_armed_texanim(tmp_path):
+    """W7 L4, the clear case.  The protected set is the union of every clip's live window and every
+    source it blits from; an edit that stays out of all of them cannot be disturbed by the animation
+    and needs no key."""
+    blob = armed_texel_blob()
+    assert TA.read(blob).parsed
+    px = _repaint_rect(_page_bytes(blob, "tex.part0"), 90, 90, 10, 8)
+    src = _write_png(tmp_path, blob, "tex.part0", px)
+    b = RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src)}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert len(b.enabled) == 1 and b.patched != b.orig
+    assert "stays clear of every protected rect" in b.targets[0].texanim_note
+
+
+def test_a_whole_page_repaint_builds_under_an_armed_texanim_and_co_transforms_by_construction(
+        tmp_path):
+    """W7 L3.  A whole-page repaint (a global recolour or filter) reaches every rect of every clip
+    family, so it co-transforms the protected set BY CONSTRUCTION -- which is why this needs no
+    author-facing key.  The region itself must still come out byte-identical (R1)."""
+    blob = armed_texel_blob()
+    ta = RS.texanim_region(blob)
+    src = _write_png(tmp_path, blob, "tex.part0", _repaint_all(_page_bytes(blob, "tex.part0")))
+    b = RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src)}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    b.check = RP.self_check(b)
+    assert b.check.ok
+    note = b.targets[0].texanim_note
+    assert "every protected rect reached" in note, \
+        "the note states what is MEASURED (reach), not a consistency the tool cannot verify (V1 F2)"
+    assert "clip 0: 2/2" in note and "clip 1: 2/2" in note
+    assert b.patched[ta.lo:ta.hi] == blob[ta.lo:ta.hi], "THE REGION INVARIANT: region bytes moved"
+    assert "byte-identical" in b.region_invariant
+
+
+def test_an_asymmetric_repaint_refuses_naming_the_clip_and_the_sibling_rects_left_stock(tmp_path):
+    """W7 L4, THE CO-TRANSFORM REFUSAL.  Repainting a clip's live window and leaving the frame it
+    blits from stock means the window pops back to untouched art the first time the clip runs -- a
+    mid-cast flicker only a playtest catches.  The refusal has to be a WORK ORDER, so it names the
+    clip and the exact rects left stock rather than saying "texanim armed"."""
+    blob = armed_texel_blob()
+    win = TEXANIM_RECTS[0][0]
+    px = _repaint_rect(_page_bytes(blob, "tex.part0"), *win)
+    src = _write_png(tmp_path, blob, "tex.part0", px)
+    with pytest.raises(RP.RepaintError) as e:
         RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src)}]),
                  str(tmp_path / "x_reskin.toml"), blob=blob)
+    msg = str(e.value)
+    assert "THE TEXANIM CO-TRANSFORM" in msg and "clip 0" in msg
+    assert "LEFT STOCK: (%d,%d,%d,%d)" % TEXANIM_RECTS[0][1] in msg
+    assert "Repainted: (%d,%d,%d,%d)" % win in msg
+    assert "acknowledge_texanim_frames = true" in msg
+    assert "clip 1: 0/2" in msg, "the untouched sibling family is disclosed, not hidden"
+
+
+def test_the_asymmetric_repaint_builds_once_the_asymmetry_is_acknowledged(tmp_path):
+    """The escape hatch -- a DELIBERATELY asymmetric strip is a legitimate authoring move, exactly as
+    reshaping a torn wing edge is for the cutout law.  It is stated on the row, never inferred."""
+    blob = armed_texel_blob()
+    px = _repaint_rect(_page_bytes(blob, "tex.part0"), *TEXANIM_RECTS[0][0])
+    src = _write_png(tmp_path, blob, "tex.part0", px)
+    b = RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src),
+                                    "acknowledge_texanim_frames": True}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert b.targets[0].ack_texanim_frames
+    assert "ASYMMETRIC, acknowledged" in b.targets[0].texanim_note
+    assert "byte-identical" in b.region_invariant
+
+
+def test_a_page_no_clip_names_is_untouched_by_the_gate_and_the_readout_prints_the_table(tmp_path):
+    """The per-PART half of the rule: the table names part 0, so part 1 carries no protected rect at
+    all and a repaint of it is unconstrained.  And L6 -- the read-out prints the DECODED table, not
+    the opaque "TEXANIM ARMED (N bytes)" line that made the old refusal unanswerable."""
+    blob = armed_texel_blob(nparts=2)
+    src = _write_png(tmp_path, blob, "tex.part1", _repaint_all(_page_bytes(blob, "tex.part1")))
+    b = RP.build(_spec_dict(blob, [{"name": "tex.part1", "source": str(src)}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "not named by any clip" in b.targets[0].texanim_note
+    lines = RP.derivation_lines(blob, b.pages)
+    assert any("THE TEXANIM TABLE" in l for l in lines)
+    assert any("THE PROTECTED RECT SET" in l for l in lines)
+    assert any("2 clip(s) over part(s) 0" in l for l in lines)
+    assert any("creature texel scope is OPEN" in l for l in lines)
 
 
 def test_a_disabled_row_does_not_trip_the_texanim_gate(tmp_path):
