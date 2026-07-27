@@ -24,6 +24,16 @@
 >   laws behind them are documented on this page (there is no separate FORMAT.md block — a reskin/
 >   rescore spec is its own standalone TOML, not a `field.toml` block); step by step:
 >   [tutorial 14](tutorials/14-summon-reskin-rescore.md).
+> - **Repaint in place (`summon-reskin export-art` + `[[reskin.texel]]`)** — TIER W rung W6a, the
+>   second lever on the SAME `summon-reskin` verb: not a colour rotation but the texel INDICES
+>   themselves, so it can move a shape, an edge, a silhouette — the one thing a CLUT recolour
+>   structurally cannot do. **Landed this rung for creature texture pages only** (the one texel
+>   class measured free of every known hazard corpus-wide) and **offline-proven**: the indexed
+>   round trip is byte-identical on all 93 stock creature pages across all 24 decodable packages,
+>   every refusal ships with a test, and a composed proof artifact (the W4 spectral-mist Bahamut
+>   rebuilt plus a hard-edged brand stamped on its own wing) gates clean end to end — an in-game
+>   cast is the next step, not yet run in this rung. Scenery pages (mixed bit depths, multi-writer
+>   VRAM columns) are **explicitly out of scope, named W6b** — see the texel-lane section below.
 >
 > **Separate surface, still explicitly out of scope:** *dumping* a summon's raw container to
 > stdout/SCRATCH for reading, and *forking* one summon's structure into a brand-new effect
@@ -378,6 +388,192 @@ under the hue you chose (see THE SATURATED-RAMP LAW, below).
   transplant lane's own ledger — never creates one itself: doing so would make every *other* file in
   that folder invisible at a stroke.
 
+## Repaint a stock summon's texture in place — the texel lane (`[[reskin.texel]]`)
+
+`summon-reskin` is a per-index **colour function** — it can rotate a hue, but it structurally
+cannot move a texel from one index to another, so it can never change a shape, an edge, or a
+silhouette. The texel lane is the second lever on the same verb: it rewrites the **indices**
+themselves. Lands in a new sibling module, `summons/repaint.py`, which *consumes* what
+`reskin.py` already derives (`creature_pages`, `PaletteMap`, `texanim_region`, a `partition`
+parameter on `_regions`) rather than re-deriving it — `reskin.py`'s own docstring earmarks the
+repaint as "a different lane" and now names where it lives.
+
+**This rung (W6a) ships CREATURE TEXTURE PAGES only, on the INDEXED lane, and nothing else.**
+Every id-4 creature page is single-writer (0 collisions against every scenery rect and every id-9
+block, measured over 24 packages / 93 pages) and uniform 8bpp — the one texel class free of every
+hazard the corpus carries. A `[[reskin.texel]]` row naming anything outside that set — a scenery
+page, an `--art-lane rgba` export — REFUSES by name (`W6B_REASON`) rather than half-working; see
+**W6b, deferred**, below.
+
+```
+ff9mapkit summon-reskin export-art --ef 227 --out C:/gd/SCRATCH/summon-format/repaint/ef227/art
+  # decode every creature page to a paintable indexed PNG + a coverage overlay + a guarded scaffold
+ff9mapkit summon-reskin build  bahamut_emblem.toml   # resolves [[reskin.texel]] ALONGSIDE [[reskin.target]]
+ff9mapkit summon-reskin plan   bahamut_emblem.toml   # every gate, no write
+ff9mapkit summon-reskin verify bahamut_emblem.toml   # re-check what's staged, as bytes
+ff9mapkit summon-reskin deploy bahamut_emblem.toml   # write the override, same ledger as the CLUT lane
+ff9mapkit summon-reskin revert bahamut_emblem.toml   # undo exactly what deploy wrote
+```
+
+There is no separate CLI verb: `export-art` is a new `summon-reskin` action (only on the reskin
+lane — `summon-rescore` does not carry it), and `build`/`plan`/`verify`/`deploy`/`revert` climb the
+**same six-verb ladder** already documented above, now resolving whichever of `[[reskin.target]]`
+(CLUT lane) / `[[reskin.texel]]` (texel lane) a spec declares — either alone, or **both in one
+file**: a spec carrying both builds the recolour first and hands its patched bytes to the repaint,
+so the two levers ship as ONE container, ONE ledger, and ONE revert, with their changed-byte sets
+gated disjoint (see Orthogonality, below).
+
+### `export-art` — the paint workflow
+
+```
+ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed] [--no-coverage]
+```
+
+Reads the stock container out of your own install (or `--from <file>`), decodes every addressable
+creature page, and writes, per part, under a **local-only** root (`export.assert_local_only` — no
+repo path, no `StreamingAssets` tree, no install path, no `--force`, because a decoded page is
+Square-Enix content):
+
+- **`tex.part<N>.png`** — the paintable page itself, at the format of record (below).
+- **`tex.part<N>.coverage.png`** — the same page with its never-sampled texels hatched (green =
+  outer pad, red = an interior hole); omit with `--no-coverage`.
+- **`art.manifest.json`** — one record per part: `stock_sha256` (the drift guard a later `build`
+  re-checks), `page_offset`/`page_bytes`/`wh`/`clut_offset`/`tpage`/`clut`, and the measured
+  `covered_texels`/`dead_texels`/`interior_holes`/`transparent_indices` census.
+- **`texel.scaffold.toml`** — a fully guarded `[[reskin.texel]]` table, every `expect_*` filled in
+  from the derivation and every row `enabled = false` — the same "scaffold at identity, dial one
+  row at a time" posture the CLUT lane's own `scaffold` uses.
+
+`--art-lane rgba` is named in the CLI on purpose, not omitted: asking for it returns the
+measurement that rules it out (below) rather than a bare "unknown choice" error.
+
+### The format of record: an INDEXED PNG, never RGBA
+
+Every export is a **P-mode (palette-indexed) PNG** whose *pixels are the palette indices*, with the
+live CLUT row loaded as the PNG's own palette (**display-only** — the container stays the palette
+authority, and this lane writes **zero CLUT bytes**) and `tRNS` marking the one transparent entry
+so the cutout is visible to a painter, not just correct on import. Measured over every stock
+creature page: `decode → P-mode PNG → reload → indices` is **byte-identical 93/93** across all 24
+decodable packages. An RGBA round trip is not: 8.31% of the corpus's palette entries duplicate the
+full 16-bit word (STP included), so an RGBA export that **paints nothing at all** still moves 1,844
+of 16,384 texels re-importing ef251 part 0 — a lane whose no-op is not a no-op cannot carry a
+byte-identity gate, so `rgba` refuses with that number rather than shipping a silent trap. Import
+refuses anything that isn't mode `"P"`, isn't the exported size (no rescale — an index page has no
+meaningful resample), or uses an index past the page's own CLUT row length.
+
+### The `[[reskin.texel]]` schema
+
+`[reskin]` gains no new required key for the texel lane — `effect`/`label`/`expect_sha256`/
+`allow_unguarded` mean exactly what they mean for `[[reskin.target]]` (a spec may declare either
+table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one more switch:
+
+| key | required | meaning |
+|---|---|---|
+| `orthogonality.reskin` | *conditional* | a sibling `[[reskin.target]]` spec's path (relative to THIS file), composed onto by `compose = true` — see Composing with the CLUT lane, below. |
+| `orthogonality.compose` | no, default `false` | `true` rebuilds the named `reskin` sibling and splices this spec's texel edits onto ITS patched bytes instead of stock — the CLI's own one-spec path sets this implicitly whenever a spec carries both tables. |
+
+`[[reskin.texel]]` (repeatable — one row per page you touch):
+
+| key | required | meaning |
+|---|---|---|
+| `name` | **yes** | the page's *derived* name: `tex.part{N}`, one per creature part. A scenery-style name (`page.*`/`id9.*`) resolves to nothing on this rung and refuses with the W6b reason — `export-art` prints every name the container actually declares. |
+| `source` | *conditional* | the indexed PNG path (relative to the spec file), required the moment the row is `enabled`. |
+| `enabled` | no, default `true` | `false` ships the row's *intent* without splicing a byte — its guards and acknowledgement only become mandatory the moment it's switched on. |
+| `expect_page_offset` / `expect_page_bytes` / `expect_page_wh` | no | guards: if the container's own id-4 header derives a different span, the build refuses rather than splice into a place this row wasn't authored against. `export-art`'s scaffold fills these in for you. |
+| `palette_from` | no | names the CLUT-lane row (`creature.part{N}`) this page indexes into, as a stated cross-reference — a page's palette is a HEADER FACT, not a choice, so naming any other row refuses. Omitted = the stock palette, 0 CLUT bytes touched (this rung's default). |
+| `acknowledge_cutout_reshape` | *conditional* | required (`= true`, a literal boolean — a truthy string refuses rather than arms) before an edit that crosses the transparent-index boundary in either direction may build. See THE CUTOUT LAW, below. |
+| `note` | no | free text, carried into manifests/reports only. |
+
+### THE CUTOUT LAW, at the texel level
+
+`0x0000` decodes to alpha 0 on every stock summon, and the corpus puts **exactly one** such entry
+in every one of its 93 CLUT rows, always at index 0 — the transparent set is **derived from the
+active palette** on every build, never assumed to be `{0}`. A palette recolour can never touch this
+(the CLUT lane already carries "`0x0000` stays `0x0000`" as one of its five hard rules), but a
+texel edit changes which *index* a pixel holds, so it controls the model's silhouette directly.
+Every enabled row is counted **both directions** — `punch` (an opaque texel crossing into the
+transparent index) and `fill` (a transparent texel crossing into an opaque one) — and any non-zero
+count REFUSES unless the row says `acknowledge_cutout_reshape = true`. That is the one escape hatch
+this lane needs that the CLUT lane doesn't: reshaping a torn wing edge is a legitimate texel-level
+artistic move; painting through a hole by accident is not, and this is what catches the difference.
+
+### THE TEXANIM REFUSAL — unconditional, no key lifts it
+
+Five stock creature packages carry a non-zero texture-animation region between the id-4 geometry
+block and its first motion clip: **ef038** (116 bytes, 5 parts) and **ef177 / ef493 / ef494 /
+ef495** (364 bytes each, byte-identical across the four — one creature family). This rung reads the
+region's outer format for the first time (`u32 count` + `count` 20-byte records whose pointers all
+close inside the region, each one's first four fields decoding as a texel RECT that fits a 128×128
+page — `(27,62,11×12)` on ef038; `(33,78,9×14)` and `(24,102,8×14)` on the ef177 family), and both
+readings that survive are strictly worse for a texel edit than for a recolour: a frame blit
+overwrites repainted texels mid-cast, or a moving sample window shows frames the author never
+previewed. So a texel edit on any of the five packages **refuses outright the moment a creature
+target is enabled — no key lifts it**, unlike the CLUT lane's scenery-only escape hatch
+(`acknowledge_texanim`), because there is no scenery half of a texel edit on this rung to fall back
+to.
+
+### The dead pad — reported, never fatal
+
+Only **64.0%** of the corpus's creature texels are sampled by any face (975,202 of 1,523,712 across
+all 93 pages) — the rest is padding the geometry never reads. And over 99.6% of a page's dead
+texels form ONE border-connected margin, which is why `export-art`'s `.coverage.png` (rasterised
+from the container's OWN uv pools, corner-included so a one-texel-thin face still lights its own
+texel) is a complete instruction: paint inside the island. Editing the pad is **inert**, exactly the
+way a hue rotation is inert on the CLUT lane's achromatic cloud bands — so it's reported, with a
+per-target dead/live split and a count, and never fails a build.
+
+### Composing with the CLUT lane — one container, one ledger, one revert
+
+Two routes to the same artifact, because the two levers' byte spans are provably disjoint (the CLUT
+strip and the texel pages sit adjacent and non-overlapping in the container, e.g. on ef227:
+palettes at `0x0621a0..0x062da0`, texel pages at `0x04a1a0..0x0621a0`):
+
+- **one spec, both tables** — a `[reskin]` spec carrying `[[reskin.target]]` *and*
+  `[[reskin.texel]]` builds the recolour first and hands its patched bytes to the repaint. This is
+  the CLI's own path whenever both tables are present.
+- **`[reskin.orthogonality] reskin = "…"` + `compose = true`** — a texel-ONLY spec composes onto a
+  SHIPPED reskin spec's own rebuild, so the palette half keeps exactly one source of truth instead
+  of being copied into a second file that can drift.
+
+Either way the kit **proves** the disjointness rather than asserting it: the composed build's own
+self-check rebuilds the CLUT half from its own spec and intersects the two changed-offset sets —
+"THE COMPOSED HALVES ARE DISJOINT" is its own gate, right beside the region-partition gate that
+proves the CLUT strip, the id-4 header, and every geometry/program/camera/sequence region stayed
+byte-identical under the texel lane's own inverted partition. The reverse direction works too: a
+`[[reskin.target]]` spec can name `orthogonality.repaint = "…"`, and the CLUT lane's own
+`self_check` grows a `repaint` intersection gate — `reskin.py`'s `ORTH_REBUILDERS` now carries both
+`rescore` and `repaint`.
+
+### W6b, deferred — the scenery texel lane
+
+Everything past creature pages is out of scope for this rung and refuses by name
+(`the scenery texel lane is W6b: co-transform / same-bytes-two-bindings / u-spill / 15bpp
+unhandled`), because each clause is a measured hazard, not a caution:
+
+- **CO-TRANSFORM — the multi-chunk law.** 34 VRAM page cells collide across 5 containers
+  (ef225/227/251/381/447), and **not one of the 156 colliding writer pairs is byte-identical** —
+  every collision is genuinely time-shared art, not "repaint once, copy twice". Every collider is a
+  multi-chunk container, and every single-chunk container (367 of 372) structurally cannot collide,
+  so the gate collapses to one law: a container with more than one chunk needs every writer of a
+  shared cell named, or it refuses.
+- **SAME-BYTES-TWO-BINDINGS — supersedes "dual-depth" as the general shape.** ef227's column 448
+  is read as a 4bpp cloud band AND an 8bpp energy-ring picture over the SAME 4,032 halfwords — but
+  the hazard isn't depth-specific: ef211's column 640 shares 1,659 halfwords between two 4bpp
+  bindings at DIFFERENT palettes, which a bit-depth-only test would miss entirely. The general rule:
+  any two `so` bindings whose UV-covered halfword sets intersect, regardless of depth or palette.
+- **U-SPILL.** A model's `u` coordinate is 8-bit, but an 8bpp page is only 128 texels wide, so
+  `u > 127` addresses the *next* 64-halfword VRAM column — sometimes from a different resource
+  entirely (ef227's sky dome spans columns 704 and 768, sourced from `id-0` and `id-9`
+  respectively). **41 of 316 corpus so-bound textured models (13.0%)** sample past their own column,
+  so a repaint template keyed on a VRAM column instead of the model would silently cut a picture in
+  half.
+- **15bpp-DIRECT / STP.** 24 bindings across 12 effects sample a page with no CLUT to index against
+  at all (`tpage & 0x180 == 0x100`) — the indexed lane is structurally inapplicable there, and bit15
+  of a 15bpp halfword IS the semi-transparency flag with nowhere to live in an 8-bit palette index.
+
+Each law, its measurement, and its R1/R2 citation lives in the study record:
+`studies/custom-summons/tier-w/W6-TEXEL.md`.
+
 ## Reframe a stock summon's camera in place — `summon-rescore`
 
 A summon's camera is not reached from the effect's own program: it is played by the container's
@@ -464,10 +660,14 @@ cannot.
 ## Orthogonality — proving a reskin and a rescore can ship on one container together
 
 The proof runs from the **reskin** side: its `self_check` rebuilds a **sibling** spec from its own
-TOML (a rescore, or a study-only retime) and intersects its changed-offset set with the reskin's own
-— an empty intersection is the proof that the two edits land in disjoint bytes and can ship
-together. The sibling is named in `[reskin.orthogonality]` (`rescore = "…"`, `retime = "…"`),
-resolved **relative to the spec file's own directory**, never the module's. A sibling the spec names
+TOML (a rescore, a repaint, or a study-only retime) and intersects its changed-offset set with the
+reskin's own — an empty intersection is the proof that the two edits land in disjoint bytes and can
+ship together. The sibling is named in `[reskin.orthogonality]` (`rescore = "…"`, `repaint = "…"`,
+`retime = "…"`), resolved **relative to the spec file's own directory**, never the module's. A
+sibling named `repaint` reads its effect id out of its OWN `[reskin]` table (a texel spec is a
+`[reskin]` spec too — one file, two possible levers), not a `[repaint]` table that doesn't exist. A
+texel-only spec proves the same disjointness from its own side, in reverse: `orthogonality.reskin =
+"…"` names the CLUT sibling it composes onto (see the texel-lane section, above). A sibling the spec names
 but that doesn't exist FAILS the gate outright; a sibling nobody named is SKIPPED with that stated,
 so an unproven disjointness is never reported as a proven one — and a sibling that targets a
 *different* effect id is skipped too (rebuilding Bahamut's camera proves nothing about a reskin of

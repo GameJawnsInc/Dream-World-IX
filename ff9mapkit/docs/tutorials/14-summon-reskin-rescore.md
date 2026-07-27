@@ -209,6 +209,124 @@ SKIPS with that stated, so an unproven disjointness is never reported as a prove
 | write the override into a mod folder | `summon-reskin deploy <spec>` | `summon-rescore deploy <spec>` |
 | undo exactly what `deploy` wrote | `summon-reskin revert <spec>` | `summon-rescore revert <spec>` |
 
+## Part C — repaint its texture: the texel lane (`[[reskin.texel]]`)
+
+`summon-reskin` recolours; it cannot move a texel from one palette index to another, so it can
+never change a shape, an edge, or a silhouette. The texel lane is the second lever on the same
+verb, and this rung ships it for **creature texture pages only** (the one texel class measured
+free of every hazard the corpus carries) — scenery pages refuse by name, deferred to a later rung.
+This part walks the emblem walk: export a paintable page, edit it in index space, build, and see
+the composed artifact (a recolour *and* a brand, in one container).
+
+### 1. Export the paintable art
+
+```powershell
+ff9mapkit summon-reskin export-art --ef 227 --out C:/gd/SCRATCH/summon-format/repaint/ef227/art
+```
+
+Decodes every creature page Bahamut declares (six parts) to a **P-mode indexed PNG** — the pixels
+ARE the palette indices, the loaded palette is display-only (the container stays the palette
+authority; this lane writes zero CLUT bytes) — plus a `.coverage.png` per part (green hatch = the
+texels no face ever samples; paint there is inert) and two sidecars: `art.manifest.json` (the
+stock sha256 drift guard + every page's derived offset/size/palette) and `texel.scaffold.toml` (a
+fully guarded `[[reskin.texel]]` table, every row `enabled = false`).
+
+### 2. Edit the indexed PNG
+
+Open `tex.part0.png` in a **palette/indexed-mode** editor (not a generic RGBA one — an editor that
+flattens to RGBA on save breaks the byte-identity round trip this lane's whole gate rests on).
+Paint using the page's *existing* indices only — this lane moves indices around, it never mints a
+new colour. Keep `tex.part0.coverage.png` open beside it: anything outside the hatched pad is
+readable in-game, anything inside it is on-screen but never sampled.
+
+One boundary matters more than any other: index 0 is the model's transparent cutout on every stock
+summon. Paint through it (turning a hole opaque) or over its edge (turning opaque texels into a
+new hole) and the build will refuse until you say `acknowledge_cutout_reshape = true` on that row —
+THE CUTOUT LAW, [SUMMONS.md](../SUMMONS.md#the-cutout-law-at-the-texel-level). Reshaping a torn
+wing edge on purpose is legitimate; painting through a hole by accident is exactly what this catches.
+
+### 3. Author the spec — recolour AND repaint, one container
+
+The texel lane composes onto the CLUT lane rather than competing with it. Reusing `phoenix_reskin.toml`'s shape for Bahamut, one spec can carry both tables:
+
+```toml
+[reskin]
+effect = 227
+label  = "bahamut-emblem"
+expect_sha256 = "…"                # filled in by export-art's manifest / summon-reskin scaffold
+
+[[reskin.target]]                  # LEVER #1 -- the CLUT recolour (optional; omit for a bare repaint)
+name    = "creature.part0"
+enabled = true
+hue_to  = 200.0
+
+[[reskin.texel]]                   # LEVER #2 -- the texel repaint
+name    = "tex.part0"
+source  = "art/tex.part0.png"      # relative to THIS spec file
+enabled = true
+expect_page_offset = 0x0004a1a0    # filled in by export-art's scaffold
+expect_page_bytes  = 0x4000
+expect_page_wh     = [128, 128]
+# palette_from = "creature.part0"  # optional; omitted = the stock palette, 0 CLUT bytes touched
+```
+
+A spec naming only `[[reskin.texel]]` rows is a bare repaint; naming only `[[reskin.target]]` rows
+is the plain recolour from Part A. **With both present, `build` resolves the recolour first and
+hands its patched bytes to the repaint** — one container, one ledger, one revert, with the two
+lanes' changed-byte sets gated disjoint ("THE COMPOSED HALVES ARE DISJOINT" in the self-check).
+
+There's a second route to the same artifact: instead of repeating the `[[reskin.target]]` row
+inline, a **texel-only** spec (no `[[reskin.target]]` table at all) can point at an
+**already-shipped** reskin spec and compose onto its rebuild:
+
+```toml
+[reskin.orthogonality]
+reskin  = "bahamut_reskin.toml"    # the CLUT lane's own spec, resolved relative to THIS file
+compose = true
+```
+
+### 4. Plan, build, verify, deploy, revert — the same ladder
+
+```powershell
+ff9mapkit summon-reskin plan   bahamut_emblem.toml
+ff9mapkit summon-reskin build  bahamut_emblem.toml --out C:/gd/SCRATCH/summon-format/repaint/ef227
+ff9mapkit summon-reskin verify bahamut_emblem.toml --out C:/gd/SCRATCH/summon-format/repaint/ef227
+ff9mapkit summon-reskin deploy bahamut_emblem.toml --mod-folder FF9CustomMap
+```
+
+`plan`/`build` print both lanes' self-checks when both tables are present — the recolour's gates,
+then a note that the texel lever is COMPOSING onto its patched bytes, then the texel lane's own
+gates (the inverted region partition, the cutout census, the dead-pad report, the texanim check).
+`deploy` writes through the same ledger every summon verb uses; `revert` undoes exactly what it
+wrote. The texel lever's hot-reload guarantee is the *stronger* of the two: `SFX.Play` re-reads the
+container and unconditionally resets the texture cache on every cast, and a page upload IS the
+event that invalidates it — so, like the CLUT lane, no `~ → Reload` and no relaunch, but here
+there is no "wrong track" ambiguity either, because the whole cache is always dropped.
+
+### The texanim refusal, unconditional
+
+Five stock creature packages (ef038, ef177, ef493, ef494, ef495) carry a texture-animation table
+this lane cannot prove safe for an INDEX edit — a running texanim may blit a frame over a repainted
+window mid-cast. Unlike the CLUT lane's scenery-only escape hatch, a texel edit on any of these five
+**refuses outright the moment a creature target is enabled — no acknowledgement lifts it.** Bahamut
+carries none, which is why it's this tutorial's donor.
+
+### The dead-texel report
+
+`export-art`'s coverage measurement generalises: only 64.0% of the corpus's creature texels are
+ever sampled by a face. Paint outside the hatched pad and the build still succeeds — it's reported
+as an inert edit (dead texel count, per target), never a failure, exactly like a CLUT hue rotation
+on an achromatic cloud band.
+
+### What's NOT here yet — the scenery texel lane (W6b)
+
+Everything past a creature's own texture pages — the ground, sky, and fire-field textures a summon's
+effect draws itself — is out of scope for this rung and refuses by name: mixed bit depths sharing
+one VRAM column (SAME-BYTES-TWO-BINDINGS), pages written by more than one chunk at different cast
+phases (CO-TRANSFORM), models whose UVs spill into a neighbouring VRAM column (U-SPILL), and 15bpp-
+direct pages with no CLUT to index against at all. Full detail:
+[SUMMONS.md](../SUMMONS.md#w6b-deferred--the-scenery-texel-lane).
+
 ## Provenance, one more time
 
 The stock container is read fresh from *your* install's `resources.assets` on every `build`/`deploy`

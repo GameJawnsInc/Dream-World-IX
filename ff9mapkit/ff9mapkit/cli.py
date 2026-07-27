@@ -2079,6 +2079,13 @@ def _cmd_summon_seq_lint(args: argparse.Namespace) -> int:
 #: the sub-verb ladder, in the order an author walks it.
 _SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert")
 
+#: ``export-art``'s round-trip formats, mirroring :data:`ff9mapkit.summons.repaint.ART_LANES`.
+#: Stated literally here because the parser is built before any summon module is imported (every
+#: handler imports lazily), and PINNED EQUAL to the module's own tuple by a test -- a `choices=` list
+#: that drifted from the lane the handler dispatches on would refuse a lane that works, or offer one
+#: that does not.
+_SUMMON_ART_LANES = ("indexed", "rgba")
+
 
 class _SummonEditUsage(Exception):
     """A usage refusal in the edit lanes (a missing ``--ef``, a spec that cannot be resolved).
@@ -2249,23 +2256,54 @@ def _summon_edit_revert(script, args, what: str) -> int:
     return subprocess.call(cmd)
 
 
-def _cmd_summon_reskin(args: argparse.Namespace) -> int:
-    """Recolour a STOCK summon's palettes in place -- no model, no donor, the container's own CLUTs.
+def _summon_reskin_lanes(spec: dict) -> tuple:
+    """Which levers ONE ``[reskin]`` spec declares: ``(has CLUT targets, has TEXEL targets)``.
 
-    `scaffold` reads the container and EMITS a fully guarded spec with every knob at identity;
-    `plan` resolves every target and prints the derivation, the transforms and all five gate groups
-    without writing a byte; `build` stages the patched container + previews + the deploy/revert
-    scripts under a local-only root; `verify` re-reads what is staged AS BYTES; `deploy` writes into
-    the resolved mod folder through the ledger; `revert` runs that ledger's own script."""
+    One spec, two levers, because their byte spans are provably disjoint (the CLUT strip and the
+    texel pages are adjacent and non-overlapping): making an author keep two files in step for one
+    container would invent a drift risk the format does not have.
+    """
+    r = spec.get("reskin") or {}
+    return bool(r.get("target")), bool(r.get("texel"))
+
+
+def _summon_reskin_spec_lanes(path) -> tuple:
+    """The same answer WITHOUT building anything -- `revert` has to work on a machine whose install
+    has moved or gone, and it still has to know which lane staged the artifact it is undoing."""
+    import tomllib
+    try:
+        with open(path, "rb") as fh:
+            return _summon_reskin_lanes(tomllib.load(fh))
+    except (OSError, ValueError):
+        return (True, False)
+
+
+def _cmd_summon_reskin(args: argparse.Namespace) -> int:
+    """Edit a STOCK summon's own art in place -- no model, no donor, the container's own bytes.
+
+    TWO LEVERS ON ONE LADDER.  `[[reskin.target]]` is the CLUT recolour (lever #1, a per-index colour
+    function); `[[reskin.texel]]` is the TEXEL REPAINT (lever #2, the indices themselves -- shape,
+    edge and silhouette, which a recolour structurally cannot touch).  A spec may declare either or
+    BOTH, and a spec declaring both builds the recolour first and hands its patched bytes to the
+    repaint, so the two levers ship as ONE container, ONE ledger and ONE revert with their
+    changed-byte sets gated disjoint.
+
+    `export-art` decodes every creature page to a paintable indexed PNG + a coverage overlay + a
+    guarded scaffold under a local-only root; `scaffold` emits a fully guarded CLUT spec at identity;
+    `plan` resolves every target and prints every gate group without writing a byte; `build` stages
+    the patched container + previews + the deploy/revert scripts; `verify` re-reads what is staged AS
+    BYTES; `deploy` writes into the resolved mod folder through the ledger; `revert` runs that
+    ledger's own script."""
     from pathlib import Path
 
     from . import config
     from .summons import camera as _cam
     from .summons import ledger as _led
+    from .summons import repaint as rp
     from .summons import reskin as rk
 
-    refusals = (rk.ReskinError, rk.R.RescoreError, _cam.SummonCameraError, _led.LedgerError,
-                config.ConfigError, _SummonEditUsage, ValueError, OSError)
+    refusals = (rk.ReskinError, rp.RepaintError, rk.R.RescoreError, _cam.SummonCameraError,
+                _led.LedgerError, config.ConfigError, _SummonEditUsage, ValueError, OSError)
     try:
         if args.action == "scaffold":
             if args.ef is None:
@@ -2277,22 +2315,81 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                                       source=src)
             return _summon_edit_emit_spec(text, args.out, args.force, "reskin")
 
+        if args.action == "export-art":
+            if args.ef is None:
+                raise _SummonEditUsage("`export-art` needs --ef N (the stock effect id to read)")
+            if args.from_path:
+                blob, src = Path(args.from_path).read_bytes(), args.from_path
+            else:
+                blob, src = rk.R.read_stock_effect(args.ef, getattr(args, "game", None))
+            man = rp.export_art(blob, args.ef, args.out or None, source=src, lane=args.art_lane,
+                                overlays=not args.no_coverage)
+            print("ef%03d  %d page(s) exported -- lane %s" % (args.ef, len(man["parts"]),
+                                                              man["lane"]))
+            print("  source        : %s" % man["source"])
+            print("  stock sha256  : %s  (the drift guard the pack re-reads)" % man["stock_sha256"])
+            print("  out           : %s" % man["out_dir"])
+            for e in man["parts"]:
+                cov = ("%d/%d sampled (%.1f%%), %d interior hole(s)"
+                       % (e["covered_texels"], e["wh"][0] * e["wh"][1],
+                          100.0 * e["covered_texels"] / max(1, e["wh"][0] * e["wh"][1]),
+                          e["interior_holes"])
+                       if e["coverage_available"] else
+                       "coverage UNAVAILABLE (%s)" % e["coverage_reason"])
+                print("    %-12s %#08x %dx%d  %s" % (e["name"], e["page_offset"], e["wh"][0],
+                                                     e["wh"][1], cov))
+            print("\n  These PNGs are DECODED STOCK ART -- local-only, never committable.  Paint them")
+            print("  IN INDEX SPACE keeping the file name (the name is the contract); the .coverage")
+            print("  overlay hatches the texels no face ever samples, where paint is inert.")
+            return 0
+
         if args.action == "revert":
             ef = _summon_edit_effect(args, "reskin", "reskin")
-            root = Path(args.out or rk.staging_root(ef))
-            return _summon_edit_revert(root / ("revert_summon_reskin_ledger_%d.py" % ef),
-                                       args, "summon-reskin")
+            # WHICH LANE staged it decides where the ledger script is: a texel (or composed) build
+            # stages under the repaint root, and a revert pointed at the wrong root would report
+            # "nothing to revert" about an override that is very much still live.
+            _has_clut, has_texel = _summon_reskin_spec_lanes(_summon_edit_spec_path(args, "reskin"))
+            root = Path(args.out or (rp.staging_root(ef) if has_texel else rk.staging_root(ef)))
+            script = ("revert_summon_repaint_ledger_%d.py" if has_texel else
+                      "revert_summon_reskin_ledger_%d.py") % ef
+            return _summon_edit_revert(root / script, args, "summon-reskin")
 
         spec_path = _summon_edit_spec_path(args, "reskin")
         # `--from` is honoured on every reading sub-verb, not only `scaffold`: the whole gate stack
-        # (span guards, per-target guards, shared/multi-writer/dual-depth/texanim/headroom, the drift
-        # guard) runs identically on caller-supplied bytes, so an offline container is checked exactly
-        # as hard as the install's -- a law that held on only one of two entry paths would not be one.
+        # (span guards, per-target guards, shared/multi-writer/dual-depth/texanim/headroom, the
+        # cutout law, the drift guard) runs identically on caller-supplied bytes, so an offline
+        # container is checked exactly as hard as the install's -- a law that held on only one of two
+        # entry paths would not be one.
         blob = Path(args.from_path).read_bytes() if args.from_path else None
-        b = rk.build(rk.load_spec(spec_path), spec_path, getattr(args, "game", None), blob=blob)
-        b.check = rk.self_check(b)
-        print("\n".join(rk.describe(b)))
-        print("\n".join(rk.check_lines(b)))
+        spec = rp.load_spec(spec_path)        # accepts target-only, texel-only, or both
+        has_clut, has_texel = _summon_reskin_lanes(spec)
+
+        b = bt = None
+        if has_clut:
+            b = rk.build(spec, spec_path, getattr(args, "game", None), blob=blob)
+            b.check = rk.self_check(b)
+            print("\n".join(rk.describe(b)))
+            print("\n".join(rk.check_lines(b)))
+        if has_texel:
+            if b is not None:
+                print("\n  COMPOSING -- the texel lever splices into the recolour's own patched bytes,")
+                print("  so this is ONE container carrying both levers, with one ledger and one revert.")
+            bt = rp.build(spec, spec_path, getattr(args, "game", None),
+                          # reuse the CLUT lane's already-read stock bytes rather than reading the
+                          # install a second time for the same container
+                          blob=(b.orig if b is not None else blob),
+                          base=(b.patched if b is not None else None),
+                          base_label=("composed on this spec's own [[reskin.target]] rows (%d CLUT "
+                                      "bytes)" % len(b.check.changed)) if b is not None else "")
+            bt.check = rp.self_check(bt)
+            print("")
+            print("\n".join(rp.describe(bt)))
+            print("\n".join(rp.check_lines(bt)))
+
+        # The lane that OWNS the artifact: with both levers live the repaint's `patched` IS the
+        # composed container, so it stages and verifies and the recolour never writes a second file.
+        lane, art = ((rp, bt) if bt is not None else (rk, b))
+        ok = all(x.check.ok for x in (b, bt) if x is not None)
         # A real deploy MUST resolve the install (that is where it writes); every other path, the
         # dry run included, works without one -- a rehearsal that needs the thing it is rehearsing
         # not to touch is not a rehearsal.
@@ -2300,44 +2397,48 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
 
         if args.action == "plan":
             if args.previews:
-                files = rk.render_previews(b, Path(args.out or rk.staging_root(b.effect))
-                                           / "previews")
+                root = Path(args.out or lane.staging_root(art.effect))
+                files = []
+                if b is not None:
+                    files += rk.render_previews(b, root / "previews")
+                if bt is not None:
+                    files += rp.render_previews(bt, root / "previews")
                 print("\n  previews (decoded STOCK art -- local-only, never committable):")
                 for f in files:
                     print("    %s" % f)
             else:
                 print("\nplan only -- nothing written.")
-            return 0 if b.check.ok else 1
+            return 0 if ok else 1
 
         if args.action == "verify":
-            res = rk.verify(b, root=args.out or None)
+            res = lane.verify(art, root=args.out or None)
             print("")
             for line in res["lines"]:
                 print("  %s" % line)
-            ok = bool(res["ok"]) and b.check.ok
+            ok = bool(res["ok"]) and ok
             print("\n  VERIFY: %s" % ("PASS" if ok else "FAIL"))
             return 0 if ok else 1
 
-        # build / deploy both WRITE, so both are gated on the self-check first.
-        if not b.check.ok:
+        # build / deploy both WRITE, so both are gated on the self-check(s) first.
+        if not ok:
             print("\nREFUSING TO STAGE -- the self-check failed (see the gates above).",
                   file=sys.stderr)
             return 1
 
         if args.action == "build":
-            out = rk.stage(b, root=args.out or None, game_root=game_root,
-                           previews=not args.no_previews)
+            out = lane.stage(art, root=args.out or None, game_root=game_root,
+                             previews=not args.no_previews)
             print("\n  STAGED")
         else:                                                    # deploy
-            root = Path(args.out or rk.staging_root(b.effect))
+            root = Path(args.out or lane.staging_root(art.effect))
             mod_root = (root / "dry-run-mod") if args.dry_run else _summon_edit_mod_root(args)
-            out = rk.stage(b, root=root, game_root=game_root, allow_install=not args.dry_run,
-                           previews=not args.no_previews, mod_root=mod_root,
-                           refuse_modfilelist=True)
+            out = lane.stage(art, root=root, game_root=game_root, allow_install=not args.dry_run,
+                             previews=not args.no_previews, mod_root=mod_root,
+                             refuse_modfilelist=True)
             print("\n  %s" % ("DRY RUN -- staged into a local mirror, the mod folder is untouched"
                               if args.dry_run else "DEPLOYED"))
         for k, v in out.items():
-            if k in ("transforms", "per_target_bytes"):
+            if k in ("transforms", "per_target_bytes", "texels"):
                 continue
             if isinstance(v, dict):
                 for k2, v2 in v.items():
@@ -2349,7 +2450,9 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 print("    %-22s %s" % (k, v))
         if args.action == "deploy" and not args.dry_run:
             print("    SFX.Play re-reads the container and wipes the texture cache on every cast, so "
-                  "the recolour is live on the NEXT cast -- no relaunch, no reload.")
+                  "the edit is live on the NEXT cast -- no relaunch, no reload."
+                  + ("  A PAGE upload is itself the cache-invalidating event, so a repaint's "
+                     "guarantee is the stronger of the two." if bt is not None else ""))
         return 0
     except refusals as e:
         # A refusal is a RESULT of these verbs, so it is presented as one -- a traceback would bury
@@ -6618,7 +6721,11 @@ def build_parser() -> argparse.ArgumentParser:
         already parsed is what the handler sees; the handlers read both through
         ``getattr(args, name, None)`` so they never depend on the root parser's own defaults.
         """
-        actions = list(_SUMMON_EDIT_ACTIONS) + (["read"] if lane == "rescore" else [])
+        # The ladder is shared; the READING verb on the end is per lane -- `read` dumps the camera
+        # keyframes, `export-art` decodes the texture pages.  Neither belongs on the other lane, and
+        # an action a lane cannot perform is refused by argparse rather than by a handler.
+        actions = list(_SUMMON_EDIT_ACTIONS)
+        actions += {"rescore": ["read"], "reskin": ["export-art"]}.get(lane, [])
         sp.add_argument("action", choices=actions,
                         help="scaffold: read the stock container and EMIT a guarded spec, every knob "
                              "at identity | plan: build + print every gate, write nothing | build: "
@@ -6628,7 +6735,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "| revert: run that ledger's own revert script"
                              + (" | read: print the full shot read-out (W1's READ-OUT -- every "
                                 "keyframe in human terms), writing nothing" if lane == "rescore"
-                                else ""))
+                                else "")
+                             + (" | export-art: decode every creature texture page to a paintable "
+                                "INDEXED PNG + a UV coverage overlay + a guarded [[reskin.texel]] "
+                                "scaffold, under a local-only root" if lane == "reskin" else ""))
         sp.add_argument("spec", nargs="?", default=None,
                         help="the *_%s.toml (plan/build/verify/deploy, and revert when --ef is "
                              "omitted). With only --ef N, ef###_%s.toml is resolved in the CURRENT "
@@ -6669,16 +6779,28 @@ def build_parser() -> argparse.ArgumentParser:
                              "root-level --game survives into this subcommand")
 
     srk = sub.add_parser("summon-reskin",
-                         help="RECOLOUR a stock summon in place -- its own CLUT palettes, hue/"
-                              "saturation/value, no model and no donor. Every guard is derived from "
-                              "the container, and a shared / multi-writer / dual-depth / "
-                              "texanim-armed / zero-headroom palette REFUSES rather than flickers")
+                         help="RECOLOUR or REPAINT a stock summon in place -- its own CLUT palettes "
+                              "([[reskin.target]], hue/saturation/value) and/or its own texture "
+                              "pages ([[reskin.texel]], the indices themselves: shape, edge and "
+                              "silhouette). No model, no donor. Every guard is derived from the "
+                              "container, and a shared / multi-writer / dual-depth / texanim-armed / "
+                              "zero-headroom palette -- or a scenery / 15bpp / co-transformed page -- "
+                              "REFUSES rather than flickers")
     _add_summon_edit_args(srk, lane="reskin", suffix="reskin")
     srk.add_argument("--previews", action="store_true",
                      help="plan: ALSO render the before/after previews (decoded stock art -- staged "
                           "local-only, never committable)")
     srk.add_argument("--no-previews", dest="no_previews", action="store_true",
                      help="build/deploy: skip the preview render")
+    srk.add_argument("--art-lane", dest="art_lane", default="indexed",
+                     choices=list(_SUMMON_ART_LANES),
+                     help="export-art: the round-trip format. `indexed` (the default and the only "
+                          "one this rung ships) writes a P-mode PNG whose pixels ARE the palette "
+                          "indices -- byte-identical on 93/93 stock pages. `rgba` REFUSES with the "
+                          "measurement that rules it out rather than silently not existing")
+    srk.add_argument("--no-coverage", dest="no_coverage", action="store_true",
+                     help="export-art: skip the UV coverage overlays (they are the instrument that "
+                          "tells a painter which texels are live -- ~1/3 of a page never is)")
     srk.set_defaults(func=_cmd_summon_reskin)
 
     srs = sub.add_parser("summon-rescore",
