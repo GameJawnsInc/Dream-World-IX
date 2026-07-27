@@ -176,6 +176,36 @@ def test_win_flash_reveal_beat():
         _spec(win_flash="white")
 
 
+def test_fight_theater_folds_onto_the_generated_actions():
+    """Per-class clips + the global hit cue ride the generated swing/engage/die
+    actions; absent dials add NO keys (the proven shapes stay byte-for-byte)."""
+    over = copy.deepcopy(RAW)
+    over["hit_sfx"] = 640
+    over["ally"][0].update(anim="attack_cid_1", death_anim="hiza_1", linger=45)
+    over["raider"][0].update(anim="jump", death_anim="jump")
+    b = S.behavior_raw(S.from_raw(over))
+    sold = next(u for u in b["unit"] if u["npc"] == "soldier0")
+    assert sold["branch"][0]["do"] == {"die": True, "anim": "hiza_1", "linger": 45}
+    assert sold["branch"][1]["do"]["anim"] == "attack_cid_1"
+    assert sold["branch"][1]["do"]["hit_sfx"] == 640
+    mu0 = next(u for u in b["unit"] if u["npc"] == "mu0")
+    assert mu0["branch"][0]["do"] == {"die": "kills", "anim": "jump",
+                                      "linger": S.DEATH_LINGER}
+    assert mu0["branch"][1]["do"]["hit_sfx"] == 640          # the depot commit
+    assert mu0["branch"][2]["do"]["anim"] == "jump"          # THE PIN
+    # a class with no dials keeps the bare shapes; so does a siege with none
+    shoot = next(u for u in b["unit"] if u["npc"] == "shooter0")
+    assert shoot["branch"][0]["do"] == {"die": True}
+    assert "anim" not in shoot["branch"][1]["do"]
+    assert shoot["branch"][1]["do"]["hit_sfx"] == 640        # ... but the global cue
+    plain = S.behavior_raw(_spec())
+    for u in plain["unit"]:
+        for br in u["branch"]:
+            assert "anim" not in br["do"] and "hit_sfx" not in br["do"]
+    with pytest.raises(S.SiegeError, match="hit_sfx"):
+        _spec(hit_sfx="thwack")
+
+
 def test_clock_stops_before_the_ending_theater():
     """THE CLOCK-COUPLED BATTLE LAW (REDOUBT rung-D playtest): B_SYSVAR[17] IS
     TimerUI.Time and real battle AI reads it — the donor's own Hunt scenes

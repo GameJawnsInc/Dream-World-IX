@@ -116,6 +116,71 @@ sparring partners, cowards that always flee at 1 HP, and last stands are all jus
 trees. `die` removes the unit (its `active` flag drops, so every `active`/`any_active` gate
 in other trees reacts the same tick).
 
+### Fight theater — `anim` / `hit_sfx` / the death beat
+
+```toml
+do = { swing_at = "raider", anim = "attack_cid_1", hit_sfx = 636 }
+do = { die = true, anim = "hiza_1", linger = 45 }     # collapse, hold, THEN vanish
+```
+
+`swing_at` and `engage` take **`anim`** (a one-shot clip on the striker) and **`hit_sfx`**
+(the impact cue), both fired on the **damage tick** — inside the interval gate, never per
+frame. The clip is deliberately **fire-and-forget** (no `WaitAnimation`): the swing loop
+keeps ticking its selection check, so a strike stays interruptible and a looping clip
+can't wedge the body.
+
+`die` takes **`anim`** + **`linger`** — without them a unit *vanishes* the tick it dies
+(the long-standing "instant vanish"). The active flag still drops first, so the dying unit
+stops being a target the moment it starts falling; then the clip runs to completion
+(`RunAnimation` + `WaitAnimation`) and the corpse holds `linger` frames before
+`TerminateEntry`.
+
+#### THE FIELD-ANIMATION LAWS
+
+Playing a clip on a field object is the least self-evident surface in the kit — five
+separate in-game rounds, each a different mechanism. All five are compiler invariants now;
+they're written down because *every one of them fails silently or looks like a different
+bug*.
+
+1. **A blocking body must HOLD its dispatch level.** The ticker dispatches on `run == 0`.
+   A body that used to be instantaneous (the old `die`) can gain a `Wait` and suddenly the
+   ticker keeps dispatching that unit's *other* bodies underneath it — "soldiers still
+   swing after the death anim starts". The death body sets `run` and never releases it.
+2. **A different FORM is a different SKELETON** (the cross-form clip trap, above).
+3. **Never `WaitAnimation` inside a level-4 async body.** Blocking there rendered *nothing
+   at all*; the fire-and-forget shape renders. Hold the beat with an ordinary `Wait`.
+4. **A one-shot is a LAYER, not a state.** `RunAnimation` ends — and the object then
+   reverts to its **stand** clip (a corpse stands back up). Worse, an object still inside a
+   blocked `Walk` is being driven by its **walk** clip, which overrides the one-shot
+   outright — which is why units that die *in place* showed a clip and units that die
+   *mid-march* showed none. Install the clip as the object's stand **and** walk animation
+   (`0x33`/`0x34`) before firing it, and whatever the engine drives next drives your clip.
+5. **Then it must FREEZE AT END.** A stand clip loops by definition, so law 4 alone makes
+   the corpse replay its death for the whole hold. `SetAnimationFlags(1, 0)` (0x3F — the
+   engine's own *"1: freeze at end"*, the idiom `content.chest` uses before its lid clip)
+   plays it once and holds the final pose.
+
+Laws 3–5 are why the death beat emits `stand → walk → flags(1,0) → anim → wait`, in that
+order. A strike clip needs only the fire-and-forget half (it *should* return to idle).
+
+> **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
+> against *that unit's own model*, and a name the model doesn't own is a lint ERROR listing
+> what it does own. This matters because **field rigs are not battle rigs**: a field monster
+> like `GEO_MON_F0_MUU` owns only locomotion plus `jump`, and `GEO_MON_F0_FFG` adds
+> `howl_*`/`smell_*` — there is no attack or death clip to borrow. A raw clip id bypasses
+> the lookup.
+>
+> **⚠ THE CROSS-FORM CLIP TRAP (proven in-game):** resolution is **same-form only**
+> (`catalog.own_form_gestures`), *not* the `(group, token)` join `animations_for_model`
+> uses. **A different FORM is a different SKELETON.** The CSO token's `attack_cid_*` clips
+> exist only in the **F3** form; playing one on a `GEO_NPC_F1_CSO` rig twists the model
+> upside-down in-game. A cross-form name is refused with the offending clip named. The
+> practical consequence is worth internalizing: within one token family, *different forms
+> own wildly different gesture sets* — `GEO_NPC_F3_CSO` owns the attacks and `hiza_*`,
+> `GEO_NPC_F0_CSO` owns `hiza_*` but no attack, `GEO_NPC_F1_CSO` owns neither, and
+> `GEO_NPC_F4_CSO` owns almost nothing. Author per rig, and expect some units to have no
+> honest clip at all.
+
 ## Alarms, shifts, levers
 
 - **`raise_flags`** on a branch writes named flags while it's selected — the watcher pattern:
@@ -361,8 +426,15 @@ stays on screen. Needs field-level `timer` (lint refuses it otherwise).
 > staged lines take seconds, and a late loss otherwise lets the clock reach 0:00 before
 > the battle fires — the fight then dies the moment combat starts, with nothing wrong in
 > your script at all. `[siege]` freezes the clock at the top of its loss lane and on the
-> rout for exactly this reason. When you fire a battle from a timed field, verify the
-> scene with `ff9mapkit battle-ai <scene>` and look for `B_SYSVAR[17]`.
+> rout for exactly this reason.
+>
+> **`behavior lint` now checks this for you.** When a timed field fires a `battle`, the
+> linter reads that scene's own AI from your install and warns if it reads `B_SYSVAR[17]`.
+> It is a *warning*, not an error — the same design is correct once the clock is stopped —
+> and it goes quiet as soon as the behavior uses `stop_timer` anywhere (so `[siege]` is
+> quiet by construction). If the scene can't be read (no install), the check says nothing
+> rather than pretending the scene is safe. Inspect any scene yourself with
+> `ff9mapkit battle-ai <scene>` and look for `B_SYSVAR[17]`.
 
 ### `flash` — a screen flash
 

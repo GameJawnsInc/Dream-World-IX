@@ -81,6 +81,7 @@ win_item = "{cfb.WIN_ITEM}"
 win_sfx = 108                # theater rung A (CAST-PROVEN): the item-get jingle on the purse
 win_flash = true             # theater rung B (CAST-PROVEN): the stock white wash + THE REVEAL BEAT
 loss_sfx = 1942              # theater rung C (CAST-PROVEN): "a good defeat noise"
+hit_sfx = 636                # theater rung E: the impact cue every strike plays
 # theater rung D: STAGED ending text -- lists page at text_pace; text_rout stays a
 # single string on purpose (proving the two shapes mix)
 text_win = ["WE HELD THE DEPOT!", "The city pays in full -- and doubles the guard.", "The Colonel will hear of this."]
@@ -104,6 +105,9 @@ hp = 4
 stance = "chase"
 radius = 2000
 speed = 65
+# rung E round 2: NO attack clip -- the CSO token's attack_cid_* live only in the F3
+# form, and F3-on-F0 is the cross-form trap. F0 does own its own kneel.
+death_anim = "hiza_1"
 
 [[siege.ally]]
 name = "shooter"
@@ -116,6 +120,8 @@ stance = "hold"
 radius = 600
 interval = 15
 speed = 50
+anim = "attack_cid_2"        # the SHOOTER is the F3 rig -- it owns the attack clips natively
+death_anim = "hiza_1"        # (and its own hiza) -- the one class with full theater
 
 [[siege.ally]]
 name = "defender"
@@ -129,6 +135,9 @@ radius = 340
 damage = 2
 interval = 30
 speed = 45
+# the F1 defender owns NEITHER attack_cid_* NOR hiza_* in its own form -- it was the
+# upside-down twist in round 1. Its own-form gestures are all_right_*/safety_check,
+# none of which read as a strike or a death, so it gets NO clip theater (honest > pretty).
 
 [[siege.raider]]
 name = "mun"
@@ -139,6 +148,8 @@ hp = 3
 entrance = {_pts(lay["nw_stage"][:2])}
 route = {_pts(lay["nw_route"])}
 speeds = [50, 45]
+anim = "jump"                # the MUU rig owns NO attack clip -- a lunge is the honest pick
+death_anim = "jump"
 
 [[siege.raider]]
 name = "mus"
@@ -162,6 +173,8 @@ entrance = {_pts(lay["sw_stage"][2:4])}
 route = {_pts(lay["sw_route"])}
 speeds = [40, 38]
 dialogue = "GRAAAH."
+anim = "howl_1"              # FFG owns howls + smells; the howl reads as a heavy's strike
+death_anim = "howl_3"
 '''
     BENCH_TOML.write_text(toml, encoding="utf-8")
     from ff9mapkit import build as BLD                            # noqa: E402
@@ -221,6 +234,19 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
+  6 FIGHT THEATER -- round 5, FREEZE AT END. Round 4 got the clip playing
+    on BOTH unit kinds (installing it as the stand+walk animation beat the
+    blocked-march override), but a stand clip LOOPS by definition, so the
+    corpse replayed its death ~3x across the linger. The death clip now
+    also sets SetAnimationFlags(1, 0) = the engine's freeze-at-end mode
+    (the chest's own idiom before its lid clip).
+    WATCH A SOLDIER DIE and A MU DIE: the clip should play ONCE, hold its
+    final pose for the rest of the ~1s linger, then the body vanishes --
+    no replay, no standing back up, no swinging while dying.
+    Also unchanged from round 2: only the SHOOTER (the F3 rig) swings with
+    a real attack clip -- the F0 soldier and F1 defender own none in their
+    own form (the cross-form trap), so they simply do not play one; every
+    landed hit still thuds (636) on the damage tick.
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

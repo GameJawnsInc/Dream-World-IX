@@ -296,11 +296,11 @@ def test_ring_rids_point_back_at_their_own_cond():
 # --------------------------------------------------------------------------- rung D: archetype stamps
 def test_every_archetype_stamps_a_legal_unit():
     for a in BS.BEHAVIOR_ARCHETYPES:
-        needs = a.get("needs_target")
-        raw = _field([_unit("b")] if needs else [])
-        label = BS.stamp_archetype(raw, a["key"], "a", "b" if needs else None)
-        assert a["key"] in label and "a" in label
-        assert [u["npc"] for u in raw["behavior"]["unit"]][-1] == "a"
+        raw = _field([_unit("b")] if a.get("needs_target") else [])
+        second = "b" if (a.get("needs_target") or a.get("needs_partner")) else None
+        label = BS.stamp_archetype(raw, a["key"], "a", second)
+        assert "a" in label
+        assert "a" in [u["npc"] for u in raw["behavior"]["unit"]]
         assert BS.validate_problems(raw) == [], (a["key"], BS.validate_problems(raw))
         rows = BS.ladder_model(raw, "a")
         assert rows[0]["verb"] == "die" and rows[-1]["unconditional"]
@@ -333,6 +333,57 @@ def test_guard_binds_its_target_and_refuses_without_one():
     rows = BS.ladder_model(raw, "a")
     assert rows[2]["verb"] == "swing_at" and "active b" in rows[2]["conds"]
     assert rows[3]["verb"] == "chase" and rows[-1]["verb"] == "hold_post"
+
+
+def test_shift_pair_seats_two_units_one_alternator_one_beat():
+    import pytest
+    raw = _field([])
+    with pytest.raises(KeyError, match="needs a partner"):
+        BS.stamp_archetype(raw, "shift_pair", "a")
+    BS.stamp_archetype(raw, "shift_pair", "a", "b")
+    b = raw["behavior"]
+    assert [u["npc"] for u in b["unit"]] == ["a", "b"]
+    assert b["alternators"] == [{"name": "shift", "frames": 400}]
+    assert BS.validate_problems(raw) == []
+    ra, rb = BS.ladder_model(raw, "a"), BS.ladder_model(raw, "b")
+    assert ra[1]["conds"] == ["flag shift"] and rb[1]["conds"] == ["not_flag shift"]
+    assert ra[1]["verb"] == rb[1]["verb"] == "patrol"   # the SAME minted beat, traded
+    # a second pair on the same field dedupes its alternator flag
+    raw["npc"] += [{"name": "c", "pos": [1, 2]}, {"name": "d", "pos": [3, 4]}]
+    BS.stamp_archetype(raw, "shift_pair", "c", "d")
+    assert [x["name"] for x in b["alternators"]] == ["shift", "shift_2"]
+
+
+def test_stamp_siege_writes_the_skeleton_and_refuses_the_clashes():
+    import pytest
+    raw = {"field": {"name": "BARE"}, "player": {"spawn": [100, -200]}}
+    assert BS.stamp_siege(raw) == "stamp [siege] skeleton"
+    assert raw["siege"]["base"]["pos"] == [100, 200]   # sized around the spawn
+    assert BS.siege_view(raw) is not None              # the view renders it the same tick
+    with pytest.raises(ValueError, match="already has a \\[siege\\]"):
+        BS.stamp_siege(raw)
+    with pytest.raises(ValueError, match="OWNS the behavior table"):
+        BS.stamp_siege(_field([_unit()]))
+    with pytest.raises(ValueError, match="VERBATIM"):
+        BS.stamp_siege({"field": {}, "verbatim_eb": "x.eb"})
+
+
+def test_the_siege_skeleton_survives_a_real_dry_compile(tmp_path):
+    import importlib.util
+    from pathlib import Path
+    from ff9mapkit.editor import model as _model
+    spec = importlib.util.spec_from_file_location(
+        "_bdoc_fixture2", Path(__file__).with_name("test_behaviordoc.py"))
+    fx = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fx)
+    p = fx.make_behavior_field(tmp_path)               # the walkmesh sidecar matters:
+    raw = {"field": {"name": "BARE", "id": 30991},     # the skeleton's raiders autoroute,
+           "player": {"spawn": [500, 100]},            # and its points must LAND on this
+           "walkmesh": {"bgi": "walkmesh.bgi"}}        # floor (x -300..1000, z -300..600)
+    BS.stamp_siege(raw)
+    p.write_text(_model.dumps(raw), encoding="utf-8")
+    res = BS.dry_compile(p)
+    assert res.ok, res.problems
 
 
 def _siege_field():
@@ -376,8 +427,10 @@ def test_every_archetype_survives_a_real_dry_compile(tmp_path):
         p = fx.make_behavior_field(root)
         raw = fx.demo_raw()
         raw["npc"].append({"name": "lamplighter", "pos": [260, 60]})
-        BS.stamp_archetype(raw, a["key"], "lamplighter",
-                           "raider" if a.get("needs_target") else None)
+        raw["npc"].append({"name": "torchboy", "pos": [420, 60]})
+        second = "raider" if a.get("needs_target") else \
+            ("torchboy" if a.get("needs_partner") else None)
+        BS.stamp_archetype(raw, a["key"], "lamplighter", second)
         p.write_text(_model.dumps(raw), encoding="utf-8")
         res = BS.dry_compile(p)
         assert res.ok, (a["key"], res.problems)

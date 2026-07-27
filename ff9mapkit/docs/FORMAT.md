@@ -1709,6 +1709,7 @@ win_flash = true                   # (optional) win screen-wash: true = white, o
                                    # THE REVEAL BEAT: the wash fires FIRST (it rides the
                                    # detect branch) and the cry, purse, and jingle land
                                    # right at its release instead of under the white-out
+hit_sfx = 636                      # (optional) impact cue every strike plays (both sides)
 loss_sfx = 1942                    # (optional) loss sting — rings ~1s CLEAR before the loss
                                    # cry / the loss_battle transition (the sting branch holds
                                    # selection until it delivers, and its built-in sustain
@@ -1751,6 +1752,11 @@ Optional dials: `warmup`, `button = false` (no Select council — author your ow
 default 8840), per-class `contact`/`damage`/`interval`/`reply`, per-raider
 `contact`/`damage`/`interval`/`dialogue`, `autoroute = false` (marches use your waypoints
 verbatim instead of walkmesh routing).
+
+**Fight theater:** each `[[siege.ally]]` / `[[siege.raider]]` takes `anim` (its strike
+clip), `death_anim` (its collapse) and `linger` (corpse hold, default 30) — gesture names
+resolved against that class's own model, so `ff9mapkit models <name>` tells you what a rig
+can actually play (field monster rigs generally own no attack clip).
 
 **Staged ending text:** `text_win` / `text_rout` / `text_loss` also take a **list of
 lines**, paged at `text_pace` frames each (default 120). Win/rout lines page *after* the

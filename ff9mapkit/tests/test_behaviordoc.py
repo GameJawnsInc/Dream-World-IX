@@ -603,6 +603,34 @@ def test_guard_stamp_flow_binds_a_target_through_the_third_seam(edoc):
     assert edoc._edits[-1] == ("PLAIN", "stamp guard archetype on hero vs brute")
 
 
+def test_shift_pair_flow_asks_for_the_partner_from_the_remaining_npcs(edoc):
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "day", "pos": [10, 20]}, {"name": "night", "pos": [90, 20]}]}
+    edoc.show_field("PLAIN", raw, None)
+    edoc._ask_archetype = lambda: "shift_pair"
+    picks = []
+    edoc._ask_unit = lambda names: (picks.append(list(names)), names[0])[1]
+    edoc._stamp_archetype()
+    assert picks == [["day", "night"], ["night"]]  # the partner list EXCLUDES the primary
+    assert [u["npc"] for u in raw["behavior"]["unit"]] == ["day", "night"]
+    assert behaviorscan.validate_problems(raw) == []
+    assert edoc._edits == [("PLAIN", "stamp shift pair on day + night")]
+
+
+def test_siege_stamp_flow_lands_in_the_read_only_view(edoc):
+    raw = {"field": {"name": "BARE"}, "player": {"spawn": [0, 0]}}
+    edoc.show_field("BARE", raw, None)
+    assert edoc._stack.currentWidget() is edoc._guide_page
+    edoc._stamp_siege()                            # the guide's third action
+    assert "siege" in raw and "behavior" not in raw
+    assert edoc._stack.currentWidget() is edoc._content
+    assert edoc._readonly and "read-only" in edoc.head_sum.text()
+    assert edoc._edits == [("BARE", "stamp [siege] skeleton")]
+    edoc._stamp_siege()                            # a second stamp: the read-only guard
+    assert len(edoc._edits) == 1                   # refuses silently (the door only exists
+    assert list(raw["siege"]) == list(raw["siege"])   # on the guide) and writes nothing
+
+
 def test_a_siege_field_renders_its_generated_behavior_read_only(edoc):
     import importlib.util
     from ff9mapkit.workspace import behaviorscan as BS

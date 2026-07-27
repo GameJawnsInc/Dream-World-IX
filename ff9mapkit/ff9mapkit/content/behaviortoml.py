@@ -103,10 +103,11 @@ ACTION_VERBS = {
     "march": ("arrive_r", "speed", "route"),
     "flee": ("to", "avoid_r", "speed"),
     "wander": ("radius", "every", "speed"),
-    "swing_at": ("damage", "interval"),
-    "engage": ("radius", "contact", "damage", "interval", "speed", "nearest"),
+    "swing_at": ("damage", "interval", "anim", "hit_sfx"),
+    "engage": ("radius", "contact", "damage", "interval", "speed", "nearest",
+               "anim", "hit_sfx"),
     "hold_ground": (),
-    "die": (),
+    "die": ("anim", "linger"),
     "battle": (),
     "award": ("item", "count"),
     "add_shop_item": (),
@@ -159,6 +160,98 @@ def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
             f"{ctx}: unknown option key(s) {sorted(extra)} for verb {verb!r} "
             f"(allowed: {sorted(verbs[verb])})")
     return verb
+
+
+def clock_coupled_warnings(raw: dict, *, game=None, probe=None) -> list:
+    """LINT (warnings, not errors): every ``battle`` this TIMED field fires whose scene AI
+    READS THE COUNTDOWN — ``B_SYSVAR[17]`` is ``TimerUI.Time``, and the Hunt scenes end
+    themselves the instant it reads 0 (THE CLOCK-COUPLED BATTLE LAW; see
+    ``battle.battleai.reads_timer``). The field's own ending theater is what lets the clock
+    run out before the battle fires, so this is a warning about a COMBINATION, not a bad
+    scene.
+
+    Quiet when: the field has no ``timer``, fires no battle, the scene's ``.eb`` can't be
+    read (no install — "unknown", never assumed safe: the message says so), or the behavior
+    uses ``stop_timer`` ANYWHERE (the author has met the law; ``[siege]`` always does).
+    ``probe``: ``scene -> bool|None`` override, for tests without an install."""
+    b = table(raw)
+    if not b or b.get("timer") is None:
+        return []
+    scenes, has_stop = [], False
+    for u in b.get("unit", []) or []:
+        for br in u.get("branch", []) or []:
+            do = br.get("do")
+            if not isinstance(do, dict):
+                continue
+            if do.get("stop_timer"):
+                has_stop = True
+            if isinstance(do.get("battle"), int):
+                scenes.append((str(u.get("npc")), int(do["battle"])))
+    if not scenes or has_stop:
+        return []
+    if probe is None:
+        from ..battle import battleai as _ai
+
+        def probe(s):
+            return _ai.scene_reads_timer(s, game=game)
+    out = []
+    for unit, sid in dict.fromkeys(scenes):
+        try:
+            hit = probe(sid)
+        except Exception:                          # noqa: BLE001 — never fail lint on this
+            hit = None
+        if hit:
+            out.append(
+                f"[[behavior.unit]] {unit!r}: battle scene {sid}'s AI READS THE COUNTDOWN "
+                f"(B_SYSVAR[17] = TimerUI.Time) and will END ITSELF if the clock reads 0 "
+                f"when it starts — the Festival of the Hunt rule, which lives inside the "
+                f"battle script. This field runs a timer, so any theater before the battle "
+                f"(a sting, staged text) can let the clock expire first and the fight dies "
+                f"on entry. Fix: `do = {{ stop_timer = true }}` on a branch that outranks "
+                f"the battle (this warning goes quiet once the behavior uses it), or pick a "
+                f"scene whose AI ignores the clock (`ff9mapkit battle-ai <scene>`).")
+    return out
+
+
+def resolve_gesture(v, model, ctx: str) -> int:
+    """An ``anim`` option: a raw clip id (int, passed through) or a GESTURE NAME
+    resolved against ``model``'s OWN clips (``catalog.animations_for_model`` — the
+    (group, token) join). THE OWN-CLIP LAW at the call site: a name the model does
+    not own is an ERROR listing what it does own, never a silently foreign clip
+    that plays wrong or not at all. ``model`` None (an npc with no model key) can
+    only take a raw id."""
+    if isinstance(v, bool) or (not isinstance(v, int) and not isinstance(v, str)):
+        raise BehaviorTomlError(f"{ctx}: anim must be a clip id int or a gesture "
+                                f"name (e.g. \"attack_cid_1\")")
+    if isinstance(v, int):
+        if not 0 <= v <= 0xFFFF:
+            raise BehaviorTomlError(f"{ctx}: anim id must be 0..65535")
+        return v
+    if not model:
+        raise BehaviorTomlError(f"{ctx}: anim = {v!r} is a gesture NAME but this "
+                                f"unit's [[npc]] has no `model` to resolve it "
+                                f"against — give a raw clip id instead")
+    from .. import catalog as _cat
+    try:
+        owned = _cat.own_form_gestures(model)       # SAME-FORM only (the trap below)
+        any_form = _cat.animations_for_model(model)
+    except Exception as e:                      # noqa: BLE001 — no install / unknown model
+        raise BehaviorTomlError(f"{ctx}: cannot resolve gesture {v!r} for model "
+                                f"{model!r} ({e})")
+    if v in owned:
+        return int(owned[v])
+    if v in any_form:
+        # THE CROSS-FORM CLIP TRAP — proven in-game: an F3-form attack clip on an
+        # F1 rig twists the model upside-down. A different FORM is a different
+        # SKELETON, so this is refused, not silently played.
+        raise BehaviorTomlError(
+            f"{ctx}: gesture {v!r} exists for model {model!r}'s token but only in "
+            f"ANOTHER FORM ({_cat.ANIMATIONS.get(any_form[v])}) — a different form "
+            f"is a different skeleton and plays TWISTED in-game (the cross-form "
+            f"clip trap). This rig's own-form gestures: {sorted(owned)}")
+    raise BehaviorTomlError(
+        f"{ctx}: model {model!r} owns no gesture {v!r} — the own-clip law "
+        f"refuses a foreign clip. It owns: {sorted(owned) or '(no field clips)'}")
 
 
 def _resolve_point(v, positions: dict, ctx: str):
@@ -588,7 +681,7 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
 
 
 def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid,
-                  ctx: str, routed_points=None):
+                  ctx: str, routed_points=None, model=None):
     verb = _one_verb(d, ACTION_VERBS, ctx)
     v = d[verb]
     spd = d.get("speed")
@@ -631,7 +724,11 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
                         hold=int(d.get("every", 90)), speed=spd)
     if verb == "swing_at":
         return B.SwingAt(str(v), interval=int(d.get("interval", 30)),
-                         damage=int(d.get("damage", 1)))
+                         damage=int(d.get("damage", 1)),
+                         anim=(resolve_gesture(d["anim"], model, ctx)
+                               if d.get("anim") is not None else None),
+                         hit_sfx=(int(d["hit_sfx"])
+                                  if d.get("hit_sfx") is not None else None))
     if verb == "hold_ground":
         if v is not True:
             raise BehaviorTomlError(f"{ctx}: hold_ground takes `true` (stand and "
@@ -639,8 +736,11 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         return B.HoldGround()
     if verb == "die":
         # die = true, or die = "kills" (bump that counter once — the body runs
-        # exactly once, the entry terminates)
-        return B.Die(count=(str(v) if isinstance(v, str) else None))
+        # exactly once, the entry terminates); + THE DEATH BEAT (anim, linger)
+        return B.Die(count=(str(v) if isinstance(v, str) else None),
+                     anim=(resolve_gesture(d["anim"], model, ctx)
+                           if d.get("anim") is not None else None),
+                     linger=int(d.get("linger", 0)))
     if verb == "battle":
         return B.Battle(int(v))
     if verb == "award":
@@ -751,6 +851,9 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
 
     for ui, u in enumerate(b.get("unit", [])):
         name = str(u["npc"])
+        # the unit's own MODEL — gesture names resolve against it (the own-clip law)
+        umodel = next((n.get("model") for n in raw.get("npc", []) or []
+                       if n.get("name") == name), None)
         branches = []
         for bi, br in enumerate(u.get("branch", []) or []):
             ctx = f"[[behavior.unit]] {name!r} branch #{bi}"
@@ -778,7 +881,11 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                     interval=int(do.get("interval", 25)),
                     speed=(int(do["speed"]) if do.get("speed") is not None
                            else None),
-                    nearest=bool(do.get("nearest", False))))
+                    nearest=bool(do.get("nearest", False)),
+                    anim=(resolve_gesture(do["anim"], umodel, ctx)
+                          if do.get("anim") is not None else None),
+                    hit_sfx=(int(do["hit_sfx"])
+                             if do.get("hit_sfx") is not None else None)))
                 conds = [_build_cond(fb, name, c, positions, ctx)
                          for c in (br.get("when") or [])]
                 node = B.Sequence(*conds, sub) if conds else sub
@@ -795,7 +902,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
             action = _build_action(fb, do, positions=positions, mpaths=mpaths,
                                    txid=behavior_txids.get((ui, bi)),
                                    npc_txid=npc_txid, ctx=ctx,
-                                   routed_points=(rp["points"] if rp else None))
+                                   routed_points=(rp["points"] if rp else None),
+                                   model=umodel)
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
                            clear_flags=tuple(br.get("clear_flags", []) or []))
             conds = [_build_cond(fb, name, c, positions, ctx)
@@ -1183,6 +1291,10 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     engaged_units: set = set()
     for ui, u in enumerate(b.get("unit", [])):
         me = u.get("npc")
+        # this unit's OWN model — bound per unit here, NOT reused from the pass
+        # above (that `npc` is stale by now: the announce_npc check rebinds it)
+        me_model = next((n.get("model") for n in raw.get("npc", []) or []
+                         if n.get("name") == me), None)
         for bi, br in enumerate(u.get("branch", []) or []):
             ctx = f"[[behavior.unit]] {me!r} branch #{bi}"
             try:
@@ -1251,6 +1363,22 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     if not isinstance(v, int) or not 0 <= v <= 0xFFFF:
                         problems.append(f"{ctx}: battle takes a battle SCENE id int "
                                         f"(0..65535; a STOCK scene needs no BattlePatch)")
+                if verb in ("die", "swing_at", "engage"):
+                    # THE OWN-CLIP LAW at the call site: a gesture the model does
+                    # not own is refused here, with the owned list in the message
+                    if do.get("anim") is not None:
+                        try:
+                            resolve_gesture(do["anim"], me_model, ctx)
+                        except BehaviorTomlError as e:
+                            problems.append(str(e))
+                    for opt, lo, hi in (("hit_sfx", 0, 0xFFFF),
+                                        ("linger", 0, 255)):
+                        ov = do.get(opt)
+                        if ov is not None and (isinstance(ov, bool)
+                                               or not isinstance(ov, int)
+                                               or not lo <= ov <= hi):
+                            problems.append(f"{ctx}: {verb} {opt} must be an int "
+                                            f"{lo}..{hi}")
                 if verb == "die":
                     if v is not True and not isinstance(v, str):
                         problems.append(f"{ctx}: die takes `true` or a counter name "
