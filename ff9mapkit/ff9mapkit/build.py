@@ -2746,6 +2746,13 @@ def lint_logic(project: FieldProject) -> list[str]:
             elif _auto.base is None:                   # campaign members need an explicit flag (build enforces)
                 auto_once.add(_auto.on_entry(k))
     settable |= auto_once
+    # THE BEHAVIOR TICKER IS A SETTER TOO. A [behavior] field's compiled ticker publishes
+    # its own flags every pass -- the public_flags an author declares, and each pool's
+    # `hireable` gate that a hire row's requires_flag reads. They are written by compiled
+    # `.eb`, not by an [[event]], so without this every generated hire menu (i.e. EVERY
+    # [siege]) false-positives as "no event sets it".
+    from .content import behaviortoml as _bt
+    settable |= _bt.published_flags(raw)        # already exception-safe
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
     need_set = []
@@ -3608,9 +3615,19 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
         dx, dz = max(_minx - x, x - _maxx, 0.0), max(_minz - z, z - _maxz, 0.0)
         return (dx * dx + dz * dz) ** 0.5 > NPC_REACH
 
+    # POOLED behavior units are PARKED off-play on purpose (the ARMOURY idiom): they never
+    # boot-spawn, and the ticker moves them to the player's feet when hired, so their seat
+    # coordinates are bookkeeping, not placement. Warning about them would fire on every
+    # generated hire pool (every [siege]) and train authors to ignore this whole check.
+    try:
+        from .content import behaviortoml as _bt
+        _parked = _bt.pooled_npcs(project.raw)
+    except Exception:                                 # noqa: BLE001
+        _parked = set()
+
     for i, n in enumerate(project.raw.get("npc", [])):
         p = n.get("pos")
-        if not p:
+        if not p or n.get("name") in _parked:
             continue
         label = f"NPC {n.get('name', f'#{i}')!r} at ({int(p[0])}, {int(p[1])})"
         if off(p[0], p[1]):

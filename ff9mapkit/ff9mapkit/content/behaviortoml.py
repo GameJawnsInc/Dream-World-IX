@@ -162,6 +162,37 @@ def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
     return verb
 
 
+def published_flags(raw: dict) -> set:
+    """Flag indices the compiled ticker WRITES for the outside world: each pool's
+    ``hireable`` gate (what a hire row's ``requires_flag`` reads) and every declared
+    ``public_flags`` name. They are set by compiled ``.eb``, not by an ``[[event]]``,
+    so a flag lint that only scans events would call every generated hire menu dangling.
+
+    Runs a THROWAWAY build to get the deterministic allocation (the same two-pass
+    ``siege.resolve_hireable`` uses): routes stripped (``route = "auto"`` needs a
+    walkmesh) and synthetic txids handed in (announce/hud lines are minted later, by
+    the real build). Returns ``set()`` rather than raising — a lint must never fail."""
+    import copy as _copy
+    try:
+        work = _copy.deepcopy(raw)
+        for u in (table(work) or {}).get("unit", []) or []:
+            for br in u.get("branch", []) or []:
+                if isinstance(br.get("do"), dict):
+                    br["do"].pop("route", None)
+        names = [str(u["npc"]) for u in units(work)]
+        txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in announce_lines(work)}
+        txids.update({("hud", hi): 890 + hi for hi, _h in hud_lines(work)})
+        fb = build(work, npc_slots={n: i + 2 for i, n in enumerate(names)},
+                   npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", []) or []},
+                   behavior_txids=txids)
+        out = set(fb.pool_hireable.values())
+        for pf in (table(work) or {}).get("public_flags", []) or []:
+            out.add(fb.public_flag(str(pf)))
+        return out
+    except Exception:                              # noqa: BLE001 — never fail a lint
+        return set()
+
+
 def clock_coupled_warnings(raw: dict, *, game=None, probe=None) -> list:
     """LINT (warnings, not errors): every ``battle`` this TIMED field fires whose scene AI
     READS THE COUNTDOWN — ``B_SYSVAR[17]`` is ``TimerUI.Time``, and the Hunt scenes end

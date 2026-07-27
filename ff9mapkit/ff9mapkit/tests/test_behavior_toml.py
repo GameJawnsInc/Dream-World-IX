@@ -1333,6 +1333,28 @@ def _clock_raw(*, timer=60, stop=False, scene=35):
             "behavior": b}
 
 
+def test_published_flags_are_visible_to_the_flag_lint():
+    """The compiled ticker WRITES each pool's `hireable` gate and every declared
+    public flag. A flag lint that only scans [[event]]s would call every generated
+    hire menu dangling — the shipped [siege] example is what exposed it."""
+    raw = {
+        "player": {"spawn": [0, -900]},
+        "npc": [{"name": "hand", "pos": [9000, 9000], "dialogue": "..."}],
+        "behavior": {"public_flags": ["opened"],
+                     "pool": [{"name": "hand", "price": 100}],
+                     "unit": [{"npc": "hand", "pooled": True, "pool": "hand",
+                               "branch": [{"do": {"hold_post": True}}]}]},
+    }
+    pub = BT.published_flags(raw)
+    assert len(pub) == 2                       # the pool's hireable + the public flag
+    assert all(isinstance(f, int) for f in pub)
+    # deterministic across calls (the allocation contract the two-pass relies on)
+    assert BT.published_flags(raw) == pub
+    # never raises, whatever it is handed
+    assert BT.published_flags({}) == set()
+    assert BT.published_flags({"behavior": {"unit": [{"npc": "ghost"}]}}) == set()
+
+
 def test_clock_coupled_battle_lint():
     """THE CLOCK-COUPLED BATTLE LAW as a lint WARNING (not an error — stopping the
     clock makes the same design correct). Probe injected so the check is testable
