@@ -213,3 +213,13 @@ scenery must be re-authored *together*.
   = Phoenix v2); the calibrated key reads exactly as designed (violet with magenta-hot cores).
   Combined-v2 (17b6dcb6…) swapped live for CAST B — the camera lever, the last judgment: same
   violet, H 384→288 from f87 (~33% wider from ~t 5.7 s through the rest of the cast).
+  **CAST B ★ PROVEN ("the pull back works, set edges look fine - no custom fit viewport stuff this
+  time") — ⛳ W5 IS CLOSED, 3/3 levers cast-proven on SECOND summons: creature (Madeen ef251),
+  scenery (Phoenix ef211 v2), camera (Phoenix H-pull). The W2 failure mode (the widened ef227
+  frame exposing the effect's own set edges) did NOT recur — the SCENERY LAW's modest-pull +
+  phase-budget rules held on a persistent 33% widening, which is the law validated as a design
+  rule, not just a post-mortem. RESTING STATE: combined-v2 (17b6dcb6…) LIVE on ef211 (violet
+  scenery + wide camera, owner-approved as cast), GLACIAL MADEEN (78b395f8…) LIVE on ef251,
+  ef227's spectral-mist untouched; reverts in reskin-w5/ef{211,251}/artifacts/ (delete-vs-restore
+  aware; the artifacts' v1-pinned deploy variants are superseded by the *-v2 files + the committed
+  tomls, which regenerate v2).**
