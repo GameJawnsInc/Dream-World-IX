@@ -199,3 +199,12 @@ scenery must be re-authored *together*.
   for the CREATURE path); still stock ⇒ the id-0 scenery-palette path is DEAD at runtime — a
   structural finding that re-opens W4's scenery attribution. Cast B (camera) deliberately held
   until this resolves.**
+  **PROBE VERDICT ("magenta showed up in the flames") — THE UPLOAD PATH IS LIVE.** The id-0
+  scenery-palette path works at runtime (W4's ef227 scenery mechanism re-grounded); cast A's miss
+  was COMPOSITIONAL — the v1 key was blue-leaning AND desaturated (×0.85) into additive compositing
+  where stock flame cores wash to white. **THE ADDITIVE-COMPOSITING COROLLARY: for VFX textures the
+  in-game read keeps the channel the blend favours — pick hues that keep R on warm effects, and
+  never LOWER saturation on an already-max-sat ramp (v2's ×1.25 attempt clipped 100% of entries and
+  the blow-out gate refused — stock fire IS max-sat; the lawful punch is hue at sat 1.0).**
+  GLACIAL v2 deployed (hue_to 280, saturation 1.00 on the two vivid bound cells; container sha
+  4daab8ad…); combined-v2 (reskin+rescore, 17b6dcb6…) staged for cast B. Recast pending.
