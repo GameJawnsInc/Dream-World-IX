@@ -624,8 +624,9 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    (studies/minigame-ui/SURVEY.md).
 4. **v1 "Limits" items** (Parallel, action-result plumbing, deeper nesting) —
    still demand-driven; nothing in the ratified fort-condor design needs them.
-5. **Side probes** (RunSharedScript caller-context, self-REQ) — unchanged, cheap,
-   unlock the per-unit-brain variant.
+5. **Side probes** (RunSharedScript caller-context, self-REQ) — ★ **BOTH ANSWERED
+   AT THE SOURCE (2026-07-27)**; the SEQBRAIN bench (below) carries the in-game
+   composites. See "THE SEQBRAIN FINDINGS".
 
 **★ THE CROSSING PASSED (owner playtest, 2026-07-25):** ISLES (30416, "the
 brawl" — 33,820B ticker content, 2 live islands, 14 mutual-combat units + a
@@ -641,6 +642,71 @@ precisely to predict this blocked fraction — the bench's 2200u cross-plaza
 chases were authored for the byte crossing, not clean pursuit lines). The
 authoring answer stands: place for sightlines, keep chase radii short, use
 route="auto" marches for long approaches and chase only for the close.
+
+## THE SEQBRAIN FINDINGS (2026-07-27) — the per-unit-brain probes, answered at the source
+
+Probe (a) and (b) fell to ENGINE-SOURCE reading (we ship this engine; the handlers
+ARE the semantics), calibrated against stock bytes. The SEQBRAIN bench (30422,
+`seqbrain_bench.py`) carries the composites stock never exercises — pending owner
+playtest.
+
+**(a) RunSharedScript caller-context: YES — gCur is THE CALLER, every tick.**
+`EBin.cs:164`: when the executing object is a Seq (`cid == 1`), the VM sets
+`gCur = FindObjByUID(seq.uid - cSeqOfs)` before dispatching each opcode.
+`DoEventCode` binds its `actor`/`po` locals from gCur (line 28), so every bare
+actor op (Walk, RunAnimation, WaitAnimation, turns) drives the CALLING UNIT while
+`stay()` blocks only the Seq. Expression reads (`B_DISTANCEA`, positions) read the
+caller too. Stock calibration: **309 of 817 field exports use RunSharedScript**,
+their shared bodies running bare actor ops over many ticks (e.g. test2_10's
+Entry3) — this is how half the game's per-actor cutscene coroutines work.
+
+**(b) Self-REQ: YES, with the level arithmetic.** `Request()` is
+`level < p.level` + `Call()` (a stack push + ip redirect). An object CAN dispatch
+its own function at a numerically LOWER level — it executes immediately as a call
+and the interrupted function resumes on RETURN. At >= the current level, REQ
+drops it silently; **REQSW on self at >= the current level BLOCKS FOREVER** (it
+waits for its own level to rise while being the thing that holds it) — THE
+SELF-REQSW DEADLOCK, a lint candidate.
+
+**The laws the reading produced:**
+
+- **THE CALLER-CONTEXT LAW** — inside a STARTSEQ coroutine: gCur = the spawner
+  (every tick), `GetObjUID(255)` = the spawner (so `REQ(4, 255, tag)` from a
+  shared brain dispatches onto WHICHEVER unit spawned it — one generic brain per
+  CLASS, zero per-unit parameterization), and `Instance.*` vars bind to gExec =
+  THE SEQ'S OWN private block (the brain entry's varn, zeroed at spawn).
+- **THE 64-STRIDE LAW** — brain uid = unit uid + `cSeqOfs` (64); uid is a Byte;
+  STARTSEQ DISPOSES whatever object sits at unit+64. No live object may occupy
+  that band; unit uids < 192. Kit fields (uid == entry slot) are clean below
+  ~60 entries.
+- **THE ORPHAN-BRAIN LAW** — `DisposeObj` does NOT cascade to unit+64. A disposed
+  unit's live brain NREs the engine on its NEXT TICK (`DoEventCode` line 28
+  derefs gCur unconditionally). Every disposal path of a brain-carrying unit must
+  run StopSharedScript (0x45, keys off gExec) BEFORE `TerminateEntry(255)`
+  (which is `ad21()` = dispose-self).
+- **THE NATIVE RUN-GATE** — `requestAcceptable` = `lv < p.level`; an idle unit
+  sits at level 7, a busy body at its dispatch level. `REQ(4, 255, tag)` from the
+  brain IS the sel/run protocol, engine-native (drop-while-busy); `REQSW` is the
+  blocking variant (wait-until-free). The compiled sel/run byte pair becomes
+  redundant under this architecture.
+- **ONE SEQ PER OBJECT** — STARTSEQ replaces (disposes) the previous brain.
+- `ObjTable` truth: the entry-table byte our model calls `loc` IS the engine's
+  **varn** — per-entry instance-var bytes. `seat_entry(..., loc=N)` declares a
+  brain's private block today, no new tooling.
+
+**What this buys against THE THREE WALLS** (if the bench composites hold):
+per-unit latches/timers move into Seq-private Instance vars (the blackboard band
+keeps only genuinely SHARED state); the per-unit unrolled ticker collapses to one
+brain entry per CLASS (span pressure gone); and with bodies inline in the brain
+(they run on gCur), the duplicated dispatch bodies (13.6KB on CONDOR r3) collapse
+too. The FILE wall recedes on all three fronts at once.
+
+**Bench composites under test (30422):** P1 persistent-loop Seq · P2 REQ-255
+drop-while-busy rhythm · P3 two Seqs of ONE entry with independent private
+latches · P4 the die ordering (0x45 then TerminateEntry; 30s post-death
+liveness) · P5 true self-REQ (level 3 from a level-4 body; the hop).
+Bench-grade caveat: brains open with Wait(90) instead of the production
+player-mirror latch.
 
 ## Standing constraints
 
