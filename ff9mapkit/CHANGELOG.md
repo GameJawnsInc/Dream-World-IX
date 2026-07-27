@@ -5,6 +5,35 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a standalone-installed FORK silently lost every fork-donor behavior
+- `build_mod` now emits **`ForkDonorPatch.txt`**, the `<forkId> <donorRealId>` map the engine's
+  s24–s33 fork gates resolve through. `build --out` already shipped a complete standalone mod —
+  DictionaryPatch, BattlePatch, TextPatch, ModDescription, every asset — but this one file was
+  written only at deploy time by the repo's `tools/deploy_field.py`. A forked real field
+  **installed** rather than deployed from the repo therefore booted with off-mesh exemptions,
+  name-keyed overlay occlusion and scroll player-binds all silently off: it built, it booted, and
+  it looked subtly wrong with no error anywhere. Novel fields were never affected (no donor → no
+  file, and none is emitted now either).
+- Installing into a folder that already holds another fork no longer drops that fork's mapping
+  (`--preserve-existing` gained the same foreign-line merge `DictionaryPatch` already had).
+- An **editable** campaign member now records `[field] source_field`, so it too carries its donor
+  through a standalone `build --out` — and it completes the pairing its `text_block` already
+  assumed (`donor_block_for` / `lint_text_block` read that key to grant the donor's own block).
+
+### Added — `ff9mapkit deploy`: reversible single-field install (no repo needed)
+- New `deploy` verb (alias `deploy-field`) installs ONE `field.toml` into a **dedicated** mod
+  folder (`FF9CustomMap-<name>` by default). SAFE BY DEFAULT: lints and prints the plan, touching
+  nothing until `--apply`. Snapshots any existing folder, then writes a revert script that either
+  restores the snapshot or removes the folder the deploy created.
+- Runs the same guards as `deploy-campaign` against the built dist — EVT/FBG name collisions and
+  GLOBAL-EventDB id collisions abort (`--allow-name-collision` / `--allow-id-collision` override),
+  text-block shadowing warns.
+- Pointed at a SHARED folder holding other fields it **aborts** rather than unregistering them
+  (`--allow-drop` overrides): a single-field install owns its folder and replaces it wholesale.
+  Iterating many fields into one shared folder stays the repo dev loop's job.
+- This is the installed-copy twin of `tools/deploy_field.py`. That script stays repo-only and
+  unchanged — its sandbox id-forcing, `.ff9deploy.toml` resolution and prior-id auto-revert are
+  dev-loop concerns with no meaning on a single-game install.
 ### Added — Behavior ARCHETYPES: stamp a whole proven tree (rung D, first slice)
 - The Behavior tab's cast rail (and its no-behavior guide) gained **＋ Archetype…**: pick a
   proven tree, pick a named `[[npc]]`, and the unit is seated in one undo step — **sentry**

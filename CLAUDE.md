@@ -259,7 +259,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 > counts, no quotes. The shipped-pillar inventory lives in the memory index (§9); per-arc status in `studies/`.
 
 **Open arcs — status lives in the study, not here:**
-- The Southern Ring (the composed world) — R1-R3 PLAYTEST-CONFIRMED (hub → hall → 4-quay ferry; Lamplight island + named virgin-case-61 entrance + lamp room 6602); next R4 forest pass · R5 sea lanes → `studies/overworld-topography/southern-ring/DESIGN.md`
+- The Southern Ring (the composed world) — R1-R4 CONFIRMED (hub/hall/ferry, per-quay + Lamplight plates, forest+encounter pass); R5 boat sails, R5c stock boarding UX + beachable coasts (playtest pending) → `studies/overworld-topography/southern-ring/DESIGN.md`
 - Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
 - Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`
@@ -267,7 +267,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★ COMPLETE — stock summons editable in place (camera/timing/whole-set reskin all cast-proven on ef227; two-clocks + scenery + hybrid-mask laws) → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★ COMPLETE incl. W5 GENERALISATION ⛳ (the W tools take any stock summon; creature/scenery/camera each cast-proven on a second summon — Madeen + Phoenix) → `studies/custom-summons/tier-w/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

@@ -160,6 +160,36 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
+## R5c — THE STOCK BOARDING UX ★ DEPLOYED (2026-07-26; playtest pending): plate, engine landing, beachable coasts
+
+The §28.4 playtest surfaced the deferred UX half: dismount always snapped home (v1.1 moor-home, the
+§19 stopgap) and no prompt showed at the hull. Stock decode: the parked Narciss summons its OWN
+nameplate case (92) — the prompt IS the plate — and dismount is Cancel → `RunWorldCode(28,0)` =
+`w_movementGetGetoff` (mode 7: the tile ahead must read **topo 53**, then a sweep finds walkable
+ground; refuse = the 10000 sentinel, silently). v2 boat loop: 40u self-summon of **case 69
+"Crimson Narciss"** (locid 68; "?" until first boarding), board gated on THAT armed plate — the
+case machine arbitrates every Confirm, so **moor-home is retired and the boat parks where it
+floats**; dismount (Confirm|Cancel) lands you at the ENGINE's point. And the landing probe exposed
+**THE BARE-COAST GAP**: ground-only mints left pure Sea4 topo-57 lapping every sand line — no ring
+island was landable. **THE BEACHABLE FRINGE STAMP** (navigation-only, "topo = tangent.x, look =
+UV+material"): near-shore Sea4 57→53, 15,018 verts / 26 files ×2 discs, byte-probed, all seven
+shores now landable, the north lane still 47/47. Known gap: the parked spot survives the session,
+not a load (Init re-moors; kit-allocated persistence is a later rung). Record: REVERT.md §29.
+
+## R5 — THE SEA LANES + THE BOAT WAKES ★ DEPLOYED (2026-07-26; playtest pending)
+
+**R5a:** the dormant boat was §20's DOMAIN mis-diagnosis — **THE ×256 DOMAIN LAW**: `WMActor.pos`'s
+setter writes `RealPosition * 256` into the eb-visible `PosObj.pos[]`, so world-map `obj.f[]` reads
+are fixed point; the ORIGINAL relative gate (|Δf|<25600 = 100u) was correct all along, the §19-era
+quay boarding was the float-parked boat legitimately in range (moor-home was the whole fix), and
+§20's world-unit window could never fire. Fixed by RESTORING the pre-§20 body from its backup (per
+language, only entry-15 tag-1, R3/R4 additions preserved) + source parity + the law in `wu()`'s
+docstring: trace the WRITER of a variable, not just its reader. **R5b:** the Blue Narciss mask
+decodes to topos {53,54,57} (validated by reproducing the foot-walk table); the sea-lane probe
+(8u sampling, stacked meshes, SeaBlockPrefab-aware) proves **the NORTH passage fully sailable
+47/47** — Ashvale → the wrap → north of Lamplight → the horseshoe's west channel. The ratified
+"only block-proven voyage" is now tile-proven, with a boat that boards. Record: REVERT.md §28.
+
 ## R4b — THE TABLE IS THE LAW ★ DEPLOYED (2026-07-26; re-playtest pending): the 36-38 law FALSIFIED in-game, the safe road AUTHORED
 
 The R4 playtest fought Lizard Man/Sand Scorpion/Axe Beak/Ironite on "the grass of the island" —

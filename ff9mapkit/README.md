@@ -52,7 +52,7 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 
 - **Setup** — `setup` · `doctor` · `extract-templates`
 - **Author** — `new` · `guide` / `paint-template` · `walkmesh` · `edit` · `camera` · `disasm`
-- **Build & ship** — `build` · `lint` · `pack` · `export-art` · `repaint-native`
+- **Build & ship** — `build` · `deploy` · `lint` · `pack` · `export-art` · `repaint-native`
 - **Fork real fields** — `import` (`--editable`/`--native`/`--verbatim`) · `import-all` ·
   `import-chain` · `fork-report` · `list-fields` / `find-field` / `find-rooms` ·
   `logic-map` / `lint-eb` · `chocobo-export`

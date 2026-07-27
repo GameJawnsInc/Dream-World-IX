@@ -1238,3 +1238,64 @@ def test_build_preserve_existing_installs_alongside_other_fields(tmp_path):
     build.build_mod([proj], out, preserve_existing=True)            # idempotent -- no duplicates
     l2 = [l for l in dp.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert l2 == lines
+
+
+# --- ForkDonorPatch: a fork installed by `build --out` must carry its donor map ------------------------
+def _fork_toml(path, fid, *, donor=None, text_block=22):
+    """A minimal buildable field; `donor` records it as a fork ([field] source_field, the native/editable
+    import's record). text_block 22 is the donor's own block -- the pairing lint_text_block calls clean."""
+    src = f"source_field = {donor}\n" if donor is not None else ""
+    path.write_text(
+        f'[field]\nid = {fid}\nname = "F{fid}"\narea = 11\ntext_block = {text_block}\n{src}\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n',
+        encoding="utf-8")
+    return path
+
+
+def test_build_mod_emits_fork_donor_patch(tmp_path):
+    """`build --out` ships a COMPLETE standalone mod, so it must emit ForkDonorPatch.txt -- the
+    `<forkId> <donorRealId>` map the s24-s33 fork gates resolve through. It used to be written ONLY by
+    tools/deploy_field.py, so a fork INSTALLED rather than deployed from the repo booted with every
+    fork-donor behavior (off-mesh exemptions, name-keyed overlay occlusion, scroll binds) silently off."""
+    from ff9mapkit import build
+    out = tmp_path / "mod"
+    build.build_mod([build.FieldProject.load(_fork_toml(tmp_path / "a.field.toml", 4009, donor=600))], out)
+    body = (out / "ForkDonorPatch.txt").read_text(encoding="utf-8")
+    assert [l for l in body.splitlines() if l.strip() and not l.startswith("#")] == ["4009 600"]
+    assert body.startswith("# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n")   # deploy_field's header
+
+
+def test_build_mod_emits_no_fork_donor_patch_for_a_novel_field(tmp_path):
+    """A NOVEL field has no donor -> no file at all (the same non-empty guard the battle/text patches use),
+    so a from-scratch build stays byte-identical to what it produced before the emit existed."""
+    from ff9mapkit import build
+    out = tmp_path / "mod"
+    build.build_mod([build.FieldProject.load(_fork_toml(tmp_path / "n.field.toml", 4009, text_block=1073))], out)
+    assert not (out / "ForkDonorPatch.txt").exists()
+
+
+def test_build_mod_fork_donor_patch_skips_a_self_mapping(tmp_path):
+    """A fork sitting on its OWN donor id (an in-place edit, not a remap) needs no mapping -- emitting
+    `600 600` would ask the engine to resolve a field to itself."""
+    from ff9mapkit import build
+    out = tmp_path / "mod"
+    build.build_mod([build.FieldProject.load(_fork_toml(tmp_path / "s.field.toml", 600, donor=600))], out)
+    assert not (out / "ForkDonorPatch.txt").exists()
+
+
+def test_build_mod_preserve_existing_keeps_other_forks_donor_lines(tmp_path):
+    """The DictionaryPatch lesson, one file over: installing INTO a shipping folder rewrites
+    ForkDonorPatch wholesale, so without a merge it would drop the OTHER forks' mappings -- switching
+    their fork-gated behaviors off with no error. Ours appears exactly once; re-installing is idempotent."""
+    from ff9mapkit import build
+    out = tmp_path / "mod"
+    proj = build.FieldProject.load(_fork_toml(tmp_path / "a.field.toml", 4009, donor=600))
+    build.build_mod([proj], out)
+    fdp = out / "ForkDonorPatch.txt"
+    fdp.write_text(fdp.read_text(encoding="utf-8") + "30110 1860\n", encoding="utf-8")   # another session's fork
+    build.build_mod([proj], out, preserve_existing=True)
+    rows = [l for l in fdp.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
+    assert sorted(rows) == ["30110 1860", "4009 600"]
+    build.build_mod([proj], out, preserve_existing=True)                                 # idempotent
+    assert [l for l in fdp.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")] == rows

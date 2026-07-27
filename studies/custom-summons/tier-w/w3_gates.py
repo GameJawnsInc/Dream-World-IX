@@ -1,9 +1,10 @@
 r"""TIER W rung 3 -- the gate runner.  `py w3_gates.py` prints X0..X7 with numbers and PASS/FAIL.
 
-X0  NO REGRESSION: r1/r2/r3, w1_gates, w2_gates, and EVERY tier-r/tier-w test module still pass --
-    tier-r 142 + w1 (test_summon_camera) 34 + w2 (test_rescore) 34 + w3 (test_retime, this rung) --
-    and the readers this rung builds on (rescore.py, summon_camera.py, camera_codec.py,
-    w3_program_edits.py, w3_clock_emu.py, the tier-r tools) are IMPORTED, never edited
+X0  NO REGRESSION: r1/r2/r3, w1_gates, w2_gates, and EVERY tier-r/tier-w test module still pass,
+    at or ABOVE their W3 baselines (tier-r 142 + w1 34 + w2 34 + w3 46), and the readers W5 does
+    NOT touch (summon_camera.py, camera_codec.py, w3_program_edits.py, w3_clock_emu.py,
+    ef_container.py, the kit summons modules, the tier-r tools) are IMPORTED, never edited.
+    RELAXED IN W5 -- see the long note on :func:`x0_no_regression`.
 X1  BYTE ACCOUNTING: both artifacts, four domains (E1 program / E2 sequence / E3 camera / E4 text),
     every changed byte named down to the field, 0 unexplained, 0 in a duration field
 X2  ROUND-TRIP: both containers re-parse strict, every camera block round-trips byte-exact through
@@ -49,9 +50,12 @@ _REPO = os.path.dirname(os.path.dirname(_STUDY))
 TIER_R = os.path.join(_STUDY, "tier-r")
 SPEC = os.path.join(_HERE, "bahamut_retime.toml")
 
-#: the committable files THIS rung adds; X6 scans them for stock byte runs (W1e/W2-X5's own rule)
+#: the committable files THIS lane adds; X6 scans them for stock byte runs (W1e/W2-X5's own rule).
+#: W5 EXTENDS the list with the retime lane's two new sources -- a file that is committable and NOT
+#: scanned is exactly the hole this gate exists to close, and "it was added by a later rung" is not
+#: a provenance exemption.
 COMMITTABLE = ("retime.py", "w3_clock_emu.py", "w3_program_edits.py", "test_retime.py",
-               "w3_gates.py", "bahamut_retime.toml")
+               "w3_gates.py", "bahamut_retime.toml", "retime_derive.py", "test_retime_derive.py")
 
 RESULTS = []
 
@@ -82,18 +86,32 @@ def _has_install() -> bool:
 
 
 # --------------------------------------------------------------------------- X0
+def _runner(name: str, cwd: str, floor: int):
+    """Run a sibling gate runner and read its own ``N/M gates pass`` line.
+
+    W3 pinned the WHOLE STRING (``got.startswith("6/6")``), which made a sibling lane ADDING a gate
+    indistinguishable from a sibling lane BREAKING one.  W5 generalises w2_gates (6 -> 8 gates:
+    the ``init`` scaffold and the dynamic-op disclosure each brought their own), so the string pin
+    now fires on progress.  What is asserted instead is the pair of claims that are actually about
+    regression: the runner exits 0 AND every one of its gates passed (``N == M``), with M held to
+    the W3 baseline as a FLOOR so a gate that DISAPPEARS is still caught."""
+    p = subprocess.run([sys.executable, os.path.join(cwd, name)],
+                       capture_output=True, text=True, cwd=cwd)
+    tail = [l for l in p.stdout.splitlines() if "gates pass" in l]
+    got = tail[-1].strip() if tail else "(none)"
+    m = re.match(r"(\d+)/(\d+) gates pass", got)
+    good = bool(m) and p.returncode == 0 and m.group(1) == m.group(2) and int(m.group(2)) >= floor
+    return good, "%-14s %s   (all must pass; W3 baseline %d gates -- a FLOOR)" % (name, got, floor)
+
+
 def x0_no_regression():
     lines, ok, total = [], True, 0
-    for runner, want, cwd in (("r1_gates.py", "8/8", TIER_R), ("r2_gates.py", "6/6", TIER_R),
-                              ("r3_gates.py", "5/5", TIER_R), ("w1_gates.py", "5/5", _HERE),
-                              ("w2_gates.py", "6/6", _HERE)):
-        p = subprocess.run([sys.executable, os.path.join(cwd, runner)],
-                           capture_output=True, text=True, cwd=cwd)
-        tail = [l for l in p.stdout.splitlines() if "gates pass" in l]
-        got = tail[-1].strip() if tail else "(none)"
-        good = p.returncode == 0 and got.startswith(want)
+    for runner, floor, cwd in (("r1_gates.py", 8, TIER_R), ("r2_gates.py", 6, TIER_R),
+                               ("r3_gates.py", 5, TIER_R), ("w1_gates.py", 5, _HERE),
+                               ("w2_gates.py", 6, _HERE)):
+        good, line = _runner(runner, cwd, floor)
         ok = ok and good
-        lines.append("%-14s %s   (want %s)" % (runner, got, want))
+        lines.append(line)
     counts = {}
     for mod, cwd, tag in (("test_tier_r_disasm.py", TIER_R, "tier-r"),
                           ("test_tier_r_annot.py", TIER_R, "tier-r"),
@@ -110,34 +128,67 @@ def x0_no_regression():
     lines.append("tier-r %d + w1 %d + w2 %d + w3 %d = %d tests pass"
                  % (counts.get("tier-r", 0), counts.get("w1", 0), counts.get("w2", 0),
                     counts.get("w3", 0), total))
-    exact = (counts.get("tier-r") == 142 and counts.get("w1") == 34 and counts.get("w2") == 34)
-    lines.append("tier-r/w1/w2 counts match the brief's own figures (142/34/34): %s" % exact)
-    ok = ok and exact
-    # the readers this rung builds on must be untouched.  TRACKED readers (pre-existing in git) get
-    # the git-status check w1_gates/w2_gates already use.  w3_program_edits.py/w3_clock_emu.py are
-    # B0's own NEW deliverables and were never committed -- `git status --porcelain` reports an
-    # untracked file as `??` REGARDLESS of whether this rung touched it, so git status is the wrong
-    # instrument for them (a first draft of this gate used it uniformly and FAILED on that false
-    # signal alone).  They are verified instead by grepping every source THIS rung adds for a write
-    # call against their own path -- the only way B2's own code could have edited them.
-    tracked_readers = ["studies/custom-summons/tier-w/rescore.py",
-                       "studies/custom-summons/tier-w/summon_camera.py",
-                       "ff9mapkit/ff9mapkit/battle/camera_codec.py",
-                       "studies/custom-summons/tier-r/tier_r_disasm.py",
-                       "studies/custom-summons/tier-r/tier_r_annot.py",
-                       "studies/custom-summons/tier-r/summon_inspect.py"]
-    p = subprocess.run(["git", "status", "--porcelain", "--"] + tracked_readers,
+    # W5 RELAXATION -- exact counts became FLOORS.
+    #
+    # W3 pinned `w2 == 34` and `w1 == 34` because W3 was the only rung in flight and any movement in
+    # a sibling's test count meant somebody had edited a file they did not own.  In W5 the camera
+    # (rescore.py/test_rescore.py) and retime (retime.py/test_retime.py) lanes are BOTH being
+    # generalised, by design, so their counts grow on purpose (both roughly doubled).  An equality
+    # pin here turns a sibling's new test into a red gate on this lane, which is exactly the failure
+    # mode that trains an agent to delete gates.  The live numbers are PRINTED below, not pinned --
+    # per CLAUDE.md's rule that a test count has exactly one owner.
+    #
+    # It stays FALSIFIABLE, not a no-op: every module must still exit 0 (asserted per module above,
+    # `ok = ok and rc == 0`), and each count is held to its W3 baseline as a FLOOR -- a test that
+    # DISAPPEARS still fails this gate, which is the regression the pin was really guarding.
+    baseline = {"tier-r": 142, "w1": 34, "w2": 34, "w3": 46}
+    for tag in ("tier-r", "w1", "w2", "w3"):
+        want, got = baseline[tag], counts.get(tag, 0)
+        lines.append("   %-7s %3d  (W3 baseline %d, FLOOR: %s%s)"
+                     % (tag, got, want, got >= want,
+                        "" if got == want else "; %+d -- lane generalised in W5" % (got - want)))
+        ok = ok and got >= want
+
+    # The readers must be untouched -- but W5 SPLIT this check by ownership, for the same reason.
+    #
+    # HARD: the files W5 does not touch at all.  `git status --porcelain` over them must be empty.
+    # This list now INCLUDES w3_program_edits.py and w3_clock_emu.py: in W3 they were B0's brand-new
+    # uncommitted deliverables, so `??` said nothing about whether this rung had edited them and the
+    # gate fell back to a write-pattern grep.  They have since been committed, so git has a real
+    # baseline and the strong instrument applies.  The grep is KEPT as a second, independent
+    # instrument (a source that writes to them at RUN time would not show in git status until after
+    # the damage).  ef_container.py and the two kit summons modules join the list: reskin.py reads
+    # both this rung and neither may be edited from tier-w.
+    hard_readers = ["studies/custom-summons/tier-w/summon_camera.py",
+                    "studies/custom-summons/tier-w/w3_program_edits.py",
+                    "studies/custom-summons/tier-w/w3_clock_emu.py",
+                    "ff9mapkit/ff9mapkit/battle/camera_codec.py",
+                    "ff9mapkit/ff9mapkit/summons/texture.py",
+                    "ff9mapkit/ff9mapkit/summons/container.py",
+                    "studies/custom-summons/thomas-swap/disasm/ef_container.py",
+                    "studies/custom-summons/tier-r/tier_r_disasm.py",
+                    "studies/custom-summons/tier-r/tier_r_annot.py",
+                    "studies/custom-summons/tier-r/summon_inspect.py"]
+    # SIBLING-LANE: rescore.py and reskin.py are B2's and B1's OWN files this rung (and retime.py is
+    # this lane's own tool, generalised by B3).  Their working-tree state is REPORTED, never gated --
+    # w3_gates has no standing to call a modification to a file another lane owns a regression.  The
+    # claim that their behaviour did not regress is carried by test_rescore/test_reskin/test_retime
+    # and by w2_gates/w4_gates above, all of which are still hard-gated here.
+    sibling_lane = ["studies/custom-summons/tier-w/rescore.py",
+                    "studies/custom-summons/tier-w/reskin.py",
+                    "studies/custom-summons/tier-w/retime.py"]
+    p = subprocess.run(["git", "status", "--porcelain", "--"] + hard_readers,
                        capture_output=True, text=True, cwd=_REPO)
     dirty = [l for l in p.stdout.splitlines() if l.strip()]
-    lines.append("TRACKED readers' working tree: %s"
-                 % ("UNMODIFIED (%d files checked)" % len(tracked_readers) if not dirty
+    lines.append("HARD readers (kit + tier-r + ef_container + the frozen W3 record): %s"
+                 % ("UNMODIFIED (%d files checked)" % len(hard_readers) if not dirty
                     else "MODIFIED -- " + "; ".join(dirty)))
     ok = ok and not dirty
 
-    untracked_readers = ["w3_program_edits.py", "w3_clock_emu.py"]
-    new_sources = ("test_retime.py", "w3_gates.py")
+    frozen_w3 = ["w3_program_edits.py", "w3_clock_emu.py"]
+    new_sources = ("test_retime.py", "w3_gates.py", "retime_derive.py", "test_retime_derive.py")
     write_hits = []
-    for name in untracked_readers:
+    for name in frozen_w3:
         for src in new_sources:
             fp = os.path.join(_HERE, src)
             if not os.path.isfile(fp):
@@ -147,19 +198,17 @@ def x0_no_regression():
                        "Path(%r)" % name):
                 if pat in text and ("write" in pat or "w\"" in pat or "w'" in pat):
                     write_hits.append("%s references %r near a write pattern" % (src, name))
-    p2 = subprocess.run(["git", "status", "--porcelain", "--"] +
-                        ["studies/custom-summons/tier-w/" + n for n in untracked_readers],
-                       capture_output=True, text=True, cwd=_REPO)
-    all_new_or_absent = all(l.startswith("??") or not l.strip() for l in p2.stdout.splitlines())
-    lines.append("UNTRACKED readers (B0's own new deliverables, no git baseline exists yet): %s -- "
-                 "%s; no write-pattern hit against either in this rung's own sources: %s"
-                 % (untracked_readers,
-                    "still untracked/new (git has never seen a prior version to diff against)"
-                    if all_new_or_absent else "UNEXPECTED git state",
-                    not write_hits))
-    ok = ok and all_new_or_absent and not write_hits
-    return gate("X0 no regression (r1/r2/r3 + w1/w2 gates, every tier test, readers untouched)",
-               ok, *lines)
+    lines.append("no write-pattern hit against %s in this lane's own sources %s: %s"
+                 % (frozen_w3, list(new_sources), not write_hits))
+    ok = ok and not write_hits
+
+    p2 = subprocess.run(["git", "status", "--porcelain", "--"] + sibling_lane,
+                        capture_output=True, text=True, cwd=_REPO)
+    sib = [l for l in p2.stdout.splitlines() if l.strip()]
+    lines.append("SIBLING-LANE files (REPORTED, not gated -- W5's B1/B2/B3 own them this rung): %s"
+                 % ("unmodified" if not sib else "; ".join(l.strip() for l in sib)))
+    return gate("X0 no regression (r1/r2/r3 + w1/w2 gates, every tier test at or above its W3 "
+               "floor, hard readers untouched)", ok, *lines)
 
 
 # --------------------------------------------------------------------------- the shared real build
@@ -448,7 +497,9 @@ def x7_text_co_retime():
     if b.player:
         lines.append("")
         lines.append("PlayerSequence.seq audit verdict: %s" % b.player.verdict)
-        ok = ok and not b.player.needs_retime
+        # `.ok` (clean OR legitimately acknowledged), not `not needs_retime` -- V2's finding: the
+        # bare form would fail X7 on a spec whose drift is stated via acknowledge_uncoretimed.
+        ok = ok and b.player.ok
     else:
         ok = False
         lines.append("PlayerSequence.seq audit: NOT RUN")

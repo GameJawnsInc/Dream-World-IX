@@ -2701,3 +2701,146 @@ earlier layers per their own sections.
    minutes each — **zero encounters**.
 2. The bench canopy still fights (Python/Goblin/Mu; Ragtime Mouse possible).
 3. A stock sanity spot if convenient (e.g. any real plains): stock encounters unchanged.
+
+---
+
+# 28. R5 — THE SEA LANES + THE BOAT WAKES — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26 ("go R5"). Both halves of the rung landed offline-verified.
+
+## 28.1 R5a — the dormant boat: §20 was a DOMAIN mis-diagnosis; the original gate restored
+
+THE ×256 DOMAIN LAW (the missing link §20 never traced): `WMActor.pos`'s SETTER (WMActor.cs:17-19)
+writes `RealPosition * 256f` into the eb-visible `PosObj.pos[]` — **on the world map, `obj(uid).f[]`
+reads are ×256 fixed point**, not world units (the §20 chain read the CAST but never the WRITER).
+Everything re-resolves:
+
+* the ORIGINAL relative gate (`|Δf| < 25600` = 100u ×256) was CORRECT all along;
+* the §19-era quay boarding was the v1 float-parked boat legitimately in range — MOOR-HOME alone
+  was the complete fix for the race (kept, untouched);
+* §20's world-unit absolute window could never be true live (mooring f[0] = 125,952, not 492) =
+  the dormant boat.
+
+**The fix is a RESTORATION, not a new derivation** (honoring the §20-era directive — no new window
+was derived, so no live capture was owed): entry-15 tag-1 grafted back from the pre-§20 backup
+(`gui-workspace-improvements-277c74/backups/boat-rangegate.20260726`), per language from each live
+file's own bytes (174 → 190 B), verified per language that ONLY that function changed and equals
+the oracle body — the R3/R4-era dispatcher additions (case-61/65-68 triggers, the extended
+func-0xB) all preserved. Source parity: `build_boat_world11.py`'s gate rewritten to the relative
+form + `wu()`'s docstring now carries the law as a warning. Backup of the pre-restore state:
+`backups/r3-lamplight.20260726-r3lamplight/world11-pre-r5/`.
+
+## 28.2 R5b — THE SEA-LANE PROBE: the west arc is tile-proven sailable
+
+The Blue Narciss legality mask decoded from TransportControls.csv: `limit0=39845888 / limit1=0` →
+legal topographs exactly **{53, 54, 57}** (the bit convention validated by reproducing THE ENGINE
+FOOT-WALK TABLE byte-exact from the Walking row — the mask oracle). `probe_r3/probe_sea_lane.py`
+walks candidate passages at 8u sampling over the STACKED live meshes, with pure-ocean cells
+resolved to the runtime `SeaBlockPrefab` (generic deep sea, topo 57 — cells with no block files at
+all; the probe's first run mis-scored those as holes, plus started on Ashvale's shore and ran its
+final legs onto the horseshoe's own ground — three instrument errors, all corrected and recorded).
+
+**VERDICT: the NORTH passage — Ashvale's west shore → the x=0/1536 wrap → north of Lamplight →
+the west channel at the horseshoe — is FULLY SAILABLE, 47/47 samples.** The south passage's final
+leg clips the horseshoe's SE ground (topo 16/17 at x 1276-1293): route north or berth wider.
+Output: `probe_r3/probe_sea_lane_output.txt`.
+
+## 28.3 Undo
+
+Restore the 7 files from `world11-pre-r5/` (returns the dormant §20 gate). The lane probe wrote
+nothing.
+
+## 28.4 Playtest ask (owner) — no relaunch, re-enter the world
+
+1. **Board at the islet**: stand by the beached crimson hull (or the dock) and press Confirm —
+   boarding fires again. Dismount: you land on the dock, the boat re-moors.
+2. **Confirm at each quay / in the open**: no boat hijack (moor-home keeps the 100u radius at the
+   islet, 125u+ from everything).
+3. **The voyage (the design's payoff, first sail):** board and sail WEST from Ashvale — through
+   the wrap, keep Lamplight to your south (its plate on the way past, kupo), into the channel
+   between Lamplight and the horseshoe. That is the design's "only block-proven voyage in the
+   world", now tile-proven and — with a working boat — actually sailable.
+
+---
+
+# 29. R5c — THE STOCK BOARDING UX (plate + engine-legality dismount + the beachable fringe) — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26, from the owner's §28.4 playtest: *"dismounting the boat always puts me back on the
+island in the same spot and puts the boat back on the beach. also, it doesn't show a ? or ! bubble
+when approaching the boat (although I'm not sure what stock behavior is)."* Both reports were the
+scripted v1.1 state, not regressions — moor-home + the fixed dock snap were the §19 anti-race
+stopgap, and the missing prompt was the study's own deferred "proper boarding UX... is R5" note.
+This rung retires the stopgap with the REAL stock protocol, decoded end to end.
+
+## 29.1 What stock actually does (the decode)
+
+* **The prompt IS stock**: WORLD03's cell summoner (entry-0 tag 38809) arms `Byte[39]=92` — the
+  Blue Narciss's own nameplate case — when you approach the parked boat on foot; the case machine
+  draws the plate + "Enter with (X)". Boarding requests `Map.Byte[37]=12` into entry 2's vehicle
+  machine (board = mode 7 + tag-21 pair).
+* **Dismount is a SCRIPT-side request against an ENGINE legality service**: entry 3 tag 1 @L185 —
+  Cancel while sailing → `RunWorldCode(28,0)` = `ff9.w_movementGetGetoff` (mode 7: the tile AHEAD
+  of the hull must read **topograph 53** — beach-front water — then a raycast sweep around the hull
+  finds FOOT-walkable ground) → answer in `SYSVAR[195..197]` (y==10000 = the refuse sentinel →
+  silently nothing). On success the machine's arm 13 runs the boat's tag 22, which **saves the
+  boat's LIVE position into the parked record** — stock parks WHERE IT FLOATS — and the player
+  lands at the engine's point (entry 12 tag 22 reads the staged coords).
+
+## 29.2 The fix — three pieces
+
+**(a) The boat loop v2** (`build_boat_world11.py`, entry-15 tag-1 + entry-14 tag-60, all 7
+languages, +38 B/file): on-foot approach within 40u (tightened from 100u; stock boards on hull
+contact) self-summons **case 69** — the ring's next virgin case — so the plate reads "Crimson
+Narciss" ("?" until first boarding; the explored bit = the kit word 2006 bit 4, written on the
+board branch like every ring entrance). Board = Confirm while THAT plate is armed
+(`Byte[24]==169`) → the case machine arbitrates every Confirm press: a quay plate and the boat
+plate can never both take one press — the §19 race is dead by construction, so MOOR-HOME IS
+RETIRED. Dismount = Confirm|Cancel while sailing → `RunWorldCode(28,0)` + the sentinel check →
+the anchor snaps to `SYSVAR[195..197]` (the engine's landing point, entry-14 tag-60 v2) and THE
+BOAT PARKS WHERE IT FLOATS. Write-set proven per language: exactly {entry-15 tag-1, entry-14
+tag-60} changed (scratch verify), backups `backups/custom-vehicle/*.20260726-204224`.
+
+**(b) The name**: `marker_renames.toml` locid 68 = "Crimson Narciss" (split[69]), deployed to all
+7 languages' 68.mes.
+
+**(c) THE BEACHABLE FRINGE** (`stamp_beach_fringe.py`): the landing probe
+(`probe_r3/probe_landings.py`) proved the getoff gate could NEVER pass at any ring island — the
+mints/carries built GROUND only, so pure Sea4 **topo-57 deep water laps directly at every sand
+line**; only the stock (7,17) islet had the graded topo-53 fringe (stock's grammar: Sea1/Sea2
+carry 53 at the sand). Fix under the coast-mosaic law "navigation and render are SEPARABLE (topo
+= tangent.x, look = UV+material)": near-shore Sea4 tris (all-57, centroid ≤16u from island
+ground) restamped **57 → 53, topo bits only** — 15,018 verts / 5,006 tris across 26 Sea4 files
+(×2 discs). Zero geometry/UV/material change; the real Sea1/Sea2 shallow-LOOK ring stays a
+separate fidelity arc. Integrity probe `probe_r3/probe_beach_fringe.py`: every diff is a
+tangent.x 57→53 with event/area/flags preserved, everything else byte-identical, disc parity
+holds, the north lane stays FULLY SAILABLE. Landing sites now exist at ALL SEVEN shores
+(`probe_landings_output.txt`).
+
+## 29.3 Known persistence gap (deliberate)
+
+Entry-15's Init still re-moors the boat at BOAT_SPAWN on every world (re)load — the parked spot
+survives the session, not a save or a field round-trip (enter a quay field and return = the boat
+teleports home; the ferry keeps you un-stranded). Stock persists via Global[74..82], which real
+saves corrupt for us (proven 2026-07-22); kit-allocated parked-position storage is a later rung.
+
+## 29.4 Undo
+
+1. Boat loop: restore the 7 files from `backups/custom-vehicle/*.20260726-204224` (returns v1.1
+   moor-home + no prompt).
+2. Fringe: restore the 26×2 Sea4 files from
+   `backups/r3-lamplight.20260726-r3lamplight/pre-fringe-sea4/` (returns the unlandable coasts).
+3. Name: remove the locid-68 entry from `marker_renames.toml` and redeploy (or leave — an unused
+   name row is inert).
+
+## 29.5 Playtest ask (owner) — re-enter the world (the name may want a relaunch)
+
+1. **The prompt**: walk up to the beached crimson hull — the plate appears ("?" first time,
+   "Crimson Narciss" after you've boarded once). Confirm while it shows = board. If the plate
+   text shows "  ?  " even after boarding, relaunch once (the 68.mes table content is fresh).
+2. **The landing**: sail to any ring island, nose the bow at the beach, press Confirm (or
+   Cancel — stock's key): you step ashore AT THAT SHORE and the boat stays beached beside you.
+   In open water the same press does nothing (the engine sentinel refusing — stock behavior).
+3. **The voyage, full loop**: board at the islet → sail the north passage west from Ashvale →
+   land ON Lamplight's shore, walk to the tower, come back, re-board where you left the boat →
+   sail into the horseshoe channel and land on the horseshoe. That is the ring's first true
+   port-to-port sail.

@@ -15,8 +15,10 @@ gotchas: CLAUDE.md §3/§4, memory ``project-ff9-new-game-entry``.
 from __future__ import annotations
 
 import datetime
+import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from . import campaign as C
@@ -433,6 +435,213 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     out(f"2. RELAUNCH the game ONCE -- these are NEW ids ({member_ids[0]}..{member_ids[-1]}); their")
     out("   FieldScene lines only register on a fresh launch (~ Reload alone won't register a new id).")
     out(f"3. New Game now lands in {entry_name} (field {entry_id}).  ~ -> Warp reaches any member.")
+    out(f"Then PLAYTEST and report.   revert: py {rev}")
+    report.update(ok=True, rc=0)
+    return report
+
+
+# --------------------------------------------------------------------------- single-field deploy
+def default_field_folder(name) -> str:
+    """The DEDICATED mod folder a single field installs into by default -- ``FF9CustomMap-<name>``, keeping
+    the ``FF9CustomMap*`` family the install already stacks (FF9CustomMap-world, -ow). Dedicated is the whole
+    point: a folder this field OWNS has nothing of anyone else's to preserve, so ``build_mod``'s complete
+    output IS the correct install and no surgical per-id merge is needed."""
+    slug = re.sub(r"[^A-Za-z0-9_-]", "", str(name)) or "field"
+    return f"FF9CustomMap-{slug}"
+
+
+def _render_field_revert(live_root, snap, stamp, name) -> str:
+    """Undo a single-field install: restore the pre-install snapshot, or REMOVE the folder when the deploy
+    created it. The create case is why this can't just be :func:`_render_folder_revert` -- with no snapshot
+    to copy back, that one leaves the freshly-installed folder in place and reports success."""
+    head = [f'"""Revert the `ff9mapkit deploy` of field {name} ({stamp})."""',
+            "import shutil", "from pathlib import Path",
+            f"live = Path(r{str(live_root)!r})"]
+    if snap is None:
+        return "\n".join(head + [
+            "if live.is_dir():",
+            "    shutil.rmtree(live, ignore_errors=True)",
+            "    print('removed', live, '(this deploy created it)')",
+            "else:",
+            "    print('nothing to remove --', live, 'is already gone')",
+            "print('NOTE: Memoria auto-detected this folder at launch; RELAUNCH to drop it.')",
+            f"print('reverted field deploy {stamp}')", ""])
+    return "\n".join(head + [
+        f"snap = Path(r{str(snap)!r})",
+        "if snap.is_dir():",
+        "    shutil.rmtree(live, ignore_errors=True)",
+        "    shutil.copytree(snap, live)",
+        "    print('restored', live)",
+        "else:",
+        "    print('WARNING: snapshot missing -- left', live, 'untouched:', snap)",
+        f"print('reverted field deploy {stamp}')", ""])
+
+
+def deploy_field(target, *, game=None, mod_folder=None, apply=False, allow_name_collision=False,
+                 allow_id_collision=False, allow_drop=False, out_dist=None,
+                 backups_dir, reverts_dir, verbose=True) -> dict:
+    """Reversibly install ONE ``field.toml`` into ``<game>/<mod_folder>`` -- the single-field twin of
+    :func:`deploy_campaign`, and the installed-copy answer to ``tools/deploy_field.py`` (which stays
+    repo-only: its sandbox id-forcing, ``.ff9deploy.toml`` resolution and prior-id auto-revert are dev-loop
+    concerns with no meaning on a single-game install).
+
+    SAFE BY DEFAULT: with ``apply=False`` it lints, prints the plan, and touches nothing. With ``apply=True``
+    it builds to a staging dir, runs the name/id/text-shadow guards, snapshots any existing folder to
+    ``backups_dir``, installs wholesale, and writes ``revert_field_<name>.py`` into ``reverts_dir``.
+
+    ``mod_folder`` defaults to a DEDICATED folder (:func:`default_field_folder`). Pointed at a SHARED folder
+    that holds other fields, the wholesale install would unregister them, so it ABORTS unless ``allow_drop``
+    -- the same rule ``build_mod`` enforces for ``--out``, and the reason shared-folder iteration is still
+    the repo script's job (PLAN.md Phase 2). Returns a report dict with ``rc`` (0 ok / 2 abort) + ``revert``.
+    Raises :class:`DeployError` on a fatal misconfiguration."""
+    out, err = _emit(verbose)
+    from .build import BuildError, FieldProject, build_mod, lint_all
+    game = Path(game) if game is not None else find_game_path()
+    backups_dir, reverts_dir = Path(backups_dir), Path(reverts_dir)
+    target = Path(target)
+    report: dict = {"ok": False, "rc": 2, "applied": False, "mod_folder": None, "field_id": None,
+                    "field_name": None, "revert": None, "created_folder": None, "dist": None}
+    try:
+        proj = FieldProject.load(target)
+    except (OSError, ValueError) as e:
+        raise DeployError(f"failed to load {target}: {e}")
+
+    folder = mod_folder or default_field_folder(proj.name)
+    live_root = game / folder
+    existed = live_root.is_dir()
+    order = folder_order(game)
+    report.update(mod_folder=folder, field_id=proj.id, field_name=proj.name)
+
+    # --- lint (offline; aborts on structural errors, same gate as `ff9mapkit lint`) ---
+    rep = lint_all(proj)
+    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
+                       ("placement", rep.placement), ("camera", rep.camera)):
+        for w in items:
+            out(f"  warn  [{tag}] {w}")
+    if rep.errors:
+        err(f"field lint FAILED ({len(rep.errors)} error(s)):")
+        for e in rep.errors:
+            err("  error:", e)
+        return report
+
+    # --- the plan (always printed) ---
+    out(f"field '{proj.name}' (id {proj.id})  ->  mod folder '{folder}'  ({live_root})")
+    out(f"  target folder: {'EXISTS -- snapshot, then wholesale replace' if existed else 'NEW -- created by this deploy'}")
+    if mod_folder is None:
+        out("  (dedicated folder, derived from the field name -- pass mod_folder to install elsewhere)")
+    out(f"  text block: {proj.text_block}")
+    out("  will contain: DictionaryPatch.txt (FieldScene line) + EVT_<name>.eb.bytes x7 langs + the scene "
+        "dir, plus ForkDonorPatch/BattlePatch/TextPatch/start-state CSVs when the field uses them")
+    cwarn = DS.name_collision_warning(
+        DS.check_name_collisions(game, folder, {f"EVT_{proj.name}"}, set(), folder_names=order), folder)
+    if cwarn:
+        out("  !! " + cwarn.replace("\n", "\n     "))
+    out("  name/id/text-shadow checks run against the BUILT dist at apply, so apply may catch what a clean "
+        "dry-run did not.")
+
+    if not apply:
+        out("\nDRY-RUN -- no game files touched. Re-run with apply=True to install.")
+        report.update(ok=True, rc=0)
+        return report
+
+    # ===================== apply: touch the game (reversibly) =====================
+    stamp = _stamp()
+    with tempfile.TemporaryDirectory(prefix="ff9deploy-") as _tmp:
+        dist_root = Path(out_dist) if out_dist else Path(_tmp) / "dist"
+        try:
+            info = build_mod([proj], dist_root, mod_name=folder,
+                             description=f"ff9mapkit field {proj.name} ({proj.id})")
+        except BuildError as e:
+            raise DeployError(f"build failed: {e}")
+        for w in info.get("warnings", []) or []:
+            out("  warn:", w)
+        report["dist"] = str(dist_root)
+
+        # --- guards vs the BUILT dist (EVT + FBG scene names, GLOBAL EventDB ids, text-block shadow) ---
+        cwarn = DS.name_collision_warning(
+            DS.check_name_collisions(game, folder, DS.eb_names_at(dist_root), DS.scene_names_at(dist_root),
+                                     folder_names=order), folder)
+        if cwarn:
+            out("\n  !! " + cwarn)
+            if not allow_name_collision:
+                err("\nABORTING before install (no game files touched). Rename the field, or pass "
+                    "allow_name_collision to install anyway.")
+                return report
+        iwarn = DS.id_collision_warning(
+            DS.check_id_collisions(game, folder, DS.dictionary_ids_at(dist_root).keys(), folder_names=order),
+            folder)
+        if iwarn:
+            out("\n  !! " + iwarn)
+            if not allow_id_collision:
+                err("\nABORTING before install (no game files touched). EventDB/SceneData are GLOBAL -- a "
+                    "colliding id black-screens on a null .eb. Use an id no stacked folder registers, or "
+                    "pass allow_id_collision to install anyway.")
+                return report
+        _dist_blocks = set().union(*(DS.blocks_at(dist_root, L) for L in LANGS))
+        twarn = DS.text_shadow_warning(
+            DS.check_text_block_shadows(game, folder, _dist_blocks, lang=None, folder_names=order,
+                                        verbatim_blocks=DS.fork_donor_blocks_at(dist_root)), folder)
+        if twarn:
+            out("\n  !! " + twarn)
+
+        # --- the SHARED-FOLDER gate. Installing wholesale into a folder that registers fields this build
+        #     does not emit unregisters them: their .eb/.mes stay on disk, so nothing looks wrong until the
+        #     engine black-screens on the field whose FieldScene line vanished. Same rule build_mod enforces
+        #     for `--out`; the surgical per-id merge that would make this safe is Phase 2 (repo script only).
+        if existed:
+            _lost = _regs_wiped(ModLayout(live_root), dist_root)
+            if _lost:
+                out("\n  !! " + _wiped_regs_warning(_lost, dist_word="built field"))
+                if not allow_drop:
+                    err(f"\nABORTING before install (no game files touched). '{folder}' holds other fields; a "
+                        f"single-field install OWNS its folder and replaces it wholesale. Install into a "
+                        f"dedicated folder (the default), or pass allow_drop to replace anyway.")
+                    return report
+
+        # --- snapshot, install, revert ---
+        snap = None
+        if existed:
+            snap = backups_dir / f"{folder}.pre-{proj.name}.{stamp}"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(live_root, snap)
+            out(f"snapshot {live_root} -> {snap}")
+
+        # Write the revert BEFORE the risky copytree -- a failure partway (disk full, locked file, AV) must
+        # still leave a usable revert, not a naked snapshot the user has to restore by hand.
+        reverts_dir.mkdir(parents=True, exist_ok=True)
+        rev = reverts_dir / f"revert_field_{re.sub(r'[^A-Za-z0-9_-]', '', str(proj.name)) or 'field'}.py"
+        rev.write_text(_render_field_revert(live_root, snap, stamp, proj.name),
+                       encoding="utf-8", newline="\n")
+        report["revert"] = rev
+        report["created_folder"] = not existed
+
+        try:
+            shutil.rmtree(live_root, ignore_errors=True)
+            shutil.copytree(dist_root, live_root)
+        except OSError as e:
+            err(f"\nERROR installing -> {live_root}: {e}")
+            if snap is not None:
+                try:
+                    shutil.rmtree(live_root, ignore_errors=True)
+                    shutil.copytree(snap, live_root)
+                    err(f"Restored the pre-install snapshot from {snap}.")
+                except OSError as e2:
+                    err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be half-installed. "
+                        f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
+            return report
+    out(f"installed -> {live_root}  (field {proj.id} '{proj.name}')")
+    report["applied"] = True
+
+    # --- the manual steps this function cannot perform ---
+    out("\n=== MANUAL STEPS (deploy cannot do these) ===")
+    out(f"1. RELAUNCH the game ONCE. A NEW folder is auto-detected from its ModDescription.xml, and a NEW")
+    out(f"   field id ({proj.id}) only registers its FieldScene line on a fresh launch -- the ~ menu's")
+    out("   Reload alone will not register it. Later content edits to this field DO hot-reload.")
+    out(f"2. Reach it in game: ~ -> Warp to field -> {proj.id}.")
+    if not existed:
+        out(f"3. If '{folder}' does not appear after the relaunch, add it to Memoria.ini [Mod] FolderNames")
+        out("   AND [Mod] Priorities (same order, game+launcher closed -- the launcher rewrites FolderNames")
+        out("   from Priorities at every Play click, reverting a one-key edit).")
     out(f"Then PLAYTEST and report.   revert: py {rev}")
     report.update(ok=True, rc=0)
     return report

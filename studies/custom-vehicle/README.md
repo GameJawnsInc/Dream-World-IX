@@ -87,3 +87,58 @@ eval replicated the engine ops but fed AUTHORED coordinates; the live avatar's f
 beach were never measured — capture them first, e.g. via a temporary probe arm or the debug menu),
 and re-check every eval assumption against a live reading before widening the window. The dismount arm
 and moor-home behavior are unaffected.
+
+## ★ RESOLVED (2026-07-26, R5): the dormant boat was a DOMAIN mis-diagnosis — the original gate was right
+
+The §20 "no-op gate" claim rested on "f[] returns plain world units", which followed `getvobj`'s
+CAST but never traced the WRITER: **`WMActor.pos`'s setter (WMActor.cs:17-19) stores
+`RealPosition * 256f` into the eb-visible `PosObj.pos[]` — on the world map, f[] reads are ×256
+FIXED POINT.** Consequences, all now byte-verified:
+
+* the ORIGINAL relative gate (`|Δf| < 25600` = 100u in the ×256 domain) was CORRECT all along;
+* the §19-era "boarding at quays" was the v1 float-parked boat legitimately inside its 100u
+  radius — MOOR-HOME alone was the right and sufficient fix for the race;
+* §20's absolute window in world units could NEVER be true live (f[0] at the mooring reads
+  492×256 = 125,952, not 492) — the dormant-boat symptom exactly.
+
+**Fix: the pre-§20 body grafted back** (entry-15 tag-1, per language from each file's own bytes,
+`backups/.../boat-rangegate.20260726` as the byte oracle — a restoration to in-game-proven bytes,
+not a newly derived window). `build_boat_world11.py`'s gate + `wu()` docstring corrected — THE LAW:
+**on the world map, anything compared against an f[] read uses fp(); an offline eval must trace
+the WRITER of a variable, not just its reader.** Record: southern-ring REVERT.md §28.
+
+## ★ v2 — THE STOCK BOARDING UX (R5c, 2026-07-26): plate + engine-legality dismount
+
+The owner's R5 playtest surfaced the two deferred UX gaps (dismount always snapped home; no
+prompt). v2 replaces the whole board/dismount policy with the STOCK protocol, decoded from
+WORLD03 (entry 3 tag 1, entry 2's Byte[37] machine, entries 6/12 tags 21/22) + `ff9.cs`:
+
+* **The prompt**: within 40u on foot the boat self-summons nameplate **case 69** ("Crimson
+  Narciss", locid 68 in the ring's `marker_renames.toml`; "?" until first boarding — explored bit
+  = kit word 2006 bit 4). Stock's own parked Narciss does exactly this with case 92. Board =
+  Confirm while THAT plate is armed (`Byte[24]==169`) — the case machine arbitrates every press,
+  which kills the §19 quay race by construction, so **moor-home is retired: the boat parks where
+  it floats** (stock semantics).
+* **The dismount** (Confirm|Cancel while sailing): `RunWorldCode(28,0)` = the engine getoff
+  service `w_movementGetGetoff` — mode 7 demands the tile AHEAD read **topograph 53**, then
+  raycast-sweeps for foot-walkable ground; the answer comes back in `SYSVAR[195..197]` (y==10000
+  = refuse → silently nothing, stock's own behavior). The anchor snap (entry 14 tag 60) now lands
+  at the engine point instead of a fixed dock.
+* **THE BEACHABLE FRINGE**: the ring's ground-only mints had pure Sea4 topo-57 lapping the sand —
+  the getoff gate could never pass anywhere but the stock (7,17) islet. Fixed navigation-only
+  ("topo = tangent.x, look = UV+material"): near-shore Sea4 57→53 across 26 files ×2 discs
+  (`southern-ring/stamp_beach_fringe.py`, byte-probed by `probe_r3/probe_beach_fringe.py`).
+* **Known gap**: Init still re-moors on world (re)load — the parked spot survives the session,
+  not a save/field round-trip; kit-allocated parked-position storage is a later rung.
+
+Record: southern-ring REVERT.md §29.
+
+## ★ THE SEA LANE (R5): the west arc is tile-proven sailable
+
+Blue Narciss legality mask decoded from TransportControls.csv (`limit0=39845888/limit1=0` →
+topographs exactly **{53, 54, 57}**; the bit convention validated by reproducing the engine
+foot-walk table from the Walking row). `southern-ring/probe_r3/probe_sea_lane.py` walks the arc
+at 8u sampling over the stacked live meshes (pure-ocean cells = the runtime SeaBlockPrefab, topo
+57): **the NORTH passage (Ashvale → the wrap → north of Lamplight → the horseshoe's west channel)
+is FULLY SAILABLE, 47/47 samples.** The south passage clips the horseshoe's own SE ground on its
+final leg — route north, or give the bench a wider berth.

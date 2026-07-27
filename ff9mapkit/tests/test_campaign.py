@@ -900,3 +900,47 @@ def test_render_graph_text():
     assert "DANGLING SEAMS" in txt and "GHOST2->42" in txt             # stale seam surfaced, not dropped
     assert "needs-export" in txt                                       # B is an artless editable member
     assert "entry_field not a member" in campaign.render_graph(_graph_plan(entry="NOPE"))
+
+
+def _stub_extract(monkeypatch, *, area=11):
+    """Neutralize the two game-touching calls in _emit_logic_only_member so the TOML it EMITS can be
+    asserted offline (the real path needs the install + UnityPy)."""
+    def _extract_field(folder, out_dir, game=None, **kw):
+        return {"field": str(folder), "area": area, "scrolling": False, "player_start": (10, 20),
+                "camera": {"pitch_deg": 45.0, "fov_deg": 42.2}}
+
+    def _content(folder, game, **kw):
+        return "", None, {}
+    monkeypatch.setattr(extract, "extract_field", _extract_field)
+    monkeypatch.setattr(extract, "_content_for_import", _content)
+
+
+def test_logic_only_member_records_its_donor_as_source_field(tmp_path, monkeypatch):
+    """An EDITABLE (art-less) member must record `[field] source_field = <donor>`. That key is what
+    ForkDonorPatch keys off -- build_mod emits `<forkId> <donorRealId>` from it -- so without it a member
+    built standalone via `ff9mapkit build --out` silently lost every fork-donor behavior (off-mesh
+    exemptions, name-keyed overlay occlusion, scroll binds). It also completes the pairing the member's
+    text_block already assumes: the donor's own block IS granted on the strength of this key."""
+    from ff9mapkit.build import _verbatim_donor_id
+    _stub_extract(monkeypatch)
+    _meta, p = campaign._emit_logic_only_member(
+        "600", tmp_path, "MEMBER", 30100, {}, False, None, real_id=600)
+    raw = tomllib.loads(p.read_text(encoding="utf-8"))
+    assert raw["field"]["source_field"] == 600
+    assert raw["field"]["text_block"] == 22          # the donor's own block -- the pairing this key justifies
+
+    class _P:
+        def __init__(self, raw): self.raw = raw
+    assert _verbatim_donor_id(_P(raw)) == 600        # -> build_mod now emits "30100 600" for this member
+
+
+def test_logic_only_member_omits_source_field_without_a_donor(tmp_path, monkeypatch):
+    """No donor (a hand-authored member with no `source`, which reaches here as real_id 0/None) and a
+    SELF-fork (donor == its own id) both emit no key -- mirroring build_campaign's own `real_id and
+    new_id != real_id` guard, so the two donor maps agree instead of one inventing a self-mapping."""
+    _stub_extract(monkeypatch)
+    for real_id in (None, 0, 30100):
+        _meta, p = campaign._emit_logic_only_member(
+            "600", tmp_path, "MEMBER", 30100, {}, False, None, real_id=real_id)
+        raw = tomllib.loads(p.read_text(encoding="utf-8"))
+        assert "source_field" not in raw["field"], f"real_id={real_id} should emit no source_field"
