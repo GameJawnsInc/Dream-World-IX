@@ -11,8 +11,9 @@ G1  CORPUS NO-CRASH SWEEP: ``w_survey.corpus_sweep`` resolves all 372 extracted 
 G2  EF227 BYTE-COMPAT ACROSS LANES: rebuilding ``bahamut_reskin.toml`` still produces the exact
     deployed, cast-proven artifact (a pinned sha256); rebuilding ``bahamut_rescore.toml`` and
     ``bahamut_retime.toml`` still pass THEIR OWN self-checks against the real install
-G3  THE FIVE TEXANIM REFUSALS: enabling a CREATURE target on each of ef038/177/493/494/495 raises
-    reskin.ReskinError citing "TEXANIM ARMED", exactly as D3 mandates
+G3' THE FIVE TEXANIM LIFTS (was `THE FIVE TEXANIM REFUSALS` -- INVERTED at W7, see `W7-TEXANIM.md`):
+    enabling a CREATURE target on each of ef038/177/493/494/495 now BUILDS, and the texanim region
+    comes back BYTE-IDENTICAL with `firstBlock` / `min(motionOffsets)` unmoved (THE REGION INVARIANT)
 G4  EF381 / EF447 REFUSALS: enabling one (of several) MULTI-WRITER cell writers on ef381 refuses
     naming the missing writers; enabling the DUAL-DEPTH cell on ef447 refuses outright, no key
 G5  HEADROOM REFUSAL: a `value > 1.0` on any of ef211's six zero-headroom creature rows refuses
@@ -44,6 +45,7 @@ import rescore as R                                                # noqa: E402
 import retime as RT                                                # noqa: E402
 import retime_derive as RD                                         # noqa: E402
 import summon_camera as W                                          # noqa: E402
+from ff9mapkit.summons import texanim as TA                        # noqa: E402
 
 try:                                                               # py3.11+ stdlib, else the backport
     import tomllib as _toml
@@ -173,19 +175,71 @@ def _refuse_via_scaffold(effect: int, pick, mutate=None):
         return str(exc)
 
 
-def g3_five_texanim_refusals():
+def _build_via_scaffold(effect: int, pick, mutate=None):
+    """The mirror of :func:`_refuse_via_scaffold`: scaffold, flip ONE target on, and BUILD.
+
+    Returns ``(build, None)`` or ``(None, message)``.  Deliberately routed through the scaffold rather
+    than a hand-written spec, exactly as the refusal probe is -- a lift that only works on a spec an
+    agent typed by hand is not a lift an author can reach.
+    """
+    blob = _load_corpus(effect)
+    text, _pmap = RS.scaffold(effect, blob)
+    spec = _toml_loads(text)
+    rows = spec["reskin"]["target"]
+    row = next(r for r in rows if pick(r["name"]))
+    row["enabled"] = True
+    if mutate:
+        row.update(mutate)
+    try:
+        return RS.build(spec, "ef%03d-gate-probe" % effect, blob=blob), None
+    except RS.ReskinError as exc:
+        return None, str(exc)
+
+
+def g3_five_texanim_lifts():
+    """G3', W7.  This gate was `THE FIVE TEXANIM REFUSALS` and is now `THE FIVE TEXANIM LIFTS` --
+    inverted, in lockstep with the kit's own pins, because W7 READ the table.
+
+    What changed: the region is a texel-blit clip table that copies 8-bit palette INDICES inside ONE
+    creature part's own 128x128 page.  It binds no CLUT word and writes no CLUT contents (no ``u16``
+    anywhere in the five tables is a TPAGE or CLUT word; the rects cannot reach the CLUT strip), so a
+    recolour survives it by construction -- and on the PC port nothing ticks it at all.  The refusal
+    W5 shipped was correct FOR ITS EVIDENCE and is wrong for W7's.
+
+    What this gate pins in its place is the stronger claim: on each of the five real armed packages a
+    creature recolour BUILDS **and the texanim region comes back byte-identical**, with ``firstBlock``
+    and ``min(motionOffsets)`` unmoved -- THE REGION INVARIANT (W7 R1), which is the one thing that
+    must never move and the only rule the lift adds.
+    """
     if not _have_corpus():
-        return gate("G3 the five texanim refusals", False, "no extracted corpus at %s" % CORPUS)
+        return gate("G3' the five texanim lifts", False, "no extracted corpus at %s" % CORPUS)
     lines, ok = [], True
     for effect in SV.TEXANIM_CLASS:
-        msg = _refuse_via_scaffold(effect, lambda n: n.startswith("creature."))
-        fired = bool(msg) and "TEXANIM ARMED" in msg
-        ok = ok and fired
-        lines.append("ef%03d creature target enabled: %s"
-                     % (effect, "REFUSED (TEXANIM ARMED)" if fired
-                        else ("REFUSED but wrong reason: %s" % (msg or "")[:80] if msg
-                             else "BUILT (WRONG -- should have refused)")))
-    return gate("G3 the five texanim refusals (ef038/177/493/494/495, creature scope)", ok, *lines)
+        blob = _load_corpus(effect)
+        res = TA.read(blob)
+        ta = RS.texanim_region(blob)
+        if not res.parsed:                                        # pragma: no cover - corpus drift
+            ok = False
+            lines.append("ef%03d region does NOT decode (%s) -- the lift is not available here"
+                         % (effect, (res.error or "")[:70]))
+            continue
+        part = res.table.parts[0]
+        b, msg = _build_via_scaffold(effect, lambda n, p=part: n == "creature.part%d" % p,
+                                     mutate={"hue_rotate": 30.0})
+        if b is None:
+            ok = False
+            lines.append("ef%03d creature recolour: REFUSED (%s)" % (effect, (msg or "")[:80]))
+            continue
+        n = sum(1 for i in range(len(blob)) if blob[i] != b.patched[i])
+        same = b.patched[ta.lo:ta.hi] == blob[ta.lo:ta.hi]
+        ok = ok and n > 0 and same and "byte-identical" in b.region_invariant
+        lines.append("ef%03d  %d clip(s) part %d, region %d B  ->  BUILT, %d CLUT byte(s) changed, "
+                     "region %s"
+                     % (effect, res.table.count, part, ta.nbytes, n,
+                        "BYTE-IDENTICAL" if same else "*** REWRITTEN ***"))
+    lines.append("THE REGION INVARIANT is what replaced the refusal: %s" % TA.REGION_RULE)
+    return gate("G3' the five texanim lifts (ef038/177/493/494/495, creature scope, region pinned)",
+                ok, *lines)
 
 
 # --------------------------------------------------------------------------- G4
@@ -362,7 +416,7 @@ def main() -> int:
              % CORPUS)
     g1_corpus_no_crash_sweep()
     g2_ef227_byte_compat_across_lanes()
-    g3_five_texanim_refusals()
+    g3_five_texanim_lifts()
     g4_ef381_ef447_refusals()
     g5_headroom_refusal()
     g6_ef000_camera_refusal()

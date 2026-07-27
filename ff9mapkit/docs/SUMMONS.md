@@ -280,7 +280,7 @@ flip rows on — you never hand-type an offset, a VRAM cell, or a palette name.
 | `label` | no | a human tag carried into reports/manifests; no engine meaning. Defaults to `"reskin"`. |
 | `expect_sha256` | *needed unless the effect has a registered hash* | sha256 of the pristine stock container this edit was derived against — THE DRIFT GUARD. Without it, and without an entry already registered for `effect` in the module's own hash table, the build REFUSES unless `allow_unguarded = true`. `scaffold` fills this in from your own install. |
 | `allow_unguarded` | no | splice with **no** drift guard at all — an explicit escape hatch for a deliberately unguarded edit, never a default. |
-| `acknowledge_texanim` | *conditional* | required (`= true`) before an **enabled scenery** target may build on an effect whose id-4 texanim region is armed. A **creature** target on such an effect is refused outright — no key lifts that one (THE TEXANIM GATE, below). |
+| `acknowledge_texanim` | **deprecated — a no-op, with one exception** | it used to be required before a scenery target could build on a texanim-armed effect. The assumption behind it is a measurement now — **when the table decodes** — so on every stock container it does nothing: still accepted (and reported) for one release so older specs keep building, `scaffold` no longer emits it, and you should delete the line. The exception: on an armed table the reader **cannot decode**, the measurement never ran, and the key is **required** for scenery in its original meaning (orthogonality assumed, not proven). See THE TEXANIM TABLE, below. |
 | `defaults` | no | a `[reskin.defaults]` sub-table of transform fields (`hue_rotate` / `hue_to` / `saturation` / `value`) every `[[reskin.target]]` row inherits unless it overrides them. |
 | `spans` | no | a `[reskin.spans.<name>]` sub-table per named span (`offset`, `length`) — GUARDS on the derivation: if the container's own header derives a different span, the build refuses rather than splice into a place this edit was not derived against. |
 | `orthogonality` | no | a `[reskin.orthogonality]` sub-table naming sibling spec paths (`rescore = "…"`, `retime = "…"`), resolved **relative to this spec file's own directory** — see Orthogonality, below. |
@@ -310,8 +310,7 @@ and every changed byte must land inside a derived span, or the build refuses out
 | trigger | satisfied by | why (the law) |
 |---|---|---|
 | no `expect_sha256`, and the effect has no registered hash | `allow_unguarded = true` | a Steam/Moguri patch or another mod could move a span under the edit and nothing would notice — the drift guard exists so that never happens quietly. |
-| a **creature** target on a TEXANIM-armed effect | *nothing lifts this — it's outright* | THE TEXANIM GATE: the arming table is per creature PART and its internal format is unread, so a running animation may cycle the CLUT word, the texels/UVs, or the CLUT contents — only one of those three leaves a static recolour intact. |
-| a **scenery** target on a TEXANIM-armed effect | `acknowledge_texanim = true` at `[reskin]` | the same table's reach into the effect's own set is *plausible* but unproven — the acknowledgement states exactly that, in those words. |
+| a **creature** target on a TEXANIM-armed effect whose table **does not decode** | *nothing lifts this — it's outright* | the table's format is read now, but the lift is conditional on a **successful parse**, never on the absence of an error. A region the reader cannot decode is the state this tool was in before it could read any of them, so each scope gets exactly its pre-W7 posture: creature refuses outright, and a **scenery** target is back to needing `acknowledge_texanim = true` (the key's original meaning). An unknown container shape must degrade to the safe behaviour, not slip past it. |
 | a DUAL-DEPTH CLUT cell touched (two different entry-count readings of the same VRAM bytes) | *nothing lifts this — it's outright* | the two readings are two different pictures over the same bytes, and no evidence exists either way about how they interact. |
 | a MULTI-WRITER cell (more than one file offset streams into the same VRAM cell) with not every writer named | name every writer | recolouring one writer leaves the others stock, and the cast flickers between two keys. |
 | … named, but not every one with `hue_to` | rewrite every writer with `hue_to` | each writer has its own measured mean hue, so a shared `hue_rotate` **delta** lands them on *different* hues — the flicker this gate exists to stop. |
@@ -330,14 +329,30 @@ under the hue you chose (see THE SATURATED-RAMP LAW, below).
 
 ### The laws behind the refusals (house voice, study-grounded)
 
-- **THE TEXANIM GATE.** Corpus-wide, exactly five stock creature packages (ef038, ef177, ef493,
-  ef494, ef495) carry a non-empty texture-animation region between the id-4 geometry block and its
-  first motion clip — everywhere else that span is zero bytes. The arming ops index the record PER
-  CREATURE PART, and the table's own byte layout has never been read, so whether a running texanim
-  cycles the CLUT word, the texels/UVs, or the CLUT contents is unsettled — and only one of those
-  three leaves a static palette recolour intact. That is why a creature target refuses outright
-  there and a scenery target only needs a stated, unproven acknowledgement
-  (`studies/custom-summons/tier-w/W5-GENERALIZE.md` §1, `PLAN.md` rung W5).
+- **THE TEXANIM TABLE — read, and no longer a refusal.** Corpus-wide, exactly five stock creature
+  packages carry a non-empty texture-animation region between the model image's geometry block and
+  its first motion clip — **ef038** (Shiva, 116 bytes) and **ef177 / ef493 / ef494 / ef495**
+  (Carbuncle ×4, 364 bytes each and byte-identical: one creature shipped as four ability rows).
+  Everywhere else that span is zero bytes. Earlier releases refused every creature edit on those five
+  because the region's layout was unread. It is read now: `u32 clipCount`, then one 20-byte **clip**
+  record per clip, then one 12-byte destination **window** per clip, then packed 4-byte frame lists —
+  three arrays that account for every byte of the region exactly, which is what proves the reading.
+  **What it describes is a texel blit**: a small rectangle of 8-bit palette *indices* copied from a
+  spare strip into a live window **inside one creature part's own 128×128 page**. It never binds or
+  writes a palette word, never rewrites palette contents (its rectangles cannot even reach the
+  palette strip), and never touches a UV. So a recolour survives it **by construction** — a blit of
+  indices looks the same under any palette — and a scenery target was never in its reach at all,
+  because every clip names a *creature* part and every rectangle is local to that part's page. Both
+  refusals lifted; `acknowledge_texanim` is a deprecated no-op. (On the PC build nothing plays these
+  tables anyway: the only engine code that reaches the region writes three state fields and returns.)
+  Full record: `studies/custom-summons/tier-w/W7-TEXANIM.md`.
+- **THE REGION INVARIANT — the rule that replaced the refusal.** The engine compares the region's own
+  start against the first motion clip and takes a different code path when they are equal, so **that
+  span is never resized, relocated, zeroed or rewritten, and its start offset is never edited** — by
+  either lever. Both a recolour and a repaint are in-place splices that never need to, so honouring it
+  costs nothing; every build asserts it on the bytes it is about to hand back and reports the verdict
+  in `plan`. This tool ships a **reader** for the table, never a writer: there is no consumer of it in
+  the shipped engine, so no authored edit to it could be verified.
 - **Headroom is measured, never assumed.** "Stock leaves headroom for a brighter value" was true
   of ef227 (its six creature rows peak at 22–28 of 31) and false of the corpus at large — 46 of 93
   creature CLUT rows peak at the 5-bit ceiling, including every one of Phoenix ef211's. The gate
@@ -482,6 +497,7 @@ table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one
 | `expect_page_offset` / `expect_page_bytes` / `expect_page_wh` | no | guards: if the container's own id-4 header derives a different span, the build refuses rather than splice into a place this row wasn't authored against. `export-art`'s scaffold fills these in for you. |
 | `palette_from` | no | names the CLUT-lane row (`creature.part{N}`) this page indexes into, as a stated cross-reference — a page's palette is a HEADER FACT, not a choice, so naming any other row refuses. Omitted = the stock palette, 0 CLUT bytes touched (this rung's default). |
 | `acknowledge_cutout_reshape` | *conditional* | required (`= true`, a literal boolean — a truthy string refuses rather than arms) before an edit that crosses the transparent-index boundary in either direction may build. See THE CUTOUT LAW, below. |
+| `acknowledge_texanim_frames` | *conditional* | required (`= true`, a literal boolean) before a repaint that touches **some** of an animated clip's rectangles and leaves its siblings stock may build — a deliberately asymmetric strip. See THE TEXANIM CO-TRANSFORM, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -497,20 +513,35 @@ count REFUSES unless the row says `acknowledge_cutout_reshape = true`. That is t
 this lane needs that the CLUT lane doesn't: reshaping a torn wing edge is a legitimate texel-level
 artistic move; painting through a hole by accident is not, and this is what catches the difference.
 
-### THE TEXANIM REFUSAL — unconditional, no key lifts it
+### THE TEXANIM CO-TRANSFORM — an obligation, not a refusal
 
-Five stock creature packages carry a non-zero texture-animation region between the id-4 geometry
-block and its first motion clip: **ef038** (116 bytes, 5 parts) and **ef177 / ef493 / ef494 /
-ef495** (364 bytes each, byte-identical across the four — one creature family). This rung reads the
-region's outer format for the first time (`u32 count` + `count` 20-byte records whose pointers all
-close inside the region, each one's first four fields decoding as a texel RECT that fits a 128×128
-page — `(27,62,11×12)` on ef038; `(33,78,9×14)` and `(24,102,8×14)` on the ef177 family), and both
-readings that survive are strictly worse for a texel edit than for a recolour: a frame blit
-overwrites repainted texels mid-cast, or a moving sample window shows frames the author never
-previewed. So a texel edit on any of the five packages **refuses outright the moment a creature
-target is enabled — no key lifts it**, unlike the CLUT lane's scenery-only escape hatch
-(`acknowledge_texanim`), because there is no scenery half of a texel edit on this rung to fall back
-to.
+Five stock creature packages carry a texture-animation table (see THE TEXANIM TABLE, above): **ef038**
+(Shiva) and **ef177 / ef493 / ef494 / ef495** (Carbuncle ×4). Earlier releases refused a texel repaint
+on all five outright, with no key. The table is decoded now, so the hazard is a **known set of
+rectangles** rather than an opaque window: per clip, the live destination window plus every source
+frame it can blit into that window. The build checks your actual edit against that set, per clip
+family, and there are exactly three outcomes:
+
+* **your edit touches none of those rectangles** → it builds. The animation cannot disturb it.
+* **your edit reaches every rectangle of each family** → it builds. What the tool measures is
+  **reach** — at least one changed texel in each rectangle — not that the same transform landed on
+  each; a dense whole-page repaint (a global recolour, a filter, a full repaint) passes in practice,
+  while a *sparse* page-wide remap can genuinely miss a rectangle and refuse (correctly: that
+  rectangle really is left stock). Whether the reached rectangles were repainted *consistently* is
+  your claim as the author, and the build note says so.
+* **your edit repaints some and leaves siblings stock** → it **refuses**, and the message is a work
+  order: the clip, the rectangles you painted, and the exact ones you left stock. The reason is
+  concrete — the first time that clip runs, the window shows art your repaint never touched and the
+  cast flickers between two pictures. Repaint the siblings the same way, or say
+  `acknowledge_texanim_frames = true` on that row to state that the asymmetry is deliberate.
+
+Treat overlapping rectangles as **one group and paint the union of their texels the same way** —
+two of Carbuncle's mouth frames sit one row apart and share texels (and one eye frame overlaps
+them into a three-rect group), so transforming each rect independently would double-apply on the
+overlap. The readouts group them for you; the build itself checks reach per rect. `export-art`'s
+report and scaffold and `plan` all print the protected set, so you can see it **before** you paint.
+A table the reader **cannot decode** still refuses outright, exactly as before — the lift is
+conditional on a successful parse.
 
 ### The dead pad — reported, never fatal
 

@@ -5,6 +5,53 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — five stock summons that could not be reskinned at all now can (the TEXANIM read)
+- **TIER W rung W7** (`studies/custom-summons/tier-w/W7-TEXANIM.md`): five stock summon containers —
+  **ef038 (Shiva)** and **ef177 / ef493 / ef494 / ef495 (Carbuncle ×4)** — carry a *texture-animation*
+  table that `summon-reskin` refused to edit, because nobody had read its format and one of the things
+  it might have been doing (swapping the creature's palette mid-cast) would have made a recolour
+  pointless. **The table is read now, and it does none of those things**: it copies a small rectangle
+  of palette *indices* from a spare strip into a live window inside one creature part's own texture
+  page. It cannot change a palette, and on the PC build nothing plays it at all. So:
+  - **a creature recolour on those five effects now BUILDS, with no acknowledgement key** — the whole
+    class was previously unreachable;
+  - **a scenery recolour on them needs no key either.** `acknowledge_texanim` is now a **deprecated
+    no-op wherever the table decodes** (that is: on every stock container): it is still accepted for
+    one release so existing specs keep building, it is reported when used, and `scaffold` no longer
+    emits it. Delete the line when you next touch a spec. On an armed table the reader *cannot*
+    decode, the key keeps its original pre-W7 meaning and is still **required** for scenery;
+  - **a texel repaint on those five now builds too** — a whole-page repaint with no key, and a
+    *localised* one once your edit **reaches** every rect of each animated clip family (the check is
+    at least one changed texel per rect — a dense repaint passes in practice, a sparse remap can
+    honestly miss a rect and refuse). If you repaint an animated window and leave the frames it swaps
+    in untouched, the build refuses with a **work order**: the clip, the rects you painted, and the
+    exact rects you left stock. `[[reskin.texel]]`
+    gains `acknowledge_texanim_frames = true` (a literal boolean) for a deliberately asymmetric strip.
+- **The authoring readouts now print the decoded table** instead of `TEXANIM ARMED (116 bytes)` —
+  `scaffold`, `plan`, both lanes' derivation reports **and `export-art`** (report, manifest and the
+  emitted texel scaffold) list each clip's part, frame count and rect, plus the protected rect set a
+  repaint has to respect — visible *before* you paint, not as a later refusal. The opaque byte count
+  was the reason the old refusal could not be acted on.
+- **New `summons/texanim.py` — a READER, deliberately with no writer.** It refuses rather than
+  guesses: a region whose three sub-arrays do not tile it exactly, whose offsets leave it, or whose
+  rects leave the part's own page does not decode — and a table that does not decode is treated
+  exactly as it was before this release, per scope: a creature target refuses outright, a scenery
+  target needs `acknowledge_texanim`. The lift is conditional on a *successful
+  parse*, so an unknown container shape degrades to the old behaviour instead of silently passing.
+- **New hard rule, enforced in both lanes at the point of the edit:** the texanim region is never
+  resized, relocated, zeroed or rewritten, and `firstBlock` is never edited — the loader keys a real
+  decision on that comparison. Every `summon-reskin` build (recolour or repaint) now asserts the
+  region came out byte-identical and reports the verdict in `plan`/`describe`.
+- **27 new kit tests** (`test_summon_texanim.py`, plus the inverted and split pins in
+  `test_summon_reskin.py` / `test_summon_repaint.py`): the decoder's round trip is byte-identical on
+  every armed region and on synthetic fixtures, `parse` never raises across all 372 stock containers,
+  and the corpus census (which effects are armed, how many clips, which part, and that the four
+  364-byte tables are byte-identical — one Carbuncle shipped as four ability rows) is re-measured from
+  the containers rather than asserted from a constant. Docs:
+  [`docs/SUMMONS.md`](docs/SUMMONS.md) (the texanim sections in both lanes),
+  [tutorial 14](docs/tutorials/14-summon-reskin-rescore.md#the-texanim-table--five-summons-that-are-no-longer-off-limits).
+  An in-game cast of the lift has not run yet; the offline gates are green.
+
 ### Added — `summon-reskin` gains a second lever: the TEXEL REPAINT (`export-art`, `[[reskin.texel]]`)
 - **TIER W rung W6a** (`studies/custom-summons/tier-w/PLAN.md`): `summon-reskin` grows a second
   edit lever alongside the CLUT recolour above — a texel repaint that rewrites the palette INDICES

@@ -181,10 +181,32 @@ name = "Rune"
 #     witness: `madeen_reskin.toml` recolours all six of its creature pages, scenery untouched.
 #   vfx1 = vfx2 = 251  the FULL cast, structurally (both cells equal => the short-summon roll cannot
 #                      change what plays); ef251 is Madeen, Eiko's eidolon, 6 creature parts, 2 chunks.
+#
+# --- TIER W7: "Stock Shiva" casts STOCK Shiva (ef038).  SAME shape as the two rows above, same donor,
+#     same three overrides, and the same forced placement -- APPENDED LAST, because the 192+ ability-id
+#     allocator is one running counter walking specs in TOML order (`content/playable.py`), so this row
+#     takes id 200 and renumbers nothing.  Inserting it anywhere earlier would shift 197/198/199, which
+#     are already deployed: a live-state break.
+#   WHY ef038 IS THE W7 SUBJECT.  It is the ONLY container in the whole 372-effect corpus that calls
+#     HLE op 12 `Hi_StartSummonTexAnim` -- twice, on clips 0 and 1 -- so it is the maximal-risk member
+#     of the five-package armed-texanim class that `summon-reskin` used to refuse outright with no key.
+#     W7 read the table, the refusal lifted, and this row is how the lift gets cast-proven.
+#   THE CAST CARRIES TWO VERDICTS IN ONE DEPLOY (`tier-w/shiva_reskin.toml`):
+#     (1) ONE FRAME -- Shiva is MAGENTA => a static CLUT recolour survives an armed texanim.
+#     (2) VIDEO     -- watch her EYE.  A flat white slab is painted into the spare "eye CLOSED" source
+#                      strip and the live eye window is left stock; if the window ever shows the slab,
+#                      something blits after all.  Expected outcome: it never does.
+#   vfx1 = vfx2 = 38   the FULL cast, structurally (both cells equal => the short-summon roll cannot
+#                      change what plays); ef038 is Shiva, 5 creature parts, 1 chunk.  Her SHORT id is
+#                      407 and is unreachable from this row by construction.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef038 container override itself is hot: a
+#   PAGE upload invalidates the decoded-texture cache, so the composed edit is live on the NEXT cast.
 abilities = [
   { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 },
   { name = "Stock Phoenix", from = "Bahamut", targets = "AllEnemy", vfx1 = 211, vfx2 = 211, type = 0, power = 30, mp = 8 },
   { name = "Stock Madeen", from = "Bahamut", targets = "AllEnemy", vfx1 = 251, vfx2 = 251, type = 0, power = 30, mp = 8 },
+  { name = "Stock Shiva", from = "Bahamut", targets = "AllEnemy", vfx1 = 38, vfx2 = 38, type = 0, power = 30, mp = 8 },
 ]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------

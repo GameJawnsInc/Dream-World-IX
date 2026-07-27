@@ -33,7 +33,10 @@ corpus is DERIVED, REFUSED or DISCLOSED here:
   complete coverage are **shared-UNKNOWN**, not "private". On ef227 the derivation reproduces the
   hand table exactly -- two shared cells, five single-bound, three unbound;
 * **multi-writer and dual-depth CLUT cells** are detected and refused (ef381, ef447);
-* the **texanim** region gates the creature scope outright (ef038/177/493/494/495);
+* the **texanim** region is READ (:mod:`ff9mapkit.summons.texanim`) and DISCLOSED rather than feared:
+  on the five armed packages (ef038/177/493/494/495) a creature recolour BUILDS once the table parses,
+  because the table blits 8-bit palette INDICES inside one part's own page and can express no CLUT
+  change at all -- an armed table that does NOT parse falls back to the pre-W7 refusal;
 * **headroom is measured per target** -- "stock leaves headroom" is an ef227 measurement, and 46 of
   the corpus's 93 creature rows peak at the 5-bit ceiling;
 * the **whole-set envelope**, the **preview page columns** and the **id-9 slot map** are computed,
@@ -91,7 +94,11 @@ An entry is a little-endian **BGR555** halfword: bits 0-4 R, 5-9 G, 10-14 B, bit
 THE REFUSALS (each one a call-site check with a test, never a note in a docstring)
 ----------------------------------------------------------------------------------
 * **no drift guard at all** -- no ``expect_sha256`` and no registered hash, unless ``allow_unguarded``;
-* **texanim armed** -- creature scope refused outright, scenery scope needs ``acknowledge_texanim``;
+* **texanim armed and UNPARSEABLE** -- creature scope refused (an armed table that DECODES lifts it,
+  no key; ``acknowledge_texanim`` is a deprecated no-op and the scaffold no longer emits it);
+* **the texanim REGION INVARIANT (R1)** -- after every build, ``firstBlock``, ``min(motionOffsets)``
+  and the region's own bytes must be unchanged, enforced at the call site
+  (:func:`assert_region_invariant`), not described in a docstring;
 * **dual-depth CLUT cell touched** -- refused outright, no key;
 * **multi-writer CLUT cell touched** -- every writer must be named, and all of them with ``hue_to``;
 * **shared palette enabled** without ``acknowledge_shared`` (DERIVED, including the UNKNOWN case);
@@ -154,6 +161,7 @@ from . import camera as W
 from . import container as EC
 from . import export
 from . import rescore as R
+from . import texanim as TA
 from . import texture as KT
 from .ledger import Ledger
 
@@ -162,7 +170,7 @@ __all__ = [
     "MOD_SUBPATH", "STAGING_BASE", "LEGACY_STAGING", "staging_root",
     "WHOLE_SET_CEILING", "BLOWOUT_FRACTION", "EF227_NAMES", "ID9_SLOT_BIT", "id9_slot_vram",
     "SO_MAGIC", "SO_BPP", "so_record", "Binding", "Attribution", "attribution",
-    "TexAnim", "texanim_region",
+    "TexAnim", "texanim_region", "assert_region_invariant",
     "Span", "Palette", "Cell", "PaletteMap", "clut_word_xy", "chunk_tag", "chunk_tag_of_slot",
     "palette_auto_name", "span_auto_name", "id0_palettes", "creature_palettes", "palette_map",
     "creature_pages", "PageRect", "scenery_pages", "id9_pages", "preview_source",
@@ -406,22 +414,43 @@ def attribution(blob: bytes) -> Attribution:
     return Attribution(bindings=binds, geom_total=total, geom_with_so=with_so)
 
 
-# ============================================================ (1b) THE TEXANIM GATE
+# ============================================================ (1b) THE TEXANIM REGION -- MEASURED
 @dataclass(frozen=True)
 class TexAnim:
-    """The id-4 model image's texture-animation region -- a refusal, not prose.
+    """The id-5 model image's texture-animation region -- the MEASUREMENT the whole W7 lane keys on.
 
     The region is the byte range between the END of the GEOMETRY block (``+0x14 firstBlock``) and
     the FIRST motion clip (``+0x180 motionOffsets[]``), both header-relative. ``firstBlock ==
     min(motionOffsets)`` means the region is empty; motion offsets are sorted on all 24 stock
-    packages, so the comparison is exact.
+    packages, so the comparison is exact. This is not merely our arithmetic: the id-5 loader computes
+    ``header[+0x40] = psx(header + firstBlock)`` and ``Hi_RegisterSummonModel`` stores that same value
+    into ``SummonData+0x70`` (W7 SYNTHESIS sec 1.1) -- the span measured here IS the object the engine
+    is handed, which is why this function's signature and semantics are pinned and must not drift.
 
     Corpus: 19 of 24 creature packages carry 0 bytes here. The five that do not are **ef038** (116 B)
     and **ef177 / ef493 / ef494 / ef495** (364 B each) -- and ef038 is precisely the one effect whose
-    programs call HLE op 12 ``Hi_StartSummonTexAnim``. The table's internal format is UNREAD (neither
-    116 nor 364 divides by ``partCount * 0x18``), so whether a running texanim cycles the CLUT WORD,
-    the texels/UV, or the CLUT CONTENTS is **not settled** -- and those three branches differ in
-    whether a static recolour survives the cast. Refusal beats guessing.
+    programs call HLE op 12 ``Hi_StartSummonTexAnim``.
+
+    **The format is READ, not unread** (W7, SYNTHESIS sec 1.1-1.3 and sec 2.1;
+    :mod:`ff9mapkit.summons.texanim` is the decoder). The region is ``u32 clipCount`` + one 20-byte
+    CLIP record per clip + one 12-byte destination WINDOW per clip + packed 4-byte frame lists -- three
+    sub-arrays that tile it exactly, which is why neither 116 nor 364 divides by ``partCount * 0x18``:
+    ``0x18`` is the x64 RUNTIME row (``nodeOff`` widens to a pointer), the FILE record is ``0x14``, and
+    the count counts CLIPS, not parts. The three branches this docstring used to hedge between are
+    settled:
+
+    * it does NOT cycle the per-part CLUT WORD -- no ``u16`` in any of the five tables is a TPAGE or
+      CLUT word (the largest value anywhere is ``0x1000``);
+    * it does NOT rewrite CLUT CONTENTS -- rects reach row 115 of a 128-row page and the CLUT strip is
+      3-5 rows tall; nothing in the table can address it;
+    * it blits TEXELS: a ``w x h`` rect of 8-bit palette INDICES copied inside one part's own 128x128
+      page (0 model UV entries inside any frame rect on 39/39, vs 16-272 inside every window rect).
+
+    Consequence, and the reason the creature refusal LIFTED: a blit of palette indices cannot disturb
+    a recolour -- every frame recolours identically and automatically. (And on the PC port nothing
+    ticks the table at all: the only code that dereferences ``SummonData+0x70`` is Start/Stop, which
+    write three state fields and return.) What replaces the refusal is an OBLIGATION -- see
+    :func:`assert_region_invariant`.
     """
     present: bool                # the container has a decodable creature package at all
     armed: bool                  # ...and its texanim region is non-empty
@@ -437,6 +466,55 @@ def texanim_region(blob: bytes) -> TexAnim:
     lo = mp.to_file(mp.first_block)
     hi = mp.to_file(min(mp.motion_offsets))
     return TexAnim(present=True, armed=hi != lo, nbytes=max(0, hi - lo), lo=lo, hi=hi)
+
+
+def assert_region_invariant(stock: bytes, patched: bytes, where: str = "this build") -> str:
+    """THE REGION INVARIANT (W7 R1), at the call site -- **a law in a docstring is a wish**.
+
+    W7's one new hard rule: *never resize, relocate or zero the texanim region, and never edit
+    ``firstBlock``*. ``firstBlock == motionOffsets[0]`` is a LIVE engine predicate (the id-5 loader
+    ``cmove``s ``Hi_RegisterSummonModel``'s second argument on it), so collapsing or moving the region
+    silently changes what ``summonRecord+0x20..0x51`` holds. Neither lever needs to -- a recolour and a
+    repaint are both in-place splices -- so this costs nothing and is the pin that makes the rule real.
+
+    Both lanes call it on their own patched bytes. It is deliberately stated as separate comparisons,
+    ORDERED so each fires for its own bug: the header fields first (``firstBlock``, then
+    ``min(motionOffsets)`` -- the span tuple derives from both, so comparing the span first would
+    swallow them into one generic message; V1 F6), then the derived span, then the content.
+    """
+    ma, mb = EC.creature_package(stock), EC.creature_package(patched)
+    if (ma is None) != (mb is None):
+        raise ReskinError(
+            "THE REGION INVARIANT FAILED on %s: the creature package %s across the splice.  %s"
+            % (where, "vanished" if mb is None else "appeared", TA.REGION_RULE))
+    if ma is not None and mb is not None:
+        if ma.first_block != mb.first_block:
+            raise ReskinError(
+                "THE REGION INVARIANT FAILED on %s: firstBlock moved %#x -> %#x.  %s"
+                % (where, ma.first_block, mb.first_block, TA.REGION_RULE))
+        m0 = min(ma.motion_offsets) if ma.motion_offsets else None
+        m1 = min(mb.motion_offsets) if mb.motion_offsets else None
+        if m0 != m1:
+            raise ReskinError(
+                "THE REGION INVARIANT FAILED on %s: min(motionOffsets) moved %s -> %s.  %s"
+                % (where, "%#x" % m0 if m0 is not None else None,
+                   "%#x" % m1 if m1 is not None else None, TA.REGION_RULE))
+    a, b = texanim_region(stock), texanim_region(patched)
+    if (a.present, a.armed, a.lo, a.hi, a.nbytes) != (b.present, b.armed, b.lo, b.hi, b.nbytes):
+        raise ReskinError(
+            "THE REGION INVARIANT FAILED on %s: the texanim region MOVED or RESIZED "
+            "(%d B at %#x..%#x -> %d B at %#x..%#x).  %s"
+            % (where, a.nbytes, a.lo, a.hi, b.nbytes, b.lo, b.hi, TA.REGION_RULE))
+    if a.armed and patched[a.lo:a.hi] != stock[a.lo:a.hi]:
+        n = sum(1 for i in range(a.lo, a.hi) if patched[i] != stock[i])
+        raise ReskinError(
+            "THE REGION INVARIANT FAILED on %s: %d of the %d texanim-region bytes at %#x..%#x were "
+            "REWRITTEN.  W7 ships a READER, not a writer -- there is no consumer of this table in "
+            "either build of the plugin, so no authored edit to it could be verified.  %s"
+            % (where, n, a.nbytes, a.lo, a.hi, TA.REGION_RULE))
+    return ("region %s, firstBlock and min(motionOffsets) unchanged"
+            % ("%d B at %#x..%#x byte-identical" % (a.nbytes, a.lo, a.hi) if a.armed
+               else "EMPTY (nothing armed)"))
 
 
 # ============================================================ (1c) THE PALETTE MAP -- all derived
@@ -1229,6 +1307,13 @@ class Build:
     #: the hash", a report that says "unguarded" about a guarded build is a lie in the direction that
     #: gets a guard removed. Set once, at the same call site that computes ``sha_in``.
     guard: str = "none -- UNGUARDED"
+    #: DISCLOSURES this build made rather than refusals it raised -- the texanim decode (W7 L1/L6) and
+    #: the deprecation of ``acknowledge_texanim``. Reported by :func:`describe`, which is what the CLI
+    #: ``plan`` prints, so a lift the author did not ask for is never silent.
+    notes: List[str] = dataclasses.field(default_factory=list)
+    #: THE REGION INVARIANT's own verdict string (:func:`assert_region_invariant`), recorded at the
+    #: call site that enforced it so the report quotes the check that ran, not a restatement of it.
+    region_invariant: str = ""
 
     @property
     def enabled(self) -> List[Target]:
@@ -1278,43 +1363,104 @@ def _transform_of(d: dict, defaults: dict, where: str, mean_hue: float = 0.0) ->
     return t
 
 
-def _gate_texanim(pmap: PaletteMap, targets: List["Target"], ack: bool) -> None:
-    """THE TEXANIM GATE, at the call site.
+#: what ``acknowledge_texanim = true`` now means: nothing.  Kept parseable for one release so specs
+#: written against the pre-W7 gate (any W5-era scaffold output) keep building; the scaffold no longer
+#: emits it.  It is still put through :func:`_ack_bool`, so ``"false"`` REFUSES rather than arming --
+#: a key that is a no-op is not a key that may be typed wrong.
+TEXANIM_ACK_DEPRECATED = (
+    "DEPRECATED KEY `acknowledge_texanim`: it is a NO-OP since W7 and this build ignored it.  It used "
+    "to state \"scenery scope only, orthogonality assumed, not proven\"; the assumption is now a "
+    "MEASUREMENT -- every clip in every armed table names a CREATURE part and every rect is local to "
+    "that part's own 128x128 page (x+w <= 64 halfwords, 39/39 clips), so the table cannot reach a "
+    "scenery page at all.  Delete the line.  (One exception keeps the key alive: on an armed region "
+    "that does NOT decode, the measurement never ran, and the key is REQUIRED for scenery in its "
+    "original meaning.)")
 
-    The asymmetry is deliberate and is exactly what the evidence supports. The arming ops
-    (``Hi_StartSummonTexAnim``, HLE op 12) index ``SummonData+0x70`` at **stride 0x18 BY PART**, and
-    ``Hi_RegisterSummonModel`` sources that table from ``model[+0x40]`` -- immediately past the
-    per-part ``v_offset`` array. So the record is PER CREATURE PART: a texanim can rewrite what a
-    creature part reads, and a creature recolour on such an effect is refused OUTRIGHT.
 
-    Scenery is a different question with a weaker answer. Nothing on the record connects the per-part
-    texanim table to the effect's own set, so a scenery-only recolour is *plausibly* orthogonal -- but
-    "plausibly" is not "provenly", and the table's internal format is unread, so a branch where it
-    rewrites CLUT CONTENTS from a block inside the 116/364-byte region cannot be excluded. That is
-    what ``acknowledge_texanim = true`` states, in those words: scenery only, orthogonality assumed
-    and not proven.
+def _gate_texanim(pmap: PaletteMap, targets: List["Target"], ack: bool,
+                  blob: bytes) -> List[str]:
+    """THE TEXANIM GATE, at the call site -- **a DISCLOSURE now, plus one surviving refusal**.
+
+    What changed at W7, and why. The pre-W7 gate refused a creature recolour OUTRIGHT because the
+    table's format was unread and one of the three branches it might have implemented (cycling the
+    per-part CLUT WORD) would have made a static recolour pointless. The table is read now
+    (:mod:`ff9mapkit.summons.texanim`) and that branch is FALSIFIED, twice over:
+
+    * **the data cannot express it.** No ``u16`` anywhere in the five armed tables is a header TPAGE or
+      CLUT word; the whole table is rects, counts and a rate. What it describes is a texel blit of
+      8-bit palette INDICES inside ONE creature part's own page -- and a blit of indices recolours
+      identically under any palette, so a recolour survives it by construction;
+    * **and nothing runs it.** The only code in either build of the plugin that dereferences
+      ``SummonData+0x70`` is ``Hi_Start/StopSummonTexAnim``, which write three state fields and return.
+
+    Two corrections to what this docstring used to claim, both cited downstream and both wrong: the
+    arming op indexes **BY CLIP**, not by part (op 12's ``$a1`` is a clip index; the affected part is
+    named by ``clip+0x0d``), and ``0x18`` is the **x64 RUNTIME** struct size -- the FILE record is
+    ``0x14``, which is why neither 116 nor 364 ever divided by ``partCount * 0x18``.
+
+    So the creature scope opens with NO key, and the scenery scope opens with no key either: its
+    "orthogonality assumed" hedge is a measurement now (every clip names a creature part and every
+    rect is page-local, 39/39). ``acknowledge_texanim`` becomes a deprecated no-op **where the table
+    decodes**.
+
+    **What still refuses -- the lift is conditional on a successful PARSE, never on the absence of an
+    exception**, so an unknown future shape degrades to the pre-W7 posture instead of silently
+    passing, per lane: a CREATURE recolour on an armed-undecodable region refuses outright (no key);
+    a SCENERY recolour on one is back to the pre-W7 hedge, so ``acknowledge_texanim`` is REQUIRED
+    there and keeps its original meaning (orthogonality assumed, not proven) -- the key is only
+    deprecated where the measurement that replaced it actually ran. Returns the disclosure lines the
+    report carries.
     """
+    notes: List[str] = []
     ta = pmap.texanim
     if ta is None or not ta.armed:
-        return
+        if ack:
+            notes.append(TEXANIM_ACK_DEPRECATED)
+        return notes
     live = [t for t in targets if t.enabled]
     creature = [t.name for t in live if t.pal.slot < 0]
-    if creature:
+    scenery = [t.name for t in live if t.pal.slot >= 0]
+    res = TA.read(blob)
+    if creature and res.table is None:
         raise ReskinError(
-            "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec recolours the CREATURE (%s).  The "
-            "texanim record is PER PART (stride 0x18, sourced from model[+0x40] next to the per-part "
-            "v_offset array) and its internal format is UNREAD, so a running animation may cycle the "
-            "CLUT word, the texels/UVs, or the CLUT contents -- and only one of those three leaves a "
-            "static recolour intact.  This is not a knob: read the table first.  (The corpus class is "
-            "ef038 / ef177 / ef493 / ef494 / ef495.)"
-            % (ta.nbytes, ta.lo, ta.hi, ", ".join(creature)))
-    if live and not ack:
-        raise ReskinError(
-            "TEXANIM ARMED (%d bytes at %#x..%#x).  A scenery-only recolour is PLAUSIBLY orthogonal "
-            "to it -- the texanim record is per CREATURE PART -- but nothing on the record proves the "
-            "effect's own set is untouched, so the spec must say `acknowledge_texanim = true` at the "
-            "[reskin] level to state exactly that: scenery scope only, orthogonality assumed, not "
-            "proven." % (ta.nbytes, ta.lo, ta.hi))
+            "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec recolours the CREATURE (%s).  W7 "
+            "READ this format -- a texel-blit clip table (u32 clipCount + 20-byte clips + 12-byte "
+            "windows + packed frame lists; summons/texanim.py) -- but THIS container's region does "
+            "not decode: %s.  An undecodable region could implement anything, including the one "
+            "branch a decoded table provably cannot (a CLUT-word cycle, which voids a static "
+            "recolour), so the pre-W7 refusal stands on the creature scope and no key lifts it.  "
+            "(All five stock armed packages -- ef038 / ef177 / ef493 / ef494 / ef495 -- decode; an "
+            "undecodable region means a modified or unknown container.)"
+            % (ta.nbytes, ta.lo, ta.hi, ", ".join(creature), res.error))
+    if res.table is None and scenery:
+        # THE DEGRADED PATH (V1 F1): armed and UNDECODABLE -- the measurement that deprecated the
+        # key never ran here, so the pre-W7 posture stands and the key does its ORIGINAL job.
+        if not ack:
+            raise ReskinError(
+                "TEXANIM ARMED (%d bytes at %#x..%#x) and the region does not DECODE (%s).  A "
+                "scenery-only recolour is PLAUSIBLY orthogonal to it -- every DECODED stock table "
+                "names only creature parts -- but this table is unread, so orthogonality is back to "
+                "an assumption: the pre-W7 posture.  The spec must say `acknowledge_texanim = true` "
+                "at the [reskin] level to state exactly that (scenery scope only, orthogonality "
+                "assumed, not proven).  The key is only deprecated where the table decodes."
+                % (ta.nbytes, ta.lo, ta.hi, res.error))
+        notes.append(
+            "TEXANIM ARMED (%d bytes at %#x..%#x) and UNDECODABLE (%s) -- scenery recolour "
+            "proceeding under `acknowledge_texanim = true` in its ORIGINAL, pre-W7 meaning: scenery "
+            "scope only, orthogonality assumed, not proven.  (The key is deprecated only where the "
+            "table decodes.)" % (ta.nbytes, ta.lo, ta.hi, res.error))
+    elif ack:
+        notes.append(TEXANIM_ACK_DEPRECATED)
+    if res.table is not None and live:
+        tt = res.table
+        notes.append(
+            "TEXANIM ARMED (%d bytes at %#x..%#x) and DECODED: %d clip(s) over part(s) %s.  The table "
+            "blits 8-bit palette INDICES inside one part's own page -- it binds no CLUT word and "
+            "writes no CLUT contents -- so this recolour survives the cast under BOTH the \"it runs\" "
+            "and the \"it does not run\" reading (W7).  The region itself is left byte-identical (THE "
+            "REGION INVARIANT)."
+            % (ta.nbytes, ta.lo, ta.hi, tt.count, ", ".join(str(p) for p in tt.parts)))
+    return notes
 
 
 def _gate_cells(pmap: PaletteMap, targets: List["Target"]) -> None:
@@ -1466,7 +1612,7 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     # ---- the gates that only an ENABLED target can trip. A disabled row splices nothing, so it
     # states an intent rather than an edit; its acknowledgements become mandatory the moment it is
     # switched on, and `plan` previews it through the transform it declares either way.
-    _gate_texanim(pmap, targets, _ack_bool(r, "acknowledge_texanim", "[reskin]"))
+    notes = _gate_texanim(pmap, targets, _ack_bool(r, "acknowledge_texanim", "[reskin]"), blob)
     _gate_cells(pmap, targets)
     for t in targets:
         if not t.enabled:
@@ -1483,6 +1629,9 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     patched = bytes(out)
     if len(patched) != len(blob):                            # pragma: no cover - splice is in-place
         raise ReskinError("the splice changed the container length -- impossible by construction")
+    # THE REGION INVARIANT (W7 R1) -- enforced HERE, on the bytes this function is about to hand back,
+    # because a rule checked anywhere else is a rule the next lever can route around.
+    region_invariant = assert_region_invariant(blob, patched, "the reskin of ef%03d" % effect)
 
     orth = r.get("orthogonality") or {}
     # Only STRING values are sibling spec names; `compose = true` is a composition switch the texel
@@ -1491,7 +1640,8 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
              if k not in ("rescore", "retime") and isinstance(v, str)}
     return Build(effect=effect, label=str(r.get("label", "reskin")), spec_path=str(spec_path),
                  source=source, orig=blob, patched=patched, sha_in=sha_in, sha_out=_sha(patched),
-                 pmap=pmap, targets=targets, guard=guard,
+                 pmap=pmap, targets=targets, guard=guard, notes=notes,
+                 region_invariant=region_invariant,
                  orth_specs=(orth.get("rescore"), orth.get("retime")), orth_extra=extra)
 
 
@@ -2433,6 +2583,11 @@ def describe(b: Build) -> List[str]:
          "  container      : %d B in, %d B out (same length -- every palette is spliced in place)"
          % (len(b.orig), len(b.patched)),
          ""]
+    if b.region_invariant:
+        L += ["  THE REGION INVARIANT (W7 R1, enforced at the build call site)",
+              "    %s" % b.region_invariant, ""]
+    for n in b.notes:
+        L += ["  NOTE  %s" % n, ""]
     L += derivation_lines(b.orig, b.pmap)
     L += ["", "  THE DERIVED PALETTES (%d declared)" % len(b.pmap.palettes)]
     for p in b.pmap.palettes:
@@ -2489,14 +2644,12 @@ def derivation_lines(blob: bytes, pmap: PaletteMap) -> List[str]:
                     "DUAL-DEPTH" if cell.dual_depth else "", len(set(cell.offsets)),
                     ", ".join("%#x" % o for o in sorted(set(cell.offsets))),
                     "/".join(str(d) for d in sorted(set(cell.depths)))))
-    L += ["", "  THE TEXANIM GATE"]
-    if ta is None or not ta.present:
-        L.append("    no id-4 creature package -- scenery scope only")
-    elif not ta.armed:
-        L.append("    region is EMPTY (firstBlock == motionOffsets[0]) -- creature scope is open")
-    else:
-        L.append("    ARMED: %d bytes at %#x..%#x -- creature scope REFUSED outright, scenery scope "
-                 "needs `acknowledge_texanim = true`" % (ta.nbytes, ta.lo, ta.hi))
+    # L6, PURE DISCLOSURE: print the DECODED table, not "TEXANIM ARMED (N bytes)".  An opaque size is
+    # what made the pre-W7 refusal unanswerable -- an author could not tell what the gate was afraid of.
+    L += [""] + TA.describe(blob)
+    if ta is not None and ta.armed and TA.read(blob).table is not None:
+        L.append("    creature scope is OPEN (W7): the table blits palette INDICES inside one part's "
+                 "own page, so a recolour survives it")
     if pmap.creature_error:
         L.append("    creature note: %s" % pmap.creature_error)
     return L
@@ -2550,6 +2703,9 @@ def scaffold(effect: int, blob: Optional[bytes] = None, game=None,
             "untextured primitives; a palette edit has no surface here."
             % (effect, len(pmap.spans), "" if len(pmap.spans) == 1 else "s"))
     ta, attrib = pmap.texanim, pmap.attrib
+    #: read ONCE -- the scaffold consults the decode twice (the banner and the per-target block) and a
+    #: second parse could in principle disagree with the first, which is a report nobody could trust.
+    ta_parsed = bool(ta is not None and ta.armed and TA.read(blob).table is not None)
     sha = _sha(blob)
 
     L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin scaffold --ef %d`.  Every number below is"
@@ -2572,14 +2728,24 @@ def scaffold(effect: int, blob: Optional[bytes] = None, game=None,
           '# the drift guard: sha256 of the pristine stock container in YOUR install.  A HASH, not',
           '# data -- no stock byte is committable.',
           'expect_sha256 = "%s"' % sha]
+    # L2: the scaffold STOPS emitting `acknowledge_texanim` -- it is a deprecated no-op.  What an
+    # armed container gets instead is the DECODED table (already in the derivation comment block
+    # above) plus, on the one shape that still refuses, the reason it refuses.
     if ta is not None and ta.armed:
         L += ["",
-              "# TEXANIM IS ARMED (%d bytes at %#x..%#x).  Creature targets below are REFUSED"
-              % (ta.nbytes, ta.lo, ta.hi),
-              "# outright and no key lifts that.  A scenery-only reskin needs the line below flipped",
-              "# to true, which states: orthogonality ASSUMED, not proven (the table's format is",
-              "# unread and its record is per creature PART).",
-              "acknowledge_texanim = false"]
+              "# TEXANIM IS ARMED (%d bytes at %#x..%#x) and %s."
+              % (ta.nbytes, ta.lo, ta.hi, "DECODES" if ta_parsed else "does NOT decode"),
+              ("# W7: the table blits 8-bit palette INDICES inside one creature part's own page.  It"
+               if ta_parsed else
+               "# W7 read the format, but not THIS region -- so it is armed-and-unread, which is the"),
+              ("# binds no CLUT word and writes no CLUT contents, so a recolour survives the cast and"
+               if ta_parsed else
+               "# pre-W7 state: a CREATURE target below is REFUSED outright and no key lifts that."),
+              ("# every target below is open with no acknowledgement key at all."
+               if ta_parsed else
+               "# Scenery targets are back to the pre-W7 posture: `acknowledge_texanim = true`"),
+              *([] if ta_parsed else
+                ["# (its ORIGINAL meaning -- orthogonality assumed, not proven)."])]
     L += ["", "", "# " + "=" * 92,
           "# THE SPANS -- guards on the derivation.  Auto-named by chunk SLOT (`s{slot}`), because",
           "# `chunk_index` is not unique (ef381's nine chunks are [0,1,1,1,1,1,1,1,1]).", ""]
@@ -2614,10 +2780,16 @@ def scaffold(effect: int, blob: Optional[bytes] = None, game=None,
                            % len(set(cell.offsets)))
         if p.shared:
             blocked.append("SHARED -- needs `acknowledge_shared = true`")
-        if ta is not None and ta.armed:
-            blocked.append("CREATURE under an armed texanim -- REFUSED outright, no key lifts it"
-                           if p.slot < 0 else
-                           "texanim is ARMED -- needs `acknowledge_texanim = true` at [reskin]")
+        # W7: an armed texanim blocks nothing when its table DECODES.  When it does not, the pre-W7
+        # posture stands for both scopes: creature refuses outright, scenery needs the old key in
+        # its original meaning (V1 F1 -- the lift is conditional on a successful parse, per scope).
+        if ta is not None and ta.armed and not ta_parsed:
+            if p.slot < 0:
+                blocked.append("CREATURE under an armed texanim whose table does NOT decode -- "
+                               "REFUSED outright, no key lifts it")
+            else:
+                blocked.append("scenery under an armed texanim whose table does NOT decode -- needs "
+                               "`acknowledge_texanim = true` (its original pre-W7 meaning)")
         L.append("[[reskin.target]]")
         L.append('name = "%s"%s' % (p.name, ("    # = %s" % p.alias) if p.alias else ""))
         L.append("expect_entries = %d" % p.entries)

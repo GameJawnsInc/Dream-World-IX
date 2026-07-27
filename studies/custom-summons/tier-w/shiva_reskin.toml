@@ -1,0 +1,475 @@
+# TIER W rung W7 -- THE TEXANIM READ, THE CAST ARTIFACT.  Stock Shiva (ef038), BOTH verdicts in one
+# container: a whole-creature CLUT recolour to magenta (verdict 1, the LIFT) plus a flat marker
+# painted into the spare texanim frame strip (verdict 2, the DISCRIMINATOR).
+#
+# SCAFFOLDED, NOT TYPED.  Every `expect_*` guard, every span offset and the drift hash below came out
+# of `ff9mapkit summon-reskin scaffold --ef 38`.  Do not retype them; re-scaffold if the install
+# changes.  What is authored here is only the ART (`hue_rotate` / `saturation` / `value` / `enabled`)
+# and the two acknowledgements, each with its reason written out.
+#
+# ==============================================================================================
+# WHY ef038, AND WHY THIS SPEC EXISTS AT ALL
+#
+# W7 read the texanim table (SYNTHESIS.md).  It is a per-part TEXEL-BLIT clip table: it copies small
+# rects of 8-bit palette INDICES from a spare strip into a live window inside ONE creature part's own
+# 128x128 page.  It binds no CLUT word, writes no CLUT contents, and cannot reach a scenery page.
+# So the pre-W7 refusal -- "an armed texanim refuses a creature recolour outright, and no key lifts
+# it" -- was lifted, and this file is the cast that proves the lift on real bytes.
+#
+# ef038 IS THE MAXIMAL-RISK MEMBER OF THE CLASS, which is the whole reason it is the subject: of the
+# 372 stock containers it is the ONLY one that calls op 12 `Hi_StartSummonTexAnim` at all (twice,
+# clips 0 and 1).  ef177 / ef493 / ef494 / ef495 carry a nine-clip table nobody ever arms.  Proving
+# lever 1 here proves it for all five.
+#
+# ==============================================================================================
+# VERDICT 1 -- THE ONE-FRAME PROOF.  Cast Shiva.  Capture ONE frame with the creature on screen.
+#
+#     SHIVA IS MAGENTA  =>  the lift is correct.
+#
+# Why one frame is enough: the two branches the old gate was hedging against -- "a running texanim
+# rebinds the per-part CLUT WORD" and "it rewrites CLUT CONTENTS in VRAM" -- would both have the
+# creature showing STOCK BLUE during the frames the animation is live.  Magenta anywhere the creature
+# is on screen falsifies both.  Nothing about timing, ordering or feel enters the judgement.
+#
+# ==============================================================================================
+# THE KEY: A MAGENTA SHIVA.  Shared `hue_rotate` = +85 deg.
+#
+# Stock Shiva is a saturated ice-blue: part mean hues 203.5 / 213.2 / 227.1 / 226.7 / 215.7, set
+# centre 217.2, S-bar 0.45, V 0.75-0.84.  +85 lands the set centre on 302.2 -- magenta/violet -- and
+# every part inside 288..312, which is the point of the form below.
+#
+# WHY A SHARED `hue_rotate` DELTA AND NOT `hue_to = 300` -- THE ONE-HUE RULE, verbatim from BOTH
+# cast-proven creature specs (`bahamut_reskin.toml`:19-23, `madeen_reskin.toml`:37-45): a single body
+# material appears across a creature's pages, so `hue_to` -- which computes a DIFFERENT delta per page
+# because each page has its own mean -- lands that one material on five different hues and the
+# creature fractures.  `hue_to` is the right form for a multi-writer CELL, not for a creature's page
+# set.  ef227 shipped +182 this way and ef251 shipped +160 this way; this is +85.
+#
+# THE MEASUREMENT THAT CHOSE +85 (`p5_delta.py`, sat x1.00 / val x1.00, 5-deg grid, min rho over the
+# five parts against the frozen gate at `reskin.py`:1996, rho >= 0.90):
+#
+#     delta       +70    +75    +80    +85    +90    +95   +100
+#     set centre 287.2  292.2  297.2  302.2  307.2  312.2  317.2
+#     min rho    .9317  .9410  .9450  .9490  .9555  .9657  .9773
+#
+#   Every one of those passes.  +85 is taken because it is the delta whose SET CENTRE lands nearest
+#   the briefed 300-deg magenta key (302.2), not because it is the safest -- the safest is +355.
+#   Per-part at +85:  part0 rho .9490 (binding) | part1 .9598 | part2 .9943 | part3 .9924 | part4 .9674
+#   ZERO entries clipped in any of the five (0/255 each), so the blow-out gate is not merely passed,
+#   it is untouched.
+#
+# AND THE TWO-LOBE LAW RE-DERIVED, NOT INHERITED.  W5's M1 refinement says a refusal trough sits on
+# the STOCK hue's own complement.  ef038's stock set centre is 217.2, complement 37.2.  Measured
+# curve minimum: delta +205, i.e. set centre 62.2, min rho 0.7855 -- within 25 deg of the prediction.
+# The refused arc is +160..+220 (13 of 72 deltas; passing arc 295 deg).  ef038 is the MIRROR of the
+# fire creatures: a COLD ramp is the one that cannot reach WARM.  Magenta at +85 is nowhere near it.
+#
+# THE HEADROOM LAW BINDS `value` TO 1.0 EVERYWHERE.  All five creature rows peak at 31/31 (headroom
+# 0, value ceiling x1.000), so any `value > 1.0` refuses without `acknowledge_headroom`.  And the
+# brief's own instruction is not to lower saturation on a ramp that does not need it, so this is
+# pure hue work: `saturation = 1.0`, `value = 1.0`, on every row.
+#
+# ==============================================================================================
+# WHAT IS IN SCOPE.  CREATURE ONLY.  All 17 scenery palettes are declared (so the whole derived
+# surface is visible in one place) and left `enabled = false` at IDENTITY.
+#
+# This is NOT the ef251 situation.  ef038's `so`-record coverage is 28 of 28 GEOM blocks = 100.0%
+# COMPLETE, so its unbound palettes are genuinely unbound and a scenery recolour would be perfectly
+# legal here.  The reason to leave them stock is THE CAST, not the gate: verdict 1 is "the creature
+# is magenta".  If the ice field, the mist sheets and the fifteen material ramps went magenta too,
+# the frame would show a magenta SCREEN and "is the creature recoloured?" would stop being decidable
+# from it.  Stock-blue scenery around a magenta creature is the contrast that makes one captured
+# frame a proof.  One change per in-game test, applied to what the eye can separate.
+#
+# ==============================================================================================
+# THE HARD RULES ARE NOT CONFIGURABLE (`reskin.py`'s module docstring, each one a refusal):
+# 0x0000 stays 0x0000; bit 15 (STP) is carried, never recomputed; channels clamp to 0..31; the
+# transform runs in HSV over the decoded BGR555 and re-encodes to 5 bits; every changed byte must
+# land inside a derived palette inside a derived span.
+#
+# AND ONE NEW HARD RULE THIS RUNG MINTED, which applies to every build of this file:
+#   never resize, relocate or zero the [firstBlock, min(motionOffsets)) texanim region, and never
+#   edit `firstBlock` -- `firstBlock == motionOffsets[0]` is a LIVE engine predicate at DLL 0x3e444
+#   that changes `Hi_RegisterSummonModel`'s second argument.  `reskin.assert_region_invariant` pins
+#   it after every splice; nothing in this file needs to touch it and nothing may.
+
+[reskin]
+effect = 38
+label  = "shiva-w7-magenta-marker"
+# The drift guard: sha256 of the pristine stock container in YOUR install.  A HASH, not data -- no
+# stock byte is committable.
+expect_sha256 = "8f71a91b5ea8761cb072d0c5aa53fdd6cd926ec03a77634a99bf582fec4eb2a2"
+
+# TEXANIM IS ARMED (116 bytes at 0x6dfc4..0x6e038) and DECODES: 3 clips, all on part 1, one live
+# window (54,62,22,12) fed by two source frames (56,0,22,12) and (78,0,22,12).  Under W7 that opens
+# every CLUT row below with NO acknowledgement key at all -- the table moves palette INDICES inside
+# one page and cannot express a colour change.  The texel half further down is the half that has to
+# care, and it says so on its own row.
+
+
+# ==============================================================================================
+# THERE IS DELIBERATELY NO `[reskin.orthogonality]` TABLE ON THIS SPEC, and the three SKIP lines the
+# build prints are the truthful state rather than an oversight:
+#
+# * `rescore` / `retime` -- there is no `shiva_rescore.toml` and no `shiva_retime.toml` on this rung.
+#   Pointing those at ef227's specs would intersect against a DIFFERENT container and print as a
+#   proof of nothing, which is strictly worse than a stated skip.
+# * `reskin` (the texel lane's sibling slot) -- this file carries BOTH levers, so the disjointness
+#   that matters is proven by the CLI's own one-spec route: THE COMPOSED HALVES gate rebuilds the
+#   CLUT half, intersects its changed-offset set with the texel half's on the same container, and
+#   reports `2379 CLUT bytes ... 264 texel bytes ... intersection 0`.  Naming this file as its own
+#   `reskin` sibling also works and turns the texel-side skip into an identical intersection -- but
+#   it makes the CLUT lane grow a second, confusing skip about a lane it cannot rebuild, for a claim
+#   that is already proven one line below.  So: one proof, in the place the kit designates for it.
+
+
+# ==============================================================================================
+# THE SPANS -- guards on the derivation, auto-named by chunk SLOT (`s{slot}`).  ef038 is
+# SINGLE-CHUNK, so the cross-chunk second-writer trap is structurally absent; the scaffold's hazard
+# census confirms it ("every declared CLUT cell has exactly one writer at one bit depth").
+# Envelope 5632 B over 2 spans.
+
+[reskin.spans.creature_clut_strip]
+offset = 0x05b984    # id-4 header: texOffset 0x47984 + texBytes 0x14000, clutBytes 0xa00
+length = 2560
+
+[reskin.spans.s0_clut_band0]
+offset = 0x00086c    # id-0 inline rect 0: VRAM (x=0 y=244 w=256 h=6)
+length = 3072
+
+
+# ==============================================================================================
+# DEFAULTS -- any target that omits a knob inherits these.  The whole set is one hue delta.
+[reskin.defaults]
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+
+
+# ==============================================================================================
+# THE CREATURE -- FIVE ROWS, ONE SHARED DELTA.  Each row repeats `hue_rotate = 85.0` rather than
+# leaning on the default, because the ONE-HUE RULE is the load-bearing decision of this file and a
+# reader must be able to see the five numbers agree without resolving an inheritance.
+
+[[reskin.target]]
+name = "creature.part0"
+expect_entries = 256
+expect_vram = [256, 230]
+expect_offset = 0x05b984
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+# stock: 255 live, mean H 203.5 S 0.63 V 0.84 | peak 31/31, headroom 0, value ceiling x1.000
+# at +85: H 203.5 -> 288.3, rho 0.9490 -- THE BINDING ROW of the set, 0/255 clipped, 488 B changed
+note = "the most saturated of the five (S 0.63) and the set's rho floor"
+
+[[reskin.target]]
+name = "creature.part1"
+expect_entries = 256
+expect_vram = [256, 231]
+expect_offset = 0x05bb84
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+# stock: 255 live, mean H 213.2 S 0.42 V 0.77 | peak 31/31, headroom 0, value ceiling x1.000
+# at +85: H 213.2 -> 297.8, rho 0.9598, 0/255 clipped, 449 B changed
+note = "THE TEXANIM PART -- all three clips name part 1; its page carries the eye window and the two source strips"
+
+[[reskin.target]]
+name = "creature.part2"
+expect_entries = 256
+expect_vram = [256, 232]
+expect_offset = 0x05bd84
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+# stock: 255 live, mean H 227.1 S 0.42 V 0.75 | peak 31/31, headroom 0, value ceiling x1.000
+# at +85: H 227.1 -> 311.6, rho 0.9943, 0/255 clipped, 493 B changed
+note = "the creature strip has exactly ONE writer on all 24 packages (id-4 only)"
+
+[[reskin.target]]
+name = "creature.part3"
+expect_entries = 256
+expect_vram = [256, 233]
+expect_offset = 0x05bf84
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+# stock: 255 live, mean H 226.7 S 0.41 V 0.78 | peak 31/31, headroom 0, value ceiling x1.000
+# at +85: H 226.7 -> 311.3, rho 0.9924, 0/255 clipped, 494 B changed
+note = "the creature strip has exactly ONE writer on all 24 packages (id-4 only)"
+
+[[reskin.target]]
+name = "creature.part4"
+expect_entries = 256
+expect_vram = [256, 234]
+expect_offset = 0x05c184
+hue_rotate = 85.0
+saturation = 1.0
+value      = 1.0
+# stock: 255 live, mean H 215.7 S 0.40 V 0.76 | peak 31/31, headroom 0, value ceiling x1.000
+# at +85: H 215.7 -> 300.3, rho 0.9674, 0/255 clipped, 455 B changed
+note = "the creature strip has exactly ONE writer on all 24 packages (id-4 only)"
+
+
+# ==============================================================================================
+# THE SCENERY -- ALL SEVENTEEN DECLARED, ALL OFF, ALL AT IDENTITY.  See the header for why (the
+# cast, not the gate).  Every measurement below is the scaffold's own, kept so a later reader can
+# see what was left on the table rather than having to re-derive it.
+
+[[reskin.target]]
+name = "pal.s0.x0_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [0, 244]
+expect_offset = 0x00086c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage (28/28): 15 live, H 218.3 S 0.51 V 0.37, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x16_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [16, 244]
+expect_offset = 0x00088c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 205.7 S 0.77 V 0.43, peak 28/31"
+
+[[reskin.target]]
+name = "pal.s0.x32_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [32, 244]
+expect_offset = 0x0008ac
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 12 live, H 187.4 S 0.28 V 0.26, peak 27/31"
+
+[[reskin.target]]
+name = "pal.s0.x48_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [48, 244]
+expect_offset = 0x0008cc
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 7 live, PURE GREYSCALE (S 0.00) -- a hue rotation is mathematically inert here"
+
+[[reskin.target]]
+name = "pal.s0.x64_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [64, 244]
+expect_offset = 0x0008ec
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 51.8 S 0.37 V 0.37, peak 31/31 -- one of the two WARM rows in a cold container"
+
+[[reskin.target]]
+name = "pal.s0.x80_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [80, 244]
+expect_offset = 0x00090c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 204.5 S 0.77 V 0.54, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x96_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [96, 244]
+expect_offset = 0x00092c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 46.6 S 0.82 V 0.38, peak 31/31 -- the second WARM row"
+
+[[reskin.target]]
+name = "pal.s0.x112_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [112, 244]
+expect_offset = 0x00094c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 169.5 S 0.92 V 0.42, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x128_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [128, 244]
+expect_offset = 0x00096c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 227.6 S 0.79 V 0.60, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x144_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [144, 244]
+expect_offset = 0x00098c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 232.1 S 0.77 V 0.53, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x160_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [160, 244]
+expect_offset = 0x0009ac
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 217.7 S 0.51 V 0.36, peak 31/31"
+
+[[reskin.target]]
+name = "pal.s0.x176_y244.e16"
+enabled = false
+expect_entries = 16
+expect_vram = [176, 244]
+expect_offset = 0x0009cc
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 15 live, H 222.1 S 0.95 V 0.25, peak 14/31 -- headroom 17, the only row in the container with real value headroom"
+
+[[reskin.target]]
+name = "pal.s0.x0_y245.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 245]
+expect_offset = 0x000a6c
+hue_rotate = 0.0
+note = "DERIVED SHARED: 7 GEOM models bind this cell -- 195 live, H 217.6 S 0.65 V 0.21, peak 22/31"
+
+[[reskin.target]]
+name = "pal.s0.x0_y246.e256"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 246]
+expect_offset = 0x000c6c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 248 live, H 222.0 S 0.94 V 0.27, peak 16/31"
+
+[[reskin.target]]
+name = "pal.s0.x0_y247.e256"
+enabled = false
+acknowledge_shared = false
+expect_entries = 256
+expect_vram = [0, 247]
+expect_offset = 0x000e6c
+hue_rotate = 0.0
+note = "DERIVED SHARED: 20 GEOM models bind this cell -- the container's most-bound palette; 256 live, H 207.0 S 0.25 V 0.46"
+
+[[reskin.target]]
+name = "pal.s0.x0_y248.e256"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 248]
+expect_offset = 0x00106c
+hue_rotate = 0.0
+note = "DERIVED PRIVATE: exactly one GEOM model (0x86710) -- 251 live, H 219.8 S 0.83 V 0.36, peak 21/31"
+
+[[reskin.target]]
+name = "pal.s0.x0_y249.e256"
+enabled = false
+expect_entries = 256
+expect_vram = [0, 249]
+expect_offset = 0x00126c
+hue_rotate = 0.0
+note = "UNBOUND at COMPLETE so-coverage: 252 live, H 228.1 S 0.71 V 0.63, peak 31/31"
+
+
+# ==============================================================================================
+# ==============================================================================================
+# VERDICT 2 -- THE DISCRIMINATOR.  ONE TEXEL TARGET: part 1's page, and ONLY the spare frame strip.
+#
+# WHAT THIS ROW IS FOR.  W7's two recon lanes agree on the format and disagree on the consequence:
+# A2 reasons from what the table DESCRIBES (assume it runs -> a localised repaint is unsafe unless
+# the frame strip is co-transformed); A1 reasons from what the binary DOES (nothing ticks it -> both
+# levers are safe unconditionally).  SYNTHESIS sec 2.3 adopts A1's verdict as the LICENCE and A2's
+# co-transform as the INVARIANT.  This row is the experiment that separates them on real bytes, and
+# it costs one deploy because it rides along with verdict 1:
+#
+#   * paint ONE flat SCREAMING index over the spare "eye CLOSED" source strip (78,0,22,12);
+#   * leave the LIVE eye window (54,62,22,12) completely alone -- measured 0 changed texels;
+#   * then WATCH THE EYE during the cast.
+#
+#       the eye window NEVER changes across the whole cast  =>  consistent with A1: nothing blits.
+#       the eye window EVER shows the flat white slab       =>  the blitter runs after all, A1's
+#           exhaustion missed a path, and W7 L4's co-transform becomes MANDATORY, not prudential.
+#
+#   Verdict 1 is unaffected either way -- which is exactly why both ship in one cast.
+#   THIS ONE NEEDS VIDEO, NOT A FRAME (`feedback-video-for-visual-bugs`): the claim is about what the
+#   window does across time, and a single still cannot carry it.
+#
+# THE B4 MIPS CHECK, RUN BEFORE THIS WAS BUILT, PREDICTS "NEVER".  The one hole A1 left open was the
+# MIPS escape hatch: ef038's own id-3 program interprets in PSX RAM and could in principle implement
+# the missing blitter itself.  Measured statically with the sanctioned tier-R walker (probes in
+# `C:/gd/SCRATCH/summon-format/texanim-w7/ef038/`, verdict in `MIPS-CHECK.md`): op 102
+# `get_subfile_ptr` -- the ONLY op in ef038's 20-op vocabulary that can hand back a sub-resource
+# pointer -- is called 30 times and its return is a call ARGUMENT at 30/30 sites, dereferenced at
+# none; there are ZERO load-base dereferences of ANY HLE-returned pointer in the whole image (a copy
+# engine that never reads its source cannot copy); all 26 constant-address memory ops land inside the
+# program's own id-3 span; and ef038 reaches none of the 50 ops whose `touches_deep` includes
+# `vramUploadCallback` (0 VRAM-transfer ops, re-confirmed).  So the expected outcome is NEVER.
+#
+# THE ART IS NOT IN THIS REPO AND CANNOT BE -- `source` is a decoded stock texture page.  What ships
+# is the GENERATOR, `shiva_marker.py`, which derives EVERY parameter (including WHICH RECT) from the
+# user's own container and writes exactly this PNG.  Run it before this spec:
+#
+#     py shiva_marker.py
+#
+# WHAT `shiva_marker.py` MEASURED ON THE REAL CONTAINER (its own output, not a transcription):
+#   texanim       ARMED 116 B at 0x6dfc4..0x6e038, 3 clips, all on part 1
+#   DERIVED rects live window (54,62,22,12) | resting spare (56,0,22,12) | MARKED (78,0,22,12)
+#   exact-texel agreement with the window: (56,0) 0.9545  <- the resting spare, LEFT STOCK
+#                                          (78,0) 0.2273  <- the alternate state, MARKED
+#     (that agreement test IS how the rect was chosen -- A2 sec 5.5's own instrument, re-measured.
+#      No coordinate is typed anywhere in the generator.)
+#   ink   idx 255  stock 0xffff L=255  composed 0xffff L=255 (of 254 sampled indices)
+#     ACHROMATIC, so it renders identically under both palettes: verdict 2 does not depend on
+#     verdict 1 having landed.  And index 255 occurs 0 times in the live window and 0 times in the
+#     resting spare -- the marker is a colour the eye art never uses, which is what makes a capture
+#     of it readable.  Both indices already live => the marker costs ZERO CLUT bytes.
+#   MEASURED  264 texels filled, 264 actually DIFFER | dead-pad bytes moved 264 |
+#             index-0 cutout flips 0 (punch 0 / fill 0)
+#   THE INVARIANT  changed texels inside the live window: 0   inside the resting spare: 0
+#
+#   "dead-pad bytes moved 264" is 264 of 264 and it is CORRECT, not a warning: A2 sec 5.3 measured
+#   that every frame rect in every armed table contains ZERO model UV entries (39/39 clips) -- the
+#   frame strip is scratch the model never samples.  The generator re-derives that number from the
+#   container's own uv pools instead of citing it.  On the model as drawn, the mark is invisible;
+#   the ONLY way it can ever reach the screen is if something blits it into the window.  That is the
+#   entire experiment.
+
+[[reskin.texel]]
+name = "tex.part1"
+source = "C:/gd/SCRATCH/summon-format/texanim-w7/ef038/art/tex.part1.png"
+
+# --- the guards, emitted by the derivation, never typed --------------------------------------
+expect_page_offset = 0x04b984   # id-4: texOffset 0x47984 + part 1 * 0x4000
+expect_page_bytes  = 16384      # 0x4000 -- the page size is a format constant, not a header field
+expect_page_wh     = [128, 128]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+
+# LEFT FALSE ON PURPOSE.  The mark lands entirely inside the spare strip and the measured flip count
+# is 0 both ways, so nothing about the silhouette moves -- and if a future edit of the art DID cross
+# the transparent-index boundary, this build must stop rather than ship a reshaped Shiva.
+acknowledge_cutout_reshape = false
+
+# THE ASYMMETRY, STATED OUT LOUD.  `repaint._gate_texanim_frames` tests each CLIP FAMILY -- the live
+# window plus every source frame that can be blitted into it -- and refuses when an edit repaints
+# some rects of a family and leaves siblings stock, because that is how a mid-cast flicker gets
+# shipped.  This edit is deliberately exactly that shape:
+#     clip 0: 1/2 protected rects repainted   <- ASYMMETRIC
+#     clip 1: 0/2                              (untouched family: it feeds from the resting spare)
+#     clip 2: 1/3 protected rects repainted   <- ASYMMETRIC
+# The asymmetry IS THE INSTRUMENT: a symmetric co-transform would paint the window too and the
+# experiment would answer nothing, because the window would show the mark whether or not anything
+# blits.  So the key is set, and this comment is the reason it is set -- it is not a workaround for
+# a gate that fired, it is a statement that this build wants the shape the gate is shaped to catch.
+acknowledge_texanim_frames = true
+
+# The page's palette is a HEADER FACT (its own CLUT word), not a choice; naming it here is a
+# cross-reference the build CHECKS against the derivation, and it stays a cross-reference -- this
+# lane writes zero CLUT bytes and the container remains the palette authority.  It also documents
+# that the marked strip and the recoloured row above are the SAME part, which is the point.
+palette_from = "creature.part1"
+
+note = "THE DISCRIMINATOR: a flat index-255 slab over the spare 'eye CLOSED' strip (78,0,22,12); the live eye window (54,62,22,12) left stock"

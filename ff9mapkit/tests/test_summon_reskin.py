@@ -41,7 +41,9 @@ from ff9mapkit import cli
 from ff9mapkit import config
 from ff9mapkit.summons import container as KC
 from ff9mapkit.summons import export as KE
+from ff9mapkit.summons import repaint as RP
 from ff9mapkit.summons import reskin as RS
+from ff9mapkit.summons import texanim as TA
 from ff9mapkit.summons import texture as KT
 
 SECTOR = KC.SECTOR
@@ -49,6 +51,9 @@ SECTOR = KC.SECTOR
 #: the study dir holding the three cast-proven specs.  Present in a checkout, absent in a wheel --
 #: section 6 skips rather than failing, exactly as the M1b acceptance gate does.
 _STUDY = Path(__file__).resolve().parents[2] / "studies" / "custom-summons" / "tier-w"
+#: the read-only stock dumps.  Same ``needs_corpus`` house pattern the repaint and texanim test files
+#: use: the corpus-backed pins RUN where the lane is extracted and SKIP where it is not.
+CORPUS = Path(r"C:/gd/SCRATCH/summon-format")
 
 
 def _has_install() -> bool:
@@ -59,6 +64,9 @@ def _has_install() -> bool:
 
 
 needs_install = pytest.mark.skipif(not _has_install(), reason="no FF9 install resolvable")
+needs_corpus = pytest.mark.skipif(
+    not (CORPUS / "ef038.bytes").is_file(),
+    reason="needs-corpus: the extracted ef###.bytes corpus is not on this machine")
 needs_study_specs = pytest.mark.skipif(
     not (_STUDY / "bahamut_reskin.toml").is_file(),
     reason="the tier-w study specs are not in this tree (installed wheel / trimmed checkout)")
@@ -484,8 +492,43 @@ def test_texanim_region_is_measured_from_the_id4_header():
     assert not none.present and not none.armed
 
 
-def test_build_refuses_a_creature_target_under_an_armed_texanim_with_no_key_to_lift_it():
-    blob = build_synth_container(npart=1, texanim=116)
+def _armed_parsed_blob(npart: int = 2) -> bytes:
+    """The synthetic container with a VALID texanim table spliced in -- W7's lift fixture.
+
+    ``build_synth_container(texanim=N)`` arms a region of filler, which the reader (correctly) refuses:
+    on THAT container the lift is not available and the gate falls back to the pre-W7 refusal.  Proving
+    the lift needs a region that actually DECODES, so the generator lives with the reader's own tests
+    and is imported here rather than copied.  The import is deferred because the texanim test module
+    imports THIS one for its container fixture, and a module-level import would close the loop.
+    """
+    from tests.test_summon_texanim import armed_blob, synth_116
+    return armed_blob(synth_116(), npart=npart)
+
+
+def test_a_creature_recolour_builds_under_an_armed_texanim():
+    """W7 L1, THE LIFT -- inverted from the pre-W7 pin that refused this outright.
+
+    The table blits 8-bit palette INDICES inside one creature part's own page: it binds no CLUT word
+    and writes no CLUT contents, so a recolour survives the cast whether or not the animation runs.
+    The refusal is replaced by an OBLIGATION, and the obligation is checked here as bytes: the region
+    itself must come out of the build byte-identical (THE REGION INVARIANT, W7 R1).
+    """
+    blob = _armed_parsed_blob()
+    ta = RS.texanim_region(blob)
+    assert ta.armed and TA.read(blob).parsed, "the fixture must be armed AND decodable"
+    b = RS.build(_spec(blob, [{"name": "creature.part0", "hue_rotate": 30.0}]), "t", blob=blob)
+    assert len(b.enabled) == 1 and b.patched != b.orig, "the recolour actually spliced"
+    assert b.patched[ta.lo:ta.hi] == b.orig[ta.lo:ta.hi], "THE REGION INVARIANT: region bytes moved"
+    assert "byte-identical" in b.region_invariant
+    assert any("DECODED" in n for n in b.notes), "the lift must DISCLOSE the decode, not be silent"
+
+
+def test_an_armed_texanim_whose_table_does_NOT_decode_still_refuses_a_creature_recolour():
+    """THE FALLBACK CONTRACT, and the reason the lift is safe: it is conditional on a successful
+    PARSE, never on the absence of an exception.  An armed region the reader cannot decode is the
+    pre-W7 state, so the pre-W7 refusal is what an author gets -- with no key able to lift it."""
+    blob = build_synth_container(npart=1, texanim=116)         # armed, contents are filler
+    assert RS.texanim_region(blob).armed and TA.read(blob).unparseable
     spec = _spec(blob, [{"name": "creature.part0", "hue_rotate": 30.0}])
     with pytest.raises(RS.ReskinError, match="TEXANIM ARMED"):
         RS.build(spec, "t", blob=blob)
@@ -494,14 +537,96 @@ def test_build_refuses_a_creature_target_under_an_armed_texanim_with_no_key_to_l
         RS.build(spec, "t", blob=blob)
 
 
-def test_build_refuses_scenery_under_an_armed_texanim_unless_acknowledged():
-    blob = build_synth_container(npart=1, texanim=116)
+def test_scenery_builds_under_an_armed_PARSED_texanim_with_no_key_and_the_old_key_is_a_deprecated_noop():
+    """W7 L2, inverted -- FOR A TABLE THAT DECODES.  The scenery hedge ("orthogonality assumed, not
+    proven") is a MEASUREMENT now: every clip names a CREATURE part and every rect is local to that
+    part's own page, so the table cannot reach a scenery page at all.  ``acknowledge_texanim``
+    survives as a parseable NO-OP on this path -- specs written against the old gate keep building --
+    and says so in the report."""
     rows = [{"name": PAL_4BPP, "hue_rotate": 30.0}]
-    with pytest.raises(RS.ReskinError, match="acknowledge_texanim"):
+    blob = _armed_parsed_blob()
+    assert RS.texanim_region(blob).armed and not TA.read(blob).unparseable
+    assert len(RS.build(_spec(blob, rows), "t", blob=blob).enabled) == 1, \
+        "scenery needs no key when the table decodes -- it is out of the table's measured reach"
+    spec = _spec(blob, rows)
+    spec["reskin"]["acknowledge_texanim"] = True
+    b = RS.build(spec, "t", blob=blob)
+    assert len(b.enabled) == 1
+    assert any("DEPRECATED KEY `acknowledge_texanim`" in n for n in b.notes)
+    assert any("DEPRECATED" in l for l in RS.describe(b))
+
+
+def test_scenery_under_an_armed_UNPARSEABLE_texanim_degrades_to_the_preW7_posture():
+    """THE FALLBACK CONTRACT, scenery half (V1 F1).  On an armed region the reader cannot decode, the
+    measurement that deprecated ``acknowledge_texanim`` never ran -- so the pre-W7 posture stands:
+    scenery REFUSES without the key, builds WITH it, and the key is doing its original job (the note
+    says UNDECODABLE, not DEPRECATED)."""
+    rows = [{"name": PAL_4BPP, "hue_rotate": 30.0}]
+    blob = build_synth_container(npart=1, texanim=116)         # armed, contents are filler
+    assert RS.texanim_region(blob).armed and TA.read(blob).unparseable
+    with pytest.raises(RS.ReskinError, match="does not DECODE"):
         RS.build(_spec(blob, rows), "t", blob=blob)
     spec = _spec(blob, rows)
     spec["reskin"]["acknowledge_texanim"] = True
-    assert len(RS.build(spec, "t", blob=blob).enabled) == 1
+    b = RS.build(spec, "t", blob=blob)
+    assert len(b.enabled) == 1
+    assert any("UNDECODABLE" in n and "ORIGINAL, pre-W7 meaning" in n for n in b.notes), \
+        "the degraded path must DISCLOSE, and must not call the key deprecated"
+    assert not any("DEPRECATED KEY" in n for n in b.notes)
+
+
+def test_the_region_invariant_names_firstBlock_when_firstBlock_is_what_moved():
+    """V1 F6: the header-field comparisons fire BEFORE the derived-span comparison, so a moved
+    ``firstBlock`` is reported as such, not as a generic MOVED-or-RESIZED."""
+    from ff9mapkit.summons import container as EC
+    blob = _armed_parsed_blob()
+    mp = EC.creature_package(blob)
+    patched = bytearray(blob)
+    off = mp.header_offset + 0x14                          # u32 firstBlock, header +0x14
+    import struct
+    struct.pack_into("<I", patched, off, mp.first_block + 4)
+    with pytest.raises(RS.ReskinError, match=r"firstBlock moved 0x"):
+        RS.assert_region_invariant(blob, bytes(patched), "the F6 probe")
+
+
+def test_the_scaffold_stops_emitting_acknowledge_texanim_and_prints_the_decoded_table():
+    """W7 L2/L6.  A scaffold must not seed a key that does nothing, and an author reading it should
+    see the CLIP TABLE -- not "TEXANIM ARMED (116 bytes)", which is exactly the opaque line that made
+    the old refusal unanswerable."""
+    blob = _armed_parsed_blob()
+    text, _pmap = RS.scaffold(999, blob=blob, source="(synthetic)")
+    assert "acknowledge_texanim" not in text
+    assert "THE TEXANIM TABLE" in text and "THE PROTECTED RECT SET" in text
+    assert "clip 0 " in text and "window" in text
+    assert "REFUSED outright" not in text, "a decodable table blocks nothing"
+    unread, _p2 = RS.scaffold(999, blob=build_synth_container(npart=1, texanim=116),
+                              source="(synthetic)")
+    # V1 F1: an UNDECODABLE table degrades scenery to the pre-W7 posture, so the scaffold NAMES the
+    # key as the requirement -- in comment prose only, never seeded as TOML.
+    assert "acknowledge_texanim" in unread
+    assert not any(l.strip().startswith("acknowledge_texanim") for l in unread.splitlines())
+    assert "does NOT decode" in unread and "REFUSED outright" in unread
+
+
+@needs_corpus
+def test_the_region_invariant_survives_a_real_recolour_of_ef038():
+    """W7 G4, on REAL bytes -- ef038 is Shiva, the only effect in the corpus that arms op 12 and so
+    the maximal-risk member of the class.  A creature recolour BUILDS, and ``firstBlock``,
+    ``min(motionOffsets)`` and all 116 region bytes come out untouched.  This is the pin on the rung's
+    one new hard rule, and it is worth more than the lift it accompanies."""
+    blob = (CORPUS / "ef038.bytes").read_bytes()
+    ta = RS.texanim_region(blob)
+    assert ta.armed and ta.nbytes == 116 and TA.read(blob).parsed
+    mp = KC.creature_package(blob)
+    b = RS.build(_spec(blob, [{"name": "creature.part1", "hue_rotate": 120.0}], effect=38),
+                 "t", blob=blob)
+    assert len(b.enabled) == 1 and b.patched != b.orig
+    assert b.patched[ta.lo:ta.hi] == blob[ta.lo:ta.hi], "the 116 region bytes must be untouched"
+    mp2 = KC.creature_package(b.patched)
+    assert mp2.first_block == mp.first_block
+    assert min(mp2.motion_offsets) == min(mp.motion_offsets)
+    assert RS.texanim_region(b.patched) == ta
+    assert "byte-identical" in b.region_invariant
 
 
 def test_a_disabled_target_does_not_trip_the_texanim_or_shared_gates():
@@ -1273,12 +1398,26 @@ def test_the_cli_verify_agrees_with_the_build_it_just_staged(tmp_path, capsys):
     ("acknowledge_shared", "target"),
     ("acknowledge_headroom", "target"),
     ("acknowledge_texanim", "top"),
+    ("acknowledge_texanim_frames", "texel"),
 ])
 def test_a_truthy_string_acknowledge_refuses_rather_than_arming(key, where):
     """W5's own law, applied symmetrically after V1 found reskin still coerced: a TOML author
     writing `acknowledge_* = "false"` must be refused, never silently ARMED (the rescore lane
-    already enforced this -- its R3 rule; the asymmetry was the finding)."""
+    already enforced this -- its R3 rule; the asymmetry was the finding).
+
+    ``acknowledge_texanim`` is on this list even though W7 made it a NO-OP: a key that does nothing
+    is still a key an author can type wrong, and coercing ``"false"`` to true on a dead key would
+    train the habit that kills a live one.  ``acknowledge_texanim_frames`` is W7's NEW acknowledgement
+    and lives on the sibling TEXEL lane, so it is exercised through that lane's own ``_ack_bool``
+    rather than being assumed to inherit the law.
+    """
     blob = build_synth_container(npart=1)
+    if where == "texel":
+        spec = {"reskin": {"effect": 999, "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                           "texel": [{"name": "tex.part0", "source": "unused.png", key: "false"}]}}
+        with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+            RP.build(spec, "t", blob=blob)
+        return
     row = {"name": PAL_8BPP, "hue_rotate": 30.0}
     spec = _spec(blob, [row])
     if where == "target":
