@@ -274,10 +274,11 @@ scenery must be re-authored *together*.
   → Stock Bahamut, hot — a PAGE upload is itself the cache-invalidating event, so no `~` reload and
   no relaunch), with §7 naming the two honest cast postures now that the live baseline was wiped, and
   the rung does not close until the cast is judged.
-- **W7 — ★ BUILT, OFFLINE-PROVEN, cast pending** (`W7-TEXANIM.md`,
+- **W7 — ★★ CAST-PROVEN, both verdicts (magenta Shiva on screen; her eye never changes — nothing
+  blits, the fourth independent confirmation; cast record → `W7-TEXANIM.md` §6)** (`W7-TEXANIM.md`,
   `ff9mapkit/ff9mapkit/summons/texanim.py`, `ff9mapkit/tests/test_summon_texanim.py`, `w7_gates.py`;
-  w7_gates 5/5, w5_gates 9/9, w6_gates 7/7, tier-w suite 359/1 single-process, the three kit summon
-  reskin/repaint/texanim test files 193).
+  w7_gates 5/5, w5_gates 9/9, w6_gates 7/7, tier-w suite 360/1 single-process, the three kit summon
+  reskin/repaint/texanim test files 195).
   **THE TEXANIM READ — the rung that turned a refusal into a lift.** W5 minted a gate whose own words
   were *"this is not a knob: read the table first"*; W7 read it, from three parallel recon lanes (a
   static disassembly of the user's own `FF9SpecialEffectPlugin.dll` in x64 AND x86, a measurement

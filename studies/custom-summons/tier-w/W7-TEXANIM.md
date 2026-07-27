@@ -10,11 +10,15 @@
 > one new **hard rule** (never touch the region or `firstBlock`), and the hard rule is worth more than
 > the lift.
 
-**STATUS: ★ BUILT, OFFLINE-PROVEN — the cast is pending.** New kit module
+**STATUS: ★★ CAST-PROVEN 2026-07-27 — BOTH verdicts.** New kit module
 `ff9mapkit/ff9mapkit/summons/texanim.py` (a **reader**, no writer) + `test_summon_texanim.py`; both
 lanes' gates rewritten in place; `w7_gates.py` 5/5, `w5_gates.py` 9/9 (its G3 **inverted** to
 `G3′ THE FIVE TEXANIM LIFTS`), `w6_gates.py` 7/7 (its G4 texanim row replaced by the **L3/L4
-matrix**). Nothing was deployed and no game or install byte was written by this rung.
+matrix**). The owner cast Stock Shiva (bench row 200): **verdict 1 — Shiva is MAGENTA**, so a static
+CLUT recolour survives an armed texanim and the lift is correct; **verdict 2 — her eye NEVER
+changes**, so nothing blits on the PC build, exactly as the disassembly, the byte analysis and the
+MIPS check predicted (fourth independent confirmation; evidence in §6's cast record). The
+co-transform obligation therefore stays **prudential**, as recorded in §2.3.
 
 | | |
 |---|---|
@@ -429,6 +433,23 @@ own `_ack_bool` rather than assumed to inherit it.
 ---
 
 ## 6. THE CAST PROTOCOL — one deploy, two verdicts
+
+> **★★ CAST 2026-07-27 — BOTH VERDICTS PASSED.** Chain as executed: live state re-verified (W6a's
+> ef227 still resting at `813a7ea4…`, `[SfxHybrid] Enabled = 0`, no `ModFileList.txt`) → bench
+> redeploy registered row **200 Stock Shiva** with rows 192–199 byte-unchanged → `deploy_repaint.py`
+> first-deploy of ef038, live sha independently re-hashed `b555a607…` → RELAUNCH → Warp 30301 →
+> Steiniv → Rune → Stock Shiva. **Verdict 1: magenta Shiva, owner-confirmed and frame-confirmed**
+> (the recolour reads across the entire 15 s cast). **Verdict 2: the eye never changes.** The owner
+> supplied a 15 s 1080p60 capture; the face-closeup segment (t≈8.2–11.4 s, where the authored blink
+> plays) was scanned at the native 60 fps with a per-frame localized-diff instrument — every diff
+> spike was either the global 15 Hz additive-flash pulse or an off-face particle (menu shimmer, hand
+> sparkle), and the visual sweep shows the eye open and unchanged in every readable frame; the whole
+> video re-scanned at 30 fps found candidates only in the pre-summon column, the ice pillar and the
+> end-game shards. (A blit is persistent state, not a one-frame flash, so the 60 fps closeup scan is
+> the decisive instrument.) The `[SfxProbe]` cast log is archived at
+> `C:\gd\SCRATCH\summon-format\texanim-w7\capture-logs\sfxmeshprobe.w7-shiva-cast.2026-07-27.log`;
+> the owner's video is `C:\Users\skaki\Videos\2026-07-27 18-37-54.mkv`. Resting state: composed
+> ef038 LIVE; revert = `revert_summon_repaint_38.py` (deletes, stock fallback).
 
 **Subject: ef038 = Shiva.** She is the *only* effect that arms op 12, i.e. the maximal-risk member of
 the class — proving lever 1 there proves it for all five. She is also the most legible subject: she is

@@ -50,7 +50,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the containers rather than asserted from a constant. Docs:
   [`docs/SUMMONS.md`](docs/SUMMONS.md) (the texanim sections in both lanes),
   [tutorial 14](docs/tutorials/14-summon-reskin-rescore.md#the-texanim-table--five-summons-that-are-no-longer-off-limits).
-  An in-game cast of the lift has not run yet; the offline gates are green.
+  **Cast-proven in-game, both ways**: a recoloured Shiva reads magenta across her whole cast, and a
+  marker painted into the animation's spare frame strip never appears — the animation really is
+  dormant on the PC build, confirmed on a 60 fps capture, not only in the disassembly.
 
 ### Added — `summon-reskin` gains a second lever: the TEXEL REPAINT (`export-art`, `[[reskin.texel]]`)
 - **TIER W rung W6a** (`studies/custom-summons/tier-w/PLAN.md`): `summon-reskin` grows a second
