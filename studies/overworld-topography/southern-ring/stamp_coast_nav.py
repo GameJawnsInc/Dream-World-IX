@@ -14,14 +14,17 @@ THE FIX (navigation-only, "topo = tangent.x, look = UV+material"): re-derive eve
 navigation class in EVERY deployed kit sea cell (all Sea1..Sea5 override parts -- no hand boxes,
 so the junction landmass, the R4 bench, Sandreach etc. are all covered):
 
-  * under HIGH ground (top-query at centroid = ground with y >= 1.5u)  -> **56 KEEL-BLOCK**
-    (water-class, outside the Narciss mask AND foot-illegal: the interior seals; also fixes the
-    R5c fringe having made under-land water 53)
-  * under LOW ground (< 1.5u -- the beach-apron waterline overlap)      -> **53 beach-front**
-  * open water within 16u of LOW ground                                 -> **53 beach-front**
-  * open water within 16u of ONLY HIGH ground                           -> **54 cliff-front**
-    (sailable right up to the rock, stock feel -- but NOT 53, killing the cliff-face dismount
-    exploit where the getoff sweep would beam the player up the cliff top)
+  * under HIGH-LOCALE ground (any of centroid+3 corners; a cliff-BASE vertex at the waterline
+    is high-locale, never a beach) -> **56 KEEL-BLOCK** (outside the Narciss mask AND
+    foot-illegal: the interior seals)
+  * under LOW-locale ground (the waterline overlap)                     -> **53 beach-front**
+  * open water hugging HIGH-locale ground (exact tri distance <= 3.5u)  -> **55 THE STANDOFF
+    BELT** (visual: the hull floats off the wall instead of burying its bow; 3.5 < the 4.375u
+    getoff sweep, so dismount still lands OVER the belt -- THE COMPATIBILITY LAW at the
+    constants below)
+  * other open water within 16u of ANY ground                           -> **53 beach-front**
+    (the ring's land-anywhere property, owner-confirmed; plateau isles have no unlandable
+    shores by design)
   * open sea                                                            -> unchanged
 
 Shared verts across class boundaries resolve by priority 53 > 56 > 54 (err landable at the
@@ -50,15 +53,39 @@ from ff9mapkit.world import extract as W     # noqa: E402
 
 WATER = {53, 54, 55, 56, 57}
 SEA_PARTS = ("Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
-HIGH_Y = 1.5           # ground at/above this = cliff/interior; below = beach apron
+HIGH_Y = 1.5           # a single ground SAMPLE at/above this is high...
+LOCALE_R = 3.0         # ...but a sample's CLASS is its LOCALE: low only if NO ground within
+LOCALE_HIGH_Y = 2.0    # LOCALE_R rises to LOCALE_HIGH_Y. A cliff-base vertex sits at the
+                       # waterline (y<1.5) yet is NOT a beach -- round 3's "boat noses into the
+                       # rock" came from cliff bases classifying as low ground and painting
+                       # landable 53 right against the face. THE TRIM MEASURE (round 3e/3f, from
+                       # the Ashvale-vs-stock transects): kit shores are a ~2u low TRIM then a
+                       # 3.0u plateau EVERYWHERE -- geometry can't do beach-vs-cliff at 4.5u+
+                       # (6.0/4.5 killed every landing). 3.0u on a 2u ground grid keeps a low
+                       # strip WIDER than a wall's base trim landable (real aprons like the
+                       # (7,17)-family sand) and belts the thin wall trims the owner's
+                       # screenshots complained about.
+STEP_G = 2.0           # the ground scan's own step -- finer than the water STEP so LOCALE_R=3.0
+                       # actually sees neighbors (a 4u grid has none within 3u).
 FRINGE_R = 16.0
 STEP = 4.0
-KEEL, BEACH, CLIFF = 56, 53, 54
-# KEEL wins shared verts: the engine reads a hit tri's id off a vertex tangent, so a beach-claimed
-# vert on a keel-boundary tri is a first-vert HOLE in the seal (probe round 1 found 23 of them).
-# The cost -- a keel-adjacent beach tri can read 56 and refuse a landing at that exact spot -- is
-# bounded and visible in the landing probe; a leak lets the boat cross the island. Seal wins.
-PRIORITY = {KEEL: 0, BEACH: 1, CLIFF: 2}     # lower wins at shared verts
+# THE COMPATIBILITY LAW (v2.3 -- the round-3 endgame): the getoff GATE reads the tile UNDER THE
+# HULL (w_movementRoundCheck at speed 0) and the landing SWEEP reaches at most
+# S(radius*8/4) = S(1120) = 4.375u from the hull (Narciss radius=560, ff9.S = /256). So a
+# standoff belt WIDER than ~4.4u makes a shore unlandable -- and the ring's islands are PLATEAU
+# islands (a ~2u trim then a 3.0u wall, the Ashvale transects): under stock grammar they would be
+# unlandable cliff isles, but land-anywhere is the ring's confirmed-fun property (owner: "get off
+# at any beach I please"). Resolution: the belt is exactly the widest standoff compatible with
+# landing -- 3.5u < 4.375u. The hull now floats ~3.5u off a wall (the bow no longer buries in the
+# rock) and dismount still lands over the belt everywhere.
+BELT_R = 3.5           # THE STANDOFF BELT (visual): mask-illegal water hugging HIGH-locale
+                       # fronts. MUST stay under the 4.375u sweep reach or landings die.
+KEEL, BEACH, BELT = 56, 53, 55
+# Shared-vert priority: KEEL first (round 1: beach-claimed verts left 23 first-vert holes in the
+# seal). BEACH beats BELT at the seam: the gate reads the tile under the hull, so a belt-claimed
+# vert on a 53 ring tri would refuse the landing there -- landing survival outranks the last
+# half-tri of standoff.
+PRIORITY = {KEEL: 0, BEACH: 1, BELT: 2}
 BACKUP = ROOT / "backups" / "r3-lamplight.20260726-r3lamplight" / "pre-coastnav-sea"
 
 
@@ -107,19 +134,66 @@ def deployed_sea_cells():
 
 
 def cell_grounds(bx, by):
-    """Ground samples (x, z, y) over the cell +/- an 18u margin, at STEP."""
+    """Ground samples over the cell +/- an 18u margin, at STEP, classified by LOCALE:
+    a sample is LOW only if no ground within LOCALE_R rises to LOCALE_HIGH_Y (a cliff-base
+    vertex at the waterline is HIGH ground by locale, never a beach)."""
+    # ⚠ THE ORIGIN CONVENTION (round 3d -- the instrument bug): block_world_origin returns the
+    # cell's WEST,NORTH corner; the cell spans z from oz DOWN to oz-64. The first three rounds
+    # scanned oz..oz+64 -- the NEIGHBOR ROW -- so every ground list (and the probe's seal grid)
+    # was displaced one row north; v1's box-based 53s masked it at the landing sites.
     ox, oz = W.block_world_origin(bx, by)
-    lows, highs = [], []
+    raw = []
     x = ox - 18.0
     while x <= ox + 64 + 18.0:
-        z = oz - 18.0
-        while z <= oz + 64 + 18.0:
+        z = oz + 18.0
+        while z >= oz - 64.0 - 18.0:
             g = query_top(x, z)
             if g is not None and g[1] not in WATER:
-                (lows if g[2] < HIGH_Y else highs).append((x % 1536.0, z))
-            z += STEP
-        x += STEP
+                raw.append((x % 1536.0, z, g[2]))
+            z -= STEP_G
+        x += STEP_G
+    lows, highs = [], []
+    for gx, gz, gy in raw:
+        near_hi = any(abs(gx - px) <= LOCALE_R and abs(gz - pz) <= LOCALE_R
+                      and math.hypot(gx - px, gz - pz) <= LOCALE_R and py >= LOCALE_HIGH_Y
+                      for px, pz, py in raw)
+        (highs if near_hi else lows).append((gx, gz))
     return lows, highs
+
+
+def tri_dist2d(px, pz, a, b, c):
+    """Exact 2D distance from point (px,pz) to triangle abc (0 inside). Point-probing a big tri's
+    corners+centroid misses mid-EDGE approaches to a cliff (round-3c: tris hugging the rock along
+    an edge read sailable) -- the belt test needs the true distance."""
+    d = (b[0]-a[0])*(c[1]-a[1]) - (c[0]-a[0])*(b[1]-a[1])
+    if abs(d) > 1e-12:
+        w1 = ((px-a[0])*(c[1]-a[1]) - (c[0]-a[0])*(pz-a[1])) / d
+        w2 = ((b[0]-a[0])*(pz-a[1]) - (px-a[0])*(b[1]-a[1])) / d
+        if w1 >= 0 and w2 >= 0 and w1 + w2 <= 1:
+            return 0.0
+    best = float("inf")
+    for p, q in ((a, b), (b, c), (c, a)):
+        vx, vz = q[0]-p[0], q[1]-p[1]
+        L2 = vx*vx + vz*vz
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px-p[0])*vx + (pz-p[1])*vz) / L2))
+        best = min(best, math.hypot(px - (p[0] + t*vx), pz - (p[1] + t*vz)))
+    return best
+
+
+def locale_of(px, pz, lows, highs):
+    """LOCALE class of the ground at a probe point: True=high / False=low, by the nearest
+    classified ground sample within ~7u (probe points sit <=~3u from a scan sample); None if
+    somehow no sample is near (caller falls back to the probe's own height)."""
+    px %= 1536.0
+    best_d, best_cls = 7.0, None
+    for cls, pts in ((True, highs), (False, lows)):
+        for gx, gz in pts:
+            if abs(px - gx) >= best_d or abs(pz - gz) >= best_d:
+                continue
+            d = math.hypot(px - gx, pz - gz)
+            if d < best_d:
+                best_d, best_cls = d, cls
+    return best_cls
 
 
 def stamp_cell(bx, by, deploy):
@@ -154,19 +228,39 @@ def stamp_cell(bx, by, deploy):
             cz = sum(verts[vi][2] for vi in tri) / 3 + oz
             # Probe the centroid AND all three corners: a big straddling tri whose centroid sits
             # over the beach/open water can still extend under the cliff -- ANY probe point under
-            # high ground makes the whole tri keel (round-1 leak class: centroid aliasing).
+            # high-LOCALE ground makes the whole tri keel (round-1 leak class: centroid aliasing;
+            # round-3: a cliff-base vertex is low-HEIGHT but high-LOCALE, never a beach).
             probes = [(cx, cz)] + [(verts[vi][0] + ox, verts[vi][2] + oz) for vi in tri]
             tops = [query_top(px, pz) for px, pz in probes]
-            grounded = [t for t in tops if t is not None and t[1] not in WATER]
-            if any(t[2] >= HIGH_Y for t in grounded):
-                cls = KEEL
-            elif grounded:
-                cls = BEACH
+            grounded = [(px, pz, t) for (px, pz), t in zip(probes, tops)
+                        if t is not None and t[1] not in WATER]
+            if grounded:
+                # KEEL on raw height OR locale: raw >= 1.5 alone seals mid-height banks the
+                # 2.0-locale misses (round 3g: a 1.8u bank read 53 underneath); locale alone
+                # seals under thin wall trims (raw < 1.5 at the base of a 3u wall).
+                def is_high(px, pz, t):
+                    if t[2] >= HIGH_Y:
+                        return True
+                    loc = locale_of(px, pz, lows, highs)
+                    return bool(loc)
+                cls = KEEL if any(is_high(px, pz, t) for px, pz, t in grounded) else BEACH
             else:
-                if any(math.hypot(cx % 1536.0 - gx, cz - gz) <= FRINGE_R for gx, gz in lows):
+                # BELT by the EXACT tri-to-sample distance (rounds 3b/3c: corner- and even
+                # edge-aliasing on big tris left sailable reads at the rock). Everything else
+                # within the fringe of ANY ground is 53 -- the ring's land-anywhere property
+                # (v2.3; the 54 "cliff-front" class is gone: plateau isles have no unlandable
+                # shores by design).
+                ta, tb, tc = [((verts[vi][0] + ox) % 1536.0, verts[vi][2] + oz) for vi in tri]
+                cxm = cx % 1536.0
+                reach = BELT_R + max(math.hypot(cxm - p[0], cz - p[1]) for p in (ta, tb, tc))
+                hug = any(math.hypot(cxm - gx, cz - gz) <= reach
+                          and tri_dist2d(gx, gz, ta, tb, tc) <= BELT_R
+                          for gx, gz in highs)
+                if hug:
+                    cls = BELT          # THE STANDOFF BELT: mask-illegal, holds the hull off rock
+                elif any(math.hypot(cxm - gx, cz - gz) <= FRINGE_R for gx, gz in lows) or \
+                        any(math.hypot(cxm - gx, cz - gz) <= FRINGE_R for gx, gz in highs):
                     cls = BEACH
-                elif any(math.hypot(cx % 1536.0 - gx, cz - gz) <= FRINGE_R for gx, gz in highs):
-                    cls = CLIFF
                 else:
                     continue
             for vi in tri:
@@ -208,7 +302,7 @@ def main() -> int:
             print(f"({bx},{by}): {bits}")
             total += sum(n for _, n, _ in res)
     print(f"\nTOTAL: {total} verts {'STAMPED' if args.deploy else 'would change (dry run)'}"
-          f"  (classes: 53=beach-front 54=cliff-front 56=keel-block)")
+          f"  (classes: 53=beach-front 55=standoff-belt 56=keel-block)")
     return 0
 
 

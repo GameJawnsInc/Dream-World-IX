@@ -37,9 +37,14 @@ PARTS_ORDER = ("Object", "Terrain", "Beach1", "Sea1", "Sea2", "Sea3", "Sea5", "S
 SOUTH = [(20, -1168), (-20, -1180), (-60, -1200), (-97, -1230),   # west off Ashvale, wrap
          (-140, -1245), (-190, -1240), (-230, -1210), (-260, -1190),  # south of Lamplight (x mod)
          (-176, -1215)]                                            # the west channel, south end
-NORTH = [(20, -1168), (-20, -1150), (-60, -1125), (-100, -1110),
-         (-150, -1105), (-200, -1115), (-240, -1130),
-         (-176, -1140)]                                            # the west channel, north end
+NORTH = [(20, -1168), (-24, -1162), (-60, -1125), (-100, -1110),   # cross the wrap at z~-1165:
+         (-150, -1105), (-200, -1115), (-240, -1130),              # the junction's west wall
+         (-176, -1140)]                                            # bulges to the wrap column
+                                                                   # near z-1152..-1157, and its
+                                                                   # R5e standoff belt (3.5u,
+                                                                   # topo 55) closes the old
+                                                                   # z~-1159 crossing. The west
+                                                                   # channel, north end.
 
 _cache: dict = {}
 

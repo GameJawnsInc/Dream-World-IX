@@ -83,10 +83,10 @@ def main() -> int:
     leaks = 0
     checked = 0
     for bx, by in deployed_sea_cells():
-        ox, oz = W.block_world_origin(bx, by)
+        ox, oz = W.block_world_origin(bx, by)          # origin = WEST,NORTH corner: z goes DOWN
         for xi in range(0, 64, 4):
             for zi in range(0, 64, 4):
-                wx, wz = ox + xi + 2.0, oz + zi + 2.0
+                wx, wz = ox + xi + 2.0, oz - zi - 2.0
                 top = hit(lambda nm: True, wx, wz)
                 if top is None or top[1] in WATER or top[2] < HIGH_Y:
                     continue
@@ -99,6 +99,38 @@ def main() -> int:
                               f"{under[0]} topo {under[1]} under {top[0]} y={top[2]:.1f}")
     print(f"SEAL: {checked} high-ground samples, {leaks} sail-through leak(s)")
     if leaks:
+        ok = False
+
+    # -- gate 1b: THE STANDOFF (v2.3) -- open water within 2u of a HIGH-LOCALE (wall) front
+    # should be mask-illegal, so the hull floats off the rock. The BEACH>BELT shared-vert
+    # priority (landing survival) tolerates bounded seam artifacts: fail only past 5%.
+    sys.path.insert(0, str(HERE.parent))
+    from stamp_coast_nav import cell_grounds   # noqa: E402
+    soft = 0
+    stand_checked = 0
+    for bx, by in deployed_sea_cells():
+        lows, highs = cell_grounds(bx, by)
+        ox, oz = W.block_world_origin(bx, by)          # origin = WEST,NORTH corner: z goes DOWN
+        for xi in range(0, 64, 4):
+            for zi in range(0, 64, 4):
+                wx, wz = ox + xi + 2.0, oz - zi - 2.0
+                top = hit(lambda nm: True, wx, wz)
+                if top is None or top[1] not in WATER:
+                    continue
+                wxm = wx % 1536.0
+                dh = min((math.hypot(wxm - gx, wz - gz) for gx, gz in highs), default=99)
+                if dh > 2.0:
+                    continue
+                stand_checked += 1
+                if top[1] in LEGAL:
+                    soft += 1
+                    if soft <= 10:
+                        print(f"   !! wall-hug legal water at ({wx:.0f},{wz:.0f}) "
+                              f"block({bx},{by}): {top[0]} topo {top[1]} {dh:.1f}u off the wall")
+    frac = soft / stand_checked if stand_checked else 0.0
+    print(f"STANDOFF: {stand_checked} wall-hug samples, {soft} legal ({frac:.1%}; seam-artifact"
+          f" tolerance 5%)")
+    if frac > 0.05:
         ok = False
 
     # -- gate 4: byte integrity vs backups
@@ -123,7 +155,7 @@ def main() -> int:
                     t0 = int(round(struct.unpack_from("<f", old, o)[0]))
                     t1 = int(round(struct.unpack_from("<f", new, o)[0]))
                     if (t0 & ~0xFC) != (t1 & ~0xFC) or (t0 & 0xFC) >> 2 not in WATER \
-                            or (t1 & 0xFC) >> 2 not in (53, 54, 56):
+                            or (t1 & 0xFC) >> 2 not in (53, 54, 55, 56):
                         good = False; break
         if good and live4.is_file() and live4.read_bytes() != new:
             good = False

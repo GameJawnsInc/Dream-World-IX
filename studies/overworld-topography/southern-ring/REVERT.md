@@ -2903,3 +2903,66 @@ with R5c's fringe); the deeper `pre-fringe-sea4/` returns the pre-R5c unlandable
 2. **Landings still work**: beaches still land (plate → Confirm ashore); a cliff face refuses
    (nothing happens — and no more beaming up cliff tops).
 3. **The lanes**: the north voyage unchanged.
+
+---
+
+# 31. R5e — THE STANDOFF BELT + THE COMPATIBILITY LAW (coast-nav v2.3) — **APPLIED** (hot; playtest pending)
+
+Run 2026-07-26, from the owner's R5d playtest (with screenshots): *"it's a little off, i can get
+way closer to the 'inside' of the island on the forks than i can on actual cliffs... might be a
+tricky one."* It was. Four instrument/model rounds:
+
+## 31.1 What the rounds found
+
+* **THE ORIGIN INSTRUMENT BUG** (the big one): `block_world_origin` returns the WEST,NORTH
+  corner — a cell spans z DOWNWARD. Every origin-based scan (the stamp's ground lists, the seal
+  probe's grid) had walked `oz + zi` — the NEIGHBOR ROW. The §30 "0 leaks" was measured on a
+  displaced grid, and the stamp's open-water classes were derived against the wrong strip
+  (v1's box-based 53s masked it at the landing sites). All scans corrected (`oz - zi`); the
+  seal re-established on the TRUE grid.
+* **KIT ISLANDS ARE PLATEAU ISLES**: transects (Ashvale vs the stock (7,17) islet) show every
+  kit shore is a ~2u low trim then a 3.0u wall — there are NO graded aprons anywhere, so no
+  geometric locale rule can split "beach" from "cliff" (each attempt killed every landing:
+  locale 6u/4.5u/3u-on-2u-grid all zeroed the landing probe). Under stock grammar these are
+  unlandable cliff isles; land-anywhere is the ring's confirmed-fun property.
+* **THE COMPATIBILITY LAW**: the getoff GATE reads the tile UNDER THE HULL
+  (`w_movementRoundCheck` at speed 0) and the landing SWEEP reaches at most
+  `S(radius·8/4) = S(1120) = 4.375u` (Narciss `radius=560`, `ff9.S = /256`). A standoff belt
+  wider than that makes a shore UNLANDABLE. Standoff and landing are compatible only under
+  4.375u.
+
+## 31.2 The v2.3 class map (deployed)
+
+* under-land, raw ground ≥1.5u OR high-LOCALE (≥2u within 3u — a wall's waterline base or trim)
+  → **56 KEEL** (the seal; raw-OR-locale closed a 1.8u-bank leak);
+* open water hugging a HIGH-locale front (exact tri distance ≤ **3.5u**) → **55 THE STANDOFF
+  BELT** — the widest standoff compatible with landing (3.5 < 4.375);
+* all other water ≤16u of ANY ground → **53** (land ANYWHERE — the 54 cliff-front class is
+  GONE: wall dismounts land on the plateau top, the behavior the owner enjoyed);
+* shared verts: KEEL > BEACH > BELT (landing survival outranks the last half-tri of standoff).
+
+Verification (`probe_r3/probe_coast_nav.py`, archived): SEAL 5,551 true-grid samples **0
+leaks** · STANDOFF 332 wall-hug samples **0 legal** · integrity 65 files topo-bits-only ·
+landings at ALL SEVEN shores (10-59 sites) · the north lane FULLY SAILABLE (the wrap crossing
+moved to z≈-1165: the junction's west wall bulges to the wrap column near z-1152..-1157 and its
+new belt closes the old crossing).
+
+## 31.3 Honest residual
+
+The hull is longer than 2×3.5u — at a tall vertical face the BOW may still overlap the rock a
+little (the deep burial is gone). More padding is possible ONLY by sacrificing wall dismounts
+(BELT_R up to ~8, landings then only at true aprons — which kit islands don't have; widening
+aprons is a mesh job for a future rung). 3.5u is the ceiling under THE COMPATIBILITY LAW.
+
+## 31.4 Undo
+
+Same as §30.3 — `pre-coastnav-sea/` returns the pre-R5d state (the backups predate v2, so one
+restore undoes v2 through v2.3).
+
+## 31.5 Playtest ask (owner) — no relaunch, re-enter the world
+
+1. Sail at the same fork cliffs as the screenshots: the hull should stop ~a half-hull off the
+   face (bow tip near, not buried). Compare feel vs stock.
+2. Land everywhere you did before — beaches AND walls (wall dismounts hop you up onto the
+   plateau; that is intended, it is the ring's land-anywhere property).
+3. The interior seal + the north voyage: unchanged.

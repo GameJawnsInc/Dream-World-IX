@@ -1,12 +1,13 @@
-SEAL: 4541 high-ground samples, 0 sail-through leak(s)
-INTEGRITY: 64 files checked, 0 violation(s)
+SEAL: 5551 high-ground samples, 0 sail-through leak(s)
+STANDOFF: 332 wall-hug samples, 0 legal (0.0%; seam-artifact tolerance 5%)
+INTEGRITY: 65 files checked, 0 violation(s)
 boat islet (home): 16 landing sample(s)  west~(474,-1125)  east~(502,-1133)
-Ashvale: 29 landing sample(s)  west~(24,-1159)  east~(36,-1191)
-Tidefall: 32 landing sample(s)  west~(394,-1235)  east~(418,-1251)
-Grimhorn: 29 landing sample(s)  west~(1183,-1195)  east~(1199,-1155)
-Larkspur: 28 landing sample(s)  west~(702,-640)  east~(726,-592)
-Lamplight: 21 landing sample(s)  west~(1395,-1143)  east~(1455,-1135)
-the horseshoe: 63 landing sample(s)  west~(1260,-1126)  east~(1312,-1186)
-NORTH passage: 47 samples, FULLY SAILABLE
+Ashvale: 23 landing sample(s)  west~(24,-1159)  east~(32,-1135)
+Tidefall: 27 landing sample(s)  west~(394,-1235)  east~(414,-1247)
+Grimhorn: 25 landing sample(s)  west~(1183,-1195)  east~(1195,-1155)
+Larkspur: 21 landing sample(s)  west~(714,-636)  east~(726,-592)
+Lamplight: 10 landing sample(s)  west~(1395,-1139)  east~(1455,-1135)
+the horseshoe: 59 landing sample(s)  west~(1260,-1126)  east~(1344,-1142)
+NORTH passage: 48 samples, FULLY SAILABLE
 
 COAST-NAV: ALL CHECKS PASS

@@ -160,7 +160,24 @@ language, the case-53 switch arm un-repointed to default; **THE ONE-CASE FERRY i
 ring now uses the virgin band exclusively, and the census law is: a case's summoners live in ALL
 entries, not just cell tags. Record: REVERT.md §24.
 
-## R5d — THE SAIL-THROUGH SEAL ★ DEPLOYED (2026-07-26; playtest pending): the coast-nav stamp v2
+## R5e — THE STANDOFF BELT ★ DEPLOYED (2026-07-26; playtest pending): coast-nav v2.3 + THE COMPATIBILITY LAW
+
+R5d's playtest (screenshots): the hull still buried its bow in fork rock — stock keeps more
+padding. Four rounds distilled to three laws: **THE ORIGIN INSTRUMENT BUG** (block origins are
+the NW corner; every origin-based scan had walked the neighbor row north — §30's "0 leaks" grid
+and the stamp's ground lists were displaced; all corrected, seal re-proven on the true grid) ·
+**KIT ISLANDS ARE PLATEAU ISLES** (a ~2u trim then a 3.0u wall everywhere — no geometric rule
+can split beach from cliff; every locale attempt zeroed the landings; land-anywhere is the
+ring's confirmed-fun property, so the 54 class is gone) · **THE COMPATIBILITY LAW** (the getoff
+gate reads the tile UNDER the hull and the landing sweep reaches S(1120)=4.375u — a standoff
+belt survives landing only under that). v2.3: keel 56 (raw≥1.5 OR high-locale), **belt 55 at
+3.5u** off wall fronts (the widest landing-compatible standoff), 53 everywhere else near
+ground. SEAL 5,551/0 · STANDOFF 332/0 · all seven shores land · the lane re-crossed at z≈-1165
+(the junction's west-wall belt closed the old wrap crossing). Honest residual: a long hull's
+bow can still kiss a tall face — deep burial gone; more padding costs wall dismounts (REVERT
+§31.3). Record: REVERT.md §31.
+
+## R5d — THE SAIL-THROUGH SEAL ★ DEPLOYED (2026-07-26; superseded by R5e's v2.3 re-derivation): the coast-nav stamp v2
 
 R5c's playtest: boarding + beach landings work, but **the boat sails through kit cliffs** (never
 stock ones). Cause: kit cells ship a FULL-CELL ocean under the land, and the movement probe
