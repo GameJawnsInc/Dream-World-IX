@@ -39,14 +39,34 @@ def _live_mod():
     return game, mod
 
 
+def _m1b_deployed(mod: Path) -> bool:
+    """Is THIS lane's M1b deployment actually present in the live folder?
+
+    ⚠ THE PRECONDITION THESE ACCEPTANCE BARS NEED (2026-07-27): the live mod folder is
+    SHARED, MUTABLE state -- every concurrent session deploys into it, and a campaign or
+    journey deploy WHOLESALE-REPLACES it (that is how the M1b registration vanished while
+    nothing about the summon code changed). "The folder exists" is therefore NOT evidence
+    that this lane's deployment exists, so gating on `mod.is_dir()` turns another lane's
+    deploy into a red here. Probe the ARTIFACTS instead -- the same shape
+    ``test_summon_deploy._live_m1b`` already uses -- so these bars fail only when the
+    deployment IS present and WRONG (a real regression), and skip when it is simply gone
+    (regenerate with `summon-reskin`/`summon-rescore build` + a 30301 redeploy)."""
+    return (mod / "StreamingAssets/Assets/Resources/Models/3/6201/6201.fbx").is_file()
+
+
 # ------------------------------------------------------------------ RUNG A (install-only, read-only)
 def test_mint_directive_matches_the_live_dictionarypatch():
     _game_, mod = _live_mod()
+    if not _m1b_deployed(mod):
+        pytest.skip("M1b is not deployed in the live folder (its artifacts are absent -- "
+                    "another lane's deploy replaced it) -- nothing to compare")
     dp = mod / "DictionaryPatch.txt"
     if not dp.is_file():
         pytest.skip(f"{dp} absent")
     lines = dp.read_text(encoding="utf-8", errors="replace").splitlines()
-    assert "3DModel 6201 GEO_MON_B0_M201" in lines, "the productized mint directive is not the live line"
+    assert "3DModel 6201 GEO_MON_B0_M201" in lines, (
+        "M1b IS deployed (its model artifacts are present) but its mint directive is "
+        "missing from the live DictionaryPatch -- a real registration regression")
 
 
 def test_sfxhybrid_updates_match_the_live_memoria_ini():
