@@ -328,6 +328,16 @@ once = "stock2"                                    # REQUIRED — the event-Once
 > first branch carries `raise_flags = ["moment"]` and the others gate on
 > `when = [{ flag = "moment" }]` — a raised flag doesn't drain. (Monotonic conditions —
 > kill tallies, spent waves — don't need this; the event-Once lane alone serves them.)
+>
+> **`behavior lint` checks this.** It warns when two or more `once` branches on one unit
+> share a gate that can stop holding, names the offending condition, and states the fix.
+> Sticky by construction (and so exempt): `flag`/`not_flag`/`any_flag` when nothing
+> `clear_flags`es them, `time_below` (remaining time only falls), `hp_le` (hp only falls —
+> swings gate on hp > 0), and `counter_ge` on a counter **no `[[behavior.scan]]` feeds** —
+> a scan headcount rises *and* falls, while a schedule or kill tally only rises. That
+> distinction matters: it is the difference between `counter_ge` being a safe gate and a
+> silently starving one. `[siege]`'s own alarm chain is generated in the latched shape
+> because this lint caught it riding a draining `any_near`.
 
 Mutates a shop's buy list at runtime (Memoria's extended `AddShopItem`, 0x115) — the
 wave-by-wave armoury unlock. Engine semantics the compiler bakes in: the shop must already

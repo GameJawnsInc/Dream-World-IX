@@ -6,6 +6,7 @@ Worked `field.toml` projects. Build any with `ff9mapkit build <path>` (see
 | Example | Shows |
 |---|---|
 | [`SHOWCASE/`](SHOWCASE) | **Start here** — one field exercising most of the content stack: NPC + dialogue, a flag-gated NPC, a chest event, an encounter + BGM, and a narration cutscene. Builds offline with placeholder art. |
+| [`siege/`](siege) | A whole **tower-defense minigame from one `[siege]` block** — timed waves, a priced hire menu that deploys troops at your feet, mutual combat, win/loss payouts and the presentation (heralds, hit cues, death animations). A novel field on stock Memoria; builds offline with placeholder art. |
 | [`vivi-hut/`](vivi-hut) | The original worked example — a painted interior with a talking NPC. Its build reproduces an **in-game-verified** script byte-for-byte (the golden master). |
 | [`scroll-demo/`](scroll-demo) | A larger-than-screen **scrolling** field with painted layers + foreground occlusion. |
 | [`blender-scroll-room/`](blender-scroll-room) | A scrolling room authored via the **Blender add-on** (camera + walkmesh exported, then `build`). |

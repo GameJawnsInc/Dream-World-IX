@@ -82,6 +82,10 @@ win_sfx = 108                # theater rung A (CAST-PROVEN): the item-get jingle
 win_flash = true             # theater rung B (CAST-PROVEN): the stock white wash + THE REVEAL BEAT
 loss_sfx = 1942              # theater rung C (CAST-PROVEN): "a good defeat noise"
 hit_sfx = 636                # theater rung E: the impact cue every strike plays
+# rung F -- per-siege announce theater. The waves used to arrive in SILENCE.
+text_waves = ["Raiders on the north road!", "More of them -- south lane!", "HEAVIES. Brace the depot!"]
+wave_sfx = 683               # the donor plaza's own most-used cue (timbre unverified)
+alarm_sfx = 638              # a sharper report for the breach (timbre unverified)
 # theater rung D: STAGED ending text -- lists page at text_pace; text_rout stays a
 # single string on purpose (proving the two shapes mix)
 text_win = ["WE HELD THE DEPOT!", "The city pays in full -- and doubles the guard.", "The Colonel will hear of this."]
@@ -207,8 +211,8 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, then ~ -> Warp -> {FIELD_ID}):
-  THE CLAIM: 30421 plays the SAME ratified siege as 30400 — one declarative
+PLAYTEST -- THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, then ~ -> Warp -> {FIELD_ID}):
+  THE CLAIM: 30421 plays the SAME ratified siege as 30400 -- one declarative
   block instead of the bench's hand-built behavior TOML. One full run is the
   test:
   1 boot: the stipend lands + its announce; the war-room strip sits under the
@@ -217,6 +221,12 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
     rows vanishing when unaffordable/sold out; troops deploy at your feet.
   3 the three waves (0:55 NW, 0:40 SW, 0:20 SW heavies) march their lanes,
     PIN onto blockers, leakers beat the depot; allies fight by stance.
+    * NEW (rung F): each wave now ANNOUNCES ITSELF -- a cue then a line
+    ("Raiders on the north road!" / "-- south lane!" / "HEAVIES."), so you
+    are told a wave landed instead of discovering it. The breach alarm also
+    cues before its line. Judge two things: does the herald land ON the
+    wave (not late, not doubled), and do the two sounds READ right (683
+    for a wave, 638 for the breach)? Both are one number to swap.
   4 endings -- THE NEW CLAIM IS STAGED TEXT (rung D), on both lanes:
     WIN (hold to 0:00): the proven beat runs (wash -> reveal -> "WE HELD THE
       DEPOT!" + purse + jingle), THEN the text PAGES: ~2s later the window

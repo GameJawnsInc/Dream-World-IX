@@ -797,7 +797,9 @@ class BehaviorDoc(QWidget):
                 "", "This field has no [behavior] block",
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
                       "combat — as priority branches in the field.toml. The format lives in "
-                      "docs/BEHAVIOR.md; benches 30410-30418 are worked examples.",
+                      "docs/BEHAVIOR.md; the shipped tower-defense example is "
+                      "examples/siege (one [siege] block — this tab renders its generated "
+                      "army read-only).",
                 actions=[("Add a behavior unit…", self._add_unit),
                          ("Stamp an archetype…", self._stamp_archetype),
                          ("Stamp a [siege] skeleton…", self._stamp_siege)],

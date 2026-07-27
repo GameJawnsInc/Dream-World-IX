@@ -1,0 +1,130 @@
+# SIEGE — a whole tower-defense minigame from ONE `[siege]` block.
+#
+#   ff9mapkit lint  examples/siege/siege.field.toml
+#   ff9mapkit build examples/siege/siege.field.toml --out dist --mod-name Siege
+#
+# Hold the depot until the clock runs out. Press SELECT anywhere to open the war council and
+# buy troops, who deploy on the spot you are standing. Raiders arrive in timed waves, march
+# their lane, and fight whatever blocks them.
+#
+# Everything below the `[siege]` line is generated for you: the wave clock, both rosters and
+# their live headcounts, the war-room HUD strip, the priced hire pools and their menu, every
+# unit's behavior tree, the win/loss detection and the single payout — plus the presentation
+# (wave heralds, hit cues, death animations, the win wash, the loss sting). See
+# docs/FORMAT.md § [siege] for every dial, and docs/BEHAVIOR.md for the laws underneath.
+#
+# The field itself is an ordinary NOVEL field (placeholder art in art/, repaint freely) and
+# runs on STOCK Memoria — no donor, no engine patches. Getting INTO it in-game is yours:
+# see docs/tutorials/01-first-fork.md §5, or just warp with the debug menu (~).
+
+[field]
+id = 4810
+name = "SIEGE"             # -> FBG_N11_SIEGE + EVT_SIEGE.eb
+area = 11
+title = "the siege"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]          # mid-field: the depot is behind you (+z), raiders come from the front
+
+# A plain NPC, unrelated to [siege] — he just explains the controls.
+[[npc]]
+name = "quartermaster"
+model = "GEO_NPC_F2_CSO"
+pos = [520, -700]
+dialogue = "Press SELECT anywhere to convene the war council, and your hire forms up right where you stand."
+
+# ---------------------------------------------------------------- THE SIEGE
+[siege]
+timer = 60                 # seconds on the clock; holding to 0:00 wins
+waves = [45, 25]           # wave start times in REMAINING seconds (descending)
+stipend = 1200             # paid + announced at boot, so the first hire is affordable
+win_gil = 1500             # the purse for holding (or for routing every raider early)
+win_item = "Phoenix Down"
+
+# --- presentation. Every one of these is optional; drop them all and the siege still plays.
+hit_sfx = 636              # a thud on each landed hit (fired on the damage tick)
+wave_sfx = 683             # heralds each wave, just before its line
+text_waves = ["Raiders at the gate!", "Second wave -- from the east!"]
+win_sfx = 108              # the purse fanfare
+win_flash = true           # the screen washes white on the win, THEN the cry lands
+loss_sfx = 1942            # the defeat sting, guaranteed to ring before the loss text
+text_win = ["THE DEPOT HOLDS!", "The city pays in full."]      # a list = staged, paged text
+# No `loss_battle` here, so losing simply announces. Point it at a battle scene to fight a
+# boss instead -- but see THE CLOCK-COUPLED BATTLE LAW in docs/BEHAVIOR.md first (`behavior
+# lint` checks it for you), because a scene whose AI reads the countdown will end itself.
+
+[siege.base]               # the thing you are defending
+model = "GEO_NPC_F4_CSO"
+pos = [0, 100]             # back of the arena
+hp = 16
+dialogue = "This depot is everything we have. Hold them off!"
+
+[[siege.ally]]             # a hire class -> one row in the war council
+name = "guard"
+label = "Guard (chases, melee)"
+model = "GEO_NPC_F0_CSO"
+count = 4                  # how many you may field
+price = 300
+hp = 4
+stance = "chase"           # pursues into melee...
+radius = 1600              # ...anything within this far
+speed = 60
+death_anim = "hiza_1"      # its OWN kneel (the F0 rig owns this one -- see the own-clip law)
+
+[[siege.ally]]
+name = "archer"
+label = "Archer (holds, long reach)"
+model = "GEO_NPC_F3_CSO"
+count = 3
+price = 450
+hp = 3
+stance = "hold"            # never moves; strikes anything inside `radius`
+radius = 700
+interval = 18
+anim = "attack_cid_2"      # the F3 rig owns real attack clips
+death_anim = "hiza_1"
+
+[[siege.raider]]
+name = "scout"
+model = "GEO_MON_F0_MUU"
+count = 2
+wave = 1                   # arrives on the first wave
+hp = 3
+entrance = [[-950, -1750], [-700, -1880]]     # where each one appears
+route = [[-500, -900], [0, -200]]             # the lane it marches toward the depot
+autoroute = false          # the arena is an empty rectangle: nothing to route around
+anim = "jump"              # the MUU rig owns no attack clip; a lunge is the honest pick
+death_anim = "jump"
+
+[[siege.raider]]
+name = "runner"
+model = "GEO_MON_F0_MUU"
+count = 2
+wave = 2
+hp = 4
+speeds = [55, 48]          # per-unit stagger, so they do not arrive as one clump
+entrance = [[950, -1750], [700, -1880]]
+route = [[500, -900], [0, -200]]
+autoroute = false
+anim = "jump"
+death_anim = "jump"

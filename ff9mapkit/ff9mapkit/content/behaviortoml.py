@@ -162,6 +162,103 @@ def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
     return verb
 
 
+def published_flags(raw: dict) -> set:
+    """Flag indices the compiled ticker WRITES for the outside world: each pool's
+    ``hireable`` gate (what a hire row's ``requires_flag`` reads) and every declared
+    ``public_flags`` name. They are set by compiled ``.eb``, not by an ``[[event]]``,
+    so a flag lint that only scans events would call every generated hire menu dangling.
+
+    Runs a THROWAWAY build to get the deterministic allocation (the same two-pass
+    ``siege.resolve_hireable`` uses): routes stripped (``route = "auto"`` needs a
+    walkmesh) and synthetic txids handed in (announce/hud lines are minted later, by
+    the real build). Returns ``set()`` rather than raising — a lint must never fail."""
+    import copy as _copy
+    try:
+        work = _copy.deepcopy(raw)
+        for u in (table(work) or {}).get("unit", []) or []:
+            for br in u.get("branch", []) or []:
+                if isinstance(br.get("do"), dict):
+                    br["do"].pop("route", None)
+        names = [str(u["npc"]) for u in units(work)]
+        txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in announce_lines(work)}
+        txids.update({("hud", hi): 890 + hi for hi, _h in hud_lines(work)})
+        fb = build(work, npc_slots={n: i + 2 for i, n in enumerate(names)},
+                   npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", []) or []},
+                   behavior_txids=txids)
+        out = set(fb.pool_hireable.values())
+        for pf in (table(work) or {}).get("public_flags", []) or []:
+            out.add(fb.public_flag(str(pf)))
+        return out
+    except Exception:                              # noqa: BLE001 — never fail a lint
+        return set()
+
+
+def draining_once_warnings(raw: dict) -> list:
+    """LINT (warnings): stacked event-``once`` branches gated on a condition that can
+    STOP HOLDING — THE DRAINING-CONDITION LAW (the ARMOURY round-3 playtest).
+
+    The selector picks ONE branch per unit per tick, so N once-branches sharing a
+    condition fire on N CONSECUTIVE ticks. That is fine for a STICKY condition (a
+    raised flag, a spent clock band, a dead unit's hp) and broken for one that
+    drains: the first branch fires, the condition goes false, and every branch below
+    it starves — silently, and only sometimes, because it depends on how long the
+    world happens to hold still.
+
+    Sticky by construction: ``flag``/``not_flag``/``any_flag`` (nothing clears them
+    here), ``time_below`` (remaining time only falls), ``hp_le`` (hp only falls —
+    swings gate on hp > 0), and ``counter_ge`` on a counter no ``[[behavior.scan]]``
+    feeds (a scan headcount rises AND falls; a schedule or kill tally only rises).
+    Everything else — ``have_item``, ``near``/``any_near``, ``active``,
+    ``counter_eq``, ``time_above``, … — can drain."""
+    b = table(raw)
+    if not b:
+        return []
+    scan_fed = {str(s.get("count")) for s in (b.get("scan") or []) if s.get("count")}
+    cleared = {str(n) for u in (b.get("unit") or [])
+               for br in (u.get("branch") or [])
+               for n in (br.get("clear_flags") or [])}
+
+    def sticky(cond: dict) -> bool:
+        if not isinstance(cond, dict) or len(cond) != 1:
+            return False
+        (verb, val), = cond.items()
+        if verb in ("flag", "not_flag"):
+            return str(val) not in cleared
+        if verb == "any_flag":
+            return all(str(v) not in cleared for v in (val or []))
+        if verb in ("time_below", "hp_le"):
+            return True
+        if verb == "counter_ge":
+            return isinstance(val, list) and str(val[0]) not in scan_fed
+        return False
+
+    out = []
+    for u in b.get("unit") or []:
+        groups: dict = {}
+        for bi, br in enumerate(u.get("branch") or []):
+            if not br.get("once") or not isinstance(br.get("do"), dict):
+                continue
+            when = br.get("when") or []
+            if not when or all(sticky(c) for c in when):
+                continue
+            key = repr(when)
+            groups.setdefault(key, []).append((bi, br))
+        for key, rows in groups.items():
+            if len(rows) < 2:
+                continue
+            names = ", ".join(repr(r[1].get("once")) for r in rows)
+            drains = [c for c in (rows[0][1].get("when") or []) if not sticky(c)]
+            out.append(
+                f"[[behavior.unit]] {str(u.get('npc'))!r}: {len(rows)} `once` branches "
+                f"({names}) share the gate {key} — one branch fires PER TICK, so they "
+                f"need it to hold for {len(rows)} consecutive ticks, and "
+                f"{drains[0]!r} can stop holding before then (THE DRAINING-CONDITION "
+                f"LAW). The lower branches would silently never fire. Fix: give the "
+                f"FIRST branch `raise_flags = [\"<moment>\"]` and gate the rest on "
+                f"`{{ flag = \"<moment>\" }}` — a raised flag does not drain.")
+    return out
+
+
 def clock_coupled_warnings(raw: dict, *, game=None, probe=None) -> list:
     """LINT (warnings, not errors): every ``battle`` this TIMED field fires whose scene AI
     READS THE COUNTDOWN — ``B_SYSVAR[17]`` is ``TimerUI.Time``, and the Hunt scenes end

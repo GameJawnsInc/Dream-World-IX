@@ -65,7 +65,8 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 - **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-anim-new` /
   `model-preview` / `model-reskin` / `model-deployed` / `model-export` / `playable-anims` ·
   `image-field` · summon transplants (experimental): `summon-export` / `summon-rig-ref` /
-  `summon-import` / `summon-deploy`
+  `summon-import` / `summon-deploy` · recolour/reframe a stock summon in place:
+  `summon-reskin` / `summon-rescore` (`scaffold` / `plan` / `build` / `verify` / `deploy` / `revert`)
 - **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-transplant` /
   `world-water` / `world-island` / `world-forest` / `world-hill` / `world-mountain` /
   `world-entrance` / `world-encounters` and the rest of the `world-*` suite

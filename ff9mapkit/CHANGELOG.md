@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `behavior lint` catches THE DRAINING-CONDITION LAW (and it caught `[siege]`)
+- The selector fires **one branch per unit per tick**, so N `once` branches sharing a gate
+  need it to hold for N consecutive ticks. Lint now warns when a stack of them rides a gate
+  that can stop holding, names the offending condition, and states the fix (latch the moment
+  on the first branch, gate the rest on that flag). Sticky and therefore exempt:
+  `flag`/`not_flag`/`any_flag` (unless something `clear_flags`es them), `time_below`,
+  `hp_le`, and `counter_ge` on a counter **no `[[behavior.scan]]` feeds** — a scan headcount
+  rises and falls, a schedule or kill tally only rises.
+- **It immediately found a real fragility in the shipped generator:** `[siege]`'s alarm cue
+  and alarm text both rode `any_near`, which drains the moment the raider that tripped it
+  dies or steps away — the lines below the cue could silently never fire. The alarm chain is
+  now generated latched (cue raises `alarmed`, the rest gate on it), pinned by tests.
+
 ### Fixed — a standalone-installed FORK silently lost every fork-donor behavior
 - `build_mod` now emits **`ForkDonorPatch.txt`**, the `<forkId> <donorRealId>` map the engine's
   s24–s33 fork gates resolve through. `build --out` already shipped a complete standalone mod —
@@ -44,6 +57,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
   Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
   and is CI-fenced by a real dry-compile of the stamped document.
+### Added — `examples/siege/`: the shipped `[siege]` example (+ two lint false positives fixed)
+- A whole tower-defense minigame as a bundled example: a **novel** field on **stock Memoria**
+  (no donor, no engine patches) that lints, builds offline with the generated placeholder art,
+  and shows the `[siege]` surface end to end — waves, priced hire pools, the war council, the
+  payout, and the theater dials. `examples/README.md` and `docs/FORMAT.md` point at it.
+- Writing it exposed **two lint false positives that fired on every `[siege]` field**, both now
+  fixed: a generated hire row's `requires_flag` reads a pool's `hireable` gate, which the
+  compiled TICKER publishes rather than an `[[event]]` (new `behaviortoml.published_flags`,
+  sharing the deterministic two-pass `siege.resolve_hireable` uses); and **pooled units are
+  parked off-play by design** (the ARMOURY idiom), so the placement check no longer calls
+  their 9000-band seats a misplacement. The example linted 10 warnings before, 1 advisory now.
+
+### Added — `[siege]` per-siege announce theater: THE WAVE HERALD
+- A siege's waves used to arrive in **silence** — the one moment a player most needs told.
+  `text_waves = [...]` (one cry per wave, `""` skips a wave) and `wave_sfx` now herald each
+  arrival off the wave counter, cue first then line. Because that counter is **monotonic**,
+  the cries ride the event-Once lane straight (the draining-condition law's exemption), and
+  the `counter_ge` gate means a busy tick can never swallow one.
+- `alarm_sfx` cues the breach alarm the same way, and `text_alarm` now accepts a **list**,
+  staging like the ending texts. A siege declaring none of these emits the proven shapes
+  byte-for-byte — one plain alarm, no wave branches (regression-pinned). Cast-proven:
+  "wave heralds land, sounds read fine."
+
 ### Added — `behavior lint` catches THE CLOCK-COUPLED BATTLE LAW
 - A field with a `timer` that fires a `battle` now has that scene's own AI read from the
   install and scanned for `B_SYSVAR[17]` (= `TimerUI.Time`); a hit warns that the scene
@@ -189,6 +225,134 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   guarantees ORDER, not DURATION — without sustain the sting got one ~33ms frame of air
   before the boss battle took the audio (the round-1 playtest). Cast-proven: "the sound
   played then battle fires. it was a good defeat noise" (1942's timbre confirmed).
+### Added — `summon-reskin` gains a second lever: the TEXEL REPAINT (`export-art`, `[[reskin.texel]]`)
+- **TIER W rung W6a** (`studies/custom-summons/tier-w/PLAN.md`): `summon-reskin` grows a second
+  edit lever alongside the CLUT recolour above — a texel repaint that rewrites the palette INDICES
+  themselves, so it can move a shape, an edge, a silhouette, which a recolour structurally cannot.
+  Landed for **creature texture pages only**, the one texel class corpus-wide free of every known
+  hazard (single-writer 24/24 packages, 0 VRAM-cell and 0 file-span collisions against every
+  scenery/id-9 page over 93 pages, uniform 8bpp). Scenery pages refuse by name — co-transform /
+  same-bytes-two-bindings / u-spill / 15bpp — deferred to a later rung (W6b).
+- **New `summons/repaint.py`** (1,621 lines) — consumes `reskin.py`'s own derivations
+  (`creature_pages`, `PaletteMap`, `texanim_region`, a new `partition` parameter on `_regions`)
+  rather than re-deriving them. The format of record is a **P-mode indexed PNG** — pixels ARE the
+  palette indices, the loaded palette is display-only (the container stays the palette authority;
+  this lane writes zero CLUT bytes), `tRNS` marks the cutout entry — measured byte-identical round
+  trip **93/93** across every stock creature page in every one of the 24 decodable packages; an
+  RGBA export is refused by name with the measurement that rules it out (an identity round trip
+  that paints nothing already moves 1,844 of 16,384 texels on ef251 part 0, because 8.31% of the
+  corpus's palette entries duplicate the full 16-bit word, STP included). Ships THE CUTOUT LAW (an
+  index crossing the palette's one alpha-0 entry, in either direction, refuses unless
+  `acknowledge_cutout_reshape = true`, a literal boolean), an unconditional TEXANIM refusal on the
+  five armed creature packages (ef038/177/493/494/495 — no key lifts it, unlike the CLUT lane's
+  scenery-only escape hatch, because there is no scenery half of a texel edit to fall back to), a
+  CO-TRANSFORM collision gate measured per target rather than assumed, the region partition
+  INVERTED for this lane (the CLUT strip gated byte-identical instead of the texel pages, via a new
+  `partition=` argument on `reskin._regions` — one function, two partitions, never a second copy
+  that drifts), and a dead-pad census reported, never fatal (only 64.0% of the corpus's creature
+  texels are ever sampled by a face — 975,202 of 1,523,712).
+- **`export-art` — a new `summon-reskin` action**, registered on the reskin lane only: decodes
+  every creature page to its paintable PNG + a `<part>.coverage.png` UV overlay (green hatch = the
+  never-sampled pad, rasterised from the container's own uv pools, corner-included so a
+  one-texel-thin face still lights its own texel) + `art.manifest.json` (the stock sha256 drift
+  guard + every page's derivation) + a guarded `texel.scaffold.toml`, under the same local-only
+  root every summon art-export already refuses to write outside of.
+- **Composes with the CLUT lane in one container, one ledger, one revert** — a spec may carry
+  `[[reskin.target]]`, `[[reskin.texel]]`, or both; with both, `build` recolours first and hands the
+  patched bytes to the repaint, and the composed self-check proves the two halves' changed-offset
+  sets are disjoint rather than asserting it. **`summons/reskin.py`** gains the matching hook in
+  reverse: `ORTH_REBUILDERS["repaint"]`, so a CLUT-only spec can also name a texel sibling and prove
+  the same disjointness from its own side. **`cli.py`** gains the `export-art` action wiring and the
+  one-spec composed build/plan/verify/deploy/revert path, staged by whichever lane owns the
+  resulting artifact.
+- **73 new kit tests** (`test_summon_repaint.py`) — every refusal named above ships with its own
+  test, plus install/corpus-gated acceptance: the 93/93 indexed round trip and the 0-collision
+  census over the real 24-package corpus (via the kit's own `creature_texel_pages`), `export-art`
+  end to end against ef227 (6 pages, 65,267 covered texels reproduced exactly), and — THE PROOF —
+  an offline composed build that rebuilds the CLUT lane's cast-proven ef227 spectral-mist reskin
+  (`sha 7fef205f…`, the artifact the owner already judged in-game — re-pinned and still
+  byte-identical after this rung, alongside Phoenix ef211 and Madeen ef251) and splices a
+  procedural brand onto part 0's wing on top: **4,832 CLUT bytes + 1,036 texel bytes changed, zero
+  cutout flips, zero dead-pad bytes, the two halves' changed-offset sets disjoint by construction
+  and gated so** — composed `sha 353f7867…`. An in-game cast of this artifact has not run yet; the
+  offline gates are green and the artifact is staged for one.
+- Docs: [`docs/SUMMONS.md`](docs/SUMMONS.md) (the texel-lane section — the `export-art` workflow,
+  the `[[reskin.texel]]` schema, the indexed-PNG format of record, THE CUTOUT LAW, the
+  unconditional texanim refusal, the dead-pad report, and an honest W6b deferral naming the
+  scenery hazards), [`docs/FEATURES.md`](docs/FEATURES.md) row,
+  [tutorial 14, Part C](docs/tutorials/14-summon-reskin-rescore.md#part-c--repaint-its-texture-the-texel-lane-reskintexel),
+  [`../SETUP.md` §7](../SETUP.md#7-cli-command-reference).
+
+### Added — `summon-reskin` / `summon-rescore`: recolour and reframe a STOCK summon in place
+- **Promotes the TIER W study** (`studies/custom-summons/tier-w/`) into two first-class CLI verbs
+  that edit a stock FF9 summon's OWN container bytes — no donor swap, no new model, unlike the
+  `[[summon]]` transplant lane. `summon-reskin` is a CLUT recolour: the creature's palettes AND the
+  effect's own scenery (THE EFFECT-OWNED SCENERY LAW — a summon's cinematic ships its own ground/
+  sky/fire-field, drawn on its own schedule, not the arena it's cast in), rotated in HSV and spliced
+  back at the exact same file offsets, with `0x0000` held byte-exact and the transparency bit
+  carried, never recomputed. `summon-rescore` reframes a shot's pose/focal distance on the same
+  id-2 camera-archive format the battle engine's `camera_codec` already round-trips byte-identical
+  across all 372 stock effects, with every duration and the container's byte length untouched (the
+  camera and the effect program are two clocks the original author kept aligned; a content rescore
+  moves neither). Both climb one shared six-verb ladder — `scaffold | plan | build | verify | deploy
+  | revert` — where `scaffold --ef <id>` reads ANY stock summon out of the user's own install and
+  emits a fully guarded, commented spec toml with every knob at identity, and `deploy`/`revert` write
+  through / undo a write ledger straight into a resolved mod folder.
+- **New `summons/camera.py`** (692 lines) — the camera extractor + adapter + read-out, carrying the
+  id-2 extra-sector correction and the Code frame-word high-bit correction. Deliberately ships
+  WITHOUT the study's tier-R state-machine recovery (a full MIPS disassembler + annotator, ~4,650
+  lines + a 165 KB data file the corpus proved is advisory-only — one "reframe budget" column);
+  `machines=()` is the default everywhere, matching the study's own `--no-phases` mode.
+- **New `summons/rescore.py`** (1,451 lines) — the pure content-rescore engine: the three hard
+  constraints enforced at the call site (no duration edit, no byte-length change, the frame word's
+  undecoded high bits survive by never being written), THE THREE-SEQUENCE TRAP, and THE DYNAMIC-OP
+  DISCLOSURE gate — **324 of 372 stock effects** carry a runtime-chosen `PLAY_CAMERA arg2=3` camera
+  op whose reachable blocks are absent from the container entirely; ef227, the effect this lane was
+  first hand-proven on, was the zero-op outlier and its offline completeness claim does not carry
+  past it.
+- **New `summons/reskin.py`** (2,577 lines) — the pure whole-set recolour engine, generalised past
+  the one hand-tuned effect: every palette span DERIVED (never tabulated) off a container's own
+  id-0/id-4 headers, `so`-record attribution replacing a hand-authored SHARED table, THE TEXANIM
+  GATE (creature scope refused outright on ef038/177/493-495; scenery needs
+  `acknowledge_texanim = true`), multi-writer/dual-depth CLUT-cell detectors, and a MEASURED headroom
+  gate (46 of the corpus's 93 creature CLUT rows peak at the 5-bit ceiling — ef227 was the one
+  effect that happened to have headroom to spare, and "stock leaves headroom" was never a law).
+- **New `summons/ledger.py`** (267 lines) — the write/backup/readback/revert accumulator both edit
+  lanes share, a strict superset of the transplant lane's own `_Ledger` (`summons/deploy.py`, left
+  as-is — a documented, one-directional duplication, not a silent fork); a `ModFileList.txt` is
+  appended to and never created, and every emitted revert script is `--root`-rebasable.
+  **`summons/container.py`** gains `parse_directory` / `Op`+`parse_op_stream` / `scan_geom`+
+  `Geom.end` (ported from the study's disassembly-only `ef_container.py`, folded onto the kit's own
+  parser rather than duplicated into a second one). **`battle/camera_codec.py`** gains public
+  `parse_camera`/`serialize_camera`/`split_code` aliases over its existing underscored functions (the
+  battle round-trip tests stay green by construction). **`config.py`** gains `resolve_mod_folder()` —
+  the documented `--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap` precedence,
+  implemented once and used by these two new verbs (the existing `summon-import`/`summon-deploy`
+  still carry the literal-default subparser trap this promotion's own regression tests pin down;
+  retro-fitting them is a separate decision).
+- Docs: [`docs/SUMMONS.md`](docs/SUMMONS.md) (the full spec-toml schema for both lanes, every
+  refusal, and the laws behind them in house voice — THE TEXANIM GATE, THE SATURATED-RAMP LAW +
+  the TWO-LOBE refinement, THE EFFECT-OWNED SCENERY LAW, THE ADDITIVE-COMPOSITING COROLLARY, THE
+  SILENT-FALLBACK LAW), [tutorial 14](docs/tutorials/14-summon-reskin-rescore.md), the
+  [`FEATURES.md`](docs/FEATURES.md) row, [`SETUP.md` §7](../SETUP.md#7-cli-command-reference).
+- **233 new kit tests** (`test_summon_reskin.py` 81, `test_summon_rescore.py` 93,
+  `test_summons_camera.py` 43, `test_summons_container.py` +16), pure-logic + hand-built synthetic
+  containers that run on every CI pass with zero install/corpus, plus the CLI's own registration and
+  `argparse.SUPPRESS` root-flag-survival regression tests. Every refusal named above ships with its
+  own test, and the build path is additionally held to install-gated byte-identity acceptance tests
+  against the study's own cast-proven artifacts — `summon-reskin`'s covers all three reskin
+  artifacts (Bahamut ef227, Phoenix ef211, Madeen ef251); `summons.rescore`'s covers Bahamut ef227's
+  rescore at module level; and the Phoenix ef211 rescore (`7979566f…`) is pinned end-to-end through
+  `summon-rescore build` in the CLI acceptance suite. All four artifacts the promotion's design
+  brief named as the acceptance bar are wired to tests.
+- Grounded in TIER W (`studies/custom-summons/tier-w/PLAN.md`): rungs W2–W4 cast-proven in-game on
+  Bahamut ef227 ("worked as described" on every judged cast — reframed, retimed, whole-set
+  recoloured), then W5 generalised every tool past that one hand-tuned effect and cast-proved all
+  three levers a SECOND time on effects never hand-tuned against — Phoenix ef211 (scenery recolour +
+  camera reframe, after THE ADDITIVE-COMPOSITING COROLLARY corrected a first key that read stock in
+  its own cast) and Madeen ef251 (creature recolour). The study's own scripts
+  (`reskin.py`/`rescore.py`/`summon_camera.py`) now shim onto this kit surface rather than
+  duplicating it.
 
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS

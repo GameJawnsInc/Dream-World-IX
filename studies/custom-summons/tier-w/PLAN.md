@@ -32,9 +32,12 @@
 | **W3** | **THE TIMING RESCORE** — durations change, so the program's phase thresholds must move WITH them (R3 recovered exactly where those constants live) | the retimed cast holds phase↔cut alignment; a deliberate mis-retime is shown to drift (the law demonstrated, not just asserted) |
 | **W4** | **THE RESKIN** — retexture a stock creature in place | a cast showing our texture on the stock cinematic, stock bytes untouched |
 | **W5** | **THE GENERALISATION** — the W tools take ANY stock summon (scaffold verbs, derivation-first, named refusals: texanim / multi-writer / dual-depth / dynamic-op / half-patch / headroom) | offline: 372/372 corpus sweeps + ef227 byte-compat pinned in gates; in-game: a SECOND summon's cast on each lever — Phoenix ef211 (scenery + camera) and Madeen ef251 (creature) |
+| **W6a** | **THE TEXEL REPAINT** — lever #2: rewrite a stock creature page's **indices**, so shape / edge / silhouette become editable at all (a recolour is a colour function and structurally cannot). `summon-reskin export-art` + `[[reskin.texel]]`, indexed lane, creature pages only; every other texel class REFUSES by name (W6b) | offline: the indexed round trip byte-identical **93/93** stock pages, the composed artifact's changed-byte set proven = the CLUT set ∪ the texel set with the two **disjoint**, the three cast-proven CLUT shas unmoved; in-game: a hard-edged brand on ef227's wing membrane that no palette map could produce |
 
 **Done = "editable in place":** a stock summon can be re-framed, re-timed, and re-skinned from our own
-declarative surface, with the stock install revertible at every step.
+declarative surface, with the stock install revertible at every step. **W6a adds the second reskin
+lever**: not only *what colour* a texel is, but *which texel it is* — the first lever in this tier that
+can change a silhouette.
 
 ---
 
@@ -223,3 +226,50 @@ scenery must be re-authored *together*.
   ef227's spectral-mist untouched; reverts in reskin-w5/ef{211,251}/artifacts/ (delete-vs-restore
   aware; the artifacts' v1-pinned deploy variants are superseded by the *-v2 files + the committed
   tomls, which regenerate v2).**
+  ⚠ **THAT RESTING STATE NO LONGER EXISTS ON THE INSTALL** — see `W6-TEXEL.md` §7:
+  `FF9CustomMap/FF9_Data/` was wholesale-replaced by another concurrent session on 2026-07-27 08:55
+  and now holds only `embeddedasset/text`, so the ef211 / ef227 / ef251 overrides are all gone. The
+  staged artifacts and their revert kits are intact under SCRATCH; only the live folder was wiped.
+- **W6a — ★★ CAST-PROVEN (posture (b); the brand read hard-edged on both wings in the spectral
+  key, owner-confirmed; cast record → `W6-TEXEL.md` §7)** (`W6-TEXEL.md`,
+  `ff9mapkit/ff9mapkit/summons/repaint.py`, `ff9mapkit/tests/test_summon_repaint.py`,
+  `bahamut_emblem.toml`, `emblem_stamp.py`, `w6_gates.py`; gates 7/7, kit summon tests 250, tier-w
+  suite 358/1 single-process, w4_gates 8/8, w5_gates 9/9). **LEVER #2: THE TEXEL REPAINT.** `summon-reskin` grows
+  `export-art` (every creature page → a P-mode indexed PNG + a UV `<name>.coverage.png` overlay +
+  `art.manifest.json` + a pre-seeded-OFF scaffold, under the local-only guard) and `[[reskin.texel]]`
+  alongside `[[reskin.target]]` in ONE spec — two levers, one container, one ledger, one revert.
+  **THE FORMAT OF RECORD IS AN INDEXED PNG**: `decode → P-mode PNG (palette = the CLUT row, tRNS =
+  the transparent entry) → reload → indices` is byte-identical **93/93** stock creature pages, while
+  an identity **RGBA** round trip already moves 1,844 of 16,384 texels on ef251 part 0 (8.31 % of the
+  corpus's palette entries are duplicates of the full 16-bit word) — so the RGBA / quantize /
+  mint-CLUT lanes REFUSE by name carrying that measurement rather than half-working. **THE PROOF
+  ARTIFACT**: W4's spectral-mist recolour rebuilt (`7fef205f…`, 4,832 CLUT bytes) with a procedurally
+  stamped **emblem** composed on top — a stroked ring + three radial bars on ef227 part 0's wing
+  membrane, ink idx 255 / edge idx 1 (both already-live entries ⇒ **0 CLUT bytes**), r = 26 at the
+  sampled-island centroid (63.8, 59.8), 1,037 texels stamped / **1,032 bytes moved**, **0 dead-pad
+  bytes, 0 cutout flips** — composed sha **`813a7ea4…`**, verified INDEPENDENTLY of the kit's own
+  self-report (changed-vs-stock = the CLUT set ∪ the emblem set, the two DISJOINT, all 817,432 other
+  bytes identical to stock). The art is SCRATCH-only Square-Enix content, so what ships is the
+  GENERATOR (`emblem_stamp.py`, every parameter re-derived from the user's own container); the
+  byte-literal scan over all five new committable files finds 1 literal, an ASCII fixture word,
+  appearing in 0 of 372 corpus containers. **NEW / CORRECTED LAWS**: CO-TRANSFORM == MULTI-CHUNK (34
+  multi-writer page cells in exactly the 5 multi-chunk containers; **0 of 156 writer pairs
+  byte-identical** — there is no "repaint once, copy twice" case anywhere in the corpus);
+  SAME-BYTES-TWO-BINDINGS supersedes "dual-depth" as the general gate (ef211 col 640 shares 1,659
+  halfwords between two **4bpp** bindings with different palettes — a depth-only test misses it); THE
+  U-SPILL LAW (41/316 so-bound models sample past their own column, sometimes into another resource,
+  so a template must be keyed on the MODEL); **A2's "100 % of its own page block" was a BBOX claim —
+  polygon coverage is 64.00 %** (975,202 / 1,523,712), so ~1/3 of every summon's texture budget is
+  never sampled by any face; and **THE MARGIN LAW is CORRECTED DOWN** — R2's ">99.6 %" held on its
+  two-effect sample (ef227 99.68 %, ef211 99.91 %) but this rung's 93-page sweep measures **98.767 %**
+  (worst effect ef381 95.65 %, worst page ef261 part 1 87.06 %), which is exactly why the overlay
+  hatches outer pad green and interior hole red. `reskin.py` gains exactly ONE load-bearing seam —
+  `_regions(partition="clut"|"texel")`, proven to partition the id-4 resource with no overlap and no
+  gap — and all three cast-proven CLUT artifacts still build their exact shas (ef227 `7fef205f…`,
+  ef211 `4daab8ad…`, ef251 `78b395f8…`). **W6b DEFERRED with reasons**: the scenery texel lane
+  (co-transform / same-bytes-two-bindings / u-spill / 15bpp), the RGBA + mint-CLUT lanes, and the
+  program-VRAM refusal list. Staged under `C:\gd\SCRATCH\summon-format\repaint-w6\ef227\`; the cast
+  protocol is `W6-TEXEL.md` §6 (`[SfxHybrid]` disarmed preflight, bench 30301 row 196 → Iviv → Spark
+  → Stock Bahamut, hot — a PAGE upload is itself the cache-invalidating event, so no `~` reload and
+  no relaunch), with §7 naming the two honest cast postures now that the live baseline was wiped, and
+  the rung does not close until the cast is judged.

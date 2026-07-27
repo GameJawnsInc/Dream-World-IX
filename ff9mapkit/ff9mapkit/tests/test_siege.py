@@ -313,6 +313,51 @@ def test_staged_ending_text():
         _spec(text_win=[])
 
 
+def test_wave_herald_and_alarm_theater():
+    """A siege's waves otherwise arrive in SILENCE. `text_waves` (one cry per
+    wave) + `wave_sfx` herald each arrival off the MONOTONIC wave counter, so
+    they ride the event-Once lane straight; `alarm_sfx` cues the alarm and
+    `text_alarm` stages like the endings."""
+    b = S.behavior_raw(_spec(text_waves=["FIRST WAVE!", "", "HEAVIES!"],
+                             wave_sfx=700, alarm_sfx=701,
+                             text_alarm=["They're through!", "Hold the line!"]))
+    br = b["unit"][0]["branch"]
+    cues = [x for x in br if str(x.get("once", "")).startswith("wavecue")]
+    crys = [x for x in br if str(x.get("once", "")).startswith("wavecry")]
+    assert len(cues) == 3                       # one per wave, even unnamed ones
+    assert all(x["do"] == {"sfx": 700} for x in cues)
+    assert [x["do"]["announce"] for x in crys] == ["FIRST WAVE!", "HEAVIES!"]
+    # gates are counter_ge on the monotonic wave counter, in wave order
+    assert [x["when"] for x in cues] == [[{"counter_ge": ["wave", i]}]
+                                         for i in (1, 2, 3)]
+    assert crys[1]["when"] == [{"counter_ge": ["wave", 3]}]   # "" skipped wave 2
+    # cue precedes its line
+    assert br.index(cues[0]) < br.index(crys[0])
+    # the alarm: cue, then staged lines (the 2nd delayed by text_pace)
+    acue = next(x for x in br if x.get("once") == "alarmcue")
+    a0 = next(x for x in br if x.get("once") == "alarm")
+    a1 = next(x for x in br if x.get("once") == "alarm1")
+    assert acue["do"] == {"sfx": 701}
+    assert br.index(acue) < br.index(a0) < br.index(a1)
+    assert "delay" not in a0["do"] and a1["do"]["delay"] == 120
+    # the alarm gate (`any_near`) DRAINS, so only the FIRST beat rides it and
+    # latches; the rest gate on that flag (THE DRAINING-CONDITION LAW)
+    assert acue["raise_flags"] == ["alarmed"]
+    assert a0["when"] == a1["when"] == [{"flag": "alarmed"}]
+    # a siege with none of these dials is byte-unchanged: one plain alarm, no waves
+    plain = S.behavior_raw(_spec())["unit"][0]["branch"]
+    assert not [x for x in plain if str(x.get("once", "")).startswith("wave")]
+    pa = [x for x in plain if str(x.get("once", "")).startswith("alarm")]
+    assert len(pa) == 1 and pa[0]["do"] == {"announce": S.DEFAULT_ALARM_TEXT}
+    # refusals
+    with pytest.raises(S.SiegeError, match="text_waves"):
+        _spec(text_waves=["a", "b", "c", "d"])   # 4 lines, 3 waves
+    with pytest.raises(S.SiegeError, match="text_waves"):
+        _spec(text_waves="FIRST")
+    with pytest.raises(S.SiegeError, match="wave_sfx"):
+        _spec(wave_sfx="horn")
+
+
 def test_npc_blocks_park_the_pools():
     spec = _spec()
     npcs = S.npc_blocks(spec)

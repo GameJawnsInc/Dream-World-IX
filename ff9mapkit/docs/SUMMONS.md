@@ -1,21 +1,48 @@
-# Custom summon transplants (`[[summon]]`)
+# Custom summons — transplant, recolour, reframe
 
-> **Status.** The transplant *mechanism* is hand-built and **in-game proven** (Milestone 1b,
-> 2026-07-24 — a user's own skinned model, posed every frame by a stock summon's real 93-bone
-> skeleton, "it works, thomas flies with the dragon's motion": `studies/custom-summons/
-> thomas-swap/m1b/RUNBOOK.md`). This page documents the **productized kit surface** around that
-> mechanism, per the binding Milestone-2 module plan (`studies/custom-summons/thomas-swap/m2/
-> DESIGN.md`): the `[[summon]]` block's schema + validation (`content/summon.py`, wired into
-> `ff9mapkit build`/`lint`), the deploy engine (`summons/deploy.py`), and the `summon-import` /
-> `summon-deploy` CLI verbs are all landed and test-covered. Full key reference:
-> [FORMAT.md — `[[summon]]`](FORMAT.md#summon-optional-repeatable). The Blender round-trip, step
-> by step: [tutorial 11](tutorials/11-summon-transplant.md).
+> **Status.** Three surfaces on this page, at three different maturities.
 >
-> **Separate surface, explicitly out of scope here:** reading/forking a summon's raw container
-> bytes (`summon-inspect` / `summon-disasm` / `summon-fork`, `summons/ef_container.py` +
-> `summons/ef_geom_writer.py`) is a different provenance class with different failure modes and is
-> not part of `[[summon]]` (`disasm/TRANSPLANT.md` §2.3). `summon-export` / `summon-rig-ref`
-> (below) already ship and are the one piece the two surfaces share.
+> - **Transplant (`[[summon]]`)** — the *mechanism* is hand-built and **in-game proven** (Milestone
+>   1b, 2026-07-24 — a user's own skinned model, posed every frame by a stock summon's real 93-bone
+>   skeleton, "it works, thomas flies with the dragon's motion": `studies/custom-summons/
+>   thomas-swap/m1b/RUNBOOK.md`). The *productized kit surface* around that mechanism (the
+>   `[[summon]]` block's schema + validation, the deploy engine, `summon-import`/`summon-deploy`)
+>   is landed and test-covered, per the binding Milestone-2 plan (`studies/custom-summons/
+>   thomas-swap/m2/DESIGN.md`). Full key reference: [FORMAT.md —
+>   `[[summon]]`](FORMAT.md#summon-optional-repeatable). Blender round-trip, step by step:
+>   [tutorial 11](tutorials/11-summon-transplant.md).
+> - **Recolour in place (`summon-reskin`) and reframe in place (`summon-rescore`)** — promoted
+>   from the TIER W study (`studies/custom-summons/tier-w/PLAN.md`) and **cast-proven in-game on
+>   TWO stock summons**: Bahamut ef227 (rungs W2–W4: reframed, retimed, and whole-set recoloured,
+>   "worked as described" on every cast) and, past the point where the tools were generalised to
+>   ANY stock summon (rung W5), Phoenix ef211 (scenery recolour + camera reframe) and Madeen ef251
+>   (creature recolour) — all three levers judged in-game a second time on effects the tools were
+>   never hand-tuned against. Unlike the transplant lane, these two verbs never swap in a new
+>   model: they edit a stock summon's OWN container bytes — palettes for a reskin, camera pose/
+>   focal-distance keyframes for a rescore — and ship the result as a mod-folder override plus a
+>   self-contained revert script, exactly like every other summon verb. Schema, refusals and the
+>   laws behind them are documented on this page (there is no separate FORMAT.md block — a reskin/
+>   rescore spec is its own standalone TOML, not a `field.toml` block); step by step:
+>   [tutorial 14](tutorials/14-summon-reskin-rescore.md).
+> - **Repaint in place (`summon-reskin export-art` + `[[reskin.texel]]`)** — TIER W rung W6a, the
+>   second lever on the SAME `summon-reskin` verb: not a colour rotation but the texel INDICES
+>   themselves, so it can move a shape, an edge, a silhouette — the one thing a CLUT recolour
+>   structurally cannot do. **Landed this rung for creature texture pages only** (the one texel
+>   class measured free of every known hazard corpus-wide) and **offline-proven**: the indexed
+>   round trip is byte-identical on all 93 stock creature pages across all 24 decodable packages,
+>   every refusal ships with a test, and a composed proof artifact (the W4 spectral-mist Bahamut
+>   rebuilt plus a hard-edged brand stamped on its own wing) gates clean end to end — an in-game
+>   cast is the next step, not yet run in this rung. Scenery pages (mixed bit depths, multi-writer
+>   VRAM columns) are **explicitly out of scope, named W6b** — see the texel-lane section below.
+>
+> **Separate surface, still explicitly out of scope:** *dumping* a summon's raw container to
+> stdout/SCRATCH for reading, and *forking* one summon's structure into a brand-new effect
+> (`summon-inspect` / `summon-disasm` / `summon-fork`, the study's disassembly-only
+> `ef_container.py` reading path + `summons/ef_geom_writer.py`) is a different job with different
+> failure modes and stays unshipped (`disasm/TRANSPLANT.md` §2.3). `summon-reskin`/`summon-rescore`
+> (this page) and `summon-export`/`summon-rig-ref` (below) are the container-reading surfaces that
+> DO ship: they read a stock container to export it or edit it in place, never to fork it into a
+> second one.
 
 ## What this is
 
@@ -201,7 +228,7 @@ biped's two legs vs. a quadruped's four). This is a design judgment call, not a 
 detect for you: preview your retarget against the donor's own clips (`summon-export --anims all`
 gives you the full clip set to scrub in Blender) before committing to final art.
 
-## Reused, not reinvented
+## Reused, not reinvented (the transplant lane)
 
 | piece | module |
 |---|---|
@@ -212,13 +239,478 @@ gives you the full clip set to scrub in Blender) before committing to final art.
 | the `Memoria.ini` section writer | `coop.py` — `update_ini_section` / `_backup_ini` / `_check_ini_pair` / `write_netsync` |
 | the cast trigger | the existing `vfx1` ability lane, `battle/actiondelta.py:64` — paired, not compiled, by `[[summon]]` |
 
+The reskin/rescore lanes (below) reuse the same container reader, texture decoder, and write ledger
+the rest of the kit already ships — `summons/container.py` (extended, not forked, by this
+promotion), `summons/texture.py`, and a new `summons/ledger.py` that is a strict superset of the
+transplant lane's own write/backup/readback/revert accumulator (`summons/deploy.py`'s `_Ledger`,
+left as-is — this is a documented, one-directional duplication, not a silent fork).
+
+## Recolour a stock summon in place — `summon-reskin`
+
+Not a texture repaint and not a new model: a **CLUT recolour**. Not one texel moves. `summon-reskin`
+reads a stock summon's container out of *your own install*, rotates its declared palettes — the
+creature's **and** the effect's own scenery (see THE EFFECT-OWNED SCENERY LAW, below) — through HSV,
+and splices the result back at the exact same file offsets. Geometry, UVs, the program, the
+sequence, and the camera are untouched; the container's byte length never changes. Ships as a
+mod-folder override with a self-contained revert script, exactly like every other summon verb.
+
+```
+ff9mapkit summon-reskin scaffold --ef 211            # read the install, EMIT a complete guarded toml
+ff9mapkit summon-reskin plan     phoenix_reskin.toml  # resolve every target, print the numbers, no write
+ff9mapkit summon-reskin build    phoenix_reskin.toml  # stage the container + previews + scripts locally
+ff9mapkit summon-reskin verify   phoenix_reskin.toml  # re-check what's staged, as bytes
+ff9mapkit summon-reskin deploy   phoenix_reskin.toml  # write the override straight into a mod folder
+ff9mapkit summon-reskin revert   phoenix_reskin.toml  # undo exactly what deploy wrote
+```
+
+`scaffold` is the intended starting point on **any** stock summon, not just the ones this page
+names: it reads your install, derives every palette the container declares (creature parts *and*
+scenery cells, whichever exist), measures each row's hue/saturation/value and its 5-bit headroom,
+and emits a complete TOML with the drift-guard hash filled in, every acknowledgement it can compute
+pre-filled, and every declared row `enabled = false`. You dial `hue_to`/`saturation`/`value` and
+flip rows on — you never hand-type an offset, a VRAM cell, or a palette name.
+
+### The spec schema
+
+`[reskin]` (one per spec):
+
+| key | required | meaning |
+|---|---|---|
+| `effect` | **yes** | the stock `SpecialEffect` id to recolour (e.g. `211` for Phoenix). Selects which container the build reads out of your install. |
+| `label` | no | a human tag carried into reports/manifests; no engine meaning. Defaults to `"reskin"`. |
+| `expect_sha256` | *needed unless the effect has a registered hash* | sha256 of the pristine stock container this edit was derived against — THE DRIFT GUARD. Without it, and without an entry already registered for `effect` in the module's own hash table, the build REFUSES unless `allow_unguarded = true`. `scaffold` fills this in from your own install. |
+| `allow_unguarded` | no | splice with **no** drift guard at all — an explicit escape hatch for a deliberately unguarded edit, never a default. |
+| `acknowledge_texanim` | *conditional* | required (`= true`) before an **enabled scenery** target may build on an effect whose id-4 texanim region is armed. A **creature** target on such an effect is refused outright — no key lifts that one (THE TEXANIM GATE, below). |
+| `defaults` | no | a `[reskin.defaults]` sub-table of transform fields (`hue_rotate` / `hue_to` / `saturation` / `value`) every `[[reskin.target]]` row inherits unless it overrides them. |
+| `spans` | no | a `[reskin.spans.<name>]` sub-table per named span (`offset`, `length`) — GUARDS on the derivation: if the container's own header derives a different span, the build refuses rather than splice into a place this edit was not derived against. |
+| `orthogonality` | no | a `[reskin.orthogonality]` sub-table naming sibling spec paths (`rescore = "…"`, `retime = "…"`), resolved **relative to this spec file's own directory** — see Orthogonality, below. |
+
+`[[reskin.target]]` (repeatable — one row per palette you touch):
+
+| key | required | meaning |
+|---|---|---|
+| `name` | **yes** | the palette's *derived* name: `creature.part{N}` (the creature strip) or `pal.s{slot}.x{X}_y{Y}.e{entries}` (a scenery cell, keyed on chunk SLOT + VRAM cell + bit depth). A hand-authored ef227 spec's legacy `scenery.*` / `c{index}_*` names still resolve through an alias map. `scaffold` prints every name the container actually declares. |
+| `enabled` | no, default `true` | `false` ships the row's *intent* without splicing a byte — its acknowledgements only become mandatory the moment it is switched on. `scaffold` pre-seeds every declared row `enabled = false`. |
+| `hue_rotate` | no, default `0.0` | a hue **delta** in degrees. Mutually exclusive with `hue_to` on one row — declaring both refuses. |
+| `hue_to` | no | the **absolute** hue in degrees the palette's own measured mean hue should land on; the build computes the delta for you. Required on **every** writer of a multi-writer CLUT cell (see the refusal table). |
+| `saturation` | no, default `1.0` | a scale on S. |
+| `value` | no, default `1.0` | a scale on V. `> 1.0` on a palette that already peaks at 31/31 (zero headroom) refuses without `acknowledge_headroom`. |
+| `acknowledge_shared` | *conditional* | required (`= true`) before an **enabled** target on a DERIVED-shared palette may build (bound by more than one GEOM model, or unattributed at incomplete `so`-coverage — see the laws, below). |
+| `acknowledge_headroom` | *conditional* | required (`= true`) before a `value > 1.0` on a zero-headroom row may build. |
+| `expect_entries` / `expect_vram` / `expect_offset` | no | guards: if the derivation disagrees with what you name here, the build refuses rather than splice at a place this row was not authored against. |
+| `note` | no | free text, carried into manifests/reports only. |
+
+The five hard rules below apply to **every** target and are not configurable by any key: `0x0000`
+stays `0x0000` (the OPAQUE cutout); the transparency bit is carried, never recomputed; every output
+channel clamps to 0–31; the rotation runs in HSV over the decoded BGR555 and re-encodes to 5 bits;
+and every changed byte must land inside a derived span, or the build refuses outright.
+
+### Refusals
+
+| trigger | satisfied by | why (the law) |
+|---|---|---|
+| no `expect_sha256`, and the effect has no registered hash | `allow_unguarded = true` | a Steam/Moguri patch or another mod could move a span under the edit and nothing would notice — the drift guard exists so that never happens quietly. |
+| a **creature** target on a TEXANIM-armed effect | *nothing lifts this — it's outright* | THE TEXANIM GATE: the arming table is per creature PART and its internal format is unread, so a running animation may cycle the CLUT word, the texels/UVs, or the CLUT contents — only one of those three leaves a static recolour intact. |
+| a **scenery** target on a TEXANIM-armed effect | `acknowledge_texanim = true` at `[reskin]` | the same table's reach into the effect's own set is *plausible* but unproven — the acknowledgement states exactly that, in those words. |
+| a DUAL-DEPTH CLUT cell touched (two different entry-count readings of the same VRAM bytes) | *nothing lifts this — it's outright* | the two readings are two different pictures over the same bytes, and no evidence exists either way about how they interact. |
+| a MULTI-WRITER cell (more than one file offset streams into the same VRAM cell) with not every writer named | name every writer | recolouring one writer leaves the others stock, and the cast flickers between two keys. |
+| … named, but not every one with `hue_to` | rewrite every writer with `hue_to` | each writer has its own measured mean hue, so a shared `hue_rotate` **delta** lands them on *different* hues — the flicker this gate exists to stop. |
+| a DERIVED-shared palette enabled | `acknowledge_shared = true` on that target | it may only be recoloured as the group it is — the acknowledgement shows the author knows more than one set piece moves together. |
+| `value > 1.0` on a row whose brightest live channel is already 31/31 | `acknowledge_headroom = true` on that target | "stock leaves headroom" was an ef227-only measurement — 46 of the corpus's 93 creature rows (all six of ef211's) have none, and a lift there can only flatten the ramp, never brighten it. |
+| a `build`/`deploy` destination inside a checkout, a mod-asset tree, or (without an explicit allow) the game install | *never — no `--force`* | the same local-only provenance guard every summon verb already enforces. |
+| `deploy` into a mod folder that already has a `ModFileList.txt` | *never — and this verb never creates one either* | THE SILENT-FALLBACK LAW, below. |
+
+One more gate lives beside the table above, reported rather than raised as an exception: the
+self-check measures the worst **relative-luminance ordering** (Spearman ρ) any recoloured palette
+survives at, on every `plan`/`build`/`verify`/`deploy`. Nothing configures a threshold, but a failing
+self-check still blocks `build`/`deploy` from writing a byte (a *verdict* refusal — the CLI's own
+exit code 1 — rather than the exception-raising refusals in the table, exit code 2). The study's own
+shipped rows never go below 0.90; a lower ρ means light/dark modelling within that ramp is inverting
+under the hue you chose (see THE SATURATED-RAMP LAW, below).
+
+### The laws behind the refusals (house voice, study-grounded)
+
+- **THE TEXANIM GATE.** Corpus-wide, exactly five stock creature packages (ef038, ef177, ef493,
+  ef494, ef495) carry a non-empty texture-animation region between the id-4 geometry block and its
+  first motion clip — everywhere else that span is zero bytes. The arming ops index the record PER
+  CREATURE PART, and the table's own byte layout has never been read, so whether a running texanim
+  cycles the CLUT word, the texels/UVs, or the CLUT contents is unsettled — and only one of those
+  three leaves a static palette recolour intact. That is why a creature target refuses outright
+  there and a scenery target only needs a stated, unproven acknowledgement
+  (`studies/custom-summons/tier-w/W5-GENERALIZE.md` §1, `PLAN.md` rung W5).
+- **Headroom is measured, never assumed.** "Stock leaves headroom for a brighter value" was true
+  of ef227 (its six creature rows peak at 22–28 of 31) and false of the corpus at large — 46 of 93
+  creature CLUT rows peak at the 5-bit ceiling, including every one of Phoenix ef211's. The gate
+  measures each row's own peak rather than trusting the one effect the tools were first proven on
+  (`W5-GENERALIZE.md` §1).
+- **THE SATURATED-RAMP LAW, plus the TWO-LOBE refinement.** A reskin's *reachable* hue range shrinks
+  as the creature's own mean saturation rises, and at the extreme it is absolute: Phoenix and
+  Rebirth Flame (mean S 0.711, the two most saturated stock creatures) cannot reach **any** cold hue
+  under the luminance-ordering gate — their whole passing arc is stock ±25°. Where a forbidden
+  trough exists, it sits on the **stock hue's complement**, with a passing lobe on either side — for
+  a fire ramp, cyan/teal *and* violet both pass; the pure blue between them does not
+  (`PLAN.md` "Status — W5"; `W5-GENERALIZE.md` §2). This is why Phoenix ef211 ships a
+  **scenery-only** reskin (its own creature rows are parked `enabled = false`, at the measured
+  passing key, one gate away) while the creature-lever's second proof rides Madeen ef251 instead —
+  a summon whose lower mean saturation actually reaches a cold hue.
+- **THE EFFECT-OWNED SCENERY LAW, and H-first.** A summon's cinematic is a self-contained set —
+  creature, props, *and* an authored ground/sky/fire-field that travels with the effect and is drawn
+  on its own schedule — not the arena it happens to be cast in (falsified by casting the same
+  summon in two different locations and seeing the same ground both times). Rescoring the camera
+  without regard for that set shows the set's edges, so: **focal distance (H) is the safest lever**
+  — it reframes without moving the eye, exposing less of the effect's own set than a pose change
+  would — and a phase that draws effect models (readable off the camera lane's own scaffold) is a
+  phase where the reframe budget is tight (`PLAN.md` "★ THE EFFECT-OWNED SCENERY LAW"). Reskin
+  inherits this too: a reskin's scope is the WHOLE set, creature and scenery, precisely because the
+  scenery is part of what the cinematic was authored to show.
+- **THE ADDITIVE-COMPOSITING COROLLARY, and probe-then-key.** For a VFX texture that the engine
+  blends additively, the in-game read keeps whichever channel the blend favours — a cold, desaturated
+  key that looked right in an offline preview washed to near-white against stock fire cores in the
+  live cast, and lowering saturation on an already-max-sat ramp made it worse, not better (the
+  attempt clipped every entry and the blow-out gate refused it: fire IS max-sat; the lawful punch is
+  **hue at saturation 1.0**). The recovery method that generalises: stage a diagnostic PROBE first —
+  every live entry of the bound palettes driven to one saturated primary — and read what the *cast*
+  shows, not what the preview PNG shows, before committing to a final key
+  (`PLAN.md` "Status — W5"; the magenta probe that re-grounded Phoenix's scenery lever after its
+  first cast read stock).
+- **Hot per cast, and THE SILENT-FALLBACK LAW.** A staged container is re-read from disc on every
+  cast — no `~ → Reload` needed to see a new spec take effect, and no relaunch either, once the
+  override is in place. The failure mode this cuts both ways on: `SFX.Play` suppresses its own
+  missing-asset error, so a wrong mod folder, a stray file extension, a selector picking a track
+  you didn't edit, or another `FolderNames` entry shipping its own copy of the same effect id ALL
+  produce the identical symptom — "nothing changed" — with nothing logged anywhere. Deliberately
+  large first deltas and `verify`'s byte-level re-check exist because of this one law, shared
+  verbatim with the rescore lane below.
+- **The ModFileList refusal.** When a mod folder carries a `ModFileList.txt`, the engine's asset
+  lookup TRUSTS that list and never probes the folder directly — so a file the list omits is
+  invisible, and (per the law above) that invisibility logs nothing. `deploy` refuses outright into
+  such a folder rather than silently maintaining a registry it doesn't own, and — like the
+  transplant lane's own ledger — never creates one itself: doing so would make every *other* file in
+  that folder invisible at a stroke.
+
+## Repaint a stock summon's texture in place — the texel lane (`[[reskin.texel]]`)
+
+`summon-reskin` is a per-index **colour function** — it can rotate a hue, but it structurally
+cannot move a texel from one index to another, so it can never change a shape, an edge, or a
+silhouette. The texel lane is the second lever on the same verb: it rewrites the **indices**
+themselves. Lands in a new sibling module, `summons/repaint.py`, which *consumes* what
+`reskin.py` already derives (`creature_pages`, `PaletteMap`, `texanim_region`, a `partition`
+parameter on `_regions`) rather than re-deriving it — `reskin.py`'s own docstring earmarks the
+repaint as "a different lane" and now names where it lives.
+
+**This rung (W6a) ships CREATURE TEXTURE PAGES only, on the INDEXED lane, and nothing else.**
+Every id-4 creature page is single-writer (0 collisions against every scenery rect and every id-9
+block, measured over 24 packages / 93 pages) and uniform 8bpp — the one texel class free of every
+hazard the corpus carries. A `[[reskin.texel]]` row naming anything outside that set — a scenery
+page, an `--art-lane rgba` export — REFUSES by name (`W6B_REASON`) rather than half-working; see
+**W6b, deferred**, below.
+
+```
+ff9mapkit summon-reskin export-art --ef 227 --out C:/gd/SCRATCH/summon-format/repaint/ef227/art
+  # decode every creature page to a paintable indexed PNG + a coverage overlay + a guarded scaffold
+ff9mapkit summon-reskin build  bahamut_emblem.toml   # resolves [[reskin.texel]] ALONGSIDE [[reskin.target]]
+ff9mapkit summon-reskin plan   bahamut_emblem.toml   # every gate, no write
+ff9mapkit summon-reskin verify bahamut_emblem.toml   # re-check what's staged, as bytes
+ff9mapkit summon-reskin deploy bahamut_emblem.toml   # write the override, same ledger as the CLUT lane
+ff9mapkit summon-reskin revert bahamut_emblem.toml   # undo exactly what deploy wrote
+```
+
+There is no separate CLI verb: `export-art` is a new `summon-reskin` action (only on the reskin
+lane — `summon-rescore` does not carry it), and `build`/`plan`/`verify`/`deploy`/`revert` climb the
+**same six-verb ladder** already documented above, now resolving whichever of `[[reskin.target]]`
+(CLUT lane) / `[[reskin.texel]]` (texel lane) a spec declares — either alone, or **both in one
+file**: a spec carrying both builds the recolour first and hands its patched bytes to the repaint,
+so the two levers ship as ONE container, ONE ledger, and ONE revert, with their changed-byte sets
+gated disjoint (see Orthogonality, below).
+
+### `export-art` — the paint workflow
+
+```
+ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed] [--no-coverage]
+```
+
+Reads the stock container out of your own install (or `--from <file>`), decodes every addressable
+creature page, and writes, per part, under a **local-only** root (`export.assert_local_only` — no
+repo path, no `StreamingAssets` tree, no install path, no `--force`, because a decoded page is
+Square-Enix content):
+
+- **`tex.part<N>.png`** — the paintable page itself, at the format of record (below).
+- **`tex.part<N>.coverage.png`** — the same page with its never-sampled texels hatched (green =
+  outer pad, red = an interior hole); omit with `--no-coverage`.
+- **`art.manifest.json`** — one record per part: `stock_sha256` (the drift guard a later `build`
+  re-checks), `page_offset`/`page_bytes`/`wh`/`clut_offset`/`tpage`/`clut`, and the measured
+  `covered_texels`/`dead_texels`/`interior_holes`/`transparent_indices` census.
+- **`texel.scaffold.toml`** — a fully guarded `[[reskin.texel]]` table, every `expect_*` filled in
+  from the derivation and every row `enabled = false` — the same "scaffold at identity, dial one
+  row at a time" posture the CLUT lane's own `scaffold` uses.
+
+`--art-lane rgba` is named in the CLI on purpose, not omitted: asking for it returns the
+measurement that rules it out (below) rather than a bare "unknown choice" error.
+
+### The format of record: an INDEXED PNG, never RGBA
+
+Every export is a **P-mode (palette-indexed) PNG** whose *pixels are the palette indices*, with the
+live CLUT row loaded as the PNG's own palette (**display-only** — the container stays the palette
+authority, and this lane writes **zero CLUT bytes**) and `tRNS` marking the one transparent entry
+so the cutout is visible to a painter, not just correct on import. Measured over every stock
+creature page: `decode → P-mode PNG → reload → indices` is **byte-identical 93/93** across all 24
+decodable packages. An RGBA round trip is not: 8.31% of the corpus's palette entries duplicate the
+full 16-bit word (STP included), so an RGBA export that **paints nothing at all** still moves 1,844
+of 16,384 texels re-importing ef251 part 0 — a lane whose no-op is not a no-op cannot carry a
+byte-identity gate, so `rgba` refuses with that number rather than shipping a silent trap. Import
+refuses anything that isn't mode `"P"`, isn't the exported size (no rescale — an index page has no
+meaningful resample), or uses an index past the page's own CLUT row length.
+
+### The `[[reskin.texel]]` schema
+
+`[reskin]` gains no new required key for the texel lane — `effect`/`label`/`expect_sha256`/
+`allow_unguarded` mean exactly what they mean for `[[reskin.target]]` (a spec may declare either
+table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one more switch:
+
+| key | required | meaning |
+|---|---|---|
+| `orthogonality.reskin` | *conditional* | a sibling `[[reskin.target]]` spec's path (relative to THIS file), composed onto by `compose = true` — see Composing with the CLUT lane, below. |
+| `orthogonality.compose` | no, default `false` | `true` rebuilds the named `reskin` sibling and splices this spec's texel edits onto ITS patched bytes instead of stock — the CLI's own one-spec path sets this implicitly whenever a spec carries both tables. |
+
+`[[reskin.texel]]` (repeatable — one row per page you touch):
+
+| key | required | meaning |
+|---|---|---|
+| `name` | **yes** | the page's *derived* name: `tex.part{N}`, one per creature part. A scenery-style name (`page.*`/`id9.*`) resolves to nothing on this rung and refuses with the W6b reason — `export-art` prints every name the container actually declares. |
+| `source` | *conditional* | the indexed PNG path (relative to the spec file), required the moment the row is `enabled`. |
+| `enabled` | no, default `true` | `false` ships the row's *intent* without splicing a byte — its guards and acknowledgement only become mandatory the moment it's switched on. |
+| `expect_page_offset` / `expect_page_bytes` / `expect_page_wh` | no | guards: if the container's own id-4 header derives a different span, the build refuses rather than splice into a place this row wasn't authored against. `export-art`'s scaffold fills these in for you. |
+| `palette_from` | no | names the CLUT-lane row (`creature.part{N}`) this page indexes into, as a stated cross-reference — a page's palette is a HEADER FACT, not a choice, so naming any other row refuses. Omitted = the stock palette, 0 CLUT bytes touched (this rung's default). |
+| `acknowledge_cutout_reshape` | *conditional* | required (`= true`, a literal boolean — a truthy string refuses rather than arms) before an edit that crosses the transparent-index boundary in either direction may build. See THE CUTOUT LAW, below. |
+| `note` | no | free text, carried into manifests/reports only. |
+
+### THE CUTOUT LAW, at the texel level
+
+`0x0000` decodes to alpha 0 on every stock summon, and the corpus puts **exactly one** such entry
+in every one of its 93 CLUT rows, always at index 0 — the transparent set is **derived from the
+active palette** on every build, never assumed to be `{0}`. A palette recolour can never touch this
+(the CLUT lane already carries "`0x0000` stays `0x0000`" as one of its five hard rules), but a
+texel edit changes which *index* a pixel holds, so it controls the model's silhouette directly.
+Every enabled row is counted **both directions** — `punch` (an opaque texel crossing into the
+transparent index) and `fill` (a transparent texel crossing into an opaque one) — and any non-zero
+count REFUSES unless the row says `acknowledge_cutout_reshape = true`. That is the one escape hatch
+this lane needs that the CLUT lane doesn't: reshaping a torn wing edge is a legitimate texel-level
+artistic move; painting through a hole by accident is not, and this is what catches the difference.
+
+### THE TEXANIM REFUSAL — unconditional, no key lifts it
+
+Five stock creature packages carry a non-zero texture-animation region between the id-4 geometry
+block and its first motion clip: **ef038** (116 bytes, 5 parts) and **ef177 / ef493 / ef494 /
+ef495** (364 bytes each, byte-identical across the four — one creature family). This rung reads the
+region's outer format for the first time (`u32 count` + `count` 20-byte records whose pointers all
+close inside the region, each one's first four fields decoding as a texel RECT that fits a 128×128
+page — `(27,62,11×12)` on ef038; `(33,78,9×14)` and `(24,102,8×14)` on the ef177 family), and both
+readings that survive are strictly worse for a texel edit than for a recolour: a frame blit
+overwrites repainted texels mid-cast, or a moving sample window shows frames the author never
+previewed. So a texel edit on any of the five packages **refuses outright the moment a creature
+target is enabled — no key lifts it**, unlike the CLUT lane's scenery-only escape hatch
+(`acknowledge_texanim`), because there is no scenery half of a texel edit on this rung to fall back
+to.
+
+### The dead pad — reported, never fatal
+
+Only **64.0%** of the corpus's creature texels are sampled by any face (975,202 of 1,523,712 across
+all 93 pages) — the rest is padding the geometry never reads. And over 99.6% of a page's dead
+texels form ONE border-connected margin, which is why `export-art`'s `.coverage.png` (rasterised
+from the container's OWN uv pools, corner-included so a one-texel-thin face still lights its own
+texel) is a complete instruction: paint inside the island. Editing the pad is **inert**, exactly the
+way a hue rotation is inert on the CLUT lane's achromatic cloud bands — so it's reported, with a
+per-target dead/live split and a count, and never fails a build.
+
+### Composing with the CLUT lane — one container, one ledger, one revert
+
+Two routes to the same artifact, because the two levers' byte spans are provably disjoint (the CLUT
+strip and the texel pages sit adjacent and non-overlapping in the container, e.g. on ef227:
+palettes at `0x0621a0..0x062da0`, texel pages at `0x04a1a0..0x0621a0`):
+
+- **one spec, both tables** — a `[reskin]` spec carrying `[[reskin.target]]` *and*
+  `[[reskin.texel]]` builds the recolour first and hands its patched bytes to the repaint. This is
+  the CLI's own path whenever both tables are present.
+- **`[reskin.orthogonality] reskin = "…"` + `compose = true`** — a texel-ONLY spec composes onto a
+  SHIPPED reskin spec's own rebuild, so the palette half keeps exactly one source of truth instead
+  of being copied into a second file that can drift.
+
+Either way the kit **proves** the disjointness rather than asserting it: the composed build's own
+self-check rebuilds the CLUT half from its own spec and intersects the two changed-offset sets —
+"THE COMPOSED HALVES ARE DISJOINT" is its own gate, right beside the region-partition gate that
+proves the CLUT strip, the id-4 header, and every geometry/program/camera/sequence region stayed
+byte-identical under the texel lane's own inverted partition. The reverse direction works too: a
+`[[reskin.target]]` spec can name `orthogonality.repaint = "…"`, and the CLUT lane's own
+`self_check` grows a `repaint` intersection gate — `reskin.py`'s `ORTH_REBUILDERS` now carries both
+`rescore` and `repaint`.
+
+### W6b, deferred — the scenery texel lane
+
+Everything past creature pages is out of scope for this rung and refuses by name
+(`the scenery texel lane is W6b: co-transform / same-bytes-two-bindings / u-spill / 15bpp
+unhandled`), because each clause is a measured hazard, not a caution:
+
+- **CO-TRANSFORM — the multi-chunk law.** 34 VRAM page cells collide across 5 containers
+  (ef225/227/251/381/447), and **not one of the 156 colliding writer pairs is byte-identical** —
+  every collision is genuinely time-shared art, not "repaint once, copy twice". Every collider is a
+  multi-chunk container, and every single-chunk container (367 of 372) structurally cannot collide,
+  so the gate collapses to one law: a container with more than one chunk needs every writer of a
+  shared cell named, or it refuses.
+- **SAME-BYTES-TWO-BINDINGS — supersedes "dual-depth" as the general shape.** ef227's column 448
+  is read as a 4bpp cloud band AND an 8bpp energy-ring picture over the SAME 4,032 halfwords — but
+  the hazard isn't depth-specific: ef211's column 640 shares 1,659 halfwords between two 4bpp
+  bindings at DIFFERENT palettes, which a bit-depth-only test would miss entirely. The general rule:
+  any two `so` bindings whose UV-covered halfword sets intersect, regardless of depth or palette.
+- **U-SPILL.** A model's `u` coordinate is 8-bit, but an 8bpp page is only 128 texels wide, so
+  `u > 127` addresses the *next* 64-halfword VRAM column — sometimes from a different resource
+  entirely (ef227's sky dome spans columns 704 and 768, sourced from `id-0` and `id-9`
+  respectively). **41 of 316 corpus so-bound textured models (13.0%)** sample past their own column,
+  so a repaint template keyed on a VRAM column instead of the model would silently cut a picture in
+  half.
+- **15bpp-DIRECT / STP.** 24 bindings across 12 effects sample a page with no CLUT to index against
+  at all (`tpage & 0x180 == 0x100`) — the indexed lane is structurally inapplicable there, and bit15
+  of a 15bpp halfword IS the semi-transparency flag with nowhere to live in an 8-bit palette index.
+
+Each law, its measurement, and its R1/R2 citation lives in the study record:
+`studies/custom-summons/tier-w/W6-TEXEL.md`.
+
+## Reframe a stock summon's camera in place — `summon-rescore`
+
+A summon's camera is not reached from the effect's own program: it is played by the container's
+sequence stream, which names a camera sub-file inside an id-2 archive — the **same block format**
+the battle engine's `camera_codec` already round-trips, byte-for-byte, across all 372 stock
+containers. `summon-rescore` reads a stock summon out of your install, applies a declarative delta
+in the read-out's own vocabulary (shot / chunk / sub-file / sequence / local frame / pose / focal
+distance), and splices the re-serialised block back at the **same length** — nothing else in the
+container moves.
+
+```
+ff9mapkit summon-rescore read     --ef 211            # the full shot READ-OUT, every keyframe in human terms
+ff9mapkit summon-rescore scaffold --ef 211            # read the install, EMIT a shot-table toml
+ff9mapkit summon-rescore plan     phoenix_rescore.toml # resolve every edit, print the delta, no write
+ff9mapkit summon-rescore build    phoenix_rescore.toml # stage the container + scripts locally
+ff9mapkit summon-rescore verify   phoenix_rescore.toml # re-check what's staged, as bytes
+ff9mapkit summon-rescore deploy   phoenix_rescore.toml # write the override straight into a mod folder
+ff9mapkit summon-rescore revert   phoenix_rescore.toml # undo exactly what deploy wrote
+```
+
+### The three hard constraints (each enforced at the call site, not just stated)
+
+1. **Durations are never touched.** A camera's keyframe timing and the effect program's own phase
+   thresholds are two clocks the original author kept aligned by construction — a content rescore
+   moves neither. Any `duration` key (`focal.duration`, `camera_move.duration`,
+   `target_move.duration`) is refused outright; retiming both clocks together is a separate,
+   study-only lane this promotion does not ship.
+2. **The container's byte length never changes.** A camera sub-file's length is fixed by the next
+   id-2 directory entry, and the slack is 0–2 bytes corpus-wide — so the rescored block must
+   re-serialise to *exactly* the stock length, or the build refuses rather than risk shifting the
+   directory.
+3. **A Code's `frame` word's undecoded high bits survive**, because this lane never writes one at
+   all — the strongest form of preserving marks nobody has decoded yet.
+
+### The spec schema
+
+`[rescore]` (one per spec):
+
+| key | required | meaning |
+|---|---|---|
+| `effect` | **yes** | the stock `SpecialEffect` id to reframe. |
+| `label` | no | a human tag, no engine meaning. Defaults to `ef###`. |
+| `expect_sha256` | no | sha256 of the pristine stock container this edit was derived against. Unlike the reskin lane, this is a **warn-not-refuse** guard: an effect with no registered hash and no `expect_sha256` builds anyway, reported as "UNGUARDED" rather than blocked — matching the deploy engine's existing posture toward an unrecognised donor. Set it (or let `scaffold` set it) whenever you want drift caught rather than warned about. |
+| `acknowledge_dynamic_ops` | *conditional* | required (`= true`) before the build proceeds on a container carrying a `PLAY_CAMERA arg2=3` op — see THE DYNAMIC-OP DISCLOSURE, below. A stale `= true` on a container with **zero** dynamic ops also refuses (a spec copied from another effect). |
+
+`[[edit]]` (repeatable — one row per keyframe you touch):
+
+| key | required | meaning |
+|---|---|---|
+| `shot` | *one of `shot` / `chunk`+`subfile`* | the shot LETTER from the read-out (`A`, `B`, …). |
+| `chunk` / `subfile` | *one of `shot` / `chunk`+`subfile`* | the (chunk, id-2 sub-file) pair the shot resolves to. When both a letter and a pair are given, they're cross-checked — a mismatch means the read-out this spec was written against is not the effect in front of you. |
+| `sequence` | no, default `0` | which of the block's declared tracks to edit (see THE THREE-SEQUENCE TRAP, below). |
+| `all_sequences` | no | `true` fans the identical delta across every declared track — required whenever the block's alternates genuinely differ and you haven't confirmed the one you're naming is the only one that can play. |
+| `frame` | **yes** | the keyframe's LOCAL frame number, exactly as the read-out prints it. |
+| `occurrence` | no, default `0` | which repeat of that frame number, on a block that reuses one (a placement and the move it starts often share a frame). |
+| `camera` / `target` | no | the 6-byte pose sub-tables: `code` / `flags` / `pitch` / `orientation` / `roll` / `distance`. |
+| `focal` | no | the 4-byte focal sub-table: `distance` — **H, the projection distance** — is the one camera value an in-game capture can observe directly, so it's the calibrated half of any reframe; `flags` is the other editable field. `duration` is refused. |
+| `camera_move` / `target_move` | no | the 4-byte movement sub-tables: `type` / `unknown`. `duration` is refused. |
+
+### Refusals
+
+| trigger | satisfied by | why (the law) |
+|---|---|---|
+| any `duration` key on any of the three movement/focal sub-tables | *nothing — refused outright* | the two-clocks law: a camera reframe that also drifts a duration desyncs the cut from the program's phase beat. |
+| the rescored block re-serialises to a different length | *nothing — refused outright* | the id-2 directory's slack is 0–2 bytes; only a same-length splice is legal here. |
+| a block's alternates genuinely differ and only one track was edited | `all_sequences = true`, or edit every track | THE THREE-SEQUENCE TRAP: the runtime selector may pick an alternate you never touched, and the cast looks completely unchanged. |
+| no `acknowledge_dynamic_ops`, and the container runs a `PLAY_CAMERA arg2=3` op | `acknowledge_dynamic_ops = true` | THE DYNAMIC-OP DISCLOSURE, below. |
+| `acknowledge_dynamic_ops = true`, but the container runs zero such ops | remove the key | a stale acknowledgement copied from another effect states a risk this container does not carry. |
+| a `build`/`deploy` destination inside a checkout, a mod-asset tree, or (without an explicit allow) the game install | *never — no `--force`* | the same local-only provenance guard every summon verb enforces. |
+| `deploy` into a mod folder that already has a `ModFileList.txt` | *never — and this verb never creates one either* | THE SILENT-FALLBACK LAW (see the reskin section, above — shared verbatim). |
+
+### THE DYNAMIC-OP DISCLOSURE
+
+`PLAY_CAMERA` with `arg2 == 3` chooses its block from a table keyed by the **battle field at
+runtime** — a table that is not merely undecoded, it is *absent from the container entirely*. So
+from these bytes alone nothing can say whether the (chunk, sub-file) pair you're editing is *also*
+the target of a lookup under some other battle condition, or which other blocks that lookup might
+reach instead. Corpus-wide this is the common case, not the exception: **324 of 372 stock effects**
+carry at least one such op — Bahamut ef227, the effect these tools were first hand-proven on, was
+the outlier with zero. That is why `acknowledge_dynamic_ops` exists and why its own message spells
+out that only an in-game cast across *varied* battle conditions closes the question an offline gate
+cannot.
+
+## Orthogonality — proving a reskin and a rescore can ship on one container together
+
+The proof runs from the **reskin** side: its `self_check` rebuilds a **sibling** spec from its own
+TOML (a rescore, a repaint, or a study-only retime) and intersects its changed-offset set with the
+reskin's own — an empty intersection is the proof that the two edits land in disjoint bytes and can
+ship together. The sibling is named in `[reskin.orthogonality]` (`rescore = "…"`, `repaint = "…"`,
+`retime = "…"`), resolved **relative to the spec file's own directory**, never the module's. A
+sibling named `repaint` reads its effect id out of its OWN `[reskin]` table (a texel spec is a
+`[reskin]` spec too — one file, two possible levers), not a `[repaint]` table that doesn't exist. A
+texel-only spec proves the same disjointness from its own side, in reverse: `orthogonality.reskin =
+"…"` names the CLUT sibling it composes onto (see the texel-lane section, above). A sibling the spec names
+but that doesn't exist FAILS the gate outright; a sibling nobody named is SKIPPED with that stated,
+so an unproven disjointness is never reported as a proven one — and a sibling that targets a
+*different* effect id is skipped too (rebuilding Bahamut's camera proves nothing about a reskin of
+Phoenix). On top of the changed-offset intersection, the check also gates whole regions
+byte-identical: sector 0 (the resource table + sequence stream), every id-3 program image, every
+camera block, every GEOM block, the id-4 header+texel region, and the id-2 model image — i.e.
+everything a repaint or a retime would touch instead. There is no reverse gate on the rescore side
+today — running `summon-rescore`'s own `verify`/`plan` proves only that lane's own byte-identity; the
+disjointness proof is authored once, from whichever lane's spec names the other as a sibling.
+
+## Byte-identity acceptance — how this promotion is held to the study's own proof
+
+These verbs are only as trustworthy as their claim to reproduce what TIER W already cast in-game.
+Rebuilding the *committed* study specs through the kit's own CLI/module code must reproduce the
+exact bytes the study staged and the owner judged in-game — install-gated (it skips cleanly without
+the user's own FF9 install and the study's committed spec tomls), re-deriving rather than trusting a
+recorded hash, the same posture the transplant lane's own M1b acceptance test uses:
+
+| artifact | study sha256 | covered by |
+|---|---|---|
+| ef227 reskin (Bahamut, W4 whole-set recolour) | `7fef205f…` | `summon-reskin`'s own CLI acceptance test |
+| ef211 reskin v2 (Phoenix, GLACIAL v2 scenery key) | `4daab8ad…` | `summon-reskin`'s own CLI acceptance test |
+| ef251 reskin (Madeen, GLACIAL MADEEN creature recolour) | `78b395f8…` | `summon-reskin`'s own CLI acceptance test |
+| ef227 rescore (Bahamut, W2 opening reframe) | `8146eff4…` | `summons.rescore`'s own module-level acceptance test |
+| ef211 rescore (Phoenix, H 384→288 camera pull) | `7979566f…` | the CLI acceptance test (`summon-rescore build` end-to-end, in `tests/test_summon_reskin.py`) |
+
+Every cast-proven artifact the promotion's design brief named is pinned: the three reskins and the
+ef227 rescore at module level, and the ef211 rescore through the full CLI build path — the one place
+the second verb's whole read → build → splice → stage ladder runs against real bytes.
+
 ## Further reading
 
 - [FORMAT.md — `[[summon]]`](FORMAT.md#summon-optional-repeatable) — every key, its default, both lanes.
-- [tutorial 11 — the Blender round-trip](tutorials/11-summon-transplant.md) — the step-by-step guide.
+- [tutorial 11 — the Blender round-trip](tutorials/11-summon-transplant.md) — the transplant, step by step.
+- [tutorial 14 — recolour and reframe a stock summon](tutorials/14-summon-reskin-rescore.md) — the
+  `summon-reskin`/`summon-rescore` workflow, step by step.
 - `studies/custom-summons/thomas-swap/disasm/TRANSPLANT.md` — the full feasibility study (why the
   hybrid wins, the milestone ladder, the risk ledger).
 - `studies/custom-summons/thomas-swap/m0/FBX-PATHS.md` — the file-by-file path resolution this
   block's deploy contract is built on.
 - `studies/custom-summons/thomas-swap/m0/S58-DRAFT.md` — the `[SfxHybrid]` engine feature spec.
 - `studies/custom-summons/thomas-swap/m2/DESIGN.md` — the binding module plan this page follows.
+- `studies/custom-summons/tier-w/PLAN.md` — the reskin/rescore ladder (W1–W5), every law, the
+  full cast record on both proof summons.
+- `studies/custom-summons/tier-w/W5-GENERALIZE.md` — the generalisation report: what each lane
+  became, the laws it minted, the second-proof cast protocol.

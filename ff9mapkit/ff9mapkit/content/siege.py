@@ -67,7 +67,7 @@ _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
          "council_prompt", "hud", "hud_text", "flag_base", "alarm_radius",
          "base", "ally", "raider",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss",
-         "text_pace"}
+         "text_pace", "text_waves", "wave_sfx", "alarm_sfx"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
 _ALLY_KEYS = {"name", "label", "model", "count", "price", "hp", "stance",
               "radius", "contact", "damage", "interval", "speed", "reply",
@@ -171,9 +171,12 @@ class SiegeSpec:
     # or a tuple of lines (STAGED text, paged at text_pace)
     text_win: "str | tuple" = DEFAULT_WIN_TEXT
     text_rout: "str | tuple" = DEFAULT_ROUT_TEXT
-    text_alarm: str = DEFAULT_ALARM_TEXT
+    text_alarm: "str | tuple" = DEFAULT_ALARM_TEXT
     text_loss: "str | tuple" = DEFAULT_LOSS_TEXT
     text_pace: int = 120             # frames each staged line holds before the next
+    text_waves: tuple = ()           # one cry per wave ("" skips that wave)
+    wave_sfx: int | None = None      # cue on every wave arrival
+    alarm_sfx: int | None = None     # cue with the alarm
 
 
 def _need(d: dict, key, ctx: str):
@@ -328,6 +331,22 @@ def from_raw(s: dict) -> SiegeSpec:
     if isinstance(tp, bool) or not isinstance(tp, int) or not 15 <= tp <= 255:
         raise SiegeError(f"{ctx}: text_pace must be an int 15..255 frames "
                          f"(the read time each staged line holds)")
+    tw = s.get("text_waves")
+    if tw is None:
+        tw = ()
+    elif not (isinstance(tw, list)
+              and all(isinstance(x, str) for x in tw)):
+        raise SiegeError(f"{ctx}: text_waves must be a list of strings — ONE cry "
+                         f"per wave, in wave order (\"\" skips that wave)")
+    elif len(tw) > len(waves):
+        raise SiegeError(f"{ctx}: text_waves has {len(tw)} lines but there are "
+                         f"only {len(waves)} waves")
+    for key in ("wave_sfx", "alarm_sfx"):
+        kv = s.get(key)
+        if kv is not None and (isinstance(kv, bool) or not isinstance(kv, int)
+                               or not 0 <= kv <= 0xFFFF):
+            raise SiegeError(f"{ctx}: {key} must be a sound id int 0..65535 "
+                             f"(`ff9mapkit sfx-list`)")
     wf = s.get("win_flash")
     if wf is True:
         wf = (255, 255, 255)                     # win_flash = true -> white
@@ -364,9 +383,11 @@ def from_raw(s: dict) -> SiegeSpec:
         text_stipend=str(s.get("text_stipend", DEFAULT_STIPEND_TEXT)),
         text_win=_ending_text(s, "text_win", DEFAULT_WIN_TEXT, ctx),
         text_rout=_ending_text(s, "text_rout", DEFAULT_ROUT_TEXT, ctx),
-        text_alarm=str(s.get("text_alarm", DEFAULT_ALARM_TEXT)),
+        text_alarm=_ending_text(s, "text_alarm", DEFAULT_ALARM_TEXT, ctx),
         text_loss=_ending_text(s, "text_loss", DEFAULT_LOSS_TEXT, ctx),
-        text_pace=tp)
+        text_pace=tp, text_waves=tuple(tw),
+        wave_sfx=(int(s["wave_sfx"]) if s.get("wave_sfx") is not None else None),
+        alarm_sfx=(int(s["alarm_sfx"]) if s.get("alarm_sfx") is not None else None))
 
 
 # ----------------------------------------------------------------- the emission
@@ -550,8 +571,41 @@ def behavior_raw(spec: SiegeSpec) -> dict:
         bb.append(_branch(when=[{"flag": "won"}, {"not_flag": "routed"}],
                           once=f"wintext{i}",
                           do={"announce": ln, "delay": spec.text_pace}))
-    bb.append(_branch(when=[{"any_near": [all_raiders, spec.alarm_radius]}],
-                      once="alarm", do={"announce": spec.text_alarm}))
+    # THE WAVE HERALD — a siege's waves otherwise arrive in SILENCE, which is
+    # the one moment the player most needs told. The wave counter is monotonic
+    # (the schedule only ever counts up), so these ride the event-Once lane
+    # straight — the draining-condition law's exemption — and `counter_ge` means
+    # a skipped tick can never swallow a cry. Cue first, then the line.
+    for i in range(len(spec.waves)):
+        gate = [{"counter_ge": ["wave", i + 1]}]
+        if spec.wave_sfx is not None:
+            bb.append(_branch(when=gate, once=f"wavecue{i}",
+                              do={"sfx": spec.wave_sfx}))
+        line = spec.text_waves[i] if i < len(spec.text_waves) else ""
+        if line:
+            bb.append(_branch(when=gate, once=f"wavecry{i}",
+                              do={"announce": line}))
+    # THE ALARM CHAIN — ⚠ its gate DRAINS. `any_near` stops holding the moment the
+    # raider that tripped it dies or steps out of the radius, and one branch fires
+    # per tick, so a cue + line + staged lines stacked on that gate would starve
+    # everything below the first (THE DRAINING-CONDITION LAW — `behavior lint`
+    # catches this shape now, and caught exactly this). So the FIRST beat latches
+    # the moment and the rest gate on the flag, which cannot drain.
+    alarm_gate = [{"any_near": [all_raiders, spec.alarm_radius]}]
+    chain: list = []
+    if spec.alarm_sfx is not None:
+        chain.append(("alarmcue", {"sfx": spec.alarm_sfx}))
+    for i, line in enumerate(_lines(spec.text_alarm)):
+        stage = {"announce": line}
+        if i:
+            stage["delay"] = spec.text_pace          # staged like the endings
+        chain.append(("alarm" if i == 0 else f"alarm{i}", stage))
+    for j, (once, do) in enumerate(chain):
+        if j == 0:
+            bb.append(_branch(when=alarm_gate, once=once, do=do,
+                              raise_flags=(["alarmed"] if len(chain) > 1 else None)))
+        else:
+            bb.append(_branch(when=[{"flag": "alarmed"}], once=once, do=do))
     bb.append(_branch(do={"hold": list(spec.base.pos)}))
     units.append({"npc": spec.base.name, "hp": spec.base.hp,
                   "speed": spec.base.speed, "branch": bb})

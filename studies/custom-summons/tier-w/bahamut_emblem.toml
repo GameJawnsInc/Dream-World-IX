@@ -1,0 +1,112 @@
+# TIER W rung W6a -- THE TEXEL REPAINT.  Stock Bahamut (ef227), part 0's wing membrane BRANDED:
+# a hard-edged stroked ring with three radial bars, stamped in INDEX space, composed on top of W4's
+# spectral-mist recolour so the cast's single delta is the brand.
+#
+# WHY THIS SPEC EXISTS AND `bahamut_reskin.toml` DOES NOT COVER IT.  `[[reskin.target]]` (lever #1,
+# W4) is a per-index COLOUR FUNCTION: it can rotate a hue, it can never move a texel from one index
+# to another, so it structurally cannot change a shape, an edge or a silhouette.  `[[reskin.texel]]`
+# (lever #2, this rung) rewrites the INDICES.  The two are byte-disjoint by construction -- the CLUT
+# strip is [0x0621a0, 0x062da0) and the texel pages are [0x04a1a0, 0x0621a0) -- and the kit PROVES
+# the disjointness by rebuilding the sibling from its own toml and intersecting the changed-offset
+# sets, rather than asserting it here.  Naming: this file is the ORTHOGONALITY PARTNER of
+# `bahamut_reskin.toml`; either one alone builds a valid container, and `compose = true` below makes
+# this one build BOTH into a single artifact with one ledger and one revert.
+#
+# WHAT EACH NUMBER BELOW IS.  Two kinds only, the same two `bahamut_reskin.toml` uses:
+#   * GUARDS (`expect_*`) -- what the tool's own derivation from the id-4 header MUST have found.
+#     They instruct nothing; they refuse.  Re-emit them with `summon-reskin export-art --ef 227`
+#     rather than retyping them.
+#   * AUTHORED DECISIONS -- `source`, `enabled`, `acknowledge_cutout_reshape`.
+#
+# THE ART IS NOT IN THIS REPO, AND CANNOT BE.  `source` is a decoded stock texture page: Square-Enix
+# content, SCRATCH-only under this tier's provenance rule.  What ships instead is the GENERATOR --
+# `emblem_stamp.py` -- which re-derives every parameter of the glyph from the user's own container
+# and writes exactly that PNG.  Run it before this spec:
+#
+#     py emblem_stamp.py
+#
+# Re-point `emblem_stamp.py --root` and you must re-point `source` below with it; the build refuses
+# with "no such source image" rather than silently packing yesterday's art.
+#
+# WHAT `emblem_stamp.py` MEASURED ON THE REAL CONTAINER (its own output, not a transcription):
+#   coverage       11,563 / 16,384 texels sampled (70.6%), 4,821 dead, 0 interior holes, 468 faces
+#   ink   idx 255  stock 0xef9c L=229   composed (W4 spectral-mist) 0xf79c L=231
+#   edge  idx   1  stock 0x8401 L=3     composed 0x8020 L=5
+#   glyph          sampled-island centroid (63.8, 59.8); largest fully-sampled disc r = 26
+#   stamped        1,037 texels = 9.0% of the sampled island, 6.3% of the page
+#   MEASURED       1,032 texels actually DIFFER (5 of the 1,037 already carried the stamped index)
+#                  dead-pad bytes moved 0  |  index-0 cutout flips 0 (punch 0 / fill 0)
+#
+# Both indices are already live entries of the row, so the brand costs ZERO CLUT bytes -- which is
+# what lets it compose with a recolour of that very row without the two levers meeting on a byte.
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`repaint.py`'s module docstring, each one a refusal):
+# the format of record is a P-mode INDEXED PNG (byte-identical round trip, 93/93 stock pages) and an
+# RGBA import refuses by name; a texel crossing the transparent-index boundary refuses unless the row
+# says so out loud; a page with another VRAM writer or an overlapping file span refuses; an armed
+# texanim region refuses creature scope outright, and no key lifts it; and every byte outside the
+# licensed page spans -- the CLUT strip, the id-4 header, every GEOM block, both id-3 programs, the
+# id-5 model image, every camera block -- is gated byte-identical under the INVERTED region
+# partition.
+
+[reskin]
+effect = 227
+label  = "bahamut-w6a-emblem"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.  Same value `bahamut_reskin.toml` guards, deliberately: the
+# two levers must be reading the same summon or the composition means nothing.
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+
+# ==============================================================================================
+# COMPOSITION + ORTHOGONALITY.
+#
+# `compose = true` makes this build splice its pages into `bahamut_reskin.toml`'s PATCHED bytes
+# instead of into stock, so the staged artifact is ONE container carrying both levers.  The palette
+# half keeps exactly one source of truth (that file) instead of being copied into this one where it
+# could drift.
+#
+# Every name here is also an ORTHOGONALITY claim: the kit rebuilds each sibling from its OWN spec and
+# intersects the changed-offset sets, failing on any intersection.  `reskin` is the lane this rung
+# composes with (so its gate is also the COMPOSED HALVES proof); `rescore` is W2's camera lane, named
+# so the four-byte camera edit is shown disjoint from the pages too.
+#
+# ABSOLUTE paths on purpose: a relative sibling name resolves against THIS FILE's directory, which is
+# correct here, but the gate runners invoke the build from elsewhere and must resolve the same specs.
+[reskin.orthogonality]
+compose = true
+reskin  = "C:/gd/Dream-World-IX/.claude/worktrees/summons-tier-w-generalize-915e33/studies/custom-summons/tier-w/bahamut_reskin.toml"
+rescore = "C:/gd/Dream-World-IX/.claude/worktrees/summons-tier-w-generalize-915e33/studies/custom-summons/tier-w/bahamut_rescore.toml"
+
+
+# ==============================================================================================
+# THE TEXEL TARGET.  ONE page: ef227 part 0, the violet wing membrane.
+#
+# WHY PART 0 AND NOT ANOTHER.  It is the largest sampled island of the six pages (11,563 texels), it
+# carries the most faces (468), it has ZERO interior holes (so a disc placed at its centroid is
+# guaranteed contiguous geometry), and it is shared across both wings -- so the brand appears twice
+# in frame and a single-wing render artefact cannot be mistaken for it.
+#
+# WHY THE OTHER FIVE PAGES ARE NOT HERE.  One change per in-game test.  The five are addressable by
+# exactly the same rows (`summon-reskin export-art --ef 227` emits all six pre-seeded OFF); this
+# spec turns on one so a cast that reads wrong names the page that was wrong.
+[[reskin.texel]]
+name = "tex.part0"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6/ef227/art/tex.part0.png"
+
+# --- the guards, emitted by the derivation, never typed --------------------------------------
+expect_page_offset = 0x04a1a0   # id-4: texOffset 0x1a0 + part 0 * 0x4000, inside the 0x4a000 resource
+expect_page_bytes  = 16384      # 0x4000 -- the page size is a format constant, not a header field
+expect_page_wh     = [128, 128]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# LEFT FALSE ON PURPOSE.  The glyph is placed from the coverage mask, so it cannot reach a
+# transparent texel and the measured flip count is 0 -- and if a future edit of the art DID move the
+# silhouette, this build must stop rather than ship a re-shaped wing nobody asked for.
+acknowledge_cutout_reshape = false
+# The page's palette is a HEADER FACT (its own CLUT word), not a choice; naming it here is a
+# cross-reference the build CHECKS against the derivation, and it stays a cross-reference -- this
+# lane writes zero CLUT bytes and the container remains the palette authority.
+palette_from = "creature.part0"
+note = "the brand: a stroked ring + three radial bars on the wing membrane, ink 255 / edge 1"
