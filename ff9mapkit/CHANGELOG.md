@@ -225,6 +225,64 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   guarantees ORDER, not DURATION — without sustain the sting got one ~33ms frame of air
   before the boss battle took the audio (the round-1 playtest). Cast-proven: "the sound
   played then battle fires. it was a good defeat noise" (1942's timbre confirmed).
+### Added — `summon-reskin` gains a second lever: the TEXEL REPAINT (`export-art`, `[[reskin.texel]]`)
+- **TIER W rung W6a** (`studies/custom-summons/tier-w/PLAN.md`): `summon-reskin` grows a second
+  edit lever alongside the CLUT recolour above — a texel repaint that rewrites the palette INDICES
+  themselves, so it can move a shape, an edge, a silhouette, which a recolour structurally cannot.
+  Landed for **creature texture pages only**, the one texel class corpus-wide free of every known
+  hazard (single-writer 24/24 packages, 0 VRAM-cell and 0 file-span collisions against every
+  scenery/id-9 page over 93 pages, uniform 8bpp). Scenery pages refuse by name — co-transform /
+  same-bytes-two-bindings / u-spill / 15bpp — deferred to a later rung (W6b).
+- **New `summons/repaint.py`** (1,621 lines) — consumes `reskin.py`'s own derivations
+  (`creature_pages`, `PaletteMap`, `texanim_region`, a new `partition` parameter on `_regions`)
+  rather than re-deriving them. The format of record is a **P-mode indexed PNG** — pixels ARE the
+  palette indices, the loaded palette is display-only (the container stays the palette authority;
+  this lane writes zero CLUT bytes), `tRNS` marks the cutout entry — measured byte-identical round
+  trip **93/93** across every stock creature page in every one of the 24 decodable packages; an
+  RGBA export is refused by name with the measurement that rules it out (an identity round trip
+  that paints nothing already moves 1,844 of 16,384 texels on ef251 part 0, because 8.31% of the
+  corpus's palette entries duplicate the full 16-bit word, STP included). Ships THE CUTOUT LAW (an
+  index crossing the palette's one alpha-0 entry, in either direction, refuses unless
+  `acknowledge_cutout_reshape = true`, a literal boolean), an unconditional TEXANIM refusal on the
+  five armed creature packages (ef038/177/493/494/495 — no key lifts it, unlike the CLUT lane's
+  scenery-only escape hatch, because there is no scenery half of a texel edit to fall back to), a
+  CO-TRANSFORM collision gate measured per target rather than assumed, the region partition
+  INVERTED for this lane (the CLUT strip gated byte-identical instead of the texel pages, via a new
+  `partition=` argument on `reskin._regions` — one function, two partitions, never a second copy
+  that drifts), and a dead-pad census reported, never fatal (only 64.0% of the corpus's creature
+  texels are ever sampled by a face — 975,202 of 1,523,712).
+- **`export-art` — a new `summon-reskin` action**, registered on the reskin lane only: decodes
+  every creature page to its paintable PNG + a `<part>.coverage.png` UV overlay (green hatch = the
+  never-sampled pad, rasterised from the container's own uv pools, corner-included so a
+  one-texel-thin face still lights its own texel) + `art.manifest.json` (the stock sha256 drift
+  guard + every page's derivation) + a guarded `texel.scaffold.toml`, under the same local-only
+  root every summon art-export already refuses to write outside of.
+- **Composes with the CLUT lane in one container, one ledger, one revert** — a spec may carry
+  `[[reskin.target]]`, `[[reskin.texel]]`, or both; with both, `build` recolours first and hands the
+  patched bytes to the repaint, and the composed self-check proves the two halves' changed-offset
+  sets are disjoint rather than asserting it. **`summons/reskin.py`** gains the matching hook in
+  reverse: `ORTH_REBUILDERS["repaint"]`, so a CLUT-only spec can also name a texel sibling and prove
+  the same disjointness from its own side. **`cli.py`** gains the `export-art` action wiring and the
+  one-spec composed build/plan/verify/deploy/revert path, staged by whichever lane owns the
+  resulting artifact.
+- **73 new kit tests** (`test_summon_repaint.py`) — every refusal named above ships with its own
+  test, plus install/corpus-gated acceptance: the 93/93 indexed round trip and the 0-collision
+  census over the real 24-package corpus (via the kit's own `creature_texel_pages`), `export-art`
+  end to end against ef227 (6 pages, 65,267 covered texels reproduced exactly), and — THE PROOF —
+  an offline composed build that rebuilds the CLUT lane's cast-proven ef227 spectral-mist reskin
+  (`sha 7fef205f…`, the artifact the owner already judged in-game — re-pinned and still
+  byte-identical after this rung, alongside Phoenix ef211 and Madeen ef251) and splices a
+  procedural brand onto part 0's wing on top: **4,832 CLUT bytes + 1,036 texel bytes changed, zero
+  cutout flips, zero dead-pad bytes, the two halves' changed-offset sets disjoint by construction
+  and gated so** — composed `sha 353f7867…`. An in-game cast of this artifact has not run yet; the
+  offline gates are green and the artifact is staged for one.
+- Docs: [`docs/SUMMONS.md`](docs/SUMMONS.md) (the texel-lane section — the `export-art` workflow,
+  the `[[reskin.texel]]` schema, the indexed-PNG format of record, THE CUTOUT LAW, the
+  unconditional texanim refusal, the dead-pad report, and an honest W6b deferral naming the
+  scenery hazards), [`docs/FEATURES.md`](docs/FEATURES.md) row,
+  [tutorial 14, Part C](docs/tutorials/14-summon-reskin-rescore.md#part-c--repaint-its-texture-the-texel-lane-reskintexel),
+  [`../SETUP.md` §7](../SETUP.md#7-cli-command-reference).
+
 ### Added — `summon-reskin` / `summon-rescore`: recolour and reframe a STOCK summon in place
 - **Promotes the TIER W study** (`studies/custom-summons/tier-w/`) into two first-class CLI verbs
   that edit a stock FF9 summon's OWN container bytes — no donor swap, no new model, unlike the

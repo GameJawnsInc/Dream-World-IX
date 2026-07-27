@@ -41,11 +41,15 @@ corpus is DERIVED, REFUSED or DISCLOSED here:
 * a **scenery-only** reskin works on the 348 containers that carry no creature at all;
 * and every effect stages into **its own** per-effect root.
 
-The texel repaint (lever #2) is a different lane and this module refuses to do it: a chunk-1 overwrite
-(six VRAM slots written by two container regions) and the dual-depth packing at VRAM column 448 (the
-same 4,032 halfwords read as a 4bpp cloud band AND as 8bpp energy rings) are both repaint hazards, and
-both are structurally invisible to a palette edit -- the two readings have separate palettes and the
-time-shared columns share no CLUT. A recolour is immune to the exact traps a repaint would hit.
+The texel repaint (lever #2) is a different lane and this module still refuses to do it -- it lives in
+:mod:`ff9mapkit.summons.repaint`, which consumes the derivations below rather than re-deriving them.
+The split is not tidiness: a chunk-1 overwrite (six VRAM slots written by two container regions) and
+the dual-depth packing at VRAM column 448 (the same 4,032 halfwords read as a 4bpp cloud band AND as
+8bpp energy rings) are both repaint hazards, and both are structurally invisible to a palette edit --
+the two readings have separate palettes and the time-shared columns share no CLUT. A recolour is
+immune to the exact traps a repaint has to gate for. The one place the two lanes meet in this file is
+:func:`_regions`, whose ``partition`` argument INVERTS the id-4 split for the texel lane instead of
+letting it keep a second copy that could drift.
 
 WHY THE SPANS ARE DERIVED AND NOT TABULATED
 -------------------------------------------
@@ -1213,6 +1217,11 @@ class Build:
     targets: List[Target]
     check: Optional["SelfCheck"] = None
     orth_specs: Tuple[Optional[str], Optional[str]] = (None, None)
+    #: every OTHER sibling lane ``[reskin.orthogonality]`` names (``repaint = "..."``), which
+    #: :func:`_orthogonality` turns into one extra intersection gate EACH. Kept out of
+    #: :attr:`orth_specs` deliberately: that pair is the fixed W2/W3 shape the study record cites by
+    #: position, and widening it would rewrite the meaning of an index somebody already relies on.
+    orth_extra: Dict[str, str] = dataclasses.field(default_factory=dict)
     #: WHICH drift guard actually applied -- the :attr:`ff9mapkit.summons.rescore.Build.guard` posture.
     #: Reporting "none -- unguarded" purely from ``effect in R.EXPECTED_STOCK_SHA`` calls every
     #: generalised effect unguarded even when its own spec pins ``expect_sha256`` and :func:`build` has
@@ -1476,10 +1485,14 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         raise ReskinError("the splice changed the container length -- impossible by construction")
 
     orth = r.get("orthogonality") or {}
+    # Only STRING values are sibling spec names; `compose = true` is a composition switch the texel
+    # lane reads out of the same table and is not a lane to intersect against.
+    extra = {k: v for k, v in orth.items()
+             if k not in ("rescore", "retime") and isinstance(v, str)}
     return Build(effect=effect, label=str(r.get("label", "reskin")), spec_path=str(spec_path),
                  source=source, orig=blob, patched=patched, sha_in=sha_in, sha_out=_sha(patched),
                  pmap=pmap, targets=targets, guard=guard,
-                 orth_specs=(orth.get("rescore"), orth.get("retime")))
+                 orth_specs=(orth.get("rescore"), orth.get("retime")), orth_extra=extra)
 
 
 # ============================================================ (4) THE SELF-CHECK
@@ -1509,13 +1522,23 @@ class SelfCheck:
         return all(g.ok for g in self.gates)
 
 
-def _regions(blob: bytes, effect: int) -> List[Tuple[str, int, int]]:
-    """The regions a recolour must not touch, resolved from the container itself.
+def _regions(blob: bytes, effect: int, partition: str = "clut") -> List[Tuple[str, int, int]]:
+    """The regions an edit must not touch, resolved from the container itself.
 
     Everything a repaint, a retime or a reframe would move: sector 0 (the resource table and the
     binary sequence stream), both id-3 program images, every camera block, the id-5 model image, the
     whole id-4 header + texel region, and every GEOM block found by the corpus-selective scanner (the
     scenery's geometry and UVs).
+
+    ``partition`` INVERTS the id-4 split for the sibling texel lane
+    (:mod:`ff9mapkit.summons.repaint`) instead of letting it carry a second copy of this function:
+
+    * ``"clut"`` (the default, this lane) licenses the CLUT strip and gates the header + every page;
+    * ``"texel"`` licenses the pages and gates the header, the CLUT strip and the sector pad.
+
+    Everything outside id-4 is identical under both, which is the point: the two levers disagree about
+    exactly one boundary and agree about every other byte in the container, and a parameter says that
+    where a duplicated function would only imply it until one copy drifted.
 
     ``g.end`` is called BARE on purpose. Its predecessor wrapped it in ``except Exception: end =
     g.base + 0x10``, which meant that if the property ever went missing or raised, every GEOM region
@@ -1523,6 +1546,8 @@ def _regions(blob: bytes, effect: int) -> List[Tuple[str, int, int]]:
     essentially nothing -- a fail-OPEN on the one gate that proves the geometry did not move. A raise
     here is now a loud build failure, which is the correct direction for a gate.
     """
+    if partition not in ("clut", "texel"):
+        raise ReskinError("unknown region partition %r -- \"clut\" or \"texel\"" % partition)
     c = EC.parse_header(blob, strict=True)
     out: List[Tuple[str, int, int]] = [("sector 0 (resource table + the sequence stream)", 0, 0x800)]
     mp = EC.creature_package(blob)
@@ -1534,8 +1559,15 @@ def _regions(blob: bytes, effect: int) -> List[Tuple[str, int, int]]:
             elif r.id == 5:
                 out.append(("%s id-5 SUMMON_MODEL image" % tag, r.offset, r.offset + r.nbytes))
             elif r.id == 4 and mp is not None:
-                out.append(("%s id-4 header + all %d texel pages" % (tag, mp.part_count),
-                            r.offset, mp.tex_file_offset + mp.tex_bytes))
+                if partition == "texel":
+                    out.append(("%s id-4 model-package header" % tag,
+                                r.offset, mp.tex_file_offset))
+                    out.append(("%s id-4 CLUT strip (%d rows)" % (tag, mp.clut_rows),
+                                mp.tex_file_offset + mp.tex_bytes,
+                                mp.tex_file_offset + mp.tex_bytes + mp.clut_bytes))
+                else:
+                    out.append(("%s id-4 header + all %d texel pages" % (tag, mp.part_count),
+                                r.offset, mp.tex_file_offset + mp.tex_bytes))
                 out.append(("%s id-4 sector pad past the CLUT strip" % tag,
                             mp.tex_file_offset + mp.tex_bytes + mp.clut_bytes, r.offset + r.nbytes))
     ex = W.extract_shots(blob, "ef%03d" % effect)
@@ -1573,15 +1605,40 @@ def _rebuild_rescore(path: str, mine: Set[int]) -> Tuple[Set[int], str]:
                % (len(d), ", ".join("%#x" % o for o in sorted(d)), len(d & mine)))
 
 
+def _rebuild_repaint(path: str, mine: Set[int]) -> Tuple[Set[int], str]:
+    """Rebuild a TEXEL repaint from its own toml and intersect its pages with this recolour's CLUTs.
+
+    Imported LAZILY on purpose: :mod:`ff9mapkit.summons.repaint` consumes this module's derivations,
+    so a module-level import here would be circular. ``compose=False`` is passed because an
+    orthogonality proof needs the sibling's OWN delta -- a spec that composes onto this one would
+    otherwise rebuild this one inside its own gate, and the intersection would be with itself.
+
+    The full path is handed over, never the basename: a repaint spec's ``source`` images resolve
+    against the spec file's own directory, and a basename would resolve them against the CWD.
+    """
+    from . import repaint as RP
+    b2 = RP.build(RP.load_spec(path), path, compose=False)
+    d = {i for i in range(len(b2.orig)) if b2.orig[i] != b2.patched[i]}
+    return d, ("W6 changes %d TEXEL bytes across %d page(s) from %s; intersection %d"
+               % (len(d), len(b2.enabled), os.path.basename(path), len(d & mine)))
+
+
 #: ``[reskin.orthogonality]`` table name -> the callable that REBUILDS that sibling lane and returns
 #: ``(changed offset set, detail line)``. Only lanes this package actually ships appear here: the
-#: rescore lane does, the RETIME lane does not (it is study-only -- the writing half of it is
-#: refusal-gated and it was not promoted). A spec naming a table with no rebuilder gets an explicit
+#: rescore and repaint lanes do, the RETIME lane does not (it is study-only -- the writing half of it
+#: is refusal-gated and it was not promoted). A spec naming a table with no rebuilder gets an explicit
 #: SKIP that says so, never a crash and never a silent pass. A caller that owns a retime
 #: implementation registers it here and the gate becomes a real intersection proof again.
 ORTH_REBUILDERS: Dict[str, Callable[[str, Set[int]], Tuple[Set[int], str]]] = {
     "rescore": _rebuild_rescore,
+    "repaint": _rebuild_repaint,
 }
+
+#: sibling table name -> the TOP-LEVEL TOML table that sibling's own spec declares. A REPAINT spec is
+#: a ``[reskin]`` spec (its rows are ``[[reskin.texel]]``, one file two levers), so its effect id is
+#: read from ``[reskin]`` -- reading ``[repaint]`` would find nothing and the gate would report the
+#: sibling as targeting an unknown effect and SKIP, which is a proof evaporating quietly.
+_ORTH_SPEC_TABLE: Dict[str, str] = {"repaint": "reskin"}
 
 
 def _orth_base(b: "Build") -> str:
@@ -1626,8 +1683,16 @@ def _orthogonality(b: Build, mine: Set[int]) -> List[Gate]:
     # The two gate NAMES are the rung labels the milestone record uses (W2 = the camera rescore,
     # W3 = the retime lane), kept verbatim so a gate cited in the study record is findable by the
     # name it was cited under -- the same reason the "W1's camera blocks" region gate keeps its.
-    for table, title in (("rescore", "W2's rescore edits are disjoint from this reskin's"),
-                         ("retime", "W3's retime edits are disjoint from this reskin's")):
+    tables = [("rescore", "W2's rescore edits are disjoint from this reskin's"),
+              ("retime", "W3's retime edits are disjoint from this reskin's")]
+    # Any OTHER lane the spec names gets a gate of its own -- and only then. A lane nobody named
+    # contributes no gate at all rather than a standing "SKIPPED" row, so the two rungs above keep
+    # reading as the fixed pair the record cites and a third one appears exactly when it is claimed.
+    for extra in sorted(b.orth_extra):
+        tables.append((extra, "the %s lane's edits are disjoint from this reskin's" % extra))
+        declared[extra] = True
+        want[extra] = b.orth_extra[extra] or DEFAULT_ORTH_SPECS.get(extra)
+    for table, title in tables:
         name = want[table]
         if not name:
             out.append(Gate(True, title,
@@ -1644,7 +1709,7 @@ def _orthogonality(b: Build, mine: Set[int]) -> List[Gate]:
                                                              "" if not declared[table] else
                                                              " -- but the spec NAMED it")))
             continue
-        ef = _sibling_effect(path, table)
+        ef = _sibling_effect(path, _ORTH_SPEC_TABLE.get(table, table))
         if ef != b.effect:
             out.append(Gate(True, title,
                             "SKIPPED: %s targets ef%s, this reskin targets ef%03d -- rebuilding "
