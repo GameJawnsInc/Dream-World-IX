@@ -234,21 +234,21 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
-  6 FIGHT THEATER (rung E round 2) -- two fixes from the round-1 cast:
-    - "soldiers still swing after the death anim starts": the death body
-      never held the dispatch level, so the ticker kept dispatching the
-      dying unit's OTHER bodies while it fell. It now holds and never
-      releases -- A DYING UNIT MUST DO NOTHING ELSE. Watch a soldier die:
-      collapse, hold, vanish, with NO swing mixed in.
-    - "the defender's animation twists him upside-down": THE CROSS-FORM
-      CLIP TRAP. The CSO token's attack_cid_* clips exist only in the F3
-      form, and an F3 clip on the F1 defender's skeleton renders twisted.
-      Gestures now resolve SAME-FORM only and refuse cross-form at lint.
-      Honest fallout -- only the SHOOTER (the F3 rig) owns attack clips, so
-      it is the only class that swings with one; the F0 soldier keeps its
-      own kneel; THE DEFENDER GETS NO CLIP AT ALL (its rig owns neither).
-    - unchanged: every landed hit thuds (636) on the damage tick; mus lunge
-      (jump), fangs howl -- those are same-form and were always fine.
+  6 FIGHT THEATER -- round 3. THE DEATH CLIP IS THE OPEN QUESTION:
+    round 2 held the dispatch level (fixing "soldiers still swing after
+    death") but played NO clip at all. The difference from the swing clip
+    -- which demonstrably renders, that is what twisted the defender -- was
+    WaitAnimation. Death now uses the swing's proven shape: a bare
+    fire-and-forget RunAnimation, then the corpse holds `linger` frames
+    (now 60 = ~1s) while the clip plays.
+    WATCH A SOLDIER DIE (the F0 rig, kneel) and A MU DIE (lunge):
+      - does a clip actually play now, or does it still just stand and
+        vanish after a beat? Either answer is useful.
+      - and it must STILL not swing while dying (round 2's fix).
+    Also unchanged from round 2: only the SHOOTER (the F3 rig) swings with
+    a real attack clip -- the F0 soldier and F1 defender own none in their
+    own form (the cross-form trap), so they simply do not play one; every
+    landed hit still thuds (636) on the damage tick.
   If anything FEELS different from 30400, that difference is the bug.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 

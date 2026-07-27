@@ -47,8 +47,8 @@ ALARM_RADIUS = 500
 RAIDER_CONTACT = 210              # the proven melee reach for a marching raider
 CHASE_CONTACT = 170               # a mobile ally's melee reach
 COUNTER_IVL_PAD = 8               # a raider counter-swings a touch slower than its siege swing
-DEATH_LINGER = 30                 # default frames a corpse holds after its death clip (the
-                                  # fort-condor "instant vanish" complaint — see BEHAVIOR.md)
+DEATH_LINGER = 60                 # default frames a corpse holds WHILE its death clip plays —
+                                  # linger IS the visible beat (no WaitAnimation; see Die)
 LOSS_STING_SUSTAIN = 55           # ~1s of held dispatch level so the sting rings CLEAR before
                                   # the loss_battle/cry (rung-C round 1: zero sustain gave the
                                   # sting one ~33ms frame before the battle took the audio)

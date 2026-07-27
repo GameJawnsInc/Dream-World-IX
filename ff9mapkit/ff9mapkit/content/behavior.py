@@ -426,9 +426,10 @@ class Die(Action):
     ``counter_ge``).
 
     THE DEATH BEAT (``anim`` / ``linger``): without them the unit VANISHES the
-    tick it dies — the fort-condor "instant vanish" complaint. ``anim`` plays a
-    one-shot clip (``RunAnimation`` + ``WaitAnimation``, so the whole clip runs)
-    and ``linger`` holds the corpse N more frames before ``TerminateEntry``.
+    tick it dies — the fort-condor "instant vanish" complaint. ``anim`` fires a
+    one-shot clip (bare ``RunAnimation`` — see the body for why NOT
+    ``WaitAnimation``) and ``linger`` holds the corpse N frames while it plays,
+    so linger IS the visible beat: size it to the clip.
     The active flag drops FIRST either way, so the dying unit stops being a
     target the same tick it starts falling — the corpse is already inert."""
     count: str | None = None
@@ -2673,10 +2674,16 @@ class FieldBehavior:
             # falls (nothing targets it, its mirror stops) — the body holds the
             # dispatch level throughout, which is exactly what we want: a dying
             # unit does nothing else.
+            # ⚠ NO WaitAnimation here (rung-E round-2 playtest: with it, NOTHING
+            # played). The one death shape PROVEN to render is the swing body's:
+            # a bare fire-and-forget RunAnimation, with the body then ticking
+            # ordinary Waits while the clip advances. Blocking the level-4 body
+            # in WAITANIM instead showed no clip at all, so the corpse holds on
+            # `linger` frames — which also makes the beat an authored number
+            # rather than a clip length we cannot measure offline.
             fall: list = []
             if a.anim is not None:
-                fall += [opcodes.encode(OP_RUN_ANIMATION, int(a.anim)),
-                         opcodes.encode(OP_WAIT_ANIMATION)]
+                fall.append(opcodes.encode(OP_RUN_ANIMATION, int(a.anim)))
             if a.linger:
                 fall.append(opcodes.wait(int(a.linger)))
             return asm([

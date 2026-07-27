@@ -1285,7 +1285,10 @@ def test_swing_and_death_theater():
     # never dispatch again (the rung-E "still swinging after death" playtest)
     runs = [ins for ins in D.iter_code(death, 0, len(death)) if ins.op == 0x05]
     assert any("const(255)" in D.pretty_expr(death, i.off + 1)[0] for i in runs)
-    assert seq == [("anim", kneel), "waitanim", ("wait", 45), "terminate"]
+    # NO WaitAnimation: blocking the level-4 body in WAITANIM rendered NOTHING
+    # in-game (rung-E round 2). The proven shape is fire-and-forget + a Wait,
+    # so `linger` is the visible beat.
+    assert seq == [("anim", kneel), ("wait", 45), "terminate"]
     # the SWING body: the clip is FIRE-AND-FORGET (no WaitAnimation would wedge
     # the loop) and the hit cue rides with it, both after the damage write
     swing = next(body for _t, body in cb.action_funcs["guard"]
