@@ -17,6 +17,14 @@ from __future__ import annotations
 
 import struct
 
+__all__ = [
+    "HAS_SEQ", "HAS_UNKNOWN", "HAS_CUSTOM_POSITION", "CameraCodecError",
+    "parse_sequence", "serialize_sequence",
+    "parse_camera", "serialize_camera", "split_code",
+    "parse_block", "serialize_block", "splice_block",
+    "build_sequence", "author_opening",
+]
+
 HAS_SEQ = (0x01, 0x02, 0x04)
 HAS_UNKNOWN = 0x08
 HAS_CUSTOM_POSITION = 0xF0
@@ -330,3 +338,20 @@ def author_opening(raw17, cam_indices, keyframes) -> bytes:
         raise CameraCodecError(f"no opening camera among {list(cam_indices)} had a cameraPosition sequence to "
                                f"author from (this raw17 has {n} cameras); pin [scene] camera = 0")
     return splice_block(raw17, cams)
+
+
+# ----------------------------------------------------------------- the PER-CAMERA public surface
+# A battle raw17 block is a set-offset table followed by N cameras; an FF9 SUMMON's camera sub-file is
+# ONE of those cameras with no raw17 header and no set-offset table around it -- its bounds come from
+# the effect container's id-2 directory instead. So ``parse_block``/``serialize_block``/``splice_block``
+# are structurally unusable there (``parse_block`` reads camOffset from the raw17 header and derives the
+# camera count from ``table[0] // 2``), while the three functions below are exactly right.
+#
+# They were private only because, until the summon lane, nothing outside this file needed one camera at
+# a time. Publishing them is a rename, not a behaviour change: the underscored names stay as aliases so
+# every existing battle call site and test keeps working, and the round-trip they implement is the same
+# one the battle tests already gate. Kit code should call the PUBLIC names -- a package reaching into
+# another package's privates is a coupling nobody can see when they change the private.
+parse_camera = _parse_camera
+serialize_camera = _serialize_camera
+split_code = _split_code

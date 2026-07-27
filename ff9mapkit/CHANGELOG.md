@@ -5,6 +5,77 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `summon-reskin` / `summon-rescore`: recolour and reframe a STOCK summon in place
+- **Promotes the TIER W study** (`studies/custom-summons/tier-w/`) into two first-class CLI verbs
+  that edit a stock FF9 summon's OWN container bytes — no donor swap, no new model, unlike the
+  `[[summon]]` transplant lane. `summon-reskin` is a CLUT recolour: the creature's palettes AND the
+  effect's own scenery (THE EFFECT-OWNED SCENERY LAW — a summon's cinematic ships its own ground/
+  sky/fire-field, drawn on its own schedule, not the arena it's cast in), rotated in HSV and spliced
+  back at the exact same file offsets, with `0x0000` held byte-exact and the transparency bit
+  carried, never recomputed. `summon-rescore` reframes a shot's pose/focal distance on the same
+  id-2 camera-archive format the battle engine's `camera_codec` already round-trips byte-identical
+  across all 372 stock effects, with every duration and the container's byte length untouched (the
+  camera and the effect program are two clocks the original author kept aligned; a content rescore
+  moves neither). Both climb one shared six-verb ladder — `scaffold | plan | build | verify | deploy
+  | revert` — where `scaffold --ef <id>` reads ANY stock summon out of the user's own install and
+  emits a fully guarded, commented spec toml with every knob at identity, and `deploy`/`revert` write
+  through / undo a write ledger straight into a resolved mod folder.
+- **New `summons/camera.py`** (692 lines) — the camera extractor + adapter + read-out, carrying the
+  id-2 extra-sector correction and the Code frame-word high-bit correction. Deliberately ships
+  WITHOUT the study's tier-R state-machine recovery (a full MIPS disassembler + annotator, ~4,650
+  lines + a 165 KB data file the corpus proved is advisory-only — one "reframe budget" column);
+  `machines=()` is the default everywhere, matching the study's own `--no-phases` mode.
+- **New `summons/rescore.py`** (1,451 lines) — the pure content-rescore engine: the three hard
+  constraints enforced at the call site (no duration edit, no byte-length change, the frame word's
+  undecoded high bits survive by never being written), THE THREE-SEQUENCE TRAP, and THE DYNAMIC-OP
+  DISCLOSURE gate — **324 of 372 stock effects** carry a runtime-chosen `PLAY_CAMERA arg2=3` camera
+  op whose reachable blocks are absent from the container entirely; ef227, the effect this lane was
+  first hand-proven on, was the zero-op outlier and its offline completeness claim does not carry
+  past it.
+- **New `summons/reskin.py`** (2,577 lines) — the pure whole-set recolour engine, generalised past
+  the one hand-tuned effect: every palette span DERIVED (never tabulated) off a container's own
+  id-0/id-4 headers, `so`-record attribution replacing a hand-authored SHARED table, THE TEXANIM
+  GATE (creature scope refused outright on ef038/177/493-495; scenery needs
+  `acknowledge_texanim = true`), multi-writer/dual-depth CLUT-cell detectors, and a MEASURED headroom
+  gate (46 of the corpus's 93 creature CLUT rows peak at the 5-bit ceiling — ef227 was the one
+  effect that happened to have headroom to spare, and "stock leaves headroom" was never a law).
+- **New `summons/ledger.py`** (267 lines) — the write/backup/readback/revert accumulator both edit
+  lanes share, a strict superset of the transplant lane's own `_Ledger` (`summons/deploy.py`, left
+  as-is — a documented, one-directional duplication, not a silent fork); a `ModFileList.txt` is
+  appended to and never created, and every emitted revert script is `--root`-rebasable.
+  **`summons/container.py`** gains `parse_directory` / `Op`+`parse_op_stream` / `scan_geom`+
+  `Geom.end` (ported from the study's disassembly-only `ef_container.py`, folded onto the kit's own
+  parser rather than duplicated into a second one). **`battle/camera_codec.py`** gains public
+  `parse_camera`/`serialize_camera`/`split_code` aliases over its existing underscored functions (the
+  battle round-trip tests stay green by construction). **`config.py`** gains `resolve_mod_folder()` —
+  the documented `--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap` precedence,
+  implemented once and used by these two new verbs (the existing `summon-import`/`summon-deploy`
+  still carry the literal-default subparser trap this promotion's own regression tests pin down;
+  retro-fitting them is a separate decision).
+- Docs: [`docs/SUMMONS.md`](docs/SUMMONS.md) (the full spec-toml schema for both lanes, every
+  refusal, and the laws behind them in house voice — THE TEXANIM GATE, THE SATURATED-RAMP LAW +
+  the TWO-LOBE refinement, THE EFFECT-OWNED SCENERY LAW, THE ADDITIVE-COMPOSITING COROLLARY, THE
+  SILENT-FALLBACK LAW), [tutorial 14](docs/tutorials/14-summon-reskin-rescore.md), the
+  [`FEATURES.md`](docs/FEATURES.md) row, [`SETUP.md` §7](../SETUP.md#7-cli-command-reference).
+- **233 new kit tests** (`test_summon_reskin.py` 81, `test_summon_rescore.py` 93,
+  `test_summons_camera.py` 43, `test_summons_container.py` +16), pure-logic + hand-built synthetic
+  containers that run on every CI pass with zero install/corpus, plus the CLI's own registration and
+  `argparse.SUPPRESS` root-flag-survival regression tests. Every refusal named above ships with its
+  own test, and the build path is additionally held to install-gated byte-identity acceptance tests
+  against the study's own cast-proven artifacts — `summon-reskin`'s covers all three reskin
+  artifacts (Bahamut ef227, Phoenix ef211, Madeen ef251); `summons.rescore`'s covers Bahamut ef227's
+  rescore at module level; and the Phoenix ef211 rescore (`7979566f…`) is pinned end-to-end through
+  `summon-rescore build` in the CLI acceptance suite. All four artifacts the promotion's design
+  brief named as the acceptance bar are wired to tests.
+- Grounded in TIER W (`studies/custom-summons/tier-w/PLAN.md`): rungs W2–W4 cast-proven in-game on
+  Bahamut ef227 ("worked as described" on every judged cast — reframed, retimed, whole-set
+  recoloured), then W5 generalised every tool past that one hand-tuned effect and cast-proved all
+  three levers a SECOND time on effects never hand-tuned against — Phoenix ef211 (scenery recolour +
+  camera reframe, after THE ADDITIVE-COMPOSITING COROLLARY corrected a first key that read stock in
+  its own cast) and Madeen ef251 (creature recolour). The study's own scripts
+  (`reskin.py`/`rescore.py`/`summon_camera.py`) now shim onto this kit surface rather than
+  duplicating it.
+
 ### Added — the Behavior tab EDITS (rung B: the ladder is writable)
 - The ladder's rows grew move-up/down (the priority edit — first-match-wins means order IS
   the program), Edit, and Delete; the unit bar adds branches and removes units; the cast rail

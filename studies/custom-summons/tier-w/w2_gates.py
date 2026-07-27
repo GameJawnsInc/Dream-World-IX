@@ -56,8 +56,23 @@ REPORT = os.path.join(_HERE, "W2-RESCORE.md")
 
 #: the committable files this rung adds; X5 scans them for stock byte runs.  The discovered specs
 #: join the list so a new effect's toml is provenance-checked on the same terms as ef227's.
-COMMITTABLE = ("rescore.py", "test_rescore.py", "w2_gates.py", "W2-RESCORE.md") + \
+#:
+#: REPOINTED BY THE PROMOTION.  ``rescore.py`` is now a SHIM over
+#: ``ff9mapkit/ff9mapkit/summons/rescore.py``; the splice, the drift guard and the staging ledger
+#: live in the kit (``ledger.py`` holds the ledger + the revert template).  Scanning only the shim
+#: would report a green provenance verdict over ~130 lines of aliasing while the ~1,450 lines that
+#: actually handle stock bytes went unexamined -- a gate that passes because it stopped looking.
+#:
+#: An entry containing "/" is REPO-relative; a bare name is relative to this directory.
+COMMITTABLE = ("rescore.py", "test_rescore.py", "w2_gates.py", "W2-RESCORE.md",
+               "ff9mapkit/ff9mapkit/summons/rescore.py",
+               "ff9mapkit/ff9mapkit/summons/ledger.py") + \
     tuple(os.path.basename(p) for p, _e in SPECS)
+
+
+def _committable_path(name: str) -> str:
+    """Where a COMMITTABLE entry lives.  A missing one still FAILS the gate (see X5)."""
+    return os.path.join(_REPO, *name.split("/")) if "/" in name else os.path.join(_HERE, name)
 #: the report may quote stock VALUES (a pose byte, an H distance) -- never stock BYTES.
 QUOTE_BUDGET = 12
 
@@ -101,14 +116,22 @@ def x0_no_regression():
         total += n
         lines.append("%-26s %s" % (mod, line))
     lines.append("tier-r + tier-w tests: %d passed" % total)
-    # the reader this rung builds on must be untouched
-    p = subprocess.run(["git", "status", "--porcelain", "--",
-                        "studies/custom-summons/tier-w/summon_camera.py",
-                        "ff9mapkit/ff9mapkit/battle/camera_codec.py"],
+    # The reader this rung builds on must be untouched.  REPOINTED BY THE PROMOTION: W1's reader now
+    # lives at `ff9mapkit/ff9mapkit/summons/camera.py` and decodes through `summons/container.py`,
+    # with `tier-w/summon_camera.py` reduced to a shim over it.  Gating only the shim would leave the
+    # actual reader free to change under this rung's verdict while the check still printed
+    # UNMODIFIED -- so the kit files are named too, and the shim stays named because it carries the
+    # study's own SCRATCH/corpus surface.
+    _READERS = ("studies/custom-summons/tier-w/summon_camera.py",
+                "ff9mapkit/ff9mapkit/summons/camera.py",
+                "ff9mapkit/ff9mapkit/summons/container.py",
+                "ff9mapkit/ff9mapkit/battle/camera_codec.py")
+    p = subprocess.run(["git", "status", "--porcelain", "--"] + list(_READERS),
                        capture_output=True, text=True, cwd=_REPO)
     dirty = [l for l in p.stdout.splitlines() if l.strip()]
-    lines.append("summon_camera.py + camera_codec.py working tree: %s"
-                 % ("UNMODIFIED" if not dirty else "MODIFIED -- " + "; ".join(dirty)))
+    lines.append("the camera reader (%d files: the shim + summons/camera + container + camera_codec) "
+                 "working tree: %s"
+                 % (len(_READERS), "UNMODIFIED" if not dirty else "MODIFIED -- " + "; ".join(dirty)))
     ok = ok and not dirty
     return gate("X0 no regression (r1/r2/r3 + w1 gates, all tests, reader untouched)", ok, *lines)
 
@@ -386,7 +409,7 @@ def x5_provenance():
     # -- occurs in essentially every binary and would make this gate noise, not evidence.)
     lits = []
     for name in COMMITTABLE:
-        fp = os.path.join(_HERE, name)
+        fp = _committable_path(name)
         if not os.path.isfile(fp):
             lines.append("%s MISSING" % name)
             ok = False

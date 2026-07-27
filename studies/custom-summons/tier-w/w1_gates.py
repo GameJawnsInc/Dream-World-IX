@@ -40,8 +40,22 @@ EF227 = 227
 #: the tier's provenance rule; W1e counts them.
 QUOTE_BUDGET = 10
 
-#: the committable files this rung adds; W1e scans them for stock byte runs
-COMMITTABLE = ("summon_camera.py", "test_summon_camera.py", "w1_gates.py", "W1-READOUT.md")
+#: the committable files this rung adds; W1e scans them for stock byte runs.
+#:
+#: REPOINTED BY THE PROMOTION.  ``summon_camera.py`` is now a SHIM over
+#: ``ff9mapkit/ff9mapkit/summons/camera.py`` -- the reader itself lives in the kit.  Scanning only the
+#: shim would find zero byte literals and report a green provenance gate over ~40 lines of aliasing
+#: while the 590 lines that actually decode stock containers went unexamined: a gate that passes
+#: because it stopped looking.  Both are listed, so the scan follows the code.
+#:
+#: An entry containing "/" is REPO-relative; a bare name is relative to this directory.
+COMMITTABLE = ("summon_camera.py", "test_summon_camera.py", "w1_gates.py", "W1-READOUT.md",
+               "ff9mapkit/ff9mapkit/summons/camera.py")
+
+
+def _committable_path(name: str) -> str:
+    """Where a COMMITTABLE entry lives.  A missing one still FAILS the gate (see W1e)."""
+    return os.path.join(_REPO, *name.split("/")) if "/" in name else os.path.join(_HERE, name)
 
 RESULTS = []
 FINDINGS = []
@@ -89,14 +103,22 @@ def w1a_no_regression():
         lines.append("%-26s exit=%d  %s" % (mod, rc, line))
     lines.append("%d tests pass across tier-r + tier-w (tier-r's own 142 are unchanged)" % total)
     lines.append("")
-    # the kit's own battle-camera tests -- W1 reuses camera_codec UNCHANGED, so these must be green
+    # the kit's own battle-camera tests -- W1 owns no camera GRAMMAR, so these must be green
     for mod in ("tests/test_battle.py", "tests/test_battle_scene_codec.py"):
         rc, n, line = _pytest(mod, KIT, extra=("-k", "camera"))
         ok = ok and rc == 0
         lines.append("kit %-30s exit=%d  %s (-k camera)" % (mod, rc, line))
-    dirty = subprocess.run(["git", "status", "--porcelain", "ff9mapkit/ff9mapkit/battle/camera_codec.py"],
+    # REPOINTED BY THE PROMOTION.  The reader W1 built is now `summons/camera.py` and it decodes
+    # through `summons/container.py`; `camera_codec.py` gained the public aliases both call.  All
+    # three are listed so an uncommitted edit to the code this rung's verdict rests on is caught --
+    # naming only the file the reader USED to live beside would leave the reader itself unwatched.
+    _READERS = ("ff9mapkit/ff9mapkit/battle/camera_codec.py",
+                "ff9mapkit/ff9mapkit/summons/camera.py",
+                "ff9mapkit/ff9mapkit/summons/container.py")
+    dirty = subprocess.run(["git", "status", "--porcelain", "--"] + list(_READERS),
                            capture_output=True, text=True, cwd=_REPO).stdout.strip()
-    lines.append("camera_codec.py working-tree status: %s" % (dirty or "UNMODIFIED"))
+    lines.append("kit reader working-tree status (%d files): %s"
+                 % (len(_READERS), dirty or "UNMODIFIED"))
     ok = ok and not dirty
     return gate("W1a no regression (tier-r gates + tests, kit battle-camera tests)", ok, *lines)
 
@@ -284,7 +306,7 @@ def w1e_provenance(rows):
     lines, ok = [], True
     lits = []
     for name in COMMITTABLE:
-        p = os.path.join(_HERE, name)
+        p = _committable_path(name)
         if not os.path.isfile(p):
             lines.append("%-24s MISSING" % name)
             ok = False

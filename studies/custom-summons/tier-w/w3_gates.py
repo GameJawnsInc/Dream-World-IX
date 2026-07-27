@@ -165,6 +165,9 @@ def x0_no_regression():
                     "ff9mapkit/ff9mapkit/battle/camera_codec.py",
                     "ff9mapkit/ff9mapkit/summons/texture.py",
                     "ff9mapkit/ff9mapkit/summons/container.py",
+                    # the promotion moved summon_camera's implementation here; the tier-w file is a
+                    # shim, so the ACTUAL reader must be watched or this check is fail-open (B7).
+                    "ff9mapkit/ff9mapkit/summons/camera.py",
                     "studies/custom-summons/thomas-swap/disasm/ef_container.py",
                     "studies/custom-summons/tier-r/tier_r_disasm.py",
                     "studies/custom-summons/tier-r/tier_r_annot.py",

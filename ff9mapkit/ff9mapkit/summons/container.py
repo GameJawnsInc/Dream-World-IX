@@ -21,6 +21,19 @@ WHAT THIS REACHES (the transplant read path, FORMAT.md §2.1):
 The GEOM block carries an indexed-pool, rigid-run-length-skinned model: a ``BoneLink`` parent/length tree,
 a mesh table of eight ``POLY_*`` buckets, and per-mesh vertex/uv/colour pools. Every creature in the game
 uses only ``FT4`` + ``FT3`` (flat-shaded textured quads/tris with inline neutral-grey RGB).
+
+WHAT THE EDIT LANES ADD (the reskin / rescore read path -- same parser, wider reach):
+
+    parse_directory(blob, base)     -> the id-2 sub-file directory (signed table-relative offsets)
+    parse_op_stream(blob)           -> the sequence stream as ``Op(at, code, arg1, arg2)`` records
+    scan_geom(blob, start, end)     -> every GEOM block in a span, not just the creature's own
+    Geom.end                        -> a scanned block's REGION end (the chain-closure colour-pool end)
+
+These four exist because a creature's own GEOM is reached directly by ``creature_geom`` while every
+OTHER GEOM in a container -- and the camera sub-files the sequence names -- can only be found by
+walking. They embed no game bytes either; the study's disassembly-provenance parser
+(``studies/custom-summons/thomas-swap/disasm/ef_container.py``) remains the record of where each rule
+came from.
 """
 from __future__ import annotations
 
@@ -31,10 +44,11 @@ from typing import List, Optional, Tuple
 SECTOR = 0x800
 
 __all__ = [
-    "ContainerError", "SECTOR", "RESOURCE_IDS", "STREAMED_IDS",
+    "ContainerError", "SECTOR", "SEQ_OFFSET", "RESOURCE_IDS", "STREAMED_IDS",
     "PRIM_TYPES", "PRIM_FIELDS", "MAX_VERTS_PER_MESH",
-    "Resource", "Chunk", "Container", "parse_header",
-    "BoneLink", "Mesh", "Geom", "parse_geom", "geom_checks",
+    "Resource", "Chunk", "Container", "parse_header", "parse_directory",
+    "Op", "parse_op_stream",
+    "BoneLink", "Mesh", "Geom", "parse_geom", "geom_checks", "scan_geom",
     "iter_primitives", "vertices", "bone_of_vertex",
     "ModelPackage", "parse_model_package", "creature_geom", "creature_package", "vram_rect",
 ]
@@ -138,6 +152,67 @@ def parse_header(blob: bytes, strict: bool = True) -> Container:
         raise ContainerError(
             f"resource table sums to {pos:#x} but the file is {len(blob):#x} -- parser drift")
     return c
+
+
+def parse_directory(blob: bytes, base_off: int, count: Optional[int] = None) -> List[int]:
+    """The id-2 sub-resource directory: a table of SIGNED 32-bit offsets RELATIVE TO THE TABLE.
+
+    Port of fn 0x3d800's tail @0x3da87, which computes ``entry = base + (Int32)base[idx]``. The table
+    is self-describing: entry[0] points just past the table itself, so ``count == entry[0] // 4``
+    unless the caller states one.
+
+    (``SFXBinaryFile.cs`` reads these same bytes as ``u16 offset + u16 flags`` pairs; a "flags ==
+    0xFFFF external file" in that model is simply a NEGATIVE relative offset here. A negative entry
+    is returned verbatim -- it points backwards out of the region into earlier-loaded data, and it is
+    the CALLER's job to refuse it rather than this parser's to hide it.)
+    """
+    first = _s32(blob, base_off)
+    n = count if count is not None else (first // 4 if first > 0 else 0)
+    return [_s32(blob, base_off + 4 * i) for i in range(n)]
+
+
+# --------------------------------------------------------------------------- the sequence op stream
+#: the SEQUENCE STREAM's file offset -- inside sector 0, fn 0x31d31 @0x31edb sets
+#: ``seqPtr(0x323198) = 0x320cd0 = headerSector + 0x400``.
+SEQ_OFFSET = 0x400
+
+
+@dataclass
+class Op:
+    """One 3-byte ``(code, arg1, arg2)`` record of the sequence stream, at file offset ``at``.
+
+    Deliberately CODE ONLY -- no opcode name, no handler rva, no valid/illegal status. The native
+    dispatch tables that would supply those live in the study's disassembly notes and are not needed
+    by any kit consumer (the camera extractor reads ``code``/``arg1``/``arg2``/``at`` and nothing
+    else), so shipping a half-populated status column here would be an authority claim this module
+    does not carry.
+    """
+    at: int
+    code: int
+    arg1: int
+    arg2: int
+
+
+def parse_op_stream(blob: bytes, off: int = SEQ_OFFSET, limit: int = 200_000) -> List[Op]:
+    """Walk the container's sequence stream: 3-byte ``(code, arg1, arg2)`` records from ``off``.
+
+    Port of fn 0x315f1's fetch/dispatch head (@0x31647..0x3167e). The interpreter stops advancing on
+    code 0x00 (END_HOLD rewinds the pointer and re-executes), so that record is included and the walk
+    returns.
+
+    NAMED ``parse_op_stream``, not ``parse_sequence``: ``ff9mapkit.battle.camera_codec`` already has a
+    ``parse_sequence(b, off, end)`` that walks a camera CODE stream -- an entirely different format at
+    an entirely different layer. Both are in scope inside :mod:`ff9mapkit.summons.camera`, so the two
+    names had to differ or every future call site would have to be read twice to know which one it is.
+    """
+    ops: List[Op] = []
+    for _ in range(limit):
+        code, a1, a2 = blob[off], blob[off + 1], blob[off + 2]
+        ops.append(Op(off, code, a1, a2))
+        off += 3
+        if code == 0x00:
+            return ops
+    raise ContainerError("sequence stream never reached END within the limit")
 
 
 # --------------------------------------------------------------------------- geometry: bucket layout
@@ -251,6 +326,25 @@ class Geom:
             out[r + 1] = bl.signed_length
         return out
 
+    @property
+    def end(self) -> int:
+        """Absolute file offset just past the block = the LAST mesh's colour pool end (chain closure).
+
+        The colour pool is the one sub-block whose size the file never states, so this is the only
+        honest answer to "how long is this GEOM block": ``base + p_colors + 4*col_count`` of the last
+        mesh in TABLE order. ``col_count`` is resolved by :func:`parse_geom`'s chain closure; a block
+        parsed with no ``block_end`` may leave the final LAYOUT-order mesh's count unresolved, and
+        this property then reports the header-relative pool START (``col_count or 0``) rather than
+        inventing a length.
+
+        Why it is a property and not a caller-side computation: every consumer that treats a scanned
+        GEOM as a REGION (a byte-identical attribution gate, an overlap check) needs ``[base, end)``.
+        Without it those callers fall back to ``base + 0x10`` -- the 16-byte header stub -- and a gate
+        spanning the region goes green while gating essentially nothing.
+        """
+        m = self.meshes[-1]
+        return self.base + m.p_colors + 4 * (m.col_count or 0)
+
 
 def parse_geom(blob: bytes, base: int, block_end: Optional[int] = None) -> Geom:
     """Decode a GEOM block at absolute file offset ``base`` (pre-relocation, as on disk). ``block_end``
@@ -320,6 +414,48 @@ def geom_checks(blob: bytes, g: Geom, limit: Optional[int] = None) -> dict:
     if limit is not None:
         r["in_bounds"] = g.base + g.meshes[-1].p_colors <= limit
     return r
+
+
+# GEOM blocks also exist OUTSIDE the summon lane (the whole Hi_Register*EffModel family shares fn
+# 0x7120). In the stock corpus 1005 blocks live in resources id 2 (658), 6 (282), 5 (24 -- the
+# creatures), 8 (20), 3 (12) and 10 (9); only the id-5 ones sit at their resource's offset 0, which is
+# what ``creature_geom`` reaches directly. Every other block needs this scan to be FOUND at all.
+_GEOM_NEEDLE = b"\x14\x00\x00\x00"          # geom+0x0c == 0x14, on disk, 1005/1005
+
+
+def scan_geom(blob: bytes, start: int = 0, end: Optional[int] = None):
+    """Yield every GEOM block in ``blob[start:end]``, located by header law + chain identity.
+
+    Acceptance is the cheap header law (``pBoneTable == 0x14`` and ``pMeshTable == 0x18 +
+    (boneCount-1)*4``) plus the four chain identities :func:`geom_checks` evaluates. In the stock
+    corpus that pair is already 100% selective: zero candidates passed the header law and then failed
+    a chain check.
+
+    Two checks are excluded from the verdict on purpose. ``listHead_zero`` is NOT an invariant (7 of
+    1005 stock blocks carry a non-zero listHead), and ``in_bounds`` needs an extent only the caller
+    knows -- neither is evaluated here, and the name-keyed filter below stays correct whether or not
+    this module's :func:`geom_checks` happens to emit them.
+    """
+    end = len(blob) if end is None else end
+    pos = start
+    while True:
+        k = blob.find(_GEOM_NEEDLE, pos, end)
+        if k < 0:
+            return
+        pos = k + 4
+        base = k - 0x0C
+        if base < start or blob[base] & 1 or blob[base + 1] != 0:
+            continue
+        bc, mc = blob[base + 2], blob[base + 3]
+        if bc == 0 or mc == 0 or _u32(blob, base + 0x10) != 0x18 + (bc - 1) * 4:
+            continue
+        try:
+            g = parse_geom(blob, base)
+        except (ContainerError, struct.error, IndexError):
+            continue
+        chk = geom_checks(blob, g)
+        if all(v for kk, v in chk.items() if kk not in ("listHead_zero", "in_bounds")):
+            yield g
 
 
 def iter_primitives(blob: bytes, g: Geom, mesh: Mesh):

@@ -60,8 +60,22 @@ _REPO = os.path.dirname(os.path.dirname(_STUDY))
 TIER_R = os.path.join(_STUDY, "tier-r")
 SPEC = os.path.join(_HERE, "bahamut_reskin.toml")
 
-#: the committable files THIS rung adds; X5 scans them for stock byte runs
-COMMITTABLE = ("reskin.py", "test_reskin.py", "w4_gates.py", "bahamut_reskin.toml")
+#: the committable files THIS rung adds; X5 scans them for stock byte runs.
+#:
+#: REPOINTED BY THE PROMOTION.  ``reskin.py`` is now a SHIM over
+#: ``ff9mapkit/ff9mapkit/summons/reskin.py`` -- the palette derivation, the transforms and every
+#: refusal live in the kit.  Scanning only the shim would find zero byte literals and report a green
+#: provenance verdict over ~230 lines of aliasing while the ~2,100 lines that actually read and
+#: rewrite stock CLUT bytes went unexamined: a gate that passes because it stopped looking.
+#:
+#: An entry containing "/" is REPO-relative; a bare name is relative to this directory.
+COMMITTABLE = ("reskin.py", "test_reskin.py", "w4_gates.py", "bahamut_reskin.toml",
+               "ff9mapkit/ff9mapkit/summons/reskin.py")
+
+
+def _committable_path(name: str) -> str:
+    """Where a COMMITTABLE entry lives.  A missing one still FAILS the gate (see X5)."""
+    return os.path.join(_REPO, *name.split("/")) if "/" in name else os.path.join(_HERE, name)
 
 #: subprocess timeout for the (occasionally slow, corpus-walking) sibling gate runners
 RUNNER_TIMEOUT = 900   # w3_gates alone measures ~540-720s (V3); at 480 the nested check could never fail
@@ -176,16 +190,25 @@ def x0_no_regression():
     # The readers THIS rung builds on must be untouched.  Split for the same reason: `rescore.py`,
     # `summon_camera.py` and `retime.py` are the sibling lanes' OWN files this rung, so their state
     # is reported rather than gated; everything else is nobody's lane and stays hard.
+    # REPOINTED BY THE PROMOTION.  The split is unchanged in MEANING -- a reader nobody's lane owns
+    # this rung is GATED, a sibling lane's own file is REPORTED -- but the files moved: W2's engine is
+    # now `summons/rescore.py` and W1's reader is `summons/camera.py`, so those join the sibling list
+    # beside their shims, while `summons/ledger.py` (the promoted staging ledger, which W4 uses
+    # through `R._Ledger` and does not own) joins the hard readers.  Without this the cleanliness
+    # check would watch three shims and let the code they alias change unwatched.
     hard_readers = ["ff9mapkit/ff9mapkit/battle/camera_codec.py",
                     "ff9mapkit/ff9mapkit/summons/texture.py",
                     "ff9mapkit/ff9mapkit/summons/container.py",
+                    "ff9mapkit/ff9mapkit/summons/ledger.py",
                     "studies/custom-summons/thomas-swap/disasm/ef_container.py",
                     "studies/custom-summons/tier-r/tier_r_disasm.py",
                     "studies/custom-summons/tier-r/tier_r_annot.py",
                     "studies/custom-summons/tier-r/summon_inspect.py"]
     sibling_lane = ["studies/custom-summons/tier-w/rescore.py",
                     "studies/custom-summons/tier-w/summon_camera.py",
-                    "studies/custom-summons/tier-w/retime.py"]
+                    "studies/custom-summons/tier-w/retime.py",
+                    "ff9mapkit/ff9mapkit/summons/rescore.py",
+                    "ff9mapkit/ff9mapkit/summons/camera.py"]
     p = subprocess.run(["git", "status", "--porcelain", "--"] + hard_readers,
                        capture_output=True, text=True, cwd=_REPO)
     dirty = [l for l in p.stdout.splitlines() if l.strip()]
@@ -374,7 +397,7 @@ def x5_provenance():
     lines, ok = [], True
     lits = []
     for name in COMMITTABLE:
-        fp = os.path.join(_HERE, name)
+        fp = _committable_path(name)
         if not os.path.isfile(fp):
             lines.append("%s MISSING" % name)
             ok = False

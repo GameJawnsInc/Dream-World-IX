@@ -18,9 +18,10 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 | 08 | [Dialogue choices & a cutscene](08-dialogue-cutscene.md) | A branching choice menu + a scripted actor scene | a field from 01/03 |
 | 09 | [Custom battle background](09-battle-background.md) | Fork a 3D battle map, retexture/reshape it, fight in it | UnityPy |
 | 10 | [Edit a character model](10-custom-model.md) | Round-trip a model through Blender (mesh + textures) | Blender 4.2+ |
-| 11 | [Edit an animation](../ANIMATION_EDITING.md) | Keyframe-edit a real animation clip in Blender | Blender 4.2+ |
-| 12 | [Create a creature from scratch](12-creature-from-scratch.md) | An original mesh + rig + animset on a minted id, placed as an NPC | UnityPy |
 | 11 | [Transplant a model onto a summon](11-summon-transplant.md) | Wear a stock summon's real bones/camera with your own model (Blender round-trip) | Blender 4.2+; hybrid lane needs the custom engine bundle |
+| 12 | [Create a creature from scratch](12-creature-from-scratch.md) | An original mesh + rig + animset on a minted id, placed as an NPC | UnityPy |
+| 13 | [Edit an animation](../ANIMATION_EDITING.md) | Keyframe-edit a real animation clip in Blender | Blender 4.2+ |
+| 14 | [Recolour and reframe a stock summon](14-summon-reskin-rescore.md) | Edit a stock summon's palette and camera in place, no new model (`summon-reskin` / `summon-rescore`) | none — stock Memoria, offline scaffold + a live install |
 
 Pillars without a tutorial yet (reference docs instead):
 
