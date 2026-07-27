@@ -1276,6 +1276,8 @@ def test_swing_and_death_theater():
         if ins.op in (0x33, 0x34, 0x40):
             seq.append(({0x33: "stand", 0x34: "walk", 0x40: "anim"}[ins.op],
                         ins.imm(0)))
+        elif ins.op == 0x3F:                              # SetAnimationFlags
+            seq.append(("flags", ins.imm(0), ins.imm(1)))
         elif ins.op == 0x41:
             seq.append("waitanim")
         elif ins.op == 0x22:
@@ -1291,8 +1293,11 @@ def test_swing_and_death_theater():
     # animation before the one-shot — otherwise it ends and the model stands
     # back up (round 3's soldier), or a blocked march's walk clip overrides it
     # outright (round 3's raiders).
-    assert seq == [("stand", kneel), ("walk", kneel), ("anim", kneel),
-                   ("wait", 45), "terminate"]
+    # ... and FREEZE AT END (mode 1, 0 repeats): a stand clip loops by
+    # definition, so without this the corpse replays its death for the whole
+    # linger (round 4: "loop their death animation 3 times").
+    assert seq == [("stand", kneel), ("walk", kneel), ("flags", 1, 0),
+                   ("anim", kneel), ("wait", 45), "terminate"]
     # the SWING body: the clip is FIRE-AND-FORGET (no WaitAnimation would wedge
     # the loop) and the hit cue rides with it, both after the damage write
     swing = next(body for _t, body in cb.action_funcs["guard"]

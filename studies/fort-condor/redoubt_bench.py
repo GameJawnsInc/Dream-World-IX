@@ -234,18 +234,15 @@ PLAYTEST — THE ACCEPTANCE RUN (first deploy of {FIELD_ID} = RELAUNCH once, the
       run out first. The siege now FREEZES the clock the moment the depot
       falls (watch it stop), so the fight inherits a nonzero reading.
   5 ~ -> Reload = a clean fresh run (jingle + wash re-arm with the purse).
-  6 FIGHT THEATER -- round 4, THE DEATH POSE. Round 3 taught us two things
-    at once: the soldier's kneel PLAYED but then ENDED and he stood back up
-    before vanishing (a one-shot reverts to the STAND clip), and the mu
-    showed nothing at all (it dies mid-march, and the blocked walk's WALK
-    clip overrode the one-shot). So the death clip is now installed as the
-    object's stand AND walk animation before firing it -- whatever the
-    engine drives next, it drives the death clip, and the pose HOLDS.
-    WATCH A SOLDIER DIE and A MU DIE:
-      - the soldier should kneel and STAY down until he vanishes (no
-        standing back up);
-      - the mu should now actually play its lunge instead of blinking out;
-      - neither should swing while dying (round 2's fix, already good).
+  6 FIGHT THEATER -- round 5, FREEZE AT END. Round 4 got the clip playing
+    on BOTH unit kinds (installing it as the stand+walk animation beat the
+    blocked-march override), but a stand clip LOOPS by definition, so the
+    corpse replayed its death ~3x across the linger. The death clip now
+    also sets SetAnimationFlags(1, 0) = the engine's freeze-at-end mode
+    (the chest's own idiom before its lid clip).
+    WATCH A SOLDIER DIE and A MU DIE: the clip should play ONCE, hold its
+    final pose for the rest of the ~1s linger, then the body vanishes --
+    no replay, no standing back up, no swinging while dying.
     Also unchanged from round 2: only the SHOOTER (the F3 rig) swings with
     a real attack clip -- the F0 soldier and F1 defender own none in their
     own form (the cross-form trap), so they simply do not play one; every

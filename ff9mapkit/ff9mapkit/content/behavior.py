@@ -417,6 +417,10 @@ OP_RUN_ANIMATION = 0x40             # ANIM — one-shot clip on the running obje
 OP_WAIT_ANIMATION = 0x41            # WAITANIM — block until it finishes
 OP_SET_STAND_ANIM = 0x33            # the object's IDLE clip (what it reverts to)
 OP_SET_WALK_ANIM = 0x34             # ... and its WALK clip (what a blocked walk drives)
+OP_SET_ANIM_FLAGS = 0x3F            # AMODE(mode, repeats) — mode 1 = FREEZE AT END
+ANIM_HOLD = 1                       # (engine: flag<<3 & afHold|afLoop|afPalindrome;
+                                    #  1 freeze-at-end, 2 loop, 3 palindrome) — the
+                                    #  chest's own `SetAnimationFlags(1, 0)` idiom
 
 
 @dataclass
@@ -2689,11 +2693,17 @@ class FieldBehavior:
             #     NPC Init uses for its movement slots): whatever the engine
             #     drives next, it drives THIS clip, and the pose holds until the
             #     corpse is removed.
+            #   * and it must FREEZE AT END, or the corpse replays its death
+            #     over and over for the whole linger (round 4: "loop their death
+            #     animation 3 times") — a STAND clip loops by definition.
+            #     SetAnimationFlags(1, 0) is the engine's freeze-at-end mode and
+            #     the exact idiom content.chest uses before its lid clip.
             fall: list = []
             if a.anim is not None:
                 fall += [
                     opcodes.encode(OP_SET_STAND_ANIM, int(a.anim)),
                     opcodes.encode(OP_SET_WALK_ANIM, int(a.anim)),
+                    opcodes.encode(OP_SET_ANIM_FLAGS, ANIM_HOLD, 0),
                     opcodes.encode(OP_RUN_ANIMATION, int(a.anim)),
                 ]
             if a.linger:
