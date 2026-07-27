@@ -1,5 +1,5 @@
 --- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s63	2026-07-27 17:52:42.290094000 -0400
-+++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 17:53:30.521767400 -0400
++++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 18:06:38.635735200 -0400
 @@ -3739,6 +3739,89 @@
              PlayerWindow.Instance.SetTitle($"World Map: {FF9StateSystem.Common.FF9.wldMapNo}");
          else
@@ -81,11 +81,11 @@
 +                    + " pos=(" + a.pos[0].ToString("F1") + "," + a.pos[1].ToString("F1") + "," + a.pos[2].ToString("F1") + ")"
 +                    + " wm=" + waS;
 +            }
-+            global::Debug.Log(s);
++            Log.Message(s);                                // Memoria's own channel -- plain Debug.Log never reaches Memoria.log
 +        }
 +        catch (Exception err)
 +        {
-+            global::Debug.Log("[ff9mkprobe] probe failed: " + err.Message);
++            Log.Message("[ff9mkprobe] probe failed: " + err.Message);
 +        }
      }
  
