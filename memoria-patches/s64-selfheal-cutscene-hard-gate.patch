@@ -1,6 +1,6 @@
---- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s64	2026-07-27 18:15:00.984089800 -0400
-+++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 18:15:42.443739100 -0400
-@@ -4715,14 +4715,34 @@
+--- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s63	2026-07-27 17:52:42.290094000 -0400
++++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 18:23:19.272474900 -0400
+@@ -4632,14 +4632,34 @@
              if (ee == null)
                  return false;
  
@@ -37,7 +37,7 @@
              Boolean hasPlayerActor = false;
              for (ObjList pol = ff9.GetActiveObjList(); pol != null; pol = pol.next)
              {
-@@ -4782,13 +4802,13 @@
+@@ -4699,13 +4719,13 @@
              WMActor healed = ff9.GetControlChar();
              ff9.w_moveActorPtr = healed != (UnityEngine.Object)null ? healed : leader.wmActor;
              Memoria.SmoothFrameUpdater_World.Skip = 2;
