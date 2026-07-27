@@ -426,8 +426,15 @@ stays on screen. Needs field-level `timer` (lint refuses it otherwise).
 > staged lines take seconds, and a late loss otherwise lets the clock reach 0:00 before
 > the battle fires — the fight then dies the moment combat starts, with nothing wrong in
 > your script at all. `[siege]` freezes the clock at the top of its loss lane and on the
-> rout for exactly this reason. When you fire a battle from a timed field, verify the
-> scene with `ff9mapkit battle-ai <scene>` and look for `B_SYSVAR[17]`.
+> rout for exactly this reason.
+>
+> **`behavior lint` now checks this for you.** When a timed field fires a `battle`, the
+> linter reads that scene's own AI from your install and warns if it reads `B_SYSVAR[17]`.
+> It is a *warning*, not an error — the same design is correct once the clock is stopped —
+> and it goes quiet as soon as the behavior uses `stop_timer` anywhere (so `[siege]` is
+> quiet by construction). If the scene can't be read (no install), the check says nothing
+> rather than pretending the scene is safe. Inspect any scene yourself with
+> `ff9mapkit battle-ai <scene>` and look for `B_SYSVAR[17]`.
 
 ### `flash` — a screen flash
 

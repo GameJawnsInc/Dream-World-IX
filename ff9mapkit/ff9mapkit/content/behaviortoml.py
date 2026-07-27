@@ -162,6 +162,57 @@ def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
     return verb
 
 
+def clock_coupled_warnings(raw: dict, *, game=None, probe=None) -> list:
+    """LINT (warnings, not errors): every ``battle`` this TIMED field fires whose scene AI
+    READS THE COUNTDOWN — ``B_SYSVAR[17]`` is ``TimerUI.Time``, and the Hunt scenes end
+    themselves the instant it reads 0 (THE CLOCK-COUPLED BATTLE LAW; see
+    ``battle.battleai.reads_timer``). The field's own ending theater is what lets the clock
+    run out before the battle fires, so this is a warning about a COMBINATION, not a bad
+    scene.
+
+    Quiet when: the field has no ``timer``, fires no battle, the scene's ``.eb`` can't be
+    read (no install — "unknown", never assumed safe: the message says so), or the behavior
+    uses ``stop_timer`` ANYWHERE (the author has met the law; ``[siege]`` always does).
+    ``probe``: ``scene -> bool|None`` override, for tests without an install."""
+    b = table(raw)
+    if not b or b.get("timer") is None:
+        return []
+    scenes, has_stop = [], False
+    for u in b.get("unit", []) or []:
+        for br in u.get("branch", []) or []:
+            do = br.get("do")
+            if not isinstance(do, dict):
+                continue
+            if do.get("stop_timer"):
+                has_stop = True
+            if isinstance(do.get("battle"), int):
+                scenes.append((str(u.get("npc")), int(do["battle"])))
+    if not scenes or has_stop:
+        return []
+    if probe is None:
+        from ..battle import battleai as _ai
+
+        def probe(s):
+            return _ai.scene_reads_timer(s, game=game)
+    out = []
+    for unit, sid in dict.fromkeys(scenes):
+        try:
+            hit = probe(sid)
+        except Exception:                          # noqa: BLE001 — never fail lint on this
+            hit = None
+        if hit:
+            out.append(
+                f"[[behavior.unit]] {unit!r}: battle scene {sid}'s AI READS THE COUNTDOWN "
+                f"(B_SYSVAR[17] = TimerUI.Time) and will END ITSELF if the clock reads 0 "
+                f"when it starts — the Festival of the Hunt rule, which lives inside the "
+                f"battle script. This field runs a timer, so any theater before the battle "
+                f"(a sting, staged text) can let the clock expire first and the fight dies "
+                f"on entry. Fix: `do = {{ stop_timer = true }}` on a branch that outranks "
+                f"the battle (this warning goes quiet once the behavior uses it), or pick a "
+                f"scene whose AI ignores the clock (`ff9mapkit battle-ai <scene>`).")
+    return out
+
+
 def resolve_gesture(v, model, ctx: str) -> int:
     """An ``anim`` option: a raw clip id (int, passed through) or a GESTURE NAME
     resolved against ``model``'s OWN clips (``catalog.animations_for_model`` — the
