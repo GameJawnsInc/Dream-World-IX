@@ -267,7 +267,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★ COMPLETE incl. W5 ⛳ + W6a texel repaint ★★ cast-proven (reskin/rescore kit verbs; indexed creature-page art lane; the emblem brand live on ef227) → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★ COMPLETE: W5 ⛳, W6a texel repaint ★★, W7 texanim read ★★ (five summons unlocked; magenta Shiva cast-proven, nothing blits) → `studies/custom-summons/tier-w/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

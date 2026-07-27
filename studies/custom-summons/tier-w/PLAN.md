@@ -33,6 +33,7 @@
 | **W4** | **THE RESKIN** — retexture a stock creature in place | a cast showing our texture on the stock cinematic, stock bytes untouched |
 | **W5** | **THE GENERALISATION** — the W tools take ANY stock summon (scaffold verbs, derivation-first, named refusals: texanim / multi-writer / dual-depth / dynamic-op / half-patch / headroom) | offline: 372/372 corpus sweeps + ef227 byte-compat pinned in gates; in-game: a SECOND summon's cast on each lever — Phoenix ef211 (scenery + camera) and Madeen ef251 (creature) |
 | **W6a** | **THE TEXEL REPAINT** — lever #2: rewrite a stock creature page's **indices**, so shape / edge / silhouette become editable at all (a recolour is a colour function and structurally cannot). `summon-reskin export-art` + `[[reskin.texel]]`, indexed lane, creature pages only; every other texel class REFUSES by name (W6b) | offline: the indexed round trip byte-identical **93/93** stock pages, the composed artifact's changed-byte set proven = the CLUT set ∪ the texel set with the two **disjoint**, the three cast-proven CLUT shas unmoved; in-game: a hard-edged brand on ef227's wing membrane that no palette map could produce |
+| **W7** | **THE TEXANIM READ** — read the id-5 model image's texture-animation table, the one hazard W5 could only refuse, and replace the refusal with whatever the bytes actually license. New kit module `summons/texanim.py` (a READER; no writer, R2), both lanes' gates rewritten, one new hard rule minted | offline: `encode(parse(region))` byte-identical on every armed region + `parse` never raises across all 372 containers; the §4.1 lift matrix executed on the five REAL packages (build or refuse, each with its stated message class); the co-transform refusal naming the untouched sibling rects; and **THE REGION INVARIANT** — `firstBlock`, `min(motionOffsets)` and every region byte unchanged after a real reskin AND repaint on all five, with the check proven non-vacuous; in-game: ★ THE ONE-FRAME VERDICT — cast Shiva (ef038, the only effect that arms op 12), one captured frame, magenta creature ⇒ the lift is correct |
 
 **Done = "editable in place":** a stock summon can be re-framed, re-timed, and re-skinned from our own
 declarative surface, with the stock install revertible at every step. **W6a adds the second reskin
@@ -273,3 +274,48 @@ scenery must be re-authored *together*.
   → Stock Bahamut, hot — a PAGE upload is itself the cache-invalidating event, so no `~` reload and
   no relaunch), with §7 naming the two honest cast postures now that the live baseline was wiped, and
   the rung does not close until the cast is judged.
+- **W7 — ★★ CAST-PROVEN, both verdicts (magenta Shiva on screen; her eye never changes — nothing
+  blits, the fourth independent confirmation; cast record → `W7-TEXANIM.md` §6)** (`W7-TEXANIM.md`,
+  `ff9mapkit/ff9mapkit/summons/texanim.py`, `ff9mapkit/tests/test_summon_texanim.py`, `w7_gates.py`;
+  w7_gates 5/5, w5_gates 9/9, w6_gates 7/7, tier-w suite 360/1 single-process, the three kit summon
+  reskin/repaint/texanim test files 195).
+  **THE TEXANIM READ — the rung that turned a refusal into a lift.** W5 minted a gate whose own words
+  were *"this is not a knob: read the table first"*; W7 read it, from three parallel recon lanes (a
+  static disassembly of the user's own `FF9SpecialEffectPlugin.dll` in x64 AND x86, a measurement
+  sweep over the 372-container corpus, and a `file:line` census of this repo). **THE FORMAT**: `u32
+  clipCount` + one 20-byte CLIP record per clip + one 12-byte destination WINDOW per clip + packed
+  4-byte frame lists — three sub-arrays that tile the region EXACTLY, which is why the only two sizes
+  corpus-wide are `4+60+36+16 = 116` (ef038, 3 clips) and `4+180+108+72 = 364` (the ef177 family, 9
+  clips), and why neither ever divided by `partCount * 0x18` (`0x18` is the **x64 runtime** row —
+  `nodeOff` widens to a pointer — the FILE record is `0x14`, and the count counts **clips**, not
+  parts). **WHAT IT DESCRIBES**: a texel BLIT — a `w×h` rect of 8-bit palette INDICES copied inside
+  ONE creature part's own 128×128 page. It binds no CLUT word (no `u16` in any of the five tables is a
+  TPAGE or CLUT word), writes no CLUT contents (the rects cannot reach a 3–5-row strip), and touches
+  no UV (0 UV entries inside every frame rect on 39/39 clips, vs 16–272 inside every window rect).
+  **AND NOTHING RUNS IT**: by exhaustion over both builds, the only code that dereferences
+  `SummonData+0x70` is `Hi_Start/StopSummonTexAnim`, which write three state fields and return — no
+  ticker, no draw-path read, no VRAM write; op 11 is never called by any of the 372 containers and op
+  12 by exactly two sites in one effect. **THE FALSIFIABLE COROLLARY**: Shiva's eyes never close
+  during her cast on the PC port, and Carbuncle's nine eye/mouth clips are dormant content the
+  shipping game never plays. **THE LIFT**: creature recolour, scenery recolour and whole-page texel
+  repaint all build with NO key on all five armed packages; a LOCALISED texel repaint builds once the
+  protected rect set is co-transformed and otherwise refuses **naming the clip and the exact rects
+  left stock** (`acknowledge_texanim_frames = true` is the escape hatch for a deliberately asymmetric
+  strip); `acknowledge_texanim` becomes a deprecated no-op and the scaffold stops emitting it; and
+  every readout now prints the DECODED table instead of "TEXANIM ARMED (N bytes)" — the opaque line
+  that made the old refusal unanswerable. **THE LIFT IS CONDITIONAL ON A SUCCESSFUL PARSE**, never on
+  the absence of an exception, so an unknown future shape degrades to the pre-W7 refusal verbatim.
+  **★ THE ONE NEW HARD RULE — THE REGION INVARIANT (R1)**: never resize, relocate or zero
+  `[firstBlock, min(motionOffsets))` and never edit `firstBlock` — `firstBlock == motionOffsets[0]` is
+  a LIVE engine predicate that `cmove`s `Hi_RegisterSummonModel`'s second argument and so changes what
+  `summonRecord+0x20..0x51` holds; enforced at BOTH lanes' build call sites
+  (`reskin.assert_region_invariant`), proven non-vacuous by tampering. **STILL REFUSED**: authoring
+  the table itself (W7 ships a READER — there is no consumer, so no edit could be verified, and on
+  x64 the arming op already writes PAST the record it means to arm and corrupts it). Gate pins moved
+  in lockstep: `w5_gates` G3 `THE FIVE TEXANIM REFUSALS` → **G3′ THE FIVE TEXANIM LIFTS**,
+  `w6_gates` G4's texanim row → **the L3/L4 matrix**; the W5 corpus sweep, `w4_gates` X7 and
+  `w_survey.self_check` KEPT UNCHANGED. **The cast**: ef038 = Shiva, the maximal-risk member of the
+  class, magenta/violet creature recolour shipped WITH a frame-strip marker in one build — verdict 1
+  is ONE captured frame (magenta ⇒ the lift is correct), verdict 2 needs video (does the eye window
+  ever show the marker? ⇒ whether L4's co-transform is mandatory or merely prudential). The bench row
+  is an `Actions.csv`/BattlePatch change ⇒ RELAUNCH. The rung does not close until the cast is judged.

@@ -45,6 +45,24 @@ they are the whole of W6a and every other class REFUSES with its reason named
   count, because ef227 IS a two-chunk container and a chunk-count refusal would refuse the one
   effect this rung is proven on.
 
+THE TEXANIM CO-TRANSFORM (W7) -- AN OBLIGATION, NOT A REFUSAL
+--------------------------------------------------------------
+On the five armed packages (ef038 / ef177 / ef493 / ef494 / ef495) this lane used to refuse outright,
+with no key. W7 read the table (:mod:`ff9mapkit.summons.texanim`), so the hazard is now a KNOWN set of
+rects instead of an opaque window: per clip, the live destination window plus every source frame it can
+blit into it. Three outcomes, checked per target against the actual edit:
+
+* the edit touches NO protected rect -> builds;
+* the edit covers every rect of each clip family -> builds (a whole-page repaint lands here BY
+  CONSTRUCTION, which is why L3 needs no key);
+* the edit repaints SOME rects of a family and leaves siblings stock -> REFUSES, naming the clip and
+  the exact rects left stock, unless the row says ``acknowledge_texanim_frames = true``.
+
+An armed region the reader cannot DECODE still refuses exactly as it did pre-W7 -- the lift is
+conditional on a successful parse, never on the absence of an exception. And under all of it sits
+THE REGION INVARIANT (``reskin.assert_region_invariant``): ``firstBlock``, ``min(motionOffsets)`` and
+the region's own bytes are asserted unchanged after every splice.
+
 THE FORMAT OF RECORD: AN INDEXED (P-MODE) PNG, NOT RGBA
 -------------------------------------------------------
 Measured over all 93 stock pages: ``decode -> P-mode PNG (palette = the CLUT row, tRNS = entry 0) ->
@@ -131,6 +149,7 @@ from . import container as EC
 from . import export
 from . import rescore as R
 from . import reskin as RS
+from . import texanim as TA
 from . import texture as KT
 from .ledger import Ledger
 
@@ -662,16 +681,27 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             "index0_texels": sum(1 for x in px if x in zeros),
             "page_sha256": _sha(px),
         })
+    # W7 L6 (V1 F4): the protected rect set belongs at PAINT time, not only at plan time -- the
+    # workflow is export-art -> paint -> plan, and an author who first learns of the animated
+    # window after painting learns it as a refusal.
+    res_ta = TA.read(blob)
+    prot = TA.protected_rects(blob) if res_ta.parsed else {}
     man = {"tool": "ff9mapkit summon-reskin export-art", "lane": lane, "effect": int(effect),
            "stock_sha256": stock_sha, "source": source or "(caller-supplied bytes)",
-           "container_bytes": len(blob), "parts": entries}
+           "container_bytes": len(blob), "parts": entries,
+           "texanim": {"armed": res_ta.armed,
+                       "decodes": (res_ta.parsed if res_ta.armed else None),
+                       "lines": list(TA.describe(blob)),
+                       "protected": {str(part): [[r.x, r.y, r.w, r.h] for r in rects]
+                                     for part, rects in sorted(prot.items())}}}
     from .. import fsutil
     mpath = out / ART_MANIFEST
     fsutil.atomic_write_text(mpath, json.dumps(man, indent=2), encoding="utf-8", newline="\n")
     written.append(str(mpath))
     if scaffold:
         spath = out / SCAFFOLD_NAME
-        fsutil.atomic_write_text(spath, scaffold_text(effect, stock_sha, entries),
+        fsutil.atomic_write_text(spath, scaffold_text(effect, stock_sha, entries, protected=prot,
+                                                      texanim_armed=res_ta.armed),
                                  encoding="utf-8", newline="\n")
         written.append(str(spath))
     man["out_dir"] = str(out)
@@ -679,13 +709,17 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     return man
 
 
-def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict]) -> str:
+def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
+                  protected: Optional[Dict[int, list]] = None,
+                  texanim_armed: bool = False) -> str:
     """A COMPLETE, guarded ``[[reskin.texel]]`` scaffold, emitted from the derivation.
 
     Every ``expect_*`` is emitted rather than typed, so a guard cannot start life disagreeing with the
     bytes; every row starts ``enabled = false``, so the first build is provably a no-op and the author
-    switches on one page at a time.
+    switches on one page at a time.  ``protected`` (part -> texanim rects, W7 L6) is stated on the
+    row it concerns, so the author reads it BEFORE painting, not as a later refusal.
     """
+    protected = protected or {}
     L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d`." % effect,
          "# Every number is DERIVED from the container's own id-4 header.  Two kinds of line only:",
          "#   * GUARDS (`expect_*`, `expect_sha256`) -- what the derivation MUST find.  They refuse;",
@@ -723,8 +757,16 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict]) -> str:
               "# measured: %s" % cov,
               "# measured: %d distinct indices, %d transparent texels at index %s"
               % (e["distinct_indices"], e["index0_texels"],
-                 ",".join(str(i) for i in e["transparent_indices"]) or "-"),
-              ""]
+                 ",".join(str(i) for i in e["transparent_indices"]) or "-")]
+        rects = protected.get(e["index"])
+        if rects:
+            L += ["# TEXANIM PROTECTED RECTS on this part (W7): %s -- one clip family = a live"
+                  % "  ".join(str(r) for r in rects),
+                  "# window + its source frames.  Reach ALL of a family or NONE of it, or the build",
+                  "# refuses naming the siblings (`acknowledge_texanim_frames = true` overrides)."]
+        elif texanim_armed:
+            L += ["# texanim is armed on this container but names no rect on this part."]
+        L += [""]
     return "\n".join(L) + "\n"
 
 
@@ -734,6 +776,7 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict]) -> str:
 #: ``expect_page_offset`` silently drops a guard -- and a guard may only ever fail CLOSED.
 _TEXEL_KEYS = frozenset((
     "name", "source", "enabled", "note", "palette_from", "acknowledge_cutout_reshape",
+    "acknowledge_texanim_frames",
     "expect_page_offset", "expect_page_bytes", "expect_page_wh",
 ))
 
@@ -748,6 +791,9 @@ class TexelTarget:
     note: str = ""
     palette_from: str = ""
     ack_cutout: bool = False
+    #: W7 L4's escape hatch -- a DELIBERATELY asymmetric strip (the window repainted, a source frame
+    #: left stock, or the reverse). Literal boolean only, same law as every other acknowledgement.
+    ack_texanim_frames: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -761,6 +807,9 @@ class TexelTarget:
     round_trip: bool = True
     #: what the art-side drift guard had to say (see :func:`_gate_manifest`).
     manifest_note: str = ""
+    #: what THE TEXANIM CO-TRANSFORM (:func:`_gate_texanim_frames`) found, per clip -- disclosure, so
+    #: an author sees the protected set was checked even when it had nothing to say.
+    texanim_note: str = ""
 
     @property
     def cutout_flips(self) -> int:
@@ -788,6 +837,9 @@ class TexelBuild:
     base_label: str = ""
     base_changed: Tuple[int, ...] = ()
     orth_specs: Dict[str, str] = field(default_factory=dict)
+    #: THE REGION INVARIANT's own verdict (``reskin.assert_region_invariant``), recorded at the call
+    #: site that enforced it so the report quotes the check that ran, not a restatement of it.
+    region_invariant: str = ""
     check: Optional["SelfCheck"] = None
 
     @property
@@ -864,33 +916,124 @@ def _gate_collisions(blob: bytes, page: TexelPage) -> None:
                     % (page.name, lo, hi, src, off, off + nb, str(cell), W6B_REASON))
 
 
-def _gate_texanim(blob: bytes, targets: Sequence[TexelTarget]) -> None:
-    """THE TEXANIM REFUSAL -- unconditional on the five armed packages, no key lifts it.
+def _gate_texanim(blob: bytes, targets: Sequence[TexelTarget]) -> TA.ReadResult:
+    """THE TEXANIM GATE, PASS 1 -- the one refusal that survived W7, raised before any art is read.
 
     ``reskin.py``'s own gate keys on ``Palette.slot < 0`` to spot a creature target; a texel target has
     no palette at all, so the predicate is re-implemented here rather than inherited -- an inherited
     one would simply never fire and the gate would be a comment.
 
-    The refusal is HARDER for a texel edit than for a recolour, and the reason is now stateable rather
-    than merely unread: the region decodes as ``u32 count`` + ``count`` 20-byte records whose pointers
-    all close inside the region, and every target's first four fields read as a texel RECT that fits a
-    128x128 page -- ``(27,62,11x12)`` on ef038, ``(33,78,9x14)`` and ``(24,102,8x14)`` on the ef177
-    family. Both surviving readings hurt a repaint of that window: a frame blit overwrites repainted
-    texels mid-cast, and a moving sample window shows frames the author never previewed.
+    Pre-W7 this refused OUTRIGHT, with no key, on all five armed packages. W7 read the table
+    (:mod:`ff9mapkit.summons.texanim`) and the refusal became an OBLIGATION instead: the region is a
+    texel-blit clip table -- ``u32 clipCount``, 20-byte clip records, 12-byte destination windows,
+    packed 4-byte frame lists -- so what a repaint has to worry about is not "the window" as an opaque
+    hazard but a KNOWN, enumerable set of rects: each clip's live window plus every frame it can blit
+    into that window. That set is what pass 2 (:func:`_gate_texanim_frames`) tests the edit against.
+    Only ONE reading survived (a blit; the "moving sample window" reading is falsified -- every frame
+    rect contains 0 model UV entries on 39/39 clips), and it only hurts a LOCALISED repaint.
+
+    What still refuses here, unchanged and with no key: an armed region the reader cannot DECODE. The
+    lift is conditional on a successful parse, never on the absence of an exception.
     """
     live = [t.name for t in targets if t.enabled]
-    if not live:
-        return
-    ta = RS.texanim_region(blob)
-    if ta is None or not ta.armed:
-        return
-    raise RepaintError(
-        "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec repaints CREATURE pages (%s).  The record "
-        "is PER PART and addresses a small texel WINDOW inside the part's own page, so a running "
-        "animation either blits frames over the repainted texels mid-cast or slides the sample window "
-        "across art the author never previewed.  This is not a knob: read the table first.  (The "
-        "corpus class is ef038 / ef177 / ef493 / ef494 / ef495.)"
-        % (ta.nbytes, ta.lo, ta.hi, ", ".join(live)))
+    res = TA.read(blob)
+    if not live or not res.armed:
+        return res
+    if res.table is None:
+        raise RepaintError(
+            "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec repaints CREATURE pages (%s).  W7 "
+            "READ this format -- a texel-blit clip table whose only surviving reading is a same-page "
+            "blit of palette indices (summons/texanim.py) -- but THIS container's region does not "
+            "decode: %s.  An unread table's windows cannot be enumerated, so the co-transform "
+            "obligation cannot even be stated; the pre-W7 refusal stands unchanged and no key lifts "
+            "it.  (All five stock armed packages -- ef038 / ef177 / ef493 / ef494 / ef495 -- decode; "
+            "an undecodable region means a modified or unknown container.)"
+            % (res.region.nbytes, res.region.lo, res.region.hi, ", ".join(live), res.error))
+    return res
+
+
+def _rect_touched(changed: Set[int], rect: "TA.Rect", page_w: int) -> int:
+    """How many of ``rect``'s texels this edit moved.  One texel is one byte; a row is ``page_w``."""
+    n = 0
+    for y in range(rect.y, rect.y2):
+        row = y * page_w
+        for x in range(rect.x, rect.x2):
+            if row + x in changed:
+                n += 1
+    return n
+
+
+def _gate_texanim_frames(res: TA.ReadResult, t: TexelTarget) -> str:
+    """THE TEXANIM GATE, PASS 2 -- **the co-transform obligation** (W7 L3/L4), per target.
+
+    The unit is the CLIP FAMILY: one clip's live window plus every source frame it blits from. If the
+    author repaints the window and leaves a source stock, then the first time that clip runs the window
+    pops back to art the repaint never touched -- a mid-cast flicker only a playtest would catch. So
+    the test is symmetry across the family, and it has exactly three outcomes:
+
+    * **every rect of the family untouched** -- a repaint that stays out of the animated window
+      entirely. Builds. (This is also every unarmed package, and every part the table does not name.)
+    * **every rect of the family touched** -- the edit REACHED every rect. A dense whole-page repaint
+      (a global recolour or filter) lands here in practice, which is why L3 needs no key -- but the
+      predicate is *at least one changed texel per rect*, not *the edit spans the page*: a sparse
+      page-wide remap can miss a rect and refuse (correctly -- that rect really is left stock), and
+      one texel per rect satisfies it (V1 F2/F3: the tool checks REACH, not content equivalence).
+    * **some touched, some left stock** -- the asymmetric case, and the only one with any exposure.
+      REFUSED, naming the exact clip and the exact sibling rects left stock, so the message is a
+      work order rather than a verdict. ``acknowledge_texanim_frames = true`` is the escape hatch for
+      an author who WANTS an asymmetric strip.
+
+    Rects are compared, never bounding boxes: the Carbuncle mouth-closed frames sit one row apart and
+    share texels, and the box of that group would sweep in 500+ texels nobody asked to repaint.
+
+    Note what this does NOT claim: that the same COLOUR transform reached every rect. Nothing in the
+    file says what transform was intended, so inferring one would be a guess. It checks the property
+    that is actually decidable from the bytes -- did the edit reach every rect of the family, or not.
+    """
+    if res.table is None or not res.armed:
+        return ""
+    mine = [c for c in res.table.clips if c.part == t.page.index]
+    if not mine:
+        return ("part %d is not named by any clip in the table -- nothing to co-transform"
+                % t.page.index)
+    changed = set(t.changed)
+    reports, asym, any_hit = [], [], False
+    for c in mine:
+        fam, seen = [], []
+        for r in c.rects:                       # window first, then its sources, de-duplicated
+            if r not in seen:
+                seen.append(r)
+                fam.append((r, _rect_touched(changed, r, t.page.w)))
+        hit = [r for r, n in fam if n]
+        miss = [r for r, n in fam if not n]
+        any_hit = any_hit or bool(hit)
+        reports.append("clip %d: %d/%d protected rect(s) repainted" % (c.index, len(hit), len(fam)))
+        if hit and miss:
+            asym.append((c, hit, miss))
+    if asym and not t.ack_texanim_frames:
+        c, hit, miss = asym[0]
+        raise RepaintError(
+            "THE TEXANIM CO-TRANSFORM, %s: this edit repaints %d of clip %d's %d protected rect(s) "
+            "and leaves %d of them STOCK.  Repainted: %s.  LEFT STOCK: %s.  Those rects are one clip "
+            "family -- the live window plus every frame it blits into that window -- so the moment "
+            "the clip runs, the window shows art this edit never touched and the cast flickers "
+            "between two pictures.  Repaint the sibling rect(s) too (the check is REACH -- at least "
+            "one changed texel per protected rect -- so a dense page-wide repaint passes it while a "
+            "sparse remap may not), or say "
+            "`acknowledge_texanim_frames = true` on this row to state that the asymmetry is "
+            "DELIBERATE.  (%d clip(s) name this page; %s.)"
+            % (t.name, len(hit), c.index, len(hit) + len(miss), len(miss),
+               " ".join(str(r) for r in hit), " ".join(str(r) for r in miss),
+               len(mine), "; ".join(reports)))
+    note = "; ".join(reports)
+    if asym:
+        note += "  -- ASYMMETRIC, acknowledged (`acknowledge_texanim_frames = true`)"
+    elif any_hit:
+        note += ("  -- every protected rect reached by this edit (the tool checks REACH; that the "
+                 "same transform landed on each is the author's claim, not a measurement)")
+    else:
+        note += "  -- the edit stays clear of every protected rect"
+    return note
 
 
 def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage) -> str:
@@ -1050,9 +1193,13 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         targets.append(TexelTarget(
             name=name, enabled=bool(d.get("enabled", True)), source=str(d.get("source", "")),
             page=page, note=str(d.get("note", "")), palette_from=pal_from,
-            ack_cutout=_ack_bool(d, "acknowledge_cutout_reshape", where)))
+            ack_cutout=_ack_bool(d, "acknowledge_cutout_reshape", where),
+            ack_texanim_frames=_ack_bool(d, "acknowledge_texanim_frames", where)))
 
-    _gate_texanim(blob, targets)
+    # PASS 1 runs before a single PNG is opened: an armed-and-unread table refuses the whole spec, and
+    # making the author wait for an art read to hear it would be theatre.  PASS 2 needs the art, so it
+    # runs per target inside the splice loop below.
+    ta_read = _gate_texanim(blob, targets)
 
     out = bytearray(base)
     for t in targets:
@@ -1083,6 +1230,7 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                 "accident is not, and is what this catches."
                 % (t.name, t.cutout_flips, t.cutout_punch, t.cutout_fill,
                    ",".join(str(z) for z in sorted(zeros)) or "(none)"))
+        t.texanim_note = _gate_texanim_frames(ta_read, t)
         t.cov = coverage(blob, t.page.index)
         if t.cov.available:
             t.dead_changed = sum(1 for i in t.changed if not t.cov.mask[i])
@@ -1095,12 +1243,20 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     patched = bytes(out)
     if len(patched) != len(base):                                # pragma: no cover - in-place splice
         raise RepaintError("the splice changed the container length -- impossible by construction")
+    # THE REGION INVARIANT (W7 R1), against the PRISTINE stock rather than the composition base, so a
+    # composed build proves the whole pipeline and not just this lane's own half of it.
+    try:
+        region_invariant = RS.assert_region_invariant(blob, patched,
+                                                      "the repaint of ef%03d" % effect)
+    except RS.ReskinError as e:                                  # a texel refusal must raise a texel
+        raise RepaintError(str(e)) from None                     # error -- the CLI keys on the class
 
     orth = {k: v for k, v in (r.get("orthogonality") or {}).items() if isinstance(v, str)}
     return TexelBuild(effect=effect, label=str(r.get("label", "repaint")), spec_path=str(spec_path),
                       source=source, stock=blob, orig=bytes(base), patched=patched,
                       sha_stock=sha_stock, sha_out=_sha(patched), pages=pages, targets=targets,
                       pmap=pmap, guard=guard, base_label=base_label,
+                      region_invariant=region_invariant,
                       base_changed=tuple(base_delta), orth_specs=orth)
 
 
@@ -1559,15 +1715,14 @@ def derivation_lines(blob: bytes, pages: Sequence[TexelPage]) -> List[str]:
     L += ["", "  THE PAGE-WRITER CENSUS (every non-creature page upload this container declares)",
           "    %d declared cell(s); creature band VRAM x [%d,%d) -- corpus: 0 collisions over 24 "
           "packages / 93 pages" % (len(others), CREATURE_VRAM_X[0], CREATURE_VRAM_X[1])]
-    ta = RS.texanim_region(blob)
-    L += ["", "  THE TEXANIM GATE"]
-    if ta is None or not ta.present:
-        L.append("    no id-4 creature package")
-    elif not ta.armed:
-        L.append("    region is EMPTY (firstBlock == motionOffsets[0]) -- creature texel scope is open")
-    else:
-        L.append("    ARMED: %d bytes at %#x..%#x -- creature texel scope REFUSED outright, no key "
-                 "lifts it" % (ta.nbytes, ta.lo, ta.hi))
+    # L6, PURE DISCLOSURE: the DECODED table, not "TEXANIM ARMED (N bytes)".  For this lane the
+    # protected rect set IS the actionable content -- it is exactly what a localised repaint must
+    # co-transform -- so printing a byte count instead was withholding the one number that mattered.
+    res = TA.read(blob)
+    L += [""] + TA.describe(blob)
+    if res.armed and res.table is not None:
+        L.append("    creature texel scope is OPEN (W7): a repaint that leaves every protected rect "
+                 "alone, or covers each clip family consistently, BUILDS with no key")
     return L
 
 
@@ -1580,6 +1735,9 @@ def describe(b: TexelBuild) -> List[str]:
          "  container      : %d B in, %d B out (same length -- every page is spliced in place)"
          % (len(b.orig), len(b.patched)),
          ""]
+    if b.region_invariant:
+        L += ["  THE REGION INVARIANT (W7 R1, enforced at the build call site)",
+              "    %s" % b.region_invariant, ""]
     L += derivation_lines(b.stock, b.pages)
     L += ["", "  THE TEXEL TARGETS"]
     for t in b.targets:
@@ -1596,6 +1754,8 @@ def describe(b: TexelBuild) -> List[str]:
                     t.dead_changed, t.cutout_punch, t.cutout_fill,
                     " (ACKNOWLEDGED)" if t.ack_cutout and t.cutout_flips else "",
                     t.distinct_stock, t.distinct_new, cov))
+        if t.texanim_note:
+            L.append("         texanim  : %s" % t.texanim_note)
         if t.manifest_note:
             L.append("         art guard: %s" % t.manifest_note)
         if t.note:

@@ -20,7 +20,10 @@ G3  THE REGION PARTITION: `reskin._regions(..., partition=)` is ONE function wit
 G4  THE REFUSAL MATRIX: every refusal this rung establishes fires, with its own reason -- the W6b
     surfaces (scenery page names, the rgba export lane, a non-creature container), the format
     refusals (RGBA import, wrong size, an index past the row), the CUTOUT LAW in both directions plus
-    the literal-boolean law on its acknowledgement, the TEXANIM refusal on all five armed packages,
+    the literal-boolean law on its acknowledgement, **THE TEXANIM L3/L4 MATRIX on all five armed
+    packages** (W7 -- this row was a flat refusal and is now the co-transform obligation: a whole-page
+    repaint BUILDS, a window-only repaint REFUSES naming the clip and the sibling rect left stock, the
+    acknowledged one BUILDS, and an armed region that does not DECODE still refuses as it did pre-W7),
     the CO-TRANSFORM refusal in both of its forms (a shared VRAM cell and an overlapping file span),
     and the guard refusals (unknown key, drift, art-manifest drift, a mis-stated span).
 G5  THE CLUT-LANE BYTE-COMPAT PINS: W4/W5's three cast-proven recolours still build their exact
@@ -57,6 +60,7 @@ import reskin as RS                                              # noqa: E402  (
 import summon_camera as W                                        # noqa: E402
 from ff9mapkit.summons import container as EC                    # noqa: E402
 from ff9mapkit.summons import repaint as RP                      # noqa: E402
+from ff9mapkit.summons import texanim as TA                      # noqa: E402
 
 CORPUS = W.SCRATCH_CORPUS
 EMBLEM_SPEC = os.path.join(_HERE, "bahamut_emblem.toml")
@@ -400,23 +404,98 @@ def g4_refusal_matrix():
                                    "BUILDS, punch 1 / fill 0" if armed else "*** DID NOT BUILD ***"))
         ok = ok and armed
 
-        # -- (d) THE TEXANIM REFUSAL, all five armed packages
+        # -- (d) THE TEXANIM L3/L4 MATRIX (W7).  This block used to be a flat REFUSAL row on all five
+        # armed packages; W7 read the table, so what it tests now is the CO-TRANSFORM OBLIGATION.
+        # Three outcomes per package, all on real bytes: a whole-page repaint BUILDS (L3, it
+        # co-transforms the protected set by construction), a localised repaint of one clip's live
+        # window REFUSES naming the clip and the sibling rect left stock (L4), and the same edit
+        # BUILDS once `acknowledge_texanim_frames = true` says the asymmetry is deliberate.  The
+        # pre-W7 refusal survives for exactly one shape and it is tested too: an armed region the
+        # reader cannot DECODE (staged by poisoning one region byte IN MEMORY, never on disk).
         n_armed = 0
         for ef in TEXANIM_CLASS:
             tb = _load(ef)
             ta = RS.texanim_region(tb)
-            tp = RP.creature_texel_pages(tb)
-            if ta is None or not ta.armed or not tp:             # pragma: no cover - corpus drift
-                lines.append("%-46s *** ef%03d is not armed / has no page ***" % ("", ef))
+            res = TA.read(tb)
+            tp = {p.index: p for p in RP.creature_texel_pages(tb)}
+            if ta is None or not ta.armed or not res.parsed or not tp:  # pragma: no cover - drift
+                lines.append("%-46s *** ef%03d is not armed / does not decode / has no page ***"
+                             % ("", ef))
                 ok = False
                 continue
             n_armed += 1
-            tw = RP.palette_words(tb, tp[0])
-            src = _write_png(os.path.join(td, "ta%d.png" % ef),
-                             tb[tp[0].page_offset:tp[0].page_offset + tp[0].page_bytes], tw)
-            check("texanim armed: ef%03d creature texel scope" % ef,
-                  *_refuses(RP.build, _texel_spec(ef, tp[0].name, src), td, blob=tb),
-                  want="TEXANIM ARMED")
+            part = res.table.parts[0]
+            page = tp[part]
+            tw = RP.palette_words(tb, page)
+            tz = set(RP.transparent_indices(tw))
+            stock = tb[page.page_offset:page.page_offset + page.page_bytes]
+
+            def _bump(v, z=tz):
+                """One index moved without ever crossing the transparent boundary -- so this block
+                exercises the texanim gate alone and never the cutout law as well."""
+                if v in z:
+                    return v
+                w = 1 + (v % 255)
+                while w in z:
+                    w = 1 + (w % 255)
+                return w
+
+            whole = _write_png(os.path.join(td, "ta%d_all.png" % ef),
+                               bytes(_bump(v) for v in stock), tw, page.w, page.h)
+            win = res.table.clips[0].window
+            local = bytearray(stock)
+            for yy in range(win.y, win.y2):
+                for xx in range(win.x, win.x2):
+                    local[yy * page.w + xx] = _bump(local[yy * page.w + xx])
+            loc = _write_png(os.path.join(td, "ta%d_win.png" % ef), bytes(local), tw,
+                             page.w, page.h)
+
+            try:                                                 # L3 -- the whole page
+                b = RP.build(_texel_spec(ef, page.name, whole), td, blob=tb)
+                built = (b.patched[ta.lo:ta.hi] == tb[ta.lo:ta.hi]
+                         and "every protected rect reached" in b.targets[0].texanim_note
+                         and "byte-identical" in b.region_invariant)
+            except Exception as e:                               # pragma: no cover - a real defect
+                built = False
+                lines.append("   ef%03d whole-page repaint FAILED: %s" % (ef, e))
+            lines.append("%-46s %s" % ("L3 ef%03d whole-page repaint (part %d)" % (ef, part),
+                                       "BUILDS, region byte-identical" if built
+                                       else "*** DID NOT BUILD CLEAN ***"))
+            ok = ok and built
+
+            fired, msg = _refuses(RP.build, _texel_spec(ef, page.name, loc), td, blob=tb)
+            named = fired and "clip 0" in msg and "LEFT STOCK" in msg
+            ok = ok and named and "THE TEXANIM CO-TRANSFORM" in msg
+            lines.append("%-46s %s" % ("L4 ef%03d window-only repaint" % ef,
+                                       "REFUSED, clip 0 LEFT STOCK: %s"
+                                       % msg.split("LEFT STOCK: ")[1].split(".  ")[0]
+                                       if named else "*** %s ***" % (msg.splitlines()[0][:60]
+                                                                     or "DID NOT REFUSE")))
+
+            try:                                                 # L4 -- the escape hatch
+                bh = RP.build(_texel_spec(ef, page.name, loc, acknowledge_texanim_frames=True),
+                              td, blob=tb)
+                hatched = ("ASYMMETRIC, acknowledged" in bh.targets[0].texanim_note
+                           and bh.patched[ta.lo:ta.hi] == tb[ta.lo:ta.hi])
+            except Exception as e:                               # pragma: no cover - a real defect
+                hatched = False
+                lines.append("   ef%03d acknowledged build FAILED: %s" % (ef, e))
+            lines.append("%-46s %s" % ("   ...with acknowledge_texanim_frames = true",
+                                       "BUILDS, asymmetry acknowledged" if hatched
+                                       else "*** DID NOT BUILD ***"))
+            ok = ok and hatched
+
+            # and the ONE surviving refusal: armed, and the reader cannot decode it
+            broken = bytearray(tb)
+            broken[ta.lo + 0x14] = 0xFF                          # poison clip 0's nodeOff low byte
+            broken = bytes(broken)
+            if TA.read(broken).unparseable:
+                check("armed + UNPARSEABLE: ef%03d still refuses" % ef,
+                      *_refuses(RP.build, _texel_spec(ef, page.name, whole), td, blob=broken),
+                      want="TEXANIM ARMED")
+            else:                                                # pragma: no cover - fixture drift
+                lines.append("%-46s *** the poisoned ef%03d region still parses ***" % ("", ef))
+                ok = False
         lines.append("%-46s %d of %d" % ("armed texanim packages re-measured", n_armed,
                                          len(TEXANIM_CLASS)))
         ok = ok and n_armed == len(TEXANIM_CLASS)
