@@ -1319,6 +1319,51 @@ def test_own_clip_law_refuses_a_foreign_gesture():
                for p in probs), probs
 
 
+def _clock_raw(*, timer=60, stop=False, scene=35):
+    br = [{"when": [{"hp_le": 0}], "do": {"battle": scene}, "raise_flags": ["lost"]},
+          {"do": {"hold": [0, -300]}}]
+    if stop:
+        br.insert(0, {"when": [{"hp_le": 0}], "do": {"stop_timer": True},
+                      "once": "clockstop"})
+    b = {"unit": [{"npc": "base", "hp": 5, "branch": br}]}
+    if timer is not None:
+        b["timer"] = timer
+    return {"player": {"spawn": [0, -900]},
+            "npc": [{"name": "base", "pos": [0, -300], "dialogue": "..."}],
+            "behavior": b}
+
+
+def test_clock_coupled_battle_lint():
+    """THE CLOCK-COUPLED BATTLE LAW as a lint WARNING (not an error — stopping the
+    clock makes the same design correct). Probe injected so the check is testable
+    without a reachable install."""
+    hunt = lambda s: s == 35            # noqa: E731 — the Hunt scene reads the clock
+    warn = BT.clock_coupled_warnings(_clock_raw(), probe=hunt)
+    assert len(warn) == 1
+    assert "READS THE COUNTDOWN" in warn[0] and "stop_timer" in warn[0]
+    # quiet when the law is already met, or there is no clock to expire, or the
+    # scene ignores it, or the scene can't be read (unknown -> no claim)
+    assert BT.clock_coupled_warnings(_clock_raw(stop=True), probe=hunt) == []
+    assert BT.clock_coupled_warnings(_clock_raw(timer=None), probe=hunt) == []
+    assert BT.clock_coupled_warnings(_clock_raw(scene=37), probe=hunt) == []
+    assert BT.clock_coupled_warnings(_clock_raw(), probe=lambda s: None) == []
+    # a probe that explodes must never break lint
+    def boom(_s):
+        raise RuntimeError("no install")
+    assert BT.clock_coupled_warnings(_clock_raw(), probe=boom) == []
+    # and the generated [siege] loss lane is quiet BY CONSTRUCTION (it stops the clock)
+    from ff9mapkit.content import siege as S
+    sraw = {"behavior": S.behavior_raw(S.from_raw({
+        "timer": 60, "waves": [55, 40, 20], "loss_battle": 35,
+        "base": {"model": "GEO_NPC_F4_CSO", "pos": [0, 400]},
+        "ally": [{"name": "a", "label": "A", "model": "GEO_NPC_F0_CSO", "count": 1,
+                  "price": 10, "stance": "hold", "radius": 300}],
+        "raider": [{"name": "r", "model": "GEO_MON_F0_MUU", "count": 1, "wave": 1,
+                    "entrance": [[-800, -600]], "route": [[-400, 0]],
+                    "autoroute": False}]}))}
+    assert BT.clock_coupled_warnings(sraw, probe=hunt) == []
+
+
 def test_cross_form_clip_trap_is_refused():
     """THE CROSS-FORM CLIP TRAP (in-game, REDOUBT rung E): the CSO token's
     attack clips live only in the F3 form, and playing one on an F1 rig twists

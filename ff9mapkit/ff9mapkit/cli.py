@@ -408,6 +408,9 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         routed_lines = BT.describe_autoroute(plan, raw)
         if plan_err:
             problems.append(plan_err)
+        # THE CLOCK-COUPLED BATTLE LAW: a timed field firing a scene whose AI reads
+        # B_SYSVAR[17] (= TimerUI.Time) -- it ends itself on an expired clock
+        warnings += BT.clock_coupled_warnings(raw, game=getattr(args, "game", None))
         mpaths = BT.marker_paths(raw)
         if wmesh is None:
             warnings.append(f"(no walkmesh resolved -- route sweeps skipped: {wmesh_err})")

@@ -141,6 +141,60 @@ def scene_ai_sites(donor: str, game=None, lang: str = "us") -> str:
     return "\n".join(lines)
 
 
+TIMER_SYSVAR = 17                   # B_SYSVAR[17] IS TimerUI.Time (EventEngine.GetSysvar case 17)
+_SYSVAR_TOKEN = 0x7A                # the expression operand: 0x7A <1-byte index>
+
+
+def reads_timer(eb_bytes: bytes) -> bool:
+    """Does this battle AI READ THE FIELD COUNTDOWN (``B_SYSVAR[17]`` = ``TimerUI.Time``)?
+
+    ⚠ THE CLOCK-COUPLED BATTLE LAW (in-game, REDOUBT rung D): the Festival of the Hunt
+    scenes (id 35 and the ``LB_E080x`` family) run ``B_SYSVAR[17] B_NOT -> RunBattleCode``
+    end — the Hunt's "time's up" rule lives INSIDE the battle script, so the fight
+    TERMINATES ITSELF the instant the countdown reads 0. A timed field that fires such a
+    scene after any theater (a sting, staged text) hands it an expired clock and the battle
+    dies on entry, with nothing wrong in the field script at all.
+
+    Scans function bodies only (not the whole container), so stray data bytes elsewhere
+    can't trip it; it is still a CONSERVATIVE scan — a hit means "this AI reads the clock",
+    which is a reason to look, not proof of a bug (stopping the clock first makes it safe).
+    """
+    try:
+        eb = EbScript.from_bytes(eb_bytes)
+    except (ValueError, IndexError):
+        return False                                     # unreadable -> no claim
+    needle = bytes((_SYSVAR_TOKEN, TIMER_SYSVAR))
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            end = min(f.abs_end, len(eb.data))
+            if needle in eb.data[f.abs_start:end]:
+                return True
+    return False
+
+
+def scene_reads_timer(scene, game=None, lang: str = "us") -> bool | None:
+    """:func:`reads_timer` for a battle SCENE (a numeric id or a ``BSC_``/donor name).
+    ``None`` when the scene's ``.eb`` can't be read (no install, unknown id) — callers
+    must treat that as "unknown", never as "safe"."""
+    from .._scenedb import SCENES
+    name = None
+    if isinstance(scene, str):
+        name = scene[4:] if scene.startswith("BSC_") else scene
+    else:
+        for nm, sid in SCENES.items():
+            if sid == int(scene):
+                name = nm[4:]
+                break
+    if not name:
+        return None
+    try:
+        return reads_timer(_scene_eb(name, game=game, lang=lang))
+    except Exception:                                    # noqa: BLE001 — no install / no donor
+        return None
+
+
 def analyze_scene(donor: str, game=None, lang: str = "us") -> str:
     """Read a real battle scene's ``EVT_BATTLE_<donor>.eb`` LIVE from the install + disassemble its AI. ``donor``
     is the scene name after ``EVT_BATTLE_`` (e.g. ``EF_R007``). Raises on a missing install/donor."""

@@ -44,6 +44,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   with `route = "auto"`, so jammed legs heal at build; shape everything afterwards with
   Stage edit's drag handles. Every archetype binds against `player`, needs no second unit,
   and is CI-fenced by a real dry-compile of the stamped document.
+### Added — `behavior lint` catches THE CLOCK-COUPLED BATTLE LAW
+- A field with a `timer` that fires a `battle` now has that scene's own AI read from the
+  install and scanned for `B_SYSVAR[17]` (= `TimerUI.Time`); a hit warns that the scene
+  **ends itself when the clock reads 0** — the Festival of the Hunt rule, which lives
+  inside the battle script, and which killed the REDOUBT's loss battle for a full playtest
+  round. New `battle.battleai.reads_timer` / `scene_reads_timer` (a conservative scan of
+  function bodies for the `0x7A 0x11` operand, so stray container bytes can't trip it).
+- Deliberately a WARNING: the same design is correct once the clock is stopped, so it goes
+  quiet when the behavior uses `stop_timer` anywhere (`[siege]` is quiet by construction),
+  when the field has no timer, and when the scene can't be read — an unreadable scene is
+  reported as unknown, never assumed safe.
+
 ### Added — fight theater: strike clips, hit cues, and the death beat (theater rung E)
 - `swing_at` / `engage` take `anim` (a one-shot clip on the striker) + `hit_sfx` (the impact
   cue), fired on the DAMAGE tick — inside the interval gate, never per frame. The clip is
