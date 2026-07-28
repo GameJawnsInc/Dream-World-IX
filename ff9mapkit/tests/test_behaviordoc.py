@@ -568,8 +568,7 @@ def test_stamp_with_no_free_npc_teaches(edoc):
     edoc.show_field("BGLADE", demo_raw(), None)    # every demo npc already has a unit
     edoc._ask_archetype = lambda: "sentry"
     edoc._stamp_archetype()
-    assert "add\nan [[npc]] first" in edoc.problems_lbl.text() or \
-           "add an [[npc]] first" in edoc.problems_lbl.text()
+    assert "add another [[npc]] first" in edoc.problems_lbl.text()
     assert edoc._edits == []
 
 
@@ -625,7 +624,7 @@ def test_siege_stamp_flow_lands_in_the_read_only_view(edoc):
     assert "siege" in raw and "behavior" not in raw
     assert edoc._stack.currentWidget() is edoc._content
     assert edoc._readonly and "read-only" in edoc.head_sum.text()
-    assert edoc._edits == [("BARE", "stamp [siege] skeleton")]
+    assert edoc._edits == [("BARE", "generate [siege] minigame")]
     edoc._stamp_siege()                            # a second stamp: the read-only guard
     assert len(edoc._edits) == 1                   # refuses silently (the door only exists
     assert list(raw["siege"]) == list(raw["siege"])   # on the guide) and writes nothing
@@ -820,3 +819,17 @@ def test_a_readonly_views_disabled_buttons_say_why(doc):
     doc.show_field("BGLADE", demo_raw(), None)             # an editable field again
     assert doc.archetype_btn.isEnabled()
     assert doc.archetype_btn.toolTip() == live_tip         # the teaching tooltip returns
+
+
+def test_the_no_free_npc_message_tells_the_zero_cast_truth(doc):
+    """Playtest-caught: with ZERO npcs, 'Every named [[npc]] already has a behavior unit'
+    described a cast that did not exist. The two situations get two messages."""
+    doc.show_field("PLAIN", {"field": {"name": "PLAIN"}}, None)
+    doc._add_unit()
+    assert "no named [[npc]]s yet" in doc.problems_lbl.text()
+    raw = {"field": {"name": "P2"}, "npc": [{"name": "a", "pos": [0, 0]}],
+           "behavior": {"unit": [{"npc": "a", "hp": 1,
+                                  "branch": [{"do": {"hold_post": True}}]}]}}
+    doc.show_field("P2", raw, None)
+    doc._add_unit()
+    assert "already has a behavior unit" in doc.problems_lbl.text()

@@ -865,13 +865,15 @@ class BehaviorDoc(QWidget):
             return widgets.empty_state(
                 "", "This field has no [behavior] block",
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
-                      "combat — as priority branches in the field.toml. The format lives in "
-                      "docs/BEHAVIOR.md; the shipped tower-defense example is "
-                      "examples/siege (one [siege] block — this tab renders its generated "
-                      "army read-only).",
+                      "combat — as priority branches you author by hand or stamp from an "
+                      "archetype (docs/BEHAVIOR.md). The OTHER route is one [siege] block: "
+                      "a whole tower-defense minigame whose army is GENERATED at build — "
+                      "this tab then renders that army read-only, and the Editor form's "
+                      "[siege] section is its editing surface. One field, one route: "
+                      "[siege] owns the behavior table (examples/siege is the shipped one).",
                 actions=[("Add a behavior unit…", self._add_unit),
                          ("Stamp an archetype…", self._stamp_archetype),
-                         ("Stamp a [siege] skeleton…", self._stamp_siege)],
+                         ("Generate a [siege] minigame…", self._stamp_siege)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -1381,13 +1383,22 @@ class BehaviorDoc(QWidget):
         dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
         return (dlg.textValue() if dlg.exec() else None)
 
+    def _no_free_npcs_msg(self):
+        """Why the npc picker is empty — playtest-caught: with ZERO npcs on the field the
+        old all-taken wording ('Every named [[npc]] already has a behavior unit') described
+        a cast that did not exist."""
+        if any(n.get("name") for n in (self._raw.get("npc") or [])):
+            return ("Every named [[npc]] already has a behavior unit — add another "
+                    "[[npc]] first (the Editor tab's NPCs group).")
+        return ("This field has no named [[npc]]s yet — behavior runs ON npcs. Add some "
+                "in the Editor tab's NPCs group, then come back and stamp.")
+
     def _add_unit(self):
         if self._raw is None or self._readonly:
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
-            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
-                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            self.problems_lbl.setText(self._no_free_npcs_msg())
             widgets.set_state(self.problems_lbl, "warn")
             return
         name = self._ask_unit(names)
@@ -1453,8 +1464,7 @@ class BehaviorDoc(QWidget):
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
-            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
-                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            self.problems_lbl.setText(self._no_free_npcs_msg())
             widgets.set_state(self.problems_lbl, "warn")
             return
         key = self._ask_archetype()

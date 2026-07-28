@@ -357,7 +357,7 @@ def test_shift_pair_seats_two_units_one_alternator_one_beat():
 def test_stamp_siege_writes_the_skeleton_and_refuses_the_clashes():
     import pytest
     raw = {"field": {"name": "BARE"}, "player": {"spawn": [100, -200]}}
-    assert BS.stamp_siege(raw) == "stamp [siege] skeleton"
+    assert BS.stamp_siege(raw) == "generate [siege] minigame"
     assert raw["siege"]["base"]["pos"] == [100, 200]   # sized around the spawn
     assert BS.siege_view(raw) is not None              # the view renders it the same tick
     with pytest.raises(ValueError, match="already has a \\[siege\\]"):
