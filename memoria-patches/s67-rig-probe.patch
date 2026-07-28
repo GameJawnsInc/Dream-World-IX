@@ -1,0 +1,92 @@
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+index c2b8ae50..f5d8c348 100644
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -3747,6 +3747,87 @@ public static class ff9
+             PlayerWindow.Instance.SetTitle($"World Map: {FF9StateSystem.Common.FF9.wldMapNo}");
+         else
+             PlayerWindow.Instance.SetTitle($"World Map: {FF9StateSystem.Common.FF9.wldMapNo}, {wldLocName}");
++        ff9.Ff9mkRigProbe();
++    }
++
++    // [ff9mapkit s67-PROBE] TEMPORARY diagnostic for the scene-ladder rung-1a camera (the s63
++    // probe's descendant). Fires in ANY world while a scripted EYE/AIM rig is designated (plus a
++    // 90-frame tail after disarm, to watch the chase tween), every frame for the first 40 of an
++    // episode then 1/15. Dumps both position domains for the rig actors (Actor.pos[] fp vs the
++    // wmActor transform), the camera vars, and the REAL render camera (WMWorld.MainCamera --
++    // w_frameCameraPtr is a parked decoy, the s63 lesson). Wrapped so it can never perturb the
++    // frame. REMOVE when rung 1a closes.
++    private static Int64 ff9mkRigProbeLast = -1;
++    private static Int64 ff9mkRigProbeEpisode = 0;
++    private static Int32 ff9mkRigProbeTail = 0;
++    public static void Ff9mkRigProbe()
++    {
++        try
++        {
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            if (ee == null || ee.gMode != 3)
++                return;
++            PosObj eye = ee.GetEventEye();
++            PosObj aim = ee.GetEventAim();
++            Boolean armed = eye != null || aim != null;
++            if (!armed && ff9mkRigProbeTail <= 0)
++            {
++                ff9mkRigProbeEpisode = 0;
++                return;
++            }
++            Int64 fc = (Int64)ff9.w_frameCounter;
++            if (fc == ff9.ff9mkRigProbeLast)
++                return;                                    // runs twice per tick (both phases)
++            ff9.ff9mkRigProbeLast = fc;
++            if (armed)
++            {
++                ff9mkRigProbeEpisode++;
++                ff9mkRigProbeTail = 90;
++            }
++            else
++                ff9mkRigProbeTail--;
++            if (ff9mkRigProbeEpisode > 40 && (fc % 15) != 0)
++                return;
++            String s = "[ff9mkrig] f=" + fc + " ep=" + ff9mkRigProbeEpisode
++                + " wld=" + FF9StateSystem.Common.FF9.wldMapNo
++                + " ctl=" + ee.GetControlUID()
++                + (armed ? "" : " (tail " + ff9mkRigProbeTail + ")");
++            Vector3 ce = ff9.w_cameraGetEyePtr();
++            Vector3 ca = ff9.w_cameraGetAimPtr();
++            s += " WEye=(" + ce.x.ToString("F1") + "," + ce.y.ToString("F1") + "," + ce.z.ToString("F1") + ")"
++               + " WAim=(" + ca.x.ToString("F1") + "," + ca.y.ToString("F1") + "," + ca.z.ToString("F1") + ")";
++            Camera mc = Singleton<WMWorld>.Instance != null ? Singleton<WMWorld>.Instance.MainCamera : null;
++            if (mc != null)
++            {
++                Vector3 mp = mc.transform.position;
++                s += " CAM=(" + mp.x.ToString("F1") + "," + mp.y.ToString("F1") + "," + mp.z.ToString("F1") + ")";
++            }
++            foreach (PosObj po in new PosObj[] { eye, aim })
++            {
++                if (po == null)
++                    continue;
++                Actor a = (Actor)po;
++                String tag = po == eye ? " EYE" : " AIM";
++                s += tag + "=uid" + po.uid + " pos=(" + po.pos[0].ToString("F0") + "," + po.pos[1].ToString("F0") + "," + po.pos[2].ToString("F0") + ")";
++                WMActor wa = a.wmActor;
++                if (wa != (UnityEngine.Object)null)
++                {
++                    Vector3 tp = wa.transform.position;
++                    s += " wm=(" + tp.x.ToString("F1") + "," + tp.y.ToString("F1") + "," + tp.z.ToString("F1") + ")";
++                }
++            }
++            WMActor mpp = ff9.w_moveActorPtr;
++            if (mpp != (UnityEngine.Object)null)
++            {
++                String who = mpp == ff9.w_moveDummyCharacter ? "DUMMY" : (mpp.originalActor != null ? "uid" + mpp.originalActor.uid : "noorig");
++                s += " movePtr=" + who + "@(" + mpp.pos0.ToString("F1") + "," + mpp.pos1.ToString("F1") + "," + mpp.pos2.ToString("F1") + ")";
++            }
++            Log.Message(s);
++        }
++        catch (Exception err)
++        {
++            Log.Message("[ff9mkrig] probe failed: " + err.Message);
++        }
+     }
+ 
+     public static String w_worldLocationName()
