@@ -82,10 +82,26 @@ matches stock-scene fidelity; free-roam is the smoother's tuned path. s69 candid
 SmoothFrameUpdater_World treatment of rig-driven cameras + script-moved actors. Cheap
 scene-side mitigation meanwhile: slower pans / farther eye (smaller per-tick steps).
 
-## Rung 1c — THE HANDSHAKE
+## Rung 1c — THE HANDSHAKE ★ CLOSED (2026-07-28, two rounds; owner: "clean and repeatable")
 
-A `Byte[26]`-style state machine + fade + restore/`Field()` — a complete self-contained
-mini-scene (the fade also masks the return tween).
+`rung1c_handshake.py` — the complete self-contained mini-scene: the fade bracket masks
+both camera cuts AND the post-scene chase ease (all behind black), and the phase byte
+(Map.Byte[50], free per the used-census 24-42) carries the director→cast handshake — the
+EYE's dolly waits on phase 1, the stock Byte[26] idiom. Round 1 hardlocked on a stuck
+white screen and minted:
+
+- **THE FADE SEMANTICS**: `FadeFilter` = WIPERGB 0xEC → `SceneDirector.InitFade((mode&2)
+  ? Sub : Add, frames, CMY)`. The dominant ×65 form `(2,24,0,255,255,255)` SUBTRACTS full
+  white = fade to BLACK (stock brackets scenes through black); mode-0 full white is an
+  ADDITIVE WASH that HOLDS (the ×11 flash form — NOT a fade-in); the restore is the ×18
+  `(3,16,0,0,0,0)` form — subtract zero, lerp the filter to nothing. **The lesson: a
+  census without the HANDLER is pattern-matching, not semantics — read the case first**
+  (the F2 record's "white fade" phrasing was the same misread).
+
+**RUNG 1 IS COMPLETE**: trigger → rig camera → tracked motion → phases → fades → restore,
+all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. The s67
+probe stays LIVE through rung 2 (remove at ladder close, bundled with the pending
+Memoria.Prime x64 copy at the next closed-game build).
 
 Rung 2 (design, owner input wanted): wire the proven scene into the ring's ferry UX — the
 diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall), an
