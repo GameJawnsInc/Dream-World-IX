@@ -1,0 +1,276 @@
+"""Scene ladder rung 1a: THE RIG PROOF -- the 9001 camera mechanism on our content, in-place in 9011.
+
+The mechanism, byte-read from stock WORLD01 entries 1/2 + source (DoEventCode.cs:2463/2473,
+ProcessEvents.cs:186-202):
+  * op 0xB7 (EYE) / 0xB8 (AIM): the EXECUTING actor snaps to the CURRENT camera eye/aim ray
+    (so arming never jumps the camera) and gets `actf |= actEye/actAim`. Every ProcessEvents
+    pass re-scans flagged actors and pushes their positions into w_cameraSetEyePtr/AimPtr --
+    the camera follows wherever the rig actors go. Model-less actors: the s49 smoother skips
+    them (`actor.Animation == null`), stock-proven.
+  * THE RESTORE (the piece stock never needed -- 9001 exits via Field()): nothing clears the
+    flags; the designation lives exactly as long as a flagged actor is ACTIVE. op 0x1C
+    (TerminateEntry / EBin `DELETE`, EBin.cs:1504) on a NON-self uid calls DisposeObj -> the
+    actor leaves the active list -> next pass finds no actAim -> w_cameraSetEyeAim falls back
+    to the chase cam on w_moveActorPtr. In the kit dialect: `op_1C(uid)`.
+  * Stock's rig entries cache ship-relative offsets in Instance vars; an appended entry has
+    varn=0 (NO Instance space -- the lane doc's append caveat), so ours inline constants: the
+    rung-0 ship is static at (29,-1168) y=200fp.
+
+The scene (repeatable, ~4s; v2 = EYE-ONLY after round 1's ejection): stand on the shore
+within 12u of the anchored ship, press Confirm (edge-gated, and only while the nameplate
+case machine is IDLE, Map.Byte[24]==100 -- the boat's proven arbitration gate) -> control+
+menu lock -> the EYE rig arms: the camera pulls out low over the water SW of the ship and
+drifts slowly shoreward-in (speed 8), aim staying CHASE (pinned on the player) -- player,
+moored ship, and beacon in frame -> hold -> rig TERMINATED (chase eye returns, hard cut --
+the fade is rung 1c's job) -> control back.
+
+★ THE AIM-DRAG TRAP (round 1 in-game, the ejection to (797,-656)): while an AIM rig is
+armed, ff9.cs:2914's `else` (the `!GetEventAim()` branch) writes `w_cameraWorldAim` into
+`w_moveActorPtr.pos0/1/2` EVERY FRAME -- and those two live in DIFFERENT DOMAINS: the camera
+vars are fp x256 (fed from GetControlChar().pos[]; the wrap constants 393216/327680 =
+1536*256/1280*256 prove it), while pos0/1/2 are RENDER-domain transform setters. In stock
+this is harmless bookkeeping -- scene worlds have controlUID=0 and w_moveActorPtr = the inert
+w_moveDummyCharacter (ff9.cs:4390). In a free-roam world with a CONTROLLED PLAYER, the drag
+teleports the PLAYER ~256x away, wrapped. NO script-side park is clean (control rebound to
+the ship/aim just redirects the garbage write onto the scene's own subject), so: an AIM rig
+in a controlled world requires an ENGINE fix first (s66 candidate: skip the drag when
+w_moveActorPtr != w_moveDummyCharacter -- stock scene behavior byte-identical). The heal
+was EXONERATED by the log (zero heal/exception lines -- s64 held).
+★ s66 SHIPPED same day (`s66-world-aim-drag-dummy-guard.patch`, sha 63B8FF83956DB472 both
+arches): the drag now fires only on the inert dummy. v3 re-arms the AIM (pinned on the
+ship) -- the composed shot: eye dollies in over the water, ship center-frame, player and
+beacon on the shore behind it. RELAUNCH required once (DLL). The v2 eye-only round also
+proved en route: trigger/lock/restore all clean, player position untouched (debug readout
+static), repeatable -- the chase-aim during v2 simply never pointed at the player, which is
+why the aim rig exists.
+
+WORLD11 changes (dispatcher 9011; rung 0 must already be deployed):
+  entry 17 (new) -- THE EYE: tag 0 = 0xB7 + MoveInstant (12,-1182) y 6u + slow WalkXZY dolly
+                    to (16,-1178); tag 1 = idle tick loop (stock rig entries carry a loop).
+  entry 18 (new) -- THE AIM: tag 0 = 0xB8 + MoveInstant onto the ship; tag 1 = idle tick.
+  entry 16 tag 1 -- the ship's loop becomes THE DIRECTOR: proximity+Confirm+idle-case gate ->
+                    InitObject(17/18) -> op_22(240) -> op_1C(17/18) -> restore; the anim loop
+                    (THE ANIMATION RULE) unchanged below the gate.
+  Main_Init unchanged -- the rig is armed by the director only, never at world load.
+
+While the rig is armed, actEye/actAim actors exist -> the s64 self-heal rig scan hard-gates
+the heal (the exact protection built for custom scenes; without s64 the heal would seize the
+rig -- the 9001 bug class).
+
+Deploy: py rung1a_rig_proof.py --deploy     (7 languages, hot -- world re-entry reloads)
+Revert: restore the printed backups (rung-0 state), or re-run rung0_quay_ship.py --deploy
+        (rewrites the ship loop to the plain anim loop; entries 17/18 stay but unarmed).
+Bench:  walk to the water's edge in front of the ship, Confirm -> the camera should cut low
+        over the water, glide toward the ship for ~3s, then cut back; control returns.
+"""
+import argparse
+import pathlib
+import shutil
+import struct
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "ff9mapkit"))
+
+from ff9mapkit import config                                          # noqa: E402
+from ff9mapkit.world.entrance import _WORLD_EB_SUBDIR                 # noqa: E402
+from ff9mapkit.eb.model import EbScript                               # noqa: E402
+from ff9mapkit.eb import edit as E                                    # noqa: E402
+from ff9mapkit.eb.cmdasm import assemble_block, disassemble_block     # noqa: E402
+
+MOD_FOLDER = "FF9CustomMap-world"
+FNAME = "EVT_WORLD_WORLD11.eb.bytes"
+LANGS = ("us", "uk", "jp", "es", "fr", "gr", "it")
+
+SHIP_UID = 16                        # rung 0's ship (must be deployed)
+EYE_UID = 17
+AIM_UID = 18
+ANIM_ID = 5106
+
+SHIP = (29, -1168, 200)              # rung 0's mooring: x, z world units; y fixed-point const
+# THE ARG2 SIGN LAW (round-1 in-game lesson -- "under horizon, mostly white"): MoveInstantXZY/
+# WalkXZY's middle arg is SIGN-FLIPPED into pos[1], and +pos[1] renders UP -- so an authored
+# HEIGHT of +h u must be encoded as (-h*256) & 0xFFFF. Stock's airborne actors are the tell:
+# WORLD11 e11 flies at arg2 58765 = signed -6771 -> +26.4u. Round 1's bare 1536 put the eye
+# 6u UNDERWATER. Sea-level things (the boat's/ship's 200 = -0.78u) never expose the sign.
+def up(h_units: float) -> int:
+    return (-int(h_units * 256)) & 0xFFFF
+
+
+# ★ THE WRAP-EPOCH LAW (v4 bird's-eye discriminator, in-game): ABSOLUTE world coordinates are
+# only valid at WORLD-LOAD time. Every wmActor lives under the TranslatingObjectsGroup and the
+# render frame's origin SHIFTS as the player traverses the wrap seams -- a mid-session actor
+# positioned with absolute constants lands in whatever epoch the constants happen to name (the
+# v4 bird's-eye fired perfectly -- height + downward aim -- but over a desert cove with VOID at
+# the frame edge: canonical coords rendered in a shifted epoch, blocks unstreamed beyond it).
+# The rung-0 ship is exempt because Main_Init arms it at world construction (epoch = canonical).
+# The boat study's wu() warning stated the comparison half ("f[] reads share the x256 domain AND
+# any world-wrap epoch, so the differences cancel"); this is the POSITION half, and it is why
+# STOCK's rig entries are SHIP-RELATIVE (obj(3).f[0] - 14000), never absolute. Author runtime
+# world positions RELATIVE to a live actor's f[] -- the epoch cancels by construction.
+# v5 shot, ship-relative: eye (-17, +7u, -14) off the ship, aim ON the ship; no dolly yet.
+EYE_OFF = (-17, 7, -14)              # world-unit offsets from the ship: x, up, z
+HOLD_FRAMES = 240                    # scene length (the dolly runs inside it)
+
+CONFIRM_ON = 131072                  # 0x20000 Confirm with B_KEYON (edge) -- the ring's proven gate
+RADIUS_FP = 3072                     # fp(12) -- the on-land confirm strip is the shore in front of the ship
+
+
+def fp(v: int) -> int:
+    return (v * 256) & 0xFFFFFFFF
+
+
+def _off(base: str, units: float, updown: bool = False) -> str:
+    """A ship-relative coordinate expr: obj(16).f[i] +/- |units|*256 (the stock rig idiom).
+
+    ★ THE ARG2 Y-DOMAIN (probe run 1, s67: eye pos[1] landed -1992 = -200 - 1792 despite
+    B_PLUS): the .eb expression world sees y NEGATED on BOTH sides -- the f[1] READ returns
+    -pos[1] and the MoveInstantXZY arg2 WRITE negates again -- so stock's pass-through aim
+    ({obj(3).f[1]}) cancels exactly, and an UP offset must be SUBTRACTED in the expr domain
+    (stock's own eye: f[1] - 3200 = 12.5u BELOW the ship => minus means DOWN there because
+    the CACHED Instance value feeds arg2 unnegated; for an inline read-modify-write like
+    ours, minus = UP). Pass updown=True for the y axis; positive units = up."""
+    if updown:
+        units = -units
+    n = int(abs(units) * 256)
+    if n == 0:
+        return f"{{{base} B_EXPR_END}}"
+    op = "B_PLUS" if units > 0 else "B_MINUS"
+    return f"{{{base} const4({n}) {op} B_EXPR_END}}"
+
+
+EYE_INIT = f"""
+0xB7()
+MoveInstantXZY({_off(f'obj(uid={SHIP_UID}).f[0]', EYE_OFF[0])}, {_off(f'obj(uid={SHIP_UID}).f[1]', EYE_OFF[1], updown=True)}, {_off(f'obj(uid={SHIP_UID}).f[2]', EYE_OFF[2])})
+RET()
+"""
+
+AIM_INIT = f"""
+0xB8()
+MoveInstantXZY({{obj(uid={SHIP_UID}).f[0] B_EXPR_END}}, {{obj(uid={SHIP_UID}).f[1] B_EXPR_END}}, {{obj(uid={SHIP_UID}).f[2] B_EXPR_END}})
+SetWalkTurnSpeed(1)
+RET()
+"""
+
+IDLE_LOOP = """
+L0:
+op_22(1)
+JMP(L0)
+"""
+
+# The director: the boat's proven proximity shape (uid 16, radius fp 3072, on-foot [190]==0),
+# Confirm edge, the case-machine idle gate (Byte[24]==100), then the scene body.
+DIRECTOR_LOOP = f"""
+L0:
+SET({{Global.Byte[190] B_NOT obj(uid=250).f[0] obj(uid={SHIP_UID}).f[0] B_MINUS const4({RADIUS_FP}) B_LT obj(uid={SHIP_UID}).f[0] obj(uid=250).f[0] B_MINUS const4({RADIUS_FP}) B_LT B_ANDAND obj(uid=250).f[2] obj(uid={SHIP_UID}).f[2] B_MINUS const4({RADIUS_FP}) B_LT obj(uid={SHIP_UID}).f[2] obj(uid=250).f[2] B_MINUS const4({RADIUS_FP}) B_LT B_ANDAND B_ANDAND B_ANDAND B_EXPR_END}})
+JMP_IFNOT(L900)
+SET({{const4({CONFIRM_ON}) B_KEYON B_EXPR_END}})
+JMP_IFNOT(L900)
+SET({{Map.Byte[24] const(100) B_EQ B_EXPR_END}})
+JMP_IFNOT(L900)
+DisableMove()
+DisableMenu()
+InitObject({EYE_UID}, 0)
+InitObject({AIM_UID}, 0)
+op_22({HOLD_FRAMES})
+op_1C({EYE_UID})
+op_1C({AIM_UID})
+op_22(2)
+EnableMenu()
+EnableMove()
+L900:
+SetAnimationFlags(1, 1)
+SetAnimationInOut(0, 0)
+RunAnimation({ANIM_ID})
+op_22(1)
+JMP(L0)
+"""
+
+
+def build_entry(etype: int, funcs) -> bytes:
+    fc = len(funcs)
+    table, code, fpos = b"", b"", fc * 4
+    for tag, body in funcs:
+        table += struct.pack("<HH", tag, fpos)
+        code += body
+        fpos += len(body)
+    out = bytes([etype, fc]) + table + code
+    if len(out) % 4:
+        out += bytes(4 - len(out) % 4)
+    return out
+
+
+def asm(text: str) -> bytes:
+    body = assemble_block(text)
+    rt = disassemble_block(body, 0, len(body))
+    if assemble_block(rt) != body:
+        raise SystemExit("text<->bytes round-trip mismatch -- refusing")
+    return body
+
+
+def patch_one(base: bytes) -> bytes:
+    s = EbScript(base)
+    ship = s.entry(SHIP_UID)
+    if ship.empty or not ship.funcs:
+        raise SystemExit(f"entry {SHIP_UID} (the rung-0 ship) is not deployed -- run rung0 first")
+    etype = s.data[ship.abs_start]
+
+    eye_init, aim_init, idle = asm(EYE_INIT), asm(AIM_INIT), asm(IDLE_LOOP)
+    director = asm(DIRECTOR_LOOP)
+
+    out = base
+    for uid, init in ((EYE_UID, eye_init), (AIM_UID, aim_init)):
+        have = None
+        try:
+            have = s.entry(uid)
+        except Exception:
+            pass
+        if have is None or have.empty or not have.funcs:
+            out = E.append_entry(out, uid, build_entry(etype, [(0, init), (1, idle)]))
+        else:
+            out = E.replace_function_body(out, uid, 0, init)
+            out = E.replace_function_body(out, uid, 1, idle)
+        s = EbScript(out)
+
+    out = E.replace_function_body(out, SHIP_UID, 1, director)
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--deploy", action="store_true")
+    args = ap.parse_args()
+
+    game_path = config.find_game_path(None)
+    eb_root = game_path / MOD_FOLDER / _WORLD_EB_SUBDIR
+    bkdir = ROOT / "backups" / "scene-ladder"
+    ts = time.strftime("%Y%m%d-%H%M%S")
+
+    patched = {}
+    for lang in LANGS:
+        mod_p = eb_root / lang / FNAME
+        if not mod_p.is_file():
+            raise SystemExit(f"{mod_p} missing -- rung 0 not deployed for {lang}")
+        base = mod_p.read_bytes()
+        out = patch_one(base)
+        patched[lang] = (mod_p, out)
+        if lang == "us":
+            s = EbScript(out)
+            print(f"[us] eye {EYE_UID}: {[f.tag for f in s.entry(EYE_UID).funcs]}, "
+                  f"aim {AIM_UID}: {[f.tag for f in s.entry(AIM_UID).funcs]}, "
+                  f"ship loop -> director; {len(out) - len(base):+} bytes vs base")
+    if not args.deploy:
+        print("dry run OK (all 7 languages patched in memory) -- re-run with --deploy to write")
+        return
+    for lang in LANGS:
+        mod_p, out = patched[lang]
+        bkdir.mkdir(parents=True, exist_ok=True)
+        bk = bkdir / f"{FNAME}.{lang}.{ts}"
+        shutil.copy2(mod_p, bk)
+        mod_p.write_bytes(out)
+        print(f"  {lang}: backed up -> {bk.name}; wrote {len(out)} B")
+
+
+if __name__ == "__main__":
+    main()
