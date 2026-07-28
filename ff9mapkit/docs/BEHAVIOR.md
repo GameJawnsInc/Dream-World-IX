@@ -71,6 +71,78 @@ without jump islands. Die actions additionally stop the unit's own brain before 
 terminates (a disposed unit must never leave a live coroutine behind). The build refuses any
 layout where a unit's entry slot + 64 collides with an occupied slot (the brain's runtime uid).
 
+One dispatch difference under brains: a **`die` is must-land**. Routine action dispatches
+deliberately drop while the unit is busy (that *is* the run-gate — a mid-battle-swirl chase
+request should vanish), but a death must actually happen, even if the unit is held by an open
+talk dialogue or a blocked walk when it triggers. The brain therefore issues the die as the
+engine's *blocking* request (REQSW): it waits on the instruction until the unit's script level
+frees, then binds — each brain blocks only itself, and the selection flip already released any
+looping body the unit was running. (The v1 ticker keeps the retrying non-blocking form: one
+shared ticker must never wait on one busy unit.)
+
+And the **one-shot family runs inline in the brain**. A `battle`, an event-once
+`announce`/`sfx`/`flash`/`stop_timer`, an `award` or shop mutation does nothing that cares
+which object executes it — the work is a battle id, a window, a sound, a screen fade, an
+inventory edit — so under brains it executes directly in the brain coroutine instead of being
+dispatched onto a per-member function: a class pays for ONE copy of each one-shot, not one per
+member. The engine's busy-check is preserved by reading the unit's script level before firing
+(the free-gate): a one-shot that triggers while the unit is held — say you're holding its talk
+dialogue open — defers and fires the moment the unit frees, never lost and never mid-dialogue.
+Non-once (looping) variants keep per-member bodies, since they hold the unit's dispatch level
+while selected — a residency the brain can't carry.
+
+### Classes — `npcs = [...]`: many units, ONE shared brain
+
+With `brains = true`, a `[[behavior.unit]]` row may bind a **list** of NPCs instead of one:
+
+```toml
+[[behavior.unit]]
+npcs = ["kn0", "kn1", "kn2"]      # a CLASS: one row, many bodies
+class = "knight"                  # optional name (reports/labels)
+hp = 4
+speed = 55
+  [[behavior.unit.branch]]
+  when = [{ hp_le = 0 }]
+  do = { die = "fallen" }
+  [[behavior.unit.branch]]
+  do = { engage = "mus", nearest = true }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }       # each member holds its OWN spawn
+```
+
+The row's branches compile **once** into a single brain entry that every member spawns as its
+own coroutine — each running copy drives *its* spawner (the engine binds the caller as the
+current object every frame). Per-member state splits by who touches it. State something
+*outside* the brain reads or writes (active/selected/targets/speeds/mirrors, the engage
+target register, body-written one-shot latches) lives in uid-indexed script-vector cells,
+seeded like every kit table: the shared brain reads *its own* member's cells through the
+caller's uid, while member-side bodies read the same cells at their fixed uid. State only the
+brain itself touches (sticky `once`/`cooldown` latches and timers, patrol progress, wander
+state, the one-shot request lanes) is **coroutine-private** — each running copy carries its
+own zeroed-at-spawn variable block, so it costs no table and no band at all. One consequence
+for debugging: those private latches are not visible in the `~` Flags panel — the compile
+report prints each brain's private-block map instead. Net effect: a 7-member class costs ONE
+brain's bytes instead of seven, and its per-member state stops consuming the flag band.
+(Every brains-backend unit gets the private block, classed or not.)
+
+What a class row can say: the feeds (`walk_to`/`hold`/`hold_post`/`chase`/`patrol`/
+`march`/`flee`/`wander`), `engage`, `swing_at`, `hold_ground`, `die`, sticky `once`/`cooldown`,
+`raise_flags`/`clear_flags` (any member raising counts) — and the one-shot family
+(`battle`/`sfx`/`flash`/`stop_timer`/`announce`/`announce_npc`), whose latches are **once PER
+MEMBER**: each member fires its own one-shot once (three classed knights with a `once` war cry
+= three cries, one `.mes` line; each Mu with a `battle` branch fires its battle once). Want
+once *per class*? Have the firing branch `raise_flags = ["cried"]` and gate it on
+`{ not_flag = "cried" }` — the first member to fire silences the rest. Only the payout verbs
+(`award` / shop stock+synth) refuse class rows — once-per-member there means N payouts; keep
+them on a single-npc row (a class and plain rows mix freely on one field). Simultaneous
+announces share the dialog window — stagger member placement (or windows) if two members can
+fire the same tick. A class tree is ONE program: per-member variation
+comes from state (`hold_post` posts, `engage` dynamic targets), not literals — and a class
+name can never be the *target* of someone else's condition (name a member, or use groups).
+Members keep their individual names everywhere else (groups, other trees' conds, `hp:` HUD
+sources). `anim` options need all members to share one model. hp rule for class self-tests
+(`hp_le` etc.): either every member sits in the SAME `[[behavior.group]]`, or none is grouped.
+
 ## Movement is real walking
 
 Actions that move (`walk_to`, `chase`, `patrol`, `march`, `flee`, `wander`) use the engine's own
@@ -208,7 +280,11 @@ order. A strike clip needs only the fire-and-forget half (it *should* return to 
   `set_flag = [<index>, 1]` rows.
 - **`once` / `cooldown`** are *sticky* over movement behaviors: `once` lets its branch run
   through one full engagement and latches when it ends; `cooldown` re-arms N ticks after the
-  behavior ends (a stalker that needs a breather once you escape).
+  behavior ends (a stalker that needs a breather once you escape). **The hysteresis law:** a
+  sticky decorator's condition is both the *trigger* and the *keep* — the engagement ends the
+  first tick the condition fails. A tight `near` (say 280 with a 170 chase standoff) reads the
+  player's first step back as "escaped" and a `once` latches almost instantly; give the keep
+  real room (hundreds of units past the standoff) so disengaging means genuinely leaving.
 - **`once` over an `announce` is an EVENT, not an engagement**: it fires the line once and
   *releases the branch immediately* (via the same edge-latched request lane battles use, so
   another body holding the dispatch level can't eat it). This matters because announce

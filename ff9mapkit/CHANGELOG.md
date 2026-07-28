@@ -21,6 +21,57 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   fire-field cell's 8,128. `summon-export` meshes now emit the Z fan too, so exported quads no
   longer carry a self-crossing triangle pair.
 
+### Added — behavior CLASSES: `npcs = [...]` shares ONE brain across same-tree units
+- With `[behavior] brains = true`, a `[[behavior.unit]]` row may bind a LIST of NPCs
+  (`npcs = ["kn0", ...]` + optional `class = "name"`): its branches compile ONCE into a single
+  shared brain entry every member spawns as its own coroutine — the engine binds each running
+  copy to its spawner, and the brain reads that member's state through the caller's own uid
+  (engine-native object-variable field 5, resolved through the same expression path the data-
+  table indices use). Per-member state (posts, targets, speeds, mirrors, sticky latches, the
+  engage register) strides into uid-indexed script-vector cells seeded like every kit table, so
+  it also stops consuming the blackboard flag band. Measured on the 7v7 scoreboard brawl: 14
+  brawlers share TWO 1.5KB brains — 15.3KB of new bytes vs 46.9KB on per-unit brains (32%).
+- v1 class vocabulary: the feeds, `engage`, `swing_at`, `hold_ground`, `die`, sticky
+  `once`/`cooldown`, `raise_flags`/`clear_flags`; the one-shot family (`battle`/`award`/shop
+  verbs/`sfx`/`flash`/`stop_timer`/`announce*`) stays on single-npc rows, and a class name is
+  never a condition target (name a member). `hp`/`speed`/`pooled`/`pool` apply to every member;
+  `anim` needs a shared model; class self-`hp_le` needs one hp home (same group, or ungrouped).
+  Class-free builds (both backends) compile byte-identically to before.
+- The one-shot family (`battle` / `sfx` / `flash` / `stop_timer` / `announce` /
+  `announce_npc`) now runs on class rows with **once-PER-MEMBER** latches (each member's
+  latch is its own uid-indexed cell; class-wide once = `raise_flags` + `not_flag`). A class
+  `battle` also installs the after-battle Main_Reinit, and the engine's battle park/restore
+  is uid-keyed and object-kind-blind, so shared brains ride a battle round-trip like any
+  stock NPC. Only the payout verbs (`award` / shop stock+synth) still refuse class rows —
+  once per member there would mean N payouts.
+- Brain-PRIVATE state (sticky `once`/`cooldown` latches + timers, patrol progress, wander
+  state, the one-shot request lanes) migrated into each brain coroutine's own PRIVATE variable
+  block (zeroed at spawn = reset for free; one copy per running brain = per member for free
+  under a class). It costs no script-vector table and no `gEventGlobal` band bytes; the brain
+  ticks its own cooldown timers. Body-shared state (the sel/run protocol, mirrors, targets,
+  body-written latches) keeps its addressable homes. v1 (ticker) builds are byte-identical;
+  the `~` Flags panel cannot see private latches — the compile report prints each brain's
+  block map.
+- A `die` dispatched from a brain is now **must-land**: it issues the engine's BLOCKING
+  script request (REQSW), which waits until the unit's script level frees — a death that
+  triggers while the unit is held by an open talk dialogue or a blocked walk still lands the
+  moment it releases, where the old fire-and-forget form would have been dropped silently.
+  Routine dispatches keep the non-blocking form on purpose (drop-while-busy is the run-gate),
+  each brain blocks only itself, and dispatch bodies are pinned never to carry the blocking
+  form (a body waiting on the very level it holds would deadlock). v1 ticker builds keep the
+  retrying non-blocking dispatch — one shared ticker must never wait on one busy unit — and
+  stay byte-identical.
+- The **one-shot family runs INLINE in the brain** (battle / event-once announce / sfx /
+  flash / stop_timer / award / shop): the work is global by audit (a battle id, a window, a
+  sound, a fade, an inventory edit — never a bare actor op), so it executes directly in the
+  brain coroutine instead of being dispatched onto per-member function copies — a class pays
+  for ONE copy of each one-shot, and the last per-member body duplication is gone (~13.6KB at
+  fort-condor scale). The engine's busy-check is preserved by READING the unit's script level
+  before firing: a one-shot that triggers while you hold the unit's talk dialogue open defers
+  and fires the moment the dialogue closes — never lost, never mid-dialogue. Looping
+  (non-once) variants keep per-member bodies (they hold the unit's dispatch level while
+  selected); v1 ticker builds are byte-identical.
+
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
   band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO

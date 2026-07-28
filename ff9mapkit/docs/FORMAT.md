@@ -2277,6 +2277,17 @@ usually monotonic and a sticky hold would starve every branch below forever.
 `raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
 A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
 
+**Brains + classes:** `brains = true` in `[behavior]` moves each unit's branch logic into its
+own coroutine entry (identical semantics, headroom for very large rosters — see
+[BEHAVIOR.md](BEHAVIOR.md#brains--true--the-per-unit-brain-backend)). With brains on, a
+`[[behavior.unit]]` row may bind `npcs = ["kn0", "kn1", ...]` (+ optional `class = "name"`)
+instead of `npc =`: **one row's branches drive every listed NPC through ONE shared brain**,
+with per-member state (posts, targets, latches, the engage register) strided automatically.
+Class rows take the unit vocabulary (feeds, `engage`, `swing_at`, `hold_ground`, `die`, sticky
+`once`/`cooldown`); the one-shot family (`battle`/`award`/shop/`sfx`/`flash`/`stop_timer`/
+`announce*`) still needs a single-npc row, and a class name cannot be a condition target —
+name a member. `hp`/`speed`/`pooled`/`pool` apply to every member.
+
 **Pooled units (runtime activation):** `pooled = true` on a `[[behavior.unit]]` keeps its NPC
 **out of the field at boot** (the entry is seated dormant — no spawn, no reveal flag needed) and
 puts it in a named `pool` (default `"pool"`). Each pool gets a **spawn-request flag** (index

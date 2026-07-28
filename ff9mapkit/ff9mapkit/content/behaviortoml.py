@@ -121,7 +121,12 @@ ACTION_VERBS = {
     "announce_npc": ("window", "delay", "sustain"),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
-UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
+UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "branch", "pooled", "pool"}
+# the PAYOUT verbs a CLASS row refuses (rung 2 lifted the rest of the one-shot
+# family with ONCE-PER-MEMBER latches — but a payout firing once per member is
+# N payouts, almost never the intent; the compiler enforces the same law)
+CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
+                         "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
               "brains"}
@@ -147,6 +152,27 @@ def table(raw: dict):
 def units(raw: dict) -> list:
     b = table(raw)
     return list(b.get("unit", [])) if b else []
+
+
+def row_members(u: dict) -> list:
+    """The [[npc]] names one unit row binds: ``npc = "x"`` -> ``["x"]``; a CLASS
+    row (``npcs = [...]`` — per-class brain sharing, needs ``brains = true``)
+    -> all its members."""
+    if u.get("npcs") is not None:
+        return [str(n) for n in (u.get("npcs") or [])]
+    return [str(u.get("npc"))] if u.get("npc") else []
+
+
+def row_class(u: dict, ui: int) -> str | None:
+    """The class name for a ``npcs = [...]`` row (None for a plain unit row):
+    the row's ``class = ``, defaulting to ``class<row index>``."""
+    if u.get("npcs") is None:
+        return None
+    return str(u.get("class") or f"class{ui}")
+
+
+def _row_label(u: dict) -> str:
+    return str(u.get("npc") or "+".join(row_members(u)) or "?")
 
 
 def _one_verb(d: dict, verbs: dict, ctx: str) -> str:
@@ -180,7 +206,7 @@ def published_flags(raw: dict) -> set:
             for br in u.get("branch", []) or []:
                 if isinstance(br.get("do"), dict):
                     br["do"].pop("route", None)
-        names = [str(u["npc"]) for u in units(work)]
+        names = [m for u in units(work) for m in row_members(u)]
         txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in announce_lines(work)}
         txids.update({("hud", hi): 890 + hi for hi, _h in hud_lines(work)})
         fb = build(work, npc_slots={n: i + 2 for i, n in enumerate(names)},
@@ -250,7 +276,7 @@ def draining_once_warnings(raw: dict) -> list:
             names = ", ".join(repr(r[1].get("once")) for r in rows)
             drains = [c for c in (rows[0][1].get("when") or []) if not sticky(c)]
             out.append(
-                f"[[behavior.unit]] {str(u.get('npc'))!r}: {len(rows)} `once` branches "
+                f"[[behavior.unit]] {_row_label(u)!r}: {len(rows)} `once` branches "
                 f"({names}) share the gate {key} — one branch fires PER TICK, so they "
                 f"need it to hold for {len(rows)} consecutive ticks, and "
                 f"{drains[0]!r} can stop holding before then (THE DRAINING-CONDITION "
@@ -284,7 +310,7 @@ def clock_coupled_warnings(raw: dict, *, game=None, probe=None) -> list:
             if do.get("stop_timer"):
                 has_stop = True
             if isinstance(do.get("battle"), int):
-                scenes.append((str(u.get("npc")), int(do["battle"])))
+                scenes.append((_row_label(u), int(do["battle"])))
     if not scenes or has_stop:
         return []
     if probe is None:
@@ -382,7 +408,7 @@ def pooled_npcs(raw: dict) -> set:
     """Names of [[npc]]s bound to POOLED behavior units — the build seats their entry
     but SKIPS the boot ``InitObject`` (``inject_npc(boot_spawn=False)``); the compiled
     ticker spawns them at runtime when their pool's request flag is set."""
-    return {str(u.get("npc")) for u in units(raw) if u.get("pooled")}
+    return {m for u in units(raw) if u.get("pooled") for m in row_members(u)}
 
 
 def pool_specs(raw: dict) -> list:
@@ -565,11 +591,11 @@ def movement_route_refs(raw: dict) -> list:
                 continue
             for verb in ("patrol", "march"):
                 if verb in do:
-                    refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                    refs.append({"ui": ui, "bi": bi, "unit": _row_label(u),
                                  "verb": verb, "value": do[verb],
                                  "autoroute": do.get("route") == "auto"})
             if "flee" in do and "to" in do:
-                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                refs.append({"ui": ui, "bi": bi, "unit": _row_label(u),
                              "verb": "flee", "value": do["to"], "autoroute": False})
     return refs
 
@@ -637,7 +663,7 @@ def pursuit_refs(raw: dict) -> list:
                 continue
             if "chase" in do:
                 tgt = str(do["chase"])
-                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                refs.append({"ui": ui, "bi": bi, "unit": _row_label(u),
                              "verb": "chase", "target": tgt,
                              "radius": _engagement_radius(br, tgt),
                              "standoff": int(do.get("standoff", 140)),
@@ -652,7 +678,7 @@ def pursuit_refs(raw: dict) -> list:
                 box = (cx - r, cx + r, cz - r, cz + r)
                 # a roll lands anywhere in the box, so the walker can be at one corner
                 # and its fresh target at the other: the family spans 2r per axis
-                refs.append({"ui": ui, "bi": bi, "unit": str(u.get("npc")),
+                refs.append({"ui": ui, "bi": bi, "unit": _row_label(u),
                              "verb": "wander", "target": f"({cx},{cz})+-{r}",
                              "radius": 2 * r, "standoff": 0,
                              "source_box": box, "target_box": box})
@@ -724,7 +750,7 @@ def describe_autoroute(plan: dict, raw: dict) -> list:
     lines = []
     us = units(raw)
     for (ui, bi), p in plan.items():
-        unit = str(us[ui].get("npc")) if ui < len(us) else "?"
+        unit = _row_label(us[ui]) if ui < len(us) else "?"
         for leg, wps in p["inserted"]:
             lines.append(
                 f"{p['verb']} {p['label']} (unit {unit!r} branch #{bi}): leg {leg + 1} "
@@ -773,7 +799,10 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
         legs = [fb.all_of(fb.active(t), fb.near(me, t, r)) for t in targets]
         return legs[0] if len(legs) == 1 else fb.any_of(*legs)
     if verb == "any_active":
-        return fb.any_flag(*[f"{str(t)}.active" for t in v])
+        # composed from active() Conds, NOT flag names: a classed member's active
+        # lives in a strided cell, and any_flag would mint a stray GLOB for it
+        legs = [fb.active(str(t)) for t in v]
+        return legs[0] if len(legs) == 1 else fb.any_of(*legs)
     c = fb.active(str(v))
     return B.Invert(c) if verb == "not_active" else c
 
@@ -903,19 +932,30 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
     mpaths = marker_paths(raw)
 
     specs = []
+    class_specs = []
     for ui, u in enumerate(b.get("unit", [])):
-        name = str(u.get("npc") or "")
-        if name not in npc_slots:
-            raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: npc {name!r} is not an "
-                                    f"injected named [[npc]] (known: {sorted(npc_slots)})")
-        npc = next((n for n in raw.get("npc", []) if n.get("name") == name), {})
-        pos = npc.get("pos") or (0, 0)
-        specs.append(B.UnitSpec(name, int(npc_slots[name]),
-                                spawn=(int(pos[0]), int(pos[1])),
-                                hp=(int(u["hp"]) if u.get("hp") is not None else None),
-                                walk_speed=int(u.get("speed", 50)),
-                                pooled=bool(u.get("pooled", False)),
-                                pool=str(u.get("pool", "pool"))))
+        if u.get("npc") is not None and u.get("npcs") is not None:
+            raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: npc and npcs are "
+                                    f"mutually exclusive (one unit, or one CLASS)")
+        members = row_members(u)
+        if not members:
+            raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: needs `npc = ` "
+                                    f"(one unit) or `npcs = [...]` (a class)")
+        for name in members:
+            if name not in npc_slots:
+                raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: npc {name!r} is not an "
+                                        f"injected named [[npc]] (known: {sorted(npc_slots)})")
+            npc = next((n for n in raw.get("npc", []) if n.get("name") == name), {})
+            pos = npc.get("pos") or (0, 0)
+            specs.append(B.UnitSpec(name, int(npc_slots[name]),
+                                    spawn=(int(pos[0]), int(pos[1])),
+                                    hp=(int(u["hp"]) if u.get("hp") is not None else None),
+                                    walk_speed=int(u.get("speed", 50)),
+                                    pooled=bool(u.get("pooled", False)),
+                                    pool=str(u.get("pool", "pool"))))
+        cname = row_class(u, ui)
+        if cname is not None:
+            class_specs.append(B.ClassSpec(cname, tuple(members)))
     band = str(b.get("byte_band", "safe"))
     if band not in ("safe", "wide"):
         raise BehaviorTomlError('[behavior] byte_band must be "safe" (campaign-compatible, the '
@@ -927,7 +967,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          pools=pool_specs(raw),
                          timer=(int(b["timer"]) if b.get("timer") is not None else None),
                          tables=table_specs(raw), counters=counter_names(raw),
-                         brains=bool(b.get("brains", False)))
+                         brains=bool(b.get("brains", False)),
+                         classes=class_specs)
     fb.synth_mints = synth_mint_map(raw)                  # ShopSynth string selectors
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))
@@ -956,13 +997,33 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                        else int(h.get("digits", 2))))
 
     for ui, u in enumerate(b.get("unit", [])):
-        name = str(u["npc"])
-        # the unit's own MODEL — gesture names resolve against it (the own-clip law)
-        umodel = next((n.get("model") for n in raw.get("npc", []) or []
-                       if n.get("name") == name), None)
+        members = row_members(u)
+        cname = row_class(u, ui)
+        name = cname if cname is not None else members[0]     # the tree's SELF
+        # the unit's own MODEL — gesture names resolve against it (the own-clip
+        # law). A CLASS resolves against its members' COMMON model; members with
+        # DIFFERENT models refuse anim names (a shared clip id would be the
+        # cross-form trap for someone).
+        mmodels = [next((n.get("model") for n in raw.get("npc", []) or []
+                         if n.get("name") == m), None) for m in members]
+        umodel = mmodels[0] if len(set(mmodels)) == 1 else None
+        mixed_models = len(set(mmodels)) > 1
         branches = []
         for bi, br in enumerate(u.get("branch", []) or []):
-            ctx = f"[[behavior.unit]] {name!r} branch #{bi}"
+            ctx = f"[[behavior.unit]] {_row_label(u)!r} branch #{bi}"
+            if cname is not None and isinstance(br.get("do"), dict):
+                bad = CLASS_FORBIDDEN_VERBS & set(br["do"])
+                if bad:
+                    raise BehaviorTomlError(
+                        f"{ctx}: {sorted(bad)} fires once PER MEMBER under a "
+                        f"class (N payouts) — put it on a normal single-npc "
+                        f"[[behavior.unit]]")
+                if mixed_models and br["do"].get("anim") is not None:
+                    raise BehaviorTomlError(
+                        f"{ctx}: anim on a class whose members have DIFFERENT "
+                        f"models ({sorted(set(map(str, mmodels)))}) — a shared "
+                        f"clip id is the cross-form trap for someone; split the "
+                        f"class by model or drop the anim")
             extra = set(br) - BRANCH_KEYS
             if extra:
                 raise BehaviorTomlError(f"{ctx}: unknown key(s) {sorted(extra)}")
@@ -1021,8 +1082,11 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 node = B.Cooldown(int(br["cooldown"]), node)
             branches.append(node)
         if not branches:
-            raise BehaviorTomlError(f"[[behavior.unit]] {name!r}: no branches")
-        fb.units[name].tree = B.Selector(*branches)
+            raise BehaviorTomlError(f"[[behavior.unit]] {_row_label(u)!r}: no branches")
+        if cname is not None:
+            fb.classes[cname].tree = B.Selector(*branches)
+        else:
+            fb.units[name].tree = B.Selector(*branches)
     return fb
 
 
@@ -1066,45 +1130,71 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     unit_names = []
     positions = _npc_marker_positions(raw)
     mpaths = marker_paths(raw)
+    class_names: list = []
     for ui, u in enumerate(b.get("unit", [])):
         ctx = f"[[behavior.unit]] #{ui}"
         extra = set(u) - UNIT_KEYS
         if extra:
             problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
-        name = u.get("npc")
-        if not name:
-            problems.append(f"{ctx}: needs `npc = ` naming a [[npc]]")
+        if u.get("npc") is not None and u.get("npcs") is not None:
+            problems.append(f"{ctx}: npc and npcs are mutually exclusive (one "
+                            f"unit, or one CLASS)")
             continue
-        if name not in npc_names:
-            problems.append(f"{ctx}: npc {name!r} is not a named [[npc]]")
-        if name in unit_names:
-            problems.append(f"{ctx}: duplicate unit for npc {name!r}")
-        unit_names.append(name)
-        npc = next((n for n in raw.get("npc", []) or [] if n.get("name") == name), {})
-        for bad_key, why in (("holds", "a held-prop NPC's entry layout differs"),
-                             ("requires_flag", "reveal-gating conflicts with the warm-up wake"),
-                             ("scenario_min", "scenario gating conflicts with the warm-up wake"),
-                             ("scenario_max", "scenario gating conflicts with the warm-up wake")):
-            if npc.get(bad_key) is not None:
-                problems.append(f"{ctx}: npc {name!r} has `{bad_key}` — {why}; not supported "
-                                f"on a behavior unit"
-                                + (" (a pooled unit needs NO flag — the build itself skips "
-                                   "its boot spawn)" if bad_key == "requires_flag"
-                                   and u.get("pooled") else ""))
+        members = row_members(u)
+        cname = row_class(u, ui)
+        if not members:
+            problems.append(f"{ctx}: needs `npc = ` naming a [[npc]] (or "
+                            f"`npcs = [...]` for a class)")
+            continue
+        import re as _re
+        if cname is not None:
+            # a CLASS row: one shared brain per N members — needs the brains
+            # backend (a central ticker has no caller context to stride on)
+            if not b.get("brains"):
+                problems.append(f"{ctx}: a class row (npcs=) needs [behavior] "
+                                f"brains = true")
+            if not _re.fullmatch(r"[a-z][a-z0-9_]*", cname):
+                problems.append(f"{ctx}: class name {cname!r} must be [a-z][a-z0-9_]*")
+            if cname in class_names:
+                problems.append(f"{ctx}: duplicate class name {cname!r}")
+            if cname in npc_names:
+                problems.append(f"{ctx}: class name {cname!r} collides with an "
+                                f"[[npc]] name")
+            class_names.append(cname)
+            if len(set(members)) != len(members):
+                problems.append(f"{ctx}: duplicate npcs in the class")
+        elif u.get("class") is not None:
+            problems.append(f"{ctx}: `class =` needs `npcs = [...]`")
+        for name in members:
+            if name not in npc_names:
+                problems.append(f"{ctx}: npc {name!r} is not a named [[npc]]")
+            if name in unit_names:
+                problems.append(f"{ctx}: duplicate unit for npc {name!r}")
+            unit_names.append(name)
+            npc = next((n for n in raw.get("npc", []) or [] if n.get("name") == name), {})
+            for bad_key, why in (("holds", "a held-prop NPC's entry layout differs"),
+                                 ("requires_flag", "reveal-gating conflicts with the warm-up wake"),
+                                 ("scenario_min", "scenario gating conflicts with the warm-up wake"),
+                                 ("scenario_max", "scenario gating conflicts with the warm-up wake")):
+                if npc.get(bad_key) is not None:
+                    problems.append(f"{ctx}: npc {name!r} has `{bad_key}` — {why}; not supported "
+                                    f"on a behavior unit"
+                                    + (" (a pooled unit needs NO flag — the build itself skips "
+                                       "its boot spawn)" if bad_key == "requires_flag"
+                                       and u.get("pooled") else ""))
+            if u.get("pooled"):
+                att = [p.get("prop") or p.get("model") for p in raw.get("prop", []) or []
+                       if p.get("attach_to") == name]
+                if att:
+                    problems.append(f"{ctx}: prop(s) {att} attach_to pooled npc {name!r} — a "
+                                    f"boot-spawned prop cannot bind to a not-yet-spawned unit")
         if u.get("pooled") is not None and not isinstance(u.get("pooled"), bool):
             problems.append(f"{ctx}: pooled must be true/false")
         if u.get("pool") is not None:
             if not u.get("pooled"):
                 problems.append(f"{ctx}: `pool =` needs `pooled = true`")
-            import re as _re
             if not _re.fullmatch(r"[A-Za-z0-9_]+", str(u.get("pool"))):
                 problems.append(f"{ctx}: pool name {u.get('pool')!r} must be [A-Za-z0-9_]+")
-        if u.get("pooled"):
-            att = [p.get("prop") or p.get("model") for p in raw.get("prop", []) or []
-                   if p.get("attach_to") == name]
-            if att:
-                problems.append(f"{ctx}: prop(s) {att} attach_to pooled npc {name!r} — a "
-                                f"boot-spawned prop cannot bind to a not-yet-spawned unit")
     # [[behavior.pool]] rows: economy/UX config per pool
     declared_pools = {str(u.get("pool", "pool")) for u in b.get("unit", [])
                       if u.get("pooled")}
@@ -1220,7 +1310,8 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     # groups (the engage rosters — v2)
     declared_groups: dict = {}
     member_of: dict = {}
-    _hp_units = {u.get("npc") for u in b.get("unit", []) if u.get("hp") is not None}
+    _hp_units = {m for u in b.get("unit", []) if u.get("hp") is not None
+                 for m in row_members(u)}
     for gi, row in enumerate(b.get("group", []) or []):
         ctx = f"[[behavior.group]] #{gi}"
         extra = set(row) - GROUP_KEYS
@@ -1393,16 +1484,35 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
         problems.append(f"[behavior]: unit(s) {sorted(clash)} are also [cutscene] cast actors "
                         f"— the conductor and the behavior dispatch share REQ level 4")
     valid_targets = set(unit_names) | {B.PLAYER}
-    hp_units = {u.get("npc") for u in b.get("unit", []) if u.get("hp") is not None}
+    hp_units = {m for u in b.get("unit", []) if u.get("hp") is not None
+                for m in row_members(u)}
     engaged_units: set = set()
     for ui, u in enumerate(b.get("unit", [])):
-        me = u.get("npc")
+        row_ms = row_members(u)
+        row_cn = row_class(u, ui)
+        me = row_cn if row_cn is not None else (row_ms[0] if row_ms else None)
         # this unit's OWN model — bound per unit here, NOT reused from the pass
-        # above (that `npc` is stale by now: the announce_npc check rebinds it)
-        me_model = next((n.get("model") for n in raw.get("npc", []) or []
-                         if n.get("name") == me), None)
+        # above (that `npc` is stale by now: the announce_npc check rebinds it).
+        # A class binds its members' COMMON model (mixed models refuse anim).
+        _row_models = [next((n.get("model") for n in raw.get("npc", []) or []
+                             if n.get("name") == m), None) for m in row_ms]
+        me_model = _row_models[0] if len(set(_row_models)) == 1 else None
+        _mixed_models = len(set(_row_models)) > 1
         for bi, br in enumerate(u.get("branch", []) or []):
-            ctx = f"[[behavior.unit]] {me!r} branch #{bi}"
+            ctx = f"[[behavior.unit]] {_row_label(u)!r} branch #{bi}"
+            if row_cn is not None and isinstance(br.get("do"), dict):
+                bad = CLASS_FORBIDDEN_VERBS & set(br["do"])
+                if bad:
+                    problems.append(
+                        f"{ctx}: {sorted(bad)} fires once PER MEMBER under a "
+                        f"class (N payouts) — put it on a normal single-npc "
+                        f"[[behavior.unit]]")
+                    continue
+                if _mixed_models and br["do"].get("anim") is not None:
+                    problems.append(
+                        f"{ctx}: anim on a class whose members have DIFFERENT "
+                        f"models ({sorted(set(map(str, _row_models)))}) — split "
+                        f"the class by model or drop the anim")
             try:
                 if "do" not in br:
                     problems.append(f"{ctx}: needs a `do` action")
@@ -1432,9 +1542,11 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     if str(v) not in declared_groups:
                         problems.append(f"{ctx}: engage group {v!r} is not a "
                                         f"[[behavior.group]]")
-                    elif str(me) in declared_groups[str(v)]:
-                        problems.append(f"{ctx}: {me!r} cannot engage its own "
-                                        f"group {v!r}")
+                    else:
+                        for _m in (row_ms or [str(me)]):
+                            if _m in declared_groups[str(v)]:
+                                problems.append(f"{ctx}: {_m!r} cannot engage its "
+                                                f"own group {v!r}")
                     if str(me) in engaged_units:
                         problems.append(f"{ctx}: {me!r} already has an engage "
                                         f"(one target register per unit)")

@@ -778,6 +778,232 @@ plays the same, no differences." The per-unit-brain backend is in-game proven
 at full brawl scale: 15 brains, mid-fight deaths (the orphan law at scale),
 counter lanes, the crier — all identical to the ticker build. Rung 0 CLOSED.
 
+**Rung 1 — BUILT + DEPLOYED (2026-07-28), ⚠ parity playtest pending: PER-CLASS
+BRAIN SHARING (the true cross-product kill).** `npcs = ["kn0", ...]` (+
+optional `class =`) on a `[[behavior.unit]]` row compiles the branches ONCE
+into a brain entry ALL members STARTSEQ (P3's multi-spawn shape, now product
+surface). The two needs the rung charter named, both grounded at the source
+before a byte shipped:
+* **THE IDENTITY CHANNEL — engine-native, one 3-byte expression:**
+  `obj(uid=255).f[5]` = the CALLING UNIT'S uid. B_OBJSPECA pushes
+  uid<<8|field (EBin.cs:1216); EvaluateValueExpression resolves the uid
+  through `GetObjUID` — 255 returns gCur DIRECTLY, O(1), no list walk
+  (EventEngine.cs:948) — and getvobj field 5 IS `obj.uid`, no cid guard
+  (EBin.cs:1815). 0xD3 vector args resolve through EvaluateValueExpression
+  itself (EBin.cs:359), the exact path the in-game-proven scan-loop indices
+  ride — so a cell indexed by the caller's uid is the proven composition
+  with a different operand, not a new shape. No Instance vars, no handoff
+  GLOB, no spawn-order race.
+* **STRIDED PER-UNIT STATE:** classed members' protocol state
+  (act/sel/run/spd/spdap/mx/mz/tx/tz/px/pz + per-class wp/wander/ctgt/
+  decorator latches/cd timers + hp-when-ungrouped + the uid→roster ord map
+  + spd0 defaults) lives in uid-indexed gScriptVector tables, seeded by the
+  table law (zero-fill = the reset; presets are seed values — ctgt=255,
+  posts, speeds, hp). The brain reads cells at MYUID; member-side bodies
+  (duty walk args, dispatch tags, nudge) read the same cells at their
+  CONSTANT uid; the ticker lanes (mirrors/wake/pools/group copies) write
+  them const-indexed. Blackboard relief rides along: classed members take
+  ZERO band slots.
+  Emission went owner-generic behind one ref resolver (`_uref`) — a
+  class-free build is BYTE-IDENTICAL to master on both backends (verified
+  stable_hash + report across a build exercising every lane).
+v1 pins: class trees carry the unit vocabulary only (one-shot actions
+refused — per-member once-semantics under a shared brain are a later rung);
+a class name is never a TARGET (members keep their names for that); anim
+needs a shared model; self-hp needs ONE home (all members in the same group
+via the seeded ord table, or none grouped via cls.hp cells); flee threats
+are shared names (per-member threat rotation isn't one program — engage is
+the dynamic-target lane). 15 tests (identity bytes, shared tags, seed maps,
+refusals, the game-gated shared-slot install on 559); the known labelasm
+band-exhaustion failure predates this branch (master too — chip spawned).
+**Bench 30424 "BTCLASS" (`classbrawl_bench.py`): the GROUP-BENCH
+scoreboard brawl as TWO CLASS ROWS** — 14 brawlers, 2 shared brains
+(1,503B each) + the crier's own: **15,340B new vs BRAWN's 46,858B (32%)**;
+deployed bytes verified (15 STARTSEQ heads → 3 brain slots split 7/7/1,
+identity reads in exactly the two shared entries). The parity checklist =
+the proven scoreboard fight + THE SHARPEST NEW CLAIM: a member's death
+stops ITS OWN Seq only — six siblings running the same entry fight on.
+RELAUNCH → ~ → Warp → 30424.
+**ROUND 1 (owner): the fight itself CLEAN — knights win 2-0, everything
+normal — except "the crier announces 'The Mus are wiped out!' before
+anything else." THE WAKE-PUBLICATION RACE, a LATENT RUNG-0 BRAINS BUG the
+class bench merely exposed (fixed same day):** the ticker's warm-up expiry
+pass set every `active` then jumped straight to `wait`, publishing the
+alive-scans only NEXT pass — invisible in v1 (tree segs run in the same
+ticker body AFTER the scan blocks) but a brain is its OWN Seq and can tick
+in the gap, reading a counter at its SEED. Alive-counts seed 0 and
+`counter_eq 0` is armed AT the seed → the wipe line fired at boot and its
+event-once latched (hence silence at the real 2-0 wipe). BRAWN never
+tripped it: every counter cond there was `counter_ge N>=1`, false at seed.
+**THE FIX (structural): under brains the wake pass FALLS THROUGH into the
+run path** — wake + mirror/scan/counter publication become ONE atomic
+ticker slice (no Wait between), so no brain can ever observe active=1
+before first publication; v1 keeps its proven jump byte-for-byte
+(master-identity re-verified). Suite-pinned (`test_wake_publication_law`);
+30424 re-deployed (~ Reload suffices). ⚠ BRAWN 30423 as deployed still
+carries the old wake (nothing in its trees arms at seed); fix rides its
+next redeploy — the staged-latch precedent.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — boot-silent
+crier, the full parity fight, the wipe line at the real wipe. RUNG 1 IS
+CLOSED: per-class brain sharing (2 shared brains driving 14 units at 32%
+of BRAWN's bytes, the identity channel + strided state + shared-entry
+sibling-survival all in-game) is ratified.** Still open on the brains
+ladder: per-member one-shots under classes, Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
+
+**RUNG 2 — BUILT + DEPLOYED (2026-07-28), ⚠ playtest pending: THE ONE-SHOT
+FAMILY IN CLASS ROWS.** `battle`/`sfx`/`flash`/`stop_timer`/`announce`/
+`announce_npc` lift into `npcs=` rows with **ONCE-PER-MEMBER** latches: the
+oneshot plumbing went KEY-based — latch/request slots resolve per context
+(unit owner → the v1 reset-listed GLOBs byte-for-byte; class → zero-seeded
+strided cells, the brain reading them at MYUID and each member's dispatch
+body latching its OWN cell at its constant uid). Class-wide once = the
+`raise_flags` + `not_flag` idiom (documented, not new surface). Only the
+PAYOUT verbs (`award`/shop) still refuse classes — once-per-member is N
+payouts. **Battle under brains, grounded at the source before shipping:**
+the battle transition parks the whole field EventContext and restores it
+uid-keyed (EventContext.copy), EnterBattleEnd suspends uid≠0 and the
+state0 wake resumes — all cid-blind, so Seq brains ride the round-trip
+like any stock object (EventEngine.cs:666/780/1216); and
+`has_battle_actions()` now counts CLASS trees, so the tag-10 Main_Reinit
+installs (without that fix a class battle = the EnterBattleEnd softlock).
+Master identity re-verified both backends; suite green (165 behavior
+tests). **Bench 30425 "BTCRY" (`btcry_bench.py`)**: 3-knight herald class
+(each war-cries ONCE, event-once announce) + 2-Mu tread class (each fires
+scene 35 ONCE; timer=600 per the clock-coupled battle law) — deployed
+bytes verified (tag-10 on entry 0, 5 heads → 2 brains split 3/2, identity
+in both, exactly 2 battle bodies). THE SHARPEST CLAIM: after the first
+battle every other brain still lives (the first battle ever fired under
+Seq brains). RELAUNCH → ~ → Warp → 30425.
+**★ PLAYTEST PROVEN (owner, 2026-07-28, round 1 clean): "all good, 3
+cries, both battles work, no issues after" — RUNG 2 CLOSED.** Once-per-
+member latches, per-member battles, AND the battle round-trip under Seq
+brains (park/restore/suspend/resume with live shared-brain Seqs) are all
+in-game. Still open on the brains ladder: Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
+
+**RUNG 3 — BUILT + DEPLOYED (2026-07-28), ⚠ playtest pending: THE INSTANCE
+BLOCK (brain-private state → Seq Instance vars).** THE ELIGIBILITY LINE:
+state ONLY the brain touches — sticky once latch+eng, cooldown timer+eng
+(the BRAIN now ticks its own timers; a dead unit's cooldown freezing is
+unobservable), areq/breq request flags, patrol wp, wander wtx/wtz/wtimer —
+moves into each Seq's private Instance block (`_inst_ref`; the entry's varn
+via `seat_entry(loc=)`, offsets from 0, int16s 2-aligned, flags as whole
+BYTES — every shape the SEQBRAIN bench proved). Zeroed at spawn = reset for
+free; per member for free under classes (rung-1's strided wt/cd tables and
+rung-2's areq/breq tables DELETED). Body-written latches (event-once,
+battled) + the sel/run protocol + mirrors/targets keep addressable homes.
+`gscan` deliberately NOT migrated (transient shared scratch, 1B/owner —
+keeps the proven combat-lane bytes stable). v1 byte-identical vs master
+(re-verified, including its bb allocation ORDER — the brains-only seg
+restructure compiles the tree first to discover cooldowns). ~ Flags cannot
+see Instance vars; the report prints each brain's block map. Suite: 163
+behavior tests green. **Bench = BTCRY REDEPLOYED (zero relaunch)** with the
+rung-3 cast: heralds gain a per-member STICKY-ONCE follow; new "stalker"
+class (Cooldown-150 chase + ONE shared patrol chord walked at each Seq's
+OWN wp — snap-together = failure); treads' wander/breq now private.
+Deployed bytes verified: 7 heads → 3 brains split 3/2/2, varn 3/7/3.
+~ → Reload → 30425.
+**ROUND 1 (owner): stalkers ★ CLEAN** ("walk their own paths and chase
+independently, repeatable forever including after battles" — private wp +
+brain-ticked cooldown + the battle round-trip all confirmed); two BENCH
+authoring bugs, both fixed same day: (1) the herald follow "tags and runs
+back" = **THE HYSTERESIS LAW** (a sticky cond is TRIGGER and KEEP — 280u
+with a 170 standoff read the first step back as "escaped" and latched;
+now 700u; law → BEHAVIOR.md; the stalkers' identical machinery at 500u
+working is the compiler's alibi); (2) the treads' wander box sat on the
+monument's west bulge ("slide-running in place" — the known off-mesh
+shove); the center now anchors on the clearance lattice at ~(-1700,0),
+r 250 — `behavior lint`'s wander sweep is quiet on the new box (round 1
+shipped unlinted; the sweep existed and would have flagged it — RUN THE
+LINT ON BENCHES TOO). Redeployed zero-relaunch; round 2 = the herald
+follow + visible wandering re-checks.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "all good now, knight
+follows and mus wander properly" — RUNG 3 IS CLOSED.** The Instance block
+is in-game across every migrated slot family: per-member sticky once
+(follow-then-latch), brain-ticked cooldowns, private patrol progress,
+private wander state, the private request lanes — and the battle
+round-trip re-held under Instance state. Remaining ladder: REQSW
+transition dispatches, inline one-shot bodies.
+
+## Rung 4 — ★ RATIFIED (2026-07-28): REQSW TRANSITION DISPATCHES (THE
+MUST-LAND DISPATCH LAW as compiler vocabulary).
+
+Under brains, a transition-critical dispatch — **Die** — emits **REQSW
+0x12** in the sel-gated tail instead of the droppable REQ: the brain Seq
+STAYS on the instruction while the unit's level is held (an open talk
+dialogue, a blocked walk), then binds — seqbrain P4's exact shape, now
+compiler-emitted. Routine dispatches keep REQ deliberately: drop-while-busy
+IS the run-gate. No deadlock is reachable — the tree writes sel=<die aid>
+BEFORE the tail, so a looping kit body exits its sel check and frees the
+level — and **THE SELF-REQSW DEADLOCK guard** is suite-pinned: member
+bodies (which run ON the unit AT the dispatch level) never carry 0x12.
+**THE TICKER-NEVER-BLOCKS COROLLARY:** v1 keeps REQ not just for byte
+identity (`70f7fa47e28de45c` re-verified) but by obligation — one blocked
+REQSW in the shared ticker would stall EVERY brain in the field; v1's
+per-tick re-REQ is itself must-land while sel holds. Both opcodes are 5
+bytes: no span drift. Suite: 4 new tests, class file 24/24, battery 167.
+**Bench = BTCRY REDEPLOYED (zero relaunch): THE DEATH KNELL** — the tread
+battle rings a sticky `knell` flag; a top-ranked die branch fells the
+herald class (kneel `hiza_1` + linger + vanish), the flagship case a
+knight killed MID-FOLLOW (sel flip frees his looping chase body, the
+REQSW binds the die), composed with the battle round-trip.
+**ROUND 1 (owner): mechanism ★** — knights fell (glimpsed post-swirl),
+second Mu fired, stalkers clean — but knell+battle rang the SAME tick, so
+the field suspended before the heralds' brains reacted and the death beat
+played half-eaten by the swirl-back ("the battle order is messy"). Round 2
+= staging only, compiler untouched: a tread branch at 400u (outside the
+220u battle range) announces THE KNELL TOLLS + raises the flag, so the
+full beat plays in the open ~180u before the swirl; the battle branch
+keeps its own ring as the belt. (The new areq rides the tread Instance
+block's alignment hole at offset 1 — still 7B.)
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — RUNG 4 IS
+CLOSED.** Remaining ladder: inline one-shot bodies.
+
+## Rung 5 — ★ RATIFIED (2026-07-28): INLINE ONE-SHOT BODIES (the last
+cross-product remnant). THE BRAINS LADDER IS COMPLETE.
+
+The one-shot request-lane bodies (battle / event-once announce / sfx /
+flash / stop_timer / award / shop) are **global-op-only by audit**
+(`_oneshot_work`): a battle id, a window, a sound, a screen fade, the
+timer, gil/item/shop — never a bare actor op (which binds gCur/gExec and
+cannot move between a member body and the brain). Under brains they run
+**INLINE in the (shared) brain Seq** instead of being REQ'd onto
+per-member functions — the duplicated dispatch-body copies (13.6KB at
+CONDOR scale) are gone. **THE FREE-GATE** `obj(uid=255).f[6] > 4` is the
+engine's `requestAcceptable(unit, 4)` READ instead of probed (getvobj
+case 6 = `obj.level`, no cid guard, the same B_OBJSPECA path as the uid
+read; a running tag-1 main sits at `cEventLevelN-1` = **7** — the
+docstring's "level is 0 until main returns" is wrong at the source — a
+kit body holds 4, an engine talk holds lower): an engine-held unit's
+one-shot skips-and-retries, exactly the REQ's old drop-and-retry, and can
+never fire mid-dialogue. Once-per-member survives BY THE IDENTITY CHANNEL
+(the one inline latch write addresses the CALLER's strided cell). Latch
+still FIRST (Battle's suspend-safe shape). What deliberately did NOT
+move: looping (non-once) announce/sfx/flash/timer variants keep member
+bodies (a level-4 residency the brain cannot carry — it would stop
+evaluating its own tree), and v1 keeps everything (ONE shared ticker
+cannot run a Wait inline). `_oneshot_work()` is the single op builder for
+both paths — the refactor REMOVED code; v1 byte-identical through it
+(`70f7fa47e28de45c`). Suite: 4 new pins, battery 171. Engine grounding:
+ENCOUNT 0x2A is fully caller-blind (two args, global battle state,
+`return 3`) — first-ever 0x2A from a Seq, round-trip included.
+**Bench = BTCRY REDEPLOYED (zero relaunch), a PARITY round:** dispatch
+bodies 1034B → 651B, brains +182B (one shared copy each). **★ RATIFIED
+(owner, 2026-07-28): "battles work, clean return, everything runs
+after"** — the inline 0x2A swirl + arena + resume, the knell deaths, the
+second Mu, stalkers, reload re-arm, all under inline one-shots; plus the
+async-window composite (cry window + talk dialogue stacked on screen,
+correct — the free-gate can only defer, never lose, never mid-dialogue).
+
+**THE BRAINS LADDER (rungs 0-5) IS CLOSED.** Per-unit brains → per-class
+sharing → one-shots once-per-member → THE INSTANCE BLOCK → REQSW
+must-land dies → inline one-shot bodies. All three walls from the
+SEQBRAIN reading are down: span (one brain entry per class), the
+blackboard band (Seq-private Instance state), and the body cross-product
+(inline one-shots). Next per the handoff: Fort Condor productization on
+this substrate.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
