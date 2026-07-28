@@ -32,8 +32,10 @@
 >   round trip is byte-identical on all 93 stock creature pages across all 24 decodable packages,
 >   every refusal ships with a test, and a composed proof artifact (the W4 spectral-mist Bahamut
 >   rebuilt plus a hard-edged brand stamped on its own wing) gates clean end to end — an in-game
->   cast is the next step, not yet run in this rung. Scenery pages (mixed bit depths, multi-writer
->   VRAM columns) are **explicitly out of scope, named W6b** — see the texel-lane section below.
+>   cast is the next step, not yet run in this rung. **Rung W6b-1 extended it to the effect's own
+>   SCENERY** — sky domes, fire fields, ground planes — at 4, 8 and 15 bpp, with remedies for the
+>   multi-writer, spilling and multi-palette cells and a named refusal (carrying its measurement) for
+>   the ones no remedy touches: see [the scenery texel lane](#the-scenery-texel-lane-w6b-1) below.
 >
 > **Separate surface, still explicitly out of scope:** *dumping* a summon's raw container to
 > stdout/SCRATCH for reading, and *forking* one summon's structure into a brand-new effect
@@ -413,12 +415,13 @@ themselves. Lands in a new sibling module, `summons/repaint.py`, which *consumes
 parameter on `_regions`) rather than re-deriving it — `reskin.py`'s own docstring earmarks the
 repaint as "a different lane" and now names where it lives.
 
-**This rung (W6a) ships CREATURE TEXTURE PAGES only, on the INDEXED lane, and nothing else.**
-Every id-4 creature page is single-writer (0 collisions against every scenery rect and every id-9
-block, measured over 24 packages / 93 pages) and uniform 8bpp — the one texel class free of every
-hazard the corpus carries. A `[[reskin.texel]]` row naming anything outside that set — a scenery
-page, an `--art-lane rgba` export — REFUSES by name (`W6B_REASON`) rather than half-working; see
-**W6b, deferred**, below.
+**TWO SURFACES, ONE LEVER.** Rung W6a shipped the **creature texture pages**: every id-4 page is
+single-writer (0 collisions against every scenery rect and every id-9 block, measured over 24
+packages / 93 pages) and uniform 8bpp — the one texel class free of every hazard the corpus carries.
+Rung **W6b-1** added the effect's own **scenery** — sky domes, fire fields, ground planes, energy
+rings — at 4, 8 and 15 bpp, with a remedy for each of the hazards that surface actually carries and a
+refusal, by name and with its measurement, for the ones no remedy touches. See
+**[the scenery texel lane](#the-scenery-texel-lane-w6b-1)**, below.
 
 ```
 ff9mapkit summon-reskin export-art --ef 227 --out C:/gd/SCRATCH/summon-format/repaint/ef227/art
@@ -441,11 +444,12 @@ gated disjoint (see Orthogonality, below).
 ### `export-art` — the paint workflow
 
 ```
-ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed] [--no-coverage]
+ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed|direct15] [--no-coverage]
 ```
 
 Reads the stock container out of your own install (or `--from <file>`), decodes every addressable
-creature page, and writes, per part, under a **local-only** root (`export.assert_local_only` — no
+page — creature parts **and** every scenery cell whose depth the container states — and writes, per
+part, under a **local-only** root (`export.assert_local_only` — no
 repo path, no `StreamingAssets` tree, no install path, no `--force`, because a decoded page is
 Square-Enix content):
 
@@ -491,13 +495,17 @@ table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one
 
 | key | required | meaning |
 |---|---|---|
-| `name` | **yes** | the page's *derived* name: `tex.part{N}`, one per creature part. A scenery-style name (`page.*`/`id9.*`) resolves to nothing on this rung and refuses with the W6b reason — `export-art` prints every name the container actually declares. |
+| `name` | **yes** | the page's *derived* name, over BOTH namespaces: `tex.part{N}` for a creature part, `cell.{writer}.x{X}_y{Y}` for a scenery VRAM page-cell (e.g. `cell.s0.x704_y256`, `cell.id9.s0.x832_y384`). The old rect spelling `page.*.h256` still refuses — an `h = 256` rect is **not** an addressable unit, it is two stacked cells the engine uploads separately — and the refusal now names the two `cell.*` halves it splits into. `export-art` prints every name the container declares, and every cell it refuses with the reason. |
 | `source` | *conditional* | the indexed PNG path (relative to the spec file), required the moment the row is `enabled`. |
 | `enabled` | no, default `true` | `false` ships the row's *intent* without splicing a byte — its guards and acknowledgement only become mandatory the moment it's switched on. |
 | `expect_page_offset` / `expect_page_bytes` / `expect_page_wh` | no | guards: if the container's own id-4 header derives a different span, the build refuses rather than splice into a place this row wasn't authored against. `export-art`'s scaffold fills these in for you. |
 | `palette_from` | no | names the CLUT-lane row (`creature.part{N}`) this page indexes into, as a stated cross-reference — a page's palette is a HEADER FACT, not a choice, so naming any other row refuses. Omitted = the stock palette, 0 CLUT bytes touched (this rung's default). |
 | `acknowledge_cutout_reshape` | *conditional* | required (`= true`, a literal boolean — a truthy string refuses rather than arms) before an edit that crosses the transparent-index boundary in either direction may build. See THE CUTOUT LAW, below. |
 | `acknowledge_texanim_frames` | *conditional* | required (`= true`, a literal boolean) before a repaint that touches **some** of an animated clip's rectangles and leaves its siblings stock may build — a deliberately asymmetric strip. See THE TEXANIM CO-TRANSFORM, below. |
+| `expect_bpp` | no *(scenery: strongly advised)* | **4, 8 or 15** — stated by you, CHECKED against the container's own `so` record, never chosen for you. The same `0x4000` bytes are 256 / 128 / 64 texels wide at 4 / 8 / 15 bpp, so a wrong depth makes a picture of the wrong shape that nonetheless packs to exactly the right byte count. Guarded a second time against the chunk's own `nClut4`/`nClut8`. |
+| `expect_cell` | no | `[X, Y]` — the VRAM page-cell this row means. Refuses on a creature page, whose addressable unit is the id-4 PART. |
+| `acknowledge_cotransform` | *conditional* | required (`= true`, a literal boolean) on **every** row of a VRAM cell that more than one writer uploads, and only reachable once every one of those writers is named with its own art. See THE CO-TRANSFORM REMEDY, below. |
+| `acknowledge_spill` | *conditional* | required (`= true`, a literal boolean) on **every** row of a model whose picture crosses a VRAM column, and only reachable once every cell that model reads is named. See THE NAME-EVERY-COLUMN GATE, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -575,35 +583,100 @@ byte-identical under the texel lane's own inverted partition. The reverse direct
 `self_check` grows a `repaint` intersection gate — `reskin.py`'s `ORTH_REBUILDERS` now carries both
 `rescore` and `repaint`.
 
-### W6b, deferred — the scenery texel lane
+### The scenery texel lane (W6b-1)
 
-Everything past creature pages is out of scope for this rung and refuses by name
-(`the scenery texel lane is W6b: co-transform / same-bytes-two-bindings / u-spill / 15bpp
-unhandled`), because each clause is a measured hazard, not a caution:
+A summon's cinematic ships **its own scenery** — sky domes, fire fields, ground planes, energy rings —
+and rung W6b-1 makes those editable too. Be warned up front about the shape of it, because it is
+unusual: **the codec never fails and the gate refuses most of the surface.** That asymmetry is the
+honest answer, not a limitation being worked around.
 
-- **CO-TRANSFORM — the multi-chunk law.** 34 VRAM page cells collide across 5 containers
-  (ef225/227/251/381/447), and **not one of the 156 colliding writer pairs is byte-identical** —
-  every collision is genuinely time-shared art, not "repaint once, copy twice". Every collider is a
-  multi-chunk container, and every single-chunk container (367 of 372) structurally cannot collide,
-  so the gate collapses to one law: a container with more than one chunk needs every writer of a
-  shared cell named, or it refuses.
-- **SAME-BYTES-TWO-BINDINGS — supersedes "dual-depth" as the general shape.** ef227's column 448
-  is read as a 4bpp cloud band AND an 8bpp energy-ring picture over the SAME 4,032 halfwords — but
-  the hazard isn't depth-specific: ef211's column 640 shares 1,659 halfwords between two 4bpp
-  bindings at DIFFERENT palettes, which a bit-depth-only test would miss entirely. The general rule:
-  any two `so` bindings whose UV-covered halfword sets intersect, regardless of depth or palette.
-- **U-SPILL.** A model's `u` coordinate is 8-bit, but an 8bpp page is only 128 texels wide, so
-  `u > 127` addresses the *next* 64-halfword VRAM column — sometimes from a different resource
-  entirely (ef227's sky dome spans columns 704 and 768, sourced from `id-0` and `id-9`
-  respectively). **41 of 316 corpus so-bound textured models (13.0%)** sample past their own column,
-  so a repaint template keyed on a VRAM column instead of the model would silently cut a picture in
-  half.
-- **15bpp-DIRECT / STP.** 24 bindings across 12 effects sample a page with no CLUT to index against
-  at all (`tpage & 0x180 == 0x100`) — the indexed lane is structurally inapplicable there, and bit15
-  of a 15bpp halfword IS the semi-transparency flag with nowhere to live in an 8-bit palette index.
+**The addressable unit is the VRAM PAGE-CELL** — 64 halfwords × 128 lines = `0x4000` bytes, the
+quantum the engine uploads — named `cell.{writer}.x{X}_y{Y}`. It is deliberately not the container's
+page *rect*: most stock rects are 256 lines tall and cover **two stacked cells** whose hazards
+routinely differ (on Phoenix's column 576 the top half is a two-palette refusal and the bottom half is
+clean 4bpp), and the rect view could name only the top one. The per-cell map names **1,179** cells
+that previously had no name at all.
 
-Each law, its measurement, and its R1/R2 citation lives in the study record:
-`studies/custom-summons/tier-w/W6-TEXEL.md`.
+**Three depths, dispatched on what the container declares — never on the picture you hand back:**
+
+| depth | the file(s) you edit | the rule |
+|---|---|---|
+| **8bpp** | `<cell>.png`, P-mode indexed | identical to the creature lane |
+| **4bpp** | `<cell>.png`, P-mode indexed, 256×128 | **one byte per texel, values 0..15** — never Pillow's 4-bit mode, so no PNG bit-order convention can reach the container. An index above 15 REFUSES rather than being masked into a different, plausible colour |
+| **15bpp** | `<cell>.png` RGBA8 **+ `<cell>.stp.png`** | direct colour, no palette at all. RGB is authoritative; **alpha is a cutout flag that is checked and discarded**; the sidecar carries bit 15 (the hardware's blend selector) and **is authoritative**. A missing sidecar refuses — it cannot be recovered, because "a hole" and "black, but blended" are different values that render identically |
+
+State the depth with **`expect_bpp`**. It is *checked*, never chosen: the same `0x4000` bytes are 256,
+128 or 64 texels wide at the three depths, so a wrong depth produces a wrong-shaped picture that packs
+to exactly the right byte count — the one number on this lane that can be wrong quietly.
+
+#### The four remedies — obligations you can discharge, not refusals
+
+**THE CO-TRANSFORM REMEDY.** Some VRAM cells are uploaded by **more than one writer**, and across the
+whole stock corpus **not one of those writer pairs holds the same bytes** — they are genuinely
+different pictures shown at different points in the cast. Repainting one and leaving the others stock
+makes the cast flicker between the new art and the old, which only a playtest catches. So: name every
+writer, supply art for each, and put `acknowledge_cotransform = true` on every row of the cell. The
+refusal names exactly which writers are **LEFT STOCK** and the `cell.*` names to add.
+
+> **There is no "same art for all writers" shorthand, on purpose.** A key that broadcast one PNG to N
+> writers would be the tool asserting the uploads are interchangeable, which the container's own data
+> denies. Two rows MAY name the same file — that is your decision to unify the flicker — and the build
+> discloses it rather than accepting it silently.
+
+**THE NAME-EVERY-COLUMN GATE.** A model's `u` coordinate is 8-bit, but an 8bpp page is only 128 texels
+wide, so a picture can reach into the *next* VRAM column — sometimes into a different resource
+entirely. Every spilling picture in the corpus is wider than one page, and **none of them spills by a
+negligible amount**, so a page-scope edit hands you half a picture and silently changes a model this
+cell does not name. Name every cell the model reads, art for each, `acknowledge_spill = true`. Three
+things refuse: a **foreign** model reading this cell (page scope is simply the wrong unit there), an
+**unnamed** column, and a column **no writer in the container uploads** — there, nothing puts bytes at
+that address, so the obligation cannot be discharged and no art exists to supply. A read-only stitched
+`spill.<geom>.png` preview ships beside the editable cells: **judge the whole picture, edit the pieces
+it is made of.**
+
+**THE DISPLAY-PALETTE RULE.** A cell read by several models through *different* palettes is one index
+array with several renderings. The editable PNG is in the lowest-addressed binding's key; every other
+key ships as a NAMED read-only `<cell>.as-x{X}_y{Y}.png` alternate view of the same bytes. Both are in
+the manifest, because an author who never learns the second key would tune a colour they cannot see.
+
+**THE SHARED-READ DISCLOSURE.** A cell several models read at the *same* depth through the *same*
+palette carries no signal at all that one edit changes two things — so the build **names the other
+models**. A disclosure, never a refusal.
+
+#### What refuses, by name, with its measurement
+
+- **DEPTH-UNKNOWN — most of the surface.** **93% of scenery cells have no model in the container that
+  samples them**, so the file never states their colour depth. A statistical probe was built to guess
+  it and **falsified**: 54.5% agreement on a three-way choice. It does not ship, not even as a
+  suggestion, because a plausible guess here writes a wrong-shaped picture that every other gate
+  passes.
+- **SAME-BYTES-TWO-DEPTHS.** Two models read one byte block at different depths — two different index
+  arrays over the same bytes, and no single picture is coherent under both. Refuses *earlier* than the
+  palette logic and with its own message.
+- **PROGRAM-VRAM WRITE.** Some effects' own programs re-upload VRAM while the cast runs. A repaint
+  there is a **lost edit with no symptom** — the container on disc still holds your art. The
+  direction matters and is measured: a program that only *reads* VRAM back cannot clobber anything, so
+  those containers **disclose** instead of refusing (which is what makes Phoenix's fire field editable
+  at all).
+- **An UNWRITTEN column** — see the spill gate, above.
+- **RGBA for the indexed lane, and `--quantize`/`--mint-clut`** — unchanged, and refused for their own
+  reasons rather than this one: RGBA is about exact recovery, and a palette *writer* conflicts with a
+  `[[reskin.target]]` on the same palette.
+
+Run `export-art` before you paint: it lists every cell it refuses **and why**, and the emitted scaffold
+prints them as a commented block. On this surface the refusals *are* most of the shape, so they are
+written to teach rather than merely to omit.
+
+#### One more thing the build now protects
+
+A scenery repaint writes into the container's id-0 **page pixel stream**, which the page-block header
+and its rect table point at. Both are now gated on every build, and the page map is **re-derived** from
+the patched bytes and compared — not merely byte-checked — because a mis-seek there would re-aim the
+whole map while the container still parsed, the length still matched and every palette still
+re-derived. The fail-safe is proven non-vacuous against a deliberately perturbed rect table.
+
+Every law, its measurement and its provenance live in the study record:
+`studies/custom-summons/tier-w/W6b-SCENERY.md` (and `W6-TEXEL.md` for the creature lane).
 
 ## Reframe a stock summon's camera in place — `summon-rescore`
 

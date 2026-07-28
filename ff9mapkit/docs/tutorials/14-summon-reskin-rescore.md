@@ -213,10 +213,11 @@ SKIPS with that stated, so an unproven disjointness is never reported as a prove
 
 `summon-reskin` recolours; it cannot move a texel from one palette index to another, so it can
 never change a shape, an edge, or a silhouette. The texel lane is the second lever on the same
-verb, and this rung ships it for **creature texture pages only** (the one texel class measured
-free of every hazard the corpus carries) — scenery pages refuse by name, deferred to a later rung.
-This part walks the emblem walk: export a paintable page, edit it in index space, build, and see
-the composed artifact (a recolour *and* a brand, in one container).
+verb. It covers **creature texture pages** (the one texel class measured free of every hazard the
+corpus carries) and, since rung W6b-1, the effect's **own scenery** at three colour depths — see
+[Repainting a summon's scenery](#repainting-a-summons-scenery) at the end of this part.
+This part walks the emblem walk first: export a paintable page, edit it in index space, build, and
+see the composed artifact (a recolour *and* a brand, in one container).
 
 ### 1. Export the paintable art
 
@@ -342,14 +343,65 @@ ever sampled by a face. Paint outside the hatched pad and the build still succee
 as an inert edit (dead texel count, per target), never a failure, exactly like a CLUT hue rotation
 on an achromatic cloud band.
 
-### What's NOT here yet — the scenery texel lane (W6b)
+### Repainting a summon's scenery
 
-Everything past a creature's own texture pages — the ground, sky, and fire-field textures a summon's
-effect draws itself — is out of scope for this rung and refuses by name: mixed bit depths sharing
-one VRAM column (SAME-BYTES-TWO-BINDINGS), pages written by more than one chunk at different cast
-phases (CO-TRANSFORM), models whose UVs spill into a neighbouring VRAM column (U-SPILL), and 15bpp-
-direct pages with no CLUT to index against at all. Full detail:
-[SUMMONS.md](../SUMMONS.md#w6b-deferred--the-scenery-texel-lane).
+A summon's cinematic ships **its own scenery** — the sky dome, ground plane, fire field and energy
+rings the effect draws around the creature — and those are editable on the same lever. Two things are
+different from a creature page, and both are worth knowing before you export.
+
+**First: run `export-art` and read the refusals, because most cells are refused.** For a summon's
+scenery the file often does not say what colour depth a block of texels is — no model in the container
+samples it, so there is nothing that states the answer. Roughly **93% of scenery cells are in that
+state**, and they refuse **by name**, with the reason printed in the report, the manifest, and as a
+commented block in the emitted scaffold. (A statistical guess was built and tested; it was right about
+half the time on a three-way choice, so it does not ship. A wrong depth makes a wrong-shaped picture
+that packs to exactly the right number of bytes, which is the kind of mistake nothing downstream
+catches.) What comes back editable is the part of the scenery the container is explicit about.
+
+**Second: the names are cells, not parts.**
+
+```powershell
+ff9mapkit summon-reskin export-art --ef 211 --out C:/gd/SCRATCH/summon-format/repaint-w6b/ef211/art
+```
+
+```toml
+[[reskin.texel]]
+name        = "cell.s0.x704_y256"   # the writer, then the VRAM page-cell it uploads
+source      = "art/cell.s0.x704_y256.png"
+expect_bpp  = 8                     # STATED by you, CHECKED against the container
+expect_cell = [704, 256]
+enabled     = true
+```
+
+`expect_bpp` is worth writing every time. The same block of bytes is 256, 128 or 64 texels wide at 4,
+8 or 15 bpp, so stating it wrong gives you a picture of the wrong shape that still packs to the right
+size — this is the one guard that turns that into a refusal.
+
+**At 4bpp** the PNG is still a plain indexed image: one byte per texel, values 0–15. Do not save it as
+a 4-bit PNG; the packing is handled for you, and an index above 15 refuses rather than being quietly
+masked into a different colour.
+
+**At 15bpp there is no palette at all**, and you get **two** files: `<cell>.png` in RGBA — where the
+colour is what counts and the **alpha marks the cut-out holes** — and `<cell>.stp.png`, a black/white
+sidecar carrying the hardware's per-texel blend flag. Edit both. Keep them together: the sidecar
+cannot be reconstructed from the picture, because a hole and a "black but blended" texel look
+identical and are different values. If a texel's alpha and colour disagree — transparent but painted,
+or opaque but encoding the exact value the hardware reads as a hole — the build says which texel and
+what to do about it.
+
+**Three refusals you may meet, each with a way through:**
+
+| what it says | what to do |
+|---|---|
+| **THE CO-TRANSFORM REMEDY** — this cell is uploaded by more than one writer, and you named one | Add a row for each writer it names as **LEFT STOCK**, with its **own** art, and `acknowledge_cotransform = true` on every row. There is no "use this art for all of them" key: no two writers of a cell anywhere in the stock game hold the same bytes, so they are different pictures shown at different moments, and unifying them has to be your decision. |
+| **THE NAME-EVERY-COLUMN GATE** — the picture is wider than one cell | Name every cell the model reads (the message lists them), art for each, `acknowledge_spill = true`. Open the read-only `spill.<geom>.png` the export wrote: it stitches the whole picture together so you can judge it while editing the pieces. |
+| **PROGRAM-VRAM WRITE** | This effect's own program re-uploads texture memory while the cast runs, so your edit would be overwritten with no symptom at all. There is no key for it. (A program that only *reads* memory back is disclosed, not refused — that distinction is what makes Phoenix's fire field editable.) |
+
+And two disclosures that are **not** refusals but change what you should paint: **SHARED READ** names
+the other models your one edit will change, and **MULTI-PALETTE** tells you the same bytes are also
+shown through a different palette, with a read-only `as-x…_y….png` preview of that second look.
+
+Full detail: [SUMMONS.md](../SUMMONS.md#the-scenery-texel-lane-w6b-1).
 
 ## Provenance, one more time
 

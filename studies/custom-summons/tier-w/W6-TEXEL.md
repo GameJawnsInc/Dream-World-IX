@@ -120,13 +120,64 @@ intersect are two readings of one byte region and no single edit is coherent und
 Note A2's "4,032 halfwords" for the col-448 cloud-band × rings pair is the **rect product**
 (63 rows × 64 hw); the polygon-level number is **3,294**.
 
+> **★ W6b-1 EXTENSION — the law was named right, and the recorded number was a SUBSET.**
+> The corpus-wide binding-pair sweep is **1,083 overlapping pairs in 36 effects**:
+>
+> ```
+> mixed-depth   79  (6 effects)  <- 65 share a tpage PAGE; 14 do NOT (they overlap by SPILL)
+> same-depth  1,004 (35 effects) ... different palette 390 (11) / same palette 614 (33)
+> ```
+>
+> 1. **The 65 above is the SAME-PAGE subset.** 14 further mixed-depth overlaps cross columns by
+>    u-spill (ef381 ×8, ef447 ×6). A page-keyed dual-depth test misses all 14; **a halfword-set test
+>    does not** — which is the strongest evidence yet that this section named the law correctly.
+> 2. **Same-depth-different-palette is 390 pairs in 11 effects**, not the single ef211 curiosity used
+>    above to illustrate it. ef211 col 640 is the *smallest* instance of the class.
+> 3. **614 same-depth SAME-palette overlaps in 33 effects** are a hazard this record did not name at
+>    all: one edit changes two models with no depth *or* palette signal. That is **class E3 — a
+>    DISCLOSURE, 93 cells over 38 effects** (`repaint._scenery_disclosures`), not a refusal.
+>
+> By CELL rather than by pair, the refusing class is **17 SAME-BYTES-TWO-DEPTHS cells** over 6
+> effects (ef203 ×1, ef227 ×3, ef381 ×5, ef424 ×1, ef447 ×4, ef498 ×3; three are triple-depth), and
+> W6b-1 refuses them **earlier than the palette logic and with their own message**. →
+> `W6b-SCENERY.md` §1.4.
+
 ### 1.5 ★ THE U-SPILL LAW (R2) — a template must be keyed on the MODEL, never the column
 
 A model's `u` is 8-bit but an 8bpp page is only 128 texels wide, so `u > 127` addresses the **next
-64-halfword column**. Corpus: **41 of 316 so-bound textured models (13.0 %) sample past their own
+64-halfword column**. Corpus: **41 of 315 so-bound textured models (13.0 %) sample past their own
 column.** ef227's sky dome `0x08dccc` (u 0..254) spans columns 704 + 768 — and those two columns come
 from **different resources** (`c0 id-0 @0x11470` and `id-9 @0x32000/0x36000`). A per-column paint
 template silently cuts a picture in half.
+
+> **★ W6b-1: the denominator is 315, not 316, and the POPULATION was incomplete — not wrong.**
+> The one dropped record is **ef226 GEOM `0x9c804`**: length `0x10`, a live-looking tpage/clut, but
+> `textured == 0` and **0 UV-bearing faces**. The rate `41 / 315 = 13.0 %` is unchanged.
+>
+> More importantly, the 41 was measured over a population that **excludes 24 bindings by
+> construction** — `reskin.attribution` dropped every 15bpp DIRECT binder, so no 15bpp model could
+> ever appear in it. With `attribution(include_direct=True)` (the parameter W6b-1 added for exactly
+> this) the full spill census is:
+>
+> | fact | value |
+> |---|---|
+> | spilling bindings | **58** — **41 at 8bpp** (this section's number, intact), **17 at 15bpp**, **0 at 4bpp** |
+> | 4bpp cannot spill | **STRUCTURAL**: `u ≤ 255` at 4 texels/halfword ⇒ column offset ≤ 63 |
+> | 8bpp spill distance | exactly one column on **41/41** — never further |
+> | 15bpp spill distance | up to **3 columns** (ef390 ×3) — one halfword is one texel |
+> | picture wider than one page | **58 / 58**; median 224 texels against a 128-texel page |
+> | spill ≤ 2 % of covered halfwords | **0 / 58** — there is no marginal case to wave through |
+> | spills into a column with a DIFFERENT writer set | **6** (ef227 ×1, ef381 ×3, ef447 ×2) |
+> | spills into a column NO writer uploads | **10 bindings / 8 cells** (all ef390, all 15bpp) |
+>
+> **THE OVERLAP WITH §1.4 IS REAL AND WAS UNRECORDED**: 14 of the mixed-depth binding overlaps are
+> reached *by spill*, not by sharing a page — so u-spill is not only a template-keying problem, it is
+> one of the two ways SAME-BYTES-TWO-BINDINGS happens.
+>
+> **The edit unit is therefore the MODEL, and W6b-1 enforces it** (`repaint._gate_spill_columns`:
+> name every cell the model's UVs cover, art for each, `acknowledge_spill = true`), on the **UV-exact
+> 70-cell set** rather than a rect-conservative superset — naming a cell the model does not read
+> would be a false obligation. → `W6b-SCENERY.md` §1.5.
 
 ### 1.6 ★ THE MARGIN LAW — generalises, but WEAKER than R2 measured, and this rung is the correction
 
@@ -236,6 +287,56 @@ reach without a tracker, which is exactly why these are a refusal list and not a
 Of them, ef211/ef276/ef435 carry creatures; ef211 is W5's cast-proven scenery effect, so this is not
 hypothetical for W6b.
 
+### ★★ W6b-1: THE LIST, CORRECTED IN FOUR WAYS — and the tracker exists after all
+
+The whole list was re-derived from the bytes with tier-r's const-folding `ImageWalker`, which
+**reproduced the enumeration above exactly**. Four corrections follow, and `w6b_gates` **G6 re-walks
+all 385 id-3 program images every run and compares** — the kit's `PROGRAM_VRAM_*` lists are the one
+corpus constant `repaint.py` carries, so they are re-derivation-pinned rather than trusted.
+
+**1. ★ THE DIRECTION LAW — the correction the whole rung turns on.**
+
+> `LoadImage(RECT*, u_long*)` = main RAM → VRAM: a **WRITE**.
+> `MoveImage(RECT*, x, y)` = VRAM → VRAM: a **WRITE**.
+> **`StoreImage(RECT*, u_long*)` = VRAM → main RAM: a READ — and a read cannot clobber a repaint.**
+
+Corroborated by the DLL's own HLE stub arities, and by this study's own W5 discriminator
+(`PLAN.md`: *"ef211's program does NO VRAM re-upload (one StoreImage = a read)"*). **113 cells over 12
+containers move from REFUSE to DISCLOSE**, and ef211's fire field — the one cell in the corpus whose
+upload path is already cast-proven — becomes reachable at all.
+
+**2. ★ ef435 is a FALSE POSITIVE and comes OFF the list.** Its `@0x2dd8` is a **switch dispatch through
+the image's own pointer table** (`lw $v0, 0($v0)` with no `base = *(sysStruct + 0x10)` sentinel chain;
+the image's words `0x00..0x38` are 15 PSX addresses inside itself). The walker read offset 0 as HLE
+op 0. An independent linear scan for the HLE call SHAPE reproduces every other MIPS writer and **finds
+no shape at ef435 at all** — which is how G6 re-derives the refutation instead of restating it.
+**ef435 is creature-bearing, so this matters to W6a's surface too.**
+
+**3. ★ Six containers go ON, as READ-only:** `ef151, ef152, ef225, ef445, ef460, ef510` — found by the
+same linear scan where the reachability walk never reached (mean reachability 0.905), each adjudicated
+by disassembly. `ef225@0x57c`, `ef151@0x584` and the walk-confirmed `ef211@0x584` are byte-identical
+`StoreImage(&rect_on_stack, buf)` boilerplate. **ef225 is one of the five co-transform containers and
+this record did not mention it.**
+
+**4. ★ THE 15-vs-22 FLAG IS SETTLED, ARITHMETICALLY — and neither number was wrong:**
+
+```
+walk LoadImage u MoveImage u loader-op-0x07        = 15 ids   <- the HEADLINE
+   u walk StoreImage (6 store-ONLY) u ef038's arm  = 22 ids   <- the ENUMERATION
+```
+
+They described different sets, and **the 7 ids the enumeration adds are READS**. The real correction
+is that the *corrected* 15 is a **DIFFERENT 15**: **ef435 out, ef038 in** (its HLE op 12 texanim arm is
+a genuine program VRAM write, and already an unconditional refusal).
+
+**The only per-cell verdict in the corpus:** `MoveImage`'s destination const-folds to `(704, 256)` on
+**3 of its 5 sites**, and all three containers declare that cell → hard-refuse `ef001.x704_y256`,
+`ef142.x704_y256`, `ef144.x704_y256`. **0 of 18 `RECT*` arguments resolve**, exactly as predicted
+above. ⚠ It is **SHARPER, not narrower** — all 30 cells of those three containers refuse as
+program-writes anyway; what the per-cell verdict adds is that here the destination is RESOLVED. And it
+is a **TRIPWIRE no real spec can reach**, because all 30 are also depth-unknown, so `w6b_gates` G4
+fires it on the gate function directly. → `W6b-SCENERY.md` §1.6.
+
 ---
 
 ## 2. THE FORMAT DECISION — an indexed (P-mode) PNG, and the gate that settles it
@@ -272,6 +373,32 @@ text, rather than silently not existing.
 use `bits=4` PNG — Pillow writes it, but the semantics needed is the *PSX* nibble order, which you
 only control by owning the pack.
 
+> **★ W6b-1 SHIPPED the 4bpp pack — and THE NIBBLE PROOF ABOVE HAS NO SURVIVING ARTIFACT.** A2
+> searched both study trees and SCRATCH: nothing survives of *"empirically confirmed"* but that
+> sentence. So the order was **re-proved and generalised from 2 cells to the corpus**
+> (`formats/p3_nibble_order.py`; re-measured every run by `w6b_gates` G1):
+>
+> * **Byte identity is BLIND to the question** — `pack4(unpack4(b)) == b` holds for the SWAPPED
+>   convention too. A discriminator was required.
+> * **The discriminator:** vertical neighbour disagreement `V` is invariant under any within-row
+>   permutation, and the nibble order IS a within-row permutation — so `V` is a **free control** for
+>   horizontal disagreement `H`.
+> * **Calibration on the answer W6a's cast already proved on screen** (byte *i* = texel *i*):
+>   `H 0.6529 < H_swapped 0.7103`, `V 0.6389`, **93/93 pages agree, unanimously.** An instrument that
+>   cannot re-find a known answer is not an instrument.
+> * **The 4bpp question:** canonical wins **44/48**; with a signal floor of `|ΔH| > 0.003`,
+>   **36/36, no dissent**. The 4 dissenters separate by ≤ 0.00273 against a mean winning margin of
+>   0.075 and are **diagnosed, not averaged away** (ef184 / ef447 / ef498 carry a *depth* signature;
+>   ef405 x704 is 98.8 % one index with `ΔH = 0.00000`).
+> * **The load-bearing argument is not statistical:** the PSX rule is ONE rule at every depth —
+>   *lower-order bits hold the lower `u`* — and its 8bpp instance is cast-proven. Low-nibble-first is
+>   that rule one level finer.
+>
+> And the warning above is now honoured **BY CONSTRUCTION rather than by care**: the shipped PNG
+> carries **one byte per texel with values 0..15**, never Pillow's `bits=4`, so no PNG bit-order
+> convention can reach the container. `pack4` REFUSES any index > 15 rather than masking it.
+> → `W6b-SCENERY.md` §2.2.
+
 ---
 
 ## 3. THE W6a / W6b SPLIT — what shipped, what refuses, and why
@@ -288,6 +415,15 @@ like a bug. What W6b owes, each with its measurement: the co-transform remedy (3
 0 of 156 pairs identical); SAME-BYTES-TWO-BINDINGS (§1.4, catches ef227 cols 448/576/832 *and* ef211
 col 640); U-SPILL (41/316 models, sometimes across two resources); 15bpp-direct (24 bindings, no CLUT
 to index against); the RGBA / quantize / mint-CLUT lanes (§2); and the program-VRAM list (§1.10).
+
+> **★ W6b-1 SHIPPED that surface, and the string above no longer exists in that form** — three of its
+> four clauses became mechanisms (co-transform → the name-every-writer remedy; u-spill → the
+> name-every-column remedy; 15bpp → the `direct15` lane), so leaving it in place would have made
+> every refusal quote three capabilities as excuses. The **successor** `W6B_REASON` names only
+> DEPTH-UNKNOWN / SAME-BYTES-TWO-DEPTHS / PROGRAM-VRAM WRITE / an UNWRITTEN-COLUMN spill, and the
+> indexed lane's RGBA refusal moved to its own `INDEXED_RGBA_REASON` — that one is about **EXACT
+> RECOVERY** and would still hold if every cell in the corpus were lawful. **Splitting them is what
+> stops a SCOPE change from quietly rewriting an IDENTITY argument.** → `W6b-SCENERY.md` §3.2.
 
 **Why split at all**, and why this is not caution for its own sake:
 
@@ -339,6 +475,18 @@ an unknown partition name .................................... REFUSES
 **That is the only load-bearing change to `reskin.py`.** `w6_gates` G5 says so in bytes: all three
 cast-proven CLUT artifacts still build their exact shas — `bahamut_reskin.toml` → `7fef205f…` (4,832
 B), `phoenix_reskin.toml` → `4daab8ad…` (2,374 B), `madeen_reskin.toml` → `78b395f8…` (3,054 B).
+
+> **★ W6b-1 ADDED A SECOND INVERSION to the same function — the id-0 page-block split.** Until then
+> the id-0 resource was in `_regions`' list under NEITHER partition: correct for the CLUT lane (which
+> *writes* id-0 inline palettes) and a real gap for the texel lane, whose splice would have run with
+> `page_rel`, the rect count and the `(x, y, w, h)` **rect table ungated** — and a mis-seek there
+> re-aims the whole page map silently while the container still parses and every palette still
+> re-derives. `pixelDataRel` now cuts each chunk's id-0 payload in two (`reskin.Id0Split`): the TEXEL
+> partition gates the header + rect table + inline CLUT stream and licenses the pixel stream, and the
+> CLUT partition does the exact opposite. Its companion is **`assert_page_cells_identical`**, which
+> RE-DERIVES the map rather than comparing bytes — a different instrument on purpose. `w6b_gates` G3
+> proves the fail-safe is not a comment by perturbing a rect table synthetically and catching it.
+> The CLI's export lane also grew: **`--art-lane indexed|rgba|direct15`**.
 
 ### Hot reload — stronger here than for the CLUT lane
 
@@ -605,20 +753,50 @@ from a different container).
 | `w4_gates.py` | **8/8** (X0 re-runs r1/r2/r3 + w1/w2/w3 and every tier-r/tier-w test module; X7 re-confirms ef227's artifact `7fef205f…` and the 372-container sweep) |
 | `w6_gates.py` | **7/7** |
 
+> **★ W6b-1 moved two of this table's own rows, and the runner says so rather than relaxing them.**
+> **G2's self-check count 20 → 23**: W6b-1 added three region gates that run on EVERY build, a
+> creature one included — the id-0 page-block split, the page-cell derivation identity, and the
+> INVERTED *"the patched id-4 package still DECODES"* row (a creature-less container now has a real
+> texel surface, so that gate has to report *there is none* rather than fail). The count stays PINNED
+> rather than becoming a floor, for the reason the artifact's sha is pinned: a gate that silently
+> disappeared would leave this green. **G3 now proves TWO inversions, not one** — the id-0 split
+> means "identical outside id-4" is no longer the right statement of the law, so the id-0 halves are
+> excluded BY NAME (from `id0_splits`, the same derivation `_regions` consumes) and the identity is
+> asserted on what is left. That is stricter than the old test, not weaker.
+> **G4's row (a) is rewritten**: `page.s0.x576_y256.h256` still refuses, and the assertion is now
+> that it NAMES the two `cell.*` halves it splits into, quotes the SUCCESSOR reason, and **no longer
+> quotes a mechanism that has since shipped**.
+
 ---
 
 ## 10. WHAT W6b OWES, and what is genuinely still open
 
-* **The scenery texel lane** — the co-transform remedy (name and supply art for every writer of a
-  shared cell), a per-VRAM-cell page map (today `reskin.scenery_pages` keys `(tag, x)` — uniqueness is
-  a **measured coincidence, not a construction** — and collapses an `h=256` rect into one entry, so
-  the lower cell `(x, y+128)` is not addressable; `repaint.other_page_writers` splits it for the
-  collision census, but the *edit* surface still needs it), a `w != 64` refusal (`nbytes = w*h*2` as
-  the cursor advance is right only because `w == 64` on 1,317/1,317, and that is unenforced), and the
-  4bpp nibble pack (proven byte-identical, unshipped).
-* **The 15bpp lane** — needs an RGBA path with an explicit **STP sidecar**; bit15 *is* STP there and
-  has nowhere to live in an RGBA8 pixel that also carries cutout alpha (ef227 col 576 measures
-  23.32 % / 28.27 % of halfwords with bit15 set). The 5:5:5 RGB itself round-trips exactly.
+> **★ W6b-1 CLOSED FIVE OF THESE DEBTS.** Each is struck through with what shipped; the record of the
+> rung that paid them is **`W6b-SCENERY.md`**, gated by `w6b_gates.py` (7/7).
+
+* ~~**The scenery texel lane** — the co-transform remedy, a per-VRAM-cell page map, a `w != 64`
+  refusal, the 4bpp nibble pack.~~ **★ ALL FOUR SHIPPED (W6b-1).**
+  * **the per-VRAM-cell map** → `reskin.page_cells()`, keyed `(writer tag, x, y)`. Uniqueness is now
+    a **construction, not a coincidence** — the writer is IN the key, so the 34 multi-writer cells
+    appear as the several records they are, and a duplicate key REFUSES. It names **1,179**
+    previously-unnameable cells, **20** of which are otherwise lawful.
+  * **`w != 64`** → `reskin._assert_cell_width`, enforced at BOTH the rect view and the cell map.
+    2,648/2,648 corpus records are `w = 64`, so it is a **tripwire, not a code path**.
+  * **the co-transform remedy** → `repaint._gate_cotransform`: name every writer, art for each,
+    `acknowledge_cotransform` a literal boolean. **16 of the 34 cells are expressible** (8 are also
+    two-depth, 10 are unread — including all 6 of ef251's, so a Madeen shared-column repaint is out
+    of reach at any depth). **No "same art for all writers" shorthand exists**, on purpose.
+  * **the 4bpp pack** → `repaint.pack4` / `unpack4`, **2,648/2,648 byte-identical**, with the nibble
+    order re-proved at corpus scale (§2).
+* ~~**The 15bpp lane** — needs an RGBA path with an explicit STP sidecar.~~ **★ SHIPPED, UNCAST
+  (W6b-1).** `<cell>.png` RGBA8 (RGB authoritative, **alpha checked but not read**) plus
+  `<cell>.stp.png` L-mode (**bit 15, authoritative**) — a missing sidecar refuses, because it cannot
+  be recovered: `0x8000` and `0x0000` are different words that both render black. The codec is the
+  **SHIFT** form (`r8 = r5<<3`), not `bgr555_rgba`'s scale: exhaustively identical over all 65,536
+  halfwords, where the scale form is lossless only under a *rounding* inverse and fails 30 of 32
+  channel values under a flooring one. ef227's measured 28 % / 23 % STP share reproduces this
+  document's own 23.32 % / 28.27 % to the rounding. ⚠ **The write surface is 4–5 cells**, none of
+  them in a container reachable from an existing bench row, so the lane ships proven-offline.
 * **`--quantize --mint-clut`** — the one thing the CLUT lever can *never* do: re-derive the 256-entry
   row **from** the painted image (median-cut on the **UV-covered texels only** — weighting by the
   whole page is dominated by a pad that is 33–47 % of it), reserving entry 0 = `0x0000` and setting
@@ -629,9 +807,33 @@ from a different container).
   bind to exactly one part, so a page is not one anatomical piece, and summon skeletons carry no
   semantic names. The honest instrument for "where is the wing" remains the existing `summon-export`
   glTF opened in Blender.
-* **Page SHARING at one depth** — **65 shared pages across 38 effects** (ef381 8, ef447 6, ef498 6,
+* ~~**Page SHARING at one depth** — **65 shared pages across 38 effects** (ef381 8, ef447 6, ef498 6,
   ef179/226/227 3): a repaint there changes two models' look with no depth trap at all. Not a hazard
-  the creature lane can hit, but a disclosure W6b owes an author.
+  the creature lane can hit, but a disclosure W6b owes an author.~~ **★ SHIPPED as class E3
+  (W6b-1)**: `repaint._scenery_disclosures` names **every other model** on the **93 shared-read cells
+  over 38 effects**, alongside the class-C display-palette rule (**25 cells**: editable PNG in the
+  lowest-addressed binding's CLUT, every other key as a NAMED read-only alternate view of the same
+  index bytes) and the LOWER-HALF and COVER disclosures.
 * **The texanim field semantics** — the structure, the pointer closure and the rect bounds are
   measured; what the `(value, duration)`-shaped pairs *do* is still `[I]`. The refusal does not depend
   on settling it.
+
+### ★ WHAT IS GENUINELY STILL OPEN AFTER W6b-1
+
+* **DEPTH ATTRIBUTION — the one lever worth two orders of magnitude.** **2,385 of 2,572 scenery cells
+  (92.7 %) declare no `so` reader**, so their bit depth is not a fact the container states, and the
+  coherence probe built to guess it was **FALSIFIED at 54.5 % agreement on a 3-way choice** — it must
+  not ship, not even as a disclosure. 222 of 372 containers declare zero non-creature GEOM blocks at
+  all: they draw with sprites and particles, which set a tpage somewhere the container never declares.
+  **Cheapest experiment:** re-run the const-folding `ImageWalker` over the 385 id-3 images looking for
+  GPU primitive tpage constants and the args of `Hi_DrawEffModel` (op 24) / `Hi_DrawSliceEffModel`
+  (op 199). One constant tpage per container narrows depth for every cell it owns.
+* **Is the program walk missing WRITES, not just reads?** The linear call-shape scan found 6 real
+  `StoreImage` sites the reachability walk never reached, and 384 of 385 images carry unreached
+  code-shaped space. Only the READ op was byte-scanned. Scanning ops 0 and 166 the same way would
+  either harden the refusal list or grow it — a silent lost edit either way.
+* **`--quantize` / `--mint-clut`** — unchanged above, and still deferred for the same reason: it is a
+  palette WRITER, mutually exclusive with a `[[reskin.target]]` on the same palette.
+* **The rect-conservative spill superset is construction-dependent** — A1's probe records 83,
+  `w6b_gates`' own rect expansion measures 94, and neither is a fact about what a model *reads*. The
+  pinned property is that the **UV-exact 70 is a strict subset of both, with 0 contradictions**.

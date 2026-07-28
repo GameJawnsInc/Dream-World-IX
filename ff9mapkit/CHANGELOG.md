@@ -241,6 +241,56 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   guarantees ORDER, not DURATION — without sustain the sting got one ~33ms frame of air
   before the boss battle took the audio (the round-1 playtest). Cast-proven: "the sound
   played then battle fires. it was a good defeat noise" (1942's timbre confirmed).
+### Added — the texel repaint reaches a summon's SCENERY, at all three colour depths
+- **TIER W rung W6b-1** (`studies/custom-summons/tier-w/W6b-SCENERY.md`): `summon-reskin`'s texel
+  lever could only repaint a summon's *creature* pages. It now reaches the effect's own **scenery** —
+  the sky domes, fire fields, ground planes and energy rings a cinematic ships with itself.
+  `export-art --ef N` emits those cells too, and `[[reskin.texel]]` names them
+  **`cell.s0.x704_y256`** (writer, then the VRAM cell), beside the creature lane's `tex.part0`.
+- **Three colour depths, dispatched on what the container itself declares** — never on the shape of
+  the PNG you hand back, so a wrong depth is a refusal instead of a differently-shaped picture that
+  happens to pack to the right byte count:
+  - **8bpp and 4bpp** are indexed PNGs, exactly as the creature lane already was. A 4bpp cell's PNG
+    carries **one byte per texel with values 0..15** — never Pillow's 4-bit mode — so no PNG bit-order
+    convention can reach the container, and an index above 15 refuses rather than being masked into a
+    different, plausible colour.
+  - **15bpp direct colour** ships as a pair: `<cell>.png` (RGBA8 — the colour is authoritative, the
+    alpha is a *cutout flag* that is checked but never read back) plus **`<cell>.stp.png`**, a
+    one-bit-per-texel sidecar carrying the hardware's blend flag. Both files are the format: a hole
+    and a "black, but blended" texel are different values that look identical on screen, so one alpha
+    channel structurally cannot carry both. A missing sidecar refuses.
+- **New guards, both stated by you and checked against the container**: `expect_bpp` (the same
+  `0x4000` bytes are 256, 128 or 64 texels wide at 4 / 8 / 15 bpp, so this is the one number that can
+  be wrong quietly) and `expect_cell`.
+- **Four things that used to be flat refusals are now remedies you can discharge**:
+  - a cell **uploaded by more than one writer** builds once you name *every* writer with its own art
+    and say `acknowledge_cotransform = true`. There is deliberately **no "same art for all writers"
+    shorthand** — across the whole stock corpus no two writers of a cell hold the same bytes, so a
+    broadcast key would be the tool asserting something the game's own data denies;
+  - a model whose **picture is wider than one page** builds once you name every cell it reads and say
+    `acknowledge_spill = true`; a read-only stitched `spill.<geom>.png` preview ships beside the
+    editable cells so you can judge the whole picture while editing the pieces it is made of;
+  - a cell **shown through two different palettes** is editable in one of them, with every other key
+    written out as a NAMED read-only alternate view of the same bytes — an author who never learns
+    the second key would tune a colour they cannot see;
+  - a cell **read by several models** builds, and the report NAMES the other models rather than
+    letting one edit change two things silently.
+- **What still refuses, and why it says so by name.** Most of a summon's scenery is unaddressable for
+  a reason no feature fixes: **93 % of scenery cells have no model in the container that samples
+  them**, so the file never states what colour depth they are, and a statistical guess was built,
+  tested and thrown away (it agreed with the truth 54.5 % of the time on a three-way choice). Those
+  cells refuse **by name, with that measurement**, and so do: a cell two models read at *different*
+  depths; the containers whose own effect program re-uploads VRAM at run time (a repaint there is a
+  lost edit with no symptom); and a model reading a column nothing in its container uploads. Running
+  `export-art` lists every refused cell and its reason, and the emitted scaffold prints them as a
+  commented block — the refusals are most of the surface, so they teach rather than merely omit.
+- **A real gap closed while doing it**: a scenery repaint used to run with the container's page-block
+  header and rect table *ungated*, where a mis-seek would have silently re-aimed the whole page map
+  while everything still parsed. Both are now protected on every build, and the map is **re-derived**
+  from the patched bytes and compared, not merely byte-checked. Docs:
+  [`docs/SUMMONS.md`](docs/SUMMONS.md#the-scenery-texel-lane-w6b-1),
+  [tutorial 14](docs/tutorials/14-summon-reskin-rescore.md#repainting-a-summons-scenery).
+
 ### Changed — five stock summons that could not be reskinned at all now can (the TEXANIM read)
 - **TIER W rung W7** (`studies/custom-summons/tier-w/W7-TEXANIM.md`): five stock summon containers —
   **ef038 (Shiva)** and **ef177 / ef493 / ef494 / ef495 (Carbuncle ×4)** — carry a *texture-animation*

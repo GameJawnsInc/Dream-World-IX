@@ -50,9 +50,12 @@ The split is not tidiness: a chunk-1 overwrite (six VRAM slots written by two co
 the dual-depth packing at VRAM column 448 (the same 4,032 halfwords read as a 4bpp cloud band AND as
 8bpp energy rings) are both repaint hazards, and both are structurally invisible to a palette edit --
 the two readings have separate palettes and the time-shared columns share no CLUT. A recolour is
-immune to the exact traps a repaint has to gate for. The one place the two lanes meet in this file is
-:func:`_regions`, whose ``partition`` argument INVERTS the id-4 split for the texel lane instead of
-letting it keep a second copy that could drift.
+immune to the exact traps a repaint has to gate for. The places the two lanes meet in this file are
+:func:`_regions`, whose ``partition`` argument INVERTS the id-4 **and** id-0 splits for the texel lane
+instead of letting it keep a second copy that could drift, and the derivations the texel lane consumes
+rather than re-deriving: :func:`page_cells` (the per-VRAM-cell page map, W6b-1),
+:func:`assert_page_cells_identical` (its derivation-identity gate) and
+:func:`attribution` under ``include_direct=True``.
 
 WHY THE SPANS ARE DERIVED AND NOT TABULATED
 -------------------------------------------
@@ -169,11 +172,13 @@ __all__ = [
     "ReskinError",
     "MOD_SUBPATH", "STAGING_BASE", "LEGACY_STAGING", "staging_root",
     "WHOLE_SET_CEILING", "BLOWOUT_FRACTION", "EF227_NAMES", "ID9_SLOT_BIT", "id9_slot_vram",
-    "SO_MAGIC", "SO_BPP", "so_record", "Binding", "Attribution", "attribution",
+    "SO_MAGIC", "SO_BPP", "so_record", "NO_CLUT_CELL", "Binding", "Attribution", "attribution",
     "TexAnim", "texanim_region", "assert_region_invariant",
     "Span", "Palette", "Cell", "PaletteMap", "clut_word_xy", "chunk_tag", "chunk_tag_of_slot",
     "palette_auto_name", "span_auto_name", "id0_palettes", "creature_palettes", "palette_map",
     "creature_pages", "PageRect", "scenery_pages", "id9_pages", "preview_source",
+    "PAGE_CELL_W", "PAGE_CELL_LINES", "PAGE_CELL_BYTES", "PageCell", "page_cells",
+    "assert_page_cells_identical", "Id0Split", "id0_splits",
     "CLIP_SAT", "CLIP_VAL", "CLIP_CHANNEL", "Transform", "apply_word", "apply_palette",
     "PaletteResult", "palette_peak", "palette_mean_hue",
     "Target", "Build", "build", "load_spec",
@@ -303,7 +308,19 @@ SO_BPP = {0: 4, 1: 8, 2: 15, 3: 15}
 def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
     """The 8- or 16-byte binding record that immediately precedes a non-creature GEOM block.
 
-    Measured over the corpus (376 records / 340 textured / 340 self-consistent). Layout::
+    Measured over the corpus: **376 accepted records**, of which **340 carry a tpage/clut pair**
+    (``rec_len == 0x10``) but only **339 declare ``textured == 1``**. This docstring used to say 340
+    textured; the two counts are not the same predicate and the one record between them is named
+    here rather than renumbered away -- an outlier absorbed into a round number is an outlier nobody
+    can look up:
+
+    * **ef226 GEOM 0x9c804** (record at ``0x9c7f4``, ``tpage 0x97``, ``clut 0x3e00``) is a full
+      0x10-byte record with a live-looking binding that nonetheless declares ``textured == 0``, and
+      its GEOM block carries **zero UV-bearing faces**. It has nothing to sample with.
+
+    Of the 340 tpage-bearing records, :func:`attribution` binds **316** by default and the remaining
+    **24** are 15bpp DIRECT-colour binders across 12 effects, which index no palette at all and are
+    admitted only under ``include_direct=True``. Layout::
 
         +0x00 u16 magic  == 0x6F73 ('so')
         +0x02 u16 textured    1 = carries tpage/clut, 0 = Gouraud/flat only
@@ -328,6 +345,15 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
     return None
 
 
+#: the CLUT cell a 15bpp DIRECT-colour binder resolves to: none. A direct binder reads BGR555
+#: halfwords straight out of the page, so it indexes no palette -- and this sentinel (with
+#: ``entries == 0``) is what keeps :meth:`Attribution.binders` from ever matching one, because
+#: ``binders`` is asked for a real palette's ``(vram, entries)`` and a direct binder answers no
+#: palette question. Stated as a value rather than left implicit so ``include_direct=True`` cannot
+#: quietly widen the CLUT lane's ``shared`` derivation.
+NO_CLUT_CELL: Tuple[int, int] = (-1, -1)
+
+
 @dataclass(frozen=True)
 class Binding:
     """One GEOM model's texture binding: which page it samples and which CLUT cell colours it."""
@@ -337,8 +363,13 @@ class Binding:
     page: Tuple[int, int]        # tpage VRAM origin (x halfwords, y lines)
     bpp: int
     clut_word: int
-    cell: Tuple[int, int]        # CLUT VRAM cell (x entries, y line)
-    entries: int                 # 16 (4bpp) or 256 (8bpp)
+    cell: Tuple[int, int]        # CLUT VRAM cell (x entries, y line); NO_CLUT_CELL at 15bpp
+    entries: int                 # 16 (4bpp) or 256 (8bpp); 0 at 15bpp -- there is no palette
+
+    @property
+    def direct(self) -> bool:
+        """15bpp DIRECT colour -- the texels ARE the colour, so there is nothing to recolour."""
+        return self.bpp == 15
 
 
 @dataclass
@@ -354,10 +385,18 @@ class Attribution:
     bindings: List[Binding]
     geom_total: int
     geom_with_so: int
+    #: whether 15bpp DIRECT binders were admitted -- carried so a consumer can tell "this container
+    #: has no direct binders" from "this scan never looked for them".
+    include_direct: bool = False
 
     @property
     def coverage(self) -> float:
         return 0.0 if not self.geom_total else self.geom_with_so / self.geom_total
+
+    @property
+    def direct(self) -> List[Binding]:
+        """The 15bpp direct binders admitted by ``include_direct`` -- ``[]`` under the default."""
+        return [b for b in self.bindings if b.direct]
 
     @property
     def complete(self) -> bool:
@@ -371,11 +410,34 @@ class Attribution:
         return self.geom_total > 0 and self.geom_with_so == self.geom_total
 
     def binders(self, cell: Tuple[int, int], entries: int) -> List[Binding]:
-        return [b for b in self.bindings if b.cell == cell and b.entries == entries]
+        """Which models read a PALETTE -- so a 15bpp direct binder can never be one of them.
+
+        The ``not b.direct`` filter is structural, not decorative: it is what lets
+        ``include_direct=True`` be a texel-lane convenience that provably cannot widen the CLUT lane's
+        ``shared`` derivation. Relying instead on :data:`NO_CLUT_CELL` never matching a real palette
+        would be a law living in a docstring.
+        """
+        return [b for b in self.bindings
+                if not b.direct and b.cell == cell and b.entries == entries]
 
 
-def attribution(blob: bytes) -> Attribution:
-    """Scan every non-creature GEOM block for its ``so`` record and join model -> (tpage, CLUT)."""
+def attribution(blob: bytes, include_direct: bool = False) -> Attribution:
+    """Scan every non-creature GEOM block for its ``so`` record and join model -> (tpage, CLUT).
+
+    ``include_direct`` admits the **15bpp DIRECT-colour binders** this scan has always dropped (24
+    bindings over 12 effects, corpus-measured). It defaults to ``False`` so every existing caller and
+    every published count is byte-for-byte what it was: the CLUT lane asks
+    :meth:`Attribution.binders` for a palette's ``(vram, entries)``, a direct binder carries
+    :data:`NO_CLUT_CELL` and ``entries == 0``, and the recorded 316-record binding population (the
+    denominator the u-spill census was measured over) is unchanged under the default.
+
+    A PARAMETER, never a second scanner -- the same precedent :func:`_regions`' ``partition`` set. The
+    texel lane needs these bindings for two things a palette lane never asks about: a cell's DEPTH
+    (15bpp is a depth the container states, and dropping the binder makes that cell read as
+    depth-unknown) and the U-SPILL census (17 of the 58 spilling bindings are 15bpp, and one halfword
+    is one texel at that depth, so they spill up to three columns where 8bpp reaches exactly one).
+    ``coverage``/``complete`` are computed BEFORE this filter and are identical either way.
+    """
     mp = EC.creature_package(blob)
     creature_geom = mp.geom_offset if mp is not None else None
     c = EC.parse_header(blob, strict=False)
@@ -402,16 +464,24 @@ def attribution(blob: bytes) -> Attribution:
             continue
         with_so += 1
         tp, cw = rec.get("tpage"), rec.get("clut")
-        if tp is None or not cw:                             # untextured, or 15bpp direct (no CLUT)
+        if tp is None:                                       # an 8-byte record: untextured
             continue
         bpp = SO_BPP[(tp >> 7) & 3]
         if bpp == 15:                                        # direct colour: no palette to bind
+            if not include_direct:
+                continue
+            binds.append(Binding(geom=g.base, chunk_slot=owner_slot(g.base), tpage=tp,
+                                 page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256), bpp=15,
+                                 clut_word=cw or 0, cell=NO_CLUT_CELL, entries=0))
+            continue
+        if not cw:                                           # an indexed record naming no CLUT word
             continue
         binds.append(Binding(geom=g.base, chunk_slot=owner_slot(g.base), tpage=tp,
                              page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256), bpp=bpp,
                              clut_word=cw, cell=clut_word_xy(cw),
                              entries=16 if bpp == 4 else 256))
-    return Attribution(bindings=binds, geom_total=total, geom_with_so=with_so)
+    return Attribution(bindings=binds, geom_total=total, geom_with_so=with_so,
+                       include_direct=include_direct)
 
 
 # ============================================================ (1b) THE TEXANIM REGION -- MEASURED
@@ -924,12 +994,73 @@ class PageRect:
         return (self.w * (16 // bpp), self.h)
 
 
+#: THE VRAM PAGE-CELL, the quantum the engine uploads: **64 halfwords x 128 lines = 0x4000 bytes**.
+#: MEASURED, not assumed -- all 1,317 id-0 page rects across all 372 corpus containers declare
+#: ``w == 64`` (1,214 at ``h == 256``, 103 at ``h == 128``), and every one of the 117 id-9 alternate
+#: blocks is 64 x 128 by the loop's own arithmetic. 2,648 / 2,648 cell-writer records at w = 64.
+PAGE_CELL_W = 64
+PAGE_CELL_LINES = 128
+PAGE_CELL_BYTES = PAGE_CELL_W * PAGE_CELL_LINES * 2          # 0x4000
+
+
+def _assert_cell_width(where: str, x: int, y: int, w: int, h: int) -> None:
+    """THE ``w != 64`` AND ``h % 128 != 0`` TRIPWIRES -- refusals with **zero** live instances,
+    which is the point.
+
+    A cell is ``w * 128 * 2`` bytes and reduces to 0x4000 only at ``w == 64``. Every consumer of the
+    page map advances by a flat 0x4000 (``repaint.other_page_writers`` did so literally), which is
+    right on all 2,648 corpus cell-writer records and silently catastrophic on the first one that is
+    not: a narrower rect would make every cell after the first in that stream resolve to the wrong
+    file offset, and a splice would land in a neighbour's texels while every gate downstream stayed
+    green -- the failure reads as corrupt art with no error anywhere. So the arithmetic REFUSES
+    instead of extrapolating. ``grep`` for this width found zero checks in the kit before W6b.
+
+    THE SAME REASONING BINDS ``h`` (V1 F2): the cell split is ``h // 128`` and a flooring split of a
+    non-multiple height either OVERLAPS cell spans (h < 128: the one derived cell claims 0x4000
+    bytes of a rect that holds fewer, spilling into the next rect's stream) or silently strands the
+    remainder (h = 200: 9,216 declared bytes become unaddressable with no error).  The corpus is
+    exactly ``{128, 256}`` on all 1,317 rects, so this too is free now and load-bearing the day it
+    is not.
+    """
+    if w != PAGE_CELL_W:
+        raise ReskinError(
+            "PAGE-RECT WIDTH: %s declares VRAM (x=%d y=%d w=%d h=%d) -- w is %d halfwords, not the "
+            "%d this lane's cell arithmetic is derived for.  A VRAM page-cell is w*128*2 bytes and "
+            "collapses to the 0x4000 every consumer advances by ONLY at w=%d, so a narrower or wider "
+            "rect would put every cell after the first at the wrong file offset and splice into a "
+            "neighbour's texels with no gate firing.  All 2,648 cell-writer records in the stock "
+            "corpus are w=%d, so this container is outside the measured population and the map "
+            "refuses rather than extrapolating."
+            % (where, x, y, w, h, w, PAGE_CELL_W, PAGE_CELL_W, PAGE_CELL_W))
+    if h <= 0 or h % PAGE_CELL_LINES != 0:
+        raise ReskinError(
+            "PAGE-RECT HEIGHT: %s declares VRAM (x=%d y=%d w=%d h=%d) -- h is not a positive "
+            "multiple of %d lines, so the cell split (h // %d, flooring) would either OVERLAP cell "
+            "spans into the next rect's stream (h < %d) or silently strand the trailing lines with "
+            "no error.  Every one of the 1,317 stock page rects is h in {128, 256}; outside that "
+            "population the map refuses rather than extrapolating (V1 F2 -- the same law as the "
+            "width tripwire, one axis later)."
+            % (where, x, y, w, h, PAGE_CELL_LINES, PAGE_CELL_LINES, PAGE_CELL_LINES))
+
+
 def scenery_pages(blob: bytes) -> Dict[Tuple[str, int], PageRect]:
-    """``{(chunk tag, vram x): PageRect}`` for the streamed page rects.
+    """``{(chunk tag, vram x): PageRect}`` for the streamed page rects -- **the RECT view**.
 
     Derived from the id-0 page block: ``pixelDataRel`` is the stream base and the rect list gives
     the column order. The rects are NOT all one shape corpus-wide, so the dimensions come from the
     rect itself rather than from a hard-coded ``128 x 256``.
+
+    This stays the rect view on purpose; the per-VRAM-CELL map that splits an ``h == 256`` rect into
+    the two stacked cells the engine actually uploads is :func:`page_cells`, beside it. The key here
+    is ``(tag, x)`` and therefore cannot name the lower half of a tall rect at all -- which is why 20
+    otherwise-lawful cells were unaddressable before ``page_cells`` existed.
+
+    Two refusals, both tripwires with zero live instances:
+
+    * ``w != 64`` (:func:`_assert_cell_width`);
+    * **a duplicate ``(tag, x)``** -- this dict used to overwrite silently, so a chunk declaring one
+      column twice would have kept only the LAST upload and hidden the first from every consumer,
+      including the collision gate. 0 duplicates over 1,317 corpus rects; it refuses if that changes.
     """
     c = EC.parse_header(blob, strict=True)
     out: Dict[Tuple[str, int], PageRect] = {}
@@ -946,6 +1077,16 @@ def scenery_pages(blob: bytes) -> Dict[Tuple[str, int], PageRect]:
         for k in range(n):
             o = pb + 8 + 8 * k
             x, y, w, h = _u16(blob, o), _u16(blob, o + 2), _u16(blob, o + 4), _u16(blob, o + 6)
+            _assert_cell_width("%s id-0 page rect %d" % (tag, k), x, y, w, h)
+            if (tag, x) in out:
+                prev = out[(tag, x)]
+                raise ReskinError(
+                    "DUPLICATE PAGE RECT: %s declares VRAM column x=%d twice -- rect at %#x (y=%d "
+                    "h=%d) and rect %d at %#x (y=%d h=%d).  The rect view is keyed (tag, x), so one "
+                    "of these uploads would be silently dropped and become invisible to every "
+                    "consumer, the collision gate included.  0 of the 1,317 stock page rects do "
+                    "this; name the writers per cell through page_cells() instead."
+                    % (tag, x, prev.off, prev.y, prev.h, k, cur, y, h))
             out[(tag, x)] = PageRect(source=tag, x=x, y=y, w=w, h=h, off=cur, nbytes=w * h * 2)
             cur += w * h * 2
     return out
@@ -974,6 +1115,240 @@ def id9_pages(blob: bytes) -> Dict[Tuple[str, int], List[PageRect]]:
                     PageRect(source="id9.%s" % chunk_tag(ch), x=x, y=y, w=64, h=128,
                              off=cur, nbytes=0x4000))
                 cur += 0x4000
+    return out
+
+
+# --------------------------------------------------------- the PER-VRAM-CELL page map (W6b-1)
+@dataclass(frozen=True)
+class PageCell:
+    """One **VRAM page-cell** -- the 64 x 128-halfword, 0x4000-byte quantum the engine uploads.
+
+    The addressable unit of the scenery texel lane, and NOT the same object as :class:`PageRect`: a
+    corpus page rect is ``h == 256`` on 1,214 of 1,317 and covers TWO stacked cells. ``PageRect``
+    names the upload; ``PageCell`` names the thing an author can edit.
+
+    Every field is derived; the key ``(tag, x, y)`` is unique **by construction**, not by luck --
+    ``tag`` is the WRITER (``"s0"`` for an id-0 page rect, ``"id9.s0"`` for an id-9 alternate block),
+    so the corpus's 34 multi-writer co-transform cells appear as the several records they are instead
+    of one record silently overwriting another.
+    """
+    tag: str                     # the WRITER: "s0" (id-0 page rect) | "id9.s0" (id-9 alt block)
+    chunk: str                   # the OWNING chunk's tag, always "s%d"
+    slot: int                    # that chunk's resource-table slot
+    kind: str                    # "id0" | "id9"
+    x: int                       # VRAM x, halfwords
+    y: int                       # VRAM y, lines -- the CELL's own y, already split off a tall rect
+    w: int                       # the parent rect's width in halfwords (64, enforced)
+    off: int                     # this cell's first file byte
+    nbytes: int                  # w * 128 * 2 == 0x4000
+    rect_key: Tuple[str, int]    # the scenery_pages / id9_pages key this cell came from
+    rect_y: int                  # the parent rect's VRAM y
+    rect_h: int                  # the parent rect's height (256 means this cell is half of it)
+    split_index: int             # which stacked cell of that rect (0 = the top one)
+    provenance: str              # the writer, in one line, for a refusal message to quote
+
+    @property
+    def key(self) -> Tuple[str, int, int]:
+        return (self.tag, self.x, self.y)
+
+    @property
+    def cell(self) -> Tuple[int, int]:
+        return (self.x, self.y)
+
+    @property
+    def split(self) -> bool:
+        """True when this cell is one half of a tall rect -- the 20 lower halves W6b unlocks."""
+        return self.rect_h > PAGE_CELL_LINES
+
+    @property
+    def name(self) -> str:
+        """``cell.s0.x704_y256`` -- deliberately NOT the ``page.*.h256`` rect spelling."""
+        return "cell.%s.x%d_y%d" % (self.tag, self.x, self.y)
+
+
+def page_cells(blob: bytes) -> Dict[Tuple[str, int, int], PageCell]:
+    """``{(writer tag, vram x, vram y): PageCell}`` -- **the per-VRAM-cell page map**.
+
+    The map :func:`scenery_pages` could not be. Its key is ``(tag, x)``, so the lower 128 lines of an
+    ``h == 256`` rect have no name at all: on ef211 the rect at column 576 has a two-palette
+    same-bytes hazard in its TOP cell and a clean, single-reader, single-writer 4bpp picture in its
+    BOTTOM one, and the rect key can only reach the hazardous half. 20 otherwise-lawful cells are
+    unaddressable for exactly that reason, and 1,179 cells corpus-wide have no name.
+
+    The arithmetic, and where it differs from the rect view:
+
+    * the id-0 stream cursor advances by the RECT's own ``w * h * 2`` -- that is
+      :func:`scenery_pages`' law and it is right;
+    * the SPLIT of a tall rect into stacked cells advances ``w * 128 * 2`` **per cell**, which
+      reduces to 0x4000 only at ``w == 64`` -- hence :func:`_assert_cell_width`, enforced here AND at
+      the rect view. Today 2,648 / 2,648 cell-writer records are w = 64, so the refusal is a
+      TRIPWIRE, not a code path;
+    * :func:`id9_pages` is folded in unchanged -- an id-9 alternate block is already exactly one cell.
+
+    Uniqueness is asserted, not assumed: a duplicate key REFUSES. Corpus: 2,648 records, 2,648
+    distinct keys, 0 collisions.
+    """
+    c = EC.parse_header(blob, strict=True)
+    slots = {chunk_tag(ch): ch.slot for ch in c.chunks}
+    out: Dict[Tuple[str, int, int], PageCell] = {}
+
+    def _add(pc: PageCell) -> None:
+        if pc.key in out:
+            prev = out[pc.key]
+            raise ReskinError(
+                "DUPLICATE PAGE CELL %s: two writers resolve to the same key -- %s and %s.  The key "
+                "carries the writer, so this is not a co-transform (which is several DIFFERENT keys "
+                "over one VRAM cell) but one writer declared twice, and the second would silently "
+                "replace the first.  0 of the 2,648 stock cell-writer records collide."
+                % (str(pc.key), prev.provenance, pc.provenance))
+        out[pc.key] = pc
+
+    for (tag, _x), r in sorted(scenery_pages(blob).items()):
+        n = max(1, r.h // PAGE_CELL_LINES)
+        step = r.w * PAGE_CELL_LINES * 2
+        for k in range(n):
+            _add(PageCell(
+                tag=r.source, chunk=tag, slot=slots.get(tag, -1), kind="id0",
+                x=r.x, y=r.y + PAGE_CELL_LINES * k, w=r.w, off=r.off + k * step, nbytes=step,
+                rect_key=(tag, r.x), rect_y=r.y, rect_h=r.h, split_index=k,
+                provenance="%s id-0 page rect at VRAM (x=%d y=%d w=%d h=%d) @%#x, cell %d of %d"
+                           % (r.source, r.x, r.y, r.w, r.h, r.off, k, n)))
+    for (tag, _x), rects in sorted(id9_pages(blob).items()):
+        for j, r in enumerate(rects):
+            _assert_cell_width("%s id-9 alternate block %d" % (r.source, j), r.x, r.y, r.w, r.h)
+            _add(PageCell(
+                tag=r.source, chunk=tag, slot=slots.get(tag, -1), kind="id9",
+                x=r.x, y=r.y, w=r.w, off=r.off, nbytes=r.nbytes,
+                rect_key=(tag, r.x), rect_y=r.y, rect_h=r.h, split_index=0,
+                provenance="%s id-9 alternate block at VRAM (x=%d y=%d) @%#x"
+                           % (r.source, r.x, r.y, r.off)))
+    return out
+
+
+def assert_page_cells_identical(orig: bytes, patched: bytes,
+                                where: str = "this build") -> str:
+    """**THE DERIVATION-IDENTITY GATE**: :func:`page_cells` must re-derive identically after a splice.
+
+    The page map is read out of the id-0 page-block header and the ``(x, y, w, h)`` rect table, and
+    a texel splice licenses the pixel stream those rects POINT AT -- never the rects themselves. If a
+    build moved ``pixelDataRel``, the rect count or one rect's shape, every subsequent derivation
+    would name a different set of bytes while the container still parsed, the file length still
+    matched and the palettes still re-derived: a silent re-aim of the whole lane. So the map is
+    re-derived on the patched bytes and compared, at the CALL SITE -- **a law in a docstring is a
+    wish** -- exactly as :func:`assert_region_invariant` does for W7's texanim region.
+
+    Raises :class:`ReskinError` naming the first divergence; returns a one-line summary.
+    """
+    a = page_cells(orig)
+    try:
+        b = page_cells(patched)
+    except ReskinError as e:
+        raise ReskinError(
+            "THE PAGE-CELL DERIVATION FAILED on the PATCHED container for %s -- the map re-derives "
+            "off the id-0 header and rect table, so the splice moved something it does not license.  "
+            "%s" % (where, e))
+    if set(a) != set(b):
+        gone = sorted(set(a) - set(b))
+        new = sorted(set(b) - set(a))
+        raise ReskinError(
+            "THE PAGE-CELL DERIVATION MOVED on %s: %d cell(s) vanished (%s) and %d appeared (%s).  "
+            "A texel splice licenses the PIXEL STREAM, never the page-block header or the rect table "
+            "that names it."
+            % (where, len(gone), ", ".join(str(k) for k in gone[:4]) or "-",
+               len(new), ", ".join(str(k) for k in new[:4]) or "-"))
+    for k in sorted(a):
+        if a[k] != b[k]:
+            raise ReskinError(
+                "THE PAGE-CELL DERIVATION MOVED on %s: cell %s re-derives differently.\n  stock:   "
+                "%s\n  patched: %s\nA texel splice licenses the PIXEL STREAM, never the page-block "
+                "header or the rect table that names it." % (where, str(k), a[k], b[k]))
+    return ("%d page-cell(s) re-derive identically (%d id-0, %d id-9)"
+            % (len(a), sum(1 for v in a.values() if v.kind == "id0"),
+               sum(1 for v in a.values() if v.kind == "id9")))
+
+
+@dataclass(frozen=True)
+class Id0Split:
+    """The ONE boundary the two lane partitions disagree about, inside one chunk's id-0 payload.
+
+    ``pixelDataRel`` cuts the resource in two: below it the page-block header, the ``clutWord`` table
+    and the whole inline CLUT rect stream; above it the page PIXEL stream. The CLUT lane writes below
+    and the TEXEL lane writes above, which is why :func:`_regions` gates the opposite half in each
+    partition. Derived exactly as :func:`id0_palettes` derives it -- ``page_rel = s32(P)``,
+    ``pix_rel = s32(P + page_rel)`` -- so the two cannot drift apart.
+    """
+    tag: str
+    slot: int
+    lo: int                      # P -- the id-0 payload's first byte
+    boundary: int                # P + pixelDataRel
+    hi: int                      # the DECLARED end of the page pixel stream (trailing pad excluded)
+    res_hi: int                  # the id-0 RESOURCE's own sector-padded end
+    run_hi: int                  # the end of the streamed id-0 [+ id-1] run that holds the stream
+    n_rects: int
+
+    @property
+    def clut_side(self) -> Tuple[int, int]:
+        """Header + clutWord table + the inline CLUT rect stream -- the CLUT lane's licensed half."""
+        return (self.lo, self.boundary)
+
+    @property
+    def pixel_side(self) -> Tuple[int, int]:
+        """The page pixel stream -- the TEXEL lane's licensed half."""
+        return (self.boundary, self.hi)
+
+
+def id0_splits(blob: bytes) -> List[Id0Split]:
+    """One :class:`Id0Split` per chunk that declares an id-0 resource.
+
+    **THE PIXEL STREAM IS NOT CONFINED TO THE id-0 RESOURCE**, and that is measured, not tolerated:
+    on **248 of the 385** corpus id-0 resources the page pixel stream runs past the id-0 payload's
+    own sector-padded end and continues into the **id-1 resource of the SAME chunk** -- 248 of 248
+    unanimously, never into another chunk, never into any other resource id, and never past the file
+    end (137 fit inside id-0 alone). id-0 and id-1 are both in
+    :data:`ff9mapkit.summons.container.STREAMED_IDS`; they are one contiguous streamed run and the
+    rect table addresses it as one. So the bound the stream is checked against is that RUN, derived
+    by walking forward while the next resource in the chunk is an id-1 that starts exactly where the
+    previous one ended -- never the id-0 resource's size, which would refuse 64 % of the corpus.
+
+    A chunk with NO id-0 has no page block and contributes nothing (the corpus has none, but the
+    absence is unambiguous, so it is not an error). A chunk with MORE than one is ambiguous about
+    which payload owns the page block, and refuses -- the same refusal :func:`id0_palettes` makes.
+    """
+    c = EC.parse_header(blob, strict=True)
+    pages = scenery_pages(blob)
+    out: List[Id0Split] = []
+    for ch in c.chunks:
+        tag = chunk_tag(ch)
+        res = [r for r in ch.resources if r.id == 0]
+        if not res:
+            continue
+        if len(res) > 1:
+            raise ReskinError("%s: expected at most one id-0 resource, found %d -- which one owns "
+                              "the page block is not a fact the container states" % (tag, len(res)))
+        r = res[0]
+        P, res_hi = r.offset, r.offset + r.nbytes
+        run_hi = res_hi
+        for nxt in ch.resources:                             # the contiguous streamed id-1 tail
+            if nxt.id == 1 and nxt.offset == run_hi:
+                run_hi = nxt.offset + nxt.nbytes
+        page_rel = _s32(blob, P)
+        pix_rel = _s32(blob, P + page_rel)
+        boundary = P + pix_rel
+        if not (P < boundary <= res_hi):
+            raise ReskinError(
+                "%s: the id-0 header's pixelDataRel (%#x) puts the page pixel stream at %#x, outside "
+                "the id-0 resource %#x..%#x -- the id-0 layout is not what this tool decodes"
+                % (tag, pix_rel, boundary, P, res_hi))
+        n = _s32(blob, P + page_rel + 4)
+        stream = sum(rc.nbytes for (t, _x), rc in pages.items() if t == tag)
+        if boundary + stream > run_hi:
+            raise ReskinError(
+                "%s: the id-0 page rect table declares %d B of pixel stream from %#x, which overruns "
+                "the streamed id-0[+id-1] run that holds it (%#x..%#x).  Corpus: 385/385 fit, 248 of "
+                "them only because id-1 continues the run."
+                % (tag, stream, boundary, P, run_hi))
+        out.append(Id0Split(tag=tag, slot=ch.slot, lo=P, boundary=boundary,
+                            hi=boundary + stream, res_hi=res_hi, run_hi=run_hi, n_rects=n))
     return out
 
 
@@ -1680,15 +2055,32 @@ def _regions(blob: bytes, effect: int, partition: str = "clut") -> List[Tuple[st
     whole id-4 header + texel region, and every GEOM block found by the corpus-selective scanner (the
     scenery's geometry and UVs).
 
-    ``partition`` INVERTS the id-4 split for the sibling texel lane
+    ``partition`` INVERTS **two** splits for the sibling texel lane
     (:mod:`ff9mapkit.summons.repaint`) instead of letting it carry a second copy of this function:
 
-    * ``"clut"`` (the default, this lane) licenses the CLUT strip and gates the header + every page;
-    * ``"texel"`` licenses the pages and gates the header, the CLUT strip and the sector pad.
+    * the **id-4 creature** split -- ``"clut"`` (the default, this lane) licenses the CLUT strip and
+      gates the header + every page; ``"texel"`` licenses the pages and gates the header, the CLUT
+      strip and the sector pad;
+    * the **id-0 scenery** split (W6b-1, :class:`Id0Split`) -- ``pixelDataRel`` cuts each chunk's id-0
+      payload into the page-block header + ``clutWord`` table + inline CLUT rect stream below it, and
+      the page PIXEL stream above it. ``"clut"`` gates the pixel stream; ``"texel"`` gates the
+      header/rect-table/CLUT-stream half.
 
-    Everything outside id-4 is identical under both, which is the point: the two levers disagree about
-    exactly one boundary and agree about every other byte in the container, and a parameter says that
-    where a duplicated function would only imply it until one copy drifted.
+    Until W6b the id-0 resource was in the list under NEITHER partition, which was correct for the
+    CLUT lane (it writes id-0 inline palettes) and a real gap for the texel lane: a scenery splice
+    would have run with ``page_rel``, the rect count and the ``(x, y, w, h)`` rect table **ungated**,
+    and a mis-seek there re-aims the whole page map silently. The inline CLUT payload was already
+    protected -- by ``repaint``'s *"every DERIVED palette re-derives and is byte-exact"* gate and by
+    :func:`id0_palettes`' own stream-end assertion -- but the rect table is read by
+    :func:`scenery_pages` and by nothing that check runs. Its companion is
+    :func:`assert_page_cells_identical`, which re-derives the map rather than merely comparing bytes.
+
+    Everything outside those two splits is identical under both, which is the point: the two levers
+    disagree about exactly two boundaries and agree about every other byte in the container, and a
+    parameter says that where a duplicated function would only imply it until one copy drifted.
+
+    A ZERO-LENGTH half is omitted rather than emitted: a container that declares no page rects has no
+    pixel stream, and an empty region gates nothing either way.
 
     ``g.end`` is called BARE on purpose. Its predecessor wrapped it in ``except Exception: end =
     g.base + 0x10``, which meant that if the property ever went missing or raised, every GEOM region
@@ -1720,6 +2112,13 @@ def _regions(blob: bytes, effect: int, partition: str = "clut") -> List[Tuple[st
                                 r.offset, mp.tex_file_offset + mp.tex_bytes))
                 out.append(("%s id-4 sector pad past the CLUT strip" % tag,
                             mp.tex_file_offset + mp.tex_bytes + mp.clut_bytes, r.offset + r.nbytes))
+    for sp in id0_splits(blob):
+        lo, hi = sp.clut_side if partition == "texel" else sp.pixel_side
+        if lo >= hi:                                         # nothing declared on that side
+            continue
+        out.append((("%s id-0 page-block header + clutWord table + inline CLUT stream" % sp.tag)
+                    if partition == "texel" else
+                    ("%s id-0 page PIXEL stream (%d rect(s))" % (sp.tag, sp.n_rects)), lo, hi))
     ex = W.extract_shots(blob, "ef%03d" % effect)
     for s in ex.shots:
         out.append(("camera block slot %d idx %d" % (s.slot, s.index), s.lo, s.hi))

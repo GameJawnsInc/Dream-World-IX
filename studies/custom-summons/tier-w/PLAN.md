@@ -33,6 +33,7 @@
 | **W4** | **THE RESKIN** — retexture a stock creature in place | a cast showing our texture on the stock cinematic, stock bytes untouched |
 | **W5** | **THE GENERALISATION** — the W tools take ANY stock summon (scaffold verbs, derivation-first, named refusals: texanim / multi-writer / dual-depth / dynamic-op / half-patch / headroom) | offline: 372/372 corpus sweeps + ef227 byte-compat pinned in gates; in-game: a SECOND summon's cast on each lever — Phoenix ef211 (scenery + camera) and Madeen ef251 (creature) |
 | **W6a** | **THE TEXEL REPAINT** — lever #2: rewrite a stock creature page's **indices**, so shape / edge / silhouette become editable at all (a recolour is a colour function and structurally cannot). `summon-reskin export-art` + `[[reskin.texel]]`, indexed lane, creature pages only; every other texel class REFUSES by name (W6b) | offline: the indexed round trip byte-identical **93/93** stock pages, the composed artifact's changed-byte set proven = the CLUT set ∪ the texel set with the two **disjoint**, the three cast-proven CLUT shas unmoved; in-game: a hard-edged brand on ef227's wing membrane that no palette map could produce |
+| **W6b-1** | **THE SCENERY TEXEL LANE** — the other 2,572 page-cells: a per-VRAM-cell page map keyed `(writer, x, y)` (the rect key cannot name the lower half of an `h=256` rect at all), the 4bpp nibble pack and the 15bpp direct codec beside the 8bpp one, and four remedies where W6a had four flat refusals — co-transform (name every writer), name-every-column (name every cell a spilling model reads), the display-palette rule, and the program-VRAM DIRECTION law. 93 % of the surface still refuses, BY NAME | offline: 8bpp **and** 4bpp byte-identical on all 2,648 cell-writer records, 15bpp identical over all **65,536** halfwords exhaustively, the nibble order re-proved with a within-row-invariant control (**36/36 with signal**, 8bpp control 93/93), the id-0 rect-table gate proven non-vacuous by a synthetic perturbation, and the kit's program-VRAM lists **re-walked from 385 id-3 images** and compared; in-game: a hard-edged ring with three radial spokes on ef211's full-screen fire field, with the fire bird itself UNCHANGED as the control |
 | **W7** | **THE TEXANIM READ** — read the id-5 model image's texture-animation table, the one hazard W5 could only refuse, and replace the refusal with whatever the bytes actually license. New kit module `summons/texanim.py` (a READER; no writer, R2), both lanes' gates rewritten, one new hard rule minted | offline: `encode(parse(region))` byte-identical on every armed region + `parse` never raises across all 372 containers; the §4.1 lift matrix executed on the five REAL packages (build or refuse, each with its stated message class); the co-transform refusal naming the untouched sibling rects; and **THE REGION INVARIANT** — `firstBlock`, `min(motionOffsets)` and every region byte unchanged after a real reskin AND repaint on all five, with the check proven non-vacuous; in-game: ★ THE ONE-FRAME VERDICT — cast Shiva (ef038, the only effect that arms op 12), one captured frame, magenta creature ⇒ the lift is correct |
 
 **Done = "editable in place":** a stock summon can be re-framed, re-timed, and re-skinned from our own
@@ -319,3 +320,49 @@ scenery must be re-authored *together*.
   is ONE captured frame (magenta ⇒ the lift is correct), verdict 2 needs video (does the eye window
   ever show the marker? ⇒ whether L4's co-transform is mandatory or merely prudential). The bench row
   is an `Actions.csv`/BattlePatch change ⇒ RELAUNCH. The rung does not close until the cast is judged.
+- **W6b-1 — ★ BUILT, offline-proven, CAST PENDING** (`W6b-SCENERY.md`, `w6b_gates.py`,
+  `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
+  `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
+  w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
+  **THE SCENERY TEXEL LANE — the other 2,572 page-cells, and an honestly asymmetric rung: the codec
+  never fails and the gate refuses 93 % of the surface.** The wall is not the format, it is
+  ATTRIBUTION: **2,385 of 2,572 scenery cells (92.7 %) declare no `so` reader**, so their bit depth is
+  not a fact the container states, and the coherence probe built to guess it was **FALSIFIED at 54.5 %
+  on a 3-way choice** — refused outright, not even shipped as a disclosure. **THE ADDRESSABLE UNIT IS
+  THE VRAM PAGE-CELL** (`reskin.page_cells`, keyed `(writer tag, x, y)`): 1,214 of 1,317 stock page
+  rects are `h=256` and cover TWO stacked cells, so the old `(tag, x)` rect key could not name **1,179
+  cells** at all — on ef211 column 576 the top half is a two-palette refusal and the bottom half is
+  clean 4bpp, and only the hazardous half had a name. **LAWFUL 56 = 50 page-scope-safe + 6
+  model-scope** (a spilling reader hands the author half a picture: 58/58 spilling pictures are wider
+  than a page, **0/58** spill by ≤ 2 %), **+ 20 class-B2 lower halves the map unlocks = 76**. **THREE
+  CODECS, ONE DISPATCH ON THE DERIVED DEPTH**: 8bpp and 4bpp byte-identical on **2,648/2,648**
+  cell-writer records (the 4bpp PNG carries one byte per texel 0..15, never Pillow's `bits=4`, so no
+  PNG bit-order convention can reach the container), and 15bpp direct as **RGBA + an explicit STP
+  sidecar** — identical over all **65,536** halfwords exhaustively, by SHIFT rather than
+  `bgr555_rgba`'s scale, which is lossless only under a rounding inverse and fails 30 of 32 channels
+  under a flooring one (*a rounding rule is a place for the no-op to stop being a no-op*). **★ THE
+  NIBBLE ORDER HAD NO SURVIVING PROOF** — W6a's "empirically confirmed" left no artifact, so it was
+  re-proved at corpus scale with a within-row-invariant vertical control, calibrated first on the
+  cast-proven 8bpp answer (**93/93 unanimous**) and then answering the 4bpp question **44/48, and
+  36/36 above a signal floor with no dissent**. **FOUR REFUSALS BECAME REMEDIES**: co-transform (name
+  every writer, art for each, `acknowledge_cotransform` a literal boolean — **16 of 34 expressible**,
+  and NO "same art for all writers" shorthand, because 0 of 156 corpus writer pairs is byte-identical);
+  NAME-EVERY-COLUMN for spilling models on the **UV-exact 70**, not a rect-conservative superset;
+  the class-C display-palette rule (**25 cells**: editable in the lowest-addressed binding's key,
+  every other key a NAMED read-only alternate view of the same index bytes) and the class-E3
+  shared-read disclosure (**93 cells / 38 effects**). **★ THE DIRECTION LAW is what makes a cast
+  possible**: `LoadImage`/`MoveImage` are WRITES but **`StoreImage` is a READ**, so **113 cells over 12
+  containers move from REFUSE to DISCLOSE** — and ef435 comes OFF the write list as a false positive
+  (a switch dispatch through the image's own pointer table read as HLE op 0), six containers go ON as
+  READ-only, and the old 15-vs-22 count flag is settled arithmetically (both were right about
+  different sets; the corrected 15 is a DIFFERENT 15). **★ THE ONE REAL GATE GAP CLOSED**: `_regions`
+  never listed the id-0 resource under either partition, so a scenery splice would have run with the
+  page-block header and rect table UNGATED — `pixelDataRel` now inverts a second split, with
+  `assert_page_cells_identical` RE-DERIVING the map beside it, and `w6b_gates` G3 proves the fail-safe
+  catches a synthetically perturbed rect table. **THE CAST VEHICLE IS ef211 `(704,256)`, the Phoenix
+  fire field** — single writer, single reader, zero hazards, 8,128 of 8,192 halfwords live art, and
+  the ONLY candidate whose upload path is already cast-proven live (W5's magenta probe: *"magenta
+  showed up in the flames"*). Bench 30301 row 198 already exists ⇒ **no relaunch, no `~` reload, no
+  `Actions.csv` edit**, and cast 2 (the 4bpp lower half `(576,384)`) is the same container, row and
+  deploy script. Staged posture only — nothing deployed. The rung does not close until the cast is
+  judged; the ladder and the verdict statement are `W6b-SCENERY.md` §5.

@@ -1,0 +1,160 @@
+# TIER W rung W6b-1 -- THE SCENERY TEXEL REPAINT.  Stock Phoenix (ef211), the full-screen FIRE
+# FIELD branded: a hard-edged stroked ring with three radial spokes, stamped in INDEX space on the
+# SCENERY VRAM page-cell (704, 256).  One lever, one container, one verdict.
+#
+# WHY THIS SPEC EXISTS AND `phoenix_reskin.toml` DOES NOT COVER IT.  `[[reskin.target]]` (lever #1,
+# W4/W5) is a per-index COLOUR FUNCTION: it can rotate a hue, it can never move a texel from one
+# index to another, so it structurally cannot change a shape, an edge or a silhouette.
+# `[[reskin.texel]]` (lever #2) rewrites the INDICES -- and W6a proved that on the id-4 CREATURE
+# surface.  What is new here is the SCENERY surface: a VRAM page-cell written by the id-0 page
+# stream and read by an `so`-bound model, which is 2,572 of the corpus's 2,665 addressable cells and
+# was entirely out of reach before this rung.
+#
+# WHY *THIS* CELL, out of ef211's twelve.  Its own appendix, re-derived by the generator every run:
+#
+#   cell             writer off   bpp   cov      status
+#   x448_y256        0x01678      -     -        REFUSED  depth-unknown
+#   x448_y384        0x05678      -     -        REFUSED  depth-unknown + lower-half
+#   x512_y256        0x09678      -     -        REFUSED  depth-unknown
+#   x512_y384        0x0d678      -     -        REFUSED  depth-unknown + lower-half
+#   x576_y256        0x21678      4     3,584    EDITABLE with DISCLOSURE (multi-palette class C +
+#                                                shared-read: two readers, two CLUT keys -- the
+#                                                editable PNG carries one, the `.as-*` alternate
+#                                                names the other; NOT the same-bytes-two-DEPTHS law,
+#                                                which refuses)
+#   x576_y384        0x25678      4     2,688    lawful -- the NEXT cast (4bpp + the lower half)
+#   x640_y256        0x19678      4     5,737    EDITABLE with DISCLOSURE (same class C pair --
+#                                                W6-TEXEL sec1.4's ef211 example)
+#   x640_y384        0x1d678      -     -        REFUSED  depth-unknown + lower-half
+#   x704_y256        0x11678      8     8,128    ** THIS ONE -- lawful, ZERO hazards, the fire field
+#   x704_y384        0x15678      -     -        REFUSED  depth-unknown + lower-half
+#   x768_y256        0x3f000      -     -        REFUSED  depth-unknown (id-9)
+#   x768_y384        0x43000      -     -        REFUSED  depth-unknown (id-9)
+#
+# Four editable cells of twelve (V1 F4 corrected this table: the two class-C cells BUILD, with the
+# display-palette disclosure -- an earlier draft called them refused, conflating multi-PALETTE with
+# the two-DEPTHS law).  Of the four, exactly one carries ZERO hazards -- this one -- and one is the
+# per-cell map's own proof (the lower half).  The corpus-wide shape is harsher (93% depth-unknown);
+# ef211 is the RICHEST lawful container, chosen for its cast-proven upload path, not as an average.
+#
+# AND THE DECISIVE ARGUMENT IS NOT THE HAZARD ARITHMETIC.  W5's magenta probe recoloured this very
+# palette (`pal.s0.x0_y247.e256`) and the owner reported the magenta showing up in the flames.  The
+# id-0 scenery upload path is ALREADY CAST-PROVEN on this container, on this palette, in this cell.
+# W6a spent four confirmations proving nothing blits and W7 spent a rung proving nothing runs the
+# texanim table; choosing the one cell whose pixels are known to arrive is the difference between a
+# verdict and another negative result.
+#
+# CLEAN, NOT COMPOSED -- and that is a decision, not an omission.  W5's ef211 override was wiped
+# from the mod folder by another session's campaign deploy (re-verified absent at stage time: no
+# `ef211` under FF9CustomMap / FF9CustomMap-world / MoguriMain / MoguriVideo, so the game reads
+# stock).  W5's recolour targets `pal.s0.x0_y247.e256`, which is EXACTLY this cell's palette, so a
+# composed artifact would put both levers on the same 8,128 halfwords and make a stock-vs-new read
+# ambiguous.  Hence NO `[reskin.orthogonality]` block here: one lever on stock bytes.  Compose later,
+# as W6a did on ef227, once the texel lever is proven on its own.
+#
+# WHAT EACH NUMBER BELOW IS.  Two kinds only:
+#   * GUARDS (`expect_*`) -- what the tool's own derivation from the container's headers MUST have
+#     found.  They instruct nothing; they refuse.  Re-emit them with
+#     `ff9mapkit summon-reskin export-art --ef 211` rather than retyping them.
+#   * AUTHORED DECISIONS -- `source`, `enabled`, `acknowledge_cutout_reshape`.
+#
+# THE ART IS NOT IN THIS REPO, AND CANNOT BE.  `source` is a decoded stock page-cell: Square-Enix
+# content, SCRATCH-only under this tier's provenance rule.  What ships instead is the GENERATOR --
+# `phoenix_field_stamp.py` -- which re-derives every parameter of the figure from the user's own
+# container and writes exactly that PNG.  Run it before this spec:
+#
+#     py phoenix_field_stamp.py
+#
+# Re-point `phoenix_field_stamp.py --root` and you must re-point `source` below with it; the build
+# refuses with "no such source image" rather than silently packing yesterday's art.
+#
+# WHAT `phoenix_field_stamp.py` MEASURED ON THE REAL CONTAINER (its own output, not a transcription;
+# identical from the install read and from the corpus file):
+#   writer         s0 id-0 page rect @0x11678, 16,384 B          SINGLE -- no co-transform
+#   reader         GEOM 0x2b668, 8bpp, CLUT cell (0,247)         SINGLE -- no shared read
+#   hazards        NONE (single writer / single reader / single depth / single palette / no spill /
+#                  not a lower half / not texanim-armed)
+#   program        READ -- ef211's id-3 program touches VRAM only through StoreImage (VRAM -> main
+#                  RAM).  A read cannot clobber a repaint, so it DISCLOSES in the plan and does not
+#                  refuse.  This is the direction correction that made the cell reachable at all.
+#   coverage       8,128/8,192 halfwords = 16,256/16,384 texels sampled (99.2%) by 1 model
+#   ink   idx 254  0x82f7  L=167.5 -- the MAX-LUMINANCE live entry of the 255 the page samples
+#   figure         centroid (63.5, 64.0); largest contiguous disc r = 63; ring at 0.80 R = 50.4
+#                  texels, stroke 10.7 texels, 3 spokes
+#   stamped        4,029 texels = 24.8% of the sampled cell; 4,001 actually DIFFER (28 already
+#                  carried index 254)
+#   MEASURED       dead bytes moved 0  |  cutout flips 14 (punch 0 / fill 14, of 34 transparent
+#                  texels on the page)
+#
+# THE INK IS MEASURED, NOT CHOSEN, AND THE REASON IS A PLAYTEST.  W5 cast A missed because a
+# blue-leaning, x0.85-desaturated key washed out where stock flame cores go to white; the corollary
+# the tier paid for is that **under additive blending a darker stamp subtracts nothing, it merely
+# fails to add**.  So the ink is the highest-luminance LIVE entry of this cell's own palette,
+# re-measured at build time -- and there is deliberately NO dark outline, because W6a's edge index
+# earned its place on an opaque non-additive hide and the same construct here would be a stroke the
+# blend renders as no stroke.  The ink is an already-live entry of the row, so the figure costs
+# ZERO CLUT bytes and this file declares no `[[reskin.target]]` at all.
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`repaint.py`'s module docstring, each one a refusal):
+# the format of record is a P-mode INDEXED PNG (byte-identical round trip, 93/93 stock creature
+# pages and 2,572/2,572 scenery cells) and an RGBA import refuses by name; a texel crossing the
+# transparent boundary refuses unless the row says so out loud; a cell whose DEPTH the container
+# never states, a same-bytes-two-depths cell, a program-VRAM WRITE, an unnamed co-transform writer
+# or spill column, and an armed texanim table that does not DECODE all refuse; and every byte
+# outside the licensed page span -- the id-0 header, the rect table, the whole inline CLUT stream,
+# every GEOM block, both id-3 programs, the id-5 model image, every camera block -- is gated
+# byte-identical under the INVERTED region partition, with the page-cell map re-derived identically
+# on the patched container.
+
+[reskin]
+effect = 211
+label  = "phoenix-w6b-field-wheel"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- no stock byte is committable.  Same value `phoenix_reskin.toml` guards, deliberately: two
+# specs that disagree about which summon they are reading cannot both be right.
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+
+# ==============================================================================================
+# THE TEXEL TARGET.  ONE scenery page-cell: ef211 (704, 256), the fire field.
+#
+# THE NAME IS THE SCENERY NAMESPACE'S OWN SPELLING -- `cell.<writer tag>.x<vram x>_y<vram y>`, and
+# deliberately NOT `page.s0.x704_y256.h256`.  An `h = 256` id-0 rect is NOT an addressable unit: the
+# engine uploads it as two stacked 0x4000 VRAM cells that routinely differ in hazard class (on this
+# very container, column 576's top half is a two-palette refusal and its bottom half is clean 4bpp).
+# The rect spelling therefore keeps refusing, and the refusal names the two cells it splits into.
+#
+# WHY THE OTHER THREE ADDRESSABLE CELLS ARE NOT HERE.  One change per in-game test.  All four
+# lawful-or-refused cells are emitted pre-seeded OFF by `export-art`; this spec turns on one, so a
+# cast that reads wrong names the cell that was wrong.
+[[reskin.texel]]
+name = "cell.s0.x704_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211/art/cell.s0.x704_y256.png"
+
+# --- the guards, emitted by the derivation, never typed --------------------------------------
+expect_page_offset = 0x011678   # id-0 page rect 2 of the s0 chunk
+expect_page_bytes  = 16384      # 0x4000 -- one VRAM page-cell, 64 halfwords x 128 lines
+expect_page_wh     = [128, 128] # at 8bpp.  The SAME 16,384 bytes are 256x128 at 4bpp and 64x128 at
+                                # 15bpp, so this pair is only meaningful beside `expect_bpp`.
+expect_bpp         = 8          # STATED here, CHECKED against the container's own `so` record --
+                                # never chosen by the tool.  A wrong depth packs to exactly the
+                                # right byte count and paints the wrong picture with no gate firing,
+                                # which is why the author has to write it down.  Guarded a second
+                                # time against the chunk's own nClut8 count: two independent headers.
+expect_cell        = [704, 256] # the VRAM page-cell this name resolves to
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# TRUE ON PURPOSE, AND THIS IS THE ACK'S LEGITIMATE USE.  The cell is 99.2% covered but a flame
+# texture carries holes -- 34 texels of this page are the transparent index.  A solid figure drawn
+# over 14 of them counts as `fill` (hole -> opaque), which is PRECISELY what makes a hard edge
+# legible on a surface that is otherwise moving fire.  MEASURED and disclosed in the staging report:
+# punch 0 (nothing is removed) / fill 14.  If a future edit of the art ever punched instead, that is
+# art being deleted and the number in the report is how anyone would notice.
+acknowledge_cutout_reshape = true
+# The cell's palette is a HEADER FACT (the reader's own `so` CLUT word resolved through the id-0
+# inline stream), not a choice; naming it here is a cross-reference the build CHECKS against the
+# derivation, and it stays a cross-reference -- this lane writes zero CLUT bytes and the container
+# remains the palette authority.
+palette_from = "pal.s0.x0_y247.e256"
+note = "the wheel: a stroked ring + three radial spokes on the full-screen fire field, ink 254 (max luminance, no outline -- additive blending)"
