@@ -327,8 +327,10 @@ scenery must be re-authored *together*.
   nibble codec (casts 2/2b were 4bpp kit builds). Two laws minted in-game: BINDING-IS-NOT-A-DRAW
   (the wheel on (704,256) was invisible twice — an `so` reader is not a draw; the dome actually
   reads the READERLESS (704,384)) and THE UV-SHREDDING BOUND (sheared mirrored panel UVs turn
-  figures into diffuse erosion; stripes read because translation-invariant). OPEN: the pool's cell
-  (one `--only` cast), the photographable shape verdict on a flat surface, the 15bpp cast.**
+  figures into diffuse erosion; stripes read because translation-invariant). Cast 1e: the pool =
+  (640,256) by elimination (cell-5 stripes left it clean; they DID band the intro background
+  flames, so (576,256) is drawn). OPEN: the pool's positive confirm + the photographable shape
+  verdict (one cast on (640,256) can carry both if its UVs are flat), the 15bpp cast.**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).

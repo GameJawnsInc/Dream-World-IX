@@ -552,12 +552,24 @@ not a comment.**
 > diffuse erosion; stripes read only because they are translation-invariant. A photographable
 > SHAPE verdict on scenery needs a flatter-UV surface (the pool, once its cell is named by one
 > more `--only`).
+> **Cast 1e (`--only cell.s0.x576_y256`, probe sha `dd9c0b39…`, root `ef211-cellprobe5`): THE
+> POOL IS (640,256), by elimination.** The pool stayed CLEAN under cell-5 stripes — cast 1c
+> bounded it to k ∈ {5, 7} and cast 1d cleared cell 6, so `cell.s0.x640_y256` is the only
+> candidate left (the positive confirm folds into the next cast on that cell). The stripes DID
+> band the intro's background flames — **(576,256) IS drawn**, a second on-screen surface for
+> the column-576 class-C complex (reader `0x33960` spans both halves; 1d put the lower half on
+> the emergence vortex). Controls held: dome and bird clean. New attribution ledger, in-game:
+> (704,384) = dome · (576,384) = emergence-vortex smoke · (576,256) = intro background flames ·
+> (640,256) = the ground pool (by elimination, confirm pending) · (704,256) = bound, never drawn.
 > **What the ladder proved in-game**: the scenery byte→screen chain (stripes owner-visible + the
 > kit-built wheel measured at aligned cast-time), THE PER-CELL MAP (cell 6 is a lower half only
 > the new map can address) and THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), plus the
-> two minted laws (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND). Open: the pool's cell id; the
-> shape verdict on a flat surface. Revert chain: cast-2b ledger → cast-2 → (probe/punch/ink
-> snapshots in their SCRATCH roots) → stock.
+> two minted laws (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND). Open after 1e: the pool's
+> positive confirm + the shape verdict — one cast on (640,256) can carry both IF its reader UVs
+> are flat (check offline first; if they shred like column 576's, fall back to a 7-stripe
+> `--only` confirm and the shape verdict needs another vehicle). Revert chain: cast-1e probe
+> (`ef211-cellprobe5`, pre = cast-2b) → cast-2b ledger → cast-2 → (probe/punch/ink snapshots in
+> their SCRATCH roots) → stock.
 
 ## 5.1 The vehicle — ef211 (Phoenix), cell `(704, 256)`, the fire field
 
