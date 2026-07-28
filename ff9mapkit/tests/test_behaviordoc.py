@@ -415,11 +415,21 @@ def test_move_delete_add_branch_go_through_the_shell_contract(edoc):
     assert br[1]["do"] == {"die": True}
     edoc._delete_row(1)
     assert len(br) == 5 and not any(b["do"] == {"die": True} for b in br)
+    edoc._ask_branch = lambda: ("blank", None)     # the mini-wizard's seam: Blank branch
     edoc._add_branch()                             # lands above the fallback + opens the editor
     assert br[-2]["when"] == [{"flag": "never"}]
     assert edoc.editor.isVisibleTo(edoc)
+    edoc._ask_branch = lambda: ("chase_sight", "raider")   # ...and a BRANCH archetype
+    edoc._add_branch()
+    assert br[-2]["do"] == {"chase": "raider", "standoff": 180, "speed": 65}
+    assert br[-2]["when"] == [{"active": "raider"}, {"near": ["raider", 900]}]
+    edoc._ask_branch = lambda: None                # a cancelled dialog adds nothing
+    n = len(br)
+    edoc._add_branch()
+    assert len(br) == n
     assert [lab for _m, lab in edoc._edits] == [
-        "reorder watchman branches", "delete watchman branch 2", "add watchman branch"]
+        "reorder watchman branches", "delete watchman branch 2", "add watchman branch",
+        "stamp chase_sight branch on watchman"]
 
 
 def test_add_unit_through_the_seam_and_remove_back_to_guide(edoc):
@@ -981,3 +991,27 @@ def test_the_row_buttons_are_rowtool_tier_and_the_stats_keep_a_stub(doc):
     # floor living only there is a property nobody renders (this round's own catch).
     fm = doc.unit_stats.fontMetrics()
     assert doc.unit_stats.minimumWidth() >= int(fm.averageCharWidth() * 12)
+
+
+def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only():
+    from ff9mapkit.workspace.behaviordoc import BranchWizard
+    raw = demo_raw()
+    w = BranchWizard(pick_palette("dark"), raw, "watchman")
+    assert w.list.count() == len(behaviorscan.BRANCH_ARCHETYPES) + 1   # + the blank row
+    assert w.picked() is None
+    w.list.setCurrentRow(0)                        # blank: no target row, OK enabled
+    assert not w._vs_row.isVisibleTo(w) and w._ok.isEnabled()
+    ci = next(i for i, a in enumerate(behaviorscan.BRANCH_ARCHETYPES)
+              if a["key"] == "chase_sight") + 1
+    w.list.setCurrentRow(ci)
+    assert [w.vs.itemText(i) for i in range(w.vs.count())] == ["player", "raider", "porter"]
+    w.vs.setCurrentText("raider")
+    body = behaviorscan.branch_archetype_body(raw, "watchman", "chase_sight", "raider")
+    verb, detail = behaviorscan.fmt_action(body["do"])
+    assert verb in w.preview.text() and detail in w.preview.text()   # verbatim, not prose
+    si = next(i for i, a in enumerate(behaviorscan.BRANCH_ARCHETYPES)
+              if a["key"] == "swing_reach") + 1
+    w.list.setCurrentRow(si)                       # unit_only: the player row is GONE
+    assert [w.vs.itemText(i) for i in range(w.vs.count())] == ["raider", "porter"]
+    w.accept()
+    assert w.picked() == ("swing_reach", "raider")

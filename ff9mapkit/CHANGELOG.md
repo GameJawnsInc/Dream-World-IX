@@ -14,6 +14,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the preview; anything illegal (a guard with no seated enemy, a pair without a second
   free npc) disables Stamp and says why in place.
 
+### Added — five new behavior archetypes (the ambient-life family)
+- The stamp wizard's proven trees grow from five to ten: **Follower** (tails the
+  player at a polite standoff — the pet/escort), **Town crier** (a cooldown-gated
+  line for every passer-by), **Commuter** (an alternator walks it between two spots
+  on the clock), **Duel pair** (two units wearing the guard's whole ladder at each
+  other — a sparring match with no referee), and **Chatty pair** (neighbours who
+  wander their corners and greet when they drift together). Every stamp still runs
+  the real compiler in its fence; the Info Hub cards and wizard rows derive
+  automatically.
+
+### Added — branch archetypes (one proven row into an existing ladder)
+- ＋ Branch now opens a small picker: a blank row (the old behaviour) or one of four
+  proven guarded branches — **Flee when badly wounded**, **Announce once + raise the
+  alarm**, **Swing when in reach**, **Chase on sight** — each with its teach text, a
+  target picker where the row binds one (swing offers units only; the player can be
+  chased and fled but never swung at), and a verbatim preview of the exact row that
+  will land.
+
+### Fixed — `lint` rejected every route marker
+- The full-field lint required `pos` on every `[[marker]]`, predating path markers —
+  so any field carrying a patrol beat (including everything the archetype stamps
+  mint) flagged a false error. A marker is now a named point (`pos`) or a named
+  route (`path`).
+
 ### Added — the ladder tells you when a branch can NEVER run
 - A branch whose conditions are subsumed by an earlier row's (a `near 400` below a
   `near 900` on the same target, an `hp_le 0` below an `hp_le 2`, anything below a

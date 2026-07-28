@@ -775,8 +775,8 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "bare", "wizard", "doc", "compiled", "edit", "stage", "sweep",
-                   "siege", "sim")
+BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
+                   "stage", "sweep", "siege", "sim")
 
 _BARE_TOML = """\
 [field]
@@ -851,14 +851,18 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     assert win.open_field(toml), "the behavior demo field must open"
     win.tabs.setCurrentWidget(win.behavior_doc)        # the shell feed runs on tab show
     _settle(6)
-    if state == "wizard":                              # the stamp wizard, grabbed as its own
-        from ff9mapkit.workspace.behaviordoc import ArchetypeWizard   # subject (built
-        dlg = ArchetypeWizard(win.behavior_doc.pal, win.behavior_doc._raw, win)   # directly
-        #                                                -- exec() lives only in the seam)
+    if state in ("wizard", "branchwiz"):               # the stamp wizards, grabbed as their
+        from ff9mapkit.workspace.behaviordoc import ArchetypeWizard, BranchWizard   # own
+        if state == "wizard":                          # subjects (built directly -- exec()
+            dlg = ArchetypeWizard(win.behavior_doc.pal, win.behavior_doc._raw, win)
+        else:                                          # lives only in the modal seam)
+            dlg = BranchWizard(win.behavior_doc.pal, win.behavior_doc._raw,
+                               win.behavior_doc._selected_unit or "watchman", win)
+            dlg.list.setCurrentRow(4)                  # chase-on-sight: target row + preview
         dlg.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         dlg.show()
         _settle(4)
-        _grab(ctx, "behavior-wizard", dlg)
+        _grab(ctx, f"behavior-{state}", dlg)
         dlg.reject()
         _close(win)
         return

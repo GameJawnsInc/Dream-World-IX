@@ -656,3 +656,35 @@ def test_identical_cond_sets_shadow_by_equality():
         {"do": {"hold_post": True}},
     ]), _unit("b")])
     assert BS.shadowed_rows(raw, "a") == {1: 0}
+
+
+# --------------------------------------------------------------------------- branch archetypes
+def test_every_branch_archetype_survives_a_real_dry_compile(tmp_path):
+    """The fence with teeth, little-sibling edition: every BRANCH archetype, stamped
+    onto a real unit against BOTH target kinds it allows, through the REAL compiler."""
+    from ff9mapkit.editor import model as _model
+    for a in BS.BRANCH_ARCHETYPES:
+        targets = ["b"] if a.get("needs_target") else [None]
+        if a.get("needs_target") and not a.get("unit_only"):
+            targets.append("player")               # cond targets bind the player too --
+            #                                        except swing_at (units only, validated)
+        for t in targets:
+            raw = _field([_unit("a"), _unit("b")])
+            at = BS.stamp_branch(raw, "a", a["key"], t)
+            br = raw["behavior"]["unit"][0]["branch"]
+            assert br[at] == BS.branch_archetype_body(
+                _field([_unit("a"), _unit("b")]), "a", a["key"], t)
+            assert br[-1] == {"do": {"hold_post": True}}   # above the fallback, never past it
+            assert BS.validate_problems(raw) == [], (a["key"], t)
+            p = tmp_path / f"{a['key']}_{t}.toml"
+            p.write_text(_model.dumps(raw), encoding="utf-8")
+            res = BS.dry_compile(p)
+            assert res.ok, (a["key"], t, res.problems)
+
+
+def test_branch_archetype_guards_active_only_for_unit_targets():
+    raw = _field([_unit("a"), _unit("b")])
+    vs_unit = BS.branch_archetype_body(raw, "a", "swing_reach", "b")
+    assert vs_unit["when"][0] == {"active": "b"}   # a unit target gets the active guard
+    vs_player = BS.branch_archetype_body(raw, "a", "swing_reach", "player")
+    assert vs_player["when"] == [{"near": ["player", 300]}]   # the player is always active

@@ -487,6 +487,65 @@ def add_branch(raw: dict, unit_name: str, at: int | None = None) -> int:
     return at
 
 
+# The BRANCH archetypes -- one proven guarded row into an EXISTING unit's ladder (the
+# whole-tree family's little sibling; same wizard grammar, same dry-compile fence).
+# ``target`` binds "player" or a MEMBER unit name; ``active`` guards only unit targets.
+BRANCH_ARCHETYPES = [
+    {"key": "flee_low", "name": "Flee when badly wounded", "needs_target": True,
+     "teach": "At 1 hp, run from the picked threat to two refuge points flanking the "
+              "post (drag them with Stage edit). Seat it ABOVE the combat rows — "
+              "priority order is the ladder's whole grammar."},
+    {"key": "alarm_once", "name": "Announce once + raise the alarm",
+     "teach": "One warning line the first time the player closes, and the public "
+              "'alarm' flag goes up for every other tree to gate on — the watcher "
+              "pattern's head, as a single row."},
+    # unit_only: swing_at binds a UNIT (validate's law) — the player can be chased,
+    # fled, and announced at, never swung at.
+    {"key": "swing_reach", "name": "Swing when in reach", "needs_target": True,
+     "unit_only": True,
+     "teach": "Strike the target on an interval while it stands within reach — the "
+              "melee row. Pair it with Chase on sight seated just below."},
+    {"key": "chase_sight", "name": "Chase on sight", "needs_target": True,
+     "teach": "Close to a standoff distance while the target is in sight. Seat it "
+              "BELOW the swing row, so being in reach wins over pursuit."},
+]
+
+
+def branch_archetype_body(raw: dict, unit_name: str, key: str, target=None) -> dict:
+    """The one branch a BRANCH archetype writes — pure, so the mini-wizard can preview
+    it verbatim before anything lands. Positions come from the unit's first member."""
+    positions = BT._npc_marker_positions(raw)
+    u = _unit_row(raw, unit_name)
+    first = (BT.row_members(u) or [unit_name])[0] if u else unit_name
+    x, z = positions.get(first, (0, 0))
+    t = target or "player"
+    guard = [] if t == "player" else [{"active": t}]   # the player is always active
+    if key == "flee_low":
+        return {"when": [{"hp_le": 1}],
+                "do": {"flee": t, "to": [[x + 400, z], [x - 400, z]], "speed": 75}}
+    if key == "alarm_once":
+        return {"when": [{"near": ["player", 450]}],
+                "do": {"announce": "Who goes there?!"},
+                "once": True, "raise_flags": ["alarm"]}
+    if key == "swing_reach":
+        return {"when": guard + [{"near": [t, 300]}],
+                "do": {"swing_at": t, "damage": 1, "interval": 25}}
+    if key == "chase_sight":
+        return {"when": guard + [{"near": [t, 900]}],
+                "do": {"chase": t, "standoff": 180, "speed": 65}}
+    raise KeyError(f"unknown branch archetype {key!r}")
+
+
+def stamp_branch(raw: dict, unit_name: str, key: str, target=None) -> int:
+    """Insert the archetype's branch just above the fallback row (add_branch's own
+    placement); returns the new index. One pure op = one undo step."""
+    body = branch_archetype_body(raw, unit_name, key, target)
+    br = _unit_row(raw, unit_name).setdefault("branch", [])
+    at = max(0, len(br) - 1)
+    br.insert(at, body)
+    return at
+
+
 def duplicate_branch(raw: dict, unit_name: str, bi: int) -> int:
     import copy as _copy
     br = _unit_row(raw, unit_name)["branch"]
@@ -775,6 +834,28 @@ BEHAVIOR_ARCHETYPES = [
      "teach": "Two guards share one minted beat: an alternator flips a flag every ~13s, "
               "the on-shift guard walks the route, the other stands watch at its post — "
               "BEHAVIOR.md's own shift idiom (flag / not_flag on the same alternator)."},
+    {"key": "follower", "name": "Follower — tail the player",
+     "teach": "Tails the player at a polite standoff wherever they walk, and drifts "
+              "around home when they leave — the pet/escort pattern. Add an announce "
+              "branch for a greeting on approach."},
+    {"key": "crier", "name": "Town crier — a line for every passer-by",
+     "teach": "Calls out its line whenever the player is in earshot (on a ~10s cooldown "
+              "so it never spams), and wanders its corner otherwise. Swap the line in "
+              "the branch editor — ambient life in one stamp."},
+    {"key": "commuter", "name": "Commuter — walk the clock between two spots",
+     "teach": "An alternator flips a flag every ~13s and the commuter walks to one spot "
+              "on the flag, back to the other off it — a tiny daily routine. Drag the "
+              "two points with Stage edit; slow the clock in the [behavior] block."},
+    {"key": "duel_pair", "name": "Duel pair — mutual combat (pick the partner)",
+     "needs_partner": True,
+     "teach": "Both units wear the guard's whole ladder AT each other: badly wounded "
+              "flees, in-reach swings, in-sight chases, holds post otherwise. The "
+              "sparring match / tavern brawl, one stamp, no referee."},
+    {"key": "chatty_pair", "name": "Chatty pair — neighbours who greet",
+     "needs_partner": True,
+     "teach": "Two idlers wander their own corners and swap a word whenever they drift "
+              "together (cooldown-gated so it stays occasional). No combat — the "
+              "hangout's ambient chatter. Edit the lines in the branch editor."},
 ]
 
 
@@ -870,6 +951,38 @@ def stamp_archetype(raw: dict, key: str, npc_name: str, target: str | None = Non
                 {"do": {"hold_post": True}},
             ]})
         return f"stamp shift pair on {npc_name} + {target}"
+    if key == "duel_pair":
+        if not target:
+            raise KeyError("the duel_pair archetype needs a partner npc")
+        b = raw.setdefault("behavior", {})
+        for nm, foe in ((npc_name, target), (target, npc_name)):
+            fx, fz = positions.get(nm, (0, 0))
+            b.setdefault("unit", []).append({"npc": nm, "hp": 5, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": True}},
+                {"when": [{"hp_le": 1}],
+                 "do": {"flee": foe, "to": [[fx + 400, fz], [fx - 400, fz]], "speed": 75}},
+                {"when": [{"active": foe}, {"near": [foe, 300]}],
+                 "do": {"swing_at": foe, "damage": 1, "interval": 25}},
+                {"when": [{"active": foe}, {"near": [foe, 900]}],
+                 "do": {"chase": foe, "standoff": 180, "speed": 65}},
+                {"do": {"hold_post": True}},
+            ]})
+        return f"stamp duel pair on {npc_name} + {target}"
+    if key == "chatty_pair":
+        if not target:
+            raise KeyError("the chatty_pair archetype needs a partner npc")
+        b = raw.setdefault("behavior", {})
+        lines = ("Lovely day for it, isn't it?", "You said it, neighbor.")
+        for nm, other, line, cool in ((npc_name, target, lines[0], 220),
+                                      (target, npc_name, lines[1], 250)):
+            ox, oz = positions.get(nm, (0, 0))
+            b.setdefault("unit", []).append({"npc": nm, "hp": 3, "branch": [
+                {"when": [{"hp_le": 0}], "do": {"die": True}},
+                {"when": [{"near": [other, 260]}], "do": {"announce": line},
+                 "cooldown": cool},                # offset cooldowns: they take turns
+                {"do": {"wander": [ox, oz], "radius": 260, "speed": 25}},
+            ]})
+        return f"stamp chatty pair on {npc_name} + {target}"
     if key == "guard":
         if not target:
             raise KeyError("the guard archetype needs a target unit")
@@ -905,6 +1018,35 @@ def stamp_archetype(raw: dict, key: str, npc_name: str, target: str | None = Non
             {"when": [{"near": ["player", 350]}],
              "do": {"flee": "player", "to": [[x + 400, z], [x - 400, z]], "speed": 80}},
             {"do": {"wander": [x, z], "radius": 300, "speed": 30}},
+        ]
+    elif key == "follower":
+        branches = [
+            die,
+            {"when": [{"near": ["player", 1400]}],
+             "do": {"chase": "player", "standoff": 220, "speed": 55}},
+            {"do": {"wander": [x, z], "radius": 250, "speed": 30}},
+        ]
+    elif key == "crier":
+        branches = [
+            die,
+            {"when": [{"near": ["player", 700]}],
+             "do": {"announce": "Hear ye! Fine weather and finer bargains!"},
+             "cooldown": 250},                     # ~8s (a cooldown is a BYTE timer,
+             #                                       1..255 frames -- the compiler's law)
+            {"do": {"wander": [x, z], "radius": 200, "speed": 25}},
+        ]
+    elif key == "commuter":
+        b0 = raw.setdefault("behavior", {})
+        taken = {str(a.get("name")) for a in (b0.get("alternators") or [])}
+        flag, n = f"{npc_name}_clock", 2
+        while flag in taken:
+            flag, n = f"{npc_name}_clock_{n}", n + 1
+        b0.setdefault("alternators", []).append({"name": flag, "frames": 400})
+        branches = [
+            die,
+            {"when": [{"flag": flag}],
+             "do": {"walk_to": [x + 450, z], "speed": 40}},
+            {"do": {"walk_to": [x - 450, z], "speed": 40}},
         ]
     else:
         raise KeyError(f"unknown behavior archetype {key!r}")
