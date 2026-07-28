@@ -160,13 +160,18 @@ def _mesh_uvs(blob: bytes, g: "container.Geom", mesh: "container.Mesh") -> List[
 
 def _mesh_tris(blob: bytes, g: "container.Geom", mesh: "container.Mesh") -> List[List[int]]:
     """Fan-triangulate every primitive's vertex-index list (``FT4`` = 2 tris, ``FT3`` = 1 -- FORMAT.md
-    section 2.3: creatures use only these two, both already ordered around the face perimeter)."""
+    section 2.3: creatures use only these two). A quad's corners are Z-ORDERED (the PSX strip order,
+    v0 v1 over v2 v3), NOT a perimeter walk, so the second triangle is ``(1, 3, 2)`` -- the winding-
+    consistent half of the GPU's own ``(1, 2, 3)``. Measured corpus-wide: creature FT4s are Z-fan
+    winding-consistent 5,469:0 in UV space and 5,496:0 in 3D; ``(0, 2, 3)`` bowties every quad
+    (opposite winding per triangle, one half double-covered, a wedge uncovered). Same fan as
+    ``summons.repaint._face_polys``."""
     tris: List[List[int]] = []
     for prim in container.iter_primitives(blob, g, mesh):
         v = prim["v"]
         tris.append([v[0], v[1], v[2]])
         if len(v) == 4:
-            tris.append([v[0], v[2], v[3]])
+            tris.append([v[1], v[3], v[2]])
     return tris
 
 

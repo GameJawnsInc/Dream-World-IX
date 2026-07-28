@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — quad UV covers fanned the WRONG WAY (GEOM quad corners are Z-ordered, not a perimeter)
+- `summons.repaint._face_polys` and `summons.build._mesh_tris` triangulated a 4-corner face as
+  `(0,1,2) + (0,2,3)`, documented as valid "because a quad's corners are perimeter-ordered". Measured
+  corpus-wide, they are not: every quad bucket — creature FT4 included — carries the PSX GPU's own
+  Z-order, and the fan is now `(0,1,2) + (1,3,2)` (scoring both fans for winding consistency over
+  372 containers: Z 29,725 of 29,986 textured quads, perimeter 13, 0 of 612 quad-bearing geoms
+  leaning perimeter). The perimeter fan on a Z-ordered quad is a BOWTIE — one half double-covered, a
+  wedge uncovered, and the wrong triangle can even mark texels outside the quad — so quad-bearing
+  coverage was mis-counted everywhere: 110 of the corpus's 340 `so`-bound scenery models move
+  (+73,626 halfwords net; ef211's pool arc alone was short 700, 17.4%), ef227's creature census
+  gains 31 texels (65,267 → 65,298), and its part-5 "interior holes" collapse 33 → 2 — the bowtie
+  wedges had been reading as holes. What does NOT move: every W6b census pin (no cell gains or loses
+  a reader — the fix changes cover density, never attribution), the u-spill column census, and the
+  fire-field cell's 8,128. `summon-export` meshes now emit the Z fan too, so exported quads no
+  longer carry a self-crossing triangle pair.
+
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
   band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO

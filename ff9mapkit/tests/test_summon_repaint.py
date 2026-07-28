@@ -143,7 +143,10 @@ def _creature_geom_payload(nparts: int) -> bytes:
         g[o + 0x13] = f                                              # part byte
         g[o + 0x15] = 0                                              # flag
         pool = p_uv + 8 * f
-        for k, (u, v) in enumerate(((x0, y0), (x1, y0), (x1, y1), (x0, y1))):
+        # Z-ORDER, the measured stock convention (v0 v1 over v2 v3) -- a perimeter walk here would
+        # make the kit's Z fan read the quad as a bowtie and the island's texel count stop being
+        # the rect arithmetic the tests assert.
+        for k, (u, v) in enumerate(((x0, y0), (x1, y0), (x0, y1), (x1, y1))):
             struct.pack_into("<H", g, pool + 2 * k, u | (v << 8))
     return bytes(g)
 
@@ -1315,9 +1318,11 @@ def test_export_art_on_ef227_runs_end_to_end_against_the_real_install(tmp_path, 
     man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
     assert man["effect"] == 227 and len(man["parts"]) == 6
     assert man["stock_sha256"] == RS.R.EXPECTED_STOCK_SHA[227]
-    # the measured coverage census, reproduced through the kit: 65,267 of 98,304 sampled (66.4%)
-    assert sum(e["covered_texels"] for e in man["parts"]) == 65267
-    assert [e["interior_holes"] for e in man["parts"]] == [0, 0, 62, 0, 12, 33]
+    # the measured coverage census, reproduced through the kit: 65,298 of 98,304 sampled (66.4%).
+    # Under the falsified perimeter fan this read 65,267 with holes [.., 33]: the bowtie's uncovered
+    # wedges dropped 31 texels and mis-read 31 more as interior holes on part 5.
+    assert sum(e["covered_texels"] for e in man["parts"]) == 65298
+    assert [e["interior_holes"] for e in man["parts"]] == [0, 0, 62, 0, 12, 2]
     blob, _src = RS.R.read_stock_effect(227, None)
     for pg in RP.creature_texel_pages(blob):
         back = RP.read_indexed_png(tmp_path / ("%s.png" % pg.name), pg.w, pg.h, pg.clut_entries)
@@ -1577,7 +1582,8 @@ def _uv_geom(tpage: int, clut: int, uv) -> bytes:
     for k in range(4):
         struct.pack_into("<H", g, p_prim + 2 * k, k)
         struct.pack_into("<H", g, p_prim + 0x08 + 2 * k, k)
-    for k, (u, v) in enumerate(((u0, v0), (u1, v0), (u1, v1), (u0, v1))):
+    # Z-ORDER (v0 v1 over v2 v3), matching the measured stock convention -- see _creature_geom_payload
+    for k, (u, v) in enumerate(((u0, v0), (u1, v0), (u0, v1), (u1, v1))):
         struct.pack_into("<H", g, p_uv + 2 * k, u | (v << 8))
     so = struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HHHH", tpage, clut, 0, 0)
     return so + bytes(g)
