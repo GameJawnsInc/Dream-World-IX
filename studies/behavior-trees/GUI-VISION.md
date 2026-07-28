@@ -147,14 +147,26 @@ belong painted on the field, not printed as text. That is the second surface: **
   as taken npcs and listed as archetype targets — restoring the [siege] view now that
   brains is the [siege] DEFAULT (the flip had red-lined the dry-compile fence on
   master and rendered "?" casts).
-- **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
-  documented tree semantics stepping simulated positions — scrub a timeline, watch selection
-  sweep the ladder rows and units move on the stage. Catches the priority/starvation family of
-  authoring bugs before a playtest. It is an *instrument* and must be calibrated as one:
-  offline ≠ in-game proof, and the sim must say so on its face. (2) **The live blackboard
-  watch** (the charter's "node-trace watch"): the `selected` byte per unit is already a live
-  trace and the debug menu already reads flags in-game; a GUI bridge is engine work
-  (confirm-first, prefer-data-over-engine per the s59 lesson) — horizon, not v1.
+- **Rung E — TIME. E1 ★ BUILT 2026-07-28** (`workspace/behaviorsim.py` pure interpreter +
+  the tab's ▶ Simulate strip; snap `behavior:sim`; suite `test_behaviorsim.py` — 11 pure +
+  3 Qt fences). The stepper interprets the DOCUMENTED semantics with every number
+  grounded, not guessed: tick = engine frame (30/s — `Wait(1)` cadence, the 400-frame
+  alternator ≈ 13 s), movement = `actor.speed` units/frame straight at the target
+  (Memoria `MoveToward`/`GetMoveVector`; MSPEED stores the byte raw), ALL proximity
+  Chebyshev (the compiler's Int24 law), defaults DERIVED from the compiler's action
+  dataclasses at import. Pinned: first-match priority, the hysteresis law (sticky
+  once/cooldown latch on cond-FAIL, never on preemption), the event-once release vs the
+  sticky-once starvation (the BTTABLE family — the instrument's reason to exist), feeds
+  persisting under non-feed selection, class rows one-program-many-members, determinism.
+  The strip: play/step/scrub + tick·seconds·⏱ + the latest event; ▶ sweeps the ladder
+  rows (shape, not colour); ghosts move on the stage; CLICK the stage to move the sim's
+  player (the move joins the timeline — scrubbing replays it). THE HONESTY LEDGER is on
+  its face: straight walks (no walkmesh — the Sweep lane owns wall truth), pooled units
+  dormant, battle only logs, have_item false. Sim and Stage-edit are exclusive modes; any
+  edit or field switch voids the timeline. Works read-only on [siege] views. (2) **The
+  live blackboard watch** (the charter's "node-trace watch"): the `selected` byte per unit
+  is already a live trace and the debug menu already reads flags in-game; a GUI bridge is
+  engine work (confirm-first, prefer-data-over-engine per the s59 lesson) — horizon, not v1.
 
 ## 5. Analyses the GUI makes worth building (shared with the CLI as lint verbs)
 

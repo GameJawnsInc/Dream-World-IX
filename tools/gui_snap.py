@@ -775,7 +775,7 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep", "siege")
+BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep", "siege", "sim")
 
 
 def _load_behavior_demo():
@@ -839,8 +839,12 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
         win.behavior_doc.edit_btn.setChecked(True)
         win.behavior_doc.sweep_now(sync=True)          # the REAL lane over the fixture's own
         _settle(4)                                     # walkmesh sidecar -- verdicts, not props
+    elif state == "sim":
+        win.behavior_doc.sim_btn.setChecked(True)      # rung E1: the tick-stepper's strip +
+        win.behavior_doc._sim_show(90)                 # ghosts + ▶ sweep, 3 s into the timeline
+        _settle(4)
     _grab(ctx, f"behavior-{state}", win)
-    if state in ("stage", "sweep"):                    # the canvas is the subject -- grab IT too
+    if state in ("stage", "sweep", "sim"):             # the canvas is the subject -- grab IT too
         _grab(ctx, f"behavior-{state}-canvas", win.behavior_doc.canvas)
     _close(win)
 

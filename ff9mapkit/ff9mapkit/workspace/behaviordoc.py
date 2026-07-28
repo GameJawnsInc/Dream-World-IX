@@ -26,15 +26,15 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame, QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
-    QGraphicsView, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-    QStackedLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QGraphicsView, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSlider,
+    QSplitter, QStackedLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from . import behaviorscan, icons, widgets
+from . import behaviorscan, behaviorsim, icons, widgets
 
 _WORLD = 0.12                                     # world units -> scene px at zoom 1
 _ZOOM_MIN, _ZOOM_MAX = 0.05, 6.0
@@ -72,6 +72,9 @@ class StageCanvas(QGraphicsView):
         self._drag = None                         # live drag state, cleared by every _draw
         self._move_items = []                     # [{anchor, handle}] rebuilt per draw
         self._grip_items = []                     # [{anchor, rid, cx, cz, r, ellipse}]
+        self._sim_items = []                      # rung E1: the stepper's live layer (only
+        self._sim_mode = False                    # these churn per tick — never the scene)
+        self.on_sim_click = None                  # sim mode's one input: click = move player
         self.on_move = on_move
         self.on_radius = on_radius
         self.on_insert = on_insert
@@ -179,6 +182,49 @@ class StageCanvas(QGraphicsView):
         if name != self._selected:
             self._selected = name
             self._draw()
+
+    # -- rung E1: the tick-stepper's live layer --
+    def set_sim_mode(self, on):
+        self._sim_mode = bool(on)
+        if not on:
+            self.set_sim(None)
+
+    def set_sim(self, state):
+        """Draw (or clear, with None) one sim snapshot: a filled dot per living unit at its
+        SIMULATED position, an ✕ where one died, and the sim player. Only these items churn
+        per tick — a full scene rebuild at 30 Hz would burn the user's pan/zoom."""
+        for it in self._sim_items:
+            try:
+                self._scene.removeItem(it)
+            except RuntimeError:                   # scene rebuilt underneath (a _draw ran)
+                pass
+        self._sim_items = []
+        if not state:
+            return
+        pal = self.pal
+
+        def dot(x, z, color, *, filled, r=5, tag="sim"):
+            sx, sy = self._pt(x, z)
+            pen = QPen(QColor(color), 1.4)
+            pen.setCosmetic(True)
+            brush = QBrush(QColor(color)) if filled else QBrush(Qt.BrushStyle.NoBrush)
+            it = self._scene.addEllipse(sx - r, sy - r, 2 * r, 2 * r, pen, brush)
+            it.setFlag(it.GraphicsItemFlag.ItemIgnoresTransformations)
+            it.setPos(sx, sy)
+            it.setRect(-r, -r, 2 * r, 2 * r)
+            it.setData(0, tag)
+            self._sim_items.append(it)
+
+        for u in state["units"].values():
+            if u.get("dormant"):
+                continue
+            if u["alive"]:
+                dot(u["x"], u["z"], pal["text"], filled=True)
+            else:
+                dot(u["x"], u["z"], pal["muted"], filled=False, r=4, tag="simdead")
+        px, pz = state["player"]
+        dot(px, pz, pal["text"], filled=False, r=8, tag="simplayer")
+        dot(px, pz, pal["text"], filled=True, r=2, tag="simplayer")
 
     # -- frame mapping: +z is UP-screen (scene y grows down) --
     @staticmethod
@@ -322,6 +368,12 @@ class StageCanvas(QGraphicsView):
         self._place_hint()
 
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
+        if self._sim_mode and event.button() == Qt.MouseButton.LeftButton \
+                and self.on_sim_click:
+            sp = self.mapToScene(event.position().toPoint())
+            self.on_sim_click(sp.x() / _WORLD, -sp.y() / _WORLD)
+            event.accept()
+            return
         if self._edit and event.button() == Qt.MouseButton.LeftButton:
             grab = self._resolve_grab(self.itemAt(event.position().toPoint()))
             if grab and self._begin_drag(grab):
@@ -567,9 +619,18 @@ class LadderView(QWidget):
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(10, 8, 10, 8)
         self._lay.setSpacing(6)
+        self._prios = []                           # rung E1: the sim sweep's row markers
         self.setAccessibleName("Behavior ladder")
 
+    def set_sim_sel(self, sels):
+        """Mark the branch rows the tick-stepper selected this tick (a SET — a class row's
+        members can select different branches). Shape, not colour: ▶ on the priority chip."""
+        sels = sels or set()
+        for i, lab in enumerate(self._prios):
+            lab.setText(("▶ " if i in sels else "") + str(i + 1))
+
     def set_rows(self, unit_name, rows):
+        self._prios = []
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
             if w is not None:
@@ -602,7 +663,9 @@ class LadderView(QWidget):
         h.setSpacing(7)
         prio = widgets.role_label(str(row["index"]), "caption")
         prio.setProperty("mono", True)
+        prio.setMinimumWidth(prio.fontMetrics().horizontalAdvance("▶ 88"))   # ▶ must not reflow
         h.addWidget(prio)
+        self._prios.append(prio)
         # the action buttons sit LEFT, pinned beside the priority number: a long row h-scrolls,
         # and a right-aligned control inside a scrolling row lives off-screen (snap-caught)
         if self.actions:
@@ -772,9 +835,13 @@ class BehaviorDoc(QWidget):
         self._sweep_gen = 0                        # bumps on field switch/close: a worker still
         #                                            in flight for the OLD field lands stale and
         #                                            is dropped, never painted on the new one
+        self._sim = None                           # rung E1: the live behaviorsim.Sim (or None)
+        self._sim_pos = 0
+        self._sim_timer = QTimer(self)
+        self._sim_timer.setInterval(33)            # ~30 ticks/s -- the engine's own rate
+        self._sim_timer.timeout.connect(lambda: self._sim_show(self._sim_pos + 1))
         self._compile_done.connect(self._finish_compile)
         self._sweep_done.connect(self._finish_sweep)
-        from PySide6.QtCore import QTimer
         self._resweep_timer = QTimer(self)
         self._resweep_timer.setSingleShot(True)
         self._resweep_timer.setInterval(500)
@@ -901,7 +968,55 @@ class BehaviorDoc(QWidget):
             "Every drop is one undo step (Ctrl+Z).")
         self.edit_btn.toggled.connect(self._toggle_stage_edit)
         bh.addWidget(self.edit_btn)
+        self.sim_btn = QPushButton("▶ Simulate")
+        self.sim_btn.setProperty("role", "quiet")
+        self.sim_btn.setCheckable(True)
+        self.sim_btn.setToolTip(
+            "Step the tree offline: play/scrub a timeline, watch ▶ sweep the ladder rows "
+            "and units move on the stage; click the stage to move the sim's player.\n"
+            "AN APPROXIMATION, not in-game proof — walks are straight lines (no walkmesh), "
+            "pooled units stay dormant, battle only logs. The strip lists every caveat.")
+        self.sim_btn.toggled.connect(self._toggle_sim)
+        bh.addWidget(self.sim_btn)
         cl.addWidget(bar)
+        # rung E1: the tick-stepper strip (hidden until ▶ Simulate) — controls, the scrub
+        # slider, and the honesty caption ON ITS FACE (offline ≠ in-game proof)
+        self.sim_bar = QWidget()
+        sv = QVBoxLayout(self.sim_bar)
+        sv.setContentsMargins(10, 0, 10, 0)
+        sv.setSpacing(2)
+        srow = QHBoxLayout()
+        srow.setSpacing(8)
+        self.sim_play = QPushButton("▶")
+        self.sim_play.setProperty("role", "quiet")
+        self.sim_play.setCheckable(True)
+        self.sim_play.setToolTip("Play / pause (30 ticks per second — the engine's own rate)")
+        self.sim_play.toggled.connect(self._sim_play_toggled)
+        srow.addWidget(self.sim_play)
+        for glyph, n, tip in (("+1", 1, "Step one tick"),
+                              ("+1 s", behaviorsim.TICKS_PER_SEC, "Step one second (30 ticks)")):
+            b = QPushButton(glyph)
+            b.setProperty("role", "quiet")
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, k=n: self._sim_show(self._sim_pos + k))
+            srow.addWidget(b)
+        self.sim_reset = QPushButton("⟲")
+        self.sim_reset.setProperty("role", "quiet")
+        self.sim_reset.setToolTip("Back to tick 0 (boot)")
+        self.sim_reset.clicked.connect(lambda: self._sim_show(0))
+        srow.addWidget(self.sim_reset)
+        self.sim_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sim_slider.setToolTip("Scrub the simulated timeline")
+        self.sim_slider.valueChanged.connect(self._sim_scrub)
+        srow.addWidget(self.sim_slider, 1)
+        self.sim_time = widgets.role_label("tick 0 · 0.0 s", "caption")
+        self.sim_time.setProperty("mono", True)
+        srow.addWidget(self.sim_time)
+        sv.addLayout(srow)
+        self.sim_note = widgets.caption("")
+        sv.addWidget(self.sim_note)
+        self.sim_bar.hide()
+        cl.addWidget(self.sim_bar)
         self._vsplit = QSplitter(Qt.Orientation.Vertical)
         self._vsplit.setChildrenCollapsible(False)
         self._ladder_actions = {
@@ -1014,6 +1129,8 @@ class BehaviorDoc(QWidget):
 
     # -- the feed (shell-pushed, in-memory, no file I/O) --
     def show_none(self):
+        if self.sim_btn.isChecked():
+            self.sim_btn.setChecked(False)
         self._member = self._path = self._raw = None
         self._set_result(None)                     # the docked inspector column must not keep a
         self.problems_lbl.setText("")              # dead project's report or problems
@@ -1025,6 +1142,8 @@ class BehaviorDoc(QWidget):
         """Render the OPEN field's parsed dict. ``path`` (the saved file) feeds the Compile
         lane; ``dirty`` labels which truth the instruments would read."""
         same_field = member == self._member
+        if not same_field and self.sim_btn.isChecked():
+            self.sim_btn.setChecked(False)         # another field: the timeline is void
         self._member, self._raw, self._path, self._dirty = member, raw, path, dirty
         if not self._resolve_view():
             self._show_guide("nobehavior")
@@ -1158,11 +1277,15 @@ class BehaviorDoc(QWidget):
             src = self._view if self._view is not None else self._raw
             self._fill_ladder(behaviorscan.cast_model(src))
             self.canvas.select_unit(payload[1])
+            if self._sim is not None:              # re-mark ▶ on the fresh ladder rows
+                self._sim_show(self._sim_pos)
 
     # -- rung B: edits (all through behaviorscan's pure ops; the shell checkpoints via on_edit) --
     def _after_edit(self, label):
         """One committed mutation of the open dict: re-render, then hand the shell its undo
         step. The doc renders FIRST so a standalone (shell-less) host still shows the edit."""
+        if self.sim_btn.isChecked():               # an edited tree voids the sim's timeline
+            self.sim_btn.setChecked(False)
         if not self._resolve_view():
             self._show_guide("nobehavior")         # the last unit was removed
         else:
@@ -1360,9 +1483,78 @@ class BehaviorDoc(QWidget):
             self._stack.setCurrentWidget(self._content)
         self._after_edit(label)
 
+    # -- rung E1: the offline tick-stepper. The Sim READS the doc and never writes it;
+    # any edit exits sim mode (the timeline would be a lie about the new tree). --
+    def _toggle_sim(self, on):
+        if on:
+            src = self._view if self._view is not None else self._raw
+            if src is None or not behaviorscan.has_behavior(src):
+                self.sim_btn.setChecked(False)
+                return
+            if self.edit_btn.isChecked():          # sim and stage-edit are exclusive modes
+                self.edit_btn.setChecked(False)
+            self._sim = behaviorsim.Sim(src)
+            self._sim_pos = 0
+            self.sim_note.setText("offline approximation — " + " · ".join(self._sim.notes))
+            self.sim_note.setToolTip("\n".join(self._sim.notes))
+            self.sim_bar.show()
+            self.canvas.set_sim_mode(True)
+            self.canvas.on_sim_click = self._sim_move_player
+            self._sim_show(0)
+        else:
+            self._sim_timer.stop()
+            self.sim_play.setChecked(False)
+            self._sim = None
+            self.sim_bar.hide()
+            self.canvas.set_sim_mode(False)
+            self.canvas.on_sim_click = None
+            self.ladder.set_sim_sel(None)
+
+    def _sim_show(self, tick):
+        if self._sim is None:
+            return
+        tick = max(0, int(tick))
+        st = self._sim.at(tick)
+        self._sim_pos = tick
+        self.sim_slider.blockSignals(True)
+        self.sim_slider.setMaximum(max(self.sim_slider.maximum(), self._sim.head,
+                                       tick + behaviorsim.TICKS_PER_SEC))
+        self.sim_slider.setValue(tick)
+        self.sim_slider.blockSignals(False)
+        t = f"tick {tick} · {tick / behaviorsim.TICKS_PER_SEC:.1f} s"
+        if st["timer"] is not None:
+            t += f" · ⏱ {st['timer']:.0f}s" + (" (frozen)" if st["timer_frozen"] else "")
+        ev = self._sim.events[st["events"] - 1] if st["events"] else None
+        if ev is not None:
+            t += f"   |   {ev.tick / behaviorsim.TICKS_PER_SEC:.1f}s {ev.unit}: {ev.text}"
+        self.sim_time.setText(t)
+        self.canvas.set_sim(st)
+        sels = {u["sel"] for u in st["units"].values()
+                if u["unit"] == self._selected_unit and u["sel"] >= 0}
+        self.ladder.set_sim_sel(sels)
+
+    def _sim_play_toggled(self, on):
+        self.sim_play.setText("⏸" if on else "▶")
+        if on:
+            self._sim_timer.start()
+        else:
+            self._sim_timer.stop()
+
+    def _sim_scrub(self, v):
+        if self._sim is not None:
+            self._sim_show(v)
+
+    def _sim_move_player(self, x, z):
+        if self._sim is None:
+            return
+        self._sim.move_player(self._sim_pos, int(round(x)), int(round(z)))
+        self._sim_show(self._sim_pos)
+
     # -- rung C: authoring on the stage (drops commit through behaviorscan's pure ops;
     # the canvas only reports — it never touches the raw dict) --
     def _toggle_stage_edit(self, on):
+        if on and self.sim_btn.isChecked():        # the two stage modes are exclusive
+            self.sim_btn.setChecked(False)
         self.canvas.set_edit(on)
         if self._raw is not None and behaviorscan.has_behavior(self._raw):
             self._render()                         # feed/clear the handle layer
