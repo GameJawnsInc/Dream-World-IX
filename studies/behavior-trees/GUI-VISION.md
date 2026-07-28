@@ -133,7 +133,9 @@ belong painted on the field, not printed as text. That is the second surface: **
   read-only view the same tick; refusals ([behavior] clash / double stamp / verbatim)
   raise with the reason. Both dry-compile fenced. **D's remainder:** the Info Hub
   archetype cards (the last D item — a browsing surface; the Behavior tab's picker
-  already stamps). **THE CLASS-ROW FACE (2026-07-28):** the brains ladder's `npcs =`
+  already stamps). **THE CLASS-ROW FACE (2026-07-28, ★ PLAYTESTED — REDOUBT + BTCRY
+  reviewed in the Workspace, "class rows look right"; first human eyes on the [siege]
+  read-only view en route — the D2/D3 stamps still await theirs):** the brains ladder's `npcs =`
   CLASS rows are first-class in every projection — one ladder under the CLASS name
   (the shared program, exactly what the compiler builds), every member's post/ring on
   the stage with ONE shared radius write path, `speeds` in the header, members counted
