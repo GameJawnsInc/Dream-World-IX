@@ -1426,3 +1426,501 @@ def test_a_truthy_string_acknowledge_refuses_rather_than_arming(key, where):
         spec["reskin"][key] = "false"
     with pytest.raises(RS.ReskinError, match="must be a BOOLEAN"):
         RS.build(spec, "t", blob=blob)
+
+
+# ============================================================ (7) W6b-1: the PER-VRAM-CELL page map
+# The addressable unit of the scenery texel lane is the VRAM PAGE-CELL (64 halfwords x 128 lines =
+# 0x4000 B), not the id-0 page RECT: 1,214 of the corpus's 1,317 rects are h=256 and cover TWO
+# stacked cells, and `scenery_pages`' (tag, x) key can only ever name the top one.  The fixtures
+# below build that shape by hand -- a tall rect, a short one, an id-9 alternate block that lands on
+# the same VRAM cell as an id-0 rect, and a deliberately mis-sized rect for the width tripwire.
+
+#: the page rects the paged fixture declares: ef211's own shape in miniature -- one TALL rect (two
+#: stacked cells, the lower of which no (tag, x) key can reach), one SHORT rect (exactly one cell),
+#: and one at the VRAM cell the id-9 block below also writes (the co-transform shape).
+PAGED_RECTS = ((704, 256, 64, 256), (576, 256, 64, 128), (320, 256, 64, 128))
+#: resource-table ``info`` enabling id-9 slot 4 -> ``id9_slot_vram(4)`` == (320, 256), which is
+#: PAGED_RECTS[2]'s cell exactly.  DERIVED at import so a change to the slot map fails loudly here
+#: rather than making this fixture quietly stop testing the collision it exists for.
+ID9_INFO = 1 << RS.ID9_SLOT_BIT[4]
+assert RS.id9_slot_vram(4) == (320, 256) and PAGED_RECTS[2][:2] == (320, 256)
+
+
+def _assemble_i(chunks) -> bytes:
+    """``[(chunkIndex, [(resourceId, info, payload), ...]), ...]`` -> a whole container.
+
+    :func:`_assemble` hard-codes the resource-table ``info`` byte to 0, and ``info`` is the ONLY
+    thing that enables an id-9 slot -- so an id-9 fixture cannot be built through it.  Same table
+    layout, one more settable field.
+    """
+    head = bytearray(struct.pack("<h", len(chunks)))
+    body = bytearray()
+    for ci, resources in chunks:
+        padded = [(rid, info) + _pad_sector(p) for rid, info, p in resources]
+        head += struct.pack("<hh", ci, len(padded))
+        for rid, info, _p, n in padded:
+            head += struct.pack("<bbh", rid, info, n)
+        for _rid, _info, p, _n in padded:
+            body += p
+    assert len(head) <= SECTOR
+    return bytes(bytearray(head.ljust(SECTOR, b"\x00")) + body)
+
+
+def _build_paged_id0(rects=PAGED_RECTS, pal16=None, pal256=None) -> bytes:
+    """An id-0 payload that declares REAL page rects on top of the inline CLUT rect.
+
+    Laid out exactly as :func:`ff9mapkit.summons.reskin.id0_palettes` decodes it, so the inline CLUT
+    stream ends at precisely ``P + pixelDataRel`` and the derivation's own self-check passes::
+
+        +0x00 pageBlockRel -> the page block   +0x04 inlineRel -> the inline CLUT rect
+        page block: { pixelDataRel, nPageRects, Rect[nPageRects] }
+        then the inline rect (VRAM rows 244-245), then the page PIXEL stream
+
+    The pixel bytes are COMPUTED per cell (never a corpus run) and are distinct cell to cell, so a
+    test can tell which cell an offset landed in.
+    """
+    pal16 = synth_clut16() if pal16 is None else pal16
+    pal256 = synth_clut256(seed=3) if pal256 is None else pal256
+    page_rel, page_len = 0x14, 8 + 8 * len(rects)
+    inline_rel = page_rel + page_len
+    inline_data = inline_rel + 8
+    pix_rel = inline_data + 2 * 256 * 2                      # w=256 h=2 rows of CLUT
+    buf = bytearray(pix_rel)
+    struct.pack_into("<iii", buf, 0x00, page_rel, inline_rel, 1)
+    struct.pack_into("<HH", buf, 0x0C, 1, 1)                 # nClut4, nClut8
+    struct.pack_into("<HH", buf, 0x10, _CELL_4BPP, _CELL_8BPP)
+    struct.pack_into("<ii", buf, page_rel, pix_rel, len(rects))
+    for k, (x, y, w, h) in enumerate(rects):
+        struct.pack_into("<HHHH", buf, page_rel + 8 + 8 * k, x, y, w, h)
+    struct.pack_into("<HHHH", buf, inline_rel, 0, 244, 256, 2)
+    row244 = bytearray(512)
+    row244[0:32] = _words(pal16)
+    buf[inline_data:inline_data + 512] = row244
+    buf[inline_data + 512:inline_data + 1024] = _words(pal256)
+    stream = bytearray()
+    for k, (_x, _y, w, h) in enumerate(rects):               # one COMPUTED byte value per cell
+        for j in range(max(1, h // 128)):
+            stream += bytes([1 + ((k * 7 + j * 3) % 250)]) * (w * 128 * 2)
+    return bytes(buf) + bytes(stream)
+
+
+def build_synth_paged_container(rects=PAGED_RECTS, id9: int = 0, bindings=DEFAULT_BINDINGS,
+                                chunk_index: int = 0) -> bytes:
+    """The paged fixture: a creature-less container whose id-0 declares real page rects.
+
+    ``id9`` is a COUNT: 1 gives the co-transform shape (an id-9 block on the same VRAM cell an id-0
+    rect writes) and 2 gives the same slot enabled twice, which is the only way to make two writers
+    collide on one page-cell KEY.
+    """
+    res = [(0, 0, _build_paged_id0(rects)), (3, 0, bytes([0x55]) * SECTOR)]
+    if bindings:
+        res.append((6, 0, _build_models_id6(bindings)))
+    for i in range(int(id9)):
+        res.append((9, ID9_INFO, bytes([0x77 + i]) * 0x4000))
+    return _assemble_i([(chunk_index, res)])
+
+
+def test_the_paged_fixture_is_well_formed_and_its_rects_decode():
+    """Sanity-checks the FIXTURE, so a later failure cannot be a fixture bug wearing a page-map bug's
+    clothes.  Both derivations must agree with the rect table this file wrote, byte for byte."""
+    blob = build_synth_paged_container()
+    c = KC.parse_header(blob, strict=True)
+    assert c.cursor_end == len(blob)
+    RS.palette_map(blob)                                     # the id-0 self-check passes
+    rects = RS.scenery_pages(blob)
+    assert sorted(rects) == [("s0", 320), ("s0", 576), ("s0", 704)]
+    assert [(r.x, r.y, r.w, r.h) for _k, r in sorted(rects.items())] == \
+        [(320, 256, 64, 128), (576, 256, 64, 128), (704, 256, 64, 256)]
+    # the id-0 stream cursor advances by the RECT's own w*h*2, in TABLE order
+    sp = RS.id0_splits(blob)[0]
+    assert rects[("s0", 704)].off == sp.boundary                       # rect 0, 0x8000 B
+    assert rects[("s0", 576)].off == sp.boundary + 0x8000              # rect 1
+    assert rects[("s0", 320)].off == sp.boundary + 0xC000              # rect 2
+
+
+def test_page_cells_names_the_LOWER_HALF_that_the_rect_view_cannot_reach():
+    """* THE RUNG'S CENTRAL NEW MECHANISM.  ``scenery_pages`` is keyed ``(tag, x)``, so the bottom
+    128 lines of an ``h == 256`` rect have no name at all -- on ef211 the top half of column 576 is a
+    two-palette refusal and the bottom half is clean single-reader 4bpp, and only the hazardous half
+    was addressable.  ``page_cells`` splits the rect and names both, 0x4000 apart."""
+    blob = build_synth_paged_container()
+    cells = RS.page_cells(blob)
+    assert ("s0", 704, 256) in cells and ("s0", 704, 384) in cells
+    top, bot = cells[("s0", 704, 256)], cells[("s0", 704, 384)]
+    assert bot.off - top.off == RS.PAGE_CELL_BYTES == 0x4000
+    assert (top.split, bot.split) == (True, True) and (top.split_index, bot.split_index) == (0, 1)
+    assert top.rect_key == bot.rect_key == ("s0", 704) and top.rect_h == bot.rect_h == 256
+    assert (top.name, bot.name) == ("cell.s0.x704_y256", "cell.s0.x704_y384")
+    # ...and the bytes each names really are that cell's own COMPUTED fill, not the other's
+    assert len(set(blob[top.off:top.off + top.nbytes])) == 1
+    assert blob[top.off] != blob[bot.off]
+    # a SHORT rect is one cell and says so, rather than inventing a phantom lower half
+    short = cells[("s0", 576, 256)]
+    assert not short.split and short.rect_h == 128 and ("s0", 576, 384) not in cells
+
+
+def test_every_page_cell_is_the_0x4000_upload_quantum_and_the_key_carries_the_WRITER():
+    """Uniqueness BY CONSTRUCTION: the key's first element is the writer, so a cell two resources
+    upload appears as the two records it is instead of one silently replacing the other."""
+    blob = build_synth_paged_container(id9=1)
+    cells = RS.page_cells(blob)
+    assert all(c.nbytes == RS.PAGE_CELL_BYTES and c.w == RS.PAGE_CELL_W for c in cells.values())
+    assert all(k == c.key for k, c in cells.items())
+    assert len(cells) == len({(c.tag, c.x, c.y) for c in cells.values()})
+    # THE CO-TRANSFORM SHAPE: one VRAM cell, two writers, two keys, two distinct file offsets
+    at_320 = sorted((c for c in cells.values() if c.cell == (320, 256)), key=lambda c: c.tag)
+    assert [c.tag for c in at_320] == ["id9.s0", "s0"]
+    assert [c.kind for c in at_320] == ["id9", "id0"]
+    assert len({c.off for c in at_320}) == 2
+    assert blob[at_320[0].off] != blob[at_320[1].off], "genuinely different bytes, as in stock"
+    # the id-9 block is folded in under its OWN tag but keeps its owning chunk
+    assert all(c.chunk == "s0" and c.slot == 0 for c in cells.values())
+
+
+def test_page_cells_REFUSES_a_rect_that_is_not_64_halfwords_wide_at_both_derivations():
+    """THE ``w != 64`` TRIPWIRE.  Zero live instances -- 2,648 / 2,648 stock cell-writer records are
+    w = 64 -- which is exactly why it must exist: a cell is ``w*128*2`` bytes and every consumer
+    advances by a flat 0x4000, so the first narrower rect would splice into a neighbour's texels with
+    no gate firing anywhere.  It refuses at the RECT view and at the CELL map, because a rule enforced
+    at one of two call sites is a rule the other one routes around."""
+    blob = build_synth_paged_container(rects=((704, 256, 32, 256),))
+    for fn in (RS.scenery_pages, RS.page_cells):
+        with pytest.raises(RS.ReskinError) as e:
+            fn(blob)
+        assert "PAGE-RECT WIDTH" in str(e.value)
+        assert "w is 32 halfwords" in str(e.value) and "2,648" in str(e.value)
+    assert RS.page_cells(build_synth_paged_container()), "the 64-wide fixture is unaffected"
+
+
+def test_page_cells_REFUSES_a_rect_whose_height_is_not_a_positive_multiple_of_128_lines():
+    """V1 F2 -- the same law as the width tripwire, one axis later.  The cell split is ``h // 128``,
+    FLOORING: at ``h = 64`` the one derived cell claims 0x4000 bytes of a rect that holds 0x2000 and
+    the splice overlaps the next rect's stream; at ``h = 200`` the trailing 9,216 declared bytes are
+    silently stranded.  The corpus is exactly {128, 256} on all 1,317 rects, so this refusal has
+    zero live instances -- which is the point."""
+    for h in (64, 200):
+        blob = build_synth_paged_container(rects=((704, 256, 64, h),))
+        for fn in (RS.scenery_pages, RS.page_cells):
+            with pytest.raises(RS.ReskinError) as e:
+                fn(blob)
+            assert "PAGE-RECT HEIGHT" in str(e.value)
+            assert ("h=%d" % h) in str(e.value) and "{128, 256}" in str(e.value)
+    assert RS.page_cells(build_synth_paged_container()), "the {128,256} fixture is unaffected"
+
+
+def test_scenery_pages_REFUSES_a_duplicate_column_rather_than_dropping_one_silently():
+    """The rect view is a dict keyed ``(tag, x)``: a chunk declaring one column twice used to keep
+    only the LAST upload, hiding the first from every consumer including the collision gate.  0 of
+    the 1,317 stock rects do it, so this is a tripwire too -- but a silent drop is the one failure
+    mode a page map cannot have."""
+    blob = build_synth_paged_container(rects=((704, 256, 64, 128), (704, 384, 64, 128)))
+    with pytest.raises(RS.ReskinError) as e:
+        RS.scenery_pages(blob)
+    assert "DUPLICATE PAGE RECT" in str(e.value) and "x=704 twice" in str(e.value)
+
+
+def test_page_cells_is_a_pure_derivation_of_the_containers_own_bytes():
+    """Same bytes in, same map out -- and a map derived off a DIFFERENT container differs.  The
+    property the derivation-identity gate below rests on."""
+    a, b = build_synth_paged_container(), build_synth_paged_container()
+    assert RS.page_cells(a) == RS.page_cells(b)
+    assert RS.page_cells(a) != RS.page_cells(build_synth_paged_container(id9=1))
+
+
+def test_page_cells_REFUSES_two_writers_that_resolve_to_the_SAME_key():
+    """"Unique by construction" has to be enforced, or it is only a claim.  A co-transform is several
+    DIFFERENT keys over one VRAM cell and is lawful; one WRITER declared twice is one record silently
+    replacing another, and there is no honest map of that -- so it refuses.  0 of the 2,648 stock
+    cell-writer records collide, which is why the fixture has to manufacture the collision."""
+    blob = build_synth_paged_container(id9=2)                # the same id-9 slot enabled twice
+    with pytest.raises(RS.ReskinError) as e:
+        RS.page_cells(blob)
+    assert "DUPLICATE PAGE CELL" in str(e.value) and "('id9.s0', 320, 256)" in str(e.value)
+    assert "not a co-transform" in str(e.value)
+
+
+# ---- the derivation-identity gate ----------------------------------------------------------------
+def test_assert_page_cells_identical_PASSES_a_pixel_write_and_CATCHES_a_moved_rect_table():
+    """The gate the id-0 region partition is paired with.  A texel splice may move pixels; if it ever
+    moved ``pixelDataRel``, the rect count or a rect's shape, the container would still parse, still
+    be the same length and still re-derive every palette -- and the whole page map would silently
+    name different bytes.  Re-deriving the MAP is what catches that; comparing bytes is not."""
+    blob = build_synth_paged_container()
+    sp = RS.id0_splits(blob)[0]
+    ok = bytearray(blob)
+    ok[sp.boundary + 100] ^= 0xFF                            # a licensed pixel edit
+    assert "4 page-cell(s) re-derive identically" in \
+        RS.assert_page_cells_identical(blob, bytes(ok), "the texel splice")
+
+    rect0_y = sp.lo + 0x14 + 8 + 2                           # rect 0's VRAM y field
+    moved = bytearray(blob)
+    struct.pack_into("<H", moved, rect0_y, 384)
+    with pytest.raises(RS.ReskinError) as e:
+        RS.assert_page_cells_identical(blob, bytes(moved), "the texel splice")
+    assert "THE PAGE-CELL DERIVATION MOVED" in str(e.value)
+    assert "vanished" in str(e.value) and "appeared" in str(e.value)
+
+    rect0_w = sp.lo + 0x14 + 8 + 4                           # rect 0's w field -> trips the width law
+    widened = bytearray(blob)
+    struct.pack_into("<H", widened, rect0_w, 128)
+    with pytest.raises(RS.ReskinError) as e:
+        RS.assert_page_cells_identical(blob, bytes(widened), "the texel splice")
+    assert "THE PAGE-CELL DERIVATION FAILED on the PATCHED container" in str(e.value)
+    assert "PAGE-RECT WIDTH" in str(e.value)
+
+
+# ============================================================ (8) W6b-1: attribution include_direct
+#: a 15bpp DIRECT-colour binding: tpage colour-mode field (bits 7-8) == 2.  DERIVED through the
+#: shipped table so a change to ``SO_BPP`` fails here rather than making this fixture test nothing.
+TPAGE_15BPP = 0x100
+assert RS.SO_BPP[(TPAGE_15BPP >> 7) & 3] == 15
+DIRECT_BINDINGS = DEFAULT_BINDINGS + ((TPAGE_15BPP, 0),)
+
+
+def test_attribution_DROPS_15bpp_direct_binders_by_default_and_include_direct_admits_them():
+    """``include_direct`` is a PARAMETER, never a second scanner -- the ``_regions(partition=)``
+    precedent.  15bpp binders index no palette, so the CLUT lane has always dropped them; the texel
+    lane needs them for the DEPTH derivation (15bpp is a depth the container STATES) and for the
+    u-spill census (one halfword is one texel at that depth)."""
+    blob = build_synth_paged_container(bindings=DIRECT_BINDINGS)
+    off, on = RS.attribution(blob), RS.attribution(blob, include_direct=True)
+    assert not off.include_direct and on.include_direct
+    assert off.direct == [] and len(on.direct) == 1
+    assert [b for b in on.bindings if not b.direct] == off.bindings, \
+        "the default population is unchanged, binding for binding -- only the direct set is added"
+    d = on.direct[0]
+    assert d.bpp == 15 and d.entries == 0 and d.cell == RS.NO_CLUT_CELL and d.direct
+
+
+def test_include_direct_moves_neither_the_so_COVERAGE_nor_the_derived_SHARED_flags():
+    """Coverage is counted BEFORE the depth filter, and a direct binder answers no palette question --
+    so admitting them must not widen ``binders()``, ``shared``, or the completeness verdict.  If it
+    did, a texel-lane call would silently change what the CLUT lane refuses."""
+    blob = build_synth_paged_container(bindings=DIRECT_BINDINGS)
+    off, on = RS.attribution(blob), RS.attribution(blob, include_direct=True)
+    assert (off.geom_total, off.geom_with_so) == (on.geom_total, on.geom_with_so)
+    assert (off.coverage, off.complete) == (on.coverage, on.complete)
+    for pal in RS.palette_map(blob).palettes:
+        assert off.binders(pal.vram, pal.entries) == on.binders(pal.vram, pal.entries)
+    a = [(p.name, p.shared, p.binders) for p in RS.palette_map(blob, attrib=off).palettes]
+    b = [(p.name, p.shared, p.binders) for p in RS.palette_map(blob, attrib=on).palettes]
+    assert a == b
+    assert on.binders(RS.NO_CLUT_CELL, 0) == [], "a direct binder is unreachable through binders()"
+
+
+# ============================================================ (9) W6b-1: THE ID-0 REGION PARTITION
+def _covering(regions, off):
+    return [n for n, lo, hi in regions if lo <= off < hi]
+
+
+def test_the_id0_split_is_derived_exactly_as_id0_palettes_derives_it():
+    """``page_rel = s32(P)``, ``pix_rel = s32(P + page_rel)`` -- the same two reads, so the region
+    gate and the palette derivation cannot drift apart about where the CLUT stream ends."""
+    blob = build_synth_paged_container()
+    sp, = RS.id0_splits(blob)
+    P = next(r for r in KC.parse_header(blob).chunks[0].resources if r.id == 0).offset
+    page_rel = struct.unpack_from("<i", blob, P)[0]
+    assert (sp.lo, sp.tag, sp.slot, sp.n_rects) == (P, "s0", 0, len(PAGED_RECTS))
+    assert sp.boundary == P + struct.unpack_from("<i", blob, P + page_rel)[0]
+    assert sp.hi == sp.boundary + sum(r.nbytes for r in RS.scenery_pages(blob).values())
+    assert sp.lo < sp.boundary < sp.hi <= sp.run_hi
+    # every page cell lives on the PIXEL side; every palette lives on the CLUT side
+    assert all(sp.boundary <= c.off and c.off + c.nbytes <= sp.hi
+               for c in RS.page_cells(blob).values())
+    assert all(sp.lo <= p.off and p.off + p.nbytes <= sp.boundary
+               for p in RS.palette_map(blob).palettes)
+
+
+def test_a_write_to_the_id0_RECT_TABLE_is_CAUGHT_under_the_texel_partition():
+    """* THE GAP THIS RUNG CLOSES.  ``_regions`` listed the id-0 resource under NEITHER partition, so
+    a scenery splice would have run with ``page_rel``, the rect count and the ``(x, y, w, h)`` rect
+    table ungated -- and a mis-seek there re-aims the whole page map with every other gate green."""
+    blob = build_synth_paged_container()
+    sp, = RS.id0_splits(blob)
+    tex = RS._regions(blob, 999, partition="texel")
+    for off, what in ((sp.lo, "pageBlockRel"), (sp.lo + 0x14, "pixelDataRel"),
+                      (sp.lo + 0x14 + 4, "nPageRects"), (sp.lo + 0x14 + 8, "the rect table"),
+                      (sp.boundary - 1, "the last inline CLUT byte")):
+        hits = _covering(tex, off)
+        assert len(hits) == 1 and "id-0 page-block header" in hits[0], (what, hits)
+
+
+def test_a_write_to_the_id0_PIXEL_STREAM_is_LICENSED_under_texel_and_GATED_under_clut():
+    """The inversion, stated on the bytes.  The texel lane's whole edit surface must be licensed or
+    it could never build; the CLUT lane must not be able to touch it by accident."""
+    blob = build_synth_paged_container()
+    sp, = RS.id0_splits(blob)
+    tex = RS._regions(blob, 999, partition="texel")
+    clut = RS._regions(blob, 999, partition="clut")
+    for off in (sp.boundary, sp.boundary + 0x4000, sp.hi - 1):
+        assert _covering(tex, off) == [], "the pixel stream is this lane's licensed surface"
+        hits = _covering(clut, off)
+        assert len(hits) == 1 and "id-0 page PIXEL stream" in hits[0]
+    # ...and the CLUT lane's own palette bytes stay licensed under its own partition
+    for p in RS.palette_map(blob).palettes:
+        assert _covering(clut, p.off) == []
+
+
+def test_the_two_id0_halves_TILE_the_declared_extent_with_no_gap_and_no_overlap():
+    """The parameter's whole design intent: the partitions disagree about exactly one more boundary
+    and agree about every other byte.  Asserted as a tiling, so a future edit that widened one half
+    without narrowing the other fails here rather than at a cast."""
+    blob = build_synth_paged_container(id9=1)
+    sp, = RS.id0_splits(blob)
+    assert sp.clut_side[1] == sp.pixel_side[0] == sp.boundary       # they meet, exactly once
+    assert sp.clut_side[0] == sp.lo and sp.pixel_side[1] == sp.hi   # and cover the declared extent
+    tex = {(n, lo, hi) for n, lo, hi in RS._regions(blob, 999, partition="texel")}
+    clut = {(n, lo, hi) for n, lo, hi in RS._regions(blob, 999, partition="clut")}
+    only_tex = sorted(tex - clut)
+    only_clut = sorted(clut - tex)
+    assert [(lo, hi) for _n, lo, hi in only_tex] == [sp.clut_side]
+    assert [(lo, hi) for _n, lo, hi in only_clut] == [sp.pixel_side]
+    assert RS._regions(blob, 999) == RS._regions(blob, 999, partition="clut"), "default unchanged"
+    # the id-9 payload is licensed under BOTH: it is a texel payload the CLUT lane never writes and
+    # this rung's split is the id-0 one.  Named here so the omission is a decision, not an oversight.
+    id9 = list(RS.id9_pages(blob).values())[0][0]
+    assert _covering(tex, id9.off) == [] and _covering(clut, id9.off) == []
+
+
+def test_a_container_with_no_page_rects_emits_no_EMPTY_pixel_region():
+    """A zero-length region gates nothing, so it is omitted rather than emitted -- and the CLUT half
+    is still gated under the texel partition, because a header always exists."""
+    blob = build_synth_creatureless_container()
+    sp, = RS.id0_splits(blob)
+    assert sp.n_rects == 0 and sp.pixel_side[0] == sp.pixel_side[1]
+    clut = RS._regions(blob, 999, partition="clut")
+    tex = RS._regions(blob, 999, partition="texel")
+    assert not [n for n, _lo, _hi in clut if "id-0" in n]
+    assert [n for n, _lo, _hi in tex if "id-0" in n] == \
+        ["s0 id-0 page-block header + clutWord table + inline CLUT stream"]
+
+
+def test_id0_splits_refuses_a_pixelDataRel_that_points_outside_its_own_resource():
+    """Refuse, do not guess.  A header this tool cannot decode must not silently produce a region
+    that gates the wrong bytes -- that is a gate reading as a proof."""
+    blob = bytearray(build_synth_paged_container())
+    sp = RS.id0_splits(bytes(blob))[0]
+    struct.pack_into("<i", blob, sp.lo + 0x14, 1 << 24)
+    with pytest.raises(RS.ReskinError, match="pixelDataRel"):
+        RS.id0_splits(bytes(blob))
+
+
+def test_a_reskin_and_a_texel_edit_stay_on_their_own_side_of_the_id0_boundary():
+    """THE COMPOSITION PROPERTY the two levers already have for creature pages, restated for scenery:
+    every byte a CLUT recolour can move is below ``pixelDataRel`` and every byte a texel splice can
+    move is above it, so the id-0 halves are disjoint by construction rather than by measurement."""
+    blob = build_synth_paged_container()
+    sp, = RS.id0_splits(blob)
+    b = RS.build(_spec(blob, [{"name": PAL_8BPP, "hue_rotate": 40.0,
+                               "acknowledge_shared": True}]), "t", blob=blob)
+    changed = {i for i in range(len(blob)) if blob[i] != b.patched[i]}
+    assert changed and all(sp.lo <= o < sp.boundary for o in changed)
+    b.check = RS.self_check(b)
+    for g in b.check.accounting + b.check.rules + b.check.regions:
+        assert g.ok, (g.name, g.detail)
+    # the map the texel lane addresses through is untouched by the recolour
+    assert RS.assert_page_cells_identical(blob, b.patched, "the recolour")
+
+
+# ============================================================ (10) W6b-1: the corpus census pins
+def _corpus_blobs():
+    out = []
+    for p in sorted(CORPUS.glob("ef*.bytes")):
+        if len(p.name) == 11 and p.name[2:5].isdigit():
+            out.append((int(p.name[2:5]), p.read_bytes()))
+    return out
+
+
+@needs_corpus
+def test_page_cells_reproduces_the_whole_corpus_cell_writer_census():
+    """RE-MEASURED, never compared against a prose constant.  The published census (A1's independent
+    rasteriser and A2's ``w6b_fmt.writer_cells``, which agree exactly) is 2,648 cell-writer records
+    over 372 containers, every one of them 64 halfwords wide and 0x4000 bytes, with 2,648 distinct
+    keys -- so uniqueness is a property of the corpus, not a hope."""
+    total = id0 = id9 = split = 0
+    keys = set()
+    for ef, blob in _corpus_blobs():
+        for k, c in RS.page_cells(blob).items():
+            keys.add((ef,) + k)
+            total += 1
+            id0 += c.kind == "id0"
+            id9 += c.kind == "id9"
+            split += c.split
+            assert c.w == RS.PAGE_CELL_W and c.nbytes == RS.PAGE_CELL_BYTES
+            assert len(blob[c.off:c.off + c.nbytes]) == c.nbytes, "resolves to real file bytes"
+    assert (total, id0, id9) == (2648, 2531, 117)
+    assert len(keys) == total, "2,648 records, 2,648 distinct keys -- 0 collisions"
+    assert split == 2428, "the halves of h=256 rects -- the surface the rect key could not name"
+
+
+@needs_corpus
+def test_the_id0_pixel_stream_runs_into_the_chunks_id1_payload_on_two_thirds_of_the_corpus():
+    """A MEASURED format fact, not a tolerance.  The page pixel stream is NOT confined to the id-0
+    resource: on 248 of 385 id-0 resources it continues into the id-1 payload of the SAME chunk, and
+    id-0 / id-1 are both streamed ids.  Bounding the stream by the id-0 resource's own size would
+    have refused 64% of the corpus, which is how this was found."""
+    n = past = 0
+    for _ef, blob in _corpus_blobs():
+        for sp in RS.id0_splits(blob):
+            n += 1
+            past += sp.hi > sp.res_hi
+            assert sp.lo < sp.boundary <= sp.res_hi <= sp.run_hi <= len(blob)
+            assert sp.hi <= sp.run_hi
+    assert (n, past) == (385, 248)
+
+
+@needs_corpus
+def test_the_so_record_docstring_names_the_ONE_outlier_it_used_to_round_away():
+    """RE-MEASURED: 376 accepted records, 340 carrying a tpage/clut pair, 339 declaring
+    ``textured == 1``.  The docstring said 340 textured; the one record between the two predicates is
+    ef226 GEOM 0x9c804, and it is NAMED rather than renumbered -- an outlier absorbed into a round
+    number is an outlier nobody can look up."""
+    total = len10 = textured = 0
+    odd = []
+    for ef, blob in _corpus_blobs():
+        mp = KC.creature_package(blob)
+        cg = mp.geom_offset if mp is not None else None
+        for g in KC.scan_geom(blob):
+            if cg is not None and g.base == cg:
+                continue
+            rec = RS.so_record(blob, g.base)
+            if rec is None:
+                continue
+            total += 1
+            len10 += rec["len"] == 0x10
+            textured += bool(rec["textured"])
+            if rec["len"] == 0x10 and not rec["textured"]:
+                odd.append((ef, g.base))
+    assert (total, len10, textured) == (376, 340, 339)
+    assert odd == [(226, 0x9C804)]
+    doc = RS.so_record.__doc__.lower()
+    assert "339" in doc and "0x9c804" in doc and "ef226" in doc
+
+
+@needs_corpus
+def test_the_direct_binder_population_is_the_only_thing_include_direct_adds_corpus_wide():
+    """The u-spill census was measured over ``attribution``'s own population; this pins that the
+    default is byte-for-byte what it was (316 bindings -- 315 textured plus the ef226 outlier) and
+    that ``include_direct`` adds exactly the 24 direct binders over 12 effects, and nothing else."""
+    off_n = on_n = direct = 0
+    effects = set()
+    for ef, blob in _corpus_blobs():
+        a0, a1 = RS.attribution(blob), RS.attribution(blob, include_direct=True)
+        assert [b for b in a1.bindings if not b.direct] == a0.bindings
+        assert a0.direct == [] and (a0.coverage, a0.complete) == (a1.coverage, a1.complete)
+        off_n += len(a0.bindings)
+        on_n += len(a1.bindings)
+        direct += len(a1.direct)
+        if a1.direct:
+            effects.add(ef)
+        assert all(b.entries == 0 and b.cell == RS.NO_CLUT_CELL for b in a1.direct)
+    assert off_n == 316 and on_n == 340
+    assert (direct, len(effects)) == (24, 12)
+
+
+@needs_corpus
+def test_the_derivation_identity_gate_is_a_no_op_on_every_stock_container():
+    """A gate that cannot pass is as useless as one that cannot fail: stock-vs-stock must be silent
+    on all 372 containers before it is allowed to refuse anything."""
+    for ef, blob in _corpus_blobs():
+        assert "re-derive identically" in RS.assert_page_cells_identical(blob, blob, "ef%03d" % ef)

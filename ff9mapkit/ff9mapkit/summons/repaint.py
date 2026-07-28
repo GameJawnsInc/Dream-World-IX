@@ -24,11 +24,28 @@ consumed rather than re-derived (``creature_pages``, ``PaletteMap``, ``texanim_r
 ``scenery_pages``/``id9_pages`` for the collision census), exactly the way ``reskin.py`` itself
 consumes :mod:`~ff9mapkit.summons.container`.
 
-THE SCOPE OF THIS RUNG (W6a) -- CREATURE PAGES, INDEXED LANE, AND NOTHING ELSE
-------------------------------------------------------------------------------
-The id-4 creature pages are the one texel class that is measurably free of every known hazard, so
-they are the whole of W6a and every other class REFUSES with its reason named
-(:data:`W6B_REASON`) rather than being half-supported:
+THE SCOPE, W6a THEN W6b-1 -- TWO SURFACES, AND A LANE THAT IS ATTRIBUTION-LIMITED
+---------------------------------------------------------------------------------
+W6a shipped the id-4 CREATURE pages: the one texel class measurably free of every known hazard.
+W6b-1 adds the SCENERY VRAM page-cells at 4 / 8 / 15 bpp -- and the honest shape of that surface is
+an asymmetry, not a capability list. **The lane is not codec-limited; it is attribution-limited.**
+Every depth round-trips byte-identically over the whole corpus, and **2,385 of the 2,572 scenery
+cells (92.7%) have no ``so`` reader at all**, so their bit depth is not a fact the container states
+and the probe built to guess it was FALSIFIED at 54.5% on a three-way choice. So the codec never
+fails and the gate refuses 93% of the surface.
+
+Three verdicts, kept apart on purpose, because collapsing them is how a tool starts lying:
+
+* **REFUSE** -- depth-unknown, same-bytes-two-depths, program-VRAM WRITE (:func:`_gate_program_vram`)
+  and a spilling model's unwritten column. No art fixes any of them (:data:`W6B_REASON`);
+* **REMEDY** -- co-transform (:func:`_gate_cotransform`: name every writer, art for each, say the
+  word) and u-spill (:func:`_gate_spill_columns`: name every column the model reads). Both mirror the
+  CLUT lane's own multi-writer shape and neither has a bypass key;
+* **DISCLOSE** -- shared read, multi-palette, the program-VRAM READ direction verdict and the lower
+  half (:func:`_scenery_disclosures`). Refusing these would refuse a coherent edit; saying nothing
+  would let an author change a model, or tune a colour, they never saw.
+
+The creature surface's own argument, unchanged:
 
 * **single-writer, 24/24.** Re-measured over the corpus this rung: 24 decodable creature packages,
   93 pages, **0 VRAM-cell collisions and 0 file-span collisions** against every scenery page rect and
@@ -154,13 +171,22 @@ from . import texture as KT
 from .ledger import Ledger
 
 __all__ = [
-    "RepaintError", "W6B_REASON",
+    "RepaintError", "W6B_REASON", "INDEXED_RGBA_REASON",
     "MOD_SUBPATH", "STAGING_BASE", "staging_root", "CREATURE_VRAM_X", "ART_MANIFEST",
     "TexelPage", "creature_texel_pages", "texel_page", "other_page_writers",
+    # --- W6b-1: the scenery surface -------------------------------------------------------------
+    "PROGRAM_VRAM_WRITE_IDS", "PROGRAM_VRAM_READ_IDS", "MOVEIMAGE_HARD_CELLS", "program_class",
+    "CELL_LINES", "cell_texel_w", "BoundModel", "bound_models", "cell_readers",
+    "CellWriter", "CellReader", "CellHazards", "CellRefusal",
+    "scenery_surface", "scenery_texel_pages", "scenery_cell_refusals", "assert_expect_bpp",
+    # --- W6b-1: the codecs ----------------------------------------------------------------------
+    "pack4", "unpack4", "write_indexed4_png", "read_indexed4_png",
+    "stp_sidecar_path", "write_direct_png", "read_direct_png", "direct_transparent",
+    "texel_view", "transparent_values",
     "Coverage", "coverage", "coverage_mask", "border_flood",
     "palette_words", "transparent_indices", "png_palette",
     "write_indexed_png", "read_indexed_png", "write_coverage_png",
-    "export_art", "scaffold_text",
+    "ART_LANES", "export_art", "scaffold_text", "scenery_lines",
     "TexelTarget", "TexelBuild", "load_spec", "build",
     "Gate", "SelfCheck", "self_check", "ORTH_REBUILDERS",
     "render_previews", "stage", "verify", "modfilelist_refusal",
@@ -183,15 +209,39 @@ def _ack_bool(d: dict, key: str, where: str) -> bool:
     return v
 
 
-#: THE W6b REASON, quoted verbatim by every out-of-scope refusal so a report line names the rung that
-#: owns the surface instead of reading like a bug. Each clause is a MEASURED hazard, not a worry:
-#: co-transform (34 multi-writer page cells in 5 containers, 0 of 156 writer pairs byte-identical),
-#: same-bytes-two-bindings (ef211's col 640 shares 1,659 halfwords between two 4bpp bindings with
-#: DIFFERENT palettes -- a depth-only test misses it), u-spill (41 of 316 so-bound models sample past
-#: their own column, sometimes into a different resource) and 15bpp-direct (24 bindings over 12
-#: effects, no CLUT to index against at all).
-W6B_REASON = ("the scenery texel lane is W6b: co-transform / same-bytes-two-bindings / u-spill / "
-              "15bpp unhandled")
+#: THE OUT-OF-SCOPE REASON, quoted verbatim by every refusal that has to say what this lane still will
+#: not do, so a report line names a measured surface instead of reading like a bug.
+#:
+#: **THE SUCCESSOR STRING (W6b-1).** The W6a wording named four clauses -- co-transform,
+#: same-bytes-two-bindings, u-spill and 15bpp -- and THREE of them are now shipped mechanisms rather
+#: than refusals: co-transform has the name-every-writer remedy (:func:`_gate_cotransform`, 16 corpus
+#: cells), u-spill has the name-every-column remedy (:func:`_gate_spill_columns`, 70 UV-exact cells)
+#: and 15bpp ships as the ``direct15`` lane (exhaustive 65,536/65,536 word identity). Leaving the old
+#: string in place would have made every refusal quote three capabilities as excuses. What actually
+#: remains, each clause with its own measurement:
+#:
+#: * **depth-unknown** -- 2,385 of 2,572 scenery cells (92.7%) declare no ``so`` reader, so their bit
+#:   depth is not a fact the container states, and the probe built to guess it was FALSIFIED at 54.5%;
+#: * **same-bytes-two-depths** -- 17 cells over 6 effects, two index arrays over one byte block;
+#: * **program-VRAM WRITE** -- 175 cells over 15 containers, 3 of them refused by cell name;
+#: * **unwritten-column spill** -- 10 bindings (all ef390, all 15bpp) sample a column no writer in
+#:   their own container uploads: there is nothing there to repaint.
+W6B_REASON = ("W6b-1 ships the scenery texel lane; what still refuses on that surface is: "
+              "DEPTH-UNKNOWN (2,385 of 2,572 cells, the guessing probe FALSIFIED at 54.5%) / "
+              "SAME-BYTES-TWO-DEPTHS (17) / PROGRAM-VRAM WRITE (175, 3 by cell) / a spilling model's "
+              "UNWRITTEN COLUMN (10)")
+
+#: THE INDEXED LANE'S RGBA REFUSAL, in its own words -- deliberately NOT :data:`W6B_REASON`.
+#:
+#: That constant is about which SCENERY CELLS remain out of scope; this refusal is about EXACT
+#: RECOVERY on the indexed lane and would still hold if every cell in the corpus were lawful. The two
+#: were one string until W6b-1 and the RGBA sites quoted it only because it was the only one there.
+#: Splitting them is what stops a SCOPE change from quietly rewriting an IDENTITY argument -- and the
+#: identity argument itself (93/93 indexed, 1,844 texels moved by an RGBA no-op, 8.31% duplicate CLUT
+#: words) is unchanged, verbatim, at both call sites.
+INDEXED_RGBA_REASON = ("RGBA / quantize / mint-CLUT stay refused on the INDEXED lane and W6b-1 does "
+                       "not touch that: the refusal is about EXACT RECOVERY, not about scope -- a "
+                       "lane whose no-op is not a no-op cannot carry a byte-identity gate")
 
 #: the on-disc override lane, shared with both sibling lanes (extensionless -- ``LoadFromDisc`` reads
 #: the raw path, so ``ef227.bytes`` would never be found).
@@ -236,26 +286,61 @@ def _sha(b: bytes) -> str:
 @dataclass(frozen=True)
 class TexelPage:
     """One addressable texel page: where its bytes are, what shape they decode to, and which CLUT row
-    colours them. Every field is DERIVED from the container's own id-4 header through the kit's
-    shipped decoder -- a span derived from a header nobody read is a guess."""
-    name: str                    # "tex.part0" -- the texel namespace, deliberately not the CLUT one
+    colours them. Every field is DERIVED from the container's own headers through the kit's shipped
+    decoders -- a span derived from a header nobody read is a guess.
+
+    TWO KINDS, ONE RECORD (W6b-1). ``kind == "creature"`` is the id-4 page W6a shipped: named by PART
+    index, always 128x128 8bpp, with its own row of the id-4 CLUT strip. ``kind == "scenery"`` is a
+    **VRAM page-cell** (:class:`ff9mapkit.summons.reskin.PageCell`): named by WRITER and cell,
+    ``0x4000`` bytes at 4 / 8 / 15 bpp, and it owns **no palette of its own** -- a scenery cell's
+    colours come from the id-0 inline CLUT stream, so ``clut_offset`` / ``clut_entries`` are
+    ``Optional`` and the palette is resolved through the CLUT lane's own name in ``palette_name``.
+    At 15bpp there is no palette at all and all three are ``None`` / ``""``.
+    """
+    name: str                    # "tex.part0" | "cell.s0.x704_y256" -- the texel namespace
     index: int
     page_offset: int
     page_bytes: int
-    w: int
+    w: int                       # TEXEL width (128 creature; 256/128/64 scenery at 4/8/15 bpp)
     h: int
     bpp: int
-    clut_offset: int
-    clut_entries: int
+    clut_offset: Optional[int]
+    clut_entries: Optional[int]
     tpage: int
     clut: int
     v_offset: int
     vram: Tuple[int, int]
     palette_name: str            # the CLUT lane's own name for the row this page indexes into
+    #: which surface this page belongs to -- ``"creature"`` (W6a) or ``"scenery"`` (W6b-1).
+    kind: str = "creature"
+    #: the VRAM page-cell ``(x, y)`` this page occupies. ``None`` on a CREATURE page, whose addressable
+    #: unit is the id-4 PART (its ``vram`` is where that part happens to land, and the id-4 handler
+    #: uploads it by part index, not by cell) -- so the two are deliberately not conflated.
+    cell: Optional[Tuple[int, int]] = None
+    #: every hazard the container states about this cell, as DATA for the gates to read. ``None`` on a
+    #: creature page: W6a measured that surface hazard-free (0 collisions over 24 packages / 93 pages)
+    #: and ``_gate_collisions`` re-checks it per target rather than trusting a field.
+    hazards: Optional["CellHazards"] = None
 
     @property
     def wh(self) -> Tuple[int, int]:
         return (self.w, self.h)
+
+    @property
+    def scenery(self) -> bool:
+        return self.kind == "scenery"
+
+    @property
+    def direct(self) -> bool:
+        """15bpp DIRECT colour -- the texels ARE the colour and index no palette."""
+        return self.bpp == 15
+
+    @property
+    def depth_ambiguous(self) -> bool:
+        """SAME-BYTES-TWO-DEPTHS: more than one ``so`` reader states a DIFFERENT depth for this one
+        byte block. ``bpp`` is then the lowest of them and is NOT a fact -- 17 corpus cells over 6
+        effects are in this class and no single index array exists for any of them."""
+        return bool(self.hazards) and len(self.hazards.depths) > 1
 
 
 def creature_texel_pages(blob: bytes) -> List[TexelPage]:
@@ -294,44 +379,629 @@ def creature_refusal(blob: bytes) -> str:
     return ""
 
 
-def texel_page(blob: bytes, name: str) -> TexelPage:
-    """Resolve a spec-declared texel name, or REFUSE with the whole addressable set named.
+# --------------------------------------------------------- W6b-1: THE PROGRAM-VRAM CONSTANTS
+#: Effects whose own id-3 PROGRAM writes VRAM, so a static texel edit there can be a LOST EDIT --
+#: **15 ids, 175 scenery cells**. The one place this module carries a corpus list rather than a
+#: derivation, and it is carried because the derivation is a MIPS reachability walk over 385 program
+#: images (tier-r's const-folding ``ImageWalker``), which is not something a build can afford to
+#: re-run per target. It is therefore RE-DERIVATION-PINNED: the study's ``w6b_gates`` re-walks the
+#: corpus and compares this exact set, so the constant is a cache of a measurement, never a claim.
+#:
+#: THE DIRECTION LAW is what makes it 15 and not 22 (PSX libgpu, corroborated by the DLL's own stub
+#: arities): ``LoadImage(RECT*, u_long*)`` is main RAM -> VRAM, a **write**; ``MoveImage(RECT*, x, y)``
+#: is VRAM -> VRAM, a **write**; ``StoreImage(RECT*, u_long*)`` is VRAM -> main RAM, a **READ**, and a
+#: read cannot clobber a repaint. Four corrections carried here against the pre-W6b record:
+#:
+#: * ``LoadImage u MoveImage u seq-op-0x07`` unions to 15 ids -- but one of them, **ef435, is a FALSE
+#:   POSITIVE and comes OFF**: its ``@0x2dd8`` is a switch dispatch through the image's own pointer
+#:   table (``lw $v0, 0($v0)`` with no ``base=*(+0x10)`` sentinel chain), and the walker read offset 0
+#:   as HLE op 0. That matters beyond this lane -- ef435 is creature-bearing;
+#: * the writer union is therefore **14**, and the 15th id here is **ef038**, whose ``HLE op 12``
+#:   texanim arm is a genuine program VRAM write (and already an unconditional W6a/W7 refusal). The
+#:   census's own ``hz_program_write`` flag is exactly this union: 14 writers + ef038;
+#: * six containers join as **READ-only** -- see :data:`PROGRAM_VRAM_READ_IDS`;
+#: * ``0 of 18 RECT*`` arguments const-fold, so the only PER-CELL verdict in the corpus is
+#:   :data:`MOVEIMAGE_HARD_CELLS`.
+PROGRAM_VRAM_WRITE_IDS = frozenset((1, 38, 87, 125, 134, 142, 143, 144, 149, 223, 224, 274, 308,
+                                    381, 415))
 
-    A ``page.*`` / ``id9.*`` style name resolves to nothing here on purpose: the scenery texel lane is
-    W6b, and a name that silently matched nothing would be a build that did nothing while reporting
-    success -- the exact silent failure this lane cannot afford.
+#: Effects whose program touches VRAM only through ``StoreImage`` -- **12 ids, 113 scenery cells**.
+#: A READ. It cannot overwrite a repainted cell, so these DISCLOSE rather than refuse, and that single
+#: direction correction is what moves 113 cells out of the refusal set and makes **ef211** -- the
+#: Phoenix fire field, whose upload path is already cast-proven -- reachable at all.
+#: ef151/152/225/445/460/510 are the six the reachability walk never reached (mean reachability 0.905)
+#: and a byte-level shape scan found; ef225@0x57c, ef151@0x584 and ef211@0x584 are byte-identical
+#: ``StoreImage(&rect_on_stack, buf)`` boilerplate.
+PROGRAM_VRAM_READ_IDS = frozenset((7, 72, 151, 152, 211, 214, 225, 276, 390, 445, 460, 510))
+
+#: The **only per-cell program verdict in the corpus**: ``MoveImage``'s destination const-folds to
+#: ``$a1 = 704, $a2 = 256`` on 3 of its 5 sites, and all three containers declare that cell. A static
+#: repaint of it is overwritten at run time -- a lost edit with no symptom -- so it is a HARD refusal
+#: BY CELL while every other cell in those three containers is untouched by the program.
+MOVEIMAGE_HARD_CELLS: Dict[int, Tuple[int, int]] = {1: (704, 256), 142: (704, 256),
+                                                    144: (704, 256)}
+
+
+def program_class(effect: Optional[int]) -> Tuple[str, str]:
+    """``(class, evidence)`` for one effect's program -- ``"write"`` / ``"read"`` / ``"clean"``, or
+    ``"unknown"`` when no effect id was supplied.
+
+    ``"unknown"`` is NOT a synonym for clean and any gate reading it must treat it as ``"write"``: the
+    lists are keyed by effect id, so a derivation handed bare bytes with no id genuinely does not know,
+    and reading silence as safety is how a refusal becomes a comment.
+    """
+    if effect is None:
+        return ("unknown", "no effect id was supplied with these bytes, so the program-VRAM lists "
+                           "(which are keyed by effect id) could not be consulted at all")
+    ef = int(effect)
+    if ef in PROGRAM_VRAM_WRITE_IDS:
+        return ("write", "ef%03d is one of the %d containers whose id-3 program WRITES VRAM "
+                         "(LoadImage / MoveImage / loader op 0x07 / the texanim arm)"
+                % (ef, len(PROGRAM_VRAM_WRITE_IDS)))
+    if ef in PROGRAM_VRAM_READ_IDS:
+        return ("read", "ef%03d's program touches VRAM only through StoreImage (VRAM -> main RAM: a "
+                        "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse." % ef)
+    return ("clean", "ef%03d declares no VRAM-transfer call site and no loader op 0x07" % ef)
+
+
+# --------------------------------------------------------- W6b-1: THE BOUND MODELS + THEIR UV COVER
+#: one VRAM page-cell is 128 lines tall -- ``reskin``'s own constant, imported rather than re-typed.
+CELL_LINES = RS.PAGE_CELL_LINES
+
+
+def cell_texel_w(bpp: int, w_halfwords: int = RS.PAGE_CELL_W) -> int:
+    """A page-cell's width in TEXELS at one depth. 256 / 128 / 64 at 4 / 8 / 15 bpp -- the same
+    ``0x4000`` bytes read three ways, which is precisely why the depth may never be guessed."""
+    if bpp not in KT.TEXELS_PER_HW:
+        raise RepaintError("unknown texel depth %r -- the `so` record states 4, 8 or 15" % (bpp,))
+    return w_halfwords * KT.TEXELS_PER_HW[bpp]
+
+
+@dataclass
+class BoundModel:
+    """One ``so``-bound NON-creature model, with its UV cover resolved to VRAM cells.
+
+    The join the whole scenery lane rests on: an ``so`` record states a model's TPAGE (hence its
+    column and its DEPTH) and its CLUT word (hence its palette), and the model's own UV pool states
+    which halfwords it actually samples. Depth is read off the record, never inferred from the pixels
+    -- the coherence probe built to guess it was FALSIFIED at 54.5% on a 3-way choice.
+    """
+    geom: int
+    slot: int
+    tpage: int
+    bpp: int
+    clut_word: int
+    clut_cell: Optional[Tuple[int, int]]
+    clut_entries: int
+    page: Tuple[int, int]                 # the tpage's own VRAM origin (x halfwords, y lines)
+    faces: int = 0
+    u: Tuple[int, int] = (0, 0)
+    v: Tuple[int, int] = (0, 0)
+    #: ``{(cell x, cell y): frozenset of ABSOLUTE VRAM halfword x}`` -- the UV-exact cover.
+    cover: Dict[Tuple[int, int], Set[int]] = field(default_factory=dict)
+
+    @property
+    def columns(self) -> Tuple[int, ...]:
+        return tuple(sorted({cx for cx, _cy in self.cover}))
+
+    @property
+    def spills(self) -> bool:
+        """The picture is wider than one page. 58 corpus bindings do this (41 at 8bpp, 17 at 15bpp,
+        **0 at 4bpp** -- structurally: ``u <= 255`` at 4 texels/halfword is offset <= 63), and **0 of
+        58** spill by <= 2%, so there is no marginal case to wave through."""
+        return len(self.columns) > 1
+
+
+def _cover_mark(m: BoundModel, u: int, v: int, per: int) -> None:
+    """Mark one sampled texel in ABSOLUTE VRAM space, bucketed by page-cell.
+
+    The stored value is the halfword's index WITHIN its cell (``line * 64 + x``, 0..8191), not its
+    column: the column is the cell key already, and what the coverage number has to answer is *how
+    much of this 0x4000 block is live art* -- ef211's fire field is 8,128 of 8,192, which is why it
+    reads as a full-screen picture rather than a corner of one.
+    """
+    hx = m.page[0] + u // per                       # absolute VRAM halfword x
+    vy = m.page[1] + v                              # absolute VRAM line
+    cell = ((hx // RS.PAGE_CELL_W) * RS.PAGE_CELL_W, (vy // CELL_LINES) * CELL_LINES)
+    m.cover.setdefault(cell, set()).add((vy - cell[1]) * RS.PAGE_CELL_W + (hx - cell[0]))
+
+
+def _cover_tri(m: BoundModel, tri, per: int) -> None:
+    (x0, y0), (x1, y1), (x2, y2) = [(p[0] + 0.5, p[1] + 0.5) for p in tri]
+    d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+    if d == 0:
+        return
+    for py in range(int(min(y0, y1, y2)), int(max(y0, y1, y2)) + 1):
+        cy = py + 0.5
+        for px in range(int(min(x0, x1, x2)), int(max(x0, x1, x2)) + 1):
+            cx = px + 0.5
+            a = ((y1 - y2) * (cx - x2) + (x2 - x1) * (cy - y2)) / d
+            bb = ((y2 - y0) * (cx - x2) + (x0 - x2) * (cy - y2)) / d
+            if a >= -1e-9 and bb >= -1e-9 and (1.0 - a - bb) >= -1e-9:
+                if 0 <= px < 256 and 0 <= py < 256:
+                    _cover_mark(m, px, py, per)
+
+
+def bound_models(blob: bytes) -> List[BoundModel]:
+    """Every ``so``-bound non-creature model, 15bpp DIRECT binders INCLUDED, with its UV cover.
+
+    ``reskin.attribution(include_direct=True)`` supplies the bindings -- the parameter B1 added for
+    exactly this, because the texel lane needs two things a palette lane never asks about: a cell's
+    DEPTH (15bpp is a depth the container STATES, and dropping the binder makes that cell read as
+    depth-unknown) and the u-spill census (17 of the 58 spilling bindings are 15bpp, where one
+    halfword is one texel and the reach is up to three columns).
+
+    The rasteriser is the same one :func:`coverage_mask` uses on creature pages -- centre-sampled
+    polygon fill with the CORNERS OR-ed in, because a one-texel-thin face has no centre inside it at
+    all -- lifted into ABSOLUTE VRAM halfword space so a cover can cross a column boundary, which is
+    the whole point.
+    """
+    mp = EC.creature_package(blob)
+    creature_geom = mp.geom_offset if mp is not None else None
+    attrib = RS.attribution(blob, include_direct=True)
+    by_geom = {b.geom: b for b in attrib.bindings}
+    out: List[BoundModel] = []
+    for g in EC.scan_geom(blob):
+        if creature_geom is not None and g.base == creature_geom:
+            continue
+        b = by_geom.get(g.base)
+        if b is None:
+            continue
+        m = BoundModel(geom=b.geom, slot=b.chunk_slot, tpage=b.tpage, bpp=b.bpp,
+                       clut_word=b.clut_word,
+                       clut_cell=(None if b.direct else b.cell), clut_entries=b.entries,
+                       page=b.page)
+        per = KT.TEXELS_PER_HW[b.bpp]
+        umin = vmin = 1 << 30
+        umax = vmax = -1
+        for mesh in g.meshes:
+            pool = g.base + mesh.p_uv
+            for prim in EC.iter_primitives(blob, g, mesh):
+                uvs = prim.get("uv")
+                if not uvs:
+                    continue
+                m.faces += 1
+                pts = []
+                for ui in uvs:
+                    word = struct.unpack_from("<H", blob, pool + 2 * ui)[0]
+                    u, v = word & 0xFF, (word >> 8) & 0xFF
+                    umin, umax = min(umin, u), max(umax, u)
+                    vmin, vmax = min(vmin, v), max(vmax, v)
+                    pts.append((u, v))
+                for t in _face_polys(pts):
+                    _cover_tri(m, t, per)
+                for (u, v) in pts:
+                    _cover_mark(m, u, v, per)
+        if m.faces:
+            m.u, m.v = (umin, umax), (vmin, vmax)
+        out.append(m)
+    return out
+
+
+def cell_readers(blob: bytes, models: Optional[Sequence[BoundModel]] = None
+                 ) -> Dict[Tuple[int, int], List[BoundModel]]:
+    """``{VRAM cell: [BoundModel]}`` -- which models actually SAMPLE each cell.
+
+    By UV COVER, never by tpage: a model whose picture is wider than its page reads a neighbouring
+    column it never declares, and a tpage-keyed join would miss all 58 of them -- 6 of which spill
+    into a column with a DIFFERENT writer set and 10 into a column nothing uploads at all.
+    """
+    models = bound_models(blob) if models is None else models
+    out: Dict[Tuple[int, int], List[BoundModel]] = {}
+    for m in models:
+        for cell in m.cover:
+            out.setdefault(cell, []).append(m)
+    for v in out.values():
+        v.sort(key=lambda m: m.geom)
+    return out
+
+
+# --------------------------------------------------------- W6b-1: THE HAZARD RECORD (data, not gates)
+@dataclass(frozen=True)
+class CellWriter:
+    """One uploader of one VRAM cell. Two or more of these on one cell IS the co-transform hazard --
+    34 corpus cells in 5 containers, **0 of 156 writer pairs byte-identical**."""
+    tag: str
+    chunk: str
+    slot: int
+    kind: str                    # "id0" | "id9"
+    off: int
+    nbytes: int
+    provenance: str
+
+
+@dataclass(frozen=True)
+class CellReader:
+    """One model that SAMPLES this cell, and everything the container states about how."""
+    geom: int
+    slot: int
+    tpage: int
+    bpp: int
+    clut_word: int
+    clut_cell: Optional[Tuple[int, int]]
+    clut_entries: int
+    #: every id-0 upload of that CLUT cell, lowest file offset first. A LIST because a CLUT cell can
+    #: itself be multi-writer, so "the palette" is only well defined per upload.
+    palettes: Tuple[str, ...]
+    palette_offset: Optional[int]
+    faces: int
+    u: Tuple[int, int]
+    v: Tuple[int, int]
+    halfwords_here: int          # how much of THIS cell it samples
+    columns: Tuple[int, ...]     # every VRAM column its UVs reach -- the NAME-EVERY-COLUMN set
+    own_column: bool             # its tpage's own column IS this cell's (False => it spills in here)
+
+    @property
+    def palette_name(self) -> str:
+        return self.palettes[0] if self.palettes else ""
+
+
+@dataclass(frozen=True)
+class CellHazards:
+    """Every hazard the CONTAINER states about one page-cell, as DATA -- the gates phase's input.
+
+    Deliberately not a verdict. This record answers "what is true of these bytes"; whether that is a
+    refusal, a disclosure or an obligation is :mod:`repaint`'s gate layer's decision, and keeping the
+    two apart is what lets a refusal name its measurement instead of restating a flag.
+    """
+    cell: Tuple[int, int]
+    writer: str                              # THIS page's own writer tag
+    writers: Tuple[CellWriter, ...]          # every writer of the cell, this one included
+    readers: Tuple[CellReader, ...]
+    depths: Tuple[int, ...]                  # distinct reader depths; >1 == SAME-BYTES-TWO-DEPTHS
+    palette_cells: Tuple[Tuple[int, int], ...]   # distinct CLUT cells; >1 at one depth == class C
+    spill_in: Tuple[CellReader, ...]         # foreign models reading here -- page scope is wrong
+    spill_out: Tuple[int, ...]               # columns THIS cell's own readers also reach
+    covered_halfwords: int
+    program: str                             # "write" | "read" | "clean" | "unknown"
+    program_evidence: str
+    program_cell: bool                       # the const-folded MoveImage destination, by name
+    #: THIS WRITER'S upload is the lower half of an ``h == 256`` id-0 rect -- the class the per-cell
+    #: map exists for (20 corpus cells). Per WRITER, not per cell, and the difference is real: an id-9
+    #: alternate block is a whole 0x4000 upload of its own, so it is never a lower half even when a
+    #: DIFFERENT writer's tall rect makes the same VRAM cell one.
+    lower_half: bool
+    provenance: str
+
+    @property
+    def co_transform(self) -> bool:
+        return len(self.writers) > 1
+
+    @property
+    def two_depths(self) -> bool:
+        return len(self.depths) > 1
+
+    @property
+    def multi_palette(self) -> bool:
+        """Class E2 / C: one index array, two renderings. NOT a refusal -- the display-palette rule."""
+        return len(self.palette_cells) > 1 and not self.two_depths
+
+    @property
+    def shared_read(self) -> bool:
+        """Class E3: one edit changes >= 2 models. A DISCLOSURE naming them, not a refusal."""
+        return len(self.readers) > 1
+
+    @property
+    def spills(self) -> bool:
+        return bool(self.spill_in) or bool(self.spill_out)
+
+    @property
+    def names(self) -> Tuple[str, ...]:
+        """The hazard slugs that hold on this cell -- what a scaffold comment and a gate both quote."""
+        out = []
+        if self.co_transform:
+            out.append("co-transform")
+        if self.two_depths:
+            out.append("same-bytes-two-depths")
+        if self.multi_palette:
+            out.append("multi-palette")
+        if self.shared_read:
+            out.append("shared-read")
+        if self.spill_in:
+            out.append("spill-in")
+        if self.spill_out:
+            out.append("spill-out")
+        if self.lower_half:
+            out.append("lower-half")
+        if self.program in ("write", "unknown"):
+            out.append("program-vram-%s" % self.program)
+        if self.program_cell:
+            out.append("program-moveimage-cell")
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class CellRefusal:
+    """A page-cell this rung does NOT hand the author an editable picture for, and WHY.
+
+    Carried as a first-class result rather than an omission: 2,385 of the corpus's 2,572 scenery
+    cells are depth-unknown, so the refusals ARE the surface, and a cell that merely failed to appear
+    would teach nothing. :func:`scaffold_text` prints every one of these as a commented block, which
+    is where a refusal teaches.
+    """
+    name: str
+    cell: Tuple[int, int]
+    klass: str
+    reason: str
+
+
+#: the refusal classes this rung emits, each with the corpus measurement that justifies it.
+_REFUSAL_TEXT = {
+    "depth-unknown": (
+        "DEPTH-UNKNOWN: no `so` record binds this cell, so its BIT DEPTH is not a fact the container "
+        "states -- and the same 0x4000 bytes are 256, 128 or 64 texels wide at 4 / 8 / 15 bpp.  "
+        "2,385 of the corpus's 2,572 scenery cells are in this class (92.7%), and the coherence probe "
+        "built to GUESS the depth was FALSIFIED at 54.5% agreement on a 3-way choice -- so this "
+        "refuses rather than shipping a guess, and does not even disclose one."),
+    "same-bytes-two-depths": (
+        "SAME-BYTES-TWO-DEPTHS: %s.  Two `so` readers state DIFFERENT depths for one byte block, so "
+        "there are two different INDEX ARRAYS over it and no PNG's edit is coherent under both.  This "
+        "is not a palette question and refuses earlier than the palette logic; 17 cells over 6 "
+        "effects, 3 of them triple-depth."),
+    "program-vram-write": (
+        "PROGRAM-VRAM WRITE: %s.  The effect's own id-3 program uploads VRAM at run time, and 0 of the "
+        "18 RECT* arguments in the corpus const-fold, so which cell it lands on is unresolvable at "
+        "this layer -- a repaint here can be a LOST EDIT with no symptom.  175 cells over 15 "
+        "containers."),
+    "program-moveimage-cell": (
+        "PROGRAM-VRAM WRITE, BY CELL: %s.  MoveImage's destination const-folds to this exact cell on "
+        "3 of its 5 corpus sites, and this container declares it -- the ONE per-cell program verdict "
+        "in the corpus.  SHARPER, NOT NARROWER: every cell of ef001 / ef142 / ef144 is refused as a "
+        "program-VRAM WRITE anyway (the census records all 30 of them as `write-moveimage-dest-known`), "
+        "and what this verdict adds is that for THIS cell the destination is not merely unresolvable "
+        "-- it is RESOLVED, and it is here."),
+    "program-vram-unknown": (
+        "PROGRAM-VRAM UNKNOWN: %s.  The lists are keyed by effect id, so silence here is ignorance, "
+        "not safety -- pass the effect id and this becomes a real verdict."),
+    "no-declared-clut": (
+        "NO DECLARED PALETTE: the reader's `so` record names CLUT cell %s at %d entries, and no id-0 "
+        "inline rect in this container uploads it.  An indexed picture cannot be rendered against a "
+        "palette the container does not declare, and inventing one would put the author in a key the "
+        "engine never applies."),
+}
+
+
+#: the refusal classes that mean **there is no picture to hand back at all** -- a name that resolves
+#: to one of these is answered by :func:`texel_page` with its own reason rather than with "unknown".
+#: The program-VRAM classes are deliberately NOT here: they are about whether an edit SURVIVES the
+#: cast, which is a gate's verdict on a resolved page, not a failure to resolve one. (And
+#: ``program-vram-unknown`` is an artefact of being handed bare bytes with no effect id, which must
+#: not make a container unaddressable.)
+_UNADDRESSABLE = frozenset(("depth-unknown", "same-bytes-two-depths", "no-declared-clut"))
+
+
+def _refusal(name: str, cell: Tuple[int, int], klass: str, detail: str = "") -> CellRefusal:
+    txt = _REFUSAL_TEXT[klass]
+    return CellRefusal(name=name, cell=cell, klass=klass,
+                       reason=(txt % detail) if "%s" in txt or "%d" in txt else txt)
+
+
+def scenery_surface(blob: bytes, effect: Optional[int] = None
+                    ) -> Tuple[List[TexelPage], List[CellRefusal]]:
+    """**THE SCENERY TEXEL SURFACE** -- one pass, two results: the pages, and the refusals by name.
+
+    ONE derivation, deliberately. The refusals are not the complement of a filter applied somewhere
+    else; they fall out of the same walk that emits the pages, so a cell can never be absent from both
+    lists and a reason can never drift from the predicate that produced it.
+
+    Built on B1's three derivations and nothing new:
+
+    * :func:`ff9mapkit.summons.reskin.page_cells` -- the per-VRAM-cell map, keyed ``(writer, x, y)``,
+      which is what makes the 20 lower halves of tall rects addressable at all;
+    * :func:`bound_models` (``attribution(include_direct=True)`` + the UV rasteriser) -- the DEPTH and
+      the cover;
+    * :func:`~ff9mapkit.summons.reskin.palette_map` -- the CLUT lane's own names, so a scenery cell's
+      palette is named the way the sibling lever names it rather than invented here.
+
+    A cell is EMITTED when at least one ``so`` reader samples it, i.e. when the container STATES a
+    depth. Everything else is refused by name -- and a cell that is emitted still carries every hazard
+    in :class:`CellHazards` for the gates phase to adjudicate, because attaching the hazard to the page
+    is what lets a later gate quote a measurement instead of a flag.
+    """
+    cells = RS.page_cells(blob)
+    models = bound_models(blob)
+    readers = cell_readers(blob, models)
+    pmap = RS.palette_map(blob, effect=effect)
+    prog, prog_why = program_class(effect)
+    hard_cell = MOVEIMAGE_HARD_CELLS.get(int(effect)) if effect is not None else None
+
+    writers_by_cell: Dict[Tuple[int, int], List[CellWriter]] = {}
+    for pc in sorted(cells.values(), key=lambda c: (c.x, c.y, c.off)):
+        writers_by_cell.setdefault(pc.cell, []).append(CellWriter(
+            tag=pc.tag, chunk=pc.chunk, slot=pc.slot, kind=pc.kind, off=pc.off, nbytes=pc.nbytes,
+            provenance=pc.provenance))
+
+    def _palettes(clut_cell, entries):
+        return tuple(p for p in sorted(pmap.palettes, key=lambda q: q.off)
+                     if p.vram == clut_cell and p.entries == entries)
+
+    pages: List[TexelPage] = []
+    refused: List[CellRefusal] = []
+    for _key, pc in sorted(cells.items()):
+        rds = readers.get(pc.cell, [])
+        if not rds:
+            refused.append(_refusal(pc.name, pc.cell, "depth-unknown"))
+            continue
+        crs: List[CellReader] = []
+        for m in rds:
+            pals = _palettes(m.clut_cell, m.clut_entries) if m.clut_cell is not None else ()
+            crs.append(CellReader(
+                geom=m.geom, slot=m.slot, tpage=m.tpage, bpp=m.bpp, clut_word=m.clut_word,
+                clut_cell=m.clut_cell, clut_entries=m.clut_entries,
+                palettes=tuple(p.name for p in pals),
+                palette_offset=(pals[0].off if pals else None),
+                faces=m.faces, u=m.u, v=m.v,
+                halfwords_here=len(m.cover.get(pc.cell, ())), columns=m.columns,
+                own_column=(m.page[0] == pc.x)))
+        depths = tuple(sorted({r.bpp for r in crs}))
+        pal_cells = tuple(sorted({r.clut_cell for r in crs if r.clut_cell is not None}))
+        spill_in = tuple(r for r in crs if not r.own_column)
+        spill_out = tuple(sorted({c for r in crs if r.own_column for c in r.columns
+                                  if c != pc.x}))
+        covered = len({hw for m in rds for hw in m.cover.get(pc.cell, ())})
+        hz = CellHazards(
+            cell=pc.cell, writer=pc.tag, writers=tuple(writers_by_cell[pc.cell]), readers=tuple(crs),
+            depths=depths, palette_cells=pal_cells, spill_in=spill_in, spill_out=spill_out,
+            covered_halfwords=covered, program=prog, program_evidence=prog_why,
+            program_cell=(hard_cell == pc.cell), lower_half=(pc.split and pc.split_index > 0),
+            provenance=pc.provenance)
+
+        # THE DISPLAY BINDING: the LOWEST-ADDRESSED reader (Sec 2.4's class-C rule).  Every other
+        # palette on the cell becomes a named read-only ALTERNATE view of the SAME index bytes -- the
+        # import already reads only the indices, so one byte array with N renderings is not a
+        # contradiction, it is the format.
+        disp = crs[0]
+        bpp = depths[0]
+        pages.append(TexelPage(
+            name=pc.name, index=-1, page_offset=pc.off, page_bytes=pc.nbytes,
+            w=cell_texel_w(bpp, pc.w), h=CELL_LINES, bpp=bpp,
+            clut_offset=disp.palette_offset, clut_entries=(disp.clut_entries or None),
+            tpage=disp.tpage, clut=disp.clut_word, v_offset=0, vram=pc.cell,
+            palette_name=disp.palette_name, kind="scenery", cell=pc.cell, hazards=hz))
+
+        if len(depths) > 1:
+            refused.append(_refusal(pc.name, pc.cell, "same-bytes-two-depths",
+                                    "readers %s state depths %s"
+                                    % (", ".join("%#x" % r.geom for r in crs),
+                                       "/".join(str(d) for d in depths))))
+        elif hz.program_cell:
+            refused.append(_refusal(pc.name, pc.cell, "program-moveimage-cell", prog_why))
+        elif prog == "write":
+            refused.append(_refusal(pc.name, pc.cell, "program-vram-write", prog_why))
+        elif prog == "unknown":
+            refused.append(_refusal(pc.name, pc.cell, "program-vram-unknown", prog_why))
+        elif bpp != 15 and disp.palette_offset is None:
+            refused.append(CellRefusal(
+                name=pc.name, cell=pc.cell, klass="no-declared-clut",
+                reason=_REFUSAL_TEXT["no-declared-clut"] % (str(disp.clut_cell),
+                                                            disp.clut_entries)))
+    return pages, refused
+
+
+def scenery_texel_pages(blob: bytes, effect: Optional[int] = None) -> List[TexelPage]:
+    """Every scenery page-cell whose DEPTH the container states -- see :func:`scenery_surface`."""
+    return scenery_surface(blob, effect)[0]
+
+
+def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None) -> List[CellRefusal]:
+    """Every scenery page-cell this rung refuses an editable picture for, with its reason."""
+    return scenery_surface(blob, effect)[1]
+
+
+def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> str:
+    """``expect_bpp`` -- **STATED by the author, CHECKED against the ``so`` derivation, never chosen.**
+
+    The depth is the one number this lane cannot get wrong quietly: the same 0x4000 bytes are a 256-,
+    128- or 64-texel-wide picture at 4 / 8 / 15 bpp, so a wrong depth produces a PNG of the wrong shape
+    that nonetheless packs to exactly the right byte count. So the author writes it down, and this
+    refuses if the container disagrees. It is never inferred FROM the spec -- a guard may only ever
+    fail closed.
+
+    Guarded a second time against the container's own ``nClut4`` / ``nClut8`` (the counts
+    :func:`~ff9mapkit.summons.reskin.id0_palettes` reads out of the id-0 header): an indexed depth
+    whose palette class the owning chunk does not declare at all has nothing to index into, and that
+    is a disagreement between two INDEPENDENT headers rather than a restatement of the first.
+    """
+    got = int(stated)
+    if got not in KT.TEXELS_PER_HW:
+        raise RepaintError("%s: expect_bpp = %r -- an `so` record states 4, 8 or 15" % (where, got))
+    if page.depth_ambiguous:
+        raise RepaintError(
+            "%s: this cell has NO single depth to guard -- its `so` readers state %s.  Two index "
+            "arrays over one byte block; no art is coherent under both, and stating one of them "
+            "would pick a picture the other reader will never see."
+            % (where, "/".join(str(d) for d in page.hazards.depths)))
+    if got != page.bpp:
+        raise RepaintError(
+            "%s: the spec guards %dbpp, the container's own `so` record derives %dbpp.  At %d the "
+            "cell is %d texels wide; at %d it is %d -- the SAME 0x4000 bytes, so a wrong depth packs "
+            "to exactly the right byte count and produces the wrong picture with no gate firing."
+            % (where, got, page.bpp, got, cell_texel_w(got), page.bpp, page.w))
+    if page.scenery and got != 15:
+        want = 16 if got == 4 else 256
+        slot = page.hazards.writers[0].slot if page.hazards and page.hazards.writers else -1
+        n = sum(1 for p in RS.palette_map(blob).palettes
+                if p.slot == slot and p.entries == want)
+        if not n:
+            raise RepaintError(
+                "%s: the `so` record derives %dbpp, but chunk slot %d's id-0 header declares NO "
+                "%d-entry palette (nClut%d == 0) -- there is nothing for a %dbpp index to point at.  "
+                "Two independent headers disagree, so the depth is refused rather than believed."
+                % (where, got, slot, want, got, got))
+    return "expect_bpp %d MATCHES the `so` derivation" % got
+
+
+def texel_page(blob: bytes, name: str, effect: Optional[int] = None) -> TexelPage:
+    """Resolve a spec-declared texel name over BOTH namespaces, or REFUSE with the set named.
+
+    ``tex.part0`` is the id-4 CREATURE page (W6a). ``cell.s0.x704_y256`` is a scenery VRAM PAGE-CELL
+    (W6b-1), and the spelling is deliberate: it is NOT ``page.s0.x704_y256.h256``, because an
+    ``h == 256`` rect is not an addressable unit -- it is TWO stacked cells that the engine uploads
+    separately and that routinely differ in hazard class (on ef211 column 576 the top half is a
+    two-palette refusal and the bottom half is clean single-reader 4bpp). The old rect spelling
+    therefore keeps refusing, and now says what it splits into.
+
+    A name that silently matched nothing would be a build that did nothing while reporting success --
+    the exact silent failure this lane cannot afford -- so an unknown name always names the whole
+    addressable set, and a REFUSED cell is answered with its own reason rather than with "unknown".
     """
     pages = creature_texel_pages(blob)
     for p in pages:
         if p.name == name:
             return p
+    scen: List[TexelPage] = []
+    refused: List[CellRefusal] = []
+    scen_error = ""
+    try:
+        scen, refused = scenery_surface(blob, effect)
+    except (RS.ReskinError, EC.ContainerError) as e:               # a derivation refusal, surfaced
+        scen_error = "%s: %s" % (type(e).__name__, e)
+    # the REFUSAL is consulted FIRST: a same-bytes-two-depths cell is still EMITTED (the gates phase
+    # needs its hazard record), so resolving it before checking would hand back a page whose `bpp` is
+    # not a fact -- the one thing this lane may never do quietly.
+    hit = next((r for r in refused if r.name == name and r.klass in _UNADDRESSABLE), None)
+    if hit is not None:
+        raise RepaintError("texel cell %r is REFUSED, not unknown -- %s" % (name, hit.reason))
+    for p in scen:
+        if p.name == name:
+            return p
+    L = ["no texel page named %r." % name]
+    if name.startswith("page.") and name.count(".") >= 3:
+        stem = name.rsplit(".", 1)[0]                              # "page.s0.x576_y256"
+        try:
+            tag, xy = stem.split(".")[1], stem.split(".")[2]
+            x, y = (int(v[1:]) for v in xy.split("_"))
+            L.append("That names an h=256 page RECT, which is NOT an addressable unit -- the engine "
+                     "uploads it as two stacked VRAM page-cells.  It splits into cell.%s.x%d_y%d and "
+                     "cell.%s.x%d_y%d; name the half you mean." % (tag, x, y, tag, x, y + CELL_LINES))
+        except (ValueError, IndexError):
+            pass
     why = creature_refusal(blob)
-    if why:
-        raise RepaintError("no texel page named %r -- %s" % (name, why))
-    raise RepaintError(
-        "no texel page named %r -- this container declares %s.\nOnly the id-4 CREATURE pages are "
-        "addressable in this rung; %s."
-        % (name, ", ".join(p.name for p in pages), W6B_REASON))
+    L.append("creature pages: %s" % (", ".join(p.name for p in pages) or "none -- %s" % why))
+    L.append("scenery cells: %s" % (", ".join(p.name for p in scen) or
+                                    (scen_error or "none whose depth this container states")))
+    if refused:
+        L.append("%d scenery cell(s) are REFUSED by name (run `export-art` for the reasons)"
+                 % len(refused))
+    L.append(W6B_REASON)
+    raise RepaintError("\n  ".join(L))
 
 
 def other_page_writers(blob: bytes) -> Dict[Tuple[int, int], List[Tuple[str, int, int]]]:
     """``{(vram x, vram y): [(source, file offset, nbytes)]}`` for every NON-creature page writer.
 
-    Both streamed classes, from ``reskin.py``'s own derivations: the id-0 page-rect stream
-    (:func:`ff9mapkit.summons.reskin.scenery_pages`) and the id-9 alternate blocks
-    (:func:`~ff9mapkit.summons.reskin.id9_pages`). An ``h == 256`` rect is SPLIT into the two stacked
-    128-line cells the engine actually uploads -- collapsing it into one entry would make the lower
-    cell unaddressable and therefore invisible to the collision gate.
+    Consumes :func:`ff9mapkit.summons.reskin.page_cells` -- the per-VRAM-cell map -- rather than
+    re-splitting the rect stream here. The duplicated ``h // 128`` split this used to carry advanced
+    by a flat ``k * 0x4000``, which is right on 2,648 of 2,648 corpus cell-writer records and silently
+    catastrophic on the first one that is not ``w == 64``: every cell after the first would resolve to
+    the wrong file offset while every gate downstream stayed green. ``page_cells`` advances
+    ``w * 128 * 2`` and REFUSES ``w != 64`` outright, so the arithmetic is enforced in exactly one
+    place instead of being right by coincidence in two.
     """
     out: Dict[Tuple[int, int], List[Tuple[str, int, int]]] = {}
-    for _key, r in RS.scenery_pages(blob).items():
-        n = max(1, r.h // 128)
-        for k in range(n):
-            out.setdefault((r.x, r.y + 128 * k), []).append(
-                ("%s id-0 page rect" % r.source, r.off + k * KT.PAGE_BYTES, KT.PAGE_BYTES))
-    for _key, rects in RS.id9_pages(blob).items():
-        for r in rects:
-            out.setdefault((r.x, r.y), []).append(("%s alternate block" % r.source, r.off, r.nbytes))
+    for _key, pc in sorted(RS.page_cells(blob).items()):
+        label = ("%s id-0 page rect" if pc.kind == "id0" else "%s alternate block") % pc.tag
+        out.setdefault(pc.cell, []).append((label, pc.off, pc.nbytes))
     return out
 
 
@@ -484,7 +1154,19 @@ def coverage(blob: bytes, part_index: int, *, holes: bool = True) -> Coverage:
 
 # ============================================================ (3) THE INDEXED CODEC
 def palette_words(blob: bytes, page: TexelPage) -> Tuple[int, ...]:
-    """The live CLUT row for one page, as raw BGR555 halfwords."""
+    """The live CLUT row for one page, as raw BGR555 halfwords.
+
+    REFUSES a page that indexes no palette rather than returning an empty tuple: at 15bpp the texels
+    ARE the colour, so a caller that asked for "the palette" has a wrong model of the page in front of
+    it, and handing back ``()`` would let it write an all-black picture and call it a round trip.
+    """
+    if page.clut_offset is None or not page.clut_entries:
+        raise RepaintError(
+            "%s indexes NO palette (%dbpp %s) -- the texels ARE the colour at direct depth, so there "
+            "is no CLUT row to read.  Use write_direct_png / read_direct_png, whose format of record "
+            "is RGBA + an explicit STP sidecar."
+            % (page.name, page.bpp, "DIRECT colour" if page.direct else
+               "and this container declares no upload of its CLUT cell"))
     return struct.unpack_from("<%dH" % page.clut_entries, blob, page.clut_offset)
 
 
@@ -560,7 +1242,8 @@ def _read_indices(fp, where: str, w: int, h: int, palette_len: int) -> bytes:
                 "W6b: measured, an identity RGBA round trip already moves 1,844 of 16,384 texels on "
                 "ef251 part 0, because 8.31%% of the corpus's palette entries are duplicate words -- "
                 "so byte-identity, and with it this lane's whole gate, dies.  Re-export with "
-                "`summon-reskin export-art` and edit the indices.  (%s)" % (where, mode, W6B_REASON))
+                "`summon-reskin export-art` and edit the indices.  (%s)"
+                % (where, mode, INDEXED_RGBA_REASON))
         if size != (w, h):
             raise RepaintError(
                 "%s is %dx%d, but this page is %dx%d.  There is no rescale here on purpose: an index "
@@ -585,10 +1268,255 @@ def read_indexed_png(path, w: int, h: int, palette_len: int) -> bytes:
     return _read_indices(str(p), str(p), w, h, palette_len)
 
 
+# ---- 4bpp: THE NIBBLE PACK -----------------------------------------------------------------------
+#: translation tables so the nibble split is C-speed rather than a per-byte Python loop. A cell is
+#: 16,384 bytes and the corpus has 2,648 of them, so the gate that checks every one of them has to be
+#: able to run inside a test suite.
+_LOW_NIBBLE = bytes(b & 0x0F for b in range(256))
+_HIGH_NIBBLE = bytes(b >> 4 for b in range(256))
+_SHIFT_NIBBLE = bytes((b & 0x0F) << 4 for b in range(256))
+
+
+def unpack4(raw: bytes) -> bytes:
+    """Packed 4bpp texels -> **one byte per texel**, values 0..15. ``out[2i] = raw[i] & 0x0F``.
+
+    THE NIBBLE ORDER IS MEASURED, NOT ASSUMED -- and the prior proof the record cited has no surviving
+    artifact, so it was re-proved at corpus scale (2,572 cells, 48 4bpp-bound pages). Byte identity is
+    BLIND to the question (``pack4(unpack4(b)) == b`` holds for the swapped convention too), so a
+    discriminator was needed: vertical neighbour disagreement is invariant under any within-row
+    permutation and is therefore a free control for horizontal disagreement. Calibrated on the
+    cast-proven 8bpp answer the instrument re-finds it **93/93 unanimously**; on the 4bpp question the
+    low-nibble-first order wins **36/36 with signal** (the 4 dissenters separate by <= 0.00273 against
+    a mean winning margin of 0.0616 and are diagnosed individually, not averaged away).
+
+    The load-bearing argument is not statistical, though: the PSX rule is ONE rule at every depth --
+    *lower-order bits hold the lower u* -- and its 8bpp instance is cast-proven on screen (W6a's
+    emblem read correctly with byte *i* = texel *i*). Low-nibble-first is that same rule one level
+    finer.
+    """
+    out = bytearray(2 * len(raw))
+    out[0::2] = bytes(raw).translate(_LOW_NIBBLE)
+    out[1::2] = bytes(raw).translate(_HIGH_NIBBLE)
+    return bytes(out)
+
+
+def pack4(indices: Sequence[int]) -> bytes:
+    """One byte per texel (0..15) -> packed 4bpp. The exact inverse of :func:`unpack4`.
+
+    REFUSES any index > 15 rather than masking it: at 4bpp a 16th colour does not exist, and masking
+    would silently write index ``i & 0x0F`` -- a different, plausible colour with no error anywhere.
+    An odd texel count refuses for the same reason (half a byte cannot be written).
+    """
+    n = len(indices)
+    if n % 2:
+        raise RepaintError("a 4bpp row is an even number of texels (two per byte); got %d" % n)
+    try:
+        buf = bytes(indices)
+    except (ValueError, TypeError):
+        bad = next((i for i, v in enumerate(indices) if not isinstance(v, int) or not 0 <= v <= 255),
+                   -1)
+        raise RepaintError("4bpp index %r at texel %d is not a byte value" % (indices[bad], bad)) \
+            from None
+    top = max(buf) if buf else 0
+    if top > 15:
+        i = buf.index(top)
+        raise RepaintError(
+            "4bpp index %d at texel %d is outside 0..15.  A 4bpp CLUT row has 16 entries, so a "
+            "higher index samples another palette's colours at run time -- refused rather than "
+            "masked to %d, which would write a different colour with no error anywhere."
+            % (top, i, top & 0x0F))
+    lo = int.from_bytes(buf[0::2], "big")
+    hi = int.from_bytes(bytes(buf[1::2]).translate(_SHIFT_NIBBLE), "big")
+    return (lo | hi).to_bytes(n // 2, "big")
+
+
+def write_indexed4_png(raw: bytes, words: Sequence[int], w: int, h: int, path) -> str:
+    """One packed 4bpp cell -> the P-mode PNG of record: **one byte per texel, values 0..15**.
+
+    Never Pillow's ``bits=4``. The nibble packing is ours end to end, so no PNG bit-order convention
+    can reach the container -- which honours the depth warning BY CONSTRUCTION rather than by care.
+    """
+    if len(raw) * 2 != w * h:
+        raise RepaintError("a %dx%d 4bpp cell is %d packed bytes; got %d"
+                           % (w, h, w * h // 2, len(raw)))
+    return write_indexed_png(unpack4(raw), words, w, h, path)
+
+
+def read_indexed4_png(path, w: int, h: int, palette_len: int = 16) -> bytes:
+    """An edited 4bpp cell PNG -> PACKED bytes, refusing any index the 16-entry row cannot hold."""
+    return pack4(read_indexed_png(path, w, h, palette_len))
+
+
+# ---- 15bpp DIRECT: RGBA + AN EXPLICIT STP SIDECAR ------------------------------------------------
+def stp_sidecar_path(path) -> Path:
+    """``<cell>.png`` -> ``<cell>.stp.png``. One name, derived in one place, so the writer and the
+    reader can never disagree about where bit 15 lives."""
+    p = Path(path)
+    return p.with_name(p.name[:-4] + ".stp.png" if p.name.lower().endswith(".png")
+                       else p.name + ".stp.png")
+
+
+def direct_transparent(raw: bytes) -> Tuple[int, ...]:
+    """Which texel indices of a 15bpp cell are CUTOUTS -- ``{word == 0}``, DERIVED from the values.
+
+    The indexed lane derives its transparent set from the active palette and never assumes ``{0}``;
+    at direct colour there is no palette, so the same law lands in its palette-less form: derived from
+    the values in front of us. Measured across the corpus's 15bpp cells the cutout share reaches 63%
+    (ef429 x448 y384), which is why it must be visible in the picture the author opens.
+    """
+    n = len(raw) // 2
+    return tuple(i for i, wd in enumerate(struct.unpack_from("<%dH" % n, raw, 0))
+                 if wd == KT.DIRECT15_CUTOUT)
+
+
+def write_direct_png(raw: bytes, w: int, h: int, path) -> Tuple[str, str]:
+    """One 15bpp cell -> ``(<cell>.png RGBA8, <cell>.stp.png L)``. **Both files are the format.**
+
+    ``0x8000`` (STP set, RGB 0) and ``0x0000`` (the cutout) are two DIFFERENT words that both render
+    black, so one alpha channel structurally cannot carry both "this is a hole" and "this blends" --
+    the competing single-file design is unimplementable, not merely worse. Therefore:
+
+    * ``<cell>.png`` RGBA8 -- 5:5:5 colour in RGB (**authoritative on import**) and the cutout in
+      ALPHA (**checked on import, never read**);
+    * ``<cell>.stp.png`` L-mode 0/255 -- bit 15, per texel, **authoritative**.
+
+    This is the exact mirror of the indexed lane, where the PALETTE is display-only and the import
+    reads only the indices. One law, two lanes: *the container stays the authority; the PNG carries
+    what the author must SEE.* The sidecar is load-bearing and measured -- the STP share ranges 0%
+    (ef405, both cells) to 100% (ef150 col 576), so a lane that dropped bit 15 would flatten one whole
+    panel and set the blend flag on every texel of the other.
+    """
+    if len(raw) != 2 * w * h:
+        raise RepaintError("a %dx%d 15bpp cell is %d bytes; got %d" % (w, h, 2 * w * h, len(raw)))
+    Image = _need_pil()
+    words = struct.unpack_from("<%dH" % (w * h), raw, 0)
+    rgba, stp = [], bytearray(w * h)
+    for i, wd in enumerate(words):
+        r, g, b, s = KT.direct15_split(wd)
+        rgba.append((r, g, b, 0 if wd == KT.DIRECT15_CUTOUT else 255))
+        stp[i] = 255 if s else 0
+    im = Image.new("RGBA", (w, h))
+    im.putdata(rgba)
+    im.save(str(path))
+    sp = stp_sidecar_path(path)
+    sm = Image.frombytes("L", (w, h), bytes(stp))
+    sm.save(str(sp))
+    return (str(path), str(sp))
+
+
+def read_direct_png(path, w: int, h: int) -> bytes:
+    """``<cell>.png`` + ``<cell>.stp.png`` -> raw 15bpp halfwords, with the FOUR refusals.
+
+    RGB and the sidecar are read; ALPHA is CHECKED and discarded. Each refusal names its fix, because
+    every one of them is an author mistake with a one-line remedy and a silent correction here would
+    be the tool choosing a colour:
+
+    1. ``a not in {0, 255}`` -- alpha is a cutout FLAG, not a blend. (The blend is STP.)
+    2. ``a == 0`` but RGB+STP encode a non-zero word -- the picture says hole, the colour says paint.
+    3. ``a == 255`` but RGB+STP encode ``0x0000`` -- the hardware reads that as a CUTOUT whatever the
+       author meant; nudge one channel to 8, or set STP.
+    4. a sidecar value that is not 0 or 255 -- bit 15 is one bit.
+
+    A MISSING sidecar refuses too: it is authoritative, so silently defaulting it to zero would clear
+    the blend flag on every texel of a 100%-STP panel and report success.
+    """
+    p = Path(path)
+    if not p.is_file():
+        raise RepaintError("no such source image: %s" % p)
+    sp = stp_sidecar_path(p)
+    if not sp.is_file():
+        raise RepaintError(
+            "%s has no STP sidecar beside it (%s).  Bit 15 is AUTHORITATIVE and cannot be recovered "
+            "from an RGBA picture -- 0x8000 (STP set, RGB 0) and 0x0000 (the cutout) are different "
+            "words that both render black.  Re-export with `summon-reskin export-art --art-lane "
+            "direct15`, which writes both files." % (p, sp.name))
+    Image = _need_pil()
+    with Image.open(str(p)) as im:
+        if im.mode != "RGBA":
+            raise RepaintError(
+                "%s re-opens as mode %r, not \"RGBA\".  The 15bpp lane's format of record is RGBA8 "
+                "(RGB authoritative, alpha checked) plus an L-mode STP sidecar -- a mode that dropped "
+                "alpha would drop the cutout with it." % (p, im.mode))
+        if im.size != (w, h):
+            raise RepaintError("%s is %dx%d, but this cell is %dx%d.  There is no rescale here: "
+                               "interpolating between two direct colours invents a third."
+                               % (p, im.size[0], im.size[1], w, h))
+        px = im.tobytes()                                 # RGBA8, 4 bytes per texel
+    with Image.open(str(sp)) as sm:
+        if sm.size != (w, h):
+            raise RepaintError("%s is %dx%d, but this cell is %dx%d" % (sp, sm.size[0], sm.size[1],
+                                                                        w, h))
+        stp = sm.convert("L").tobytes()
+    out = bytearray(2 * w * h)
+    for i in range(w * h):
+        r, g, b, a = px[4 * i], px[4 * i + 1], px[4 * i + 2], px[4 * i + 3]
+        s = stp[i]
+        if s not in (0, 255):
+            raise RepaintError(
+                "%s: texel %d (%d,%d) carries STP value %d.  The sidecar is ONE BIT per texel -- 0 or "
+                "255 only.  Paint it as pure black / pure white, or re-export it."
+                % (sp, i, i % w, i // w, s))
+        word = KT.direct15_word(r, g, b, 1 if s else 0)
+        if a not in (0, 255):
+            raise RepaintError(
+                "%s: texel %d (%d,%d) has alpha %d.  Alpha here is a CUTOUT FLAG, not a blend -- the "
+                "hardware has no partial transparency at direct colour, and the blend selector is "
+                "STP, which lives in %s.  Set it to 0 (a hole) or 255 (opaque)."
+                % (p, i, i % w, i // w, a, sp.name))
+        if a == 0 and word != KT.DIRECT15_CUTOUT:
+            raise RepaintError(
+                "%s: texel %d (%d,%d) is transparent in the picture but its colour encodes %#06x, not "
+                "0x0000.  A hole at direct colour is the WORD 0x0000, so this texel would render as "
+                "paint.  Either paint it pure black with STP clear, or make it opaque."
+                % (p, i, i % w, i // w, word))
+        if a == 255 and word == KT.DIRECT15_CUTOUT:
+            raise RepaintError(
+                "%s: texel %d (%d,%d) is opaque in the picture but encodes 0x0000 -- and THE HARDWARE "
+                "READS 0x0000 AS A CUTOUT whatever was meant by it.  Nudge one channel to 8 (the "
+                "smallest step the 5-bit encoding can see), or set STP on this texel."
+                % (p, i, i % w, i // w))
+        struct.pack_into("<H", out, 2 * i, word)
+    return bytes(out)
+
+
 def _round_trip_ok(px: bytes, words: Sequence[int], w: int, h: int) -> bool:
     """THE X0-CLASS GATE, in memory: encode -> decode -> the same bytes."""
     return _read_indices(io.BytesIO(encode_indexed_png(px, words, w, h)),
                          "(in-memory round trip)", w, h, len(words)) == px
+
+
+def texel_view(page: TexelPage, raw: bytes) -> Sequence[int]:
+    """One cell's raw bytes as ITS OWN texel sequence -- the space the cutout law has to count in.
+
+    The three depths are three different readings of the same block and only one of them is the
+    identity: 8bpp is byte *i* = texel *i*, 4bpp is two texels per byte (low nibble first), 15bpp is
+    one halfword per texel. Counting a cutout crossing in BYTE space would, at 4bpp, call one changed
+    byte one changed texel and miss the second nibble entirely -- and at 15bpp it would compare halves
+    of colours.
+    """
+    if page.bpp == 15:
+        return struct.unpack_from("<%dH" % (len(raw) // 2), raw, 0)
+    if page.bpp == 4:
+        return unpack4(raw)
+    return raw
+
+
+def transparent_values(blob: bytes, page: TexelPage) -> Tuple[Tuple[int, ...], str]:
+    """The values that render as a HOLE on this page, DERIVED, plus how they were derived.
+
+    Two lanes, one law. Indexed: the alpha-0 entries of the ACTIVE palette (never assumed to be
+    ``{0}`` -- under a composed CLUT edit the palette in front of us is not the stock one). Direct:
+    there is no palette, so the law lands in its palette-less form and the cutout is the WORD
+    ``0x0000``, derived from the values themselves.
+    """
+    if page.direct:
+        return ((KT.DIRECT15_CUTOUT,),
+                "the word 0x0000 (at direct colour the cutout is a VALUE -- there is no palette)")
+    words = palette_words(blob, page)
+    zeros = transparent_indices(words)
+    return (zeros, "palette index %s of %s, derived from the ACTIVE %d-entry row"
+            % (",".join(str(z) for z in zeros) or "(none)", page.palette_name or "this page",
+               len(words)))
 
 
 def write_coverage_png(px: bytes, words: Sequence[int], mask: Sequence[int], w: int, h: int,
@@ -616,13 +1544,86 @@ def write_coverage_png(px: bytes, words: Sequence[int], mask: Sequence[int], w: 
 
 # ============================================================ (4) THE EXPORT LANE
 #: the export lanes this rung ships. ``rgba`` is named so it can REFUSE by name rather than not exist
-#: -- an author who asks for it gets the measurement that rules it out, not a usage error.
-ART_LANES = ("indexed", "rgba")
+#: -- an author who asks for it gets the measurement that rules it out, not a usage error. ``direct15``
+#: is the 15bpp DIRECT-colour surface (RGBA + an explicit STP sidecar): a real lane, PROVEN OFFLINE
+#: and UNCAST -- exhaustive 65,536/65,536 word identity and 26/26 real cell views, over a write
+#: surface of 4-5 corpus cells, none of which sits in a container reachable from an existing bench row.
+ART_LANES = ("indexed", "rgba", "direct15")
+
+
+def _cell_image(blob: bytes, page: TexelPage, words: Optional[Sequence[int]] = None):
+    """One page-cell -> a PIL RGBA image in whatever key the page's own depth implies. Read-only
+    rendering for previews; the EDITABLE files are written by the per-depth codecs."""
+    Image = _need_pil()
+    raw = blob[page.page_offset:page.page_offset + page.page_bytes]
+    im = Image.new("RGBA", (page.w, page.h))
+    if page.bpp == 15:
+        im.putdata([KT.direct15_split(wd)[:3] + (0 if wd == KT.DIRECT15_CUTOUT else 255,)
+                    for wd in struct.unpack_from("<%dH" % (page.w * page.h), raw, 0)])
+        return im
+    idx = unpack4(raw) if page.bpp == 4 else raw
+    pal = [KT.bgr555_rgba(x) for x in (words if words is not None else palette_words(blob, page))]
+    im.putdata([pal[i] if i < len(pal) else (0, 0, 0, 0) for i in idx[:page.w * page.h]])
+    return im
+
+
+def _spill_sheet(blob: bytes, m: BoundModel, by_cell: Dict[Tuple[int, int], TexelPage],
+                 path) -> Tuple[str, List[str], List[str]]:
+    """THE STITCHED PER-MODEL PREVIEW (read-only): the whole picture a spilling model reads, laid out
+    over the cells it is made of.
+
+    On a CO-TRANSFORM cell the sheet shows ONE writer's upload (the first in ``page_cells`` order),
+    because several genuinely different pictures cannot occupy one preview -- the manifest's ``cells``
+    list names every writer record, which is where that join stays lossless.
+
+    The author *sees* the picture and *edits* the cells -- which is the honest shape of the constraint,
+    because 58 of 58 spilling pictures are wider than a page (median 224 texels against a 128-texel
+    page) and 0 of 58 spill by <= 2%. A column NOTHING uploads renders as a hatch-free dark block and
+    is NAMED in the return value: 10 corpus bindings (all ef390, all 15bpp) sample VRAM no writer in
+    their container fills, presumably another effect's residual, and there is nothing there to repaint.
+    """
+    Image = _need_pil()
+    cols = sorted({cx for cx, _cy in m.cover})
+    rows = sorted({cy for _cx, cy in m.cover})
+    tw = cell_texel_w(m.bpp)
+    sheet = Image.new("RGBA", (len(cols) * tw, len(rows) * CELL_LINES), (18, 18, 22, 255))
+    unwritten: List[str] = []
+    unrendered: List[str] = []
+    for cell in sorted(m.cover):
+        page = by_cell.get(cell)
+        box = (cols.index(cell[0]) * tw, rows.index(cell[1]) * CELL_LINES)
+        if page is None:
+            unwritten.append("x%d_y%d" % cell)
+            continue
+        try:
+            sheet.paste(_cell_image(blob, page), box)
+        except RepaintError as e:                    # e.g. a reader naming an undeclared CLUT cell
+            unrendered.append("%s (%s)" % (page.name, e))
+    sheet.save(str(path))
+    return (str(path), unwritten, unrendered)
 
 
 def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane: str = "indexed",
                overlays: bool = True, scaffold: bool = True) -> dict:
-    """Decode every addressable page to a paintable PNG + its coverage overlay + the manifest.
+    """Decode every addressable page to a paintable PNG + its overlays + the manifest.
+
+    TWO SURFACES SINCE W6b-1. The id-4 CREATURE pages (W6a, always 8bpp indexed) and the SCENERY
+    page-cells whose depth the container states, at 4 / 8 bpp under ``lane="indexed"`` and at 15 bpp
+    under ``lane="direct15"``. Everything the scenery derivation refuses is named in the manifest and
+    printed as a commented block in the scaffold, because on this surface the refusals ARE the shape:
+    2,385 of 2,572 corpus cells declare no reader at all.
+
+    Three per-cell rules, each forced rather than chosen:
+
+    * **the display palette** -- a cell read by N bindings at ONE depth through DIFFERENT CLUT cells
+      (class C, 25 corpus cells; widest case 27 bindings over 2 CLUTs) is editable in the
+      LOWEST-ADDRESSED binding's key, and every other key is written as a READ-ONLY
+      ``<cell>.as-x{X}_y{Y}.png`` alternate view of the SAME index bytes. Both are NAMED in the
+      manifest -- an author who never learns the second key would tune a colour they cannot see;
+    * **the spill preview** -- a model whose picture crosses a column gets a stitched read-only
+      ``spill.<geom>.png``, so the edit unit stays the CELL while the judgement unit is the picture;
+    * **both directions of every join** -- the manifest records which cells a model reads AND which
+      models read a cell, because a one-way index makes the second question a re-derivation.
 
     Every destination goes through :func:`ff9mapkit.summons.export.assert_local_only` -- decoded pages
     are Square-Enix content, so the repo, any ``StreamingAssets`` tree and the install are refused with
@@ -633,18 +1634,36 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     if lane not in ART_LANES:
         raise RepaintError("unknown art lane %r -- this rung ships %s"
                            % (lane, ", ".join(ART_LANES)))
-    if lane != "indexed":
+    if lane == "rgba":
         raise RepaintError(
             "the `%s` export lane is W6b and refuses rather than half-works.  MEASURED over the 93 "
             "stock creature pages: the INDEXED round trip is byte-identical 93/93, while an RGBA "
             "round trip that painted nothing at all still moves 1,844 of 16,384 texels on ef251 part "
             "0 (8.31%% of the corpus's palette entries are duplicates of the full 16-bit word, STP "
             "included) -- and the exact-recovery rate ranges 88.75%%..99.24%% per page BEFORE anyone "
-            "paints.  A lane whose no-op is not a no-op cannot carry a byte-identity gate.  %s"
-            % (lane, W6B_REASON))
-    pages = creature_texel_pages(blob)
-    if not pages:
-        raise RepaintError("ef%03d exports no texel art -- %s" % (effect, creature_refusal(blob)))
+            "paints.  A lane whose no-op is not a no-op cannot carry a byte-identity gate.  (This "
+            "refusal is about the INDEXED lane's exact recovery and is unchanged by W6b-1; the 15bpp "
+            "DIRECT lane is a different question and ships as `direct15`.)  %s"
+            % (lane, INDEXED_RGBA_REASON))
+    pages = creature_texel_pages(blob) if lane == "indexed" else []
+    scen: List[TexelPage] = []
+    refusals: List[CellRefusal] = []
+    scen_error = ""
+    try:
+        scen, refusals = scenery_surface(blob, effect)
+    except (RS.ReskinError, EC.ContainerError) as e:               # surfaced, never swallowed
+        scen_error = "the scenery derivation REFUSED on this container: %s: %s" % (type(e).__name__,
+                                                                                   e)
+    refused_names = {r.name for r in refusals}
+    want = (15,) if lane == "direct15" else (4, 8)
+    cells = [p for p in scen if p.bpp in want and p.name not in refused_names]
+    if not pages and not cells:
+        raise RepaintError(
+            "ef%03d exports no texel art in the `%s` lane -- %s\n  scenery: %d page-cell(s) declare a "
+            "depth, %d refused by name, %d in this lane's depth(s) %s.%s"
+            % (effect, lane, creature_refusal(blob) or "(creature pages are not in this lane)",
+               len(scen), len(refusals), len(cells), "/".join(str(d) for d in want),
+               ("  " + scen_error) if scen_error else ""))
     out = Path(export.assert_local_only(out_dir if out_dir else
                                         Path(staging_root(effect)) / "art"))
     out.mkdir(parents=True, exist_ok=True)
@@ -681,6 +1700,113 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             "index0_texels": sum(1 for x in px if x in zeros),
             "page_sha256": _sha(px),
         })
+    # ---- the SCENERY page-cells (W6b-1) ----------------------------------------------------------
+    _pm_cache: List[RS.PaletteMap] = []
+
+    def _pmap() -> RS.PaletteMap:
+        if not _pm_cache:                            # resolved once per export, never per alternate
+            _pm_cache.append(RS.palette_map(blob, effect=effect))
+        return _pm_cache[0]
+
+    scen_entries: List[dict] = []
+    #: VRAM cell -> the page RENDERED for it in a preview.  One writer per cell, the first in
+    #: ``page_cells`` order -- a co-transform cell has several genuinely different pictures and a
+    #: preview has to pick one; ``names_by_cell`` below keeps the join lossless.
+    by_cell: Dict[Tuple[int, int], TexelPage] = {}
+    names_by_cell: Dict[Tuple[int, int], List[str]] = {}
+    for p in scen:
+        by_cell.setdefault(p.cell, p)
+        names_by_cell.setdefault(p.cell, []).append(p.name)
+    for p in cells:
+        hz = p.hazards
+        raw = blob[p.page_offset:p.page_offset + p.page_bytes]
+        png = out / ("%s.png" % p.name)
+        alts: List[dict] = []
+        if p.bpp == 15:
+            f_png, f_stp = write_direct_png(raw, p.w, p.h, png)
+            written += [f_png, f_stp]
+            zeros = direct_transparent(raw)
+            stp_share = sum(1 for wd in struct.unpack_from("<%dH" % (p.w * p.h), raw, 0)
+                            if wd >> 15) / float(p.w * p.h)
+        else:
+            words = palette_words(blob, p)
+            if p.bpp == 4:
+                written.append(write_indexed4_png(raw, words, p.w, p.h, png))
+            else:
+                written.append(write_indexed_png(raw, words, p.w, p.h, png))
+            zeros = transparent_indices(words)
+            stp_share = None
+            # class C: every OTHER key this cell is read in, as a read-only view of the SAME bytes
+            shown = hz.readers[0].clut_cell
+            for other in sorted({r.clut_cell for r in hz.readers
+                                 if r.clut_cell is not None and r.clut_cell != shown}):
+                pal = next((q for q in sorted(_pmap().palettes, key=lambda z: z.off)
+                            if q.vram == other and q.entries == (p.clut_entries or 0)), None)
+                if pal is None:
+                    continue
+                ap = out / ("%s.as-x%d_y%d.png" % (p.name, other[0], other[1]))
+                aw = struct.unpack_from("<%dH" % pal.entries, blob, pal.off)
+                if p.bpp == 4:
+                    written.append(write_indexed4_png(raw, aw, p.w, p.h, ap))
+                else:
+                    written.append(write_indexed_png(raw, aw, p.w, p.h, ap))
+                alts.append({"clut_cell": list(other), "palette_name": pal.name,
+                             "png": os.path.basename(str(ap)), "read_only": True})
+        scen_entries.append({
+            "name": p.name, "cell": list(p.cell), "writer": hz.writer, "png": os.path.basename(
+                str(png)),
+            "stp_png": (os.path.basename(str(stp_sidecar_path(png))) if p.bpp == 15 else ""),
+            "alternates": alts,
+            "page_offset": p.page_offset, "page_bytes": p.page_bytes, "wh": [p.w, p.h],
+            "bpp": p.bpp, "clut_offset": p.clut_offset, "clut_entries": p.clut_entries,
+            "palette_name": p.palette_name, "tpage": p.tpage, "clut": p.clut,
+            "vram": list(p.vram),
+            "covered_halfwords": hz.covered_halfwords,
+            "transparent_texels": len(zeros),
+            "stp_share": stp_share,
+            "writers": [{"tag": w.tag, "kind": w.kind, "offset": w.off, "bytes": w.nbytes,
+                         "provenance": w.provenance} for w in hz.writers],
+            "readers": [{"geom": r.geom, "bpp": r.bpp, "clut_cell": (list(r.clut_cell)
+                                                                    if r.clut_cell else None),
+                         "palettes": list(r.palettes), "columns": list(r.columns),
+                         "own_column": r.own_column, "halfwords_here": r.halfwords_here}
+                        for r in hz.readers],
+            "spill_in": [r.geom for r in hz.spill_in],
+            "spill_out": list(hz.spill_out),
+            "program": hz.program, "program_evidence": hz.program_evidence,
+            "program_cell": hz.program_cell,
+            "lower_half": hz.lower_half, "provenance": hz.provenance,
+            "hazards": list(hz.names),
+            "page_sha256": _sha(raw),
+        })
+
+    # ---- the MODEL direction of the join, + the stitched spill previews --------------------------
+    model_entries: List[dict] = []
+    if scen:
+        for m in bound_models(blob):
+            if not m.cover:
+                continue
+            # THE UNWRITTEN COLUMN, derived once and used by both the preview and the record: 10
+            # corpus bindings (all ef390, all 15bpp) sample VRAM no writer in their own container
+            # fills, so there is genuinely nothing there to repaint.
+            unwritten = ["x%d_y%d" % c for c in sorted(m.cover) if c not in by_cell]
+            spill_png, unrendered = "", []
+            if m.spills:
+                sp, unwritten, unrendered = _spill_sheet(
+                    blob, m, by_cell, out / ("spill.geom%#x.png" % m.geom))
+                written.append(sp)
+                spill_png = os.path.basename(sp)
+            model_entries.append({
+                "geom": m.geom, "slot": m.slot, "tpage": m.tpage, "bpp": m.bpp,
+                "clut_cell": (list(m.clut_cell) if m.clut_cell else None),
+                "clut_entries": m.clut_entries, "faces": m.faces,
+                "u": list(m.u), "v": list(m.v), "columns": list(m.columns),
+                # EVERY writer record of every cell it reads -- a co-transform cell is several names
+                # and naming one of them would make the second upload invisible from this side too
+                "cells": [n for c in sorted(m.cover) for n in names_by_cell.get(c, ())],
+                "cells_no_writer": unwritten, "cells_not_rendered": unrendered,
+                "spills": m.spills, "spill_png": spill_png})
+
     # W7 L6 (V1 F4): the protected rect set belongs at PAINT time, not only at plan time -- the
     # workflow is export-art -> paint -> plan, and an author who first learns of the animated
     # window after painting learns it as a refusal.
@@ -689,6 +1815,13 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     man = {"tool": "ff9mapkit summon-reskin export-art", "lane": lane, "effect": int(effect),
            "stock_sha256": stock_sha, "source": source or "(caller-supplied bytes)",
            "container_bytes": len(blob), "parts": entries,
+           "scenery": scen_entries, "models": model_entries,
+           "scenery_error": scen_error,
+           "program": {"class": program_class(effect)[0], "evidence": program_class(effect)[1],
+                       "moveimage_cell": (list(MOVEIMAGE_HARD_CELLS[int(effect)])
+                                          if int(effect) in MOVEIMAGE_HARD_CELLS else None)},
+           "refused": [{"name": r.name, "cell": list(r.cell), "class": r.klass, "reason": r.reason}
+                       for r in refusals],
            "texanim": {"armed": res_ta.armed,
                        "decodes": (res_ta.parsed if res_ta.armed else None),
                        "lines": list(TA.describe(blob)),
@@ -701,7 +1834,9 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     if scaffold:
         spath = out / SCAFFOLD_NAME
         fsutil.atomic_write_text(spath, scaffold_text(effect, stock_sha, entries, protected=prot,
-                                                      texanim_armed=res_ta.armed),
+                                                      texanim_armed=res_ta.armed,
+                                                      scenery=scen_entries, models=model_entries,
+                                                      refused=refusals),
                                  encoding="utf-8", newline="\n")
         written.append(str(spath))
     man["out_dir"] = str(out)
@@ -711,13 +1846,27 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
 
 def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                   protected: Optional[Dict[int, list]] = None,
-                  texanim_armed: bool = False) -> str:
+                  texanim_armed: bool = False,
+                  scenery: Optional[Sequence[dict]] = None,
+                  models: Optional[Sequence[dict]] = None,
+                  refused: Optional[Sequence["CellRefusal"]] = None) -> str:
     """A COMPLETE, guarded ``[[reskin.texel]]`` scaffold, emitted from the derivation.
 
     Every ``expect_*`` is emitted rather than typed, so a guard cannot start life disagreeing with the
     bytes; every row starts ``enabled = false``, so the first build is provably a no-op and the author
     switches on one page at a time.  ``protected`` (part -> texanim rects, W7 L6) is stated on the
     row it concerns, so the author reads it BEFORE painting, not as a later refusal.
+
+    W6b-1 adds three things, and all three exist because **the scaffold is where a refusal teaches**:
+
+    * per scenery row, ``expect_bpp`` and ``expect_cell`` -- the depth is STATED by the author and
+      CHECKED against the ``so`` derivation (:func:`assert_expect_bpp`), never chosen, because the
+      same 0x4000 bytes are three differently-shaped pictures;
+    * the CO-TRANSFORM writer list on every multi-writer cell and the NAME-EVERY-COLUMN cell list on
+      every spilling model -- the two obligations whose whole remedy is *name them all*;
+    * a commented block naming **every REFUSED cell with its reason**. On this surface that block is
+      the larger half by two orders of magnitude, and a cell that merely failed to appear would teach
+      nothing at all.
     """
     protected = protected or {}
     L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d`." % effect,
@@ -767,7 +1916,118 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         elif texanim_armed:
             L += ["# texanim is armed on this container but names no rect on this part."]
         L += [""]
+
+    for e in (scenery or []):
+        L += ["[[reskin.texel]]",
+              'name = "%s"' % e["name"],
+              'source = "%s"' % e["png"],
+              "expect_page_offset = %#08x" % e["page_offset"],
+              "expect_page_bytes  = %d" % e["page_bytes"],
+              "expect_page_wh     = [%d, %d]" % tuple(e["wh"]),
+              "expect_bpp         = %d   # STATED by you, CHECKED against the container's own `so`"
+              % e["bpp"],
+              "#                        record.  The SAME %d bytes are %d texels wide at 4bpp, %d at"
+              % (e["page_bytes"], cell_texel_w(4), cell_texel_w(8)),
+              "#                        8bpp and %d at 15bpp -- a wrong depth packs to exactly the"
+              % cell_texel_w(15),
+              "#                        right byte count and paints the wrong picture.",
+              "expect_cell        = [%d, %d]   # the VRAM page-cell this name resolves to"
+              % tuple(e["cell"]),
+              "enabled = false",
+              "acknowledge_cutout_reshape = false"]
+        if e["bpp"] == 15:
+            L += ['# 15bpp DIRECT colour: no palette at all.  Edit "%s" (RGB authoritative, alpha =' %
+                  e["png"],
+                  '# the cutout, CHECKED not read) TOGETHER WITH "%s" (bit 15, authoritative).'
+                  % e["stp_png"],
+                  "# measured: %d of %d texels are cutouts (word 0x0000); STP set on %.1f%%"
+                  % (e["transparent_texels"], e["wh"][0] * e["wh"][1],
+                     100.0 * (e["stp_share"] or 0.0))]
+        else:
+            L += ['# palette_from = "%s"   # DISPLAY only -- this lane writes 0 CLUT bytes.'
+                  % e["palette_name"]]
+            for a in e["alternates"]:
+                L += ["# ALSO READ IN CLUT %s (%s) -- read-only view of the SAME index bytes:"
+                      % (str(tuple(a["clut_cell"])), a["palette_name"]),
+                      "#   %s" % a["png"],
+                      "#   An edit here changes BOTH pictures.  The editable file above is in the",
+                      "#   LOWEST-ADDRESSED binding's key; this one only shows you the other."]
+        L += ["# measured: %d of %d halfwords in this cell are sampled by some model"
+              % (e["covered_halfwords"], RS.PAGE_CELL_W * CELL_LINES),
+              "# writer: %s" % e["provenance"]]
+        if len(e["writers"]) > 1:
+            L += ["# CO-TRANSFORM: %d writers upload this VRAM cell.  Name EVERY one with its own"
+                  % len(e["writers"]),
+                  "#   art and say `acknowledge_cotransform = true`; 0 of the corpus's 156 writer",
+                  "#   pairs is byte-identical, so repainting one leaves the others stock and the",
+                  "#   cast flickers between two pictures.  The writers:"]
+            L += ["#     %s  @%#08x  (%d B)" % (w["tag"], w["offset"], w["bytes"])
+                  for w in e["writers"]]
+        for r in e["readers"]:
+            L.append("# reader GEOM %#x  %dbpp  CLUT %s %s  %d halfword(s) here"
+                     % (r["geom"], r["bpp"], str(tuple(r["clut_cell"])) if r["clut_cell"] else "-",
+                        "/".join(r["palettes"]) or "(no declared upload)", r["halfwords_here"]))
+            if not r["own_column"]:
+                L.append("#   SPILLS IN: its own column is %d, so a PAGE-scope edit here silently"
+                         % r["columns"][0])
+                L.append("#   edits a model this cell does not name.  The edit unit is the MODEL.")
+        if len(e["readers"]) > 1:
+            L.append("# SHARED READ: this one edit changes %d models.  Disclosure, not a refusal."
+                     % len(e["readers"]))
+        if e["spill_out"]:
+            L.append("# SPILL-OUT: this cell's own reader(s) also sample column(s) %s -- name every"
+                     % ", ".join(str(c) for c in e["spill_out"]))
+            L.append("#   one of them, or the author is handed half a picture.")
+        L += [""]
+
+    spillers = [m for m in (models or []) if m.get("spills")]
+    if spillers:
+        L += ["# ---- THE NAME-EVERY-COLUMN GATE: models whose picture crosses a page ----",
+              "# 58 of 58 spilling corpus pictures are wider than one page and 0 of 58 spill by <= 2%,",
+              "# so there is no marginal case.  The edit unit is the CELL; the JUDGEMENT unit is the",
+              "# model.  `spill.geom*.png` is the stitched read-only preview of the whole picture."]
+        for m in spillers:
+            L.append("#   GEOM %#x  %dbpp  %d texels wide  columns %s"
+                     % (m["geom"], m["bpp"], (m["u"][1] - m["u"][0] + 1),
+                        ", ".join(str(c) for c in m["columns"])))
+            L.append("#     cells: %s" % ("  ".join(m["cells"]) or "(none uploaded)"))
+            if m["cells_no_writer"]:
+                L.append("#     NO WRITER uploads %s -- nothing there to repaint"
+                         % ", ".join(m["cells_no_writer"]))
+        L += [""]
+
+    if refused:
+        by_class: Dict[str, List["CellRefusal"]] = {}
+        for r in refused:
+            by_class.setdefault(r.klass, []).append(r)
+        L += ["# ---- REFUSED CELLS: named, with the reason.  A refusal is a RESULT of this tool. ----",
+              "# %d of this container's page-cells get no editable picture.  They are listed rather"
+              % len(refused),
+              "# than omitted because on this surface the refusals ARE the shape -- corpus-wide,",
+              "# 2,385 of 2,572 scenery cells declare no reader and therefore no depth."]
+        for klass in sorted(by_class):
+            rs = by_class[klass]
+            L.append("#")
+            L.append("#   [%s]  %d cell(s)" % (klass, len(rs)))
+            for line in _wrap_comment(rs[0].reason, "#     "):
+                L.append(line)
+            L.append("#     %s" % "  ".join(r.name for r in rs))
+        L += [""]
     return "\n".join(L) + "\n"
+
+
+def _wrap_comment(text: str, prefix: str, width: int = 96) -> List[str]:
+    """Wrap a refusal reason into fixed-width comment lines. The reasons are paragraphs on purpose --
+    each carries its own measurement -- and a 400-character comment line is a reason nobody reads."""
+    out, cur = [], prefix
+    for word in text.split():
+        if len(cur) + 1 + len(word) > width and cur != prefix:
+            out.append(cur)
+            cur = prefix
+        cur += ("" if cur == prefix else " ") + word
+    if cur != prefix:
+        out.append(cur)
+    return out
 
 
 # ============================================================ (5) THE BUILD
@@ -778,6 +2038,12 @@ _TEXEL_KEYS = frozenset((
     "name", "source", "enabled", "note", "palette_from", "acknowledge_cutout_reshape",
     "acknowledge_texanim_frames",
     "expect_page_offset", "expect_page_bytes", "expect_page_wh",
+    # W6b-1: the two guards a scenery CELL needs and a creature PART does not.
+    "expect_bpp", "expect_cell",
+    # W6b-1: the two REMEDY acknowledgements.  Both are literal-boolean-only (`_ack_bool`) and both
+    # only ever ARM an obligation the author has already discharged by naming every writer / every
+    # covered cell -- neither is a bypass, and there is no key that silences either gate on its own.
+    "acknowledge_cotransform", "acknowledge_spill",
 ))
 
 
@@ -794,6 +2060,12 @@ class TexelTarget:
     #: W7 L4's escape hatch -- a DELIBERATELY asymmetric strip (the window repainted, a source frame
     #: left stock, or the reverse). Literal boolean only, same law as every other acknowledgement.
     ack_texanim_frames: bool = False
+    #: W6b-1: the CO-TRANSFORM remedy's word. Required on EVERY row of a multi-writer cell, and only
+    #: reachable once every writer of that cell is named with its own art (:func:`_gate_cotransform`).
+    ack_cotransform: bool = False
+    #: W6b-1: the NAME-EVERY-COLUMN remedy's word, required once every cell a spilling model reads is
+    #: named (:func:`_gate_spill_columns`).
+    ack_spill: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -810,6 +2082,13 @@ class TexelTarget:
     #: what THE TEXANIM CO-TRANSFORM (:func:`_gate_texanim_frames`) found, per clip -- disclosure, so
     #: an author sees the protected set was checked even when it had nothing to say.
     texanim_note: str = ""
+    #: W6b-1: every hazard verdict this SCENERY cell carries, in the author's terms -- the remedies
+    #: that were discharged (:func:`_gate_cotransform`, :func:`_gate_spill_columns`), the program-VRAM
+    #: direction verdict and the disclosures (:func:`_scenery_disclosures`). A creature target's list
+    #: is empty, because W6a measured that surface hazard-free and re-checks it per target instead.
+    hazard_notes: List[str] = field(default_factory=list)
+    #: how many of this cell's 8,192 halfwords any model actually samples (scenery only).
+    covered_halfwords: int = 0
 
     @property
     def cutout_flips(self) -> int:
@@ -887,7 +2166,7 @@ def _spec_dir(spec_path: str) -> str:
 
 
 def _gate_collisions(blob: bytes, page: TexelPage) -> None:
-    """THE CO-TRANSFORM REFUSAL, evaluated per target instead of assumed away.
+    """THE CO-TRANSFORM REFUSAL for a CREATURE page, evaluated per target instead of assumed away.
 
     Two independent tests, because a VRAM cell and a file span are two different ways to collide:
     another writer declaring the SAME cell means the picture on screen is whichever upload ran last,
@@ -895,7 +2174,16 @@ def _gate_collisions(blob: bytes, page: TexelPage) -> None:
     corpus answer for creature pages is 0 and 0 over 24 packages / 93 pages -- which is exactly why
     this is cheap to check and expensive to assume: six corpus effects park id-9 slots at x = 320,
     the ladder rung their own ``partCount`` leaves unused, so the near miss is one header field away.
+
+    **CREATURE ONLY, and the split is not a convenience.** On the id-4 surface a second writer is an
+    anomaly stock never produces, so the honest verdict is a flat refusal with no key. On the SCENERY
+    surface a second writer is the normal shape of 34 corpus cells in 5 containers, and refusing them
+    outright would refuse a class that has a lawful remedy -- so those go through
+    :func:`_gate_cotransform` (name every writer, art for each, acknowledge) and this function's
+    ``others``-based test would fire on a scenery cell's OWN writer record before any of it ran.
     """
+    if page.scenery:                                             # -> _gate_cotransform / _gate_spans
+        return
     others = other_page_writers(blob)
     hits = others.get(page.vram, [])
     if hits:
@@ -903,7 +2191,10 @@ def _gate_collisions(blob: bytes, page: TexelPage) -> None:
             "CO-TRANSFORM REFUSAL on %s: VRAM cell %s is ALSO written by %s.  Every multi-writer page "
             "pair in the corpus is genuinely different art shown at different cast phases (0 of 156 "
             "pairs is byte-identical), so repainting one writer leaves the others stock and the cast "
-            "flickers between two pictures.  Naming every writer is %s"
+            "flickers between two pictures.  This is a CREATURE page, whose corpus answer is 0 "
+            "collisions over 24 packages / 93 pages -- the multi-writer REMEDY (name every writer, "
+            "art for each, `acknowledge_cotransform = true`) is the scenery lane's, and an id-4 page "
+            "is uploaded by part index rather than by cell, so it cannot be expressed here.  %s"
             % (page.name, str(page.vram),
                "; ".join("%s @%#x" % (s, o) for s, o, _n in hits), W6B_REASON))
     lo, hi = page.page_offset, page.page_offset + page.page_bytes
@@ -914,6 +2205,300 @@ def _gate_collisions(blob: bytes, page: TexelPage) -> None:
                     "CO-TRANSFORM REFUSAL on %s: its file span %#x..%#x overlaps %s (%#x..%#x, VRAM "
                     "%s).  One splice would rewrite two declared pictures.  %s"
                     % (page.name, lo, hi, src, off, off + nb, str(cell), W6B_REASON))
+
+
+# --------------------------------------------------------- W6b-1: THE SCENERY HAZARD GATES
+def _gate_program_vram(page: TexelPage, where: str) -> str:
+    """THE PROGRAM-VRAM VERDICT, per cell -- **refuse a WRITE, DISCLOSE a READ.**
+
+    THE DIRECTION LAW is the whole of it (PSX libgpu, corroborated by the DLL's own stub arities):
+    ``LoadImage`` is main RAM -> VRAM and ``MoveImage`` is VRAM -> VRAM, both WRITES that can land on
+    top of a static repaint at run time -- a LOST EDIT with no symptom, because the container on disc
+    still holds the new art. ``StoreImage`` is VRAM -> main RAM, a **READ**, and a read cannot clobber
+    anything; treating it as a hazard is what made ef211 -- the one cell in the corpus whose upload
+    path is already cast-proven -- look unreachable. 113 cells over 12 containers move from refuse to
+    disclose on that one correction.
+
+    Three verdicts, in sharpening order:
+
+    * ``program_cell`` -- ``MoveImage``'s destination CONST-FOLDS to this exact cell (the only per-cell
+      program verdict in the corpus; 0 of 18 ``RECT*`` arguments resolve). HARD refusal BY NAME. It is
+      the SHARPER verdict, not a narrower one: the census marks all 30 cells of ef001 / ef142 / ef144
+      ``write-moveimage-dest-known``, so those containers refuse wholesale regardless, and what the
+      per-cell verdict adds is that here the destination is RESOLVED rather than merely unknown;
+    * ``write`` -- the container's program writes VRAM somewhere unresolvable. Refuse the whole
+      surface;
+    * ``unknown`` -- no effect id reached the derivation, so the lists could not be consulted. Refused
+      as a WRITE, because reading silence as safety is how a refusal becomes a comment.
+
+    Returns the DISCLOSURE line for the ``read`` and ``clean`` cases; raises otherwise.
+    """
+    hz = page.hazards
+    if hz is None:                                               # creature: not the lists' unit
+        return ""
+    if hz.program_cell:
+        raise RepaintError("%s: %s" % (where, _REFUSAL_TEXT["program-moveimage-cell"]
+                                       % hz.program_evidence))
+    if hz.program == "write":
+        raise RepaintError("%s: %s" % (where, _REFUSAL_TEXT["program-vram-write"]
+                                       % hz.program_evidence))
+    if hz.program == "unknown":
+        raise RepaintError("%s: %s" % (where, _REFUSAL_TEXT["program-vram-unknown"]
+                                       % hz.program_evidence))
+    if hz.program == "read":
+        return ("program-VRAM READ (disclosure, not a refusal): %s" % hz.program_evidence)
+    return "program-VRAM CLEAN: %s" % hz.program_evidence
+
+
+def _gate_spans(blob: bytes, targets: Sequence["TexelTarget"]) -> None:
+    """No two ENABLED targets may write the same file byte. That, exactly -- not "and nothing else
+    overlaps", which is :func:`_gate_collisions`' job on the creature side and
+    :func:`_gate_cotransform`'s on the scenery side.
+
+    The scenery namespace is keyed by WRITER, so two rows can share a span only if the derivation
+    itself is wrong -- but "only if the derivation is wrong" is precisely the class of thing a gate
+    exists for, and the splice loop writes each target's span last-one-wins with no complaint at all.
+    """
+    live = [t for t in targets if t.enabled]
+    for i, a in enumerate(live):
+        alo, ahi = a.page.page_offset, a.page.page_offset + a.page.page_bytes
+        for b in live[i + 1:]:
+            blo, bhi = b.page.page_offset, b.page.page_offset + b.page.page_bytes
+            if blo < ahi and alo < bhi:
+                raise RepaintError(
+                    "OVERLAPPING TARGETS: %s (%#x..%#x) and %s (%#x..%#x) write the same file bytes, "
+                    "so the splice order would decide which picture survives and nothing would say "
+                    "so." % (a.name, alo, ahi, b.name, blo, bhi))
+
+
+def _gate_cotransform(blob: bytes, targets: Sequence["TexelTarget"]) -> Dict[str, str]:
+    """**THE CO-TRANSFORM REMEDY** -- a multi-writer cell builds only when EVERY writer is named with
+    its own art and the row says ``acknowledge_cotransform = true``.
+
+    The hazard, measured: 34 corpus page-cells in 5 containers are uploaded by more than one writer,
+    and **0 of the 156 writer pairs is byte-identical** -- the closest (ef381 x512 y384, ``s2`` vs
+    ``s4``) still differs in 1.03% = 168 bytes. They are genuinely different pictures shown at
+    different cast phases, so repainting one and leaving the others stock makes the cast flicker
+    between the new art and the old, which is a mid-cast symptom only a playtest catches.
+
+    So the remedy is the CLUT lane's own multi-writer shape (``reskin._gate_cells``), with ``writer``
+    where that one has ``cell``: name them all, supply art for each, and say the word. Of the 34, only
+    **16** are even expressible -- 8 are also SAME-BYTES-TWO-DEPTHS and 10 are read by nothing at all,
+    and both of those refuse earlier, for reasons no naming fixes (ef251's Madeen has 6 shared cells
+    and all 6 are unread, so a Madeen shared-column repaint is out of reach at any depth).
+
+    **There is deliberately no "same art for all writers" shorthand.** A key that broadcast one PNG to
+    N writers would be the tool asserting that the N uploads are interchangeable, which the corpus says
+    they are not on 156 of 156 pairs. Two rows MAY name the same file -- that is an authored decision
+    to unify the flicker -- and it is disclosed rather than silently accepted.
+
+    Returns ``{target name: the disclosure line}``; raises naming the missing writers otherwise.
+    """
+    live = {t.page.cell: [] for t in targets if t.enabled and t.page.scenery}
+    for t in targets:
+        if t.enabled and t.page.scenery:
+            live[t.page.cell].append(t)
+    notes: Dict[str, str] = {}
+    for cell, rows in sorted(live.items()):
+        writers = rows[0].page.hazards.writers
+        if len(writers) < 2:
+            continue
+        named = {t.page.hazards.writer for t in rows}
+        missing = [w for w in writers if w.tag not in named]
+        if missing:
+            raise RepaintError(
+                "THE CO-TRANSFORM REMEDY, %s: VRAM cell %s is uploaded by %d writers and this spec "
+                "names %d of them (%s).  LEFT STOCK: %s.  0 of the corpus's 156 multi-writer pairs is "
+                "byte-identical -- they are different pictures shown at different cast phases -- so "
+                "repainting one leaves the others stock and the cast flickers between two pictures.  "
+                "Add a [[reskin.texel]] row for %s with its OWN art, and say "
+                "`acknowledge_cotransform = true` on every row of the cell.  There is no \"same art "
+                "for all writers\" shorthand, on purpose: the closest corpus pair still differs in "
+                "1.03%% of its bytes."
+                % (", ".join(t.name for t in rows), str(cell), len(writers), len(named),
+                   ", ".join(sorted(named)),
+                   "; ".join("%s @%#x (%d B)" % (w.tag, w.off, w.nbytes) for w in missing),
+                   ", ".join("cell.%s.x%d_y%d" % (w.tag, cell[0], cell[1]) for w in missing)))
+        unack = [t.name for t in rows if not t.ack_cotransform]
+        if unack:
+            raise RepaintError(
+                "THE CO-TRANSFORM REMEDY, %s: every writer of VRAM cell %s IS named (%s), which is the "
+                "hard half -- but %s does not say `acknowledge_cotransform = true`.  Repainting N "
+                "uploads of one cell is a deliberate, coordinated edit and this lane makes you state "
+                "it, exactly as the CLUT lane does for a multi-writer palette: an acknowledgement is "
+                "stated, never inferred."
+                % (", ".join(t.name for t in rows), str(cell), ", ".join(sorted(named)),
+                   ", ".join(unack)))
+        same = {}
+        for t in rows:
+            same.setdefault(os.path.basename(t.source), []).append(t.name)
+        dup = ["%s <- %s" % (", ".join(v), k) for k, v in sorted(same.items()) if len(v) > 1]
+        for t in rows:
+            notes[t.name] = (
+                "CO-TRANSFORM: %d writers upload %s and all %d are named (%s), acknowledged%s"
+                % (len(writers), str(cell), len(rows), ", ".join(sorted(named)),
+                   "" if not dup else
+                   ".  NOTE -- two writers share one source file (%s): that unifies pictures the "
+                   "container declares as different, which is an authored decision, not a default"
+                   % "; ".join(dup)))
+    return notes
+
+
+def _gate_spill_columns(blob: bytes, targets: Sequence["TexelTarget"],
+                        models: Sequence[BoundModel]) -> Dict[str, str]:
+    """**THE NAME-EVERY-COLUMN GATE** -- a spilling model's edit must name every cell that model reads.
+
+    Measured, and there is no marginal case to wave through: **58 of 58** spilling corpus bindings
+    read a picture wider than one page (median 224 texels against a 128-texel page) and **0 of 58**
+    spill by <= 2%. So a PAGE-scope edit of a spilling model's cell hands the author half a picture,
+    and the honest edit unit is the MODEL.
+
+    Same predicate shape as :func:`_gate_cotransform` with ``writer`` -> ``cell``: name every cell the
+    model's own UVs cover, art for each, ``acknowledge_spill = true``. Three refusals fall out of it:
+
+    * **SPILL-IN** -- a model whose own tpage column is elsewhere reads THIS cell. Page scope here
+      silently edits a model this cell does not name, so the refusal NAMES the foreign model (36
+      corpus cells; 6 of them cross two resources);
+    * **an UNNAMED column** -- the model reads a cell this spec does not name. The obligation is
+      *name them all*, and the message lists exactly which are missing;
+    * **an UNWRITTEN column** -- the model reads a cell **no writer in this container uploads** (10
+      corpus bindings, all ef390, all 15bpp, presumably another effect's residual VRAM). The
+      obligation is then unsatisfiable and no art exists to supply: *nothing uploads this cell, so
+      there is nothing to repaint.*
+
+    THE SET IS UV-EXACT, NOT RECT-CONSERVATIVE. A1 marks every stacked cell of a spilling rect (83
+    cells); A2 restricts to the columns the model's own ``v`` range actually reaches (70), and A2's
+    set is a strict subset with zero contradictions -- the 13-cell delta is entirely lower halves the
+    model never samples. Gating on the superset would invent a false obligation, so the join here is
+    :attr:`BoundModel.cover`, the same UV rasterisation the depth derivation reads.
+
+    AND THE TRIGGER IS A COLUMN CROSSING, NOT A CELL COUNT -- see the comment at the loop head. A
+    picture tall enough to cover both stacked cells of its OWN column is not a spill and does not owe
+    this obligation; ef211's ``0x33960`` is exactly that, and a cell-count trigger would refuse the
+    rung's own cast 2.
+    """
+    # Keyed by CELL, holding EVERY writer target of that cell -- a plain dict here was V1 F1: on a
+    # cell that is both co-transform and spilling, {cell: target} collapsed N writers to the last
+    # row, so the ack was enforced on one writer and the verdict depended on TOML row order.
+    # `_gate_cotransform` already keys lists; the two mirrored gates must not diverge.
+    live: Dict[Tuple[int, int], List["TexelTarget"]] = {}
+    for t in targets:
+        if t.enabled and t.page.scenery:
+            live.setdefault(t.page.cell, []).append(t)
+    if not live:
+        return {}
+    by_geom = {m.geom: m for m in models}
+    cells = RS.page_cells(blob)
+    written = {pc.cell for pc in cells.values()}
+    notes: Dict[str, str] = {}
+    for cell, ts in sorted(live.items()):
+        t = ts[0]                       # cell-level hazards are identical across a cell's writers
+        hz = t.page.hazards
+        # THE TRIGGER IS THE COLUMN, NOT THE CELL, and the difference is a whole cast.  A model whose
+        # picture is TALL covers two STACKED cells of its own column -- ef211's `0x33960` reads both
+        # halves of column 576 -- and that is not a spill: nothing crosses a page boundary, the rect
+        # view names the same column, and the cast-2 plan edits the lower half alone on purpose.  The
+        # u-spill hazard is a picture reaching a DIFFERENT column, which is what
+        # `CellHazards.spill_in/spill_out` and `BoundModel.spills` both mean, so the gate keys on the
+        # derivation's own definition instead of on "more than one cell", which would refuse the
+        # rung's own second cast.
+        if not hz.spills:
+            continue
+        spillers = [by_geom[r.geom] for r in hz.readers
+                    if r.geom in by_geom and by_geom[r.geom].spills]
+        foreign = [r for r in hz.readers if not r.own_column]
+        if not spillers:                                         # pragma: no cover - hz.spills implies
+            continue
+        for m in spillers:
+            unwritten = sorted(c for c in m.cover if c not in written)
+            if unwritten:
+                raise RepaintError(
+                    "THE NAME-EVERY-COLUMN GATE, %s: GEOM %#x reads VRAM cell(s) %s that NO WRITER in "
+                    "this container uploads -- nothing puts bytes there, so there is nothing to "
+                    "repaint and the obligation to name every column this model reads cannot be "
+                    "discharged.  10 corpus bindings do this (all ef390, all 15bpp); the residual is "
+                    "presumably another effect's leftover VRAM, which is not this container's to "
+                    "edit.  %s"
+                    % (t.name, m.geom, ", ".join("x%d_y%d" % c for c in unwritten), W6B_REASON))
+            missing = sorted(c for c in m.cover if c not in live)
+            if missing:
+                where = ("GEOM %#x's own column is %d, so it SPILLS IN here" % (m.geom, m.page[0])
+                         if any(r.geom == m.geom for r in foreign) else
+                         "GEOM %#x reads this cell and spills OUT of it" % m.geom)
+                raise RepaintError(
+                    "THE NAME-EVERY-COLUMN GATE, %s: %s -- its picture covers %d VRAM cell(s) and "
+                    "this spec names %d.  NOT NAMED: %s.  58 of 58 spilling corpus pictures are wider "
+                    "than one page (median 224 texels against 128) and 0 of 58 spill by <= 2%%, so a "
+                    "PAGE-scope edit here hands you half a picture and silently changes a model this "
+                    "cell does not name.  The edit unit is the MODEL: add a [[reskin.texel]] row for "
+                    "%s with its own art (the read-only `spill.geom%#x.png` preview shows the whole "
+                    "picture), and say `acknowledge_spill = true` on every row of it."
+                    % (t.name, where, len(m.cover), len(m.cover) - len(missing),
+                       ", ".join("x%d_y%d" % c for c in missing),
+                       ", ".join(_cell_name_at(cells, c) for c in missing), m.geom))
+        # EVERY writer row of EVERY covered cell must ack -- N-1 of N is not "stated" (V1 F1).
+        unack = [tt.name for m in spillers for c in sorted(m.cover)
+                 for tt in live.get(c, ()) if not tt.ack_spill]
+        if unack:
+            raise RepaintError(
+                "THE NAME-EVERY-COLUMN GATE, %s: every cell GEOM %#x reads IS named, which is the hard "
+                "half -- but %s does not say `acknowledge_spill = true`.  Editing a picture across a "
+                "page boundary is a deliberate multi-cell edit and this lane makes you state it -- on "
+                "EVERY writer row of every covered cell: an acknowledgement is stated, never inferred."
+                % (t.name, spillers[0].geom, ", ".join(sorted(set(unack)))))
+        note = ("SPILL: %s; every covered cell is named and acknowledged"
+                % "; ".join("GEOM %#x covers %s" % (m.geom, " ".join(
+                    "x%d_y%d" % c for c in sorted(m.cover))) for m in spillers))
+        for tt in ts:                   # the disclosure reaches every writer row, not the last one
+            notes[tt.name] = note
+    return notes
+
+
+def _cell_name_at(cells: Dict[Tuple[str, int, int], "RS.PageCell"], cell: Tuple[int, int]) -> str:
+    """Every writer's name for one VRAM cell -- a co-transform cell is several names and naming one of
+    them in a work order would send the author to a picture the other writer overwrites."""
+    hits = [pc.name for pc in cells.values() if pc.cell == cell]
+    return "/".join(sorted(hits)) or "x%d_y%d (no writer)" % cell
+
+
+def _scenery_disclosures(t: "TexelTarget") -> List[str]:
+    """The DISCLOSURES a scenery target owes its author -- never refusals, and never silence.
+
+    Each is a fact the container states that an author cannot see in the PNG they are painting:
+
+    * **SHARED READ** (class E3, 93 corpus cells over 38 effects) -- one edit changes >= 2 models, with
+      no depth or palette signal to hint at it. The other models are NAMED;
+    * **MULTI-PALETTE** (class C/E2, 25 cells; widest case 27 bindings over 2 CLUTs) -- the editable
+      PNG is in the LOWEST-ADDRESSED binding's key and every other key ships as a read-only alternate
+      view of the same index bytes. Both are named, because an author who never learns the second key
+      tunes a colour they cannot see;
+    * **LOWER HALF** -- this cell is the bottom half of an ``h = 256`` rect, i.e. one of the 20 the
+      per-VRAM-cell map exists for. Worth saying out loud: the rect view cannot name it at all;
+    * **COVER** -- how much of the 8,192-halfword cell any model actually samples. ef211's fire field
+      reads 8,128, which is why it is a full-screen picture rather than a corner of one.
+    """
+    hz = t.page.hazards
+    if hz is None:
+        return []
+    L: List[str] = []
+    if hz.shared_read:
+        L.append("SHARED READ (%d models): this one edit changes %s -- disclosure, not a refusal; "
+                 "class E3 is 93 corpus cells over 38 effects and carries no depth or palette signal"
+                 % (len(hz.readers), ", ".join("GEOM %#x" % r.geom for r in hz.readers)))
+    if hz.multi_palette:
+        L.append("MULTI-PALETTE (class C): one index array, %d renderings.  You are painting in %s; "
+                 "the same bytes are ALSO shown in %s -- read-only alternate views ship beside the "
+                 "editable PNG as `<cell>.as-x{X}_y{Y}.png`"
+                 % (len(hz.palette_cells), t.page.palette_name or "(no declared key)",
+                    ", ".join("%s (CLUT %s)" % (r.palette_name or "-", str(r.clut_cell))
+                              for r in hz.readers[1:])))
+    if hz.lower_half:
+        L.append("LOWER HALF: this cell is the bottom 128 lines of an h=256 rect -- one of the 20 "
+                 "cells the per-VRAM-cell map makes addressable at all; `scenery_pages`' (tag, x) key "
+                 "can only ever reach the top half")
+    L.append("COVER: %d of %d halfwords in this cell are sampled by some model"
+             % (hz.covered_halfwords, RS.PAGE_CELL_W * CELL_LINES))
+    return L
 
 
 def _gate_texanim(blob: bytes, targets: Sequence[TexelTarget]) -> TA.ReadResult:
@@ -934,21 +2519,37 @@ def _gate_texanim(blob: bytes, targets: Sequence[TexelTarget]) -> TA.ReadResult:
 
     What still refuses here, unchanged and with no key: an armed region the reader cannot DECODE. The
     lift is conditional on a successful parse, never on the absence of an exception.
+
+    **SCENERY TARGETS ARE UNDER THE SAME REFUSAL, and that is a measurement, not caution.** A2's
+    ``p6_w7_interplay`` intersected all 39 protected clip rects plus the texanim region against all
+    378 scenery cell-writer spans on the five armed containers and found **0 file-span intersections
+    and 0 shared VRAM cells** -- the creature owns x in {192, 256, 320} and every scenery cell sits at
+    x >= 384. That disjointness is what lets a scenery edit build under an armed table with no key
+    (:func:`_gate_texanim_frames`). But it is a statement ABOUT A DECODED TABLE: on a region the
+    reader cannot parse, the honest report is *"the table did not decode, so this disjointness was
+    not measured for this container"*, and restating a corpus result over bytes nobody read would be
+    exactly the guess this tier keeps refusing.
     """
     live = [t.name for t in targets if t.enabled]
     res = TA.read(blob)
     if not live or not res.armed:
         return res
     if res.table is None:
+        kinds = sorted({("SCENERY cells" if t.page.scenery else "CREATURE pages")
+                        for t in targets if t.enabled})
         raise RepaintError(
-            "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec repaints CREATURE pages (%s).  W7 "
+            "TEXANIM ARMED (%d bytes at %#x..%#x) and this spec repaints %s (%s).  W7 "
             "READ this format -- a texel-blit clip table whose only surviving reading is a same-page "
             "blit of palette indices (summons/texanim.py) -- but THIS container's region does not "
             "decode: %s.  An unread table's windows cannot be enumerated, so the co-transform "
             "obligation cannot even be stated; the pre-W7 refusal stands unchanged and no key lifts "
-            "it.  (All five stock armed packages -- ef038 / ef177 / ef493 / ef494 / ef495 -- decode; "
-            "an undecodable region means a modified or unknown container.)"
-            % (res.region.nbytes, res.region.lo, res.region.hi, ", ".join(live), res.error))
+            "it.  (For a SCENERY cell the corpus measurement is DISJOINTNESS -- 0 of 378 file-span "
+            "intersections over the five armed containers -- but that was measured on tables that "
+            "DECODED, and quoting it over a region nobody could read would be restating a result "
+            "instead of checking one.)  (All five stock armed packages -- ef038 / ef177 / ef493 / "
+            "ef494 / ef495 -- decode; an undecodable region means a modified or unknown container.)"
+            % (res.region.nbytes, res.region.lo, res.region.hi, " and ".join(kinds),
+               ", ".join(live), res.error))
     return res
 
 
@@ -992,6 +2593,18 @@ def _gate_texanim_frames(res: TA.ReadResult, t: TexelTarget) -> str:
     """
     if res.table is None or not res.armed:
         return ""
+    if t.page.scenery:
+        # THE W7 DISJOINTNESS LINE (A2 sec 5), quoted only where it was actually measured -- pass 1
+        # has already refused the undecodable case, so reaching here means this container's table
+        # parsed.  A clip's `part` indexes the id-4 PART ladder, which a scenery cell is not on at
+        # all, so the family test below has nothing to test; the reason it has nothing to test is
+        # the measurement, and stating it is the difference between "checked" and "skipped".
+        return ("the SCENERY surface is DISJOINT from the protected set: 0 of 378 cell-writer "
+                "file-span intersections and 0 shared VRAM cells over the five armed containers "
+                "(creature x in {192, 256, 320}; every scenery cell sits at x >= 384), so W7's L4 "
+                "co-transform obligation does not extend to this lane.  MEASURED, and conditional on "
+                "the table DECODING -- which it did here (%d clip(s) read)"
+                % len(res.table.clips))
     mine = [c for c in res.table.clips if c.part == t.page.index]
     if not mine:
         return ("part %d is not named by any clip in the table -- nothing to co-transform"
@@ -1061,11 +2674,23 @@ def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage) ->
             "being patched is %s.  The art and the bytes underneath it are not the same summon (a "
             "Steam/Moguri patch, another mod, or a stale export directory).  Re-run "
             "`summon-reskin export-art` against this install." % (target_name, mf, got, want))
-    rec = next((e for e in (man.get("parts") or []) if e.get("name") == target_name), None)
+    # BOTH surfaces, one manifest: `parts` holds the id-4 creature pages and `scenery` the VRAM
+    # page-cells, and a lookup that read only the first would refuse every scenery pack as "no record"
+    # -- a drift guard that fires on correct input is a guard nobody keeps.
+    known = list(man.get("parts") or []) + list(man.get("scenery") or [])
+    rec = next((e for e in known if e.get("name") == target_name), None)
     if rec is None:
         raise RepaintError("ART DRIFT on %s: %s carries no record for that page (it records %s)"
-                           % (target_name, mf, ", ".join(e.get("name", "?")
-                                                         for e in (man.get("parts") or []))))
+                           % (target_name, mf, ", ".join(e.get("name", "?") for e in known)))
+    if page.scenery and list(rec.get("cell") or []) != list(page.cell):
+        raise RepaintError("ART DRIFT on %s: %s records VRAM cell %s, the derivation says %s"
+                           % (target_name, mf, rec.get("cell"), list(page.cell)))
+    if page.scenery and rec.get("bpp") != page.bpp:
+        raise RepaintError(
+            "ART DRIFT on %s: %s exported this cell at %sbpp and the container's own `so` record now "
+            "derives %dbpp -- the SAME 0x4000 bytes are a differently-shaped picture at each depth, so "
+            "the PNG beside this manifest is not the picture this cell reads."
+            % (target_name, mf, rec.get("bpp"), page.bpp))
     for key, mine in (("page_offset", page.page_offset), ("page_bytes", page.page_bytes)):
         if rec.get(key) != mine:
             raise RepaintError("ART DRIFT on %s: %s records %s %s, the header derives %s"
@@ -1167,8 +2792,20 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         if name in seen:
             raise RepaintError("texel target %r is declared twice" % name)
         seen.add(name)
-        page = texel_page(blob, name)
+        page = texel_page(blob, name, effect)
         where = "texel target %s" % name
+        if "expect_bpp" in d:
+            assert_expect_bpp(blob, page, int(d["expect_bpp"]), where)
+        if "expect_cell" in d:
+            want_cell = tuple(int(v) for v in d["expect_cell"])
+            if page.cell is None:
+                raise RepaintError(
+                    "%s: the spec guards VRAM cell %s, but this is a CREATURE page -- its addressable "
+                    "unit is the id-4 PART, not a cell, and the id-4 handler uploads it by part index."
+                    % (where, list(want_cell)))
+            if want_cell != page.cell:
+                raise RepaintError("%s: the spec guards VRAM cell %s, the derivation says %s"
+                                   % (where, list(want_cell), list(page.cell)))
         if "expect_page_offset" in d and int(d["expect_page_offset"]) != page.page_offset:
             raise RepaintError("%s: the spec guards file %#x, the derivation says %#x"
                                % (where, int(d["expect_page_offset"]), page.page_offset))
@@ -1194,12 +2831,29 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             name=name, enabled=bool(d.get("enabled", True)), source=str(d.get("source", "")),
             page=page, note=str(d.get("note", "")), palette_from=pal_from,
             ack_cutout=_ack_bool(d, "acknowledge_cutout_reshape", where),
-            ack_texanim_frames=_ack_bool(d, "acknowledge_texanim_frames", where)))
+            ack_texanim_frames=_ack_bool(d, "acknowledge_texanim_frames", where),
+            ack_cotransform=_ack_bool(d, "acknowledge_cotransform", where),
+            ack_spill=_ack_bool(d, "acknowledge_spill", where)))
 
-    # PASS 1 runs before a single PNG is opened: an armed-and-unread table refuses the whole spec, and
-    # making the author wait for an art read to hear it would be theatre.  PASS 2 needs the art, so it
-    # runs per target inside the splice loop below.
+    # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
+    # An armed-and-unread table, a program-VRAM write, an unnamed co-transform writer and an unnamed
+    # spill column are all decidable from the container plus the spec.  Making an author wait for an
+    # art read to hear any of them would be theatre, and running them AFTER the read would let a
+    # refused build still have touched the filesystem's error paths first.
     ta_read = _gate_texanim(blob, targets)
+    _gate_spans(blob, targets)
+    scenery_live = [t for t in targets if t.enabled and t.page.scenery]
+    for t in targets:
+        if t.enabled:
+            t.hazard_notes = [n for n in [_gate_program_vram(t.page, "texel target %s" % t.name)]
+                              if n]
+    models = bound_models(blob) if scenery_live else []
+    ct_notes = _gate_cotransform(blob, targets)
+    sp_notes = _gate_spill_columns(blob, targets, models)
+    for t in scenery_live:
+        t.covered_halfwords = t.page.hazards.covered_halfwords
+        t.hazard_notes += [n for n in (ct_notes.get(t.name), sp_notes.get(t.name)) if n]
+        t.hazard_notes += _scenery_disclosures(t)
 
     out = bytearray(base)
     for t in targets:
@@ -1212,42 +2866,71 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         if not src.is_absolute():
             src = Path(base_dir) / src
         t.manifest_note = _gate_manifest(blob, src, t.name, t.page)
-        words = palette_words(base, t.page)
         t.stock = bytes(base[t.page.page_offset:t.page.page_offset + t.page.page_bytes])
-        t.new = read_indexed_png(src, t.page.w, t.page.h, len(words))
+        # THE ART READ, at THIS page's own depth.  Three codecs, one dispatch: dispatching on the
+        # DERIVED depth (never on the file's shape) is what makes a wrong `expect_bpp` a refusal
+        # rather than a differently-shaped picture that packs to exactly the right byte count.
+        if t.page.direct:
+            t.new = read_direct_png(src, t.page.w, t.page.h)
+            words: Tuple[int, ...] = ()
+        else:
+            words = tuple(palette_words(base, t.page))
+            t.new = (read_indexed4_png(src, t.page.w, t.page.h, len(words)) if t.page.bpp == 4
+                     else read_indexed_png(src, t.page.w, t.page.h, len(words)))
+        if len(t.new) != t.page.page_bytes:                      # pragma: no cover - codec-enforced
+            raise RepaintError("%s decoded to %d bytes, this cell is %d"
+                               % (t.name, len(t.new), t.page.page_bytes))
         t.changed = tuple(i for i in range(len(t.stock)) if t.stock[i] != t.new[i])
-        zeros = set(transparent_indices(words))
-        t.cutout_punch = sum(1 for i in t.changed if t.stock[i] not in zeros and t.new[i] in zeros)
-        t.cutout_fill = sum(1 for i in t.changed if t.stock[i] in zeros and t.new[i] not in zeros)
+        # THE CUTOUT LAW, counted in TEXEL space at every depth (see :func:`texel_view`).
+        zeros, zeros_why = transparent_values(base, t.page)
+        zset, st, nw = set(zeros), texel_view(t.page, t.stock), texel_view(t.page, t.new)
+        moved = [i for i in range(len(st)) if st[i] != nw[i]]
+        t.cutout_punch = sum(1 for i in moved if st[i] not in zset and nw[i] in zset)
+        t.cutout_fill = sum(1 for i in moved if st[i] in zset and nw[i] not in zset)
         if t.cutout_flips and not t.ack_cutout:
             raise RepaintError(
-                "THE CUTOUT LAW, %s: this edit moves %d texel(s) across the transparent-index "
-                "boundary (%d punched opaque->hole, %d filled hole->opaque).  Index %s is the "
-                "palette's only alpha-0 entry, so those texels change the model's SILHOUETTE -- "
-                "something the CLUT lever structurally cannot do, and therefore something this lane "
-                "makes you say out loud.  Reshaping a torn wing edge is legitimate: say "
-                "`acknowledge_cutout_reshape = true` on that row.  Painting through a hole by "
-                "accident is not, and is what this catches."
-                % (t.name, t.cutout_flips, t.cutout_punch, t.cutout_fill,
-                   ",".join(str(z) for z in sorted(zeros)) or "(none)"))
+                "THE CUTOUT LAW, %s: this edit moves %d texel(s) across the transparent boundary "
+                "(%d punched opaque->hole, %d filled hole->opaque).  The transparent set here is %s, "
+                "so those texels change the model's SILHOUETTE -- something the CLUT lever "
+                "structurally cannot do, and therefore something this lane makes you say out loud.  "
+                "Reshaping a torn wing edge is legitimate: say `acknowledge_cutout_reshape = true` on "
+                "that row.  Painting through a hole by accident is not, and is what this catches."
+                % (t.name, t.cutout_flips, t.cutout_punch, t.cutout_fill, zeros_why))
         t.texanim_note = _gate_texanim_frames(ta_read, t)
-        t.cov = coverage(blob, t.page.index)
-        if t.cov.available:
-            t.dead_changed = sum(1 for i in t.changed if not t.cov.mask[i])
+        # THE COVERAGE CENSUS, per surface.  A creature page's unit is the TEXEL (the id-4 uv pools
+        # rasterised per part); a scenery cell's is the HALFWORD (the model's UV cover in absolute
+        # VRAM space, which is the only unit that survives three depths).  Reporting one in the
+        # other's units would be the kind of number that reads right and means nothing.
+        if t.page.scenery:
+            cover = {hw for m in models for hw in m.cover.get(t.page.cell, ())}
+            t.dead_changed = sum(1 for o in t.changed if (o // 2) not in cover)
             t.live_changed = len(t.changed) - t.dead_changed
         else:
-            t.live_changed = len(t.changed)
-        t.distinct_stock, t.distinct_new = len(set(t.stock)), len(set(t.new))
-        t.round_trip = _round_trip_ok(t.new, words, t.page.w, t.page.h)
+            t.cov = coverage(blob, t.page.index)
+            if t.cov.available:
+                t.dead_changed = sum(1 for i in t.changed if not t.cov.mask[i])
+                t.live_changed = len(t.changed) - t.dead_changed
+            else:
+                t.live_changed = len(t.changed)
+        t.distinct_stock, t.distinct_new = len(set(st)), len(set(nw))
+        t.round_trip = (all(KT.direct15_word(*KT.direct15_split(x)) == x for x in nw)
+                        if t.page.direct else
+                        _round_trip_ok(bytes(nw), words, t.page.w, t.page.h))
         out[t.page.page_offset:t.page.page_offset + t.page.page_bytes] = t.new
     patched = bytes(out)
     if len(patched) != len(base):                                # pragma: no cover - in-place splice
         raise RepaintError("the splice changed the container length -- impossible by construction")
     # THE REGION INVARIANT (W7 R1), against the PRISTINE stock rather than the composition base, so a
-    # composed build proves the whole pipeline and not just this lane's own half of it.
+    # composed build proves the whole pipeline and not just this lane's own half of it.  Its W6b-1
+    # sibling is THE PAGE-CELL DERIVATION IDENTITY: the scenery map is read out of the id-0 page-block
+    # header and rect table, which this lane licenses NOTHING of, and a splice that moved one of them
+    # would re-aim the whole map while the container still parsed, the length still matched and every
+    # palette still re-derived.  Both run at the call site -- a law in a docstring is a wish.
     try:
         region_invariant = RS.assert_region_invariant(blob, patched,
                                                       "the repaint of ef%03d" % effect)
+        region_invariant += "; " + RS.assert_page_cells_identical(
+            blob, patched, "the repaint of ef%03d" % effect)
     except RS.ReskinError as e:                                  # a texel refusal must raise a texel
         raise RepaintError(str(e)) from None                     # error -- the CLI keys on the class
 
@@ -1382,7 +3065,12 @@ def self_check(b: TexelBuild) -> SelfCheck:
     spans = [(t.page.name, t.page.page_offset, t.page.page_offset + t.page.page_bytes)
              for t in b.enabled]
     span_miss = [o for o in changed if not any(lo <= o < hi for _n, lo, hi in spans)]
-    envelope = sum(p.page_bytes for p in b.pages)
+    # THE ENVELOPE IS PER SURFACE.  For creature pages it is the id-4 header's own
+    # ``partCount * 0x4000``; a SCENERY cell is not inside that block at all, so its 0x4000 has to be
+    # added from the enabled targets or a scenery-only build would measure itself against an envelope
+    # of zero and the gate would read "0 changed of 0" -- green, and about nothing.
+    scen_env = sum(t.page.page_bytes for t in b.enabled if t.page.scenery)
+    envelope = sum(p.page_bytes for p in b.pages) + scen_env
     acc = [
         Gate(not unexplained, "every changed byte belongs to a named texel target",
              "%d bytes changed, %d unexplained%s"
@@ -1393,9 +3081,9 @@ def self_check(b: TexelBuild) -> SelfCheck:
                                      for n, lo, hi in spans)) if spans else
              "no enabled target -- this build splices nothing"),
         Gate(len(changed) <= envelope, "under the DERIVED texel envelope",
-             "%d changed of the %d-byte %d-page envelope (%.3f%% of the %d-byte container); the "
-             "envelope is partCount * 0x4000, derived per effect"
-             % (len(changed), envelope, len(b.pages),
+             "%d changed of the %d-byte envelope (%d creature page(s) at partCount * 0x4000 + %d "
+             "scenery cell byte(s) at 0x4000 each), %.3f%% of the %d-byte container"
+             % (len(changed), envelope, len(b.pages), scen_env,
                 100.0 * len(changed) / max(1, len(b.orig)), len(b.orig))),
         Gate(len(b.patched) == len(b.orig), "same length by construction",
              "%d B in, %d B out" % (len(b.orig), len(b.patched))),
@@ -1407,16 +3095,35 @@ def self_check(b: TexelBuild) -> SelfCheck:
     unack = [t.name for t in flips if not t.ack_cutout]
     zero_law = []
     clut_hits = 0
+    clut_rows: Set[int] = set()
     for t in b.enabled:
+        if t.page.clut_offset is None or not t.page.clut_entries:
+            # 15bpp DIRECT: there is no CLUT row to read and none to protect.  Skipped by DERIVATION
+            # rather than by exception -- `palette_words` REFUSES a direct page on purpose, and
+            # catching that refusal here to keep a loop going would turn a designed refusal into
+            # control flow.
+            continue
         z = transparent_indices(palette_words(b.orig, t.page))
-        if list(z) != [0]:
+        if list(z) != [0] and not t.page.scenery:
             zero_law.append("%s: transparent indices %s" % (t.name, list(z)))
+        clut_rows.add(t.page.clut_offset)
         clut_hits += sum(1 for o in range(t.page.clut_offset,
                                           t.page.clut_offset + 2 * t.page.clut_entries)
                          if o in mine)
+    shape = []
+    for t in b.enabled:
+        p = t.page
+        ok = ((p.page_bytes == RS.PAGE_CELL_BYTES and p.h == CELL_LINES
+               and p.w == cell_texel_w(p.bpp)) if p.scenery else
+              (p.bpp == 8 and p.wh == (KT.PAGE_W, KT.PAGE_H) and p.page_bytes == KT.PAGE_BYTES))
+        shape.append((ok, "%s %s %dx%d %dbpp %d B" % (t.name, p.kind, p.w, p.h, p.bpp,
+                                                      p.page_bytes)))
     rules = [
-        Gate(not bad_rt, "THE INDEXED ROUND TRIP is byte-identical on every patched page",
-             "%d page(s) re-encoded to a P-mode PNG and re-read as the same indices%s"
+        Gate(not bad_rt, "THE ROUND TRIP is byte-identical on every patched page, at its own depth",
+             "%d page(s): the indexed ones re-encoded to a P-mode PNG and re-read as the same "
+             "indices (4bpp through the nibble pack, one byte per texel); the 15bpp ones checked "
+             "against the shift codec's own word identity, which is exhaustive over all 65,536 "
+             "halfwords rather than sampled%s"
              % (len(b.enabled), "" if not bad_rt else " -- DRIFT at " + ", ".join(bad_rt))),
         Gate(not unack, "THE CUTOUT LAW: no unacknowledged index-0 boundary crossing",
              "no texel crossed the transparent-index boundary" if not flips else
@@ -1425,18 +3132,23 @@ def self_check(b: TexelBuild) -> SelfCheck:
                           "ACKNOWLEDGED" if t.ack_cutout else "NOT acknowledged")
                        for t in flips)),
         Gate(True, "the transparent-index law (reported: exactly one alpha-0 entry, at index 0)",
-             "holds on every patched page (corpus: 93/93)" if not zero_law else
+             "holds on every patched CREATURE page (corpus: 93/93); a scenery cell's transparent set "
+             "is DERIVED per palette and is not held to the id-4 shape, and a 15bpp cell has no "
+             "palette at all (its cutout is the word 0x0000)" if not zero_law else
              "DEVIATES -- " + "; ".join(zero_law) + ".  The cutout census used the DERIVED set, so "
              "the gate is still correct; the note exists because a row that is not the corpus shape "
              "is worth knowing about before a cast."),
-        Gate(all(t.page.bpp == 8 for t in b.enabled), "every patched page is the 8bpp 128x128 layout",
-             ", ".join("%s %dx%d %dbpp" % (t.name, t.page.w, t.page.h, t.page.bpp)
-                       for t in b.enabled) or "no enabled target"),
+        Gate(all(ok for ok, _d in shape),
+             "every patched page is its DERIVED shape at its DERIVED depth",
+             ", ".join(d for _ok, d in shape) or "no enabled target"),
         Gate(clut_hits == 0, "this lane wrote ZERO CLUT bytes",
              "%d byte(s) of the %d row(s) this build's pages index into moved.  The palette is "
              "DISPLAY ONLY in the exported PNG; the container remains the palette authority, and "
-             "the CLUT lever is `[[reskin.target]]`."
-             % (clut_hits, len({t.page.clut_offset for t in b.enabled}))),
+             "the CLUT lever is `[[reskin.target]]`.%s"
+             % (clut_hits, len(clut_rows),
+                "" if len(clut_rows) == len([t for t in b.enabled]) else
+                "  (%d enabled target(s) index no palette at all -- 15bpp DIRECT colour.)"
+                % sum(1 for t in b.enabled if t.page.clut_offset is None))),
     ]
 
     # ---- (3) the INVERTED region partition + a strict re-parse
@@ -1463,11 +3175,65 @@ def self_check(b: TexelBuild) -> SelfCheck:
                            ".  Measured on THIS LANE's delta: the CLUT strip is deliberately moved "
                            "by the sibling this build composes onto, and that the two never touch "
                            "the same byte is the COMPOSED HALVES gate below, not this one")))
+    # ---- THE id-0 SPLIT (W6b-1): the half this lane licenses, and the half it must not have touched.
+    # `_regions(partition="texel")` already gates the CLUT side above, so this gate exists to state
+    # the boundary in the author's terms AND to prove the licensed half is where the edit actually
+    # landed -- a scenery splice that wrote outside the pixel stream would otherwise only show up as
+    # an "unexplained byte", which does not name the structure it broke.
+    try:
+        splits = RS.id0_splits(b.orig)
+    except (RS.ReskinError, EC.ContainerError) as e:             # pragma: no cover - malformed id-0
+        splits = []
+        regions.append(Gate(False, "the id-0 page-block split derives", str(e)))
+    if splits:
+        head = [o for o in changed if any(sp.lo <= o < sp.boundary for sp in splits)]
+        # ONLY an id-0 cell is inside the page pixel stream.  An id-9 ALTERNATE block is a whole
+        # 0x4000 upload living in its own id-9 resource, so demanding it sit inside the id-0 stream
+        # would fail every co-transform build -- the same per-writer / per-cell distinction the
+        # lower-half divergence turns on.
+        def _own_kind(t):
+            hz = t.page.hazards
+            w = next((w for w in hz.writers if w.tag == hz.writer), None) if hz else None
+            return w.kind if w else "id0"
+
+        id0_live = [t for t in b.enabled if t.page.scenery and _own_kind(t) == "id0"]
+        scen_out = [t.name for t in id0_live
+                    if not any(sp.boundary <= t.page.page_offset
+                               and t.page.page_offset + t.page.page_bytes <= sp.hi
+                               for sp in splits)]
+        regions.append(Gate(
+            not head and not scen_out,
+            "the id-0 page-block header, clutWord table and inline CLUT stream are BYTE-IDENTICAL",
+            "%d split(s): %s.  %d changed byte(s) below the pixelDataRel boundary%s; every id-0 "
+            "scenery target's 0x4000 span sits inside the licensed PIXEL stream%s.  The rect table is "
+            "what `page_cells` reads and what NOTHING else in this check would notice moving."
+            % (len(splits),
+               "; ".join("%s header %#x..%#x | pixels %#x..%#x (%d rect(s))"
+                         % (sp.tag, sp.lo, sp.boundary, sp.boundary, sp.hi, sp.n_rects)
+                         for sp in splits),
+               len(head), "" if not head else " at " + ", ".join("%#x" % o for o in head[:8]),
+               "" if not scen_out else " -- EXCEPT " + ", ".join(scen_out))))
+    try:
+        regions.append(Gate(True, "the page-cell map RE-DERIVES identically after the splice",
+                            RS.assert_page_cells_identical(b.orig, b.patched,
+                                                           "self_check(ef%03d)" % b.effect)))
+    except RS.ReskinError as e:                                  # pragma: no cover - build gates it
+        regions.append(Gate(False, "the page-cell map RE-DERIVES identically after the splice",
+                            str(e)))
     mp_p = EC.creature_package(b.patched)
-    ok_dec = mp_p is not None and KT.texture_check(b.patched, mp_p)["decodable"]
-    regions.append(Gate(ok_dec, "the patched id-4 package still DECODES",
-                        "texture_check passes on the patched container (%d parts)"
-                        % (mp_p.part_count if mp_p else 0)))
+    if EC.creature_package(b.orig) is None:
+        # A creature-less container is 348 of the corpus's 372 and now has a REAL texel surface, so
+        # "the id-4 package still decodes" has to report that there is none rather than fail.  An
+        # inverted pin: the same gate, the opposite verdict, for a reason it names.
+        regions.append(Gate(mp_p is None, "the patched id-4 package still DECODES",
+                            "SKIPPED: this container declares no id-4 + id-5 creature package (348 "
+                            "of the corpus's 372 do not) -- and the patched container declares none "
+                            "either, which is the half of it a splice could have broken"))
+    else:
+        ok_dec = mp_p is not None and KT.texture_check(b.patched, mp_p)["decodable"]
+        regions.append(Gate(ok_dec, "the patched id-4 package still DECODES",
+                            "texture_check passes on the patched container (%d parts)"
+                            % (mp_p.part_count if mp_p else 0)))
     pm_s, pm_p = b.pmap, RS.palette_map(b.patched, effect=b.effect)
     same_pal = ([(p.name, p.off, p.entries) for p in pm_s.palettes]
                 == [(p.name, p.off, p.entries) for p in pm_p.palettes]) and all(
@@ -1505,7 +3271,39 @@ def self_check(b: TexelBuild) -> SelfCheck:
     if no_cov:
         ran += ("  |  UNAVAILABLE for %s -- the dead-pad census cannot run there, so it reports "
                 "nothing rather than reporting zero" % ", ".join(no_cov))
+    scen_cov = "; ".join(
+        "%s %d/%d halfwords sampled (%.1f%%), %d of %d edited byte(s) outside the cover"
+        % (t.name, t.covered_halfwords, RS.PAGE_CELL_W * CELL_LINES,
+           100.0 * t.covered_halfwords / float(RS.PAGE_CELL_W * CELL_LINES),
+           t.dead_changed, len(t.changed))
+        for t in b.enabled if t.page.scenery)
+    if scen_cov:
+        ran += ("  |  SCENERY (the unit is the HALFWORD, not the texel -- it is the only one that "
+                "survives 4 / 8 / 15 bpp): " + scen_cov)
     qual.append(Gate(True, "the UV coverage instrument ran (reported, not fatal)", ran))
+
+    # ---- THE HAZARD MATRIX, RE-MEASURED rather than restated ------------------------------------
+    # The remedy gates are RUN AGAIN here, on the finished target list, instead of the notes build()
+    # recorded being printed back.  A gate whose only evidence is a string an earlier pass wrote is a
+    # gate that cannot fail, and this rung's whole argument is that a refusal is a measurement.
+    hz_ok, hz_why = True, ""
+    try:
+        _gate_spans(b.stock, b.targets)
+        _gate_cotransform(b.stock, b.targets)
+        _gate_spill_columns(b.stock, b.targets,
+                            bound_models(b.stock) if any(t.page.scenery for t in b.enabled) else [])
+        for t in b.enabled:
+            _gate_program_vram(t.page, "self_check %s" % t.name)
+    except RepaintError as e:
+        hz_ok, hz_why = False, str(e)
+    rows = ["%s [%s] %s" % (t.name, ", ".join(t.page.hazards.names) or "clean",
+                            " | ".join(t.hazard_notes) or "no hazard verdict")
+            for t in b.enabled if t.page.scenery]
+    qual.append(Gate(hz_ok, "every hazard this cell carries is REFUSED, remedied or DISCLOSED",
+                     ("no scenery target -- the id-4 creature surface is measured hazard-free (0 "
+                      "collisions over 24 packages / 93 pages) and `_gate_collisions` re-checks it "
+                      "per target" if not rows else "  ||  ".join(rows))
+                     if hz_ok else "RE-MEASURE FAILED: %s" % hz_why))
     qual.append(Gate(True, "index census (reported)",
                      ", ".join("%s distinct %d->%d, %d texels moved (%.2f%% of the page)"
                                % (t.name, t.distinct_stock, t.distinct_new, len(t.changed),
@@ -1532,19 +3330,30 @@ def render_previews(b: TexelBuild, out_dir) -> List[str]:
     written: List[str] = []
     S = 3
     for t in b.enabled:
-        words = palette_words(b.orig, t.page)
-        rgba = [KT.bgr555_rgba(w) for w in words]
         w, h = t.page.w, t.page.h
+        # THE PREVIEW IS RENDERED IN TEXEL SPACE, AT THIS PAGE'S OWN DEPTH.  A byte-indexed render
+        # would show a 4bpp cell as half a picture of nonsense and a 15bpp cell as pairs of
+        # half-colours -- and it would do it silently, because both still fill the frame.
+        direct = t.page.direct
+        rgba = ([] if direct else
+                [KT.bgr555_rgba(x) for x in palette_words(b.orig, t.page)])
 
-        def _img(px):
-            im = Image.new("RGBA", (w, h))
-            im.putdata([rgba[i] for i in px])
-            bg = Image.new("RGBA", (w, h), (24, 24, 28, 255))
+        def _img(raw, _rgba=rgba, _direct=direct, _p=t.page, _w=w, _h=h):
+            vals = texel_view(_p, raw)
+            im = Image.new("RGBA", (_w, _h))
+            if _direct:
+                im.putdata([KT.direct15_split(v)[:3] + (0 if v == KT.DIRECT15_CUTOUT else 255,)
+                            for v in vals])
+            else:
+                im.putdata([_rgba[v] if v < len(_rgba) else (0, 0, 0, 0) for v in vals])
+            bg = Image.new("RGBA", (_w, _h), (24, 24, 28, 255))
             return Image.alpha_composite(bg, im)
 
         before, after = _img(t.stock), _img(t.new)
         moved = Image.new("RGBA", (w, h), (18, 18, 22, 255))
-        ch = set(t.changed)
+        per = 1 if t.page.bpp == 8 else (2 if t.page.bpp == 4 else 0.5)   # texels per BYTE
+        ch = {int(o * per) + k for o in t.changed
+              for k in (range(2) if t.page.bpp == 4 else (0,))}
         moved.putdata([(255, 64, 200, 255) if i in ch else (24, 24, 28, 255)
                        for i in range(w * h)])
         sheet = Image.new("RGBA", (3 * w * S, h * S), (12, 12, 14, 255))
@@ -1555,7 +3364,7 @@ def render_previews(b: TexelBuild, out_dir) -> List[str]:
         written.append(str(p))
         if t.cov is not None and t.cov.available:
             cp = out / ("%s.coverage.png" % t.name)
-            write_coverage_png(t.new, words, t.cov.mask, w, h, cp)
+            write_coverage_png(t.new, palette_words(b.orig, t.page), t.cov.mask, w, h, cp)
             written.append(str(cp))
     return written
 
@@ -1640,10 +3449,20 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
         "per_target_bytes": b.check.per_target if b.check else None,
         "staging_root": str(root), "mod_root": str(mod_root),
         "texels": {t.name: {"enabled": t.enabled, "source": t.source,
+                            "kind": t.page.kind, "bpp": t.page.bpp,
+                            "cell": (list(t.page.cell) if t.page.cell else None),
                             "page_offset": t.page.page_offset, "page_bytes": t.page.page_bytes,
                             "wh": list(t.page.wh), "changed": len(t.changed),
                             "cutout_punch": t.cutout_punch, "cutout_fill": t.cutout_fill,
                             "acknowledge_cutout_reshape": t.ack_cutout,
+                            "acknowledge_cotransform": t.ack_cotransform,
+                            "acknowledge_spill": t.ack_spill,
+                            # the hazard verdicts, staged BESIDE the container: a cast report that
+                            # cannot say which disclosures were live is a report nobody can audit
+                            # after the fact.
+                            "hazards": list(t.page.hazards.names) if t.page.hazards else [],
+                            "hazard_notes": list(t.hazard_notes),
+                            "covered_halfwords": t.covered_halfwords,
                             "dead_changed": t.dead_changed, "palette_from": t.palette_from}
                    for t in b.targets},
     }
@@ -1700,6 +3519,36 @@ def verify(b: TexelBuild, root=None) -> dict:
 
 
 # ============================================================ (9) REPORTING
+def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
+    """The scenery page-cell census, as DISCLOSURE -- what the container states and what it does not.
+
+    A derivation FAILURE is printed, never swallowed: a report that quietly showed zero cells because
+    the map refused to derive would be the most expensive kind of quiet.
+    """
+    L = ["  THE DERIVED SCENERY PAGE-CELLS (W6b-1: keyed by WRITER and VRAM cell)"]
+    try:
+        pages, refused = scenery_surface(blob, effect)
+    except (RS.ReskinError, EC.ContainerError) as e:
+        return L + ["    THE DERIVATION REFUSED: %s: %s" % (type(e).__name__, e)]
+    klass, why = program_class(effect)
+    L.append("    program-VRAM: %s -- %s" % (klass.upper(), why))
+    if not pages and not refused:
+        return L + ["    none -- this container declares no page rects and no id-9 alternate block"]
+    for p in sorted(pages, key=lambda q: (q.vram, q.name)):
+        hz = p.hazards
+        L.append("    %-22s %#08x..%#08x  %dx%d %2dbpp  VRAM %-11s %-22s %s"
+                 % (p.name, p.page_offset, p.page_offset + p.page_bytes, p.w, p.h, p.bpp,
+                    "(%d,%d)" % p.vram, p.palette_name or "(direct colour)",
+                    ", ".join(hz.names) or "clean"))
+    if refused:
+        by: Dict[str, int] = {}
+        for r in refused:
+            by[r.klass] = by.get(r.klass, 0) + 1
+        L.append("    REFUSED %d cell(s): %s"
+                 % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
+    return L
+
+
 def derivation_lines(blob: bytes, pages: Sequence[TexelPage]) -> List[str]:
     L = ["  THE DERIVED TEXEL PAGES (from the id-4 header, not from a table)"]
     if not pages:
@@ -1739,21 +3588,29 @@ def describe(b: TexelBuild) -> List[str]:
         L += ["  THE REGION INVARIANT (W7 R1, enforced at the build call site)",
               "    %s" % b.region_invariant, ""]
     L += derivation_lines(b.stock, b.pages)
+    L += [""] + scenery_lines(b.stock, b.effect)
     L += ["", "  THE TEXEL TARGETS"]
     for t in b.targets:
         if not t.enabled:
             L.append("    off  %-12s %s" % (t.name, t.note or "(disabled -- states an intent)"))
             continue
-        cov = ("%d/%d sampled (%.1f%%)" % (t.cov.covered, t.cov.total, 100.0 * t.cov.covered_fraction)
-               if t.cov and t.cov.available else "coverage UNAVAILABLE")
-        L.append("    ON   %-12s <- %s" % (t.name, t.source))
-        L.append("         %5d/%d texels moved (%.2f%%) | live %d, dead-pad %d | cutout punch %d "
+        cov = ("%d/%d halfwords sampled (%.1f%%)"
+               % (t.covered_halfwords, RS.PAGE_CELL_W * CELL_LINES,
+                  100.0 * t.covered_halfwords / float(RS.PAGE_CELL_W * CELL_LINES))
+               if t.page.scenery else
+               ("%d/%d sampled (%.1f%%)" % (t.cov.covered, t.cov.total,
+                                            100.0 * t.cov.covered_fraction)
+                if t.cov and t.cov.available else "coverage UNAVAILABLE"))
+        L.append("    ON   %-12s <- %s  (%s, %dbpp)" % (t.name, t.source, t.page.kind, t.page.bpp))
+        L.append("         %5d/%d bytes moved (%.2f%%) | live %d, unsampled %d | cutout punch %d "
                  "fill %d%s | distinct %d->%d | %s"
                  % (len(t.changed), t.page.page_bytes,
                     100.0 * len(t.changed) / max(1, t.page.page_bytes), t.live_changed,
                     t.dead_changed, t.cutout_punch, t.cutout_fill,
                     " (ACKNOWLEDGED)" if t.ack_cutout and t.cutout_flips else "",
                     t.distinct_stock, t.distinct_new, cov))
+        for line in t.hazard_notes:
+            L.append("         hazard   : %s" % line)
         if t.texanim_note:
             L.append("         texanim  : %s" % t.texanim_note)
         if t.manifest_note:

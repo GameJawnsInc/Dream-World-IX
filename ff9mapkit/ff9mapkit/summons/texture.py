@@ -40,6 +40,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 __all__ = [
     "TextureError", "PAGE_W", "PAGE_H", "PAGE_BYTES", "PALETTE_LEN", "CLUT_ROW_BYTES",
     "CLUT_STRIP_X", "CLUT_STRIP_Y", "CLUT_STRIP_W", "MODE_4BPP", "MODE_8BPP", "MODE_16BPP",
+    "TEXELS_PER_HW", "DIRECT15_CUTOUT", "direct15_split", "direct15_word",
     "PartTexture", "tpage_mode", "tpage_origin", "clut_row", "clut_entry0", "bgr555_rgba",
     "page_row", "uv_texcoord", "part_textures", "texture_check", "read_palette",
     "decode_page_rgba", "decode_pages",
@@ -55,6 +56,18 @@ CLUT_STRIP_X = 0x100                # the strip's VRAM x (halfwords)  -- rect @0
 CLUT_STRIP_Y = 0xE6                 # the strip's VRAM y (lines)      -- rect @0x3e286
 CLUT_STRIP_W = 0x100                # the strip's width in entries    -- rect @0x3e286
 MODE_4BPP, MODE_8BPP, MODE_16BPP = 0, 1, 2
+
+#: PSX texels per VRAM **halfword**, by ``so`` colour depth. The one number the whole scenery texel
+#: lane's geometry falls out of: a 64-halfword page-cell is 256 texels wide at 4bpp, 128 at 8bpp and
+#: 64 at 15bpp, and its 0x4000 bytes are the same 0x4000 bytes either way. It is also THE U-SPILL
+#: LAW's own arithmetic -- an 8-bit ``u`` reaches halfword 63 at 4bpp (exactly one column, so 4bpp
+#: structurally cannot spill), 127 at 8bpp (two columns) and 255 at 15bpp (four).
+TEXELS_PER_HW = {4: 4, 8: 2, 15: 1}
+
+#: THE 15bpp CUTOUT WORD. Transparency at direct colour is by VALUE and there is no palette to derive
+#: it from, so it is derived from the VALUES instead: ``0x0000`` (black, STP clear) is the hole, which
+#: is the identical rule :func:`bgr555_rgba` applies to a CLUT entry.
+DIRECT15_CUTOUT = 0x0000
 
 
 class TextureError(RuntimeError):
@@ -100,6 +113,51 @@ def bgr555_rgba(word: int) -> Tuple[int, int, int, int]:
     g = ((word >> 5) & 0x1F) * 255 // 31
     b = ((word >> 10) & 0x1F) * 255 // 31
     return (r, g, b, 255)
+
+
+def direct15_split(word: int) -> Tuple[int, int, int, int]:
+    """One 15bpp DIRECT-colour texel -> ``(r8, g8, b8, stp)``, by **SHIFT** -- the round-trippable form.
+
+    THE CODEC OF RECORD FOR THE 15bpp TEXEL LANE, and it lives here rather than in ``repaint`` for the
+    reason the whole module exists: ONE module owns BGR555. Exhaustively proven over all 65,536
+    halfwords: ``direct15_word(*direct15_split(w)) == w`` with 0 mismatches, and ``word == 0`` is
+    exactly the alpha-0 set.
+
+    WHY THE SHIFT AND NOT :func:`bgr555_rgba`'s ``v * 255 // 31``. That scale is the right choice for
+    the glTF DISPLAY path it serves -- it puts white at 255 -- but it is lossless only under a
+    *rounding* inverse; measured beside this one, a flooring inverse of the scale form fails **30 of
+    32** channel values. The texel lane's entire gate is byte identity, and *a rounding rule is a
+    place for the no-op to stop being a no-op* -- the same argument that refuses RGBA for the indexed
+    lane. The shift costs 3% of display brightness (white renders 248) and buys an inverse that cannot
+    be got wrong. It is also TOTAL: every 8-bit colour an author paints floors cleanly, so this codec
+    never refuses a colour -- only an inconsistent alpha, and that refusal is the importer's
+    (:func:`ff9mapkit.summons.repaint.read_direct_png`).
+
+    ``stp`` is bit 15, returned SEPARATELY and never folded into alpha: ``0x8000`` (STP set, RGB 0) and
+    ``0x0000`` (the cutout) are two different words that both render black, and one alpha channel
+    cannot carry both "this is a hole" and "this blends" without collapsing that pair.
+    """
+    if not 0 <= word <= 0xFFFF:
+        raise TextureError("a 15bpp texel is one 16-bit halfword; got %r" % (word,))
+    return ((word & 0x1F) << 3, ((word >> 5) & 0x1F) << 3, ((word >> 10) & 0x1F) << 3,
+            (word >> 15) & 1)
+
+
+def direct15_word(r8: int, g8: int, b8: int, stp: int) -> int:
+    """``(r8, g8, b8, stp)`` -> one 15bpp halfword -- the exact inverse of :func:`direct15_split`.
+
+    Every argument is RANGE-CHECKED rather than masked: a channel outside 0..255 or an ``stp`` that is
+    not 0/1 is an author error the caller must hear about, and silently masking it would write a
+    plausible wrong colour into the container.
+    """
+    for nm, v in (("r", r8), ("g", g8), ("b", b8)):
+        if not 0 <= v <= 255:
+            raise TextureError("%s = %r is outside 0..255 -- a direct15 channel is an 8-bit value"
+                               % (nm, v))
+    if stp not in (0, 1):
+        raise TextureError("stp = %r must be 0 or 1 (it is bit 15, one bit per texel)" % (stp,))
+    return ((stp & 1) << 15) | (((b8 >> 3) & 0x1F) << 10) | (((g8 >> 3) & 0x1F) << 5) \
+        | ((r8 >> 3) & 0x1F)
 
 
 # --------------------------------------------------------------------------- the UV bake

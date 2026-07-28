@@ -2084,7 +2084,7 @@ _SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert
 #: handler imports lazily), and PINNED EQUAL to the module's own tuple by a test -- a `choices=` list
 #: that drifted from the lane the handler dispatches on would refuse a lane that works, or offer one
 #: that does not.
-_SUMMON_ART_LANES = ("indexed", "rgba")
+_SUMMON_ART_LANES = ("indexed", "rgba", "direct15")
 
 
 class _SummonEditUsage(Exception):
@@ -2288,8 +2288,11 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
     repaint, so the two levers ship as ONE container, ONE ledger and ONE revert with their
     changed-byte sets gated disjoint.
 
-    `export-art` decodes every creature page to a paintable indexed PNG + a coverage overlay + a
-    guarded scaffold under a local-only root; `scaffold` emits a fully guarded CLUT spec at identity;
+    `export-art` decodes every ADDRESSABLE page to a paintable PNG + its overlays + a guarded
+    scaffold under a local-only root -- the id-4 creature pages AND the scenery VRAM page-cells whose
+    depth the container states, with every refused cell NAMED and its measurement printed as a
+    commented block, because on the scenery surface the refusals are the larger half by two orders of
+    magnitude; `scaffold` emits a fully guarded CLUT spec at identity;
     `plan` resolves every target and prints every gate group without writing a byte; `build` stages
     the patched container + previews + the deploy/revert scripts; `verify` re-reads what is staged AS
     BYTES; `deploy` writes into the resolved mod folder through the ledger; `revert` runs that
@@ -6787,10 +6790,13 @@ def build_parser() -> argparse.ArgumentParser:
                          help="RECOLOUR or REPAINT a stock summon in place -- its own CLUT palettes "
                               "([[reskin.target]], hue/saturation/value) and/or its own texture "
                               "pages ([[reskin.texel]], the indices themselves: shape, edge and "
-                              "silhouette). No model, no donor. Every guard is derived from the "
-                              "container, and a shared / multi-writer / dual-depth / zero-headroom "
-                              "palette -- or a scenery / 15bpp / co-transformed page, or an armed "
-                              "texanim table that does not DECODE -- REFUSES rather than flickers")
+                              "silhouette), on the id-4 CREATURE pages and on the SCENERY VRAM "
+                              "page-cells at 4 / 8 / 15 bpp. No model, no donor. Every guard is "
+                              "derived from the container, and a shared / multi-writer / dual-depth "
+                              "/ zero-headroom palette -- or a cell whose DEPTH the container never "
+                              "states, a same-bytes-two-depths cell, a program-VRAM WRITE, an "
+                              "unnamed co-transform writer or spill column, or an armed texanim "
+                              "table that does not DECODE -- REFUSES rather than flickers")
     _add_summon_edit_args(srk, lane="reskin", suffix="reskin")
     srk.add_argument("--previews", action="store_true",
                      help="plan: ALSO render the before/after previews (decoded stock art -- staged "
@@ -6799,10 +6805,12 @@ def build_parser() -> argparse.ArgumentParser:
                      help="build/deploy: skip the preview render")
     srk.add_argument("--art-lane", dest="art_lane", default="indexed",
                      choices=list(_SUMMON_ART_LANES),
-                     help="export-art: the round-trip format. `indexed` (the default and the only "
-                          "one this rung ships) writes a P-mode PNG whose pixels ARE the palette "
-                          "indices -- byte-identical on 93/93 stock pages. `rgba` REFUSES with the "
-                          "measurement that rules it out rather than silently not existing")
+                     help="export-art: the round-trip format. `indexed` (the default) writes a "
+                          "P-mode PNG whose pixels ARE the palette indices -- byte-identical on "
+                          "93/93 stock creature pages and on every 4/8bpp scenery cell. `direct15` "
+                          "is the 15bpp DIRECT-colour surface (RGBA + an explicit STP sidecar), "
+                          "proven offline and uncast. `rgba` REFUSES with the measurement that rules "
+                          "it out rather than silently not existing")
     srk.add_argument("--no-coverage", dest="no_coverage", action="store_true",
                      help="export-art: skip the UV coverage overlays (they are the instrument that "
                           "tells a painter which texels are live -- ~1/3 of a page never is)")

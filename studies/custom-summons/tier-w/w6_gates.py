@@ -234,8 +234,14 @@ def g2_emblem_artifact():
     for g in b.check.gates:
         if not g.ok:
             lines.append("   [!!] %s -- %s" % (g.name, g.detail))
-    ok = ok and b.check.ok and len(b.check.gates) == 20
-    return gate("G2 the emblem artifact (composed sha256 pin + disjoint halves + 20/20)", ok, *lines)
+    # 20 at W6a; W6b-1 added THREE region gates that run on every build, creature targets included:
+    # the id-0 page-block split, the page-cell derivation identity, and the inverted "the patched
+    # id-4 package still DECODES" row.  The COUNT is pinned rather than made a floor for the reason
+    # the artifact's sha is: a gate that silently disappeared would still leave this green.
+    lines.append("   (20 at W6a; W6b-1 adds the id-0 split, the page-cell derivation identity and "
+                 "the inverted id-4-package row -- all three run on a CREATURE build too)")
+    ok = ok and b.check.ok and len(b.check.gates) == 23
+    return gate("G2 the emblem artifact (composed sha256 pin + disjoint halves + 23/23)", ok, *lines)
 
 
 # --------------------------------------------------------------------------- G3
@@ -259,11 +265,45 @@ def g3_region_partition():
     lines.append("id-4 resource: %#x..%#x (%d B)" % (lo4, hi4, hi4 - lo4))
     lines.append("regions: clut partition %d, texel partition %d" % (len(clut), len(tex)))
 
-    out_c = sorted(r for r in clut if not (lo4 <= r[1] < hi4))
-    out_t = sorted(r for r in tex if not (lo4 <= r[1] < hi4))
-    lines.append("regions OUTSIDE id-4 are identical region-for-region: %s (%d each)"
-                 % (out_c == out_t, len(out_c)))
+    # W6b-1 gave `_regions` a SECOND inversion -- the id-0 page-block split -- so "identical outside
+    # id-4" is no longer the right statement of the law: the two partitions now disagree about
+    # exactly TWO boundaries and agree about every other byte.  This block was updated rather than
+    # relaxed: the id-0 halves are excluded by NAME (from `id0_splits`, the same derivation `_regions`
+    # consumes) and then the identity is asserted on what is left, which is a stricter test than a
+    # length floor would have been.
+    splits = RS.id0_splits(blob)
+    id0 = [(s.lo, max(s.boundary, s.hi)) for s in splits]
+
+    def _elsewhere(regions):
+        return sorted(r for r in regions
+                      if not (lo4 <= r[1] < hi4)
+                      and not any(lo <= r[1] < hi for lo, hi in id0))
+
+    out_c, out_t = _elsewhere(clut), _elsewhere(tex)
+    lines.append("id-0 split(s): %s"
+                 % "; ".join("%s header+CLUT %#x..%#x | PIXELS %#x..%#x (%d rects)"
+                             % (s.tag, s.lo, s.boundary, s.boundary, s.hi, s.n_rects)
+                             for s in splits))
+    lines.append("regions outside BOTH inverted splits (id-4 and id-0) are identical "
+                 "region-for-region: %s (%d each)" % (out_c == out_t, len(out_c)))
     ok = ok and out_c == out_t and len(out_c) >= 20
+    head = set()
+    pixels = set()
+    for s in splits:
+        head |= set(range(s.lo, s.boundary))
+        pixels |= set(range(s.boundary, s.hi))
+    gt_all = set()
+    gc_all = set()
+    for _n, lo, hi in tex:
+        gt_all |= set(range(lo, hi))
+    for _n, lo, hi in clut:
+        gc_all |= set(range(lo, hi))
+    lines.append("the id-0 split, both ways: TEXEL gates the header+rect table+CLUT stream %s and "
+                 "licenses the pixel stream %s; CLUT gates the pixel stream %s and licenses the "
+                 "header %s" % (head.issubset(gt_all), not (gt_all & pixels),
+                                pixels.issubset(gc_all), not (gc_all & head)))
+    ok = ok and head.issubset(gt_all) and not (gt_all & pixels)
+    ok = ok and pixels.issubset(gc_all) and not (gc_all & head)
 
     in_t = sorted((lo, hi) for _n, lo, hi in tex if lo4 <= lo < hi4)
     in_c = sorted((lo, hi) for _n, lo, hi in clut if lo4 <= lo < hi4)
@@ -349,14 +389,30 @@ def g4_refusal_matrix():
         good = os.path.join(td, "good.png")
         _write_png(good, stock_px, words)
 
-        # -- (a) the W6b surfaces
-        check("a scenery page name (`page.s0.x576_y256.h256`)",
-              *_refuses(RP.texel_page, blob, "page.s0.x576_y256.h256"), want="W6b")
-        check("the `rgba` export lane",
-              *_refuses(RP.export_art, blob, 227, td, lane="rgba"), want="W6b")
+        # -- (a) THE W6b SURFACES.  This row was written when the whole scenery surface was one flat
+        # refusal quoting one string.  W6b-1 SHIPPED that surface, so the row is rewritten against
+        # the new namespace and the SUCCESSOR reason: `page.s0.x576_y256.h256` still refuses -- an
+        # `h = 256` RECT is not an addressable unit -- but it now NAMES the two `cell.*` halves it
+        # splits into, and the reason string it carries names only what is genuinely still out of
+        # scope.  A moved pin that still fires is the cheapest possible proof the rename was
+        # deliberate rather than a rename that quietly stopped testing anything.
+        check("the h=256 RECT spelling (`page.s0.x576_y256.h256`)",
+              *_refuses(RP.texel_page, blob, "page.s0.x576_y256.h256"), want="NOT an addressable")
+        check("   ...and it NAMES the cell.* halves it splits into",
+              *_refuses(RP.texel_page, blob, "page.s0.x576_y256.h256"), want="cell.s0.x576_y384")
+        check("   ...quoting the SUCCESSOR reason, not the W6a one",
+              *_refuses(RP.texel_page, blob, "page.s0.x576_y256.h256"), want="DEPTH-UNKNOWN")
+        fired_old, msg_old = _refuses(RP.texel_page, blob, "page.s0.x576_y256.h256")
+        stale = [c for c in ("u-spill unhandled", "15bpp unhandled", "co-transform /")
+                 if c in msg_old]
+        lines.append("%-46s %s" % ("   ...and no longer quotes a SHIPPED mechanism",
+                                   "clean" if not stale else "*** still says: %s ***" % stale))
+        ok = ok and fired_old and not stale
+        check("the `rgba` export lane (an IDENTITY refusal, not a scope one)",
+              *_refuses(RP.export_art, blob, 227, td, lane="rgba"), want="EXACT RECOVERY")
         check("an unknown export lane", *_refuses(RP.export_art, blob, 227, td, lane="cmyk"),
               want="unknown art lane")
-        check("a container with no creature package (ef000)",
+        check("a container with NO addressable page at all (ef000)",
               *_refuses(RP.export_art, _load(0), 0, td), want="W6b")
 
         # -- (b) the format refusals
