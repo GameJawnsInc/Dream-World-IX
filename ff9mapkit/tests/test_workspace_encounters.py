@@ -69,15 +69,36 @@ def _select_encounter(lib):
 
 
 # ---------------------------------------------------------------- TAILOR: the library hears the dial ---
+def _room_the_library(app, lib):
+    """Show the library and give it a box that HOLDS the sidebar's ask plus the other panes' floors,
+    then re-run the production allocation. Needed because the sidebar-ask fences are claims about a
+    ROOMY screen: under offscreen's ~800px fake screen (which any batch importing an offscreen-pinning
+    module inherits at collection time) the box clamps too small to hold the detail pane's button-bar
+    floor, the allocation lawfully makes the SIDEBAR yield, and an outcome assert measures the squeeze
+    instead of the mechanism. WA_DontShowOnScreen means no WM, so the resize is honored anywhere."""
+    from PySide6.QtCore import Qt
+
+    lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    lib.show()
+    app.processEvents()
+    assert lib._panes_set, "showEvent never ran the pane allocation"
+    need = (lib.cats.maximumWidth() + lib._split.widget(1).minimumSizeHint().width()
+            + lib._split.widget(2).minimumSizeHint().width() + 80)
+    if lib.width() < need:
+        lib.resize(need, lib.height())
+        app.processEvents()
+        lib._allocate_panes()
+        app.processEvents()
+
+
 def test_the_library_box_is_a_function_of_its_font(app):
     """TAILOR's last deliberate skip, converted: resize(900, 580) was one font at one scale. The box,
     the sidebar cap, and the pane split must now DERIVE from the dialog's own polished font -- asserted
     as formula equality (the same inputs on both sides, so offscreen's inflated advances cancel out).
-    The split is asserted SHOWN: the panes are allocated at first show, where the splitter's width is
-    finally real -- a never-laid-out splitter lies about it, and QSplitter settles an oversubscribed
-    request by shaving EVERY pane, which is how the shipped ctor-time request opened the library with
-    an h-scrollbar on its own category sidebar."""
-    from PySide6.QtCore import Qt
+    The split is asserted SHOWN and ROOMY (see _room_the_library): the panes are allocated at first
+    show, where the splitter's width is finally real -- a never-laid-out splitter lies about it, and
+    QSplitter settles an oversubscribed request by shaving EVERY pane, which is how the shipped
+    ctor-time request opened the library with an h-scrollbar on its own category sidebar."""
     from PySide6.QtGui import QFontMetricsF
 
     lib = CatalogLibrary(None, None, pick_palette("dark"))
@@ -86,9 +107,7 @@ def test_the_library_box_is_a_function_of_its_font(app):
     avail = screen.availableGeometry()
     assert lib.width() == min(round(fm.averageCharWidth() * 140), int(avail.width() * 0.92))
     assert lib.height() == min(round(fm.height() * 30), int(avail.height() * 0.85))
-    lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
-    lib.show()
-    app.processEvents()
+    _room_the_library(app, lib)
     try:
         frame = 2 * lib.cats.frameWidth()
         want = min(lib.cats.sizeHintForColumn(0) + frame + lib.cats.verticalScrollBar().sizeHint().width() + 8,
@@ -106,17 +125,13 @@ def test_the_library_sidebar_never_scrolls_sideways_under_the_app_sheet(app):
     opened with an h-scrollbar on its own category sidebar (viewport 134 vs col hint 156, range 22,
     measured 2026-07-28). The app sheet is restored in a finally so this test never pollutes later
     modules (the round-9 disease)."""
-    from PySide6.QtCore import Qt
-
     from ff9mapkit.workspace import style
 
     inst = QApplication.instance()
     inst.setStyleSheet(style.qss(pick_palette("dark")))
     try:
         lib = CatalogLibrary(None, None, pick_palette("dark"))
-        lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
-        lib.show()
-        inst.processEvents()
+        _room_the_library(inst, lib)
         try:
             assert lib.cats.horizontalScrollBar().maximum() == 0, \
                 "the category sidebar must fit its own longest row under the app QSS"
@@ -125,6 +140,45 @@ def test_the_library_sidebar_never_scrolls_sideways_under_the_app_sheet(app):
             lib.close()
     finally:
         inst.setStyleSheet("")
+
+
+def test_the_help_badge_keeps_its_glyph_at_150(app):
+    """THE REGRESSION FENCE, red on the shipped badge: a frozen setFixedSize(30, 30) box + the sheet's
+    SCALED button padding (the old widget stylesheet set fill and font, never padding) left the "?" a
+    zero-ink empty circle at 150% (measured ink px: 14 at 100 -> 0 at 150). The box now lives in the
+    sheet, keyed to badge_box(scale, HELP_HALF) with padding 0 -- so at 150 the box must hear the dial
+    and the glyph must actually render. Sheet and module scale are restored in a finally (the round-9
+    disease)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QPushButton
+
+    from ff9mapkit.editor.theme import derive
+    from ff9mapkit.workspace import style
+
+    inst = QApplication.instance()
+    inst.setStyleSheet(style.qss(pick_palette("dark"), scale=150))
+    forms_qt.set_text_scale(150)
+    try:
+        lib = CatalogLibrary(None, None, pick_palette("dark"))
+        lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        lib.show()
+        inst.processEvents()
+        try:
+            helpb = lib.findChild(QPushButton, "libraryHelp")
+            assert helpb is not None, "the badge lost its objectName -- the sheet rule reaches nothing"
+            assert helpb.width() == style.badge_box(150, style.HELP_HALF), \
+                "the badge box must hear the dial (a frozen 30px box is the shipped defect)"
+            ink = derive(dict(pick_palette("dark")))["help_fg"].lstrip("#")
+            want = tuple(int(ink[i:i + 2], 16) for i in (0, 2, 4))
+            img = helpb.grab().toImage()
+            n = sum(1 for x in range(img.width()) for y in range(img.height())
+                    if all(abs(a - b) <= 60 for a, b in zip(img.pixelColor(x, y).getRgb()[:3], want)))
+            assert n > 0, "the ? glyph rendered ZERO ink pixels -- an empty violet circle"
+        finally:
+            lib.close()
+    finally:
+        inst.setStyleSheet("")
+        forms_qt.set_text_scale(100)
 
 
 def test_the_library_grows_with_its_font(app):

@@ -846,6 +846,27 @@ _QSS = Template(
        is 4.5. accent_fg on accent is worst 4.56 and already fenced. */
     QToolButton#conceptBadge:pressed { color: $accent_fg; border-color: $accent; background: $accent; }
     QToolButton#conceptBadge:focus { border: 1px solid $focus; }
+    /* The Info Hub library's violet help badge (forms_qt CatalogLibrary). Same disease, same cure as
+       conceptBadge directly above: it shipped as setFixedSize(30, 30) + a widget sheet that set fill and
+       font but NOT padding, so THIS sheet's scaled QPushButton padding kept applying inside a frozen
+       box -- at 150% the padding alone consumed all 30px and the "?" rendered as an empty circle
+       (measured ink px: 14 at 100 -> 0 at 150). The box now lives here, keyed to badge_box(scale,
+       HELP_HALF): even so the radius is exactly half at every scale, padding 0 so the glyph owns the
+       circle. help_fg, never accent_fg -- accent's ink on the help fill measured 2.51:1 on nord; a token
+       borrowed from the ground next door is a coincidence, not a token. The border is reserved in the
+       FILL colour so :focus recolours without reflow (a QPushButton is a real tab stop and border:0
+       showed nothing focused), and :pressed differs from rest AND hover by its ring -- the id rule
+       out-ranks the generic :pressed (the 6-of-7-dead-buttons trap), so it must paint its own press. */
+    QPushButton#libraryHelp {
+        background: $help; color: $help_fg; border: 1px solid $help;
+        border-radius: $help_badge_radius;
+        min-width: $help_badge_box; max-width: $help_badge_box;
+        min-height: $help_badge_box; max-height: $help_badge_box;
+        padding: 0; font-weight: bold; font-size: $type_body;
+    }
+    QPushButton#libraryHelp:hover   { background: $help_hover; border-color: $help_hover; }
+    QPushButton#libraryHelp:pressed { background: $help_hover; border-color: $help_fg; }
+    QPushButton#libraryHelp:focus   { border: 1px solid $focus; }
     """
 )
 
@@ -868,16 +889,23 @@ def type_px(name: str, scale: int = 100) -> int:
 
 
 # CALIBRE's geometry half. A box drawn AROUND text must grow WITH the text, or the box wins and the text
-# is cut -- setFixedSize clips, it never grows. Audited natively (evidence/audit_text_scale.py): the whole
-# app has exactly TWO such boxes, not the ~75 setFixed* sites a static count suggests. The other ~73 pin
-# panel geometry that owes the font nothing.
+# is cut -- setFixedSize clips, it never grows. Audited natively (evidence/audit_text_scale.py): the audit
+# counted TWO such boxes, not the ~75 setFixed* sites a static count suggests -- and the library's help
+# badge below was its one miss, found glyphless at 150% a year of rounds later. THREE, then. The other
+# ~72 pin panel geometry that owes the font nothing.
 #
 #   BADGE_HALF -- the "?" concept badge. Its box is 2x this and its border-radius IS this, which is what
 #     makes it a circle rather than a rounded square. Kept EVEN by construction (2 * a rounded half) so
 #     the radius stays exactly half at every scale; an odd box would round-off into a squircle.
+#   HELP_HALF -- the Info Hub library's violet "?" help badge (#libraryHelp). The audit's miss: it
+#     shipped as setFixedSize(30, 30) + a widget sheet that set fill and font but NOT padding, so the
+#     ancestor sheet's SCALED button padding kept applying inside a frozen box -- at 150% the padding
+#     alone consumed all 30px and the glyph rendered as NOTHING (measured ink px: 14 at 100 -> 0 at 150).
+#     Same cure as the concept badge: the box lives in the sheet, keyed to badge_box(scale, HELP_HALF).
 #   CONSOLE_H -- the Wrap/Copy/Clear head buttons. 24 is also the WCAG 2.5.8 target floor, so this may
 #     grow and must never shrink.
 BADGE_HALF = 11
+HELP_HALF = 15
 CONSOLE_H = 24
 
 
@@ -887,9 +915,11 @@ def scale_px(px: int, scale: int = 100) -> int:
     return max(px, int(px * scale / 100 + 0.5))
 
 
-def badge_box(scale: int = 100) -> int:
-    """The "?" badge's pinned circle at ``scale`` -- always even, so ``badge_box // 2`` is exactly half."""
-    return max(2 * BADGE_HALF, 2 * int(BADGE_HALF * scale / 100 + 0.5))
+def badge_box(scale: int = 100, half: int = BADGE_HALF) -> int:
+    """A "?" badge's pinned circle at ``scale`` -- always even, so ``badge_box // 2`` is exactly half.
+    ``half`` picks the badge family: BADGE_HALF (the 22px concept badge, the default) or HELP_HALF (the
+    library's 30px help badge). One owner for the even-circle arithmetic, whatever the diameter."""
+    return max(2 * half, 2 * int(half * scale / 100 + 0.5))
 
 
 def qss(palette: dict, density: str = "comfortable", scale: int = 100) -> str:
@@ -928,6 +958,9 @@ def qss(palette: dict, density: str = "comfortable", scale: int = 100) -> str:
     _bb = badge_box(scale)
     typ["badge_box"] = f"{_bb - 2}px"                # QSS min/max-width sizes the CONTENTS box; the 1px
     typ["badge_radius"] = f"{_bb // 2}px"            # border on each side makes the widget _bb again
+    _hb = badge_box(scale, HELP_HALF)                # the library's bigger help badge, same arithmetic
+    typ["help_badge_box"] = f"{_hb - 2}px"
+    typ["help_badge_radius"] = f"{_hb // 2}px"
     typ["console_h"] = f"{scale_px(CONSOLE_H, scale)}px"
     pal = derive(palette)
     art = {                                          # per-tint indicator art (see the module docstring)

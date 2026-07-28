@@ -279,6 +279,8 @@ def test_qss_uses_only_the_radius_language():
       9  -- half of the 18px checkbox/radio indicator box = a CIRCLE, the only thing distinguishing
             "pick exactly one" from "pick several".
       11 -- half of the concept badge's fixed 22x22 (forms_qt.py) = a circle.
+      15 -- half of the library help badge's 30px box (#libraryHelp, badge_box(scale, HELP_HALF)) = a
+            circle; it grows with the dial, so only its 100% value sits in this default-scale census.
     The scrollbar handle is also geometric (half its 12px groove) but its value coincides with
     $radius_md, so it spends the token.
     """
@@ -286,7 +288,7 @@ def test_qss_uses_only_the_radius_language():
     for mode, pal in theme.THEMES.items():
         css = style.qss(pal)
         got = {int(m) for m in re.findall(r"border-[a-z-]*radius:\s*(\d+)px", css)}
-        assert got == {3, 4, 6, 8, 9, 11}, f"{mode}: unexpected radius language {sorted(got)}"
+        assert got == {3, 4, 6, 8, 9, 11, 15}, f"{mode}: unexpected radius language {sorted(got)}"
 
 
 def test_the_dead_groupbox_rules_are_gone():
@@ -738,6 +740,41 @@ def test_the_badge_stays_a_circle_at_every_text_scale():
         assert radius * 2 == content + 2, (
             f"{pct}%: radius {radius} is not half the {content + 2}px widget box (QSS min-width sizes the "
             f"CONTENTS; the 1px border on each side makes the widget 2px wider)"
+        )
+
+
+def test_the_help_badge_stays_a_circle_at_every_text_scale():
+    """The library's violet "?" (forms_qt #libraryHelp) -- the concept badge's invariants, plus the one
+    that actually killed it: ``padding: 0``. The frozen 30px box died by PADDING, not by glyph size --
+    the ancestor sheet's btn_pad scales with the dial and it kept applying inside a widget sheet that
+    never set padding, consuming all 30px at 150% (measured ink px: 14 at 100 -> 0 at 150, an empty
+    violet circle). So the rule must size its box from badge_box(scale, HELP_HALF) AND zero the padding
+    it would otherwise inherit."""
+    for pct in prefs.TEXT_SCALES:
+        box = style.badge_box(pct, style.HELP_HALF)
+        assert box % 2 == 0, f"{pct}%: help badge box {box} is odd -- its radius cannot be exactly half"
+        assert box >= 2 * style.HELP_HALF, f"{pct}%: help badge box {box} shrank below the shipped 30"
+        assert box >= style.type_px("type_body", pct) + 4, (
+            f"{pct}%: help badge box {box} is too tight for a {style.type_px('type_body', pct)}px glyph"
+        )
+    import re
+    m = re.search(r"QPushButton#libraryHelp\s*\{([^}]*)\}", style._QSS.template)
+    assert m, "the library help badge rule is gone"
+    body = m.group(1)
+    assert "$help_badge_radius" in body and "$help_badge_box" in body, (
+        "the badge's box and radius must both come from style.badge_box(scale, HELP_HALF) -- a literal "
+        "beside a token is how the circle silently becomes a squircle at the next scale"
+    )
+    assert re.search(r"padding:\s*0", body), (
+        "padding: 0 is load-bearing -- the inherited scaled button padding is what ate the glyph"
+    )
+    for pct in prefs.TEXT_SCALES:
+        css = style.qss(theme.DARK, "comfortable", pct)
+        rule = re.search(r"QPushButton#libraryHelp\s*\{([^}]*)\}", css).group(1)
+        radius = int(re.search(r"border-radius:\s*(\d+)px", rule).group(1))
+        content = int(re.search(r"min-width:\s*(\d+)px", rule).group(1))
+        assert radius * 2 == content + 2, (
+            f"{pct}%: radius {radius} is not half the {content + 2}px widget box"
         )
 
 

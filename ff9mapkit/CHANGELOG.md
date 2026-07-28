@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the Info Hub library's "?" help badge rendered as an empty circle at 150% text size
+- The round violet help button pinned its box at 30px in Python while the app stylesheet's button
+  padding — which grows with the text-size dial — kept applying inside it; at 150% the padding alone
+  consumed the whole box and the "?" glyph rendered nothing. The badge's box now lives in the
+  stylesheet with zero padding, on the same even-circle arithmetic as the concept badge, so the
+  circle grows with the dial and the radius stays exactly half. It also gained real pressed and
+  keyboard-focus states.
+
 ### Fixed — the Info Hub library opened with an h-scrollbar on its own category sidebar
 - The catalog library's three panes were allocated at construction, against a splitter that had
   never been laid out, with a request summing to the dialog's width — margins the panes never

@@ -747,19 +747,14 @@ class CatalogLibrary(QDialog):
         self.blender_btn.setEnabled(False)
         helpb = QPushButton("?")
         helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
-        # A circular violet badge -- it pops out from the neutral Copy/Close buttons (a distinct 'info' hue).
-        # The box and its radius are a GEOMETRIC pair (radius = half the box = a circle, not a squircle) and
-        # they stay pinned here; only the GLYPH joins the ramp. Its 15px was a private number one rung under
-        # the app's head, and deaf to the dial like everything else in this module's widget stylesheets.
-        helpb.setFixedSize(30, 30)
-        # `help_fg`, not `accent_fg`. This wore the ACCENT's ink on the HELP fill -- two hexes nothing had
-        # ever asserted were compatible, because `accent_fg` is fenced against `$accent` alone
-        # (test_editor_theme::test_the_accent_button_label_is_text). Measured on nord it lands 2.51:1, a
-        # sub-AA glyph. A token borrowed from the ground next door is not a token, it is a coincidence.
-        helpb.setStyleSheet(
-            f"QPushButton {{ background:{palette['help']}; color:{palette['help_fg']}; border:0; "
-            f"border-radius:15px; font-weight:bold; font-size:{_px('type_body')}px; }}"
-            f"QPushButton:hover {{ background:{palette['help_hover']}; }}")
+        # A circular violet badge -- it pops out from the neutral Copy/Close buttons (a distinct 'info'
+        # hue). Styled ENTIRELY by the sheet's #libraryHelp rule -- the same cure _concept_badge already
+        # took: this was a setFixedSize(30, 30) + a widget stylesheet that set fill and font but NOT
+        # padding, so the ancestor sheet's SCALED button padding kept applying inside a frozen box, and
+        # at 150% the padding alone consumed all 30px -- the "?" rendered as an empty circle (measured
+        # ink px: 14 at 100 -> 0 at 150). The box is keyed to style.badge_box(scale, HELP_HALF), so one
+        # sheet re-render moves the box and the glyph together and the radius stays exactly half.
+        helpb.setObjectName("libraryHelp")
         helpb.clicked.connect(self._show_help)
         close = QPushButton("Close")
         close.clicked.connect(self.reject)
@@ -811,27 +806,34 @@ class CatalogLibrary(QDialog):
         return min(self.cats.sizeHintForColumn(0) + frame + self.cats.verticalScrollBar().sizeHint().width() + 8,
                    round(fm.averageCharWidth() * 34))
 
-    def showEvent(self, ev):
-        # THE PANES ARE ALLOCATED HERE, NOT IN __init__. At construction the splitter has never been
-        # laid out (measured: 640px inside an 899px dialog), and the old ctor-time request summed to the
-        # DIALOG's width -- margins the panes never get -- while the detail pane's button bar puts a
-        # ~451px floor under col 3. QSplitter settles an oversubscribed request with a proportional
-        # shave of EVERY pane, the sidebar included, which is how the library opened with an
-        # h-scrollbar on its own category list (viewport 134 vs col hint 156, hbar range 22). Here the
-        # splitter is real: the sidebar gets its ask, the detail pane max(55%, its own floor), the
-        # middle pane the true remainder -- summing exactly to the pane space, so Qt applies it
-        # verbatim. Once only: a re-shown dialog keeps whatever the user dragged (round 7's law --
-        # a divider the user moved is a preference).
-        super().showEvent(ev)
-        if self._panes_set:
-            return
-        self._panes_set = True
+    def _allocate_panes(self):
+        """Give the sidebar its ask, the detail pane max(55%, its own floor), the middle pane the true
+        remainder -- summing EXACTLY to the pane space, never over it. QSplitter settles an
+        oversubscribed request with a proportional shave of EVERY pane (measured: the old ctor-time
+        request summed to the DIALOG's width, margins the panes never get, and the detail pane's button
+        bar floors col 3 at ~451px -- the sidebar got shaved 186 -> 156 and opened with an h-scrollbar
+        on its own category list, viewport 134 vs col hint 156). On a screen too small to hold the
+        sidebar's ask plus the other panes' floors, the SIDEBAR yields (it scrolls -- round 13's
+        sanctioned door), never the detail pane's buttons (a squeezed button bar CLIPS)."""
         cat_w = self._sidebar_ask()
         self.cats.setMaximumWidth(cat_w)
         space = self._split.width() - 2 * self._split.handleWidth()
-        rest = space - cat_w
-        detail = max(round(rest * 0.55), self._split.widget(2).minimumSizeHint().width())
-        self._split.setSizes([cat_w, max(rest - detail, 0), detail])
+        d_min = self._split.widget(2).minimumSizeHint().width()
+        m_min = self._split.widget(1).minimumSizeHint().width()
+        side = max(min(cat_w, space - d_min - m_min), 0)
+        rest = space - side
+        detail = min(max(round(rest * 0.55), d_min), max(rest - m_min, 0))
+        self._split.setSizes([side, rest - detail, detail])
+
+    def showEvent(self, ev):
+        # THE PANES ARE ALLOCATED HERE, NOT IN __init__: at construction the splitter has never been
+        # laid out (measured: 640px inside an 899px dialog), so any request is settled against the
+        # WRONG width. Once only: a re-shown dialog keeps whatever the user dragged (round 7's law --
+        # a divider the user moved is a preference).
+        super().showEvent(ev)
+        if not self._panes_set:
+            self._panes_set = True
+            self._allocate_panes()
 
     def _build_categories(self):
         """One browse over the cached catalogs -> per-kind counts -> the sidebar sections (only non-empty

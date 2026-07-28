@@ -331,7 +331,8 @@ def test_the_dots_geometry_is_float_not_truncated(app):
 # so `QToolButton#railSeg { background: transparent; }` out-ranks `QToolButton:pressed { background:
 # $pressed; }` and the press paints nothing. The rule is in the sheet; the sheet is correct; the string is
 # present; the fence is green; the button is dead. Only the rendered pixels know.
-_ID_BUTTONS = ["search", "hub", "railSeg", "consoleToggle", "disclosureToggle", "conceptBadge", "gear"]
+_ID_BUTTONS = ["search", "hub", "railSeg", "consoleToggle", "disclosureToggle", "conceptBadge", "gear",
+               "libraryHelp"]
 
 
 @pytest.fixture(scope="module")
@@ -362,7 +363,7 @@ def themed(app):
     made = {}
     for oid in _ID_BUTTONS:
         from PySide6.QtWidgets import QPushButton, QToolButton                   # noqa: PLC0415
-        w = (QPushButton if oid == "search" else QToolButton)()
+        w = (QPushButton if oid in ("search", "libraryHelp") else QToolButton)()
         w.setText("Sample")
         w.setObjectName(oid)
         # CHECKABLE **AND CHECKED**. Checkable-but-unchecked was the hole: `#railSeg:pressed` and
