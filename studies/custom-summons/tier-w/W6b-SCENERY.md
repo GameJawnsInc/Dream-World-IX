@@ -588,7 +588,21 @@ not a comment.**
 > the new map can address), THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), THE SHAPE
 > VERDICT (cast 1f) and the offline UV-flatness screen, plus the two earlier minted laws
 > (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND, now with its offline instrument). Open: the
-> 15bpp cast (vehicle ef429 — no bench row exists yet). Revert chain: pool-wheel ledger
+> 15bpp cast — ef429 REFUSED with proof (below); next vehicle ef446 (Atomos, spill-gated).
+> **THE 15bpp VEHICLE — ef429 REFUSED WITH PROOF (3 probe casts + a 60fps video sweep).** Row 201
+> "Stock Octopus" minted (ef429 = Gigan Octopus's 6 Legs — an enemy attack, party-castable via the
+> bench clone row; the effect's three features: caster shell, connector tube, target swirl).
+> Cell-1 cover probe: stock-identical (owner A/B). Cell-2 two-stripe probe: NEGATIVE by
+> instrument — owner video, full cast window at native 60fps/1080p: the tube's ridge held median
+> 254 brightness with 0 dark runs in 70 beam frames against a simulated positive; the swirl's cut
+> fraction measured ~0.002 vs ~0.37 predicted if it sampled the cover; shell control clean
+> (evidence + per-frame data: `ef429-15bpp\video-only2\`). The CLOSING probe zeroed the ENTIRE
+> 32-line cover of (448,384) — stock-identical (owner) ⇒ **no 15bpp repaint on either lawful
+> ef429 cell can ever reach the screen.** BINDING-IS-NOT-A-DRAW at full strength: a shipping
+> effect uploads and binds both covers and draws neither (the visible tube/swirl/shell sample
+> other cells — the full-census cast banded the mottle complex, cells 5–8, which tile ONE
+> continuous texture across columns 576+640). Resting: the ef429 override DELETED (= stock); row
+> 201 stays on the bench; the probe snapshot chain lives in `ef429-15bpp\`. Revert chain: pool-wheel ledger
 > (`ef211-pool`, pre = ABSENT post-wipe → revert deletes to stock); the pre-wipe chain
 > (cast-2b → cast-2 → probes) survives in its SCRATCH roots but no longer reflects the install.
 

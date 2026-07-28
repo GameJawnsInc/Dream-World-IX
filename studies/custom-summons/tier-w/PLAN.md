@@ -331,8 +331,10 @@ scenery must be re-authored *together*.
   pool = (640,256) ⛳ CONFIRMED and ⛳ THE SHAPE VERDICT IS YES — the punched wheel legible on
   the pool and repeated across every draw instance of the strip (texture art, not placard art);
   the offline UV-flatness screen (rotation agreement / overlap vs the shredder baseline) picked
-  the surface correctly and is now the instrument for shape-bearing surfaces. OPEN: the 15bpp
-  cast (vehicle ef429).**
+  the surface correctly and is now the instrument for shape-bearing surfaces. The 15bpp vehicle
+  ef429 is REFUSED with proof (3 probes + a 60fps video sweep; both lawful covers
+  bound-never-drawn; the closing full-cover zero read stock-identical). OPEN: the 15bpp cast on
+  the next vehicle — ef446 (Atomos, spill-gated), then ef405/ef082.**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
