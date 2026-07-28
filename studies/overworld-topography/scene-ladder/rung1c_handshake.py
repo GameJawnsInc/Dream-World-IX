@@ -49,8 +49,15 @@ PHASE = 50                           # Map.Byte[50] -- the scene phase (0 idle /
 CONFIRM_ON = 131072
 RADIUS_FP = 3072
 
+# ★ THE FADE SEMANTICS (round-1 in-game lesson -- "fades to black then a stuck white screen"):
+# FadeFilter = WIPERGB 0xEC -> SceneDirector.InitFade((mode & 2) ? Sub : Add, frames, CMY).
+# mode&2 = SUBTRACT: (2,24,0,255,255,255) subtracts full white = FADE TO BLACK (the dominant
+# x65 stock form -- scenes bracket through BLACK, not white). mode 0 = ADD: full white = a
+# wash TO white that HOLDS (the x11 flash form -- NOT a fade-in; round 1's stuck screen).
+# The RESTORE is the third census form, x18: (3,16,0,0,0,0) = Sub of zero = lerp the filter
+# back to nothing over 16 frames. Census without the handler = the trap; read the case first.
 FADE_OUT = "FadeFilter(2, 24, 0, 255, 255, 255)\nop_22(25)"
-FADE_IN = "FadeFilter(0, 24, 0, 255, 255, 255)\nop_22(25)"
+FADE_IN = "FadeFilter(3, 16, 0, 0, 0, 0)\nop_22(17)"
 
 
 def fp(v: int) -> int:
