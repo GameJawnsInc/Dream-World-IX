@@ -50,7 +50,21 @@ ANIM_ID = 5106
 SHIP = (29, -1168, 200)              # the mooring: x, z world units; y fp const (rung 0)
 SHIP_FACE = 192                      # east, toward the quay
 
-SAIL_FP = 40 * 256                   # the west leg, self-relative
+# ★ v2 after the first sail SOFTLOCKED (ship turned, never moved, control never returned;
+# probe trace = the ship oscillating +/- one step around the mooring forever). TWO laws:
+#   * THE CARROT LAW: a blocking WalkXZY RE-READS its argument expressions EVERY frame -- a
+#     self-relative target (obj(255).f[0] - N) recedes with each step and the walk can never
+#     terminate. THAT is why stock caches ship-relative targets into Instance vars before
+#     walking. Walk targets must be CONSTANTS (canonical constants are frame-correct: the
+#     probe shows pos[] stays canonical -- RealPosition is the engine's absolute tracker).
+#   * THE RIG-RADIUS LAW: EventCollision.Collision in mode 0 (MoveToward's call) BYPASSES the
+#     tag-2/3 candidacy gate -- EVERY cid-4 actor is a candidate by radius alone. The AIM,
+#     re-pinned exactly onto the hull, collided at distance ~0 every frame; MoveToward
+#     reverted the transform and the per-frame writeback mirrored the revert into pos[]:
+#     step -> revert -> re-mirror, net zero (the eye's dolly 17u away completed fine -- the
+#     probe proved walks work). Camera rigs are hardware, not bodies: SetObjectLogicalSize
+#     (0,0,0) on the rigs AND the scenery ship (its trigger is expression math, not collRad).
+SAIL_TO_Z = -1208                    # the leg: due SOUTH 40u (away from the x=0 wrap seam)
 SAIL_SPEED = 60                      # ~0.23 u/frame -> ~170 frames per leg
 OPEN_BEAT = 30                       # composed-shot hold before getting underway
 SETTLE_BEAT = 30                     # after re-mooring, before the rigs dispose
@@ -77,8 +91,23 @@ def ship_rel(axis: int, up_units: float = 0.0, lateral: float = 0.0) -> str:
     return f"{{{base} const4({n}) {op} B_EXPR_END}}"
 
 
+SHIP_INIT = f"""
+SetObjectIndex(0)
+SetModel(313, 100)
+SetObjectFlags(1)
+SetObjectLogicalSize(0, 0, 0)
+SetObjectSize({SHIP_UID}, 100, 100, 100)
+SetStandAnimation({ANIM_ID})
+SetWalkAnimation({ANIM_ID})
+op_35({ANIM_ID})
+MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
+TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
+RET()
+"""
+
 EYE_INIT = f"""
 0xB7()
+SetObjectLogicalSize(0, 0, 0)
 MoveInstantXZY({ship_rel(0, lateral=-17)}, {ship_rel(1, up_units=7)}, {ship_rel(2, lateral=-14)})
 SetWalkSpeed(8)
 SetWalkTurnSpeed(1)
@@ -96,6 +125,7 @@ JMP(L100)
 
 AIM_INIT = f"""
 0xB8()
+SetObjectLogicalSize(0, 0, 0)
 MoveInstantXZY({ship_rel(0)}, {ship_rel(1)}, {ship_rel(2)})
 SetWalkTurnSpeed(1)
 RET()
@@ -124,9 +154,9 @@ op_22({OPEN_BEAT})
 SetWalkSpeed({SAIL_SPEED})
 SetWalkTurnSpeed(6)
 InitWalk()
-WalkXZY({{obj(uid=255).f[0] const4({SAIL_FP}) B_MINUS B_EXPR_END}}, {{obj(uid=255).f[1] B_EXPR_END}}, {{obj(uid=255).f[2] B_EXPR_END}})
+WalkXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {SHIP[2]}, {{const4({fp(SAIL_TO_Z)}) B_EXPR_END}})
 InitWalk()
-WalkXZY({{obj(uid=255).f[0] const4({SAIL_FP}) B_PLUS B_EXPR_END}}, {{obj(uid=255).f[1] B_EXPR_END}}, {{obj(uid=255).f[2] B_EXPR_END}})
+WalkXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {SHIP[2]}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
 MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
 TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 op_22({SETTLE_BEAT})
@@ -159,6 +189,7 @@ def patch_one(base: bytes) -> bytes:
         if e.empty or not e.funcs:
             raise SystemExit(f"entry {uid} missing -- deploy rung 0 + 1a first")
     out = base
+    out = E.replace_function_body(out, SHIP_UID, 0, asm(SHIP_INIT))
     out = E.replace_function_body(out, EYE_UID, 0, asm(EYE_INIT))
     out = E.replace_function_body(out, EYE_UID, 1, asm(EYE_LOOP))
     out = E.replace_function_body(out, AIM_UID, 0, asm(AIM_INIT))
