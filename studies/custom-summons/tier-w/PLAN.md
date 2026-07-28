@@ -320,7 +320,15 @@ scenery must be re-authored *together*.
   is ONE captured frame (magenta ⇒ the lift is correct), verdict 2 needs video (does the eye window
   ever show the marker? ⇒ whether L4's co-transform is mandatory or merely prudential). The bench row
   is an `Actions.csv`/BattlePatch change ⇒ RELAUNCH. The rung does not close until the cast is judged.
-- **W6b-1 — ★ BUILT, offline-proven, CAST PENDING** (`W6b-SCENERY.md`, `w6b_gates.py`,
+- **W6b-1 — ⛳ CAST LADDER CLOSED (7 owner casts, 2026-07-28; the full record is `W6b-SCENERY.md`'s
+  cast block). In-game proven: the scenery byte→screen chain (the striped cell census banded the
+  fire owner-visibly; the kit-built bold wheel measured +11.6pp near-black at burst-peak-aligned
+  cast-time), THE PER-CELL MAP (the confirmed vortex cell is an h=256 LOWER half) and the 4bpp
+  nibble codec (casts 2/2b were 4bpp kit builds). Two laws minted in-game: BINDING-IS-NOT-A-DRAW
+  (the wheel on (704,256) was invisible twice — an `so` reader is not a draw; the dome actually
+  reads the READERLESS (704,384)) and THE UV-SHREDDING BOUND (sheared mirrored panel UVs turn
+  figures into diffuse erosion; stripes read because translation-invariant). OPEN: the pool's cell
+  (one `--only` cast), the photographable shape verdict on a flat surface, the 15bpp cast.**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
