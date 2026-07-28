@@ -98,8 +98,19 @@ def up(h_units: float) -> int:
     return (-int(h_units * 256)) & 0xFFFF
 
 
-EYE_FROM = (12, -1182, up(6))        # scene open: low over the water SW of the ship (+6u)
-EYE_TO = (16, -1178)                 # the ~3s dolly target (speed 8 ~= 0.03u/frame)
+# ★ THE WRAP-EPOCH LAW (v4 bird's-eye discriminator, in-game): ABSOLUTE world coordinates are
+# only valid at WORLD-LOAD time. Every wmActor lives under the TranslatingObjectsGroup and the
+# render frame's origin SHIFTS as the player traverses the wrap seams -- a mid-session actor
+# positioned with absolute constants lands in whatever epoch the constants happen to name (the
+# v4 bird's-eye fired perfectly -- height + downward aim -- but over a desert cove with VOID at
+# the frame edge: canonical coords rendered in a shifted epoch, blocks unstreamed beyond it).
+# The rung-0 ship is exempt because Main_Init arms it at world construction (epoch = canonical).
+# The boat study's wu() warning stated the comparison half ("f[] reads share the x256 domain AND
+# any world-wrap epoch, so the differences cancel"); this is the POSITION half, and it is why
+# STOCK's rig entries are SHIP-RELATIVE (obj(3).f[0] - 14000), never absolute. Author runtime
+# world positions RELATIVE to a live actor's f[] -- the epoch cancels by construction.
+# v5 shot, ship-relative: eye (-17, +7u, -14) off the ship, aim ON the ship; no dolly yet.
+EYE_OFF = (-17, 7, -14)              # world-unit offsets from the ship: x, up, z
 HOLD_FRAMES = 240                    # scene length (the dolly runs inside it)
 
 CONFIRM_ON = 131072                  # 0x20000 Confirm with B_KEYON (edge) -- the ring's proven gate
@@ -110,19 +121,24 @@ def fp(v: int) -> int:
     return (v * 256) & 0xFFFFFFFF
 
 
+def _off(base: str, units: float) -> str:
+    """A ship-relative coordinate expr: obj(16).f[i] +/- |units|*256 (the stock rig idiom)."""
+    n = int(abs(units) * 256)
+    if n == 0:
+        return f"{{{base} B_EXPR_END}}"
+    op = "B_PLUS" if units > 0 else "B_MINUS"
+    return f"{{{base} const4({n}) {op} B_EXPR_END}}"
+
+
 EYE_INIT = f"""
 0xB7()
-MoveInstantXZY({{const4({fp(EYE_FROM[0])}) B_EXPR_END}}, {{const({EYE_FROM[2]}) B_EXPR_END}}, {{const4({fp(EYE_FROM[1])}) B_EXPR_END}})
-SetWalkSpeed(8)
-SetWalkTurnSpeed(1)
-InitWalk()
-WalkXZY({{const4({fp(EYE_TO[0])}) B_EXPR_END}}, {EYE_FROM[2]}, {{const4({fp(EYE_TO[1])}) B_EXPR_END}})
+MoveInstantXZY({_off(f'obj(uid={SHIP_UID}).f[0]', EYE_OFF[0])}, {_off(f'obj(uid={SHIP_UID}).f[1]', EYE_OFF[1])}, {_off(f'obj(uid={SHIP_UID}).f[2]', EYE_OFF[2])})
 RET()
 """
 
 AIM_INIT = f"""
 0xB8()
-MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
+MoveInstantXZY({{obj(uid={SHIP_UID}).f[0] B_EXPR_END}}, {{obj(uid={SHIP_UID}).f[1] B_EXPR_END}}, {{obj(uid={SHIP_UID}).f[2] B_EXPR_END}})
 SetWalkTurnSpeed(1)
 RET()
 """
