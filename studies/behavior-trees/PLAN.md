@@ -773,8 +773,10 @@ channel), Instance-var migration of once-latches/timers (blackboard-band
 relief), REQSW for transition-critical dispatches (v1's per-tick re-REQ loop
 already retries, so nothing regresses), inline one-shot bodies.
 
-Parity cast: `brains_bench.py` → **30423 "BRAWN"**, the same 14-unit brawl as
-30416; the owner verdict is "the fight looks and resolves the SAME."
+**★ PARITY RATIFIED (owner playtest 2026-07-27):** 30423 "BRAWN" — "the brawl
+plays the same, no differences." The per-unit-brain backend is in-game proven
+at full brawl scale: 15 brains, mid-fight deaths (the orphan law at scale),
+counter lanes, the crier — all identical to the ticker build. Rung 0 CLOSED.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
