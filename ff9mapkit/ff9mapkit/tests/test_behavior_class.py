@@ -347,10 +347,16 @@ def test_class_one_shots_are_once_per_member():
     cb = fb.compile()
     brain = cb.brain_bodies["pair"]
     assert IDENTITY in brain                # strided latch/req reads ride MYUID
-    # aid numbering in tree order: Announce=1, Battle=2 -> the decorator tables
-    for t in ("cls.pair.once.cry", "cls.pair.areq1",
-              "cls.pair.battled2", "cls.pair.breq2"):
+    # aid numbering in tree order: Announce=1, Battle=2. THE ELIGIBILITY LINE
+    # (rung 3): body-WRITTEN latches stay outside-addressable strided tables;
+    # the brain-private request flags ride the Seq Instance block instead.
+    for t in ("cls.pair.once.cry", "cls.pair.battled2"):
         assert t in fb._cls_tids, t
+    for t in ("cls.pair.areq1", "cls.pair.breq2"):
+        assert t not in fb._cls_tids, t
+    for key in ("areq1", "breq2"):
+        assert ("pair", key) in fb._inst_slots, key
+    assert cb.brain_locs["pair"] == fb._inst_next["pair"] > 0
     # each member's dispatch bodies latch ITS OWN cell (constant uid) — the
     # exact statement bytes, per member, in both the announce and battle bodies
     for m in ("a", "b"):
@@ -387,3 +393,73 @@ def test_toml_class_row_one_shots_build():
     cb = fb.compile()
     assert set(cb.brain_bodies) == {"pair"}
     assert fb.has_battle_actions()
+
+
+def _sticky_roster(brains):
+    """One unit exercising every brain-private slot family: sticky Once,
+    sticky Cooldown, patrol wp, wander state, an event-once areq."""
+    fb = B.FieldBehavior([B.UnitSpec("g", 2, spawn=(0, 0))], brains=brains)
+    fb.units["g"].tree = B.Selector(
+        B.Once("greet", B.Sequence(fb.near("g", B.PLAYER, 300),
+                                   B.Do(B.Chase(B.PLAYER)))),
+        B.Cooldown(150, B.Sequence(fb.near("g", B.PLAYER, 600),
+                                   B.Do(B.Patrol([(0, 0), (200, 0)])))),
+        B.Once("cry", B.Sequence(fb.flag("armed"), B.Do(B.Announce(905)))),
+        B.Do(B.Wander(center=(0, 0), radius=300)),
+    )
+    return fb
+
+
+def test_instance_migration_moves_brain_private_state():
+    """Rung 3: under brains, sticky latches/timers, wp, wander state and the
+    request flags leave the GLOB band for the Seq's Instance block; v1 keeps
+    its GLOB homes and the central clock untouched."""
+    from ff9mapkit.eb import exprasm
+    v1 = _sticky_roster(False)
+    cb0 = v1.compile()
+    br = _sticky_roster(True)
+    cb1 = br.compile()
+    # v1: GLOB homes + the central cooldown clock, exactly as before
+    rep0 = v1.bb.report()
+    for nm in ("g.once.greet", "g.onceeng.greet", "g.cd", "g.cdeng",
+               "g.wp", "g.wtimer", "g.wtx", "g.areq3"):
+        assert nm in rep0, nm
+    assert v1._cooldowns and not v1._brain_cooldowns
+    # brains: NONE of those GLOBs exist; the Instance block carries them
+    rep1 = br.bb.report()
+    for nm in ("g.once.greet", "g.cd", "g.wp", "g.wtimer", "g.wtx", "g.areq3"):
+        assert nm not in rep1, nm
+    assert not br._cooldowns and br._brain_cooldowns.get("g")
+    keys = {k for (_o, k) in br._inst_slots}
+    assert {"once.greet", "onceeng.greet", "wp", "wtx", "wtz",
+            "wtimer", "areq3"} <= keys
+    assert any(k.startswith("cd") and not k.startswith("cdeng") for k in keys)
+    assert any(k.startswith("cdeng") for k in keys)
+    # the event-once LATCH is body-written -> it STAYS a GLOB flag
+    assert "g.once.cry" in rep1
+    # instance bytes: wtx/wtz are 2-aligned int16s; loc covers the block
+    kind, off = br._inst_slots[("g", "wtx")]
+    assert kind == "int16" and off % 2 == 0
+    assert cb1.brain_locs["g"] == br._inst_next["g"] >= 11
+    # the brain reads Instance vars (0xC0 var token, src=Instance) and ticks
+    # its own cooldown; Instance never appears in v1's ticker
+    itok = exprasm.assemble("Instance.Byte[0] B_EXPR_END")[:-1]
+    assert itok in cb1.brain_bodies["g"]
+    assert itok not in cb0.ticker_body
+
+
+def test_class_wander_and_cooldown_tables_gone():
+    """The rung-1 strided homes for brain-private slots are deleted — a class
+    build allocates no wtx/wtz/wtimer/cd tables (Instance carries them)."""
+    fb = B.FieldBehavior([B.UnitSpec("a", 2, spawn=(0, 0)),
+                          B.UnitSpec("b", 3, spawn=(9, 0))], brains=True,
+                         classes=[B.ClassSpec("pair", ("a", "b"))])
+    fb.classes["pair"].tree = B.Selector(
+        B.Cooldown(90, B.Sequence(fb.near("pair", B.PLAYER, 400),
+                                  B.Do(B.Chase(B.PLAYER)))),
+        B.Do(B.Wander(center=(0, 0), radius=300)),
+    )
+    cb = fb.compile()
+    assert not any(k.startswith("cls.pair.wt") or ".cd" in k
+                   for k in fb._cls_tids), fb._cls_tids
+    assert cb.brain_locs["pair"] == 7       # cd@0 cdeng@1 wtx@2 wtz@4 wtimer@6

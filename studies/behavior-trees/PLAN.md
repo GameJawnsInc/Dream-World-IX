@@ -882,6 +882,50 @@ brains (park/restore/suspend/resume with live shared-brain Seqs) are all
 in-game. Still open on the brains ladder: Instance-var latch migration,
 REQSW transition dispatches, inline one-shot bodies.
 
+**RUNG 3 — BUILT + DEPLOYED (2026-07-28), ⚠ playtest pending: THE INSTANCE
+BLOCK (brain-private state → Seq Instance vars).** THE ELIGIBILITY LINE:
+state ONLY the brain touches — sticky once latch+eng, cooldown timer+eng
+(the BRAIN now ticks its own timers; a dead unit's cooldown freezing is
+unobservable), areq/breq request flags, patrol wp, wander wtx/wtz/wtimer —
+moves into each Seq's private Instance block (`_inst_ref`; the entry's varn
+via `seat_entry(loc=)`, offsets from 0, int16s 2-aligned, flags as whole
+BYTES — every shape the SEQBRAIN bench proved). Zeroed at spawn = reset for
+free; per member for free under classes (rung-1's strided wt/cd tables and
+rung-2's areq/breq tables DELETED). Body-written latches (event-once,
+battled) + the sel/run protocol + mirrors/targets keep addressable homes.
+`gscan` deliberately NOT migrated (transient shared scratch, 1B/owner —
+keeps the proven combat-lane bytes stable). v1 byte-identical vs master
+(re-verified, including its bb allocation ORDER — the brains-only seg
+restructure compiles the tree first to discover cooldowns). ~ Flags cannot
+see Instance vars; the report prints each brain's block map. Suite: 163
+behavior tests green. **Bench = BTCRY REDEPLOYED (zero relaunch)** with the
+rung-3 cast: heralds gain a per-member STICKY-ONCE follow; new "stalker"
+class (Cooldown-150 chase + ONE shared patrol chord walked at each Seq's
+OWN wp — snap-together = failure); treads' wander/breq now private.
+Deployed bytes verified: 7 heads → 3 brains split 3/2/2, varn 3/7/3.
+~ → Reload → 30425.
+**ROUND 1 (owner): stalkers ★ CLEAN** ("walk their own paths and chase
+independently, repeatable forever including after battles" — private wp +
+brain-ticked cooldown + the battle round-trip all confirmed); two BENCH
+authoring bugs, both fixed same day: (1) the herald follow "tags and runs
+back" = **THE HYSTERESIS LAW** (a sticky cond is TRIGGER and KEEP — 280u
+with a 170 standoff read the first step back as "escaped" and latched;
+now 700u; law → BEHAVIOR.md; the stalkers' identical machinery at 500u
+working is the compiler's alibi); (2) the treads' wander box sat on the
+monument's west bulge ("slide-running in place" — the known off-mesh
+shove); the center now anchors on the clearance lattice at ~(-1700,0),
+r 250 — `behavior lint`'s wander sweep is quiet on the new box (round 1
+shipped unlinted; the sweep existed and would have flagged it — RUN THE
+LINT ON BENCHES TOO). Redeployed zero-relaunch; round 2 = the herald
+follow + visible wandering re-checks.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "all good now, knight
+follows and mus wander properly" — RUNG 3 IS CLOSED.** The Instance block
+is in-game across every migrated slot family: per-member sticky once
+(follow-then-latch), brain-ticked cooldowns, private patrol progress,
+private wander state, the private request lanes — and the battle
+round-trip re-held under Instance state. Remaining ladder: REQSW
+transition dispatches, inline one-shot bodies.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES

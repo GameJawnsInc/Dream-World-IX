@@ -898,6 +898,7 @@ class CompiledBehavior:
     report: str
     sizes: dict | None = None        # the byte histogram (see size_report)
     brain_bodies: dict = _dc_field(default_factory=dict)  # brains mode: unit -> Seq body
+    brain_locs: dict = _dc_field(default_factory=dict)    # owner -> instance bytes (varn)
 
     def size_report(self) -> str:
         """THE BYTE HISTOGRAM — where the compiled bytes go, unit by unit, against
@@ -1033,8 +1034,17 @@ class FieldBehavior:
         self._cls_tids: dict[str, int] = {}              # table name -> vector id
         self._cls_values: dict[str, dict[int, int]] = {}  # table name -> {cell: preset}
         self.tick = int(tick)
-        self._cooldowns: list[tuple[str, int]] = []      # (timer name, frames)
-        self._cls_cooldowns: list[tuple[str, str]] = []  # (class, timer slot key)
+        self._cooldowns: list[tuple[str, int]] = []      # v1: (timer name, frames)
+        # THE INSTANCE BLOCK (brains backends): brain-PRIVATE state — sticky
+        # once/cooldown latches+timers, the areq/breq request flags, patrol
+        # progress, wander state, the acquire scratch — lives in each Seq's own
+        # instance vars (the entry's varn block; P3-proven, zeroed at spawn =
+        # reset for free, one copy PER SEQ = per-member for free under a
+        # class). Only state something OUTSIDE the brain touches (body-written
+        # latches, the sel/run protocol, mirrors, targets) stays addressable.
+        self._inst_next: dict[str, int] = {}             # owner -> next free byte
+        self._inst_slots: dict[tuple, tuple] = {}        # (owner, key) -> (kind, off)
+        self._brain_cooldowns: dict[str, list] = {}      # owner -> [timer ref text]
         self._reset_bytes: list[int] = []                # extra bytes Main_Init zeroes
         self._reset_flags: list[int] = []                # extra flags Main_Init clears
         self._preset16: dict[int, int] = {}              # int16 idx -> Main_Init preset
@@ -2112,12 +2122,15 @@ class FieldBehavior:
                 if lk is not None:
                     oneshot_latch[aid] = lk
                     oneshot_req[aid] = rk
-                    # registration: reset-listed GLOBs for a unit owner (the v1
-                    # order, latch then request); zero-seeded strided cells for
-                    # a class — ONE LATCH PER MEMBER (once-per-member is the
-                    # class semantics; class-wide once = raise_flags+not_flag)
+                    # registration: the LATCH is body-written (GLOB / strided —
+                    # once-per-member; class-wide once = raise_flags+not_flag);
+                    # the REQUEST is brain-private (Instance under brains).
+                    # v1 keeps the latch-then-request reset order byte-for-byte.
                     self._sticky_flag(owner, lk)
-                    self._sticky_flag(owner, rk)
+                    if self.brains:
+                        self._inst_ref(owner, rk)
+                    else:
+                        self._sticky_flag(owner, rk)
             nudge_tag = FIRST_ACTION_TAG + len(dispatch_tag)
             for u in members:
                 funcs: list = []
@@ -2165,9 +2178,29 @@ class FieldBehavior:
                 _stmt(self._uref(owner, "active")),
                 (JMP_IFNOT, f"t_{owner}_done"),
             ]
-            if owner in self._engages:
-                seg += self._acquire_block(owner, self._engages[owner])
-            seg += self._compile_tree(owner, tree, ids, fail=f"t_{owner}_fellthrough")
+            if self.brains:
+                # the tree compiles FIRST: it discovers this owner's
+                # SEQ-PRIVATE cooldown timers, whose decrement blocks must sit
+                # ahead of it in the same pass (the central clock's position,
+                # brain-local). v1 keeps its original emission order below —
+                # its blackboard allocation sequence is part of its bytes.
+                tree_body = self._compile_tree(owner, tree, ids,
+                                               fail=f"t_{owner}_fellthrough")
+                for ci, t_r in enumerate(self._brain_cooldowns.get(owner, ())):
+                    sk = f"t_{owner}_bcd{ci}"
+                    seg += [
+                        _stmt(f"{t_r} const(0) B_GT"), (JMP_IFNOT, sk),
+                        _stmt(f"{t_r} {t_r} const(1) B_MINUS B_LET"),
+                        label(sk),
+                    ]
+                if owner in self._engages:
+                    seg += self._acquire_block(owner, self._engages[owner])
+                seg += tree_body
+            else:
+                if owner in self._engages:
+                    seg += self._acquire_block(owner, self._engages[owner])
+                seg += self._compile_tree(owner, tree, ids,
+                                          fail=f"t_{owner}_fellthrough")
             seg += [
                 label(f"t_{owner}_fellthrough"),         # unreachable (fallback is
                 label(f"t_{owner}_selected"),            # unconditional) — lint safety
@@ -2185,8 +2218,10 @@ class FieldBehavior:
             disp_end = f"t_{owner}_dend"
             for aid, rk in oneshot_req.items():
                 bl = f"t_{owner}_b{aid}"
+                req_r = (self._inst_ref(owner, rk) if self.brains
+                         else self._sticky_flag(owner, rk))
                 seg += [
-                    _stmt(self._sticky_flag(owner, rk)), (JMP_IFNOT, bl),
+                    _stmt(req_r), (JMP_IFNOT, bl),
                     _stmt(self._sticky_flag(owner, oneshot_latch[aid])), (JMP_IF, bl),
                     _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, bl),
                     opcodes.run_script_async(DISPATCH_LEVEL, tgt, dispatch_tag[aid]),
@@ -2258,19 +2293,8 @@ class FieldBehavior:
                 _stmt(f"Global.Byte[{t}] Global.Byte[{t}] const(1) B_MINUS B_LET"),
                 label(f"cd_{t}"),
             ]
-        # classed cooldown timers: one CELL per member in the decorator's strided
-        # table — the same central once-per-pass decrement, unrolled per member
-        # at its constant uid (holds during warm-up like every clock)
-        for ci, (cname, key) in enumerate(self._cls_cooldowns):
-            tid = self._cls_tids[f"cls.{cname}.{key}"]
-            for m in self.classes[cname].members:
-                cell = f"{_cnum(tid)} {_cnum(self.units[m].entry)} B_VECTOR"
-                cd_blocks += [
-                    _stmt(f"{cell} const(0) B_GT"),
-                    (JMP_IFNOT, f"ccd_{ci}_{m}"),
-                    _stmt(f"{cell} {cell} const(1) B_MINUS B_LET"),
-                    label(f"ccd_{ci}_{m}"),
-                ]
+        # (brains-backend cooldown timers are SEQ-PRIVATE and tick inside each
+        # brain's own loop — the central clock carries only v1's GLOB timers)
         for _name, f, t, frames in self._alternators:
             cd_blocks += [
                 _stmt(f"Global.Int16[{t}] const(0) B_GT"),
@@ -2540,6 +2564,16 @@ class FieldBehavior:
                           f"{self._cls_len} cells each):")
             report.append("  " + ", ".join(
                 f"{n}={tid}" for n, tid in self._cls_tids.items()))
+        if self._inst_slots:
+            report.append("brain instance blocks (Seq-private vars — zeroed at "
+                          "spawn; NOT visible in ~ Flags):")
+            for o in sorted({ow for ow, _k in self._inst_slots}):
+                slots = ", ".join(
+                    f"{k}@{off}{'w' if kind == 'int16' else ''}"
+                    for (ow, k), (kind, off) in sorted(self._inst_slots.items(),
+                                                       key=lambda kv: kv[1][1])
+                    if ow == o)
+                report.append(f"  {o}: {self._inst_next.get(o, 0)}B [{slots}]")
         tables_txt = ""
         if self.tables or self._counters:
             tl = ["tables (gScriptVector ids — re-seeded every field entry):"]
@@ -2604,9 +2638,32 @@ class FieldBehavior:
                    "brains": {n: len(b) for n, b in brain_bodies.items()},
                    "main_init": len(main_init)},
             brain_bodies=brain_bodies,
+            brain_locs={o: self._inst_next.get(o, 0) for o in brain_bodies},
         )
 
     # ---------------- tree → ticker blocks
+    def _inst_ref(self, owner: str, key: str, kind: str = "byte") -> str:
+        """A BRAIN-PRIVATE slot as a Seq Instance var (brains backends only):
+        allocated once per (owner, key) from the owner's varn block — install
+        seats the brain entry with ``loc =`` the block size. Int16 slots are
+        2-aligned. Flags are whole BYTES (the SEQBRAIN-proven shape; the
+        private block is not the band, bytes are free there)."""
+        width = 2 if kind == "int16" else 1
+        slot = self._inst_slots.get((owner, key))
+        if slot is None:
+            off = self._inst_next.get(owner, 0)
+            if width == 2 and off % 2:
+                off += 1
+            if off + width > 255:
+                raise BehaviorError(
+                    f"{owner}: brain instance block exceeds 255 bytes (the "
+                    f"entry-table varn is a Byte) — split the tree")
+            slot = (kind, off)
+            self._inst_slots[(owner, key)] = slot
+            self._inst_next[owner] = off + width
+        k, off = slot
+        return f"Instance.{'Int16' if k == 'int16' else 'Byte'}[{off}]"
+
     def _sticky_flag(self, owner: str, key: str) -> str:
         """A sticky-decorator latch ref: a reset-listed GLOB flag for a unit
         owner (the v1 text); for a CLASS, a zero-seeded strided cell — one latch
@@ -2653,11 +2710,13 @@ class FieldBehavior:
                 # forever and STARVE every branch below it. Selection edge-latches
                 # the request; the one-shot lane fires it when the level frees;
                 # the dispatch body sets THIS latch itself, releasing the branch.
-                # Class owners: latch + request stride — the event fires ONCE
-                # PER MEMBER, each member's cells its own.
+                # The LATCH is body-written — it must stay outside-addressable
+                # (GLOB / strided cell); the REQUEST is brain-private and rides
+                # the Instance block under brains. Once-per-member either way.
                 aid = ids[id(leaf.action)]
                 latch_r = self._sticky_flag(owner, f"once.{node.name}")
-                req_r = self._sticky_flag(owner, f"areq{aid}")
+                req_r = (self._inst_ref(owner, f"areq{aid}") if self.brains
+                         else self._sticky_flag(owner, f"areq{aid}"))
                 extra = (on_select or []) + [_stmt(f"{req_r} const(1) B_LET")]
                 return ([_stmt(latch_r), (JMP_IF, fail)]
                         + self._compile_tree(owner, node.child, ids, fail, _ctr, extra))
@@ -2666,10 +2725,15 @@ class FieldBehavior:
             # ONE tick. Instead: selecting the child ENGAGES; while engaged the gate
             # is bypassed (the child's own conditions keep deciding); the first
             # child-FAIL while engaged disengages and latches — "chase me while I'm
-            # near, never again once I escape". Class owners get per-MEMBER
-            # latches for free (strided cells at the caller's uid).
-            latch_r = self._sticky_flag(owner, f"once.{node.name}")
-            eng_r = self._sticky_flag(owner, f"onceeng.{node.name}")
+            # near, never again once I escape". Under brains the latch pair is
+            # SEQ-PRIVATE (Instance vars — per member for free, zeroed at
+            # spawn); v1 keeps the reset-listed GLOBs byte-for-byte.
+            if self.brains:
+                latch_r = self._inst_ref(owner, f"once.{node.name}")
+                eng_r = self._inst_ref(owner, f"onceeng.{node.name}")
+            else:
+                latch_r = self._sticky_flag(owner, f"once.{node.name}")
+                eng_r = self._sticky_flag(owner, f"onceeng.{node.name}")
             myfail = f"{me}_dfail"
             ff = f"{me}_dff"
             extra = (on_select or []) + [_stmt(f"{eng_r} const(1) B_LET")]
@@ -2683,19 +2747,24 @@ class FieldBehavior:
         if isinstance(node, Cooldown):
             # sticky like Once: engage on select, and start the TIMER at DISENGAGE
             # (the child failing while engaged), so the cooldown measures time since
-            # the behavior ENDED, not since it began.
-            if owner in self.classes:
-                key = f"cd{_ctr[0]}"
-                t_r = self._sticky_flag(owner, key)      # a strided timer CELL
-                if (owner, key) not in self._cls_cooldowns:
-                    self._cls_cooldowns.append((owner, key))
+            # the behavior ENDED, not since it began. Under brains the timer is
+            # SEQ-PRIVATE and the BRAIN decrements it (same Wait(tick) cadence
+            # as the central clock; it holds while the unit is inactive — a
+            # dead unit's cooldown freezing is unobservable, dead units select
+            # nothing). v1 keeps the central-clock GLOB byte-for-byte.
+            if self.brains:
+                t_r = self._inst_ref(owner, f"cd{_ctr[0]}")
+                bc = self._brain_cooldowns.setdefault(owner, [])
+                if t_r not in bc:                        # compile() may re-run
+                    bc.append(t_r)
+                eng_r = self._inst_ref(owner, f"cdeng{_ctr[0]}")
             else:
                 name = f"{owner}.cd{_ctr[0]}"
                 t = self.bb.byte(name)
                 if name not in [n for n, _f in self._cooldowns]:
                     self._cooldowns.append((name, node.frames))
                 t_r = f"Global.Byte[{t}]"
-            eng_r = self._sticky_flag(owner, f"cdeng{_ctr[0]}")
+                eng_r = self._sticky_flag(owner, f"cdeng{_ctr[0]}")
             myfail = f"{me}_dfail"
             ff = f"{me}_dff"
             extra = (on_select or []) + [_stmt(f"{eng_r} const(1) B_LET")]
@@ -2714,9 +2783,11 @@ class FieldBehavior:
             if isinstance(node.action, Battle):
                 # EDGE-LATCH the request at selection — the branch may be outranked
                 # next tick by its own raise_flags (the siege round-1 clobber); the
-                # dispatch tail's request lane fires it when level 4 frees
-                out.append(_stmt(f"{self._sticky_flag(owner, f'breq{aid}')} "
-                                 f"const(1) B_LET"))
+                # dispatch tail's request lane fires it when level 4 frees.
+                # Brain-private: Instance under brains.
+                breq_r = (self._inst_ref(owner, f"breq{aid}") if self.brains
+                          else self._sticky_flag(owner, f"breq{aid}"))
+                out.append(_stmt(f"{breq_r} const(1) B_LET"))
             for nm in node.raise_flags:
                 fi = self.bb.flag(nm)
                 if fi not in self._reset_flags:
@@ -2856,11 +2927,11 @@ class FieldBehavior:
         ]
 
     def _wp_ref(self, owner: str) -> str:
-        """The Patrol/March waypoint-progress slot: a reset-listed GLOB byte for
-        a unit owner, a zero-seeded strided cell for a class (each member walks
-        the shared route at its OWN progress)."""
-        if owner in self.classes:
-            return self._uref(owner, "wp")
+        """The Patrol/March waypoint-progress slot: SEQ-PRIVATE under brains
+        (each member/brain walks the shared route at its OWN progress, zeroed
+        at spawn); a reset-listed GLOB byte in v1."""
+        if self.brains:                                  # classes imply brains
+            return self._inst_ref(owner, "wp")
         idx = self.bb.byte(f"{owner}.wp")
         if idx not in self._reset_bytes:                 # out-of-range wp resets to 0
             self._reset_bytes.append(idx)
@@ -2943,19 +3014,19 @@ class FieldBehavior:
                     label(f"{L}_end")]
             return out
         if isinstance(a, Wander):
-            wtx_r = self._uref(owner, "wtx")
-            wtz_r = self._uref(owner, "wtz")
-            wt_r = self._uref(owner, "wtimer")
             cx, cz = int(a.center[0]), int(a.center[1])
-            if owner in self.classes:
-                # per-member center presets (cells); the timer zero-seeds
-                for m in self.classes[owner].members:
-                    ent = self.units[m].entry
-                    self._cls_values.setdefault(f"cls.{owner}.wtx", {}) \
-                        .setdefault(ent, cx)
-                    self._cls_values.setdefault(f"cls.{owner}.wtz", {}) \
-                        .setdefault(ent, cz)
+            if self.brains:
+                # SEQ-PRIVATE wander state (classes imply brains): the zeroed
+                # timer means the FIRST selection rolls a fresh target before
+                # the feed reads it — the center preset the v1 GLOBs carry is
+                # a belt this path never needs
+                wtx_r = self._inst_ref(owner, "wtx", "int16")
+                wtz_r = self._inst_ref(owner, "wtz", "int16")
+                wt_r = self._inst_ref(owner, "wtimer")
             else:
+                wtx_r = self._uref(owner, "wtx")
+                wtz_r = self._uref(owner, "wtz")
+                wt_r = self._uref(owner, "wtimer")
                 wt = self.bb.byte(f"{owner}.wtimer")
                 if wt not in self._reset_bytes:          # 0 -> fresh roll on first select
                     self._reset_bytes.append(wt)
@@ -3102,8 +3173,11 @@ class FieldBehavior:
             # it exists only as the STARTSEQ target for its unit's tag-1 head.
             # A CLASS seats ONE entry here — every member STARTSEQs the same
             # slot, each spawn its own Seq with its own caller (P3's shape).
+            # ``loc`` sizes the entry's varn = EACH Seq's private Instance
+            # block (the brain-private latches/timers/wander state).
             bentry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
-            out, brain_slots[name] = _object.seat_entry(out, bentry)
+            out, brain_slots[name] = _object.seat_entry(
+                out, bentry, loc=int(cb.brain_locs.get(name, 0)))
         for u in self.units.values():
             duty = cb.duty_bodies[u.name]
             if cb.brain_bodies:

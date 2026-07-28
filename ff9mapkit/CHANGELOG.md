@@ -44,6 +44,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   is uid-keyed and object-kind-blind, so shared brains ride a battle round-trip like any
   stock NPC. Only the payout verbs (`award` / shop stock+synth) still refuse class rows —
   once per member there would mean N payouts.
+- Brain-PRIVATE state (sticky `once`/`cooldown` latches + timers, patrol progress, wander
+  state, the one-shot request lanes) migrated into each brain coroutine's own PRIVATE variable
+  block (zeroed at spawn = reset for free; one copy per running brain = per member for free
+  under a class). It costs no script-vector table and no `gEventGlobal` band bytes; the brain
+  ticks its own cooldown timers. Body-shared state (the sel/run protocol, mirrors, targets,
+  body-written latches) keeps its addressable homes. v1 (ticker) builds are byte-identical;
+  the `~` Flags panel cannot see private latches — the compile report prints each brain's
+  block map.
 
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
