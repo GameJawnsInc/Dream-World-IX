@@ -57,12 +57,16 @@ PHASE = 50                           # Map.Byte[50] -- scene phase (1c)
 PORT_CACHE = 51                      # Map.Byte[51] -- the cached port code for the switch
 DEPART_BYTE = 1872                   # Global.Byte -- flags.py FERRY_DEPART_BYTE
 
-# The four ports (from lantern-hall.field.toml [[ferry.destination]] rows): tag, x, z, face.
+# The four ports (arrive x/z/face from lantern-hall.field.toml [[ferry.destination]] rows;
+# ground_y probed offline from the deployed blocks -- round 1 landed the player at pos[1] =
+# -200 (-0.78u) under a 3u shore, "inside the ground": the arrival MoveInstant must place the
+# player AT the ground height, arg2 = (-y*256) & 0xFFFF per THE ARG2 SIGN LAW -- the index-1
+# ground snap does NOT rescue a wrong scripted y): tag, x, z, face, ground_y.
 PORTS = [
-    (61, 60.0, -1168.0, 192),        # 1 Ashvale (the Lantern Quay)
-    (62, 432.0, -1232.0, 192),       # 2 Tidefall
-    (63, 1214.0, -1192.0, 192),      # 3 Grimhorn
-    (64, 688.0, -616.0, 64),         # 4 Larkspur (west = inland)
+    (61, 60.0, -1168.0, 192, 3.0),   # 1 Ashvale (the Lantern Quay)
+    (62, 432.0, -1232.0, 192, 3.2),  # 2 Tidefall
+    (63, 1214.0, -1192.0, 192, 3.2), # 3 Grimhorn (desert ground)
+    (64, 688.0, -616.0, 64, 3.23),   # 4 Larkspur (west = inland)
 ]
 
 CONFIRM_ON = 131072
@@ -145,9 +149,10 @@ JMP(L0)
 
 # --- the port-snap tags on the anchor (the boat tag-60 shape) ---
 
-def port_tag_body(x: float, z: float, face: int) -> str:
+def port_tag_body(x: float, z: float, face: int, ground_y: float) -> str:
+    y_arg = (-int(ground_y * 256)) & 0xFFFF
     return f"""
-MoveInstantXZY({{const4({fp(x)}) B_EXPR_END}}, {{const(200) B_EXPR_END}}, {{const4({fp(z)}) B_EXPR_END}})
+MoveInstantXZY({{const4({fp(x)}) B_EXPR_END}}, {{const({y_arg}) B_EXPR_END}}, {{const4({fp(z)}) B_EXPR_END}})
 TurnInstant({{const({face}) B_EXPR_END}})
 RET()
 """
@@ -157,7 +162,7 @@ RET()
 
 def _port_switch() -> str:
     lines = []
-    for i, (tag, _x, _z, _f) in enumerate(PORTS[:-1], start=1):
+    for i, (tag, _x, _z, _f, _gy) in enumerate(PORTS[:-1], start=1):
         lines.append(f"SET({{Map.Byte[{PORT_CACHE}] const({i}) B_EQ B_EXPR_END}})")
         lines.append(f"JMP_IFNOT(LP{i})")
         lines.append(f"RunScriptSync(6, {ANCHOR_UID}, {tag})")
@@ -266,8 +271,8 @@ def patch_one(base: bytes) -> bytes:
     out = E.replace_function_body(out, EYE_UID, 1, asm(EYE_LOOP))
     out = E.replace_function_body(out, AIM_UID, 0, asm(AIM_INIT))
     out = E.replace_function_body(out, AIM_UID, 1, asm(AIM_LOOP))
-    for tag, x, z, face in PORTS:
-        body = asm(port_tag_body(x, z, face))
+    for tag, x, z, face, gy in PORTS:
+        body = asm(port_tag_body(x, z, face, gy))
         s2 = EbScript(out)
         if any(f.tag == tag for f in s2.entry(ANCHOR_UID).funcs):
             out = E.replace_function_body(out, ANCHOR_UID, tag, body)
