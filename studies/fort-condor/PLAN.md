@@ -310,6 +310,35 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   already cover it), and the 20-ally cap (pool sizes already are the cap).
 - Productization: ★★ DONE — the `[siege]` TOML lane (see above).
 
+## CONDOR P1 — ★ RATIFIED (2026-07-28): THE SIEGE ON BRAINS
+
+`[siege] brains = true` re-platforms the whole ratified game onto the brains
+ladder (rungs 0-5, `studies/behavior-trees/PLAN.md`): each ally TYPE and each
+raider GROUP folds into ONE `npcs=` class row (one shared brain; 7 behavior
+rows carry the 27-unit siege), raiders drop their per-member [stage] march
+head — they hold_post at their stage spawns and walk the SHARED lane at
+private Instance wp progress (the stalker-chord shape) — and the new
+`speeds = [...]` class-row key keeps the anti-lockstep jitter (per-member
+walk_speed presets; class feeds omit `speed=` so the strided spd0 fallback
+pays out). A 1-point lane becomes `walk_to`. The base stays unclassed; its
+whole ending-theater stack runs INLINE in its brain behind free-gates
+(ladder rung 5). Default emission unchanged, golden-pinned.
+**Measured (route-stripped REDOUBT): 45,857B → 39,865B total; the 32.2KB v1
+ticker collapses to 6.8KB residual.** The FILE wall that capped round 3 at
+14 allies is now class-count-shaped, not member-count-shaped.
+**THE REDOUBT REGRESSION found + fixed en route:** the flag-band partition
+(post-acceptance) left the safe Blackboard window at 96 flags; the v1
+siege's event-once latch+request lanes need ~120 — master could no longer
+compile its own acceptance bench. `byte_band = "wide"` now carries its own
+240-flag window (bits 9520-9759, flush under the wide byte band, same
+standalone-only contract); the 770-byte swarm wall pin holds. Also: the
+30421 registration had been wiped from the shared install since the
+acceptance round — the redeploy re-added it (one relaunch).
+**★ Owner (2026-07-28): "all good, siege plays the same after relaunch"** —
+full parity: council, stipend, both lanes on their heralds, pins, per-member
+deaths, alarm, strip, endings, one purse. OPEN: whether `brains` becomes the
+[siege] DEFAULT (opt-in today; the ratified v1 emission stays available).
+
 ## Standing constraints
 
 - Pure-`.eb` is the target: it keeps the minigame playable on stock Memoria (novel fields
