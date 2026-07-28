@@ -1,0 +1,50 @@
+# TIER W rung W6b-1 -- CAST 2: THE WHEEL ON THE CELL THE SCREEN ACTUALLY READS.
+#
+# The census (cast 1c) + the surgical confirm (cast 1d, --only this cell) measured what no offline
+# derivation could: `cell.s0.x576_y384` is the EMERGENCE-VORTEX smoke -- the "background floating
+# flames" banded in the owner's videos -- on screen for the long, dark opening of the cast.  It is
+# also exactly the cell this rung's per-cell map exists for (the LOWER half of a rect whose upper
+# half is a class-C cell; unreachable through the old `(tag, x)` keying) and it is 4bpp, so this
+# one cast proves BOTH of cast 2's designed mechanisms plus the shape verdict:
+#
+#     the per-cell map's lower-half addressing  +  the 4bpp nibble codec  +  a texel SHAPE on
+#     scenery, in game, on a surface confirmed to render.
+#
+# PUNCH, not ink: casts 1a/1b taught the lesson in-game -- on additive fire an ink adds nothing
+# visible, while the probe's zeroed stripes read as crisp dark bands on this very surface.  So the
+# wheel is TRANSPARENT texels: dark ring-and-spokes gaps in the glowing smoke.
+#
+# Generate the art first (the committed generator).  CAST 2b uses the BOLD profile: the thin wheel
+# (7% of the page) did not read on this surface's sheared, mirrored UV while the probe's stripes
+# (28%) read instantly, so the same figure is scaled toward stripe-class coverage:
+#
+#     py phoenix_field_stamp.py --cell cell.s0.x576_y384 --mode punch --bold ^
+#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2
+#
+# MEASURED by that run: 6,120 texels stamped (18.7% of the page), 4,419 differ (the rest were
+# already transparent -- this texture is 52% smoke-holes), punch 4,419 / fill 0, dead bytes
+# moved 0; island centroid (55.5, 47.5), ring at r = 38.4 texels, stroke 0.30R, 3 wide spokes.
+
+[reskin]
+effect = 211
+label  = "phoenix-w6b-cast2-vortex-wheel"
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+[[reskin.texel]]
+name = "cell.s0.x576_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2/art/cell.s0.x576_y384.png"
+
+# --- the guards, emitted by the derivation, never typed --------------------------------------
+expect_page_offset = 0x025678   # id-0 page rect 4 of the s0 chunk -- the LOWER 128 lines
+expect_page_bytes  = 16384
+expect_page_wh     = [256, 128] # at 4bpp: 256 texels wide, two per byte -- the nibble codec
+expect_bpp         = 4          # stated, CHECKED against GEOM 0x33960's so record + nClut4
+expect_cell        = [576, 384] # the cell the (tag,x) rect view could never name
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# 1,557 texels go opaque -> transparent: art REMOVED deliberately, because the probe proved dark
+# gaps are what this surface renders legibly.  fill 0 (nothing painted), dead 0.
+acknowledge_cutout_reshape = true
+palette_from = "pal.s0.x208_y244.e16"
+note = "CAST 2: the wheel as dark gaps in the emergence-vortex smoke -- lower-half addressing + the 4bpp nibble codec + the shape verdict, one cast"

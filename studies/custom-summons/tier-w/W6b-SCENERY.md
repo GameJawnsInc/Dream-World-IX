@@ -511,6 +511,54 @@ not a comment.**
 
 # 5. THE CAST
 
+> ## ⚠ THE CAST RECORD (running) — 1a and 1b both NEGATIVE; the vehicle premise is FALSIFIED
+>
+> **Cast 1a (the ink wheel, sha `d09f8c78…`)**: not legible — owner video + full-resolution frame
+> sweep agree. The §6-Q6 outcome: brighter-on-bright under additive stacking adds nothing a moving
+> fire does not already add.
+> **Cast 1b (the punch wheel, sha `913a60c4…`, `--mode punch`)**: **the gaps do not show either** —
+> owner video + a 48-frame full-segment sweep at every fire surface (dome, sea, pillar, ground
+> burn). A punched annulus covering ~25 % of the texture cannot hide, so this is not legibility:
+> **cell (704,256)'s bytes are not what the on-screen fire samples.** Both deploys were
+> byte-verified live, so the file path is not in question.
+> **THE LAW THIS MINTS — AN `so` READER IS A BINDING, NOT A DRAW.** The so-record proves a model
+> *can* sample a cell, not that the model is ever drawn or visible. §5.1's "cast-proven upload
+> path" premise below inherited W5's magenta proof — but that proof went through the **palette**
+> (shared by every binding on CLUT (0,247)), so it proved the palette path, never this cell's. The
+> visible fire is very plausibly the id-3 program's own primitives sampling the DEPTH-UNKNOWN
+> cells — recon Q1 exactly. §5.1 is kept below as written: it was the correct inference from the
+> evidence the census could produce offline, and its failure is the finding.
+> **Cast 1c: THE STRIPED CELL CENSUS — the breakthrough.** (`phoenix_cell_probe.py`, sha
+> `eabee19a…`; zero-writing is depth-invariant, so all 12 cells were lawfully marked with k
+> stripes.) **Heavy owner-visible banding** on the dome, the sea, the pool, the veil and the
+> opening — the container→screen path proven for the fire surfaces at large. Duty-cycle decode
+> (dark fraction = 6k/128, tiling- and scale-invariant): the DOME = column 704 and, with cast 1b
+> excluding (704,256), that is **`cell.s0.x704_y384` — the READERLESS lower half** the census had
+> to call depth-unknown: recon Q1's program-prims hypothesis confirmed in numbers. The bird's own
+> flame sheets showed NO banding (id-4 untouched — the control held).
+> **Cast 1d (`--only cell.s0.x576_y384`)**: the pool went CLEAN (it is k=5 or 7 — a class-C cell,
+> still unnamed) and the **emergence-vortex smoke stayed banded** — cell 6 pinned to the
+> "background floating flames", on screen through the long dark opening.
+> **Cast 2 (the thin kit wheel, `d09f8c78…`→cell 6 rebuild): NOT legible.** 7 % of the page vs the
+> stripes' 28 % — and a border-luminance A/B across the phase came back null (the vortex rotates;
+> unaligned frames cannot be trusted either way — an earlier two-frame "decisive" read here is
+> WITHDRAWN).
+> **Cast 2b (the BOLD kit wheel, `3183d616…`, `--bold`: stroke 0.30R, 18.7 % of the page):
+> RENDERS, measured.** Burst-peak alignment locks the two casts to ±1 frame; at aligned cast-time
+> the smoke band's near-black fraction is **+11.6 points** over the thin baseline (peak−100;
+> +4.4 at peak−80; ~0 once bloom takes over), and the aligned frame pair shows the same smoke
+> masses visibly ERODED — chunks gone where the wheel is punched. **But no ring-and-spokes reads:
+> THE UV-SHREDDING BOUND** — this surface's sheared, mirrored panel UVs turn any figure into
+> diffuse erosion; stripes read only because they are translation-invariant. A photographable
+> SHAPE verdict on scenery needs a flatter-UV surface (the pool, once its cell is named by one
+> more `--only`).
+> **What the ladder proved in-game**: the scenery byte→screen chain (stripes owner-visible + the
+> kit-built wheel measured at aligned cast-time), THE PER-CELL MAP (cell 6 is a lower half only
+> the new map can address) and THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), plus the
+> two minted laws (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND). Open: the pool's cell id; the
+> shape verdict on a flat surface. Revert chain: cast-2b ledger → cast-2 → (probe/punch/ink
+> snapshots in their SCRATCH roots) → stock.
+
 ## 5.1 The vehicle — ef211 (Phoenix), cell `(704, 256)`, the fire field
 
 ```

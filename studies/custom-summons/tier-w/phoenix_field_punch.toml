@@ -1,0 +1,51 @@
+# TIER W rung W6b-1 -- CAST 1b: THE PUNCH DISCRIMINATOR.  The same wheel as `phoenix_field.toml`,
+# written in the TRANSPARENT index instead of the ink -- sec 6 Q6's pre-registered fallback, run
+# because cast 1a returned exactly the outcome it anticipated.
+#
+# WHAT CAST 1a MEASURED (owner video 2026-07-28 00-37-43.mkv, frames verified at full resolution):
+# the max-luminance ink wheel (idx 254, 0x82f7, L=167.5) is NOT legible on the roiling fire --
+# brighter-on-bright under ADDITIVE stacking adds almost nothing a moving flame does not already
+# add.  That answers the legibility question and leaves two hypotheses standing:
+#
+#   (a) the edit reaches the screen and the ink was swallowed  ->  punched holes WILL show, because
+#       a transparent texel contributes NOTHING to an additive blend: persistent dark gaps in the
+#       fire, the one negative signal additive compositing cannot wash out;
+#   (b) these bytes are not what the on-screen fire samples   ->  the holes will NOT show either,
+#       and the diagnosis moves to the upload path, not the art.
+#
+# One deploy separates them.  Same cell, same guards, same figure geometry -- ONE variable changed
+# (the written index), per the one-change law.
+#
+# Generate the art first (the committed generator, punch mode):
+#
+#     py phoenix_field_stamp.py --mode punch --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-punch
+#
+# MEASURED by that run: 4,029 texels stamped, 4,015 differ, dead bytes moved 0,
+# cutout punch 4,015 / fill 0 -- the polarity is EXACTLY inverted from cast 1a (fill 14 / punch 0),
+# which is the point: removing art is the acknowledgement's original, loudest meaning.
+
+[reskin]
+effect = 211
+label  = "phoenix-w6b-field-wheel-PUNCH"
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+[[reskin.texel]]
+name = "cell.s0.x704_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-punch/art/cell.s0.x704_y256.png"
+
+# --- the guards, identical to phoenix_field.toml's -- same cell, same derivation ---------------
+expect_page_offset = 0x011678
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [704, 256]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# TRUE, AND THIS TIME IT ACKNOWLEDGES A PUNCH.  4,015 texels of the wheel go opaque -> transparent:
+# art is REMOVED, deliberately, because a hole is the one mark an additive blend cannot brighten
+# away.  fill must be 0 (a punch that filled a hole would be writing art) and the generator's own
+# exit code enforces that polarity.
+acknowledge_cutout_reshape = true
+palette_from = "pal.s0.x0_y247.e256"
+note = "CAST 1b, the punch discriminator: the same wheel as dark GAPS in the fire (transparent adds nothing) -- gaps visible = the lane reaches the screen; gaps absent = the upload path is the question"
