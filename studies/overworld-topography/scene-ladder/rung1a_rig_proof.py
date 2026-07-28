@@ -16,12 +16,27 @@ ProcessEvents.cs:186-202):
     varn=0 (NO Instance space -- the lane doc's append caveat), so ours inline constants: the
     rung-0 ship is static at (29,-1168) y=200fp.
 
-The scene (repeatable, ~4s): stand on the shore within 12u of the anchored ship, press
-Confirm (edge-gated, and only while the nameplate case machine is IDLE, Map.Byte[24]==100 --
-the boat's proven arbitration gate, so a quay-plate confirm can never double-fire) ->
-control+menu lock -> the rig arms: AIM pins on the ship, EYE starts low over the water SW of
-it and dollies slowly toward it (speed 8, ~3s) -> hold -> rig TERMINATED (chase cam returns,
-a hard cut -- the fade is rung 1c's job) -> control back.
+The scene (repeatable, ~4s; v2 = EYE-ONLY after round 1's ejection): stand on the shore
+within 12u of the anchored ship, press Confirm (edge-gated, and only while the nameplate
+case machine is IDLE, Map.Byte[24]==100 -- the boat's proven arbitration gate) -> control+
+menu lock -> the EYE rig arms: the camera pulls out low over the water SW of the ship and
+drifts slowly shoreward-in (speed 8), aim staying CHASE (pinned on the player) -- player,
+moored ship, and beacon in frame -> hold -> rig TERMINATED (chase eye returns, hard cut --
+the fade is rung 1c's job) -> control back.
+
+★ THE AIM-DRAG TRAP (round 1 in-game, the ejection to (797,-656)): while an AIM rig is
+armed, ff9.cs:2914's `else` (the `!GetEventAim()` branch) writes `w_cameraWorldAim` into
+`w_moveActorPtr.pos0/1/2` EVERY FRAME -- and those two live in DIFFERENT DOMAINS: the camera
+vars are fp x256 (fed from GetControlChar().pos[]; the wrap constants 393216/327680 =
+1536*256/1280*256 prove it), while pos0/1/2 are RENDER-domain transform setters. In stock
+this is harmless bookkeeping -- scene worlds have controlUID=0 and w_moveActorPtr = the inert
+w_moveDummyCharacter (ff9.cs:4390). In a free-roam world with a CONTROLLED PLAYER, the drag
+teleports the PLAYER ~256x away, wrapped. NO script-side park is clean (control rebound to
+the ship/aim just redirects the garbage write onto the scene's own subject), so: an AIM rig
+in a controlled world requires an ENGINE fix first (s66 candidate: skip the drag when
+w_moveActorPtr != w_moveDummyCharacter -- stock scene behavior byte-identical). Until then,
+EYE-ONLY rigs are the lawful subset; rung 1b (tracking a moving ship) needs s66. The heal
+was EXONERATED by the log (zero heal/exception lines -- s64 held).
 
 WORLD11 changes (dispatcher 9011; rung 0 must already be deployed):
   entry 17 (new) -- THE EYE: tag 0 = 0xB7 + MoveInstant (12,-1182) y 6u + slow WalkXZY dolly
@@ -68,7 +83,16 @@ AIM_UID = 18
 ANIM_ID = 5106
 
 SHIP = (29, -1168, 200)              # rung 0's mooring: x, z world units; y fixed-point const
-EYE_FROM = (12, -1182, 1536)         # scene open: low over the water SW of the ship (y 6u)
+# THE ARG2 SIGN LAW (round-1 in-game lesson -- "under horizon, mostly white"): MoveInstantXZY/
+# WalkXZY's middle arg is SIGN-FLIPPED into pos[1], and +pos[1] renders UP -- so an authored
+# HEIGHT of +h u must be encoded as (-h*256) & 0xFFFF. Stock's airborne actors are the tell:
+# WORLD11 e11 flies at arg2 58765 = signed -6771 -> +26.4u. Round 1's bare 1536 put the eye
+# 6u UNDERWATER. Sea-level things (the boat's/ship's 200 = -0.78u) never expose the sign.
+def up(h_units: float) -> int:
+    return (-int(h_units * 256)) & 0xFFFF
+
+
+EYE_FROM = (12, -1182, up(6))        # scene open: low over the water SW of the ship (+6u)
 EYE_TO = (16, -1178)                 # the ~3s dolly target (speed 8 ~= 0.03u/frame)
 HOLD_FRAMES = 240                    # scene length (the dolly runs inside it)
 
@@ -116,10 +140,8 @@ JMP_IFNOT(L900)
 DisableMove()
 DisableMenu()
 InitObject({EYE_UID}, 0)
-InitObject({AIM_UID}, 0)
 op_22({HOLD_FRAMES})
 op_1C({EYE_UID})
-op_1C({AIM_UID})
 op_22(2)
 EnableMenu()
 EnableMove()
