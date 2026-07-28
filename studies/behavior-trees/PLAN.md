@@ -875,6 +875,12 @@ bytes verified (tag-10 on entry 0, 5 heads → 2 brains split 3/2, identity
 in both, exactly 2 battle bodies). THE SHARPEST CLAIM: after the first
 battle every other brain still lives (the first battle ever fired under
 Seq brains). RELAUNCH → ~ → Warp → 30425.
+**★ PLAYTEST PROVEN (owner, 2026-07-28, round 1 clean): "all good, 3
+cries, both battles work, no issues after" — RUNG 2 CLOSED.** Once-per-
+member latches, per-member battles, AND the battle round-trip under Seq
+brains (park/restore/suspend/resume with live shared-brain Seqs) are all
+in-game. Still open on the brains ladder: Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
