@@ -624,8 +624,9 @@ boundary-at-255, histogram tiling, the 40-unit swarm).
    (studies/minigame-ui/SURVEY.md).
 4. **v1 "Limits" items** (Parallel, action-result plumbing, deeper nesting) —
    still demand-driven; nothing in the ratified fort-condor design needs them.
-5. **Side probes** (RunSharedScript caller-context, self-REQ) — unchanged, cheap,
-   unlock the per-unit-brain variant.
+5. **Side probes** (RunSharedScript caller-context, self-REQ) — ★ **BOTH ANSWERED
+   AT THE SOURCE (2026-07-27)**; the SEQBRAIN bench (below) carries the in-game
+   composites. See "THE SEQBRAIN FINDINGS".
 
 **★ THE CROSSING PASSED (owner playtest, 2026-07-25):** ISLES (30416, "the
 brawl" — 33,820B ticker content, 2 live islands, 14 mutual-combat units + a
@@ -641,6 +642,121 @@ precisely to predict this blocked fraction — the bench's 2200u cross-plaza
 chases were authored for the byte crossing, not clean pursuit lines). The
 authoring answer stands: place for sightlines, keep chase radii short, use
 route="auto" marches for long approaches and chase only for the close.
+
+## THE SEQBRAIN FINDINGS (2026-07-27) — the per-unit-brain probes, answered at the source
+
+Probe (a) and (b) fell to ENGINE-SOURCE reading (we ship this engine; the handlers
+ARE the semantics), calibrated against stock bytes. The SEQBRAIN bench (30422,
+`seqbrain_bench.py`) carries the composites stock never exercises — pending owner
+playtest.
+
+**(a) RunSharedScript caller-context: YES — gCur is THE CALLER, every tick.**
+`EBin.cs:164`: when the executing object is a Seq (`cid == 1`), the VM sets
+`gCur = FindObjByUID(seq.uid - cSeqOfs)` before dispatching each opcode.
+`DoEventCode` binds its `actor`/`po` locals from gCur (line 28), so every bare
+actor op (Walk, RunAnimation, WaitAnimation, turns) drives the CALLING UNIT while
+`stay()` blocks only the Seq. Expression reads (`B_DISTANCEA`, positions) read the
+caller too. Stock calibration: **309 of 817 field exports use RunSharedScript**,
+their shared bodies running bare actor ops over many ticks (e.g. test2_10's
+Entry3) — this is how half the game's per-actor cutscene coroutines work.
+
+**(b) Self-REQ: YES, with the level arithmetic.** `Request()` is
+`level < p.level` + `Call()` (a stack push + ip redirect). An object CAN dispatch
+its own function at a numerically LOWER level — it executes immediately as a call
+and the interrupted function resumes on RETURN. At >= the current level, REQ
+drops it silently; **REQSW on self at >= the current level BLOCKS FOREVER** (it
+waits for its own level to rise while being the thing that holds it) — THE
+SELF-REQSW DEADLOCK, a lint candidate.
+
+**The laws the reading produced:**
+
+- **THE CALLER-CONTEXT LAW** — inside a STARTSEQ coroutine: gCur = the spawner
+  (every tick), `GetObjUID(255)` = the spawner (so `REQ(4, 255, tag)` from a
+  shared brain dispatches onto WHICHEVER unit spawned it — one generic brain per
+  CLASS, zero per-unit parameterization), and `Instance.*` vars bind to gExec =
+  THE SEQ'S OWN private block (the brain entry's varn, zeroed at spawn).
+- **THE 64-STRIDE LAW** — brain uid = unit uid + `cSeqOfs` (64); uid is a Byte;
+  STARTSEQ DISPOSES whatever object sits at unit+64. No live object may occupy
+  that band; unit uids < 192. Kit fields (uid == entry slot) are clean below
+  ~60 entries.
+- **THE ORPHAN-BRAIN LAW** — `DisposeObj` does NOT cascade to unit+64. A disposed
+  unit's live brain NREs the engine on its NEXT TICK (`DoEventCode` line 28
+  derefs gCur unconditionally). Every disposal path of a brain-carrying unit must
+  run StopSharedScript (0x45, keys off gExec) BEFORE `TerminateEntry(255)`
+  (which is `ad21()` = dispose-self).
+- **THE NATIVE RUN-GATE** — `requestAcceptable` = `lv < p.level`; an idle unit
+  sits at level 7, a busy body at its dispatch level. `REQ(4, 255, tag)` from the
+  brain IS the sel/run protocol, engine-native (drop-while-busy); `REQSW` is the
+  blocking variant (wait-until-free). The compiled sel/run byte pair becomes
+  redundant under this architecture.
+- **ONE SEQ PER OBJECT** — STARTSEQ replaces (disposes) the previous brain.
+- `ObjTable` truth: the entry-table byte our model calls `loc` IS the engine's
+  **varn** — per-entry instance-var bytes. `seat_entry(..., loc=N)` declares a
+  brain's private block today, no new tooling.
+
+**What this buys against THE THREE WALLS** (if the bench composites hold):
+per-unit latches/timers move into Seq-private Instance vars (the blackboard band
+keeps only genuinely SHARED state); the per-unit unrolled ticker collapses to one
+brain entry per CLASS (span pressure gone); and with bodies inline in the brain
+(they run on gCur), the duplicated dispatch bodies (13.6KB on CONDOR r3) collapse
+too. The FILE wall recedes on all three fronts at once.
+
+**Bench composites (30422) — round 1 (owner playtest 2026-07-27):**
+- **P1 persistent-loop Seq ★ PASS** — both knights greet on approach, indefinitely.
+- **P3 Seq-private Instance vars ★ PASS** — each knight kneels exactly once, on
+  HIS OWN first meeting, then talk-gestures; two Seqs of ONE entry, independent
+  latches, zero blackboard bytes.
+- **P2 REQ-255 dispatch ★ PASS (rhythm clean)** — the mu's turn cycle ran on a
+  steady beat with no mid-body restart. (The model snapping back to straight
+  after each turn is the layered-clip law, not a dispatch artifact — stock
+  pairs turn clips with `TurnInstant` ladders when the facing should stick.)
+- **P4 die ordering — UNTESTED in round 1, MY defect:** the die flag sat at
+  `Map.Byte[241]`, and **THE MAPVAR-80 LAW** says the engine's Map var space is
+  `Byte[80]` (`EventContext.cs: mapvar = new Byte[80]`) with NO bounds guard.
+  Every read threw IndexOutOfRange, aborting the brain's frame mid-statement
+  (Memoria.log: ~800 once-per-second IOOR + `[CalcStack.pop] topOfStackID == 0`
+  pairs); the JMP_IFNOT recovered reading falsy and fell through to the turn
+  branch — so the field LOOKED alive while the die lane was unreachable every
+  tick. Round 2 moves the flag to 77.
+- **P5 true self-REQ ★ PASS (round 2)** — with the blip added, every turn cycle
+  audibly ends blip+hop: a level-4 body self-REQing its own level-3 function,
+  in-game proven.
+- **Round 2's P4 find — THE MUST-LAND DISPATCH LAW:** the die flag landed
+  (turning stopped permanently = the brain saw it), but the lone die
+  `REQ(4, 255, 9)` fired while the owner's dialogue still held the mu at talk
+  level — `requestAcceptable` failed and the REQ dropped SILENTLY, forever.
+  A brain's routine action dispatch WANTS drop-on-busy (that is the run-gate);
+  a transition-critical dispatch (death!) must use **REQSW (0x12)** — the Seq
+  stays until the unit frees, then binds the function. Two dispatch
+  primitives, both engine-native.
+- **P4 die ordering ★ PASS (round 3, owner playtest 2026-07-27):** with the
+  REQSW die, the mu finishes its cycle, leaps once, VANISHES; 30s later the
+  knights still greet (a not-yet-met knight still kneels first) — the
+  0x45-before-TerminateEntry ordering holds and sibling Seqs are untouched by
+  a unit+brain disposal. **REQSW-from-a-Seq blocking dispatch proven en route.**
+
+**★★ THE BENCH IS CLOSED — ALL FIVE COMPOSITES IN-GAME PROVEN.** The
+per-unit-brain variant is fully unblocked: caller-context brains (one entry
+per class), Seq-private per-unit state, REQ/REQSW dual dispatch, and the die
+protocol are all engine-native and playtest-confirmed. Residual bench noise:
+a handful of `expr_jumpToSubCommand` NREs per session at transition edges —
+the raw `B_PTR(250)` read the bench-grade Wait(90) shortcut allows; the
+production player-mirror latch (already law) removes the class.
+
+**A near-miss worth keeping: the 0x45 argflag scare.** Reading
+`DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
+`encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
+refuted it (field 450's `45` is one byte, and the stream after decodes to
+exactly the HW export's `while (GetEntryAnimFrame(255) != 0)` loop). Three
+grammars agree (our disasm, HW, stream coherence): 0x45 is 1 byte; the engine
+dispatch has a fast path my partial read missed. **Verify an encoder "fix"
+against stock bytes before shipping it — the fix would have introduced the
+very desync it claimed to prevent.**
+
+Bench-grade caveat: brains open with Wait(90) instead of the production
+player-mirror latch — the sporadic warp-edge NREs in `expr_jumpToSubCommand`
+(a handful per session, at transitions) are that shortcut's cost; production
+brains keep the mirror.
 
 ## Standing constraints
 
