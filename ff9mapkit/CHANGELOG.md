@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — behavior CLASSES: `npcs = [...]` shares ONE brain across same-tree units
+- With `[behavior] brains = true`, a `[[behavior.unit]]` row may bind a LIST of NPCs
+  (`npcs = ["kn0", ...]` + optional `class = "name"`): its branches compile ONCE into a single
+  shared brain entry every member spawns as its own coroutine — the engine binds each running
+  copy to its spawner, and the brain reads that member's state through the caller's own uid
+  (engine-native object-variable field 5, resolved through the same expression path the data-
+  table indices use). Per-member state (posts, targets, speeds, mirrors, sticky latches, the
+  engage register) strides into uid-indexed script-vector cells seeded like every kit table, so
+  it also stops consuming the blackboard flag band. Measured on the 7v7 scoreboard brawl: 14
+  brawlers share TWO 1.5KB brains — 15.3KB of new bytes vs 46.9KB on per-unit brains (32%).
+- v1 class vocabulary: the feeds, `engage`, `swing_at`, `hold_ground`, `die`, sticky
+  `once`/`cooldown`, `raise_flags`/`clear_flags`; the one-shot family (`battle`/`award`/shop
+  verbs/`sfx`/`flash`/`stop_timer`/`announce*`) stays on single-npc rows, and a class name is
+  never a condition target (name a member). `hp`/`speed`/`pooled`/`pool` apply to every member;
+  `anim` needs a shared model; class self-`hp_le` needs one hp home (same group, or ungrouped).
+  Class-free builds (both backends) compile byte-identically to before.
+
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
   band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO

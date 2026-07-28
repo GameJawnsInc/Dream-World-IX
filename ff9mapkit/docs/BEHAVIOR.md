@@ -71,6 +71,46 @@ without jump islands. Die actions additionally stop the unit's own brain before 
 terminates (a disposed unit must never leave a live coroutine behind). The build refuses any
 layout where a unit's entry slot + 64 collides with an occupied slot (the brain's runtime uid).
 
+### Classes — `npcs = [...]`: many units, ONE shared brain
+
+With `brains = true`, a `[[behavior.unit]]` row may bind a **list** of NPCs instead of one:
+
+```toml
+[[behavior.unit]]
+npcs = ["kn0", "kn1", "kn2"]      # a CLASS: one row, many bodies
+class = "knight"                  # optional name (reports/labels)
+hp = 4
+speed = 55
+  [[behavior.unit.branch]]
+  when = [{ hp_le = 0 }]
+  do = { die = "fallen" }
+  [[behavior.unit.branch]]
+  do = { engage = "mus", nearest = true }
+  [[behavior.unit.branch]]
+  do = { hold_post = true }       # each member holds its OWN spawn
+```
+
+The row's branches compile **once** into a single brain entry that every member spawns as its
+own coroutine — each running copy drives *its* spawner (the engine binds the caller as the
+current object every frame). Per-member state (active/selected/targets/speeds/mirrors, sticky
+`once`/`cooldown` latches, the engage target register) moves out of flag/byte slots into
+uid-indexed script-vector cells, seeded like every kit table; the shared brain reads *its own*
+member's cells through the caller's uid, while member-side bodies (the duty walk, the dispatch
+tags) read the same cells at their fixed uid. Net effect: a 7-member class costs ONE brain's
+bytes instead of seven, and its per-member state stops consuming the flag band.
+
+What a class row can say (v1): the feeds (`walk_to`/`hold`/`hold_post`/`chase`/`patrol`/
+`march`/`flee`/`wander`), `engage`, `swing_at`, `hold_ground`, `die`, sticky `once`/`cooldown`,
+and `raise_flags`/`clear_flags` (any member raising counts). Not yet: the one-shot family
+(`battle`/`award`/shop verbs/`sfx`/`flash`/`stop_timer`/`announce*`) — per-member one-shot
+semantics under a shared brain are a later rung; put those on a normal single-npc row (a class
+and plain rows mix freely on one field). A class tree is ONE program: per-member variation
+comes from state (`hold_post` posts, `engage` dynamic targets), not literals — and a class
+name can never be the *target* of someone else's condition (name a member, or use groups).
+Members keep their individual names everywhere else (groups, other trees' conds, `hp:` HUD
+sources). `anim` options need all members to share one model. hp rule for class self-tests
+(`hp_le` etc.): either every member sits in the SAME `[[behavior.group]]`, or none is grouped.
+
 ## Movement is real walking
 
 Actions that move (`walk_to`, `chase`, `patrol`, `march`, `flee`, `wander`) use the engine's own
