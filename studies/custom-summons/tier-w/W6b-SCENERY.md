@@ -602,7 +602,29 @@ not a comment.**
 > effect uploads and binds both covers and draws neither (the visible tube/swirl/shell sample
 > other cells — the full-census cast banded the mottle complex, cells 5–8, which tile ONE
 > continuous texture across columns 576+640). Resting: the ef429 override DELETED (= stock); row
-> 201 stays on the bench; the probe snapshot chain lives in `ef429-15bpp\`. Revert chain: pool-wheel ledger
+> 201 stays on the bench; the probe snapshot chain lives in `ef429-15bpp\`.
+> **THE ef446 LADDER (same day, 4 casts): the vehicle IS drawn — and it minted THE DEPTH
+> COROLLARY.** Census probe: "lots of bands" (meteor/nucleus, bowshock, aura, background). The
+> full-cover zero of (448,256) banded the NUCLEUS vertically (the zeroed left half of the 112-wide
+> picture recurring per texture wrap) ⇒ the picture is drawn. CAST B (`3d81f9fc…`: three 15bpp
+> cyan `0x7FE0` bands, full 112-texel width, `acknowledge_spill` on both writer rows): the bands
+> rendered — right cells, right count, and **seamless across the u=64 cell seam ⇒ THE
+> NAME-EVERY-COLUMN SPILL MECHANISM IS CAST-PROVEN in-game** — but as JITTERY SALMON/ORANGE, not
+> cyan. The offline decode nails the mechanism: an 8bpp read of the `0x7FE0` byte pair alternates
+> CLUT entries 224/127, and `pal.s0.x0_y247`'s e224 = (200,80,56) / e127 = (152,64,32) match the
+> on-screen tones exactly. **THE DEPTH COROLLARY (new law): a census depth is a BINDING fact, not
+> a DRAW fact** — the `so` record's 15bpp binds its own (evidently undrawn) model, while the
+> surface that draws the nucleus reads the same bytes at 8bpp under the warm CLUT; the fine
+> two-tone checker is the corollary's diagnostic signature. The invisible drawn binding is most
+> plausibly an id-2 archive model (the W4-recon scenery class) — sweeping id-2 model records for
+> tpage/clut is the named future attribution channel. VERDICT SPLIT, honestly: the 15bpp WRITE
+> path is proven byte→VRAM→screen, and the spill gate is proven; the 15bpp READ proof still needs
+> a surface DRAWN at 15bpp — the honest source is W6b-2's PROGRAM channel (55 non-creature
+> prog-15bpp cells; registration-side beats binding-side). NEXT VEHICLE: **ef251 (Madeen) column
+> x512 — prog 15bpp, tpage 312, one c1 site, and bench row 199 is ALREADY LIVE ⇒ a hot ladder**;
+> runner-up ef184 (Atomos Full) column x768. Resting: the ef446 override DELETED (stock — Atomos
+> short is a real stock summon path); rows 201/202 stay; artifacts + video evidence in
+> `ef429-15bpp\` and `ef446-15bpp\`. Revert chain: pool-wheel ledger
 > (`ef211-pool`, pre = ABSENT post-wipe → revert deletes to stock); the pre-wipe chain
 > (cast-2b → cast-2 → probes) survives in its SCRATCH roots but no longer reflects the install.
 

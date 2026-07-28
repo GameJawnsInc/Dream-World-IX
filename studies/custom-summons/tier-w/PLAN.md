@@ -333,8 +333,13 @@ scenery must be re-authored *together*.
   the offline UV-flatness screen (rotation agreement / overlap vs the shredder baseline) picked
   the surface correctly and is now the instrument for shape-bearing surfaces. The 15bpp vehicle
   ef429 is REFUSED with proof (3 probes + a 60fps video sweep; both lawful covers
-  bound-never-drawn; the closing full-cover zero read stock-identical). OPEN: the 15bpp cast on
-  the next vehicle — ef446 (Atomos, spill-gated), then ef405/ef082.**
+  bound-never-drawn; the closing full-cover zero read stock-identical). The ef446 ladder then
+  proved ITS vehicle drawn and minted THE DEPTH COROLLARY: a census depth is a BINDING fact, not
+  a DRAW fact — the drawn surface read the authored 15bpp cyan bands at 8bpp (jittery salmon
+  checker = the diagnostic signature; CLUT (0,247) e224/e127 match), while the bands ran seamless
+  across the cell seam ⇒ THE SPILL MECHANISM IS CAST-PROVEN and the 15bpp WRITE path is proven.
+  OPEN: the 15bpp READ proof on a program-channel 15bpp cell — next vehicle ef251/Madeen col x512
+  (row 199 live, hot ladder); runner-up ef184/Atomos-Full x768.**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
