@@ -798,6 +798,15 @@ class ClassSpec:
 # unit is disposed (die bodies StopSharedScript first).
 MYUID = "obj(uid=255).f[5]"
 
+# THE FREE-GATE (rung 5): the calling unit's SCRIPT LEVEL (getvobj case 6 =
+# obj.level, same B_OBJSPECA path as the uid read). `MYLEVEL > 4` IS the
+# engine's requestAcceptable(unit, 4) — READ instead of probed: an idle or
+# duty-walking unit sits at 7 (a running tag-1 main = cEventLevelN-1), a
+# kit body holds 4, an engine talk holds lower. An inline one-shot behind
+# this gate skips-and-retries while the unit is engine-held, exactly like
+# the REQ it replaces used to drop-and-retry.
+MYLEVEL = "obj(uid=255).f[6]"
+
 # per-unit state slots: GLOB home for unclassed units (kind, blackboard name) —
 # the classed home is the same slot in a uid-indexed class table (see _uref)
 _SLOT_GLOB = {
@@ -2108,6 +2117,7 @@ class FieldBehavior:
             dispatch_tag: dict[int, int] = {}
             oneshot_latch: dict[int, int] = {}           # aid -> latch slot KEY
             oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched req KEY
+            oneshot_action: dict[int, Action] = {}       # aid -> the action (rung 5)
             die_aids: set[int] = set()                   # transition-critical aids
             for a in actions:
                 aid = ids[id(a)]
@@ -2125,6 +2135,7 @@ class FieldBehavior:
                 if lk is not None:
                     oneshot_latch[aid] = lk
                     oneshot_req[aid] = rk
+                    oneshot_action[aid] = a
                     # registration: the LATCH is body-written (GLOB / strided —
                     # once-per-member; class-wide once = raise_flags+not_flag);
                     # the REQUEST is brain-private (Instance under brains).
@@ -2142,6 +2153,8 @@ class FieldBehavior:
                     tag = dispatch_tag.get(aid)
                     if a.feed or tag is None or any(t == tag for t, _b in funcs):
                         continue
+                    if self.brains and aid in oneshot_req:
+                        continue    # rung 5: INLINE in the brain — no member body
                     latch_arg = (oneshot_latch.get(aid)
                                  if not isinstance(a, Battle) else None)
                     body = self._dispatch_body(owner, u, a, aid,
@@ -2227,10 +2240,36 @@ class FieldBehavior:
                     _stmt(req_r), (JMP_IFNOT, bl),
                     _stmt(self._sticky_flag(owner, oneshot_latch[aid])), (JMP_IF, bl),
                     _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, bl),
-                    opcodes.run_script_async(DISPATCH_LEVEL, tgt, dispatch_tag[aid]),
-                    (JMP, disp_end),
-                    label(bl),
                 ]
+                if self.brains:
+                    # RUNG 5 — THE INLINE ONE-SHOT: the body's work is global
+                    # by audit (_oneshot_work), so it runs HERE in the brain
+                    # Seq instead of being REQ'd onto a per-member function —
+                    # the per-member copies are gone. THE FREE-GATE replaces
+                    # the REQ's acceptance check (requestAcceptable READ, not
+                    # probed): while the unit is engine-held (an open talk
+                    # dialogue) the lane skips and retries next pass, exactly
+                    # the old drop-and-retry. Latch FIRST (Battle's shape — a
+                    # battle suspend can never re-fire), run wraps the work at
+                    # MYUID (the same cells the member body wrote).
+                    seg += [
+                        _stmt(f"{MYLEVEL} const({DISPATCH_LEVEL}) B_GT"),
+                        (JMP_IFNOT, bl),
+                        _stmt(f"{self._sticky_flag(owner, oneshot_latch[aid])} "
+                              f"const(1) B_LET"),
+                        self._uset(owner, "running", 255),
+                    ] + self._oneshot_work(oneshot_action[aid], owner) + [
+                        self._uset(owner, "running", 0),
+                        (JMP, disp_end),
+                        label(bl),
+                    ]
+                else:
+                    seg += [
+                        opcodes.run_script_async(DISPATCH_LEVEL, tgt,
+                                                 dispatch_tag[aid]),
+                        (JMP, disp_end),
+                        label(bl),
+                    ]
             for aid, tag in dispatch_tag.items():        # the normal sel-gated tail
                 if aid in oneshot_req:                   # one-shots ride the request lane
                     continue
@@ -3245,6 +3284,73 @@ class FieldBehavior:
                     f"{_cnum(self.units[member].entry)} B_VECTOR")
         return f"Global.Bit[{self.bb.flag(f'{owner}.{key}')}]"
 
+    def _oneshot_work(self, a: Action, who: str) -> list:
+        """The GLOBAL work of a one-shot action — the ops between the latch/
+        run(255) prologue and the run(0) epilogue, shared verbatim by the
+        member-body path (v1 + looping variants) and the rung-5 INLINE path.
+        Every op here is context-free by audit: a battle id, a window, a
+        sound, a screen fade, the timer, gil/item/shop — global or
+        explicitly-uid'd, never a bare actor op (which binds gCur/gExec and
+        therefore CANNOT move between a member body and the brain Seq)."""
+        if isinstance(a, Battle):
+            return [opcodes.encode(0x2A, 0, int(a.scene))]  # Battle(0, scene) =
+        if isinstance(a, Award):                            # 559's tread shape
+            from . import event as _event
+            pay: list = []
+            if int(a.gil):
+                pay.append(opcodes.add_gil(int(a.gil)))
+            if a.item is not None:
+                pay.append(_event.give_item(a.item, int(a.count)))
+            return pay
+        if isinstance(a, ShopStock):
+            from .. import items as _items
+            iid = _items.resolve(a.item)
+            ops = [opcodes.encode(0x115, int(a.shop), iid, 0)]   # remove first —
+            if a.add:                                            # List.Add dupes,
+                ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
+            return ops
+        if isinstance(a, ShopSynth):
+            if isinstance(a.synth, str):
+                from .. import items as _items
+                sid = self.synth_mints.get(_items.resolve(a.synth))
+                if sid is None:
+                    raise BehaviorError(
+                        f"{who}: shop_synth recipe {a.synth!r} did not resolve — "
+                        f"string selectors match this project's [[synthesis]] result "
+                        f"names and need a reachable install at build (the minted-id "
+                        f"floor comes from the base Synthesis.csv); a vanilla row "
+                        f"takes its int id instead")
+            else:
+                sid = int(a.synth)
+            ops = [opcodes.encode(0x116, int(a.shop), sid, 0)]   # remove-then-add:
+            if a.add:                                            # same List dupe
+                ops.append(opcodes.encode(0x116, int(a.shop), sid, 1))
+            return ops
+        if isinstance(a, Announce):
+            return (([opcodes.wait(int(a.delay))] if a.delay else [])
+                    + [opcodes.window_async(a.window, 128, int(a.txid))]
+                    + ([opcodes.wait(int(a.sustain))] if a.sustain else []))
+        if isinstance(a, StopTimer):
+            return [opcodes.encode(OP_RUN_TIMER, 0)]
+        if isinstance(a, Flash):
+            r, g, bl = a.rgb
+            return [
+                opcodes.encode(0xA9, PLAYER_UID),        # stock runs CalcScreenPos
+                opcodes.encode(0xEC, 0, FLASH_OUT_FRAMES, 255, r, g, bl),
+                opcodes.wait(FLASH_OUT_FRAMES + 1),      # before EACH FadeFilter;
+            ] + ([opcodes.wait(int(a.pause))] if a.pause else []) + [
+                opcodes.encode(0xA9, PLAYER_UID),        # Wait(25) = field 682's
+                opcodes.encode(0xEC, 1, FLASH_IN_FRAMES, 255, 0, 0, 0),  # out + 1
+                opcodes.wait(FLASH_IN_FRAMES),
+            ]
+        if isinstance(a, Sfx):
+            play = opcodes.encode(RUN_SOUND_CODE3, int(a.bank), int(a.sound),
+                                  *SFX_PARAMS)
+            if a.sustain:
+                play += opcodes.wait(int(a.sustain))     # hold: queued one-shots
+            return [play]                                # wait their turn
+        raise BehaviorError(f"no one-shot work for {type(a).__name__}")
+
     def _dispatch_body(self, owner: str, u: UnitSpec, a: Action, aid: int,
                        oneshot_latch: str | None = None) -> bytes:
         """One dispatch-action body for MEMBER ``u`` of tree-owner ``owner``
@@ -3328,152 +3434,40 @@ class FieldBehavior:
             return asm([
                 _stmt(f"{blatch} const(1) B_LET"),       # one-shot: set BEFORE the
                 set_run(255),                     # suspend, so a return can
-                opcodes.encode(0x2A, 0, int(a.scene)),   # never re-fire it. Battle(0,
-                set_run(0),                       # scene) = 559's tread shape.
+            ] + self._oneshot_work(a, u.name) + [        # never re-fire it
+                set_run(0),
                 opcodes.RETURN,
             ])
         if isinstance(a, HoldGround):
             return asm(head + tail)                       # pure pin: idle while selected
-        if isinstance(a, Award):
+        if isinstance(a, (Award, ShopStock, ShopSynth)):
             if oneshot_latch is None:                     # unreachable (the map
                 raise BehaviorError(                      # refused it) — belt+braces
-                    f"{u.name}: Award must be Once-wrapped")
-            from . import event as _event
-            pay: list = []
-            if int(a.gil):
-                pay.append(opcodes.add_gil(int(a.gil)))
-            if a.item is not None:
-                pay.append(_event.give_item(a.item, int(a.count)))
+                    f"{u.name}: {type(a).__name__} must be Once-wrapped")
             return asm([
                 _stmt(f"{latch_ref} const(1) B_LET"),              # latch FIRST — pay once ever
                 set_run(255),
-            ] + pay + [
+            ] + self._oneshot_work(a, u.name) + [
                 set_run(0),
                 opcodes.RETURN,
             ])
-        if isinstance(a, ShopStock):
-            if oneshot_latch is None:
-                raise BehaviorError(
-                    f"{u.name}: add/remove_shop_item must be Once-wrapped")
-            from .. import items as _items
-            iid = _items.resolve(a.item)
-            ops = [opcodes.encode(0x115, int(a.shop), iid, 0)]   # remove first —
-            if a.add:                                            # List.Add dupes,
-                ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
-            return asm([
-                _stmt(f"{latch_ref} const(1) B_LET"),              # latch FIRST (Battle's shape)
-                set_run(255),
-            ] + ops + [
-                set_run(0),
-                opcodes.RETURN,
-            ])
-        if isinstance(a, ShopSynth):
-            if oneshot_latch is None:
-                raise BehaviorError(
-                    f"{u.name}: add/remove_shop_synth must be Once-wrapped")
-            if isinstance(a.synth, str):
-                from .. import items as _items
-                sid = self.synth_mints.get(_items.resolve(a.synth))
-                if sid is None:
-                    raise BehaviorError(
-                        f"{u.name}: shop_synth recipe {a.synth!r} did not resolve — "
-                        f"string selectors match this project's [[synthesis]] result "
-                        f"names and need a reachable install at build (the minted-id "
-                        f"floor comes from the base Synthesis.csv); a vanilla row "
-                        f"takes its int id instead")
-            else:
-                sid = int(a.synth)
-            ops = [opcodes.encode(0x116, int(a.shop), sid, 0)]   # remove-then-add:
-            if a.add:                                            # same List dupe
-                ops.append(opcodes.encode(0x116, int(a.shop), sid, 1))
-            return asm([
-                _stmt(f"{latch_ref} const(1) B_LET"),
-                set_run(255),
-            ] + ops + [
-                set_run(0),
-                opcodes.RETURN,
-            ])
-        if isinstance(a, Announce):
-            show = (([opcodes.wait(int(a.delay))] if a.delay else [])
-                    + [opcodes.window_async(a.window, 128, int(a.txid))]
-                    + ([opcodes.wait(int(a.sustain))] if a.sustain else []))
+        if isinstance(a, (Announce, StopTimer, Flash, Sfx)):
+            work = self._oneshot_work(a, u.name)
             if oneshot_latch is not None:
                 # the EVENT-Once variant: latch FIRST (Battle's one-shot shape —
-                # a re-request can never re-fire), show the window (async — it
-                # persists on screen without a body idling), release the level.
-                # delay/sustain hold the level around the open — queued one-shots
-                # (the NEXT staged line, a Battle) fire when it drops.
+                # a re-request can never re-fire), do the work (an announce
+                # window is async — it persists on screen without a body
+                # idling), release the level. delay/sustain hold the level
+                # around the open — queued one-shots (the NEXT staged line, a
+                # Battle) fire when it drops.
                 return asm([
                     _stmt(f"{latch_ref} const(1) B_LET"),
                     set_run(255),
-                ] + show + [
+                ] + work + [
                     set_run(0),
                     opcodes.RETURN,
                 ])
-            return asm(head[:1] + show
-                       + [label("loop"),
-                          _stmt(f"{sel_r} const({aid}) B_EQ"),
-                          (JMP_IFNOT, "out"),
-                          opcodes.wait(1), (JMP, "loop"),
-                          label("out"), set_run(0), opcodes.RETURN])
-        if isinstance(a, StopTimer):
-            stop = opcodes.encode(OP_RUN_TIMER, 0)
-            if oneshot_latch is not None:
-                return asm([
-                    _stmt(f"{latch_ref} const(1) B_LET"),
-                    set_run(255),
-                    stop,
-                    set_run(0),
-                    opcodes.RETURN,
-                ])
-            return asm(head[:1] + [stop]
-                       + [label("loop"),
-                          _stmt(f"{sel_r} const({aid}) B_EQ"),
-                          (JMP_IFNOT, "out"),
-                          opcodes.wait(1), (JMP, "loop"),
-                          label("out"), set_run(0), opcodes.RETURN])
-        if isinstance(a, Flash):
-            r, g, bl = a.rgb
-            burst = [
-                opcodes.encode(0xA9, PLAYER_UID),        # stock runs CalcScreenPos
-                opcodes.encode(0xEC, 0, FLASH_OUT_FRAMES, 255, r, g, bl),
-                opcodes.wait(FLASH_OUT_FRAMES + 1),      # before EACH FadeFilter;
-            ] + ([opcodes.wait(int(a.pause))] if a.pause else []) + [
-                opcodes.encode(0xA9, PLAYER_UID),        # Wait(25) = field 682's
-                opcodes.encode(0xEC, 1, FLASH_IN_FRAMES, 255, 0, 0, 0),  # out + 1
-                opcodes.wait(FLASH_IN_FRAMES),
-            ]
-            if oneshot_latch is not None:
-                return asm([
-                    _stmt(f"{latch_ref} const(1) B_LET"),         # latch FIRST (Battle's shape)
-                    set_run(255),
-                ] + burst + [
-                    set_run(0),
-                    opcodes.RETURN,
-                ])
-            return asm(head[:1] + burst
-                       + [label("loop"),
-                          _stmt(f"{sel_r} const({aid}) B_EQ"),
-                          (JMP_IFNOT, "out"),
-                          opcodes.wait(1), (JMP, "loop"),
-                          label("out"), set_run(0), opcodes.RETURN])
-        if isinstance(a, Sfx):
-            play = opcodes.encode(RUN_SOUND_CODE3, int(a.bank), int(a.sound),
-                                  *SFX_PARAMS)
-            if a.sustain:
-                play += opcodes.wait(int(a.sustain))     # hold the level: queued
-            if oneshot_latch is not None:                # one-shots wait their turn
-                # the EVENT-Once variant (the purse-fanfare lane): Announce's
-                # one-shot shape with a sound for a window — latch FIRST, play,
-                # release.
-                return asm([
-                    _stmt(f"{latch_ref} const(1) B_LET"),
-                    set_run(255),
-                    play,
-                    set_run(0),
-                    opcodes.RETURN,
-                ])
-            return asm(head[:1] + [play]
+            return asm(head[:1] + work
                        + [label("loop"),
                           _stmt(f"{sel_r} const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),

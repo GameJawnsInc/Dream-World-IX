@@ -11,6 +11,7 @@ Member-side bodies read the same cells at their constant uid.
 import pytest
 
 from ff9mapkit.content import behavior as B
+from ff9mapkit.eb import opcodes
 
 IDENTITY = bytes((0x78, 0xFF, 0x05))               # obj(uid=255).f[5] — B_OBJSPECA
 REQ_255 = bytes((0x10, 0x00, 0x04, 0xFF))          # REQ, argflag 0, level 4, uid 255
@@ -357,15 +358,21 @@ def test_class_one_shots_are_once_per_member():
     for key in ("areq1", "breq2"):
         assert ("pair", key) in fb._inst_slots, key
     assert cb.brain_locs["pair"] == fb._inst_next["pair"] > 0
-    # each member's dispatch bodies latch ITS OWN cell (constant uid) — the
-    # exact statement bytes, per member, in both the announce and battle bodies
+    # RUNG 5: the one-shot bodies are INLINE in the brain — no member copies.
+    # Once-per-member survives BY THE IDENTITY CHANNEL: the one inline latch
+    # write addresses the CALLER's strided cell (MYUID), so each running Seq
+    # latches its own member's row.
     for m in ("a", "b"):
         bodies = b"".join(body for _t, body in cb.action_funcs[m])
-        for key in ("once.cry", "battled2"):
-            stmt = bytes([5]) + exprasm.assemble(
-                f"{fb._oneshot_ref('pair', m, key)} const(1) B_LET B_EXPR_END")
-            assert stmt in bodies, (m, key)
-    # the two members' bodies are same-shape but differently-addressed
+        assert b"\x2a\x00" not in bodies         # no member battle body
+        assert not any(t == 15 or t == 16 for t, _b in cb.action_funcs[m])
+    for key in ("once.cry", "battled2"):
+        stmt = bytes([5]) + exprasm.assemble(
+            f"{fb._sticky_flag('pair', key)} const(1) B_LET B_EXPR_END")
+        assert stmt in brain, key
+    assert bytes((0x2A, 0x00, 0x00, 148, 0)) in brain    # the battle, inline
+    # the members keep their NON-one-shot bodies (the nudge at least), same
+    # tags, differently-addressed (constant-uid cells)
     assert [t for t, _b in cb.action_funcs["a"]] == \
            [t for t, _b in cb.action_funcs["b"]]
     assert b"".join(b for _t, b in cb.action_funcs["a"]) != \
@@ -518,3 +525,64 @@ def test_reqsw_never_inside_member_bodies():
             assert REQSW_L4 not in body, (m, tag)
     for m, body in cb.duty_bodies.items():
         assert REQSW_L4 not in body, m
+
+
+# ---- RUNG 5: INLINE ONE-SHOT BODIES (+ THE FREE-GATE) ----
+
+FREE_GATE = bytes((0x78, 0xFF, 0x06))   # obj(uid=255).f[6] — the unit's script LEVEL
+
+
+def test_inline_oneshots_carry_the_free_gate():
+    """Every inline one-shot is guarded by the free-gate (requestAcceptable
+    READ, not probed): while the unit is engine-held (an open talk dialogue)
+    the lane skips and retries — the old REQ's drop-and-retry, engine-native."""
+    fb = _oneshot_field()
+    cb = fb.compile()
+    brain = cb.brain_bodies["pair"]
+    assert brain.count(FREE_GATE) == 2      # one per lane: the cry + the battle
+    # the gate precedes the work: level-check bytes before the 0x2A
+    assert brain.index(FREE_GATE) < brain.index(bytes((0x2A, 0x00)))
+
+
+def test_unclassed_brain_inlines_oneshots_too():
+    fb = B.FieldBehavior([B.UnitSpec("lone", 2, spawn=(0, 0))], brains=True)
+    fb.units["lone"].tree = B.Selector(
+        B.Once("gift", B.Sequence(fb.near("lone", B.PLAYER, 200),
+                                  B.Do(B.Award(gil=300)))),
+        B.Do(B.HoldPost()))
+    cb = fb.compile()
+    brain = cb.brain_bodies["lone"]
+    assert brain.count(FREE_GATE) == 1
+    assert not any(t == 15 for t, _b in cb.action_funcs["lone"])  # no award body
+
+
+def test_looping_oneshot_variants_stay_member_bodies():
+    """A NON-once announce loops while selected (a level-4 residency the brain
+    cannot carry — it would stop evaluating its own tree) — it stays a
+    REQ-dispatched member body, unchanged by rung 5."""
+    fb = B.FieldBehavior([B.UnitSpec("a", 2, spawn=(0, 0)),
+                          B.UnitSpec("b", 3, spawn=(9, 0))], brains=True,
+                         classes=[B.ClassSpec("pair", ("a", "b"))])
+    fb.classes["pair"].tree = B.Selector(
+        B.Sequence(fb.near("pair", B.PLAYER, 300), B.Do(B.Announce(905))),
+        B.Do(B.Hold((0, 0))),
+    )
+    cb = fb.compile()
+    assert FREE_GATE not in cb.brain_bodies["pair"]      # no request lane at all
+    a_bodies = b"".join(b for _t, b in cb.action_funcs["a"])
+    assert opcodes.window_async(0, 128, 905) in a_bodies  # the looping body
+
+
+def test_v1_keeps_member_oneshot_bodies():
+    """v1's ticker cannot run bodies inline (it is ONE shared body — a Wait
+    inside an announce would stall every unit) — one-shots stay REQ-dispatched
+    member functions, byte-identical to before."""
+    fb = B.FieldBehavior([B.UnitSpec("lone", 2, spawn=(0, 0))])
+    fb.units["lone"].tree = B.Selector(
+        B.Once("cry", B.Sequence(fb.near("lone", B.PLAYER, 300),
+                                 B.Do(B.Announce(905)))),
+        B.Do(B.HoldPost()))
+    cb = fb.compile()
+    assert FREE_GATE not in cb.ticker_body
+    bodies = b"".join(b for _t, b in cb.action_funcs["lone"])
+    assert opcodes.window_async(0, 128, 905) in bodies

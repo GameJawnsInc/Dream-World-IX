@@ -9,8 +9,8 @@ block, P3-proven; zeroed at spawn = reset for free, one copy per Seq = per
 member for free). Body-written latches (the event-once latch, battled) stay
 outside-addressable.
 
-Rung 4 (THIS redeploy, zero-relaunch): REQSW TRANSITION DISPATCHES — THE
-DEATH KNELL. THE MUST-LAND DISPATCH LAW (seqbrain P4): a lone REQ against a
+Rung 4 (★ ratified round 2): REQSW TRANSITION DISPATCHES — THE DEATH
+KNELL. THE MUST-LAND DISPATCH LAW (seqbrain P4): a lone REQ against a
 busy unit drops SILENTLY forever; a transition-critical dispatch (Die) now
 emits REQSW 0x12 — the brain Seq stays on the instruction until the unit's
 level frees, then binds. The knell: stirring a Mu to battle raises the
@@ -18,6 +18,16 @@ level frees, then binds. The knell: stirring a Mu to battle raises the
 three knights — a knight killed MID-FOLLOW is the flagship case (the sel
 flip releases his looping chase body, the REQSW binds the die), composed
 with the battle round-trip.
+
+Rung 5 (THIS redeploy, zero-relaunch): INLINE ONE-SHOT BODIES — a PARITY
+round. The one-shot request-lane bodies (the cry announce, the knell
+announce, the battles) are global-op-only by audit, so they now run INLINE
+in the shared brain behind THE FREE-GATE (`obj(uid=255).f[6] > 4` — the
+engine's requestAcceptable READ instead of probed; getvobj case 6 =
+obj.level): the per-member dispatch-body copies are GONE. Everything
+ratified in rungs 2-4 must play IDENTICALLY. The free-gate's one visible
+edge: a one-shot that triggers while you hold a unit's dialogue open
+defers and fires the moment the dialogue closes.
 
 THE CLASSES AND THEIR MECHANISMS:
   * class "herald" — THREE knights spread across the plaza; each war-cries
@@ -239,6 +249,24 @@ def gen() -> None:
     for c in ("tread", "stalker"):
         if bytes((0x12, 0x00, 0x04)) in cb.brain_bodies[c]:
             raise SystemExit(f"BENCH INVALID: REQSW in dieless brain {c!r}")
+    # RUNG 5 — INLINE ONE-SHOTS: every request-lane body runs in the brain
+    # behind THE FREE-GATE (obj(255).f[6] = the unit's script level); the
+    # per-member copies are gone. herald = the cry lane; tread = the knell
+    # announce + the battle (0x2A inline); stalker has no one-shots.
+    fgate = bytes((0x78, 0xFF, 0x06))
+    want = {"herald": 1, "tread": 2, "stalker": 0}
+    for c, n in want.items():
+        got = cb.brain_bodies[c].count(fgate)
+        if got != n:
+            raise SystemExit(f"BENCH INVALID: brain {c!r} has {got} free-gates, "
+                             f"expected {n}")
+    if bytes((0x2A, 0x00, 0x00, BATTLE_SCENE, 0)) not in cb.brain_bodies["tread"]:
+        raise SystemExit("BENCH INVALID: the battle is not inline in the tread brain")
+    for m in HERALDS + TREADS:
+        bodies = b"".join(b for _t, b in cb.action_funcs[m])
+        if bytes((0x2A, 0x00)) in bodies:
+            raise SystemExit(f"BENCH INVALID: member {m!r} still carries a "
+                             f"battle dispatch body")
     print(f"  instance blocks (varn): "
           + ", ".join(f"{o}={n}B" for o, n in sorted(cb.brain_locs.items())))
     BENCH_TOML.write_text("".join(parts), encoding="utf-8")
@@ -269,28 +297,26 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST ({FIELD_ID} is REGISTERED -> NO relaunch: ~ -> Reload or Warp -> {FIELD_ID}):
-  THE POINT (rung 4): THE DEATH KNELL -- a transition-critical die dispatch
-  now rides REQSW (must-land, block-until-free) instead of a droppable REQ.
-  ORDER MATTERS: test the knights BEFORE nearing the Mus -- approaching a
-  Mu rings the knell and every knight falls.
-  1 the KNIGHTS first (east arc, three): first approach = ONE war cry, then
-    he FOLLOWS while you stay near; escape once and he is silent + still
-    forever. Leave AT LEAST ONE knight actively following you for step 2.
-  2 THE DEATH KNELL (round 2 -- rung EARLY, in the open): with a knight
-    still on your heels, walk west TOWARD a Mu. At ~400u -- well before
-    battle range -- "THE KNELL TOLLS" pops and ALL THREE knights fall:
-    KNEEL, hold a beat, VANISH, in plain view, no swirl eating it. The
-    one mid-follow is the flagship: his looping chase body frees, the
-    blocking REQSW binds the die. THEN step in (~220u) for the battle.
-  3 the STALKERS (two townsfolk pacing ONE line, west side, opposite ends):
-    near -> chase; escape -> resumes the line, re-engages ~2.5s after
-    escape -- repeatable forever, per stalker. Must still work AFTER the
-    battle + the knell (their brains untouched by the heralds' deaths).
-  4 the SECOND Mu still fires its own battle (once), and its wander goes
-    on -- the knell killed knights, not Mus. (Beat the 10:00 clock: scene
-    35 is a Hunt fight and ends itself at 0:00 -- the clock-coupled law.)
-  5 ~ -> Reload re-arms the WHOLE world: knights BACK (3 cries, follows),
-    knell cleared, 2 fresh battles, stalkers from their posts.
+  THE POINT (rung 5): INLINE ONE-SHOT BODIES -- a PARITY round. The cry
+  announce, the knell announce, and the battles now run INLINE in the
+  shared brains (no per-member body copies) behind THE FREE-GATE.
+  EVERYTHING from the ratified rounds must play IDENTICALLY:
+  1 the KNIGHTS first (east arc): first approach = ONE war cry each, then
+    he FOLLOWS while near; escape latches him silent + still forever.
+    Keep one knight following for step 3.
+  2 THE FREE-GATE (the one new observable): walk up to a FRESH knight and
+    TALK to him fast, holding the dialogue open -- his war cry must pop
+    RIGHT AFTER your dialogue closes (deferred, never lost, never during).
+  3 THE DEATH KNELL: walk west toward a Mu -- at ~400u "THE KNELL TOLLS"
+    pops and ALL THREE knights fall (kneel, hold, vanish, in the open);
+    the mid-follow one is the flagship. THEN step in (~220u): the battle
+    swirl (now fired INLINE from the brain), arena fight, clean return.
+  4 the STALKERS: chase/escape/2.5s-cooldown/patrol, repeatable forever,
+    still working AFTER the battle + the knell.
+  5 the SECOND Mu still fires its own battle once, wander continues after.
+    (Beat the 10:00 clock -- scene 35 ends itself at 0:00, the law.)
+  6 ~ -> Reload re-arms the WHOLE world: knights back, 3 cries, knell
+    cleared, 2 fresh battles, stalkers from their posts.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 
