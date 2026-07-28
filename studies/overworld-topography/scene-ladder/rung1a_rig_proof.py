@@ -121,8 +121,18 @@ def fp(v: int) -> int:
     return (v * 256) & 0xFFFFFFFF
 
 
-def _off(base: str, units: float) -> str:
-    """A ship-relative coordinate expr: obj(16).f[i] +/- |units|*256 (the stock rig idiom)."""
+def _off(base: str, units: float, updown: bool = False) -> str:
+    """A ship-relative coordinate expr: obj(16).f[i] +/- |units|*256 (the stock rig idiom).
+
+    ★ THE ARG2 Y-DOMAIN (probe run 1, s67: eye pos[1] landed -1992 = -200 - 1792 despite
+    B_PLUS): the .eb expression world sees y NEGATED on BOTH sides -- the f[1] READ returns
+    -pos[1] and the MoveInstantXZY arg2 WRITE negates again -- so stock's pass-through aim
+    ({obj(3).f[1]}) cancels exactly, and an UP offset must be SUBTRACTED in the expr domain
+    (stock's own eye: f[1] - 3200 = 12.5u BELOW the ship => minus means DOWN there because
+    the CACHED Instance value feeds arg2 unnegated; for an inline read-modify-write like
+    ours, minus = UP). Pass updown=True for the y axis; positive units = up."""
+    if updown:
+        units = -units
     n = int(abs(units) * 256)
     if n == 0:
         return f"{{{base} B_EXPR_END}}"
@@ -132,7 +142,7 @@ def _off(base: str, units: float) -> str:
 
 EYE_INIT = f"""
 0xB7()
-MoveInstantXZY({_off(f'obj(uid={SHIP_UID}).f[0]', EYE_OFF[0])}, {_off(f'obj(uid={SHIP_UID}).f[1]', EYE_OFF[1])}, {_off(f'obj(uid={SHIP_UID}).f[2]', EYE_OFF[2])})
+MoveInstantXZY({_off(f'obj(uid={SHIP_UID}).f[0]', EYE_OFF[0])}, {_off(f'obj(uid={SHIP_UID}).f[1]', EYE_OFF[1], updown=True)}, {_off(f'obj(uid={SHIP_UID}).f[2]', EYE_OFF[2])})
 RET()
 """
 
