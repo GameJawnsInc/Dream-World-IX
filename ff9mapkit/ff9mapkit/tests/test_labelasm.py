@@ -130,7 +130,12 @@ def test_behavior_compiles_far_past_the_old_ceiling():
 
     units = [B.UnitSpec(f"u{i}", entry=2 + i, spawn=(i * 50, 0), hp=5)
              for i in range(30)]
-    fb = B.FieldBehavior(units)
+    # This roster's protocol needs ~784 bytes -- past the campaign-safe band's 114
+    # and even the wide band's 770. The subject here is island relaxation, not band
+    # policy, and nothing compiled here deploys, so give the test blackboard the
+    # whole rest of the Global.Byte[2048] heap. NEVER copy this band into content.
+    _wide = dict(byte_base=B.WIDE_BYTE_BASE, byte_end=2047)
+    fb = B.FieldBehavior(units, blackboard=B.Blackboard(**_wide))
     for i, u in enumerate(units):
         others = [f"u{j}" for j in range(30) if j != i][:12]
         branches = [B.Sequence(fb.hp_le(u.name, 0), B.Do(B.Die()))]
@@ -150,7 +155,7 @@ def test_behavior_compiles_far_past_the_old_ceiling():
             t = D.jump_target(ins)
             assert t is None or t in starts | {len(cb.ticker_body)}
     # determinism holds through relaxation
-    fb2 = B.FieldBehavior(list(units))
+    fb2 = B.FieldBehavior(list(units), blackboard=B.Blackboard(**_wide))
     for i, u in enumerate(units):
         others = [f"u{j}" for j in range(30) if j != i][:12]
         branches = [B.Sequence(fb2.hp_le(u.name, 0), B.Do(B.Die()))]
