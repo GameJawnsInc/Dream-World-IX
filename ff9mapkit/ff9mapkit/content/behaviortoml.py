@@ -122,11 +122,11 @@ ACTION_VERBS = {
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "branch", "pooled", "pool"}
-# one-shot / event verbs a v1 CLASS row refuses (per-member latch semantics under
-# a shared brain are a later rung; the compiler enforces the same law)
-CLASS_FORBIDDEN_VERBS = {"battle", "award", "add_shop_item", "remove_shop_item",
-                         "add_shop_synth", "remove_shop_synth", "sfx", "flash",
-                         "stop_timer", "announce", "announce_npc"}
+# the PAYOUT verbs a CLASS row refuses (rung 2 lifted the rest of the one-shot
+# family with ONCE-PER-MEMBER latches — but a payout firing once per member is
+# N payouts, almost never the intent; the compiler enforces the same law)
+CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
+                         "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
               "brains"}
@@ -1015,9 +1015,9 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 bad = CLASS_FORBIDDEN_VERBS & set(br["do"])
                 if bad:
                     raise BehaviorTomlError(
-                        f"{ctx}: {sorted(bad)} is not a v1 CLASS action (one-shot "
-                        f"semantics under N shared-brain members are a later "
-                        f"rung) — put it on a normal single-npc [[behavior.unit]]")
+                        f"{ctx}: {sorted(bad)} fires once PER MEMBER under a "
+                        f"class (N payouts) — put it on a normal single-npc "
+                        f"[[behavior.unit]]")
                 if mixed_models and br["do"].get("anim") is not None:
                     raise BehaviorTomlError(
                         f"{ctx}: anim on a class whose members have DIFFERENT "
@@ -1504,9 +1504,9 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 bad = CLASS_FORBIDDEN_VERBS & set(br["do"])
                 if bad:
                     problems.append(
-                        f"{ctx}: {sorted(bad)} is not a v1 CLASS action (one-shot "
-                        f"semantics under N shared-brain members are a later rung) "
-                        f"— put it on a normal single-npc [[behavior.unit]]")
+                        f"{ctx}: {sorted(bad)} fires once PER MEMBER under a "
+                        f"class (N payouts) — put it on a normal single-npc "
+                        f"[[behavior.unit]]")
                     continue
                 if _mixed_models and br["do"].get("anim") is not None:
                     problems.append(

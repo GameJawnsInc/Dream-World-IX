@@ -141,15 +141,18 @@ def test_class_member_validation():
                         classes=[B.ClassSpec("c", ("a",)), B.ClassSpec("d", ("a",))])
 
 
-def test_class_tree_refuses_one_shot_actions():
+def test_class_tree_refuses_payout_actions_only():
+    """Rung 2 lifted the one-shot family (once-per-member latches); only the
+    PAYOUT actions stay out — N members would mean N payouts."""
     fb = B.FieldBehavior([B.UnitSpec("a", 2, spawn=(0, 0)),
                           B.UnitSpec("b", 3, spawn=(9, 0))], brains=True,
                          classes=[B.ClassSpec("pair", ("a", "b"))])
     fb.classes["pair"].tree = B.Selector(
-        B.Sequence(fb.near("pair", B.PLAYER, 300), B.Do(B.Announce(900))),
+        B.Once("pay", B.Sequence(fb.near("pair", B.PLAYER, 300),
+                                 B.Do(B.Award(gil=100)))),
         B.Do(B.Hold((0, 0))),
     )
-    with pytest.raises(B.BehaviorError, match="not a v1 class action"):
+    with pytest.raises(B.BehaviorError, match="PER MEMBER"):
         fb.compile()
 
 
@@ -232,9 +235,14 @@ def test_toml_class_row_refusals():
     both = copy.deepcopy(base)
     both["behavior"]["unit"][0]["npc"] = "a"
     assert any("mutually exclusive" in p for p in BT.validate(both))
+    pay = copy.deepcopy(base)
+    pay["behavior"]["unit"][0]["branch"].insert(
+        0, {"once": "pay", "do": {"award": 100}})
+    assert any("PER MEMBER" in p for p in BT.validate(pay))
+    # the lifted one-shot family passes validation on a class row now
     shot = copy.deepcopy(base)
     shot["behavior"]["unit"][0]["branch"].insert(0, {"do": {"sfx": 108}})
-    assert any("not a v1 CLASS action" in p for p in BT.validate(shot))
+    assert BT.validate(shot) == []
     dup = copy.deepcopy(base)
     dup["behavior"]["unit"].append(
         {"npc": "a", "branch": [{"do": {"hold": [0, 0]}}]})
@@ -315,3 +323,67 @@ def test_wake_publication_law():
         else:
             # v1: the 3-byte JMP-to-wait still sits between wake and run
             assert cb.ticker_body[at - 3] == 0x01
+
+
+def _oneshot_field():
+    """Rung 2: the one-shot family under a class — Once-announce + a flag-gated
+    Battle on a 2-member class."""
+    fb = B.FieldBehavior([B.UnitSpec("a", 2, spawn=(0, 0)),
+                          B.UnitSpec("b", 3, spawn=(9, 0))], brains=True,
+                         classes=[B.ClassSpec("pair", ("a", "b"))])
+    fb.classes["pair"].tree = B.Selector(
+        B.Once("cry", B.Sequence(fb.near("pair", B.PLAYER, 300),
+                                 B.Do(B.Announce(905)))),
+        B.Sequence(fb.flag("mad"), B.Do(B.Battle(148))),
+        B.Do(B.Hold((0, 0))),
+    )
+    return fb
+
+
+def test_class_one_shots_are_once_per_member():
+    from ff9mapkit.eb import exprasm
+    fb = _oneshot_field()
+    assert fb.has_battle_actions()          # the after-battle resume law must fire
+    cb = fb.compile()
+    brain = cb.brain_bodies["pair"]
+    assert IDENTITY in brain                # strided latch/req reads ride MYUID
+    # aid numbering in tree order: Announce=1, Battle=2 -> the decorator tables
+    for t in ("cls.pair.once.cry", "cls.pair.areq1",
+              "cls.pair.battled2", "cls.pair.breq2"):
+        assert t in fb._cls_tids, t
+    # each member's dispatch bodies latch ITS OWN cell (constant uid) — the
+    # exact statement bytes, per member, in both the announce and battle bodies
+    for m in ("a", "b"):
+        bodies = b"".join(body for _t, body in cb.action_funcs[m])
+        for key in ("once.cry", "battled2"):
+            stmt = bytes([5]) + exprasm.assemble(
+                f"{fb._oneshot_ref('pair', m, key)} const(1) B_LET B_EXPR_END")
+            assert stmt in bodies, (m, key)
+    # the two members' bodies are same-shape but differently-addressed
+    assert [t for t, _b in cb.action_funcs["a"]] == \
+           [t for t, _b in cb.action_funcs["b"]]
+    assert b"".join(b for _t, b in cb.action_funcs["a"]) != \
+           b"".join(b for _t, b in cb.action_funcs["b"])
+
+
+def test_toml_class_row_one_shots_build():
+    from ff9mapkit.content import behaviortoml as BT
+    raw = {
+        "npc": [{"name": "a", "pos": [0, 0]}, {"name": "b", "pos": [9, 0]}],
+        "behavior": {"brains": True, "unit": [
+            {"npcs": ["a", "b"], "class": "pair", "branch": [
+                {"once": "cry", "when": [{"near": ["player", 300]}],
+                 "do": {"announce": "For the east side!"}},
+                {"when": [{"flag": "mad"}], "do": {"battle": 148}},
+                {"do": {"sfx": 108}},
+                {"do": {"hold": [0, 0]}},
+            ]}]},
+    }
+    assert BT.validate(raw) == []
+    lines = BT.announce_lines(raw)
+    assert len(lines) == 1                  # ONE minted line serves every member
+    fb = BT.build(raw, npc_slots={"a": 2, "b": 3},
+                  behavior_txids={(ui, bi): 905 for ui, bi, _ in lines})
+    cb = fb.compile()
+    assert set(cb.brain_bodies) == {"pair"}
+    assert fb.has_battle_actions()
