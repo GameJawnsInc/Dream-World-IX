@@ -326,6 +326,14 @@ def generate(effect: int, from_path: Optional[str], root: str, mod_root: str,
     if not order:
         raise SystemExit("ef%03d declares no page-cells -- nothing to stripe" % effect)
 
+    only_set = None
+    if only is not None:
+        only_set = {s.strip() for s in only.split(",") if s.strip()}
+        unknown = only_set - {pc.name for pc in order}
+        if unknown:
+            raise SystemExit("--only names no such cell(s) %r; the census names are:\n%s"
+                             % (sorted(unknown), "\n".join("  " + pc.name for pc in order)))
+
     blob = bytearray(stock)
     legend: List[dict] = []
     for i, pc in enumerate(order):
@@ -335,16 +343,13 @@ def generate(effect: int, from_path: Optional[str], root: str, mod_root: str,
         rec = {"k": k, "name": pc.name, "kind": pc.kind, "offset": pc.off, "cell": [pc.x, pc.y],
                "span": [lo, hi], "placement": "so-cover" if cov else "whole-cell",
                "stripe_tops": stripe_rows(k, lo, hi), "written": True}
-        if only is not None and pc.name != only:
+        if only_set is not None and pc.name not in only_set:
             rec["written"] = False
             rec["stripe_tops"] = []
         else:
             blob[pc.off:pc.off + pc.nbytes] = striped(
                 bytes(stock[pc.off:pc.off + pc.nbytes]), k, lo, hi)
         legend.append(rec)
-    if only is not None and not any(r["written"] for r in legend):
-        raise SystemExit("--only %r matches no cell; the census names are:\n%s"
-                         % (only, "\n".join("  " + pc.name for pc in order)))
 
     probe = bytes(blob)
     EC.parse_header(probe, strict=True)                          # the probe must still parse
@@ -391,7 +396,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--root", default=DEFAULT_ROOT, help="staging root (LOCAL-ONLY)")
     ap.add_argument("--mod-folder", default=DEFAULT_MOD_ROOT,
                     help="the mod folder the emitted deploy script defaults to")
-    ap.add_argument("--only", default=None, metavar="CELL",
+    ap.add_argument("--only", default=None, metavar="CELL[,CELL...]",
                     help="stripe ONLY this cell (e.g. cell.s0.x448_y256), keeping its canonical "
                          "stripe count from the full-census legend -- the surgical confirm: exactly "
                          "the surfaces reading this cell band, everything else is its own control")
