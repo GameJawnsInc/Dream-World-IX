@@ -960,6 +960,50 @@ block's alignment hole at offset 1 — still 7B.)
 **★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — RUNG 4 IS
 CLOSED.** Remaining ladder: inline one-shot bodies.
 
+## Rung 5 — ★ RATIFIED (2026-07-28): INLINE ONE-SHOT BODIES (the last
+cross-product remnant). THE BRAINS LADDER IS COMPLETE.
+
+The one-shot request-lane bodies (battle / event-once announce / sfx /
+flash / stop_timer / award / shop) are **global-op-only by audit**
+(`_oneshot_work`): a battle id, a window, a sound, a screen fade, the
+timer, gil/item/shop — never a bare actor op (which binds gCur/gExec and
+cannot move between a member body and the brain). Under brains they run
+**INLINE in the (shared) brain Seq** instead of being REQ'd onto
+per-member functions — the duplicated dispatch-body copies (13.6KB at
+CONDOR scale) are gone. **THE FREE-GATE** `obj(uid=255).f[6] > 4` is the
+engine's `requestAcceptable(unit, 4)` READ instead of probed (getvobj
+case 6 = `obj.level`, no cid guard, the same B_OBJSPECA path as the uid
+read; a running tag-1 main sits at `cEventLevelN-1` = **7** — the
+docstring's "level is 0 until main returns" is wrong at the source — a
+kit body holds 4, an engine talk holds lower): an engine-held unit's
+one-shot skips-and-retries, exactly the REQ's old drop-and-retry, and can
+never fire mid-dialogue. Once-per-member survives BY THE IDENTITY CHANNEL
+(the one inline latch write addresses the CALLER's strided cell). Latch
+still FIRST (Battle's suspend-safe shape). What deliberately did NOT
+move: looping (non-once) announce/sfx/flash/timer variants keep member
+bodies (a level-4 residency the brain cannot carry — it would stop
+evaluating its own tree), and v1 keeps everything (ONE shared ticker
+cannot run a Wait inline). `_oneshot_work()` is the single op builder for
+both paths — the refactor REMOVED code; v1 byte-identical through it
+(`70f7fa47e28de45c`). Suite: 4 new pins, battery 171. Engine grounding:
+ENCOUNT 0x2A is fully caller-blind (two args, global battle state,
+`return 3`) — first-ever 0x2A from a Seq, round-trip included.
+**Bench = BTCRY REDEPLOYED (zero relaunch), a PARITY round:** dispatch
+bodies 1034B → 651B, brains +182B (one shared copy each). **★ RATIFIED
+(owner, 2026-07-28): "battles work, clean return, everything runs
+after"** — the inline 0x2A swirl + arena + resume, the knell deaths, the
+second Mu, stalkers, reload re-arm, all under inline one-shots; plus the
+async-window composite (cry window + talk dialogue stacked on screen,
+correct — the free-gate can only defer, never lose, never mid-dialogue).
+
+**THE BRAINS LADDER (rungs 0-5) IS CLOSED.** Per-unit brains → per-class
+sharing → one-shots once-per-member → THE INSTANCE BLOCK → REQSW
+must-land dies → inline one-shot bodies. All three walls from the
+SEQBRAIN reading are down: span (one brain entry per class), the
+blackboard band (Seq-private Instance state), and the body cross-product
+(inline one-shots). Next per the handoff: Fort Condor productization on
+this substrate.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES

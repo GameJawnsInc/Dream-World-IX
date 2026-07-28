@@ -80,6 +80,17 @@ frees, then binds — each brain blocks only itself, and the selection flip alre
 looping body the unit was running. (The v1 ticker keeps the retrying non-blocking form: one
 shared ticker must never wait on one busy unit.)
 
+And the **one-shot family runs inline in the brain**. A `battle`, an event-once
+`announce`/`sfx`/`flash`/`stop_timer`, an `award` or shop mutation does nothing that cares
+which object executes it — the work is a battle id, a window, a sound, a screen fade, an
+inventory edit — so under brains it executes directly in the brain coroutine instead of being
+dispatched onto a per-member function: a class pays for ONE copy of each one-shot, not one per
+member. The engine's busy-check is preserved by reading the unit's script level before firing
+(the free-gate): a one-shot that triggers while the unit is held — say you're holding its talk
+dialogue open — defers and fires the moment the unit frees, never lost and never mid-dialogue.
+Non-once (looping) variants keep per-member bodies, since they hold the unit's dispatch level
+while selected — a residency the brain can't carry.
+
 ### Classes — `npcs = [...]`: many units, ONE shared brain
 
 With `brains = true`, a `[[behavior.unit]]` row may bind a **list** of NPCs instead of one:

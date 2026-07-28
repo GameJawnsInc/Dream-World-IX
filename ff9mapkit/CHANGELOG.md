@@ -61,6 +61,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   form (a body waiting on the very level it holds would deadlock). v1 ticker builds keep the
   retrying non-blocking dispatch — one shared ticker must never wait on one busy unit — and
   stay byte-identical.
+- The **one-shot family runs INLINE in the brain** (battle / event-once announce / sfx /
+  flash / stop_timer / award / shop): the work is global by audit (a battle id, a window, a
+  sound, a fade, an inventory edit — never a bare actor op), so it executes directly in the
+  brain coroutine instead of being dispatched onto per-member function copies — a class pays
+  for ONE copy of each one-shot, and the last per-member body duplication is gone (~13.6KB at
+  fort-condor scale). The engine's busy-check is preserved by READING the unit's script level
+  before firing: a one-shot that triggers while you hold the unit's talk dialogue open defers
+  and fires the moment the dialogue closes — never lost, never mid-dialogue. Looping
+  (non-once) variants keep per-member bodies (they hold the unit's dispatch level while
+  selected); v1 ticker builds are byte-identical.
 
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
