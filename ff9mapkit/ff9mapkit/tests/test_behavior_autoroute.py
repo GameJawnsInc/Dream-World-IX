@@ -176,3 +176,29 @@ def test_build_script_clear_route_auto_is_byte_identical(tmp_path):
         return BLD.build_script(p, "us", {501: 501})
 
     assert field(', route = "auto"') == field("")
+
+
+# ------------------------------------------------- the class-approach guard (P2)
+def test_class_approach_guard_refuses_offmesh_member_spawn():
+    """A classed march compiles ONE shared program, so each member's approach —
+    its SPAWN to the route's first point — is a straight leg the router cannot
+    splice per member (a single-unit row carries its own authored head). A
+    member whose straight approach crosses off-mesh is refused loudly at plan
+    time, naming the member and the fix."""
+    raw = {
+        "field": {"id": 30414, "name": "BTROUTE"},
+        "player": {"spawn": [-600, -700]},
+        "npc": [{"name": "a", "pos": [-600, -600], "dialogue": "x"},
+                {"name": "b", "pos": [-600, 0], "dialogue": "x"}],
+        "behavior": {"brains": True, "unit": [
+            {"npcs": ["a", "b"], "class": "pack", "branch": [
+                {"do": {"march": [[600, -600], [600, 0]], "route": "auto"}},
+                {"do": {"hold_post": True}},
+            ]}]},
+    }
+    # "a" (-600,-600) -> (600,-600): straight through the bar, clear;
+    # "b" (-600,0) -> (600,-600): the diagonal crosses the notch — refused
+    with pytest.raises(BT.BehaviorTomlError, match="'b'.*no STRAIGHT walk"):
+        BT.autoroute_plan(raw, DEEP)
+    raw["npc"][1]["pos"] = [-600, -600]        # both approaches through the bar
+    assert BT.autoroute_plan(raw, DEEP)        # the same rows now plan clean

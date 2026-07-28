@@ -1701,12 +1701,13 @@ if you'd rather read a working field than a reference table.
 
 ```toml
 [siege]
-brains = true                      # (optional) compile onto per-class Seq brains: each ally
-                                   # type / raider group becomes ONE shared brain instead of
-                                   # per-unit ticker segments, and the ending theater runs
-                                   # inline. Same game, far smaller bytecode with headroom
-                                   # for bigger armies; the default (off) is the original
-                                   # central-ticker emission
+brains = true                      # (optional, THE DEFAULT) per-class Seq brains: each ally
+                                   # type / raider group is ONE shared brain, the ending
+                                   # theater runs inline — same game, far smaller bytecode,
+                                   # headroom for bigger armies. `brains = false` is the
+                                   # escape hatch back to the original central-ticker
+                                   # emission (e.g. if the field's entry layout collides
+                                   # with the brains' +64 uid band)
 timer = 60                         # the siege clock, seconds
 waves = [55, 40, 20]               # wave start times in REMAINING seconds (descending)
 stipend = 3000                     # (optional) opening war chest, paid + announced at boot

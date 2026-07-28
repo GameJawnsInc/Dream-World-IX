@@ -77,7 +77,9 @@ def test_from_raw_rejects_nested():
 
 # ------------------------------------------------------------------- the emission
 def test_behavior_raw_structure():
-    spec = _spec()
+    # the v1 TICKER emission golden — the `brains = false` escape hatch must
+    # keep the ratified round-4 shape byte-for-byte (brains is the default)
+    spec = _spec(brains=False)
     b = S.behavior_raw(spec)
     assert len(b["unit"]) == 1 + 3 + 5                    # base + raiders + allies
     assert [g["name"] for g in b["group"]] == ["raiders", "allies"]
@@ -181,6 +183,7 @@ def test_fight_theater_folds_onto_the_generated_actions():
     actions; absent dials add NO keys (the proven shapes stay byte-for-byte)."""
     over = copy.deepcopy(RAW)
     over["hit_sfx"] = 640
+    over["brains"] = False                    # the v1 per-unit rows this test pins
     over["ally"][0].update(anim="attack_cid_1", death_anim="hiza_1", linger=45)
     over["raider"][0].update(anim="jump", death_anim="jump")
     b = S.behavior_raw(S.from_raw(over))
@@ -410,8 +413,11 @@ def _siege_toml() -> str:
 
 
 def test_full_build_compiles(tmp_path):
+    # the v1 full-build golden (brains = false; the default path is covered by
+    # test_brains_full_build_compiles)
     f = tmp_path / "s.field.toml"
-    f.write_text(_siege_toml(), encoding="utf-8")
+    f.write_text(_siege_toml().replace("[siege]", "[siege]\nbrains = false", 1),
+                 encoding="utf-8")
     p = BLD.FieldProject.load(f)
     assert not p.raw.get("_siege_error") and not p.raw.get("_siege_conflict")
     assert BLD.validate(p) == []
@@ -495,11 +501,19 @@ def test_brains_emits_class_rows():
     assert len(base_rows) == 1
 
 
-def test_brains_default_off_emission_unchanged():
-    """No `brains` key -> the ratified v1 ticker emission, per-unit rows with
-    the [stage] march head and per-action speeds — byte-for-byte the round-4
-    shape the other goldens in this file pin."""
+def test_brains_is_the_default():
+    """CONDOR P2: no `brains` key -> the per-class brains emission (parity-
+    ratified on the acceptance field); `brains = false` is the escape hatch."""
+    assert _spec().brains is True
     b = S.behavior_raw(_spec())
+    assert b["brains"] is True
+    assert any(u.get("npcs") for u in b["unit"])
+
+
+def test_brains_false_restores_v1_emission():
+    """The escape hatch: per-unit rows with the [stage] march head and
+    per-action speeds — byte-for-byte the round-4 shape the goldens pin."""
+    b = S.behavior_raw(_spec(brains=False))
     assert "brains" not in b
     assert all(u.get("npc") for u in b["unit"])           # no class rows
     mu0 = next(u for u in b["unit"] if u["npc"] == "mu0")

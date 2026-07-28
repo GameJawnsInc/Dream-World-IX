@@ -741,6 +741,44 @@ def autoroute_plan(raw: dict, wmesh) -> dict:
                 f"relay the jamming leg by hand so fewer detours are needed")
         plan[(r["ui"], r["bi"])] = {"verb": r["verb"], "label": _route_label(r["value"]),
                                     "points": routed, "inserted": inserted}
+    # THE CLASS-APPROACH GUARD: a classed march/patrol compiles ONE shared
+    # program, so each member's APPROACH — its spawn to the route's first
+    # point — is a straight leg the router can never splice per member (a
+    # single-unit row carries its own authored head instead). A straight
+    # approach that crosses off-mesh jams the unit at the wall in-game (the
+    # slide-run failure class), invisibly to the leg sweep — so it is refused
+    # HERE, loudly, with the fix named.
+    us = units(raw)
+    for r in refs:
+        row = us[r["ui"]] if r["ui"] < len(us) else {}
+        members = row.get("npcs")
+        p = plan.get((r["ui"], r["bi"]))
+        if not members or not p or not p["points"]:
+            continue
+        first = tuple(p["points"][0])
+        for m in members:
+            spawn = positions.get(m)
+            if spawn is None:
+                continue
+            ctx = (f"{where} [[behavior.unit]] {r['unit']!r} branch #{r['bi']} "
+                   f"({r['verb']} {p['label']})")
+            try:
+                _r2, ins2 = _pathfind.route_polyline(
+                    wmesh, [tuple(spawn), first], closed=False)
+            except _pathfind.RouteLegError as e:
+                raise BehaviorTomlError(
+                    f"{ctx}: member {m!r} cannot reach the route's first point "
+                    f"({first[0]:.0f},{first[1]:.0f}) from its spawn "
+                    f"({spawn[0]:.0f},{spawn[1]:.0f}): {e}") from e
+            if ins2:
+                raise BehaviorTomlError(
+                    f"{ctx}: member {m!r} has no STRAIGHT walk from its spawn "
+                    f"({spawn[0]:.0f},{spawn[1]:.0f}) to the route's first point "
+                    f"({first[0]:.0f},{first[1]:.0f}) — the approach crosses an "
+                    f"off-mesh span, and a classed route is one shared program, "
+                    f"so the leg cannot be auto-routed per member. Move the "
+                    f"spawn/stage or the first waypoint into line of walk, or "
+                    f"author per-unit rows for this group")
     return plan
 
 

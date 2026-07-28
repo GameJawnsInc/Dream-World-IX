@@ -181,9 +181,10 @@ class SiegeSpec:
     text_waves: tuple = ()           # one cry per wave ("" skips that wave)
     wave_sfx: int | None = None      # cue on every wave arrival
     alarm_sfx: int | None = None     # cue with the alarm
-    brains: bool = False             # per-class Seq brains (npcs= rows) instead of
-                                     # the v1 central ticker; False = the ratified
-                                     # ticker emission byte-for-byte
+    brains: bool = True              # per-class Seq brains (npcs= rows) — THE
+                                     # DEFAULT since CONDOR P2; brains = false is
+                                     # the escape hatch back to the v1 central
+                                     # ticker emission, byte-for-byte
 
 
 def _need(d: dict, key, ctx: str):
@@ -395,7 +396,7 @@ def from_raw(s: dict) -> SiegeSpec:
         text_pace=tp, text_waves=tuple(tw),
         wave_sfx=(int(s["wave_sfx"]) if s.get("wave_sfx") is not None else None),
         alarm_sfx=(int(s["alarm_sfx"]) if s.get("alarm_sfx") is not None else None),
-        brains=bool(s.get("brains", False)))
+        brains=bool(s.get("brains", True)))
 
 
 # ----------------------------------------------------------------- the emission
