@@ -104,21 +104,30 @@ not the one A1 named, and column 576 is **triple**-depth:
 
 | col | pair | shared halfwords |
 |---:|---|---:|
-| 448 | `0x0bb0e8` 4bpp clut(192,244) × `0x0c2264` 8bpp clut(0,246) | 3,294 |
-| 448 | `0x08d888` 4bpp × `0x0c2264` 8bpp | 2,729 |
-| 448 | `0x08fc20` 4bpp × `0x0c2264` 8bpp | 2,750 |
-| **576** | `0x029e14` 8bpp clut(0,249) × `0x02ba28` 4bpp clut(0,244) | 2,444 |
-| **576/640** | `0x0be030` **15bpp DIRECT** × `0x029e14` 8bpp | **11,710** |
+| 448 | `0x0bb0e8` 4bpp clut(192,244) × `0x0c2264` 8bpp clut(0,246) | 4,032 |
+| 448 | `0x08d888` 4bpp × `0x0c2264` 8bpp | 4,032 |
+| 448 | `0x08fc20` 4bpp × `0x0c2264` 8bpp | 4,032 |
+| **576** | `0x029e14` 8bpp clut(0,249) × `0x02ba28` 4bpp clut(0,244) | 3,024 |
+| **576/640** | `0x0be030` **15bpp DIRECT** × `0x029e14` 8bpp | **12,544** |
 | 832 | `0x08c418` 8bpp clut(0,248) × `0x0bc30c` 8bpp clut(0,251) | 4,064 |
 
-**But bit depth is the wrong discriminator.** ef211's column 640 shares **1,659 halfwords** between
+> **Quad-fan correction.** As published, the five quad-bearing rows read 3,294 / 2,729 / 2,750 /
+> 2,444 / 11,710 — the kit's perimeter quad fan bowtied every Z-ordered quad and under-measured
+> their covers (`QUAD-ORDER-DELTA.md`; the col-832 pair is FT3-only and stands). The pair-CLASS
+> census below is fan-independent and unchanged: no intersection went empty ↔ non-empty, only
+> sizes moved.
+
+**But bit depth is the wrong discriminator.** ef211's column 640 shares **2,016 halfwords**
+(published 1,659 pre-quad-fan-fix) between
 `0x02d344` (4bpp, clut **(80,244)**) and `0x02ed7c` (4bpp, clut **(96,244)**) — **same depth,
 different palettes, same bytes**, rows 321..383. A depth-only test misses it entirely. The law is
 therefore **SAME-BYTES-TWO-BINDINGS**: *any two `so` bindings whose UV-covered halfword sets
 intersect are two readings of one byte region and no single edit is coherent under both.*
 
 Note A2's "4,032 halfwords" for the col-448 cloud-band × rings pair is the **rect product**
-(63 rows × 64 hw); the polygon-level number is **3,294**.
+(63 rows × 64 hw); the perimeter-fan polygon number was **3,294**, but under the corrected Z fan
+the full rect is genuinely covered — **A2's rect product was RIGHT for this pair**, and the
+"correction" to 3,294 was the bowtie talking.
 
 > **★ W6b-1 EXTENSION — the law was named right, and the recorded number was a SUBSET.**
 > The corpus-wide binding-pair sweep is **1,083 overlapping pairs in 36 effects**:

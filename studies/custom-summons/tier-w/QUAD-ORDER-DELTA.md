@@ -1,11 +1,11 @@
-# QUAD-ORDER FIX — the coverage deltas awaiting OWNER sign-off on the study records
+# QUAD-ORDER FIX — ★ APPLIED (owner cleared it: the ef211 casts closed, ladder moved to ef446)
 
 > The kit defect UV-ANALYSIS.md §6 named is FIXED at the source: `repaint._face_polys` and
-> `summons.build._mesh_tris` now emit the Z fan `(0,1,2) + (1,3,2)`. This note exists because the
-> fix moves numbers that **W6b-SCENERY.md, W6-TEXEL.md and `phoenix_field.toml` publish**, and those
-> files are frozen under the active cast ladder — **nothing in them was edited.** Each delta below
-> names the old predicate (perimeter fan, the falsified corner-order assumption) and the new one
-> (Z fan, corpus-measured). Apply or direct, then delete this note.
+> `summons.build._mesh_tris` now emit the Z fan `(0,1,2) + (1,3,2)`. The study-record edits this
+> note staged are **now applied** — W6b-SCENERY.md (§0 calibration note, F4 row, appendix),
+> W6-TEXEL.md §1.4 (all six moving counts + the A2-rect-product vindication), `phoenix_field.toml`'s
+> comment table — each naming the old (perimeter-fan) number beside the Z-fan value. This file stays
+> as the provenance record those annotations point to.
 
 ## 1. The measurement that keyed the fix (archived: `SCRATCH/summon-format/repaint-w6b/quad-order/`)
 
@@ -37,14 +37,24 @@ all stand. **`CAST_COVER` (704,256) stays 8,128** — the cell is all-FT3 — so
 re-run 7/7 as-is. Corpus-wide, 110 of 340 `so`-bound models move, +73,626 halfwords net (one model,
 ef424 `0x29f98`, LOSES 8 — the bowtie's wrong triangle marked texels outside its quad).
 
-## 3. The published numbers that DO move — the pending edits, by exact line
+## 3. The published numbers that moved — all edits applied
 
-| file : line | published (perimeter fan) | correct (Z fan) |
+| where | published (perimeter fan) | correct (Z fan) |
 |---|---|---|
-| `W6b-SCENERY.md:739` (appendix, x640_y256 cov) | 5,737 | **6,080** |
-| `W6b-SCENERY.md:702` + `:754` ("measured covers 3,584/5,737 (V1 F4)") | 3,584 / 5,737 | 3,584 / **6,080** |
-| `W6-TEXEL.md:114` ("column 640 shares 1,659 halfwords") | 1,659 | **2,016** |
-| `phoenix_field.toml:26` (comment copy of the appendix row) | 5,737 | **6,080** |
+| W6b-SCENERY.md appendix + F4 row, x640_y256 union (+ `phoenix_field.toml` comment) | 5,737 | **6,080** |
+| W6-TEXEL.md §1.4, ef211 col-640 class-C shared set | 1,659 | **2,016** |
+| §1.4 col 448, `0xbb0e8` × `0xc2264` | 3,294 | **4,032** |
+| §1.4 col 448, `0x8d888` × `0xc2264` | 2,729 | **4,032** |
+| §1.4 col 448, `0x8fc20` × `0xc2264` | 2,750 | **4,032** |
+| §1.4 col 576, `0x29e14` × `0x2ba28` | 2,444 | **3,024** |
+| §1.4 col 576/640, `0xbe030` × `0x29e14` | 11,710 | **12,544** |
+
+The seventh §1.4 count (col 832, FT3-only) stands at 4,064. The pair-sweep A/B
+(`pair-sweep.txt` in the SCRATCH dir; old fan reproduces every published value) also shows the
+pair-CLASS census is fan-independent — 1,083 overlapping pairs / 36 effects, 79 mixed-depth / 6,
+390 different-palette / 11, 614 same-palette / 33 all stand: no intersection went empty ↔
+non-empty, only sizes moved. And a vindication: A2's col-448 "rect product 4,032", which §1.4 had
+corrected down to 3,294, was the true polygon cover all along — the 3,294 was the bowtie.
 
 Per-reader, the only ef211 mover is the pool arc `geom 0x2ed7c`: 3,332 → **4,032** (+700, 17.4% —
 exactly UV-ANALYSIS §6's number). `0x2d344` (FT3) holds 4,064; x576_y256 holds 3,584 (3,136 +
