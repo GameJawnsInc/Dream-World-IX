@@ -1,8 +1,12 @@
 # The world SCRIPTED-OBJECT lane — decorative statics via `3DModel` + `.eb` (source trace, 2026-07-25)
 
 > **Provenance:** offline source/byte trace (Memoria decompiled source at `C:\gd\FFIX\Memoria`, the live
-> install, the kit, and the custom-vehicle study) produced during the Lantern Quay marker round. It is
-> **byte-grounded but NOT in-game proven** — no decorative static has been deployed through this lane yet.
+> install, the kit, and the custom-vehicle study) produced during the Lantern Quay marker round.
+> **★ IN-GAME PROVEN 2026-07-28** — scene-ladder rung 0 deployed a decorative static through this exact
+> lane (stock model 313 + idle 5106, index 0, WORLD11 entry 16, the ferry ship moored off the Lantern
+> Quay; owner-confirmed): both laws held on the first deploy, the world tick stayed alive, and a STOCK
+> model needed no relaunch (only a minted `3DModel` id registers at launch). Build:
+> `scene-ladder/rung0_quay_ship.py`.
 > The quay marker itself chose the OTHER lane (baked per-block `Object.ff9mesh` carry; see
 > `southern-ring/`): two files, no relaunch, no `.eb`. **This document is the reference for when a world
 > object must be a real model/actor** — a visible ferry boat at a quay, an animated lantern flame, any
