@@ -92,12 +92,18 @@ speed = 55
 
 The row's branches compile **once** into a single brain entry that every member spawns as its
 own coroutine — each running copy drives *its* spawner (the engine binds the caller as the
-current object every frame). Per-member state (active/selected/targets/speeds/mirrors, sticky
-`once`/`cooldown` latches, the engage target register) moves out of flag/byte slots into
-uid-indexed script-vector cells, seeded like every kit table; the shared brain reads *its own*
-member's cells through the caller's uid, while member-side bodies (the duty walk, the dispatch
-tags) read the same cells at their fixed uid. Net effect: a 7-member class costs ONE brain's
-bytes instead of seven, and its per-member state stops consuming the flag band.
+current object every frame). Per-member state splits by who touches it. State something
+*outside* the brain reads or writes (active/selected/targets/speeds/mirrors, the engage
+target register, body-written one-shot latches) lives in uid-indexed script-vector cells,
+seeded like every kit table: the shared brain reads *its own* member's cells through the
+caller's uid, while member-side bodies read the same cells at their fixed uid. State only the
+brain itself touches (sticky `once`/`cooldown` latches and timers, patrol progress, wander
+state, the one-shot request lanes) is **coroutine-private** — each running copy carries its
+own zeroed-at-spawn variable block, so it costs no table and no band at all. One consequence
+for debugging: those private latches are not visible in the `~` Flags panel — the compile
+report prints each brain's private-block map instead. Net effect: a 7-member class costs ONE
+brain's bytes instead of seven, and its per-member state stops consuming the flag band.
+(Every brains-backend unit gets the private block, classed or not.)
 
 What a class row can say: the feeds (`walk_to`/`hold`/`hold_post`/`chase`/`patrol`/
 `march`/`flee`/`wander`), `engage`, `swing_at`, `hold_ground`, `die`, sticky `once`/`cooldown`,

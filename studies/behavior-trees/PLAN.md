@@ -882,6 +882,29 @@ brains (park/restore/suspend/resume with live shared-brain Seqs) are all
 in-game. Still open on the brains ladder: Instance-var latch migration,
 REQSW transition dispatches, inline one-shot bodies.
 
+**RUNG 3 — BUILT + DEPLOYED (2026-07-28), ⚠ playtest pending: THE INSTANCE
+BLOCK (brain-private state → Seq Instance vars).** THE ELIGIBILITY LINE:
+state ONLY the brain touches — sticky once latch+eng, cooldown timer+eng
+(the BRAIN now ticks its own timers; a dead unit's cooldown freezing is
+unobservable), areq/breq request flags, patrol wp, wander wtx/wtz/wtimer —
+moves into each Seq's private Instance block (`_inst_ref`; the entry's varn
+via `seat_entry(loc=)`, offsets from 0, int16s 2-aligned, flags as whole
+BYTES — every shape the SEQBRAIN bench proved). Zeroed at spawn = reset for
+free; per member for free under classes (rung-1's strided wt/cd tables and
+rung-2's areq/breq tables DELETED). Body-written latches (event-once,
+battled) + the sel/run protocol + mirrors/targets keep addressable homes.
+`gscan` deliberately NOT migrated (transient shared scratch, 1B/owner —
+keeps the proven combat-lane bytes stable). v1 byte-identical vs master
+(re-verified, including its bb allocation ORDER — the brains-only seg
+restructure compiles the tree first to discover cooldowns). ~ Flags cannot
+see Instance vars; the report prints each brain's block map. Suite: 163
+behavior tests green. **Bench = BTCRY REDEPLOYED (zero relaunch)** with the
+rung-3 cast: heralds gain a per-member STICKY-ONCE follow; new "stalker"
+class (Cooldown-150 chase + ONE shared patrol chord walked at each Seq's
+OWN wp — snap-together = failure); treads' wander/breq now private.
+Deployed bytes verified: 7 heads → 3 brains split 3/2/2, varn 3/7/3.
+~ → Reload → 30425.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
