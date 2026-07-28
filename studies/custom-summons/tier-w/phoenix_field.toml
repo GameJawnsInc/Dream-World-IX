@@ -23,8 +23,9 @@
 #                                                names the other; NOT the same-bytes-two-DEPTHS law,
 #                                                which refuses)
 #   x576_y384        0x25678      4     2,688    lawful -- the NEXT cast (4bpp + the lower half)
-#   x640_y256        0x19678      4     5,737    EDITABLE with DISCLOSURE (same class C pair --
-#                                                W6-TEXEL sec1.4's ef211 example)
+#   x640_y256        0x19678      4     6,080    EDITABLE with DISCLOSURE (same class C pair --
+#                                                W6-TEXEL sec1.4's ef211 example; was 5,737
+#                                                pre-quad-fan-fix, QUAD-ORDER-DELTA.md)
 #   x640_y384        0x1d678      -     -        REFUSED  depth-unknown + lower-half
 #   x704_y256        0x11678      8     8,128    ** THIS ONE -- lawful, ZERO hazards, the fire field
 #   x704_y384        0x15678      -     -        REFUSED  depth-unknown + lower-half

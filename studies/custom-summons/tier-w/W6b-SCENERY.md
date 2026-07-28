@@ -61,7 +61,9 @@ they are instead of one silently replacing another.
 | duplicate `(tag, x, y)` keys | **0** | asserted, not assumed |
 
 A1 and A2 derived 2,665 independently, on independent rasterisers, and agree to the cell; A1
-additionally re-derived all seven of `W6-TEXEL.md` §1.4's published shared-halfword counts exactly.
+additionally re-derived all seven of `W6-TEXEL.md` §1.4's published shared-halfword counts exactly
+(the counts as then published — six of the seven later moved with the quad-fan correction, which
+both instruments shared; §1.4 now carries the Z-fan values, `QUAD-ORDER-DELTA.md`).
 **The instrument is calibrated.**
 
 ## 1.2 The classes, with corpus counts
@@ -699,7 +701,7 @@ and the 15-vs-22 arithmetic re-derived from the op families themselves.
 | 5 | *"a creature-less container now exposes a surface — inverted for 65 effects"* | **65** containers expose ≥ 1 editable cell; **51** of them are creature-less | the inverted pin's real population is 51. |
 | 6 | the 4bpp nibble population | **48** cells under A2's predicate (single writer, ≥1 4bpp reader); **40** under the kit's stricter emitted-page predicate (which also excludes dual-depth), where it wins 37/40 and **31/31 with signal** | the verdict is identical under both; the gate reports A2's population so the published 44/48 and 36/36 are re-measured rather than replaced. |
 | 7 | `W6-TEXEL.md` §1.5's u-spill rate **41 of 316** | 41 of **315** textured `so` records; ef226 GEOM `0x9c804` has a live-looking tpage/clut but `textured == 0` and **0 UV-bearing faces** | **incomplete, not wrong** — and the 41 was always the 8bpp answer; the 17 15bpp spillers were invisible to the kit by construction. |
-| 8 | the SYNTHESIS appendix (and this record's first draft, and `phoenix_field.toml`'s copy) marked ef211's two class-C cells **REFUSE multi-palette + shared-read**, covers 3,136/4,064 | the shipped kit **BUILDS both**, with the class-C display-palette disclosure and the `.as-*` alternate views; measured covers **3,584 / 5,737** | **the code was right and the prose wrong** (V1 F4): E2/C is a disclosure, not a refusal — REFUSE belongs to the two-DEPTHS law. ef211's editable share is 4/12, and the "representative" framing is corrected in the appendix. |
+| 8 | the SYNTHESIS appendix (and this record's first draft, and `phoenix_field.toml`'s copy) marked ef211's two class-C cells **REFUSE multi-palette + shared-read**, covers 3,136/4,064 | the shipped kit **BUILDS both**, with the class-C display-palette disclosure and the `.as-*` alternate views; measured covers **3,584 / 6,080** (V1 F4 measured 3,584/5,737 — the 5,737 was the pre-fix perimeter quad fan's bowtie under-count, corrected by the Z-fan fix, `QUAD-ORDER-DELTA.md`) | **the code was right and the prose wrong** (V1 F4): E2/C is a disclosure, not a refusal — REFUSE belongs to the two-DEPTHS law. ef211's editable share is 4/12, and the "representative" framing is corrected in the appendix. |
 
 ## 7.2 Open questions, with the cheapest experiment for each
 
@@ -736,8 +738,9 @@ x576_y256        0x21678      4     3,584    EDITABLE + DISCLOSURE  (multi-palet
                                              readers 0x30340 clut(128,244) / 0x33960 clut(208,244)
 x576_y384        0x25678      4     2,688    * CAST 2 -- lawful once the per-cell map lands
                                              single reader 0x33960 clut(208,244)
-x640_y256        0x19678      4     5,737    EDITABLE + DISCLOSURE  (same class C pair
-                                             = W6-TEXEL sec 1.4's ef211 example, exactly)
+x640_y256        0x19678      4     6,080    EDITABLE + DISCLOSURE  (same class C pair
+                                             = W6-TEXEL sec 1.4's ef211 example, exactly;
+                                             was 5,737 pre-quad-fan-fix)
 x640_y384        0x1d678      -     -        REFUSE  depth-unknown + lower-half
 x704_y256        0x11678      8     8,128    ** CAST 1 -- LAWFUL, ZERO hazards, the fire field
 x704_y384        0x15678      -     -        REFUSE  depth-unknown + lower-half
@@ -751,7 +754,10 @@ refused because the container never says what depth they are.** ⚠ An earlier d
 (and of `phoenix_field.toml`'s copy) marked the two class-C cells REFUSE with covers 3,136/4,064 —
 that conflated multi-PALETTE (class E2/C: one index array, N renderings, editable with named
 alternates) with the same-bytes-two-DEPTHS law (which does refuse), and carried stale covers; the
-shipped kit builds both cells, measured covers 3,584/5,737 (V1 F4). So ef211's editable share (4/12
+shipped kit builds both cells, measured covers 3,584/6,080 (V1 F4 measured 3,584/5,737; the kit's
+perimeter quad fan then bowtied the pool arc's 10 GT4s — 3,332 for a true 4,032 — and the Z-fan fix
+corrected the union 5,737 → 6,080 and the class-C shared set 1,659 → 2,016, `QUAD-ORDER-DELTA.md`).
+So ef211's editable share (4/12
 = 33 %) is RICHER than the corpus-wide shape (~7 % of scenery cells are editable, 93 % depth-unknown)
 — **the vehicle was chosen for its cast-proven upload path and its zero-hazard cell, not as a
 statistical average.** What IS representative is the refusal texture: two-thirds of its cells fail
