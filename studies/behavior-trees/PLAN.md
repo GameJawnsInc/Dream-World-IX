@@ -743,6 +743,41 @@ a handful of `expr_jumpToSubCommand` NREs per session at transition edges —
 the raw `B_PTR(250)` read the bench-grade Wait(90) shortcut allows; the
 production player-mirror latch (already law) removes the class.
 
+## THE BRAINS BACKEND — rung 0 SHIPPED (2026-07-27, awaiting the parity playtest)
+
+The SEQBRAIN fold-back into the compiler: `[behavior] brains = true`
+(`FieldBehavior(brains=True)`) compiles each unit's tree segment — the SAME
+emission the ticker carried: active gate, acquire, tree, one-shot lane,
+sel-gated tail, nudge — into the unit's own one-function Seq entry, spawned
+from its tag-1 head (`RunSharedScript`), dispatching onto itself via uid 255.
+The residual ticker keeps every shared lane (warm-up/staging, mirrors, clocks,
+schedules, group mirrors, scans, item snapshots, pools, hireable, HUDs).
+**A deliberate lift-and-shift: semantics are v1's by construction** — same
+conditions against the same mirror GLOBs, same sel/run protocol (sel is also
+the INTERRUPT channel for looping bodies — kept), same action bodies. Changes
+beyond relocation: Die bodies emit `StopSharedScript` before
+`TerminateEntry(255)` (THE ORPHAN-BRAIN LAW), and install enforces THE
+64-STRIDE LAW (`check_64_stride`, unit slot + 64 vs occupied slots).
+
+What rung 0 buys, measured on THE BRAWN BENCH (30423 — the ISLES brawl
+re-emitted, only the flag changed): residual ticker **614B** vs ISLES'
+33,820B+islands; 15 brains ≤ 2,349B each — **the ticker-span wall is gone
+outright** (no islands anywhere), and per-brain bodies sit two orders of
+magnitude under the jump reach. Total new bytes 46,858B (vs ~49.4KB with
+islands). v1 untouched (default off; 253 behavior-adjacent tests green,
+including the game-gated 559 installs for both backends).
+
+NOT yet in rung 0 (each a later rung, all unblocked): per-CLASS brain sharing
+(the true cross-product kill — needs strided per-unit state + the identity
+channel), Instance-var migration of once-latches/timers (blackboard-band
+relief), REQSW for transition-critical dispatches (v1's per-tick re-REQ loop
+already retries, so nothing regresses), inline one-shot bodies.
+
+**★ PARITY RATIFIED (owner playtest 2026-07-27):** 30423 "BRAWN" — "the brawl
+plays the same, no differences." The per-unit-brain backend is in-game proven
+at full brawl scale: 15 brains, mid-fight deaths (the orphan law at scale),
+counter lanes, the crier — all identical to the ticker build. Rung 0 CLOSED.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES

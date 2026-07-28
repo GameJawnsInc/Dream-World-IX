@@ -123,7 +123,8 @@ ACTION_VERBS = {
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
 UNIT_KEYS = {"npc", "hp", "speed", "branch", "pooled", "pool"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
-              "counters", "table", "schedule", "scan", "group", "hud", "byte_band"}
+              "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
+              "brains"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
@@ -925,7 +926,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
                          pools=pool_specs(raw),
                          timer=(int(b["timer"]) if b.get("timer") is not None else None),
-                         tables=table_specs(raw), counters=counter_names(raw))
+                         tables=table_specs(raw), counters=counter_names(raw),
+                         brains=bool(b.get("brains", False)))
     fb.synth_mints = synth_mint_map(raw)                  # ShopSynth string selectors
     for nm in b.get("public_flags", []) or []:
         fb.public_flag(str(nm))

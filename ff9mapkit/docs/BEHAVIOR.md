@@ -57,6 +57,20 @@ The **last branch must be unconditional** and a *static* feed (`walk_to` / `hold
 `march` / `flee` / `wander`) — it's what the unit does when nothing else applies, and the build
 presets it before the field wakes.
 
+### `brains = true` — the per-unit-brain backend
+
+By default one central ticker entry evaluates every unit's branches each frame. Setting
+`brains = true` in `[behavior]` compiles each unit's branch segment into its **own**
+one-function entry instead, run as a shared-script coroutine spawned from the unit's loop head
+(`RunSharedScript`; inside the coroutine the engine binds the CALLER as the current object, so
+the brain dispatches onto its own unit via uid 255). The residual ticker keeps the shared
+lanes — warm-up, mirrors, clocks, scans, pools, HUDs. **Semantics are identical by
+construction** (same conditions, same blackboard, same action bodies); what changes is scale
+headroom: no single body ever approaches the ±32K jump reach, so very large rosters compile
+without jump islands. Die actions additionally stop the unit's own brain before the entry
+terminates (a disposed unit must never leave a live coroutine behind). The build refuses any
+layout where a unit's entry slot + 64 collides with an occupied slot (the brain's runtime uid).
+
 ## Movement is real walking
 
 Actions that move (`walk_to`, `chase`, `patrol`, `march`, `flee`, `wander`) use the engine's own
