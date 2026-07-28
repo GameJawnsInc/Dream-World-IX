@@ -115,6 +115,12 @@ BEHAVIOR_FLAG_END = 14959
 SIEGE_REQUEST_BASE = 14960                     # content/siege.py request flags: 14960-14975
 KIT_WORLD_FLAG_BASE = 14976                    # named standing world-content flags: 14976-15007
                                                # (reserved for e.g. the boat parked-position rung)
+FERRY_DEPART_BYTE = 1872                       # scene-ladder rung 2: the ferry-departure port code
+                                               # (bits 14976-14983 = the band's first byte; 0 = none,
+                                               # 1-4 = Ashvale/Tidefall/Grimhorn/Larkspur -- written by
+                                               # the hall's ferry arms, consumed+cleared by WORLD11's
+                                               # departure director; studies/overworld-topography/
+                                               # scene-ladder/rung2a_departure.py)
 BEHAVIOR_BYTE_BASE = 1876                      # Blackboard byte band: bytes 1876-1989 (bits 15008-15919;
 BEHAVIOR_BYTE_END = 1989                       # byte 1876 = bit 15008, flush after the flag sub-bands).
                                                # Ends BELOW the modal-result home: bytes 1990-2005 stay
