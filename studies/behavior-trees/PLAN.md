@@ -728,7 +728,20 @@ too. The FILE wall recedes on all three fronts at once.
   A brain's routine action dispatch WANTS drop-on-busy (that is the run-gate);
   a transition-critical dispatch (death!) must use **REQSW (0x12)** — the Seq
   stays until the unit frees, then binds the function. Two dispatch
-  primitives, both engine-native; round 3 ships the REQSW die.
+  primitives, both engine-native.
+- **P4 die ordering ★ PASS (round 3, owner playtest 2026-07-27):** with the
+  REQSW die, the mu finishes its cycle, leaps once, VANISHES; 30s later the
+  knights still greet (a not-yet-met knight still kneels first) — the
+  0x45-before-TerminateEntry ordering holds and sibling Seqs are untouched by
+  a unit+brain disposal. **REQSW-from-a-Seq blocking dispatch proven en route.**
+
+**★★ THE BENCH IS CLOSED — ALL FIVE COMPOSITES IN-GAME PROVEN.** The
+per-unit-brain variant is fully unblocked: caller-context brains (one entry
+per class), Seq-private per-unit state, REQ/REQSW dual dispatch, and the die
+protocol are all engine-native and playtest-confirmed. Residual bench noise:
+a handful of `expr_jumpToSubCommand` NREs per session at transition edges —
+the raw `B_PTR(250)` read the bench-grade Wait(90) shortcut allows; the
+production player-mirror latch (already law) removes the class.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
