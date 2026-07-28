@@ -1,0 +1,23 @@
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+index 5d922a3c..c2b8ae50 100644
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -2909,8 +2909,16 @@ public static class ff9
+                 }
+             }
+         }
+-        else
+-        {
++        else if (ff9.w_moveActorPtr != (UnityEngine.Object)null && ff9.w_moveActorPtr == ff9.w_moveDummyCharacter)
++        {
++            // s66: drag the DUMMY only. This write pushes the fp-domain w_cameraWorldAim (fed from
++            // GetControlChar().pos[], x256) through the RENDER-domain pos0/1/2 transform setters --
++            // a x256 domain mismatch. Stock never renders it: scene worlds run controlUID=0, so
++            // w_moveActorPtr is the inert w_moveDummyCharacter (w_movementSystemConstructor). In a
++            // free-roam world with a CONTROLLED player and a scripted AIM rig armed, the unguarded
++            // write teleported the PLAYER ~256x away, map-wrapped, every frame (scene-ladder rung 1a
++            // round 1). Guard preserves stock scene worlds byte-for-byte and makes AIM rigs legal
++            // in controlled worlds.
+             ff9.w_moveActorPtr.pos0 = ff9.w_cameraWorldAim.x;
+             ff9.w_moveActorPtr.pos1 = ff9.w_cameraWorldAim.y;
+             ff9.w_moveActorPtr.pos2 = ff9.w_cameraWorldAim.z;

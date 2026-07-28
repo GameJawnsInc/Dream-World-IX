@@ -34,9 +34,15 @@ w_moveDummyCharacter (ff9.cs:4390). In a free-roam world with a CONTROLLED PLAYE
 teleports the PLAYER ~256x away, wrapped. NO script-side park is clean (control rebound to
 the ship/aim just redirects the garbage write onto the scene's own subject), so: an AIM rig
 in a controlled world requires an ENGINE fix first (s66 candidate: skip the drag when
-w_moveActorPtr != w_moveDummyCharacter -- stock scene behavior byte-identical). Until then,
-EYE-ONLY rigs are the lawful subset; rung 1b (tracking a moving ship) needs s66. The heal
+w_moveActorPtr != w_moveDummyCharacter -- stock scene behavior byte-identical). The heal
 was EXONERATED by the log (zero heal/exception lines -- s64 held).
+★ s66 SHIPPED same day (`s66-world-aim-drag-dummy-guard.patch`, sha 63B8FF83956DB472 both
+arches): the drag now fires only on the inert dummy. v3 re-arms the AIM (pinned on the
+ship) -- the composed shot: eye dollies in over the water, ship center-frame, player and
+beacon on the shore behind it. RELAUNCH required once (DLL). The v2 eye-only round also
+proved en route: trigger/lock/restore all clean, player position untouched (debug readout
+static), repeatable -- the chase-aim during v2 simply never pointed at the player, which is
+why the aim rig exists.
 
 WORLD11 changes (dispatcher 9011; rung 0 must already be deployed):
   entry 17 (new) -- THE EYE: tag 0 = 0xB7 + MoveInstant (12,-1182) y 6u + slow WalkXZY dolly
@@ -140,8 +146,10 @@ JMP_IFNOT(L900)
 DisableMove()
 DisableMenu()
 InitObject({EYE_UID}, 0)
+InitObject({AIM_UID}, 0)
 op_22({HOLD_FRAMES})
 op_1C({EYE_UID})
+op_1C({AIM_UID})
 op_22(2)
 EnableMenu()
 EnableMove()
