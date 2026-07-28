@@ -14,6 +14,20 @@
 > and draw ON TOP of the ground. `s30-doeventcode-fork-walk.patch` wraps the whole file via a new `effMapNo`.
 > LESSON: re-sweep for `<alias> == N` where `<alias> = ...fldMapNo` too, not just the literal token.
 
+## s65 sweep (2026-07-28) — every RAW gate on a CURRENT campaign-member donor WRAPPED
+
+The F3 Lindblum round crossed this census against the live opening campaign's 372 donors (+ imminent
+Gizamaluke 701-707 / Burmecia 750-769): **73 still-raw sites in 17 files wrapped** in
+`memoria-patches/s65-fork-disc1-member-gates.patch` (alias-assignment wraps where a function aliases
+`fldMapNo`, inline `EffectiveFieldId` otherwise). Two census classes closed WITHOUT code: `fldLocNo`
+carries on forks (it is `eventIDToMESID[fldMapNo]` and a verbatim fork registers the donor's mes id —
+live-verified `FieldScene 6248 … 525`), so `EMinigame.MappingATEID`'s outer `fldLocNo` branches and all
+of `UniversalTextId` (keys on the text area) already work on forks; only inner `fldMapNo` compares
+needed wraps. Deliberately left raw: AndroidTV-dead `ETb.cs:114/:401`, dead `EventEngine.cs:774`
+(`&& false`), and aliases gating only non-member ids (Dialog `:1600/:1631`, FieldMapActorController
+`:537`, ETb `:289`, EventInput `:220`, FF9Snd `:1393`, SPSEffect `:254`) — extend the sweep when those
+zones are forked. Census rows for member donors are otherwise CLOSED as of s65.
+
 ## Remap status (task #19) — ALL 12 SOFTLOCKs WRAPPED; 10 IN-GAME UNVERIFIED (2026-06-19)
 
 Each fix is mechanical: wrap its `fldMapNo == N` with `Memoria.DataPatchers.EffectiveFieldId(...)` (identity for
