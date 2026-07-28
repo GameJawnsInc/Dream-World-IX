@@ -466,3 +466,87 @@ def test_validate_conflicts(tmp_path):
     f2.write_text(bad, encoding="utf-8")
     probs = BLD.validate(BLD.FieldProject.load(f2))
     assert any("timer" in pr for pr in probs)
+
+
+# ------------------------------------------------- brains emission (condor P1)
+def test_brains_emits_class_rows():
+    """`brains = true`: each ally TYPE and each raider GROUP folds into ONE
+    npcs= class row (one shared brain); the raider march drops its per-member
+    [stage] head (members hold_post at their stage spawns and walk the SHARED
+    lane at private wp progress), and the raider engage/march carry NO speed=
+    so each member walks at its OWN row-speeds preset (anti-lockstep jitter)."""
+    spec = _spec(brains=True)
+    b = S.behavior_raw(spec)
+    assert b["brains"] is True
+    rows = {u.get("class"): u for u in b["unit"] if u.get("npcs")}
+    assert set(rows) == {"soldier", "shooter", "mu", "fang"}
+    assert rows["soldier"]["npcs"] == ["soldier0", "soldier1", "soldier2"]
+    assert rows["soldier"]["pooled"] and rows["soldier"]["pool"] == "soldier"
+    assert rows["mu"]["speeds"] == [50, 45]
+    mu = rows["mu"]["branch"]
+    march = next(br["do"] for br in mu if "march" in br["do"])
+    assert march["march"] == [[-400, 0], [0, 300]]        # no [stage] head
+    assert "speed" not in march
+    engage = next(br["do"] for br in mu if "engage" in br["do"])
+    assert "speed" not in engage
+    assert mu[-1]["do"] == {"hold_post": True}
+    # the base stays a single-unit row (its theater inlines in its own brain)
+    base_rows = [u for u in b["unit"] if u.get("npc") == "base"]
+    assert len(base_rows) == 1
+
+
+def test_brains_default_off_emission_unchanged():
+    """No `brains` key -> the ratified v1 ticker emission, per-unit rows with
+    the [stage] march head and per-action speeds — byte-for-byte the round-4
+    shape the other goldens in this file pin."""
+    b = S.behavior_raw(_spec())
+    assert "brains" not in b
+    assert all(u.get("npc") for u in b["unit"])           # no class rows
+    mu0 = next(u for u in b["unit"] if u["npc"] == "mu0")
+    march = next(br["do"] for br in mu0["branch"] if "march" in br["do"])
+    assert march["march"][0] == [-800, -600]              # the stage head
+    assert march["speed"] == 50
+
+
+def test_brains_full_build_compiles(tmp_path):
+    """The whole [siege] -> desugar -> validate -> compile path under brains:
+    class brains exist per type, the council still resolves hireable flags."""
+    raw = copy.deepcopy(RAW)
+    raw["brains"] = True
+    field = {"id": 30990, "name": "BRSIEGE", "siege": raw}
+    S.desugar(field)
+    assert "_siege_error" not in field, field.get("_siege_error")
+    assert field["behavior"]["brains"] is True
+    work = copy.deepcopy(field)
+    for u in work["behavior"]["unit"]:
+        for br in u.get("branch", []) or []:
+            if isinstance(br.get("do"), dict):
+                br["do"].pop("route", None)
+    assert BT.validate(work) == []
+    names = [m for u in work["behavior"]["unit"] for m in BT.row_members(u)]
+    txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in BT.announce_lines(work)}
+    txids.update({("hud", hi): 890 + hi for hi, _h in BT.hud_lines(work)})
+    fb = BT.build(work, npc_slots={n: i + 2 for i, n in enumerate(names)},
+                  npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", [])},
+                  behavior_txids=txids)
+    cb = fb.compile()
+    assert set(cb.brain_bodies) == {"base", "soldier", "shooter", "mu", "fang"}
+    assert len(cb.ticker_body) < 12000                    # the residual ticker only
+
+
+def test_wide_band_carries_its_own_flag_window():
+    """THE REDOUBT REGRESSION (found rebuilding the shipped acceptance bench):
+    the safe partition's 96-flag Blackboard window cannot hold a condor-scale
+    siege's event-once latch+request lanes under the v1 ticker — the shipped
+    REDOUBT stopped compiling after the partition landed. byte_band = "wide"
+    now brings its own 240-flag window seated directly below the wide byte
+    band, under the same standalone-only contract."""
+    from ff9mapkit.content import behavior as B
+    assert (B.WIDE_FLAG_BASE, B.WIDE_FLAG_END) == (9520, 9759)
+    assert B.WIDE_FLAG_END + 1 == B.WIDE_BYTE_BASE * 8    # flush under the bytes
+    raw = {"npc": [{"name": "u0", "pos": [0, 0]}],
+           "behavior": {"byte_band": "wide", "unit": [
+               {"npc": "u0", "branch": [{"do": {"hold": [0, 0]}}]}]}}
+    fb = BT.build(raw, npc_slots={"u0": 2}, npc_txids_by_name={"u0": 0},
+                  behavior_txids={})
+    assert fb.bb.flag_band == (B.WIDE_FLAG_BASE, B.WIDE_FLAG_END)

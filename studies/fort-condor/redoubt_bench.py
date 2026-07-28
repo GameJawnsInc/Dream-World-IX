@@ -73,6 +73,9 @@ pos = [{qx}, {qz}]
 dialogue = "Press Select ANYWHERE to convene the war council — your troops deploy on the very spot you stand."
 
 [siege]
+brains = true                # CONDOR P1: per-class Seq brains -- each ally type and
+                             # each raider group is ONE shared brain (npcs= class
+                             # rows); one-shots inline; the v1 32KB ticker collapses
 timer = {cfb.SIEGE_SECONDS}
 waves = {cfb.SCHED}
 stipend = {cfb.STIPEND}
@@ -186,9 +189,27 @@ death_anim = "howl_3"
     problems = BLD.validate(p)
     if problems:
         raise SystemExit("validate:\n  " + "\n  ".join(problems))
-    nu = len(p.raw["behavior"]["unit"])
     rows = [o["text"] for o in p.raw["choice"][-1]["options"]]
-    print(f"wrote {BENCH_TOML}\n  desugared units: {nu} (base + 6 raiders + 20 allies)"
+    # CONDOR P1 self-checks: the siege desugars to CLASS rows under ONE brain
+    # per type -- base (unclassed) + 3 raider groups + 3 ally types = 7 rows
+    units = p.raw["behavior"]["unit"]
+    if not p.raw["behavior"].get("brains"):
+        raise SystemExit("BENCH INVALID: [siege] brains did not reach [behavior]")
+    classes = sorted(u["class"] for u in units if u.get("npcs"))
+    if classes != ["defender", "fang", "mun", "mus", "shooter", "soldier"]:
+        raise SystemExit(f"BENCH INVALID: expected 6 class rows, got {classes}")
+    members = sum(len(u["npcs"]) for u in units if u.get("npcs"))
+    if members != 26 or len(units) != 7:
+        raise SystemExit(f"BENCH INVALID: {len(units)} rows / {members} members "
+                         f"(want 7 rows carrying 26 members + the base)")
+    for u in units:
+        if u.get("npcs") and u["class"] in ("mun", "mus", "fang"):
+            march = next(br["do"] for br in u["branch"] if "march" in br["do"])
+            if "speed" in march or len(march["march"]) < 2:
+                raise SystemExit(f"BENCH INVALID: {u['class']} march shape "
+                                 f"{march} (want shared speedless lane)")
+    print(f"wrote {BENCH_TOML}\n  desugared rows: {len(units)} "
+          f"(base + 6 CLASS rows carrying {members} members)"
           f"\n  council: {rows}\n  validate: clean")
 
 

@@ -121,7 +121,8 @@ ACTION_VERBS = {
     "announce_npc": ("window", "delay", "sustain"),
 }
 BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
-UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "branch", "pooled", "pool"}
+UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "speeds", "branch", "pooled",
+             "pool"}
 # the PAYOUT verbs a CLASS row refuses (rung 2 lifted the rest of the one-shot
 # family with ONCE-PER-MEMBER latches — but a payout firing once per member is
 # N payouts, almost never the intent; the compiler enforces the same law)
@@ -941,7 +942,23 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         if not members:
             raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: needs `npc = ` "
                                     f"(one unit) or `npcs = [...]` (a class)")
-        for name in members:
+        spd_list = u.get("speeds")
+        if spd_list is not None:
+            # per-MEMBER walk speeds on a class row (the lockstep-jitter lane):
+            # the strided cls.spd/spd0 presets carry each member's own value, so
+            # a class feed with no speed= walks every member at ITS speed
+            if u.get("npcs") is None:
+                raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: speeds is for "
+                                        f"npcs= class rows (one unit takes speed)")
+            if u.get("speed") is not None:
+                raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: speed and speeds "
+                                        f"are mutually exclusive")
+            if not (isinstance(spd_list, list) and len(spd_list) == len(members)
+                    and all(isinstance(v, int) and not isinstance(v, bool)
+                            and 1 <= v <= 255 for v in spd_list)):
+                raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: speeds must list "
+                                        f"{len(members)} ints 1..255 (one per npc)")
+        for mi, name in enumerate(members):
             if name not in npc_slots:
                 raise BehaviorTomlError(f"[[behavior.unit]] #{ui}: npc {name!r} is not an "
                                         f"injected named [[npc]] (known: {sorted(npc_slots)})")
@@ -950,7 +967,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
             specs.append(B.UnitSpec(name, int(npc_slots[name]),
                                     spawn=(int(pos[0]), int(pos[1])),
                                     hp=(int(u["hp"]) if u.get("hp") is not None else None),
-                                    walk_speed=int(u.get("speed", 50)),
+                                    walk_speed=int(spd_list[mi] if spd_list is not None
+                                                   else u.get("speed", 50)),
                                     pooled=bool(u.get("pooled", False)),
                                     pool=str(u.get("pool", "pool"))))
         cname = row_class(u, ui)
@@ -961,7 +979,9 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         raise BehaviorTomlError('[behavior] byte_band must be "safe" (campaign-compatible, the '
                                 'default) or "wide" (the historical 770-byte band, bytes 1220-1989 '
                                 '-- overlaps campaign per-member flag windows; standalone-only)')
-    bb = B.Blackboard(byte_base=B.WIDE_BYTE_BASE) if band == "wide" else None
+    bb = (B.Blackboard(byte_base=B.WIDE_BYTE_BASE, flag_base=B.WIDE_FLAG_BASE,
+                       flag_end=B.WIDE_FLAG_END)
+          if band == "wide" else None)
     fb = B.FieldBehavior(specs, blackboard=bb,
                          warmup=int(b.get("warmup", 45)), tick=int(b.get("tick", 1)),
                          pools=pool_specs(raw),
@@ -1195,6 +1215,18 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 problems.append(f"{ctx}: `pool =` needs `pooled = true`")
             if not _re.fullmatch(r"[A-Za-z0-9_]+", str(u.get("pool"))):
                 problems.append(f"{ctx}: pool name {u.get('pool')!r} must be [A-Za-z0-9_]+")
+        spd_list = u.get("speeds")
+        if spd_list is not None:
+            if u.get("npcs") is None:
+                problems.append(f"{ctx}: speeds is for npcs= class rows (one unit "
+                                f"takes speed)")
+            elif u.get("speed") is not None:
+                problems.append(f"{ctx}: speed and speeds are mutually exclusive")
+            elif not (isinstance(spd_list, list) and len(spd_list) == len(members)
+                      and all(isinstance(v, int) and not isinstance(v, bool)
+                              and 1 <= v <= 255 for v in spd_list)):
+                problems.append(f"{ctx}: speeds must list {len(members)} ints 1..255 "
+                                f"(one per npc)")
     # [[behavior.pool]] rows: economy/UX config per pool
     declared_pools = {str(u.get("pool", "pool")) for u in b.get("unit", [])
                       if u.get("pooled")}
