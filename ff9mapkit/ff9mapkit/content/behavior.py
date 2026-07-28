@@ -817,10 +817,11 @@ _CLS_CORE = {"active": "cls.act", "selected": "cls.sel", "running": "cls.run",
              "spd": "cls.spd", "spdap": "cls.spdap",
              "mx": "cls.mx", "mz": "cls.mz", "tx": "cls.tx", "tz": "cls.tz",
              "px": "cls.px", "pz": "cls.pz"}
-# one-shot / event-class actions a v1 class tree REFUSES (each needs per-unit
-# latch plumbing whose semantics under N members are a later rung)
-_CLS_FORBIDDEN_ACTIONS = ("Battle", "Announce", "Award", "ShopStock",
-                          "ShopSynth", "Sfx", "Flash", "StopTimer")
+# the PAYOUT actions a class tree refuses (rung 2 lifted the rest of the
+# one-shot family with ONCE-PER-MEMBER latches — but a payout firing once per
+# member is N payouts, almost never the intent: Award/shop verbs stay on
+# single-npc rows)
+_CLS_FORBIDDEN_ACTIONS = ("Award", "ShopStock", "ShopSynth")
 
 
 # ------------------------------------------------------------------ the compiler
@@ -1793,16 +1794,18 @@ class FieldBehavior:
         return self._collect_tree_actions(unit.tree)
 
     def _check_class_tree(self, cs: ClassSpec) -> None:
-        """v1 class-tree restrictions: the one-shot / event action family needs
-        per-unit latch plumbing whose N-member semantics ("once per member? once
-        per class?") are a LATER rung — a class tree carries only the unit
-        vocabulary (feeds, engage, swing_at, hold_ground, die)."""
+        """Class-tree restrictions (rung 2): the one-shot family (Battle,
+        Announce, Sfx, Flash, StopTimer) is IN with ONCE-PER-MEMBER latches
+        (strided cells — each member fires its own one-shot once; class-wide
+        once = the raise_flags + not_flag idiom). Only the PAYOUT actions stay
+        out: once-per-member on an Award/shop mutation means N payouts —
+        they belong on a single-npc row (a herald, a referee)."""
         for a in self._collect_tree_actions(cs.tree):
             if type(a).__name__ in _CLS_FORBIDDEN_ACTIONS:
                 raise BehaviorError(
-                    f"class {cs.name!r}: {type(a).__name__} is not a v1 class "
-                    f"action (one-shot semantics under N shared-brain members "
-                    f"are a later rung) — put it on a normal [[behavior.unit]]")
+                    f"class {cs.name!r}: {type(a).__name__} fires once PER "
+                    f"MEMBER under a class — {len(cs.members)} payouts; put it "
+                    f"on a normal single-npc [[behavior.unit]]")
 
     def _fallback_feed_tree(self, owner: str, tree: Node) -> Action:
         """The tree's unconditional fallback must be a STATIC feed (WalkTo/Hold/Patrol)
@@ -1888,11 +1891,15 @@ class FieldBehavior:
         return onced
 
     def has_battle_actions(self) -> bool:
-        """True when any unit's tree fires a :class:`Battle` — the build must then
-        ensure the entry-0 tag-10 Main_Reinit (the after-battle resume law)."""
+        """True when any tree fires a :class:`Battle` — the build must then
+        ensure the entry-0 tag-10 Main_Reinit (the after-battle resume law).
+        Class trees count: the engine's park/restore/suspend/resume is uid-
+        keyed and cid-blind (EventContext.copy + EnterBattleEnd + the state0
+        wake), so Seq brains ride a battle round-trip like any stock object."""
+        trees = [u.tree for u in self.units.values() if u.tree is not None]
+        trees += [cs.tree for cs in self.classes.values() if cs.tree is not None]
         return any(isinstance(a, Battle)
-                   for u in self.units.values() if u.tree is not None
-                   for a in self._collect_actions(u))
+                   for t in trees for a in self._collect_tree_actions(t))
 
     def compile(self) -> CompiledBehavior:
         for u in self.units.values():
@@ -2089,27 +2096,28 @@ class FieldBehavior:
             # gets the same tag numbering (the shared brain REQs by tag)
             once_ann = self._once_announce_map(owner, tree, ids)  # aid -> Once name
             dispatch_tag: dict[int, int] = {}
-            oneshot_latch: dict[int, int] = {}           # aid -> one-shot latch flag
-            oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched request
+            oneshot_latch: dict[int, int] = {}           # aid -> latch slot KEY
+            oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched req KEY
             for a in actions:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
                     continue
                 dispatch_tag[aid] = FIRST_ACTION_TAG + len(dispatch_tag)
                 if isinstance(a, Battle):
-                    li = self.bb.flag(f"{owner}.battled{aid}")
-                    ri = self.bb.flag(f"{owner}.breq{aid}")
+                    lk, rk = f"battled{aid}", f"breq{aid}"
                 elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)) and aid in once_ann:
-                    li = self.bb.flag(f"{owner}.once.{once_ann[aid]}")
-                    ri = self.bb.flag(f"{owner}.areq{aid}")
+                    lk, rk = f"once.{once_ann[aid]}", f"areq{aid}"
                 else:
-                    li = ri = None
-                if li is not None:
-                    oneshot_latch[aid] = li
-                    oneshot_req[aid] = ri
-                    for fi in (li, ri):
-                        if fi not in self._reset_flags:
-                            self._reset_flags.append(fi)
+                    lk = rk = None
+                if lk is not None:
+                    oneshot_latch[aid] = lk
+                    oneshot_req[aid] = rk
+                    # registration: reset-listed GLOBs for a unit owner (the v1
+                    # order, latch then request); zero-seeded strided cells for
+                    # a class — ONE LATCH PER MEMBER (once-per-member is the
+                    # class semantics; class-wide once = raise_flags+not_flag)
+                    self._sticky_flag(owner, lk)
+                    self._sticky_flag(owner, rk)
             nudge_tag = FIRST_ACTION_TAG + len(dispatch_tag)
             for u in members:
                 funcs: list = []
@@ -2175,11 +2183,11 @@ class FieldBehavior:
             # selects meanwhile. A successful REQ jumps past the rest of the tail
             # (one REQ per unit per tick, still by construction).
             disp_end = f"t_{owner}_dend"
-            for aid, ri in oneshot_req.items():
+            for aid, rk in oneshot_req.items():
                 bl = f"t_{owner}_b{aid}"
                 seg += [
-                    _stmt(f"Global.Bit[{ri}]"), (JMP_IFNOT, bl),
-                    _stmt(f"Global.Bit[{oneshot_latch[aid]}]"), (JMP_IF, bl),
+                    _stmt(self._sticky_flag(owner, rk)), (JMP_IFNOT, bl),
+                    _stmt(self._sticky_flag(owner, oneshot_latch[aid])), (JMP_IF, bl),
                     _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, bl),
                     opcodes.run_script_async(DISPATCH_LEVEL, tgt, dispatch_tag[aid]),
                     (JMP, disp_end),
@@ -2645,12 +2653,13 @@ class FieldBehavior:
                 # forever and STARVE every branch below it. Selection edge-latches
                 # the request; the one-shot lane fires it when the level frees;
                 # the dispatch body sets THIS latch itself, releasing the branch.
-                # (These actions are refused in class trees — owner is a unit.)
+                # Class owners: latch + request stride — the event fires ONCE
+                # PER MEMBER, each member's cells its own.
                 aid = ids[id(leaf.action)]
-                latch = self.bb.flag(f"{owner}.once.{node.name}")
-                req = self.bb.flag(f"{owner}.areq{aid}")
-                extra = (on_select or []) + [_set_flag(req, 1)]
-                return ([_stmt(f"Global.Bit[{latch}]"), (JMP_IF, fail)]
+                latch_r = self._sticky_flag(owner, f"once.{node.name}")
+                req_r = self._sticky_flag(owner, f"areq{aid}")
+                extra = (on_select or []) + [_stmt(f"{req_r} const(1) B_LET")]
+                return ([_stmt(latch_r), (JMP_IF, fail)]
                         + self._compile_tree(owner, node.child, ids, fail, _ctr, extra))
             # STICKY semantics (rung-1 design fix), for FEED behaviors: a reactive
             # ticker re-selects every tick, so a select-time latch would fire for
@@ -2706,7 +2715,8 @@ class FieldBehavior:
                 # EDGE-LATCH the request at selection — the branch may be outranked
                 # next tick by its own raise_flags (the siege round-1 clobber); the
                 # dispatch tail's request lane fires it when level 4 frees
-                out.append(_set_flag(self.bb.flag(f"{owner}.breq{aid}"), 1))
+                out.append(_stmt(f"{self._sticky_flag(owner, f'breq{aid}')} "
+                                 f"const(1) B_LET"))
             for nm in node.raise_flags:
                 fi = self.bb.flag(nm)
                 if fi not in self._reset_flags:
@@ -3134,14 +3144,27 @@ class FieldBehavior:
                                 + "\n".join(map(str, fresh)))
         return out
 
+    def _oneshot_ref(self, owner: str, member: str, key: str) -> str:
+        """A one-shot latch/request ref in MEMBER context (dispatch bodies run
+        ON the member): the class table's cell at the member's CONSTANT uid —
+        the same cell the brain reads strided — or the owner's GLOB flag
+        (owner == member for a unit owner)."""
+        if owner in self.classes:
+            return (f"{_cnum(self._cls_tid_for(owner, key))} "
+                    f"{_cnum(self.units[member].entry)} B_VECTOR")
+        return f"Global.Bit[{self.bb.flag(f'{owner}.{key}')}]"
+
     def _dispatch_body(self, owner: str, u: UnitSpec, a: Action, aid: int,
-                       oneshot_latch: int | None = None) -> bytes:
+                       oneshot_latch: str | None = None) -> bytes:
         """One dispatch-action body for MEMBER ``u`` of tree-owner ``owner``
         (owner == u.name for an unclassed unit). Bodies always run ON the
         member, so every protocol ref is the member's own — a classed member
-        reads its cells at its CONSTANT uid."""
+        reads its cells at its CONSTANT uid. ``oneshot_latch`` is a latch slot
+        KEY (event-Once actions); the body resolves it in member context."""
         sel_r = self._uref(u.name, "selected")
         run_r = self._uref(u.name, "running")
+        latch_ref = (self._oneshot_ref(owner, u.name, oneshot_latch)
+                     if oneshot_latch is not None else None)
 
         def set_run(v: int) -> bytes:
             return self._uset(u.name, "running", v)
@@ -3210,9 +3233,9 @@ class FieldBehavior:
                 opcodes.RETURN,
             ])
         if isinstance(a, Battle):
-            latch = self.bb.flag(f"{owner}.battled{aid}")
+            blatch = self._oneshot_ref(owner, u.name, f"battled{aid}")
             return asm([
-                _set_flag(latch, 1),                     # one-shot: set BEFORE the
+                _stmt(f"{blatch} const(1) B_LET"),       # one-shot: set BEFORE the
                 set_run(255),                     # suspend, so a return can
                 opcodes.encode(0x2A, 0, int(a.scene)),   # never re-fire it. Battle(0,
                 set_run(0),                       # scene) = 559's tread shape.
@@ -3231,7 +3254,7 @@ class FieldBehavior:
             if a.item is not None:
                 pay.append(_event.give_item(a.item, int(a.count)))
             return asm([
-                _set_flag(oneshot_latch, 1),              # latch FIRST — pay once ever
+                _stmt(f"{latch_ref} const(1) B_LET"),              # latch FIRST — pay once ever
                 set_run(255),
             ] + pay + [
                 set_run(0),
@@ -3247,7 +3270,7 @@ class FieldBehavior:
             if a.add:                                            # List.Add dupes,
                 ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
             return asm([
-                _set_flag(oneshot_latch, 1),              # latch FIRST (Battle's shape)
+                _stmt(f"{latch_ref} const(1) B_LET"),              # latch FIRST (Battle's shape)
                 set_run(255),
             ] + ops + [
                 set_run(0),
@@ -3273,7 +3296,7 @@ class FieldBehavior:
             if a.add:                                            # same List dupe
                 ops.append(opcodes.encode(0x116, int(a.shop), sid, 1))
             return asm([
-                _set_flag(oneshot_latch, 1),
+                _stmt(f"{latch_ref} const(1) B_LET"),
                 set_run(255),
             ] + ops + [
                 set_run(0),
@@ -3290,7 +3313,7 @@ class FieldBehavior:
                 # delay/sustain hold the level around the open — queued one-shots
                 # (the NEXT staged line, a Battle) fire when it drops.
                 return asm([
-                    _set_flag(oneshot_latch, 1),
+                    _stmt(f"{latch_ref} const(1) B_LET"),
                     set_run(255),
                 ] + show + [
                     set_run(0),
@@ -3306,7 +3329,7 @@ class FieldBehavior:
             stop = opcodes.encode(OP_RUN_TIMER, 0)
             if oneshot_latch is not None:
                 return asm([
-                    _set_flag(oneshot_latch, 1),
+                    _stmt(f"{latch_ref} const(1) B_LET"),
                     set_run(255),
                     stop,
                     set_run(0),
@@ -3331,7 +3354,7 @@ class FieldBehavior:
             ]
             if oneshot_latch is not None:
                 return asm([
-                    _set_flag(oneshot_latch, 1),         # latch FIRST (Battle's shape)
+                    _stmt(f"{latch_ref} const(1) B_LET"),         # latch FIRST (Battle's shape)
                     set_run(255),
                 ] + burst + [
                     set_run(0),
@@ -3353,7 +3376,7 @@ class FieldBehavior:
                 # one-shot shape with a sound for a window — latch FIRST, play,
                 # release.
                 return asm([
-                    _set_flag(oneshot_latch, 1),
+                    _stmt(f"{latch_ref} const(1) B_LET"),
                     set_run(255),
                     play,
                     set_run(0),

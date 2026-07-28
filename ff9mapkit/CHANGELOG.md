@@ -37,6 +37,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   never a condition target (name a member). `hp`/`speed`/`pooled`/`pool` apply to every member;
   `anim` needs a shared model; class self-`hp_le` needs one hp home (same group, or ungrouped).
   Class-free builds (both backends) compile byte-identically to before.
+- The one-shot family (`battle` / `sfx` / `flash` / `stop_timer` / `announce` /
+  `announce_npc`) now runs on class rows with **once-PER-MEMBER** latches (each member's
+  latch is its own uid-indexed cell; class-wide once = `raise_flags` + `not_flag`). A class
+  `battle` also installs the after-battle Main_Reinit, and the engine's battle park/restore
+  is uid-keyed and object-kind-blind, so shared brains ride a battle round-trip like any
+  stock NPC. Only the payout verbs (`award` / shop stock+synth) still refuse class rows —
+  once per member there would mean N payouts.
 
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe

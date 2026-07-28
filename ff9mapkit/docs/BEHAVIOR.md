@@ -99,12 +99,18 @@ member's cells through the caller's uid, while member-side bodies (the duty walk
 tags) read the same cells at their fixed uid. Net effect: a 7-member class costs ONE brain's
 bytes instead of seven, and its per-member state stops consuming the flag band.
 
-What a class row can say (v1): the feeds (`walk_to`/`hold`/`hold_post`/`chase`/`patrol`/
+What a class row can say: the feeds (`walk_to`/`hold`/`hold_post`/`chase`/`patrol`/
 `march`/`flee`/`wander`), `engage`, `swing_at`, `hold_ground`, `die`, sticky `once`/`cooldown`,
-and `raise_flags`/`clear_flags` (any member raising counts). Not yet: the one-shot family
-(`battle`/`award`/shop verbs/`sfx`/`flash`/`stop_timer`/`announce*`) — per-member one-shot
-semantics under a shared brain are a later rung; put those on a normal single-npc row (a class
-and plain rows mix freely on one field). A class tree is ONE program: per-member variation
+`raise_flags`/`clear_flags` (any member raising counts) — and the one-shot family
+(`battle`/`sfx`/`flash`/`stop_timer`/`announce`/`announce_npc`), whose latches are **once PER
+MEMBER**: each member fires its own one-shot once (three classed knights with a `once` war cry
+= three cries, one `.mes` line; each Mu with a `battle` branch fires its battle once). Want
+once *per class*? Have the firing branch `raise_flags = ["cried"]` and gate it on
+`{ not_flag = "cried" }` — the first member to fire silences the rest. Only the payout verbs
+(`award` / shop stock+synth) refuse class rows — once-per-member there means N payouts; keep
+them on a single-npc row (a class and plain rows mix freely on one field). Simultaneous
+announces share the dialog window — stagger member placement (or windows) if two members can
+fire the same tick. A class tree is ONE program: per-member variation
 comes from state (`hold_post` posts, `engage` dynamic targets), not literals — and a class
 name can never be the *target* of someone else's condition (name a member, or use groups).
 Members keep their individual names everywhere else (groups, other trees' conds, `hp:` HUD

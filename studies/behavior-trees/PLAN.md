@@ -851,6 +851,37 @@ sibling-survival all in-game) is ratified.** Still open on the brains
 ladder: per-member one-shots under classes, Instance-var latch migration,
 REQSW transition dispatches, inline one-shot bodies.
 
+**RUNG 2 — BUILT + DEPLOYED (2026-07-28), ⚠ playtest pending: THE ONE-SHOT
+FAMILY IN CLASS ROWS.** `battle`/`sfx`/`flash`/`stop_timer`/`announce`/
+`announce_npc` lift into `npcs=` rows with **ONCE-PER-MEMBER** latches: the
+oneshot plumbing went KEY-based — latch/request slots resolve per context
+(unit owner → the v1 reset-listed GLOBs byte-for-byte; class → zero-seeded
+strided cells, the brain reading them at MYUID and each member's dispatch
+body latching its OWN cell at its constant uid). Class-wide once = the
+`raise_flags` + `not_flag` idiom (documented, not new surface). Only the
+PAYOUT verbs (`award`/shop) still refuse classes — once-per-member is N
+payouts. **Battle under brains, grounded at the source before shipping:**
+the battle transition parks the whole field EventContext and restores it
+uid-keyed (EventContext.copy), EnterBattleEnd suspends uid≠0 and the
+state0 wake resumes — all cid-blind, so Seq brains ride the round-trip
+like any stock object (EventEngine.cs:666/780/1216); and
+`has_battle_actions()` now counts CLASS trees, so the tag-10 Main_Reinit
+installs (without that fix a class battle = the EnterBattleEnd softlock).
+Master identity re-verified both backends; suite green (165 behavior
+tests). **Bench 30425 "BTCRY" (`btcry_bench.py`)**: 3-knight herald class
+(each war-cries ONCE, event-once announce) + 2-Mu tread class (each fires
+scene 35 ONCE; timer=600 per the clock-coupled battle law) — deployed
+bytes verified (tag-10 on entry 0, 5 heads → 2 brains split 3/2, identity
+in both, exactly 2 battle bodies). THE SHARPEST CLAIM: after the first
+battle every other brain still lives (the first battle ever fired under
+Seq brains). RELAUNCH → ~ → Warp → 30425.
+**★ PLAYTEST PROVEN (owner, 2026-07-28, round 1 clean): "all good, 3
+cries, both battles work, no issues after" — RUNG 2 CLOSED.** Once-per-
+member latches, per-member battles, AND the battle round-trip under Seq
+brains (park/restore/suspend/resume with live shared-brain Seqs) are all
+in-game. Still open on the brains ladder: Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
