@@ -444,7 +444,7 @@ gated disjoint (see Orthogonality, below).
 ### `export-art` — the paint workflow
 
 ```
-ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed|direct15] [--no-coverage]
+ff9mapkit summon-reskin export-art --ef <id> [--out DIR] [--art-lane indexed|direct15|paint] [--no-coverage]
 ```
 
 Reads the stock container out of your own install (or `--from <file>`), decodes every addressable
@@ -464,7 +464,11 @@ Square-Enix content):
   row at a time" posture the CLUT lane's own `scaffold` uses.
 
 `--art-lane rgba` is named in the CLI on purpose, not omitted: asking for it returns the
-measurement that rules it out (below) rather than a bare "unknown choice" error.
+measurement that rules it out (below) rather than a bare "unknown choice" error. `--dither` is named
+for the same reason and refuses the same way.
+
+`--art-lane paint` writes **two more files per page** beside the exact indexed one — see *Painting in
+colour*, below.
 
 ### The format of record: an INDEXED PNG, never RGBA
 
@@ -479,6 +483,102 @@ of 16,384 texels re-importing ef251 part 0 — a lane whose no-op is not a no-op
 byte-identity gate, so `rgba` refuses with that number rather than shipping a silent trap. Import
 refuses anything that isn't mode `"P"`, isn't the exported size (no rescale — an index page has no
 meaningful resample), or uses an index past the page's own CLUT row length.
+
+### Painting in colour — `--art-lane paint` and `source_paint`
+
+The indexed lane above is exact and unchanged. It is also, if you want to *paint*, a strange way to
+work: you edit index numbers in a palette editor. `--art-lane paint` lets you open an ordinary RGBA
+picture instead, and it is the one import in this kit that is **not** a bijection — so everything
+about it is built around saying so.
+
+```
+ff9mapkit summon-reskin export-art --ef 227 --art-lane paint --out C:/art/bahamut
+# paint C:/art/bahamut/tex.part0.paint.png in any RGBA editor
+ff9mapkit summon-reskin plan  C:/art/bahamut/bahamut.toml --previews
+```
+
+Each page gets three files instead of one: `<name>.png` (the **exact** indexed export, still there and
+still the format of record for precise work), `<name>.paint.png` (**the editable RGBA render**), and
+`<name>.swatch.png` (this page's palette, one 8×8 patch per entry in index order). The choice is
+**per row**, not per export: the scaffold emits both `source` and `source_paint`, one commented, so
+switching lanes is a one-character edit and a spec can paint one part while hand-editing another.
+
+**Three things the paint file means.**
+
+1. **Alpha is the cutout, and it is authoritative.** 0 or 255 only — a partial alpha refuses, naming
+   the texel and its `(x, y)`. Alpha 0 selects from the row's transparent entries; alpha 255 selects
+   from everything else. That rule is not cosmetic: without it a plain 40° hue slider on `ef227
+   tex.part0` sends **502 of 15,931 opaque texels onto the transparent index** — 502 holes nobody
+   drew. With it, 0, across every page measured.
+2. **Colour is approximated, and this lane writes zero CLUT bytes.** Your painting is mapped onto the
+   palette the container already carries, by nearest colour in the 5-bit BGR cube. `plan` prints
+   exactly how far each texel had to move, and `--previews` adds a fourth panel — `before | after |
+   moved | error` — showing *where* the palette could not follow you.
+3. **The coverage overlay still applies.** Paint outside the sampled island and the edit is inert.
+
+**THE INCUMBENT LOCK — why the no-op is still exact.** The selection order is
+`(the container's own index at this texel, an entry whose STP matches it, the lowest index)`. The
+container's indices are an *input*, not just an output, so wherever the stock index is still a correct
+answer it wins — and an unedited export re-imported through this lane changes **0 container bytes, on
+240 of 240 lawful surfaces**, including pages that are 100% ambiguous and a row with a 239-way tie.
+Delete that first term and the naive rule moves **767,531 texels across 191 of those 240 surfaces**,
+and exactly the **1,844 of 16,384** on `ef251 tex.part0` that the `rgba` refusal has always quoted.
+That single number is the whole reason `rgba` refuses and `paint` does not.
+
+Determinism is structural rather than observed: a total order over unique indices, integer arithmetic
+only, no set or dict iteration anywhere in the decision, and no floating point at all. The same
+container plus the same PNG produce the same byte on every platform and every `PYTHONHASHSEED`.
+
+**THE ALTERNATE-SPLIT REFUSAL, and it has no acknowledge key.** A class-C cell is one index array read
+through *two or more* palettes. If a genuine edit leaves two or more entries equally near your colour,
+and those entries render as **different colours** in the cell's other key, the build refuses. Measured
+over the corpus, **298 of 365 duplicate groups on 11 of 16 class-C cells split like that** — so a tool
+that broke the tie inside the editable key would be 81.6% likely to be choosing a visibly different
+colour in a picture you were never shown. Your own index choice is a choice; the tool's is not, so it
+refuses instead. Both fixes are cheap and the message names them: paint a colour that is **unique** in
+the row (the swatch marks those), or use `source =` and choose the index yourself. The gate is
+edit-scoped (a no-op and every unchanged texel are exempt) and structurally unreachable on all 93
+creature pages, which have no alternate key at all.
+
+**What still refuses, each with its own measurement:** a non-RGBA file; the wrong size (no rescale,
+ever); a partial alpha; a row with no transparent entry when you painted one (45 of 147 lawful scenery
+rows are in that class, 0 of 93 creature rows — a hole there needs a palette *write*, which is why the
+refusal quotes the `--mint-clut` deferral in full); `source` and `source_paint` on one row; a 15bpp
+cell (use `--art-lane direct15`, which is already RGBA **and** exact); an unacknowledged quantize; a
+palette this spec recolours; a manifest whose `page_sha256` or `render_key` says the art came out of a
+different container; and `--dither` (error diffusion is stateful across texels, so an *unedited* page
+would dither and move bytes — dither in your own editor at 5-bit depth instead and this lane
+reproduces it exactly).
+
+**PAINTING ONTO A ROW YOU ALSO RECOLOUR — the two-step, and it really works.** If the same build
+recolours the row a paint row quantizes against (a `[[reskin.target]]` in this spec, or the sibling a
+`[reskin.orthogonality] compose = true` build composes onto), art painted against the *stock* colours
+would be mapped onto colours you never saw, and the build refuses. Its first named fix is the ordinary
+one: build the CLUT half on its own (leave the paint row `enabled = false`), then
+
+```
+ff9mapkit summon-reskin export-art --ef 227 --art-lane paint --from <the staged container> --out ...
+```
+
+paint *that* export, and switch the row on. The build then measures — the export manifest records the
+whole-container sha256 of what it read, and it equals this build's own composition base — and prints
+`re-exported against the recoloured row` instead of refusing. `acknowledge_recoloured_palette = true`
+is the *other* answer, for when you want the stock-painted colours re-mapped onto the new row
+deliberately; it is never the only one.
+
+**What it does not claim, stated so no gate is asked to prove it:** that re-importing an *edited*
+paint file is exact. It never was on any lane. `acknowledge_quantize` is where you say so.
+
+`verify` re-reads the staged container as bytes *and* re-reads the paint file: if the source is gone it
+says so and fails rather than reporting a pass on art it can no longer see.
+
+**`--mint-clut` (writing a new palette fitted to your art) stays deferred**, and the reason is now
+measured rather than architectural: the mechanism exists — a mint decomposes into a CLUT-lane row
+write and a texel-lane index write, each gated by the partition that already licenses exactly it. What
+is missing is that STP is *carried, never recomputed* and gated as a per-palette population, while the
+blow-out and headroom gates key on a knob and a stock peak — a minted entry has none of the three; and
+that the shared-read direction inverts and is unbounded. The kit already has a palette writer that
+satisfies all of it: `[[reskin.target]]`. Use it, or paint against the row you have.
 
 ### The `[[reskin.texel]]` schema
 
@@ -496,7 +596,10 @@ table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one
 | key | required | meaning |
 |---|---|---|
 | `name` | **yes** | the page's *derived* name, over BOTH namespaces: `tex.part{N}` for a creature part, `cell.{writer}.x{X}_y{Y}` for a scenery VRAM page-cell (e.g. `cell.s0.x704_y256`, `cell.id9.s0.x832_y384`). The old rect spelling `page.*.h256` still refuses — an `h = 256` rect is **not** an addressable unit, it is two stacked cells the engine uploads separately — and the refusal now names the two `cell.*` halves it splits into. `export-art` prints every name the container declares, and every cell it refuses with the reason. |
-| `source` | *conditional* | the indexed PNG path (relative to the spec file), required the moment the row is `enabled`. |
+| `source` | *conditional* | the indexed PNG path (relative to the spec file), required the moment the row is `enabled` — unless the row uses `source_paint` instead. |
+| `source_paint` | *conditional* | the **RGBA painting**'s path — the QUANTIZE lane. Mutually exclusive with `source`: two formats of record for one page refuses by name. See *Painting in colour*, below. |
+| `acknowledge_quantize` | *conditional* | required (`= true`, a literal boolean) on every `source_paint` row: your colours are **approximated** onto the row the container already carries. |
+| `acknowledge_recoloured_palette` | *conditional* | required (`= true`, a literal boolean) when the row a `source_paint` row quantizes against **has been recoloured under this build** — by this same spec's `[[reskin.target]]`, or by the sibling a `[reskin.orthogonality] compose = true` build composes onto — **and the art was painted against the stock colours**. Otherwise your colours land on colours you never saw. It is *not* required when you took the other fix and re-exported the paint file `--from` the staged container: the build then measures that the art came out of the recoloured row and says so instead of refusing. |
 | `enabled` | no, default `true` | `false` ships the row's *intent* without splicing a byte — its guards and acknowledgement only become mandatory the moment it's switched on. |
 | `expect_page_offset` / `expect_page_bytes` / `expect_page_wh` | no | guards: if the container's own id-4 header derives a different span, the build refuses rather than splice into a place this row wasn't authored against. `export-art`'s scaffold fills these in for you. |
 | `palette_from` | no | names the CLUT-lane row (`creature.part{N}`) this page indexes into, as a stated cross-reference — a page's palette is a HEADER FACT, not a choice, so naming any other row refuses. Omitted = the stock palette, 0 CLUT bytes touched (this rung's default). |
@@ -659,9 +762,14 @@ models**. A disclosure, never a refusal.
   those containers **disclose** instead of refusing (which is what makes Phoenix's fire field editable
   at all).
 - **An UNWRITTEN column** — see the spill gate, above.
-- **RGBA for the indexed lane, and `--quantize`/`--mint-clut`** — unchanged, and refused for their own
-  reasons rather than this one: RGBA is about exact recovery, and a palette *writer* conflicts with a
-  `[[reskin.target]]` on the same palette.
+- **RGBA on the INDEXED lane** — unchanged, and refused for its own reason rather than this one: that
+  refusal is about **exact recovery**, and it would hold if every cell in the corpus were lawful.
+  Painting in colour has its own lane now (`--art-lane paint`, above), whose format of record is *two
+  files* — the painting **plus** the container's own index page, which the codec reads as the
+  incumbent — and which writes zero CLUT bytes.
+- **`--mint-clut`** — still deferred, on three measured items rather than on an architecture (see
+  *Painting in colour*). The bare spellings `quantize` and `mint_clut` remain **unknown keys** on every
+  table and refuse as such; the shipped quantize key is `source_paint`.
 
 Run `export-art` before you paint: it lists every cell it refuses **and why**, and the emitted scaffold
 prints them as a commented block. On this surface the refusals *are* most of the shape, so they are

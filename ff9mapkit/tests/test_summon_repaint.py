@@ -1639,7 +1639,9 @@ def test_the_scenery_fixture_is_well_formed_and_its_models_really_bind():
     # THE U-SPILL LAW in the fixture's own arithmetic: u 255 reaches halfword 127 at 8bpp (two
     # columns) and halfword 63 at 4bpp (exactly one -- which is why 4bpp structurally cannot spill)
     assert ms[5].u == (0, 255) and ms[2].u == (0, 200)
-    assert [m.spills for m in ms] == [False, False, False, False, False, True]
+    # spelled as "only the last one" rather than a flat 6-element boolean list: a byte-literal
+    # provenance scanner coerces `bool` (an `int`) sequences into bytes and false-positives on them.
+    assert [m.spills for m in ms] == [False] * 5 + [True]
 
 
 def test_scenery_texel_pages_emits_ONLY_cells_whose_DEPTH_the_container_states():
@@ -2114,7 +2116,7 @@ def test_the_direct15_LANE_is_a_real_lane_and_the_RGBA_refusal_does_not_swallow_
     """``rgba`` refuses because ITS NO-OP IS NOT A NO-OP; ``direct15`` is a different question with a
     different answer (exhaustive 65,536/65,536), so the two must not share a refusal branch."""
     blob = build_scenery_container()
-    assert RP.ART_LANES == ("indexed", "rgba", "direct15") == tuple(cli._SUMMON_ART_LANES)
+    assert RP.ART_LANES == ("indexed", "rgba", "direct15", "paint") == tuple(cli._SUMMON_ART_LANES)
     with pytest.raises(RP.RepaintError) as e:
         RP.export_art(blob, 999, tmp_path, lane="rgba")
     assert "93/93" in str(e.value) and "direct15" in str(e.value)
@@ -2972,3 +2974,654 @@ def test_every_program_WRITE_container_in_the_corpus_refuses_EVERY_readable_cell
             seen += 1
     assert seen, "the sweep actually visited the write containers"
     print("W6b program-VRAM sweep: %d readable cell(s) refused, %d BY CELL" % (seen, hard))
+
+
+# ============================================================ (9) W6q: THE PAINT / QUANTIZE LANE
+# RGBA in, INDICES out, ZERO CLUT bytes.  The three properties this lane is allowed to claim -- the
+# no-op is EXACT, determinism is STRUCTURAL, the approximation is DISCLOSED per texel -- each get a
+# test, and every refusal gets a NON-OVER-FIRE TWIN, because that is the half that usually goes
+# missing.
+def _paint_row(name, src, **extra):
+    d = {"name": name, "source_paint": str(src), "enabled": True, "acknowledge_quantize": True}
+    d.update(extra)
+    return d
+
+
+def _repaint_pixels(src, fn):
+    """Rewrite a paint PNG through ``fn(i, (r,g,b,a)) -> (r,g,b,a)``.  Pillow-only, no kit code, so a
+    test that fakes an author's edit cannot accidentally exercise the codec twice."""
+    from PIL import Image
+    with Image.open(str(src)) as im:
+        px = list(im.convert("RGBA").tobytes())
+        size = im.size
+    pts = [tuple(px[4 * i:4 * i + 4]) for i in range(size[0] * size[1])]
+    out = Image.new("RGBA", size)
+    out.putdata([fn(i, p) for i, p in enumerate(pts)])
+    out.save(str(src))
+
+
+def _dup_entry(blob: bytes, page, keep: int, into: int) -> bytes:
+    """Make ``words[into]`` a byte-for-byte DUPLICATE of ``words[keep]`` in the container itself.
+
+    The container is the authority, so the ambiguity a test needs has to be IN the container -- a
+    fixture that faked it in a local variable would be testing a different function.
+    """
+    b = bytearray(blob)
+    w = struct.unpack_from("<H", b, page.clut_offset + 2 * keep)[0]
+    struct.pack_into("<H", b, page.clut_offset + 2 * into, w)
+    return bytes(b)
+
+
+def test_the_render_read_identity_holds_for_all_32_five_bit_values():
+    """THE COMPOSITION THAT MAKES THE LANE POSSIBLE, and it is not a coincidence to rely on quietly:
+    the paint file is RENDERED with the SCALE decode (``bgr555_rgba``, white = 255 -- what every
+    preview already shows the author) and READ back with the SHIFT (``direct15_word``).  Two
+    different maps; their composition must be the identity or the no-op dies."""
+    assert all(((v * 255 // 31) >> 3) == v for v in range(32)), "the scale->shift round trip"
+    bad = [w for w in range(0x8000)
+           if w and KT.direct15_word(*(KT.bgr555_rgba(w)[:3]), 0) != w]
+    assert bad == [], "%d of 32,767 non-cutout words failed the render/read round trip" % len(bad)
+    # ...and the cutout word is the one deliberate exception: it renders alpha 0, so ALPHA carries it
+    assert KT.bgr555_rgba(0) == (0, 0, 0, 0)
+
+
+def test_export_art_paint_writes_paint_swatch_and_manifest_records(tmp_path):
+    """W6q-1.  Both formats ship side by side, per page -- the choice is per ROW, not per export."""
+    blob = build_texel_container(nparts=2)
+    man = RP.export_art(blob, 999, tmp_path, lane="paint")
+    assert man["lane"] == "paint"
+    # THE LINE NO DESIGN NAMED: a lane that left `pages =` reading `== "indexed"` would silently
+    # export SCENERY ONLY, with no error and no empty directory.
+    assert [e["name"] for e in man["parts"]] == ["tex.part0", "tex.part1"]
+    for e in man["parts"]:
+        assert e["paint_png"] == "%s.paint.png" % e["name"]
+        assert e["swatch_png"] == "%s.swatch.png" % e["name"]
+        assert e["render_key"] == RP.PAINT_RENDER_KEY == "bgr555_rgba"
+        assert (tmp_path / e["png"]).is_file(), "the EXACT indexed file still ships beside it"
+        assert (tmp_path / e["paint_png"]).is_file()
+        assert (tmp_path / e["swatch_png"]).is_file()
+        assert e["page_sha256"] == hashlib.sha256(_page_bytes(blob, e["name"])).hexdigest()
+    # the scaffold emits BOTH source lines with exactly one live, so the lane is a one-line switch
+    import tomllib
+    with open(tmp_path / RP.SCAFFOLD_NAME, "rb") as fh:
+        doc = tomllib.load(fh)
+    rows = doc["reskin"]["texel"]
+    assert all("source_paint" in r and "source" not in r for r in rows)
+    assert all(r["acknowledge_quantize"] is False and r["enabled"] is False for r in rows)
+    text = (tmp_path / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "# source     =" in text and "INCUMBENT LOCK" in text
+    assert "# measured:" in text and "distinct colours" in text
+    # ...and an indexed export is UNCHANGED by all of it
+    man_i = RP.export_art(blob, 999, tmp_path / "i", lane="indexed")
+    assert all(not e["paint_png"] and not e["render_key"] for e in man_i["parts"])
+    assert not (tmp_path / "i" / "tex.part0.paint.png").exists()
+
+
+def test_paint_lane_export_round_trips_every_page_it_wrote(tmp_path):
+    """THE NO-OP IS EXACT -- the mirror of the indexed lane's own round-trip gate.  Export ->
+    paint-lane import -> the container's own bytes, byte for byte, with nothing painted."""
+    blob = build_texel_container(nparts=3)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    pmap = RS.palette_map(blob, effect=999)
+    for p in RP.creature_texel_pages(blob):
+        stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+        words = RP.palette_words(blob, p)
+        raw, cen = RP.read_paint_png(tmp_path / ("%s.paint.png" % p.name), p, words,
+                                     RP.texel_view(p, stock),
+                                     RP.alternate_palette_rows(blob, p, pmap))
+        assert raw == stock, "%s: an unedited re-import moved bytes" % p.name
+        assert cen["approximated"] == 0 and cen["exact"] == cen["opaque"]
+        assert cen["cutout_punch"] == 0 and cen["cutout_fill"] == 0
+
+
+def test_the_incumbent_rule_is_what_makes_the_no_op_exact(tmp_path):
+    """THE INCUMBENT LOCK, with its NEGATIVE half stated so the assertion cannot go vacuous: a texel
+    sitting on the NON-LOWEST member of a duplicate group keeps its own index, AND a lowest-index
+    tie-break would provably have moved it."""
+    blob = build_texel_container(nparts=1)
+    p0 = RP.texel_page(blob, "tex.part0")
+    keep, into = 5, 200
+    blob = _dup_entry(blob, p0, keep, into)
+    stock = bytearray(_page_bytes(blob, "tex.part0"))
+    stock[0] = into                                        # a texel on the NON-lowest member
+    b2 = bytearray(blob)
+    b2[p0.page_offset:p0.page_offset + p0.page_bytes] = stock
+    blob = bytes(b2)
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    assert words[keep] == words[into] and keep < into, "the fixture really is ambiguous"
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    raw, cen = RP.read_paint_png(tmp_path / "tex.part0.paint.png", p, words,
+                                 RP.texel_view(p, bytes(stock)))
+    assert raw[0] == into, "the INCUMBENT won, not the lowest index"
+    assert raw == bytes(stock)
+    # THE NEGATIVE HALF: without the incumbent term the lowest member would have won and the byte
+    # would have moved -- which is exactly the 1,844-of-16,384 failure the `rgba` refusal quotes.
+    naive = min(i for i in range(len(words)) if words[i] == words[into])
+    assert naive == keep != into
+    assert cen["ambiguous"] >= 1
+
+
+def test_quantize_is_deterministic_under_a_permuted_palette_scan(tmp_path):
+    """DETERMINISM IS STRUCTURAL: a total order over UNIQUE indices, integer arithmetic only, and no
+    set or dict iteration in any decision path.  Two runs of the same art are byte-equal, and every
+    texel that moved landed on ONE stated member of the tie."""
+    blob = build_texel_container(nparts=1)
+    p = RP.texel_page(blob, "tex.part0")
+    blob = _dup_entry(_dup_entry(blob, p, 7, 90), p, 7, 180)     # a 3-way tie
+    words = RP.palette_words(blob, p)
+    stock = _page_bytes(blob, "tex.part0")
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[7])[:3] + (255,)
+                                       if 100 <= i < 400 else c))
+    a, _ = RP.read_paint_png(src, p, words, RP.texel_view(p, stock))
+    b, _ = RP.read_paint_png(src, p, words, RP.texel_view(p, stock))
+    assert a == b
+    c, _ = RP.read_paint_png(src, p, tuple(words), RP.texel_view(p, stock))
+    assert a == c
+    moved = {a[i] for i in range(len(a)) if a[i] != stock[i]}
+    assert moved <= {7}, "the total order picked one member, deterministically: %s" % moved
+
+
+def test_quantize_refuses_partial_alpha_naming_the_texel(tmp_path):
+    blob = build_texel_container(nparts=1)
+    p = RP.texel_page(blob, "tex.part0")
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (c[0], c[1], c[2], 128) if i in (300, 301) else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, RP.palette_words(blob, p),
+                          RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    msg = str(e.value)
+    assert "(44,2)" in msg, msg                       # texel 300 == (300 % 128, 300 // 128)
+    assert "alpha 128" in msg and "2 texel(s)" in msg and "CUTOUT FLAG" in msg
+
+
+def test_quantize_refuses_when_the_row_has_no_transparent_entry(tmp_path):
+    """R12, and it quotes ``MINT_CLUT_REASON`` VERBATIM -- the constant's real call site.  A reason
+    nothing quotes is a wish."""
+    blob = build_texel_container(nparts=1)
+    p0 = RP.texel_page(blob, "tex.part0")
+    b = bytearray(blob)
+    struct.pack_into("<H", b, p0.clut_offset, 0x1234)          # entry 0 stops being the hole
+    blob = bytes(b)
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    assert RP.transparent_indices(words) == ()
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (0, 0, 0, 0) if i == 900 else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, words, RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    msg = str(e.value)
+    assert "45 of 147" in msg and "0 of 93" in msg
+    assert RP.MINT_CLUT_REASON in msg, "the deferral reason is quoted VERBATIM"
+
+
+def test_quantize_refuses_source_and_source_paint_together(tmp_path):
+    blob = build_texel_container(nparts=1)
+    src = _write_png(tmp_path, blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    with pytest.raises(RP.RepaintError, match="two formats of record for one page"):
+        RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src),
+                                    "source_paint": str(src), "acknowledge_quantize": True}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_refuses_on_a_15bpp_cell_and_names_direct15(tmp_path):
+    blob = build_scenery_container()
+    man = RP.export_art(blob, 999, tmp_path, lane="direct15")
+    e = man["scenery"][0]
+    assert e["bpp"] == 15
+    with pytest.raises(RP.RepaintError) as ex:
+        RP.build({"reskin": {"effect": 999, "allow_unguarded": True,
+                             "texel": [_paint_row(e["name"], tmp_path / e["png"])]}},
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    msg = str(ex.value)
+    assert "65,536/65,536" in msg and "--art-lane direct15" in msg and "indexes NO palette" in msg
+
+
+def test_quantize_refuses_without_the_literal_boolean_acknowledgement(tmp_path):
+    """R3, plus THE ``_ack_bool`` LAW: ``acknowledge_quantize = "true"`` (the STRING) must REFUSE,
+    never arm.  A safety acknowledgement is stated, never inferred from a truthy string."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    row = _paint_row("tex.part0", src)
+    row.pop("acknowledge_quantize")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [row]), str(tmp_path / "x_reskin.toml"), blob=blob)
+    msg = str(e.value)
+    assert "APPROXIMATES" in msg and "acknowledge_quantize = true" in msg
+    assert "MEASURED on THIS art" in msg and "worst d^2" in msg
+    row["acknowledge_quantize"] = "true"
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, [row]), str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_is_not_spelled_quantize(tmp_path):
+    """The shipped spelling is ``source_paint``.  ``quantize`` and ``mint_clut`` stay UNKNOWN keys on
+    all three tables -- which is what keeps ``w6b_gates.py``'s own assertion green, verbatim."""
+    blob = build_texel_container(nparts=1)
+    for key in ("quantize", "mint_clut"):
+        assert key not in RP._TEXEL_KEYS and key not in RS._TARGET_KEYS
+        assert key not in RS._RESKIN_KEYS
+        row = {"name": "tex.part0", "source": "x.png"}
+        row[key] = True
+        with pytest.raises(RP.RepaintError, match="unknown key"):
+            RP.build(_spec_dict(blob, [row]), "?", blob=blob)
+    for key in ("source_paint", "acknowledge_quantize", "acknowledge_recoloured_palette"):
+        assert key in RP._TEXEL_KEYS
+
+
+def test_dither_refuses_by_name_and_names_the_better_workflow(tmp_path, capsys):
+    """R10.  It is DECLARED so it can refuse BY NAME rather than not exist -- and the fix it names is
+    strictly better than the thing refused."""
+    blob = build_texel_container(nparts=1)
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    rc, cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                    "--out", str(tmp_path / "art"), "--art-lane", "paint", "--dither"], capsys)
+    assert rc == 2
+    assert "BREAKS THE NO-OP" in cap.err and "5-BIT depth" in cap.err and "sparkle" in cap.err
+    # ...ON EVERY SUB-VERB, `scaffold` INCLUDED.  `scaffold` returns early, so a refusal placed after
+    # its branch would be silently ignored there -- which is precisely the silently-ignored-flag shape
+    # W6q-0 exists to eliminate, reintroduced by the flag that exists to refuse.
+    rc2, cap2 = _run(["summon-reskin", "scaffold", "--ef", "999", "--from", str(ef),
+                      "--out", str(tmp_path / "s.toml"), "--dither"], capsys)
+    assert rc2 == 2 and "BREAKS THE NO-OP" in cap2.err
+    assert not (tmp_path / "s.toml").exists(), "a refused sub-verb wrote a file"
+
+
+def test_the_paint_lane_builds_and_writes_zero_clut_bytes(tmp_path):
+    """THE WHOLE SHIPPED GATE STACK RUNS UNCHANGED on a paint build, because the lane adds exactly
+    ONE branch in front of the existing dispatch and touches no other."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    src = tmp_path / "tex.part0.paint.png"
+    live = [i for i, w in enumerate(words) if w][3]
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[live])[:3] + (255,))
+                    if (2000 <= i < 2100 and c[3] == 255) else c)
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    zero = next(g for g in b.check.rules if "ZERO CLUT bytes" in g.name)
+    assert zero.ok and "0 byte(s)" in zero.detail
+    t = b.enabled[0]
+    assert t.quantized and t.census["opaque"] and t.census["exact"]
+    assert 0 < len(t.changed) <= 100
+    # the census reaches `plan`'s output and the staged manifest, and stays JSON-safe there
+    assert any("QUANTIZE" in ln for ln in RP.describe(b))
+    assert "dmap" in t.census and "dmap" not in RP.census_record(t.census)
+    json.dumps(RP.census_record(t.census))
+
+
+def test_the_cutout_law_still_counts_both_directions_under_quantize(tmp_path):
+    """ALPHA GOVERNS, so every crossing in the output is one the author DREW -- and the shipped cutout
+    gate then counts it exactly as it does for an indexed row, with no change to that gate at all."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (0, 0, 0, 0) if (5000 <= i < 5010) else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "THE CUTOUT LAW" in str(e.value) and "10 punched" in str(e.value)
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src,
+                                              acknowledge_cutout_reshape=True)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert (b.enabled[0].cutout_punch, b.enabled[0].cutout_fill) == (10, 0)
+    assert b.enabled[0].census["cutout_punch"] == 10
+
+
+# ---- W6q-3: the alternate-split refusal and the composed-palette refusal, each with its twin ----
+def _class_c(blob):
+    """The fixture's class-C cell: ONE index array read through TWO different 16-entry keys."""
+    p = RP.texel_page(blob, "cell.s0.x576_y256", 999)
+    assert p.bpp == 4 and len({r.clut_cell for r in p.hazards.readers}) == 2
+    return p
+
+
+def test_quantize_refuses_an_alternate_split_tie_by_name(tmp_path):
+    """THE BLOCKING GRAFT.  A genuine edit whose surviving candidate set renders as >= 2 DIFFERENT
+    words in the cell's other declared key REFUSES, and there is no acknowledge key: an author's own
+    index choice is a choice and is disclosed, but the TOOL's choice, in a picture the author was
+    never shown, must not be silently wrong."""
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    blob = _dup_entry(blob, p, 3, 9)                  # entries 3 and 9 now carry ONE word...
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    assert len(alts) == 1 and alts[0].words[3] != alts[0].words[9], "...but SPLIT in the other key"
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    victim = next(k for k in range(len(idx)) if idx[k] not in (3, 9) and words[idx[k]])
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[3])[:3] + (255,)) if i == victim else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, words, idx, alts)
+    msg = str(e.value)
+    assert "ALTERNATE-SPLIT TIE" in msg and "298 of 365" in msg and "11 of 16" in msg
+    assert "no acknowledge key" in msg and "THAT THE CONTAINER DECLARES" in msg
+    assert "the swatch marks them" in msg
+    # THE TAMPER: with the alternate loop removed the build succeeds -- and the OTHER reader's
+    # picture silently changes, which is the whole thing the refusal is protecting.
+    raw, _cen = RP.read_paint_png(src, p, words, idx, ())
+    nv = RP.texel_view(p, raw)
+    assert any(alts[0].words[nv[k]] != alts[0].words[idx[k]] for k in range(len(idx)))
+    # EDIT-SCOPED: the same page with nothing painted is exempt, because the incumbent survives
+    RP.export_art(blob, 999, tmp_path / "clean", lane="paint")
+    back, _ = RP.read_paint_png(tmp_path / "clean" / ("%s.paint.png" % p.name), p, words, idx, alts)
+    assert back == stock
+
+
+def test_quantize_builds_when_the_tie_is_alternate_safe(tmp_path):
+    """...AND IT DOES NOT OVER-FIRE.  The same class of edit on a class-C cell with ZERO split
+    duplicate groups builds green -- the non-over-fire twin, which is the half that goes missing."""
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    assert len(set(words)) == len(words), "this fixture row has no duplicate word at all"
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    live = [i for i, w in enumerate(words) if w]
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[live[2]])[:3] + (255,))
+                    if (1000 <= i < 1200 and c[3] == 255) else c)
+    raw, cen = RP.read_paint_png(src, p, words, idx, alts)
+    assert raw != stock and cen["alt_checked"] == 0
+
+
+def _dup_entry_at(blob: bytes, off: int, keep: int, into: int) -> bytes:
+    """:func:`_dup_entry` against an ARBITRARY palette offset -- used to duplicate the SAME pair in
+    the ALTERNATE row, which is what makes a duplicate group non-split rather than split."""
+    b = bytearray(blob)
+    struct.pack_into("<H", b, off + 2 * into, struct.unpack_from("<H", b, off + 2 * keep)[0])
+    return bytes(b)
+
+
+def test_quantize_RUNS_the_alternate_split_check_and_PASSES_on_a_non_split_group(tmp_path):
+    """★ THE PASS PATH -- the half both non-over-fire proofs leave untouched.
+
+    ``test_quantize_builds_when_the_tie_is_alternate_safe`` and the creature-page test above both
+    assert that the check NEVER RAN, so between them they prove the refusal CANNOT fire, not that it
+    DISCRIMINATES.  This one puts a real two-member candidate set in front of it -- a duplicate group
+    that carries ONE word in the alternate key as well -- and proves the loop ran, found no split, and
+    let the edit through.  Without it the whole ``alt_checked`` instrument (the one OPEN RISK 1 asks
+    the implementer to report) is only ever observed at 0.
+    """
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    pmap = RS.palette_map(blob, effect=999)
+    alt0 = RP.alternate_palette_rows(blob, p, pmap)[0]
+    apal = pmap.by_name(alt0.palette_name)
+    blob = _dup_entry(blob, p, 3, 9)                    # one word in the EDITABLE row...
+    blob = _dup_entry_at(blob, apal.off, 3, 9)          # ...and one word in the ALTERNATE row too
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    assert len(alts) == 1 and words[3] == words[9] and words[3]
+    assert alts[0].words[3] == alts[0].words[9], "the group must NOT split, or this is G5's fixture"
+    assert sum(1 for w in words if (w & 0x7FFF) == (words[3] & 0x7FFF)) == 2, \
+        "exactly the group carries this colour, so the candidate set IS the group"
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    victim = next(k for k in range(len(idx)) if idx[k] not in (3, 9) and words[idx[k]])
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[3])[:3] + (255,)) if i == victim else c)
+    raw, cen = RP.read_paint_png(src, p, words, idx, alts)
+    assert cen["alt_checked"] >= 1, "THE CHECK MUST HAVE RUN -- otherwise this proves nothing"
+    assert raw != stock and RP.texel_view(p, raw)[victim] == 3
+    # ...and the SAME edit against a SPLIT version of that group refuses: one fixture, both verdicts.
+    split_blob = _dup_entry_at(blob, apal.off, 0, 9)    # break the alternate's half of the pair
+    salts = RP.alternate_palette_rows(split_blob, p, RS.palette_map(split_blob, effect=999))
+    assert salts[0].words[3] != salts[0].words[9]
+    with pytest.raises(RP.RepaintError, match="ALTERNATE-SPLIT TIE"):
+        RP.read_paint_png(src, p, words, idx, salts)
+
+
+def test_the_alternate_split_branch_is_structurally_unreachable_on_a_creature_page():
+    """SCOPING DECISION 3, stated in the code rather than discovered: an id-4 page is uploaded by
+    PART index and carries its own row of the id-4 CLUT strip, so it has no alternate key at all --
+    93 of the corpus's 240 lawful surfaces are outside this branch by construction."""
+    blob = build_texel_container(nparts=2)
+    pmap = RS.palette_map(blob, effect=999)
+    for p in RP.creature_texel_pages(blob):
+        assert p.hazards is None
+        assert RP.alternate_palette_rows(blob, p, pmap) == ()
+
+
+def test_quantize_refuses_a_paint_row_whose_palette_this_spec_recolours(tmp_path):
+    """R9.  Under the INDEXED lane the author authored INDICES, so a recoloured row simply recolours
+    their picture; under quantize they authored COLOURS, so a recoloured row silently re-decides
+    which index each of them becomes."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    spec = _spec_dict(blob, [_paint_row("tex.part0", src)],
+                      targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    b0 = RS.build(spec, "?", blob=blob)
+    assert b0.patched != blob, "the CLUT target must ACTUALLY move entries, or the gate is vacuous"
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    msg = str(e.value)
+    assert "THE RECOLOURED-PALETTE REFUSAL" in msg and "creature.part0" in msg
+    assert "IN THIS SPEC" in msg and "acknowledge_recoloured_palette = true" in msg
+    # ...and it is a SEPARATE refusal from the page-sha guard, with its own fix
+    assert "re-export with `--art-lane paint --from" in msg
+    spec["reskin"]["texel"][0]["acknowledge_recoloured_palette"] = True
+    b = RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    assert any("acknowledge_recoloured_palette = true" in n for n in b.enabled[0].hazard_notes)
+
+
+def test_the_recoloured_palette_refusal_is_CLEARED_by_its_own_first_named_fix(tmp_path):
+    """★ LAW 2 IS NOT "A REFUSAL NAMES A FIX", IT IS "A REFUSAL NAMES A FIX THAT WORKS".
+
+    R9's first named fix is *build the CLUT half first and re-export with
+    ``--art-lane paint --from <the staged container>``*.  Taking it literally used to land on the
+    ART-DRIFT refusal instead -- the manifest then records the STAGED container's sha, and the drift
+    guard compared it against STOCK -- so ``acknowledge_recoloured_palette`` was the only way through
+    and the message pointed at a dead end.  The predicate is now *"was the art rendered against the
+    row it is being mapped onto"*, measured from the manifest's own whole-container sha256, so the
+    named fix clears the gate and the acknowledgement stays the deliberate SECOND answer.
+    """
+    blob = build_texel_container(nparts=2)
+    spec_clut = {"reskin": {"effect": 999, "label": "clut",
+                            "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                            "target": [{"name": "creature.part0", "hue_rotate": 40.0}]}}
+    staged = RS.build(spec_clut, "?", blob=blob)
+    assert staged.patched != blob, "the CLUT half must ACTUALLY move entries"
+
+    # (a) art exported from STOCK, mapped onto the recoloured row -> REFUSES, naming the fix
+    stock_art = tmp_path / "from-stock"
+    RP.export_art(blob, 999, stock_art, lane="paint")
+    spec = _spec_dict(blob, [_paint_row("tex.part0", stock_art / "tex.part0.paint.png")],
+                      targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+    assert "THE RECOLOURED-PALETTE REFUSAL" in str(e.value)
+    assert "re-export with `--art-lane paint --from" in str(e.value)
+
+    # (b) THE NAMED FIX, taken literally: re-export --from the staged container and re-point the row
+    base_art = tmp_path / "from-base"
+    RP.export_art(staged.patched, 999, base_art, lane="paint")
+    man = json.loads((base_art / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    assert man["stock_sha256"] == hashlib.sha256(staged.patched).hexdigest()
+    spec2 = _spec_dict(blob, [_paint_row("tex.part0", base_art / "tex.part0.paint.png")],
+                       targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    b = RP.build(spec2, str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    assert not b.enabled[0].changed, "an unedited re-export of the COMPOSED row is still a no-op"
+    assert any("RE-EXPORTED against those bytes" in n for n in b.enabled[0].hazard_notes)
+    assert not b.enabled[0].ack_recoloured, "the fix cleared it WITHOUT the acknowledgement"
+
+    # ...and the widening is PAINT-SCOPED: the indexed lane still demands the stock sha
+    idx_src = _write_png(tmp_path / "from-base", blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    with pytest.raises(RP.RepaintError, match="ART DRIFT"):
+        RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(idx_src)}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+
+
+def test_the_recoloured_palette_refusal_does_not_over_fire_on_another_palette(tmp_path):
+    """The twin: a ``[[reskin.target]]`` on a DIFFERENT palette than the paint page's builds green.
+    The verdict is a BYTE comparison of THIS page's own row, never "any CLUT target exists"."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    spec = _spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")],
+                      targets=[{"name": "creature.part1", "hue_rotate": 40.0}])
+    b0 = RS.build(spec, "?", blob=blob)
+    assert b0.patched != blob
+    b = RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    assert not b.enabled[0].changed, "the no-op survives the composition"
+    assert any("BYTE-IDENTICAL to stock" in n for n in b.enabled[0].hazard_notes)
+
+
+def test_quantize_refuses_when_the_manifest_page_sha_moved(tmp_path):
+    """R11.  Under THE INCUMBENT LOCK the container's own indices are an INPUT, so a page that moved
+    would silently lock onto different incumbents.  ``page_sha256`` stops being informational."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    man["parts"][0]["page_sha256"] = "0" * 64
+    (tmp_path / RP.ART_MANIFEST).write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "THE INCUMBENT IS NOT THE ONE YOUR ART CAME OUT OF" in str(e.value)
+    # ...and the INDEXED lane on the same stale manifest is UNAFFECTED: the guard is paint-scoped
+    src = _write_png(tmp_path, blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src)}]),
+             str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_refuses_a_paint_record_with_no_render_key(tmp_path):
+    """R11b.  A paint file's colours are only invertible under the decode they were RENDERED with, so
+    the decode is DATA the export records -- a record without it came from a pre-W6q export."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    man["parts"][0]["render_key"] = ""
+    (tmp_path / RP.ART_MANIFEST).write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "render_key" in str(e.value) and "export-art --art-lane paint" in str(e.value)
+
+
+def test_verify_names_the_quantize_fact_and_says_so_when_the_source_is_absent(tmp_path):
+    """``verify`` ALREADY re-derives (the CLI rebuilds independently and this compares the staged
+    bytes against that rebuild), so nothing is re-derived here.  What is added is LEGIBILITY plus the
+    one genuinely new behaviour: an ABSENT paint source is reported, never passed."""
+    blob = build_texel_container(nparts=1)
+    art = tmp_path / "art"
+    RP.export_art(blob, 999, art, lane="paint")
+    src = art / "tex.part0.paint.png"
+    spec_path = tmp_path / "x_reskin.toml"
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]), str(spec_path), blob=blob)
+    b.check = RP.self_check(b)
+    stage = tmp_path / "stage"
+    RP.stage(b, root=stage, previews=False)
+    res = RP.verify(b, root=stage)
+    assert res["ok"], res["lines"]
+    assert any("VERIFY quantize" in ln and "re-quantized from" in ln for ln in res["lines"])
+    man = json.loads((stage / "build_manifest.json").read_text(encoding="utf-8"))
+    assert man["texels"]["tex.part0"]["quantize"]["exact"] > 0
+    assert man["texels"]["tex.part0"]["acknowledge_quantize"] is True
+    src.unlink()
+    res2 = RP.verify(b, root=stage)
+    assert not res2["ok"]
+    assert any("THE PAINT SOURCE IS ABSENT" in ln for ln in res2["lines"])
+
+
+def test_the_absent_paint_source_branch_is_REACHABLE_THROUGH_THE_CLI(tmp_path, capsys):
+    """★ THE BRANCH AN AUTHOR ACTUALLY REACHES.
+
+    ``verify`` is reached only THROUGH a rebuild, and a rebuild OPENS the art -- so the absent-source
+    sentence above was, at the only entry point a user has, dead code: deleting the paint file made
+    the CLI print ``build``'s generic *"no such source image"* instead.  A shipped behaviour that no
+    shipped caller can reach is not shipped, so ``verify`` pre-flights the paint sources with the SAME
+    resolver ``build`` uses, and the sentence prints.  It never turns a failure into a pass.
+    """
+    blob = build_texel_container(nparts=1)
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    art = tmp_path / "art"
+    rc, _cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                     "--out", str(art), "--art-lane", "paint"], capsys)
+    assert rc == 0
+    spec = tmp_path / "x_reskin.toml"
+    spec.write_text(
+        "[reskin]\neffect = 999\nlabel = \"q\"\nexpect_sha256 = \"%s\"\n\n"
+        "[[reskin.texel]]\nname = \"tex.part0\"\nsource_paint = %r\nenabled = true\n"
+        "acknowledge_quantize = true\n"
+        % (hashlib.sha256(blob).hexdigest(), str(art / "tex.part0.paint.png")), encoding="utf-8")
+    stage = tmp_path / "stage"
+    rc, _cap = _run(["summon-reskin", "build", str(spec), "--from", str(ef), "--out", str(stage),
+                     "--no-previews"], capsys)
+    assert rc == 0
+    rc, cap = _run(["summon-reskin", "verify", str(spec), "--from", str(ef), "--out", str(stage)],
+                   capsys)
+    assert rc == 0 and "VERIFY: PASS" in cap.out
+    (art / "tex.part0.paint.png").unlink()
+    rc, cap = _run(["summon-reskin", "verify", str(spec), "--from", str(ef), "--out", str(stage)],
+                   capsys)
+    assert rc == 1, "an absent paint source must FAIL verify, and as a verify result not a crash"
+    assert "THE PAINT SOURCE IS ABSENT" in cap.out and "VERIFY: FAIL" in cap.out
+    assert "no such source image" not in cap.out + cap.err
+
+
+def test_the_rgba_lane_still_refuses_with_its_own_reason_verbatim(tmp_path):
+    """THE G15 TRIPWIRE.  ``INDEXED_RGBA_REASON`` is about EXACT RECOVERY on the INDEXED lane and is
+    byte-for-byte untouched by W6q -- the paint lane is not the indexed lane (its format of record is
+    TWO files: the painting plus the container's own index page, read as the incumbent).  Softening
+    either string reddens this test and two call sites at once."""
+    blob = build_texel_container(nparts=1)
+    assert RP.INDEXED_RGBA_REASON == (
+        "RGBA / quantize / mint-CLUT stay refused on the INDEXED lane and W6b-1 does "
+        "not touch that: the refusal is about EXACT RECOVERY, not about scope -- a "
+        "lane whose no-op is not a no-op cannot carry a byte-identity gate")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.export_art(blob, 999, tmp_path / "r", lane="rgba")
+    for pin in ("93/93", "1,844", "8.31%", "88.75%..99.24%", RP.INDEXED_RGBA_REASON):
+        assert pin in str(e.value)
+    assert "`paint`" not in str(e.value) and "source_paint" not in str(e.value), \
+        "the rgba refusal is about EXACT RECOVERY and does not advertise the new lane"
+    # an RGBA file handed to a `source =` row still raises refusal site A, verbatim
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    with pytest.raises(RP.RepaintError) as e2:
+        RP.read_indexed_png(tmp_path / "tex.part0.paint.png", 128, 128, 256)
+    assert RP.INDEXED_RGBA_REASON in str(e2.value) and "not \"P\"" in str(e2.value)
+
+
+def test_the_fail_safes_are_labelled_and_not_claimed_as_proofs(tmp_path):
+    """G17's shape as a unit test: R5, the STP tie-break component and the opaque-black census line
+    are each REPORTED with their population and the words FAIL-SAFE / structurally unreachable."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    _raw, cen = RP.read_paint_png(tmp_path / "tex.part0.paint.png", p, words,
+                                  RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    text = "\n".join(RP.census_lines(cen))
+    assert text.count("FAIL-SAFE") >= 2 and "structurally unreachable" in text
+    assert "0x0000 is the container's cutout word BY VALUE" in text
+    assert "DISCLOSURE" in text and "[[reskin.target]] does it EXACTLY" in text
+    # R5's own label, on a row where every entry is the hole
+    b = bytearray(blob)
+    struct.pack_into("<%dH" % p.clut_entries, b, p.clut_offset, *([0] * p.clut_entries))
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(tmp_path / "tex.part0.paint.png", RP.texel_page(bytes(b), "tex.part0"),
+                          RP.palette_words(bytes(b), p),
+                          RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    assert "LABELLED A FAIL-SAFE" in str(e.value) and "population of this class is 0" in str(e.value)

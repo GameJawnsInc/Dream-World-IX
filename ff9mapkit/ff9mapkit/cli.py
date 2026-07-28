@@ -2106,7 +2106,7 @@ _SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert
 #: handler imports lazily), and PINNED EQUAL to the module's own tuple by a test -- a `choices=` list
 #: that drifted from the lane the handler dispatches on would refuse a lane that works, or offer one
 #: that does not.
-_SUMMON_ART_LANES = ("indexed", "rgba", "direct15")
+_SUMMON_ART_LANES = ("indexed", "rgba", "direct15", "paint")
 
 
 class _SummonEditUsage(Exception):
@@ -2330,6 +2330,26 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
     refusals = (rk.ReskinError, rp.RepaintError, rk.R.RescoreError, _cam.SummonCameraError,
                 _led.LedgerError, config.ConfigError, _SummonEditUsage, ValueError, OSError)
     try:
+        # THE DITHER REFUSAL (W6q R10).  It is DECLARED so it can refuse BY NAME rather than not
+        # exist -- the same move the `rgba` lane already made.  Checked before EVERY sub-verb --
+        # including `scaffold`, which returns early -- because the answer is the same wherever it is
+        # asked, and a flag that is silently ignored on one sub-verb is the exact shape W6q-0 exists
+        # to eliminate.  It is a measured refusal with a fix strictly better than the thing refused.
+        if getattr(args, "dither", False):
+            raise rp.RepaintError(
+                "`--dither` is REFUSED, by name, and the fix is better than the thing refused.  "
+                "FOUR REASONS, the first fatal on its own: (1) IT BREAKS THE NO-OP -- error "
+                "diffusion is stateful across texels, so an UNEDITED page dithers and moves bytes, "
+                "and law 1 (a spec that changes nothing changes 0 container bytes) dies with it; "
+                "(2) it destroys diff legibility -- one repainted texel propagates error into its "
+                "neighbours, so the `moved` preview, the changed-offset accounting and the dead-pad "
+                "census all stop meaning what they say; (3) the serialization would be an EMERGENT "
+                "rule (raster vs serpentine vs Riemersma), which is exactly the class of thing the "
+                "tie-break question forbids; (4) at PSX texel scale it reads as sparkle.  "
+                "THE FIX: dither in your own editor at 5-BIT depth and save the RGBA -- this lane "
+                "then reproduces it EXACTLY, because every colour you produced is already an entry "
+                "the row carries.")
+
         if args.action == "scaffold":
             if args.ef is None:
                 raise _SummonEditUsage("`scaffold` needs --ef N (the stock effect id to read)")
@@ -2368,9 +2388,29 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 print()
                 for line in tx.get("lines", ()):
                     print("  %s" % line)
-            print("\n  These PNGs are DECODED STOCK ART -- local-only, never committable.  Paint them")
-            print("  IN INDEX SPACE keeping the file name (the name is the contract); the .coverage")
-            print("  overlay hatches the texels no face ever samples, where paint is inert.")
+            # LANE-CONDITIONAL, and the `indexed` text is NOT softened: it is still true of its own
+            # lane, and a quantize lane exists beside it rather than instead of it.
+            print("\n  These PNGs are DECODED STOCK ART -- local-only, never committable.")
+            if args.art_lane == "paint":
+                print("  Paint `<name>.paint.png` in any RGBA editor.  THREE THINGS THE FILE MEANS:")
+                print("    * ALPHA IS THE CUTOUT and it is authoritative -- 0 or 255 only, nothing "
+                      "between.")
+                print("    * COLOUR IS APPROXIMATED.  Your painting is mapped onto the container's "
+                      "OWN palette,")
+                print("      which this lane does not write.  `plan` prints exactly how far each "
+                      "texel had to move.")
+                print("    * The `.coverage` overlay still applies: paint inside the island or the "
+                      "edit is inert.")
+                print("  `<name>.swatch.png` is this page's palette, one patch per entry: marked "
+                      "entries are UNIQUE")
+                print("  and safe to repaint onto anywhere; the others sit in a duplicate group.")
+                print("  `<name>.png` (indexed) is also here and is EXACT -- use it, and `source =`, "
+                      "for precise work.")
+            else:
+                print("  Paint them")
+                print("  IN INDEX SPACE keeping the file name (the name is the contract); the "
+                      ".coverage")
+                print("  overlay hatches the texels no face ever samples, where paint is inert.")
             return 0
 
         if args.action == "revert":
@@ -2393,6 +2433,19 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
         blob = Path(args.from_path).read_bytes() if args.from_path else None
         spec = rp.load_spec(spec_path)        # accepts target-only, texel-only, or both
         has_clut, has_texel = _summon_reskin_lanes(spec)
+
+        # ★ W6q: THE VERIFY PRE-FLIGHT.  `verify` is reached only THROUGH a rebuild, and a rebuild
+        # OPENS the art -- so without this a deleted paint file refuses inside `build` with the
+        # generic "no such source image" and `verify`'s own absent-source sentence (the lane's one
+        # genuinely new behaviour) never reaches a user.  It reports and stops; it never passes.
+        if args.action == "verify" and has_texel:
+            gone = rp.missing_paint_sources(spec, spec_path)
+            if gone:
+                print("")
+                for nm, sp in gone:
+                    print("  %s" % rp.absent_paint_line(nm, sp))
+                print("\n  VERIFY: FAIL")
+                return 1
 
         b = bt = None
         if has_clut:
@@ -6850,11 +6903,21 @@ def build_parser() -> argparse.ArgumentParser:
                           "P-mode PNG whose pixels ARE the palette indices -- byte-identical on "
                           "93/93 stock creature pages and on every 4/8bpp scenery cell. `direct15` "
                           "is the 15bpp DIRECT-colour surface (RGBA + an explicit STP sidecar), "
-                          "proven offline and uncast. `rgba` REFUSES with the measurement that rules "
-                          "it out rather than silently not existing")
+                          "proven offline and uncast. `paint` ALSO writes an editable RGBA render "
+                          "(`<name>.paint.png`) plus a palette `<name>.swatch.png` beside the exact "
+                          "indexed PNG: the QUANTIZE lane, read back onto the row the container "
+                          "already carries, writing indices only and ZERO CLUT bytes -- the colours "
+                          "are APPROXIMATED and `plan` prints exactly how far each texel moved. "
+                          "`rgba` REFUSES with the measurement that rules it out rather than silently "
+                          "not existing")
     srk.add_argument("--no-coverage", dest="no_coverage", action="store_true",
                      help="export-art: skip the UV coverage overlays (they are the instrument that "
                           "tells a painter which texels are live -- ~1/3 of a page never is)")
+    srk.add_argument("--dither", action="store_true",
+                     help="REFUSES by name, with the measurement and a better workflow. Error "
+                          "diffusion is stateful across texels, so an UNEDITED page would dither and "
+                          "move bytes -- the no-op dies and law 1 with it. Dither in your editor at "
+                          "5-bit depth instead and the paint lane reproduces it exactly")
     srk.set_defaults(func=_cmd_summon_reskin)
 
     srs = sub.add_parser("summon-rescore",

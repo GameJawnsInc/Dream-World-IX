@@ -5,6 +5,54 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — paint a summon's texture pages in COLOUR: `--art-lane paint` + `source_paint`
+- `summon-reskin export-art --art-lane paint` writes an editable **RGBA render** (`<name>.paint.png`)
+  and a marked palette (`<name>.swatch.png`) beside the exact indexed PNG, per creature part and per
+  lawful 4/8bpp scenery cell. A `[[reskin.texel]]` row picks the lane with `source_paint = "…"`
+  instead of `source = "…"` (naming both refuses). The lane writes **indices only and zero CLUT
+  bytes**, so every shipped gate — the region partition, the orthogonality intersection, the span
+  gate, the cutout law, the region invariant, the page-cell derivation identity — runs unchanged.
+- **THE INCUMBENT LOCK makes the no-op exact.** The container's own index at each texel is the first
+  term of the selection order, so an unedited export re-imported through this lane changes **0 bytes
+  on 240 of 240 lawful surfaces**, including 100%-ambiguous pages and a 239-way tie. Without it the
+  naive nearest rule moves 767,531 texels across 191 of those surfaces — and exactly the 1,844 of
+  16,384 on ef251 part 0 that the `rgba` refusal has always quoted. That number is the entire reason
+  `rgba` refuses and this does not; `INDEXED_RGBA_REASON` is byte-for-byte untouched.
+- **Alpha is the cutout and it is authoritative**, both directions: without that rule a plain 40° hue
+  slider punches 502 holes on ef227 part 0 that nobody drew; with it, 0. Partial alpha refuses,
+  naming the texel. Determinism is structural — a total order over unique indices, integer arithmetic
+  only, no set/dict iteration in any decision path, no floating point at all.
+- **The approximation is disclosed per texel**, never refused: `plan` prints a QUANTIZE CENSUS
+  (exact / approximated / mean, p95 and worst d², ambiguous, ties, STP changes, opaque black, cutout
+  crossings) and `--previews` gains a fourth `error` panel. **No error threshold ships**: a fixed CLUT
+  is a small subset of a 32,768-colour cube, so any hue move leaves it — and a hue move is this lane's
+  own primary use case. A build whose every texel is maximally wrong still passes every gate, while
+  the no-op through the same lane stays byte-exact.
+- **New refusal: THE ALTERNATE-SPLIT TIE, with no acknowledge key.** On a class-C cell (one index
+  array read through several palettes), an edit whose surviving candidates render as different
+  colours in another declared key refuses rather than choosing — 298 of 365 duplicate groups on 11 of
+  16 such cells split that way. Edit-scoped, candidate-set-scoped, and structurally unreachable on all
+  93 creature pages. Fixes named in the message: paint a colour the swatch marks UNIQUE, or use the
+  exact lane. Also new: `acknowledge_quantize`, `acknowledge_recoloured_palette`, `page_sha256` and
+  `render_key` manifest guards, an absent-paint-source branch in `verify`, and `--dither`, which
+  refuses by name (error diffusion is stateful, so an unedited page would dither and move bytes).
+- **Painting onto a row you also recolour has a workflow that works, not only an acknowledgement.**
+  When the CLUT half of the same build moves the row a paint row maps onto, the build refuses — and
+  its first named fix (build the CLUT half, re-export `--art-lane paint --from` the staged container,
+  switch the row on) now *clears* the gate: the export manifest records the whole-container sha256 of
+  what it read, so the build can measure that the art really was rendered against the row it is being
+  mapped onto. `acknowledge_recoloured_palette = true` is the deliberate second answer, never the only
+  one. A refusal that names a fix which does not work is worse than one that names none.
+- **`--mint-clut` stays deferred**, now with a shipped `MINT_CLUT_REASON` quoted verbatim at a real
+  call site and in the docs. The bare spellings `quantize` and `mint_clut` remain **unknown keys**.
+
+### Fixed — `[[reskin.target]]` and `[reskin]` silently ignored a mistyped key
+- The fail-closed unknown-key gate existed on `[[reskin.texel]]` only. Both other tables read every
+  key through `.get`, so `acknowledge_shard = true` armed nothing while reading like consent, and a
+  misspelt `expect_offset` dropped a derivation guard with no error anywhere — **a guard may only
+  ever fail CLOSED**. Both now refuse, naming the key and listing the known ones, through one shared
+  key set both loaders consume. The deprecated-but-parsed `acknowledge_texanim` stays a known key.
+
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
   band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO

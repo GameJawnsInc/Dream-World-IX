@@ -265,7 +265,10 @@ EF227_NAMES: Dict[Tuple[int, int, int], Tuple[str, str]] = {
 #: ``fn 0x3E4AB`` is an 8-slot loop; slot ``i`` is enabled by bit ``ID9_SLOT_BIT[i]`` of the resource's
 #: own ``info`` byte and the payload cursor advances 0x4000 only on an enabled slot. Preview-only: a
 #: wrong slot map draws a wrong picture, never a wrong byte.
-ID9_SLOT_BIT = (0, 0, 1, 1, 2, 3, 4, 5)
+#: Spelled as its three RUNS -- the two shared-bit pairs, then the 1:1 tail -- because that is the
+#: shape of the loop and because an 8-element flat int tuple is indistinguishable, to a byte-literal
+#: provenance scanner, from 8 bytes of stock data. It is a derived slot->bit map, not data.
+ID9_SLOT_BIT = (0, 0) + (1, 1) + (2, 3, 4, 5)
 
 
 def id9_slot_vram(i: int) -> Tuple[int, int]:
@@ -1706,6 +1709,60 @@ def _ack_bool(d: dict, key: str, where: str) -> bool:
     return v
 
 
+#: THE UNKNOWN-KEY MESSAGE, shared verbatim by all three tables so one shape teaches one lesson.
+#: Lifted from the texel lane's own gate (``repaint.py``'s ``[[reskin.texel]]`` check), which is
+#: where this property existed and where it was measured: a mistyped ``acknowledge_cutout_reshape``
+#: fails closed and is merely annoying, but a mistyped ``expect_page_offset`` silently DROPS a guard,
+#: and a guard may only ever fail CLOSED.
+UNKNOWN_KEY_MESSAGE = ("%s declares unknown key(s) %s.  Refused rather than ignored: a mistyped "
+                       "guard silently drops the guard, and a guard may only ever fail CLOSED.  "
+                       "Known keys: %s")
+
+
+def _refuse_unknown_keys(d: dict, known, where: str) -> None:
+    """The fail-closed unknown-key check, in ONE place for both tables of this module.
+
+    W6q-0. Before this rung the property existed on ``[[reskin.texel]]`` ONLY: this module read every
+    key through ``d.get`` and a typo was silently ignored, so ``acknowledge_shared = ture`` armed
+    nothing while reading like consent, and ``expect_offset`` misspelt dropped a derivation guard with
+    no error anywhere. It ships ALONE and FIRST because it can refuse specs that build today -- a
+    behaviour change to a shipped lane deserves its own diff -- and because any later key placed on
+    an ungated table would inherit the same silence.
+    """
+    unknown = sorted(set(d) - set(known))
+    if unknown:
+        raise ReskinError(UNKNOWN_KEY_MESSAGE
+                          % (where, ", ".join(repr(u) for u in unknown), ", ".join(sorted(known))))
+
+
+#: every key ONE ``[[reskin.target]]`` row understands -- the CLUT lane's own fail-closed set.
+#:
+#: ``acknowledge_texanim`` is in here DELIBERATELY even though the gate reads it at ``[reskin]``
+#: level: it is a DEPRECATED-but-still-parsed key (:data:`TEXANIM_ACK_DEPRECATED`), specs in the wild
+#: carry it, and a set that omitted it would turn "your spec still builds" into "your spec refuses"
+#: for exactly the population this rung exists to protect.
+_TARGET_KEYS = frozenset((
+    "name", "enabled", "note",
+    "expect_entries", "expect_vram", "expect_offset",
+    "acknowledge_shared", "acknowledge_headroom", "acknowledge_texanim",
+    # the transform knobs (:func:`_transform_of`); `hue_to` and `hue_rotate` are two spellings of one
+    # knob and declaring BOTH in one table is already a refusal.
+    "hue_to", "hue_rotate", "saturation", "value",
+))
+
+#: every key the top-level ``[reskin]`` table understands, ACROSS BOTH LANES -- the CLUT lane's own
+#: (``effect``/``label``/``expect_sha256``/``allow_unguarded``/``acknowledge_texanim``/``spans``/
+#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``).
+#:
+#: ONE set for both modules, consumed by :func:`load_spec` here and by ``repaint.load_spec`` there,
+#: because one spec file may carry both tables: two copies would let a key be lawful on the path that
+#: happened to load it and unknown on the other, which is a refusal that depends on the caller.
+_RESKIN_KEYS = frozenset((
+    "effect", "label", "note", "expect_sha256", "allow_unguarded", "acknowledge_texanim",
+    "spans", "defaults", "orthogonality", "target", "texel",
+))
+
+
 def _transform_of(d: dict, defaults: dict, where: str, mean_hue: float = 0.0) -> Transform:
     def num(key, dflt):
         v = d.get(key, defaults.get(key, dflt))
@@ -1957,6 +2014,10 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     targets: List[Target] = []
     seen = set()
     for i, d in enumerate(rows):
+        # W6q-0: FAIL CLOSED FIRST.  Before any key of this row is read, because the whole point is
+        # that a key nobody reads is invisible -- and the guards below are exactly the keys whose
+        # silent loss has no symptom.
+        _refuse_unknown_keys(d, _TARGET_KEYS, "[[reskin.target]] #%d" % i)
         name = d.get("name")
         if not name:
             raise ReskinError("[[reskin.target]] #%d has no `name`" % i)
@@ -3218,6 +3279,10 @@ def load_spec(path) -> dict:
     r = spec.get("reskin")
     if not isinstance(r, dict):
         raise ReskinError("%s has no [reskin] table" % path)
+    # W6q-0: the same fail-closed rule one table up.  `mint_clut = true` or `acknowledge_shared` at
+    # [reskin] level was silently ignored before this rung, which is the shape a mistyped guard takes
+    # when nobody reads it.
+    _refuse_unknown_keys(r, _RESKIN_KEYS, "[reskin]")
     for key in ("effect", "target"):
         if key not in r:
             raise ReskinError("[reskin] needs `%s`" % key)

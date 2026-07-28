@@ -412,6 +412,86 @@ def test_describe_names_the_drift_guard_that_actually_applied():
     assert "UNGUARDED" in next(l for l in RS.describe(b2) if "drift guard" in l)
 
 
+# ---- W6q-0: THE UNKNOWN-KEY GATES, the asymmetry closed --------------------------------------
+# Before this rung the fail-closed property existed on ``[[reskin.texel]]`` ONLY.  This table and the
+# top-level ``[reskin]`` read every key through ``d.get``, so a mistyped guard was silently dropped
+# and a mistyped acknowledgement armed nothing while reading like consent.  Three tests: it fires on
+# each table, and -- the half that usually goes missing -- every spec the tree already ships still
+# loads, ENUMERATED BY GLOB rather than by hand.
+def test_a_target_row_refuses_an_unknown_key():
+    blob = build_synth_container(npart=1)
+    with pytest.raises(RS.ReskinError) as e:
+        RS.build(_spec(blob, [{"name": "creature.part0", "acknowledge_shard": True}]), "t",
+                 blob=blob)
+    msg = str(e.value)
+    assert "[[reskin.target]] #0" in msg and "'acknowledge_shard'" in msg
+    assert "fail CLOSED" in msg and "Known keys:" in msg
+    # THE POINT, stated as an assertion: the dropped guard, not the dropped acknowledgement, is what
+    # this exists for -- a mistyped `expect_offset` silently un-guards the derivation.
+    with pytest.raises(RS.ReskinError, match="expct_offset"):
+        RS.build(_spec(blob, [{"name": "creature.part0", "expct_offset": 0x1234}]), "t", blob=blob)
+
+
+def test_the_reskin_table_refuses_an_unknown_key(tmp_path):
+    """Both loaders, one key set: a key lawful on the path that happened to open the file and
+    unknown on the other would be a refusal that depends on the caller."""
+    p = tmp_path / "x_reskin.toml"
+    p.write_text('[reskin]\neffect = 999\nmint_clut = true\n\n[[reskin.target]]\n'
+                 'name = "creature.part0"\n', encoding="utf-8")
+    with pytest.raises(RS.ReskinError) as e:
+        RS.load_spec(p)
+    assert "[reskin]" in str(e.value) and "'mint_clut'" in str(e.value)
+    with pytest.raises(RP.RepaintError, match="mint_clut"):
+        RP.load_spec(p)                      # the texel loader, same set, its own error class
+    assert RS._RESKIN_KEYS is not None and "texel" in RS._RESKIN_KEYS
+
+
+def test_every_shipped_spec_still_loads_under_the_new_key_gates():
+    """THE REGRESSION NET, ENUMERATED FROM THE TREE.  W6q-0 is the one rung of this feature that can
+    refuse a spec that builds today, so the population it must not break is globbed, never listed:
+    every example, every study spec, and every scaffold BOTH lanes emit (including the deprecated
+    ``acknowledge_texanim``, which is why it is in ``_TARGET_KEYS``)."""
+    import tomllib
+    root = Path(__file__).resolve().parents[2]
+    seen = 0
+    for p in sorted(root.rglob("*.toml")):
+        if ".git" in p.parts or "site-packages" in p.parts:
+            continue
+        try:
+            doc = tomllib.load(open(p, "rb"))
+        except Exception:
+            continue
+        r = doc.get("reskin")
+        if not isinstance(r, dict):
+            continue
+        seen += 1
+        assert not (set(r) - RS._RESKIN_KEYS), "%s: unknown [reskin] key(s)" % p
+        for i, row in enumerate(r.get("target") or []):
+            assert not (set(row) - RS._TARGET_KEYS), "%s [[reskin.target]] #%d" % (p, i)
+        for i, row in enumerate(r.get("texel") or []):
+            assert not (set(row) - RP._TEXEL_KEYS), "%s [[reskin.texel]] #%d" % (p, i)
+    assert seen >= 1, "the enumeration found no [reskin] spec at all -- a vacuous net"
+    # the emitted SCAFFOLDS are the other half of the population, and they are generated here rather
+    # than trusted: a scaffold that emits a key its own loader refuses is the worst possible shape.
+    blob = build_synth_container(npart=1)
+    text, _pm = RS.scaffold(999, blob=blob)
+    doc = tomllib.loads(text)
+    assert not (set(doc["reskin"]) - RS._RESKIN_KEYS)
+    for row in doc["reskin"]["target"]:
+        assert not (set(row) - RS._TARGET_KEYS)
+
+
+def test_the_deprecated_texanim_acknowledgement_is_still_a_known_key():
+    """``acknowledge_texanim`` is a parsed no-op kept alive for one release.  Omitting it from the
+    key set would turn "your spec still builds" into "your spec refuses" for exactly the population
+    W6q-0 exists to protect."""
+    assert "acknowledge_texanim" in RS._TARGET_KEYS and "acknowledge_texanim" in RS._RESKIN_KEYS
+    blob = build_synth_container(npart=1)
+    spec = _spec(blob, [{"name": "creature.part0", "acknowledge_texanim": False}])
+    spec["reskin"]["acknowledge_texanim"] = False
+    assert RS.build(spec, "t", blob=blob).sha_in
+
+
 # ============================================================ (2) the W5 refusal matrix
 def test_the_multiwriter_and_dual_depth_detectors_fire_on_a_hand_built_container():
     blob = build_synth_multiwriter_container()
