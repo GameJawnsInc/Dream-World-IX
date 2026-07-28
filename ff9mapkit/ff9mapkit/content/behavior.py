@@ -1933,7 +1933,18 @@ class FieldBehavior:
             if u.pooled:                                 # ...except pooled units — they
                 continue                                 # wake at ACTIVATION only
             ticker.append(self._uset(u.name, "active", 1))
-        ticker += [(JMP, "wait"), label("run")]
+        # THE WAKE-PUBLICATION LAW (brains backends): the wake pass must FALL
+        # THROUGH into the run path, so activation and the first mirror/scan/
+        # counter publication land in ONE ticker slice (no Wait between = atomic
+        # against every other object). A brain is its own Seq: with the v1-style
+        # jump-to-wait it can tick between "active set" and "counters published"
+        # and read a counter at its SEED — the BTCLASS boot misfire ("the Mus
+        # are wiped out!" before the brawl: alive-counts seed 0, and
+        # counter_eq 0 is armed AT the seed). v1 keeps the jump byte-for-byte:
+        # its tree segments run inside this same body AFTER the scan blocks, so
+        # the gap is structurally unobservable there (and those bytes are
+        # in-game proven).
+        ticker += ([] if self.brains else [(JMP, "wait")]) + [label("run")]
         # the player mirror (staged is guaranteed on the run path)
         ticker += [
             label("__seg mirrors"),

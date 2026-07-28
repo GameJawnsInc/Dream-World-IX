@@ -288,3 +288,30 @@ def test_class_install_members_share_one_brain_slot():
         assert out[f1.abs_start] == 0x43            # RunSharedScript
         slots.add(out[f1.abs_start + 2])
     assert len(slots) == 1 and slots < set(new)     # the SAME brain slot
+
+
+def test_wake_publication_law():
+    """THE WAKE-PUBLICATION LAW (the BTCLASS boot misfire): under brains, the
+    warm-up expiry pass must FALL THROUGH into the run path, so activation and
+    the first mirror/scan/counter publication are ONE atomic ticker slice — a
+    brain is its own Seq and can otherwise tick between "active set" and
+    "counters published", reading a counter at its SEED (alive-counts seed 0
+    and counter_eq 0 is armed AT the seed: the crier called the wipe at boot).
+    v1 keeps the jump-to-wait byte-for-byte: its tree segments run inside the
+    ticker AFTER the scan blocks, so the gap is structurally unobservable."""
+    for brains in (False, True):
+        fb = B.FieldBehavior([B.UnitSpec("a", 2, spawn=(0, 0)),
+                              B.UnitSpec("b", 3, spawn=(9, 9))], brains=brains)
+        fb.units["a"].tree = B.Selector(B.Do(B.Hold((0, 0))))
+        fb.units["b"].tree = B.Selector(B.Do(B.Hold((9, 9))))
+        cb = fb.compile()
+        mirror0 = B._stmt(f"Global.Int16[{fb.bb.int16('player.mx')}] "
+                          f"obj(uid=250).f[0] B_LET")
+        at = cb.ticker_body.find(mirror0)
+        assert at > 0
+        if brains:
+            # the wake block's last statement (…B_EXPR_END) falls through
+            assert cb.ticker_body[at - 1] == 0x7F
+        else:
+            # v1: the 3-byte JMP-to-wait still sits between wake and run
+            assert cb.ticker_body[at - 3] == 0x01

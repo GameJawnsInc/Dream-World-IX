@@ -824,6 +824,25 @@ identity reads in exactly the two shared entries). The parity checklist =
 the proven scoreboard fight + THE SHARPEST NEW CLAIM: a member's death
 stops ITS OWN Seq only — six siblings running the same entry fight on.
 RELAUNCH → ~ → Warp → 30424.
+**ROUND 1 (owner): the fight itself CLEAN — knights win 2-0, everything
+normal — except "the crier announces 'The Mus are wiped out!' before
+anything else." THE WAKE-PUBLICATION RACE, a LATENT RUNG-0 BRAINS BUG the
+class bench merely exposed (fixed same day):** the ticker's warm-up expiry
+pass set every `active` then jumped straight to `wait`, publishing the
+alive-scans only NEXT pass — invisible in v1 (tree segs run in the same
+ticker body AFTER the scan blocks) but a brain is its OWN Seq and can tick
+in the gap, reading a counter at its SEED. Alive-counts seed 0 and
+`counter_eq 0` is armed AT the seed → the wipe line fired at boot and its
+event-once latched (hence silence at the real 2-0 wipe). BRAWN never
+tripped it: every counter cond there was `counter_ge N>=1`, false at seed.
+**THE FIX (structural): under brains the wake pass FALLS THROUGH into the
+run path** — wake + mirror/scan/counter publication become ONE atomic
+ticker slice (no Wait between), so no brain can ever observe active=1
+before first publication; v1 keeps its proven jump byte-for-byte
+(master-identity re-verified). Suite-pinned (`test_wake_publication_law`);
+30424 re-deployed (~ Reload suffices). ⚠ BRAWN 30423 as deployed still
+carries the old wake (nothing in its trees arms at seed); fix rides its
+next redeploy — the staged-latch precedent.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
