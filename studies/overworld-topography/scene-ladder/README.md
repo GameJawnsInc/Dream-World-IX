@@ -54,11 +54,33 @@ Instrument: `memoria-patches/s67-rig-probe.patch` (fires while any rig is armed,
 world + a 90-frame tail; reads BOTH position domains and the REAL render camera =
 `WMWorld.MainCamera`). **KEPT LIVE for rung 1b** — remove when the sail rung closes.
 
-## Rung 1b — THE SAIL (NEXT)
+## Rung 1b — THE SAIL ★ CLOSED (2026-07-28, two rounds; video-verified)
 
-The ship runs a ship-relative waypoint `WalkXZY` lane while the aim rides it (per-frame
-re-pin, stock entry-2 shape) — the camera tracks a moving subject; fold the eye dolly
-back in. Also owed here: hide/park the player during the shot if the scene calls for it.
+`rung1b_sail.py` — the camera tracks a moving subject: Confirm → the composed shot → the
+ship comes about and sails 40u due south at speed 60 with the aim re-pinned per frame and
+the eye dollying in → returns, snaps onto the mooring facing the quay → control back
+(owner video: full arc + re-moor + chase restore). Round 1 SOFTLOCKED and minted two laws:
+
+- **THE CARROT LAW**: a blocking `WalkXZY` RE-READS its argument expressions every frame —
+  a self-relative target recedes with each step and the walk never terminates. THAT is why
+  stock caches ship-relative targets into Instance vars before walking. Walk targets are
+  CONSTANTS (canonical constants are frame-correct — `RealPosition` is the engine's
+  absolute tracker; probe-confirmed `pos[]` stays canonical).
+- **THE RIG-RADIUS LAW**: `EventCollision.Collision` mode 0 (MoveToward's call) BYPASSES
+  the tag-2/3 candidacy gate — every cid-4 actor is a radius candidate. The aim, re-pinned
+  onto the hull at distance ~0, collided every frame; MoveToward reverted the transform
+  and the per-frame writeback mirrored the revert into `pos[]` (probe: the ship
+  oscillating ±one step forever while the eye's dolly 17u away completed cleanly). Rigs
+  are camera hardware, not bodies: `SetObjectLogicalSize(0,0,0)` on rigs + scenery ship.
+
+**Known polish item (diagnosed, deferred — owner's call whether to spend an engine round):**
+the scene reads slightly juddery vs free-roam. Frame analysis of the owner's 60fps capture:
+the world simulates at WorldTPS≈28 → 2:3 pulldown; the smoother lerps the camera between
+ticks but screen velocity still varies per frame, and script `SetPosition` motion is
+teleport-class to the smoother. Stock scene worlds (9001) ride the same machinery — this
+matches stock-scene fidelity; free-roam is the smoother's tuned path. s69 candidate:
+SmoothFrameUpdater_World treatment of rig-driven cameras + script-moved actors. Cheap
+scene-side mitigation meanwhile: slower pans / farther eye (smaller per-tick steps).
 
 ## Rung 1c — THE HANDSHAKE
 
