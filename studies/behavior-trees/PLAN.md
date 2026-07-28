@@ -843,6 +843,13 @@ before first publication; v1 keeps its proven jump byte-for-byte
 30424 re-deployed (~ Reload suffices). ⚠ BRAWN 30423 as deployed still
 carries the old wake (nothing in its trees arms at seed); fix rides its
 next redeploy — the staged-latch precedent.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — boot-silent
+crier, the full parity fight, the wipe line at the real wipe. RUNG 1 IS
+CLOSED: per-class brain sharing (2 shared brains driving 14 units at 32%
+of BRAWN's bytes, the identity channel + strided state + shared-entry
+sibling-survival all in-game) is ratified.** Still open on the brains
+ladder: per-member one-shots under classes, Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
