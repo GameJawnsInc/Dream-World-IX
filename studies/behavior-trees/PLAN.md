@@ -701,12 +701,41 @@ brain entry per CLASS (span pressure gone); and with bodies inline in the brain
 (they run on gCur), the duplicated dispatch bodies (13.6KB on CONDOR r3) collapse
 too. The FILE wall recedes on all three fronts at once.
 
-**Bench composites under test (30422):** P1 persistent-loop Seq · P2 REQ-255
-drop-while-busy rhythm · P3 two Seqs of ONE entry with independent private
-latches · P4 the die ordering (0x45 then TerminateEntry; 30s post-death
-liveness) · P5 true self-REQ (level 3 from a level-4 body; the hop).
+**Bench composites (30422) — round 1 (owner playtest 2026-07-27):**
+- **P1 persistent-loop Seq ★ PASS** — both knights greet on approach, indefinitely.
+- **P3 Seq-private Instance vars ★ PASS** — each knight kneels exactly once, on
+  HIS OWN first meeting, then talk-gestures; two Seqs of ONE entry, independent
+  latches, zero blackboard bytes.
+- **P2 REQ-255 dispatch ★ PASS (rhythm clean)** — the mu's turn cycle ran on a
+  steady beat with no mid-body restart. (The model snapping back to straight
+  after each turn is the layered-clip law, not a dispatch artifact — stock
+  pairs turn clips with `TurnInstant` ladders when the facing should stick.)
+- **P4 die ordering — UNTESTED in round 1, MY defect:** the die flag sat at
+  `Map.Byte[241]`, and **THE MAPVAR-80 LAW** says the engine's Map var space is
+  `Byte[80]` (`EventContext.cs: mapvar = new Byte[80]`) with NO bounds guard.
+  Every read threw IndexOutOfRange, aborting the brain's frame mid-statement
+  (Memoria.log: ~800 once-per-second IOOR + `[CalcStack.pop] topOfStackID == 0`
+  pairs); the JMP_IFNOT recovered reading falsy and fell through to the turn
+  branch — so the field LOOKED alive while the die lane was unreachable every
+  tick. Round 2 moves the flag to 77.
+- **P5 self-REQ — likely firing, unproven:** the "leap on talk" the owner saw
+  was almost certainly the per-cycle hop (a hop lands within ~1.5s of any
+  dialogue closing). Round 2 adds a blip to the hop so hop ≠ die-leap.
+
+**A near-miss worth keeping: the 0x45 argflag scare.** Reading
+`DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
+`encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
+refuted it (field 450's `45` is one byte, and the stream after decodes to
+exactly the HW export's `while (GetEntryAnimFrame(255) != 0)` loop). Three
+grammars agree (our disasm, HW, stream coherence): 0x45 is 1 byte; the engine
+dispatch has a fast path my partial read missed. **Verify an encoder "fix"
+against stock bytes before shipping it — the fix would have introduced the
+very desync it claimed to prevent.**
+
 Bench-grade caveat: brains open with Wait(90) instead of the production
-player-mirror latch.
+player-mirror latch — the sporadic warp-edge NREs in `expr_jumpToSubCommand`
+(a handful per session, at transitions) are that shortcut's cost; production
+brains keep the mirror.
 
 ## Standing constraints
 

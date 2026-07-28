@@ -84,7 +84,12 @@ MU_TURN_L = 6682
 MU_TURN_R = 6686
 MU_JUMP = 202           # the P5 hop AND the P4 farewell leap
 
-DIE_FLAG = 241          # Map.Byte[241] -- talk-to-mu sets it; transient, never saved
+DIE_FLAG = 77           # Map.Byte[77] -- talk-to-mu sets it; transient, never saved.
+                        # ⚠ THE MAPVAR-80 LAW: the engine's Map var space is Byte[80]
+                        # (EventContext.cs: `mapvar = new Byte[80]`) with NO bounds guard --
+                        # round 1 used index 241 and every read threw IndexOutOfRange,
+                        # aborting the brain's frame mid-statement (the die lane never fired
+                        # and Memoria.log filled with IOOR + CalcStack.pop pairs).
 NEAR = 600              # the knights' greeting radius
 DISPATCH = 4            # the production dispatch level (requestAcceptable: 4 < 7 idle)
 STOP_SHARED_SCRIPT = 0x45
@@ -166,7 +171,10 @@ def mu_tag9() -> bytes:
 
 
 def mu_tag10() -> bytes:
-    return asm([opcodes.encode(0x40, MU_JUMP), opcodes.RETURN])
+    """The P5 hop -- with the announce blip, so a hop is UNMISTAKABLE from the
+    silent die leap (round 1 read the per-cycle hops as talk responses)."""
+    return asm([opcodes.encode(0xC8, 53248, 683, 0, 128, 125),
+                opcodes.encode(0x40, MU_JUMP), opcodes.RETURN])
 
 
 def seq_entry(body: bytes) -> bytes:
@@ -304,19 +312,19 @@ def deploy() -> None:
         raise SystemExit(f"no live EVT_{FIELD_NAME}.eb.bytes found to patch")
     print(f"""patched {patched} language .eb file(s)
 
-PLAYTEST ({FIELD_ID} is a NEW id -> RELAUNCH once, then ~ -> Warp -> {FIELD_ID}):
-  P1/P3 the knights (one left, one right): walk up to EACH -- the FIRST time he
-        notices you he KNEELS; every later approach is a talk gesture. Each
-        knight kneels exactly ONCE, on HIS OWN first meeting (private brains
-        sharing ONE entry's code).
-  P2    the mu (ahead): turns left, turns right on a steady ~2s rhythm -- no
-        stutter, no restarting mid-turn (overlapping dispatches DROPPED).
-  P5    every mu patrol cycle ENDS WITH A HOP (the self-REQ).
-  P4    TALK to the mu: it leaps once and VANISHES. Then wait 30 seconds and
-        keep walking around: the knights must still greet, no freeze, no crash
-        (the die body stopped its brain BEFORE self-disposal).
-  ~ -> Reload restarts everything clean (kneels included -- Seq vars die with
-        the field).
+PLAYTEST round 2 (already registered -> ~ -> Reload field is enough; P1-P3 passed
+round 1 and should simply still hold):
+  P5    each of the mu's turn-in-place cycles ends with a BLIP + HOP (~ every
+        2s). The blip is new -- it separates the self-REQ hop from the die leap.
+        (The model snapping back to straight after each turn is EXPECTED: the
+        turn clips are layered one-shots; the actor's true facing never moves.)
+  P4    TALK to the mu: dialogue, one SILENT leap, and it VANISHES for good.
+        Then wait 30 seconds and keep walking around: the knights must still
+        greet, no freeze, no crash (the die body stopped its brain BEFORE
+        self-disposal). Round 1 never tested this -- the die flag sat out of
+        range and the die lane never fired.
+  Also: Memoria.log should stay CLEAN of the once-per-second
+        IndexOutOfRange/CalcStack pairs this time.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 
