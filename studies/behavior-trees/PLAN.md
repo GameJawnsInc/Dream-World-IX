@@ -778,6 +778,79 @@ plays the same, no differences." The per-unit-brain backend is in-game proven
 at full brawl scale: 15 brains, mid-fight deaths (the orphan law at scale),
 counter lanes, the crier — all identical to the ticker build. Rung 0 CLOSED.
 
+**Rung 1 — BUILT + DEPLOYED (2026-07-28), ⚠ parity playtest pending: PER-CLASS
+BRAIN SHARING (the true cross-product kill).** `npcs = ["kn0", ...]` (+
+optional `class =`) on a `[[behavior.unit]]` row compiles the branches ONCE
+into a brain entry ALL members STARTSEQ (P3's multi-spawn shape, now product
+surface). The two needs the rung charter named, both grounded at the source
+before a byte shipped:
+* **THE IDENTITY CHANNEL — engine-native, one 3-byte expression:**
+  `obj(uid=255).f[5]` = the CALLING UNIT'S uid. B_OBJSPECA pushes
+  uid<<8|field (EBin.cs:1216); EvaluateValueExpression resolves the uid
+  through `GetObjUID` — 255 returns gCur DIRECTLY, O(1), no list walk
+  (EventEngine.cs:948) — and getvobj field 5 IS `obj.uid`, no cid guard
+  (EBin.cs:1815). 0xD3 vector args resolve through EvaluateValueExpression
+  itself (EBin.cs:359), the exact path the in-game-proven scan-loop indices
+  ride — so a cell indexed by the caller's uid is the proven composition
+  with a different operand, not a new shape. No Instance vars, no handoff
+  GLOB, no spawn-order race.
+* **STRIDED PER-UNIT STATE:** classed members' protocol state
+  (act/sel/run/spd/spdap/mx/mz/tx/tz/px/pz + per-class wp/wander/ctgt/
+  decorator latches/cd timers + hp-when-ungrouped + the uid→roster ord map
+  + spd0 defaults) lives in uid-indexed gScriptVector tables, seeded by the
+  table law (zero-fill = the reset; presets are seed values — ctgt=255,
+  posts, speeds, hp). The brain reads cells at MYUID; member-side bodies
+  (duty walk args, dispatch tags, nudge) read the same cells at their
+  CONSTANT uid; the ticker lanes (mirrors/wake/pools/group copies) write
+  them const-indexed. Blackboard relief rides along: classed members take
+  ZERO band slots.
+  Emission went owner-generic behind one ref resolver (`_uref`) — a
+  class-free build is BYTE-IDENTICAL to master on both backends (verified
+  stable_hash + report across a build exercising every lane).
+v1 pins: class trees carry the unit vocabulary only (one-shot actions
+refused — per-member once-semantics under a shared brain are a later rung);
+a class name is never a TARGET (members keep their names for that); anim
+needs a shared model; self-hp needs ONE home (all members in the same group
+via the seeded ord table, or none grouped via cls.hp cells); flee threats
+are shared names (per-member threat rotation isn't one program — engage is
+the dynamic-target lane). 15 tests (identity bytes, shared tags, seed maps,
+refusals, the game-gated shared-slot install on 559); the known labelasm
+band-exhaustion failure predates this branch (master too — chip spawned).
+**Bench 30424 "BTCLASS" (`classbrawl_bench.py`): the GROUP-BENCH
+scoreboard brawl as TWO CLASS ROWS** — 14 brawlers, 2 shared brains
+(1,503B each) + the crier's own: **15,340B new vs BRAWN's 46,858B (32%)**;
+deployed bytes verified (15 STARTSEQ heads → 3 brain slots split 7/7/1,
+identity reads in exactly the two shared entries). The parity checklist =
+the proven scoreboard fight + THE SHARPEST NEW CLAIM: a member's death
+stops ITS OWN Seq only — six siblings running the same entry fight on.
+RELAUNCH → ~ → Warp → 30424.
+**ROUND 1 (owner): the fight itself CLEAN — knights win 2-0, everything
+normal — except "the crier announces 'The Mus are wiped out!' before
+anything else." THE WAKE-PUBLICATION RACE, a LATENT RUNG-0 BRAINS BUG the
+class bench merely exposed (fixed same day):** the ticker's warm-up expiry
+pass set every `active` then jumped straight to `wait`, publishing the
+alive-scans only NEXT pass — invisible in v1 (tree segs run in the same
+ticker body AFTER the scan blocks) but a brain is its OWN Seq and can tick
+in the gap, reading a counter at its SEED. Alive-counts seed 0 and
+`counter_eq 0` is armed AT the seed → the wipe line fired at boot and its
+event-once latched (hence silence at the real 2-0 wipe). BRAWN never
+tripped it: every counter cond there was `counter_ge N>=1`, false at seed.
+**THE FIX (structural): under brains the wake pass FALLS THROUGH into the
+run path** — wake + mirror/scan/counter publication become ONE atomic
+ticker slice (no Wait between), so no brain can ever observe active=1
+before first publication; v1 keeps its proven jump byte-for-byte
+(master-identity re-verified). Suite-pinned (`test_wake_publication_law`);
+30424 re-deployed (~ Reload suffices). ⚠ BRAWN 30423 as deployed still
+carries the old wake (nothing in its trees arms at seed); fix rides its
+next redeploy — the staged-latch precedent.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — boot-silent
+crier, the full parity fight, the wipe line at the real wipe. RUNG 1 IS
+CLOSED: per-class brain sharing (2 shared brains driving 14 units at 32%
+of BRAWN's bytes, the identity channel + strided state + shared-entry
+sibling-survival all in-game) is ratified.** Still open on the brains
+ladder: per-member one-shots under classes, Instance-var latch migration,
+REQSW transition dispatches, inline one-shot bodies.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES
