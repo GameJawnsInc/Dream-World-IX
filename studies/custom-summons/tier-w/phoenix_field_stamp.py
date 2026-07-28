@@ -275,7 +275,17 @@ def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
 
     page = cell_page(stock, effect, cell)
     w, h = page.wh
-    px = stock[page.page_offset:page.page_offset + page.page_bytes]
+    raw = stock[page.page_offset:page.page_offset + page.page_bytes]
+    # ONE BYTE PER TEXEL at every depth: 8bpp raw IS texels; 4bpp unpacks two per byte (the kit's
+    # own nibble codec -- `write_indexed_png` on unpacked texels is exactly `write_indexed4_png`,
+    # and the import re-packs through `read_indexed4_png` keyed by `expect_bpp`).  15bpp has no
+    # index space to stamp in and no cell of this rung's cast ladder is 15bpp.
+    if page.bpp == 4:
+        px = RP.unpack4(raw)
+    elif page.bpp == 8:
+        px = raw
+    else:
+        raise SystemExit("this generator stamps INDEX space; %s is %dbpp" % (page.name, page.bpp))
     words = RP.palette_words(stock, page)
     zeros = RP.transparent_indices(words)
     mask, cover, n_models = cover_mask(stock, page)
