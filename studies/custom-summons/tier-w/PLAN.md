@@ -378,3 +378,23 @@ scenery must be re-authored *together*.
   `Actions.csv` edit**, and cast 2 (the 4bpp lower half `(576,384)`) is the same container, row and
   deploy script. Staged posture only — nothing deployed. The rung does not close until the cast is
   judged; the ladder and the verdict statement are `W6b-SCENERY.md` §5.
+- **W6b-2 — ★ RECON ROUND DONE (offline; record `W6b2-ATTRIBUTION.md`, gates `w6b2_gates.py`
+  17/17, w6b_gates 7/7 unchanged; dossiers `C:\gd\SCRATCH\summon-format\texel-w6b\w6b2\`).**
+  THE DEPTH-ATTRIBUTION ROUND on the 2,385 depth-unknown scenery cells — three channels, every
+  headline adversarially verified: **P** — op-22 `Hi_RegisterTexEffModel` constant tpages found by
+  a blind 216-op sweep (233 values / 77 containers; two independently written disassemblers agree
+  238/238 sites, 233/233 values; calibration 10/10) → 189 cells; **G** — the same `so` records at
+  PAGE granularity (a tpage's draw mode governs its whole 256-line page, so a bound cell's depth
+  extends to its stacked sibling; 57 cells incl. **THE DOME (704,384) = 8bpp** on three
+  instruments) — CONFIRMED as measurement, DEFLATED as reach (122/140 calibration rows are
+  identities; 16/18 informative); **H** — the container's own CLUT-arity `bpp_hint`, a NARROWING
+  not an attribution (351 cells, 12/12 on knowns, 0 conflicts — found by the completeness critic;
+  no primary lane had opened it). **246 attributed / 79 clear every other gate / 2,139 residue**;
+  22 multi-valued cells refused by name. **THE POSTURE (record §5): CHANNEL G LICENSES (56 build /
+  1 refuses behind the new spill-conflict guard); CHANNEL P DISCLOSES, edits only behind an
+  explicit acknowledgement, with the upgrade path named (a cast promotes it).** **THE STRUCTURAL
+  CEILING:** the 222 GEOM-blind containers (1,278 cells = 53.6 %) never call the model-draw API —
+  unreachable by this lever class; the dark textured-registration path is costed at ≤ 119 cells
+  (ops 19/171). **Q2: the program-VRAM WRITE list is exactly right — delta 0 in both directions on
+  two instruments** (V2 re-adjudicated 77/77 sites). OPEN: kit integration — the refusal matrix
+  consuming the attribution table per the record's §6 spec.
