@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — ▶ Simulate: the Behavior tab's offline tick-stepper
+- Step or play a `[behavior]` tree offline at the engine's own 30 ticks/s: ▶ sweeps the
+  ladder rows as branches select, units move as ghosts on the stage, the strip shows
+  tick · seconds · the countdown ⏱ and the latest one-shot event, and clicking the stage
+  moves the sim's player (the move joins the timeline, so scrubbing back and forward
+  replays identically). Built to catch the priority/starvation authoring family — sticky
+  `once` vs the event-once release, hysteresis keeps, dead branches — before a playtest.
+  An INSTRUMENT, not proof, and it says so on its face: walks are straight lines (no
+  walkmesh — the Sweep lane owns wall truth), pooled units stay dormant, `battle` only
+  logs. Semantics are grounded in the docs + engine (Chebyshev proximity, speed
+  units-per-frame, defaults derived from the compiler itself); works read-only on
+  `[siege]` fields' generated armies.
+
 ### Fixed — the Info Hub library's "?" help badge rendered as an empty circle at 150% text size
 - The round violet help button pinned its box at 30px in Python while the app stylesheet's button
   padding — which grows with the text-size dial — kept applying inside it; at 150% the padding alone
