@@ -463,3 +463,58 @@ def test_class_wander_and_cooldown_tables_gone():
     assert not any(k.startswith("cls.pair.wt") or ".cd" in k
                    for k in fb._cls_tids), fb._cls_tids
     assert cb.brain_locs["pair"] == 7       # cd@0 cdeng@1 wtx@2 wtz@4 wtimer@6
+
+
+# ---- RUNG 4: REQSW transition dispatches (THE MUST-LAND DISPATCH LAW) ----
+
+REQSW_255 = bytes((0x12, 0x00, 0x04, 0xFF))     # REQSW, argflag 0, level 4, uid 255
+REQSW_L4 = bytes((0x12, 0x00, 0x04))            # any level-4 REQSW, any target
+
+
+def test_die_dispatch_is_reqsw_under_brains():
+    """seqbrain P4: a lone REQ against a busy unit (an open talk dialogue)
+    drops SILENTLY forever. A transition-critical dispatch — Die — emits
+    REQSW: the Seq stays on the instruction until the unit's level frees,
+    then binds. Routine dispatches keep REQ (drop-while-busy IS the run-gate)."""
+    cb = _class_field().compile()
+    for cn in ("guard", "beast"):               # each class tree carries ONE Die
+        body = cb.brain_bodies[cn]
+        assert body.count(REQSW_255) == 1, cn
+        tag = body[body.index(REQSW_255) + 4]   # the die body's tag —
+        assert bytes((0x10, 0x00, 0x04, 0xFF, tag)) not in body  # no REQ twin
+        assert REQ_255 in body                  # routine dispatches still REQ
+    assert REQSW_L4 not in cb.brain_bodies["crier"]  # no Die in the crier's tree
+
+
+def test_unclassed_brain_die_is_reqsw_too():
+    fb = B.FieldBehavior([B.UnitSpec("lone", 2, spawn=(0, 0), hp=1)], brains=True)
+    fb.units["lone"].tree = B.Selector(
+        B.Sequence(fb.hp_le("lone", 0), B.Do(B.Die())),
+        B.Do(B.HoldPost()))
+    cb = fb.compile()
+    assert cb.brain_bodies["lone"].count(REQSW_255) == 1
+
+
+def test_v1_ticker_never_blocks():
+    """THE TICKER-NEVER-BLOCKS COROLLARY: one blocked REQSW in the shared v1
+    ticker would stall EVERY unit's brain in the field — v1 keeps REQ plus
+    its per-tick re-REQ retry (which is itself must-land while sel holds)."""
+    fb = B.FieldBehavior([B.UnitSpec("lone", 2, spawn=(0, 0), hp=1)])
+    fb.units["lone"].tree = B.Selector(
+        B.Sequence(fb.hp_le("lone", 0), B.Do(B.Die())),
+        B.Do(B.HoldPost()))
+    cb = fb.compile()
+    assert REQSW_L4 not in cb.ticker_body
+    assert bytes((0x10, 0x00, 0x04)) in cb.ticker_body
+
+
+def test_reqsw_never_inside_member_bodies():
+    """THE SELF-REQSW DEADLOCK guard: dispatch bodies run ON the unit AT the
+    dispatch level — a REQSW from there against itself waits on the very
+    level it holds, forever. The brain Seq is the only legal REQSW site."""
+    cb = _class_field().compile()
+    for m, funcs in cb.action_funcs.items():
+        for tag, body in funcs:
+            assert REQSW_L4 not in body, (m, tag)
+    for m, body in cb.duty_bodies.items():
+        assert REQSW_L4 not in body, m

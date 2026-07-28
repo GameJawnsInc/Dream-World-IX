@@ -2108,11 +2108,14 @@ class FieldBehavior:
             dispatch_tag: dict[int, int] = {}
             oneshot_latch: dict[int, int] = {}           # aid -> latch slot KEY
             oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched req KEY
+            die_aids: set[int] = set()                   # transition-critical aids
             for a in actions:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
                     continue
                 dispatch_tag[aid] = FIRST_ACTION_TAG + len(dispatch_tag)
+                if isinstance(a, Die):
+                    die_aids.add(aid)
                 if isinstance(a, Battle):
                     lk, rk = f"battled{aid}", f"breq{aid}"
                 elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)) and aid in once_ann:
@@ -2231,12 +2234,26 @@ class FieldBehavior:
             for aid, tag in dispatch_tag.items():        # the normal sel-gated tail
                 if aid in oneshot_req:                   # one-shots ride the request lane
                     continue
+                # THE MUST-LAND DISPATCH LAW (seqbrain P4 round 2): a routine
+                # dispatch WANTS drop-while-busy — that IS the run-gate — but a
+                # transition-critical one (Die: the unit must actually die) uses
+                # REQSW 0x12: the Seq STAYS on the instruction while the unit's
+                # level is held (an open talk dialogue, a blocked walk), then
+                # binds. Brains only — each Seq blocks only ITSELF, and no
+                # deadlock is reachable: the tree wrote sel=<die aid> before
+                # this tail, so a looping kit body exits its sel check and
+                # frees the level. The v1 TICKER MUST NEVER BLOCK (one busy
+                # unit would stall every brain in the field), so v1 keeps
+                # REQ + its per-tick re-REQ retry — byte-identical and correct.
+                disp = (opcodes.run_script(DISPATCH_LEVEL, tgt, tag)
+                        if self.brains and aid in die_aids
+                        else opcodes.run_script_async(DISPATCH_LEVEL, tgt, tag))
                 seg += [
                     _stmt(f"{sel_r} const({aid}) B_EQ"),
                     (JMP_IFNOT, f"t_{owner}_d{aid}"),
                     _stmt(f"{run_r} const(0) B_EQ"),
                     (JMP_IFNOT, f"t_{owner}_d{aid}"),
-                    opcodes.run_script_async(DISPATCH_LEVEL, tgt, tag),
+                    disp,
                     label(f"t_{owner}_d{aid}"),
                 ]
             seg += [label(disp_end)]

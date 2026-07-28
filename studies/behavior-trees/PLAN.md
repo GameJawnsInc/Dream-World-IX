@@ -926,6 +926,40 @@ private wander state, the private request lanes — and the battle
 round-trip re-held under Instance state. Remaining ladder: REQSW
 transition dispatches, inline one-shot bodies.
 
+## Rung 4 — ★ RATIFIED (2026-07-28): REQSW TRANSITION DISPATCHES (THE
+MUST-LAND DISPATCH LAW as compiler vocabulary).
+
+Under brains, a transition-critical dispatch — **Die** — emits **REQSW
+0x12** in the sel-gated tail instead of the droppable REQ: the brain Seq
+STAYS on the instruction while the unit's level is held (an open talk
+dialogue, a blocked walk), then binds — seqbrain P4's exact shape, now
+compiler-emitted. Routine dispatches keep REQ deliberately: drop-while-busy
+IS the run-gate. No deadlock is reachable — the tree writes sel=<die aid>
+BEFORE the tail, so a looping kit body exits its sel check and frees the
+level — and **THE SELF-REQSW DEADLOCK guard** is suite-pinned: member
+bodies (which run ON the unit AT the dispatch level) never carry 0x12.
+**THE TICKER-NEVER-BLOCKS COROLLARY:** v1 keeps REQ not just for byte
+identity (`70f7fa47e28de45c` re-verified) but by obligation — one blocked
+REQSW in the shared ticker would stall EVERY brain in the field; v1's
+per-tick re-REQ is itself must-land while sel holds. Both opcodes are 5
+bytes: no span drift. Suite: 4 new tests, class file 24/24, battery 167.
+**Bench = BTCRY REDEPLOYED (zero relaunch): THE DEATH KNELL** — the tread
+battle rings a sticky `knell` flag; a top-ranked die branch fells the
+herald class (kneel `hiza_1` + linger + vanish), the flagship case a
+knight killed MID-FOLLOW (sel flip frees his looping chase body, the
+REQSW binds the die), composed with the battle round-trip.
+**ROUND 1 (owner): mechanism ★** — knights fell (glimpsed post-swirl),
+second Mu fired, stalkers clean — but knell+battle rang the SAME tick, so
+the field suspended before the heralds' brains reacted and the death beat
+played half-eaten by the swirl-back ("the battle order is messy"). Round 2
+= staging only, compiler untouched: a tread branch at 400u (outside the
+220u battle range) announces THE KNELL TOLLS + raises the flag, so the
+full beat plays in the open ~180u before the swirl; the battle branch
+keeps its own ring as the belt. (The new areq rides the tread Instance
+block's alignment hole at offset 1 — still 7B.)
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "good" — RUNG 4 IS
+CLOSED.** Remaining ladder: inline one-shot bodies.
+
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
 `encode()` under-emits zero-arg ops like StopSharedScript — the STOCK BYTES

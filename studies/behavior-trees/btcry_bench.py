@@ -2,13 +2,22 @@
 
 Rung 2 (★ ratified round 1): `npcs = [...]` class rows carry the one-shot
 family (announce / sfx / flash / stop_timer / battle) with ONCE-PER-MEMBER
-latches. Rung 3 (THIS redeploy, zero-relaunch): brain-PRIVATE state — sticky
+latches. Rung 3 (★ ratified round 2): brain-PRIVATE state — sticky
 once/cooldown latches + timers, patrol progress, wander state, the areq/breq
 request flags — migrates into each Seq's own INSTANCE VARS (the entry's varn
 block, P3-proven; zeroed at spawn = reset for free, one copy per Seq = per
 member for free). Body-written latches (the event-once latch, battled) stay
-outside-addressable. The rung-3 additions to the cast exercise every migrated
-slot family in-game.
+outside-addressable.
+
+Rung 4 (THIS redeploy, zero-relaunch): REQSW TRANSITION DISPATCHES — THE
+DEATH KNELL. THE MUST-LAND DISPATCH LAW (seqbrain P4): a lone REQ against a
+busy unit drops SILENTLY forever; a transition-critical dispatch (Die) now
+emits REQSW 0x12 — the brain Seq stays on the instruction until the unit's
+level frees, then binds. The knell: stirring a Mu to battle raises the
+"knell" flag, and a top-ranked die branch on the HERALD class drops all
+three knights — a knight killed MID-FOLLOW is the flagship case (the sel
+flip releases his looping chase body, the REQSW binds the die), composed
+with the battle round-trip.
 
 THE CLASSES AND THEIR MECHANISMS:
   * class "herald" — THREE knights spread across the plaza; each war-cries
@@ -69,6 +78,12 @@ TIMER = 600                              # scene 35 is Hunt-family: it ends itse
 def behavior_toml(lay: dict) -> str:
     parts = [f'\n[behavior]\nbrains = true\nwarmup = 45\ntimer = {TIMER}\n']
     parts.append(f'\n[[behavior.unit]]\nnpcs = {_t(HERALDS)}\nclass = "herald"\n')
+    # THE DEATH KNELL (rung 4, top rank): when any Mu battle rings the knell,
+    # every knight falls — kneel (hiza), hold, vanish. The die dispatch is the
+    # REQSW must-land lane: a knight mid-FOLLOW has a looping chase body at
+    # level 4; sel flips to die, the body exits its sel check, the REQSW binds.
+    parts.append(_branch(when=[{"flag": "knell"}],
+                         do={"die": True, "anim": "hiza_1", "linger": 60}))
     parts.append(_branch(when=[{"near": ["player", 300]}], once="cry",
                          do={"announce": "STAND AND BE COUNTED!  (This knight "
                                          "will never cry again.)"}))
@@ -81,8 +96,20 @@ def behavior_toml(lay: dict) -> str:
                          do={"chase": "player", "standoff": 170, "speed": 55}))
     parts.append(_branch(do={"hold_post": True}))
     parts.append(f'\n[[behavior.unit]]\nnpcs = {_t(TREADS)}\nclass = "tread"\n')
+    # the battle branch RINGS THE KNELL (raise_flags is sticky — the heralds'
+    # die branch keys on it forever after, Reload re-arms everything)
     parts.append(_branch(when=[{"near": ["player", 220]}],
-                         do={"battle": BATTLE_SCENE}))
+                         do={"battle": BATTLE_SCENE}, raise_flags=["knell"]))
+    # ROUND 2 — ring the knell EARLY (400u, outside battle range): round 1
+    # rang knell+battle on the SAME tick, so the field suspended before the
+    # heralds' brains could react and the death beat played half-eaten by
+    # the swirl-back. At 400u the kneel+linger+vanish plays IN THE OPEN,
+    # ~180u of walking before the swirl. The battle branch keeps its own
+    # ring as the belt (a fast run-in still fells the knights).
+    parts.append(_branch(when=[{"near": ["player", 400]}], once="knell",
+                         do={"announce": "THE KNELL TOLLS.  (Somewhere east, "
+                                         "the knights are falling.)"},
+                         raise_flags=["knell"]))
     # per-member wander centers are not one program (wander_post isn't vocab):
     # the shared center sits between the two posts, radius small enough that
     # each Mu drifts around its own side of the box
@@ -191,13 +218,27 @@ def gen() -> None:
            or ".cd" in t for t in fb._cls_tids):
         raise SystemExit(f"BENCH INVALID: a brain-private slot still strided: "
                          f"{sorted(fb._cls_tids)}")
-    need = [("herald", "areq1"), ("herald", "once.follow"), ("tread", "breq1"),
-            ("tread", "wtimer"), ("stalker", "wp")]
-    for ow, key in need:
-        if (ow, key) not in fb._inst_slots:
-            raise SystemExit(f"BENCH INVALID: Instance slot {(ow, key)} missing")
+    need = [("herald", "areq"), ("herald", "once.follow"), ("tread", "breq"),
+            ("tread", "wtimer"), ("stalker", "wp")]      # areq/breq are aid-
+    for ow, key in need:                                 # numbered: prefix match
+        if not any(o == ow and k.startswith(key) for o, k in fb._inst_slots):
+            raise SystemExit(f"BENCH INVALID: Instance slot {(ow, key)}* missing")
     if not all(cb.brain_locs.get(c, 0) > 0 for c in ("herald", "tread", "stalker")):
         raise SystemExit(f"BENCH INVALID: empty instance block ({cb.brain_locs})")
+    # RUNG 4 — THE MUST-LAND DISPATCH LAW: the herald die rides REQSW 0x12
+    # (block-until-free), with no droppable REQ twin; the dieless brains
+    # carry no REQSW at all (routine dispatches keep the drop-on-busy REQ)
+    reqsw = bytes((0x12, 0x00, 0x04, 0xFF))          # REQSW lvl 4 -> uid 255
+    hb = cb.brain_bodies["herald"]
+    if hb.count(reqsw) != 1:
+        raise SystemExit(f"BENCH INVALID: expected ONE REQSW die dispatch in "
+                         f"the herald brain, found {hb.count(reqsw)}")
+    dtag = hb[hb.index(reqsw) + 4]
+    if bytes((0x10, 0x00, 0x04, 0xFF, dtag)) in hb:
+        raise SystemExit("BENCH INVALID: the die tag also has a droppable REQ")
+    for c in ("tread", "stalker"):
+        if bytes((0x12, 0x00, 0x04)) in cb.brain_bodies[c]:
+            raise SystemExit(f"BENCH INVALID: REQSW in dieless brain {c!r}")
     print(f"  instance blocks (varn): "
           + ", ".join(f"{o}={n}B" for o, n in sorted(cb.brain_locs.items())))
     BENCH_TOML.write_text("".join(parts), encoding="utf-8")
@@ -228,26 +269,28 @@ def deploy() -> None:
         raise SystemExit("deploy_field failed")
     print(f"""
 PLAYTEST ({FIELD_ID} is REGISTERED -> NO relaunch: ~ -> Reload or Warp -> {FIELD_ID}):
-  THE POINT (rung 3): every brain-private latch/timer now lives in Seq
-  INSTANCE VARS -- per-member sticky once, brain-ticked cooldowns, private
-  patrol progress, private wander state, the one-shot request lanes.
-  1 the KNIGHTS (east arc, three of them): first approach = ONE war cry,
-    then he FOLLOWS you while you stay near; ESCAPE once (walk well away)
-    and that knight never follows again -- AND never cries. Each knight
-    keeps his OWN latches (an untouched knight still cries + follows).
-  2 the wandering MUS (west, two): walk in -> battle swirl -> arena fight ->
-    clean return, no re-swirl ever from that Mu; the OTHER Mu still fires
-    its own battle. (Before the 10:00 clock runs out -- scene 35 is a Hunt
-    fight and ends itself at 0:00: the clock-coupled law, not a bug.)
-  3 the STALKERS (two townsfolk pacing ONE line on the west side, starting
-    at OPPOSITE ends -- each walks his own progress; if they ever snap
-    together the private wp failed): come near -> a stalker chases; escape
-    -> he resumes the line, and re-engages only ~2.5 SECONDS after you
-    escaped (the cooldown) -- repeatable forever, per stalker.
-  4 after the FIRST battle everything above must still work (brains survive
-    the round-trip -- re-verified under Instance state).
-  5 ~ -> Reload re-arms the world: 3 cries, 3 follows, 2 battles, fresh
-    stalker patrol from their posts.
+  THE POINT (rung 4): THE DEATH KNELL -- a transition-critical die dispatch
+  now rides REQSW (must-land, block-until-free) instead of a droppable REQ.
+  ORDER MATTERS: test the knights BEFORE nearing the Mus -- approaching a
+  Mu rings the knell and every knight falls.
+  1 the KNIGHTS first (east arc, three): first approach = ONE war cry, then
+    he FOLLOWS while you stay near; escape once and he is silent + still
+    forever. Leave AT LEAST ONE knight actively following you for step 2.
+  2 THE DEATH KNELL (round 2 -- rung EARLY, in the open): with a knight
+    still on your heels, walk west TOWARD a Mu. At ~400u -- well before
+    battle range -- "THE KNELL TOLLS" pops and ALL THREE knights fall:
+    KNEEL, hold a beat, VANISH, in plain view, no swirl eating it. The
+    one mid-follow is the flagship: his looping chase body frees, the
+    blocking REQSW binds the die. THEN step in (~220u) for the battle.
+  3 the STALKERS (two townsfolk pacing ONE line, west side, opposite ends):
+    near -> chase; escape -> resumes the line, re-engages ~2.5s after
+    escape -- repeatable forever, per stalker. Must still work AFTER the
+    battle + the knell (their brains untouched by the heralds' deaths).
+  4 the SECOND Mu still fires its own battle (once), and its wander goes
+    on -- the knell killed knights, not Mus. (Beat the 10:00 clock: scene
+    35 is a Hunt fight and ends itself at 0:00 -- the clock-coupled law.)
+  5 ~ -> Reload re-arms the WHOLE world: knights BACK (3 cries, follows),
+    knell cleared, 2 fresh battles, stalkers from their posts.
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

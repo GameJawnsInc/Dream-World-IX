@@ -52,6 +52,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   body-written latches) keeps its addressable homes. v1 (ticker) builds are byte-identical;
   the `~` Flags panel cannot see private latches — the compile report prints each brain's
   block map.
+- A `die` dispatched from a brain is now **must-land**: it issues the engine's BLOCKING
+  script request (REQSW), which waits until the unit's script level frees — a death that
+  triggers while the unit is held by an open talk dialogue or a blocked walk still lands the
+  moment it releases, where the old fire-and-forget form would have been dropped silently.
+  Routine dispatches keep the non-blocking form on purpose (drop-while-busy is the run-gate),
+  each brain blocks only itself, and dispatch bodies are pinned never to carry the blocking
+  form (a body waiting on the very level it holds would deadlock). v1 ticker builds keep the
+  retrying non-blocking dispatch — one shared ticker must never wait on one busy unit — and
+  stay byte-identical.
 
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe

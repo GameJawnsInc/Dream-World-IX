@@ -71,6 +71,15 @@ without jump islands. Die actions additionally stop the unit's own brain before 
 terminates (a disposed unit must never leave a live coroutine behind). The build refuses any
 layout where a unit's entry slot + 64 collides with an occupied slot (the brain's runtime uid).
 
+One dispatch difference under brains: a **`die` is must-land**. Routine action dispatches
+deliberately drop while the unit is busy (that *is* the run-gate — a mid-battle-swirl chase
+request should vanish), but a death must actually happen, even if the unit is held by an open
+talk dialogue or a blocked walk when it triggers. The brain therefore issues the die as the
+engine's *blocking* request (REQSW): it waits on the instruction until the unit's script level
+frees, then binds — each brain blocks only itself, and the selection flip already released any
+looping body the unit was running. (The v1 ticker keeps the retrying non-blocking form: one
+shared ticker must never wait on one busy unit.)
+
 ### Classes — `npcs = [...]`: many units, ONE shared brain
 
 With `brains = true`, a `[[behavior.unit]]` row may bind a **list** of NPCs instead of one:
