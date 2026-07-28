@@ -29,9 +29,10 @@ import threading
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
-    QGraphicsView, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSlider,
-    QSplitter, QStackedLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QDialogButtonBox, QFrame, QGraphicsEllipseItem, QGraphicsRectItem,
+    QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QHBoxLayout, QLabel, QListWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSplitter, QStackedLayout, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import behaviorscan, behaviorsim, icons, widgets
@@ -74,6 +75,7 @@ class StageCanvas(QGraphicsView):
         self._grip_items = []                     # [{anchor, rid, cx, cz, r, ellipse}]
         self._sim_items = []                      # rung E1: the stepper's live layer (only
         self._sim_mode = False                    # these churn per tick — never the scene)
+        self._labels = []                         # every _label call, for the de-collision pass
         self.on_sim_click = None                  # sim mode's one input: click = move player
         self.on_move = on_move
         self.on_radius = on_radius
@@ -242,6 +244,40 @@ class StageCanvas(QGraphicsView):
         self.scale(z, z)
         self._zoom = z
         self.centerOn(r.center())
+        self._decollide_labels()
+
+    def _decollide_labels(self):
+        """Shuffle overlapping labels to free vertical tiers. Labels live in SCREEN px
+        (zoom-immune furniture), so what collides depends on the current transform —
+        the pass re-runs after every draw, fit, and zoom step. Anchors never move;
+        only each text child's dy shifts, so the leader point stays honest."""
+        placed = []
+        step = 13
+        for lab in self._labels:
+            try:
+                base = self.mapFromScene(lab["anchor"].pos())
+            except RuntimeError:                   # scene rebuilt under a stale list
+                return
+            t = lab["item"]
+            br = t.boundingRect()
+            x = base.x() + lab["dx"]
+            cands = [lab["dy"]]
+            for k in range(1, 7):                  # nearest tier first, above before below
+                cands += [lab["dy"] - step * k, lab["dy"] + step * k]
+            pick = cands[0]
+            for onscreen_only in (True, False):    # prefer a tier that stays in the
+                found = False                      # viewport; overlap-free beats clipped
+                for dy in cands:
+                    rect = QRectF(x, base.y() + dy, br.width(), br.height())
+                    if onscreen_only and rect.top() < 1:
+                        continue
+                    if not any(rect.intersects(pl) for pl in placed):
+                        pick, found = dy, True
+                        break
+                if found:
+                    break
+            t.setPos(lab["dx"], pick)
+            placed.append(QRectF(x, base.y() + pick, br.width(), br.height()))
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
         if self._fit_pending:                      # deferred to the first REAL paint: at set_model
@@ -260,6 +296,7 @@ class StageCanvas(QGraphicsView):
             if z != self._zoom:
                 self.scale(z / self._zoom, z / self._zoom)
                 self._zoom = z
+                self._decollide_labels()           # screen-px labels re-negotiate per zoom
             event.accept()
             return
         super().wheelEvent(event)
@@ -273,6 +310,7 @@ class StageCanvas(QGraphicsView):
             if event.key() == Qt.Key.Key_1:
                 self.resetTransform()
                 self._zoom = 1.0
+                self._decollide_labels()
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -436,12 +474,15 @@ class StageCanvas(QGraphicsView):
         anchor.setData(0, tag)
         return self._fixed(anchor)
 
-    def _label(self, text, x, z, *, dx=8, dy=-16, color=None, bold=False, pt=8):
+    def _label(self, text, x, z, *, dx=8, dy=-16, color=None, bold=False, pt=8, tip=None):
         anchor = self._anchor(x, z, "label")
         t = QGraphicsSimpleTextItem(text, anchor)
         t.setFont(self._font(pt, bold))
         t.setBrush(QBrush(QColor(color or self.pal["muted"])))
         t.setPos(dx, dy)                           # screen px, relative to the anchor
+        if tip:
+            anchor.setToolTip(tip)
+        self._labels.append({"anchor": anchor, "item": t, "dx": dx, "dy": dy})
         return anchor
 
     def _marker(self, x, z, color, *, hollow=False, r=_POST_R, tag="post"):
@@ -456,6 +497,7 @@ class StageCanvas(QGraphicsView):
         self._drag = None                          # scene.clear() deletes any grabbed item
         self._coords.hide()
         self._move_items, self._grip_items = [], []
+        self._labels = []                          # rebuilt below; the de-collision pass reads it
         sc.clear()
         m = self._model
         if not m or m.get("bounds") is None:
@@ -536,16 +578,47 @@ class StageCanvas(QGraphicsView):
                 self._grip_items.append({"anchor": anchor, "rid": tuple(ring["rid"]),
                                          "cx": cx, "cz": cz, "r": ring["radius"],
                                          "ellipse": it})
-        # posts + player last (loudest)
+        # posts + player last (loudest). Same-unit members standing in a knot (a class
+        # row's squad at a [siege] entrance) share ONE "name ×N" label at the knot's
+        # centroid — five stacked spawn labels were an unreadable smear (snap-caught);
+        # every member keeps its own dot, and the label's hover names them all.
+        by_unit = {}
         for p in m["posts"]:
-            col = muted if p["pooled"] else pal["success"]
-            self._marker(p["x"], p["z"], col, hollow=p["pooled"])
-            name = p["name"] + (" · pooled" if p["pooled"] else "")
-            # a CLASS row's members all light when their class is selected ("unit"
-            # carries the owning row's name; a plain post has name == unit)
-            sel = self._selected in (p["name"], p.get("unit"))
-            self._label(name, p["x"], p["z"], color=pal["text"] if sel else muted,
-                        bold=sel, pt=8.5)
+            by_unit.setdefault(p.get("unit", p["name"]), []).append(p)
+        for uname, ps in by_unit.items():
+            done = [False] * len(ps)
+            for i, p in enumerate(ps):
+                if done[i]:
+                    continue
+                done[i] = True
+                knot = [p]
+                grew = True
+                while grew:                        # transitive: a RANK chains member to
+                    grew = False                   # member (the [siege] park spaces them
+                    for j in range(len(ps)):       # 400u apart — an anchor test misses
+                        if done[j]:                # everyone past the first)
+                            continue
+                        if any(max(abs(ps[j]["x"] - q["x"]),
+                                   abs(ps[j]["z"] - q["z"])) <= 2.5 * SPACING_U
+                               for q in knot):     # Chebyshev, the house metric
+                            done[j] = True
+                            knot.append(ps[j])
+                            grew = True
+                col = muted if p["pooled"] else pal["success"]
+                for q in knot:
+                    self._marker(q["x"], q["z"], col, hollow=q["pooled"])
+                # a CLASS row's members all light when their class is selected ("unit"
+                # carries the owning row's name; a plain post has name == unit)
+                sel = self._selected in ([uname] + [q["name"] for q in knot])
+                if len(knot) == 1:
+                    text, tip = p["name"], None
+                else:
+                    text = f"{uname} ×{len(knot)}"
+                    tip = ", ".join(q["name"] for q in knot)
+                self._label(text + (" · pooled" if p["pooled"] else ""),
+                            sum(q["x"] for q in knot) / len(knot),
+                            sum(q["z"] for q in knot) / len(knot),
+                            color=pal["text"] if sel else muted, bold=sel, pt=8.5, tip=tip)
         if m.get("player"):
             px, pz = m["player"]
             self._marker(px, pz, pal["text"], hollow=True, r=4, tag="player")
@@ -603,6 +676,7 @@ class StageCanvas(QGraphicsView):
                     "\nDrag to move · right-click for point ops" if h.get("list_id")
                     else "\nDrag to move"))
                 self._move_items.append({"anchor": anchor, "handle": h})
+        self._decollide_labels()                   # labels negotiate tiers at the current zoom
 
 
 class LadderView(QWidget):
@@ -797,6 +871,203 @@ class BranchEditor(QFrame):
         widgets.set_state(self.note, state)
 
 
+class ArchetypeWizard(QDialog):
+    """Rung D's stamp picker grown into ONE teaching surface (owner ask: "more of an
+    interactive wizard than a set of 2 picker windows"): the proven trees on the left
+    with their teach text, the actor bindings appearing exactly when the picked
+    archetype needs them, and a LIVE preview of the ladder the stamp will write — the
+    REAL op on a scratch copy of the open document, never a paraphrase (stamp-parity
+    by construction, the Info Hub snippet law).
+
+    Testable without ``exec()``: construct, drive ``list``/``who``/``vs``/``partner``,
+    read the preview label, call ``accept()``, read ``picked()``. The doc's modal seam
+    (``_ask_stamp``) is the only exec() site."""
+
+    def __init__(self, pal, raw, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Stamp an archetype")
+        self.pal = pal
+        self._raw = raw
+        self._picked = None
+        self._free = behaviorscan.npc_candidates(raw)
+        self._members = ([m for u in raw["behavior"]["unit"]
+                          for m in behaviorscan.BT.row_members(u)]
+                         if behaviorscan.has_behavior(raw) else [])
+        outer = QVBoxLayout(self)
+        outer.setSpacing(10)
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        left = QVBoxLayout()
+        left.setSpacing(4)
+        left.addWidget(widgets.role_label("THE PROVEN TREES", "subtle"))
+        self.list = QListWidget()
+        self.list.setAccessibleName("Behavior archetypes")
+        for a in behaviorscan.BEHAVIOR_ARCHETYPES:
+            self.list.addItem(a["name"])
+        left.addWidget(self.list, 1)
+        body.addLayout(left, 1)
+        right = QVBoxLayout()
+        right.setSpacing(6)
+        self.teach = widgets.caption("")
+        self.teach.setWordWrap(True)
+        right.addWidget(self.teach)
+
+        def combo_row(caption, a11y):
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(8)
+            h.addWidget(widgets.role_label(caption, "caption"))
+            box = QComboBox()
+            box.setAccessibleName(a11y)
+            h.addWidget(box, 1)
+            return row, box
+
+        self._who_row, self.who = combo_row("Stamp onto", "Stamp onto npc")
+        self.who.addItems(self._free)
+        right.addWidget(self._who_row)
+        self._vs_row, self.vs = combo_row("Fights", "Guard target unit")
+        self.vs.addItems(self._members)
+        right.addWidget(self._vs_row)
+        self._partner_row, self.partner = combo_row("Partner", "Shift partner npc")
+        right.addWidget(self._partner_row)
+        right.addWidget(widgets.role_label("THE LADDER IT WRITES", "subtle"))
+        self.preview = QLabel("")
+        self.preview.setProperty("mono", True)     # the QSS mono rule names QLabel
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.preview.setAccessibleName("Stamp preview")
+        right.addWidget(self.preview, 1)
+        self.note = widgets.caption("")
+        self.note.setWordWrap(True)
+        right.addWidget(self.note)
+        body.addLayout(right, 2)
+        outer.addLayout(body, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        self._ok = bb.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok.setText("Stamp")
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        outer.addWidget(bb)
+        self.list.currentRowChanged.connect(self._sync)
+        self.who.currentIndexChanged.connect(self._sync)
+        self.vs.currentIndexChanged.connect(self._refresh)
+        self.partner.currentIndexChanged.connect(self._refresh)
+        self.list.setCurrentRow(0)                 # fires _sync -> _refresh
+        widgets.fit_dialog(self, ch=96, list_rows=max(
+            6, len(behaviorscan.BEHAVIOR_ARCHETYPES)), lines=18)
+
+    # -- state --
+    def _archetype(self):
+        i = self.list.currentRow()
+        rows = behaviorscan.BEHAVIOR_ARCHETYPES
+        return rows[i] if 0 <= i < len(rows) else None
+
+    def selection(self):
+        """The would-be stamp as ``(key, npc, target-or-partner)`` — pieces may be None
+        while the dialog is mid-thought; :meth:`_refresh` owns legality."""
+        a = self._archetype()
+        if a is None:
+            return None
+        target = None
+        if a.get("needs_target"):
+            target = self.vs.currentText() or None
+        if a.get("needs_partner"):
+            target = self.partner.currentText() or None
+        return (a["key"], self.who.currentText() or None, target)
+
+    def _sync(self, *_):
+        """Archetype/primary changed: teach text, which binding rows exist, and the
+        partner list (always the free npcs MINUS the primary)."""
+        a = self._archetype()
+        if a is None:
+            return
+        self.teach.setText(a["teach"])
+        self._vs_row.setVisible(bool(a.get("needs_target")))
+        self._partner_row.setVisible(bool(a.get("needs_partner")))
+        if a.get("needs_partner"):
+            keep = self.partner.currentText()
+            rest = [n for n in self._free if n != self.who.currentText()]
+            self.partner.blockSignals(True)
+            self.partner.clear()
+            self.partner.addItems(rest)
+            if keep in rest:
+                self.partner.setCurrentText(keep)
+            self.partner.blockSignals(False)
+        self._refresh()
+
+    def _refresh(self, *_):
+        """Preview = the REAL stamp on a scratch copy; anything illegal disables Stamp
+        and says why in the compiler-teaching voice."""
+        a = self._archetype()
+        if a is None:
+            return
+        key, who, target = self.selection()
+        problem = ""
+        if not who:
+            problem = ("This field has no free named [[npc]]s — add one in the Editor "
+                       "tab's NPCs group first.")
+        elif a.get("needs_target") and not self._members:
+            problem = (f"The {key} archetype fights an EXISTING unit — cancel and seat "
+                       "its enemy first (＋ Add unit… or another archetype).")
+        elif a.get("needs_partner") and not target:
+            problem = (f"The {key} archetype seats a PAIR — it needs two free named "
+                       "[[npc]]s (add another first).")
+        elif a.get("needs_target") and not target:
+            problem = "Pick the enemy unit."
+        if problem:
+            self.note.setText(problem)
+            widgets.set_state(self.note, "warn")
+            self.preview.setText("")
+            self._ok.setEnabled(False)
+            return
+        import copy
+        scratch = copy.deepcopy(self._raw)
+        try:
+            behaviorscan.stamp_archetype(scratch, key, who, target)
+        except Exception as e:                     # noqa: BLE001 -- surface it, never crash
+            self.note.setText(str(e))
+            widgets.set_state(self.note, "warn")
+            self.preview.setText("")
+            self._ok.setEnabled(False)
+            return
+        lines = self._ladder_lines(scratch, who)
+        if key == "shift_pair" and target:
+            lines += [""] + self._ladder_lines(scratch, target)
+        minted = (scratch.get("marker") or [])[len(self._raw.get("marker") or []):]
+        if minted:
+            names = ", ".join(str(m.get("name")) for m in minted)
+            lines += ["", f"+ mints the {names} route — drag its points with Stage edit"]
+        self.preview.setText("\n".join(lines))
+        self.note.setText("One undo step (Ctrl+Z); shape the minted geometry on the stage.")
+        widgets.set_state(self.note, "")
+        self._ok.setEnabled(True)
+
+    @staticmethod
+    def _ladder_lines(raw, unit):
+        rows = behaviorscan.ladder_model(raw, unit)
+        out = [f"{unit}:"]
+        for r in rows:
+            cond = " AND ".join(r["conds"]) if r["conds"] else "always"
+            line = f"  {r['index']}  {cond}  →  {r['verb']}"
+            if r["detail"]:
+                line += f" {r['detail']}"
+            if r["decos"]:
+                line += "   · " + " · ".join(r["decos"])
+            out.append(line)
+        return out
+
+    def accept(self):                              # noqa: N802 (Qt override)
+        if not self._ok.isEnabled():
+            return                                 # Enter on an illegal state stamps nothing
+        self._picked = self.selection()
+        super().accept()
+
+    def picked(self):
+        """(key, npc, target-or-partner) after an accepted run, else None."""
+        return self._picked
+
+
 class BehaviorDoc(QWidget):
     """The Behavior tab. The shell feeds it the OPEN field's parsed dict (``show_field``) on
     tab show / tree select -- never a file read; the doc's ONLY disk touches are the two
@@ -813,8 +1084,7 @@ class BehaviorDoc(QWidget):
         self.on_edit = on_edit                     # (member, label) after each committed edit --
         #                                            the shell's touch/checkpoint/re-feed hook
         self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
-        self._ask_archetype = self._ask_archetype_dialog   # same seam shape for the stamp picker
-        self._ask_target = self._ask_target_dialog          # ...and the guard's enemy picker
+        self._ask_stamp = self._ask_stamp_dialog   # the archetype WIZARD (one surface, one seam)
         self._view = None                          # what the projections RENDER: the open dict,
         self._readonly = False                     # or a [siege] field's desugared copy (read-only
         #                                            -- the [siege] block owns the behavior table)
@@ -837,6 +1107,9 @@ class BehaviorDoc(QWidget):
         #                                            is dropped, never painted on the new one
         self._sim = None                           # rung E1: the live behaviorsim.Sim (or None)
         self._sim_pos = 0
+        self._rail_user = False                    # the cast rail auto-fits per field; a user
+        self._rail_setting = False                 # DRAG (not a squeeze) holds until the next
+        self._rail_pending = False                 # field switch
         self._sim_timer = QTimer(self)
         self._sim_timer.setInterval(33)            # ~30 ticks/s -- the engine's own rate
         self._sim_timer.timeout.connect(lambda: self._sim_show(self._sim_pos + 1))
@@ -865,13 +1138,15 @@ class BehaviorDoc(QWidget):
             return widgets.empty_state(
                 "", "This field has no [behavior] block",
                 teach="Behavior gives named [[npc]]s compiled AI — patrols, chases, alarms, "
-                      "combat — as priority branches in the field.toml. The format lives in "
-                      "docs/BEHAVIOR.md; the shipped tower-defense example is "
-                      "examples/siege (one [siege] block — this tab renders its generated "
-                      "army read-only).",
+                      "combat — as priority branches you author by hand or stamp from an "
+                      "archetype (docs/BEHAVIOR.md). The OTHER route is one [siege] block: "
+                      "a whole tower-defense minigame whose army is GENERATED at build — "
+                      "this tab then renders that army read-only, and the Editor form's "
+                      "[siege] section is its editing surface. One field, one route: "
+                      "[siege] owns the behavior table (examples/siege is the shipped one).",
                 actions=[("Add a behavior unit…", self._add_unit),
                          ("Stamp an archetype…", self._stamp_archetype),
-                         ("Stamp a [siege] skeleton…", self._stamp_siege)],
+                         ("Generate a [siege] minigame…", self._stamp_siege)],
                 icon_pixmap=glyph)
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Behavior renders a field's [behavior] block",
@@ -897,9 +1172,11 @@ class BehaviorDoc(QWidget):
         head.setSpacing(10)
         self.head_title = widgets.role_label("Behavior", "head")
         head.addWidget(self.head_title)
-        self.head_sum = widgets.role_label("", "caption")
+        # ElideLabel, not a plain caption: a long summary (the [siege] read-only banner)
+        # must YIELD width, never floor the whole doc's minimum (snap-caught: it put a
+        # 2300px sizeHint under the siege surface and starved the cast rail)
+        self.head_sum = widgets.ElideLabel("")
         head.addWidget(self.head_sum, 1)
-        head.addStretch(0)
         outer.addLayout(head)
         split = QSplitter()
         split.setChildrenCollapsible(False)
@@ -944,9 +1221,8 @@ class BehaviorDoc(QWidget):
         bh.setSpacing(10)
         self.unit_title = widgets.role_label("—", "cardtitle")
         bh.addWidget(self.unit_title)
-        self.unit_stats = widgets.role_label("", "caption")
-        bh.addWidget(self.unit_stats)
-        bh.addStretch(1)
+        self.unit_stats = widgets.ElideLabel("")   # yields width; the buttons keep theirs
+        bh.addWidget(self.unit_stats, 1)
         self.add_branch_btn = QPushButton("＋ Branch")
         self.add_branch_btn.setProperty("role", "quiet")
         self.add_branch_btn.setToolTip("Insert a new branch just above the fallback row "
@@ -987,9 +1263,14 @@ class BehaviorDoc(QWidget):
         sv.setSpacing(2)
         srow = QHBoxLayout()
         srow.setSpacing(8)
-        self.sim_play = QPushButton("▶")
+        # Transport controls wear SVG icons (icons.py), never the unicode media glyphs —
+        # U+23F1/U+23F8 fall back to the Windows emoji face and render as colour blobs
+        # (snap-caught on the timer readout; owner's rule: no emoji, SVGs exist for this).
+        self.sim_play = QPushButton()
         self.sim_play.setProperty("role", "quiet")
         self.sim_play.setCheckable(True)
+        self.sim_play.setIcon(icons.icon("play", self.pal["text"]))
+        self.sim_play.setAccessibleName("Play or pause the simulation")
         self.sim_play.setToolTip("Play / pause (30 ticks per second — the engine's own rate)")
         self.sim_play.toggled.connect(self._sim_play_toggled)
         srow.addWidget(self.sim_play)
@@ -1000,20 +1281,27 @@ class BehaviorDoc(QWidget):
             b.setToolTip(tip)
             b.clicked.connect(lambda _=False, k=n: self._sim_show(self._sim_pos + k))
             srow.addWidget(b)
-        self.sim_reset = QPushButton("⟲")
+        self.sim_reset = QPushButton()
         self.sim_reset.setProperty("role", "quiet")
+        self.sim_reset.setIcon(icons.icon("reset", self.pal["text"]))
+        self.sim_reset.setAccessibleName("Back to tick 0")
         self.sim_reset.setToolTip("Back to tick 0 (boot)")
         self.sim_reset.clicked.connect(lambda: self._sim_show(0))
         srow.addWidget(self.sim_reset)
         self.sim_slider = QSlider(Qt.Orientation.Horizontal)
         self.sim_slider.setToolTip("Scrub the simulated timeline")
         self.sim_slider.valueChanged.connect(self._sim_scrub)
+        # the scrub bar is the strip's central affordance: floor it so the labels can
+        # never starve it to a sliver (snap-caught at 100 AND 150%)
+        self.sim_slider.setMinimumWidth(int(120 * self._scale / 100))
         srow.addWidget(self.sim_slider, 1)
         self.sim_time = widgets.role_label("tick 0 · 0.0 s", "caption")
         self.sim_time.setProperty("mono", True)
         srow.addWidget(self.sim_time)
         sv.addLayout(srow)
-        self.sim_note = widgets.caption("")
+        self.sim_event = widgets.ElideLabel("", mono=True)   # the latest event, its OWN line —
+        sv.addWidget(self.sim_event)                         # never the slider's competitor
+        self.sim_note = widgets.ElideLabel("")               # the honesty ledger's one-line face
         sv.addWidget(self.sim_note)
         self.sim_bar.hide()
         cl.addWidget(self.sim_bar)
@@ -1045,6 +1333,8 @@ class BehaviorDoc(QWidget):
         # Ask for LESS than the realistic ~700px budget at a 1280 window (snap-measured: a
         # request over the available width let Qt starve the CENTER pane while rails kept theirs).
         split.setSizes([int(170 * k), int(530 * k)])
+        self._hsplit = split
+        split.splitterMoved.connect(self._on_rail_drag)
         outer.addWidget(split, 1)
         return page
 
@@ -1116,12 +1406,16 @@ class BehaviorDoc(QWidget):
         self._scale = pct
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
+            self.sim_slider.setMinimumWidth(int(120 * pct / 100))
 
     def retheme(self, pal):
         self.pal = pal
         if hasattr(self, "canvas"):
             self.canvas.retheme(pal)
             self.ladder.pal = pal
+            self.sim_play.setIcon(icons.icon(
+                "pause" if self.sim_play.isChecked() else "play", pal["text"]))
+            self.sim_reset.setIcon(icons.icon("reset", pal["text"]))
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(self._guide_state)    # rebuild: the glyph pixmap is palette-tinted
         elif self._raw is not None and self._member:
@@ -1152,6 +1446,7 @@ class BehaviorDoc(QWidget):
             self._selected_unit = None
             self._set_result(None)                 # another field's report must not linger
             self._reset_sweep()                    # ...nor its walkmesh or painted verdicts
+            self._rail_user = False                # a new field re-earns the rail auto-fit
         self._stack.setCurrentWidget(self._content)
         self._render(refit=not same_field)
 
@@ -1164,9 +1459,20 @@ class BehaviorDoc(QWidget):
             if view is None:
                 return False
             self._view, self._readonly = view, True
+        why_off = ("This [siege] field's behavior is GENERATED, so the tab renders it "
+                   "read-only. Edit the [siege] block in the Editor form — or delete it "
+                   "there (or Ctrl+Z a fresh stamp) to author [behavior] by hand.")
         for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
                   self.remove_unit_btn, self.edit_btn):
             b.setEnabled(not self._readonly)
+            # a disabled button must SAY WHY (Qt shows tooltips on disabled widgets);
+            # the live tooltip is stashed once and restored when editing returns
+            if self._readonly:
+                if b.property("livetip") is None:
+                    b.setProperty("livetip", b.toolTip())
+                b.setToolTip(why_off)
+            elif b.property("livetip") is not None:
+                b.setToolTip(b.property("livetip"))
         if self._readonly and self.edit_btn.isChecked():
             self.edit_btn.setChecked(False)        # stage edit writes; a view has no writes
         self.ladder.actions = {} if self._readonly else self._ladder_actions
@@ -1183,6 +1489,8 @@ class BehaviorDoc(QWidget):
             "  ·  generated from [siege] — read-only (edit the [siege] block in the "
             "Editor form)" if self._readonly else ""))
         self._fill_cast(cast)
+        if refit:
+            self._fit_rail()                       # the rail asks for its own longest row
         self._fill_ladder(cast)
         self.canvas.set_model(
             behaviorscan.stage_model(raw), self._selected_unit, refit=refit,
@@ -1268,6 +1576,41 @@ class BehaviorDoc(QWidget):
         self.unit_title.setText(self._selected_unit or "—")
         self.unit_stats.setText(" · ".join(stats))
         self.ladder.set_rows(self._selected_unit, rows)
+
+    # -- the cast rail's TAILOR: a pane denied its content's width elides every row --
+    def _on_rail_drag(self, *_):
+        if not self._rail_setting:
+            self._rail_user = True                 # a DRAG (unlike a squeeze) is a preference
+
+    def _fit_rail(self):
+        """Ask the rail for its own longest row, capped: the 170px ctor default elided
+        EVERY cast row's info bits at both CALIBRE rungs (snap-caught — "class ×3"
+        rendered "class …", defeating the class-row face). Field switch only; a user
+        drag holds until the next field."""
+        if self._rail_user:
+            return
+        sizes = self._hsplit.sizes()
+        total = sum(sizes)
+        if total < 320:                            # never laid out yet: first show re-runs
+            self._rail_pending = True              # (the Info Hub sidebar's allocation law)
+            return
+        self._rail_pending = False
+        k = self._scale / 100
+        want = (self.cast.sizeHintForColumn(0) + self.cast.indentation()
+                + 2 * self.cast.frameWidth()
+                + self.cast.verticalScrollBar().sizeHint().width() + 10)
+        rail = max(int(150 * k), min(want, int(280 * k), total - int(430 * k)))
+        if rail > 0 and abs(rail - sizes[0]) > 6:
+            self._rail_setting = True
+            try:
+                self._hsplit.setSizes([rail, total - rail])
+            finally:
+                self._rail_setting = False
+
+    def showEvent(self, ev):                       # noqa: N802 (Qt override)
+        super().showEvent(ev)
+        if self._rail_pending:                     # fed while hidden: fit on the real layout
+            QTimer.singleShot(0, self._fit_rail)
 
     def _on_cast_select(self):
         items = self.cast.selectedItems()
@@ -1370,13 +1713,22 @@ class BehaviorDoc(QWidget):
         dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
         return (dlg.textValue() if dlg.exec() else None)
 
+    def _no_free_npcs_msg(self):
+        """Why the npc picker is empty — playtest-caught: with ZERO npcs on the field the
+        old all-taken wording ('Every named [[npc]] already has a behavior unit') described
+        a cast that did not exist."""
+        if any(n.get("name") for n in (self._raw.get("npc") or [])):
+            return ("Every named [[npc]] already has a behavior unit — add another "
+                    "[[npc]] first (the Editor tab's NPCs group).")
+        return ("This field has no named [[npc]]s yet — behavior runs ON npcs. Add some "
+                "in the Editor tab's NPCs group, then come back and stamp.")
+
     def _add_unit(self):
         if self._raw is None or self._readonly:
             return
         names = behaviorscan.npc_candidates(self._raw)
         if not names:
-            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
-                                      "an [[npc]] first (the Editor tab's NPCs group).")
+            self.problems_lbl.setText(self._no_free_npcs_msg())
             widgets.set_state(self.problems_lbl, "warn")
             return
         name = self._ask_unit(names)
@@ -1411,72 +1763,29 @@ class BehaviorDoc(QWidget):
         self._after_edit(f"remove behavior unit {unit}")
 
     # -- rung D: archetype stamps (whole proven trees through ONE pure op + one undo step) --
-    def _ask_archetype_dialog(self):
-        """Prod's picker (instance QInputDialog, the modal-seam law); returns a key or None."""
-        from PySide6.QtWidgets import QInputDialog
-        rows = [a["name"] for a in behaviorscan.BEHAVIOR_ARCHETYPES]
-        dlg = QInputDialog(self)
-        dlg.setWindowTitle("Stamp a behavior archetype")
-        dlg.setLabelText("Which proven tree? (shape its minted geometry with Stage edit)")
-        dlg.setComboBoxItems(rows)
-        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
-        if not dlg.exec():
-            return None
-        picked = dlg.textValue()
-        return next((a["key"] for a in behaviorscan.BEHAVIOR_ARCHETYPES
-                     if a["name"] == picked), None)
-
-    def _ask_target_dialog(self, names):
-        """The guard's enemy picker (instance QInputDialog, the modal-seam law)."""
-        from PySide6.QtWidgets import QInputDialog
-        dlg = QInputDialog(self)
-        dlg.setWindowTitle("Pick the enemy")
-        dlg.setLabelText("Which unit does this guard fight? (give it a swing branch back "
-                         "for mutual combat)")
-        dlg.setComboBoxItems(names)
-        dlg.setOption(QInputDialog.InputDialogOption.UseListViewForComboBoxItems, True)
-        return (dlg.textValue() if dlg.exec() else None)
+    def _ask_stamp_dialog(self):
+        """Prod's wizard (an INSTANCE dialog — the modal-seam law; tests/snaps inject
+        ``_ask_stamp``). Returns (key, npc, target-or-partner) or None. The wizard
+        owns every in-dialog legality question (guard-without-an-enemy, pair-without-
+        a-partner) with the teach on its face — only the zero-free-npc case refuses
+        before the door opens (there is nothing to show)."""
+        dlg = ArchetypeWizard(self.pal, self._raw, self)
+        try:
+            return dlg.picked() if dlg.exec() else None
+        finally:
+            dlg.deleteLater()
 
     def _stamp_archetype(self):
         if self._raw is None or self._readonly:
             return
-        names = behaviorscan.npc_candidates(self._raw)
-        if not names:
-            self.problems_lbl.setText("Every named [[npc]] already has a behavior unit — add "
-                                      "an [[npc]] first (the Editor tab's NPCs group).")
+        if not behaviorscan.npc_candidates(self._raw):
+            self.problems_lbl.setText(self._no_free_npcs_msg())
             widgets.set_state(self.problems_lbl, "warn")
             return
-        key = self._ask_archetype()
-        if not key:
+        picked = self._ask_stamp()
+        if not picked:
             return
-        target = None
-        row = next((a for a in behaviorscan.BEHAVIOR_ARCHETYPES if a["key"] == key), {})
-        if row.get("needs_target"):
-            # cond/action targets bind MEMBER npc names (a class name is never a target)
-            units = [m for u in self._raw["behavior"]["unit"]
-                     for m in behaviorscan.BT.row_members(u)] \
-                if behaviorscan.has_behavior(self._raw) else []
-            if not units:
-                self.problems_lbl.setText(f"The {key} archetype fights an EXISTING unit — "
-                                          "seat its enemy first (Add unit / an archetype).")
-                widgets.set_state(self.problems_lbl, "warn")
-                return
-            target = self._ask_target(units)
-            if not target:
-                return
-        name = self._ask_unit(names)
-        if not name:
-            return
-        if row.get("needs_partner"):
-            rest = [n for n in names if n != name]
-            if not rest:
-                self.problems_lbl.setText(f"The {key} archetype seats a PAIR — it needs two "
-                                          "free named [[npc]]s (add another first).")
-                widgets.set_state(self.problems_lbl, "warn")
-                return
-            target = self._ask_unit(rest)          # the partner, from the remaining free npcs
-            if not target:
-                return
+        key, name, target = picked
         label = behaviorscan.stamp_archetype(self._raw, key, name, target)
         self._selected_unit = name
         if self._stack.currentWidget() is self._guide_page:   # first unit on a bare field
@@ -1495,8 +1804,13 @@ class BehaviorDoc(QWidget):
                 self.edit_btn.setChecked(False)
             self._sim = behaviorsim.Sim(src)
             self._sim_pos = 0
-            self.sim_note.setText("offline approximation — " + " · ".join(self._sim.notes))
+            # the honesty ledger ON THE FACE, one line (the short tags), the full
+            # sentences on hover — the 4-line wrap pushed the doc 140px wider
+            self.sim_note.setFullText("offline approximation — "
+                                      + " · ".join(self._sim.short)
+                                      + " — hover for the full ledger")
             self.sim_note.setToolTip("\n".join(self._sim.notes))
+            self.sim_event.setFullText("")
             self.sim_bar.show()
             self.canvas.set_sim_mode(True)
             self.canvas.on_sim_click = self._sim_move_player
@@ -1522,19 +1836,20 @@ class BehaviorDoc(QWidget):
         self.sim_slider.setValue(tick)
         self.sim_slider.blockSignals(False)
         t = f"tick {tick} · {tick / behaviorsim.TICKS_PER_SEC:.1f} s"
-        if st["timer"] is not None:
-            t += f" · ⏱ {st['timer']:.0f}s" + (" (frozen)" if st["timer_frozen"] else "")
-        ev = self._sim.events[st["events"] - 1] if st["events"] else None
-        if ev is not None:
-            t += f"   |   {ev.tick / behaviorsim.TICKS_PER_SEC:.1f}s {ev.unit}: {ev.text}"
+        if st["timer"] is not None:                # the word, not U+23F1 (emoji-face blob)
+            t += f" · timer {st['timer']:.0f}s" + (" (frozen)" if st["timer_frozen"] else "")
         self.sim_time.setText(t)
+        ev = self._sim.events[st["events"] - 1] if st["events"] else None
+        self.sim_event.setFullText(
+            f"{ev.tick / behaviorsim.TICKS_PER_SEC:.1f}s {ev.unit}: {ev.text}"
+            if ev is not None else "")
         self.canvas.set_sim(st)
         sels = {u["sel"] for u in st["units"].values()
                 if u["unit"] == self._selected_unit and u["sel"] >= 0}
         self.ladder.set_sim_sel(sels)
 
     def _sim_play_toggled(self, on):
-        self.sim_play.setText("⏸" if on else "▶")
+        self.sim_play.setIcon(icons.icon("pause" if on else "play", self.pal["text"]))
         if on:
             self._sim_timer.start()
         else:

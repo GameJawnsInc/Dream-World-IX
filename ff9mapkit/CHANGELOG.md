@@ -5,10 +5,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the archetype stamp WIZARD (one teaching surface, not a picker chain)
+- "Stamp an archetype…" now opens a single dialog: the proven trees listed with their
+  teach text, the actor bindings (target npc, the guard's enemy, the shift pair's
+  partner) appearing exactly when the picked archetype needs them, and a LIVE preview
+  of the ladder the stamp will write — produced by running the real stamp on a scratch
+  copy, so it can never drift from what lands. Minted route markers are disclosed in
+  the preview; anything illegal (a guard with no seated enemy, a pair without a second
+  free npc) disables Stamp and says why in place.
+
+### Changed — a Behavior-tab UX pass (the readable-by-default round)
+- The cast rail now asks for its own longest row on each field switch (capped), so
+  unit/class info bits ("class ×3 · 4 hp") stop eliding at the default window; a rail
+  the user drags stays where they put it until the next field.
+- Stage labels negotiate vertical tiers instead of overlapping, and a class's members
+  parked in a rank (the [siege] pool bench) collapse to one counted label
+  ("soldier ×3 · pooled" — hover names the members) while every member keeps its dot.
+- The ▶ Simulate strip: the scrub slider can no longer be starved by long captions
+  (the latest event has its own line; the honesty ledger shows its short tags with the
+  full sentences on hover), the timer reads "timer 57s" instead of an emoji-font ⏱
+  blob, and play/pause/reset wear real SVG icons.
+- The [siege] read-only banner and the unit-bar stats elide instead of flooring the
+  whole tab's minimum width (the siege face demanded 2300px before).
+
 ### Added — ▶ Simulate: the Behavior tab's offline tick-stepper
 - Step or play a `[behavior]` tree offline at the engine's own 30 ticks/s: ▶ sweeps the
   ladder rows as branches select, units move as ghosts on the stage, the strip shows
-  tick · seconds · the countdown ⏱ and the latest one-shot event, and clicking the stage
+  tick · seconds · the countdown timer and the latest one-shot event, and clicking the stage
   moves the sim's player (the move joins the timeline, so scrubbing back and forward
   replays identically). Built to catch the priority/starvation authoring family — sticky
   `once` vs the event-once release, hysteresis keeps, dead branches — before a playtest.

@@ -167,19 +167,27 @@ class Sim:
         self._history: list[dict] = []
         self._live: dict = {}          # scratch mutable state while stepping
 
+        # The honesty ledger, twice: full sentences (``notes`` — the tooltip / any
+        # transcript) and a short tag per caveat (``short`` — the strip's one-line face;
+        # the wrapped 4-line caption pushed the whole doc 140px wider, snap-caught).
+        self.short: list[str] = []
         self.notes.append("walks are STRAIGHT lines — no walkmesh, no unit collision "
                           "(the Sweep lane owns wall truth; a route clean here can "
                           "still jam in-game)")
+        self.short.append("straight walks")
         if pooled_names:
             self.notes.append("pooled units stay dormant (%s) — the hire economy is "
                               "not simulated" % ", ".join(sorted(pooled_names)))
+            self.short.append("pools dormant")
         if no_pos:
             self.notes.append("no position for %s — left out of the sim"
                               % ", ".join(sorted(set(no_pos))))
+            self.short.append("%d unplaced" % len(set(no_pos)))
         if any(any("battle" in (br.get("do") or {}) for br in r["branches"])
                for r in self.rows):
             self.notes.append("battle logs an event here; in-game it suspends the "
                               "field (swirl, fight, Main_Reinit return)")
+            self.short.append("battle only logs")
         self._snapshot(0)              # state 0 = boot
 
     # ------------------------------------------------------------------ public API

@@ -369,6 +369,64 @@ class NameLabel(QLabel):
         super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
 
 
+class ElideLabel(QLabel):
+    """A single-line label that elides instead of pushing width — NameLabel's pinning
+    pattern (sizeHint = the FULL string, minimumSizeHint = one ellipsis, elide in
+    resizeEvent with no relayout feedback) at any role tier, not just the display name.
+
+    Born for the Behavior tab's tick-stepper: the compound time+event caption there
+    STARVED the scrub slider to a sliver at the default window (snap-caught at 100 AND
+    150%) because a plain QLabel demands its full text width. Full text survives in the
+    tooltip and ``accessibleName``.
+    """
+
+    def __init__(self, text="", role="caption", *, mono=False, parent=None):
+        super().__init__(parent)
+        self._full = text
+        self.setProperty("role", role)
+        if mono:
+            self.setProperty("mono", True)
+        self.setText(text)
+        self.setAccessibleName(text)
+        self.setToolTip(text)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+    def setFullText(self, text: str) -> None:
+        self._full = text
+        self.setAccessibleName(text)
+        self.setToolTip(text)
+        self._relayout_free_elide()
+        self.updateGeometry()
+
+    def setText(self, text):                  # every caller means the FULL text; the
+        self.setFullText(text)                # elided paint is this class's own business
+
+    def fullText(self) -> str:
+        return self._full
+
+    def sizeHint(self):                       # PINNED to the full string (NameLabel's law)
+        fm = self.fontMetrics()
+        return QSize(int(fm.horizontalAdvance(self._full)) + 2, fm.height())
+
+    def minimumSizeHint(self):                # yield to the pane; never push a scrollbar
+        fm = self.fontMetrics()
+        return QSize(int(fm.horizontalAdvance("…")) + 2, fm.height())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._relayout_free_elide()
+
+    def changeEvent(self, ev):
+        if ev.type() == QEvent.Type.FontChange:   # CALIBRE re-metrics the elide (GAUGE)
+            self._relayout_free_elide()
+        super().changeEvent(ev)
+
+    def _relayout_free_elide(self):
+        fm = self.fontMetrics()
+        w = max(0, self.width() - 2)
+        super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
+
+
 class ElideButton(QPushButton):
     """A button whose label yields with the pane instead of clipping mid-glyph.
 

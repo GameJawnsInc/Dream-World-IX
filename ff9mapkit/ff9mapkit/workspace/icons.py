@@ -107,6 +107,12 @@ _ICONS: dict[str, str] = {
     # ship (Build & Deploy / Co-op) reuses the rocket, so the Ship rail and the Deploy
     # button wear the same glyph — the eye connects "Ship workspace" with "Deploy".
     "download": '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+    # The transport family (the Behavior tab's tick-stepper) — SVG, never the unicode
+    # media glyphs: U+23F1/U+23F8 fall back to the Windows EMOJI face and render as
+    # dark colour blobs (snap-caught on the sim strip's timer readout).
+    "play": '<path d="M8 5.5l11 6.5-11 6.5V5.5z"/>',
+    "pause": '<path d="M8 5v14"/><path d="M16 5v14"/>',
+    "reset": '<path d="M5.5 9A8 8 0 1 1 4 13"/><path d="M5.5 4v5H10"/>',
 }
 
 

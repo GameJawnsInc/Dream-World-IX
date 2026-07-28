@@ -759,7 +759,7 @@ def stamp_siege(raw: dict) -> str:
              "route": [[px - 300, pz], [px, pz + 300]], "autoroute": True},   # the Editor form
         ],
     }
-    return "stamp [siege] skeleton"
+    return "generate [siege] minigame"
 
 
 def siege_view(raw: dict):

@@ -31,9 +31,9 @@ def test_the_library_has_a_behavior_archetypes_section(app):
     names = [lib.lst.item(i).text() for i in range(lib.lst.count())]
     assert names == [e.name for e in infohub.behavior_entries()]
     lib.lst.setCurrentRow(names.index("guard"))
-    html = lib.detail.toHtml()
-    assert "TARGET" in html                            # the needs fact reached the pane
-    assert "Archetype" in html                         # ...and the doorway teaching with it
+    text = lib.detail.toPlainText()                    # plain text: rich-text spans can
+    assert "TARGET" in text                            # split a literal like "[siege]"
+    assert "Archetype" in text                         # ...the doorway teaching with it
     lib.lst.setCurrentRow(names.index("siege"))
-    html = lib.detail.toHtml()
-    assert "[siege]" in html and "skeleton" in html
+    text = lib.detail.toPlainText()
+    assert "[siege]" in text and "minigame" in text    # the two-route rename's words

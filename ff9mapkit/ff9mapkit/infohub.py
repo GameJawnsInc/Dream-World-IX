@@ -245,7 +245,8 @@ def behavior_entries() -> list:
     out.append(Entry("behavior", "siege", None,
                      "[siege] — the whole tower-defense minigame as ONE declarative block: "
                      "base, hire pools, raider waves, payouts; compiles onto per-class "
-                     "brains. The Behavior tab's empty-field guide stamps a legal skeleton."))
+                     "brains. The Behavior tab's empty-field guide generates a legal one "
+                     "to start from (read-only there; edit it in the Editor form)."))
     return out
 
 
@@ -681,9 +682,9 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
             d.facts = [("kind", "minigame block ([siege] — a whole tower defense)"),
                        ("what", "base + hire pools + raider waves + payouts, compiled onto "
                                 "per-class brains (one shared program per unit type)"),
-                       ("in the app", "Behavior tab (empty field) → 'Stamp a [siege] skeleton'; "
-                                      "edit in the Editor form's [siege] section — the Behavior "
-                                      "tab renders the generated army read-only"),
+                       ("in the app", "Behavior tab (empty field) → 'Generate a [siege] "
+                                      "minigame…'; edit in the Editor form's [siege] section — "
+                                      "the Behavior tab renders the generated army read-only"),
                        ("docs", "docs/FORMAT.md § [siege]")]
         else:
             d.facts = [("kind", "behavior archetype (a proven, dry-compile-fenced tree)"),
