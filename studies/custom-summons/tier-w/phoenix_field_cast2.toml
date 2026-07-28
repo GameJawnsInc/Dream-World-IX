@@ -14,14 +14,16 @@
 # visible, while the probe's zeroed stripes read as crisp dark bands on this very surface.  So the
 # wheel is TRANSPARENT texels: dark ring-and-spokes gaps in the glowing smoke.
 #
-# Generate the art first (the committed generator):
+# Generate the art first (the committed generator).  CAST 2b uses the BOLD profile: the thin wheel
+# (7% of the page) did not read on this surface's sheared, mirrored UV while the probe's stripes
+# (28%) read instantly, so the same figure is scaled toward stripe-class coverage:
 #
-#     py phoenix_field_stamp.py --cell cell.s0.x576_y384 --mode punch ^
+#     py phoenix_field_stamp.py --cell cell.s0.x576_y384 --mode punch --bold ^
 #        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2
 #
-# MEASURED by that run: 2,312 texels stamped, 1,557 differ (the rest were already transparent --
-# this texture is 52% smoke-holes), punch 1,557 / fill 0, dead bytes moved 0; island centroid
-# (55.5, 47.5), ring at r = 38.4 texels, stroke 8.1, 3 spokes; ink measured but unused (punch).
+# MEASURED by that run: 6,120 texels stamped (18.7% of the page), 4,419 differ (the rest were
+# already transparent -- this texture is 52% smoke-holes), punch 4,419 / fill 0, dead bytes
+# moved 0; island centroid (55.5, 47.5), ring at r = 38.4 texels, stroke 0.30R, 3 wide spokes.
 
 [reskin]
 effect = 211

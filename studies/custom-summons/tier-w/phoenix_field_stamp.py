@@ -124,6 +124,15 @@ STROKE_OF_RING = 2.2 / (0.80 * 26.0)
 SPOKES = 3
 SPOKE_DUTY = 0.90
 
+#: THE BOLD PROFILE (``--bold``) -- cast 2's in-game lesson.  The thin wheel (7% of the page) did
+#: not read on the emergence vortex, while the probe's stripes (28%) read instantly: the surface's
+#: sheared, mirrored UV shreds small figures.  Bold scales the SAME wheel toward stripe-class
+#: coverage -- stroke ~0.30 of the ring radius, spokes ~3x wider -- without changing what it is
+#: (a ring with three spokes, which smoke never forms).  The default profile stays untouched, so
+#: the pinned W6a/cast-2 artifacts regenerate byte-identically.
+BOLD_STROKE_OF_RING = 0.30
+BOLD_SPOKE_DUTY = 0.72
+
 
 def _luma(word: int) -> float:
     """Rec.601 luma of one BGR555 palette word, through the kit's own decoder."""
@@ -220,7 +229,8 @@ def island_centre(mask: Sequence[int], w: int, h: int) -> Tuple[float, float, in
 
 
 def stamp(px: Sequence[int], mask: Sequence[int], w: int, h: int, cx: float, cy: float, r: int,
-          ink: int) -> Tuple[bytearray, int]:
+          ink: int, stroke_frac: float = STROKE_OF_RING,
+          spoke_duty: float = SPOKE_DUTY) -> Tuple[bytearray, int]:
     """The wheel, written ONLY where the UV cover says a face samples the texel.
 
     That single guard is what makes "dead bytes moved" come out at zero rather than being asserted.
@@ -229,7 +239,7 @@ def stamp(px: Sequence[int], mask: Sequence[int], w: int, h: int, cx: float, cy:
     """
     out = bytearray(px)
     ring = RING_R * r
-    half = STROKE_OF_RING * ring
+    half = stroke_frac * ring
     n = 0
     for y in range(h):
         for x in range(w):
@@ -240,7 +250,7 @@ def stamp(px: Sequence[int], mask: Sequence[int], w: int, h: int, cx: float, cy:
             d = math.hypot(dx, dy)
             th = math.atan2(dy, dx)
             on_ring = abs(d - ring) <= half
-            on_spoke = d <= ring and abs(((th * SPOKES / math.pi) % 2.0) - 1.0) > SPOKE_DUTY
+            on_spoke = d <= ring and abs(((th * SPOKES / math.pi) % 2.0) - 1.0) > spoke_duty
             if on_ring or on_spoke:
                 out[i] = ink
                 n += 1
@@ -249,7 +259,7 @@ def stamp(px: Sequence[int], mask: Sequence[int], w: int, h: int, cx: float, cy:
 
 def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
              from_path: Optional[str] = None, game=None, export: bool = True,
-             mode: str = "ink") -> Dict[str, object]:
+             mode: str = "ink", bold: bool = False) -> Dict[str, object]:
     """Export the effect's art, stamp the cell, and return every number the spec and the report quote.
 
     ``mode="ink"`` (the default, and the pinned artifact) paints the wheel in the max-luminance live
@@ -300,7 +310,9 @@ def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
     else:
         raise SystemExit("unknown mode %r -- this generator ships `ink` and `punch`" % mode)
     cx, cy, r, cov_bound = island_centre(mask, w, h)
-    edited, stamped = stamp(px, mask, w, h, cx, cy, r, write_value)
+    edited, stamped = stamp(px, mask, w, h, cx, cy, r, write_value,
+                            stroke_frac=BOLD_STROKE_OF_RING if bold else STROKE_OF_RING,
+                            spoke_duty=BOLD_SPOKE_DUTY if bold else SPOKE_DUTY)
 
     zs = set(zeros)
     changed = [i for i in range(len(px)) if px[i] != edited[i]]
@@ -386,13 +398,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--no-export", action="store_true",
                     help="skip `export-art` and stamp into an art directory that already exists "
                          "(the manifest and the per-cell previews are then whatever is there)")
+    ap.add_argument("--bold", action="store_true",
+                    help="the stripe-class figure profile (stroke 0.30R, spokes 3x wider) -- for "
+                         "surfaces whose sheared UV shreds the thin wheel; the default profile and "
+                         "its pinned artifacts are untouched")
     ap.add_argument("--mode", choices=("ink", "punch"), default="ink",
                     help="ink = paint the wheel in the max-luminance live entry (the pinned "
                          "artifact); punch = write the TRANSPARENT index instead -- the cast-1 "
                          "discriminator (a hole adds nothing under additive blending)")
     ap.add_argument("--game", default=None)
     a = ap.parse_args(argv)
-    d = generate(a.ef, a.cell, a.root, a.from_path, a.game, export=not a.no_export, mode=a.mode)
+    d = generate(a.ef, a.cell, a.root, a.from_path, a.game, export=not a.no_export, mode=a.mode, bold=a.bold)
     print("\n".join(report(d)))
     # THE TWO NUMBERS THE CLAIM RESTS ON, per mode -- `dead_bytes_moved` must be 0 either way (paint
     # outside the UV cover is inert).  In `ink` mode `cutout_punch` must be 0 (nothing is removed;
