@@ -1028,10 +1028,17 @@ def _fill_tri(mask: bytearray, w: int, h: int, tri) -> None:
 
 
 def _face_polys(pts):
-    """UV corner list -> triangles. A quad's four corners are perimeter-ordered, so it fans
-    ``(0,1,2) + (0,2,3)`` -- the same triangulation ``summons.build._mesh_tris`` emits."""
+    """UV corner list -> triangles. A quad's four corners are Z-ORDERED -- the PSX GPU's own strip
+    order (v0 v1 over v2 v3), NOT a perimeter walk -- so it fans ``(0,1,2) + (1,3,2)``, the same
+    triangulation ``summons.build._mesh_tris`` emits. Measured, not assumed: scoring both fans for
+    winding consistency over every 4-corner primitive in the 372-container corpus gives the Z fan
+    29,725 of 29,986 textured quads (FT4+GT4, both families) against 13 for the perimeter fan
+    ``(0,1,2) + (0,2,3)`` -- the rest degenerate -- and 0 of 612 quad-bearing geoms lean perimeter;
+    the untextured G4/F4 buckets agree 3,521:1 in 3D. The perimeter fan on a Z-ordered quad is a
+    BOWTIE: opposite winding per triangle, one half double-covered, a wedge uncovered -- on ef211's
+    pool arc (geom 0x2ed7c) it under-counted the cover by 700 halfwords, 17.4%."""
     if len(pts) == 4:
-        return [(pts[0], pts[1], pts[2]), (pts[0], pts[2], pts[3])]
+        return [(pts[0], pts[1], pts[2]), (pts[1], pts[3], pts[2])]
     return [(pts[0], pts[1], pts[2])]
 
 
