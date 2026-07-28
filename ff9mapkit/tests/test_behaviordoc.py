@@ -798,3 +798,25 @@ def test_a_class_row_reads_as_a_class_in_cast_ladder_and_stage(doc):
     doc.cast.setCurrentItem(hero_item)
     assert doc._selected_unit == "hero"
     assert _scene_tags(doc.canvas).count("ring") == 0   # rings still belong to the selection
+
+
+def test_a_readonly_views_disabled_buttons_say_why(doc):
+    """Playtest-caught (D2/D3 round): on a [siege] field the editing rail is disabled by
+    design, and the only tell was a header caption -- the user read the dead button as a
+    bug. A disabled button must SAY WHY on hover; the live tooltip comes back with edit."""
+    import copy
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py"
+    spec = importlib.util.spec_from_file_location("_siege_fx_tips", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    live_tip = doc.archetype_btn.toolTip()
+    doc.show_field("REDOUBT", {"field": {"name": "REDOUBT"}, "player": {"spawn": [0, -600]},
+                               "siege": copy.deepcopy(mod.RAW)}, None)
+    assert not doc.archetype_btn.isEnabled()
+    assert "GENERATED" in doc.archetype_btn.toolTip()      # the why, on the dead button
+    assert "Ctrl+Z" in doc.archetype_btn.toolTip()         # ...and the way out
+    doc.show_field("BGLADE", demo_raw(), None)             # an editable field again
+    assert doc.archetype_btn.isEnabled()
+    assert doc.archetype_btn.toolTip() == live_tip         # the teaching tooltip returns

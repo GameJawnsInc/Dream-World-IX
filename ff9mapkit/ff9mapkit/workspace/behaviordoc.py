@@ -1164,9 +1164,20 @@ class BehaviorDoc(QWidget):
             if view is None:
                 return False
             self._view, self._readonly = view, True
+        why_off = ("This [siege] field's behavior is GENERATED, so the tab renders it "
+                   "read-only. Edit the [siege] block in the Editor form — or delete it "
+                   "there (or Ctrl+Z a fresh stamp) to author [behavior] by hand.")
         for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
                   self.remove_unit_btn, self.edit_btn):
             b.setEnabled(not self._readonly)
+            # a disabled button must SAY WHY (Qt shows tooltips on disabled widgets);
+            # the live tooltip is stashed once and restored when editing returns
+            if self._readonly:
+                if b.property("livetip") is None:
+                    b.setProperty("livetip", b.toolTip())
+                b.setToolTip(why_off)
+            elif b.property("livetip") is not None:
+                b.setToolTip(b.property("livetip"))
         if self._readonly and self.edit_btn.isChecked():
             self.edit_btn.setChecked(False)        # stage edit writes; a view has no writes
         self.ladder.actions = {} if self._readonly else self._ladder_actions
