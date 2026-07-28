@@ -135,12 +135,17 @@ def brain_b() -> bytes:
         label("top"),
         _stmt(f"Map.Byte[{DIE_FLAG}] const(1) B_EQ"),
         (JMP_IFNOT, "patrol"),
-        opcodes.run_script_async(DISPATCH, 255, 9),         # fire MY unit's die body
+        # THE MUST-LAND DISPATCH LAW (round 2's find): a lone REQ against a BUSY
+        # unit drops SILENTLY and forever -- the owner's open dialogue held the mu
+        # at talk level, the one-shot die REQ vanished, and the brain halted with
+        # the mu immortal. A transition-critical dispatch uses REQSW (0x12): the
+        # Seq STAYS here until the unit frees, then the function is bound.
+        opcodes.encode(0x12, DISPATCH, 255, 9),             # RunScript: block, then fire the die body
         label("halt"),
         opcodes.wait(30),
         (JMP, "halt"),                                      # idle until tag-9's 0x45 disposes me
         label("patrol"),
-        opcodes.run_script_async(DISPATCH, 255, 8),         # dropped while tag-8 is busy
+        opcodes.run_script_async(DISPATCH, 255, 8),         # REQ: dropped while tag-8 is busy (wanted!)
         opcodes.wait(30),
         (JMP, "top"),
         opcodes.RETURN,
@@ -312,19 +317,12 @@ def deploy() -> None:
         raise SystemExit(f"no live EVT_{FIELD_NAME}.eb.bytes found to patch")
     print(f"""patched {patched} language .eb file(s)
 
-PLAYTEST round 2 (already registered -> ~ -> Reload field is enough; P1-P3 passed
-round 1 and should simply still hold):
-  P5    each of the mu's turn-in-place cycles ends with a BLIP + HOP (~ every
-        2s). The blip is new -- it separates the self-REQ hop from the die leap.
-        (The model snapping back to straight after each turn is EXPECTED: the
-        turn clips are layered one-shots; the actor's true facing never moves.)
-  P4    TALK to the mu: dialogue, one SILENT leap, and it VANISHES for good.
-        Then wait 30 seconds and keep walking around: the knights must still
-        greet, no freeze, no crash (the die body stopped its brain BEFORE
-        self-disposal). Round 1 never tested this -- the die flag sat out of
-        range and the die lane never fired.
-  Also: Memoria.log should stay CLEAN of the once-per-second
-        IndexOutOfRange/CalcStack pairs this time.
+PLAYTEST round 3 (~ -> Reload field; P1/P2/P3/P5 all passed -- ONLY P4 is open):
+  P4    TALK to the mu, close the dialogue: it finishes any current turn cycle,
+        then ONE silent leap and it VANISHES for good. Then wait 30 seconds and
+        keep walking around: the knights must still greet, no freeze, no crash.
+        (Round 2's miss: the lone die REQ dropped against the open dialogue --
+        the die dispatch is now REQSW, which WAITS for the mu to free up.)
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 

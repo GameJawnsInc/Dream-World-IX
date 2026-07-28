@@ -718,9 +718,17 @@ too. The FILE wall recedes on all three fronts at once.
   pairs); the JMP_IFNOT recovered reading falsy and fell through to the turn
   branch — so the field LOOKED alive while the die lane was unreachable every
   tick. Round 2 moves the flag to 77.
-- **P5 self-REQ — likely firing, unproven:** the "leap on talk" the owner saw
-  was almost certainly the per-cycle hop (a hop lands within ~1.5s of any
-  dialogue closing). Round 2 adds a blip to the hop so hop ≠ die-leap.
+- **P5 true self-REQ ★ PASS (round 2)** — with the blip added, every turn cycle
+  audibly ends blip+hop: a level-4 body self-REQing its own level-3 function,
+  in-game proven.
+- **Round 2's P4 find — THE MUST-LAND DISPATCH LAW:** the die flag landed
+  (turning stopped permanently = the brain saw it), but the lone die
+  `REQ(4, 255, 9)` fired while the owner's dialogue still held the mu at talk
+  level — `requestAcceptable` failed and the REQ dropped SILENTLY, forever.
+  A brain's routine action dispatch WANTS drop-on-busy (that is the run-gate);
+  a transition-critical dispatch (death!) must use **REQSW (0x12)** — the Seq
+  stays until the unit frees, then binds the function. Two dispatch
+  primitives, both engine-native; round 3 ships the REQSW die.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
