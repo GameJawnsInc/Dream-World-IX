@@ -904,6 +904,20 @@ class (Cooldown-150 chase + ONE shared patrol chord walked at each Seq's
 OWN wp — snap-together = failure); treads' wander/breq now private.
 Deployed bytes verified: 7 heads → 3 brains split 3/2/2, varn 3/7/3.
 ~ → Reload → 30425.
+**ROUND 1 (owner): stalkers ★ CLEAN** ("walk their own paths and chase
+independently, repeatable forever including after battles" — private wp +
+brain-ticked cooldown + the battle round-trip all confirmed); two BENCH
+authoring bugs, both fixed same day: (1) the herald follow "tags and runs
+back" = **THE HYSTERESIS LAW** (a sticky cond is TRIGGER and KEEP — 280u
+with a 170 standoff read the first step back as "escaped" and latched;
+now 700u; law → BEHAVIOR.md; the stalkers' identical machinery at 500u
+working is the compiler's alibi); (2) the treads' wander box sat on the
+monument's west bulge ("slide-running in place" — the known off-mesh
+shove); the center now anchors on the clearance lattice at ~(-1700,0),
+r 250 — `behavior lint`'s wander sweep is quiet on the new box (round 1
+shipped unlinted; the sweep existed and would have flagged it — RUN THE
+LINT ON BENCHES TOO). Redeployed zero-relaunch; round 2 = the herald
+follow + visible wandering re-checks.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our

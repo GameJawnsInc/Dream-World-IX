@@ -260,7 +260,11 @@ order. A strike clip needs only the fire-and-forget half (it *should* return to 
   `set_flag = [<index>, 1]` rows.
 - **`once` / `cooldown`** are *sticky* over movement behaviors: `once` lets its branch run
   through one full engagement and latches when it ends; `cooldown` re-arms N ticks after the
-  behavior ends (a stalker that needs a breather once you escape).
+  behavior ends (a stalker that needs a breather once you escape). **The hysteresis law:** a
+  sticky decorator's condition is both the *trigger* and the *keep* — the engagement ends the
+  first tick the condition fails. A tight `near` (say 280 with a 170 chase standoff) reads the
+  player's first step back as "escaped" and a `once` latches almost instantly; give the keep
+  real room (hundreds of units past the standoff) so disengaging means genuinely leaving.
 - **`once` over an `announce` is an EVENT, not an engagement**: it fires the line once and
   *releases the branch immediately* (via the same edge-latched request lane battles use, so
   another body holding the dispatch level can't eat it). This matters because announce
