@@ -22,18 +22,48 @@ launch). Two-round siting: (18,−1168) read "out in the sea" → re-moored **(2
 ~5.5u off the waterline (offline transect: sea to x≤34, topo-58 wall at 35, grass y=3 from
 36). Iterate: `--pos X,Z --y FP --face BYTE --deploy` (hot; world re-entry reloads).
 
-## Rung 1 — the scripted world scene (NEXT)
+## Rung 1a — THE RIG PROOF ★ CLOSED (2026-07-28, six rounds, probe-verified)
 
-Prove the 9001 scene mechanism on OUR content, in-place in dispatcher 9011 (no new world
-id needed — the rig ops are plain `.eb`, dispatcher-agnostic; s64's rig scan covers it).
-Incremental sub-rungs, one piece per playtest:
+`rung1a_rig_proof.py` — the first custom camera rig on the overworld, in-place in 9011:
+proximity+Confirm at the ship (case-machine-idle gated) → control lock → eye/aim rig
+entries arm → the composed shot (eye 17u WSW of the ship at +6u, aim ON the ship; ship
+center-frame, player + beacon behind) → 4s hold → `op_1C` disposal → chase returns.
+Probe-verified end state: `WEye=(780.0,6.2,-670.0)` epoch-frame, CAM beside it, the
+return tween a short local ease. The road there minted the ladder's core law set:
 
-- **1a THE RIG PROOF**: lock control, arm invisible eye/aim rig entries (op 0xB7/0xB8) that
-  frame the anchored ship, hold, restore. Replicates stock's camera slaving minimally.
-- **1b THE SAIL**: the ship runs a waypoint `WalkXZY` lane while the aim rides it — the
-  camera tracks a moving subject.
-- **1c THE HANDSHAKE**: a `Byte[26]`-style state machine + fade + restore/`Field()` — a
-  complete self-contained mini-scene.
+- **THE RESTORE**: nothing clears `actEye/actAim` — designation lives while a flagged
+  actor is ACTIVE; `op_1C` (TerminateEntry, non-self → `DisposeObj`) is the release.
+- **THE AIM-DRAG TRAP → s66**: with an AIM rig armed, `ff9.cs` dragged `w_moveActorPtr`
+  onto the camera-aim var every frame — stock only ever drags the inert dummy; a
+  controlled player got teleported (the (797,−656) ejection = the ship's RENDER pos).
+  s66 gates the drag to the dummy.
+- **THE WRAP-EPOCH LAW → s68**: the world draws in a wrap epoch that shifts with seam
+  traversals; actor TRANSFORMS are kept epoch-correct (`SetAbsolutePositionOf`) but
+  `ProcessEvents` published the rig camera from canonical `actor.pos[]` → the camera
+  landed ~a half-map from the streamed world. s68 publishes from the wmActor transform
+  (canonical fallback; stock scenes load fresh → identical). Corollary: author runtime
+  world positions SHIP-RELATIVE off a live actor's `f[]` (the stock rig idiom) — never
+  absolute constants (only world-load-time arming may use those; the rung-0 ship does).
+- **THE ARG2 Y-DOMAIN**: `MoveInstantXZY`/`WalkXZY` arg2 negates into `pos[1]`, and the
+  `f[1]` READ negates too — pass-through cancels (stock's aim), constants encode UP as
+  `(-h*256)&0xFFFF`, and an inline read-modify-write UP offset SUBTRACTS.
+- **THE STOCK-SHAPE lesson**: every deviation from stock WORLD01's rig shape (absolute
+  coords, plus-signed lift) cost a playtest round; the shape was load-bearing throughout.
+
+Instrument: `memoria-patches/s67-rig-probe.patch` (fires while any rig is armed, any
+world + a 90-frame tail; reads BOTH position domains and the REAL render camera =
+`WMWorld.MainCamera`). **KEPT LIVE for rung 1b** — remove when the sail rung closes.
+
+## Rung 1b — THE SAIL (NEXT)
+
+The ship runs a ship-relative waypoint `WalkXZY` lane while the aim rides it (per-frame
+re-pin, stock entry-2 shape) — the camera tracks a moving subject; fold the eye dolly
+back in. Also owed here: hide/park the player during the shot if the scene calls for it.
+
+## Rung 1c — THE HANDSHAKE
+
+A `Byte[26]`-style state machine + fade + restore/`Field()` — a complete self-contained
+mini-scene (the fade also masks the return tween).
 
 Rung 2 (design, owner input wanted): wire the proven scene into the ring's ferry UX — the
 diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall), an
