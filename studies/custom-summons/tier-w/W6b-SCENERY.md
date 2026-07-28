@@ -511,6 +511,29 @@ not a comment.**
 
 # 5. THE CAST
 
+> ## ⚠ THE CAST RECORD (running) — 1a and 1b both NEGATIVE; the vehicle premise is FALSIFIED
+>
+> **Cast 1a (the ink wheel, sha `d09f8c78…`)**: not legible — owner video + full-resolution frame
+> sweep agree. The §6-Q6 outcome: brighter-on-bright under additive stacking adds nothing a moving
+> fire does not already add.
+> **Cast 1b (the punch wheel, sha `913a60c4…`, `--mode punch`)**: **the gaps do not show either** —
+> owner video + a 48-frame full-segment sweep at every fire surface (dome, sea, pillar, ground
+> burn). A punched annulus covering ~25 % of the texture cannot hide, so this is not legibility:
+> **cell (704,256)'s bytes are not what the on-screen fire samples.** Both deploys were
+> byte-verified live, so the file path is not in question.
+> **THE LAW THIS MINTS — AN `so` READER IS A BINDING, NOT A DRAW.** The so-record proves a model
+> *can* sample a cell, not that the model is ever drawn or visible. §5.1's "cast-proven upload
+> path" premise below inherited W5's magenta proof — but that proof went through the **palette**
+> (shared by every binding on CLUT (0,247)), so it proved the palette path, never this cell's. The
+> visible fire is very plausibly the id-3 program's own primitives sampling the DEPTH-UNKNOWN
+> cells — recon Q1 exactly. §5.1 is kept below as written: it was the correct inference from the
+> evidence the census could produce offline, and its failure is the finding.
+> **Cast 1c (deployed, verdict pending): THE STRIPED CELL CENSUS** (`phoenix_cell_probe.py`, sha
+> `eabee19a…`) — zero-writing is depth-invariant (0x00 is the transparent value at 4/8/15bpp), so
+> every one of ef211's 12 cells is lawfully marked with k stripes (k = its number, legend in the
+> script's output). Whatever fire goes banded names its cell by COUNT; scrolling moves bands,
+> never counts. Revert chain: probe → 1b punch → 1a ink → stock.
+
 ## 5.1 The vehicle — ef211 (Phoenix), cell `(704, 256)`, the fire field
 
 ```
