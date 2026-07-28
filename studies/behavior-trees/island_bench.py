@@ -188,8 +188,12 @@ def _branch(when=None, do=None, **keys) -> str:
     return "\n".join(out) + "\n"
 
 
+BRAINS = False    # brains_bench.py flips this: same brawl, the per-unit-brain backend
+
+
 def behavior_toml(lay: dict) -> str:
-    parts = ['\n[behavior]\nwarmup = 45\ncounters = ["fallen"]\n']
+    parts = ['\n[behavior]\n' + ('brains = true\n' if BRAINS else '')
+             + 'warmup = 45\ncounters = ["fallen"]\n']
 
     def brawler(name, post, foes, refuge, threat):
         parts.append(f'\n[[behavior.unit]]\nnpc = "{name}"\nhp = 4\nspeed = 55\n')
@@ -286,13 +290,21 @@ def gen() -> None:
 
     _raw, fb, cb = _dry_build(parts)
     content = cb.sizes["ticker_content"]
-    if content <= 32767:
+    if BRAINS:
+        bsizes = cb.sizes.get("brains") or {}
+        if not bsizes:
+            raise SystemExit("BENCH INVALID: brains mode compiled no brain bodies")
+        print(f"  BRAINS: residual ticker {content}B (shared lanes only); "
+              f"{len(bsizes)} brains, largest {max(bsizes.values())}B, "
+              f"total {sum(bsizes.values())}B -- no body anywhere near +/-32767")
+    elif content <= 32767:
         raise SystemExit(
             f"BENCH INVALID: ticker content {content}B does not cross the old "
             f"±32767 wall — raise N_CHASE/N_SWING; an under-wall build proves "
             f"nothing about islands")
-    print(f"  THE CROSSING: ticker content {content}B > 32767 -> "
-          f"{len(cb.ticker_body) - content}B of island bytes are LIVE in-game")
+    else:
+        print(f"  THE CROSSING: ticker content {content}B > 32767 -> "
+              f"{len(cb.ticker_body) - content}B of island bytes are LIVE in-game")
     BENCH_TOML.write_text("".join(parts), encoding="utf-8")
     REPORT.write_text(cb.report, encoding="utf-8")
     print(f"wrote {BENCH_TOML}")

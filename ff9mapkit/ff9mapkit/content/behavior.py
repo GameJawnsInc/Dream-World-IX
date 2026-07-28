@@ -52,7 +52,7 @@ from __future__ import annotations
 import hashlib
 import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field as _dc_field
 
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
@@ -756,6 +756,25 @@ class UnitSpec:
 
 
 # ------------------------------------------------------------------ the compiler
+def check_64_stride(occupied, units) -> None:
+    """THE 64-STRIDE LAW (brains mode): a brain Seq's runtime uid is its unit's
+    uid + 64 (a Byte), and STARTSEQ DISPOSES whatever object already holds that
+    uid. Kit objects take uid == entry slot, so refuse any layout where a unit's
+    slot + 64 lands on an occupied slot (or past the Byte)."""
+    occupied = set(occupied)
+    for u in units:
+        bu = u.entry + 64
+        if bu > 0xFF:
+            raise BehaviorError(
+                f"64-STRIDE: unit {u.name!r} at slot {u.entry} puts its brain "
+                f"uid at {bu} > 255 (uid is a Byte) — reseat the unit lower")
+        if bu in occupied:
+            raise BehaviorError(
+                f"64-STRIDE: unit {u.name!r} at slot {u.entry} puts its brain "
+                f"uid at {bu}, which is an OCCUPIED entry slot — STARTSEQ would "
+                f"DISPOSE that object; reseat so no entry sits at unit slot + 64")
+
+
 def _stmt(text: str) -> bytes:
     return bytes([0x05]) + exprasm.assemble(text + " B_EXPR_END")
 
@@ -809,6 +828,7 @@ class CompiledBehavior:
     main_init: bytes
     report: str
     sizes: dict | None = None        # the byte histogram (see size_report)
+    brain_bodies: dict = _dc_field(default_factory=dict)  # brains mode: unit -> Seq body
 
     def size_report(self) -> str:
         """THE BYTE HISTOGRAM — where the compiled bytes go, unit by unit, against
@@ -820,14 +840,20 @@ class CompiledBehavior:
         s = self.sizes
         disp_total = sum(n for fns in s["dispatch"].values() for _, _, n in fns)
         duty_total = sum(s["duty"].values())
+        brain_total = sum(len(b) for b in self.brain_bodies.values())
         islands = len(self.ticker_body) - s["ticker_content"]
         new_total = (len(self.ticker_body) + len(self.main_init)
-                     + duty_total + disp_total)
+                     + duty_total + disp_total + brain_total)
         out = [f"byte histogram -- new bytes this build: {new_total}B "
                f"(ticker {len(self.ticker_body)}B"
                + (f" = {s['ticker_content']}B + {islands}B islands" if islands else "")
                + f", main_init {len(self.main_init)}B, duty {duty_total}B, "
-                 f"dispatch bodies {disp_total}B)"]
+                 f"dispatch bodies {disp_total}B"
+               + (f", brains {brain_total}B" if self.brain_bodies else "") + ")"]
+        if self.brain_bodies:
+            out.append("  brains (per-unit Seq bodies): " + ", ".join(
+                f"{n} {len(b)}B" for n, b in sorted(
+                    self.brain_bodies.items(), key=lambda kv: -len(kv[1]))))
         shared = [(nm, n) for nm, n in s["ticker_segments"]
                   if not nm.startswith("unit ")]
         out.append("  shared ticker: " + ", ".join(f"{nm} {n}B" for nm, n in shared))
@@ -853,6 +879,8 @@ class CompiledBehavior:
         for name in sorted(self.action_funcs):
             for tag, body in self.action_funcs[name]:
                 h.update(bytes([tag]) + body)
+        for name in sorted(self.brain_bodies):
+            h.update(self.brain_bodies[name])
         return h.hexdigest()[:16]
 
 
@@ -862,11 +890,24 @@ class FieldBehavior:
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
                  tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = (),
                  timer: int | None = None, tables: list[TableSpec] | tuple = (),
-                 counters: tuple = ()):
+                 counters: tuple = (), brains: bool = False):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
-        the framerate and stretched the settle to ~5-6s)."""
+        the framerate and stretched the settle to ~5-6s).
+
+        ``brains``: the PER-UNIT-BRAIN backend (the SEQBRAIN bench's architecture,
+        all five composites in-game proven 2026-07-27). Each unit's tree segment —
+        the SAME bytes the central ticker would carry — compiles into its own
+        one-function entry instead, spawned as a shared-script coroutine from the
+        unit's tag-1 head (``RunSharedScript``; gCur = the unit for the Seq's whole
+        life, so dispatches target uid 255). The residual ticker keeps every
+        field-level lane (warm-up, mirrors, clocks, scans, pools, HUDs). Semantics
+        are v1's by construction — same conditions, same blackboard, same bodies —
+        while no single body ever approaches the ±32K ticker-span wall. Die bodies
+        gain ``StopSharedScript`` before ``TerminateEntry`` (THE ORPHAN-BRAIN LAW:
+        a disposed unit's live brain NREs the engine on its next tick)."""
+        self.brains = bool(brains)
         self.bb = blackboard or Blackboard()
         self.warmup = max(1, int(warmup))
         if timer is not None and not 1 <= int(timer) <= 30000:
@@ -1602,6 +1643,7 @@ class FieldBehavior:
 
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
+        brain_bodies: dict[str, bytes] = {}              # brains mode: unit -> Seq body
         disp_sizes: dict[str, list] = {}                 # unit -> [(tag, kind, bytes)]
         wu = self.bb.byte("warmup")
         # "__seg " labels are zero-width byte-histogram markers: they emit nothing
@@ -1799,15 +1841,19 @@ class FieldBehavior:
                 (nudge_tag, "nudge", len(nudge_body)))
             action_funcs[u.name] = funcs
 
-            ticker += [
-                label(f"__seg unit {u.name}"),
+            # the per-unit segment: identical emission for both backends — in v1 it
+            # rides the central ticker (dispatch targets the unit's ENTRY); under
+            # `brains` it becomes the unit's own Seq body (gCur = the unit, so every
+            # dispatch targets uid 255 — the SEQBRAIN caller-context law)
+            tgt = 255 if self.brains else u.entry
+            seg: list = [
                 _stmt(f"Global.Bit[{act_flag}]"),
                 (JMP_IFNOT, f"t_{u.name}_done"),
             ]
             if u.name in self._engages:
-                ticker += self._acquire_block(u, self._engages[u.name])
-            ticker += self._compile_tree(u, u.tree, ids, fail=f"t_{u.name}_fellthrough")
-            ticker += [
+                seg += self._acquire_block(u, self._engages[u.name])
+            seg += self._compile_tree(u, u.tree, ids, fail=f"t_{u.name}_fellthrough")
+            seg += [
                 label(f"t_{u.name}_fellthrough"),        # unreachable (fallback is
                 label(f"t_{u.name}_selected"),           # unconditional) — lint safety
             ]
@@ -1824,39 +1870,49 @@ class FieldBehavior:
             disp_end = f"t_{u.name}_dend"
             for aid, ri in oneshot_req.items():
                 bl = f"t_{u.name}_b{aid}"
-                ticker += [
+                seg += [
                     _stmt(f"Global.Bit[{ri}]"), (JMP_IFNOT, bl),
                     _stmt(f"Global.Bit[{oneshot_latch[aid]}]"), (JMP_IF, bl),
                     _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, bl),
-                    opcodes.run_script_async(DISPATCH_LEVEL, u.entry, dispatch_tag[aid]),
+                    opcodes.run_script_async(DISPATCH_LEVEL, tgt, dispatch_tag[aid]),
                     (JMP, disp_end),
                     label(bl),
                 ]
             for aid, tag in dispatch_tag.items():        # the normal sel-gated tail
                 if aid in oneshot_req:                   # one-shots ride the request lane
                     continue
-                ticker += [
+                seg += [
                     _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
                     _stmt(f"Global.Byte[{run}] const(0) B_EQ"),
                     (JMP_IFNOT, f"t_{u.name}_d{aid}"),
-                    opcodes.run_script_async(DISPATCH_LEVEL, u.entry, tag),
+                    opcodes.run_script_async(DISPATCH_LEVEL, tgt, tag),
                     label(f"t_{u.name}_d{aid}"),
                 ]
-            ticker += [label(disp_end)]
+            seg += [label(disp_end)]
             # the nudge dispatch: only when level 4 is free AND a FEED is selected
             # (a selected dispatch action owns the level-4 REQ this tick — mutual
             # exclusion by construction, never two REQs on one unit per tick)
             nl = f"t_{u.name}_nudge"
-            ticker += [
+            seg += [
                 _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, nl),
                 _stmt(f"Global.Byte[{spd}] Global.Byte[{spdap}] B_EQ"), (JMP_IF, nl),
             ]
             for aid in dispatch_tag:
-                ticker += [_stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"), (JMP_IF, nl)]
-            ticker += [opcodes.run_script_async(DISPATCH_LEVEL, u.entry, nudge_tag),
-                       label(nl)]
-            ticker += [label(f"t_{u.name}_done")]
+                seg += [_stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"), (JMP_IF, nl)]
+            seg += [opcodes.run_script_async(DISPATCH_LEVEL, tgt, nudge_tag),
+                    label(nl)]
+            seg += [label(f"t_{u.name}_done")]
+            if self.brains:
+                # the brain: the SAME segment, self-scheduled at the ticker cadence.
+                # The active gate idles it (pooled units' brains spawn on activation,
+                # since a dormant entry's tag-1 first runs then). No __seg markers —
+                # brains report whole-body sizes, the histogram stays ticker-only.
+                brain_bodies[u.name] = asm(
+                    [label("__brain_top")] + seg
+                    + [opcodes.wait(self.tick), (JMP, "__brain_top"), opcodes.RETURN])
+            else:
+                ticker += [label(f"__seg unit {u.name}")] + seg
 
             acts = ", ".join(dict.fromkeys(          # dedupe shared-object Do sites
                 f"{ids[id(a)]}={type(a).__name__}" for a in actions))
@@ -2189,7 +2245,9 @@ class FieldBehavior:
                    "ticker_segments": ticker_segments,
                    "duty": {n: len(b) for n, b in duty_bodies.items()},
                    "dispatch": disp_sizes,
+                   "brains": {n: len(b) for n, b in brain_bodies.items()},
                    "main_init": len(main_init)},
+            brain_bodies=brain_bodies,
         )
 
     # ---------------- tree → ticker blocks
@@ -2628,12 +2686,25 @@ class FieldBehavior:
         poller entry RunScriptSyncs the menu by slot)."""
         from .. import eblint
         from ..eb import edit as eb_edit
+        from ..eb.model import EbScript
         from . import object as _object
         cb = compiled or self.compile()
         baseline = {str(p) for p in eblint.lint_eb(bytes(eb_bytes))}
         out = self._announce_player_bound(bytes(eb_bytes))
+        brain_slots: dict[str, int] = {}
+        for name, body in cb.brain_bodies.items():
+            # a brain is a dormant one-function code entry (never InitObject'd):
+            # it exists only as the STARTSEQ target for its unit's tag-1 head
+            bentry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
+            out, brain_slots[name] = _object.seat_entry(out, bentry)
         for u in self.units.values():
-            out = eb_edit.replace_function_body(out, u.entry, 1, cb.duty_bodies[u.name])
+            duty = cb.duty_bodies[u.name]
+            if cb.brain_bodies:
+                # tag-1 head spawns the brain ONCE (tag-1 starts once per object
+                # life; a pooled re-activation re-runs it, and STARTSEQ replacing
+                # the prior Seq is exactly the reset wanted)
+                duty = opcodes.run_shared_script(brain_slots[u.name]) + duty
+            out = eb_edit.replace_function_body(out, u.entry, 1, duty)
             for tag, body in cb.action_funcs[u.name]:
                 out = eb_edit.add_function(out, u.entry, tag, body)
         ticker_entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + cb.ticker_body)
@@ -2655,6 +2726,9 @@ class FieldBehavior:
             out, pslot = _object.seat_entry(out, pentry)
             out = eb_edit.activate_block(out, opcodes.init_code(pslot, 0))
         out = eb_edit.insert_in_function(out, 0, 0, 0, cb.main_init)
+        if cb.brain_bodies:
+            occupied = {e.index for e in EbScript.from_bytes(out).entries if e.size > 0}
+            check_64_stride(occupied, self.units.values())
         fresh = [p for p in eblint.lint_eb(out)
                  if getattr(p, "severity", "error") == "error" and str(p) not in baseline]
         if fresh:
@@ -2718,6 +2792,13 @@ class FieldBehavior:
                 # a real bug the moment it blocks).
                 _set_byte(run, 255),
             ] + bump + fall + [
+                # THE ORPHAN-BRAIN LAW (brains mode): TerminateEntry(255) DISPOSES
+                # this unit, and DisposeObj does NOT cascade to its brain Seq at
+                # uid+64 — the orphan NREs the engine on its next tick (DoEventCode
+                # derefs gCur unconditionally). StopSharedScript keys off gExec =
+                # this unit, so it kills exactly OUR brain. Stock emits 0x45 as a
+                # single bare byte (field 450, three grammars agreeing).
+            ] + ([opcodes.encode(0x45)] if self.brains else []) + [
                 opcodes.terminate_entry(255),
                 opcodes.RETURN,
             ])
