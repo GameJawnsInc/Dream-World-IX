@@ -72,7 +72,12 @@ def _select_encounter(lib):
 def test_the_library_box_is_a_function_of_its_font(app):
     """TAILOR's last deliberate skip, converted: resize(900, 580) was one font at one scale. The box,
     the sidebar cap, and the pane split must now DERIVE from the dialog's own polished font -- asserted
-    as formula equality (the same inputs on both sides, so offscreen's inflated advances cancel out)."""
+    as formula equality (the same inputs on both sides, so offscreen's inflated advances cancel out).
+    The split is asserted SHOWN: the panes are allocated at first show, where the splitter's width is
+    finally real -- a never-laid-out splitter lies about it, and QSplitter settles an oversubscribed
+    request by shaving EVERY pane, which is how the shipped ctor-time request opened the library with
+    an h-scrollbar on its own category sidebar."""
+    from PySide6.QtCore import Qt
     from PySide6.QtGui import QFontMetricsF
 
     lib = CatalogLibrary(None, None, pick_palette("dark"))
@@ -81,10 +86,45 @@ def test_the_library_box_is_a_function_of_its_font(app):
     avail = screen.availableGeometry()
     assert lib.width() == min(round(fm.averageCharWidth() * 140), int(avail.width() * 0.92))
     assert lib.height() == min(round(fm.height() * 30), int(avail.height() * 0.85))
-    frame = 2 * lib.cats.frameWidth()
-    want = min(lib.cats.sizeHintForColumn(0) + frame + lib.cats.verticalScrollBar().sizeHint().width() + 8,
-               round(fm.averageCharWidth() * 34))
-    assert lib.cats.maximumWidth() == want, "the sidebar asks for its own longest row, ch-capped"
+    lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    lib.show()
+    app.processEvents()
+    try:
+        frame = 2 * lib.cats.frameWidth()
+        want = min(lib.cats.sizeHintForColumn(0) + frame + lib.cats.verticalScrollBar().sizeHint().width() + 8,
+                   round(fm.averageCharWidth() * 34))
+        assert lib.cats.maximumWidth() == want, "the sidebar asks for its own longest row, ch-capped"
+        assert lib._split.sizes()[0] == want, "the splitter must actually GIVE the sidebar its ask"
+    finally:
+        lib.close()
+
+
+def test_the_library_sidebar_never_scrolls_sideways_under_the_app_sheet(app):
+    """THE REGRESSION FENCE, red on the shipped block: under the real app QSS the ctor-time split
+    request (summed to the DIALOG's width, against a never-laid-out splitter, blind to the detail
+    pane's ~451px button-bar floor) was settled by a proportional shave of every pane, and the library
+    opened with an h-scrollbar on its own category sidebar (viewport 134 vs col hint 156, range 22,
+    measured 2026-07-28). The app sheet is restored in a finally so this test never pollutes later
+    modules (the round-9 disease)."""
+    from PySide6.QtCore import Qt
+
+    from ff9mapkit.workspace import style
+
+    inst = QApplication.instance()
+    inst.setStyleSheet(style.qss(pick_palette("dark")))
+    try:
+        lib = CatalogLibrary(None, None, pick_palette("dark"))
+        lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        lib.show()
+        inst.processEvents()
+        try:
+            assert lib.cats.horizontalScrollBar().maximum() == 0, \
+                "the category sidebar must fit its own longest row under the app QSS"
+            assert lib._split.sizes()[0] == lib.cats.maximumWidth()
+        finally:
+            lib.close()
+    finally:
+        inst.setStyleSheet("")
 
 
 def test_the_library_grows_with_its_font(app):

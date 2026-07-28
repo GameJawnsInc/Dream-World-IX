@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the Info Hub library opened with an h-scrollbar on its own category sidebar
+- The catalog library's three panes were allocated at construction, against a splitter that had
+  never been laid out, with a request summing to the dialog's width — margins the panes never
+  get — while the detail pane's button bar puts a hard floor under the third pane. Qt settles an
+  oversubscribed request by shaving every pane proportionally, so the category sidebar always
+  opened a little narrower than its own longest row and grew a horizontal scrollbar. The panes
+  are now allocated once at first show, when the splitter's width is real: the sidebar gets its
+  measured ask (still capped so a runaway label can't eat the browser), the detail pane its 55%
+  or its own floor, the middle list the true remainder.
+
 ### Added — the Info Hub's "Behavior stamps" section (the archetype cards)
 - A new library section holds one card per Behavior-tab archetype (sentry / patroller /
   civilian / guard / shift pair) plus the `[siege]` whole-block skeleton — searchable by what

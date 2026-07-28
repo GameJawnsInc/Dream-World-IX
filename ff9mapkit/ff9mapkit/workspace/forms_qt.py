@@ -786,7 +786,8 @@ class CatalogLibrary(QDialog):
         # panes. 140ch x 30 lines reproduce the shipped 900x580 at 100% on the native font; the sidebar
         # asks for its own LONGEST ROW (fit_dialog's list rule -- the first cut's 21%-ratio pane clipped
         # 'Battle scenes (68)' in the snap), capped at ~34ch so a runaway label can't eat the browser.
-        # Runs AFTER _build_categories so the sidebar content it measures exists.
+        # Runs AFTER _build_categories so the sidebar content it measures exists. The PANE SPLIT is NOT
+        # set here -- see showEvent: a splitter that has never been laid out lies about its width.
         self.ensurePolished()
         fm = QFontMetricsF(self.font())
         screen = self.screen() or QApplication.primaryScreen()
@@ -796,12 +797,41 @@ class CatalogLibrary(QDialog):
         if avail is not None:
             w, h = min(w, int(avail.width() * 0.92)), min(h, int(avail.height() * 0.85))
         self.resize(w, h)
+        self._split = split
+        self._panes_set = False                            # the split is allocated once, at first show
+        self.cats.setMaximumWidth(self._sidebar_ask())
+
+    def _sidebar_ask(self):
+        """The sidebar's derived width: its own longest row + the chrome its viewport pays -- frameWidth
+        (which folds the well's QSS border AND padding in: measured 5px = 1 border + 4 padding) doubled,
+        plus fit_dialog's unconditional v-scrollbar allowance -- ch-capped at ~34 so a runaway label can
+        never eat the browser."""
+        fm = QFontMetricsF(self.font())
         frame = 2 * self.cats.frameWidth()
-        cat_w = min(self.cats.sizeHintForColumn(0) + frame + self.cats.verticalScrollBar().sizeHint().width() + 8,
-                    round(fm.averageCharWidth() * 34))
+        return min(self.cats.sizeHintForColumn(0) + frame + self.cats.verticalScrollBar().sizeHint().width() + 8,
+                   round(fm.averageCharWidth() * 34))
+
+    def showEvent(self, ev):
+        # THE PANES ARE ALLOCATED HERE, NOT IN __init__. At construction the splitter has never been
+        # laid out (measured: 640px inside an 899px dialog), and the old ctor-time request summed to the
+        # DIALOG's width -- margins the panes never get -- while the detail pane's button bar puts a
+        # ~451px floor under col 3. QSplitter settles an oversubscribed request with a proportional
+        # shave of EVERY pane, the sidebar included, which is how the library opened with an
+        # h-scrollbar on its own category list (viewport 134 vs col hint 156, hbar range 22). Here the
+        # splitter is real: the sidebar gets its ask, the detail pane max(55%, its own floor), the
+        # middle pane the true remainder -- summing exactly to the pane space, so Qt applies it
+        # verbatim. Once only: a re-shown dialog keeps whatever the user dragged (round 7's law --
+        # a divider the user moved is a preference).
+        super().showEvent(ev)
+        if self._panes_set:
+            return
+        self._panes_set = True
+        cat_w = self._sidebar_ask()
         self.cats.setMaximumWidth(cat_w)
-        # the shipped 320:390 middle:detail ratio, applied to what the sidebar leaves over
-        split.setSizes([cat_w, round((w - cat_w) * 0.45), round((w - cat_w) * 0.55)])
+        space = self._split.width() - 2 * self._split.handleWidth()
+        rest = space - cat_w
+        detail = max(round(rest * 0.55), self._split.widget(2).minimumSizeHint().width())
+        self._split.setSizes([cat_w, max(rest - detail, 0), detail])
 
     def _build_categories(self):
         """One browse over the cached catalogs -> per-kind counts -> the sidebar sections (only non-empty
