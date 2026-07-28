@@ -327,10 +327,12 @@ scenery must be re-authored *together*.
   nibble codec (casts 2/2b were 4bpp kit builds). Two laws minted in-game: BINDING-IS-NOT-A-DRAW
   (the wheel on (704,256) was invisible twice — an `so` reader is not a draw; the dome actually
   reads the READERLESS (704,384)) and THE UV-SHREDDING BOUND (sheared mirrored panel UVs turn
-  figures into diffuse erosion; stripes read because translation-invariant). Cast 1e: the pool =
-  (640,256) by elimination (cell-5 stripes left it clean; they DID band the intro background
-  flames, so (576,256) is drawn). OPEN: the pool's positive confirm + the photographable shape
-  verdict (one cast on (640,256) can carry both if its UVs are flat), the 15bpp cast.**
+  figures into diffuse erosion; stripes read because translation-invariant). Casts 1e/1f: the
+  pool = (640,256) ⛳ CONFIRMED and ⛳ THE SHAPE VERDICT IS YES — the punched wheel legible on
+  the pool and repeated across every draw instance of the strip (texture art, not placard art);
+  the offline UV-flatness screen (rotation agreement / overlap vs the shredder baseline) picked
+  the surface correctly and is now the instrument for shape-bearing surfaces. OPEN: the 15bpp
+  cast (vehicle ef429).**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).

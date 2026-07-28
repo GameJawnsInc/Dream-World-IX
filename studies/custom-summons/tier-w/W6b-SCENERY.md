@@ -561,15 +561,36 @@ not a comment.**
 > the emergence vortex). Controls held: dome and bird clean. New attribution ledger, in-game:
 > (704,384) = dome · (576,384) = emergence-vortex smoke · (576,256) = intro background flames ·
 > (640,256) = the ground pool (by elimination, confirm pending) · (704,256) = bound, never drawn.
+> **Cast 1f (THE POOL WHEELS, sha `cbcc9fde…`, `phoenix_field_cast3.toml` + `phoenix_pool_stamp.py`,
+> root `repaint-w6b\ef211-pool`): ⛳ PASS — the rings show on the pool, MANY more than three
+> (owner screenshot: the wheel repeats around the pool rim AND across the surrounding dark
+> veil), bird unchanged.** THE POOL IS (640,256), POSITIVELY: the wheels sit in the arc reader
+> (`0x2ed7c`)'s exclusive cover — and **THE PHOTOGRAPHABLE SHAPE VERDICT ON SCENERY IS YES**: a
+> drawn figure holds its shape on a flat-UV surface, at every instance. **THE MULTIPLICITY
+> COROLLARY the extra rings mint: the `so` record describes ONE wrap of the strip; the DRAW
+> repeats it** — stacked/rotated instances plus further surfaces sampling the same strip — so an
+> authored figure appears EVERYWHERE the strip is drawn. Scenery texel art is TEXTURE art, not
+> placard art; a binding bounds neither whether nor HOW MANY TIMES its cell is drawn
+> (BINDING-IS-NOT-A-DRAW's inverse). THE LAW THE UV WORK MINTS —
+> **the UV-SHREDDING BOUND is a property of a reader's UV MAP, measurable OFFLINE**:
+> rotation agreement R=0.75 / overlap ×1.18 / constant anisotropy (vs the shredder baseline
+> R=0.00 / overlap ×12–41) predicted legibility correctly, so the flatness metrics are the
+> SCREEN for choosing shape-bearing surfaces (`UV-ANALYSIS.md` in the pool root; (640,256)'s
+> OTHER reader `0x2d344` is a pure shredder — one cell, both extremes). Cast context: ran
+> POST-WIPE — another session's campaign deploy replaced `FF9CustomMap` at 10:05, taking the
+> cast-1e probe, W6a's ef227 brand, W7's ef038 magenta, the bench and Actions.csv; bench 30301
+> was redeployed (+relaunch) and the wheel deployed onto ABSENT, so its revert DELETES to stock.
+> En route the UV work caught a kit defect: `repaint._face_polys` fans GT4 quads in perimeter
+> order but scenery quads are Z-ORDERED (bowtie triangles; cover under-reported 700/4,032 on
+> `0x2ed7c`) — spun off as its own fix task; published cover counts may drift when it lands.
 > **What the ladder proved in-game**: the scenery byte→screen chain (stripes owner-visible + the
 > kit-built wheel measured at aligned cast-time), THE PER-CELL MAP (cell 6 is a lower half only
-> the new map can address) and THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), plus the
-> two minted laws (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND). Open after 1e: the pool's
-> positive confirm + the shape verdict — one cast on (640,256) can carry both IF its reader UVs
-> are flat (check offline first; if they shred like column 576's, fall back to a 7-stripe
-> `--only` confirm and the shape verdict needs another vehicle). Revert chain: cast-1e probe
-> (`ef211-cellprobe5`, pre = cast-2b) → cast-2b ledger → cast-2 → (probe/punch/ink snapshots in
-> their SCRATCH roots) → stock.
+> the new map can address), THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), THE SHAPE
+> VERDICT (cast 1f) and the offline UV-flatness screen, plus the two earlier minted laws
+> (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND, now with its offline instrument). Open: the
+> 15bpp cast (vehicle ef429 — no bench row exists yet). Revert chain: pool-wheel ledger
+> (`ef211-pool`, pre = ABSENT post-wipe → revert deletes to stock); the pre-wipe chain
+> (cast-2b → cast-2 → probes) survives in its SCRATCH roots but no longer reflects the install.
 
 ## 5.1 The vehicle — ef211 (Phoenix), cell `(704, 256)`, the fire field
 
