@@ -422,6 +422,46 @@ def test_restore_honors_a_saved_collapse(app, monkeypatch):
     w.close()
 
 
+def test_a_collapsed_exit_does_not_restore_a_fake_maximized_console(app, monkeypatch):
+    """THE LIFECYCLE BUG (reported from the real app, reproduced natively): exit with the console
+    collapsed, relaunch -> the header strip sat on top of a dead void the exact height of the
+    remembered body, and the first click "expanded" into that same span (content appears, height
+    unchanged). _restore_layout handed the saved EXPANDED console_split to the live splitter even
+    when the same layout said collapsed; the collapsed maximumHeight pin clamps only the WIDGET,
+    while the splitter rail keeps whatever span setSizes() asked for -- hence the void.
+
+    WHY THE TEST ABOVE MISSED IT: it restores onto a live EXPANDED window, so the restore's own
+    toggle really collapses and re-requests the collapsed split, masking the stray request. A real
+    launch restores INTO the already-collapsed cold start, where the toggle no-ops -- so this test
+    takes the __init__ path, like a launch does.
+
+    Asserts the REQUEST, not rendered sizes (same reasoning as test_the_restore_path_spends_the
+    _repair: offscreen geometry is fiction; what restore owes us is that it never hands the
+    expanded split to a collapsed splitter)."""
+    from PySide6.QtWidgets import QSplitter
+    seen = []
+    orig = QSplitter.setSizes
+
+    def spy(self, sizes):
+        seen.append((self, list(sizes)))
+        return orig(self, sizes)
+
+    monkeypatch.setattr(QSplitter, "setSizes", spy)
+    monkeypatch.setattr(shell.prefs, "layout",
+                        lambda: {"console_split": [544, 152], "console_collapsed": True})
+    w = _win(app)                                  # __init__ runs _restore_layout onto a collapsed console
+    w.show()
+    assert not w._console_open and not w.console_body.isVisible()
+    vreq = [s for sp, s in seen if sp is w._vsplit]
+    assert [544, 152] not in vreq, "the expanded split was handed to a collapsed splitter (fake-maximize)"
+    assert w._console_sizes == [544, 152], "the re-expand memory must still seed from the saved split"
+    seen.clear()
+    w._toggle_console()                            # the first click expands to the remembered divider
+    assert w._console_open and w.console_body.isVisible()
+    assert [s for sp, s in seen if sp is w._vsplit][-1][1] == 152
+    w.close()
+
+
 def test_the_text_size_dial_drives_every_surface_it_owns(app):
     """THE LIVE PATH, which nothing tested -- and it shipped a NameError past 3621 green tests.
 
