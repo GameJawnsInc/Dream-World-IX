@@ -1,0 +1,60 @@
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+index f9b4683e..6dc73a05 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+@@ -183,21 +183,49 @@ public partial class EventEngine
+                     }
+                     else if (this.gMode == 3)
+                     {
++                        // s68: publish the rig from the wmActor TRANSFORM (the render frame), not
++                        // actor.pos[] (canonical). The world draws in a WRAP EPOCH that shifts as the
++                        // player traverses seams; SetAbsolutePositionOf keeps every actor's transform
++                        // epoch-correct, but a camera fed canonical coords lands ~a half-map from the
++                        // streamed world in any shifted epoch (scene-ladder rung 1a: probe f=257,
++                        // CAM=(12,-5.6,-1182) vs the drawn quay at ~(800,-656)). Stock scene worlds
++                        // load fresh (epoch == canonical), so transform*256 == pos[] there -- behavior
++                        // identical. The x256 pre-multiply feeds w_cameraSetEye/AimPtr's own /256.
+                         if ((actor.actf & EventEngine.actEye) != 0)
+                         {
+                             Vector3 eyePtr = ff9.w_cameraGetEyePtr();
+-                            eyePtr.x = actor.pos[0];
+-                            eyePtr.y = actor.pos[1];
+-                            eyePtr.z = actor.pos[2];
++                            if (actor.wmActor != (UnityEngine.Object)null)
++                            {
++                                Vector3 wp = actor.wmActor.transform.position;
++                                eyePtr.x = wp.x * 256f;
++                                eyePtr.y = wp.y * 256f;
++                                eyePtr.z = wp.z * 256f;
++                            }
++                            else
++                            {
++                                eyePtr.x = actor.pos[0];
++                                eyePtr.y = actor.pos[1];
++                                eyePtr.z = actor.pos[2];
++                            }
+                             ff9.w_cameraSetEyePtr(eyePtr);
+                             this._eyeObj = actor;
+                         }
+                         else if ((actor.actf & EventEngine.actAim) != 0)
+                         {
+                             Vector3 aimPtr = ff9.w_cameraGetAimPtr();
+-                            aimPtr.x = actor.pos[0];
+-                            aimPtr.y = actor.pos[1];
+-                            aimPtr.z = actor.pos[2];
++                            if (actor.wmActor != (UnityEngine.Object)null)
++                            {
++                                Vector3 wp = actor.wmActor.transform.position;
++                                aimPtr.x = wp.x * 256f;
++                                aimPtr.y = wp.y * 256f;
++                                aimPtr.z = wp.z * 256f;
++                            }
++                            else
++                            {
++                                aimPtr.x = actor.pos[0];
++                                aimPtr.y = actor.pos[1];
++                                aimPtr.z = actor.pos[2];
++                            }
+                             ff9.w_cameraSetAimPtr(aimPtr);
+                             this._aimObj = actor;
+                         }
