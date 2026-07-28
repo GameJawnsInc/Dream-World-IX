@@ -624,7 +624,28 @@ not a comment.**
 > x512 — prog 15bpp, tpage 312, one c1 site, and bench row 199 is ALREADY LIVE ⇒ a hot ladder**;
 > runner-up ef184 (Atomos Full) column x768. Resting: the ef446 override DELETED (stock — Atomos
 > short is a real stock summon path); rows 201/202 stay; artifacts + video evidence in
-> `ef429-15bpp\` and `ef446-15bpp\`. Revert chain: pool-wheel ledger
+> `ef429-15bpp\` and `ef446-15bpp\`.
+> **THE ef251 (Madeen) LADDER — the PROGRAM channel's depth REFUTED in-game; THE 15bpp READ
+> PROOF IS PARKED.** Census probe (22 records, striped PER-WRITER — the multi-chunk first): the
+> 60fps sweep attributed the drawn surfaces to x576–x832 (tunnel shards, debris, boulder fields;
+> creature/beams/sphere clean) with one polarity residual; the x512-family-only probe (k 5/6/7/8
+> striped, 18 controls clean — the polarity-free confirm the multi-cell `--only` was built for)
+> banded THE PSYCHEDELIC GROUND: **x512 IS drawn**. CAST 15 — three solid `0x7FFF` white bands
+> into all four x512 writer records, the SELF-DIAGNOSING artifact (flat white ⇔ 15bpp read ·
+> 2-cycle checker ⇔ 8bpp · 4-cycle micro-pattern ⇔ 4bpp) — read as a **"BUMPER STRIP"**: fine
+> ridged micro-stripes, the 4-cycle signature (`FF 7F` unpacks low-nibble-first to 15,15,15,7;
+> ef251's bright 4bpp rows put e15 near-white over a mid-tone e7 — matches), decisively NOT flat
+> white. **REGISTRATION-IS-NOT-A-DRAW, CONFIRMED WITH TEETH: tpage 312's depth bits say 15bpp
+> and the surface that draws reads INDEXED — channel P's LICENSE upgrade path FAILED its first
+> trigger cast, and the record's DISCLOSE posture is vindicated by its own test.** THE
+> GHOST-LAYER OBSERVATION (3 vehicles, 6 verdict casts): every 15bpp-attributed scenery cell
+> probed so far is either bound-never-drawn (ef429 ×2 covers) or drawn at another depth (ef446
+> at 8bpp, ef251 indexed) — 15bpp attributions may systematically name a processed-not-drawn
+> layer. **THE 15bpp LANE RESTS: the WRITE path is cast-proven (ef446, seam-crossing bands),
+> the codec offline-exhaustive; the READ proof is PARKED with this evidence table** (ef184
+> x768 is the only listed vehicle left if it is ever re-opened). Resting: the ef251 override
+> DELETED (stock — Madeen is a live stock summon); probe/cast chain + palette decode in
+> `ef251-15bpp\`. Revert chain: pool-wheel ledger
 > (`ef211-pool`, pre = ABSENT post-wipe → revert deletes to stock); the pre-wipe chain
 > (cast-2b → cast-2 → probes) survives in its SCRATCH roots but no longer reflects the install.
 

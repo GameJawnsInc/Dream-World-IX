@@ -338,8 +338,12 @@ scenery must be re-authored *together*.
   a DRAW fact — the drawn surface read the authored 15bpp cyan bands at 8bpp (jittery salmon
   checker = the diagnostic signature; CLUT (0,247) e224/e127 match), while the bands ran seamless
   across the cell seam ⇒ THE SPILL MECHANISM IS CAST-PROVEN and the 15bpp WRITE path is proven.
-  OPEN: the 15bpp READ proof on a program-channel 15bpp cell — next vehicle ef251/Madeen col x512
-  (row 199 live, hot ladder); runner-up ef184/Atomos-Full x768.**
+  The ef251/Madeen ladder then REFUTED the PROGRAM channel's depth in-game: x512 IS drawn (the
+  psychedelic ground; the polarity-free family probe) but the solid-0x7FFF bands read as a
+  4-cycle "bumper strip", not flat white — REGISTRATION-IS-NOT-A-DRAW confirmed with teeth,
+  channel P's LICENSE upgrade failed its first trigger, the DISCLOSE posture vindicated by its
+  own test. THE 15bpp LANE RESTS: WRITE path cast-proven + codec offline-exhaustive; the READ
+  proof is PARKED with the three-vehicle evidence table (the ghost-layer observation).**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
