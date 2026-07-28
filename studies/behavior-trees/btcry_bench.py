@@ -100,6 +100,16 @@ def behavior_toml(lay: dict) -> str:
     # die branch keys on it forever after, Reload re-arms everything)
     parts.append(_branch(when=[{"near": ["player", 220]}],
                          do={"battle": BATTLE_SCENE}, raise_flags=["knell"]))
+    # ROUND 2 — ring the knell EARLY (400u, outside battle range): round 1
+    # rang knell+battle on the SAME tick, so the field suspended before the
+    # heralds' brains could react and the death beat played half-eaten by
+    # the swirl-back. At 400u the kneel+linger+vanish plays IN THE OPEN,
+    # ~180u of walking before the swirl. The battle branch keeps its own
+    # ring as the belt (a fast run-in still fells the knights).
+    parts.append(_branch(when=[{"near": ["player", 400]}], once="knell",
+                         do={"announce": "THE KNELL TOLLS.  (Somewhere east, "
+                                         "the knights are falling.)"},
+                         raise_flags=["knell"]))
     # per-member wander centers are not one program (wander_post isn't vocab):
     # the shared center sits between the two posts, radius small enough that
     # each Mu drifts around its own side of the box
@@ -261,16 +271,17 @@ def deploy() -> None:
 PLAYTEST ({FIELD_ID} is REGISTERED -> NO relaunch: ~ -> Reload or Warp -> {FIELD_ID}):
   THE POINT (rung 4): THE DEATH KNELL -- a transition-critical die dispatch
   now rides REQSW (must-land, block-until-free) instead of a droppable REQ.
-  ORDER MATTERS: test the knights BEFORE stirring a Mu battle -- the battle
-  rings the knell and every knight falls.
+  ORDER MATTERS: test the knights BEFORE nearing the Mus -- approaching a
+  Mu rings the knell and every knight falls.
   1 the KNIGHTS first (east arc, three): first approach = ONE war cry, then
     he FOLLOWS while you stay near; escape once and he is silent + still
     forever. Leave AT LEAST ONE knight actively following you for step 2.
-  2 THE DEATH KNELL: with a knight still on your heels, walk west and stir
-    a Mu battle (walk into one, ~220u). The battle raises the knell -- ALL
-    THREE knights fall: KNEEL, hold a beat, VANISH. The one mid-follow is
-    the flagship: his looping chase body frees, the blocking REQSW binds
-    the die. (Around the battle swirl or right on return -- both correct.)
+  2 THE DEATH KNELL (round 2 -- rung EARLY, in the open): with a knight
+    still on your heels, walk west TOWARD a Mu. At ~400u -- well before
+    battle range -- "THE KNELL TOLLS" pops and ALL THREE knights fall:
+    KNEEL, hold a beat, VANISH, in plain view, no swirl eating it. The
+    one mid-follow is the flagship: his looping chase body frees, the
+    blocking REQSW binds the die. THEN step in (~220u) for the battle.
   3 the STALKERS (two townsfolk pacing ONE line, west side, opposite ends):
     near -> chase; escape -> resumes the line, re-engages ~2.5s after
     escape -- repeatable forever, per stalker. Must still work AFTER the
