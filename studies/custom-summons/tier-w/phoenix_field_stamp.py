@@ -248,8 +248,19 @@ def stamp(px: Sequence[int], mask: Sequence[int], w: int, h: int, cx: float, cy:
 
 
 def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
-             from_path: Optional[str] = None, game=None, export: bool = True) -> Dict[str, object]:
-    """Export the effect's art, stamp the cell, and return every number the spec and the report quote."""
+             from_path: Optional[str] = None, game=None, export: bool = True,
+             mode: str = "ink") -> Dict[str, object]:
+    """Export the effect's art, stamp the cell, and return every number the spec and the report quote.
+
+    ``mode="ink"`` (the default, and the pinned artifact) paints the wheel in the max-luminance live
+    entry.  ``mode="punch"`` writes the TRANSPARENT index instead -- THE CAST-1 DISCRIMINATOR,
+    pre-registered as sec 6 Q6's fallback: the ink wheel did not read under additive stacking
+    (brighter-on-bright adds almost nothing a moving fire does not already add), and a PUNCHED texel
+    contributes NOTHING to an additive blend, so the wheel reads as persistent dark gaps -- the one
+    negative signal additive compositing cannot wash out.  It also separates the two remaining
+    hypotheses: gaps visible = the edit reaches the screen and cast 1 was a legibility miss; gaps
+    absent = these bytes are not what the fire on screen samples, a different diagnosis entirely.
+    """
     if from_path:
         stock = Path(from_path).read_bytes()
         source = str(from_path)
@@ -270,8 +281,16 @@ def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
     mask, cover, n_models = cover_mask(stock, page)
 
     ink, live_set = choose_ink(px, mask, words, zeros)
+    if mode == "ink":
+        write_value = ink
+    elif mode == "punch":
+        if not zeros:
+            raise SystemExit("no transparent index on this row -- nothing to punch with")
+        write_value = zeros[0]
+    else:
+        raise SystemExit("unknown mode %r -- this generator ships `ink` and `punch`" % mode)
     cx, cy, r, cov_bound = island_centre(mask, w, h)
-    edited, stamped = stamp(px, mask, w, h, cx, cy, r, ink)
+    edited, stamped = stamp(px, mask, w, h, cx, cy, r, write_value)
 
     zs = set(zeros)
     changed = [i for i in range(len(px)) if px[i] != edited[i]]
@@ -285,6 +304,7 @@ def generate(effect: int = EFFECT, cell: str = CELL, root: Optional[str] = None,
 
     hz = page.hazards
     return {
+        "mode": mode, "write_value": write_value,
         "effect": effect, "cell": page.name, "source": source,
         "root": str(root), "art": str(art), "png": str(out_png),
         "page_offset": page.page_offset, "page_bytes": page.page_bytes, "wh": [w, h],
@@ -356,17 +376,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--no-export", action="store_true",
                     help="skip `export-art` and stamp into an art directory that already exists "
                          "(the manifest and the per-cell previews are then whatever is there)")
+    ap.add_argument("--mode", choices=("ink", "punch"), default="ink",
+                    help="ink = paint the wheel in the max-luminance live entry (the pinned "
+                         "artifact); punch = write the TRANSPARENT index instead -- the cast-1 "
+                         "discriminator (a hole adds nothing under additive blending)")
     ap.add_argument("--game", default=None)
     a = ap.parse_args(argv)
-    d = generate(a.ef, a.cell, a.root, a.from_path, a.game, export=not a.no_export)
+    d = generate(a.ef, a.cell, a.root, a.from_path, a.game, export=not a.no_export, mode=a.mode)
     print("\n".join(report(d)))
-    # THE TWO NUMBERS THE CLAIM RESTS ON, and they are NOT W6a's two.  `dead_bytes_moved` must be 0
-    # for the same reason it was there (paint outside the UV cover is inert).  `cutout_punch` must be
-    # 0 because punching a hole REMOVES art -- but `cutout_fill` is EXPECTED and deliberate here: a
-    # flame texture carries holes, and filling them under the figure is precisely what makes a hard
-    # edge legible on a moving surface.  The spec says `acknowledge_cutout_reshape = true` for that
-    # one reason, and the count is disclosed above rather than waved through.
-    return 0 if (d["dead_bytes_moved"] == 0 and d["cutout_punch"] == 0) else 1
+    # THE TWO NUMBERS THE CLAIM RESTS ON, per mode -- `dead_bytes_moved` must be 0 either way (paint
+    # outside the UV cover is inert).  In `ink` mode `cutout_punch` must be 0 (nothing is removed;
+    # `cutout_fill` is the deliberate, disclosed count).  In `punch` mode the polarity flips exactly:
+    # `cutout_fill` must be 0 (a punch that FILLS a hole would be writing art, not removing it) and
+    # `cutout_punch` IS the figure, disclosed above rather than waved through.
+    clean = (d["cutout_punch"] == 0) if a.mode == "ink" else (d["cutout_fill"] == 0)
+    return 0 if (d["dead_bytes_moved"] == 0 and clean) else 1
 
 
 if __name__ == "__main__":                                       # pragma: no cover
