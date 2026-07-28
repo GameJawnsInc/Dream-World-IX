@@ -1,0 +1,101 @@
+# TIER W rung W6b-1 -- CAST B: THE FIRST 15bpp DIRECT-COLOUR CAST.
+#
+# WHAT IS UNPROVEN HERE.  The 15bpp direct codec -- RGBA8 (RGB authoritative, alpha CHECKED) plus an
+# explicit 1-bit STP sidecar, encoded in the SHIFT form -- is proven exhaustively OFFLINE: all 65,536
+# halfwords round-trip with 0 mismatches, alpha == 0 <=> word == 0x0000 with 0 violations, sidecar bit
+# == bit 15 with 0 violations, and 14/14 writer-backed cells re-encode byte-identically over 26 views
+# (W6b-SCENERY.md 2.3).  It has NEVER BEEN CAST, for one reason only: no lawful 15bpp cell sat in a
+# container a bench row could reach.  This spec is that cast.
+#
+# THE VEHICLE.  ef429 = `SpecialEffect.Octopus_Suction` (Memoria
+# `Assembly-CSharp/Memoria/Data/Battle/SpecialEffect.cs:354` -- "Gigan Octopus's 6 Legs"), an ENEMY
+# attack, reachable from bench row 201 "Stock Octopus" on STEINIV's Rune menu
+# (studies/custom-summons/rung8-epic/bench/rung8.field.toml).  Of the corpus's four lawful 15bpp cells
+# ef429's are the ONLY ones with no reader spill -- `x448_y256` is page-scope-safe and `x448_y384` joins
+# it through the per-cell map.  This spec writes the UPPER cell ONLY.
+#
+# THE ORDER OF THE LADDER IS NOT NEGOTIABLE.  BINDING-IS-NOT-A-DRAW: an `so` reader proves a model CAN
+# sample a cell, never that it is drawn (two ef211 casts were spent learning this).  So CAST A -- the
+# striped cell census, `ef429_cell_probe.py` -- runs FIRST and answers "is (448,256) drawn at all"; this
+# spec is cast only if it is.  The protocol is in the SCRATCH root's STAGING.md.
+#
+# THE UV-FLATNESS SCREEN CHOSE THE FIGURE, AND IT CHOSE BANDS (re-derived per run by
+# `octopus_band_stamp.py:uv_report`, on the cast-1f axes of UV-ANALYSIS.md):
+#
+#   cell (448,256)  geom 0x2109c  40 in-cell faces (40 GT4/FT4 quads)  ABR 1 (ADDITIVE) on 72/72 prims
+#       OVERLAP x26.42   ANISO med 1.892 / p90 6.825 / max 9.063 (SPREAD 7.171)   SCALE max/min 2.87
+#   cell (448,384)  same geom, 56 in-cell faces
+#       OVERLAP x38.88   ANISO med 1.439 / p90 2.673 / max 6.295 (SPREAD 4.855)   SCALE max/min 2.10
+#   baselines: the cast-proven SHREDDERS x11.68 / x13.63 / x41.25; the cast-proven FLAT reader x1.18
+#              with anisotropy CONSTANT (med 2.209, max 2.299 -- spread 0.09)
+#
+#   BOTH TARGET CELLS SHRED.  Overlap sits inside the shredder band and 22x above the flat reader's, and
+#   the anisotropy is not merely high but widely SPREAD -- a constant stretch is pre-compensable, a
+#   distribution is not.  A wheel would appear ~26 times at ~26 different stretches.
+#   AND A SECOND, HARDER REASON: the one reader's band spans page lines 97..159 -- 31 lines in this cell
+#   and 32 in the lower one -- so any figure taller than 31 lines is CUT IN HALF by the write span.  A
+#   wheel cannot be completed here.  Bands can, and the untouched lower cell becomes a free CONTROL:
+#   the bands must stop dead at each leg's midline.
+#
+# THE FIGURE.  3 bands x 6 rows at lines 99 / 109 / 119, full 64-texel width, inside the reader's cover
+# only: 1,152 texels = 58.1% of the cover, 14.1% of the page (cast 2b ran 18.7%, cast 3 16.6%).  THREE
+# is a count, readable off one video frame, and deliberately different from cast A's own signature on
+# this same cell (k = 1 stripe) so the two casts can never be mistaken for each other.
+#
+# THE INK IS **THE DARKEST COLOUR AT CONSTANT STP** -- `new = old & 0x8000` -- AND IT IS MEASURED.
+# Every one of the reader's 1,984 covered halfwords is `0xffff` (white, STP set, L = 255.00 of a 255.00
+# ceiling): the surface is uniform maximum light, so contrast is maximal for any dark ink AND the
+# phoenix cast's "slide the figure to where there is light to remove" search is DEGENERATE -- placement
+# here is geometry, not luminance, and the spec says so rather than reporting a meaningless optimum.
+# Two dark inks exist at direct colour: `0x0000` (the hardware CUTOUT) and `0x8000` (black, STP kept).
+# Under ABR 1 both add nothing; under any other ABR `0x8000` is darker or equal; and `0x8000` leaves
+# bit 15 exactly as stock, so the STP sidecar is carried VERBATIM and no cutout is created.
+# MEASURED CONSEQUENCE: cutouts 2,681 -> 2,681 and STP-set 2,048 -> 2,048, so the kit's cutout gate
+# reports punch 0 / fill 0 and `acknowledge_cutout_reshape` stays false.  Never saturation: on an
+# additive surface only removing light reads.
+#
+# GENERATE THE ART FIRST (the committed generator -- no stock byte is committable):
+#
+#     py octopus_band_stamp.py --from C:/gd/SCRATCH/summon-format/ef429.bytes ^
+#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef429-15bpp/cast-b
+#
+# It runs the 15bpp NO-OP IDENTITY GATE before drawing anything -- the exported RGBA + STP pair must
+# re-encode to the stock cell bytes exactly -- and again on the stamped pair, so the sidecar path is
+# exercised end to end rather than trusted.
+#
+# THE QUAD-FAN CAVEAT, CHECKED RATHER THAN INHERITED.  A separate session is fixing
+# `repaint._face_polys`, which fans a 4-corner face (0,1,2)+(0,2,3) although PSX quads are Z-ordered; on
+# ef211's arc that bowtie under-reported the cover by 17.4%.  Re-derived here per run: ef429's quads are
+# Z-ordered too (40/40 winding-consistent under the Z fan, 0/40 under the perimeter fan) but the two
+# covers AGREE to the halfword (1,984 = 1,984 = the kit's), because every UV rect here spans the full
+# 64-halfword cell width and an axis-aligned rectangle is covered by either fan.  The defect is real on
+# this container and INERT on this target -- so cast B does not ride it, and the build's
+# "outside the cover" count is expected to be 0, not a disclosed defect number.
+
+[reskin]
+effect = 429
+label  = "octopus-w6b-castB-15bpp-bands"
+# the drift guard: sha256 of the pristine stock container in YOUR install.  A HASH, not data -- no
+# stock byte is committable.
+expect_sha256 = "857d34d8e6598d0ae0d77826415fefedc72fd69f8428d8d55fd3a297465571e1"
+
+[[reskin.texel]]
+name = "cell.s0.x448_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef429-15bpp/cast-b/art/cell.s0.x448_y256.png"
+
+# --- the guards, emitted by the derivation, never typed ----------------------------------------
+expect_page_offset = 0x000e5c   # the s0 id-0 page rect at VRAM (448,256,w=64,h=256), cell 0 of 2
+expect_page_bytes  = 16384
+expect_page_wh     = [64, 128]  # at 15bpp: ONE halfword per texel, so 64 texels wide
+expect_bpp         = 15         # stated, CHECKED against the `so` record (geom 0x2109c, no CLUT)
+expect_cell        = [448, 256]
+
+# --- the authored decisions ---------------------------------------------------------------------
+enabled = true
+# No `palette_from`: 15bpp is DIRECT colour, there is no CLUT to name.  The second file --
+# cell.s0.x448_y256.stp.png -- is not a spec key either: it is AUTHORITATIVE and resolved from the
+# source name, so the two can never disagree about where bit 15 lives, and a MISSING sidecar refuses.
+# acknowledge_cutout_reshape stays FALSE: the ink preserves bit 15, so no texel crosses the cutout
+# boundary in either direction (measured: 2,681 -> 2,681).
+acknowledge_cutout_reshape = false
+note = "CAST B: three bold horizontal bands punched to black-at-constant-STP in the ONE so-reader's cover, upper cell only -- the first cast of the 15bpp direct codec, with the untouched lower half as its own control"

@@ -202,11 +202,34 @@ name = "Rune"
 #
 #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef038 container override itself is hot: a
 #   PAGE upload invalidates the decoded-texture cache, so the composed edit is live on the NEXT cast.
+#
+# --- TIER W6b-1 / THE 15bpp LANE: "Stock Octopus" casts STOCK effect 429.  SAME shape as the three rows
+#     above, same donor, same three overrides, and the same forced placement -- APPENDED LAST, because
+#     the 192+ ability-id allocator is ONE running counter walking specs in TOML order
+#     (`content/playable.py`), so this row takes id 201 and renumbers nothing.  Inserting it anywhere
+#     earlier would shift 197-200, which are already deployed: a live-state break.
+#   WHAT ef429 IS.  `Memoria/Assembly-CSharp/Memoria/Data/Battle/SpecialEffect.cs:354` names it
+#     `Octopus_Suction = 429, // Gigan Octopus's 6 Legs` -- an ENEMY attack effect, not an eidolon, and
+#     the first non-summon container this bench has cast.  In stock play it is the Gigan Octopus's own
+#     "6 Legs" attack; nothing the party can cast reaches it, which is exactly why it needs a bench row.
+#   WHY ef429 IS THE W6b-1 SUBJECT.  The 15bpp DIRECT codec (RGBA + an explicit 1-bit STP sidecar) is
+#     proven exhaustively offline over all 65,536 halfwords and on 14/14 writer-backed cells, and it has
+#     NEVER BEEN CAST -- no lawful 15bpp cell sat in a container reachable from a bench row
+#     (W6b-SCENERY.md 2.3).  ef429 is the ONLY lawful 15bpp cell with NO reader spill, so it is
+#     page-scope-safe: `cell.s0.x448_y256` plus, via the per-cell map, its lower half `x448_y384`.
+#     Its ONE `so` reader (geom 0x2109c, 72 primitives, ABR 1 = additive) samples a band that straddles
+#     the two cells, so the pair is one texture band and this row is what puts it on screen.
+#   vfx1 = vfx2 = 429  the FULL cast, structurally (both cells equal => the short-summon roll cannot
+#                      change what plays).  ef429 has no id-4 creature package at all -- 8 scenery
+#                      page-cells, 2 of them 15bpp-lawful, which is the whole write surface.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef429 container override itself is hot.
 abilities = [
   { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 },
   { name = "Stock Phoenix", from = "Bahamut", targets = "AllEnemy", vfx1 = 211, vfx2 = 211, type = 0, power = 30, mp = 8 },
   { name = "Stock Madeen", from = "Bahamut", targets = "AllEnemy", vfx1 = 251, vfx2 = 251, type = 0, power = 30, mp = 8 },
   { name = "Stock Shiva", from = "Bahamut", targets = "AllEnemy", vfx1 = 38, vfx2 = 38, type = 0, power = 30, mp = 8 },
+  { name = "Stock Octopus", from = "Bahamut", targets = "AllEnemy", vfx1 = 429, vfx2 = 429, type = 0, power = 30, mp = 8 },
 ]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------
