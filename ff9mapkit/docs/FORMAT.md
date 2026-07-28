@@ -1701,6 +1701,12 @@ if you'd rather read a working field than a reference table.
 
 ```toml
 [siege]
+brains = true                      # (optional) compile onto per-class Seq brains: each ally
+                                   # type / raider group becomes ONE shared brain instead of
+                                   # per-unit ticker segments, and the ending theater runs
+                                   # inline. Same game, far smaller bytecode with headroom
+                                   # for bigger armies; the default (off) is the original
+                                   # central-ticker emission
 timer = 60                         # the siege clock, seconds
 waves = [55, 40, 20]               # wave start times in REMAINING seconds (descending)
 stipend = 3000                     # (optional) opening war chest, paid + announced at boot
@@ -2284,9 +2290,12 @@ own coroutine entry (identical semantics, headroom for very large rosters — se
 instead of `npc =`: **one row's branches drive every listed NPC through ONE shared brain**,
 with per-member state (posts, targets, latches, the engage register) strided automatically.
 Class rows take the unit vocabulary (feeds, `engage`, `swing_at`, `hold_ground`, `die`, sticky
-`once`/`cooldown`); the one-shot family (`battle`/`award`/shop/`sfx`/`flash`/`stop_timer`/
-`announce*`) still needs a single-npc row, and a class name cannot be a condition target —
-name a member. `hp`/`speed`/`pooled`/`pool` apply to every member.
+`once`/`cooldown`) **and the one-shot family** (`battle`/`sfx`/`flash`/`stop_timer`/`announce*`,
+with once-PER-MEMBER latches); only the payout verbs (`award`/shop) refuse a class row (once per
+member would be N payouts), and a class name cannot be a condition target — name a member.
+`hp`/`speed`/`pooled`/`pool` apply to every member; `speeds = [..]` (mutually exclusive with
+`speed`) gives each member its OWN walk speed — a class feed with no `speed=` then walks every
+member at its preset, so marchers keep their anti-lockstep jitter.
 
 **Pooled units (runtime activation):** `pooled = true` on a `[[behavior.unit]]` keeps its NPC
 **out of the field at boot** (the entry is seated dormant — no spawn, no reveal flag needed) and

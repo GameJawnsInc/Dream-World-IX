@@ -69,7 +69,7 @@ DEFAULT_REPLY = "Deployed!  He holds this very spot."
 _KEYS = {"timer", "warmup", "waves", "stipend", "win_gil", "win_item",
          "win_sfx", "win_flash", "loss_sfx", "hit_sfx", "loss_battle", "button",
          "council_prompt", "hud", "hud_text", "flag_base", "alarm_radius",
-         "base", "ally", "raider",
+         "base", "ally", "raider", "brains",
          "text_stipend", "text_win", "text_rout", "text_alarm", "text_loss",
          "text_pace", "text_waves", "wave_sfx", "alarm_sfx"}
 _BASE_KEYS = {"name", "model", "pos", "hp", "face", "dialogue", "speed"}
@@ -181,6 +181,9 @@ class SiegeSpec:
     text_waves: tuple = ()           # one cry per wave ("" skips that wave)
     wave_sfx: int | None = None      # cue on every wave arrival
     alarm_sfx: int | None = None     # cue with the alarm
+    brains: bool = False             # per-class Seq brains (npcs= rows) instead of
+                                     # the v1 central ticker; False = the ratified
+                                     # ticker emission byte-for-byte
 
 
 def _need(d: dict, key, ctx: str):
@@ -391,7 +394,8 @@ def from_raw(s: dict) -> SiegeSpec:
         text_loss=_ending_text(s, "text_loss", DEFAULT_LOSS_TEXT, ctx),
         text_pace=tp, text_waves=tuple(tw),
         wave_sfx=(int(s["wave_sfx"]) if s.get("wave_sfx") is not None else None),
-        alarm_sfx=(int(s["alarm_sfx"]) if s.get("alarm_sfx") is not None else None))
+        alarm_sfx=(int(s["alarm_sfx"]) if s.get("alarm_sfx") is not None else None),
+        brains=bool(s.get("brains", False)))
 
 
 # ----------------------------------------------------------------- the emission
@@ -428,6 +432,7 @@ def behavior_raw(spec: SiegeSpec) -> dict:
     all_raiders = [n for r in spec.raiders for n in r.unit_names()]
     all_allies = [n for a in spec.allies for n in a.unit_names()]
     b: dict = {
+        **({"brains": True} if spec.brains else {}),
         "warmup": spec.warmup, "timer": spec.timer,
         "byte_band": "wide",                     # a condor-scale siege cannot fit the campaign-safe
                                                  # band (flags.py partition); [siege] is standalone-
@@ -619,7 +624,45 @@ def behavior_raw(spec: SiegeSpec) -> dict:
 
     # THE RAIDERS -- die-tally, depot-commit, THE PIN (counter-engage), the
     # wave-gated march down the lane, the stage hold.
+    # Under `brains` each raider GROUP is a CLASS (one shared brain): the march
+    # drops its per-member [stage] head and walks the SHARED lane at each
+    # brain's own private waypoint progress (the stalker-chord shape); the
+    # fallback becomes hold_post (a raider SPAWNS at its stage, so post ==
+    # stage); and the engage/march carry NO speed= — each member walks at its
+    # OWN preset speed (the row's `speeds` list -> the strided spd0 fallback),
+    # keeping the anti-lockstep jitter.
     for r in spec.raiders:
+        if spec.brains:
+            if len(r.route) >= 2:
+                march = {"march": [list(p) for p in r.route], "arrive_r": 180}
+                if r.autoroute:
+                    march["route"] = "auto"
+            else:
+                # a 1-point lane: the per-member [stage] head used to make it a
+                # 2-point march; the shared program walks the point directly
+                # (same terminal behavior — the feed holds the final target)
+                march = {"walk_to": list(r.route[0])}
+            units.append({
+                "npcs": r.unit_names(), "class": r.name, "hp": r.hp,
+                "speeds": [int(v) for v in r.speeds], "branch": [
+                    _branch(when=[{"hp_le": 0}],
+                            do=_theater({"die": "kills"}, death=r.death_anim,
+                                        linger=r.linger)),
+                    _branch(when=[{"active": spec.base.name},
+                                  {"near": [spec.base.name, 300]}],
+                            do=_theater({"swing_at": spec.base.name,
+                                         "damage": r.damage,
+                                         "interval": r.interval},
+                                        anim=r.anim, hit=spec.hit_sfx)),
+                    _branch(do=_theater({"engage": "allies", "nearest": True,
+                                         "radius": r.leash, "contact": r.contact,
+                                         "damage": r.damage,
+                                         "interval": r.interval + COUNTER_IVL_PAD},
+                                        anim=r.anim, hit=spec.hit_sfx)),
+                    _branch(when=[{"counter_ge": ["wave", r.wave]}], do=march),
+                    _branch(do={"hold_post": True}),
+                ]})
+            continue
         for i, uname in enumerate(r.unit_names()):
             stage = list(r.entrance[i])
             speed = r.speeds[i]
@@ -639,8 +682,8 @@ def behavior_raw(spec: SiegeSpec) -> dict:
                                      "speed": speed},
                                     anim=r.anim, hit=spec.hit_sfx)),
             ]
-            march: dict = {"march": [stage] + [list(p) for p in r.route],
-                           "arrive_r": 180, "speed": speed}
+            march = {"march": [stage] + [list(p) for p in r.route],
+                     "arrive_r": 180, "speed": speed}
             if r.autoroute:
                 march["route"] = "auto"
             rb.append(_branch(when=[{"counter_ge": ["wave", r.wave]}], do=march))
@@ -648,23 +691,32 @@ def behavior_raw(spec: SiegeSpec) -> dict:
             units.append({"npc": uname, "hp": r.hp, "speed": speed, "branch": rb})
 
     # THE ARMY -- pooled, stance as radius:contact, holding its hire post.
+    # Under `brains` each ally TYPE is a CLASS -- the rows are uniform by
+    # construction (same tree, hp, price, speed), so this is a pure fold.
     for a in spec.allies:
-        for uname in a.unit_names():
-            units.append({
-                "npc": uname, "hp": a.hp, "pooled": True, "pool": a.name,
-                "speed": a.speed, "branch": [
-                    _branch(when=[{"hp_le": 0}],
-                            do=_theater({"die": True}, death=a.death_anim,
-                                        linger=a.linger)),
-                    _branch(do=_theater({"engage": "raiders", "nearest": True,
-                                         "radius": a.radius,
-                                         "contact": a.contact_r(),
-                                         "damage": a.damage,
-                                         "interval": a.interval,
-                                         "speed": a.speed},
-                                        anim=a.anim, hit=spec.hit_sfx)),
-                    _branch(do={"hold_post": True}),
-                ]})
+        def army_branch():
+            return [
+                _branch(when=[{"hp_le": 0}],
+                        do=_theater({"die": True}, death=a.death_anim,
+                                    linger=a.linger)),
+                _branch(do=_theater({"engage": "raiders", "nearest": True,
+                                     "radius": a.radius,
+                                     "contact": a.contact_r(),
+                                     "damage": a.damage,
+                                     "interval": a.interval,
+                                     "speed": a.speed},
+                                    anim=a.anim, hit=spec.hit_sfx)),
+                _branch(do={"hold_post": True}),
+            ]
+        if spec.brains:
+            units.append({"npcs": a.unit_names(), "class": a.name, "hp": a.hp,
+                          "pooled": True, "pool": a.name, "speed": a.speed,
+                          "branch": army_branch()})
+        else:
+            for uname in a.unit_names():
+                units.append({"npc": uname, "hp": a.hp, "pooled": True,
+                              "pool": a.name, "speed": a.speed,
+                              "branch": army_branch()})
     b["unit"] = units
     return b
 
@@ -716,7 +768,7 @@ def resolve_hireable(raw: dict) -> dict:
         for br in u.get("branch", []) or []:
             if isinstance(br.get("do"), dict):
                 br["do"].pop("route", None)
-    all_units = [u["npc"] for u in work["behavior"]["unit"]]
+    all_units = [m for u in work["behavior"]["unit"] for m in BT.row_members(u)]
     txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in BT.announce_lines(work)}
     txids.update({("hud", hi): 890 + hi for hi, _h in BT.hud_lines(work)})
     fb = BT.build(work, npc_slots={n: i + 2 for i, n in enumerate(all_units)},

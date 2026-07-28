@@ -90,6 +90,15 @@ BYTE_END_DEFAULT = BEHAVIOR_BYTE_END                        # byte 1989
 # its allocations there, wiping those members' once-flags -- NEVER deploy wide-band behavior content
 # onto a save that also plays a campaign. Opt in via [behavior] byte_band = "wide" (behaviortoml) or
 # Blackboard(byte_base=WIDE_BYTE_BASE); [siege] generates the wide band (it cannot fit otherwise).
+# The wide band carries its own FLAG window too, seated DIRECTLY BELOW the byte band (bytes
+# 1190-1219 = bits 9520-9759, 240 flags): the safe partition's 96-flag Blackboard window is boxed
+# in by the siege-request and kit-world sub-bands and cannot grow, and a condor-scale siege's
+# event-once latch+request lanes exhaust it (the shipped REDOUBT needs ~120 under the v1 ticker).
+# The window sits in the campaign lane exactly as the byte band itself does — the SAME
+# standalone-only contract covers both — and the byte band keeps its full measured 770 bytes
+# (the 40-unit swarm wall is pinned by test at that width).
+WIDE_FLAG_BASE = 9520                # bit of byte 1190
+WIDE_FLAG_END = 9759                 # 240 flags, flush under the byte band
 WIDE_BYTE_BASE = 1220
 
 

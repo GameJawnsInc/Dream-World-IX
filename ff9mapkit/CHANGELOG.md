@@ -71,6 +71,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and fires the moment the dialogue closes — never lost, never mid-dialogue. Looping
   (non-once) variants keep per-member bodies (they hold the unit's dispatch level while
   selected); v1 ticker builds are byte-identical.
+- **`[siege]` gains `brains = true`**: the condor siege compiles onto per-class Seq brains —
+  each ally type and each raider group becomes ONE shared brain (`npcs =` class rows), raiders
+  walk their SHARED lane at private per-member progress from their stage spawns, and the base's
+  ending theater runs inline. Same ratified game (played back-to-back on the acceptance field),
+  far smaller bytecode: the central ticker collapses ~32KB → ~7KB on the reference siege, with
+  the class-count headroom for bigger armies. The default (no key) emission is unchanged.
+  Class rows also gain `speeds = [...]` — per-member walk speeds (mutually exclusive with
+  `speed`), so classed marchers keep their anti-lockstep jitter.
+- Fixed: **`byte_band = "wide"` brings its own 240-flag window** (seated flush under the wide
+  byte band, same standalone-only contract). The safe partition had left the blackboard flag
+  window at 96, which a condor-scale siege's event-once latch + request lanes exceed under the
+  v1 ticker — the shipped siege acceptance field could no longer compile. The wide byte band
+  keeps its full measured 770 bytes.
 
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
