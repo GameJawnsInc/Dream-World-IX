@@ -756,3 +756,45 @@ def test_the_instruments_column_is_standalone_for_the_inspector_dock(doc):
     assert doc.report_box in doc.instruments.findChildren(type(doc.report_box))
     doc.show_none()                                # a closed project resets the docked column
     assert not doc._has_result() and doc.problems_lbl.text() == ""
+
+
+# --------------------------------------------------------------------------- class rows (npcs=)
+def _class_raw():
+    """A brains field with one npcs= class row + one plain unit (the per-class
+    shared-brain vocabulary -- the [siege] default emits exactly this shape)."""
+    return {
+        "field": {"name": "CLASSY"},
+        "player": {"spawn": [0, 0]},
+        "npc": [{"name": "fang1", "pos": [100, 200]}, {"name": "fang2", "pos": [700, -300]},
+                {"name": "hero", "pos": [0, 500]}],
+        "marker": [{"name": "loop", "path": [[0, 0], [100, 0], [100, 100]], "closed": True}],
+        "behavior": {"brains": True, "unit": [
+            {"npcs": ["fang1", "fang2"], "class": "fang", "hp": 2, "speeds": [40, 55],
+             "branch": [{"when": [{"hp_le": 0}], "do": {"die": True}},
+                        {"when": [{"near": ["player", 600]}],
+                         "do": {"chase": "player", "standoff": 180}},
+                        {"do": {"patrol": "loop"}}]},
+            {"npc": "hero", "hp": 5,
+             "branch": [{"when": [{"hp_le": 0}], "do": {"die": True}},
+                        {"do": {"hold_post": True}}]},
+        ]},
+    }
+
+
+def test_a_class_row_reads_as_a_class_in_cast_ladder_and_stage(doc):
+    doc.show_field("CLASSY", _class_raw(), None)
+    units_it = doc.cast.topLevelItem(0)
+    names = [units_it.child(i).text(0) for i in range(units_it.childCount())]
+    assert any(n.startswith("fang") and "class ×2" in n for n in names)
+    assert doc._selected_unit == "fang"            # the first row selects under its CLASS name
+    assert len(_ladder_rows(doc.ladder)) == 3      # one shared ladder for both members
+    stats = doc.unit_stats.text()
+    assert "one program shared by 2" in stats and "speeds 40/55" in stats
+    tags = _scene_tags(doc.canvas)
+    assert tags.count("post") == 3                 # fang1 + fang2 + hero all hold posts
+    assert tags.count("ring") == 2                 # the class ring around EVERY member's post
+    hero_item = next(units_it.child(i) for i in range(units_it.childCount())
+                     if units_it.child(i).text(0).startswith("hero"))
+    doc.cast.setCurrentItem(hero_item)
+    assert doc._selected_unit == "hero"
+    assert _scene_tags(doc.canvas).count("ring") == 0   # rings still belong to the selection

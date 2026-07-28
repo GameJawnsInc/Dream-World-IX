@@ -497,3 +497,90 @@ def test_sweep_geometry_without_a_mesh_is_an_error_not_a_crash():
 def test_load_walkmesh_reports_the_reason(tmp_path):
     wm, err = BS.load_walkmesh(tmp_path / "nope" / "field.toml")
     assert wm is None and err
+
+
+# --------------------------------------------------------------------------- class rows (npcs=)
+# The per-class shared-brain vocabulary ([[behavior.unit]] npcs = [...]) reaching the tab:
+# ONE ladder under the CLASS name (exactly what the compiler builds), members on the stage.
+def _class_field():
+    return {
+        "player": {"spawn": [0, 0]},
+        "npc": [{"name": "fang1", "pos": [100, 200]}, {"name": "fang2", "pos": [700, -300]},
+                {"name": "hero", "pos": [0, 500]}],
+        "marker": [{"name": "loop", "path": [[0, 0], [100, 0], [100, 100]], "closed": True}],
+        "behavior": {"brains": True, "unit": [
+            {"npcs": ["fang1", "fang2"], "class": "fang", "hp": 2, "speeds": [40, 55],
+             "branch": [{"when": [{"hp_le": 0}], "do": {"die": True}},
+                        {"when": [{"near": ["player", 600]}],
+                         "do": {"chase": "player", "standoff": 180}},
+                        {"do": {"patrol": "loop"}}]},
+            {"npc": "hero", "hp": 5,
+             "branch": [{"when": [{"hp_le": 0}], "do": {"die": True}},
+                        {"do": {"hold_post": True}}]},
+        ]},
+    }
+
+
+def test_class_fixture_is_legal_to_the_compiler():
+    assert BS.validate_problems(_class_field()) == []
+
+
+def test_cast_model_renders_a_class_row_under_its_class_name():
+    cast = BS.cast_model(_class_field())
+    u = cast["units"][0]
+    assert u["name"] == "fang" and u["members"] == ["fang1", "fang2"]
+    assert u["speeds"] == [40, 55] and u["branches"] == 3
+    assert cast["units"][1]["name"] == "hero" and cast["units"][1]["members"] == []
+
+
+def test_ladder_and_edit_ops_scope_by_the_class_name():
+    raw = _class_field()
+    rows = BS.ladder_model(raw, "fang")
+    assert len(rows) == 3 and rows[0]["verb"] == "die"
+    assert BS.move_branch(raw, "fang", 1, 1) == 2   # one shared program == one ladder
+    assert raw["behavior"]["unit"][0]["branch"][2]["do"].get("chase") == "player"
+    BS.delete_unit(raw, "fang")
+    assert [BT.row_members(u) for u in raw["behavior"]["unit"]] == [["hero"]]
+
+
+def test_class_members_all_count_as_taken_npcs():
+    assert BS.npc_candidates(_class_field()) == []   # fang1/fang2 via the class row
+
+
+def test_stage_projects_class_members_with_the_row_identity():
+    m = BS.stage_model(_class_field())
+    fang_posts = [p for p in m["posts"] if p.get("unit") == "fang"]
+    assert {p["name"] for p in fang_posts} == {"fang1", "fang2"}
+    rings = m["rings"]["fang"]
+    assert len(rings) == 2                          # the near ring around EVERY member's post
+    assert {(r["x"], r["z"]) for r in rings} == {(100, 200), (700, -300)}
+    assert len({r["rid"] for r in rings}) == 1      # ONE shared radius write path (any grip
+    (route,) = m["routes"]                          # resizes the class's ring -- the program
+    assert route["unit"] == "fang"                  # IS shared)
+
+
+def test_stage_handles_cover_every_class_member_post():
+    ids = {h["id"] for h in BS.stage_handles(_class_field())}
+    assert ("pos", "fang1") in ids and ("pos", "fang2") in ids
+
+
+def test_a_class_field_survives_a_real_dry_compile(tmp_path):
+    from ff9mapkit.editor import model as _model
+    raw = {"field": {"name": "BARE", "id": 30992}, **_class_field()}
+    p = tmp_path / "field.toml"
+    p.write_text(_model.dumps(raw), encoding="utf-8")
+    res = BS.dry_compile(p)
+    assert res.ok, res.problems
+
+
+def test_siege_view_speaks_class_rows_under_the_brains_default():
+    view = BS.siege_view(_siege_field())
+    cast = BS.cast_model(view)
+    classed = [u for u in cast["units"] if u["members"]]
+    assert classed, "the [siege] default is brains -- the view must carry class rows"
+    names = {c["name"] for c in classed}
+    assert "?" not in names                         # every row renders under a real identity
+    rows = BS.ladder_model(view, classed[0]["name"])
+    assert rows and rows[-1]["unconditional"]
+    lit = [p for p in BS.stage_model(view)["posts"] if p.get("unit") in names]
+    assert lit, "class members must land on the stage with their row identity"

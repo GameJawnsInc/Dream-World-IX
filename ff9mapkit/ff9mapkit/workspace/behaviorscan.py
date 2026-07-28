@@ -122,13 +122,24 @@ def _decos(br: dict) -> list:
 
 
 # ------------------------------------------------------------------ the three projections
+def row_name(u: dict, ui: int) -> str:
+    """The tab's identity for one unit row: the npc name, or the CLASS name for a
+    ``npcs = [...]`` row (per-class brain sharing). validate() pins class names unique
+    and non-colliding with [[npc]] names, so the name is a safe selection key."""
+    return BT.row_class(u, ui) or str(u.get("npc", "?"))
+
+
 def cast_model(raw: dict) -> dict:
-    """The left rail: units / groups / pools / data rows, each as (name, note) material."""
+    """The left rail: units / groups / pools / data rows, each as (name, note) material.
+    A CLASS row (``npcs =``) renders under its class name with its members listed --
+    ONE ladder shared by all of them, which is exactly what the compiler builds."""
     b = BT.table(raw) or {}
     units = []
-    for u in BT.units(raw):
-        units.append({"name": str(u.get("npc", "?")), "hp": u.get("hp"),
-                      "speed": u.get("speed"), "pooled": bool(u.get("pooled")),
+    for ui, u in enumerate(BT.units(raw)):
+        units.append({"name": row_name(u, ui), "hp": u.get("hp"),
+                      "speed": u.get("speed"), "speeds": u.get("speeds"),
+                      "members": BT.row_members(u) if u.get("npcs") is not None else [],
+                      "pooled": bool(u.get("pooled")),
                       "pool": u.get("pool"), "branches": len(u.get("branch") or [])})
     groups = [{"name": str(g.get("name", "?")),
                "members": [str(x) for x in (g.get("units") or [])]}
@@ -166,7 +177,8 @@ def cast_model(raw: dict) -> dict:
 def ladder_model(raw: dict, unit_name: str) -> list:
     """The selected unit's branches as ladder rows, TOML order (== priority order). Each:
     ``{"index", "conds", "verb", "detail", "decos", "unconditional"}``."""
-    unit = next((u for u in BT.units(raw) if str(u.get("npc")) == unit_name), None)
+    unit = next((u for ui, u in enumerate(BT.units(raw))
+                 if row_name(u, ui) == unit_name), None)
     rows = []
     for bi, br in enumerate(unit.get("branch") or [] if unit else []):
         when = br.get("when") if isinstance(br, dict) else None
@@ -188,10 +200,25 @@ def stage_model(raw: dict) -> dict:
     mpaths = BT.marker_paths(raw)
     posts, rings, wanders = [], {}, []
     for ui, u in enumerate(BT.units(raw)):
-        nm = str(u.get("npc", ""))
-        if nm in positions:
-            posts.append({"name": nm, "x": positions[nm][0], "z": positions[nm][1],
-                          "pooled": bool(u.get("pooled"))})
+        rn = row_name(u, ui)
+        members = [m for m in BT.row_members(u) if m in positions]
+        for nm in members:
+            posts.append({"name": nm, "unit": rn, "x": positions[nm][0],
+                          "z": positions[nm][1], "pooled": bool(u.get("pooled"))})
+        # a CLASS row's self-centred rings draw around EVERY member's post (the shared
+        # program runs on each of them); a plain row's entry stays centre-free and the
+        # canvas centres it on the selected post
+        ring_centres = ([positions[m] for m in members]
+                        if u.get("npcs") is not None else [None])
+
+        def _ring(entry, centred=False, _c=ring_centres):
+            for cxz in (_c if not centred else [None]):
+                e = dict(entry)
+                if cxz is not None:
+                    e["x"], e["z"] = cxz[0], cxz[1]
+                rings.setdefault(rn, []).append(e)
+                if centred:
+                    return
         for bi, br in enumerate(u.get("branch") or []):
             if not isinstance(br, dict):
                 continue
@@ -201,42 +228,44 @@ def stage_model(raw: dict) -> dict:
                 try:
                     # "rid" is the ring's RESIZE handle (rung C: apply_radius)
                     if isinstance(c.get("near"), (list, tuple)) and len(c["near"]) >= 2:
-                        rings.setdefault(nm, []).append(
-                            {"radius": int(c["near"][1]), "bi": bi,
-                             "rid": ("radius", ui, bi, ci, "near"),
-                             "label": f"near {c['near'][0]} {int(c['near'][1])}"})
+                        _ring({"radius": int(c["near"][1]), "bi": bi,
+                               "rid": ("radius", ui, bi, ci, "near"),
+                               "label": f"near {c['near'][0]} {int(c['near'][1])}"})
                     elif isinstance(c.get("any_near"), (list, tuple)) and len(c["any_near"]) >= 2:
-                        rings.setdefault(nm, []).append(
-                            {"radius": int(c["any_near"][1]), "bi": bi,
-                             "rid": ("radius", ui, bi, ci, "any_near"),
-                             "label": f"any_near {int(c['any_near'][1])}"})
+                        _ring({"radius": int(c["any_near"][1]), "bi": bi,
+                               "rid": ("radius", ui, bi, ci, "any_near"),
+                               "label": f"any_near {int(c['any_near'][1])}"})
                     elif isinstance(c.get("near_point"), (list, tuple)) and len(c["near_point"]) >= 2:
                         px, pz = BT._resolve_point(c["near_point"][0], positions, "near_point")
-                        rings.setdefault(nm, []).append(
-                            {"radius": int(c["near_point"][1]), "bi": bi, "x": px, "z": pz,
-                             "rid": ("radius", ui, bi, ci, "near_point"),
-                             "label": f"near_point {int(c['near_point'][1])}"})
+                        _ring({"radius": int(c["near_point"][1]), "bi": bi, "x": px, "z": pz,
+                               "rid": ("radius", ui, bi, ci, "near_point"),
+                               "label": f"near_point {int(c['near_point'][1])}"}, centred=True)
                 except (BT.BehaviorTomlError, TypeError, ValueError):
                     continue
             do = br.get("do")
             if isinstance(do, dict) and "wander" in do:
                 try:
                     wx, wz = BT._resolve_point(do["wander"], positions, "wander")
-                    wanders.append({"unit": nm, "x": wx, "z": wz,
+                    wanders.append({"unit": rn, "x": wx, "z": wz,
                                     "r": int(do.get("radius", 400))})
                 except (BT.BehaviorTomlError, TypeError, ValueError):
                     pass
     routes, refuges = [], []
+    us = BT.units(raw)
     for ref in BT.movement_route_refs(raw):
+        # the ref's own label is the lint lane's ("a+b+c" for a class row); the stage
+        # speaks the tab's row identity instead
+        uname = (row_name(us[ref["ui"]], ref["ui"])
+                 if 0 <= ref["ui"] < len(us) else str(ref["unit"] or "?"))
         try:
             pts = BT._resolve_route(ref["value"], positions, mpaths, ref["unit"] or "?")
         except BT.BehaviorTomlError:
             continue
         if ref["verb"] == "flee":
-            refuges.append({"unit": ref["unit"], "points": pts})
+            refuges.append({"unit": uname, "points": pts})
         else:
             closed = ref["verb"] == "patrol"
-            routes.append({"unit": ref["unit"], "verb": ref["verb"], "points": pts,
+            routes.append({"unit": uname, "verb": ref["verb"], "points": pts,
                            "closed": closed, "auto": bool(ref["autoroute"])})
     scans = []
     for s in ((BT.table(raw) or {}).get("scan") or []):
@@ -376,8 +405,8 @@ def parse_branch(text: str):
 
 
 def _unit_row(raw: dict, unit_name: str):
-    for u in BT.units(raw):
-        if str(u.get("npc")) == unit_name:
+    for ui, u in enumerate(BT.units(raw)):
+        if row_name(u, ui) == unit_name:
             return u
     raise KeyError(f"no behavior unit {unit_name!r}")
 
@@ -418,8 +447,9 @@ def delete_branch(raw: dict, unit_name: str, bi: int) -> None:
 
 
 def npc_candidates(raw: dict) -> list:
-    """Named [[npc]]s not already behavior units -- the Add-unit picker's rows."""
-    taken = {str(u.get("npc")) for u in BT.units(raw)}
+    """Named [[npc]]s not already behavior units -- the Add-unit picker's rows.
+    A CLASS row's members all count as taken (each already runs the shared program)."""
+    taken = {m for u in BT.units(raw) for m in BT.row_members(u)}
     return [n["name"] for n in raw.get("npc", []) or []
             if n.get("name") and n["name"] not in taken]
 
@@ -436,7 +466,8 @@ def add_unit(raw: dict, npc_name: str) -> None:
 
 def delete_unit(raw: dict, unit_name: str) -> None:
     b = BT.table(raw) or {}
-    b["unit"] = [u for u in b.get("unit", []) if str(u.get("npc")) != unit_name]
+    rows = b.get("unit", [])
+    b["unit"] = [u for ui, u in enumerate(rows) if row_name(u, ui) != unit_name]
 
 
 def check_edit(raw: dict, unit_name: str, bi: int, branch: dict) -> list:
@@ -502,11 +533,12 @@ def stage_handles(raw: dict) -> list:
                     "label": f"{label} → {v}", "list_id": list_id})
 
     for u in BT.units(raw):
-        nm = str(u.get("npc", ""))
-        if nm in positions:
-            seen_pos.add(("pos", nm))
-            out.append({"id": ("pos", nm), "x": positions[nm][0], "z": positions[nm][1],
-                        "kind": "post", "label": f"{nm}'s post", "list_id": None})
+        for nm in BT.row_members(u):
+            if nm in positions:
+                seen_pos.add(("pos", nm))
+                out.append({"id": ("pos", nm), "x": positions[nm][0],
+                            "z": positions[nm][1], "kind": "post",
+                            "label": f"{nm}'s post", "list_id": None})
     if positions.get("player"):
         out.append({"id": ("player",), "x": positions["player"][0],
                     "z": positions["player"][1], "kind": "player",
@@ -535,7 +567,7 @@ def stage_handles(raw: dict) -> list:
             do = br.get("do")
             if isinstance(do, dict) and "wander" in do:
                 add_point(("wander", ui, bi), do["wander"], "wander",
-                          f"{u.get('npc')}'s wander centre")
+                          f"{row_name(u, ui)}'s wander centre")
             for ci, c in enumerate(br.get("when") or []):
                 if not isinstance(c, dict):
                     continue
@@ -543,7 +575,7 @@ def stage_handles(raw: dict) -> list:
                     v = c.get(verb)
                     if isinstance(v, (list, tuple)) and len(v) >= 2:
                         add_point((verb, ui, bi, ci), v[0], "ring",
-                                  f"{u.get('npc')} {verb} centre")
+                                  f"{row_name(u, ui)} {verb} centre")
     b = BT.table(raw) or {}
     for si, s in enumerate(b.get("scan") or []):
         if s.get("point") is not None and s.get("radius"):
@@ -583,14 +615,14 @@ def apply_move(raw: dict, hid: tuple, x, z) -> str:
         _k, ui, bi = hid
         u = BT.units(raw)[ui]
         u["branch"][bi]["do"]["wander"] = [x, z]
-        return f"move {u.get('npc')}'s wander centre"
+        return f"move {row_name(u, ui)}'s wander centre"
     if k in ("near_point", "not_near_point"):
         _k, ui, bi, ci = hid
         u = BT.units(raw)[ui]
         v = list(u["branch"][bi]["when"][ci][k])
         v[0] = [x, z]
         u["branch"][bi]["when"][ci][k] = v
-        return f"move {u.get('npc')} {k} centre"
+        return f"move {row_name(u, ui)} {k} centre"
     if k == "scan_pt":
         (BT.table(raw) or {})["scan"][hid[1]]["point"] = [x, z]
         return "move scan centre"
@@ -608,7 +640,7 @@ def apply_radius(raw: dict, rid: tuple, r) -> str:
     v = list(u["branch"][bi]["when"][ci][verb])
     v[1] = max(RADIUS_FLOOR, int(round(r)))
     u["branch"][bi]["when"][ci][verb] = v
-    return f"resize {u.get('npc')} {verb} radius to {v[1]}"
+    return f"resize {row_name(u, ui)} {verb} radius to {v[1]}"
 
 
 def _route_list(raw: dict, lid: tuple):
@@ -943,7 +975,12 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
                 probs = _routes.describe_pursuit_problems(label, pres)
                 res.lines.extend(("warn", p) for p in probs)
                 if probs and pres["blocked"]:
-                    res.pursuits.append({"label": label, "unit": ref["unit"],
+                    # lines stay word-for-word the CLI's; the stage CAPTION speaks the
+                    # tab's row identity (a class row's lint label is "a+b+c")
+                    us = BT.units(raw)
+                    punit = (row_name(us[ref["ui"]], ref["ui"])
+                             if 0 <= ref["ui"] < len(us) else ref["unit"])
+                    res.pursuits.append({"label": label, "unit": punit,
                                          "tested": pres["tested"],
                                          "blocked": pres["blocked"],
                                          "worst": pres["worst"]})
@@ -1015,7 +1052,9 @@ def dry_compile(toml_path) -> CompileResult:
         if res.problems:
             return res
         units = BT.units(raw)
-        slots = {str(u["npc"]): i + 2 for i, u in enumerate(units)}   # placeholders (build binds real ones)
+        slots = {m: i + 2                          # placeholders (build binds real ones);
+                 for i, m in enumerate(            # a CLASS row seats one slot per MEMBER
+                     m for u in units for m in BT.row_members(u))}
         fb = BT.build(raw, npc_slots=slots,
                       npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
                                          if n.get("name") and "dialogue" in n},

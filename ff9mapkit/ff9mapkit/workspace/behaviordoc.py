@@ -489,7 +489,9 @@ class StageCanvas(QGraphicsView):
             col = muted if p["pooled"] else pal["success"]
             self._marker(p["x"], p["z"], col, hollow=p["pooled"])
             name = p["name"] + (" · pooled" if p["pooled"] else "")
-            sel = p["name"] == self._selected
+            # a CLASS row's members all light when their class is selected ("unit"
+            # carries the owning row's name; a plain post has name == unit)
+            sel = self._selected in (p["name"], p.get("unit"))
             self._label(name, p["x"], p["z"], color=pal["text"] if sel else muted,
                         bold=sel, pt=8.5)
         if m.get("player"):
@@ -1093,12 +1095,17 @@ class BehaviorDoc(QWidget):
         units_it = sect("UNITS")
         for u in cast["units"]:
             bits = []
+            if u.get("members"):
+                bits.append(f"class ×{len(u['members'])}")
             if u["hp"] is not None:
                 bits.append(f"{u['hp']} hp")
             if u["pooled"]:
                 bits.append(f"pooled{' · ' + str(u['pool']) if u['pool'] else ''}")
             row = QTreeWidgetItem([u["name"] + ("   · " + " · ".join(bits) if bits else "")])
-            row.setToolTip(0, row.text(0))         # the rail elides; hover carries the full row
+            tip = row.text(0)
+            if u.get("members"):                   # the rail shows the count; hover names them
+                tip += "\nmembers: " + ", ".join(u["members"])
+            row.setToolTip(0, tip)                 # the rail elides; hover carries the full row
             row.setData(0, Qt.ItemDataRole.UserRole, ("unit", u["name"]))
             units_it.addChild(row)
             if u["name"] == self._selected_unit:
@@ -1124,10 +1131,14 @@ class BehaviorDoc(QWidget):
         u = next((x for x in cast["units"] if x["name"] == self._selected_unit), None)
         stats = []
         if u:
+            if u.get("members"):                   # a class: ONE program, every member runs it
+                stats.append(f"one program shared by {len(u['members'])}")
             if u["hp"] is not None:
                 stats.append(f"{u['hp']} hp")
             if u["speed"] is not None:
                 stats.append(f"speed {u['speed']}")
+            if u.get("speeds"):                    # per-member walk presets (class rows)
+                stats.append("speeds " + "/".join(str(s) for s in u["speeds"]))
             n = u["branches"]
             stats.append(f"{n} branch{'es' if n != 1 else ''}")
             if u["pooled"]:
@@ -1318,7 +1329,9 @@ class BehaviorDoc(QWidget):
         target = None
         row = next((a for a in behaviorscan.BEHAVIOR_ARCHETYPES if a["key"] == key), {})
         if row.get("needs_target"):
-            units = [str(u.get("npc")) for u in self._raw["behavior"]["unit"]] \
+            # cond/action targets bind MEMBER npc names (a class name is never a target)
+            units = [m for u in self._raw["behavior"]["unit"]
+                     for m in behaviorscan.BT.row_members(u)] \
                 if behaviorscan.has_behavior(self._raw) else []
             if not units:
                 self.problems_lbl.setText(f"The {key} archetype fights an EXISTING unit — "

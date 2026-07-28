@@ -16,11 +16,15 @@ SIEGE = Path(__file__).resolve().parents[1] / "examples" / "siege" / "siege.fiel
 
 
 def test_siege_example_validates_and_desugars():
+    from ff9mapkit.content import behaviortoml as BT
     p = FieldProject.load(SIEGE)
     assert validate(p) == []
-    # the one block really did expand: base + 2 raider types x2 + 4 guards + 3 archers
+    # the one block really did expand -- base + 2 raider CLASSES + 2 ally CLASSES under
+    # the brains default (one shared program per type), carrying every member:
+    # base + 2 raider types x2 + 4 guards + 3 archers
     units = p.raw["behavior"]["unit"]
-    assert len(units) == 1 + 4 + 7
+    assert len(units) == 1 + 2 + 2
+    assert sum(len(BT.row_members(u)) for u in units) == 1 + 4 + 7
     assert p.raw["behavior"]["timer"] == 60
     assert [o["text"] for o in p.raw["choice"][-1]["options"]][-1] == "Never mind."
 
