@@ -72,6 +72,10 @@ def main(argv=None) -> int:
     ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--deploy", action="store_true",
                     help="snapshot the live override and write the probe container over it")
+    ap.add_argument("--only", default=None, metavar="CELL",
+                    help="stripe ONLY this cell (e.g. cell.s0.x576_y384), keeping its canonical "
+                         "stripe count from the full-census legend -- the surgical confirm: exactly "
+                         "the surfaces reading this cell band, everything else is its own control")
     a = ap.parse_args(argv)
 
     stock = Path(a.from_path).read_bytes()
@@ -81,8 +85,14 @@ def main(argv=None) -> int:
     legend = []
     for i, pc in enumerate(order):
         k = i + 1
+        if a.only is not None and pc.name != a.only:
+            legend.append("  %2d           -> %-22s  UNTOUCHED (control)" % (k, pc.name))
+            continue
         blob[pc.off:pc.off + pc.nbytes] = striped(bytes(stock[pc.off:pc.off + pc.nbytes]), k)
         legend.append("  %2d stripe(s) -> %-22s  (%s @%#x)" % (k, pc.name, pc.kind, pc.off))
+    if a.only is not None and not any("stripe(s)" in l for l in legend):
+        raise SystemExit("--only %r matches no cell; the census names are:\n%s"
+                         % (a.only, "\n".join("  " + pc.name for pc in order)))
     probe = bytes(blob)
     EC.parse_header(probe, strict=True)                          # the probe must still parse
 
