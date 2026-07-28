@@ -771,6 +771,58 @@ class UnitSpec:
     pool: str = "pool"               # request-lane name (pooled units only)
 
 
+@dataclass
+class ClassSpec:
+    """ONE SHARED BRAIN for N same-tree units — the per-CLASS variant of the
+    brains backend (the ticker cross-product kill). Every member's tag-1 head
+    RunSharedScripts the SAME seated brain entry; each spawn is its own Seq
+    whose gCur = the spawning member every tick (THE CALLER-CONTEXT LAW), so
+    the one compiled tree drives whichever unit spawned it. Per-member state
+    is STRIDED: uid-indexed gScriptVector cells replace the per-unit GLOBs,
+    and the brain indexes them by THE IDENTITY CHANNEL — ``obj(uid=255).f[5]``
+    (B_OBJSPECA resolves uid 255 through GetObjUID → gCur, and getvobj field
+    5 IS ``obj.uid``: EBin.cs:1216/1674/1815, EventEngine.cs:948) — while the
+    member-side bodies (duty walk, dispatch tags) read the same cells at
+    their own CONSTANT uid. Members keep their individual names for other
+    trees to target; the class name is a pseudo-unit valid only as the SELF
+    of its own tree."""
+    name: str
+    members: tuple
+    tree: Node | None = None
+
+
+# THE IDENTITY CHANNEL (engine-grounded, O(1), player-free): inside a Seq brain
+# this expression reads THE CALLING UNIT'S UID — GetObjUID(255) returns gCur
+# directly (never a list walk), and object-var field 5 is `obj.uid` with no
+# cid guard. Alive-safe by THE ORPHAN-BRAIN LAW: a brain never ticks after its
+# unit is disposed (die bodies StopSharedScript first).
+MYUID = "obj(uid=255).f[5]"
+
+# per-unit state slots: GLOB home for unclassed units (kind, blackboard name) —
+# the classed home is the same slot in a uid-indexed class table (see _uref)
+_SLOT_GLOB = {
+    "active": ("flag", "{u}.active"),
+    "selected": ("byte", "{u}.selected"), "running": ("byte", "{u}.running"),
+    "spd": ("byte", "{u}.spd"), "spdap": ("byte", "{u}.spdap"),
+    "wp": ("byte", "{u}.wp"), "wtimer": ("byte", "{u}.wtimer"),
+    "ctgt": ("byte", "{u}.ctgt"),
+    "mx": ("int16", "{u}.mx"), "mz": ("int16", "{u}.mz"),
+    "tx": ("int16", "{u}.tx"), "tz": ("int16", "{u}.tz"),
+    "px": ("int16", "{u}.px"), "pz": ("int16", "{u}.pz"),
+    "wtx": ("int16", "{u}.wtx"), "wtz": ("int16", "{u}.wtz"),
+}
+# the slots every class allocates up front (shared family tables, uid-indexed);
+# wp/wtx/wtz/wtimer/ctgt and decorator latches are PER-CLASS tables, lazy
+_CLS_CORE = {"active": "cls.act", "selected": "cls.sel", "running": "cls.run",
+             "spd": "cls.spd", "spdap": "cls.spdap",
+             "mx": "cls.mx", "mz": "cls.mz", "tx": "cls.tx", "tz": "cls.tz",
+             "px": "cls.px", "pz": "cls.pz"}
+# one-shot / event-class actions a v1 class tree REFUSES (each needs per-unit
+# latch plumbing whose semantics under N members are a later rung)
+_CLS_FORBIDDEN_ACTIONS = ("Battle", "Announce", "Award", "ShopStock",
+                          "ShopSynth", "Sfx", "Flash", "StopTimer")
+
+
 # ------------------------------------------------------------------ the compiler
 def check_64_stride(occupied, units) -> None:
     """THE 64-STRIDE LAW (brains mode): a brain Seq's runtime uid is its unit's
@@ -906,7 +958,8 @@ class FieldBehavior:
     def __init__(self, units: list[UnitSpec], *, blackboard: Blackboard | None = None,
                  tick: int = 1, warmup: int = 45, pools: list[PoolSpec] | tuple = (),
                  timer: int | None = None, tables: list[TableSpec] | tuple = (),
-                 counters: tuple = (), brains: bool = False):
+                 counters: tuple = (), brains: bool = False,
+                 classes: list[ClassSpec] | tuple = ()):
         """``warmup``: frames after the player is staged before ANY unit activates —
         the field loads dead-still (no walking, no pathing) while the engine settles
         the camera (rung-1 playtest: five actors pathing during entry-settle dragged
@@ -922,7 +975,15 @@ class FieldBehavior:
         are v1's by construction — same conditions, same blackboard, same bodies —
         while no single body ever approaches the ±32K ticker-span wall. Die bodies
         gain ``StopSharedScript`` before ``TerminateEntry`` (THE ORPHAN-BRAIN LAW:
-        a disposed unit's live brain NREs the engine on its next tick)."""
+        a disposed unit's live brain NREs the engine on its next tick).
+
+        ``classes``: :class:`ClassSpec` rows — PER-CLASS BRAIN SHARING (needs
+        ``brains``). Members of a class carry NO per-unit GLOB protocol state:
+        their active/sel/run/spd/mirror/target slots live in uid-indexed
+        gScriptVector cells (seeded like every kit table), the ONE class brain
+        indexes them by the caller's own uid (:data:`MYUID`), and member-side
+        bodies read the same cells at their constant uid. The class name is the
+        tree's SELF; assign the tree on ``fb.classes[name].tree``."""
         self.brains = bool(brains)
         self.bb = blackboard or Blackboard()
         self.warmup = max(1, int(warmup))
@@ -934,8 +995,45 @@ class FieldBehavior:
             raise BehaviorError(f"{PLAYER!r} is the reserved pseudo-unit name")
         if len(self.units) != len(units):
             raise BehaviorError("duplicate unit names")
+        # ---- classes (per-class brain sharing): validated BEFORE the per-unit
+        # allocation loop — classed members take no GLOB protocol slots
+        self.classes: dict[str, ClassSpec] = {}
+        self._clsof: dict[str, str] = {}                 # member name -> class name
+        for cs in classes:
+            if not self.brains:
+                raise BehaviorError(
+                    f"class {cs.name!r}: classes need brains=True (a shared brain "
+                    f"IS a Seq coroutine — the central ticker has no caller context)")
+            if not re.fullmatch(r"[a-z][a-z0-9_]*", cs.name or ""):
+                raise BehaviorError(f"class name {cs.name!r} must be [a-z][a-z0-9_]*")
+            if cs.name in self.classes or cs.name in self.units or cs.name == PLAYER:
+                raise BehaviorError(f"class name {cs.name!r} collides with a "
+                                    f"unit/class/reserved name")
+            members = tuple(str(m) for m in cs.members)
+            if not members:
+                raise BehaviorError(f"class {cs.name!r}: needs at least one member")
+            if len(set(members)) != len(members):
+                raise BehaviorError(f"class {cs.name!r}: duplicate members")
+            for m in members:
+                if m not in self.units:
+                    raise BehaviorError(f"class {cs.name!r}: unknown member {m!r}")
+                if m in self._clsof:
+                    raise BehaviorError(f"class {cs.name!r}: {m!r} is already in "
+                                        f"class {self._clsof[m]!r}")
+                if self.units[m].tree is not None:
+                    raise BehaviorError(f"class {cs.name!r}: member {m!r} carries "
+                                        f"its own tree — the CLASS owns the tree")
+                self._clsof[m] = cs.name
+            cs.members = members
+            self.classes[cs.name] = cs
+        # every strided table is uid-indexed; kit uids == entry slots
+        self._cls_len = (max(self.units[m].entry for m in self._clsof) + 1
+                         if self._clsof else 0)
+        self._cls_tids: dict[str, int] = {}              # table name -> vector id
+        self._cls_values: dict[str, dict[int, int]] = {}  # table name -> {cell: preset}
         self.tick = int(tick)
         self._cooldowns: list[tuple[str, int]] = []      # (timer name, frames)
+        self._cls_cooldowns: list[tuple[str, str]] = []  # (class, timer slot key)
         self._reset_bytes: list[int] = []                # extra bytes Main_Init zeroes
         self._reset_flags: list[int] = []                # extra flags Main_Init clears
         self._preset16: dict[int, int] = {}              # int16 idx -> Main_Init preset
@@ -955,24 +1053,27 @@ class FieldBehavior:
         for u in units:
             if not 1 <= int(u.walk_speed) <= 255:
                 raise BehaviorError(f"{u.name}: walk_speed must be 1..255")
-            self.bb.flag(f"{u.name}.active")
-            self.bb.byte(f"{u.name}.selected")
-            self.bb.byte(f"{u.name}.running")
-            self.bb.byte(f"{u.name}.spd")                # desired walk speed (per-action)
-            self.bb.byte(f"{u.name}.spdap")              # applied speed (the nudge shadow)
-            self.bb.int16(f"{u.name}.mx")
-            self.bb.int16(f"{u.name}.mz")
-            self.bb.int16(f"{u.name}.tx")
-            self.bb.int16(f"{u.name}.tz")
-            if u.hp is not None:
-                self.bb.byte(f"{u.name}.hp")
+            classed = u.name in self._clsof
+            if not classed:                              # a classed member's protocol
+                self.bb.flag(f"{u.name}.active")         # state is STRIDED cells — no
+                self.bb.byte(f"{u.name}.selected")       # GLOB slots (the band relief)
+                self.bb.byte(f"{u.name}.running")
+                self.bb.byte(f"{u.name}.spd")            # desired walk speed (per-action)
+                self.bb.byte(f"{u.name}.spdap")          # applied speed (the nudge shadow)
+                self.bb.int16(f"{u.name}.mx")
+                self.bb.int16(f"{u.name}.mz")
+                self.bb.int16(f"{u.name}.tx")
+                self.bb.int16(f"{u.name}.tz")
+                if u.hp is not None:
+                    self.bb.byte(f"{u.name}.hp")
             if u.pooled:                                 # the runtime-activation lane
                 if not re.fullmatch(r"[A-Za-z0-9_]+", u.pool or ""):
                     raise BehaviorError(f"{u.name}: pool name {u.pool!r} must be "
                                         f"[A-Za-z0-9_]+ (it becomes jump labels)")
                 self.bb.flag(f"{u.name}.spawned")        # consumed-once latch (v1: no respawn)
-                self.bb.int16(f"{u.name}.px")            # the placement post (press-time pos)
-                self.bb.int16(f"{u.name}.pz")
+                if not classed:
+                    self.bb.int16(f"{u.name}.px")        # the placement post (press-time pos)
+                    self.bb.int16(f"{u.name}.pz")
                 self._pools.setdefault(u.pool, []).append(u.name)
         # pool ECONOMY/UX specs (price / buy-anywhere button / explicit request flag)
         self.pool_specs: dict[str, PoolSpec] = {}
@@ -1084,34 +1185,97 @@ class FieldBehavior:
                 raise BehaviorError(f"counter {cn!r} collides with a table name")
             self._counters[cn] = len(self._counters)
         self._ctr_tid: int | None = _auto_tid() if self._counters else None
+        if self.classes:
+            # the shared strided-state families (uid-indexed; one set per FIELD,
+            # shared by every class) — allocated after user tables + counters so
+            # a class-free build's table ids never move
+            for tname in dict.fromkeys(_CLS_CORE.values()):
+                self._cls_tids[tname] = _auto_tid()
+            for cname, cs in self.classes.items():
+                # every member's cells preset: speed = walk_speed; posts = spawn
+                # (HoldPost's + the pooled overwrite target); active/sel/run stay
+                # zero-filled (the seed law's free reset)
+                for m in cs.members:
+                    mu = self.units[m]
+                    self._cls_preset("cls.spd", mu.entry, int(mu.walk_speed))
+                    self._cls_preset("cls.spdap", mu.entry, int(mu.walk_speed))
+                    self._cls_preset("cls.px", mu.entry, int(mu.spawn[0]))
+                    self._cls_preset("cls.pz", mu.entry, int(mu.spawn[1]))
+
+    # ---------------- the strided-state ref layer (per-class brain sharing)
+    def _cls_preset(self, tname: str, cell: int, value: int) -> None:
+        """A non-zero seed value for a strided cell — lands in the table's
+        Main_Init seed (the zero cells ride the engine's grow-fill for free)."""
+        if value:
+            self._cls_values.setdefault(tname, {})[int(cell)] = int(value)
+
+    def _cls_tid_for(self, cls: str, slot: str) -> int:
+        """The vector id holding ``slot`` for class members: a CORE family table
+        (shared by every class) or a lazily-allocated per-class table
+        (feed/decorator state). Lazy allocation order = emission order =
+        deterministic (the allocation contract)."""
+        tname = _CLS_CORE.get(slot) or f"cls.{cls}.{slot}"
+        tid = self._cls_tids.get(tname)
+        if tid is None:
+            tid = self._cls_tids[tname] = self._alloc_tid()
+        return tid
+
+    def _uref(self, owner: str, slot: str) -> str:
+        """The lvalue/rvalue RPN text for per-unit state ``slot`` of ``owner``:
+        an unclassed unit reads its Global home (byte-for-byte the v1 text); a
+        classed MEMBER reads its uid-indexed class cell at a constant index
+        (member-side bodies + ticker lanes); a CLASS name reads the strided
+        self cell indexed by the caller's own uid — valid only inside that
+        class's brain (:data:`MYUID`)."""
+        kind, pat = _SLOT_GLOB[slot]
+        if owner in self.classes:                        # the strided self (brain)
+            return f"{_cnum(self._cls_tid_for(owner, slot))} {MYUID} B_VECTOR"
+        cls = self._clsof.get(owner)
+        if cls is not None:                              # a concrete member cell
+            return (f"{_cnum(self._cls_tid_for(cls, slot))} "
+                    f"{_cnum(self.units[owner].entry)} B_VECTOR")
+        idx = getattr(self.bb, kind)(pat.format(u=owner))
+        t = {"flag": "Bit", "byte": "Byte", "int16": "Int16"}[kind]
+        return f"Global.{t}[{idx}]"
+
+    def _uset(self, owner: str, slot: str, value) -> bytes:
+        """Assign ``value`` (an int, or RPN text) into ``owner``'s ``slot``."""
+        v = value if isinstance(value, str) else _cnum(int(value))
+        return _stmt(f"{self._uref(owner, slot)} {v} B_LET")
 
     # ---------------- perception / condition helpers (mirror-safe by construction)
     def _mx(self, unit: str) -> str:
-        return f"Global.Int16[{self.bb.int16(f'{unit}.mx')}]"
+        return self._uref(unit, "mx")
 
     def _mz(self, unit: str) -> str:
-        return f"Global.Int16[{self.bb.int16(f'{unit}.mz')}]"
+        return self._uref(unit, "mz")
 
-    def _check_unit(self, unit: str):
+    def _check_unit(self, unit: str, *, self_pos: bool = False):
+        if unit in self.classes:
+            if not self_pos:
+                raise BehaviorError(
+                    f"{unit!r} is a CLASS — a class cannot be a TARGET (its N "
+                    f"members have N positions); name a member, or engage a group")
+            return
         if unit != PLAYER and unit not in self.units:
             raise BehaviorError(f"unknown unit {unit!r}")
 
     def near(self, a: str, b: str, r: int) -> Cond:
-        self._check_unit(a)
-        self._check_unit(b)
+        self._check_unit(a, self_pos=True)               # a = the tree's self — a
+        self._check_unit(b)                              # class name strides here
         return Cond(_box(self._mx(a), self._mz(a), self._mx(b), self._mz(b), r),
                     _trusted=True)
 
     def near_point(self, unit: str, point: tuple, r: int) -> Cond:
-        self._check_unit(unit)
+        self._check_unit(unit, self_pos=True)
         x, z = point
         return Cond(_box(self._mx(unit), self._mz(unit), int(x), int(z), r), _trusted=True)
 
     def active(self, unit: str) -> Cond:
         if unit == PLAYER:
             return Cond(f"Global.Bit[{self._staged}]", _trusted=True)
-        self._check_unit(unit)
-        return Cond(f"Global.Bit[{self.bb.flag(f'{unit}.active')}]", _trusted=True)
+        self._check_unit(unit)                           # a class is refused: its own
+        return Cond(self._uref(unit, "active"), _trusted=True)   # seg is already gated
 
     def hp_gt(self, unit: str, n: int) -> Cond:
         return Cond(f"{self._hp_ref(unit)} const({n}) B_GT", _trusted=True)
@@ -1277,6 +1441,7 @@ class FieldBehavior:
         """A deterministic auto table id AFTER construction (scan registration):
         continue from the ctor's high-water mark, skipping anything taken."""
         used = {tid for tid, _v in self.tables.values()}
+        used.update(self._cls_tids.values())             # the strided-state tables
         if self._ctr_tid is not None:
             used.add(self._ctr_tid)
         while self._next_tid in used:
@@ -1334,41 +1499,100 @@ class FieldBehavior:
         return g
 
     def _hp_ref(self, unit: str) -> str:
-        """The RPN fragment for a unit's hit points — a Global byte, or (for a
-        roster member) its hp CELL: usable as read operand or B_LET target."""
+        """The RPN fragment for a unit's hit points — a Global byte, a roster
+        member's group CELL, a classed member's ``cls.hp`` cell, or (for a CLASS
+        name = the tree's self) the STRIDED read: all-members-in-one-group goes
+        through the seeded uid→roster-index table into the group's hp cells;
+        no-member-grouped reads ``cls.hp`` at the caller's uid. Mixed homes have
+        no single expressible text — refused."""
+        if unit in self.classes:
+            cs = self.classes[unit]
+            homes = {self._member.get(m, (None,))[0] for m in cs.members}
+            if len(homes) != 1:
+                raise BehaviorError(
+                    f"class {unit!r}: self-hp needs ONE home — every member in "
+                    f"the SAME group, or none grouped (found {sorted(map(str, homes))})")
+            gname = next(iter(homes))
+            if gname is None:
+                for m in cs.members:
+                    if self.units[m].hp is None:
+                        raise BehaviorError(f"class {unit!r}: member {m!r} has no hp=")
+                return f"{_cnum(self._cls_hp_tid(unit))} {MYUID} B_VECTOR"
+            # uid -> roster index, seeded static data (THE ORD TABLE); the group
+            # hp cells stay the ONE home every attacker already targets
+            g = self._groups[gname]
+            otid = self._cls_tids.get(f"cls.{unit}.ord")
+            if otid is None:
+                otid = self._cls_tids[f"cls.{unit}.ord"] = self._alloc_tid()
+                for m in cs.members:
+                    self._cls_preset(f"cls.{unit}.ord",
+                                     self.units[m].entry, self._member[m][1])
+            return (f"{_cnum(g.hp_tid)} {_cnum(otid)} {MYUID} B_VECTOR B_VECTOR")
         m = self._member.get(unit)
         if m is not None:
             g = self._groups[m[0]]
             return f"{_cnum(g.hp_tid)} {_cnum(m[1])} B_VECTOR"
+        cls = self._clsof.get(unit)
+        if cls is not None:                              # classed, ungrouped: cls.hp cell
+            if self.units[unit].hp is None:
+                raise BehaviorError(f"{unit!r} has no hp=")
+            return (f"{_cnum(self._cls_hp_tid(cls))} "
+                    f"{_cnum(self.units[unit].entry)} B_VECTOR")
         return f"Global.Byte[{self.bb.byte(f'{unit}.hp')}]"
 
+    def _cls_spd0_tid(self, cls: str) -> int:
+        """The per-class DEFAULT-SPEED table (cells preset to each member's
+        walk_speed) — the strided fallback for a class feed with no speed=."""
+        fresh = f"cls.{cls}.spd0" not in self._cls_tids
+        tid = self._cls_tid_for(cls, "spd0")
+        if fresh:
+            for m in self.classes[cls].members:
+                mu = self.units[m]
+                self._cls_preset(f"cls.{cls}.spd0", mu.entry, int(mu.walk_speed))
+        return tid
+
+    def _cls_hp_tid(self, cls: str) -> int:
+        """The per-class hp table for UNGROUPED classed members — allocation
+        registers every member's hp preset (the cells ARE their hit points)."""
+        fresh = f"cls.{cls}.hp" not in self._cls_tids
+        tid = self._cls_tid_for(cls, "hp")
+        if fresh:
+            for m in self.classes[cls].members:
+                mu = self.units[m]
+                if mu.hp is not None and m not in self._member:
+                    self._cls_preset(f"cls.{cls}.hp", mu.entry, int(mu.hp))
+        return tid
+
     def engage_node(self, unit: str, e: Engage) -> Node:
-        """Compile-side surface for the ``engage`` verb: registers the unit's
+        """Compile-side surface for the ``engage`` verb: registers the owner's
         acquire loop + target register and returns the two-phase subtree
         (contact -> the strike dispatch; else -> the pursue feed), built
-        entirely from the standard node vocabulary."""
-        if unit not in self.units:
+        entirely from the standard node vocabulary. ``unit`` may be a CLASS
+        name (the tree's self): the target register strides per member."""
+        if unit not in self.units and unit not in self.classes:
             raise BehaviorError(f"engage: unknown unit {unit!r}")
         if e.group not in self._groups:
             raise BehaviorError(f"engage: unknown group {e.group!r} "
                                 f"(declare it with group())")
         g = self._groups[e.group]
-        if unit in g.units:
-            raise BehaviorError(f"engage: {unit!r} cannot engage its OWN group "
-                                f"{e.group!r}")
+        selves = (self.classes[unit].members if unit in self.classes else (unit,))
+        for s in selves:
+            if s in g.units:
+                raise BehaviorError(f"engage: {s!r} cannot engage its OWN group "
+                                    f"{e.group!r}")
         if unit in self._engages:
             raise BehaviorError(f"engage: {unit!r} already has an engage "
                                 f"(one target register per unit in v2 rung 1)")
         self._engages[unit] = e
-        ctgt = self.bb.byte(f"{unit}.ctgt")
-        pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
-        pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        ctgt_r = self._uref(unit, "ctgt")
+        pxc = f"{_cnum(g.px_tid)} {ctgt_r} B_VECTOR"
+        pzc = f"{_cnum(g.pz_tid)} {ctgt_r} B_VECTOR"
         return Selector(
-            Sequence(Cond(f"Global.Byte[{ctgt}] const(255) B_LT", _trusted=True),
+            Sequence(Cond(f"{ctgt_r} const(255) B_LT", _trusted=True),
                      Cond(_box(self._mx(unit), self._mz(unit), pxc, pzc,
                                int(e.contact)), _trusted=True),
                      Do(e._swing)),
-            Sequence(Cond(f"Global.Byte[{ctgt}] const(255) B_LT", _trusted=True),
+            Sequence(Cond(f"{ctgt_r} const(255) B_LT", _trusted=True),
                      Do(e._pursue)),
         )
 
@@ -1551,7 +1775,7 @@ class FieldBehavior:
         return Cond(text, _trusted=unsafe_ok)
 
     # ---------------- compilation
-    def _collect_actions(self, unit: UnitSpec) -> list[Action]:
+    def _collect_tree_actions(self, tree: Node | None) -> list[Action]:
         out: list[Action] = []
 
         def walk(n: Node):
@@ -1562,13 +1786,28 @@ class FieldBehavior:
                 walk(n.child)
             elif isinstance(n, Do):
                 out.append(n.action)
-        walk(unit.tree)
+        walk(tree)
         return out
 
-    def _fallback_feed(self, unit: UnitSpec) -> Action:
+    def _collect_actions(self, unit: UnitSpec) -> list[Action]:
+        return self._collect_tree_actions(unit.tree)
+
+    def _check_class_tree(self, cs: ClassSpec) -> None:
+        """v1 class-tree restrictions: the one-shot / event action family needs
+        per-unit latch plumbing whose N-member semantics ("once per member? once
+        per class?") are a LATER rung — a class tree carries only the unit
+        vocabulary (feeds, engage, swing_at, hold_ground, die)."""
+        for a in self._collect_tree_actions(cs.tree):
+            if type(a).__name__ in _CLS_FORBIDDEN_ACTIONS:
+                raise BehaviorError(
+                    f"class {cs.name!r}: {type(a).__name__} is not a v1 class "
+                    f"action (one-shot semantics under N shared-brain members "
+                    f"are a later rung) — put it on a normal [[behavior.unit]]")
+
+    def _fallback_feed_tree(self, owner: str, tree: Node) -> Action:
         """The tree's unconditional fallback must be a STATIC feed (WalkTo/Hold/Patrol)
         so Main_Init can preset the duty target — enforced, per the charter."""
-        node = unit.tree
+        node = tree
         while True:
             if isinstance(n := node, Selector):
                 node = n.children[-1]
@@ -1576,7 +1815,7 @@ class FieldBehavior:
                 # a fallback Sequence must be condition-free to be unconditional
                 if any(isinstance(c, (Cond, Invert)) for c in node.children):
                     raise BehaviorError(
-                        f"{unit.name}: the tree's last branch must be UNCONDITIONAL — "
+                        f"{owner}: the tree's last branch must be UNCONDITIONAL — "
                         f"a static feed fallback (WalkTo/Hold/Patrol)")
                 node = node.children[-1]
             elif isinstance(node, Do):
@@ -1587,14 +1826,17 @@ class FieldBehavior:
                 if isinstance(a, (WalkTo, Hold, Patrol, March, Flee, Wander, HoldPost)):
                     return a
                 raise BehaviorError(
-                    f"{unit.name}: the fallback action must be a static feed "
+                    f"{owner}: the fallback action must be a static feed "
                     f"(WalkTo/Hold/Patrol/March/Flee/Wander/HoldPost), not {type(a).__name__}")
             else:
                 raise BehaviorError(
-                    f"{unit.name}: the tree needs an unconditional Do fallback "
+                    f"{owner}: the tree needs an unconditional Do fallback "
                     f"(got {type(node).__name__})")
 
-    def _once_announce_map(self, u: UnitSpec, ids: dict) -> dict:
+    def _fallback_feed(self, unit: UnitSpec) -> Action:
+        return self._fallback_feed_tree(unit.name, unit.tree)
+
+    def _once_announce_map(self, owner: str, tree: Node, ids: dict) -> dict:
         """aid -> Once name for every ``Once`` whose subtree is a simple branch
         ending in an ``Announce`` or ``Award`` — THE EVENT ONCE (the BTTABLE
         round-2 law: a sticky Once over a MONOTONIC condition — a kill tally, a
@@ -1621,7 +1863,7 @@ class FieldBehavior:
                     aid = ids[id(leaf.action)]
                     if aid in onced and onced[aid] != n.name:
                         raise BehaviorError(
-                            f"{u.name}: the same {type(leaf.action).__name__} object "
+                            f"{owner}: the same {type(leaf.action).__name__} object "
                             f"sits under two Once decorators ({onced[aid]!r}, "
                             f"{n.name!r}) — one latch cannot serve two gates; give "
                             f"each its own instance")
@@ -1632,16 +1874,16 @@ class FieldBehavior:
                 bare.add(ids[id(n.action)])
                 if isinstance(n.action, (Award, ShopStock, ShopSynth)):
                     bare_awards.add(ids[id(n.action)])
-        walk(u.tree)
+        walk(tree)
         if bare_awards:
             raise BehaviorError(
-                f"{u.name}: an Award / shop-stock action must be wrapped in Once "
+                f"{owner}: an Award / shop-stock action must be wrapped in Once "
                 f"(exactly-once BY that machinery — a bare one would re-fire "
                 f"every selection)")
         clash = set(onced) & bare
         if clash:
             raise BehaviorError(
-                f"{u.name}: an Announce/Sfx object is shared between a Once-wrapped site "
+                f"{owner}: an Announce/Sfx object is shared between a Once-wrapped site "
                 f"and a bare site — give each site its own instance")
         return onced
 
@@ -1654,8 +1896,12 @@ class FieldBehavior:
 
     def compile(self) -> CompiledBehavior:
         for u in self.units.values():
-            if u.tree is None:
+            if u.tree is None and u.name not in self._clsof:
                 raise BehaviorError(f"unit {u.name!r} has no tree")
+        for cs in self.classes.values():
+            if cs.tree is None:
+                raise BehaviorError(f"class {cs.name!r} has no tree")
+            self._check_class_tree(cs)
 
         duty_bodies: dict[str, bytes] = {}
         action_funcs: dict[str, list] = {}
@@ -1686,7 +1932,7 @@ class FieldBehavior:
         for u in self.units.values():                    # warm-up expiry: wake everyone
             if u.pooled:                                 # ...except pooled units — they
                 continue                                 # wake at ACTIVATION only
-            ticker.append(_set_flag(self.bb.flag(f"{u.name}.active"), 1))
+            ticker.append(self._uset(u.name, "active", 1))
         ticker += [(JMP, "wait"), label("run")]
         # the player mirror (staged is guaranteed on the run path)
         ticker += [
@@ -1698,12 +1944,10 @@ class FieldBehavior:
         ]
         for u in self.units.values():                    # unit mirrors, active-gated
             ticker += [
-                _stmt(f"Global.Bit[{self.bb.flag(f'{u.name}.active')}]"),
+                _stmt(self._uref(u.name, "active")),
                 (JMP_IFNOT, f"m_{u.name}_skip"),
-                _stmt(f"Global.Int16[{self.bb.int16(f'{u.name}.mx')}] "
-                      f"obj(uid={u.entry}).f[0] B_LET"),
-                _stmt(f"Global.Int16[{self.bb.int16(f'{u.name}.mz')}] "
-                      f"obj(uid={u.entry}).f[2] B_LET"),
+                _stmt(f"{self._uref(u.name, 'mx')} obj(uid={u.entry}).f[0] B_LET"),
+                _stmt(f"{self._uref(u.name, 'mz')} obj(uid={u.entry}).f[2] B_LET"),
                 label(f"m_{u.name}_skip"),
             ]
         # cooldown timers tick down once per pass
@@ -1736,79 +1980,103 @@ class FieldBehavior:
                                f"{_cnum(len(self._counters))} B_LET")
         report: list[str] = []
 
-        for u in self.units.values():
-            actions = self._collect_actions(u)
+        # TREE OWNERS: every unclassed unit owns its own tree (v1 / per-unit
+        # brains — the proven paths, byte-identical); every CLASS owns ONE tree
+        # emitted ONCE, driving all its members through the strided cells + the
+        # caller-context dispatch (uid 255)
+        owners: list[tuple[str, "Node", list[UnitSpec]]] = \
+            [(u.name, u.tree, [u]) for u in self.units.values()
+             if u.name not in self._clsof] \
+            + [(cs.name, cs.tree, [self.units[m] for m in cs.members])
+               for cs in self.classes.values()]
+        for owner, tree, members in owners:
+            is_cls = owner in self.classes
+            actions = self._collect_tree_actions(tree)
             if not actions:
-                raise BehaviorError(f"{u.name}: tree selects no actions")
+                raise BehaviorError(f"{owner}: tree selects no actions")
             ids: dict[int, int] = {}                     # id(action) -> action id
             for a in actions:
                 ids.setdefault(id(a), len(ids) + 1)
-            fallback = self._fallback_feed(u)
-            sel = self.bb.byte(f"{u.name}.selected")
-            run = self.bb.byte(f"{u.name}.running")
-            act_flag = self.bb.flag(f"{u.name}.active")
-            tx = self.bb.int16(f"{u.name}.tx")
-            tz = self.bb.int16(f"{u.name}.tz")
+            fallback = self._fallback_feed_tree(owner, tree)
 
-            spd = self.bb.byte(f"{u.name}.spd")
-            spdap = self.bb.byte(f"{u.name}.spdap")
+            # ---- main_init: units start INACTIVE (the ticker's warm-up wakes
+            # them), reset protocol state, preset the duty target. A classed
+            # member's protocol state lives in seeded cells — active/sel/run
+            # ride the zero-fill, presets become seed VALUES, no statements.
+            for u in members:
+                if isinstance(fallback, (Patrol, March, Flee)):
+                    px, pz = fallback.points[0]
+                elif isinstance(fallback, Wander):
+                    px, pz = fallback.center
+                elif isinstance(fallback, HoldPost):
+                    px, pz = u.spawn
+                else:
+                    px, pz = fallback.point
+                if is_cls:
+                    cls = self._clsof[u.name]
+                    self._cls_tid_for(cls, "tx")         # materialize the families
+                    self._cls_tid_for(cls, "tz")         # (zero cells need no value)
+                    self._cls_preset("cls.tx", u.entry, int(px))
+                    self._cls_preset("cls.tz", u.entry, int(pz))
+                    if u.hp is not None and u.name not in self._member:
+                        self._cls_hp_tid(cls)            # cells = the hp home
+                    if owner in self._engages:
+                        # the target register: 255 = none (0 is a VALID roster
+                        # index — the preset must never ride the zero-fill)
+                        self._cls_preset(f"cls.{cls}.ctgt", u.entry, 255)
+                    if u.pooled:
+                        main_init += _set_flag(self.bb.flag(f"{u.name}.spawned"), 0)
+                    continue
+                main_init += self._uset(u.name, "active", 0)
+                main_init += self._uset(u.name, "selected", 0)
+                main_init += self._uset(u.name, "running", 0)
+                main_init += self._uset(u.name, "spd", u.walk_speed)
+                main_init += self._uset(u.name, "spdap", u.walk_speed)
+                main_init += self._uset(u.name, "tx", int(px))
+                main_init += self._uset(u.name, "tz", int(pz))
+                if u.hp is not None and u.name not in self._member:
+                    # a roster member's ONLY hp home is its group cell (table-seeded)
+                    main_init += _set_byte(self.bb.byte(f"{u.name}.hp"), int(u.hp))
+                if owner in self._engages:
+                    # the target register: 255 = none (0 is a VALID roster index,
+                    # so this preset must never ride the zero-reset list)
+                    main_init += self._uset(u.name, "ctgt", 255)
+                if u.pooled or any(isinstance(a, HoldPost) for a in actions):
+                    # the placement post: presets to the unit's own spawn; a pooled
+                    # activation overwrites it with the press-time position
+                    main_init += self._uset(u.name, "px", int(u.spawn[0]))
+                    main_init += self._uset(u.name, "pz", int(u.spawn[1]))
+                if u.pooled:
+                    main_init += _set_flag(self.bb.flag(f"{u.name}.spawned"), 0)
 
-            # ---- main_init: units start INACTIVE (the ticker's warm-up wakes them),
-            # reset protocol bytes, preset the duty target
-            main_init += _set_flag(act_flag, 0)
-            main_init += _set_byte(sel, 0) + _set_byte(run, 0)
-            main_init += _set_byte(spd, u.walk_speed) + _set_byte(spdap, u.walk_speed)
-            if isinstance(fallback, (Patrol, March, Flee)):
-                px, pz = fallback.points[0]
-            elif isinstance(fallback, Wander):
-                px, pz = fallback.center
-            elif isinstance(fallback, HoldPost):
-                px, pz = u.spawn
-            else:
-                px, pz = fallback.point
-            main_init += _set_int16(tx, int(px))
-            main_init += _set_int16(tz, int(pz))
-            if u.hp is not None and u.name not in self._member:
-                # a roster member's ONLY hp home is its group cell (table-seeded)
-                main_init += _set_byte(self.bb.byte(f"{u.name}.hp"), int(u.hp))
-            if u.name in self._engages:
-                # the target register: 255 = none (0 is a VALID roster index,
-                # so this preset must never ride the zero-reset list)
-                main_init += _set_byte(self.bb.byte(f"{u.name}.ctgt"), 255)
-            if u.pooled or any(isinstance(a, HoldPost) for a in actions):
-                # the placement post: presets to the unit's own spawn; a pooled
-                # activation overwrites it with the press-time position
-                main_init += _set_int16(self.bb.int16(f"{u.name}.px"), int(u.spawn[0]))
-                main_init += _set_int16(self.bb.int16(f"{u.name}.pz"), int(u.spawn[1]))
-            if u.pooled:
-                main_init += _set_flag(self.bb.flag(f"{u.name}.spawned"), 0)
+            # ---- per-member duty bodies (universal blocked walk on the target
+            # slots; a classed member reads its cells at its CONSTANT uid — the
+            # engine re-evaluates walk args every frame, cells included)
+            for u in members:
+                spd_r = self._uref(u.name, "spd")
+                duty_bodies[u.name] = asm([
+                    label("top"),
+                    opcodes.encode(OP_SET_OBJECT_FLAGS, 7)
+                    + opcodes.encode(0x26, exprasm.assemble(f"{spd_r} B_EXPR_END"),
+                                     arg_flags=0b1)
+                    + opcodes.set_pathing(1)
+                    + opcodes.set_walk_turn_speed(255),
+                    _stmt(self._uref(u.name, "active")),
+                    (JMP_IFNOT, "wait"),
+                    opcodes.init_walk()
+                    + opcodes.encode(OP_WALK,
+                                     exprasm.assemble(f"{self._uref(u.name, 'tx')} B_EXPR_END"),
+                                     exprasm.assemble(f"{self._uref(u.name, 'tz')} B_EXPR_END"),
+                                     arg_flags=0b11),
+                    label("wait"),
+                    opcodes.wait(1),
+                    (JMP, "top"),
+                    opcodes.RETURN,
+                ])
 
-            # ---- the duty body (universal blocked walk on the target GLOBs); the
-            # speed op reads the unit's speed GLOB so per-action speed applies at
-            # every loop iteration (mid-walk changes land via the nudge dispatch)
-            duty_bodies[u.name] = asm([
-                label("top"),
-                opcodes.encode(OP_SET_OBJECT_FLAGS, 7)
-                + opcodes.encode(0x26, exprasm.assemble(f"Global.Byte[{spd}] B_EXPR_END"),
-                                 arg_flags=0b1)
-                + opcodes.set_pathing(1)
-                + opcodes.set_walk_turn_speed(255),
-                _stmt(f"Global.Bit[{act_flag}]"),
-                (JMP_IFNOT, "wait"),
-                opcodes.init_walk()
-                + opcodes.encode(OP_WALK,
-                                 exprasm.assemble(f"Global.Int16[{tx}] B_EXPR_END"),
-                                 exprasm.assemble(f"Global.Int16[{tz}] B_EXPR_END"),
-                                 arg_flags=0b11),
-                label("wait"),
-                opcodes.wait(1),
-                (JMP, "top"),
-                opcodes.RETURN,
-            ])
-
-            # ---- dispatch-action bodies (tags 15+) + the per-unit tree in the ticker
-            once_ann = self._once_announce_map(u, ids)   # aid -> Once name (EVENT Once)
-            funcs: list = []
+            # ---- dispatch-action bodies (tags 15+), per member — every member
+            # gets the same tag numbering (the shared brain REQs by tag)
+            once_ann = self._once_announce_map(owner, tree, ids)  # aid -> Once name
             dispatch_tag: dict[int, int] = {}
             oneshot_latch: dict[int, int] = {}           # aid -> one-shot latch flag
             oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched request
@@ -1816,16 +2084,13 @@ class FieldBehavior:
                 aid = ids[id(a)]
                 if a.feed or aid in dispatch_tag:        # same object in 2+ Do sites
                     continue
-                tag = FIRST_ACTION_TAG + len(funcs)
-                dispatch_tag[aid] = tag
-                latch_arg = None
+                dispatch_tag[aid] = FIRST_ACTION_TAG + len(dispatch_tag)
                 if isinstance(a, Battle):
-                    li = self.bb.flag(f"{u.name}.battled{aid}")
-                    ri = self.bb.flag(f"{u.name}.breq{aid}")
+                    li = self.bb.flag(f"{owner}.battled{aid}")
+                    ri = self.bb.flag(f"{owner}.breq{aid}")
                 elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)) and aid in once_ann:
-                    li = self.bb.flag(f"{u.name}.once.{once_ann[aid]}")
-                    ri = self.bb.flag(f"{u.name}.areq{aid}")
-                    latch_arg = li
+                    li = self.bb.flag(f"{owner}.once.{once_ann[aid]}")
+                    ri = self.bb.flag(f"{owner}.areq{aid}")
                 else:
                     li = ri = None
                 if li is not None:
@@ -1834,44 +2099,59 @@ class FieldBehavior:
                     for fi in (li, ri):
                         if fi not in self._reset_flags:
                             self._reset_flags.append(fi)
-                body = self._dispatch_body(u, a, aid, sel, run,
-                                           oneshot_latch=latch_arg)
-                funcs.append((tag, body))
+            nudge_tag = FIRST_ACTION_TAG + len(dispatch_tag)
+            for u in members:
+                funcs: list = []
+                for a in actions:
+                    aid = ids[id(a)]
+                    tag = dispatch_tag.get(aid)
+                    if a.feed or tag is None or any(t == tag for t, _b in funcs):
+                        continue
+                    latch_arg = (oneshot_latch.get(aid)
+                                 if not isinstance(a, Battle) else None)
+                    body = self._dispatch_body(owner, u, a, aid,
+                                               oneshot_latch=latch_arg)
+                    funcs.append((tag, body))
+                    disp_sizes.setdefault(u.name, []).append(
+                        (tag, f"{type(a).__name__}#{aid}", len(body)))
+                # the SPEED NUDGE (always the last tag): MSPEED from the speed
+                # slot, then record it applied. Straight-line at level 4 —
+                # preempts a mid-flight blocked walk, which resumes at the new
+                # speed (actor.speed is re-read every walk frame).
+                nudge_body = asm([
+                    self._uset(u.name, "running", 255),
+                    opcodes.encode(0x26,
+                                   exprasm.assemble(f"{self._uref(u.name, 'spd')} B_EXPR_END"),
+                                   arg_flags=0b1),
+                    _stmt(f"{self._uref(u.name, 'spdap')} "
+                          f"{self._uref(u.name, 'spd')} B_LET"),
+                    self._uset(u.name, "running", 0),
+                    opcodes.RETURN,
+                ])
+                funcs.append((nudge_tag, nudge_body))
                 disp_sizes.setdefault(u.name, []).append(
-                    (tag, f"{type(a).__name__}#{aid}", len(body)))
-            # the SPEED NUDGE (always the last tag): MSPEED from the speed GLOB, then
-            # record it applied. Straight-line at level 4 — preempts a mid-flight
-            # blocked walk, which resumes at the new speed (actor.speed is re-read
-            # every walk frame). Same running-protocol shape as action bodies.
-            nudge_tag = FIRST_ACTION_TAG + len(funcs)
-            nudge_body = asm([
-                _set_byte(run, 255),
-                opcodes.encode(0x26, exprasm.assemble(f"Global.Byte[{spd}] B_EXPR_END"),
-                               arg_flags=0b1),
-                _stmt(f"Global.Byte[{spdap}] Global.Byte[{spd}] B_LET"),
-                _set_byte(run, 0),
-                opcodes.RETURN,
-            ])
-            funcs.append((nudge_tag, nudge_body))
-            disp_sizes.setdefault(u.name, []).append(
-                (nudge_tag, "nudge", len(nudge_body)))
-            action_funcs[u.name] = funcs
+                    (nudge_tag, "nudge", len(nudge_body)))
+                action_funcs[u.name] = funcs
 
-            # the per-unit segment: identical emission for both backends — in v1 it
-            # rides the central ticker (dispatch targets the unit's ENTRY); under
-            # `brains` it becomes the unit's own Seq body (gCur = the unit, so every
-            # dispatch targets uid 255 — the SEQBRAIN caller-context law)
-            tgt = 255 if self.brains else u.entry
+            # the per-owner segment: identical emission for every backend — in v1
+            # it rides the central ticker (dispatch targets the unit's ENTRY);
+            # under `brains` it becomes the unit's own Seq body (gCur = the unit,
+            # so every dispatch targets uid 255 — the SEQBRAIN caller-context
+            # law); for a CLASS the one seg serves every member (self state is
+            # strided by the caller's uid — THE IDENTITY CHANNEL)
+            tgt = 255 if self.brains else members[0].entry
+            sel_r = self._uref(owner, "selected")
+            run_r = self._uref(owner, "running")
             seg: list = [
-                _stmt(f"Global.Bit[{act_flag}]"),
-                (JMP_IFNOT, f"t_{u.name}_done"),
+                _stmt(self._uref(owner, "active")),
+                (JMP_IFNOT, f"t_{owner}_done"),
             ]
-            if u.name in self._engages:
-                seg += self._acquire_block(u, self._engages[u.name])
-            seg += self._compile_tree(u, u.tree, ids, fail=f"t_{u.name}_fellthrough")
+            if owner in self._engages:
+                seg += self._acquire_block(owner, self._engages[owner])
+            seg += self._compile_tree(owner, tree, ids, fail=f"t_{owner}_fellthrough")
             seg += [
-                label(f"t_{u.name}_fellthrough"),        # unreachable (fallback is
-                label(f"t_{u.name}_selected"),           # unconditional) — lint safety
+                label(f"t_{owner}_fellthrough"),         # unreachable (fallback is
+                label(f"t_{owner}_selected"),            # unconditional) — lint safety
             ]
             # THE ONE-SHOT REQUEST LANE runs FIRST and is EDGE-LATCHED: a Battle (or
             # event-Once Announce) branch is typically outranked or released ONE
@@ -1883,13 +2163,13 @@ class FieldBehavior:
             # running==0 whenever level 4 frees — independent of what the tree
             # selects meanwhile. A successful REQ jumps past the rest of the tail
             # (one REQ per unit per tick, still by construction).
-            disp_end = f"t_{u.name}_dend"
+            disp_end = f"t_{owner}_dend"
             for aid, ri in oneshot_req.items():
-                bl = f"t_{u.name}_b{aid}"
+                bl = f"t_{owner}_b{aid}"
                 seg += [
                     _stmt(f"Global.Bit[{ri}]"), (JMP_IFNOT, bl),
                     _stmt(f"Global.Bit[{oneshot_latch[aid]}]"), (JMP_IF, bl),
-                    _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, bl),
+                    _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, bl),
                     opcodes.run_script_async(DISPATCH_LEVEL, tgt, dispatch_tag[aid]),
                     (JMP, disp_end),
                     label(bl),
@@ -1898,42 +2178,55 @@ class FieldBehavior:
                 if aid in oneshot_req:                   # one-shots ride the request lane
                     continue
                 seg += [
-                    _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
-                    (JMP_IFNOT, f"t_{u.name}_d{aid}"),
-                    _stmt(f"Global.Byte[{run}] const(0) B_EQ"),
-                    (JMP_IFNOT, f"t_{u.name}_d{aid}"),
+                    _stmt(f"{sel_r} const({aid}) B_EQ"),
+                    (JMP_IFNOT, f"t_{owner}_d{aid}"),
+                    _stmt(f"{run_r} const(0) B_EQ"),
+                    (JMP_IFNOT, f"t_{owner}_d{aid}"),
                     opcodes.run_script_async(DISPATCH_LEVEL, tgt, tag),
-                    label(f"t_{u.name}_d{aid}"),
+                    label(f"t_{owner}_d{aid}"),
                 ]
             seg += [label(disp_end)]
             # the nudge dispatch: only when level 4 is free AND a FEED is selected
             # (a selected dispatch action owns the level-4 REQ this tick — mutual
             # exclusion by construction, never two REQs on one unit per tick)
-            nl = f"t_{u.name}_nudge"
+            nl = f"t_{owner}_nudge"
             seg += [
-                _stmt(f"Global.Byte[{run}] const(0) B_EQ"), (JMP_IFNOT, nl),
-                _stmt(f"Global.Byte[{spd}] Global.Byte[{spdap}] B_EQ"), (JMP_IF, nl),
+                _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, nl),
+                _stmt(f"{self._uref(owner, 'spd')} "
+                      f"{self._uref(owner, 'spdap')} B_EQ"), (JMP_IF, nl),
             ]
             for aid in dispatch_tag:
-                seg += [_stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"), (JMP_IF, nl)]
+                seg += [_stmt(f"{sel_r} const({aid}) B_EQ"), (JMP_IF, nl)]
             seg += [opcodes.run_script_async(DISPATCH_LEVEL, tgt, nudge_tag),
                     label(nl)]
-            seg += [label(f"t_{u.name}_done")]
+            seg += [label(f"t_{owner}_done")]
             if self.brains:
                 # the brain: the SAME segment, self-scheduled at the ticker cadence.
                 # The active gate idles it (pooled units' brains spawn on activation,
                 # since a dormant entry's tag-1 first runs then). No __seg markers —
                 # brains report whole-body sizes, the histogram stays ticker-only.
-                brain_bodies[u.name] = asm(
+                # A CLASS emits this body ONCE; every member's tag-1 spawns it.
+                brain_bodies[owner] = asm(
                     [label("__brain_top")] + seg
                     + [opcodes.wait(self.tick), (JMP, "__brain_top"), opcodes.RETURN])
             else:
-                ticker += [label(f"__seg unit {u.name}")] + seg
+                ticker += [label(f"__seg unit {owner}")] + seg
 
             acts = ", ".join(dict.fromkeys(          # dedupe shared-object Do sites
                 f"{ids[id(a)]}={type(a).__name__}" for a in actions))
-            report.append(f"  {u.name}: entry {u.entry}, selected@{sel} running@{run} "
-                          f"spd@{spd} actions[{acts}]")
+            if is_cls:
+                report.append(
+                    f"  class {owner}: ONE shared brain, members "
+                    f"[{', '.join(m.name for m in members)}] (entries "
+                    f"{', '.join(str(m.entry) for m in members)}); per-member "
+                    f"state = uid-indexed cells (see the cls.* tables); "
+                    f"actions[{acts}]")
+            else:
+                u = members[0]
+                report.append(f"  {owner}: entry {u.entry}, "
+                              f"selected@{self.bb.byte(f'{owner}.selected')} "
+                              f"running@{self.bb.byte(f'{owner}.running')} "
+                              f"spd@{self.bb.byte(f'{owner}.spd')} actions[{acts}]")
 
         # cooldown decrements + alternator clocks — spliced after mirrors, so they
         # tick once per run pass (and HOLD during warm-up, which never reaches here)
@@ -1946,6 +2239,19 @@ class FieldBehavior:
                 _stmt(f"Global.Byte[{t}] Global.Byte[{t}] const(1) B_MINUS B_LET"),
                 label(f"cd_{t}"),
             ]
+        # classed cooldown timers: one CELL per member in the decorator's strided
+        # table — the same central once-per-pass decrement, unrolled per member
+        # at its constant uid (holds during warm-up like every clock)
+        for ci, (cname, key) in enumerate(self._cls_cooldowns):
+            tid = self._cls_tids[f"cls.{cname}.{key}"]
+            for m in self.classes[cname].members:
+                cell = f"{_cnum(tid)} {_cnum(self.units[m].entry)} B_VECTOR"
+                cd_blocks += [
+                    _stmt(f"{cell} const(0) B_GT"),
+                    (JMP_IFNOT, f"ccd_{ci}_{m}"),
+                    _stmt(f"{cell} {cell} const(1) B_MINUS B_LET"),
+                    label(f"ccd_{ci}_{m}"),
+                ]
         for _name, f, t, frames in self._alternators:
             cd_blocks += [
                 _stmt(f"Global.Int16[{t}] const(0) B_GT"),
@@ -1976,16 +2282,13 @@ class FieldBehavior:
         for g in self._groups.values():
             cd_blocks.append(label(f"__seg group {g.name}"))
             for i, un in enumerate(g.units):
-                mx = self.bb.int16(f"{un}.mx")
-                mz = self.bb.int16(f"{un}.mz")
-                act = self.bb.flag(f"{un}.active")
                 cd_blocks += [
                     _stmt(f"{_cnum(g.px_tid)} {_cnum(i)} B_VECTOR "
-                          f"Global.Int16[{mx}] B_LET"),
+                          f"{self._uref(un, 'mx')} B_LET"),
                     _stmt(f"{_cnum(g.pz_tid)} {_cnum(i)} B_VECTOR "
-                          f"Global.Int16[{mz}] B_LET"),
+                          f"{self._uref(un, 'mz')} B_LET"),
                     _stmt(f"{_cnum(g.act_tid)} {_cnum(i)} B_VECTOR "
-                          f"Global.Bit[{act}] B_LET"),
+                          f"{self._uref(un, 'active')} B_LET"),
                 ]
         # THE VECTOR LOOPS (scan): a bounded backward-jump loop whose reads AND
         # writes index cells by the LIVE loop byte — the v2 rung-0 composition,
@@ -1998,12 +2301,10 @@ class FieldBehavior:
             cd_blocks.append(label(f"__seg scan {sc.name}"))
             if sc.group is None:                     # units form: own copies
                 for i, un in enumerate(sc.units):
-                    mx = self.bb.int16(f"{un}.mx")
-                    mz = self.bb.int16(f"{un}.mz")
                     cd_blocks.append(_stmt(f"{_cnum(sc.px_tid)} {_cnum(i)} B_VECTOR "
-                                           f"Global.Int16[{mx}] B_LET"))
+                                           f"{self._uref(un, 'mx')} B_LET"))
                     cd_blocks.append(_stmt(f"{_cnum(sc.pz_tid)} {_cnum(i)} B_VECTOR "
-                                           f"Global.Int16[{mz}] B_LET"))
+                                           f"{self._uref(un, 'mz')} B_LET"))
             parts = []
             if sc.alive_only:
                 parts.append(f"{_cnum(sc.act_tid)} Global.Byte[{sc.li}] B_VECTOR "
@@ -2079,29 +2380,27 @@ class FieldBehavior:
             for i, un in enumerate(unames):
                 pu = self.units[un]
                 spawned = self.bb.flag(f"{un}.spawned")
-                upx = self.bb.int16(f"{un}.px")
-                upz = self.bb.int16(f"{un}.pz")
+                upx = self._uref(un, "px")
+                upz = self._uref(un, "pz")
                 nxt = f"pl_{pname}_t{i + 1}" if i + 1 < len(unames) else f"pl_{pname}_done"
                 cd_blocks += [
                     _stmt(f"Global.Bit[{spawned}]"), (JMP_IF, nxt),
                 ] + ([opcodes.remove_gil(int(price))] if price else []) \
                   + ([opcodes.remove_item(int(item), 1)] if item is not None else []) + [
                     # the placement post = the press-time player position
-                    _stmt(f"Global.Int16[{upx}] {pmx} B_LET"),
-                    _stmt(f"Global.Int16[{upz}] {pmz} B_LET"),
+                    _stmt(f"{upx} {pmx} B_LET"),
+                    _stmt(f"{upz} {pmz} B_LET"),
                     opcodes.init_object(pu.entry, 0),
                     opcodes.wait(2),                     # let the pooled Init complete
                     opcodes.move_instant_ex(
                         pu.entry,
-                        exprasm.assemble(f"Global.Int16[{upx}] B_EXPR_END"),
-                        exprasm.assemble(f"Global.Int16[{upz}] B_EXPR_END")),
+                        exprasm.assemble(f"{upx} B_EXPR_END"),
+                        exprasm.assemble(f"{upz} B_EXPR_END")),
                     # seed the unit's mirrors (its tree ticks THIS pass) + wake it
-                    _stmt(f"Global.Int16[{self.bb.int16(f'{un}.mx')}] "
-                          f"Global.Int16[{upx}] B_LET"),
-                    _stmt(f"Global.Int16[{self.bb.int16(f'{un}.mz')}] "
-                          f"Global.Int16[{upz}] B_LET"),
+                    _stmt(f"{self._uref(un, 'mx')} {upx} B_LET"),
+                    _stmt(f"{self._uref(un, 'mz')} {upz} B_LET"),
                     _set_flag(spawned, 1),
-                    _set_flag(self.bb.flag(f"{un}.active"), 1),
+                    self._uset(un, "active", 1),
                     (JMP, f"pl_{pname}_done"),
                 ]
                 if i + 1 < len(unames):
@@ -2183,6 +2482,18 @@ class FieldBehavior:
             main_init += _set_int16(idx, v)
         for pname in self._pools:                         # hireable: optimistic preset,
             main_init += _set_flag(self.pool_hireable[pname], 1)   # first pass corrects
+        # THE STRIDED-STATE SEEDS (classes): the same size-wipe/grow/non-zero-cell
+        # idiom as every kit table — active/sel/run/latches ride the zero-fill
+        # (reset for free on ~ Reload), presets (speed, posts, targets, hp, the
+        # ord map, ctgt=255) are seed VALUES. Emitted last: nothing else in
+        # Main_Init reads a table, and every allocation is final by now.
+        for tname, tid in self._cls_tids.items():
+            main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE const(0) B_LET")
+            main_init += _stmt(f"{_cnum(tid)} B_VECTOR_SIZE "
+                               f"{_cnum(self._cls_len)} B_LET")
+            for cell, v in sorted(self._cls_values.get(tname, {}).items()):
+                main_init += _stmt(f"{_cnum(tid)} {_cnum(cell)} B_VECTOR "
+                                   f"{_cnum(v)} B_LET")
 
         ticker += [label("__seg tail"), label("wait"), opcodes.wait(self.tick),
                    (JMP, "top"), opcodes.RETURN]
@@ -2205,6 +2516,11 @@ class FieldBehavior:
                         f"units [{', '.join(self._pools[p])}]")
             pools_txt = "\npools (set the spawn flag from a [[choice]] row to activate):\n" \
                 + "\n".join(_pdesc(p) for p in self._pools)
+        if self._cls_tids:
+            report.append("strided class-state tables (gScriptVector, uid-indexed; "
+                          f"{self._cls_len} cells each):")
+            report.append("  " + ", ".join(
+                f"{n}={tid}" for n, tid in self._cls_tids.items()))
         tables_txt = ""
         if self.tables or self._counters:
             tl = ["tables (gScriptVector ids — re-seeded every field entry):"]
@@ -2229,8 +2545,13 @@ class FieldBehavior:
                           f"px={g.px_tid} pz={g.pz_tid} act={g.act_tid} "
                           f"hp={g.hp_tid} (hp cells ARE the members' hit points)")
             for un, e in self._engages.items():
+                if un in self.classes:
+                    reg = (f"cells cls.{un}.ctgt (id "
+                           f"{self._cls_tids[f'cls.{un}.ctgt']}, uid-indexed)")
+                else:
+                    reg = f"byte {self.bb.byte(f'{un}.ctgt')}"
                 tl.append(f"  engage {un} -> group '{e.group}': target register "
-                          f"byte {self.bb.byte(f'{un}.ctgt')} (255=none, watch in "
+                          f"{reg} (255=none, watch in "
                           f"~ Flags), r={e.radius} contact={e.contact} "
                           f"dmg={e.damage} ivl={e.interval}"
                           + (" NEAREST" if e.nearest else ""))
@@ -2267,17 +2588,28 @@ class FieldBehavior:
         )
 
     # ---------------- tree → ticker blocks
-    def _compile_tree(self, u: UnitSpec, node: Node, ids: dict, fail: str,
+    def _sticky_flag(self, owner: str, key: str) -> str:
+        """A sticky-decorator latch ref: a reset-listed GLOB flag for a unit
+        owner (the v1 text); for a CLASS, a zero-seeded strided cell — one latch
+        per MEMBER for free (reset = the table seed)."""
+        if owner in self.classes:
+            return f"{_cnum(self._cls_tid_for(owner, key))} {MYUID} B_VECTOR"
+        idx = self.bb.flag(f"{owner}.{key}")
+        if idx not in self._reset_flags:
+            self._reset_flags.append(idx)
+        return f"Global.Bit[{idx}]"
+
+    def _compile_tree(self, owner: str, node: Node, ids: dict, fail: str,
                       _ctr=None, on_select: list | None = None) -> list:
         if _ctr is None:
             _ctr = [0]
         _ctr[0] += 1
-        me = f"t_{u.name}_n{_ctr[0]}"
+        me = f"t_{owner}_n{_ctr[0]}"
         out: list = []
         if isinstance(node, Selector):
             for i, c in enumerate(node.children):
                 nxt = f"{me}_alt{i}" if i + 1 < len(node.children) else fail
-                out += self._compile_tree(u, c, ids, nxt, _ctr, on_select)
+                out += self._compile_tree(owner, c, ids, nxt, _ctr, on_select)
                 if i + 1 < len(node.children):
                     out.append(label(nxt))
             return out
@@ -2285,9 +2617,9 @@ class FieldBehavior:
             for i, c in enumerate(node.children):
                 if isinstance(c, Do) and i + 1 != len(node.children):
                     raise BehaviorError(
-                        f"{u.name}: v1 is reactive — a Do must be the LAST child of its "
+                        f"{owner}: v1 is reactive — a Do must be the LAST child of its "
                         f"Sequence (no action-result plumbing yet)")
-                out += self._compile_tree(u, c, ids, fail, _ctr, on_select)
+                out += self._compile_tree(owner, c, ids, fail, _ctr, on_select)
             return out
         if isinstance(node, Cond):
             return [_stmt(node.text), (JMP_IFNOT, fail)]
@@ -2302,61 +2634,68 @@ class FieldBehavior:
                 # forever and STARVE every branch below it. Selection edge-latches
                 # the request; the one-shot lane fires it when the level frees;
                 # the dispatch body sets THIS latch itself, releasing the branch.
+                # (These actions are refused in class trees — owner is a unit.)
                 aid = ids[id(leaf.action)]
-                latch = self.bb.flag(f"{u.name}.once.{node.name}")
-                req = self.bb.flag(f"{u.name}.areq{aid}")
+                latch = self.bb.flag(f"{owner}.once.{node.name}")
+                req = self.bb.flag(f"{owner}.areq{aid}")
                 extra = (on_select or []) + [_set_flag(req, 1)]
                 return ([_stmt(f"Global.Bit[{latch}]"), (JMP_IF, fail)]
-                        + self._compile_tree(u, node.child, ids, fail, _ctr, extra))
+                        + self._compile_tree(owner, node.child, ids, fail, _ctr, extra))
             # STICKY semantics (rung-1 design fix), for FEED behaviors: a reactive
             # ticker re-selects every tick, so a select-time latch would fire for
             # ONE tick. Instead: selecting the child ENGAGES; while engaged the gate
             # is bypassed (the child's own conditions keep deciding); the first
             # child-FAIL while engaged disengages and latches — "chase me while I'm
-            # near, never again once I escape".
-            latch = self.bb.flag(f"{u.name}.once.{node.name}")
-            eng = self.bb.flag(f"{u.name}.onceeng.{node.name}")
-            self._reset_flags += [i for i in (latch, eng) if i not in self._reset_flags]
+            # near, never again once I escape". Class owners get per-MEMBER
+            # latches for free (strided cells at the caller's uid).
+            latch_r = self._sticky_flag(owner, f"once.{node.name}")
+            eng_r = self._sticky_flag(owner, f"onceeng.{node.name}")
             myfail = f"{me}_dfail"
             ff = f"{me}_dff"
-            extra = (on_select or []) + [_set_flag(eng, 1)]
-            return ([_stmt(f"Global.Bit[{latch}]"), (JMP_IF, myfail)]
-                    + self._compile_tree(u, node.child, ids, myfail, _ctr, extra)
+            extra = (on_select or []) + [_stmt(f"{eng_r} const(1) B_LET")]
+            return ([_stmt(latch_r), (JMP_IF, myfail)]
+                    + self._compile_tree(owner, node.child, ids, myfail, _ctr, extra)
                     + [label(myfail),
-                       _stmt(f"Global.Bit[{eng}]"), (JMP_IFNOT, ff),
-                       _set_flag(eng, 0), _set_flag(latch, 1),
+                       _stmt(eng_r), (JMP_IFNOT, ff),
+                       _stmt(f"{eng_r} const(0) B_LET"),
+                       _stmt(f"{latch_r} const(1) B_LET"),
                        label(ff), (JMP, fail)])
         if isinstance(node, Cooldown):
             # sticky like Once: engage on select, and start the TIMER at DISENGAGE
             # (the child failing while engaged), so the cooldown measures time since
             # the behavior ENDED, not since it began.
-            name = f"{u.name}.cd{_ctr[0]}"
-            t = self.bb.byte(name)
-            eng = self.bb.flag(f"{u.name}.cdeng{_ctr[0]}")
-            if name not in [n for n, _f in self._cooldowns]:
-                self._cooldowns.append((name, node.frames))
-            if eng not in self._reset_flags:
-                self._reset_flags.append(eng)
+            if owner in self.classes:
+                key = f"cd{_ctr[0]}"
+                t_r = self._sticky_flag(owner, key)      # a strided timer CELL
+                if (owner, key) not in self._cls_cooldowns:
+                    self._cls_cooldowns.append((owner, key))
+            else:
+                name = f"{owner}.cd{_ctr[0]}"
+                t = self.bb.byte(name)
+                if name not in [n for n, _f in self._cooldowns]:
+                    self._cooldowns.append((name, node.frames))
+                t_r = f"Global.Byte[{t}]"
+            eng_r = self._sticky_flag(owner, f"cdeng{_ctr[0]}")
             myfail = f"{me}_dfail"
             ff = f"{me}_dff"
-            extra = (on_select or []) + [_set_flag(eng, 1)]
-            return ([_stmt(f"Global.Byte[{t}] const(0) B_EQ Global.Bit[{eng}] B_OROR"),
+            extra = (on_select or []) + [_stmt(f"{eng_r} const(1) B_LET")]
+            return ([_stmt(f"{t_r} const(0) B_EQ {eng_r} B_OROR"),
                      (JMP_IFNOT, fail)]
-                    + self._compile_tree(u, node.child, ids, myfail, _ctr, extra)
+                    + self._compile_tree(owner, node.child, ids, myfail, _ctr, extra)
                     + [label(myfail),
-                       _stmt(f"Global.Bit[{eng}]"), (JMP_IFNOT, ff),
-                       _set_flag(eng, 0), _set_byte(t, node.frames),
+                       _stmt(eng_r), (JMP_IFNOT, ff),
+                       _stmt(f"{eng_r} const(0) B_LET"),
+                       _stmt(f"{t_r} const({int(node.frames)}) B_LET"),
                        label(ff), (JMP, fail)])
         if isinstance(node, Do):
             aid = ids[id(node.action)]
-            sel = self.bb.byte(f"{u.name}.selected")
             out = list(on_select or [])
-            out.append(_set_byte(sel, aid))
+            out.append(self._uset(owner, "selected", aid))
             if isinstance(node.action, Battle):
                 # EDGE-LATCH the request at selection — the branch may be outranked
                 # next tick by its own raise_flags (the siege round-1 clobber); the
                 # dispatch tail's request lane fires it when level 4 frees
-                out.append(_set_flag(self.bb.flag(f"{u.name}.breq{aid}"), 1))
+                out.append(_set_flag(self.bb.flag(f"{owner}.breq{aid}"), 1))
             for nm in node.raise_flags:
                 fi = self.bb.flag(nm)
                 if fi not in self._reset_flags:
@@ -2368,52 +2707,62 @@ class FieldBehavior:
                     self._reset_flags.append(fi)
                 out.append(_set_flag(fi, 0))
             if node.action.feed:
-                spd_v = node.action.speed if node.action.speed is not None else u.walk_speed
-                if not 1 <= int(spd_v) <= 255:
-                    raise BehaviorError(f"{u.name}: action speed must be 1..255")
-                out.append(_set_byte(self.bb.byte(f"{u.name}.spd"), int(spd_v)))
-                out += self._feed_effect(u, node.action)
+                if node.action.speed is not None:
+                    spd_v = int(node.action.speed)
+                    if not 1 <= spd_v <= 255:
+                        raise BehaviorError(f"{owner}: action speed must be 1..255")
+                    out.append(self._uset(owner, "spd", spd_v))
+                elif owner in self.classes:
+                    # no per-action speed -> each member falls back to its OWN
+                    # default: a seeded per-member cell read (members of one
+                    # class may carry different walk_speeds)
+                    spd0 = f"{_cnum(self._cls_spd0_tid(owner))} {MYUID} B_VECTOR"
+                    out.append(_stmt(f"{self._uref(owner, 'spd')} {spd0} B_LET"))
+                else:
+                    spd_v = int(self.units[owner].walk_speed)
+                    out.append(self._uset(owner, "spd", spd_v))
+                out += self._feed_effect(owner, node.action)
             else:
                 # selecting a DISPATCH action HALTS the duty walk the same tick (feed
                 # own mirror) — otherwise the stale target keeps pulling the unit for
                 # the tick(s) until the body preempts (rung-1 playtest: duelists
                 # carried momentum into near-overlap)
-                tx = self.bb.int16(f"{u.name}.tx")
-                tz = self.bb.int16(f"{u.name}.tz")
-                out += [_stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
-                        _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET")]
-            out.append((JMP, f"t_{u.name}_selected"))
+                out += [_stmt(f"{self._uref(owner, 'tx')} {self._mx(owner)} B_LET"),
+                        _stmt(f"{self._uref(owner, 'tz')} {self._mz(owner)} B_LET")]
+            out.append((JMP, f"t_{owner}_selected"))
             return out
         raise BehaviorError(f"unknown node {type(node).__name__}")
 
-    def _acquire_block(self, u: UnitSpec, e: Engage) -> list:
-        """THE ACQUIRE LOOP (per engage unit, inside its active gate, before the
+    def _acquire_block(self, owner: str, e: Engage) -> list:
+        """THE ACQUIRE LOOP (per engage owner, inside its active gate, before the
         tree): keep a STILL-VALID target (alive, active, within radius — the
         sticky fast path most ticks take), else scan the roster FIRST-IN-RANGE
         in roster order (v1 pair-branch parity: roster order is the priority
         list). All reads index the group tables by a live byte — the rung-0
-        composition doing per-unit perception."""
+        composition doing per-unit perception. For a CLASS owner the target
+        register strides (one per member); the loop byte stays ONE shared GLOB
+        scratch — Seqs execute sequentially and the loop never crosses a Wait."""
         g = self._groups[e.group]
         n = len(g.units)
-        ctgt = self.bb.byte(f"{u.name}.ctgt")
-        li = self.bb.byte(f"{u.name}.gscan")
-        pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
-        pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+        ctgt_r = self._uref(owner, "ctgt")
+        li = self.bb.byte(f"{owner}.gscan")
+        pxc = f"{_cnum(g.px_tid)} {ctgt_r} B_VECTOR"
+        pzc = f"{_cnum(g.pz_tid)} {ctgt_r} B_VECTOR"
         pxl = f"{_cnum(g.px_tid)} Global.Byte[{li}] B_VECTOR"
         pzl = f"{_cnum(g.pz_tid)} Global.Byte[{li}] B_VECTOR"
-        A = f"t_{u.name}_aq"
+        A = f"t_{owner}_aq"
         return [
-            _stmt(f"Global.Byte[{ctgt}] const(255) B_LT"), (JMP_IFNOT, f"{A}_scan"),
-            _stmt(f"{_cnum(g.act_tid)} Global.Byte[{ctgt}] B_VECTOR const(1) B_EQ"),
+            _stmt(f"{ctgt_r} const(255) B_LT"), (JMP_IFNOT, f"{A}_scan"),
+            _stmt(f"{_cnum(g.act_tid)} {ctgt_r} B_VECTOR const(1) B_EQ"),
             (JMP_IFNOT, f"{A}_drop"),
-            _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{ctgt}] B_VECTOR const(0) B_GT"),
+            _stmt(f"{_cnum(g.hp_tid)} {ctgt_r} B_VECTOR const(0) B_GT"),
             (JMP_IFNOT, f"{A}_drop"),
-            _stmt(_box(self._mx(u.name), self._mz(u.name), pxc, pzc, int(e.radius))),
+            _stmt(_box(self._mx(owner), self._mz(owner), pxc, pzc, int(e.radius))),
             (JMP_IF, f"{A}_end"),
             label(f"{A}_drop"),
-            _set_byte(ctgt, 255),
+            _stmt(f"{ctgt_r} const(255) B_LET"),
             label(f"{A}_scan"),
-        ] + (self._acquire_scan_nearest(u, e, g, n, ctgt, li, pxl, pzl, A)
+        ] + (self._acquire_scan_nearest(owner, e, g, n, ctgt_r, li, pxl, pzl, A)
              if e.nearest else [
             _set_byte(li, 0),
             label(f"{A}_top"),
@@ -2421,21 +2770,21 @@ class FieldBehavior:
             (JMP_IFNOT, f"{A}_nxt"),
             _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{li}] B_VECTOR const(0) B_GT"),
             (JMP_IFNOT, f"{A}_nxt"),
-            _stmt(_box(self._mx(u.name), self._mz(u.name), pxl, pzl, int(e.radius))),
+            _stmt(_box(self._mx(owner), self._mz(owner), pxl, pzl, int(e.radius))),
             (JMP_IFNOT, f"{A}_nxt"),
-            _stmt(f"Global.Byte[{ctgt}] Global.Byte[{li}] B_LET"),
+            _stmt(f"{ctgt_r} Global.Byte[{li}] B_LET"),
             (JMP, f"{A}_end"),
             label(f"{A}_nxt"),
             _stmt(f"Global.Byte[{li}] Global.Byte[{li}] const(1) B_PLUS B_LET"),
             _stmt(f"Global.Byte[{li}] const({n}) B_LT"),
             (JMP_IF, f"{A}_top"),
-            _set_byte(ctgt, 255),
+            _stmt(f"{ctgt_r} const(255) B_LET"),
         ]) + [
             label(f"{A}_end"),
         ]
 
-    def _acquire_scan_nearest(self, u: UnitSpec, e: Engage, g: GroupSpec, n: int,
-                              ctgt: int, li: int, pxl: str, pzl: str, A: str) -> list:
+    def _acquire_scan_nearest(self, owner: str, e: Engage, g: GroupSpec, n: int,
+                              ctgt_r: str, li: int, pxl: str, pzl: str, A: str) -> list:
         """The argmin scan (``nearest=True``): track the smallest Chebyshev
         distance ≤ radius over the roster and take its index. Scratch is
         SHARED across every nearest engage (the ticker is sequential — one
@@ -2460,12 +2809,12 @@ class FieldBehavior:
             (JMP_IFNOT, f"{A}_nnxt"),
             _stmt(f"{_cnum(g.hp_tid)} Global.Byte[{li}] B_VECTOR const(0) B_GT"),
             (JMP_IFNOT, f"{A}_nnxt"),
-            _stmt(f"Global.Int16[{dx}] {pxl} {self._mx(u.name)} B_MINUS B_LET"),
+            _stmt(f"Global.Int16[{dx}] {pxl} {self._mx(owner)} B_MINUS B_LET"),
             _stmt(f"Global.Int16[{dx}] const(0) B_LT"),
             (JMP_IFNOT, f"{A}_nax"),
             _stmt(f"Global.Int16[{dx}] const(0) Global.Int16[{dx}] B_MINUS B_LET"),
             label(f"{A}_nax"),
-            _stmt(f"Global.Int16[{dz}] {pzl} {self._mz(u.name)} B_MINUS B_LET"),
+            _stmt(f"Global.Int16[{dz}] {pzl} {self._mz(owner)} B_MINUS B_LET"),
             _stmt(f"Global.Int16[{dz}] const(0) B_LT"),
             (JMP_IFNOT, f"{A}_naz"),
             _stmt(f"Global.Int16[{dz}] const(0) Global.Int16[{dz}] B_MINUS B_LET"),
@@ -2482,153 +2831,172 @@ class FieldBehavior:
             _stmt(f"Global.Byte[{li}] Global.Byte[{li}] const(1) B_PLUS B_LET"),
             _stmt(f"Global.Byte[{li}] const({n}) B_LT"),
             (JMP_IF, f"{A}_ntop"),
-            _stmt(f"Global.Byte[{ctgt}] Global.Byte[{idx}] B_LET"),
+            _stmt(f"{ctgt_r} Global.Byte[{idx}] B_LET"),
         ]
 
-    def _feed_effect(self, u: UnitSpec, a: Action) -> list:
-        tx = self.bb.int16(f"{u.name}.tx")
-        tz = self.bb.int16(f"{u.name}.tz")
+    def _wp_ref(self, owner: str) -> str:
+        """The Patrol/March waypoint-progress slot: a reset-listed GLOB byte for
+        a unit owner, a zero-seeded strided cell for a class (each member walks
+        the shared route at its OWN progress)."""
+        if owner in self.classes:
+            return self._uref(owner, "wp")
+        idx = self.bb.byte(f"{owner}.wp")
+        if idx not in self._reset_bytes:                 # out-of-range wp resets to 0
+            self._reset_bytes.append(idx)
+        return f"Global.Byte[{idx}]"
+
+    def _feed_effect(self, owner: str, a: Action) -> list:
+        tx_r = self._uref(owner, "tx")
+        tz_r = self._uref(owner, "tz")
         if isinstance(a, (WalkTo, Hold)):
             x, z = a.point
-            return [_stmt(f"Global.Int16[{tx}] const({int(x)}) B_LET"),
-                    _stmt(f"Global.Int16[{tz}] const({int(z)}) B_LET")]
+            return [_stmt(f"{tx_r} const({int(x)}) B_LET"),
+                    _stmt(f"{tz_r} const({int(z)}) B_LET")]
         if isinstance(a, HoldPost):
-            upx = self.bb.int16(f"{u.name}.px")
-            upz = self.bb.int16(f"{u.name}.pz")
-            return [_stmt(f"Global.Int16[{tx}] Global.Int16[{upx}] B_LET"),
-                    _stmt(f"Global.Int16[{tz}] Global.Int16[{upz}] B_LET")]
+            return [_stmt(f"{tx_r} {self._uref(owner, 'px')} B_LET"),
+                    _stmt(f"{tz_r} {self._uref(owner, 'pz')} B_LET")]
         if isinstance(a, _GroupPursue):
             e = a.engage
             g = self._groups[e.group]
-            ctgt = self.bb.byte(f"{u.name}.ctgt")
-            pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
-            pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            ctgt_r = self._uref(owner, "ctgt")
+            pxc = f"{_cnum(g.px_tid)} {ctgt_r} B_VECTOR"
+            pzc = f"{_cnum(g.pz_tid)} {ctgt_r} B_VECTOR"
             self._label_ctr += 1
-            L = f"t_{u.name}_gp{self._label_ctr}"
+            L = f"t_{owner}_gp{self._label_ctr}"
             # walk toward the target's TABLE position (live retarget — the
             # mirrors refresh the cells each pass). In contact the swing branch
             # outranks this one, and its dispatch-halt feeds the own mirror, so
             # no standoff clause is needed here. Belt: no target -> hold ground
             # (the engage subtree's valid-cond makes this unreachable).
-            return [_stmt(f"Global.Byte[{ctgt}] const(255) B_LT"),
+            return [_stmt(f"{ctgt_r} const(255) B_LT"),
                     (JMP_IFNOT, f"{L}_own"),
-                    _stmt(f"Global.Int16[{tx}] {pxc} B_LET"),
-                    _stmt(f"Global.Int16[{tz}] {pzc} B_LET"),
+                    _stmt(f"{tx_r} {pxc} B_LET"),
+                    _stmt(f"{tz_r} {pzc} B_LET"),
                     (JMP, f"{L}_end"),
                     label(f"{L}_own"),
-                    _stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
-                    _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET"),
+                    _stmt(f"{tx_r} {self._mx(owner)} B_LET"),
+                    _stmt(f"{tz_r} {self._mz(owner)} B_LET"),
                     label(f"{L}_end")]
         if isinstance(a, Chase):
             self._check_unit(a.target)
             gate = (f"Global.Bit[{self._staged}]" if a.target == PLAYER
-                    else f"Global.Bit[{self.bb.flag(f'{a.target}.active')}]")
+                    else self._uref(a.target, "active"))
             self._label_ctr += 1
-            skip = f"t_{u.name}_ch{self._label_ctr}"
-            near_lbl = f"t_{u.name}_chs{self._label_ctr}"
+            skip = f"t_{owner}_ch{self._label_ctr}"
+            near_lbl = f"t_{owner}_chs{self._label_ctr}"
             return [_stmt(gate), (JMP_IFNOT, skip),
                     # inside standoff: hold ground (feed own mirror) — pursuers must
                     # never occupy the target's tile (rung-1 playtest: phasing)
-                    _stmt(_box(self._mx(u.name), self._mz(u.name),
+                    _stmt(_box(self._mx(owner), self._mz(owner),
                                self._mx(a.target), self._mz(a.target), int(a.standoff))),
                     (JMP_IFNOT, near_lbl),
-                    _stmt(f"Global.Int16[{tx}] {self._mx(u.name)} B_LET"),
-                    _stmt(f"Global.Int16[{tz}] {self._mz(u.name)} B_LET"),
+                    _stmt(f"{tx_r} {self._mx(owner)} B_LET"),
+                    _stmt(f"{tz_r} {self._mz(owner)} B_LET"),
                     (JMP, skip),
                     label(near_lbl),
-                    _stmt(f"Global.Int16[{tx}] {self._mx(a.target)} B_LET"),
-                    _stmt(f"Global.Int16[{tz}] {self._mz(a.target)} B_LET"),
+                    _stmt(f"{tx_r} {self._mx(a.target)} B_LET"),
+                    _stmt(f"{tz_r} {self._mz(a.target)} B_LET"),
                     label(skip)]
         if isinstance(a, Flee):
             self._check_unit(a.threat)
             gate = (f"Global.Bit[{self._staged}]" if a.threat == PLAYER
-                    else f"Global.Bit[{self.bb.flag(f'{a.threat}.active')}]")
+                    else self._uref(a.threat, "active"))
             self._label_ctr += 1
-            L = f"t_{u.name}_fl{self._label_ctr}"
+            L = f"t_{owner}_fl{self._label_ctr}"
             p0x, p0z = a.points[0]
             out = [_stmt(gate), (JMP_IFNOT, f"{L}_ng")]  # threat gone -> primary refuge
             for i, (px, pz) in enumerate(a.points[:-1]):
                 out += [_stmt(_box(self._mx(a.threat), self._mz(a.threat),
                                    int(px), int(pz), int(a.avoid_r))),
                         (JMP_IF, f"{L}_n{i}"),           # threat camps it -> next refuge
-                        _set_int16(tx, int(px)), _set_int16(tz, int(pz)),
+                        _stmt(f"{tx_r} const({int(px)}) B_LET"),
+                        _stmt(f"{tz_r} const({int(pz)}) B_LET"),
                         (JMP, f"{L}_end"),
                         label(f"{L}_n{i}")]
             lx, lz = a.points[-1]
-            out += [_set_int16(tx, int(lx)), _set_int16(tz, int(lz)), (JMP, f"{L}_end"),
+            out += [_stmt(f"{tx_r} const({int(lx)}) B_LET"),
+                    _stmt(f"{tz_r} const({int(lz)}) B_LET"), (JMP, f"{L}_end"),
                     label(f"{L}_ng"),
-                    _set_int16(tx, int(p0x)), _set_int16(tz, int(p0z)),
+                    _stmt(f"{tx_r} const({int(p0x)}) B_LET"),
+                    _stmt(f"{tz_r} const({int(p0z)}) B_LET"),
                     label(f"{L}_end")]
             return out
         if isinstance(a, Wander):
-            wtx = self.bb.int16(f"{u.name}.wtx")
-            wtz = self.bb.int16(f"{u.name}.wtz")
-            wt = self.bb.byte(f"{u.name}.wtimer")
-            if wt not in self._reset_bytes:              # 0 -> fresh roll on first select
-                self._reset_bytes.append(wt)
+            wtx_r = self._uref(owner, "wtx")
+            wtz_r = self._uref(owner, "wtz")
+            wt_r = self._uref(owner, "wtimer")
             cx, cz = int(a.center[0]), int(a.center[1])
-            self._preset16.setdefault(wtx, cx)
-            self._preset16.setdefault(wtz, cz)
+            if owner in self.classes:
+                # per-member center presets (cells); the timer zero-seeds
+                for m in self.classes[owner].members:
+                    ent = self.units[m].entry
+                    self._cls_values.setdefault(f"cls.{owner}.wtx", {}) \
+                        .setdefault(ent, cx)
+                    self._cls_values.setdefault(f"cls.{owner}.wtz", {}) \
+                        .setdefault(ent, cz)
+            else:
+                wt = self.bb.byte(f"{owner}.wtimer")
+                if wt not in self._reset_bytes:          # 0 -> fresh roll on first select
+                    self._reset_bytes.append(wt)
+                self._preset16.setdefault(self.bb.int16(f"{owner}.wtx"), cx)
+                self._preset16.setdefault(self.bb.int16(f"{owner}.wtz"), cz)
             self._label_ctr += 1
-            L = f"t_{u.name}_wn{self._label_ctr}"
+            L = f"t_{owner}_wn{self._label_ctr}"
             roll = (f"const(128) B_MINUS const({int(a.radius)}) B_MULT "
                     f"const(128) B_DIV B_PLUS B_LET")
             return [
-                _stmt(f"Global.Byte[{wt}] const(0) B_GT"), (JMP_IFNOT, f"{L}_roll"),
-                _stmt(f"Global.Byte[{wt}] Global.Byte[{wt}] const(1) B_MINUS B_LET"),
+                _stmt(f"{wt_r} const(0) B_GT"), (JMP_IFNOT, f"{L}_roll"),
+                _stmt(f"{wt_r} {wt_r} const(1) B_MINUS B_LET"),
                 (JMP, f"{L}_feed"),
                 label(f"{L}_roll"),
-                _set_byte(wt, int(a.hold)),
-                _stmt(f"Global.Int16[{wtx}] const({cx}) B_SYSVAR[0] {roll}"),
-                _stmt(f"Global.Int16[{wtz}] const({cz}) B_SYSVAR[0] {roll}"),
+                _stmt(f"{wt_r} const({int(a.hold)}) B_LET"),
+                _stmt(f"{wtx_r} const({cx}) B_SYSVAR[0] {roll}"),
+                _stmt(f"{wtz_r} const({cz}) B_SYSVAR[0] {roll}"),
                 label(f"{L}_feed"),
-                _stmt(f"Global.Int16[{tx}] Global.Int16[{wtx}] B_LET"),
-                _stmt(f"Global.Int16[{tz}] Global.Int16[{wtz}] B_LET"),
+                _stmt(f"{tx_r} {wtx_r} B_LET"),
+                _stmt(f"{tz_r} {wtz_r} B_LET"),
             ]
         if isinstance(a, March):
-            wp = self.bb.byte(f"{u.name}.wp")        # shared with Patrol: an
-            if wp not in self._reset_bytes:          # out-of-range wp resets to 0
-                self._reset_bytes.append(wp)
+            wp_r = self._wp_ref(owner)               # shared with Patrol
             self._label_ctr += 1
-            p = f"t_{u.name}_m{self._label_ctr}"
+            p = f"t_{owner}_m{self._label_ctr}"
             out: list = []
             n = len(a.points)
             for i, (px, pz) in enumerate(a.points):
-                out += [_stmt(f"Global.Byte[{wp}] const({i}) B_EQ"),
+                out += [_stmt(f"{wp_r} const({i}) B_EQ"),
                         (JMP_IFNOT, f"{p}_w{i}")]
                 if i < n - 1:                        # advance on arrival, except last
-                    out += [_stmt(_box(self._mx(u.name), self._mz(u.name),
+                    out += [_stmt(_box(self._mx(owner), self._mz(owner),
                                        int(px), int(pz), a.arrive_r)),
                             (JMP_IFNOT, f"{p}_f{i}"),
-                            _set_byte(wp, i + 1),
+                            _stmt(f"{wp_r} const({i + 1}) B_LET"),
                             (JMP, f"{p}_end"),
                             label(f"{p}_f{i}")]
-                out += [_set_int16(tx, int(px)), _set_int16(tz, int(pz)),
+                out += [_stmt(f"{tx_r} const({int(px)}) B_LET"),
+                        _stmt(f"{tz_r} const({int(pz)}) B_LET"),
                         (JMP, f"{p}_end"),
                         label(f"{p}_w{i}")]
-            out += [_set_byte(wp, 0), label(f"{p}_end")]
+            out += [_stmt(f"{wp_r} const(0) B_LET"), label(f"{p}_end")]
             return out
         if isinstance(a, Patrol):
-            wp = self.bb.byte(f"{u.name}.wp")
-            if wp not in self._reset_bytes:
-                self._reset_bytes.append(wp)
+            wp_r = self._wp_ref(owner)
             self._label_ctr += 1
-            p = f"t_{u.name}_p{self._label_ctr}"
+            p = f"t_{owner}_p{self._label_ctr}"
             out: list = []
             n = len(a.points)
             for i, (px, pz) in enumerate(a.points):
-                out += [_stmt(f"Global.Byte[{wp}] const({i}) B_EQ"), (JMP_IFNOT, f"{p}_w{i}")]
-                out += [_stmt(_box(self._mx(u.name), self._mz(u.name),
+                out += [_stmt(f"{wp_r} const({i}) B_EQ"), (JMP_IFNOT, f"{p}_w{i}")]
+                out += [_stmt(_box(self._mx(owner), self._mz(owner),
                                    int(px), int(pz), a.arrive_r)),
                         (JMP_IFNOT, f"{p}_f{i}"),
-                        _set_byte(wp, (i + 1) % n),
+                        _stmt(f"{wp_r} const({(i + 1) % n}) B_LET"),
                         (JMP, f"{p}_end")]
                 out += [label(f"{p}_f{i}"),
-                        _stmt(f"Global.Int16[{tx}] const({int(px)}) B_LET"),
-                        _stmt(f"Global.Int16[{tz}] const({int(pz)}) B_LET"),
+                        _stmt(f"{tx_r} const({int(px)}) B_LET"),
+                        _stmt(f"{tz_r} const({int(pz)}) B_LET"),
                         (JMP, f"{p}_end"),
                         label(f"{p}_w{i}")]
-            out += [_set_byte(wp, 0), label(f"{p}_end")]
+            out += [_stmt(f"{wp_r} const(0) B_LET"), label(f"{p}_end")]
             return out
         return []                                        # dispatch actions: no feed
 
@@ -2710,7 +3078,9 @@ class FieldBehavior:
         brain_slots: dict[str, int] = {}
         for name, body in cb.brain_bodies.items():
             # a brain is a dormant one-function code entry (never InitObject'd):
-            # it exists only as the STARTSEQ target for its unit's tag-1 head
+            # it exists only as the STARTSEQ target for its unit's tag-1 head.
+            # A CLASS seats ONE entry here — every member STARTSEQs the same
+            # slot, each spawn its own Seq with its own caller (P3's shape).
             bentry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
             out, brain_slots[name] = _object.seat_entry(out, bentry)
         for u in self.units.values():
@@ -2719,7 +3089,8 @@ class FieldBehavior:
                 # tag-1 head spawns the brain ONCE (tag-1 starts once per object
                 # life; a pooled re-activation re-runs it, and STARTSEQ replacing
                 # the prior Seq is exactly the reset wanted)
-                duty = opcodes.run_shared_script(brain_slots[u.name]) + duty
+                duty = opcodes.run_shared_script(
+                    brain_slots[self._clsof.get(u.name, u.name)]) + duty
             out = eb_edit.replace_function_body(out, u.entry, 1, duty)
             for tag, body in cb.action_funcs[u.name]:
                 out = eb_edit.add_function(out, u.entry, tag, body)
@@ -2752,13 +3123,22 @@ class FieldBehavior:
                                 + "\n".join(map(str, fresh)))
         return out
 
-    def _dispatch_body(self, u: UnitSpec, a: Action, aid: int, sel: int, run: int,
+    def _dispatch_body(self, owner: str, u: UnitSpec, a: Action, aid: int,
                        oneshot_latch: int | None = None) -> bytes:
-        head: list = [_set_byte(run, aid), label("loop"),
-                      _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+        """One dispatch-action body for MEMBER ``u`` of tree-owner ``owner``
+        (owner == u.name for an unclassed unit). Bodies always run ON the
+        member, so every protocol ref is the member's own — a classed member
+        reads its cells at its CONSTANT uid."""
+        sel_r = self._uref(u.name, "selected")
+        run_r = self._uref(u.name, "running")
+
+        def set_run(v: int) -> bytes:
+            return self._uset(u.name, "running", v)
+        head: list = [set_run(aid), label("loop"),
+                      _stmt(f"{sel_r} const({aid}) B_EQ"),
                       (JMP_IFNOT, "out")]
         tail: list = [label("wait"), opcodes.wait(1), (JMP, "loop"),
-                      label("out"), _set_byte(run, 0), opcodes.RETURN]
+                      label("out"), set_run(0), opcodes.RETURN]
         if isinstance(a, Die):
             bump: list = []
             if a.count is not None:
@@ -2799,14 +3179,14 @@ class FieldBehavior:
             if a.linger:
                 fall.append(opcodes.wait(int(a.linger)))
             return asm([
-                _set_flag(self.bb.flag(f"{u.name}.active"), 0),   # mirrors stop first
+                self._uset(u.name, "active", 0),         # mirrors stop first
                 # HOLD THE LEVEL for the whole death beat and NEVER release it: a
                 # dead unit must never dispatch again. Without this the ticker sees
                 # run==0 while the corpse falls and keeps dispatching the unit's
                 # OTHER bodies — the rung-E playtest's "soldiers still swing after
                 # the death anim starts" (harmless when the body was instantaneous,
                 # a real bug the moment it blocks).
-                _set_byte(run, 255),
+                set_run(255),
             ] + bump + fall + [
                 # THE ORPHAN-BRAIN LAW (brains mode): TerminateEntry(255) DISPOSES
                 # this unit, and DisposeObj does NOT cascade to its brain Seq at
@@ -2819,12 +3199,12 @@ class FieldBehavior:
                 opcodes.RETURN,
             ])
         if isinstance(a, Battle):
-            latch = self.bb.flag(f"{u.name}.battled{aid}")
+            latch = self.bb.flag(f"{owner}.battled{aid}")
             return asm([
                 _set_flag(latch, 1),                     # one-shot: set BEFORE the
-                _set_byte(run, 255),                     # suspend, so a return can
+                set_run(255),                     # suspend, so a return can
                 opcodes.encode(0x2A, 0, int(a.scene)),   # never re-fire it. Battle(0,
-                _set_byte(run, 0),                       # scene) = 559's tread shape.
+                set_run(0),                       # scene) = 559's tread shape.
                 opcodes.RETURN,
             ])
         if isinstance(a, HoldGround):
@@ -2841,9 +3221,9 @@ class FieldBehavior:
                 pay.append(_event.give_item(a.item, int(a.count)))
             return asm([
                 _set_flag(oneshot_latch, 1),              # latch FIRST — pay once ever
-                _set_byte(run, 255),
+                set_run(255),
             ] + pay + [
-                _set_byte(run, 0),
+                set_run(0),
                 opcodes.RETURN,
             ])
         if isinstance(a, ShopStock):
@@ -2857,9 +3237,9 @@ class FieldBehavior:
                 ops.append(opcodes.encode(0x115, int(a.shop), iid, 1))  # so idempotent
             return asm([
                 _set_flag(oneshot_latch, 1),              # latch FIRST (Battle's shape)
-                _set_byte(run, 255),
+                set_run(255),
             ] + ops + [
-                _set_byte(run, 0),
+                set_run(0),
                 opcodes.RETURN,
             ])
         if isinstance(a, ShopSynth):
@@ -2883,9 +3263,9 @@ class FieldBehavior:
                 ops.append(opcodes.encode(0x116, int(a.shop), sid, 1))
             return asm([
                 _set_flag(oneshot_latch, 1),
-                _set_byte(run, 255),
+                set_run(255),
             ] + ops + [
-                _set_byte(run, 0),
+                set_run(0),
                 opcodes.RETURN,
             ])
         if isinstance(a, Announce):
@@ -2900,33 +3280,33 @@ class FieldBehavior:
                 # (the NEXT staged line, a Battle) fire when it drops.
                 return asm([
                     _set_flag(oneshot_latch, 1),
-                    _set_byte(run, 255),
+                    set_run(255),
                 ] + show + [
-                    _set_byte(run, 0),
+                    set_run(0),
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + show
                        + [label("loop"),
-                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          _stmt(f"{sel_r} const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),
                           opcodes.wait(1), (JMP, "loop"),
-                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+                          label("out"), set_run(0), opcodes.RETURN])
         if isinstance(a, StopTimer):
             stop = opcodes.encode(OP_RUN_TIMER, 0)
             if oneshot_latch is not None:
                 return asm([
                     _set_flag(oneshot_latch, 1),
-                    _set_byte(run, 255),
+                    set_run(255),
                     stop,
-                    _set_byte(run, 0),
+                    set_run(0),
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + [stop]
                        + [label("loop"),
-                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          _stmt(f"{sel_r} const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),
                           opcodes.wait(1), (JMP, "loop"),
-                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+                          label("out"), set_run(0), opcodes.RETURN])
         if isinstance(a, Flash):
             r, g, bl = a.rgb
             burst = [
@@ -2941,17 +3321,17 @@ class FieldBehavior:
             if oneshot_latch is not None:
                 return asm([
                     _set_flag(oneshot_latch, 1),         # latch FIRST (Battle's shape)
-                    _set_byte(run, 255),
+                    set_run(255),
                 ] + burst + [
-                    _set_byte(run, 0),
+                    set_run(0),
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + burst
                        + [label("loop"),
-                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          _stmt(f"{sel_r} const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),
                           opcodes.wait(1), (JMP, "loop"),
-                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+                          label("out"), set_run(0), opcodes.RETURN])
         if isinstance(a, Sfx):
             play = opcodes.encode(RUN_SOUND_CODE3, int(a.bank), int(a.sound),
                                   *SFX_PARAMS)
@@ -2963,28 +3343,28 @@ class FieldBehavior:
                 # release.
                 return asm([
                     _set_flag(oneshot_latch, 1),
-                    _set_byte(run, 255),
+                    set_run(255),
                     play,
-                    _set_byte(run, 0),
+                    set_run(0),
                     opcodes.RETURN,
                 ])
             return asm(head[:1] + [play]
                        + [label("loop"),
-                          _stmt(f"Global.Byte[{sel}] const({aid}) B_EQ"),
+                          _stmt(f"{sel_r} const({aid}) B_EQ"),
                           (JMP_IFNOT, "out"),
                           opcodes.wait(1), (JMP, "loop"),
-                          label("out"), _set_byte(run, 0), opcodes.RETURN])
+                          label("out"), set_run(0), opcodes.RETURN])
         if isinstance(a, SwingAt):
             self._check_unit(a.target)
             if a.target == PLAYER:
                 raise BehaviorError("SwingAt(player) is not a v1 action")
-            t_hp = self._hp_ref(a.target)      # Global byte, or a roster hp CELL
-            t_act = self.bb.flag(f"{a.target}.active")
+            t_hp = self._hp_ref(a.target)      # Global byte, or a roster/class hp CELL
+            t_act = self._uref(a.target, "active")
             timer = self.bb.byte(f"{u.name}.swing{aid}")
             if timer not in self._reset_bytes:
                 self._reset_bytes.append(timer)
             work: list = [
-                _stmt(f"Global.Bit[{t_act}]"), (JMP_IFNOT, "out"),
+                _stmt(t_act), (JMP_IFNOT, "out"),
                 _stmt(f"{t_hp} const(0) B_GT"), (JMP_IFNOT, "out"),
                 _stmt(f"Global.Byte[{timer}] Global.Byte[{timer}] const(1) B_PLUS B_LET"),
                 _stmt(f"Global.Byte[{timer}] const({a.interval}) B_LT"),
@@ -2997,20 +3377,20 @@ class FieldBehavior:
         if isinstance(a, _GroupSwing):
             e = a.engage
             g = self._groups[e.group]
-            ctgt = self.bb.byte(f"{u.name}.ctgt")
+            ctgt_r = self._uref(u.name, "ctgt")          # the MEMBER's register
             timer = self.bb.byte(f"{u.name}.gswing")
             if timer not in self._reset_bytes:
                 self._reset_bytes.append(timer)
-            actc = f"{_cnum(g.act_tid)} Global.Byte[{ctgt}] B_VECTOR"
-            hpc = f"{_cnum(g.hp_tid)} Global.Byte[{ctgt}] B_VECTOR"
-            pxc = f"{_cnum(g.px_tid)} Global.Byte[{ctgt}] B_VECTOR"
-            pzc = f"{_cnum(g.pz_tid)} Global.Byte[{ctgt}] B_VECTOR"
+            actc = f"{_cnum(g.act_tid)} {ctgt_r} B_VECTOR"
+            hpc = f"{_cnum(g.hp_tid)} {ctgt_r} B_VECTOR"
+            pxc = f"{_cnum(g.px_tid)} {ctgt_r} B_VECTOR"
+            pzc = f"{_cnum(g.pz_tid)} {ctgt_r} B_VECTOR"
             # the SwingAt body generalized by the target REGISTER: every read
             # and the damage write index the roster tables through ctgt. Facing
             # is TurnTowardPosition on the target's TABLE position — pure data,
             # no uid, the player-ref law never enters.
             work = [
-                _stmt(f"Global.Byte[{ctgt}] const(255) B_LT"), (JMP_IFNOT, "out"),
+                _stmt(f"{ctgt_r} const(255) B_LT"), (JMP_IFNOT, "out"),
                 _stmt(f"{actc} const(1) B_EQ"), (JMP_IFNOT, "out"),
                 _stmt(f"{hpc} const(0) B_GT"), (JMP_IFNOT, "out"),
                 _stmt(f"Global.Byte[{timer}] Global.Byte[{timer}] const(1) B_PLUS B_LET"),
