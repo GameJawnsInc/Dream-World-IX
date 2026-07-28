@@ -775,7 +775,25 @@ def snap_script(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
-BEHAVIOR_STATES = ("guide", "doc", "compiled", "edit", "stage", "sweep", "siege", "sim")
+BEHAVIOR_STATES = ("guide", "bare", "wizard", "doc", "compiled", "edit", "stage", "sweep",
+                   "siege", "sim")
+
+_BARE_TOML = """\
+[field]
+name = "BARE"
+id = 30990
+
+[player]
+spawn = [0, 0]
+
+[[npc]]
+name = "watch"
+pos = [200, 100]
+
+[[npc]]
+name = "ward"
+pos = [-200, 100]
+"""
 
 
 def _load_behavior_demo():
@@ -791,10 +809,13 @@ def _load_behavior_demo():
 
 
 def snap_behavior(ctx: _Ctx, state: str) -> None:
-    """The Behavior tab: its teaching guide ('guide'), the demo field's cast + ladder +
-    stage ('doc'), the dry-compile instruments filled ('compiled'), the branch editor open
-    ('edit'), stage-edit mode with its drag handles + guides ('stage'), or the walkability
-    sweep's painted verdicts over the demo's REAL synthetic walkmesh ('sweep')."""
+    """The Behavior tab: its no-field front door ('guide'), the ACTION guide on a bare
+    field ('bare' -- the three-route teach), the archetype stamp wizard ('wizard'), the
+    demo field's cast + ladder + stage ('doc'), the dry-compile instruments filled
+    ('compiled'), the branch editor open ('edit'), stage-edit mode with its drag
+    handles + guides ('stage'), the walkability sweep's painted verdicts over the
+    demo's REAL synthetic walkmesh ('sweep'), the [siege] read-only face ('siege'),
+    or the tick-stepper 3 s in ('sim')."""
     if state not in BEHAVIOR_STATES:
         raise ValueError(f"unknown behavior state {state!r} (know: {', '.join(BEHAVIOR_STATES)})")
     win = _make_win(ctx)
@@ -808,7 +829,11 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     root = _SCRATCH / "behavior_demo"                  # stable path -- mkdtemp breaks pixel-diffing
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
-    if state == "siege":                               # the READ-ONLY generated view: test_siege's
+    if state in ("bare", "wizard"):                    # a field with npcs but NO [behavior]:
+        root.mkdir(parents=True, exist_ok=True)        # the action guide / the wizard's ground
+        toml = root / "field.toml"
+        toml.write_text(_BARE_TOML, encoding="utf-8")
+    elif state == "siege":                             # the READ-ONLY generated view: test_siege's
         import copy as _copy                           # own RAW through editor.model.dumps
         import importlib.util as _ilu
         from ff9mapkit.editor import model as _model
@@ -826,6 +851,17 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     assert win.open_field(toml), "the behavior demo field must open"
     win.tabs.setCurrentWidget(win.behavior_doc)        # the shell feed runs on tab show
     _settle(6)
+    if state == "wizard":                              # the stamp wizard, grabbed as its own
+        from ff9mapkit.workspace.behaviordoc import ArchetypeWizard   # subject (built
+        dlg = ArchetypeWizard(win.behavior_doc.pal, win.behavior_doc._raw, win)   # directly
+        #                                                -- exec() lives only in the seam)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        dlg.show()
+        _settle(4)
+        _grab(ctx, "behavior-wizard", dlg)
+        dlg.reject()
+        _close(win)
+        return
     if state == "compiled":
         win.behavior_doc.compile_now(sync=True)        # the deterministic lane; production compiles
         _settle(4)                                     # on a worker behind the user's own click

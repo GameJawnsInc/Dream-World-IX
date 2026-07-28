@@ -188,7 +188,14 @@ def test_sim_mode_steps_ghosts_and_sweeps_the_ladder():
     assert not doc.sim_bar.isVisible() if doc.isVisible() else doc.sim_bar.isHidden()
     doc.sim_btn.setChecked(True)
     assert not doc.sim_bar.isHidden()              # the strip is up
-    assert "offline approximation" in doc.sim_note.text()   # honesty on its face
+    # honesty ON THE FACE, one line: the short tags render, the full sentences ride
+    # the tooltip (the 4-line wrap starved the strip — snap-caught), and the latest
+    # event owns its OWN label so it can never starve the scrub slider again
+    assert doc.sim_note.fullText().startswith("offline approximation")
+    assert "straight walks" in doc.sim_note.fullText()
+    assert "STRAIGHT lines" not in doc.sim_note.fullText()   # sentences live on hover...
+    assert "STRAIGHT lines" in doc.sim_note.toolTip()        # ...and must all be there
+    assert doc.sim_slider.minimumWidth() >= 100    # the slider cannot be starved to a sliver
     tags = _scene_tags(doc.canvas)
     assert "sim" in tags and "simplayer" in tags   # boot ghosts painted
     doc._sim_show(10)

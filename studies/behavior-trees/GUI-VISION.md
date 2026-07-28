@@ -167,6 +167,26 @@ belong painted on the field, not printed as text. That is the second surface: **
   live blackboard watch** (the charter's "node-trace watch"): the `selected` byte per unit
   is already a live trace and the debug menu already reads flags in-game; a GUI bridge is
   engine work (confirm-first, prefer-data-over-engine per the s59 lesson) — horizon, not v1.
+- **THE UX/BEAUTIFICATION ROUND (2026-07-28, ⚠ awaiting playtest):** functionality
+  ratified, the face polished from a 22-PNG 100/150 sweep. (1) **The archetype stamp
+  WIZARD** (`ArchetypeWizard`, owner ask "more of an interactive wizard than 2 picker
+  windows"): archetypes + teach text left, bindings appear per need (target / enemy /
+  partner), and a LIVE ladder preview = the REAL `stamp_archetype` on a scratch copy
+  (stamp-parity by construction; minted routes disclosed; illegal states disable Stamp
+  and say why). ONE modal seam (`_ask_stamp`) replaces the 3-picker chain; snap
+  `behavior:wizard`. (2) The cast rail asks for its own longest row per field (TAILOR —
+  the 170px default elided every bits string; the real blocker was the CENTER's own
+  minimum, fixed by `ElideLabel` on head_sum/unit_stats). (3) Stage labels negotiate
+  dy tiers (screen-px, re-run per zoom) and same-class ranks collapse to "name ×N ·
+  pooled" with hover members — the [siege] bench pile (400u spacing, transitive chain
+  at 2.5×SPACING_U) was an unreadable smear. (4) The sim strip: slider min-width floor,
+  the event on its OWN elided line, the ledger's short tags on the face (sentences on
+  hover — `Sim.short`), and NO EMOJI: `⏱`→"timer", play/pause/reset = icons.py SVGs
+  (the owner's standing rule → memory `feedback-no-emoji-glyphs-svg-icons`).
+  (5) New pinned surfaces `behavior:bare` (the ACTION guide — previously unreviewable)
+  + `behavior:wizard`. En route: the `be9d24a6` rename had left a GUI-root card pin red
+  on master (the missed-battery class AGAIN) — repointed + the siege card summary
+  finished its rename ("generates a legal one", read-only-in-tab noted).
 
 ## 5. Analyses the GUI makes worth building (shared with the CLI as lint verbs)
 

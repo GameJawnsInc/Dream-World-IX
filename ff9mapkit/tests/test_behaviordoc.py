@@ -548,13 +548,12 @@ def test_route_point_ops_ride_the_undo_contract_and_the_floor_refuses(edoc):
 
 
 # --------------------------------------------------------------------------- rung D: archetype stamps
-def test_stamp_flow_rides_both_seams_and_the_undo_contract(edoc):
+def test_stamp_flow_rides_the_wizard_seam_and_the_undo_contract(edoc):
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "lone", "pos": [10, 20]}]}
     edoc.show_field("PLAIN", raw, None)
     assert edoc._stack.currentWidget() is edoc._guide_page   # no [behavior] yet
-    edoc._ask_archetype = lambda: "sentry"         # both modal seams injected, never a dialog
-    edoc._ask_unit = lambda names: names[0]
+    edoc._ask_stamp = lambda: ("sentry", "lone", None)   # the ONE modal seam injected
     edoc._stamp_archetype()                        # the guide's own action button calls this
     assert edoc._stack.currentWidget() is edoc._content
     assert edoc._selected_unit == "lone"
@@ -566,54 +565,98 @@ def test_stamp_flow_rides_both_seams_and_the_undo_contract(edoc):
 
 def test_stamp_with_no_free_npc_teaches(edoc):
     edoc.show_field("BGLADE", demo_raw(), None)    # every demo npc already has a unit
-    edoc._ask_archetype = lambda: "sentry"
+    edoc._ask_stamp = lambda: (_ for _ in ()).throw(AssertionError("door must not open"))
     edoc._stamp_archetype()
     assert "add another [[npc]] first" in edoc.problems_lbl.text()
     assert edoc._edits == []
 
 
-def test_a_cancelled_picker_stamps_nothing(edoc):
+def test_a_cancelled_wizard_stamps_nothing(edoc):
     raw = {"field": {"name": "PLAIN"}, "npc": [{"name": "lone", "pos": [1, 2]}]}
     edoc.show_field("PLAIN", raw, None)
-    edoc._ask_archetype = lambda: None             # user pressed Escape
-    edoc._ask_unit = lambda names: names[0]
+    edoc._ask_stamp = lambda: None                 # user pressed Escape
     edoc._stamp_archetype()
     assert "behavior" not in raw and edoc._edits == []
 
 
-def test_guard_stamp_flow_binds_a_target_through_the_third_seam(edoc):
+# --------------------------------------------------------------------------- the stamp wizard
+# ONE teaching surface instead of a picker chain (playtest ask). Constructed directly --
+# exec() lives only in the doc's modal seam; everything here drives the widgets.
+def _wizard(raw):
+    from ff9mapkit.workspace.behaviordoc import ArchetypeWizard
+    return ArchetypeWizard(pick_palette("dark"), raw)
+
+
+def test_the_wizard_lists_every_archetype_and_teaches_the_selected_one():
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "lone", "pos": [10, 20]}]}
+    w = _wizard(raw)
+    assert w.list.count() == len(behaviorscan.BEHAVIOR_ARCHETYPES)
+    for i, a in enumerate(behaviorscan.BEHAVIOR_ARCHETYPES):
+        w.list.setCurrentRow(i)
+        assert w.teach.text() == a["teach"]        # the Info Hub card's own words
+        assert w._vs_row.isVisibleTo(w) == bool(a.get("needs_target"))
+        assert w._partner_row.isVisibleTo(w) == bool(a.get("needs_partner"))
+
+
+def test_the_wizard_preview_is_the_real_stamp_not_a_paraphrase():
+    raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "lone", "pos": [10, 20]}]}
+    w = _wizard(raw)
+    w.list.setCurrentRow(0)                        # sentry
+    text = w.preview.text()
+    # derivation fence: the preview lines come from ladder_model over the REAL op's
+    # output on a scratch copy -- recompute and compare a row verbatim
+    import copy
+    scratch = copy.deepcopy(raw)
+    behaviorscan.stamp_archetype(scratch, "sentry", "lone", None)
+    rows = behaviorscan.ladder_model(scratch, "lone")
+    assert rows and all(r["verb"] in text for r in rows)
+    assert "lone_beat" in text                     # the minted route is DISCLOSED
+    assert "behavior" not in raw                   # previewing wrote NOTHING
+    assert w._ok.isEnabled()
+    w.accept()
+    assert w.picked() == ("sentry", "lone", None)
+
+
+def test_the_wizard_guard_needs_a_seated_enemy_and_says_so():
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "brute", "pos": [10, 20]}, {"name": "hero", "pos": [90, 20]}]}
-    edoc.show_field("PLAIN", raw, None)
-    edoc._ask_archetype = lambda: "guard"
-    edoc._ask_unit = lambda names: "hero"
-    asked = []
-    edoc._ask_target = lambda units: (asked.append(list(units)), "brute")[1]
-    edoc._ask_archetype2 = None
-    # no unit exists yet -> the guard needs its enemy seated first
-    edoc._stamp_archetype()
-    assert "seat its enemy first" in edoc.problems_lbl.text()
-    behaviorscan.add_unit(raw, "brute")
-    edoc.show_field("PLAIN", raw, None)
-    edoc._stamp_archetype()
-    assert asked == [["brute"]]
-    assert raw["behavior"]["unit"][1]["npc"] == "hero"
-    assert behaviorscan.validate_problems(raw) == []
-    assert edoc._edits[-1] == ("PLAIN", "stamp guard archetype on hero vs brute")
+    w = _wizard(raw)
+    gi = next(i for i, a in enumerate(behaviorscan.BEHAVIOR_ARCHETYPES)
+              if a["key"] == "guard")
+    w.list.setCurrentRow(gi)
+    assert not w._ok.isEnabled()                   # no unit exists yet
+    assert "seat its enemy first" in w.note.text()
+    w.accept()                                     # Enter on an illegal state...
+    assert w.picked() is None                      # ...stamps nothing
+    behaviorscan.add_unit(raw, "brute")            # seat the enemy, rebuild the door
+    w2 = _wizard(raw)
+    w2.list.setCurrentRow(gi)
+    assert [w2.vs.itemText(i) for i in range(w2.vs.count())] == ["brute"]
+    w2.who.setCurrentText("hero")
+    assert w2._ok.isEnabled()
+    w2.accept()
+    assert w2.picked() == ("guard", "hero", "brute")
 
 
-def test_shift_pair_flow_asks_for_the_partner_from_the_remaining_npcs(edoc):
+def test_the_wizard_partner_list_excludes_the_primary():
     raw = {"field": {"name": "PLAIN"}, "player": {"spawn": [0, 0]},
            "npc": [{"name": "day", "pos": [10, 20]}, {"name": "night", "pos": [90, 20]}]}
-    edoc.show_field("PLAIN", raw, None)
-    edoc._ask_archetype = lambda: "shift_pair"
-    picks = []
-    edoc._ask_unit = lambda names: (picks.append(list(names)), names[0])[1]
-    edoc._stamp_archetype()
-    assert picks == [["day", "night"], ["night"]]  # the partner list EXCLUDES the primary
-    assert [u["npc"] for u in raw["behavior"]["unit"]] == ["day", "night"]
+    w = _wizard(raw)
+    si = next(i for i, a in enumerate(behaviorscan.BEHAVIOR_ARCHETYPES)
+              if a["key"] == "shift_pair")
+    w.list.setCurrentRow(si)
+    assert [w.partner.itemText(i) for i in range(w.partner.count())] == ["night"]
+    w.who.setCurrentText("night")                  # flip the primary -> the list follows
+    assert [w.partner.itemText(i) for i in range(w.partner.count())] == ["day"]
+    assert w._ok.isEnabled()
+    w.accept()
+    assert w.picked() == ("shift_pair", "night", "day")
+    label = behaviorscan.stamp_archetype(raw, *w.picked())
+    assert label == "stamp shift pair on night + day"
+    assert [u["npc"] for u in raw["behavior"]["unit"]] == ["night", "day"]
     assert behaviorscan.validate_problems(raw) == []
-    assert edoc._edits == [("PLAIN", "stamp shift pair on day + night")]
 
 
 def test_siege_stamp_flow_lands_in_the_read_only_view(edoc):
@@ -623,7 +666,7 @@ def test_siege_stamp_flow_lands_in_the_read_only_view(edoc):
     edoc._stamp_siege()                            # the guide's third action
     assert "siege" in raw and "behavior" not in raw
     assert edoc._stack.currentWidget() is edoc._content
-    assert edoc._readonly and "read-only" in edoc.head_sum.text()
+    assert edoc._readonly and "read-only" in edoc.head_sum.fullText()
     assert edoc._edits == [("BARE", "generate [siege] minigame")]
     edoc._stamp_siege()                            # a second stamp: the read-only guard
     assert len(edoc._edits) == 1                   # refuses silently (the door only exists
@@ -643,7 +686,7 @@ def test_a_siege_field_renders_its_generated_behavior_read_only(edoc):
     edoc.show_field("REDOUBT", raw, None)
     assert edoc._stack.currentWidget() is edoc._content      # NOT the no-behavior guide
     assert edoc._readonly and edoc._view is not raw
-    assert "read-only" in edoc.head_sum.text()
+    assert "read-only" in edoc.head_sum.fullText()   # the label elides; content = fullText
     assert not edoc.add_unit_btn.isEnabled() and not edoc.edit_btn.isEnabled()
     rows = _ladder_rows(edoc.ladder)
     assert rows and not any(w for r in rows for w in r.findChildren(QPushButton))
@@ -787,7 +830,7 @@ def test_a_class_row_reads_as_a_class_in_cast_ladder_and_stage(doc):
     assert any(n.startswith("fang") and "class ×2" in n for n in names)
     assert doc._selected_unit == "fang"            # the first row selects under its CLASS name
     assert len(_ladder_rows(doc.ladder)) == 3      # one shared ladder for both members
-    stats = doc.unit_stats.text()
+    stats = doc.unit_stats.fullText()              # the label elides; content = fullText
     assert "one program shared by 2" in stats and "speeds 40/55" in stats
     tags = _scene_tags(doc.canvas)
     assert tags.count("post") == 3                 # fang1 + fang2 + hero all hold posts
@@ -833,3 +876,68 @@ def test_the_no_free_npc_message_tells_the_zero_cast_truth(doc):
     doc.show_field("P2", raw, None)
     doc._add_unit()
     assert "already has a behavior unit" in doc.problems_lbl.text()
+
+
+# --------------------------------------------------------------------------- the UX round
+# The cast-rail TAILOR, the stage's knot labels, and the de-collision pass (each a
+# mechanism -- so each gets its call-site fence, per the study's oldest law).
+def test_a_field_switch_spends_the_rail_fit_and_a_refeed_does_not(doc):
+    hits = []
+    doc._fit_rail = lambda: hits.append(1)
+    doc.show_field("BGLADE", demo_raw(), None)
+    assert hits == [1]                             # a NEW field asks the rail to fit
+    doc.show_field("BGLADE", demo_raw(), None)     # same field re-fed (an edit re-render)
+    assert hits == [1]                             # ...leaves the user's split alone
+
+
+def test_a_user_drag_holds_until_the_next_field(doc):
+    doc.show_field("BGLADE", demo_raw(), None)
+    doc._on_rail_drag(0, 0)                        # the splitterMoved path, no _rail_setting
+    assert doc._rail_user
+    doc.show_field("BGLADE", demo_raw(), None)     # same field: the drag is a preference
+    assert doc._rail_user
+    raw2 = {"field": {"name": "OTHER"}, "npc": [{"name": "a", "pos": [0, 0]}],
+            "behavior": {"unit": [{"npc": "a", "hp": 1,
+                                   "branch": [{"do": {"hold_post": True}}]}]}}
+    doc.show_field("OTHER", raw2, None)            # a new field re-earns the auto-fit
+    assert not doc._rail_user
+
+
+def _label_texts(canvas):
+    from PySide6.QtWidgets import QGraphicsSimpleTextItem
+    out = []
+    for it in canvas._scene.items():
+        if it.data(0) == "label":
+            kids = [c for c in it.childItems() if isinstance(c, QGraphicsSimpleTextItem)]
+            out += [(k.text(), k.pos().y()) for k in kids]
+    return out
+
+
+def test_a_class_rank_collapses_to_one_counted_label(doc):
+    """Three same-class members parked 400u apart (the [siege] bench spacing) share ONE
+    'name xN' label -- five stacked spawn labels were an unreadable smear (snap-caught)."""
+    raw = {"field": {"name": "RANK"}, "player": {"spawn": [0, -900]},
+           "npc": [{"name": "s0", "pos": [0, 0]}, {"name": "s1", "pos": [400, 0]},
+                   {"name": "s2", "pos": [800, 0]}],
+           "behavior": {"unit": [{"npcs": ["s0", "s1", "s2"], "class": "squad", "hp": 2,
+                                  "branch": [{"do": {"hold_post": True}}]}]}}
+    doc.show_field("RANK", raw, None)
+    texts = [t for t, _ in _label_texts(doc.canvas)]
+    assert any("squad ×3" in t for t in texts)
+    assert not any(t.startswith("s0") or t.startswith("s1") for t in texts)
+    tags = _scene_tags(doc.canvas)
+    assert tags.count("post") == 3                 # every member keeps its own dot
+
+
+def test_overlapping_labels_take_distinct_tiers(doc):
+    """Two units on the SAME spot: the de-collision pass moves one label to a free
+    tier (labels are screen px, so the fence reads the text items' y offsets)."""
+    raw = {"field": {"name": "STACK"}, "player": {"spawn": [0, -900]},
+           "npc": [{"name": "twin_a", "pos": [100, 100]},
+                   {"name": "twin_b", "pos": [100, 100]}],
+           "behavior": {"unit": [
+               {"npc": "twin_a", "hp": 1, "branch": [{"do": {"hold_post": True}}]},
+               {"npc": "twin_b", "hp": 1, "branch": [{"do": {"hold_post": True}}]}]}}
+    doc.show_field("STACK", raw, None)
+    ys = {t: y for t, y in _label_texts(doc.canvas) if t.startswith("twin")}
+    assert len(ys) == 2 and len(set(ys.values())) == 2   # same anchor, two tiers

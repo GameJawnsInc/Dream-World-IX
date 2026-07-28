@@ -245,7 +245,8 @@ def behavior_entries() -> list:
     out.append(Entry("behavior", "siege", None,
                      "[siege] — the whole tower-defense minigame as ONE declarative block: "
                      "base, hire pools, raider waves, payouts; compiles onto per-class "
-                     "brains. The Behavior tab's empty-field guide stamps a legal skeleton."))
+                     "brains. The Behavior tab's empty-field guide generates a legal one "
+                     "to start from (read-only there; edit it in the Editor form)."))
     return out
 
 
