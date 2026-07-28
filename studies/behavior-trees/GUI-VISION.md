@@ -133,7 +133,13 @@ belong painted on the field, not printed as text. That is the second surface: **
   read-only view the same tick; refusals ([behavior] clash / double stamp / verbatim)
   raise with the reason. Both dry-compile fenced. **D's remainder:** the Info Hub
   archetype cards (the last D item — a browsing surface; the Behavior tab's picker
-  already stamps).
+  already stamps). **THE CLASS-ROW FACE (2026-07-28):** the brains ladder's `npcs =`
+  CLASS rows are first-class in every projection — one ladder under the CLASS name
+  (the shared program, exactly what the compiler builds), every member's post/ring on
+  the stage with ONE shared radius write path, `speeds` in the header, members counted
+  as taken npcs and listed as archetype targets — restoring the [siege] view now that
+  brains is the [siege] DEFAULT (the flip had red-lined the dry-compile fence on
+  master and rendered "?" casts).
 - **Rung E — TIME.** (1) **The offline tick-stepper**: a pure-Python interpreter of the same
   documented tree semantics stepping simulated positions — scrub a timeline, watch selection
   sweep the ladder rows and units move on the stage. Catches the priority/starvation family of

@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the Workspace Behavior tab speaks class rows (`npcs =`)
+- The `[siege]` brains default handed the tab's read-only siege view CLASS rows its projections
+  had never seen: the dry-compile lane KeyError'd, the cast rendered `?` units with no ladder,
+  and class members had no posts/rings/handles on the stage. A class row is now first-class
+  under its CLASS name (validate already pins it unique and npc-clash-free): ONE ladder for the
+  shared program, `class ×N` with members in the cast rail, every member's post and ring on the
+  stage with one shared radius write path (any member's grip resizes the class's ring — the
+  program IS shared), `speeds` presets in the ladder header, and class members counted as taken
+  NPCs and offered as archetype targets. Applies equally to hand-authored `[behavior]` class
+  rows, not just `[siege]` views.
+
 ### Fixed — quad UV covers fanned the WRONG WAY (GEOM quad corners are Z-ordered, not a perimeter)
 - `summons.repaint._face_polys` and `summons.build._mesh_tris` triangulated a 4-corner face as
   `(0,1,2) + (0,2,3)`, documented as valid "because a quad's corners are perimeter-ordered". Measured
