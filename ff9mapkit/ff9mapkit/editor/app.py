@@ -524,7 +524,11 @@ class EditorApp:
                     "event": {"name": "event", "message": "..."},
                     "marker": {"name": "spot", "pos": [0, 0]}}[kind]
         lst = self.doc.list_section(kind)
-        lst.append(dict(defaults))
+        new = dict(defaults)
+        if kind == "npc":                     # a fresh FF9-flavoured compound, never a twin
+            from . import names               # named "NPC" (behavior + scene merge key on it)
+            new["name"] = names.fresh_npc_name(n.get("name") for n in lst)
+        lst.append(new)
         self._refresh_tree(reselect=f"{kind}:{len(lst) - 1}")
         self._show_entity(kind, len(lst) - 1)
 

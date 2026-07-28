@@ -46,6 +46,7 @@ from ..editor import deploysnap
 from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
+from ..editor import names
 from ..editor import tomldiff
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, derive, pick_palette
@@ -6893,6 +6894,9 @@ class Workspace(QMainWindow):
         new = copy.deepcopy(_LIST_DEFAULTS[kind])
         if name is not None:                          # 'Define' a scene-placed entity -> match its name
             new["name"] = name
+        elif kind == "npc":                           # never a field of twins named "NPC" — names are
+            new["name"] = names.fresh_npc_name(       # load-bearing (behavior units + the scene merge
+                n.get("name") for n in lst)           # bind by name); playtest-asked FF9 flavour
         lst.append(new)
         idx = len(lst) - 1
         self._touch(member)                           # the new default entity is an unsaved change
@@ -7995,15 +7999,22 @@ class Workspace(QMainWindow):
             if lay.get("central_split"):
                 self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
             csplit = lay.get("console_split")
+            collapsed = bool(lay.get("console_collapsed", False))
             if csplit:
+                # Seed the re-expand memory ALWAYS; push it into the live splitter only when the console
+                # comes back OPEN. A collapsed console pins the panel's maximumHeight, and that pin clamps
+                # only the WIDGET -- the splitter rail keeps whatever span setSizes() asked for. So a
+                # collapsed restore that setSizes()'d the saved EXPANDED split left the header strip atop
+                # a dead void the exact height of the remembered body ("fake-maximized" until first click).
                 self._console_sizes = list(csplit)
-                self._vsplit.setSizes(self._console_sizes)
+                if not collapsed:
+                    self._vsplit.setSizes(self._console_sizes)
             # A saved session's console state wins over the collapsed-by-default (both directions). The
             # prefs layer only persists console_collapsed when it's TRUE (an OPEN console drops the key),
             # so a saved layout (console_split present) with NO flag == the user had it OPEN -> expand;
             # a stored TRUE flag -> collapse. No saved layout at all -> the cold-start collapse stands.
-            if csplit or lay.get("console_collapsed"):
-                self._toggle_console(expand=not lay.get("console_collapsed", False))
+            if csplit or collapsed:
+                self._toggle_console(expand=not collapsed)
         except Exception:   # noqa: BLE001  (never let a bad layout block launch)
             pass
 
@@ -9556,9 +9567,14 @@ def _smoke(win):
     nbefore = len(win._doc("IC_ENT").data.get("npc", []))
     win._add_list_item("IC_ENT", "npc")
     npcs = win._doc("IC_ENT").data["npc"]
-    assert len(npcs) == nbefore + 1 and npcs[-1]["name"] == "NPC", npcs
+    minted = npcs[-1]["name"]                          # a fresh FF9-flavoured compound, not "NPC"
+    assert len(npcs) == nbefore + 1 and minted != "NPC", npcs
+    assert [n.get("name") for n in npcs].count(minted) == 1, npcs   # never a twin
+    from ..editor import names as _names               # the smoke fn has a local `names` list
+    flav, _, role = minted.partition("_")
+    assert flav in _names.FLAVOR and role.split("_")[0] in _names.ROLES, minted
     assert win._save_ctx["section"] == "npc" and win._save_ctx["idx"] == nbefore   # new item's form is mounted
-    assert win._payload(win.tree.currentItem()) == ("object", "NPC", f"npc:{nbefore}")   # tree refreshed+selected
+    assert win._payload(win.tree.currentItem()) == ("object", minted, f"npc:{nbefore}")   # tree refreshed+selected
     win._add_list_item("IC_ENT", "gateway")            # a different list kind
     assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor

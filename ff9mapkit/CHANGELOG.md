@@ -14,6 +14,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the preview; anything illegal (a guard with no seated enemy, a pair without a second
   free npc) disables Stamp and says why in place.
 
+### Changed — a new [[npc]] gets an FF9-flavoured name, never the literal "NPC"
+- Adding an NPC (Workspace Editor tab or `ff9mapkit edit`) now mints a fresh compound
+  default like `gysahl_peddler` or `mist_porter`, deduped against the field's own cast —
+  three new NPCs used to arrive as three identical "NPC"s, and the name is load-bearing
+  (behavior units, the field/scene merge, and the archetype wizard all bind by it).
+
 ### Changed — a Behavior-tab UX pass (the readable-by-default round)
 - The cast rail now asks for its own longest row on each field switch (capped), so
   unit/class info bits ("class ×3 · 4 hp") stop eliding at the default window; a rail
