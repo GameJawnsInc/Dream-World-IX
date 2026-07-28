@@ -187,6 +187,23 @@ belong painted on the field, not printed as text. That is the second surface: **
   + `behavior:wizard`. En route: the `be9d24a6` rename had left a GUI-root card pin red
   on master (the missed-battery class AGAIN) — repointed + the siege card summary
   finished its rename ("generates a legal one", read-only-in-tab noted).
+- **ROUND 2 (owner: "we can do both"): THE LADDER DECLUTTER + THE DEAD-ROW HINT.**
+  (1) `QPushButton[role="rowtool"]` — the per-branch ↑↓✎✕ as borderless fill-on-hover
+  glyphs (ink = body text, never muted: muted-on-transparent is the disabled idiom;
+  explicit pressed/focus/disabled per the specificity-tie law; `rowtool_pad` scales
+  with the dial). Six rows now fit where five did. The COMMENT-PLACEHOLDER fence
+  caught a token name in my own comment — the fence works. (2) §5's first analysis
+  SHIPPED: `behaviorscan.shadowed_rows` — a row is DEAD when an earlier once/cooldown-
+  free row's cond set is implied by its own (identical conds; same-target near with
+  radius ≥; hp_le with bound ≥; plain unconditional above kills everything below);
+  the ladder chips it "never selects — row N wins first" with the fixes on hover.
+  Conservative by charter; sticky shadowers exempt (the demo's announce-then-fight
+  ladder is the negative fence) and the SIM corroborates the static claim in tests.
+  (3) ElideLabel `min_ch`: the stats caption keeps a stub — and the floor had to be
+  the EXPLICIT minimum, because Policy.Ignored makes the layout skip minimumSizeHint
+  (my own first fence asserted the property, not the render — the round's lesson,
+  again). (4) Stage labels flip LEFT at the canvas's right edge; below-marker tiers
+  clear the dot band (the ×N strike-through).
 
 ## 5. Analyses the GUI makes worth building (shared with the CLI as lint verbs)
 

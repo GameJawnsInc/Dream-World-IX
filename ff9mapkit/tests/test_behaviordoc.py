@@ -941,3 +941,43 @@ def test_overlapping_labels_take_distinct_tiers(doc):
     doc.show_field("STACK", raw, None)
     ys = {t: y for t, y in _label_texts(doc.canvas) if t.startswith("twin")}
     assert len(ys) == 2 and len(set(ys.values())) == 2   # same anchor, two tiers
+
+
+# --------------------------------------------------------------------------- round 2: dead rows + rowtool
+def test_a_dead_row_wears_the_never_selects_chip_and_the_sim_agrees(doc):
+    raw = {"field": {"name": "DEAD"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "a", "pos": [100, 0]}],
+           "behavior": {"unit": [{"npc": "a", "hp": 3, "branch": [
+               {"when": [{"near": ["player", 900]}], "do": {"chase": "player"}},
+               {"when": [{"near": ["player", 400]}], "do": {"swing_at": "player",
+                                                            "damage": 1}},
+               {"do": {"hold_post": True}},
+           ]}]}}
+    doc.show_field("DEAD", raw, None)
+    rows = _ladder_rows(doc.ladder)
+    chips = [w.text() for w in rows[1].findChildren(QLabel)]
+    assert any("never selects — row 1 wins first" in t for t in chips)
+    assert not any("never selects" in w.text()
+                   for r in (rows[0], rows[2]) for w in r.findChildren(QLabel))
+    # the sim corroborates the static claim: the shadowed row never selects in a run
+    from ff9mapkit.workspace import behaviorsim
+    sim = behaviorsim.Sim(raw)
+    assert all(sim.at(t)["units"]["a"]["sel"] != 1 for t in range(0, 200, 10))
+
+
+def test_the_demo_ladder_renders_no_dead_row_chip(doc):
+    doc.show_field("BGLADE", demo_raw(), None)     # announce-once over swing over chase:
+    for r in _ladder_rows(doc.ladder):             # the once-exemption keeps it chip-free
+        assert not any("never selects" in w.text() for w in r.findChildren(QLabel))
+
+
+def test_the_row_buttons_are_rowtool_tier_and_the_stats_keep_a_stub(doc):
+    doc.show_field("BGLADE", demo_raw(), None)
+    rows = _ladder_rows(doc.ladder)
+    btns = rows[0].findChildren(QPushButton)
+    assert btns and all(b.property("role") == "rowtool" for b in btns)
+    # the unit bar's stats label yields width but never to NOTHING. The floor must be
+    # the EXPLICIT minimum: Policy.Ignored makes the layout skip minimumSizeHint, so a
+    # floor living only there is a property nobody renders (this round's own catch).
+    fm = doc.unit_stats.fontMetrics()
+    assert doc.unit_stats.minimumWidth() >= int(fm.averageCharWidth() * 12)

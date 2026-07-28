@@ -380,9 +380,13 @@ class ElideLabel(QLabel):
     tooltip and ``accessibleName``.
     """
 
-    def __init__(self, text="", role="caption", *, mono=False, parent=None):
+    def __init__(self, text="", role="caption", *, mono=False, min_ch=0, parent=None):
         super().__init__(parent)
         self._full = text
+        self._min_ch = int(min_ch)            # a floor in CHARACTERS of the label's own font
+        #                                       (0 = yield all the way to one ellipsis) -- the
+        #                                       Behavior unit bar's stats vanished ENTIRELY at
+        #                                       the default window when it could yield to "…"
         self.setProperty("role", role)
         if mono:
             self.setProperty("mono", True)
@@ -390,6 +394,15 @@ class ElideLabel(QLabel):
         self.setAccessibleName(text)
         self.setToolTip(text)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self._apply_floor()
+
+    def _apply_floor(self):
+        # Policy.Ignored tells the layout to skip BOTH hints, so a min_ch floor in
+        # minimumSizeHint is a property nobody renders (snap-caught: the unit bar's
+        # stats stayed invisible with the floor "in place"). An EXPLICIT minimum is
+        # the one thing qSmartMinSize still honours under Ignored.
+        if self._min_ch:
+            self.setMinimumWidth(int(self.fontMetrics().averageCharWidth() * self._min_ch))
 
     def setFullText(self, text: str) -> None:
         self._full = text
@@ -408,17 +421,21 @@ class ElideLabel(QLabel):
         fm = self.fontMetrics()
         return QSize(int(fm.horizontalAdvance(self._full)) + 2, fm.height())
 
-    def minimumSizeHint(self):                # yield to the pane; never push a scrollbar
-        fm = self.fontMetrics()
-        return QSize(int(fm.horizontalAdvance("…")) + 2, fm.height())
+    def minimumSizeHint(self):                # yield to the pane; never push a scrollbar.
+        fm = self.fontMetrics()               # min_ch keeps a readable stub, measured in the
+        #                                       label's OWN font so the floor hears CALIBRE
+        floor = int(fm.averageCharWidth() * self._min_ch) if self._min_ch else 0
+        return QSize(max(int(fm.horizontalAdvance("…")) + 2, floor), fm.height())
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
         self._relayout_free_elide()
 
     def changeEvent(self, ev):
-        if ev.type() == QEvent.Type.FontChange:   # CALIBRE re-metrics the elide (GAUGE)
-            self._relayout_free_elide()
+        if ev.type() == QEvent.Type.FontChange:   # CALIBRE re-metrics the elide (GAUGE) --
+            self._relayout_free_elide()           # and the min_ch floor, being font units,
+            self._apply_floor()                   # moves with it
+            self.updateGeometry()
         super().changeEvent(ev)
 
     def _relayout_free_elide(self):

@@ -174,11 +174,62 @@ def cast_model(raw: dict) -> dict:
             "timer": b.get("timer"), "public_flags": [str(f) for f in (b.get("public_flags") or [])]}
 
 
-def ladder_model(raw: dict, unit_name: str) -> list:
-    """The selected unit's branches as ladder rows, TOML order (== priority order). Each:
-    ``{"index", "conds", "verb", "detail", "decos", "unconditional"}``."""
+def _cond_implies(cj: dict, ci: dict) -> bool:
+    """True only when cond ``cj`` holding GUARANTEES ``ci`` holds. Conservative by
+    design — the relations we are byte-sure of (identical conds; same-target ``near``
+    with a radius ≥; ``hp_le`` with a bound ≥) and nothing else: a wrong "never
+    selects" would teach a lie, a missed one just stays quiet."""
+    if cj == ci:
+        return True
+    if len(ci) != 1 or len(cj) != 1:
+        return False
+    (kj, vj), (ki, vi) = next(iter(cj.items())), next(iter(ci.items()))
+    try:
+        if kj == ki == "near":
+            return vj[0] == vi[0] and int(vi[1]) >= int(vj[1])
+        if kj == ki == "hp_le":
+            return int(vi) >= int(vj)
+    except (TypeError, ValueError, IndexError, KeyError):
+        return False
+    return False
+
+
+def shadowed_rows(raw: dict, unit_name: str) -> dict:
+    """``{branch_i: earlier_i}`` (0-based) for rows that can NEVER select under
+    first-match priority: an EARLIER row with no ``once``/``cooldown`` gate whose every
+    cond is implied by this row's conds always wins the tick. Sticky earlier rows are
+    EXEMPT — a latched ``once`` releases the rows below it (the demo watchman's
+    announce-then-swing ladder depends on exactly that). A plain unconditional row
+    shadows everything below it; a malformed earlier ``when`` claims nothing."""
     unit = next((u for ui, u in enumerate(BT.units(raw))
                  if row_name(u, ui) == unit_name), None)
+    rows = (unit.get("branch") or []) if unit else []
+    out = {}
+    for j, bj in enumerate(rows):
+        if not isinstance(bj, dict):
+            continue
+        cj = [c for c in (bj.get("when") or []) if isinstance(c, dict)]
+        for i in range(j):
+            bi_ = rows[i]
+            if not isinstance(bi_, dict) or bi_.get("once") or bi_.get("cooldown"):
+                continue
+            when_i = bi_.get("when")
+            ci = [c for c in (when_i or []) if isinstance(c, dict)]
+            if isinstance(when_i, list) and when_i and not ci:
+                continue                       # malformed conds: not a proof of anything
+            if all(any(_cond_implies(c_j, c_i) for c_j in cj) for c_i in ci):
+                out[j] = i
+                break
+    return out
+
+
+def ladder_model(raw: dict, unit_name: str) -> list:
+    """The selected unit's branches as ladder rows, TOML order (== priority order). Each:
+    ``{"index", "conds", "verb", "detail", "decos", "unconditional", "shadow"}`` —
+    ``shadow`` is the 1-based EARLIER row that makes this one unreachable (or None)."""
+    unit = next((u for ui, u in enumerate(BT.units(raw))
+                 if row_name(u, ui) == unit_name), None)
+    shadows = shadowed_rows(raw, unit_name)
     rows = []
     for bi, br in enumerate(unit.get("branch") or [] if unit else []):
         when = br.get("when") if isinstance(br, dict) else None
@@ -188,7 +239,8 @@ def ladder_model(raw: dict, unit_name: str) -> list:
         verb, detail = fmt_action(do) if isinstance(do, dict) else ("?", repr(do))
         rows.append({"index": bi + 1, "conds": conds, "verb": verb, "detail": detail,
                      "decos": _decos(br) if isinstance(br, dict) else [],
-                     "unconditional": not conds})
+                     "unconditional": not conds,
+                     "shadow": shadows[bi] + 1 if bi in shadows else None})
     return rows
 
 

@@ -14,6 +14,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the preview; anything illegal (a guard with no seated enemy, a pair without a second
   free npc) disables Stamp and says why in place.
 
+### Added — the ladder tells you when a branch can NEVER run
+- A branch whose conditions are subsumed by an earlier row's (a `near 400` below a
+  `near 900` on the same target, an `hp_le 0` below an `hp_le 2`, anything below a
+  plain unconditional row) now wears a "never selects — row N wins first" chip, with
+  the fix options on hover (reorder / tighten / gate). Deliberately conservative: it
+  only claims what first-match priority proves, and a sticky `once`/`cooldown` row is
+  exempt as a shadower — a latched one-shot releases the rows below it, which is
+  exactly how the announce-then-fight idiom works.
+
+### Changed — the ladder's row tools stop out-massing the rows
+- The per-branch ↑ ↓ ✎ ✕ controls are now quiet borderless glyphs (a fill only under
+  the cursor), so a ladder reads as branches first and furniture second — and more of
+  each row fits before it scrolls. The unit bar's stats caption now keeps a readable
+  stub when width is tight instead of vanishing, stage labels flip left rather than
+  clip at the canvas's right edge, and a label pushed below its marker clears the dot
+  row instead of striking through it.
+
 ### Changed — a new [[npc]] gets an FF9-flavoured name, never the literal "NPC"
 - Adding an NPC (Workspace Editor tab or `ff9mapkit edit`) now mints a fresh compound
   default like `gysahl_peddler` or `mist_porter`, deduped against the field's own cast —

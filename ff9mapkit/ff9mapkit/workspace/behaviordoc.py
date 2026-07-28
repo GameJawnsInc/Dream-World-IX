@@ -253,6 +253,7 @@ class StageCanvas(QGraphicsView):
         only each text child's dy shifts, so the leader point stays honest."""
         placed = []
         step = 13
+        vw = self.viewport().width()
         for lab in self._labels:
             try:
                 base = self.mapFromScene(lab["anchor"].pos())
@@ -260,10 +261,18 @@ class StageCanvas(QGraphicsView):
                 return
             t = lab["item"]
             br = t.boundingRect()
-            x = base.x() + lab["dx"]
-            cands = [lab["dy"]]
+            dx = lab["dx"]
+            if vw > 40 and base.x() + dx + br.width() > vw - 2:
+                dx = -dx - br.width()              # off the right edge: mirror to the left
+            x = base.x() + dx
+            cands, down = [lab["dy"]], []
             for k in range(1, 7):                  # nearest tier first, above before below
-                cands += [lab["dy"] - step * k, lab["dy"] + step * k]
+                cands.append(lab["dy"] - step * k)
+                down.append(lab["dy"] + step * k)
+            # a DOWN tier must clear the anchor's own marker row (r≈5 + breathing room):
+            # the first down candidate from dy=-16 lands the text ACROSS the dots
+            # (snap-caught strike-through on the ×N cluster labels)
+            cands += [dy for dy in down if dy >= 8 or dy + br.height() <= -8]
             pick = cands[0]
             for onscreen_only in (True, False):    # prefer a tier that stays in the
                 found = False                      # viewport; overlap-free beats clipped
@@ -276,7 +285,7 @@ class StageCanvas(QGraphicsView):
                         break
                 if found:
                     break
-            t.setPos(lab["dx"], pick)
+            t.setPos(dx, pick)
             placed.append(QRectF(x, base.y() + pick, br.width(), br.height()))
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
@@ -752,7 +761,7 @@ class LadderView(QWidget):
                     ("✕", "Delete this branch (Ctrl+Z undoes)",
                      lambda _=False, b=bi: self.actions["delete"](b))):
                 btn = QPushButton(glyph)
-                btn.setProperty("role", "quiet")
+                btn.setProperty("role", "rowtool")   # repeated furniture, not four buttons
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — branch {row['index']}")
                 btn.clicked.connect(cb)
@@ -776,6 +785,15 @@ class LadderView(QWidget):
         for d in row["decos"]:
             kind = "warn" if d.startswith(("raise ", "clear ")) else "info"
             h.addWidget(widgets.status_chip(d, kind))
+        if row.get("shadow"):
+            dead = widgets.status_chip(f"never selects — row {row['shadow']} wins first",
+                                       "warn")
+            dead.setToolTip(
+                "First-match priority: whenever this row's conditions hold, row "
+                f"{row['shadow']}'s already hold — and row {row['shadow']} has no "
+                "once/cooldown gate, so it wins every tick. Reorder the rows, tighten "
+                f"row {row['shadow']}'s conditions, or gate it (once / cooldown / flag).")
+            h.addWidget(dead)
         if fallback:
             h.addWidget(widgets.status_chip("fallback · required", "good"))
         frame.setAccessibleName(
@@ -1221,8 +1239,8 @@ class BehaviorDoc(QWidget):
         bh.setSpacing(10)
         self.unit_title = widgets.role_label("—", "cardtitle")
         bh.addWidget(self.unit_title)
-        self.unit_stats = widgets.ElideLabel("")   # yields width; the buttons keep theirs
-        bh.addWidget(self.unit_stats, 1)
+        self.unit_stats = widgets.ElideLabel("", min_ch=12)   # yields width, but never to
+        bh.addWidget(self.unit_stats, 1)                      # NOTHING (12ch ≈ "4 hp · 6 br…")
         self.add_branch_btn = QPushButton("＋ Branch")
         self.add_branch_btn.setProperty("role", "quiet")
         self.add_branch_btn.setToolTip("Insert a new branch just above the fallback row "
