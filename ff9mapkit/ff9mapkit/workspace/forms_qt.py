@@ -548,10 +548,15 @@ _KIND_LABEL = {
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
     "encounter": "Encounters", "song": "Songs", "storyflag": "Story flags",
+    # "Behavior stamps", not "Behavior archetypes": the snap showed the longer label as the
+    # sidebar's first-ever clipped row (wider than any label the TAILOR block was proven on),
+    # and "stamps" teaches the affordance -- these are stamped by the Behavior tab, not placed
+    "behavior": "Behavior stamps",
 }
 # sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs,
-# then the install-backed picker-only Encounters kind (NOT in infohub.KINDS -- warm rich / cold baked).
-_LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS + ("encounter",)
+# then the picker-only kinds (NOT in infohub.KINDS): install-backed Encounters (warm rich / cold baked)
+# and the Behavior archetype cards (derived from the Behavior tab's own stamp tables).
+_LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS + ("encounter", "behavior")
 
 
 def _esc(s) -> str:
@@ -812,6 +817,10 @@ class CatalogLibrary(QDialog):
         try:
             counts["encounter"] = len(infohub.encounter_entries())
         except Exception:                                  # noqa: BLE001 -- no install -> the section just hides
+            pass
+        try:                                               # the archetype cards -- install-free, table-derived
+            counts["behavior"] = len(infohub.behavior_entries())
+        except Exception:                                  # noqa: BLE001 -- an import break just hides the section
             pass
         self._cat_kinds = [None]
         self.cats.addItem(f"All  ({len(allent)})")

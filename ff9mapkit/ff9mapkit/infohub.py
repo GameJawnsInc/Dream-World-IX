@@ -232,6 +232,53 @@ def encounter_entries() -> list:
     return out
 
 
+def behavior_entries() -> list:
+    """The Behavior ARCHETYPE cards: every proven stamp tree the Behavior tab's ＋ Archetype…
+    picker offers, plus the ``[siege]`` whole-block skeleton -- DERIVED from
+    ``workspace.behaviorscan``'s own tables, so a new archetype lands here with zero Hub
+    edits (the anti-rot law). NOT a member of :data:`KINDS`: picker-only, like encounters.
+    The lazy import is layering-safe: behaviorscan is Qt-free by suite-pinned design and
+    the workspace package is importable headless."""
+    from .workspace import behaviorscan as BS
+    out = [Entry("behavior", a["key"], None, f"{a['name']} — {a['teach']}")
+           for a in BS.BEHAVIOR_ARCHETYPES]
+    out.append(Entry("behavior", "siege", None,
+                     "[siege] — the whole tower-defense minigame as ONE declarative block: "
+                     "base, hire pools, raider waves, payouts; compiles onto per-class "
+                     "brains. The Behavior tab's empty-field guide stamps a legal skeleton."))
+    return out
+
+
+def _behavior_snippet(key: str) -> str:
+    """A behavior card's paste-able block IS the stamp op's own output on a scratch field --
+    never a hand-copied tree, so the stamp changing changes the card. Placeholder npcs
+    (``npc_a``/``npc_b`` at the origin) stand in for yours; the header comment says so."""
+    from .editor import model as _model
+    from .workspace import behaviorscan as BS
+    if key == "siege":
+        raw = {"player": {"spawn": [0, 0]}}
+        BS.stamp_siege(raw)
+        return ("# the whole minigame in one block, sized around the player spawn --\n"
+                "# the Behavior tab's empty-field guide stamps this; the Editor form's\n"
+                "# [siege] section edits it; the Behavior tab renders the generated army\n"
+                + _model.dumps({"siege": raw["siege"]}))
+    row = next((a for a in BS.BEHAVIOR_ARCHETYPES if a["key"] == key), None)
+    if row is None:
+        return ""
+    raw = {"npc": [{"name": "npc_a", "pos": [0, 0]}, {"name": "npc_b", "pos": [400, 0]}]}
+    if row.get("needs_target"):
+        BS.add_unit(raw, "npc_b")                        # the enemy must BE a unit to target
+        BS.stamp_archetype(raw, key, "npc_a", "npc_b")
+    elif row.get("needs_partner"):
+        BS.stamp_archetype(raw, key, "npc_a", "npc_b")
+    else:
+        BS.stamp_archetype(raw, key, "npc_a")
+    body = _model.dumps({k: raw[k] for k in ("marker", "behavior") if raw.get(k)})
+    return ("# rename npc_a/npc_b to YOUR [[npc]] names (positions seed the minted points) --\n"
+            "# or skip the paste: the Behavior tab's + Archetype... stamps this same shape\n"
+            "# onto a chosen npc and the stage's drag handles put it in place\n" + body)
+
+
 def _sps_template_entries() -> list:
     """The curated ``[[sps]]`` effect templates (``sps.templates``) as a static, install-free kind -- the
     names + descriptions list with no install; the detail-pane PREVIEW renders the donor effect lazily
@@ -476,6 +523,8 @@ def browse(query: str = "", kinds=None, limit=200, campaign_context=None, sps_co
         extra = extra + _realfield_entries()
     if "encounter" in want:            # picker-only kind (NOT in KINDS): warm rich / cold baked, never builds
         extra = extra + encounter_entries()
+    if "behavior" in want:             # picker-only kind (NOT in KINDS): the archetype cards
+        extra = extra + behavior_entries()
     entries = (extra + _all_entries()) if extra else _all_entries()
     out = []
     for e in entries:
@@ -520,6 +569,8 @@ def snippet(entry: Entry) -> str:
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
     if e.kind == "encounter":                          # the rich, install-backed sibling of 'scene' -- same block
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "behavior":                           # an archetype card -> the REAL stamp's own output
+        return _behavior_snippet(e.name)
     if e.kind == "song":
         return f'[music]\nsong = {e.ident}  # {e.name}'
     if e.kind == "sps_template":                       # a creator preset -> a ready [[sps]] block
@@ -621,6 +672,30 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         d.facts = [("kind", "game song"), ("song id", str(e.ident)),
                    ("resource", e.summary.split("— ", 1)[-1]),
                    ("use", f"[music] song = {e.ident}")]
+        return d
+    if e.kind == "behavior":                           # a Behavior archetype card (a proven stamp tree)
+        d = Detail(name=e.name, kind="behavior", model=None, model_id=None, snippet=snippet(e))
+        from .workspace import behaviorscan as BS
+        row = next((a for a in BS.BEHAVIOR_ARCHETYPES if a["key"] == e.name), None)
+        if row is None:                                # the [siege] whole-block card
+            d.facts = [("kind", "minigame block ([siege] — a whole tower defense)"),
+                       ("what", "base + hire pools + raider waves + payouts, compiled onto "
+                                "per-class brains (one shared program per unit type)"),
+                       ("in the app", "Behavior tab (empty field) → 'Stamp a [siege] skeleton'; "
+                                      "edit in the Editor form's [siege] section — the Behavior "
+                                      "tab renders the generated army read-only"),
+                       ("docs", "docs/FORMAT.md § [siege]")]
+        else:
+            d.facts = [("kind", "behavior archetype (a proven, dry-compile-fenced tree)"),
+                       ("what", row["teach"])]
+            if row.get("needs_target"):
+                d.facts.append(("needs", "a TARGET unit to fight — the snippet seats npc_b "
+                                         "as one; the tab's picker asks for yours"))
+            if row.get("needs_partner"):
+                d.facts.append(("needs", "a partner npc — the pair trades one minted beat"))
+            d.facts.append(("in the app", "Behavior tab → ＋ Archetype… stamps this onto a "
+                                          "chosen [[npc]]; drag the minted points on the stage"))
+            d.facts.append(("docs", "docs/BEHAVIOR.md"))
         return d
     if e.kind == "storyflag":                          # an FF9 story-flag registry entry (reference)
         sub, name, loc, meaning, tier = _storyflag_rows().get(e.name, ("", e.name, "", e.summary, ""))

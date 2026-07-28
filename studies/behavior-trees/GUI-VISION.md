@@ -131,9 +131,14 @@ belong painted on the field, not printed as text. That is the second surface: **
   minimal legal [siege] sized COMPACTLY around the player spawn (skeleton points must
   land on small floors too — the fixture mesh taught it), autoroute on, rendered by the
   read-only view the same tick; refusals ([behavior] clash / double stamp / verbatim)
-  raise with the reason. Both dry-compile fenced. **D's remainder:** the Info Hub
-  archetype cards (the last D item — a browsing surface; the Behavior tab's picker
-  already stamps). **THE CLASS-ROW FACE (2026-07-28, ★ PLAYTESTED — REDOUBT + BTCRY
+  raise with the reason. Both dry-compile fenced. **D's remainder ★ BUILT 2026-07-28 —
+  RUNG D CLOSED:** the Info Hub "Behavior stamps" section (`infohub.behavior_entries`,
+  picker-only like Encounters): one card per archetype + the [siege] skeleton, summaries =
+  the teach text (searchable by what a tree DOES), each snippet the REAL stamp op's output
+  on a scratch field (derivation-fenced + validate-fenced + [siege] stamp-parity-pinned),
+  detail teaching the tab's own doorway. The snap caught the sidebar's first-ever clipped
+  row — the label became "Behavior stamps" (fits the proven width class); the underlying
+  pre-QSS width measure is spawned as its own task. **THE CLASS-ROW FACE (2026-07-28, ★ PLAYTESTED — REDOUBT + BTCRY
   reviewed in the Workspace, "class rows look right"; first human eyes on the [siege]
   read-only view en route — the D2/D3 stamps still await theirs):** the brains ladder's `npcs =`
   CLASS rows are first-class in every projection — one ladder under the CLASS name

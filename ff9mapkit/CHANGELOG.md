@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the Info Hub's "Behavior stamps" section (the archetype cards)
+- A new library section holds one card per Behavior-tab archetype (sentry / patroller /
+  civilian / guard / shift pair) plus the `[siege]` whole-block skeleton — searchable by what
+  each tree DOES (the teach text is the search body). Every card's snippet is the REAL stamp
+  op's output on a scratch field (never a hand-copied tree, so the stamps changing changes the
+  cards), validate-clean once its placeholder npcs are renamed; the detail pane teaches the
+  in-app doorway (the Behavior tab's ＋ Archetype… / the empty-field guide). Picker-only like
+  Encounters — the cards never bloat the All list.
+
 ### Fixed — the Workspace Behavior tab speaks class rows (`npcs =`)
 - The `[siege]` brains default handed the tab's read-only siege view CLASS rows its projections
   had never seen: the dry-compile lane KeyError'd, the cast rendered `?` units with no ladder,
