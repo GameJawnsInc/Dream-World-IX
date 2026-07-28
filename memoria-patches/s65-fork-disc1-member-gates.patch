@@ -1,0 +1,645 @@
+--- s65_pre\EMinigame.cs	2026-07-28 09:34:47.798299300 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/EMinigame.cs	2026-07-28 09:34:47.781200900 -0400
+@@ -55,7 +55,7 @@
+ 
+     public static void EidolonMuralAchievement(String langSymbol, Int32 messageId)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 1704) // Madain Sari/Eidolon Wall
+         {
+             Boolean nameRead;
+@@ -82,7 +82,7 @@
+ 
+     public static void ExcellentLuckColorFortuneTellingAchievement(String langSymbol, Int32 messageId)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 352) // Dali/Inn
+         {
+             Boolean bestLuck;
+@@ -107,7 +107,7 @@
+     public static void JumpingRopeAchievement(String langSymbol, Int32 mesId)
+     {
+         Int32 varOperation = 0;
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         Int32 scenarioCounter = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+         if (fldMapNo == 103) // Early game
+             varOperation = EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Int24, 43);
+@@ -173,7 +173,7 @@
+ 
+     public static void GetRewardFromQueenStellaAchievement()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 911 || fldMapNo == 1911) // Treno/Queen's House
+         {
+             Int32 stellazzioBitFlags = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.getVarOperation(EBin.VariableSource.Global, EBin.VariableType.UInt16, 355));
+@@ -207,7 +207,7 @@
+ 
+     public static void ShuffleGameAchievement(String langSymbol, Int32 mesId)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 1858) // Alexandria/Weapon Shop
+         {
+             Boolean isCongratulation;
+@@ -228,7 +228,7 @@
+ 
+     public static void GetTheaterShipMaquetteAchievement()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         Int32 scenarioCounter = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+         if ((fldMapNo == 457 || (fldMapNo == 455 && scenarioCounter < 11090)) && EMinigame.g_tship_model_get_flg == 0)
+         {
+@@ -241,7 +241,7 @@
+ 
+     public static void GetHelpAllVictimsInCleyraTown()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         Int32 scenarioCounter = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+         if (fldMapNo == 1109 && scenarioCounter == 4980) // Cleyra/Cathedral
+         {
+@@ -260,7 +260,7 @@
+ 
+     public static void ChocoboBeakLV99Achievement(String langSymbol, Int32 mesId)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 2950 || fldMapNo == 2951 || fldMapNo == 2952) // Chocobo's Forest, Lagoon or Air Garden
+         {
+             Boolean checkBeakUpdate;
+@@ -289,14 +289,14 @@
+     {
+         if (gCur == null)
+             return;
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if ((fldMapNo == 909 && gCur.sid == 7) || (fldMapNo == 1909 && gCur.sid == 3)) // Treno/Auction Site
+             AchievementManager.ReportAchievement(AcheivementKey.Auction10, ++FF9StateSystem.Achievement.AuctionTime);
+     }
+ 
+     public static void ViviWinHuntAchievement()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 600) // Lindblum Castle/Royal Chamber
+         {
+             Int32 huntWinner = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.getVarOperation(EBin.VariableSource.Global, EBin.VariableType.Byte, 313));
+@@ -341,7 +341,7 @@
+ 
+     public static void SetQuadmistStadiumOpponentId(Obj gCur, Int32 minigameFlag)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if ((fldMapNo == 903 && gCur.sid == 11) || (fldMapNo == 1903 && gCur.sid == 15)) // Treno/Card Stadium
+             EMinigame.quadmistOpponentId = fldMapNo * 1000 + minigameFlag + 100;
+         else if (fldMapNo == 112 && gCur.sid == 7) // Alexandria/Pub
+@@ -350,7 +350,7 @@
+ 
+     public static void SetThiefId(Obj gCur)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 908 || fldMapNo == 1908) // Treno/Gate
+         {
+             Int32 opponentId = EMinigame.CreateNPCID(fldMapNo, gCur.uid);
+@@ -361,7 +361,7 @@
+ 
+     public static void SetFatChocoboId(Obj gCur)
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 2955 && gCur.uid == 9) // Chocobo's Paradise
+             EMinigame.SetQuadmistOpponentId(gCur);
+     }
+@@ -377,7 +377,7 @@
+ 
+     public static void DigUpMadainRingAchievement()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 1421) // Fossil Roo/Mining Site
+             AchievementManager.ReportAchievement(AcheivementKey.MadainRing, 1);
+     }
+@@ -394,14 +394,14 @@
+ 
+     public static void MognetCentralAchievement()
+     {
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (fldMapNo == 3100) // Mognet Central
+             AchievementManager.ReportAchievement(AcheivementKey.MognetCentral, 1);
+     }
+ 
+     public static void AtleteQueenAchievement_ByMessage(String langSymbol, Int32 mesId)
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 1850 // Alexandria/Main Street
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1850 // Alexandria/Main Street
+          && mesId == 152 // "Vivi wins!"
+          && FF9StateSystem.Settings.IsFastTrophyMode
+          && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.getVarOperation(EBin.VariableSource.Global, EBin.VariableType.Byte, 491)) < 80)
+@@ -410,13 +410,13 @@
+ 
+     public static void AtleteQueenAchievement_ByReward()
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 1850) // Alexandria/Main Street
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1850) // Alexandria/Main Street
+             AchievementManager.ReportAchievement(AcheivementKey.AthleteQueen, 1);
+     }
+ 
+     public static void SuperSlickOilAchievement()
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 2457) // Alexandria/Mini-Theater
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2457) // Alexandria/Mini-Theater
+             AchievementManager.ReportAchievement(AcheivementKey.SuperSlickOil, 1);
+     }
+ 
+@@ -531,7 +531,7 @@
+         Int32 result = -1;
+         if (FF9StateSystem.Common.FF9.fldLocNo == 40)
+         {
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 206 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 1900 && selectedChoice == 0)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 206 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 1900 && selectedChoice == 0)
+                 result = 0; // Prima Vista/Crash Site
+             else
+                 result = 1 + selectedChoice;
+@@ -540,14 +540,14 @@
+         {
+             if (selectedChoice == 4 && !isCompulsory)
+                 result = 4;
+-            else if ((FF9StateSystem.Common.FF9.fldMapNo == 253 || FF9StateSystem.Common.FF9.fldMapNo == 204) && isCompulsory)
++            else if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 253 || Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 204) && isCompulsory)
+                 result = 5;
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 262 && isCompulsory)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 262 && isCompulsory)
+                 result = 6;
+         }
+         else if (FF9StateSystem.Common.FF9.fldLocNo == 8)
+         {
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 306 && isCompulsory)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 306 && isCompulsory)
+                 result = 7;
+         }
+         else if (FF9StateSystem.Common.FF9.fldLocNo == 47 || FF9StateSystem.Common.FF9.fldLocNo == 53)
+@@ -559,11 +559,11 @@
+         }
+         else if (FF9StateSystem.Common.FF9.fldLocNo == 276)
+         {
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 554 && isCompulsory)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 554 && isCompulsory)
+                 result = 14;
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 552 && isCompulsory)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 552 && isCompulsory)
+                 result = 16;
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 565 && isCompulsory)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 565 && isCompulsory)
+                 result = 18;
+             else
+                 result = selectedChoice == 3 ? 19 : 15 + selectedChoice;
+@@ -587,12 +587,12 @@
+         {
+             if (!isCompulsory)
+                 result = 32;
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 1307)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1307)
+                 result = 33;
+         }
+         else if (FF9StateSystem.Common.FF9.fldLocNo == 525)
+         {
+-            if (isCompulsory && FF9StateSystem.Common.FF9.fldMapNo == 1353)
++            if (isCompulsory && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1353)
+                 result = 34;
+         }
+         else if (FF9StateSystem.Common.FF9.fldLocNo == 32)
+@@ -633,7 +633,7 @@
+         {
+             if (isCompulsory)
+             {
+-                if (FF9StateSystem.Common.FF9.fldMapNo == 2169)
++                if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2169)
+                 {
+                     Int32 scenarioCounter = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+                     if (scenarioCounter == 9100)
+@@ -645,11 +645,11 @@
+                     else if (scenarioCounter == 10030)
+                         result = 77;
+                 }
+-                else if (FF9StateSystem.Common.FF9.fldMapNo == 2113)
++                else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2113)
+                 {
+                     result = 73;
+                 }
+-                else if (FF9StateSystem.Common.FF9.fldMapNo == 2173)
++                else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2173)
+                 {
+                     result = 75;
+                 }
+@@ -694,7 +694,7 @@
+ 
+     public static void SetViviSpeed(Obj s1, EBin eBin)
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 1850 && s1.sid == 15) // Alexandria/Main Street
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1850 && s1.sid == 15) // Alexandria/Main Street
+         {
+             Int32 varOp = EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 36);
+             if (s1.ip == 1445 || s1.ip == 1497)
+--- s65_pre\EventCollision.cs	2026-07-28 09:34:47.799809000 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/EventCollision.cs	2026-07-28 09:34:47.782202000 -0400
+@@ -307,7 +307,7 @@
+                 }
+                 else
+                 {
+-                    Int16 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++                    Int16 fldMapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+                     if (fldMapNo == 2108)
+                     {
+                         if (EventCollision.CheckQuadTalk(po, obj))
+@@ -353,7 +353,7 @@
+         Boolean result = true;
+         if (PersistenSingleton<EventEngine>.Instance.gMode == 1)
+         {
+-            Int16 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++            Int16 fldMapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+             if (fldMapNo != 103 && fldMapNo != 107)
+             {
+                 if (fldMapNo == 1856)
+@@ -382,7 +382,7 @@
+         Boolean result = true;
+         if (PersistenSingleton<EventEngine>.Instance.gMode == 1)
+         {
+-            Int16 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++            Int16 fldMapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+             if (fldMapNo != 2108)
+             {
+                 if (fldMapNo != 2802)
+@@ -414,7 +414,7 @@
+         Boolean result = true;
+         if (PersistenSingleton<EventEngine>.Instance.gMode == 1)
+         {
+-            Int16 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++            Int16 fldMapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+             if (fldMapNo != 2108)
+             {
+                 if (fldMapNo == 2504)
+@@ -461,7 +461,7 @@
+         if (PersistenSingleton<EventEngine>.Instance.gMode == 1)
+         {
+             Obj obj = (Obj)null;
+-            Int32 fldMapNo = (Int32)FF9StateSystem.Common.FF9.fldMapNo;
++            Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId((Int32)FF9StateSystem.Common.FF9.fldMapNo);
+             Int32 uid = (Int32)quad.uid;
+             Int32 key = EMinigame.CreateNPCID(fldMapNo, uid);
+             if (EventEngineUtils.QuadTalkableData.ContainsKey(key))
+@@ -510,7 +510,7 @@
+         Boolean flag = true;
+         if (PersistenSingleton<EventEngine>.Instance.gMode == 1)
+         {
+-            Int32 fldMapNo = (Int32)FF9StateSystem.Common.FF9.fldMapNo;
++            Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId((Int32)FF9StateSystem.Common.FF9.fldMapNo);
+             Int32 num = fldMapNo;
+             switch (num)
+             {
+--- s65_pre\EventInput.cs	2026-07-28 09:34:47.799809000 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/EventInput.cs	2026-07-28 09:34:47.782202000 -0400
+@@ -85,7 +85,7 @@
+             EventInput.ResetWorldTriggerButton();
+             return inputs;
+         }
+-        Int32 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         Int32 gMode = PersistenSingleton<EventEngine>.Instance.gMode;
+         Boolean isKeyboardOrJoystickInput = EventInput.IsKeyboardOrJoystickInput;
+         if (Singleton<BubbleUI>.Instance.IsActive)
+--- s65_pre\FieldMap.cs	2026-07-28 09:34:47.801814100 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/FieldMap.cs	2026-07-28 09:34:47.783707100 -0400
+@@ -103,7 +103,7 @@
+         {
+             base.StartCoroutine(this.DelayedActiveTri());
+         }
+-        else if (FF9StateSystem.Common.FF9.fldMapNo >= 3009 && FF9StateSystem.Common.FF9.fldMapNo <= 3011)
++        else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) >= 3009 && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) <= 3011)
+         {
+             // Ending/TH
+             HonoBehaviorSystem.FrameSkipEnabled = true;
+@@ -116,7 +116,7 @@
+             this.walkMesh.BGI_triSetActive(79u, 0u);
+             this.walkMesh.BGI_triSetActive(80u, 0u);
+         }
+-        else if (FF9StateSystem.Common.FF9.fldMapNo == 2161)
++        else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2161)
+         {
+             // L. Castle/Guest Room (disc 3)
+             this.walkMesh.BGI_triSetActive(69u, 0u);
+@@ -635,7 +635,7 @@
+         if (!MBG.IsNull && !MBG.Instance.IsFinished())
+             return;
+         Camera camera = this.GetMainCamera();
+-        Int16 map = FF9StateSystem.Common.FF9.fldMapNo;
++        Int16 map = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         if (map == 70) // Opening-For FMV
+             return;
+         if (this.curCamIdx < 0 || this.curCamIdx > this.scene.cameraList.Count)
+@@ -1144,7 +1144,7 @@
+     /// <summary>0x5A, "SetTilePositionEx", "Move a field tile block.arg1: background tile block.2nd and arg3: movement in (dX, dY) format.arg4: depth, with higher value being further away from camera." </summary>
+     public Int32 EBG_overlayMove(Int32 overlayNdx, Single dx, Single dy, Int16 dz)
+     {
+-        Int16 MapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        Int16 MapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         BGOVERLAY_DEF bgOverlay = this.scene.overlayList[overlayNdx];
+ 
+         if (MapNo == 2755 && overlayNdx == 5 && dx == 1 && Configuration.Graphics.WidescreenSupport)
+@@ -1632,7 +1632,7 @@
+     /// <summary>Move special overlays (scroll / parallax / timedmove)</summary>
+     public Int32 SceneServiceScroll(BGSCENE_DEF bgScene)
+     {
+-        Int16 map = FF9StateSystem.Common.FF9.fldMapNo;
++        Int16 map = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         Int32 overlayCount = (Int32)bgScene.overlayCount;
+         List<BGOVERLAY_DEF> overlayList = bgScene.overlayList;
+         for (Int32 i = 0; i < overlayCount; i++)
+@@ -1958,7 +1958,7 @@
+ 
+     private void SceneService3DScroll()
+     {
+-        Int16 map = FF9StateSystem.Common.FF9.fldMapNo;
++        Int16 map = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+ 
+         if ((this.flags & FieldMapFlags.Generic7) != 0u || !this.IsActive || map == 70 || this.curCamIdx < 0 || this.curCamIdx > this.scene.cameraList.Count)
+             return;
+@@ -2347,7 +2347,7 @@
+     {
+         PsxFieldWidth = CalcPsxFieldWidth();
+         PsxScreenWidth = CalcPsxScreenWidth();
+-        int map = FF9StateSystem.Common.FF9.fldMapNo;
++        int map = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         //Log.Message("fldMapNo:" + FF9StateSystem.Common.FF9.fldMapNo + " MapWidth:" + NarrowMapList.MapWidth(FF9StateSystem.Common.FF9.fldMapNo) + " PsxFieldWidth:" + PsxFieldWidth + " PsxScreenWidth:" + PsxScreenWidth + " InitializeWidescreenSupport():" + Configuration.Graphics.InitializeWidescreenSupport() + " WidescreenSupport:" + Configuration.Graphics.WidescreenSupport);
+         if (Configuration.Graphics.InitializeWidescreenSupport())
+         {
+--- s65_pre\FF9Snd.cs	2026-07-28 09:34:47.801814100 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs	2026-07-28 09:34:47.785715000 -0400
+@@ -336,7 +336,7 @@
+     {
+         Int32 result = -1;
+         Int32 gMode = PersistenSingleton<EventEngine>.Instance.gMode;
+-        Int32 fldMapNo = (Int32)FF9StateSystem.Common.FF9.fldMapNo;
++        Int32 fldMapNo = Memoria.DataPatchers.EffectiveFieldId((Int32)FF9StateSystem.Common.FF9.fldMapNo);
+         if (gMode == 1 && (fldMapNo == 613 || fldMapNo == 615) && ObjNo == 113 && _phrase == 14)
+         {
+             result = 48000;
+--- s65_pre\AllSoundDispatchPlayer.cs	2026-07-28 09:34:47.803839800 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/AllSoundDispatchPlayer.cs	2026-07-28 09:34:47.785715000 -0400
+@@ -131,7 +131,7 @@
+                     this.CreateSound(soundProfile);
+                     soundProfile.SoundVolume = 1f;
+                     ISdLibAPIProxy.Instance.SdSoundSystem_SoundCtrl_SetVolume(soundProfile.SoundID, SoundLib.MusicPlayer.Volume, 0);
+-                    Int16 fldMapNo = FF9StateSystem.Common.FF9.fldMapNo;
++                    Int16 fldMapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+                     if (fldMapNo == 503 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 2970 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR) == 11 && ObjNo == 35)
+                     {
+                         // What is this for ? - SamsamTS
+--- s65_pre\BGSCENE_DEF.cs	2026-07-28 09:34:47.803839800 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/BGSCENE_DEF.cs	2026-07-28 09:34:47.786714400 -0400
+@@ -1732,7 +1732,7 @@
+                 {
+                     bgOverlay.canCombine = false;
+                 }
+-                if (FF9StateSystem.Common.FF9.fldMapNo == 552) // Lindblum/Main Street
++                if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 552) // Lindblum/Main Street
+                     bgOverlay.canCombine = i == 17 ? true : true;
+             }
+             if (!bgOverlay.canCombine)
+@@ -1744,7 +1744,7 @@
+             else
+             {
+                 List<Int32> separateSprites = null;
+-                if (FF9StateSystem.Common.FF9.fldMapNo == 552 && i == 17) // Lindblum/Main Street
++                if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 552 && i == 17) // Lindblum/Main Street
+                     separateSprites = new List<Int32> { 202, 203, 214, 215 };
+                 for (Int32 j = 0; j < bgOverlay.spriteList.Count; j++)
+                 {
+--- s65_pre\EBin.cs	2026-07-28 09:34:47.806364700 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/EBin.cs	2026-07-28 09:34:47.788745000 -0400
+@@ -320,7 +320,7 @@
+                         setVarManually(EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 26), 8);
+                 }
+             }
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 705 && s1.sid == 3 && s1.ip == 541) // Gizamaluke/Bell Room, Female Moogle
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 705 && s1.sid == 3 && s1.ip == 541) // Gizamaluke/Bell Room, Female Moogle
+             {
+                 s1.ip += 7;
+                 return 0;
+@@ -732,7 +732,7 @@
+             {
+                 Int32 t3 = EvaluateValueExpression();
+                 _v0 = EvaluateValueExpression();
+-                if (FF9StateSystem.Common.FF9.fldMapNo == 657 && _eventEngine.gCur.sid == 17 // Marsh/Pond, Zidane
++                if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 657 && _eventEngine.gCur.sid == 17 // Marsh/Pond, Zidane
+                     && (_eventEngine.gCur.ip == 1413 || _eventEngine.gCur.ip == 1542 || _eventEngine.gCur.ip == 1666 || _eventEngine.gCur.ip == 1795 || _eventEngine.gCur.ip == 2172 || _eventEngine.gCur.ip == 2301 || _eventEngine.gCur.ip == 1919 || _eventEngine.gCur.ip == 2048 || _eventEngine.gCur.ip == 2425 || _eventEngine.gCur.ip == 2554 || _eventEngine.gCur.ip == 2683 || _eventEngine.gCur.ip == 2812 || _eventEngine.gCur.ip == 2941))
+                 {
+                     _v0 = t3 <= _v0 ? 1 : 0;
+@@ -1327,7 +1327,7 @@
+                     _v0 = 90;
+             }
+         }
+-        else if (FF9StateSystem.Common.FF9.fldMapNo == 3009) // Ending/TH
++        else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 3009) // Ending/TH
+         {
+             String lang = Localization.CurrentSymbol;
+             if (lang != "US" && lang != "JP" && s1.uid == 17 && _v0 == 15)
+--- s65_pre\CommonSPSSystem.cs	2026-07-28 09:34:47.806870300 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs	2026-07-28 09:34:47.788745000 -0400
+@@ -197,7 +197,7 @@
+             {
+                 sps.meshRenderer.enabled = false;
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 1206 || FF9StateSystem.Common.FF9.fldMapNo == 1223 || FF9StateSystem.Common.FF9.fldMapNo == 2928)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1206 || Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1223 || Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2928)
+             {
+                 // Hill of Despair
+                 // A. Castle/Queen's Chamber
+@@ -229,7 +229,7 @@
+         }
+         else if (ParmType == SPSConst.OPERATION_SCALE)
+         {
+-            if ((FF9StateSystem.Common.FF9.fldMapNo == 50 && sps.name == "SPS_0001") || (FF9StateSystem.Common.FF9.fldMapNo == 51 && sps.name == "SPS_0000")) // candle lights made a bit bigger
++            if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 50 && sps.name == "SPS_0001") || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 51 && sps.name == "SPS_0000")) // candle lights made a bit bigger
+                 sps.scale = (Int32)(Arg0 * 1.30);
+             else
+                 sps.scale = Arg0;
+--- s65_pre\SceneDirector.cs	2026-07-28 09:34:47.806870300 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs	2026-07-28 09:34:47.790269200 -0400
+@@ -590,7 +590,7 @@
+         {
+             SceneDirector.fadeMode = mode;
+             Boolean flag = PersistenSingleton<EventEngine>.Instance.IsEventContextValid()
+-                        && FF9StateSystem.Common.FF9.fldMapNo == 60 // Prima Vista/Interior
++                        && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 60 // Prima Vista/Interior
+                         && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 24)) == 5
+                         && mode == FadeMode.Add
+                         && FF9StateSystem.Settings.IsFastForward;
+--- s65_pre\ETb.cs	2026-07-28 09:34:47.806870300 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/ETb/ETb.cs	2026-07-28 09:34:47.790269200 -0400
+@@ -421,7 +421,7 @@
+                 }
+             }
+             ETb.LastATEDialogID = dialog.Id;
+-            if (FF9StateSystem.Common.FF9.fldLocNo == 40 && FF9StateSystem.Common.FF9.fldMapNo == 206 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 1900)
++            if (FF9StateSystem.Common.FF9.fldLocNo == 40 && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 206 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 1900)
+             {
+                 if (DialogManager.SelectChoice == 1) // Prima Vista/Crash Site, trying to avoid the ATE
+                     ETb.LastATEDialogID = -1;
+--- s65_pre\FieldMapActor.cs	2026-07-28 09:34:47.808374500 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActor.cs	2026-07-28 09:34:47.791779200 -0400
+@@ -178,7 +178,7 @@
+             return;
+         FF9Shadow ff9Shadow = FF9StateSystem.Field.FF9Field.loc.map.shadowArray[this.actor.uid];
+         Vector3 shadowOff = Vector3.zero;
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 661 && this.actor.uid == 3)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 661 && this.actor.uid == 3)
+             shadowOff = new Vector3(-39f, -14f, 80f); // Marsh/Master's House, Quale
+         else if (FF9StateSystem.Common.FF9.fldMapNo == 1659 && this.actor.uid == 128)
+             shadowOff = new Vector3(0f, -66f, 0f); // Iifa Tree/Seashore, Queen_Brahne (1)
+@@ -187,7 +187,7 @@
+         else if (FF9StateSystem.Common.FF9.fldMapNo == 2363 && (this.actor.uid == 16 || this.actor.uid == 15 || this.actor.uid == 32 || this.actor.uid == 33))
+             shadowOff = new Vector3(0f, -15f, 0f); // Gulug/Path, Zorn or Thorn
+         Vector3 shadowPos = this.GetShadowCurrentPos();
+-        if ((FF9StateSystem.Common.FF9.fldMapNo == 2107 && this.actor.uid == 5) || (FF9StateSystem.Common.FF9.fldMapNo == 2102 && this.actor.uid == 4))
++        if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2107 && this.actor.uid == 5) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2102 && this.actor.uid == 4))
+         {
+             // Lindblum/Square or Lindblum/Main Street, Pickaxe
+             shadowPos = base.transform.position;
+@@ -294,7 +294,7 @@
+         }
+         this._geoAttachData.parentActor = (FieldMapActor)null;
+         this._geoAttachData.parentNode = (Transform)null;
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 3002 && component.originalActor.sid == 2 && component.originalActor.anim == 11022)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 3002 && component.originalActor.sid == 2 && component.originalActor.anim == 11022)
+         {
+             HonoBehaviorSystem.ExtraLoopCount = 1;
+         }
+--- s65_pre\FieldMapActorController.cs	2026-07-28 09:34:47.809380900 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs	2026-07-28 09:34:47.792784300 -0400
+@@ -210,7 +210,7 @@
+         if (this.isPlayer && PersistenSingleton<EventEngine>.Instance.GetUserControl())
+             this.originalActor.speed = (Byte)(this.isRunning ? 60 : 30);
+ 
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 1204 && this.originalActor.sid == 11)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1204 && this.originalActor.sid == 11)
+         {
+             // A. Castle/Underground (platform at bottom), Zidane
+             GameObject marker = GameObject.Find("marker1");
+@@ -347,9 +347,9 @@
+         }
+         else
+         {
+-            if ((FF9StateSystem.Common.FF9.fldMapNo == 2050 && this.originalActor.sid == 5) // Alexandria/Main Street, Mistodon
+-                || (FF9StateSystem.Common.FF9.fldMapNo == 350 && this.originalActor.sid == 11) // Dali/Village Road, Dali_GirlA
+-                || (FF9StateSystem.Common.FF9.fldMapNo == 1315 && this.originalActor.sid == 12)) // Lindblum/Town Walls, Lindblum_Soldier
++            if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2050 && this.originalActor.sid == 5) // Alexandria/Main Street, Mistodon
++                || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 350 && this.originalActor.sid == 11) // Dali/Village Road, Dali_GirlA
++                || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1315 && this.originalActor.sid == 12)) // Lindblum/Town Walls, Lindblum_Soldier
+             {
+                 if (!PersistenSingleton<EventEngine>.Instance.GetUserControl() || copyLastPos)
+                     this.CopyLastPos();
+@@ -410,7 +410,7 @@
+             AnimationClip clip = this.animation.GetClip(curAnim);
+             if (clip != null)
+             {
+-                if (FF9StateSystem.Common.FF9.fldMapNo == 3010 && this.originalActor.sid == 8)
++                if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 3010 && this.originalActor.sid == 8)
+                     return; // Ending/TH, Sword
+                 this.animation.clip = clip;
+                 this.animation.Play(curAnim);
+@@ -438,7 +438,7 @@
+             {
+                 this.UpdateNeck();
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 576 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 3140 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR) == 100 && this.originalActor.model == 270)
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 576 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 3140 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR) == 100 && this.originalActor.model == 270)
+             {
+                 // Lindblum/Festival, Cid Human (Royal Action Figures)
+                 Transform childByName = base.transform.GetChildByName("bone" + this.actor.actor.neckBoneIndex.ToString("D3"));
+@@ -469,7 +469,7 @@
+             this.originalActor.go.transform.FindChild("bone000").Translate(Vector3.back * 240f);
+         if (this.originalActor.model == 306) // Gargant
+             this.originalActor.go.transform.FindChild("bone000").Translate(Vector3.back * 190f);
+-        if (this.originalActor.model == 22 && FF9StateSystem.Common.FF9.fldMapNo == 116)
++        if (this.originalActor.model == 22 && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 116)
+         {
+             // Ladder, Alexandria/Rooftop
+             this.originalActor.go.transform.FindChild("bone000").Translate(Vector3.up * 40f);
+@@ -1237,7 +1237,7 @@
+                 // Iifa Tree/Inner Roots (2nd area)
+                 rejectionFactor = triNdx == 80 ? 0.6f : 0.4f;
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 406 && (triNdx == 103 || triNdx == 111 || triNdx == 113))
++            else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 406 && (triNdx == 103 || triNdx == 111 || triNdx == 113))
+             {
+                 // Dali/Underground (room under the well)
+                 rejectionFactor = 0.4f;
+@@ -1345,7 +1345,7 @@
+         }
+         if (this.foundTris.Count == 1)
+         {
+-            if ((FF9StateSystem.Common.FF9.fldMapNo == 2712 && this.originalActor.sid == 18) || (FF9StateSystem.Common.FF9.fldMapNo == 2504 && this.originalActor.sid == 20) || (FF9StateSystem.Common.FF9.fldMapNo == 1056 && this.originalActor.sid == 18) || (FF9StateSystem.Common.FF9.fldMapNo == 2955 && this.originalActor.sid == 3) || (FF9StateSystem.Common.FF9.fldMapNo == 1807 && this.originalActor.sid == 27) || (FF9StateSystem.Common.FF9.fldMapNo == 1106 && (this.originalActor.sid == 18 || this.originalActor.sid == 22)))
++            if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2712 && this.originalActor.sid == 18) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2504 && this.originalActor.sid == 20) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1056 && this.originalActor.sid == 18) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2955 && this.originalActor.sid == 3) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1807 && this.originalActor.sid == 27) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1106 && (this.originalActor.sid == 18 || this.originalActor.sid == 22)))
+             {
+                 // Pand./Elevator (tallest room), Zidane
+                 // or I. Castle/Small Room, Zidane
+--- s65_pre\EventEngine.ProcessEvents.cs	2026-07-28 09:34:47.810886800 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs	2026-07-28 09:34:47.794292800 -0400
+@@ -109,7 +109,7 @@
+         Int32 result = 0;
+         bool canProcessCode = true;
+ 
+-        if (_ff9.fldMapNo == 257) // Evil Forest/Nest
++        if (Memoria.DataPatchers.EffectiveFieldId(_ff9.fldMapNo) == 257) // Evil Forest/Nest
+             canProcessCode = !Singleton<DialogManager>.Instance.Activate || Singleton<DialogManager>.Instance.CompletlyVisible;
+ 
+         if (canProcessCode)
+@@ -518,7 +518,7 @@
+                     Actor actor = (Actor)obj;
+                     foreach (Renderer componentsInChild in posObj.go.GetComponentsInChildren<Renderer>())
+                     {
+-                        if ((Int32)FF9StateSystem.Common.FF9.fldMapNo != 52 || (Int32)actor.sid != 6 && (Int32)actor.sid != 13 || this.eBin.getVarManually(6357) == 0)
++                        if (Memoria.DataPatchers.EffectiveFieldId((Int32)FF9StateSystem.Common.FF9.fldMapNo) != 52 || (Int32)actor.sid != 6 && (Int32)actor.sid != 13 || this.eBin.getVarManually(6357) == 0)
+                             componentsInChild.enabled = false;
+                     }
+                 }
+--- s65_pre\EventEngine.cs	2026-07-28 09:34:47.811893700 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/Engine/EventEngine.cs	2026-07-28 09:34:47.795300100 -0400
+@@ -685,7 +685,7 @@
+                 noSave |= this._ff9.fldMapNo == 1757 && scCounterSvr == 6740; // Iifa Tree/Outer Seal (return after defeating Soulcage)
+                 noSave |= this._ff9.fldMapNo == 2752 && scCounterSvr == 11100 && mapIndexSvr == 9999; // Invincible/Bridge (Assault of the Silver Dragons)
+                 noSave |= this._ff9.fldMapNo == 3001 && scCounterSvr == 12000 && mapIndexSvr == 0; // Ending/AC ("Kuja...  What you did was wrong...")
+-                noSave |= this._ff9.fldMapNo == 2161 && scCounterSvr == 10000 && mapIndexSvr == 32; // L. Castle/Guest Room (Zidane awakes after Mount Gulug)
++                noSave |= Memoria.DataPatchers.EffectiveFieldId(this._ff9.fldMapNo) == 2161 && scCounterSvr == 10000 && mapIndexSvr == 32; // L. Castle/Guest Room (Zidane awakes after Mount Gulug)
+                 noSave |= this.gMode == 1 && Configuration.SaveFile.AutoSaveOnlyAtMoogle && !EventEngine.IsMoogleField(this._ff9.fldMapNo, scCounterSvr, mapIndexSvr);
+                 noSave |= Memoria.Netsync.NetSyncVisitor.SuppressEncounters || Memoria.Netsync.NetSyncClient.IsMirroringStory; // a FOLLOWING co-op guest never autosaves -- neither the host's mirrored story nor the followed-to field may reach the guest's Continue slot [ff9mapkit netsync spectator-save]
+                 noSave |= Memoria.Netsync.NetSyncDiorama.Booted; // while a diorama is up the party dict holds SCRATCH PLAYERs (the host's mirrored party), so a save would persist someone else's characters as yours. This is its OWN gate on purpose: every other save guard keys on IsMirroringStory, which needs a live socket -- so Role=selftest, the mode the diorama is BENCHED in, has NO save guard at all. [ff9mapkit netsync diorama]
+--- s65_pre\TileSystem.cs	2026-07-28 09:34:47.812893700 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/TileSystem/TileSystem.cs	2026-07-28 09:34:47.796299300 -0400
+@@ -667,7 +667,7 @@
+ 
+         private int _getOverlayToRemove(int overlayNumber, PaddingType paddingType, int x, int y)
+         {
+-            if (_fieldMapNumber == 312 && paddingType == PaddingType.Down
++            if (Memoria.DataPatchers.EffectiveFieldId(_fieldMapNumber) == 312 && paddingType == PaddingType.Down
+                 && overlayNumber == 2 && x < 17 && y == 12)
+             {
+                 return 5;
+--- s65_pre\SPSEffect.cs	2026-07-28 09:34:47.812893700 -0400
++++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/SPS/SPSEffect.cs	2026-07-28 09:34:47.797301000 -0400
+@@ -241,7 +241,7 @@
+ 
+             // TODO Check Native: #147
+             // Alexandria Castle/Library (the 3 versions)
+-            if ((Memoria.DataPatchers.EffectiveFieldId(fldMapNo) == 155 || fldMapNo == 1216 || fldMapNo == 1808) && base.name.Equals("SPS_0008")) // [ff9mapkit fork-fidelity]
++            if ((Memoria.DataPatchers.EffectiveFieldId(fldMapNo) == 155 || Memoria.DataPatchers.EffectiveFieldId(fldMapNo) == 1216 || Memoria.DataPatchers.EffectiveFieldId(fldMapNo) == 1808) && base.name.Equals("SPS_0008")) // [ff9mapkit fork-fidelity]
+                 this.zOffset = 700;
+         }
+     }
