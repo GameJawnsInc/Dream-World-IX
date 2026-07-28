@@ -336,8 +336,20 @@ standalone-only contract); the 770-byte swarm wall pin holds. Also: the
 acceptance round — the redeploy re-added it (one relaunch).
 **★ Owner (2026-07-28): "all good, siege plays the same after relaunch"** —
 full parity: council, stipend, both lanes on their heralds, pins, per-member
-deaths, alarm, strip, endings, one purse. OPEN: whether `brains` becomes the
-[siege] DEFAULT (opt-in today; the ratified v1 emission stays available).
+deaths, alarm, strip, endings, one purse.
+
+## CONDOR P2 — ★ CLOSED (2026-07-28): BRAINS IS THE [siege] DEFAULT
+
+Owner call ("do it") after the downside review (the +64 entry-band
+constraint, the unswept approach leg, Flags-panel blindness to Instance
+state, soak time). `brains = false` is the escape hatch; the v1 emission
+keeps its golden pins. The approach-leg downside is now GUARDED: a classed
+`march`/`patrol` with route="auto" verifies at plan time that every member
+has a STRAIGHT walkable spawn→first-point leg (the router can never splice
+that leg per member) — refused loudly naming the member, in
+`autoroute_plan` so build and lint agree. **Proof of the flip: the no-key
+REDOUBT rebuild is byte-identical (sha1 993ab63d…) to the ratified P1
+deploy — no new playtest owed.** Suite 195.
 
 ## Standing constraints
 

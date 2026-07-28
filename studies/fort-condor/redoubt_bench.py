@@ -73,9 +73,8 @@ pos = [{qx}, {qz}]
 dialogue = "Press Select ANYWHERE to convene the war council — your troops deploy on the very spot you stand."
 
 [siege]
-brains = true                # CONDOR P1: per-class Seq brains -- each ally type and
-                             # each raider group is ONE shared brain (npcs= class
-                             # rows); one-shots inline; the v1 32KB ticker collapses
+# CONDOR P2: brains (per-class Seq brains, inline one-shots) is the DEFAULT --
+# this block exercises the no-key path; `brains = false` is the escape hatch
 timer = {cfb.SIEGE_SECONDS}
 waves = {cfb.SCHED}
 stipend = {cfb.STIPEND}
