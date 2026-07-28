@@ -918,6 +918,13 @@ r 250 — `behavior lint`'s wander sweep is quiet on the new box (round 1
 shipped unlinted; the sweep existed and would have flagged it — RUN THE
 LINT ON BENCHES TOO). Redeployed zero-relaunch; round 2 = the herald
 follow + visible wandering re-checks.
+**★ ROUND 2 PLAYTEST PROVEN (owner, 2026-07-28): "all good now, knight
+follows and mus wander properly" — RUNG 3 IS CLOSED.** The Instance block
+is in-game across every migrated slot family: per-member sticky once
+(follow-then-latch), brain-ticked cooldowns, private patrol progress,
+private wander state, the private request lanes — and the battle
+round-trip re-held under Instance state. Remaining ladder: REQSW
+transition dispatches, inline one-shot bodies.
 
 **A near-miss worth keeping: the 0x45 argflag scare.** Reading
 `DoEventCode`'s unconditional `gArgFlag = geti()` I briefly concluded our
