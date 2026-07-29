@@ -226,6 +226,7 @@ class TraceDoc(QWidget):
         self.canvas.region_changed.connect(self._on_region_changed)
         self.canvas.region_deleted.connect(self._on_region_deleted)
         self.canvas.region_retarget.connect(self._on_region_retarget)
+        self.canvas.region_reword.connect(self._on_region_reword)
         root.addWidget(self.canvas, 1)
         self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
@@ -684,6 +685,23 @@ class TraceDoc(QWidget):
         self._refresh_regions()
         self._refresh(f"door retargeted -> field {int(to)}")
 
+    def _on_region_reword(self, i):
+        """Reword a drawn event zone in place (its message lives in this SESSION — the photo
+        lane's toml is regenerated, so there is no other editor for it)."""
+        if not 0 <= i < len(getattr(self, "_region_back", [])):
+            return
+        r = self._regions[self._region_back[i]]
+        if r["kind"] != "event":
+            return
+        cur = r.get("message") or ""
+        text = self._ask_message("" if cur == "..." else cur)
+        if text is None:
+            return
+        self._push_history()
+        r["message"] = text.strip() or "..."
+        self._refresh_regions()
+        self._refresh("event reworded")
+
     def _ask_field_id(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
         from PySide6.QtWidgets import QInputDialog
@@ -697,6 +715,18 @@ class TraceDoc(QWidget):
         if dlg.exec() != QInputDialog.DialogCode.Accepted:
             return None
         return dlg.intValue()
+
+    def _ask_message(self, current):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setInputMode(QInputDialog.InputMode.TextInput)
+        dlg.setTextValue(str(current))
+        dlg.setWindowTitle("Event message")
+        dlg.setLabelText("The line this zone shows on walk-in:")
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.textValue()
 
     # ------------------------------------------------------------------ rung 2: cut-out contacts
 

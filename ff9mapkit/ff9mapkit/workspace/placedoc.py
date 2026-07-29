@@ -51,9 +51,12 @@ _DEFAULT_PROP = "barrel"          # neutral set-dressing (NOT "chest" — a real
 # Each op mutates the OPEN doc's dict and returns the undo label the shell records. One op per
 # drop — the StageCanvas/behaviorscan discipline, so a place gesture is exactly one undo step.
 def place_npc(data: dict, x, z) -> str:
+    # No dialogue by default (THE DEFAULT-VALUE LAW, rung-4 playtests): a hand-rolled "..."
+    # placeholder ships a fake window; dialogue-less, the build's silent-talk channel emits
+    # the CANONICAL FF9 silent line on both lanes (word it in the Editor when it should speak).
     lst = data.setdefault("npc", [])
     nm = _names.fresh_npc_name(n.get("name") for n in lst if isinstance(n, dict))
-    lst.append({"name": nm, "preset": "vivi", "dialogue": "...",
+    lst.append({"name": nm, "preset": "vivi",
                 "pos": [int(round(x)), int(round(z))]})
     return f"place NPC {nm}"
 
@@ -115,6 +118,14 @@ def place_event(data: dict, quad) -> str:
     nm = _fresh_name("zone", lst)
     lst.append({"name": nm, "message": "...", "zone": _zone_ints(quad)})
     return f"draw event {nm}"
+
+
+def set_event_message(data: dict, index, text) -> str:
+    """Reword a drawn event zone in place (the quad menu's Set message — the drawn-zone
+    placeholder '...' otherwise ships as a literal popup)."""
+    ev = data.get("event", [])[index]
+    ev["message"] = str(text)
+    return f"reword event {ev.get('name') or index}"
 
 
 def set_gateway_target(data: dict, index, to) -> str:
@@ -179,6 +190,11 @@ def region_rows(data: dict) -> list:
             if isinstance(to, bool) or (isinstance(to, int) and to <= 0) or to is None:
                 warns.append("NO TARGET — this door compiles to Field(0), a guaranteed black "
                              "screen; right-click it → Set gateway target")
+        else:
+            ev = (data.get("event", []) or [])[r["index"]]
+            if ev.get("message") == "..." and not (ev.get("received") and "give_item" in ev):
+                warns.append("placeholder message — it ships as a literal '...' popup; "
+                             "right-click → Set message (or add a reward in the Editor)")
         warns += [f"overlaps {other} — the engine fires ONE tread region per frame, the "
                   f"later-armed one silently starves" for other in
                   overlaps.get((r["kind"], r["index"]), [])]
@@ -402,6 +418,7 @@ class PlaceDoc(QWidget):
         self.canvas.region_changed.connect(self._on_region_changed)
         self.canvas.region_deleted.connect(self._on_region_deleted)
         self.canvas.region_retarget.connect(self._on_region_retarget)
+        self.canvas.region_reword.connect(self._on_region_reword)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
 
@@ -638,6 +655,22 @@ class PlaceDoc(QWidget):
         self._refresh_regions()
         self._refresh(label)
 
+    def _on_region_reword(self, i):
+        if self._data is None or not 0 <= i < len(self._region_rows_cache):
+            return
+        r = self._region_rows_cache[i]
+        if r["kind"] != "event":
+            return
+        cur = (self._data.get("event", []) or [])[r["index"]].get("message") or ""
+        text = self._ask_message("" if cur == "..." else cur)
+        if text is None:
+            return
+        label = set_event_message(self._data, r["index"], text)
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(label)
+
     def _ask_field_id(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
         from PySide6.QtWidgets import QInputDialog
@@ -651,6 +684,18 @@ class PlaceDoc(QWidget):
         if dlg.exec() != QInputDialog.DialogCode.Accepted:
             return None
         return dlg.intValue()
+
+    def _ask_message(self, current):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setInputMode(QInputDialog.InputMode.TextInput)
+        dlg.setTextValue(str(current))
+        dlg.setWindowTitle("Event message")
+        dlg.setLabelText("The line this zone shows on walk-in:")
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.textValue()
 
     def _sync_modes(self):
         """Placement affordances match what the BUILD will honour: a verbatim fork runs the

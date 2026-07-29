@@ -35,6 +35,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reopen path round-trip them (a compiled project's world zones invert back to the
   session's canvas pixels).
 
+### Changed — THE DEFAULT-VALUE LAW: GUI-minted defaults are real or loudly invalid
+- A sweep of every value the Workspace mints for you, after two playtests traced their bugs
+  to quietly-plausible defaults (the Field(0) door, the top-right "..." box). The law: a
+  minted default must either render correctly in-game or be refused by a gate — never sit
+  in between. Changes: a form-added gateway now defaults to `to = 0` (loudly refused by the
+  Field(0) gates and retargetable from its quad) instead of `to = 100`, a REAL field id
+  nobody chose that silently warped there; each added `[[flag]]` mints the NEXT free index
+  instead of always 8712 (a fixed default aliased every added flag onto one save bit — and
+  `validate` now reports index collisions directly instead of leaving them to a load crash);
+  minted NPCs (form + Place tab) carry no `dialogue` so the build's silent-talk channel
+  shows the canonical FF9 silent line instead of a hand-rolled "..." window; the form's
+  default prop is a barrel, not a chest look-alike that isn't openable.
+- Drawn event zones got the same treatment as gateway targets: the quad's own menu gains
+  **Set message…** (on the photo lane there is no other editor for a drawn zone's words),
+  and a zone still carrying the drawn-zone placeholder warns on the canvas and in the lint
+  ("it ships as a literal '...' popup") unless it's a `received` item box.
+
 ### Fixed — a `received` event now shows the REAL item-get box (the top-right "..." bug)
 - `[[event]] received = true` re-styled the author's message as the window-7 item box at the
   dialogue-default geometry — a tiny box pinned to the TOP-RIGHT corner, with no item name in

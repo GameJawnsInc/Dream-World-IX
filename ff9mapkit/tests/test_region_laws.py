@@ -186,3 +186,62 @@ def test_set_gateway_target_op():
                          "zone": [[0, 0], [100, 0], [100, 100], [0, 100]]}]}
     label = P.set_gateway_target(data, 0, 301)
     assert data["gateway"][0]["to"] == 301 and "301" in label and "door0" in label
+
+
+def test_flag_index_aliasing_is_refused_on_both_lanes(tmp_path):
+    """Two [[flag]] names on ONE index alias a single save bit. FieldProject.load refuses the
+    table outright (resolve_project_flags raises); a dict-built project reaches validate, which
+    now SPENDS collect_flag_defs directly (the mechanism existed; no call site reported it)."""
+    import pytest as _pytest
+
+    from ff9mapkit.build import FieldProject, validate
+    raw = {"field": {"id": 30095, "name": "A", "area": 10},
+           "flag": [{"name": "a", "index": 8712}, {"name": "b", "index": 8712}]}
+    assert any("both use index 8712" in m for m in validate(FieldProject(raw, tmp_path)))
+    toml = tmp_path / "alias.field.toml"
+    toml.write_text("""[field]
+name = "A"
+id = 30095
+area = 10
+
+[[flag]]
+name = "a"
+index = 8712
+
+[[flag]]
+name = "b"
+index = 8712
+""", encoding="utf-8")
+    with _pytest.raises(ValueError, match="both use index 8712"):
+        FieldProject.load(toml)
+
+
+def test_lint_flags_the_placeholder_event_message(tmp_path):
+    from ff9mapkit.build import FieldProject, lint_logic
+    toml = tmp_path / "ph.field.toml"
+    toml.write_text("""[field]
+name = "P"
+id = 30095
+area = 10
+
+[[event]]
+name = "z"
+message = "..."
+zone = [[0, 0], [10, 0], [10, 10], [0, 10]]
+""", encoding="utf-8")
+    warns = lint_logic(FieldProject.load(toml))
+    assert any("placeholder" in m and "'...'" in m for m in warns)
+    # a received item box IGNORES the placeholder -> no warn
+    toml.write_text("""[field]
+name = "P"
+id = 30095
+area = 10
+
+[[event]]
+name = "z"
+message = "..."
+give_item = [100, 1]
+received = true
+zone = [[0, 0], [10, 0], [10, 10], [0, 10]]
+""", encoding="utf-8")
+    assert not any("placeholder" in m for m in lint_logic(FieldProject.load(toml)))
