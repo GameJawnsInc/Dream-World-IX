@@ -99,9 +99,9 @@ white screen and minted:
   (the F2 record's "white fade" phrasing was the same misread).
 
 **RUNG 1 IS COMPLETE**: trigger → rig camera → tracked motion → phases → fades → restore,
-all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. The s67
-probe stays LIVE through rung 2 (remove at ladder close, bundled with the pending
-Memoria.Prime x64 copy at the next closed-game build).
+all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. (The s67
+probe was removed and the Memoria.Prime x64 copy trued at the 2026-07-29 closed-game
+build — the patch file remains re-appliable history.)
 
 Rung 2 (design, owner input wanted): wire the proven scene into the ring's ferry UX — the
 diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall), an
