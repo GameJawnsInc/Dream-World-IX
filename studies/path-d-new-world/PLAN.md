@@ -25,7 +25,28 @@
 >   `FieldMapActorController.MovePC` NRE. **§1's "single biggest open risk" and §6 unknown 1 are CLOSED
 >   favourably; the §4 fallback (a real third disc + a baked Unity AssetBundle) is NOT needed.**
 >
-> ⚠ **What Rung 1 did NOT prove.** The block STREAMER never ran — no `Finished Loading Blocks!`, and
+> - **Rung 3 ★★ PASS — A GENUINELY THIRD OVERWORLD EXISTS AND RENDERS.** Spike armed + warp to 9013:
+>   `[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)`, then the window
+>   titled **`FINAL FANTASY IX - World Map: 9013`** showing a correctly-rendered ocean — sea shader, fog,
+>   horizon curvature — with the player standing in it (agent-verified via `tools/game_snap.ps1`, not
+>   inferred). Zero `|E|`, zero `WMWorld`/`WMBlock` frames; the only exceptions were the same pre-existing
+>   field-side `FieldMapActorController.MovePC` NREs. **Rendering IS the streamer proof**: blocks visible to
+>   the horizon means `LoadBlock` ran the grid, `ApplyForm` iterated `Form2Transforms` without NRE, and
+>   `DetectUnseenBlocks` resolved a sane window — so all three pre-emptive `s71` fixes are now exercised,
+>   not merely written.
+> - **⚠ CORRECTION to this document's own Rung 1/3 success criterion:** "`Finished Loading Blocks!` in the
+>   log" is **unusable** — plain `Debug.Log` reaches NEITHER `Memoria.log` NOR `output_log.txt` on this
+>   install (calibrated: `WMScriptDirector.HonoAwake`'s own `Debug.Log`, which demonstrably ran, is absent
+>   from both). `output_log.txt` captures only warnings/errors/exceptions. Judge a world load by
+>   `game_snap.ps1` + the absence of exceptions, never by an expected `Debug.Log` line.
+> - **★ Rung 4 is largely PRE-EMPTED, and `blank_world_bytes()` may not be needed at all.** §3 Rung 4 scopes
+>   the player as its own novel sub-step gated on a from-scratch `blank_world_bytes()` ("zero prior art").
+>   But a VERBATIM donor clone already carries `DefinePlayerCharacter` — the 9013 world has a rendered
+>   player with no byte-splice written. The verbatim-first route makes §5's `blank_world_bytes()` an
+>   optimization, not a prerequisite. Remaining Rung 4 question is only whether control/movement behaves.
+>
+> ⚠ **What Rung 1 alone did NOT prove** (superseded by Rung 3 above, kept for the record). The block
+> STREAMER never ran in the Rung 1 test — no `Finished Loading Blocks!`, and
 > `Memoria.log` stops at the spike line. Because `HonoAwake` threw, `AddBehavior` never registered
 > `WMScriptDirector`, so no world tick fired. (The recon's calibration predicted `LoadBlocks` would run
 > regardless of a dispatcher; that assumed the director survives, and it does not.) So `LoadBlock` ×480,
