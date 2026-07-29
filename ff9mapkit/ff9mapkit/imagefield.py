@@ -64,6 +64,50 @@ def unproject_floor(cam: _cam.Cam, contour_px) -> list:
     return out
 
 
+# The per-click self-check's loudness threshold, canvas px. The homography round-trips synthesized
+# cameras to ~2e-12 world units, so any honest inverse lands back on the click to far below a pixel;
+# the defect classes this trips on are large (a transpose of R_view = tens of px of vertical error,
+# a numerically degenerate camera = unbounded). Real imported cameras are vetted against this same
+# bound by the click-authoring census (studies/click-authoring/PLAN.md, the Rung 3 gate).
+CLICK_ROUNDTRIP_TOL = 0.25
+
+
+def click_to_world(cam: _cam.Cam, pt) -> tuple:
+    """One canvas click -> the world floor point (X, Z) under it, self-checked.
+
+    THE conversion every click-authoring call site routes through (HOP 2 of the architecture in
+    ``studies/click-authoring/PLAN.md``): un-project through the plane homography, then assert the
+    forward projection lands back on the click. The re-projection is one extra 3x3 multiply and it
+    turns the silent geometry-bug class (an inverse that is *almost* right — the transpose trap, a
+    degenerate real camera) into a loud error at the exact click that hit it. Raises
+    :class:`ImageFieldError` at/above the horizon — a click there has NO floor intersection and must
+    refuse, never clamp."""
+    (X, Z), = unproject_floor(cam, [tuple(pt)])
+    cx, cy = _cam.to_canvas((X, 0.0, Z), cam)
+    err = math.hypot(cx - pt[0], cy - pt[1])
+    if err > CLICK_ROUNDTRIP_TOL:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) un-projects to world ({X:.0f},{Z:.0f}) but that point "
+            f"re-projects to canvas ({cx:.1f},{cy:.1f}) — {err:.2f} px off. The camera's inverse is "
+            f"not consistent with its forward projection (a degenerate/unsupported camera pose)")
+    return (X, Z)
+
+
+def world_to_click(cam: _cam.Cam, p) -> tuple:
+    """A world floor point (x, z) -> the canvas pixel (cx, cy) it appears under.
+
+    The forward half of the pair (``cam.to_canvas`` on the y=0 plane). Raises
+    :class:`ImageFieldError` for a point at/behind the camera plane, where the projection's
+    ``abs(z)`` would silently mirror it onto the canvas at a bogus position."""
+    P = (p[0], 0.0, p[1])
+    _, _, resz = _cam.project(P, cam)
+    if resz <= 0:
+        raise ImageFieldError(
+            f"world point ({p[0]:.0f},{p[1]:.0f}) is at/behind the camera plane — it does not "
+            f"appear on the canvas")
+    return _cam.to_canvas(P, cam)
+
+
 def occluder_z(cam: _cam.Cam, contact_px) -> int:
     """Overlay Z for a foreground occluder standing on the floor at canvas pixel ``contact_px``.
 

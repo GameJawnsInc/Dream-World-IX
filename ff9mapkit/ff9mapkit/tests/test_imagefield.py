@@ -296,6 +296,56 @@ def test_auto_floor_without_numpy_errors_cleanly(tmp_path, monkeypatch):
         IF.auto_floor(tmp_path / "x.png")
 
 
+# ---------------------------------------------------------------- click-authoring Rung 0 conversions
+
+def test_click_to_world_grid_roundtrip():
+    """Rung 0's offline gate (studies/click-authoring/PLAN.md): a grid of canvas points through
+    click_to_world -> world_to_click must land back to < 1e-9 canvas px, across the synthesized
+    envelope (pitch 10-45, yaw +/-25, two FOVs)."""
+    for pitch in (10, 26, 45):
+        for yaw in (-25, 0, 25):
+            for fov in (36.0, 48.0):
+                cam = guide.make_camera(pitch, 3000.0, fov_x_deg=fov, yaw_deg=yaw)
+                hy = C.horizon_canvas_y(cam)
+                for cx in range(12, 384, 62):
+                    for cy in range(0, 448, 32):
+                        if cy <= hy + 2:            # at/above the horizon there is no floor
+                            continue
+                        X, Z = IF.click_to_world(cam, (cx, cy))
+                        bx, by = IF.world_to_click(cam, (X, Z))
+                        err = math.hypot(bx - cx, by - cy)
+                        assert err < 1e-9, \
+                            f"pitch {pitch} yaw {yaw} fov {fov}: ({cx},{cy}) round-trips {err:g} px off"
+
+
+def test_click_to_world_refuses_above_horizon():
+    """The horizon guard: refuse, never clamp — a silent clamp would place content at absurd depth."""
+    cam = _cam()
+    hy = C.horizon_canvas_y(cam)
+    with pytest.raises(IF.ImageFieldError, match="horizon"):
+        IF.click_to_world(cam, (192, hy - 5))
+
+
+def test_click_roundtrip_tripwire_is_live(monkeypatch):
+    """The self-check must actually fire: an inverse that drifts from the forward projection (the
+    transpose class, a degenerate camera) raises loudly instead of returning a plausible point."""
+    cam = _cam()
+    real = IF.unproject_floor
+    monkeypatch.setattr(IF, "unproject_floor",
+                        lambda c, pts: [(x + 120.0, z) for (x, z) in real(c, pts)])
+    with pytest.raises(IF.ImageFieldError, match="re-projects"):
+        IF.click_to_world(cam, (200, 300))
+
+
+def test_world_to_click_refuses_behind_camera():
+    """A point at/behind the camera plane would silently mirror onto the canvas (the projection
+    divides by abs(z)); the forward hop refuses it instead."""
+    cam = _cam()
+    cz = C.decompose(cam)["C"][2]
+    with pytest.raises(IF.ImageFieldError, match="behind the camera"):
+        IF.world_to_click(cam, (0.0, cz - 5000.0))
+
+
 # ---------------------------------------------------------------- the floor tracer (--trace)
 
 def test_write_trace_html(tmp_path):
