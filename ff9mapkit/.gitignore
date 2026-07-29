@@ -11,7 +11,9 @@ ff9mapkit/data/region_template.bin
 tests/fixtures/*.eb.bytes
 tests/fixtures/*.bgx
 tests/fixtures/*.bgi.bytes
-!tests/fixtures/hut_ext.bgi.bytes        # OUR authored hut walkmesh (a simple quad we made, not game data)
+# OUR authored hut walkmesh (a simple quad we made, not game data). NB: gitignore has no
+# trailing comments -- text after the pattern would become PART of the pattern and kill it.
+!tests/fixtures/hut_ext.bgi.bytes
 
 # --- local cache override target, if a user points $FF9MAPKIT_DATA at a repo subdir ---
 .ff9mapkit-cache/
