@@ -283,8 +283,18 @@ warning, not just accept the quad.
 - Pinned: `tests/test_region_laws.py` (14 — the fan audit's every class, plane round-trips,
   overlap keys, the generator emission) + backdrop (8 new) + place (7 new) + tracedoc (4 new);
   snaps `place:regions` + `trace:regions` read at 100/150 (both hosts hold the 150 rung).
-**Playtest ask:** draw a gateway on a real fork in the Place tab (aim its 0→1 edge at the exit),
-deploy, walk out both ways; then a photo-lane door on the hallway project via Regenerate.
+**First playtest 2026-07-29 — the chain WORKS to the warp (a photo-lane door on the hallway
+project armed and FIRED), and it caught THE FIELD(0) DOOR:** the owner drew the quad before
+setting the 'to field' box (which feeds NEW draws only), typed 301 after — the row kept to=0,
+compiled to `Field(0)`, and the walk-in BLACK-SCREEN softlocked (no such field; ~ cannot recover
+a dead transition; the canvas label "door0 → 0" was the only tell). Closed three ways, same day:
+`build.validate` ERRORS on a non-positive gateway target (a Field(0) door never ships); the
+quad's own menu grew **Set gateway target…** (`region_retarget` + an instance-dialog seam in
+both hosts — on the photo lane there IS no other editor for a drawn door); `region_rows` marks
+the row NO TARGET and the Trace tab gates Generate until every door has one.
+**Playtest ask (retry):** kill + relaunch FF9, right-click the door → Set gateway target → 301
+(Ice Cavern/Ice Path — a real id), Regenerate, deploy, ~ Reload, walk in; then a Place-tab
+gateway on a real fork (aim its 0→1 edge at the exit) and walk out both ways.
 
 ### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
