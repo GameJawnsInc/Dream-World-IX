@@ -25,7 +25,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout, QWidget,
+    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout,
+    QWidget,
 )
 
 from .. import imagefield
@@ -54,7 +55,8 @@ class TraceDoc(QWidget):
         self._image = None                            # Path of the opened photo (the CLI arg)
         self._pixmap = None                           # its display cover-crop (2x canvas res)
         self._floor = []                              # mirror of the canvas trace (canvas px)
-        self._history = []                            # prior floors, one per gesture (undo)
+        self._fg = []                                 # rung 2: [{"contact": (cx, cy), "image": str|None}]
+        self._history = []                            # prior (floor, fg) snapshots, one per gesture (undo)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
@@ -96,8 +98,15 @@ class TraceDoc(QWidget):
         self.pitch_label = QLabel()
         row.addWidget(self.pitch_label)
         row.addStretch(1)
+        self.fg_btn = QPushButton("Add cut-out")
+        self.fg_btn.setCheckable(True)
+        self.fg_btn.setToolTip("Mark a foreground occluder (a pillar, a crate): click where the "
+                               "object MEETS the floor — its base — then attach its full-canvas "
+                               "cut-out PNG. Occlusion flips exactly at that line in-game.")
+        self.fg_btn.toggled.connect(self._on_fg_arm)
+        row.addWidget(self.fg_btn)
         self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setToolTip("Take back the last vertex add, move, or delete.")
+        self.undo_btn.setToolTip("Take back the last vertex or cut-out gesture.")
         self.undo_btn.clicked.connect(self.on_undo)
         row.addWidget(self.undo_btn)
         self.clear_btn = QPushButton("Clear")
@@ -106,10 +115,36 @@ class TraceDoc(QWidget):
         row.addWidget(self.clear_btn)
         root.addLayout(row)
 
+        # rung 2's strip: the marked cut-outs (hidden until one exists — canvas height is precious)
+        fg_row = QHBoxLayout()
+        fg_row.setSpacing(8)
+        self.fg_label = QLabel("Cut-outs")
+        fg_row.addWidget(self.fg_label)
+        self.fg_box = QComboBox()
+        self.fg_box.setAccessibleName("Foreground cut-outs")
+        self.fg_box.setToolTip("Each marked occluder: its floor-contact pixel, the overlay depth "
+                              "the build will emit, and its attached cut-out PNG.")
+        self.fg_box.setMinimumWidth(260)
+        self.fg_label.setBuddy(self.fg_box)
+        fg_row.addWidget(self.fg_box)
+        self.fg_attach_btn = QPushButton("Attach PNG…")
+        self.fg_attach_btn.setToolTip("Attach the selected contact's cut-out — a full-canvas PNG "
+                                      "with alpha (only the object opaque).")
+        self.fg_attach_btn.clicked.connect(self.on_fg_attach)
+        fg_row.addWidget(self.fg_attach_btn)
+        self.fg_remove_btn = QPushButton("Remove")
+        self.fg_remove_btn.setToolTip("Remove the selected cut-out contact (one Undo brings it back).")
+        self.fg_remove_btn.clicked.connect(self.on_fg_remove)
+        fg_row.addWidget(self.fg_remove_btn)
+        fg_row.addStretch(1)
+        root.addLayout(fg_row)
+        self._fg_widgets = (self.fg_label, self.fg_box, self.fg_attach_btn, self.fg_remove_btn)
+
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
         self.canvas.set_backdrop(None, self._camera())   # pure math — no disk at construction
         self.canvas.click_refused.connect(self._on_refused)
+        self.canvas.contact_clicked.connect(self._on_contact)
         root.addWidget(self.canvas, 1)
 
         out_row = QHBoxLayout()
@@ -158,20 +193,44 @@ class TraceDoc(QWidget):
                 bad += 1
         return good, bad
 
+    def _fg_state(self, fg):
+        """A contact judged against the CURRENT camera -> ``(z, err)`` (one of them None). Derived
+        per refresh, never stored — a pitch change re-judges every contact exactly as it re-judges
+        the trace (an anchored z is camera-dependent; a stale one would lie in the argv)."""
+        try:
+            return imagefield.occluder_z(self.canvas.camera(), fg["contact"]), None
+        except imagefield.ImageFieldError as e:
+            return None, str(e)
+
+    def _fg_problems(self):
+        """(invalid, unattached) counts across the marked cut-outs — the Generate gates."""
+        invalid = sum(1 for f in self._fg if self._fg_state(f)[1] is not None)
+        unattached = sum(1 for f in self._fg if not f.get("image"))
+        return invalid, unattached
+
     def _refresh(self, note="", state=""):
         hy = _cam.horizon_canvas_y(self.canvas.camera())
         self.pitch_label.setText(
             f"{self.pitch.value()}° · horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
             else f"{self.pitch.value()}° · horizon above the frame")
         good, bad = self._valid_count()
-        ready = self._image is not None and good >= 3 and bad == 0
+        fg_invalid, fg_unattached = self._fg_problems()
+        ready = (self._image is not None and good >= 3 and bad == 0
+                 and fg_invalid == 0 and fg_unattached == 0)
         self.gen_btn.setEnabled(ready)
-        self.gen_btn.setToolTip(
-            "Build the field project (walkmesh + art + field.toml) with the exact command the "
-            "CLI tracer emits — it streams to the Output panel." if ready else
-            "Needs an open image and at least 3 traced vertices, all below the horizon.")
+        if ready:
+            tip = ("Build the field project (walkmesh + art + field.toml) with the exact command "
+                   "the CLI tracer emits — it streams to the Output panel.")
+        elif fg_invalid or fg_unattached:
+            tip = ("Every cut-out needs a valid floor contact (below the horizon, below the base "
+                   "layer) and an attached PNG — fix or Remove the flagged ones.")
+        else:
+            tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
+        self.gen_btn.setToolTip(tip)
         self.undo_btn.setEnabled(bool(self._history))
         self.clear_btn.setEnabled(bool(self._floor))
+        self.fg_btn.setEnabled(self._image is not None)
+        self._refresh_fg_strip()
         if not note:
             if self._image is None:
                 note = "Open an image to begin."
@@ -181,8 +240,54 @@ class TraceDoc(QWidget):
             else:
                 note = f"{good} vertices traced" + (f" · {bad} above the horizon (red)" if bad
                                                     else "")
+                if self._fg:
+                    note += f" · {len(self._fg)} cut-out{'' if len(self._fg) == 1 else 's'}"
+                    if fg_invalid:
+                        note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
+                    if fg_unattached:
+                        note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
         self.status.setText(note)
         widgets.set_state(self.status, state)
+
+    def _refresh_fg_strip(self):
+        """The cut-out strip: hidden until a contact exists; each row names its pixel, the derived
+        overlay z (or why it has none), and its PNG (or the gap)."""
+        show = bool(self._fg)
+        for w in self._fg_widgets:
+            w.setVisible(show)
+        keep = self.fg_box.currentIndex()
+        self.fg_box.blockSignals(True)
+        self.fg_box.clear()
+        for i, f in enumerate(self._fg):
+            cx, cy = f["contact"]
+            z, err = self._fg_state(f)
+            head = f"fg{i} @ ({cx:g},{cy:g})"
+            head += f" · z {z}" if err is None else " · ⚠ invalid contact"
+            head += f" · {Path(f['image']).name}" if f.get("image") else " · ⚠ needs its PNG"
+            self.fg_box.addItem(head)
+        if 0 <= keep < self.fg_box.count():
+            self.fg_box.setCurrentIndex(keep)
+        elif self.fg_box.count():
+            self.fg_box.setCurrentIndex(self.fg_box.count() - 1)
+        self.fg_box.blockSignals(False)
+        has = self.fg_box.currentIndex() >= 0
+        self.fg_attach_btn.setEnabled(has)
+        self.fg_remove_btn.setEnabled(has)
+
+    def _refresh_markers(self):
+        """Contact markers on the art: each VALID contact's floor point, labelled with the overlay
+        z the build will emit (an invalid one has no floor point to mark — the strip flags it)."""
+        marks = []
+        for i, f in enumerate(self._fg):
+            z, err = self._fg_state(f)
+            if err is not None:
+                continue
+            try:
+                (X, Z), = imagefield.unproject_floor(self.canvas.camera(), [f["contact"]])
+            except imagefield.ImageFieldError:
+                continue
+            marks.append({"pos": (X, 0.0, Z), "label": f"fg{i} · z {z}", "kind": "contact"})
+        self.canvas.set_markers(marks)
 
     # ------------------------------------------------------------------ image
     def on_open(self):
@@ -206,20 +311,29 @@ class TraceDoc(QWidget):
         self._image = Path(path)
         self._pixmap = pm
         self._floor = []
+        self._fg = []                                  # old contacts mean nothing on new art
         self._history = []
+        self.fg_btn.setChecked(False)
         self.canvas.set_floor([])
+        self.canvas.set_markers([])
         self.canvas.set_backdrop(pm, self._camera(), refit=True)
         self.img_label.setText(self._image.name)
         self._refresh()
 
     def _on_pitch(self, _v):
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
+        self._refresh_markers()                        # anchored z's are camera-dependent
         self._refresh()
 
-    # ------------------------------------------------------------------ trace gestures
-    def _on_floor(self, pts):
-        self._history.append(list(self._floor))
+    # ------------------------------------------------------------------ trace + contact gestures
+    def _push_history(self):
+        """One snapshot per completed gesture — floor AND cut-outs together, so Undo walks back
+        through vertex and contact gestures in the order they happened."""
+        self._history.append({"floor": list(self._floor), "fg": [dict(f) for f in self._fg]})
         del self._history[:-_HISTORY_CAP]
+
+    def _on_floor(self, pts):
+        self._push_history()
         self._floor = list(pts)
         self._refresh()
 
@@ -229,16 +343,72 @@ class TraceDoc(QWidget):
     def on_undo(self):
         if not self._history:
             return
-        self._floor = self._history.pop()
+        snap = self._history.pop()
+        self._floor = list(snap["floor"])
+        self._fg = [dict(f) for f in snap["fg"]]
         self.canvas.set_floor(self._floor)             # the host write path: no on_floor echo
+        self._refresh_markers()
         self._refresh()
 
     def on_clear(self):
         if not self._floor:
             return
-        self._history.append(list(self._floor))
+        self._push_history()
         self._floor = []
         self.canvas.set_floor([])
+        self._refresh()
+
+    # ------------------------------------------------------------------ rung 2: cut-out contacts
+    def _on_fg_arm(self, on):
+        """The Add-cut-out toggle: armed = the canvas emits contact pixels (the traced polygon
+        stays visible, inert); disarmed = back to floor tracing."""
+        if on:
+            self.canvas.set_contact_mode(True)
+            self._refresh("Click where the object MEETS the floor — its base, not up its body. "
+                          "Esc = the button again to cancel.")
+        else:
+            self.canvas.set_trace_mode(True)
+            self._refresh()
+
+    def _on_contact(self, cx, cy):
+        """A contact click, judged through the ONE owner (``imagefield.occluder_z``): above the
+        horizon or at/behind the base layer refuses with the CLI's own message and stays armed
+        for a retry; a good contact records ONE undoable gesture and asks for its PNG."""
+        contact = (round(cx, 1), round(cy, 1))
+        try:
+            z = imagefield.occluder_z(self.canvas.camera(), contact)
+        except imagefield.ImageFieldError as e:
+            self._refresh(str(e), "error")
+            return
+        self._push_history()
+        self._fg.append({"contact": contact, "image": None})
+        self.fg_btn.setChecked(False)                  # -> _on_fg_arm(False) -> trace mode
+        self._refresh_markers()
+        self.fg_box.setCurrentIndex(len(self._fg) - 1)
+        path = self._ask_cutout()
+        if path:
+            self._fg[-1]["image"] = str(path)
+        self._refresh(f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
+                      f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
+
+    def on_fg_attach(self):
+        i = self.fg_box.currentIndex()
+        if not 0 <= i < len(self._fg):
+            return
+        path = self._ask_cutout()
+        if not path:
+            return
+        self._push_history()
+        self._fg[i]["image"] = str(path)
+        self._refresh()
+
+    def on_fg_remove(self):
+        i = self.fg_box.currentIndex()
+        if not 0 <= i < len(self._fg):
+            return
+        self._push_history()
+        del self._fg[i]
+        self._refresh_markers()
         self._refresh()
 
     # ------------------------------------------------------------------ generate
@@ -249,6 +419,11 @@ class TraceDoc(QWidget):
         good, bad = self._valid_count()
         if good < 3 or bad:
             self._refresh("Trace at least 3 vertices, all below the horizon.", "error")
+            return
+        fg_invalid, fg_unattached = self._fg_problems()
+        if fg_invalid or fg_unattached:
+            self._refresh("Every cut-out needs a valid contact and an attached PNG — fix or "
+                          "Remove the flagged ones.", "error")
             return
         from .. import pack
         try:
@@ -264,6 +439,9 @@ class TraceDoc(QWidget):
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
                 "--out", str(out), "--name", name, "--id", str(fid)]
+        for f in self._fg:                             # the tracer's own form: path@cx,cy anchors
+            cx, cy = f["contact"]                      # the occluder at its floor-contact pixel
+            argv += ["--foreground", f"{f['image']}@{cx:g},{cy:g}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
         started = self._run(
@@ -292,6 +470,18 @@ class TraceDoc(QWidget):
         dlg = QFileDialog(self, "Where to put the project folder", str(self.proj_base))
         dlg.setFileMode(QFileDialog.FileMode.Directory)
         dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return None
+        files = dlg.selectedFiles()
+        return files[0] if files else None
+
+    def _ask_cutout(self):
+        """The cut-out PNG picker (instance dialog behind a seam, like the others): a full-canvas
+        image with alpha — only the occluding object opaque."""
+        dlg = QFileDialog(self, "The cut-out PNG (full canvas, alpha — only the object opaque)",
+                          str(self._image.parent if self._image else Path.home()))
+        dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dlg.setNameFilter("Cut-out images (*.png *.webp)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()

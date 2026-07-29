@@ -335,3 +335,36 @@ def test_bare_camera_frame_uses_cam_range(app):
     c.set_backdrop(None, cam)
     assert c._scene.sceneRect().width() == 768
     assert "horizon" in _tags(c)
+
+
+# ---------------------------------------------------------------- Rung 2: contact mode
+
+def test_contact_click_emits_the_raw_canvas_pixel(app):
+    """Contact mode emits the CANVAS px of a slop click and nothing else — the host owns the
+    judgement (occluder_z is the one owner of both refusals), so the canvas must not filter."""
+    c, cam, _ = _trace_canvas(app)
+    c.set_contact_mode(True)
+    got = []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    wpt = c.viewportTransform().map(QPointF(230.0, 320.0))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert len(got) == 1
+    assert abs(got[0][0] - 230.0) <= 1.0 and abs(got[0][1] - 320.0) <= 1.0   # integer-px quantized
+
+
+def test_contact_mode_is_exclusive_but_keeps_the_trace_visible(app):
+    """Arming contacts turns tracing OFF for clicks yet keeps the polygon RENDERED for context —
+    and a click neither appends a vertex nor fires on_floor."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    n0 = len(calls)
+    c.set_contact_mode(True)
+    assert c._contact_mode and not c._trace_mode
+    assert "traceline" in _tags(c) and "tracept" in _tags(c)   # visible, inert
+    wpt = c.viewportTransform().map(QPointF(150.0, 350.0))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert len(c.floor()) == 3 and len(calls) == n0            # no vertex appended
+    c.set_trace_mode(True)
+    assert not c._contact_mode

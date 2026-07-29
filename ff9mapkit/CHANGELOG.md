@@ -23,6 +23,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The field-card picker knows what you already fork: a card whose room is open in the
   current project offers **Place content on this field** instead of a second fork.
 
+### Added — foreground cut-outs in the Trace tab (occluder contacts)
+- Mark a photo's foreground occluder (a pillar, a doorframe) directly on the art: **Add
+  cut-out** arms a contact click — click where the object MEETS the floor — and the tab
+  derives the overlay depth from the camera (`occluder_z`, the in-game-proven anchor:
+  occlusion flips exactly at that line), asks for the object's full-canvas cut-out PNG,
+  and lists every contact in a strip with its depth, re-judged live on every pitch
+  change. A contact traced up the body (depth at/behind the base layer) or above the
+  horizon refuses with the CLI's own message. Generate emits the classic
+  `--foreground path@cx,cy` form, so the build is byte-identical to the CLI loop's.
+
 ### Added — `[[prop]]` as a first-class editor kind
 - Props now appear in the Editor tree (their own "Props" group), with a full form
   (archetype/model/pose/pos/face/collision/gates/attach), Inspector summary + rollup
