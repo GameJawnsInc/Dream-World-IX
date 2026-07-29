@@ -148,6 +148,8 @@ def assemble_instruction(name: str, operands, *, label_offsets=None, instr_end: 
             elif not -0x8000 <= rel <= 0x7FFF:               # JMP/JMP_IF read a SIGNED int16 -- a span that masks
                 raise CmdAsmError(f"jump to {o!r} is {rel} bytes away, out of signed int16 range [-32768, 32767]; "
                                   f"the function is too large for this branch (split it or shorten the span).")
+            # INTENTIONAL mask: two's-complement of a displacement both branches above have
+            # already range-checked (unsigned for 0x02, signed i16 otherwise) -- never a truncation
             out += (rel & 0xFFFF).to_bytes(2, "little")
         elif op in _SWITCH_ANCHOR and _is_switch_reloff(op, i) and not o.lstrip("-").isdigit():
             if label_offsets is None or instr_off is None:   # a symbolic SWITCH target (forward reloff from anchor)

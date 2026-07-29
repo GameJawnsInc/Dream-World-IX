@@ -253,6 +253,7 @@ class StageCanvas(QGraphicsView):
         only each text child's dy shifts, so the leader point stays honest."""
         placed = []
         step = 13
+        vw = self.viewport().width()
         for lab in self._labels:
             try:
                 base = self.mapFromScene(lab["anchor"].pos())
@@ -260,10 +261,18 @@ class StageCanvas(QGraphicsView):
                 return
             t = lab["item"]
             br = t.boundingRect()
-            x = base.x() + lab["dx"]
-            cands = [lab["dy"]]
+            dx = lab["dx"]
+            if vw > 40 and base.x() + dx + br.width() > vw - 2:
+                dx = -dx - br.width()              # off the right edge: mirror to the left
+            x = base.x() + dx
+            cands, down = [lab["dy"]], []
             for k in range(1, 7):                  # nearest tier first, above before below
-                cands += [lab["dy"] - step * k, lab["dy"] + step * k]
+                cands.append(lab["dy"] - step * k)
+                down.append(lab["dy"] + step * k)
+            # a DOWN tier must clear the anchor's own marker row (r≈5 + breathing room):
+            # the first down candidate from dy=-16 lands the text ACROSS the dots
+            # (snap-caught strike-through on the ×N cluster labels)
+            cands += [dy for dy in down if dy >= 8 or dy + br.height() <= -8]
             pick = cands[0]
             for onscreen_only in (True, False):    # prefer a tier that stays in the
                 found = False                      # viewport; overlap-free beats clipped
@@ -276,7 +285,7 @@ class StageCanvas(QGraphicsView):
                         break
                 if found:
                     break
-            t.setPos(lab["dx"], pick)
+            t.setPos(dx, pick)
             placed.append(QRectF(x, base.y() + pick, br.width(), br.height()))
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
@@ -752,7 +761,7 @@ class LadderView(QWidget):
                     ("✕", "Delete this branch (Ctrl+Z undoes)",
                      lambda _=False, b=bi: self.actions["delete"](b))):
                 btn = QPushButton(glyph)
-                btn.setProperty("role", "quiet")
+                btn.setProperty("role", "rowtool")   # repeated furniture, not four buttons
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — branch {row['index']}")
                 btn.clicked.connect(cb)
@@ -776,6 +785,15 @@ class LadderView(QWidget):
         for d in row["decos"]:
             kind = "warn" if d.startswith(("raise ", "clear ")) else "info"
             h.addWidget(widgets.status_chip(d, kind))
+        if row.get("shadow"):
+            dead = widgets.status_chip(f"never selects — row {row['shadow']} wins first",
+                                       "warn")
+            dead.setToolTip(
+                "First-match priority: whenever this row's conditions hold, row "
+                f"{row['shadow']}'s already hold — and row {row['shadow']} has no "
+                "once/cooldown gate, so it wins every tick. Reorder the rows, tighten "
+                f"row {row['shadow']}'s conditions, or gate it (once / cooldown / flag).")
+            h.addWidget(dead)
         if fallback:
             h.addWidget(widgets.status_chip("fallback · required", "good"))
         frame.setAccessibleName(
@@ -1032,8 +1050,8 @@ class ArchetypeWizard(QDialog):
             self._ok.setEnabled(False)
             return
         lines = self._ladder_lines(scratch, who)
-        if key == "shift_pair" and target:
-            lines += [""] + self._ladder_lines(scratch, target)
+        if a.get("needs_partner") and target:      # a PAIR stamp writes two ladders --
+            lines += [""] + self._ladder_lines(scratch, target)   # show them both
         minted = (scratch.get("marker") or [])[len(self._raw.get("marker") or []):]
         if minted:
             names = ", ".join(str(m.get("name")) for m in minted)
@@ -1068,6 +1086,124 @@ class ArchetypeWizard(QDialog):
         return self._picked
 
 
+class BranchWizard(QDialog):
+    """＋ Branch grown into a small teaching picker: a blank row (the old behaviour)
+    first, then the BRANCH archetypes — one proven guarded row each — with their teach
+    text, a target picker when the row binds one, and a verbatim preview of the exact
+    branch that will land (``branch_archetype_body`` through the ladder's own
+    formatters). Same modal-seam contract as the big wizard."""
+
+    def __init__(self, pal, raw, unit_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Add a branch — {unit_name}")
+        self._raw = raw
+        self._unit = unit_name
+        self._picked = None
+        self._members = [m for u in raw["behavior"]["unit"]
+                         for m in behaviorscan.BT.row_members(u)
+                         if m not in behaviorscan.BT.row_members(
+                             behaviorscan._unit_row(raw, unit_name) or {})] \
+            if behaviorscan.has_behavior(raw) else []
+        outer = QVBoxLayout(self)
+        outer.setSpacing(8)
+        self.list = QListWidget()
+        self.list.setAccessibleName("Branch archetypes")
+        self.list.addItem("Blank branch — author it yourself")
+        for a in behaviorscan.BRANCH_ARCHETYPES:
+            self.list.addItem(a["name"])
+        outer.addWidget(self.list, 1)
+        self.teach = widgets.caption("")
+        self.teach.setWordWrap(True)
+        outer.addWidget(self.teach)
+        trow = QWidget()
+        th = QHBoxLayout(trow)
+        th.setContentsMargins(0, 0, 0, 0)
+        th.setSpacing(8)
+        th.addWidget(widgets.role_label("Against", "caption"))
+        self.vs = QComboBox()
+        self.vs.setAccessibleName("Branch target")
+        self.vs.addItems(["player"] + self._members)
+        th.addWidget(self.vs, 1)
+        self._vs_row = trow
+        outer.addWidget(trow)
+        self.preview = QLabel("")
+        self.preview.setProperty("mono", True)
+        self.preview.setAccessibleName("Branch preview")
+        outer.addWidget(self.preview)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        self._ok = bb.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok.setText("Add")
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        outer.addWidget(bb)
+        self.list.currentRowChanged.connect(self._refresh)
+        self.vs.currentIndexChanged.connect(self._refresh)
+        self.list.setCurrentRow(0)
+        widgets.fit_dialog(self, ch=76, list_rows=len(behaviorscan.BRANCH_ARCHETYPES) + 1,
+                           lines=8)
+
+    def _archetype(self):
+        i = self.list.currentRow() - 1             # row 0 = the blank branch
+        rows = behaviorscan.BRANCH_ARCHETYPES
+        return rows[i] if 0 <= i < len(rows) else None
+
+    def selection(self):
+        a = self._archetype()
+        if a is None:
+            return ("blank", None)
+        target = self.vs.currentText() or None if a.get("needs_target") else None
+        return (a["key"], target)
+
+    def _refresh(self, *_):
+        a = self._archetype()
+        if a is None:                              # the blank row
+            self.teach.setText("An inert row above the fallback: its guard flag starts "
+                               "unraised, so it does nothing until you shape it in the "
+                               "branch editor (which opens on Add).")
+            self._vs_row.setVisible(False)
+            self.preview.setText("")
+            self._ok.setEnabled(True)
+            return
+        self.teach.setText(a["teach"])
+        self._vs_row.setVisible(bool(a.get("needs_target")))
+        want = ([] if a.get("unit_only") else ["player"]) + self._members
+        have = [self.vs.itemText(i) for i in range(self.vs.count())]
+        if want != have:                           # swing_at binds a UNIT; the player row
+            keep = self.vs.currentText()           # appears only where it is legal
+            self.vs.blockSignals(True)
+            self.vs.clear()
+            self.vs.addItems(want)
+            if keep in want:
+                self.vs.setCurrentText(keep)
+            self.vs.blockSignals(False)
+        if a.get("needs_target") and not want:
+            self.teach.setText(f"{a['teach']}\n\nThis row strikes another UNIT — seat "
+                               "a second behavior unit first.")
+            self.preview.setText("")
+            self._ok.setEnabled(False)
+            return
+        key, target = self.selection()
+        body = behaviorscan.branch_archetype_body(self._raw, self._unit, key, target)
+        conds = [behaviorscan.fmt_cond(c) for c in body.get("when") or []]
+        verb, detail = behaviorscan.fmt_action(body.get("do") or {})
+        line = (" AND ".join(conds) or "always") + f"  →  {verb}"
+        if detail:
+            line += f" {detail}"
+        decos = behaviorscan._decos(body)
+        if decos:
+            line += "   · " + " · ".join(decos)
+        self.preview.setText(line)
+        self._ok.setEnabled(True)
+
+    def accept(self):                              # noqa: N802 (Qt override)
+        self._picked = self.selection()
+        super().accept()
+
+    def picked(self):
+        return self._picked
+
+
 class BehaviorDoc(QWidget):
     """The Behavior tab. The shell feeds it the OPEN field's parsed dict (``show_field``) on
     tab show / tree select -- never a file read; the doc's ONLY disk touches are the two
@@ -1085,6 +1221,7 @@ class BehaviorDoc(QWidget):
         #                                            the shell's touch/checkpoint/re-feed hook
         self._ask_unit = self._ask_unit_dialog     # the modal seam: tests/snaps inject, prod asks
         self._ask_stamp = self._ask_stamp_dialog   # the archetype WIZARD (one surface, one seam)
+        self._ask_branch = self._ask_branch_dialog  # ...and its little sibling on ＋ Branch
         self._view = None                          # what the projections RENDER: the open dict,
         self._readonly = False                     # or a [siege] field's desugared copy (read-only
         #                                            -- the [siege] block owns the behavior table)
@@ -1221,8 +1358,8 @@ class BehaviorDoc(QWidget):
         bh.setSpacing(10)
         self.unit_title = widgets.role_label("—", "cardtitle")
         bh.addWidget(self.unit_title)
-        self.unit_stats = widgets.ElideLabel("")   # yields width; the buttons keep theirs
-        bh.addWidget(self.unit_stats, 1)
+        self.unit_stats = widgets.ElideLabel("", min_ch=12)   # yields width, but never to
+        bh.addWidget(self.unit_stats, 1)                      # NOTHING (12ch ≈ "4 hp · 6 br…")
         self.add_branch_btn = QPushButton("＋ Branch")
         self.add_branch_btn.setProperty("role", "quiet")
         self.add_branch_btn.setToolTip("Insert a new branch just above the fallback row "
@@ -1654,12 +1791,29 @@ class BehaviorDoc(QWidget):
         behaviorscan.delete_branch(self._raw, self._selected_unit, bi)
         self._after_edit(f"delete {self._selected_unit} branch {bi + 1}")
 
+    def _ask_branch_dialog(self):
+        """Prod's ＋ Branch mini-wizard (instance dialog, the modal-seam law); tests
+        inject ``_ask_branch``. Returns ("blank"|key, target-or-None) or None."""
+        dlg = BranchWizard(self.pal, self._raw, self._selected_unit, self)
+        try:
+            return dlg.picked() if dlg.exec() else None
+        finally:
+            dlg.deleteLater()
+
     def _add_branch(self):
         if not self._selected_unit:
             return
-        at = behaviorscan.add_branch(self._raw, self._selected_unit)
-        self._after_edit(f"add {self._selected_unit} branch")
-        self._edit_branch(at)                      # a fresh branch opens ready to shape
+        picked = self._ask_branch()
+        if not picked:
+            return
+        kind, target = picked
+        if kind == "blank":
+            at = behaviorscan.add_branch(self._raw, self._selected_unit)
+            self._after_edit(f"add {self._selected_unit} branch")
+            self._edit_branch(at)                  # a fresh branch opens ready to shape
+        else:
+            at = behaviorscan.stamp_branch(self._raw, self._selected_unit, kind, target)
+            self._after_edit(f"stamp {kind} branch on {self._selected_unit}")
 
     def _edit_branch(self, bi):
         unit = self._selected_unit

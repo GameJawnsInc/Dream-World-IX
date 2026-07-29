@@ -24,6 +24,7 @@ from __future__ import annotations
 import struct
 
 from .. import items as _items
+from ..binutils import pu8, pu16
 from ..eb import edit, opcodes
 from . import event as _event
 from . import npc as _npc
@@ -115,7 +116,7 @@ def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL,
     animset_v, _hf, _ls = _npc._npc_object_params(model, animset)
     parts = [
         _npc._d9_const(0, x), _npc._d9_const(4, z), _npc._d9_const(6, face), _npc._d9_const(2, 0),
-        bytes([SET_MODEL, 0x00]) + struct.pack("<H", int(model) & 0xFFFF) + bytes([animset_v & 0xFF]),
+        bytes([SET_MODEL, 0x00]) + pu16(int(model)) + pu8(animset_v),        # strict, as npc.py
         _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
         opcodes.encode(SET_OBJECT_LOGICAL_SIZE, *CHEST_LOGICAL_SIZE),     # the collision box
         opcodes.set_stand_animation(neutral_pose),

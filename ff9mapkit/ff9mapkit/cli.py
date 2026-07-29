@@ -414,6 +414,8 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         # THE DRAINING-CONDITION LAW: stacked once-branches on a gate that can stop
         # holding -- everything below the first silently starves
         warnings += BT.draining_once_warnings(raw)
+        # a hud digits reserve wider than the u16 value operand can ever show
+        warnings += BT.hud_digits_warnings(raw)
         mpaths = BT.marker_paths(raw)
         if wmesh is None:
             warnings.append(f"(no walkmesh resolved -- route sweeps skipped: {wmesh_err})")

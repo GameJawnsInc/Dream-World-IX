@@ -718,7 +718,7 @@ field-wide — ~70B of ticker per unit, four blackboard slots total).
 [[behavior.hud]]
 window = 6                                       # Dialog.WindowID 0..7
 values = ["gil", "troops", "raiders_up", "hp:base"]   # 1..8 value sources
-digits = [6, 2, 2, 2]                            # per-slot width reserve
+digits = [5, 2, 2, 2]                            # per-slot width reserve (1..5 reachable)
 text = "[MPOS=8,8]GIL [NUMB=0]  TROOPS [NUMB=1]  RAIDERS [NUMB=2]  DEPOT [NUMB=3]"
 ```
 
@@ -747,12 +747,15 @@ Three engine facts shape the emitted code, each learned from a playtest:
 - **`[NFOC]` is prepended** (with `[IMME]`): NoFocus sets
   `Dialog.FlagButtonInh`, so the player's confirm can never close the strip —
   without it, clicking through any dialogue closes the HUD for good.
-- **`digits` reserves the width** (default 2, up to 7): `AutomaticSize` bakes
-  a dialog's width ONCE at open from the text as it renders THEN, and a
-  variable change never re-sizes it — so a strip opened showing `0` clips when
-  a counter reaches `11`. The open pass feeds every slot `10^digits - 1`
-  before opening, then the real values land the next tick. Size `digits` to
-  the widest value a slot will ever show (gil wants 6–7).
+- **`digits` reserves the width** (default 2, accepted 1..7, **reachable 1..5**):
+  `AutomaticSize` bakes a dialog's width ONCE at open from the text as it
+  renders THEN, and a variable change never re-sizes it — so a strip opened
+  showing `0` clips when a counter reaches `11`. The open pass feeds every slot
+  `10^digits - 1` before opening, then the real values land the next tick. Size
+  `digits` to the widest value a slot will ever show. ⚠ That sentinel rides
+  `SetTextVariable`'s **u16** value operand, so it saturates at 65535 — five
+  characters. `6` and `7` are still accepted (existing fields keep building) but
+  behave exactly as `5`, and `behavior lint` says so.
 
 Authoring notes: place with `[MPOS=x,y]` — the PSX-ish 320×224 UI grid (stock
 pins its save menu at `20,16`), and **the countdown timer owns the top-left

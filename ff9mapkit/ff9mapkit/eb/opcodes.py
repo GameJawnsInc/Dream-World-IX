@@ -30,9 +30,19 @@ def resolve(op) -> int:
 
 
 def _imm(v: int, size: int) -> bytes:
-    """Little-endian, two's-complement for negatives, masked to ``size`` bytes."""
+    """Little-endian, two's-complement for negatives, in ``size`` bytes.
+
+    STRICT (same contract as ``binutils.pu16``): a value outside the field's signed-OR-unsigned
+    window raises instead of wrapping into a plausible-looking operand. The mask itself is
+    INTENTIONAL -- it is the two's-complement encoding of an already-accepted negative, not a
+    truncation. The window is deliberately the union of both signednesses: the operand tables carry
+    a width, not a signedness, and both readings are legitimate per opcode (a coordinate is signed,
+    a model id unsigned)."""
     if size <= 0:
         return b""
+    if not -(1 << (8 * size - 1)) <= v < (1 << (8 * size)):
+        raise ValueError(f"immediate {v} does not fit {size} byte(s) (signed or unsigned) — "
+                         f"masking it would silently encode a different operand")
     return (v & ((1 << (8 * size)) - 1)).to_bytes(size, "little")
 
 

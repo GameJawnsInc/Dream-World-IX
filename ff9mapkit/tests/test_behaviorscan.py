@@ -584,3 +584,107 @@ def test_siege_view_speaks_class_rows_under_the_brains_default():
     assert rows and rows[-1]["unconditional"]
     lit = [p for p in BS.stage_model(view)["posts"] if p.get("unit") in names]
     assert lit, "class members must land on the stage with their row identity"
+
+
+# --------------------------------------------------------------------------- shadow / reachability
+# GUI-VISION section 5: a row whose cond set is subsumed by an EARLIER plain row can never
+# select under first-match priority. Conservative on purpose -- a wrong "never selects"
+# teaches a lie; a missed one just stays quiet.
+def test_a_tighter_near_below_a_wider_one_is_dead():
+    raw = _field([_unit("a", [
+        {"when": [{"near": ["player", 900]}], "do": {"chase": "player"}},
+        {"when": [{"near": ["player", 400]}], "do": {"swing_at": "player", "damage": 1}},
+        {"do": {"hold_post": True}},
+    ])])
+    assert BS.shadowed_rows(raw, "a") == {1: 0}    # near 400 implies near 900
+    rows = BS.ladder_model(raw, "a")
+    assert rows[1]["shadow"] == 1 and rows[0]["shadow"] is None
+    assert rows[2]["shadow"] is None               # the fallback still fires past cond rows
+
+
+def test_a_die_below_a_wider_hp_gate_is_dead():
+    raw = _field([_unit("a", [
+        {"when": [{"hp_le": 2}], "do": {"flee": "player", "to": ["nook"]}},
+        {"when": [{"hp_le": 0}], "do": {"die": True}},   # hp_le 0 implies hp_le 2
+        {"do": {"hold_post": True}},
+    ])])
+    assert BS.shadowed_rows(raw, "a") == {1: 0}
+
+
+def test_a_sticky_shadower_is_exempt_and_the_demo_ladder_is_clean():
+    raw = _field([_unit("a", [
+        {"when": [{"near": ["player", 900]}], "do": {"announce": "halt"}, "once": True},
+        {"when": [{"near": ["player", 400]}], "do": {"swing_at": "player", "damage": 1}},
+        {"do": {"hold_post": True}},
+    ])])
+    assert BS.shadowed_rows(raw, "a") == {}        # a latched once RELEASES the rows below
+    # and the real fixture (announce-once over swing over chase) must stay chip-free
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parent / "test_behaviordoc.py"
+    spec = importlib.util.spec_from_file_location("_bd_fixture_shadow", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    demo = mod.demo_raw()
+    for name in ("watchman", "raider", "porter"):
+        assert BS.shadowed_rows(demo, name) == {}, name
+
+
+def test_an_early_plain_unconditional_shadows_everything_below():
+    raw = _field([_unit("a", [
+        {"do": {"hold_post": True}},
+        {"when": [{"near": ["player", 400]}], "do": {"chase": "player"}},
+        {"do": {"wander": [0, 0], "radius": 200}},
+    ])])
+    assert BS.shadowed_rows(raw, "a") == {1: 0, 2: 0}
+
+
+def test_different_targets_and_wider_radii_below_are_alive():
+    raw = _field([_unit("a", [
+        {"when": [{"near": ["b", 400]}], "do": {"swing_at": "b", "damage": 1}},
+        {"when": [{"near": ["player", 300]}], "do": {"flee": "player", "to": ["nook"]}},
+        {"when": [{"near": ["b", 900]}], "do": {"chase": "b"}},
+        {"do": {"hold_post": True}},
+    ]), _unit("b")])
+    assert BS.shadowed_rows(raw, "a") == {}        # no false positives
+
+
+def test_identical_cond_sets_shadow_by_equality():
+    raw = _field([_unit("a", [
+        {"when": [{"active": "b"}, {"near": ["b", 900]}], "do": {"chase": "b"}},
+        {"when": [{"active": "b"}, {"near": ["b", 900]}], "do": {"announce": "hi"}},
+        {"do": {"hold_post": True}},
+    ]), _unit("b")])
+    assert BS.shadowed_rows(raw, "a") == {1: 0}
+
+
+# --------------------------------------------------------------------------- branch archetypes
+def test_every_branch_archetype_survives_a_real_dry_compile(tmp_path):
+    """The fence with teeth, little-sibling edition: every BRANCH archetype, stamped
+    onto a real unit against BOTH target kinds it allows, through the REAL compiler."""
+    from ff9mapkit.editor import model as _model
+    for a in BS.BRANCH_ARCHETYPES:
+        targets = ["b"] if a.get("needs_target") else [None]
+        if a.get("needs_target") and not a.get("unit_only"):
+            targets.append("player")               # cond targets bind the player too --
+            #                                        except swing_at (units only, validated)
+        for t in targets:
+            raw = _field([_unit("a"), _unit("b")])
+            at = BS.stamp_branch(raw, "a", a["key"], t)
+            br = raw["behavior"]["unit"][0]["branch"]
+            assert br[at] == BS.branch_archetype_body(
+                _field([_unit("a"), _unit("b")]), "a", a["key"], t)
+            assert br[-1] == {"do": {"hold_post": True}}   # above the fallback, never past it
+            assert BS.validate_problems(raw) == [], (a["key"], t)
+            p = tmp_path / f"{a['key']}_{t}.toml"
+            p.write_text(_model.dumps(raw), encoding="utf-8")
+            res = BS.dry_compile(p)
+            assert res.ok, (a["key"], t, res.problems)
+
+
+def test_branch_archetype_guards_active_only_for_unit_targets():
+    raw = _field([_unit("a"), _unit("b")])
+    vs_unit = BS.branch_archetype_body(raw, "a", "swing_reach", "b")
+    assert vs_unit["when"][0] == {"active": "b"}   # a unit target gets the active guard
+    vs_player = BS.branch_archetype_body(raw, "a", "swing_reach", "player")
+    assert vs_player["when"] == [{"near": ["player", 300]}]   # the player is always active
