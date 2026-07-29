@@ -39,7 +39,13 @@
 >   install (calibrated: `WMScriptDirector.HonoAwake`'s own `Debug.Log`, which demonstrably ran, is absent
 >   from both). `output_log.txt` captures only warnings/errors/exceptions. Judge a world load by
 >   `game_snap.ps1` + the absence of exceptions, never by an expected `Debug.Log` line.
-> - **★ Rung 4 is largely PRE-EMPTED, and `blank_world_bytes()` may not be needed at all.** §3 Rung 4 scopes
+> - **Rung 4 ★ PASS (owner-confirmed) — and `blank_world_bytes()` was never written.** In 9013 the player
+>   renders, turns, and the **Blue Narciss traverses the synthetic ocean** when enabled from the debug menu.
+>   *Not* being able to walk is CORRECT, not a limitation: every cell is `IsSea` and FF9 has never let you
+>   walk on ocean on foot. The boat moving is the stronger result — it proves the sea walkmesh and the
+>   ground query are valid on runtime-minted geometry, and that the vehicle system works there. **Rungs 0-4
+>   are therefore ALL closed.**
+> - **★ Rung 4 was PRE-EMPTED by the verbatim route, and `blank_world_bytes()` is not needed.** §3 Rung 4 scopes
 >   the player as its own novel sub-step gated on a from-scratch `blank_world_bytes()` ("zero prior art").
 >   But a VERBATIM donor clone already carries `DefinePlayerCharacter` — the 9013 world has a rendered
 >   player with no byte-splice written. The verbatim-first route makes §5's `blank_world_bytes()` an
