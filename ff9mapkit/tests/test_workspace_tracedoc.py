@@ -207,11 +207,14 @@ def test_contact_records_the_proven_z_and_asks_for_the_png(app, tmp_path, monkey
     doc.fg_btn.setChecked(True)
     assert doc.canvas._contact_mode
     doc._on_contact(230.0, 320.0)
-    assert doc._fg == [{"contact": (230.0, 320.0), "image": str(png), "frame_warn": None}]
+    f = doc._fg[0]
+    assert f["contact"] == (230.0, 320.0) and f["image"] == str(png)
+    assert f["kind"] == "full" and f["offset"] is None    # photo-frame aspect -> registered
     assert not doc.canvas._contact_mode and doc.canvas._trace_mode   # disarmed back to tracing
     assert "z 1073" in doc.status.text()
     assert "z 1073" in doc.fg_box.itemText(0) and "pillar.png" in doc.fg_box.itemText(0)
-    assert len(doc.canvas._markers) == 1 and "z 1073" in doc.canvas._markers[0]["label"]
+    (cut,) = doc.canvas._cutouts
+    assert "z 1073" in cut["label"] and cut["rect"] is None and cut["locked"]
     assert doc.gen_btn.isEnabled()
 
 
@@ -296,47 +299,95 @@ def test_undo_walks_contact_gestures_and_new_image_clears_them(app, tmp_path, mo
     doc.on_undo()                                                    # undo the remove
     assert len(doc._fg) == 1 and doc._fg[0]["image"] == str(png)
     doc.on_undo()                                                    # undo the add
-    assert doc._fg == [] and doc.canvas._markers == []
+    assert doc._fg == [] and doc.canvas._cutouts == []
     doc.load_image(_photo(tmp_path))                                 # new art -> contacts void
     assert doc._fg == [] and not doc._history
 
 
-def test_cutout_frame_mismatch_warns_the_playtest_case(app, tmp_path, monkeypatch):
-    """The first playtest's exact miss: a 531x473 object snip attached over a 1536x1792 photo
-    cover-crops to FILL the screen (a giant dog) — the attach warns with the re-export teach and
-    the strip flags the row. Advisory, not a block (an equal-aspect vignette is legit)."""
-    pytest.importorskip("PIL")
+def _snip_doc(app, tmp_path, monkeypatch, snip_size=(531, 473)):
+    """A 1536x1792 photo traced, a snip of ``snip_size`` attached at the (230,320) contact."""
     from PIL import Image
-    doc, _ = _doc(app)
+    doc, run = _doc(app)
     photo = tmp_path / "room.png"
     Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
     doc.load_image(photo)
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
     snip = tmp_path / "snip.png"
-    Image.new("RGBA", (531, 473), (0, 0, 0, 255)).save(snip)
+    Image.new("RGBA", snip_size, (10, 20, 30, 255)).save(snip)
     monkeypatch.setattr(doc, "_ask_cutout", lambda: str(snip))
     doc.fg_btn.setChecked(True)
     doc._on_contact(230.0, 320.0)
-    assert doc._fg[0]["frame_warn"] and "531x473" in doc._fg[0]["frame_warn"]
-    assert "FILL the screen" in doc.status.text()
-    assert "won't align" in doc.fg_box.itemText(0)
-    assert doc.gen_btn.isEnabled()                       # advisory — Generate stays open
+    return doc, run, snip
 
 
-def test_equal_aspect_cutout_does_not_warn(app, tmp_path, monkeypatch):
-    """Same frame at half resolution shares the aspect — cover-crop scales it back into perfect
-    register, so no warn (the honest boundary of what the check can know)."""
+def test_a_snip_becomes_a_positionable_overlay(app, tmp_path, monkeypatch):
+    """The first playtest's 531x473 object crop, as a FEATURE: a non-photo-aspect attachment is
+    a SNIP — previewed at its natural photo scale (531/4 x 473/4 canvas px on a 4x photo), its
+    base parked on the contact, draggable, labelled in the strip."""
+    pytest.importorskip("PIL")
+    doc, _, _ = _snip_doc(app, tmp_path, monkeypatch)
+    f = doc._fg[0]
+    assert f["kind"] == "snip" and f["size"] == (531, 473)
+    (cut,) = doc.canvas._cutouts
+    x, y, w, h = cut["rect"]
+    assert abs(w - 531 / 4) < 0.3 and abs(h - 473 / 4) < 0.3   # natural scale, never screen-fit
+    assert abs((x + w / 2) - 230.0) < 0.6 and abs((y + h) - 320.0) < 0.6   # base on the contact
+    assert not cut["locked"] and "snip" in doc.fg_box.itemText(0)
+    assert "drag it into place" in doc.status.text()
+    assert doc.gen_btn.isEnabled()
+
+
+def test_dragging_a_snip_moves_its_anchor_and_rederives_z(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    doc, _, _ = _snip_doc(app, tmp_path, monkeypatch)
+    f = doc._fg[0]
+    ox, oy = f["offset"]
+    z0 = doc._fg_state(f)[0]
+    doc._on_cutout_moved(0, ox + 20.0, oy + 40.0)        # the canvas's one-per-gesture callback
+    assert f["offset"] == (round(ox + 20.0, 1), round(oy + 40.0, 1))
+    assert f["contact"] == (250.0, 360.0)                # the anchor rode along by the same delta
+    assert doc._fg_state(f)[0] != z0                     # deeper contact -> a new derived z
+    doc.on_undo()
+    assert doc._fg[0]["contact"] == (230.0, 320.0)       # one undoable gesture
+    doc._on_contact_moved(0, 240.0, 330.0)               # re-anchor ALONE: the image stays put
+    assert doc._fg[0]["contact"] == (240.0, 330.0)
+    assert doc._fg[0]["offset"] == (ox, oy)
+
+
+def test_generate_composes_a_placed_snip_to_the_full_frame(app, tmp_path, monkeypatch):
+    """The CLI contract is untouched: Generate writes the snip onto a transparent 1536x1792
+    frame at its dragged spot (beside the source image, so the command re-runs) and the argv
+    references the COMPOSED file at the anchored form."""
     pytest.importorskip("PIL")
     from PIL import Image
-    doc, _ = _doc(app)
-    photo = tmp_path / "room.png"
-    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
-    doc.load_image(photo)
-    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
-    half = tmp_path / "half.png"
-    Image.new("RGBA", (768, 896), (0, 0, 0, 0)).save(half)
-    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(half))
-    doc.fg_btn.setChecked(True)
-    doc._on_contact(230.0, 320.0)
-    assert not doc._fg[0].get("frame_warn")
-    assert "won't align" not in doc.fg_box.itemText(0)
+    from ff9mapkit import imagefield as IF
+    doc, run, _ = _snip_doc(app, tmp_path, monkeypatch)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    spec = IF.parse_foreground_spec(argv[argv.index("--foreground") + 1])
+    composed = Path(spec["image"])
+    assert composed == tmp_path / "room.fg0.png" and spec["contact"] == (230.0, 320.0)
+    im = Image.open(composed)
+    assert im.size == (1536, 1792)
+    ox, oy = doc._fg[0]["offset"]
+    bx0, by0, bx1, by1 = im.getchannel("A").getbbox()
+    assert abs(bx0 - ox * 4) <= 1 and abs(by0 - oy * 4) <= 1     # pasted at the dragged spot
+    assert abs((bx1 - bx0) - 531) <= 1 and abs((by1 - by0) - 473) <= 1   # at natural photo scale
+
+
+def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
+    """Same frame at half resolution shares the aspect — registered (locked, fills the frame),
+    and Generate passes the ORIGINAL path untouched."""
+    pytest.importorskip("PIL")
+    doc, run, snip = _snip_doc(app, tmp_path, monkeypatch, snip_size=(768, 896))
+    f = doc._fg[0]
+    assert f["kind"] == "full" and f["offset"] is None
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is None and cut["locked"]
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--foreground") + 1].startswith(str(snip))

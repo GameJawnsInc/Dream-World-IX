@@ -809,12 +809,9 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         _settle(6)
     if state == "contacts":
         from PIL import Image
-        cut = _SCRATCH / "trace_demo" / "pillar_cutout.png"
-        im = Image.new("RGBA", (768, 896), (0, 0, 0, 0))     # full-canvas alpha, pillar opaque
-        for x in range(420, 500):                            # kit-painted stand-in cut-out
-            for y in range(300, 660):
-                im.putpixel((x, y), (68, 60, 82, 255))
-        im.save(cut)
+        cut = _SCRATCH / "trace_demo" / "pillar_snip.png"
+        im = Image.new("RGBA", (40, 180), (68, 60, 82, 255))   # a kit-painted object SNIP: the
+        im.save(cut)                                           # positionable-cut-out idiom
         td = win.trace_doc
         td._ask_cutout = lambda: str(cut)                    # the attach dialog, answered
         td.fg_btn.setChecked(True)

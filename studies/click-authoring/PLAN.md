@@ -126,6 +126,19 @@ proven (pillar room, contact (230,320) → z 1073, flip mid-room). Small rung; m
 **Guard:** error when `z ≥ Z_BASE 4000` (means the contact was traced up the body, not at the base) —
 the existing CLI check, re-enforced at the new call site.
 
+★ **PREVIEW + POSITIONABLE SNIPS (owner-asked after the first playtest, built same day):**
+attached cut-outs render ON the art (`set_cutouts` — a photo-aspect PNG fills the frame
+REGISTERED and inert; anything else is a **SNIP**: previewed at its natural photo scale, its base
+parked on the contact, DRAGGABLE with alpha-masked hits so its transparent surround still traces).
+Dragging a snip moves its contact anchor by the same delta (z re-derives live); every contact has
+its own draggable diamond handle for re-anchoring the flip line alone. Generate composites each
+placed snip onto a transparent full frame at the 4x art resolution (written beside the source
+image) and emits the SAME `--foreground path@cx,cy` CLI form — the frame rule stopped being a
+rule the author has to know. A Show toggle hides the previews to trace under them. Along the way:
+THE GC-CHILD LAW — a parented QGraphicsItem whose only Python wrapper dies can be GC-deleted on
+the C++ side mid-handler (shiboken ownership; surfaced as a stale-wrapper RuntimeError + an
+access-violation teardown); every canvas child item now keeps a strong ref in `_kids`.
+
 ★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
 polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both
 refusals, horizon and the z≥Z_BASE "trace the base, not the body" message, surfaced verbatim).
