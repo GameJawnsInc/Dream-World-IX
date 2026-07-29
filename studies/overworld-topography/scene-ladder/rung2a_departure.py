@@ -109,19 +109,15 @@ TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 RET()
 """
 
-# The eye frames by MODE: a DEPARTURE (Map.Byte[51] carries the port) looks SEAWARD from the
-# shore side -- the spawn point is BEHIND the camera, so the deferred-model flash cannot be in
-# frame; the confirm vignette keeps the proven west-side composition.
+# One framing for both modes (owner preference: the departure looks at the boat/shore FROM
+# open sea, like the vignette). Safe again despite the deferred-model flash risk that forced
+# the v5 seaward detour: the prologue's instant black provably HOLDS from frame zero (the
+# floating-minimap screenshot was black underneath), and the director re-hides the player
+# ~17 frames before its fade-in completes -- hidden before anything is visible.
 EYE_INIT = f"""
 0xB7()
 SetObjectLogicalSize(0, 0, 0)
-SET({{Map.Byte[{PORT_CACHE}] B_EXPR_END}})
-JMP_IFNOT(L50)
-MoveInstantXZY({ship_rel(0, lateral=14)}, {ship_rel(1, up_units=6)}, {ship_rel(2, lateral=4)})
-JMP(L90)
-L50:
 MoveInstantXZY({ship_rel(0, lateral=-17)}, {ship_rel(1, up_units=7)}, {ship_rel(2, lateral=-14)})
-L90:
 SetWalkSpeed(8)
 SetWalkTurnSpeed(1)
 RET()
@@ -187,6 +183,7 @@ L0:
 SET({{Map.Byte[{PORT_CACHE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L100)
 HideObject({ANCHOR_UID}, 255)
+op_22(4)
 {FADE_IN}
 op_22(30)
 SetWalkSpeed({SAIL_SPEED})
