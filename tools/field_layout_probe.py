@@ -257,6 +257,13 @@ def analyze(items, camera, wmesh, cw, ch, scrolling=False) -> tuple:
             solid_b = b["item"]["type"] in ("npc", "prop", "spawn", "arrival")
             if not (solid_a and solid_b):
                 continue
+            # The player is EXACTLY ONE of {spawn, arrival N} at a time -- they are alternative
+            # placements of one actor, not two. Comparing them invents a collision: an entrance-0
+            # arrival is CONVENTIONALLY equal to [player] spawn (both compile to the same D9(0)/D9(4)
+            # consts), so this loop reported "0u apart -- COLLIDING" on a correct field. Two arrival
+            # rows are likewise never simultaneous.
+            if a["item"]["type"] in ("spawn", "arrival") and b["item"]["type"] in ("spawn", "arrival"):
+                continue
             d = math.hypot(a["item"]["pos"][0] - b["item"]["pos"][0],
                            a["item"]["pos"][1] - b["item"]["pos"][1])
             la, lb = a["item"]["label"], b["item"]["label"]
