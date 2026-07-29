@@ -704,10 +704,13 @@ def pursuit_refs(raw: dict) -> list:
                 r = int(do.get("radius", 400))
                 box = (cx - r, cx + r, cz - r, cz + r)
                 # a roll lands anywhere in the box, so the walker can be at one corner
-                # and its fresh target at the other: the family spans 2r per axis
+                # and its fresh target at the other: the family spans 2r per axis.
+                # `centre`/`wradius` feed routes.sweep_wander (the roll-anywhere,
+                # floor-aware model); the box keys stay for older consumers.
                 refs.append({"ui": ui, "bi": bi, "unit": _row_label(u),
                              "verb": "wander", "target": f"({cx},{cz})+-{r}",
                              "radius": 2 * r, "standoff": 0,
+                             "centre": (cx, cz), "wradius": r,
                              "source_box": box, "target_box": box})
     return refs
 

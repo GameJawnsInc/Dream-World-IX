@@ -115,8 +115,8 @@ def route_polyline(wmesh, points, *, closed=False, obstacles=(), clearance=None)
     out, inserted = [], []
     for i, leg in enumerate(legs):
         out.append(seq[i])
-        if not leg["spans"]:
-            continue
+        if not leg["spans"] and not leg.get("jumps"):
+            continue                                    # a floor break jams like a gap
         wps = route(wmesh, leg["a"], leg["b"], obstacles, clearance=clearance)
         if not wps:
             raise RouteLegError(i, leg["a"], leg["b"],
@@ -133,6 +133,15 @@ def route_polyline(wmesh, points, *, closed=False, obstacles=(), clearance=None)
                 raise RouteLegError(j, leg["a"], leg["b"],
                                     "still OFF-MESH after routing (sweep/route sampling "
                                     "disagree) -- reroute this leg by hand")
+            if leg.get("jumps"):
+                jj = leg["jumps"][0]
+                raise RouteLegError(
+                    j, leg["a"], leg["b"],
+                    f"the routed line still crosses floor "
+                    f"{'+'.join(map(str, jj['from']))} -> {'+'.join(map(str, jj['to']))} "
+                    f"away from any seam around ({jj['x']:.0f},{jj['z']:.0f}) -- the "
+                    f"A* is floor-blind, so route this leg by hand THROUGH a real seam "
+                    f"edge (add a waypoint on the seam)")
     return [(int(round(x)), int(round(z))) for (x, z) in out], inserted
 
 

@@ -93,7 +93,8 @@ py tools/field_layout_probe.py <field.toml> [--out DIR] [--camera N]
 
 Outputs (default `tools/scroll_out/layout_probe/<name>/`) -- **Read all three**:
 
-- **`topdown.png`** -- world X/Z from above (+z UP, matching yaw-0 screen): walkmesh floors, zone
+- **`topdown.png`** -- world X/Z from above (+z UP, matching yaw-0 screen): walkmesh floors EACH IN
+  ITS OWN TINT with cross-floor SEAM edges in green (a raised terrace reads at a glance), zone
   quads, true-scale 48u/96u collision rings, facing arrows, the camera's position (the FRONT is the
   edge nearest it), and a compass rose whose green arrow shows which world way is UP-SCREEN.
 - **`camview.png`** -- the painted-canvas view through the exact `cam.to_canvas` projection:
@@ -130,6 +131,13 @@ contact -- there is NO pathfinding):
   distance-to-boundary-edge before nearest-snapping.
 - Long walks across an irregular field usually need WAYPOINTS at the concavity mouths (necks,
   gates); pick them from the probe's picture, then sweep the multi-leg route until clean.
+- **THE FLOOR LAW (multi-floor meshes).** A walker lives on ONE floor and changes floors only at a
+  SEAM edge (green on the topdown); anywhere else two floors meet in top-down view -- a terrace
+  base, a balcony lip -- is a WALL a flattened point test cannot see (the HANGOUT lesson: three
+  playtests of "glitchy waypoints" every offline gate called clean). The report names each item's
+  floor(s); the sweeps error on any leg crossing floors away from a seam ("NO SEAM"), and the
+  wander sweep models the roll landing ANYWHERE in its box -- off-mesh or off-floor box area jams
+  the walker. Keep a walker's posts, routes, and wander box on floors its own floor seams into.
 
 Scrolling fields ([camera.scroll] enabled): the probe auto-skips OFF-CANVAS warnings there --
 the viewport pans, so content beyond one static screen is normal, not a bug.

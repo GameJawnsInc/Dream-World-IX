@@ -1125,7 +1125,9 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
             seen.add(dk)
             legs = _routes.sweep_polyline(pts, wmesh, bedges, closed=closed)
             for p in _routes.describe_leg_problems(name, legs):
-                res.lines.append(("error" if "OFF-MESH" in p else "warn", p))
+                # an unseamed floor crossing jams every lap exactly like OFF-MESH
+                res.lines.append(("error" if ("OFF-MESH" in p or "NO SEAM" in p)
+                                  else "warn", p))
             for leg in legs:
                 for t0, t1 in leg["spans"]:
                     (ax, az), (bx, bz) = leg["a"], leg["b"]
@@ -1134,6 +1136,13 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
                                      "mid": (ax + (bx - ax) * mt, az + (bz - az) * mt),
                                      "span": max((t1 - t0) * leg["len"], 40.0),
                                      "name": str(name)})
+                    if ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
+                        jam_hint = True
+                for j in leg.get("jumps") or ():   # floor breaks paint like jams
+                    res.jams.append({"a": leg["a"], "b": leg["b"], "t0": j["t"],
+                                     "t1": j["t"], "mid": (j["x"], j["z"]),
+                                     "span": 40.0, "name": str(name),
+                                     "kind": "floor"})
                     if ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
                         jam_hint = True
                 if not leg["spans"] and leg["minwall"] is not None \
@@ -1148,6 +1157,30 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
             extent = _routes.pursuit_extent(wmesh)
             pseen = set()
             for ref in BT.pursuit_refs(raw):
+                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
+                         f"branch #{ref['bi']})")
+                if ref["verb"] == "wander":
+                    # the roll-anywhere, floor-aware model (mirrors the CLI lint):
+                    # the engine's roll never checks the mesh
+                    dk = ("wander", ref["centre"], ref["wradius"])
+                    if dk in pseen:
+                        continue
+                    pseen.add(dk)
+                    wres = _routes.sweep_wander(wmesh, ref["centre"][0],
+                                                ref["centre"][1], ref["wradius"],
+                                                bedges=bedges)
+                    probs = _routes.describe_wander_problems(
+                        f"{ref['target']!r} ({ref['unit']!r} branch #{ref['bi']})", wres)
+                    res.lines.extend(("warn", p) for p in probs)
+                    if probs and wres["jammed"]:
+                        us = BT.units(raw)
+                        punit = (row_name(us[ref["ui"]], ref["ui"])
+                                 if 0 <= ref["ui"] < len(us) else ref["unit"])
+                        res.pursuits.append({"label": label, "unit": punit,
+                                             "tested": wres["tested"],
+                                             "blocked": wres["jammed"],
+                                             "worst": wres["worst"]})
+                    continue
                 radius = ref["radius"]
                 ungated = radius is None
                 if ungated:
@@ -1161,8 +1194,6 @@ def sweep_geometry(raw: dict, wmesh, *, pursuit: bool = True) -> SweepResult:
                                              bedges=bedges,
                                              source_box=ref["source_box"],
                                              target_box=ref["target_box"])
-                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
-                         f"branch #{ref['bi']})")
                 if ungated:
                     label += (" [UNGATED: no near/any_near row bounds this target, so "
                               f"the family is the whole field ({extent:.0f}u)]")

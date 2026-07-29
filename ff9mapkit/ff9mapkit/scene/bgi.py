@@ -513,7 +513,10 @@ class BgiWalkmesh:
     def point_on_walkmesh(self, x, z):
         """Floor index of the triangle whose XZ-projection contains (x, z), else None. Validates that
         authored content (NPC / player spawn / gateway zone) sits on the walkable area before build --
-        a top-down point-in-triangle test (multi-floor fields can overlap in XZ; returns first match)."""
+        a top-down point-in-triangle test (multi-floor fields can overlap in XZ; returns first match).
+        FLOOR-BLIND by construction -- when which-floor matters (a route leg, a wander box, a post
+        near a terrace), use :meth:`floors_at`: "on the mesh" flattened to 2D is exactly how a raised
+        terrace passed every offline gate while a ground walker wedged against its base."""
         wv, tf, grid = self._lookup()
         tris = self.tris
         for ti in self._candidates(x, z, grid):    # bbox-bucketed superset, ascending -- same first match
@@ -521,6 +524,62 @@ class BgiWalkmesh:
             if _pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
                 return tf.get(ti, t.floor_ndx)
         return None
+
+    def floors_at(self, x, z):
+        """EVERY floor index whose XZ-projection contains (x, z), ascending ([] = off-mesh).
+
+        The floor-aware point test: multi-floor fields overlap in XZ (a balcony over the ground
+        floor), and a walker lives on ONE floor -- it can only change floors across a seam edge
+        (:meth:`extract_seams`), never by standing where two floors stack. A point "on the mesh"
+        by :meth:`point_on_walkmesh` can still be unreachable from a walker's floor."""
+        wv, tf, grid = self._lookup()
+        tris = self.tris
+        out = []
+        for ti in self._candidates(x, z, grid):
+            t = tris[ti]
+            if _pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
+                fi = tf.get(ti, t.floor_ndx)
+                if fi not in out:
+                    out.append(fi)
+        out.sort()
+        return out
+
+    def seam_edges_xz(self) -> dict:
+        """Cross-floor SEAM edges as ``{(fa, fb): [((ax, az), (bx, bz)), ...]}`` with
+        ``fa < fb`` -- the XZ segments where a walker legally crosses between floors
+        (a triangle edge whose neighbor sits on another floor). Everything else where
+        two floors meet in flattened 2D is a WALL (a terrace base, a balcony lip).
+        Derived from the same neighbor links the engine walks; cached with the other
+        geometry (``rebuild_neighbors``/``apply_seams`` invalidate it)."""
+        c = self._derived()
+        seams = c.get("seams")
+        if seams is None:
+            wv, tf = self._wv(), self._tf()
+            seams = {}
+            seen = set()
+            nv = len(wv)
+            for ti, t in enumerate(self.tris):
+                fa = tf.get(ti, t.floor_ndx)
+                for k in range(3):
+                    nb = t.nbr[k]
+                    if nb < 0 or nb >= len(self.tris):
+                        continue
+                    fb = tf.get(nb, self.tris[nb].floor_ndx)
+                    if fb == fa:
+                        continue
+                    key = (min(ti, nb), max(ti, nb))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    i, j = SLOT_PAIRS[k]
+                    a, b = int(t.vtx[i]), int(t.vtx[j])
+                    if not (0 <= a < nv and 0 <= b < nv):
+                        continue
+                    pair = (min(fa, fb), max(fa, fb))
+                    seams.setdefault(pair, []).append(
+                        ((wv[a][0], wv[a][2]), (wv[b][0], wv[b][2])))
+            c["seams"] = seams
+        return seams
 
     def height_at(self, x, z):
         """The floor Y (world height) at (x, z): the triangle whose XZ-projection contains (x, z),
