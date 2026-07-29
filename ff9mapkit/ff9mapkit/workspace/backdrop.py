@@ -93,6 +93,12 @@ class BackdropCanvas(QGraphicsView):
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        # FULL viewport repaints: the native partial-update path mis-computes exposed regions
+        # for a TRANSFORMED, alpha-MASKED pixmap being dragged — the backdrop vanished under a
+        # moving cut-out (owner playtest; offscreen full-frame renders cannot show it). The
+        # scene is a few hundred items in a 384x448 frame — full repaints are cheap, artifacts
+        # are not.
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(palette["surface"]))

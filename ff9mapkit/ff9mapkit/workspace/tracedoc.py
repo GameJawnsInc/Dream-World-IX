@@ -60,6 +60,9 @@ class TraceDoc(QWidget):
         self._history = []                            # prior (floor, fg) snapshots, one per gesture (undo)
         self._project = None                          # {"out", "name", "fid"} after a Generate:
                                                       # later Generates go IN PLACE (no dialog)
+        self._stamped = True                          # False = gestures since the last Generate
+        self._offer_path = None                       # the OPEN field's toml (the shell's feed)
+        self._offer_rejected = None                   # a non-project offer, remembered (no re-parse)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
@@ -79,6 +82,12 @@ class TraceDoc(QWidget):
                                  "384×448 cover-crop the build will use.")
         self.open_btn.clicked.connect(self.on_open)
         row.addWidget(self.open_btn)
+        self.offer_btn = QPushButton()                 # "Load <open field>" -- shown by offer_project
+        self.offer_btn.setToolTip("Reopen the field currently open in the Editor as a trace "
+                                  "session — no navigating to its folder.")
+        self.offer_btn.clicked.connect(self.on_offer)
+        self.offer_btn.hide()
+        row.addWidget(self.offer_btn)
         self.img_label = QLabel("no image")
         self.img_label.setProperty("role", "muted")
         row.addWidget(self.img_label)
@@ -295,6 +304,9 @@ class TraceDoc(QWidget):
                         note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
                     if fg_unattached:
                         note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
+        if self._project and not self._stamped:        # edits the project on disk doesn't have
+            note += f" · ⚠ not stamped — Regenerate {self._project['name']} to update the project"
+            state = state or "warn"
         self.status.setText(note)
         widgets.set_state(self.status, state)
 
@@ -409,6 +421,7 @@ class TraceDoc(QWidget):
         self._refresh()
 
     def _on_pitch(self, _v):
+        self._stamped = False                          # a camera change alters the build
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
         self._refresh_cutouts()                        # anchored z's are camera-dependent
         self._refresh()
@@ -419,6 +432,7 @@ class TraceDoc(QWidget):
         through vertex and contact gestures in the order they happened."""
         self._history.append({"floor": list(self._floor), "fg": [dict(f) for f in self._fg]})
         del self._history[:-_HISTORY_CAP]
+        self._stamped = False                          # a gesture the project doesn't have yet
 
     def _on_floor(self, pts):
         self._push_history()
@@ -552,6 +566,7 @@ class TraceDoc(QWidget):
                       "or a floor larger than the Int16 world bound.")
         if started:
             self._project = {"out": str(out), "name": name, "fid": int(fid)}
+            self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"Generating {name} → {out} …")
 
@@ -595,6 +610,7 @@ class TraceDoc(QWidget):
             self.id_box.setText(str(data["id"]))
         self._project = {"out": str(Path(path).parent), "name": self.name_box.text(),
                          "fid": data.get("id")}
+        self._stamped = True                           # the record IS the project's state
         self._refresh_cutouts()
         self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
 
@@ -650,9 +666,44 @@ class TraceDoc(QWidget):
         if fid:
             self.id_box.setText(str(fid))
         self._project = {"out": str(path.parent), "name": name, "fid": fid}
+        self._stamped = True                           # rebuilt FROM the project = in sync
         self._refresh_cutouts()
         self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
                       f".trace.json yet; the next Generate writes one). Generate goes in place.")
+
+    # ------------------------------------------------------------------ the open-field offer
+    def offer_project(self, path):
+        """The shell's feed on tab show: the field currently open in the Editor. A PRISTINE tab
+        auto-loads a reopenable project outright (the owner-asked best case — the one sanctioned
+        tab-show disk touch); a tab mid-session shows a one-click button instead of clobbering.
+        A non-project toml (a fork, a hand toml) is remembered and never re-parsed."""
+        self._offer_path = str(path) if path else None
+        self.offer_btn.hide()
+        if not self._offer_path or self._offer_path == self._offer_rejected:
+            return
+        cur = Path(self._project["out"]) if self._project else None
+        if cur is not None and Path(self._offer_path).parent == cur:
+            return                                     # already this project
+        pristine = self._image is None and not self._floor and not self._fg
+        if pristine:
+            try:
+                self.load_project(self._offer_path)
+            except Exception:                          # noqa: BLE001 -- not a traceable project
+                self._offer_rejected = self._offer_path
+            return
+        self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
+                               f"(the open field)")
+        self.offer_btn.show()
+
+    def on_offer(self):
+        if not self._offer_path:
+            return
+        try:
+            self.load_project(self._offer_path)
+        except Exception as e:                         # noqa: BLE001
+            self._offer_rejected = self._offer_path
+            self.offer_btn.hide()
+            self._refresh(f"Not a traceable project: {e}", "warn")
 
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
