@@ -152,6 +152,18 @@ op_22(1)
 JMP(L0)
 """
 
+HIDE_TAG, SHOW_TAG = 65, 66            # anchor self-op tags: show-bit clear / restore (stock flags = 5)
+
+ANCHOR_HIDE = """
+SetObjectFlags(4)
+RET()
+"""
+
+ANCHOR_SHOW = """
+SetObjectFlags(5)
+RET()
+"""
+
 # --- the port-snap tags on the anchor (the boat tag-60 shape) ---
 
 def port_tag_body(x: float, z: float, face: int, ground_y: float) -> str:
@@ -182,7 +194,7 @@ DIRECTOR_LOOP = f"""
 L0:
 SET({{Map.Byte[{PORT_CACHE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L100)
-HideObject({ANCHOR_UID}, 255)
+RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 op_22(4)
 {FADE_IN}
 op_22(30)
@@ -200,7 +212,7 @@ op_1C({AIM_UID})
 MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
 TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 {_port_switch()}
-ShowObject({ANCHOR_UID}, 255)
+RunScriptSync(6, {ANCHOR_UID}, {SHOW_TAG})
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
@@ -264,7 +276,7 @@ SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
 InitObject({EYE_UID}, 0)
 InitObject({AIM_UID}, 0)
-HideObject({ANCHOR_UID}, 255)
+RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 DisableMove()
 DisableMenu()
 RunWorldCode(2, 0)
@@ -292,6 +304,13 @@ def patch_one(base: bytes) -> bytes:
     out = E.replace_function_body(out, EYE_UID, 1, asm(EYE_LOOP))
     out = E.replace_function_body(out, AIM_UID, 0, asm(AIM_INIT))
     out = E.replace_function_body(out, AIM_UID, 1, asm(AIM_LOOP))
+    for tag, body_text in ((HIDE_TAG, ANCHOR_HIDE), (SHOW_TAG, ANCHOR_SHOW)):
+        body = asm(body_text)
+        s2 = EbScript(out)
+        if any(f.tag == tag for f in s2.entry(ANCHOR_UID).funcs):
+            out = E.replace_function_body(out, ANCHOR_UID, tag, body)
+        else:
+            out = E.add_function(out, ANCHOR_UID, tag, body)
     for tag, x, z, face, gy in PORTS:
         body = asm(port_tag_body(x, z, face, gy))
         s2 = EbScript(out)
