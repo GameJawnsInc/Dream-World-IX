@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from .. import imagefield
 from ..scene import cam as _cam
+from .widgets import mark_grabbable
 
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
@@ -138,6 +139,17 @@ class BackdropCanvas(QGraphicsView):
             lab.setStyleSheet(sheet)
         self._coords.setStyleSheet(sheet.replace(self.pal["muted"], self.pal["text"], 1))
         self._place_hint()
+
+    def _child(self, item, parent):
+        """Adopt a SCENE-CREATED item as ``parent``'s child. THE GC-CHILD LAW: an item
+        constructed with a parent argument is PYTHON-owned to shiboken, so its wrapper's GC
+        deletes the C++ child under a live scene (stale itemAt hits mid-handler) and its
+        finalizer double-frees after a scene.clear() (an exit access violation). Creating via
+        ``scene.addX`` then ``setParentItem`` keeps ownership C++-side both ways; ``_kids``
+        keeps the wrapper alive as a belt."""
+        item.setParentItem(parent)
+        self._kids.append(item)
+        return item
 
     def _place_hint(self):
         self._hint.adjustSize()                    # measure AFTER polish -- construction adjustSize lies
@@ -315,11 +327,10 @@ class BackdropCanvas(QGraphicsView):
         anchor.setPos(6, hy)
         anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
         anchor.setData(0, "horizonlabel")
-        t = QGraphicsSimpleTextItem("horizon — no floor above", anchor)
+        t = self._child(self._scene.addSimpleText("horizon — no floor above"), anchor)
         t.setFont(self._font(8))
         t.setBrush(QColor(self.pal["warn"]))
         t.setPos(0, -14)                           # screen px, riding the zoom-immune anchor
-        self._kids.append(t)
 
     # -- Rung 3: the walkable footprint + placed-content markers --
     def _draw_surface(self):
@@ -357,19 +368,17 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(cx, cy)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "marker")
-            ring = QGraphicsEllipseItem(-4, -4, 8, 8, anchor)
+            ring = self._child(self._scene.addEllipse(-4, -4, 8, 8), anchor)
             ring.setPen(QPen(color, 1.6))
             ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            dot = QGraphicsEllipseItem(-1.5, -1.5, 3, 3, anchor)
+            dot = self._child(self._scene.addEllipse(-1.5, -1.5, 3, 3), anchor)
             dot.setPen(QPen(Qt.PenStyle.NoPen))
             dot.setBrush(QBrush(color))
-            self._kids += [ring, dot]
             if m.get("label"):
-                t = QGraphicsSimpleTextItem(str(m["label"]), anchor)
+                t = self._child(self._scene.addSimpleText(str(m["label"])), anchor)
                 t.setFont(self._font(8))
                 t.setBrush(QBrush(color))
                 t.setPos(7, -15)               # screen px, riding the zoom-immune anchor
-                self._kids.append(t)
 
     # -- Rung 2: cut-out previews + their contact handles --
     def _draw_cutouts(self, w, h):
@@ -397,6 +406,7 @@ class BackdropCanvas(QGraphicsView):
                     it.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
                 else:                              # the object's pixels grab; its sky doesn't
                     it.setShapeMode(QGraphicsPixmapItem.ShapeMode.MaskShape)
+                    mark_grabbable(it)             # the move cursor follows the opaque pixels
                 self._cutout_items[c["i"]] = it
         for c in self._cutouts:
             cx, cy = c["contact"]
@@ -407,16 +417,15 @@ class BackdropCanvas(QGraphicsView):
             anchor.setData(0, "cutoutpt")
             anchor.setData(1, c["i"])
             dia = QPolygonF([QPointF(0, -5), QPointF(5, 0), QPointF(0, 5), QPointF(-5, 0)])
-            gl = QGraphicsPolygonItem(dia, anchor)
+            gl = self._child(self._scene.addPolygon(dia), anchor)
             gl.setPen(QPen(color, 1.6))
             gl.setBrush(QBrush(color))
-            self._kids.append(gl)
+            mark_grabbable(gl)                     # the anchor re-tunes in trace + contact modes
             if c.get("label"):
-                t = QGraphicsSimpleTextItem(str(c["label"]), anchor)
+                t = self._child(self._scene.addSimpleText(str(c["label"])), anchor)
                 t.setFont(self._font(8))
                 t.setBrush(QBrush(color))
                 t.setPos(7, -16)                   # screen px, riding the zoom-immune anchor
-                self._kids.append(t)
             anchor.setToolTip("the floor-contact anchor — occlusion flips here; drag to re-anchor"
                               + (" (INVALID: no floor under it)" if c.get("bad") else ""))
             self._contact_items[c["i"]] = anchor
@@ -488,15 +497,17 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "tracept")
             anchor.setData(1, i)
-            dot = QGraphicsEllipseItem(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R,
-                                       anchor)
+            dot = self._child(
+                self._scene.addEllipse(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R),
+                anchor)
             dot.setPen(QPen(color, 1.6))
             dot.setBrush(QBrush(color))
-            t = QGraphicsSimpleTextItem(str(i), anchor)
+            t = self._child(self._scene.addSimpleText(str(i)), anchor)
             t.setFont(self._font(8))
             t.setBrush(QBrush(color))
             t.setPos(6, -16)                       # screen px, riding the zoom-immune anchor
-            self._kids += [dot, t]
+            if self._trace_mode:                   # vertices drag only while TRACING (contact
+                mark_grabbable(dot)                # mode renders them inert context)
             if bad:
                 anchor.setToolTip("above the horizon — the build will refuse this vertex")
             self._trace_items.append({"anchor": anchor, "i": i})

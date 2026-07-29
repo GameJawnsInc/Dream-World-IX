@@ -580,9 +580,14 @@ class StageCanvas(QGraphicsView):
             if self._edit and ring.get("rid"):     # the resize grip sits on the ring's east edge
                 anchor = self._anchor(cx + ring["radius"], cz, "ringgrip")
                 anchor.setData(1, len(self._grip_items))
-                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq = self._scene.addRect(-4, -4, 8, 8)    # scene-created THEN parented: a
+                sq.setParentItem(anchor)                  # constructor-parented child is
+                                                          # Python-owned to shiboken and
+                                                          # double-frees (THE GC-CHILD LAW,
+                                                          # backdrop.py:_child)
                 sq.setPen(QPen(QColor(pal["accent"]), 1.4))
                 sq.setBrush(QBrush(QColor(pal["surface"])))
+                widgets.mark_grabbable(sq, resize=True)   # the hover cue over the pan hand
                 anchor.setToolTip(f"Drag to resize — {ring['label']}")
                 self._grip_items.append({"anchor": anchor, "rid": tuple(ring["rid"]),
                                          "cx": cx, "cz": cz, "r": ring["radius"],
@@ -679,9 +684,11 @@ class StageCanvas(QGraphicsView):
             for i, h in enumerate(self._handles):
                 anchor = self._anchor(h["x"], h["z"], "handle")
                 anchor.setData(1, i)
-                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq = self._scene.addRect(-4, -4, 8, 8)    # scene-created THEN parented (THE
+                sq.setParentItem(anchor)                  # GC-CHILD LAW — see the grip above)
                 sq.setPen(QPen(QColor(pal["text"]), 1.2))
                 sq.setBrush(QBrush(QColor(pal["surface"])))
+                widgets.mark_grabbable(sq)         # the hover cue over the pan hand
                 anchor.setToolTip(h["label"] + (
                     "\nDrag to move · right-click for point ops" if h.get("list_id")
                     else "\nDrag to move"))

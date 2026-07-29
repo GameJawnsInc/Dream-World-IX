@@ -391,3 +391,56 @@ def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
     doc.on_generate()
     argv, _kw = run.calls[0]
     assert argv[argv.index("--foreground") + 1].startswith(str(snip))
+
+
+def test_generate_is_in_place_after_the_first_run(app, tmp_path, monkeypatch):
+    """Set up once, then every Generate rebuilds the SAME project with no dialog (owner-asked):
+    the second run must not even CALL _ask_out, and the button says so."""
+    pytest.importorskip("PIL")
+    doc, run = _traced(app, tmp_path)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert doc._project and doc._project["out"] == str(tmp_path / "photo-field")
+    assert doc.gen_btn.text().startswith("Regenerate")
+    monkeypatch.setattr(doc, "_ask_out",
+                        lambda: (_ for _ in ()).throw(AssertionError("asked again")))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 445)])   # an edit
+    doc.on_generate()
+    assert len(run.calls) == 2
+    a1, a2 = run.calls[0][0], run.calls[1][0]
+    assert a1[a1.index("--out") + 1] == a2[a2.index("--out") + 1]   # the same project dir
+    doc.load_image(_photo(tmp_path))                               # a new photo = a new project
+    assert doc._project is None and doc.gen_btn.text().startswith("Generate")
+
+
+def test_trace_sidecar_round_trips_the_session(app, tmp_path, monkeypatch):
+    """Generate writes <out>/<stem>.trace.json; opening it on a FRESH tab restores the photo,
+    floor, pitch, cut-outs (with their dragged offsets), name/id — and the project, so the
+    next Generate goes straight in place."""
+    pytest.importorskip("PIL")
+    import json
+    doc, run, snip = _snip_doc(app, tmp_path, monkeypatch)
+    doc._on_cutout_moved(0, 100.0, 200.0)                          # a dragged spot to survive
+    doc.pitch.setValue(21)
+    doc.name_box.setText("HALL2")
+    doc.id_box.setText("30778")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    side = tmp_path / "room-field" / "room.trace.json"
+    assert side.is_file()
+    data = json.loads(side.read_text(encoding="utf-8"))
+    assert data["name"] == "HALL2" and data["id"] == "30778" and data["pitch"] == 21
+    assert data["fg"][0]["offset"] == [100.0, 200.0]
+
+    doc2, run2 = _doc(app)
+    doc2.load_trace(side)
+    assert doc2._floor == doc._floor and doc2.pitch.value() == 21
+    assert doc2._fg[0]["kind"] == "snip" and doc2._fg[0]["offset"] == (100.0, 200.0)
+    assert doc2.name_box.text() == "HALL2" and doc2.id_box.text() == "30778"
+    assert doc2.gen_btn.text().startswith("Regenerate HALL2")
+    monkeypatch.setattr(doc2, "_ask_out",
+                        lambda: (_ for _ in ()).throw(AssertionError("asked on a reopen")))
+    doc2.on_generate()
+    argv, _kw = run2.calls[0]
+    assert argv[argv.index("--out") + 1] == str(tmp_path / "room-field")

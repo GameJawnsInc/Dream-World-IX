@@ -267,6 +267,19 @@ def role_label(text="", role="body", *, parent=None):
     return lab
 
 
+def mark_grabbable(*items, resize=False):
+    """The hover cue for a DRAGGABLE canvas item: the OS move (or resize) cursor, set PER ITEM.
+
+    A scrollable drawspace's pan hand correctly owns the whole viewport, so nothing announces
+    'this one grabs' until the item itself says so — a per-item cursor out-ranks the view's
+    drag cursor exactly while hovering the item's shape() (owner-asked after the rung-2 cut-out
+    playtest; the same gap existed on the Behavior stage). Alpha-masked pixmap items follow
+    their opaque pixels, so a cut-out's transparent surround honestly keeps the pan hand."""
+    cursor = Qt.CursorShape.SizeHorCursor if resize else Qt.CursorShape.SizeAllCursor
+    for it in items:
+        it.setCursor(cursor)
+
+
 def caption(text="", *, parent=None, width=None):
     """THE HINT. The app's explaining tier -- and now the only way to build one.
 

@@ -134,10 +134,22 @@ Dragging a snip moves its contact anchor by the same delta (z re-derives live); 
 its own draggable diamond handle for re-anchoring the flip line alone. Generate composites each
 placed snip onto a transparent full frame at the 4x art resolution (written beside the source
 image) and emits the SAME `--foreground path@cx,cy` CLI form — the frame rule stopped being a
-rule the author has to know. A Show toggle hides the previews to trace under them. Along the way:
-THE GC-CHILD LAW — a parented QGraphicsItem whose only Python wrapper dies can be GC-deleted on
-the C++ side mid-handler (shiboken ownership; surfaced as a stale-wrapper RuntimeError + an
-access-violation teardown); every canvas child item now keeps a strong ref in `_kids`.
+rule the author has to know. A Show toggle hides the previews to trace under them.
+**In-place regenerate + reopen (owner-asked):** after the first Generate the tab remembers the
+project — the button becomes "Regenerate — in place", no dialog — and writes
+`<out>/<stem>.trace.json` (photo, floor, pitch, cut-outs at their dragged offsets, name/id);
+Open accepts a `.trace.json` and restores the whole editable session, so a project is set up
+once and edited forever. **Hover affordance (owner-asked, applies to the Behavior stage too):**
+every draggable item carries the OS move/resize cursor via `widgets.mark_grabbable` — a per-item
+cursor out-ranks the pan hand exactly over the item's shape(), so an alpha-masked snip announces
+itself only over its opaque pixels.
+★ **THE GC-CHILD LAW** (found by the cursor pin, fixed at the root): a QGraphicsItem CHILD
+constructed with a parent argument is PYTHON-owned to shiboken — its wrapper's GC deletes the
+C++ item under a live scene (stale `itemAt` wrappers mid-handler) and its finalizer double-frees
+after a `scene.clear()` (exit access violations). Children must be SCENE-created then
+`setParentItem`'d (`backdrop._child`; the Behavior stage's handle/grip squares fixed the same
+way — its other constructor-parented children are a standing sweep candidate). `_kids` keeps
+wrappers alive as a belt, and tests must never retain item wrappers across a rebuild.
 
 ★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
 polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both

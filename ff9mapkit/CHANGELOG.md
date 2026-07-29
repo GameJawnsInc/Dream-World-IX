@@ -32,6 +32,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   change. A contact traced up the body (depth at/behind the base layer) or above the
   horizon refuses with the CLI's own message. Generate emits the classic
   `--foreground path@cx,cy` form, so the build is byte-identical to the CLI loop's.
+- **Generate is in place after the first run**: the tab remembers its project, so later
+  Generates rebuild the same folder with no dialog (open a new image to start another),
+  and it writes a `<stem>.trace.json` session record beside the build — Open it later
+  to restore the whole editable state: photo, floor, pitch, cut-outs at their dragged
+  spots, name and id.
+- **Draggable things now say so**: trace vertices, contact anchors, snip overlays, and
+  the Behavior stage's handles/grips show the move (or resize) cursor on hover — the
+  pan hand no longer masks what grabs. (Under the hood this surfaced a real crasher:
+  canvas child items created with a parent argument were Python-owned and double-freed
+  under garbage collection; all child items are now scene-created and reparented.)
 - Cut-outs **preview on the art** and snips are **positionable**: a PNG sharing the
   photo's frame registers pixel-for-pixel (inert, exactly where the artist painted it);
   any other size is a SNIP — shown at its natural photo scale with its base parked on
