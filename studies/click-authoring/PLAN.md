@@ -147,6 +147,21 @@ Gateway / trigger quads drawn directly on the background instead of typed as num
 existing region laws (tags 2/3/10, `IsInQuad` dead-zones) — the canvas should *render* a dead-zone
 warning, not just accept the quad.
 
+### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
+**A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
+rooms on this canvas, declare which edges are doors, and get a wired dungeon: gateways both ways,
+arrival position + facing per side, encounters, save-point siting.
+
+> ★ **THE DRAWN-MESH LAW — the human draws the walkmesh; the composer never infers one.**
+> Auto-deriving a walkmesh from an arbitrary field drawing is a research problem (segmentation,
+> plane inference, semantic room boundaries — the same wall the `--auto-floor` hallway trial hit,
+> where *where a field ends* proved SEMANTIC and un-inferable from one ground plane). Sequencing the
+> composer AFTER this tool retires that problem entirely: geometry arrives hand-drawn and exact, and
+> the composer is left with **topology only** — deterministic, testable, no inference.
+
+This is why the composer is a rung here and not its own study: standalone it would need to generate
+geometry; downstream of Rungs 0-3 it does not. **Do not start it before Rung 3 is real.**
+
 ### Rung 5 (bounded) — discrete multi-plane
 Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a field with several **flat** floors at
 known heights can be authored per-floor, with a floor selector. **THE PLANE LAW (§1) is the ceiling:
