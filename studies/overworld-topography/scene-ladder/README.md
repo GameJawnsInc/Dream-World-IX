@@ -152,10 +152,44 @@ tight 3/4-astern eye (8/8/+7u) so ship AND shore sit inside the ~45u world fog (
 at ~56u read as empty ocean) — and the reveal fade no longer blocks, so the ship is under
 way as the black lifts (the departure's own no-wait-fade trick at the other end).
 
-**NEXT — rung 3c, origin-port departures (designed, not built):** departures always stage at
-Ashvale today. Fix without touching the hall: the anchor's saved world position
-(`Global.Int24[64]`/`Int24[69]` = where the player stood when they entered the hall)
-classifies the origin port by coordinate box tests in the departure prologue; the sail-OUT
-theater then stages at THAT port using the ARRIVE lanes in reverse — fully symmetric
-(leave from where you boarded, arrive where you booked). ⚠ Verify the expression engine's
-signed compares on negative Int24 z values before trusting the classifier.
+## Rung 3c — ORIGIN-PORT DEPARTURES (built + deployed 2026-07-29, playtest pending)
+
+`rung3c_origin_departure.py` (supersedes rung 3's director + prologue; deploy on top) — the
+voyage's first half stops assuming Ashvale: the departure theater stages at the port the
+player boarded from, sailing the ARRIVE lanes in REVERSE (dock → 28u → fade → 40u into fog,
+the proven Ashvale leg-split generalized; `probe_departure_lanes.py`, all out-lanes + the
+12u-out/14u-abeam eyes WET at all four ports). Fully symmetric: leave from where you
+boarded, arrive where you booked. Same-port bookings play out-and-back at one quay.
+
+**THE BANKED DESIGN HAD A LATENT FLAW, found at build time:** it read the anchor's saved
+world position (`Global.Int24[64]/[69]`) in the departure prologue — but the ferry arm's
+STAGE PRESET (worldexit `arrive_writes` → the Lantern Quay) overwrites those vars in the
+hall, before the world ever loads. The classifier would have read (60,−1168) every voyage
+and silently classified Ashvale — a no-op indistinguishable from working. The repair is
+hall-side: the kit's depart arm now caches `Global.Int24[64]` (the mirror record of where
+the player STOOD entering the hall, intact all through the visit) into
+`Global.Int24[flags.FERRY_ORIGIN_X_INT24]` (=1873, the kit-world band's last 3 bytes)
+BEFORE the preset — `content/choice.py`, lint-covered by `test_ferry_lane.py`, hall 6601
+rebuilt + redeployed (label-normalized structural diff vs live = exactly the 4 cache
+writes). Dropping the preset instead was REJECTED: the canonical New-Game path (hub → hall,
+never on the world) would spawn at garbage coords — the actor-brick class.
+
+**The classifier** (prologue, `Map.Byte[52]`): X-only box tests, `|x − quay_x| < 64u`
+against the quay trigger sites (420/1204/700 for ports 2/3/4; 48 falls to the default) —
+X alone separates all four quays, and 0/garbage/stale-non-quay values default to port 1 =
+today's exact behavior. The design's flagged risk — signed compares on negative Int24 —
+is RESOLVED SOUND from engine source (EBin.cs:1858: the Int24 read sign-extends via an
+SByte cast; B_MINUS/B_LT are signed Int32), and moot here since X is always positive.
+
+**Staging discipline:** the origin theater relocates behind the prologue's held black —
+ship → origin dock at moor face, HIDDEN ANCHOR → origin shore (tags 61-64: rung 3 never
+played a theater away from the anchor; streaming/epoch caution), rigs disposed + re-armed
+so their ship-relative init lands at the new dock (an `op_22(2)` first lets the
+prologue-armed rigs finish constructing before disposal), eye overridden per port
+(`MoveInstantXZYEx` after the settle — THE ORDER LAW), reveal, hold 30, come about, sail.
+The arrival half is rung 3 verbatim. Origin 1 reproduces the owner-confirmed Ashvale
+departure (same dock/legs/speed; the eye moves to the probed (15,−1180)).
+
+Revert: `py rung3_arrival.py --deploy` (world) + `backups/scene-ladder/EVT_LANTERN_HALL.*`
+(hall). Without the hall redeploy the cache byte stays 0 and every departure classifies
+Ashvale — the pre-3c behavior, gracefully.

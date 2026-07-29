@@ -28,6 +28,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the code, plays the sail-away scene, and completes the journey to the row's real
   `arrive` point. Lint requires `stage_arrive` with any `depart_code`, bounds codes to
   1–255, and rejects duplicates. The plain (code-less) arm is byte-identical to before.
+- The depart arm now also caches the hall-entry world X — `Global.Int24[64]`, the world
+  mirror's record of where the player stood when they entered the field — into
+  `Global.Int24[flags.FERRY_ORIGIN_X_INT24]` (1873) before the stage preset overwrites
+  it, so the world-side director can classify the ORIGIN port and stage the sail-out at
+  the quay the player actually boarded from (scene-ladder rung 3c). The cache write sits
+  in the arm's on-exit block, strictly before `arrive_writes`; a code-less arm carries
+  nothing new.
 
 ### Added — the archetype stamp WIZARD (one teaching surface, not a picker chain)
 - "Stamp an archetype…" now opens a single dialog: the proven trees listed with their

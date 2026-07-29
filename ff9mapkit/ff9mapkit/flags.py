@@ -121,6 +121,12 @@ FERRY_DEPART_BYTE = 1872                       # scene-ladder rung 2: the ferry-
                                                # the hall's ferry arms, consumed+cleared by WORLD11's
                                                # departure director; studies/overworld-topography/
                                                # scene-ladder/rung2a_departure.py)
+FERRY_ORIGIN_X_INT24 = 1873                    # scene-ladder rung 3c: the hall-entry world X (x256
+                                               # fixed-point Int24, bytes 1873-1875 = the band's last 3
+                                               # bytes). The depart arm caches Global.Int24[64] (the
+                                               # on-foot saved-position X) here BEFORE the stage preset
+                                               # clobbers it; WORLD11's departure prologue box-tests it
+                                               # to classify the ORIGIN port (0/garbage -> Ashvale).
 BEHAVIOR_BYTE_BASE = 1876                      # Blackboard byte band: bytes 1876-1989 (bits 15008-15919;
 BEHAVIOR_BYTE_END = 1989                       # byte 1876 = bit 15008, flush after the flag sub-bands).
                                                # Ends BELOW the modal-result home: bytes 1990-2005 stay
