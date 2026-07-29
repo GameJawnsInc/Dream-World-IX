@@ -205,12 +205,21 @@ _LIST_SINGULAR = {"npc": "NPC", "prop": "Prop", "gateway": "Gateway", "event": "
                   "marker": "Marker", "choice": "Choice", "sps": "Effect", "playable": "Playable"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
-    "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
-    "prop": {"name": "prop", "prop": "chest", "pos": [0, 0]},   # static set-dressing (no dialogue, no turn)
-    "gateway": {"name": "door", "to": 100, "entrance": 0},
+    # THE DEFAULT-VALUE LAW (two rung-4 playtests): a minted default must be either REAL (it
+    # renders correctly in-game) or LOUDLY INVALID (a gate refuses it) -- never quietly valid.
+    # gateway to=100 was the worst offender: a REAL field id nobody chose, silently warping to
+    # it; to=0 puts the row under the Field(0) validate error + the canvas NO TARGET warn.
+    # An NPC minted with dialogue "..." shipped a hand-rolled placeholder window; with NO
+    # dialogue the build's silent-talk channel emits the canonical FF9 silent line instead.
+    # A default prop of "chest" LOOKED openable but wasn't (a real openable is [[chest]]).
+    "npc": {"name": "NPC", "preset": "vivi"},
+    "prop": {"name": "prop", "prop": "barrel", "pos": [0, 0]},  # static set-dressing (no dialogue, no turn)
+    "gateway": {"name": "door", "to": 0, "entrance": 0},
     "event": {"name": "event", "message": "..."},
     "chest": {"pos": [0, 0], "item": ["Potion", 1]},
-    "flag": {"name": "flag", "index": 8712},          # a save-persistent story flag (name -> gEventGlobal bit)
+    "flag": {"name": "flag", "index": 8712},          # index re-minted per add (_add_list_item) -- a
+                                                      # fixed index would alias every added flag onto
+                                                      # ONE save bit
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
     "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
@@ -7000,6 +7009,9 @@ class Workspace(QMainWindow):
         elif kind == "npc":                           # never a field of twins named "NPC" — names are
             new["name"] = names.fresh_npc_name(       # load-bearing (behavior units + the scene merge
                 n.get("name") for n in lst)           # bind by name); playtest-asked FF9 flavour
+        if kind == "flag":                            # each flag gets the NEXT free save bit — a fixed
+            taken = [f.get("index") for f in lst if isinstance(f.get("index"), int)]
+            new["index"] = max([new["index"] - 1] + taken) + 1
         lst.append(new)
         idx = len(lst) - 1
         self._touch(member)                           # the new default entity is an unsaved change
@@ -9705,9 +9717,14 @@ def _smoke(win):
     flav, _, role = minted.partition("_")
     assert flav in _names.FLAVOR and role.split("_")[0] in _names.ROLES, minted
     assert win._save_ctx["section"] == "npc" and win._save_ctx["idx"] == nbefore   # new item's form is mounted
+    assert "dialogue" not in npcs[-1]                  # THE DEFAULT-VALUE LAW: no "..." placeholder --
+    #                                                    the silent-talk channel owns a wordless NPC
     assert win._payload(win.tree.currentItem()) == ("object", minted, f"npc:{nbefore}")   # tree refreshed+selected
     win._add_list_item("IC_ENT", "gateway")            # a different list kind
-    assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
+    # to == 0 on purpose (THE DEFAULT-VALUE LAW): loudly invalid -- the Field(0) validate error +
+    # the canvas NO TARGET warn own it. The old default 100 was a REAL field id nobody chose,
+    # silently warping there.
+    assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 0 and win._save_ctx["section"] == "gateway"
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
     win._add_list_item("IC_ENT", "flag")               # the [[flag]] section (audit #7 -> story flags are GUI-authorable)
@@ -9717,7 +9734,10 @@ def _smoke(win):
     assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8720"}) == {"name": "got_sword", "index": 8720}
     assert win._node_problems("flag", {"name": "x", "index": 8720}, "IC_ENT") == []   # in-band: clean
     assert win._node_problems("flag", {"name": "x", "index": 100}, "IC_ENT")          # out-of-band: warns
+    win._add_list_item("IC_ENT", "flag")               # a SECOND flag mints the NEXT free save bit --
+    assert win._doc("IC_ENT").data["flag"][-1]["index"] == 8713   # a fixed default would alias one bit
     win._confirm = lambda *a: True
+    win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
     win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
     assert "flag" not in win._doc("IC_ENT").data                                       # cleaned up
     # DELETE a list entity: removes it, writes the file, refreshes the tree, lands on the group

@@ -304,6 +304,21 @@ message; an authored message fills the box verbatim; the bare "..." never ships.
 against the reporter's own field on a scratch copy. ⚠ The fixed box itself awaits one in-game
 look (rebuild + redeploy + walk-in).
 
+★ **THE DEFAULT-VALUE LAW pass (owner-asked before rung 6):** both playtest bugs were one
+disease — a GUI-minted default that is *quietly plausible* in-game — so every minted value got
+audited against the law: **a default is REAL (renders correctly) or LOUDLY INVALID (a gate
+refuses it), never in between.** Probed with minimal projects; already-gated ✓: chest-no-flag,
+choice-empty-npc, npc-no-pos, dup sps ids (all validate errors), off-mesh (0,0) positions (the
+placement lint). Fixed: the form gateway's `to = 100` — a REAL id nobody chose, silently
+warping to it — is now 0 (the Field(0) gates own it); the form flag's fixed `index = 8712`
+now mints the next free bit (a constant aliased every added flag onto ONE save bit) and
+validate reports index collisions directly (`collect_flag_defs` always knew; no call site
+spent it — load crashed, dict-built projects said nothing); minted NPCs drop `dialogue "..."`
+(the silent-talk channel's canonical line is the real default, both build lanes); the form
+prop default "chest" → "barrel" (looked openable, wasn't); drawn events get **Set message…**
+on the quad menu (the photo lane has no other editor for a zone's words) + a canvas/lint warn
+while the "..." placeholder would ship as a literal popup.
+
 ### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
 rooms on this canvas, declare which edges are doors, and get a wired dungeon: gateways both ways,

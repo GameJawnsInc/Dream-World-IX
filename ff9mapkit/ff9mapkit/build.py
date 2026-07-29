@@ -1219,6 +1219,14 @@ def validate(project: FieldProject) -> list[str]:
     _validate_folklore(project, problems)
     _validate_summon(project, problems)
     story_names = _story_names(project)
+    # the [[flag]] table's own errors, reported DIRECTLY: _story_names degrades to {} on a bad
+    # table (so name resolution can report unknowns), which left a table nobody references
+    # failing SILENTLY -- two flags on one index alias a single save bit with no complaint
+    # (the mechanism existed in collect_flag_defs; no call site spent it).
+    try:
+        _flags.collect_flag_defs(project.raw)
+    except ValueError as e:
+        problems.append(str(e))
     f = project.field
     for key in ("id", "name", "area"):
         if key not in f:
@@ -2675,6 +2683,12 @@ def lint_logic(project: FieldProject) -> list[str]:
       * duplicate entity names (the scene<->field merge key would be ambiguous)."""
     raw = project.raw
     out = []
+    for j, ev in enumerate(raw.get("event", []) or []):
+        if ev.get("message") == "..." and not (ev.get("received") and "give_item" in ev):
+            out.append(f"[[event]] {ev.get('name') or '#' + str(j)}: message is still the drawn-zone "
+                       f"placeholder '...' -- it ships as a literal '...' popup. Word it (the Editor "
+                       f"form, or right-click the quad -> Set message...), or make it a received item "
+                       f"box (give_item + received). (advisory)")
     if "verbatim_eb" in raw:                       # a verbatim fork runs the donor's real .eb (build_script,
         dropped = [lbl for key, lbl in _VERBATIM_IGNORED_BLOCKS.items() if raw.get(key)]   # which injects these,
         if dropped:                                                                        # is bypassed)

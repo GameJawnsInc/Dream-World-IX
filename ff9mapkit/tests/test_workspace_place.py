@@ -46,7 +46,9 @@ def test_place_npc_appends_with_a_fresh_name():
     assert npcs[0]["pos"] == [10, -21] and npcs[1]["pos"] == [30, 40]      # ints, rounded
     assert npcs[0]["name"] != npcs[1]["name"]                              # names are load-bearing
     assert npcs[0]["name"] in l1 and npcs[1]["name"] in l2
-    assert npcs[0]["preset"] and npcs[0]["dialogue"]                       # a buildable default
+    assert npcs[0]["preset"]                                               # a buildable default
+    assert "dialogue" not in npcs[0]        # THE DEFAULT-VALUE LAW: no "..." placeholder — the
+    #                                         build's silent-talk channel owns a wordless NPC
 
 
 def test_place_prop_appends_a_buildable_default():
@@ -373,6 +375,22 @@ def test_place_retarget_routes_by_row(app, monkeypatch):
     d._on_region_retarget(0)
     assert data["gateway"][0]["to"] == 301 and len(calls) == 1
     assert d.canvas._regions[0]["warn"] is None            # the warn clears with the fix
+
+
+def test_place_reword_routes_by_row(app, monkeypatch):
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351},
+            "event": [{"name": "zone0", "message": "...",
+                       "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d.tools.set_current("regions")
+    assert d.canvas._regions[0]["warn"] and "placeholder" in d.canvas._regions[0]["warn"]
+    monkeypatch.setattr(d, "_ask_message", lambda cur: "Watch your step.")
+    d._on_region_reword(0)
+    assert data["event"][0]["message"] == "Watch your step." and len(calls) == 1
+    assert d.canvas._regions[0]["warn"] is None            # the warn clears with the words
 
 
 @pytest.fixture(autouse=True)

@@ -680,3 +680,24 @@ def test_a_targetless_door_gates_generate_until_retargeted(app, tmp_path, monkey
     assert argv[argv.index("--gateway") + 1].startswith("301@")
     doc.on_undo()                                          # the retarget is a normal gesture
     assert doc._regions[0]["to"] == 0
+
+
+def test_a_drawn_event_rewords_in_place(app, tmp_path, monkeypatch):
+    """The photo lane regenerates its toml, so a drawn zone's words live in the SESSION —
+    the quad menu's Set message is the only editor for them."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(200.0, 340.0), (300.0, 340.0), (300.0, 380.0), (200.0, 380.0)]])
+    assert doc._regions[0]["message"] == "..."             # the default placeholder
+    assert doc.canvas._regions[0]["warn"] and "placeholder" in doc.canvas._regions[0]["warn"]
+    monkeypatch.setattr(doc, "_ask_message", lambda cur: "It creaks underfoot.")
+    doc._on_region_reword(0)
+    assert doc._regions[0]["message"] == "It creaks underfoot."
+    assert doc.canvas._regions[0]["warn"] is None          # the warn clears with the words
+    doc.on_undo()                                          # a normal, undoable gesture
+    assert doc._regions[0]["message"] == "..."

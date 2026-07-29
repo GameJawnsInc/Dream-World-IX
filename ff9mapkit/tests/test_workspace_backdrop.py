@@ -670,6 +670,37 @@ def test_region_menu_rotates_the_walkout_edge_and_deletes(app, monkeypatch):
     assert deleted == [0]
 
 
+def test_event_menu_offers_reword_not_gateway_tools(app, monkeypatch):
+    import types
+
+    class _FakeMenu:
+        pick = 0
+
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return self.acts[_FakeMenu.pick]
+
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    c, _, changed, deleted, _ = _region_canvas(app)
+    reworded = []
+    c.region_reword.connect(reworded.append)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "zone0", "kind": "event",
+                    "warn": None}])
+    _FakeMenu.pick = 0                                    # events lead with Set message…
+    c._region_menu(0, QPoint(0, 0))
+    assert reworded == [0] and not changed and not deleted
+    _FakeMenu.pick = 1                                    # then Delete (no gateway tools)
+    c._region_menu(0, QPoint(0, 0))
+    assert deleted == [0]
+
+
 def test_zone_corners_project_at_the_mesh_floor_height(app):
     """A raised real floor (render y = -300): corners draw AT that height, an on-mesh pixel
     converts through the raycast, and an OFF-mesh pixel lands on the plane at the nearest
