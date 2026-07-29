@@ -425,10 +425,15 @@ scenery must be re-authored *together*.
   column, alternates now named + exported) + 1 program-write**; and **the ack's real surface is the
   55 direct 15bpp cells (43 hazard-free)** — the 134 indexed P cells have no CLUT key and no ack
   combination reaches them, said plainly in the disclosure and docs. Census re-stamped
-  (`w6b2_census_restamp.py`: 93 / 83 / 83+55=138, idempotent, backup kept). NOTHING IN-GAME yet —
-  **cast B, THE DOME (ef211 (704,384), 8bpp via channel G, bench 30301 row 198, bands only) now
-  builds through the licensed lane itself** and is the experiment that tests
-  REGISTRATION-IS-A-DRAW-ENOUGH.
+  (`w6b2_census_restamp.py`: 93 / 83 / 83+55=138, idempotent, backup kept). **★★ THE DOME CAST
+  RAN SAME-DAY AND PASSED (record §10.1):** `phoenix_dome.toml` + `dome_band_stamp.py`, four
+  max-luminance bands into the readerless (704,384) through the licensed lane with ZERO ack keys
+  (`expect_bpp = 8` checked against the channel-G derivation; the cutout law fired on draft 1 and
+  the fix skipped the 24 hole texels, no ack) — owner verdict: clean bright yellow bands, no 4bpp
+  pin-striping, no 15bpp wrong-solid ⇒ **REGISTRATION-IS-A-DRAW-ENOUGH is TRUE of channel G's
+  flagship** (the existence proof, one cell one cast — P's counterpart was refuted at ef251; the
+  DEPTH COROLLARY's two branches are both photographed now). Resting: ef211 back on the pool
+  wheel (cbcc9fde); the dome artifact (b0af62a0) regenerates from the committed spec.
 - **W6q — ★★ THE `paint` (QUANTIZE) LANE, CAST-PROVEN AND CLOSED (record `w6q_QUANTIZE.md`; gates
   `w6q_gates.py` 20/20; casts §7 of the record).** W6q-0..4: `source_paint` +
   `acknowledge_quantize` on `[[reskin.texel]]`, THE INCUMBENT LOCK (the no-op re-quantize moves

@@ -417,13 +417,14 @@ THE DOME   (ef211's lower-half dome cell)
 It is **the only cell in the corpus that is simultaneously depth-attributed by this rung, proven
 drawn in-game, and free of every other hazard.**
 
-⚠ **AND ITS DEPTH IS STILL UNTESTED IN-GAME — the ladder gives channel G no corroboration here, by
-design.** The cell probe that proved the dome is drawn **zero-writes**, and zero-writing is
-**depth-invariant**: a zeroed texel is the absence of ink at 4bpp, 8bpp and 15bpp alike. So the
-ladder's evidence that this cell is live art says **nothing** about its depth — and equally, there is
-**no** second depth datum here to reconcile with channel G's 8 bpp. **A depth-BEARING edit on this
-cell would be the first.** That is precisely what makes it the attribution cast: it proves
-**REGISTRATION-IS-A-DRAW-ENOUGH**, or falsifies it, on a surface already shown to reach the screen.
+~~⚠ **AND ITS DEPTH IS STILL UNTESTED IN-GAME**~~ ⛳ **RETIRED — the depth-bearing edit ran and
+the depth HELD (§10.1: clean bands, no pin-striping, no wrong-solid).** The paragraph below is the
+pre-cast reasoning, kept because its logic is why the cast was decisive: the cell probe that proved
+the dome is drawn **zero-writes**, and zero-writing is **depth-invariant** — a zeroed texel is the
+absence of ink at 4bpp, 8bpp and 15bpp alike. So the ladder's evidence that this cell is live art
+said **nothing** about its depth, there was **no** second depth datum to reconcile with channel G's
+8 bpp, and a depth-BEARING edit was the first possible test of **REGISTRATION-IS-A-DRAW-ENOUGH**
+on a surface already shown to reach the screen. It passed.
 
 ## 8.3 The recommended sequence
 
@@ -566,10 +567,32 @@ failure there would have been a finding, not something to fix quietly.
    offers the ack ONLY where it can work and says plainly why it cannot elsewhere. (§5's posture
    survives untouched: this narrows the ack's REACH, not its terms.)
 
-**Still true, and now said in the shipped docstrings: NOTHING HERE IS IN-GAME.** Cast B — THE DOME,
-ef211 (704,384), 8 bpp from channel G, bench 30301 row 198, translation-invariant figure only — is
-now buildable through the licensed lane itself and remains the experiment that tests
-REGISTRATION-IS-A-DRAW-ENOUGH on a surface already proven to reach the screen.
+~~**Still true, and now said in the shipped docstrings: NOTHING HERE IS IN-GAME.**~~
+⛳ **RETIRED SAME-DAY — §10.1: THE DOME CAST RAN AND PASSED.**
+
+## 10.1 ★★ THE DOME CAST — the attribution verdict, ON SCREEN
+
+§8.2's experiment ran through the shipped licensed lane itself, same day as the integration:
+**`phoenix_dome.toml`** (stock ef211 + four 12-row max-luminance bands into `cell.s0.x704_y384`,
+6,112 bytes, generator **`dome_band_stamp.py`** — ink index 255 derived from the display palette,
+**24 cutout texels SKIPPED** so THE CUTOUT LAW needed no acknowledgement and the silhouette stayed
+a non-variable; the law FIRED on the first draft that inked them, which is the refusal doing its
+job). Shipped as a SEPARATE artifact per §8.3 — the resident pool wheel stepped aside and its
+absence was the control. **The row carried ZERO acknowledgement keys**: `expect_bpp = 8` stated
+and checked against the channel-G derivation, nothing else — the LICENSE posture, live.
+
+**Verdict (owner, bench 30301 row 198): "bright yellow bands. fits the fire really well" —
+CLEAN bands, no 4bpp pin-striping, no 15bpp wrong-solid.** The self-diagnosing figure key ran in
+reverse for once: the depth HELD.
+
+**Scope, stated exactly:** this is the EXISTENCE PROOF — one cell, one cast. A channel-G depth on
+a proven-drawn, readerless surface governed the actual draw: **REGISTRATION-IS-A-DRAW-ENOUGH is
+TRUE of channel G's flagship**, where channel P's counterpart claim was refuted on its first trial
+(ef251). It does not blanket-prove the other 56 G cells, and it does not repeal THE DEPTH
+COROLLARY — a stated depth is still a binding-side fact (ef446 showed one failing to bind the
+draw); the dome shows one holding. The two results are the corollary's two branches, now both
+photographed. Resting: ef211 REVERTED to the pool wheel (`cbcc9fde`, the snapshot's pre-state);
+the dome artifact (`b0af62a0`) regenerates from the committed spec.
 
 ---
 
@@ -594,6 +617,9 @@ round's commit:
 ⛳ **§10 adds two more, same rules** (plus the kit files themselves, which its I10 and H8 both scan):
 `w6b2i_gates.py` (the integration round — I0–I10) and `w6b2_census_restamp.py` (row 9's re-stamp;
 its SE-derived input and output stay in SCRATCH, the script commits only coordinates and counts).
+⛳ **§10.1 adds the cast pair's two:** `phoenix_dome.toml` (the spec — guards, counts and a hash
+prefix, no stock byte) and `dome_band_stamp.py` (the generator; the stamped PNG it writes is
+SE-derived and stays in SCRATCH under `repaint-w6b\ef211-dome\`).
 
 ⛳ **A SEVENTH FILE WAS PRESENT AND IS NOW GONE, BY DECISION rather than by drift.**
 `w6b2_v1b_audit.py` (28 KB) sat untracked in the checkout and **every lane that could have owned it

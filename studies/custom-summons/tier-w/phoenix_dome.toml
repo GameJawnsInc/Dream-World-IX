@@ -1,0 +1,65 @@
+# TIER W rung W6b-2 CAST B -- THE DOME.  Stock Phoenix (ef211), the rolling-fire dome's cell
+# `cell.s0.x704_y384`, four bold yellow bands -- **the first depth-BEARING edit ever shipped on a
+# CHANNEL-G cell**, and the experiment `W6b2-ATTRIBUTION.md` section 8.2 names: this cell is
+# READERLESS (0 of 8,192 halfwords sampled by any model -- the census refused it by name), PROVEN
+# DRAWN (the cast ladder's zero-write stripes banded the fire through it), and 8 bpp ONLY because
+# the W6b-2 kit integration re-read the container's own `so` binding at PAGE granularity.  A
+# zero-write cannot test a depth; ink can.  What the screen shows judges the attribution:
+#
+#   clean bright bands       -> channel G's 8 bpp IS the draw depth (REGISTRATION-IS-A-DRAW-ENOUGH
+#                               holds on a surface already proven live)
+#   pin-striped bands        -> a 4 bpp read (each ink byte splits into two nibble texels)
+#   solid wrong colour       -> a 15 bpp read (byte pairs become direct words)
+#
+# SHIPPED AS A SEPARATE ARTIFACT, deliberately (section 8.3's rule: composing it with anything
+# makes the read ambiguous): STOCK ef211 + the bands, nothing else.  Deploying REPLACES the
+# resident pool-wheel override for the duration of the cast; that deploy's own snapshot restores
+# it, and the wheel regenerates byte-exact from its committed spec regardless.  The pool going
+# back to stock in the same frame is the cast's CONTROL.
+#
+# BANDS, NEVER A SHAPE: this cell has no declared UVs, so the offline UV-flatness screen that
+# licenses a shape cannot clear it -- section 8.2 forbids attempting one.  The figure and the ink
+# are derived by `dome_band_stamp.py` (run it before this spec; it refuses a non-indexed export):
+#
+#   ink        index 255 -- the display palette's max-luminance entry (bright yellow under
+#              `pal.s0.x0_y247.e256`, the same CLUT the upper half's cast-proven wheel used)
+#   bands      4 x 12 rows at spacing 32 (starts 16/48/80/112) -- 2x the census probe's 6-row
+#              duty, so the screen names which instrument drew
+#   inked      6,144 of 16,384 texels
+#
+# THE ROW BELOW NEEDS NO ACKNOWLEDGEMENT KEY.  That is the point: CHANNEL G LICENSES.  The depth
+# is the container stating a fact at the hardware's granularity, `expect_bpp = 8` is the author's
+# cross-check AGAINST that derivation (stated, checked, never chosen), and the build's disclosure
+# carries the inherited-from-the-column line because the lower half's depth is inherited, never
+# direct.
+
+[reskin]
+effect = 211
+label  = "phoenix-w6b2b-dome-bands"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- the same value phoenix_reskin.toml guards.
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+
+# ==============================================================================================
+# THE TEXEL TARGET.  ONE cell, THE DOME.  One change per in-game test.
+[[reskin.texel]]
+name = "cell.s0.x704_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-dome/art/cell.s0.x704_y384.domebands.png"
+
+# --- the guards, emitted by the derivation (texel.scaffold.toml), never typed -----------------
+expect_page_offset = 0x015678
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+# STATED by the author, CHECKED against the channel-G derivation -- the same 16,384 bytes are 256
+# texels wide at 4bpp, 128 at 8bpp and 64 at 15bpp, and a wrong depth packs to exactly the right
+# byte count while painting the wrong picture.  This line is the cast's whole hypothesis.
+expect_bpp         = 8
+expect_cell        = [704, 384]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false
+# DISPLAY only -- this lane writes 0 CLUT bytes; the bands are judged under the fire palette.
+palette_from = "pal.s0.x0_y247.e256"
+note = "cast B: four bold yellow bands on the rolling-fire dome -- the attribution verdict"

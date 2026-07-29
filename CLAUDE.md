@@ -267,7 +267,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ★ (shape YES; REGISTRATION≠DRAW + DEPTH COROLLARY), W6b-2 ★ kit lane (G licenses, P discloses), W6q ★★ quantize cast-proven → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ★ (shape YES; REGISTRATION≠DRAW + DEPTH COROLLARY), W6b-2 ★★ kit lane cast-proven (G licensed — the dome drew 8bpp; P discloses), W6q ★★ cast-proven → `studies/custom-summons/tier-w/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 
