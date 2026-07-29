@@ -1874,8 +1874,9 @@ class FieldBehavior:
     def _fallback_feed(self, unit: UnitSpec) -> Action:
         return self._fallback_feed_tree(unit.name, unit.tree)
 
-    def _once_announce_map(self, owner: str, tree: Node, ids: dict) -> dict:
-        """aid -> Once name for every ``Once`` whose subtree is a simple branch
+    def _once_announce_map(self, owner: str, tree: Node, ids: dict) -> tuple:
+        """``(onced, cooled)`` — the one-shot decorator claims. ``onced``:
+        aid -> Once name for every ``Once`` whose subtree is a simple branch
         ending in an ``Announce`` or ``Award`` — THE EVENT ONCE (the BTTABLE
         round-2 law: a sticky Once over a MONOTONIC condition — a kill tally, a
         spent wave counter — holds the selection FOREVER and starves every
@@ -1884,8 +1885,15 @@ class FieldBehavior:
         Battle (a one-tick selection can be clobbered by a body still holding
         the level — the siege round-1 lesson), and the dispatch body sets the
         Once latch itself, so the branch releases the moment it delivers.
-        An Award OUTSIDE a Once is refused — a payout must be exactly-once."""
+        An Award OUTSIDE a Once is refused — a payout must be exactly-once.
+        ``cooled``: aid -> frames for every ``Cooldown`` over a one-shot leaf —
+        THE EVENT COOLDOWN (the hangout greet-pair latch): the same starvation
+        family, deadlocked MUTUALLY — selecting the announce halts BOTH
+        walkers (the dispatch-halt), so a near(partner) cond that engaged it
+        can never re-falsify and both units statue forever. Fire and release,
+        with the TIMER (armed at delivery) as the re-arm gate."""
         onced: dict = {}
+        cooled: dict = {}
         bare: set = set()
         bare_awards: set = set()
 
@@ -1894,7 +1902,17 @@ class FieldBehavior:
                 for c in n.children:
                     walk(c)
             elif isinstance(n, Cooldown):
-                walk(n.child)
+                leaf = _terminal_do(n.child)
+                if leaf is not None and isinstance(leaf.action, (Announce, Sfx, Flash, StopTimer)):
+                    aid = ids[id(leaf.action)]
+                    if aid in cooled:
+                        raise BehaviorError(
+                            f"{owner}: the same {type(leaf.action).__name__} object "
+                            f"sits under two Cooldown decorators — one timer cannot "
+                            f"serve two gates; give each its own instance")
+                    cooled[aid] = int(n.frames)
+                else:
+                    walk(n.child)
             elif isinstance(n, Once):
                 leaf = _terminal_do(n.child)
                 if leaf is not None and isinstance(leaf.action, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)):
@@ -1918,12 +1936,12 @@ class FieldBehavior:
                 f"{owner}: an Award / shop-stock action must be wrapped in Once "
                 f"(exactly-once BY that machinery — a bare one would re-fire "
                 f"every selection)")
-        clash = set(onced) & bare
+        clash = (set(onced) & bare) | (set(cooled) & bare) | (set(cooled) & set(onced))
         if clash:
             raise BehaviorError(
-                f"{owner}: an Announce/Sfx object is shared between a Once-wrapped site "
-                f"and a bare site — give each site its own instance")
-        return onced
+                f"{owner}: an Announce/Sfx object is shared between a Once-/Cooldown-"
+                f"wrapped site and another site — give each site its own instance")
+        return onced, cooled
 
     def has_battle_actions(self) -> bool:
         """True when any tree fires a :class:`Battle` — the build must then
@@ -2141,9 +2159,10 @@ class FieldBehavior:
 
             # ---- dispatch-action bodies (tags 15+), per member — every member
             # gets the same tag numbering (the shared brain REQs by tag)
-            once_ann = self._once_announce_map(owner, tree, ids)  # aid -> Once name
+            once_ann, cd_ann = self._once_announce_map(owner, tree, ids)
             dispatch_tag: dict[int, int] = {}
             oneshot_latch: dict[int, int] = {}           # aid -> latch slot KEY
+            oneshot_timer: dict[int, int] = {}           # aid -> event-cd FRAMES
             oneshot_req: dict[int, int] = {}             # aid -> EDGE-latched req KEY
             oneshot_action: dict[int, Action] = {}       # aid -> the action (rung 5)
             die_aids: set[int] = set()                   # transition-critical aids
@@ -2158,17 +2177,24 @@ class FieldBehavior:
                     lk, rk = f"battled{aid}", f"breq{aid}"
                 elif isinstance(a, (Announce, Award, ShopStock, ShopSynth, Sfx, Flash, StopTimer)) and aid in once_ann:
                     lk, rk = f"once.{once_ann[aid]}", f"areq{aid}"
+                elif isinstance(a, (Announce, Sfx, Flash, StopTimer)) and aid in cd_ann:
+                    lk, rk = None, f"areq{aid}"          # EVENT COOLDOWN: timer-gated
                 else:
                     lk = rk = None
-                if lk is not None:
-                    oneshot_latch[aid] = lk
+                if rk is not None:
                     oneshot_req[aid] = rk
                     oneshot_action[aid] = a
                     # registration: the LATCH is body-written (GLOB / strided —
                     # once-per-member; class-wide once = raise_flags+not_flag);
                     # the REQUEST is brain-private (Instance under brains).
                     # v1 keeps the latch-then-request reset order byte-for-byte.
-                    self._sticky_flag(owner, lk)
+                    # An event-cooldown's re-arm gate is its TIMER (armed at
+                    # delivery, ticked by the central/brain clock) — no latch.
+                    if lk is not None:
+                        oneshot_latch[aid] = lk
+                        self._sticky_flag(owner, lk)
+                    else:
+                        oneshot_timer[aid] = cd_ann[aid]
                     if self.brains:
                         self._inst_ref(owner, rk)
                     else:
@@ -2186,7 +2212,8 @@ class FieldBehavior:
                     latch_arg = (oneshot_latch.get(aid)
                                  if not isinstance(a, Battle) else None)
                     body = self._dispatch_body(owner, u, a, aid,
-                                               oneshot_latch=latch_arg)
+                                               oneshot_latch=latch_arg,
+                                               oneshot_timer=oneshot_timer.get(aid))
                     funcs.append((tag, body))
                     disp_sizes.setdefault(u.name, []).append(
                         (tag, f"{type(a).__name__}#{aid}", len(body)))
@@ -2264,9 +2291,16 @@ class FieldBehavior:
                 bl = f"t_{owner}_b{aid}"
                 req_r = (self._inst_ref(owner, rk) if self.brains
                          else self._sticky_flag(owner, rk))
+                if aid in oneshot_timer:                 # event-cooldown: cooling
+                    t_lane = (self._inst_ref(owner, f"ecd{aid}") if self.brains
+                              else f"Global.Byte[{self.bb.byte(f'{owner}.ecd{aid}')}]")
+                    served = [_stmt(f"{t_lane} const(0) B_GT"), (JMP_IF, bl)]
+                else:                                    # event-once/Battle: latched
+                    served = [_stmt(self._sticky_flag(owner, oneshot_latch[aid])),
+                              (JMP_IF, bl)]
                 seg += [
                     _stmt(req_r), (JMP_IFNOT, bl),
-                    _stmt(self._sticky_flag(owner, oneshot_latch[aid])), (JMP_IF, bl),
+                ] + served + [
                     _stmt(f"{run_r} const(0) B_EQ"), (JMP_IFNOT, bl),
                 ]
                 if self.brains:
@@ -2278,13 +2312,22 @@ class FieldBehavior:
                     # probed): while the unit is engine-held (an open talk
                     # dialogue) the lane skips and retries next pass, exactly
                     # the old drop-and-retry. Latch FIRST (Battle's shape — a
-                    # battle suspend can never re-fire), run wraps the work at
-                    # MYUID (the same cells the member body wrote).
+                    # battle suspend can never re-fire) — or for an
+                    # event-cooldown, ARM THE TIMER first and CLEAR the
+                    # request (the timer expires; a stale req would re-fire
+                    # selection-free) — run wraps the work at MYUID (the same
+                    # cells the member body wrote).
+                    if aid in oneshot_timer:
+                        arm = [_stmt(f"{self._inst_ref(owner, f'ecd{aid}')} "
+                                     f"const({int(oneshot_timer[aid])}) B_LET"),
+                               _stmt(f"{req_r} const(0) B_LET")]
+                    else:
+                        arm = [_stmt(f"{self._sticky_flag(owner, oneshot_latch[aid])} "
+                                     f"const(1) B_LET")]
                     seg += [
                         _stmt(f"{MYLEVEL} const({DISPATCH_LEVEL}) B_GT"),
                         (JMP_IFNOT, bl),
-                        _stmt(f"{self._sticky_flag(owner, oneshot_latch[aid])} "
-                              f"const(1) B_LET"),
+                    ] + arm + [
                         self._uset(owner, "running", 255),
                     ] + self._oneshot_work(oneshot_action[aid], owner) + [
                         self._uset(owner, "running", 0),
@@ -2832,6 +2875,38 @@ class FieldBehavior:
                        _stmt(f"{latch_r} const(1) B_LET"),
                        label(ff), (JMP, fail)])
         if isinstance(node, Cooldown):
+            leaf = _terminal_do(node.child)
+            if leaf is not None and isinstance(leaf.action, (Announce, Sfx, Flash, StopTimer)):
+                # THE EVENT COOLDOWN (the hangout greet-pair latch): over a
+                # one-shot dispatch action, sticky engagement DEADLOCKS a
+                # mutual-static pair — selecting the announce HALTS both
+                # walkers (the dispatch-halt feeds own mirror), so the
+                # near(partner) cond that engaged it can never re-falsify and
+                # both units statue forever, selection held (the same
+                # starvation family as the monotonic Once; the player-keyed
+                # crier only ever escaped because the PLAYER is an external
+                # mover). "Cooldown" over a one-shot therefore means an EVENT:
+                # selection edge-latches the request, the one-shot lane fires
+                # it, the delivery ARMS THE TIMER (the body's first write) and
+                # clears the request, and the branch releases the tick the
+                # timer lands — the clock is the re-arm gate. Sticky stays for
+                # FEED children ("chase me, re-aggro N after I escape").
+                aid = ids[id(leaf.action)]
+                if self.brains:
+                    t_r = self._inst_ref(owner, f"ecd{aid}")
+                    bc = self._brain_cooldowns.setdefault(owner, [])
+                    if t_r not in bc:                    # compile() may re-run
+                        bc.append(t_r)
+                else:
+                    name = f"{owner}.ecd{aid}"
+                    t_r = f"Global.Byte[{self.bb.byte(name)}]"
+                    if name not in [n for n, _f in self._cooldowns]:
+                        self._cooldowns.append((name, node.frames))
+                req_r = (self._inst_ref(owner, f"areq{aid}") if self.brains
+                         else self._sticky_flag(owner, f"areq{aid}"))
+                extra = (on_select or []) + [_stmt(f"{req_r} const(1) B_LET")]
+                return ([_stmt(f"{t_r} const(0) B_EQ"), (JMP_IFNOT, fail)]
+                        + self._compile_tree(owner, node.child, ids, fail, _ctr, extra))
             # sticky like Once: engage on select, and start the TIMER at DISENGAGE
             # (the child failing while engaged), so the cooldown measures time since
             # the behavior ENDED, not since it began. Under brains the timer is
@@ -3383,12 +3458,15 @@ class FieldBehavior:
         raise BehaviorError(f"no one-shot work for {type(a).__name__}")
 
     def _dispatch_body(self, owner: str, u: UnitSpec, a: Action, aid: int,
-                       oneshot_latch: str | None = None) -> bytes:
+                       oneshot_latch: str | None = None,
+                       oneshot_timer: int | None = None) -> bytes:
         """One dispatch-action body for MEMBER ``u`` of tree-owner ``owner``
         (owner == u.name for an unclassed unit). Bodies always run ON the
         member, so every protocol ref is the member's own — a classed member
         reads its cells at its CONSTANT uid. ``oneshot_latch`` is a latch slot
-        KEY (event-Once actions); the body resolves it in member context."""
+        KEY (event-Once actions); ``oneshot_timer`` is the event-Cooldown
+        FRAMES (v1 only — brains inlines one-shots in the brain Seq); the
+        body resolves both in member context."""
         sel_r = self._uref(u.name, "selected")
         run_r = self._uref(u.name, "running")
         latch_ref = (self._oneshot_ref(owner, u.name, oneshot_latch)
@@ -3484,6 +3562,24 @@ class FieldBehavior:
             ])
         if isinstance(a, (Announce, StopTimer, Flash, Sfx)):
             work = self._oneshot_work(a, u.name)
+            if oneshot_timer is not None:
+                # the EVENT-Cooldown variant (the hangout greet-pair latch):
+                # ARM THE TIMER FIRST (the latch-first shape — a re-request
+                # can never double-fire), then CLEAR the edge-latched request
+                # (unlike a Once latch, the timer EXPIRES — a stale req left
+                # set would re-fire the announce at expiry with no selection),
+                # do the async work, release the level. The branch releases
+                # the tick the timer lands; the clock re-arms it.
+                t_ref = f"Global.Byte[{self.bb.byte(f'{owner}.ecd{aid}')}]"
+                req_ref = self._oneshot_ref(owner, u.name, f"areq{aid}")
+                return asm([
+                    _stmt(f"{t_ref} const({int(oneshot_timer)}) B_LET"),
+                    _stmt(f"{req_ref} const(0) B_LET"),
+                    set_run(255),
+                ] + work + [
+                    set_run(0),
+                    opcodes.RETURN,
+                ])
             if oneshot_latch is not None:
                 # the EVENT-Once variant: latch FIRST (Battle's one-shot shape —
                 # a re-request can never re-fire), do the work (an announce

@@ -21,11 +21,14 @@ What it DOES interpret is grounded, not guessed:
     action dataclasses at import, never copied numbers.
   * the hysteresis law — a sticky ``once``/``cooldown`` condition is both trigger and
     keep: the engagement ends the first tick the condition FAILS (preemption by a
-    higher row does not latch it); ``once`` over the one-shot family is an EVENT — it
-    fires once and releases immediately (the starvation-family distinction this
-    instrument exists to show).
-  * feeds persist — selecting a non-feed branch (swing/one-shot) leaves the walk
-    targets where the last feed wrote them, exactly like the duty walk's GLOBs.
+    higher row does not latch it); over the ONE-SHOT family BOTH decorators are
+    EVENTS — ``once`` fires once and releases immediately, ``cooldown`` fires, ARMS
+    ITS TIMER at delivery, and releases until the timer expires (the
+    starvation-family distinction this instrument exists to show: sticky engagement
+    over a one-shot deadlocks a mutual-static pair — the hangout greet latch).
+  * the dispatch-halt — a selected ONE-SHOT parks the walker (the compiler feeds the
+    unit's own mirror every selected tick); a swing branch still leaves the walk
+    targets where the last feed wrote them (a swinger is already at contact).
 
 Qt-free, like behaviorscan: the projections are plain data over a raw field dict.
 Determinism is a contract — same doc + same player path ⇒ identical history (wander
@@ -451,14 +454,22 @@ class Sim:
         spd = int(do.get("speed") or 0)
 
         if verb in _ONE_SHOTS:
-            # once here is an EVENT: fire, latch, release (never a held engagement).
-            # battle latches by construction (one-shot per field load); the rest latch
-            # on their selection EDGE when un-onced.
+            # once/cooldown here are EVENTS: fire, latch/arm, release (never a held
+            # engagement). battle latches by construction (one-shot per field load);
+            # the rest latch on their selection EDGE when un-onced. A selected
+            # one-shot HALTS the walker (the compiler's dispatch-halt feeds the
+            # unit's own mirror) — modeling the stale feed instead is exactly the
+            # divergence that hid the hangout greet latch from this instrument.
+            u.feed = (u.x, u.z)
             prev = self._sel_prev.get(u.name, -1)
             if verb == "battle" or br.get("once"):
                 self._once.add(key)
             elif prev == bi:
                 return                             # edge-fired already, still selected
+            if br.get("cooldown"):
+                # THE EVENT COOLDOWN: the timer arms AT DELIVERY and gates
+                # re-selection (the compiler's ecd byte on the central/brain clock)
+                self._cool[key] = tick + int(br["cooldown"])
             text = {"announce": str(do.get("announce", "")),
                     "announce_npc": str(do.get("announce_npc", "")),
                     "battle": f"battle scene {do.get('battle')}",
