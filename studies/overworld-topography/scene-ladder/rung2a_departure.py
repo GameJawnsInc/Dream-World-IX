@@ -109,6 +109,11 @@ TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 RET()
 """
 
+# One framing for both modes (owner preference: the departure looks at the boat/shore FROM
+# open sea, like the vignette). Safe again despite the deferred-model flash risk that forced
+# the v5 seaward detour: the prologue's instant black provably HOLDS from frame zero (the
+# floating-minimap screenshot was black underneath), and the director re-hides the player
+# ~17 frames before its fade-in completes -- hidden before anything is visible.
 EYE_INIT = f"""
 0xB7()
 SetObjectLogicalSize(0, 0, 0)
@@ -120,7 +125,7 @@ RET()
 
 EYE_LOOP = f"""
 L0:
-SET({{Map.Byte[{PHASE}] const(1) B_EQ B_EXPR_END}})
+SET({{Map.Byte[{PHASE}] const(1) B_EQ Map.Byte[{PORT_CACHE}] B_NOT B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L60)
 InitWalk()
 WalkXZY({ship_rel(0, lateral=-10)}, {ship_rel(1, up_units=6)}, {ship_rel(2, lateral=-10)})
@@ -145,6 +150,18 @@ L0:
 MoveInstantXZY({ship_rel(0)}, {ship_rel(1)}, {ship_rel(2)})
 op_22(1)
 JMP(L0)
+"""
+
+HIDE_TAG, SHOW_TAG = 65, 66            # anchor self-op tags: show-bit clear / restore (stock flags = 5)
+
+ANCHOR_HIDE = """
+SetObjectFlags(4)
+RET()
+"""
+
+ANCHOR_SHOW = """
+SetObjectFlags(5)
+RET()
 """
 
 # --- the port-snap tags on the anchor (the boat tag-60 shape) ---
@@ -175,17 +192,9 @@ def _port_switch() -> str:
 
 DIRECTOR_LOOP = f"""
 L0:
-SET({{Global.Byte[{DEPART_BYTE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
+SET({{Map.Byte[{PORT_CACHE}] B_EXPR_END}})
 JMP_IFNOT(L100)
-SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
-SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
-DisableMove()
-DisableMenu()
-{FADE_OUT}
-HideObject({ANCHOR_UID}, 255)
-SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
-InitObject({EYE_UID}, 0)
-InitObject({AIM_UID}, 0)
+RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 op_22(4)
 {FADE_IN}
 op_22(30)
@@ -203,9 +212,12 @@ op_1C({AIM_UID})
 MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
 TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 {_port_switch()}
-ShowObject({ANCHOR_UID}, 255)
+RunScriptSync(6, {ANCHOR_UID}, {SHOW_TAG})
+SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
+SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
+RunWorldCode(2, 1)
 {FADE_IN}
 EnableMenu()
 EnableMove()
@@ -253,6 +265,27 @@ JMP(L0)
 """
 
 
+# THE MAIN-INIT PROLOGUE (v4 -- owner: "like stock, the character doesn't show"): stock
+# departures are DEDICATED cutscene worlds (9001-class) where no controlled player ever
+# spawns; an in-place 9011 scene cannot avoid the spawn, but Main_Init runs at WORLD
+# CONSTRUCTION, before the first rendered frame -- an instant black + mesh-hide there means
+# the free-roam entry is never seen, and the director's own fade-out composes black-on-black.
+DEPART_PROLOGUE = f"""SET({{Global.Byte[{DEPART_BYTE}] B_EXPR_END}})
+JMP_IFNOT(LDEPQ)
+SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
+SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
+SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
+InitObject({EYE_UID}, 0)
+InitObject({AIM_UID}, 0)
+SET({{Global.Byte[190] const(99) B_LET B_EXPR_END}})
+RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
+DisableMove()
+DisableMenu()
+RunWorldCode(2, 0)
+FadeFilter(2, 1, 0, 255, 255, 255)
+LDEPQ:"""
+
+
 def asm(text: str) -> bytes:
     body = assemble_block(text)
     rt = disassemble_block(body, 0, len(body))
@@ -273,6 +306,13 @@ def patch_one(base: bytes) -> bytes:
     out = E.replace_function_body(out, EYE_UID, 1, asm(EYE_LOOP))
     out = E.replace_function_body(out, AIM_UID, 0, asm(AIM_INIT))
     out = E.replace_function_body(out, AIM_UID, 1, asm(AIM_LOOP))
+    for tag, body_text in ((HIDE_TAG, ANCHOR_HIDE), (SHOW_TAG, ANCHOR_SHOW)):
+        body = asm(body_text)
+        s2 = EbScript(out)
+        if any(f.tag == tag for f in s2.entry(ANCHOR_UID).funcs):
+            out = E.replace_function_body(out, ANCHOR_UID, tag, body)
+        else:
+            out = E.add_function(out, ANCHOR_UID, tag, body)
     for tag, x, z, face, gy in PORTS:
         body = asm(port_tag_body(x, z, face, gy))
         s2 = EbScript(out)
@@ -281,6 +321,29 @@ def patch_one(base: bytes) -> bytes:
         else:
             out = E.add_function(out, ANCHOR_UID, tag, body)
     out = E.replace_function_body(out, SHIP_UID, 1, asm(DIRECTOR_LOOP))
+
+    # Main_Init gains the departure prologue before its final RET. Re-runs REPLACE any prior
+    # prologue version (v4's skip-if-present guard left a stale v4 prologue deployed under a
+    # v5 director -- an inconsistent pair that would softlock a departure; strip then insert).
+    import re as _re
+    s3 = EbScript(out)
+    f0 = next(f for f in s3.entry(0).funcs if f.tag == 0)
+    text = disassemble_block(s3.data, f0.abs_start, f0.abs_end)
+    if assemble_block(text) != s3.data[f0.abs_start:f0.abs_end]:
+        raise SystemExit("Main_Init does not round-trip text<->bytes -- refusing to rebuild it")
+    lines = text.rstrip().splitlines()
+    if f"Global.Byte[{DEPART_BYTE}]" in text:
+        i = next(k for k, l in enumerate(lines) if f"Global.Byte[{DEPART_BYTE}]" in l)
+        m = _re.match(r"JMP_IFNOT\((\w+)\)", lines[i + 1].strip())
+        if not m:
+            raise SystemExit("existing prologue shape unrecognized -- refusing to strip")
+        lbl = m.group(1) + ":"
+        j = next(k for k in range(i + 2, len(lines)) if lines[k].strip() == lbl)
+        del lines[i:j + 1]
+    if lines[-1].strip() != "RET()":
+        raise SystemExit(f"Main_Init does not end in RET() (got {lines[-1]!r}) -- refusing")
+    lines[-1:-1] = DEPART_PROLOGUE.splitlines()
+    out = E.replace_function_body(out, 0, 0, assemble_block("\n".join(lines) + "\n"))
     return out
 
 
