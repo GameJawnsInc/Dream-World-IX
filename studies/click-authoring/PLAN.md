@@ -319,10 +319,42 @@ prop default "chest" → "barrel" (looked openable, wasn't); drawn events get **
 on the quad menu (the photo lane has no other editor for a zone's words) + a canvas/lint warn
 while the "..." placeholder would ship as a literal popup.
 
-### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
+### Rung 6 — the multi-room / floorplan composer ★ 6a+6b BUILT 2026-07-29, ⚠ awaiting playtest
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
 rooms on this canvas, declare which edges are doors, and get a wired dungeon: gateways both ways,
 arrival position + facing per side, encounters, save-point siting.
+
+> **The verified math, every constant sourced, and the record of what an adversarial pass caught:
+> [`RUNG6.md`](RUNG6.md). Read it before changing a number** — the draft's own values were wrong in
+> five ways that each looked right, and §1 is the table of what the measurements killed.
+
+- **6a ★** — `ff9mapkit/ff9mapkit/floorplan.py`, the pure Qt-free core: the closed-form projection,
+  polygon health, `standable`, the edge-anchored inward normal, the engine's own facing formula,
+  candidate shared walls, the door strip, arrival + facing, the camera fit, interior siting, and
+  fifteen gates. 96 fences in `tests/test_floorplan.py`. Minted **THE TWO-FRAME LAW** (see RUNG6.md
+  §2) — the plan layout is an authoring fiction, so every artifact of a room rides the same integer
+  `off_r`, art included.
+- **6b ★** — `ff9mapkit floorplan <plan.json>`: one member dir per room with its field.toml,
+  walkmesh.obj and **polygon-clipped** placeholder art, plus `campaign.toml` and the re-editable
+  `floorplan.json` sidecar. Proven offline end to end — compose → `lint-campaign` OK 0 warnings →
+  each room 0 errors → `build-all` emits a real dist. The id pre-flight reads the LIVE
+  DictionaryPatch stack before minting (the kit's own collision guard runs only at
+  `deploy --apply`, i.e. after you have already authored N rooms onto colliding ids).
+  Two rooms deployed **additively** to 30500/30501 — the other ~407 registrations untouched.
+- **6c** — the Workspace **Floorplan** tab on the Author rail beside Map; undo is doc-local over the
+  session snapshot (`TraceDoc`'s model), which is what makes a door-pair edit atomic despite
+  `shell._UndoRec` being single-member.
+- **6d** — the playtest. Open questions it settles are listed in RUNG6.md §6: `R_WALK = 80` vs the
+  repo's 48 (a code derivation, not a measurement), whether front-align *looks* right, the 170u
+  depth floor, and `entry_settle = "auto"` on a hand-drawn polygon.
+
+En route, two defects outside this rung were found and spawned as their own tasks, plus one fixed
+here: `cam.solve_z_for_canvasY` and `guide.frame_floor` are **unsound at low pitch** (`frame_floor`
+raises at every distance for pitch 15, and `pack.new_project` swallows it — so `ff9mapkit new
+--pitch 15` silently ships a template mesh); `[encounter] scene` accepts a catalog NAME that the
+lint resolves and the build then kills with a bare `int()` error; and the layout probe compared the
+spawn against an entrance-0 arrival and called a correct field COLLIDING (fixed — the player is
+exactly one of them at a time).
 
 > ★ **THE DRAWN-MESH LAW — the human draws the walkmesh; the composer never infers one.**
 > Auto-deriving a walkmesh from an arbitrary field drawing is a research problem (segmentation,
@@ -433,9 +465,9 @@ GUI claim from source; that is the documented recurring failure in this package.
    (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
    in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
    raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
-   **RUNG 3 CLOSED.** Still open on the board: Rung 4 ★ BUILT awaiting playtest (see its block),
-   and Rung 6 (the multi-room composer, now unblocked — its "do not start before Rung 3 is real"
-   gate is satisfied).
+   **RUNG 3 CLOSED.** Rung 4 followed and is owner-confirmed on both lanes; Rung 6 was taken up
+   2026-07-29 once its "do not start before Rung 3 is real" gate was satisfied — 6a+6b built, see
+   its block and [`RUNG6.md`](RUNG6.md).
 5. **Rung 2** ★ BUILT 2026-07-29, ★ CORE MECHANISM PLAYTEST-CONFIRMED (contact mode + the
    Cut-outs strip in the Trace tab; owner aligned a snip on a real hallway photo and confirmed
    it composites correctly in-game — "that worked when i aligned it correctly"). Two full

@@ -5,6 +5,40 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `ff9mapkit floorplan`: a hand-drawn multi-room plan becomes a wired dungeon
+- One verb turns a `floorplan.json` (room outlines + declared doors, in one shared plan
+  frame) into a buildable campaign: one FF9 field per room, gateways both ways, an
+  arrival position **and facing** per side, encounters, and save-point siting. Each room
+  gets its own member directory with a `field.toml`, a `walkmesh.obj` and placeholder art
+  clipped to the room's real footprint, plus a `campaign.toml` and the re-editable
+  sidecar. `build-all` then compiles the whole set, and each room deploys **additively**
+  with `deploy_field.py --id N` (never `deploy-campaign --apply`, which replaces a whole
+  mod folder wholesale).
+- THE DRAWN-MESH LAW holds throughout: the human's polygon IS the walkmesh, and the
+  composer only handles topology. It offers candidate shared walls; the author declares
+  which are doors.
+- Fifteen gates refuse a plan that cannot become a legal dungeon, and they refuse rather
+  than warn — a self-intersecting outline, a room with nowhere to stand or a walkable area
+  split by a too-narrow neck, overlapping rooms, a door too shallow for the player's
+  centre to enter, an arrival that would strand or instantly re-warp the player, an
+  arrival with no facing, a room that will not fit its own camera, two trigger zones that
+  would starve each other, and an id already registered in the live game. Warnings cover
+  the judgment calls (an unreachable room, a cramped floor, an arrival a step from another
+  zone).
+- The id pre-flight reads the live `DictionaryPatch` stack **before** minting ids, so a
+  collision surfaces while you are authoring rather than at deploy time — and an
+  unreadable stack reports UNKNOWN, never "clear".
+- `scene.placeholder.write_placeholders` accepts `floor_tris=` and clips the checkerboard
+  to the real walkable footprint. Its rectangular frame previously painted ground the
+  player cannot reach (68% of one composed room), inverting the placeholder's own purpose
+  as an in-game alignment check.
+
+### Fixed — the layout probe called a correct field COLLIDING
+- `tools/field_layout_probe.py` compared `[player] spawn` against `[[player.arrival]]`
+  rows as if they were two actors. An entrance-0 arrival is conventionally equal to the
+  spawn, so a correct field reported "0u apart -- COLLIDING". The player is exactly one of
+  them at a time; NPC-vs-spawn collisions still report.
+
 ### Added — trigger regions drawn on the art (the Place tab's Regions tool)
 - Gateway and walk-in-event zones are now DRAWN, not typed: a per-canvas tool strip
   (Place / Regions — explicit click semantics, the strip every canvas mode was waiting
