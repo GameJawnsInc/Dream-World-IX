@@ -109,10 +109,19 @@ TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 RET()
 """
 
+# The eye frames by MODE: a DEPARTURE (Map.Byte[51] carries the port) looks SEAWARD from the
+# shore side -- the spawn point is BEHIND the camera, so the deferred-model flash cannot be in
+# frame; the confirm vignette keeps the proven west-side composition.
 EYE_INIT = f"""
 0xB7()
 SetObjectLogicalSize(0, 0, 0)
+SET({{Map.Byte[{PORT_CACHE}] B_EXPR_END}})
+JMP_IFNOT(L50)
+MoveInstantXZY({ship_rel(0, lateral=14)}, {ship_rel(1, up_units=6)}, {ship_rel(2, lateral=4)})
+JMP(L90)
+L50:
 MoveInstantXZY({ship_rel(0, lateral=-17)}, {ship_rel(1, up_units=7)}, {ship_rel(2, lateral=-14)})
+L90:
 SetWalkSpeed(8)
 SetWalkTurnSpeed(1)
 RET()
@@ -120,7 +129,7 @@ RET()
 
 EYE_LOOP = f"""
 L0:
-SET({{Map.Byte[{PHASE}] const(1) B_EQ B_EXPR_END}})
+SET({{Map.Byte[{PHASE}] const(1) B_EQ Map.Byte[{PORT_CACHE}] B_NOT B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L60)
 InitWalk()
 WalkXZY({ship_rel(0, lateral=-10)}, {ship_rel(1, up_units=6)}, {ship_rel(2, lateral=-10)})
@@ -175,18 +184,9 @@ def _port_switch() -> str:
 
 DIRECTOR_LOOP = f"""
 L0:
-SET({{Global.Byte[{DEPART_BYTE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
+SET({{Map.Byte[{PORT_CACHE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
 JMP_IFNOT(L100)
-SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
-SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
-DisableMove()
-DisableMenu()
-{FADE_OUT}
 HideObject({ANCHOR_UID}, 255)
-SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
-InitObject({EYE_UID}, 0)
-InitObject({AIM_UID}, 0)
-op_22(4)
 {FADE_IN}
 op_22(30)
 SetWalkSpeed({SAIL_SPEED})
@@ -206,6 +206,7 @@ TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 ShowObject({ANCHOR_UID}, 255)
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
+SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
 {FADE_IN}
 EnableMenu()
 EnableMove()
@@ -260,7 +261,11 @@ JMP(L0)
 # the free-roam entry is never seen, and the director's own fade-out composes black-on-black.
 DEPART_PROLOGUE = f"""SET({{Global.Byte[{DEPART_BYTE}] B_EXPR_END}})
 JMP_IFNOT(LDEPQ)
-FadeFilter(2, 1, 0, 255, 255, 255)
+SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
+SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
+SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
+InitObject({EYE_UID}, 0)
+InitObject({AIM_UID}, 0)
 HideObject({ANCHOR_UID}, 255)
 DisableMove()
 DisableMenu()
