@@ -52,13 +52,13 @@ SHIP = (29, -1168, 200)
 SHIP_FACE = 192
 SAIL_TO_Z = -1208
 SAIL_SPEED = 60
-ARRIVE_SPEED = 48                    # statelier than the departure's 60
+ARRIVE_SPEED = 36                    # statelier than the departure's 60 (v2: shorter lane)
 PHASE = 50                           # Map.Byte[50] -- scene phase (1c)
 PORT_CACHE = 51                      # Map.Byte[51] -- the cached port code for the switches
 DEPART_BYTE = 1872                   # Global.Byte -- flags.py FERRY_DEPART_BYTE
 
 SHIP_Y = 200                         # the proven at-sea y arg (draft), all waters
-EYE_UP = 6.0
+EYE_UP = 7.0
 
 # Per-port shore snap (rung 2a, probed ground heights -- unchanged, tags live on the anchor).
 PORTS = [
@@ -69,12 +69,16 @@ PORTS = [
 ]
 
 # Per-port arrival theater: anchor tag, approach(x,z), dock(x,z), sail heading, moor face,
-# eye(x,z) at +EYE_UP (3/4 astern of the approach point; every point probed WATER).
+# eye(x,z) at +EYE_UP. v2 (owner: "the far-ocean view doesn't frame the landmark"): the
+# whole theater moved CLOSE-IN -- approach 20u off the dock (was 36u), eye a tight 3/4
+# astern (8u back, 8u abeam, +7u) so the reveal frames ship AND shore inside the world fog
+# (~45u visibility; the v1 shore sat ~56u out = an empty ocean shot). Every point probed
+# WATER (Ashvale's -perp mirror is shoal topo 55 -- the +perp side is load-bearing there).
 ARRIVE = [
-    (61, (29.0, -1208.0), (29.0, -1168.0), 128, 192, (19.0, -1222.0)),
-    (62, (358.0, -1232.0), (394.0, -1232.0), 192, 192, (344.0, -1222.0)),
-    (63, (1146.0, -1192.0), (1182.0, -1192.0), 192, 192, (1132.0, -1182.0)),
-    (64, (762.5, -616.0), (726.5, -616.0), 64, 64, (776.5, -626.0)),
+    (61, (29.0, -1188.0), (29.0, -1168.0), 128, 192, (21.0, -1196.0)),
+    (62, (374.0, -1232.0), (394.0, -1232.0), 192, 192, (366.0, -1224.0)),
+    (63, (1162.0, -1192.0), (1182.0, -1192.0), 192, 192, (1154.0, -1184.0)),
+    (64, (746.5, -616.0), (726.5, -616.0), 64, 64, (754.5, -624.0)),
 ]
 
 CONFIRM_ON = 131072
@@ -254,8 +258,7 @@ InitObject({AIM_UID}, 0)
 op_22(4)
 {_switch([_eye_body(e) for e in ARRIVE], "E")}
 op_22(6)
-{FADE_IN}
-op_22(20)
+FadeFilter(3, 16, 0, 0, 0, 0)
 SetWalkSpeed({ARRIVE_SPEED})
 SetWalkTurnSpeed(6)
 {_switch([_sail_in_body(e) for e in ARRIVE], "S")}
