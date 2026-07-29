@@ -267,7 +267,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ⛳ in-game (byte→screen + per-cell map + 4bpp proven; BINDING≠DRAW + UV-shredding laws; shape-on-flat open) → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ★, W6b-2 ★★ kit lane cast-proven (G licensed — the dome drew 8bpp; P discloses), W6q ★★ cast-proven, W6b-3 ★ record-length channel (so_record safety bug found) → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3 owner-confirmed (rig cinema + THE FERRY VOYAGE both halves: sail-out AND the close-in arrival dock; s66/s68); NEXT: 3c origin-port departures, designed → `studies/overworld-topography/scene-ladder/`
 - Click authoring (the Trace tab) — Rungs 0-1 ★ in-game; the camera census clears Rung 3 → `studies/click-authoring/PLAN.md`
 

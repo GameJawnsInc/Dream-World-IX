@@ -1,0 +1,88 @@
+# TIER W rung W6b-1 -- CAST 3: THE SHAPE VERDICT ON THE GROUND POOL, AND THE POOL'S OWN CONFIRM.
+#
+# WHAT CAST 1e LEFT OPEN.  The striped-cell ladder attributed ef211's on-screen surfaces to VRAM
+# page-cells and closed on `cell.s0.x640_y256` = THE GROUND POOL **by elimination** (cast 1c bounded
+# it to cells 5 or 7; 1d cleared cell 6; 1e cleared cell 5).  Two things were still owed: the pool's
+# POSITIVE confirm, and a photographable SHAPE verdict -- because cast 2b proved a texel figure
+# RENDERS on scenery (+11.6 points of near-black at aligned cast-time) while proving nothing about
+# whether it keeps its FORM.  THE UV-SHREDDING BOUND was the reason: column 576's models turn any
+# figure into diffuse erosion, and the probe's stripes read only because a stripe is
+# translation-invariant.
+#
+# THE OFFLINE MEASUREMENT THAT DECIDED THIS CAST (full numbers: the SCRATCH root's UV-ANALYSIS.md;
+# re-derived every run by the committed generator `phoenix_pool_stamp.py`):
+#
+#     THE CELL IS SPLIT.  Its two 4bpp `so` readers sit at opposite ends of the shredding bound --
+#       geom 0x2d344 CLUT(80,244)  192 FT3   a 16-segment conical patch: UV overlap x23.62, per-face
+#                                            u-axis rotation UNIFORM (resultant R = 0.0000)  -> SHREDS,
+#                                            harder than the cast-proven column-576 baseline
+#       geom 0x2ed7c CLUT(96,244)   10 GT4   ONE continuous 255x63 strip, matched u breakpoints, no
+#                                            repeat: overlap x1.18, R = 0.7504, anisotropy CONSTANT
+#                                            (med 2.209, max 2.299) -> FLAT-ENOUGH
+#     and their covers PARTITION: 2,016 arc-only + 2,048 cone-only + 1,659 shared.
+#
+# SO THE FIGURE GOES IN THE FLAT READER'S PRIVATE HALF, and the other half gets the only figure a
+# repeated patch can carry.  One deploy, two attributed marks, three possible readings and every one
+# of them is a measurement:
+#
+#     WHEELS visible  -> the arc band draws the pool AND a texel SHAPE survives on scenery.  PASS.
+#     BANDS only      -> the cone draws it; the pool is confirmed, the shape verdict is negative
+#                        on that surface (and consistent with cast 2b).
+#     NEITHER         -> (640,256) is drawn by NEITHER `so` reader, i.e. by the id-3 program's own
+#                        primitives -- recon Q1, on a cell the census could name.
+#
+# The SHARED 1,659 halfwords are left STOCK on purpose: they are the one region a reading could not
+# attribute, so nothing is written into them.
+#
+# GENERATE THE ART FIRST (the committed generator -- no stock byte is committable):
+#
+#     py phoenix_pool_stamp.py --from C:/gd/SCRATCH/summon-format/ef211.bytes ^
+#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool
+#
+# MEASURED by that run: 3 wheels (ru 15, rv 29 -> 1607 x 1605 WORLD units, roundness 1.00; ring
+# 0.80 R, stroke 0.22, 3 spokes at duty 0.76, rim 18% of the diameter) at u 155/189/223, placed at
+# the brightest of 27 offsets (mean stock L removed 42.58); 2 control bands of 12 rows at y 11/43;
+# 5,438 texels changed = 16.6% of the page; 0 texels outside the two attributed zones; unpack4/pack4
+# NO-OP identity verified on the stock page before anything was drawn.
+#
+# THE INK IS INDEX 0, AND ITS PALETTE-INVARIANCE IS MEASURED, NOT ASSUMED.  This is a class-C cell
+# (one index array, two CLUTs), so the write value is the index whose WORST-CASE luminance across
+# BOTH views is lowest:  0x8022 (L 9.5 of a 134.3 peak) under the editable key (80,244), and
+# **0x0000 -- the true CUTOUT** under the alternate view (96,244), which is the view the arc band
+# reads.  Runner-up worst-case 14.26.  Under additive compositing both read as absence, the one
+# channel casts 1a/1b/2b proved legible here.
+#
+# DISCLOSURE 1 -- the editable key has NO transparent index (no 0x0000 word in row (80,244)), so the
+# kit's cutout gate reports punch 0 / fill 0 and NO `acknowledge_cutout_reshape` is owed; under the
+# ALTERNATE view the same write does create cutout texels.  Stated here rather than discovered later.
+# DISCLOSURE 2 -- the build will report a non-zero "outside the cover" count (238 texels).  That is a
+# KIT DEFECT, not a stray edit: `repaint._face_polys` fans a quad (0,1,2)+(0,2,3) on the assumption
+# the corners are perimeter-ordered, but these scenery GT4s are Z-ordered, so the perimeter fan is a
+# BOWTIE and under-reports 0x2ed7c's cover by 700 of 4,032 halfwords (17.4%).  Re-derived per run:
+# the Z fan is winding-consistent on 10/10 quads, the perimeter fan on 0/10.  Fixing it re-measures
+# published corpus cover counts, so it is a separate change; this cast masks with its own Z fan.
+
+[reskin]
+effect = 211
+label  = "phoenix-w6b-cast3-pool-wheels"
+expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c1"
+
+[[reskin.texel]]
+name = "cell.s0.x640_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool/art/cell.s0.x640_y256.png"
+
+# --- the guards, emitted by the derivation, never typed --------------------------------------
+expect_page_offset = 0x019678   # id-0 page rect of the s0 chunk -- the cell the pool reads
+expect_page_bytes  = 16384
+expect_page_wh     = [256, 128] # at 4bpp: 256 texels wide, two per byte -- the nibble codec
+expect_bpp         = 4          # stated, CHECKED against BOTH so records' tpage 0x1a + nClut4
+expect_cell        = [640, 256]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# CLASS C: one index array read under two CLUTs.  The editable key is the LOWEST-ADDRESSED binding's
+# (pal.s0.x80_y244.e16 @0xd18); pal.s0.x96_y244.e16 @0xd38 is the named read-only alternate view, and
+# the ink above is chosen to be the darkest entry under BOTH.  The kit builds this with the
+# display-palette disclosure; nothing here is acknowledged away.
+palette_from = "pal.s0.x80_y244.e16"
+note = "CAST 3: three world-circular punched wheels in the ARC BAND's private half of the cell + two control bands in the CONE's -- the pool's positive confirm and the scenery SHAPE verdict, attributed per reader, in one cast"

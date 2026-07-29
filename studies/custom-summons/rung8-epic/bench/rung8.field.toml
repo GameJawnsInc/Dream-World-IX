@@ -202,11 +202,73 @@ name = "Rune"
 #
 #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef038 container override itself is hot: a
 #   PAGE upload invalidates the decoded-texture cache, so the composed edit is live on the NEXT cast.
+#
+# --- TIER W6b-1 / THE 15bpp LANE: "Stock Octopus" casts STOCK effect 429.  SAME shape as the three rows
+#     above, same donor, same three overrides, and the same forced placement -- APPENDED LAST, because
+#     the 192+ ability-id allocator is ONE running counter walking specs in TOML order
+#     (`content/playable.py`), so this row takes id 201 and renumbers nothing.  Inserting it anywhere
+#     earlier would shift 197-200, which are already deployed: a live-state break.
+#   WHAT ef429 IS.  `Memoria/Assembly-CSharp/Memoria/Data/Battle/SpecialEffect.cs:354` names it
+#     `Octopus_Suction = 429, // Gigan Octopus's 6 Legs` -- an ENEMY attack effect, not an eidolon, and
+#     the first non-summon container this bench has cast.  In stock play it is the Gigan Octopus's own
+#     "6 Legs" attack; nothing the party can cast reaches it, which is exactly why it needs a bench row.
+#   WHY ef429 IS THE W6b-1 SUBJECT.  The 15bpp DIRECT codec (RGBA + an explicit 1-bit STP sidecar) is
+#     proven exhaustively offline over all 65,536 halfwords and on 14/14 writer-backed cells, and it has
+#     NEVER BEEN CAST -- no lawful 15bpp cell sat in a container reachable from a bench row
+#     (W6b-SCENERY.md 2.3).  ef429 is the ONLY lawful 15bpp cell with NO reader spill, so it is
+#     page-scope-safe: `cell.s0.x448_y256` plus, via the per-cell map, its lower half `x448_y384`.
+#     Its ONE `so` reader (geom 0x2109c, 72 primitives, ABR 1 = additive) samples a band that straddles
+#     the two cells, so the pair is one texture band and this row is what puts it on screen.
+#   vfx1 = vfx2 = 429  the FULL cast, structurally (both cells equal => the short-summon roll cannot
+#                      change what plays).  ef429 has no id-4 creature package at all -- 8 scenery
+#                      page-cells, 2 of them 15bpp-lawful, which is the whole write surface.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef429 container override itself is hot.
+#
+# --- TIER W6b-1 / THE 15bpp LANE, VEHICLE 2: "Stock Atomos" casts STOCK effect 446.  SAME shape as the
+#     four rows above, same donor, same forced placement -- APPENDED LAST so it takes id 202 and leaves
+#     192-201 exactly where they are.  Row 201 "Stock Octopus" STAYS: ef429 was refused with proof, not
+#     withdrawn, and its row is the control that shows the allocator did not move.
+#   WHAT ef446 IS.  `Memoria/Assembly-CSharp/Memoria/Data/Battle/SpecialEffect.cs:92` names it
+#     `Atomos__Short = 446` (its FULL twin is `Atomos__Full = 184`).  It is the SHORT-summon cut of the
+#     eidolon Atomos -- what plays for the party's own Atomos summon (`BattleAbilityId.Atomos = 0055`)
+#     whenever the short-summon roll comes up, so unlike ef429 this is a container stock play reaches
+#     through an ordinary party ability.
+#   WHY ef446 IS THE NEXT 15bpp SUBJECT.  ef429 was REFUSED WITH PROOF: three probe casts plus a 60fps
+#     frame sweep showed both of its lawful cells are uploaded and bound but NEVER DRAWN, and its whole
+#     lawful cover was a FLAT 0xffff block -- an off-screen utility surface.  ef446's lawful cell
+#     `cell.s0.x448_y256` is the opposite on the one axis that can be read offline: its cover holds
+#     1,559 distinct halfwords, luminance sd 61.8, 11.6 % cutouts and 20.3 % STP -- structured art, not
+#     a flat block.  That RAISES the prior that the cover is drawn; it does not settle it, which is why
+#     this row exists to carry a PROBE first and a repaint only afterwards.
+#   THE SPILL OBLIGATION.  ef446's single 15bpp reader (geom 0x2d144, 256 primitives) samples a
+#     112 x 112 picture that is WIDER THAN ITS PAGE: u 0..63 lands in cell (448,256) and u 64..111
+#     spills into (512,256).  Any repaint here therefore ships behind the NAME-EVERY-COLUMN gate -- both
+#     cells named, `acknowledge_spill` on every writer row.  ef429 needed no such gate, which is why it
+#     went first; this is more work, not a worse vehicle.
+#   vfx1 = vfx2 = 446  the SHORT cut on BOTH slots, so the short-summon roll cannot swap in ef184 and
+#                      make the cast unreadable.  ef446 declares 4 resources (id 0/1/2/3) and NO id-4 +
+#                      id-5 creature package -- same shape as ef429 -- so all 10 of its page-cells are
+#                      SCENERY.  Editable depths: 15bpp at (448,256)+(512,256), 8bpp at (704,256),
+#                      4bpp at (640,256); the 15bpp write surface is that first pair.
+#   ENGINE COUPLING, NAMED AND DISMISSED.  `Global/SFX/SFX.cs:1378-1379` hardcodes Atomos frame
+#     constants (`Atomos__Full && frameIndex > 350`, `Atomos__Short && frameIndex > 150`) inside
+#     `FixScaleReset()`, which reinterprets a "Set Size" geo callback as a scale RESET to work around a
+#     stock bug that leaves some enemies shrunk after an Atomos cast.  It is a FRAME-INDEX gate on the
+#     effect's own program clock -- a RETIME hazard only.  A texel repaint rewrites picture bytes inside
+#     one page-cell and changes no opcode, no frame count and no program point, so the frameIndex ->
+#     program-point mapping it keys off is untouched.  (Also noted: `Memoria/Battle/SFX/SFXData.cs:1343`
+#     leaves `Atomos__Short` COMMENTED OUT of `FixedCameraEffects` while `Atomos__Full` is in, so the
+#     short cut rides the ordinary battle camera -- a framing fact for reading video, not a hazard.)
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef446 container override itself is hot.
 abilities = [
   { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 },
   { name = "Stock Phoenix", from = "Bahamut", targets = "AllEnemy", vfx1 = 211, vfx2 = 211, type = 0, power = 30, mp = 8 },
   { name = "Stock Madeen", from = "Bahamut", targets = "AllEnemy", vfx1 = 251, vfx2 = 251, type = 0, power = 30, mp = 8 },
   { name = "Stock Shiva", from = "Bahamut", targets = "AllEnemy", vfx1 = 38, vfx2 = 38, type = 0, power = 30, mp = 8 },
+  { name = "Stock Octopus", from = "Bahamut", targets = "AllEnemy", vfx1 = 429, vfx2 = 429, type = 0, power = 30, mp = 8 },
+  { name = "Stock Atomos", from = "Bahamut", targets = "AllEnemy", vfx1 = 446, vfx2 = 446, type = 0, power = 30, mp = 8 },
 ]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------

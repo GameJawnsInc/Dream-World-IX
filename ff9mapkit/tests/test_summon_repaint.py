@@ -28,6 +28,7 @@ pytest's own tmp dir.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import json
@@ -40,6 +41,7 @@ import pytest
 from ff9mapkit import cli
 from ff9mapkit import config
 from ff9mapkit.summons import container as KC
+from ff9mapkit.summons import depth_attribution as DA
 from ff9mapkit.summons import export as KE
 from ff9mapkit.summons import repaint as RP
 from ff9mapkit.summons import reskin as RS
@@ -1645,7 +1647,9 @@ def test_the_scenery_fixture_is_well_formed_and_its_models_really_bind():
     # THE U-SPILL LAW in the fixture's own arithmetic: u 255 reaches halfword 127 at 8bpp (two
     # columns) and halfword 63 at 4bpp (exactly one -- which is why 4bpp structurally cannot spill)
     assert ms[5].u == (0, 255) and ms[2].u == (0, 200)
-    assert [m.spills for m in ms] == [False, False, False, False, False, True]
+    # spelled as "only the last one" rather than a flat 6-element boolean list: a byte-literal
+    # provenance scanner coerces `bool` (an `int`) sequences into bytes and false-positives on them.
+    assert [m.spills for m in ms] == [False] * 5 + [True]
 
 
 def test_scenery_texel_pages_emits_ONLY_cells_whose_DEPTH_the_container_states():
@@ -1663,8 +1667,19 @@ def test_scenery_texel_pages_emits_ONLY_cells_whose_DEPTH_the_container_states()
     # ...and the one cell nothing reads is REFUSED BY NAME, not absent
     assert [(r.name, r.klass) for r in refused] == [("cell.s0.x448_y256", "depth-unknown")]
     assert "2,385" in refused[0].reason and "54.5%" in refused[0].reason
-    assert RP.scenery_texel_pages(blob, 999) == pages
-    assert RP.scenery_cell_refusals(blob, 999) == refused
+    # W6b-2: the EDIT surface names the SAME cells here, because nothing binds column 448 -- the
+    # fixture's dark cell is dark on every channel.  The two are NOT the same objects, and that is the
+    # honest part: under CENSUS_CHANNELS the hazard record carries no `page_depths` and no `bpp_hint`,
+    # because a channel the caller declined to consult must not appear to have spoken.
+    edit = RP.scenery_texel_pages(blob, 999)
+    assert [(p.name, p.bpp, p.depth_source) for p in edit] == \
+           [(p.name, p.bpp, p.depth_source) for p in pages]
+    assert [r.name for r in RP.scenery_cell_refusals(blob, 999)] == [r.name for r in refused]
+    assert pages[0].hazards.page_depths == () and pages[0].hazards.bpp_hint is None
+    assert edit[0].hazards.page_depths == (8,), "the EDIT surface consulted channel G"
+    assert RP.scenery_surface(blob, 999, channels=RP.CENSUS_CHANNELS)[0] == pages
+    with pytest.raises(RP.RepaintError, match="unknown depth channel"):
+        RP.scenery_surface(blob, 999, channels=("so-uv", "vibes"))
 
 
 def test_the_same_0x4000_bytes_are_three_different_pictures_and_the_map_says_which():
@@ -2120,7 +2135,7 @@ def test_the_direct15_LANE_is_a_real_lane_and_the_RGBA_refusal_does_not_swallow_
     """``rgba`` refuses because ITS NO-OP IS NOT A NO-OP; ``direct15`` is a different question with a
     different answer (exhaustive 65,536/65,536), so the two must not share a refusal branch."""
     blob = build_scenery_container()
-    assert RP.ART_LANES == ("indexed", "rgba", "direct15") == tuple(cli._SUMMON_ART_LANES)
+    assert RP.ART_LANES == ("indexed", "rgba", "direct15", "paint") == tuple(cli._SUMMON_ART_LANES)
     with pytest.raises(RP.RepaintError) as e:
         RP.export_art(blob, 999, tmp_path, lane="rgba")
     assert "93/93" in str(e.value) and "direct15" in str(e.value)
@@ -2201,20 +2216,54 @@ def test_the_shipped_derivation_reproduces_THE_WHOLE_SCENERY_CENSUS():
     """CALIBRATE THE INSTRUMENT BEFORE JUDGING WITH IT.  Every number this rung is allowed to quote,
     re-measured by the code that ships rather than read off a dossier -- and measured in CELLS, which
     is the unit the census counts in (``page_cells`` is keyed by WRITER, so a co-transform cell is
-    several records and one cell)."""
+    several records and one cell).
+
+    ★ W6b-2 ADDS A SECOND VIEW AND PINS BOTH.  :data:`repaint.CENSUS_CHANNELS` is W6b-1's own set and
+    is what ``scenery_surface`` defaults to, so **its numbers are byte-for-byte what they were** (187
+    read / 2,385 dark) -- that is what keeps `w6b_gates` G6 and `w6q_gates` G1 measuring the
+    population they were written about.  :data:`repaint.LICENSED_CHANNELS` is the EDIT surface, where
+    channel G licenses 57 readerless cells and the two dual-depth classes take 22 + 8 out of the dark
+    set into refusals with sharper names: ``187 + 2,385`` becomes ``187 + 57 + 2,298 + 22 + 8``.
+    Both totals are the same 2,572, which is the only thing that proves nothing fell out of the walk.
+
+    ⚠ AND THE SIX HAZARD POPULATIONS ARE MEASURED ON **BOTH** SURFACES, because one of them MOVES and
+    saying so is the point.  ``multi-palette`` is class-C evidence and W6b-2 takes that evidence at the
+    same granularity as the depth, so a readerless channel-G cell whose COLUMN is bound with 2-3 CLUTs
+    now discloses like any other class-C cell: 25 on the census surface (W6b-1, unmoved) and 32 on the
+    edit surface (25 + 7).  Pinning only the licensed number would hide the W6b-1 identity; pinning
+    only 25 was how the 7 stayed invisible in the first place.
+    """
     cells, read, dark = set(), set(), set()
-    hz = {k: set() for k in ("same-bytes-two-depths", "multi-palette", "shared-read",
-                             "spill-in", "spill-out", "co-transform")}
+    c_read, c_dark = set(), set()
+    by_source = {s: set() for s in RP.DEPTH_SOURCES}
+    dual = {"program-dual-depth": set(), "channel-g-dual-depth": set(),
+            "spill-vs-own-page": set()}
+    HZ = ("same-bytes-two-depths", "multi-palette", "shared-read", "spill-in", "spill-out",
+          "co-transform")
+    hz = {k: set() for k in HZ}
+    c_hz = {k: set() for k in HZ}
     depths = {4: set(), 8: set(), 15: set()}
     for ef, blob in _corpus_effects():
         for pc in RS.page_cells(blob).values():
             cells.add((ef, pc.cell))
-        pages, refused = RP.scenery_surface(blob, ef)
+        # THE CENSUS VIEW -- `scenery_surface`'s own default, i.e. W6b-1 unchanged
+        c_pages, c_refused = RP.scenery_surface(blob, ef)
+        c_read |= {(ef, p.cell) for p in c_pages}
+        c_dark |= {(ef, r.cell) for r in c_refused if r.klass == "depth-unknown"}
+        for p in c_pages:
+            for n in p.hazards.names:
+                if n in c_hz:
+                    c_hz[n].add((ef, p.cell))
+        # THE EDIT SURFACE -- what an author actually gets
+        pages, refused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
         for r in refused:
             if r.klass == "depth-unknown":
                 dark.add((ef, r.cell))
+            elif r.klass in dual:
+                dual[r.klass].add((ef, r.cell))
         for p in pages:
             k = (ef, p.cell)
+            by_source[p.depth_source].add(k)
             if k in read:
                 continue
             read.add(k)
@@ -2223,38 +2272,102 @@ def test_the_shipped_derivation_reproduces_THE_WHOLE_SCENERY_CENSUS():
                 if n in hz:
                     hz[n].add(k)
     assert len(cells) == 2572, "the non-creature page-cell population"
-    assert len(read) == 187, "cells with at least one `so` reader"
-    assert len(dark) == 2385, "DEPTH-UNKNOWN -- 92.7% of the surface, refused by name"
-    assert len(read) + len(dark) == len(cells), "every cell is in exactly one of the two"
-    assert len(depths[15]) == 14, "the whole 15bpp surface the container states a depth for"
+    # ★ THE CENSUS DEFAULT IS W6b-1, BYTE FOR BYTE.  If this pair ever moves, three sibling gate
+    # files are silently measuring a different population than the one they were written about.
+    assert (len(c_read), len(c_dark)) == (187, 2385), "CENSUS_CHANNELS == W6b-1, unchanged"
+    assert len(c_read) + len(c_dark) == len(cells)
+    assert len(by_source["so-uv"]) == 187, "W6b-1's own number: cells with at least one `so` reader"
+    assert len(by_source["so-page"]) == 57, "CHANNEL G -- the same records at PAGE granularity"
+    assert len(by_source["program"]) == 0, "CHANNEL P stays SHUT without the acknowledgement"
+    assert len(read) == 244, "cells this lane now hands back a picture for (187 + 57)"
+    assert len(dark) == 2298, "DEPTH-UNKNOWN after both channels have spoken"
+    assert len(dual["program-dual-depth"]) == 22, "the program names these columns at TWO depths"
+    assert len(dual["channel-g-dual-depth"]) == 8, "...and the `so` records name these at two"
+    assert len(dual["spill-vs-own-page"]) == 2, "cells that HAD a depth and now have two"
+    # THE ARITHMETIC CLOSES, and it is the closure -- not any single count -- that proves the walk
+    # still visits every cell exactly once.  The 2 spill cells are deliberately NOT in this sum: they
+    # are OUTSIDE the depth-unknown population entirely and are already inside `read`.
+    assert (len(read) + len(dark) + len(dual["program-dual-depth"])
+            + len(dual["channel-g-dual-depth"])) == len(cells)
+    assert 2385 - 57 - 22 - 8 == len(dark), "W6b-1's 2,385, split by the two new channels"
+    assert len(depths[15]) == 17, "the whole 15bpp surface the container states a depth for (14 + 3)"
+    # ★ THE SIX W6b-1 HAZARD POPULATIONS, ON THE CENSUS SURFACE: every one of them is still its W6b-1
+    # number.  This is the identity `w6b_gates` G6 and `w6q_gates` G1 are written about.
+    assert len(c_hz["same-bytes-two-depths"]) == 17
+    assert len(c_hz["multi-palette"]) == 25, "class C -- the display-palette rule"
+    assert len(c_hz["shared-read"]) == 93, "class E3 -- a disclosure, not a refusal"
+    assert len(c_hz["spill-in"]) == 36, "class F1 -- page scope is the wrong edit unit"
+    assert len(c_hz["spill-in"] | c_hz["spill-out"]) == 70, "A2's UV-exact spill-touched set"
+    assert len(c_hz["co-transform"]) == 24, "of the 34 multi-writer cells, the 24 that are READ"
+    # ...and ON THE EDIT SURFACE: five are unmoved, because the 57 channel-G cells flow through every
+    # one of those gates exactly as a read cell does.  The SIXTH moves by exactly 7, and that is a fix
+    # rather than a drift: class-C evidence is now read at the granularity the DEPTH was read at, so a
+    # readerless cell whose column carries 2-3 CLUT keys discloses instead of silently shipping one of
+    # them.  A predicate that cannot fire on a whole surface is not a measurement of that surface.
     assert len(hz["same-bytes-two-depths"]) == 17
-    assert len(hz["multi-palette"]) == 25, "class C -- the display-palette rule"
-    assert len(hz["shared-read"]) == 93, "class E3 -- a disclosure, not a refusal"
-    assert len(hz["spill-in"]) == 36, "class F1 -- page scope is the wrong edit unit"
-    assert len(hz["spill-in"] | hz["spill-out"]) == 70, "A2's UV-exact spill-touched set"
-    assert len(hz["co-transform"]) == 24, "of the 34 multi-writer cells, the 24 that are READ"
+    assert len(hz["shared-read"]) == 93
+    assert len(hz["spill-in"]) == 36
+    assert len(hz["spill-in"] | hz["spill-out"]) == 70
+    assert len(hz["co-transform"]) == 24
+    assert len(hz["multi-palette"]) == 32, "25 + the 7 channel-G cells bound with >1 CLUT"
+    assert len(hz["multi-palette"] - c_hz["multi-palette"]) == 7
+    assert all(k in by_source["so-page"] for k in hz["multi-palette"] - c_hz["multi-palette"]), \
+        "every one of the 7 is a channel-G cell -- no read cell's class-C verdict moved"
 
 
 @needs_corpus
 def test_the_per_cell_map_unlocks_EXACTLY_the_twenty_lower_half_cells():
     """The rung's central claim, as a number.  A1 measured 56 lawful cells and marked 20 more
     UNADDRESSABLE because ``(tag, x)`` cannot name the lower half of a tall rect.  ``page_cells`` names
-    them, and the count is exactly 20 -- not 19 and not 21."""
+    them -- and W6b-2's channel G is the class that FILLS that named-but-empty space.
+
+    ⚠ THREE PREDICATES, ALL PINNED, because the 57 land in three buckets and a reader of one number
+    alone would call the others a bug:
+
+    * **56 of the 57 clear every REFUSAL** and 1 refuses on a program-VRAM write (ef038).  That is
+      row 8's own re-spec -- *"the 57 cells build"* is FALSE;
+    * **49 of those 56 are HAZARD-CLEAN and 7 carry the class-C multi-palette DISCLOSURE**, so only
+      the 49 land in the buckets counted below.  Those 7 are the cells whose COLUMN is bound with two
+      or three CLUT keys: they were invisible while class-C evidence was read off READERS a readerless
+      cell does not have, and making them visible is a fix, not a loss of 7 cells;
+    * ``lower_half`` is a property of a WRITER's own upload, so a channel-G cell written by an **id-9
+      alternate block** -- one whole 0x4000 upload that happens to sit at ``y = 384`` -- is not the
+      lower half of anything and scores as ``upper``.  That is 2 of the 49.
+
+    ``2 + 47 == 49``, and the W6b-1 halves (56 / 20) are still exactly inside the totals.
+    """
     upper, lower, spill_out = set(), set(), set()
+    g_upper, g_lower, g_all, g_multi = set(), set(), set(), set()
     for ef, blob in _corpus_effects():
         for p in RP.scenery_texel_pages(blob, ef):
             k, h = (ef, p.cell), p.hazards
+            if p.depth_source == "so-page":
+                g_all.add(k)
+                if h.multi_palette:
+                    g_multi.add(k)
             if k in upper | lower:
                 continue
             if (not h.co_transform and not h.two_depths and not h.multi_palette
                     and not h.shared_read and not h.spill_in and h.program != "write"):
                 (lower if h.lower_half else upper).add(k)
+                if p.depth_source == "so-page":
+                    (g_lower if h.lower_half else g_upper).add(k)
                 if h.spill_out and not h.lower_half:
                     spill_out.add(k)
-    assert len(upper) == 56, "A1's lawful count, re-derived by the shipped code"
     assert len(spill_out) == 6, "LAWFUL != PAGE-SCOPE-SAFE: 56 = 50 page-scope-safe + 6 model-scope"
-    assert len(upper) - len(spill_out) == 50
-    assert len(lower) == 20, "THE CELLS THE PER-VRAM-CELL MAP UNLOCKS"
+    assert len(g_all) == 57, "CHANNEL G's whole gain"
+    assert len(g_multi) == 7, \
+        "...of which 7 sit on a column bound with MORE THAN ONE CLUT and disclose class C.  A " \
+        "class-C predicate fed from READERS is False by construction on a readerless cell, which " \
+        "would have shipped one of 2-3 renderings with no disclosure and no alternate PNG"
+    assert len(g_upper) + len(g_lower) == 49, \
+        "CHANNEL G: 57 gain a depth, 56 clear every REFUSAL (1 refuses on ef038's program write) " \
+        "and 49 of those are hazard-clean -- the other 7 are the class-C cells above"
+    assert (len(g_upper), len(g_lower)) == (2, 47), \
+        "and the 2 are id-9 alternate blocks at y=384: one whole upload, never a rect's lower half"
+    assert len(upper) - len(g_upper) == 56, "A1's lawful count, still re-derived by the shipped code"
+    assert len(lower) - len(g_lower) == 20, "THE CELLS THE PER-VRAM-CELL MAP UNLOCKED IN W6b-1"
+    assert (len(upper), len(lower)) == (58, 67), "...and the W6b-2 totals the two sum to"
 
 
 @needs_corpus
@@ -2264,7 +2377,8 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
     blob = (CORPUS / "ef211.bytes").read_bytes()
     pages = {p.name: p for p in RP.scenery_texel_pages(blob, 211)}
     assert sorted(pages) == ["cell.s0.x576_y256", "cell.s0.x576_y384",
-                             "cell.s0.x640_y256", "cell.s0.x704_y256"]
+                             "cell.s0.x640_y256", "cell.s0.x640_y384",
+                             "cell.s0.x704_y256", "cell.s0.x704_y384"]
     fire = pages["cell.s0.x704_y256"]
     assert (fire.bpp, fire.page_offset, fire.tpage) == (8, 0x11678, 155)
     assert fire.palette_name == "pal.s0.x0_y247.e256" and fire.hazards.readers[0].geom == 0x2b668
@@ -2277,8 +2391,41 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
     assert cast2.hazards.names == ("lower-half",) and cast2.hazards.covered_halfwords == 2688
     assert cast2.palette_name == "pal.s0.x208_y244.e16"
     assert pages["cell.s0.x576_y256"].hazards.multi_palette, "...and its UPPER half is refused"
+    # ★ THE DOME, W6b-2's own cast vehicle -- and the one cell in the corpus that is simultaneously
+    # depth-attributed by this rung, PROVEN DRAWN in-game (the cast-1c stripes banded the rolling-fire
+    # dome through it) and free of every other hazard.  It has ZERO readers, which is exactly why the
+    # census had to refuse it; channel G reads its COLUMN's own binding instead, and the depth is
+    # INHERITED, never direct.
+    dome = pages["cell.s0.x704_y384"]
+    assert (dome.bpp, dome.depth_source, dome.depth_inherited) == (8, "so-page", True)
+    assert dome.hazards.readers == () and dome.hazards.page_depths == (8,)
+    assert dome.hazards.page_binders == (0x2b668,), "the SAME record that gave the fire cell its 8bpp"
+    assert dome.palette_name == "pal.s0.x0_y247.e256", "the key comes from that record too"
+    assert dome.hazards.names == ("lower-half",) and dome.hazards.program == "read"
+    assert dome.hazards.program_depths == (), "ef211's program is SILENT here -- not wrong, silent"
+    # ★ AND THE CELL NEXT DOOR, WHICH IS WHY CLASS-C EVIDENCE HAD TO MOVE TO THE COLUMN.  Column 640's
+    # UPPER half is a class-C cell -- one index array, two renderings -- and its LOWER half is bound by
+    # the SAME two records.  Read off `readers` the lower half reports `multi_palette = False` on
+    # identical evidence, i.e. the kit would be LESS honest on the licensed path than on the census
+    # one.  Both halves now name both keys, and `export_art` writes the `.as-` view for both.
+    up, low = pages["cell.s0.x640_y256"], pages["cell.s0.x640_y384"]
+    assert up.hazards.multi_palette and low.hazards.multi_palette
+    assert up.hazards.palette_cells == ((80, 244), (96, 244))
+    assert low.hazards.palette_cells == up.hazards.palette_cells, "the SAME two keys, one column"
+    assert low.hazards.page_clut_cells[0] == (80, 244), "the DISPLAY key is the lowest-GEOM binder's"
+    assert low.palette_name == up.palette_name and "multi-palette" in low.hazards.names
+    assert [a.clut_cell for a in RP.alternate_palette_rows(blob, low, RS.palette_map(blob))] \
+        == [(96, 244)], "a readerless cell still has its alternate rendering, and it is NAMED"
+    # ...and the class-C DISCLOSURE names the other key.  Built from `readers` it printed the line and
+    # then an EMPTY list -- telling an author a second rendering exists and refusing to say which.
+    dis = "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=low.name, enabled=True, source="", page=low)))
+    assert "MULTI-PALETTE (class C): one index array, 2 renderings" in dis
+    assert "CLUT (96, 244) (its `.as-x96_y244.png` view)" in dis
     dark = [r.name for r in RP.scenery_cell_refusals(blob, 211)]
-    assert len(dark) == 8 and "cell.s0.x704_y384" in dark and "cell.id9.s0.x768_y256" in dark
+    assert len(dark) == 6 and "cell.s0.x704_y384" not in dark, \
+        "channel G moved the DOME and (640,384) out of the dark set; 8 - 2 = 6 remain"
+    assert "cell.id9.s0.x768_y256" in dark
 
 
 @needs_corpus
@@ -2302,9 +2449,12 @@ def test_every_readable_corpus_cell_round_trips_BYTE_IDENTICALLY_at_its_own_dept
                 RP.write_indexed_png(raw, RP.palette_words(blob, p), p.w, p.h, png)
                 assert RP.read_indexed_png(png, p.w, p.h, 256) == raw, p.name
             n[p.bpp] += 1
-    assert (n[4], n[8], n[15]) == (50, 144, 14), \
+    assert (n[4], n[8], n[15]) == (80, 168, 17), \
         "the WHOLE round-trippable surface, per writer record -- if this population moves, the pass " \
         "above stopped covering what it used to and the count is the only thing that would say so"
+    assert (n[4] - 30, n[8] - 24, n[15] - 3) == (50, 144, 14), \
+        "W6b-1's own three numbers, still inside it: channel G adds 30 + 24 + 3 = 57 writer records " \
+        "and the CODEC is untouched -- every one of them round-trips at the depth its COLUMN states"
     print("W6b identity: %d 4bpp + %d 8bpp + %d 15bpp cell views, 0 mismatches"
           % (n[4], n[8], n[15]))
 
@@ -2978,3 +3128,1071 @@ def test_every_program_WRITE_container_in_the_corpus_refuses_EVERY_readable_cell
             seen += 1
     assert seen, "the sweep actually visited the write containers"
     print("W6b program-VRAM sweep: %d readable cell(s) refused, %d BY CELL" % (seen, hard))
+
+
+# ============================================================ (9) W6q: THE PAINT / QUANTIZE LANE
+# RGBA in, INDICES out, ZERO CLUT bytes.  The three properties this lane is allowed to claim -- the
+# no-op is EXACT, determinism is STRUCTURAL, the approximation is DISCLOSED per texel -- each get a
+# test, and every refusal gets a NON-OVER-FIRE TWIN, because that is the half that usually goes
+# missing.
+def _paint_row(name, src, **extra):
+    d = {"name": name, "source_paint": str(src), "enabled": True, "acknowledge_quantize": True}
+    d.update(extra)
+    return d
+
+
+def _repaint_pixels(src, fn):
+    """Rewrite a paint PNG through ``fn(i, (r,g,b,a)) -> (r,g,b,a)``.  Pillow-only, no kit code, so a
+    test that fakes an author's edit cannot accidentally exercise the codec twice."""
+    from PIL import Image
+    with Image.open(str(src)) as im:
+        px = list(im.convert("RGBA").tobytes())
+        size = im.size
+    pts = [tuple(px[4 * i:4 * i + 4]) for i in range(size[0] * size[1])]
+    out = Image.new("RGBA", size)
+    out.putdata([fn(i, p) for i, p in enumerate(pts)])
+    out.save(str(src))
+
+
+def _dup_entry(blob: bytes, page, keep: int, into: int) -> bytes:
+    """Make ``words[into]`` a byte-for-byte DUPLICATE of ``words[keep]`` in the container itself.
+
+    The container is the authority, so the ambiguity a test needs has to be IN the container -- a
+    fixture that faked it in a local variable would be testing a different function.
+    """
+    b = bytearray(blob)
+    w = struct.unpack_from("<H", b, page.clut_offset + 2 * keep)[0]
+    struct.pack_into("<H", b, page.clut_offset + 2 * into, w)
+    return bytes(b)
+
+
+def test_the_render_read_identity_holds_for_all_32_five_bit_values():
+    """THE COMPOSITION THAT MAKES THE LANE POSSIBLE, and it is not a coincidence to rely on quietly:
+    the paint file is RENDERED with the SCALE decode (``bgr555_rgba``, white = 255 -- what every
+    preview already shows the author) and READ back with the SHIFT (``direct15_word``).  Two
+    different maps; their composition must be the identity or the no-op dies."""
+    assert all(((v * 255 // 31) >> 3) == v for v in range(32)), "the scale->shift round trip"
+    bad = [w for w in range(0x8000)
+           if w and KT.direct15_word(*(KT.bgr555_rgba(w)[:3]), 0) != w]
+    assert bad == [], "%d of 32,767 non-cutout words failed the render/read round trip" % len(bad)
+    # ...and the cutout word is the one deliberate exception: it renders alpha 0, so ALPHA carries it
+    assert KT.bgr555_rgba(0) == (0, 0, 0, 0)
+
+
+def test_export_art_paint_writes_paint_swatch_and_manifest_records(tmp_path):
+    """W6q-1.  Both formats ship side by side, per page -- the choice is per ROW, not per export."""
+    blob = build_texel_container(nparts=2)
+    man = RP.export_art(blob, 999, tmp_path, lane="paint")
+    assert man["lane"] == "paint"
+    # THE LINE NO DESIGN NAMED: a lane that left `pages =` reading `== "indexed"` would silently
+    # export SCENERY ONLY, with no error and no empty directory.
+    assert [e["name"] for e in man["parts"]] == ["tex.part0", "tex.part1"]
+    for e in man["parts"]:
+        assert e["paint_png"] == "%s.paint.png" % e["name"]
+        assert e["swatch_png"] == "%s.swatch.png" % e["name"]
+        assert e["render_key"] == RP.PAINT_RENDER_KEY == "bgr555_rgba"
+        assert (tmp_path / e["png"]).is_file(), "the EXACT indexed file still ships beside it"
+        assert (tmp_path / e["paint_png"]).is_file()
+        assert (tmp_path / e["swatch_png"]).is_file()
+        assert e["page_sha256"] == hashlib.sha256(_page_bytes(blob, e["name"])).hexdigest()
+    # the scaffold emits BOTH source lines with exactly one live, so the lane is a one-line switch
+    import tomllib
+    with open(tmp_path / RP.SCAFFOLD_NAME, "rb") as fh:
+        doc = tomllib.load(fh)
+    rows = doc["reskin"]["texel"]
+    assert all("source_paint" in r and "source" not in r for r in rows)
+    assert all(r["acknowledge_quantize"] is False and r["enabled"] is False for r in rows)
+    text = (tmp_path / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "# source     =" in text and "INCUMBENT LOCK" in text
+    assert "# measured:" in text and "distinct colours" in text
+    # ...and an indexed export is UNCHANGED by all of it
+    man_i = RP.export_art(blob, 999, tmp_path / "i", lane="indexed")
+    assert all(not e["paint_png"] and not e["render_key"] for e in man_i["parts"])
+    assert not (tmp_path / "i" / "tex.part0.paint.png").exists()
+
+
+def test_paint_lane_export_round_trips_every_page_it_wrote(tmp_path):
+    """THE NO-OP IS EXACT -- the mirror of the indexed lane's own round-trip gate.  Export ->
+    paint-lane import -> the container's own bytes, byte for byte, with nothing painted."""
+    blob = build_texel_container(nparts=3)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    pmap = RS.palette_map(blob, effect=999)
+    for p in RP.creature_texel_pages(blob):
+        stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+        words = RP.palette_words(blob, p)
+        raw, cen = RP.read_paint_png(tmp_path / ("%s.paint.png" % p.name), p, words,
+                                     RP.texel_view(p, stock),
+                                     RP.alternate_palette_rows(blob, p, pmap))
+        assert raw == stock, "%s: an unedited re-import moved bytes" % p.name
+        assert cen["approximated"] == 0 and cen["exact"] == cen["opaque"]
+        assert cen["cutout_punch"] == 0 and cen["cutout_fill"] == 0
+
+
+def test_the_incumbent_rule_is_what_makes_the_no_op_exact(tmp_path):
+    """THE INCUMBENT LOCK, with its NEGATIVE half stated so the assertion cannot go vacuous: a texel
+    sitting on the NON-LOWEST member of a duplicate group keeps its own index, AND a lowest-index
+    tie-break would provably have moved it."""
+    blob = build_texel_container(nparts=1)
+    p0 = RP.texel_page(blob, "tex.part0")
+    keep, into = 5, 200
+    blob = _dup_entry(blob, p0, keep, into)
+    stock = bytearray(_page_bytes(blob, "tex.part0"))
+    stock[0] = into                                        # a texel on the NON-lowest member
+    b2 = bytearray(blob)
+    b2[p0.page_offset:p0.page_offset + p0.page_bytes] = stock
+    blob = bytes(b2)
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    assert words[keep] == words[into] and keep < into, "the fixture really is ambiguous"
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    raw, cen = RP.read_paint_png(tmp_path / "tex.part0.paint.png", p, words,
+                                 RP.texel_view(p, bytes(stock)))
+    assert raw[0] == into, "the INCUMBENT won, not the lowest index"
+    assert raw == bytes(stock)
+    # THE NEGATIVE HALF: without the incumbent term the lowest member would have won and the byte
+    # would have moved -- which is exactly the 1,844-of-16,384 failure the `rgba` refusal quotes.
+    naive = min(i for i in range(len(words)) if words[i] == words[into])
+    assert naive == keep != into
+    assert cen["ambiguous"] >= 1
+
+
+def test_quantize_is_deterministic_under_a_permuted_palette_scan(tmp_path):
+    """DETERMINISM IS STRUCTURAL: a total order over UNIQUE indices, integer arithmetic only, and no
+    set or dict iteration in any decision path.  Two runs of the same art are byte-equal, and every
+    texel that moved landed on ONE stated member of the tie."""
+    blob = build_texel_container(nparts=1)
+    p = RP.texel_page(blob, "tex.part0")
+    blob = _dup_entry(_dup_entry(blob, p, 7, 90), p, 7, 180)     # a 3-way tie
+    words = RP.palette_words(blob, p)
+    stock = _page_bytes(blob, "tex.part0")
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[7])[:3] + (255,)
+                                       if 100 <= i < 400 else c))
+    a, _ = RP.read_paint_png(src, p, words, RP.texel_view(p, stock))
+    b, _ = RP.read_paint_png(src, p, words, RP.texel_view(p, stock))
+    assert a == b
+    c, _ = RP.read_paint_png(src, p, tuple(words), RP.texel_view(p, stock))
+    assert a == c
+    moved = {a[i] for i in range(len(a)) if a[i] != stock[i]}
+    assert moved <= {7}, "the total order picked one member, deterministically: %s" % moved
+
+
+def test_quantize_refuses_partial_alpha_naming_the_texel(tmp_path):
+    blob = build_texel_container(nparts=1)
+    p = RP.texel_page(blob, "tex.part0")
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (c[0], c[1], c[2], 128) if i in (300, 301) else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, RP.palette_words(blob, p),
+                          RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    msg = str(e.value)
+    assert "(44,2)" in msg, msg                       # texel 300 == (300 % 128, 300 // 128)
+    assert "alpha 128" in msg and "2 texel(s)" in msg and "CUTOUT FLAG" in msg
+
+
+def test_quantize_refuses_when_the_row_has_no_transparent_entry(tmp_path):
+    """R12, and it quotes ``MINT_CLUT_REASON`` VERBATIM -- the constant's real call site.  A reason
+    nothing quotes is a wish."""
+    blob = build_texel_container(nparts=1)
+    p0 = RP.texel_page(blob, "tex.part0")
+    b = bytearray(blob)
+    struct.pack_into("<H", b, p0.clut_offset, 0x1234)          # entry 0 stops being the hole
+    blob = bytes(b)
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    assert RP.transparent_indices(words) == ()
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (0, 0, 0, 0) if i == 900 else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, words, RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    msg = str(e.value)
+    assert "45 of 147" in msg and "0 of 93" in msg
+    assert RP.MINT_CLUT_REASON in msg, "the deferral reason is quoted VERBATIM"
+
+
+def test_quantize_refuses_source_and_source_paint_together(tmp_path):
+    blob = build_texel_container(nparts=1)
+    src = _write_png(tmp_path, blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    with pytest.raises(RP.RepaintError, match="two formats of record for one page"):
+        RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src),
+                                    "source_paint": str(src), "acknowledge_quantize": True}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_refuses_on_a_15bpp_cell_and_names_direct15(tmp_path):
+    blob = build_scenery_container()
+    man = RP.export_art(blob, 999, tmp_path, lane="direct15")
+    e = man["scenery"][0]
+    assert e["bpp"] == 15
+    with pytest.raises(RP.RepaintError) as ex:
+        RP.build({"reskin": {"effect": 999, "allow_unguarded": True,
+                             "texel": [_paint_row(e["name"], tmp_path / e["png"])]}},
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    msg = str(ex.value)
+    assert "65,536/65,536" in msg and "--art-lane direct15" in msg and "indexes NO palette" in msg
+
+
+def test_quantize_refuses_without_the_literal_boolean_acknowledgement(tmp_path):
+    """R3, plus THE ``_ack_bool`` LAW: ``acknowledge_quantize = "true"`` (the STRING) must REFUSE,
+    never arm.  A safety acknowledgement is stated, never inferred from a truthy string."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    row = _paint_row("tex.part0", src)
+    row.pop("acknowledge_quantize")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [row]), str(tmp_path / "x_reskin.toml"), blob=blob)
+    msg = str(e.value)
+    assert "APPROXIMATES" in msg and "acknowledge_quantize = true" in msg
+    assert "MEASURED on THIS art" in msg and "worst d^2" in msg
+    row["acknowledge_quantize"] = "true"
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, [row]), str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_is_not_spelled_quantize(tmp_path):
+    """The shipped spelling is ``source_paint``.  ``quantize`` and ``mint_clut`` stay UNKNOWN keys on
+    all three tables -- which is what keeps ``w6b_gates.py``'s own assertion green, verbatim."""
+    blob = build_texel_container(nparts=1)
+    for key in ("quantize", "mint_clut"):
+        assert key not in RP._TEXEL_KEYS and key not in RS._TARGET_KEYS
+        assert key not in RS._RESKIN_KEYS
+        row = {"name": "tex.part0", "source": "x.png"}
+        row[key] = True
+        with pytest.raises(RP.RepaintError, match="unknown key"):
+            RP.build(_spec_dict(blob, [row]), "?", blob=blob)
+    for key in ("source_paint", "acknowledge_quantize", "acknowledge_recoloured_palette"):
+        assert key in RP._TEXEL_KEYS
+
+
+def test_dither_refuses_by_name_and_names_the_better_workflow(tmp_path, capsys):
+    """R10.  It is DECLARED so it can refuse BY NAME rather than not exist -- and the fix it names is
+    strictly better than the thing refused."""
+    blob = build_texel_container(nparts=1)
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    rc, cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                    "--out", str(tmp_path / "art"), "--art-lane", "paint", "--dither"], capsys)
+    assert rc == 2
+    assert "BREAKS THE NO-OP" in cap.err and "5-BIT depth" in cap.err and "sparkle" in cap.err
+    # ...ON EVERY SUB-VERB, `scaffold` INCLUDED.  `scaffold` returns early, so a refusal placed after
+    # its branch would be silently ignored there -- which is precisely the silently-ignored-flag shape
+    # W6q-0 exists to eliminate, reintroduced by the flag that exists to refuse.
+    rc2, cap2 = _run(["summon-reskin", "scaffold", "--ef", "999", "--from", str(ef),
+                      "--out", str(tmp_path / "s.toml"), "--dither"], capsys)
+    assert rc2 == 2 and "BREAKS THE NO-OP" in cap2.err
+    assert not (tmp_path / "s.toml").exists(), "a refused sub-verb wrote a file"
+
+
+def test_the_paint_lane_builds_and_writes_zero_clut_bytes(tmp_path):
+    """THE WHOLE SHIPPED GATE STACK RUNS UNCHANGED on a paint build, because the lane adds exactly
+    ONE branch in front of the existing dispatch and touches no other."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    src = tmp_path / "tex.part0.paint.png"
+    live = [i for i, w in enumerate(words) if w][3]
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[live])[:3] + (255,))
+                    if (2000 <= i < 2100 and c[3] == 255) else c)
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    zero = next(g for g in b.check.rules if "ZERO CLUT bytes" in g.name)
+    assert zero.ok and "0 byte(s)" in zero.detail
+    t = b.enabled[0]
+    assert t.quantized and t.census["opaque"] and t.census["exact"]
+    assert 0 < len(t.changed) <= 100
+    # the census reaches `plan`'s output and the staged manifest, and stays JSON-safe there
+    assert any("QUANTIZE" in ln for ln in RP.describe(b))
+    assert "dmap" in t.census and "dmap" not in RP.census_record(t.census)
+    json.dumps(RP.census_record(t.census))
+
+
+def test_the_cutout_law_still_counts_both_directions_under_quantize(tmp_path):
+    """ALPHA GOVERNS, so every crossing in the output is one the author DREW -- and the shipped cutout
+    gate then counts it exactly as it does for an indexed row, with no change to that gate at all."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    _repaint_pixels(src, lambda i, c: (0, 0, 0, 0) if (5000 <= i < 5010) else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "THE CUTOUT LAW" in str(e.value) and "10 punched" in str(e.value)
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src,
+                                              acknowledge_cutout_reshape=True)]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert (b.enabled[0].cutout_punch, b.enabled[0].cutout_fill) == (10, 0)
+    assert b.enabled[0].census["cutout_punch"] == 10
+
+
+# ---- W6q-3: the alternate-split refusal and the composed-palette refusal, each with its twin ----
+def _class_c(blob):
+    """The fixture's class-C cell: ONE index array read through TWO different 16-entry keys."""
+    p = RP.texel_page(blob, "cell.s0.x576_y256", 999)
+    assert p.bpp == 4 and len({r.clut_cell for r in p.hazards.readers}) == 2
+    return p
+
+
+def test_quantize_refuses_an_alternate_split_tie_by_name(tmp_path):
+    """THE BLOCKING GRAFT.  A genuine edit whose surviving candidate set renders as >= 2 DIFFERENT
+    words in the cell's other declared key REFUSES, and there is no acknowledge key: an author's own
+    index choice is a choice and is disclosed, but the TOOL's choice, in a picture the author was
+    never shown, must not be silently wrong."""
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    blob = _dup_entry(blob, p, 3, 9)                  # entries 3 and 9 now carry ONE word...
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    assert len(alts) == 1 and alts[0].words[3] != alts[0].words[9], "...but SPLIT in the other key"
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    victim = next(k for k in range(len(idx)) if idx[k] not in (3, 9) and words[idx[k]])
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[3])[:3] + (255,)) if i == victim else c)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(src, p, words, idx, alts)
+    msg = str(e.value)
+    assert "ALTERNATE-SPLIT TIE" in msg and "298 of 365" in msg and "11 of 16" in msg
+    assert "no acknowledge key" in msg and "THAT THE CONTAINER DECLARES" in msg
+    assert "the swatch marks them" in msg
+    # THE TAMPER: with the alternate loop removed the build succeeds -- and the OTHER reader's
+    # picture silently changes, which is the whole thing the refusal is protecting.
+    raw, _cen = RP.read_paint_png(src, p, words, idx, ())
+    nv = RP.texel_view(p, raw)
+    assert any(alts[0].words[nv[k]] != alts[0].words[idx[k]] for k in range(len(idx)))
+    # EDIT-SCOPED: the same page with nothing painted is exempt, because the incumbent survives
+    RP.export_art(blob, 999, tmp_path / "clean", lane="paint")
+    back, _ = RP.read_paint_png(tmp_path / "clean" / ("%s.paint.png" % p.name), p, words, idx, alts)
+    assert back == stock
+
+
+def test_quantize_builds_when_the_tie_is_alternate_safe(tmp_path):
+    """...AND IT DOES NOT OVER-FIRE.  The same class of edit on a class-C cell with ZERO split
+    duplicate groups builds green -- the non-over-fire twin, which is the half that goes missing."""
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    assert len(set(words)) == len(words), "this fixture row has no duplicate word at all"
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    live = [i for i, w in enumerate(words) if w]
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[live[2]])[:3] + (255,))
+                    if (1000 <= i < 1200 and c[3] == 255) else c)
+    raw, cen = RP.read_paint_png(src, p, words, idx, alts)
+    assert raw != stock and cen["alt_checked"] == 0
+
+
+def _dup_entry_at(blob: bytes, off: int, keep: int, into: int) -> bytes:
+    """:func:`_dup_entry` against an ARBITRARY palette offset -- used to duplicate the SAME pair in
+    the ALTERNATE row, which is what makes a duplicate group non-split rather than split."""
+    b = bytearray(blob)
+    struct.pack_into("<H", b, off + 2 * into, struct.unpack_from("<H", b, off + 2 * keep)[0])
+    return bytes(b)
+
+
+def test_quantize_RUNS_the_alternate_split_check_and_PASSES_on_a_non_split_group(tmp_path):
+    """★ THE PASS PATH -- the half both non-over-fire proofs leave untouched.
+
+    ``test_quantize_builds_when_the_tie_is_alternate_safe`` and the creature-page test above both
+    assert that the check NEVER RAN, so between them they prove the refusal CANNOT fire, not that it
+    DISCRIMINATES.  This one puts a real two-member candidate set in front of it -- a duplicate group
+    that carries ONE word in the alternate key as well -- and proves the loop ran, found no split, and
+    let the edit through.  Without it the whole ``alt_checked`` instrument (the one OPEN RISK 1 asks
+    the implementer to report) is only ever observed at 0.
+    """
+    blob = build_scenery_container()
+    p = _class_c(blob)
+    pmap = RS.palette_map(blob, effect=999)
+    alt0 = RP.alternate_palette_rows(blob, p, pmap)[0]
+    apal = pmap.by_name(alt0.palette_name)
+    blob = _dup_entry(blob, p, 3, 9)                    # one word in the EDITABLE row...
+    blob = _dup_entry_at(blob, apal.off, 3, 9)          # ...and one word in the ALTERNATE row too
+    p = _class_c(blob)
+    words = RP.palette_words(blob, p)
+    alts = RP.alternate_palette_rows(blob, p, RS.palette_map(blob, effect=999))
+    assert len(alts) == 1 and words[3] == words[9] and words[3]
+    assert alts[0].words[3] == alts[0].words[9], "the group must NOT split, or this is G5's fixture"
+    assert sum(1 for w in words if (w & 0x7FFF) == (words[3] & 0x7FFF)) == 2, \
+        "exactly the group carries this colour, so the candidate set IS the group"
+    stock = blob[p.page_offset:p.page_offset + p.page_bytes]
+    idx = list(RP.texel_view(p, stock))
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / ("%s.paint.png" % p.name)
+    victim = next(k for k in range(len(idx)) if idx[k] not in (3, 9) and words[idx[k]])
+    _repaint_pixels(src, lambda i, c: (KT.bgr555_rgba(words[3])[:3] + (255,)) if i == victim else c)
+    raw, cen = RP.read_paint_png(src, p, words, idx, alts)
+    assert cen["alt_checked"] >= 1, "THE CHECK MUST HAVE RUN -- otherwise this proves nothing"
+    assert raw != stock and RP.texel_view(p, raw)[victim] == 3
+    # ...and the SAME edit against a SPLIT version of that group refuses: one fixture, both verdicts.
+    split_blob = _dup_entry_at(blob, apal.off, 0, 9)    # break the alternate's half of the pair
+    salts = RP.alternate_palette_rows(split_blob, p, RS.palette_map(split_blob, effect=999))
+    assert salts[0].words[3] != salts[0].words[9]
+    with pytest.raises(RP.RepaintError, match="ALTERNATE-SPLIT TIE"):
+        RP.read_paint_png(src, p, words, idx, salts)
+
+
+def test_the_alternate_split_branch_is_structurally_unreachable_on_a_creature_page():
+    """SCOPING DECISION 3, stated in the code rather than discovered: an id-4 page is uploaded by
+    PART index and carries its own row of the id-4 CLUT strip, so it has no alternate key at all --
+    93 of the corpus's 240 lawful surfaces are outside this branch by construction."""
+    blob = build_texel_container(nparts=2)
+    pmap = RS.palette_map(blob, effect=999)
+    for p in RP.creature_texel_pages(blob):
+        assert p.hazards is None
+        assert RP.alternate_palette_rows(blob, p, pmap) == ()
+
+
+def test_quantize_refuses_a_paint_row_whose_palette_this_spec_recolours(tmp_path):
+    """R9.  Under the INDEXED lane the author authored INDICES, so a recoloured row simply recolours
+    their picture; under quantize they authored COLOURS, so a recoloured row silently re-decides
+    which index each of them becomes."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    src = tmp_path / "tex.part0.paint.png"
+    spec = _spec_dict(blob, [_paint_row("tex.part0", src)],
+                      targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    b0 = RS.build(spec, "?", blob=blob)
+    assert b0.patched != blob, "the CLUT target must ACTUALLY move entries, or the gate is vacuous"
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    msg = str(e.value)
+    assert "THE RECOLOURED-PALETTE REFUSAL" in msg and "creature.part0" in msg
+    assert "IN THIS SPEC" in msg and "acknowledge_recoloured_palette = true" in msg
+    # ...and it is a SEPARATE refusal from the page-sha guard, with its own fix
+    assert "re-export with `--art-lane paint --from" in msg
+    spec["reskin"]["texel"][0]["acknowledge_recoloured_palette"] = True
+    b = RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    assert any("acknowledge_recoloured_palette = true" in n for n in b.enabled[0].hazard_notes)
+
+
+def test_the_recoloured_palette_refusal_is_CLEARED_by_its_own_first_named_fix(tmp_path):
+    """★ LAW 2 IS NOT "A REFUSAL NAMES A FIX", IT IS "A REFUSAL NAMES A FIX THAT WORKS".
+
+    R9's first named fix is *build the CLUT half first and re-export with
+    ``--art-lane paint --from <the staged container>``*.  Taking it literally used to land on the
+    ART-DRIFT refusal instead -- the manifest then records the STAGED container's sha, and the drift
+    guard compared it against STOCK -- so ``acknowledge_recoloured_palette`` was the only way through
+    and the message pointed at a dead end.  The predicate is now *"was the art rendered against the
+    row it is being mapped onto"*, measured from the manifest's own whole-container sha256, so the
+    named fix clears the gate and the acknowledgement stays the deliberate SECOND answer.
+    """
+    blob = build_texel_container(nparts=2)
+    spec_clut = {"reskin": {"effect": 999, "label": "clut",
+                            "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                            "target": [{"name": "creature.part0", "hue_rotate": 40.0}]}}
+    staged = RS.build(spec_clut, "?", blob=blob)
+    assert staged.patched != blob, "the CLUT half must ACTUALLY move entries"
+
+    # (a) art exported from STOCK, mapped onto the recoloured row -> REFUSES, naming the fix
+    stock_art = tmp_path / "from-stock"
+    RP.export_art(blob, 999, stock_art, lane="paint")
+    spec = _spec_dict(blob, [_paint_row("tex.part0", stock_art / "tex.part0.paint.png")],
+                      targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+    assert "THE RECOLOURED-PALETTE REFUSAL" in str(e.value)
+    assert "re-export with `--art-lane paint --from" in str(e.value)
+
+    # (b) THE NAMED FIX, taken literally: re-export --from the staged container and re-point the row
+    base_art = tmp_path / "from-base"
+    RP.export_art(staged.patched, 999, base_art, lane="paint")
+    man = json.loads((base_art / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    assert man["stock_sha256"] == hashlib.sha256(staged.patched).hexdigest()
+    spec2 = _spec_dict(blob, [_paint_row("tex.part0", base_art / "tex.part0.paint.png")],
+                       targets=[{"name": "creature.part0", "hue_rotate": 40.0}])
+    b = RP.build(spec2, str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    assert not b.enabled[0].changed, "an unedited re-export of the COMPOSED row is still a no-op"
+    assert any("RE-EXPORTED against those bytes" in n for n in b.enabled[0].hazard_notes)
+    assert not b.enabled[0].ack_recoloured, "the fix cleared it WITHOUT the acknowledgement"
+
+    # ...and the widening is PAINT-SCOPED: the indexed lane still demands the stock sha
+    idx_src = _write_png(tmp_path / "from-base", blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    with pytest.raises(RP.RepaintError, match="ART DRIFT"):
+        RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(idx_src)}]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob, base=staged.patched)
+
+
+def test_the_recoloured_palette_refusal_does_not_over_fire_on_another_palette(tmp_path):
+    """The twin: a ``[[reskin.target]]`` on a DIFFERENT palette than the paint page's builds green.
+    The verdict is a BYTE comparison of THIS page's own row, never "any CLUT target exists"."""
+    blob = build_texel_container(nparts=2)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    spec = _spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")],
+                      targets=[{"name": "creature.part1", "hue_rotate": 40.0}])
+    b0 = RS.build(spec, "?", blob=blob)
+    assert b0.patched != blob
+    b = RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob, base=b0.patched)
+    b.check = RP.self_check(b)
+    assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
+    assert not b.enabled[0].changed, "the no-op survives the composition"
+    assert any("BYTE-IDENTICAL to stock" in n for n in b.enabled[0].hazard_notes)
+
+
+def test_quantize_refuses_when_the_manifest_page_sha_moved(tmp_path):
+    """R11.  Under THE INCUMBENT LOCK the container's own indices are an INPUT, so a page that moved
+    would silently lock onto different incumbents.  ``page_sha256`` stops being informational."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    man["parts"][0]["page_sha256"] = "0" * 64
+    (tmp_path / RP.ART_MANIFEST).write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "THE INCUMBENT IS NOT THE ONE YOUR ART CAME OUT OF" in str(e.value)
+    # ...and the INDEXED lane on the same stale manifest is UNAFFECTED: the guard is paint-scoped
+    src = _write_png(tmp_path, blob, "tex.part0", _page_bytes(blob, "tex.part0"))
+    RP.build(_spec_dict(blob, [{"name": "tex.part0", "source": str(src)}]),
+             str(tmp_path / "x_reskin.toml"), blob=blob)
+
+
+def test_quantize_refuses_a_paint_record_with_no_render_key(tmp_path):
+    """R11b.  A paint file's colours are only invertible under the decode they were RENDERED with, so
+    the decode is DATA the export records -- a record without it came from a pre-W6q export."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    man["parts"][0]["render_key"] = ""
+    (tmp_path / RP.ART_MANIFEST).write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_paint_row("tex.part0", tmp_path / "tex.part0.paint.png")]),
+                 str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert "render_key" in str(e.value) and "export-art --art-lane paint" in str(e.value)
+
+
+def test_verify_names_the_quantize_fact_and_says_so_when_the_source_is_absent(tmp_path):
+    """``verify`` ALREADY re-derives (the CLI rebuilds independently and this compares the staged
+    bytes against that rebuild), so nothing is re-derived here.  What is added is LEGIBILITY plus the
+    one genuinely new behaviour: an ABSENT paint source is reported, never passed."""
+    blob = build_texel_container(nparts=1)
+    art = tmp_path / "art"
+    RP.export_art(blob, 999, art, lane="paint")
+    src = art / "tex.part0.paint.png"
+    spec_path = tmp_path / "x_reskin.toml"
+    b = RP.build(_spec_dict(blob, [_paint_row("tex.part0", src)]), str(spec_path), blob=blob)
+    b.check = RP.self_check(b)
+    stage = tmp_path / "stage"
+    RP.stage(b, root=stage, previews=False)
+    res = RP.verify(b, root=stage)
+    assert res["ok"], res["lines"]
+    assert any("VERIFY quantize" in ln and "re-quantized from" in ln for ln in res["lines"])
+    man = json.loads((stage / "build_manifest.json").read_text(encoding="utf-8"))
+    assert man["texels"]["tex.part0"]["quantize"]["exact"] > 0
+    assert man["texels"]["tex.part0"]["acknowledge_quantize"] is True
+    src.unlink()
+    res2 = RP.verify(b, root=stage)
+    assert not res2["ok"]
+    assert any("THE PAINT SOURCE IS ABSENT" in ln for ln in res2["lines"])
+
+
+def test_the_absent_paint_source_branch_is_REACHABLE_THROUGH_THE_CLI(tmp_path, capsys):
+    """★ THE BRANCH AN AUTHOR ACTUALLY REACHES.
+
+    ``verify`` is reached only THROUGH a rebuild, and a rebuild OPENS the art -- so the absent-source
+    sentence above was, at the only entry point a user has, dead code: deleting the paint file made
+    the CLI print ``build``'s generic *"no such source image"* instead.  A shipped behaviour that no
+    shipped caller can reach is not shipped, so ``verify`` pre-flights the paint sources with the SAME
+    resolver ``build`` uses, and the sentence prints.  It never turns a failure into a pass.
+    """
+    blob = build_texel_container(nparts=1)
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    art = tmp_path / "art"
+    rc, _cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                     "--out", str(art), "--art-lane", "paint"], capsys)
+    assert rc == 0
+    spec = tmp_path / "x_reskin.toml"
+    spec.write_text(
+        "[reskin]\neffect = 999\nlabel = \"q\"\nexpect_sha256 = \"%s\"\n\n"
+        "[[reskin.texel]]\nname = \"tex.part0\"\nsource_paint = %r\nenabled = true\n"
+        "acknowledge_quantize = true\n"
+        % (hashlib.sha256(blob).hexdigest(), str(art / "tex.part0.paint.png")), encoding="utf-8")
+    stage = tmp_path / "stage"
+    rc, _cap = _run(["summon-reskin", "build", str(spec), "--from", str(ef), "--out", str(stage),
+                     "--no-previews"], capsys)
+    assert rc == 0
+    rc, cap = _run(["summon-reskin", "verify", str(spec), "--from", str(ef), "--out", str(stage)],
+                   capsys)
+    assert rc == 0 and "VERIFY: PASS" in cap.out
+    (art / "tex.part0.paint.png").unlink()
+    rc, cap = _run(["summon-reskin", "verify", str(spec), "--from", str(ef), "--out", str(stage)],
+                   capsys)
+    assert rc == 1, "an absent paint source must FAIL verify, and as a verify result not a crash"
+    assert "THE PAINT SOURCE IS ABSENT" in cap.out and "VERIFY: FAIL" in cap.out
+    assert "no such source image" not in cap.out + cap.err
+
+
+def test_the_rgba_lane_still_refuses_with_its_own_reason_verbatim(tmp_path):
+    """THE G15 TRIPWIRE.  ``INDEXED_RGBA_REASON`` is about EXACT RECOVERY on the INDEXED lane and is
+    byte-for-byte untouched by W6q -- the paint lane is not the indexed lane (its format of record is
+    TWO files: the painting plus the container's own index page, read as the incumbent).  Softening
+    either string reddens this test and two call sites at once."""
+    blob = build_texel_container(nparts=1)
+    assert RP.INDEXED_RGBA_REASON == (
+        "RGBA / quantize / mint-CLUT stay refused on the INDEXED lane and W6b-1 does "
+        "not touch that: the refusal is about EXACT RECOVERY, not about scope -- a "
+        "lane whose no-op is not a no-op cannot carry a byte-identity gate")
+    with pytest.raises(RP.RepaintError) as e:
+        RP.export_art(blob, 999, tmp_path / "r", lane="rgba")
+    for pin in ("93/93", "1,844", "8.31%", "88.75%..99.24%", RP.INDEXED_RGBA_REASON):
+        assert pin in str(e.value)
+    assert "`paint`" not in str(e.value) and "source_paint" not in str(e.value), \
+        "the rgba refusal is about EXACT RECOVERY and does not advertise the new lane"
+    # an RGBA file handed to a `source =` row still raises refusal site A, verbatim
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    with pytest.raises(RP.RepaintError) as e2:
+        RP.read_indexed_png(tmp_path / "tex.part0.paint.png", 128, 128, 256)
+    assert RP.INDEXED_RGBA_REASON in str(e2.value) and "not \"P\"" in str(e2.value)
+
+
+def test_the_fail_safes_are_labelled_and_not_claimed_as_proofs(tmp_path):
+    """G17's shape as a unit test: R5, the STP tie-break component and the opaque-black census line
+    are each REPORTED with their population and the words FAIL-SAFE / structurally unreachable."""
+    blob = build_texel_container(nparts=1)
+    RP.export_art(blob, 999, tmp_path, lane="paint")
+    p = RP.texel_page(blob, "tex.part0")
+    words = RP.palette_words(blob, p)
+    _raw, cen = RP.read_paint_png(tmp_path / "tex.part0.paint.png", p, words,
+                                  RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    text = "\n".join(RP.census_lines(cen))
+    assert text.count("FAIL-SAFE") >= 2 and "structurally unreachable" in text
+    assert "0x0000 is the container's cutout word BY VALUE" in text
+    assert "DISCLOSURE" in text and "[[reskin.target]] does it EXACTLY" in text
+    # R5's own label, on a row where every entry is the hole
+    b = bytearray(blob)
+    struct.pack_into("<%dH" % p.clut_entries, b, p.clut_offset, *([0] * p.clut_entries))
+    with pytest.raises(RP.RepaintError) as e:
+        RP.read_paint_png(tmp_path / "tex.part0.paint.png", RP.texel_page(bytes(b), "tex.part0"),
+                          RP.palette_words(bytes(b), p),
+                          RP.texel_view(p, _page_bytes(blob, "tex.part0")))
+    assert "LABELLED A FAIL-SAFE" in str(e.value) and "population of this class is 0" in str(e.value)
+
+
+# ============================================================ (14) W6b-2: THE DEPTH-ATTRIBUTION LANE
+# W6b-1 refused 2,385 of 2,572 scenery cells by name because no `so` reader declares their depth.
+# W6b-2 found the container states 246 of them SOMEWHERE ELSE, on two channels with two different
+# postures, and THE LINE is what this section proves is enforced rather than described:
+#
+#     CHANNEL G LICENSES.  CHANNEL P DISCLOSES, and edits only behind an explicit acknowledgement.
+#
+# Every test here runs on SYNTHETIC bytes with no corpus and no install: the fixture below is the
+# W6b-1 scenery fixture, unchanged, driven at DIFFERENT EFFECT IDS so that the shipped channel-P table
+# speaks (or refuses) about its cells.  PROVENANCE: no stock byte -- an effect id and a VRAM cell
+# coordinate are the whole of what is borrowed, and both are already in the committable surface.
+#
+# ⚠ AND THE ONE THING THAT LOOKS ODD AND IS DELIBERATE: these ids are handed to a container that is
+# NOT that effect.  Channel P is keyed by EFFECT ID, exactly as `program_class` and the program-VRAM
+# lists already are -- that keying IS the property under test, and W6b-1's own fixture makes the same
+# move in the other direction (it passes ef999 so the id-keyed lists cannot answer at all).  The
+# corpus-scale join between the table and real containers is `w6b2i_gates.py` I2's job, not this
+# file's; here the question is only what the GATE LAYER does with a verdict it has been handed.
+
+#: the fixture's readerless cell -- ``(448, 256)``, W6b-1's own depth-unknown vehicle.
+DARK_CELL = "cell.s0.x448_y256"
+#: an effect whose id-3 program registers ``(448, 256)`` at ONE depth, 15bpp, and whose program is
+#: otherwise CLEAN (neither a VRAM writer nor a reader) -- so the ack ladder is the only thing under
+#: test and no other gate can supply the refusal.  15bpp on purpose: a direct cell indexes no palette,
+#: so channel P's silence about CLUTs is not a second variable.
+P_SINGLE_EF, P_SINGLE_BPP = 90, 15
+#: ★ AND THE MAJORITY VEHICLE, which the first draft of this section scoped around: an effect whose
+#: program registers the same cell at ONE depth that is **INDEXED** (8bpp, 1 site, program CLEAN).
+#: 134 of channel P's 189 cells are indexed and NOT ONE of them can be rendered -- the channel states a
+#: DEPTH and names no CLUT -- so this is the rung the ack ladder must be tested on, not only the 15bpp
+#: one where the question cannot arise.
+P_INDEXED_EF, P_INDEXED_BPP = 93, 8
+#: an effect whose program registers the SAME cell at TWO depths -- the hazard that outranks the ack.
+P_DUAL_EF = 56
+
+
+def _ack_rows(name=DARK_CELL, **kw):
+    row = {"name": name, "enabled": False}
+    row.update(kw)
+    return [row]
+
+
+def test_the_shipped_P_table_is_a_cached_measurement_with_its_pins_asserted_at_import():
+    """A CONSTANT NOBODY RE-CHECKS IS A CLAIM.  The re-derivation pin itself lives in the study gate
+    (it needs the corpus); what ships here is the arithmetic, asserted AT IMPORT so a truncated table
+    fails loudly instead of quietly attributing fewer cells than the record says it does."""
+    assert len(DA.PROGRAM_DEPTH) == 221, "every census-declared cell a recovered page word covers"
+    dual = [v for v in DA.PROGRAM_DEPTH.values() if v.dual]
+    assert len(dual) == DA.PROGRAM_DUAL_CELLS == 22
+    assert len({v.effect for v in dual}) == DA.PROGRAM_DUAL_CONTAINERS == 10
+    assert len(DA.PROGRAM_DEPTH) - len(dual) == DA.GAIN_PROGRAM + 10, \
+        "189 depth-unknown GAINS + the 10 cells the `so` census already had -- P's whole ground truth"
+    assert DA.GAIN_PROGRAM + DA.GAIN_SO_PAGE == DA.GAIN_EITHER == 246
+    assert DA.GAIN_EITHER + DA.RESIDUE_BLIND + DA.RESIDUE_COVERED == DA.DEPTH_UNKNOWN == 2385
+    assert DA.RESIDUE == 2139 and DA.REFUSED_AMBIGUOUS == 32
+    # the granularity statement, as a per-cell property rather than as prose
+    assert DA.PROGRAM_DEPTH[(1, 704, 256)].inherited is False
+    assert DA.PROGRAM_DEPTH[(1, 704, 384)].inherited is True, "the LOWER half of the same column"
+    assert DA.program_depth(None, (704, 256)) is None, "no effect id is IGNORANCE, not clean"
+
+
+def test_the_PAGE_view_and_the_UV_view_are_TWO_VIEWS_and_the_kit_keeps_BOTH():
+    """ROW 1.  ``attribution`` answers READERSHIP (which model samples which halfwords);
+    ``page_depth_view`` answers DEPTH (what mode the whole 256-line page is read in).  Merging them is
+    what produced W6b-1's y=384 blind spot, so the two are kept apart and the fixture shows exactly
+    where they differ: the reader view names a column nothing BINDS (the spill target), and the page
+    view names a stacked cell no reader reaches."""
+    blob = build_scenery_container()
+    uv = RP.cell_readers(blob)
+    page = RS.page_depth_view(blob)
+    # the UV view names only cells some model's stored UVs land in...
+    assert sorted(uv) == [(320, 256), (384, 256), (512, 256), (576, 256), (704, 256), (704, 384)]
+    # ...the PAGE view names both stacked cells of every BOUND column, and NOTHING else: column 384 is
+    # READ by a spilling model but no `so` record NAMES it, so the depth channel is silent there even
+    # though the reader channel is not.  That asymmetry is the whole point of two views.
+    assert sorted(page) == [(320, 256), (512, 256), (576, 256), (704, 256), (704, 384)]
+    assert page[(704, 384)].depths == (8,) and page[(704, 384)].inherited is True
+    assert page[(704, 256)].inherited is False
+    assert [b.geom for b in page[(704, 384)].binders] == [b.geom for b in page[(704, 256)].binders]
+    assert (384, 256) in uv and (384, 256) not in page, "READ but never BOUND -- the asymmetry"
+    # and the two AGREE wherever both speak -- the calibration, at fixture scale
+    for cell, pd in page.items():
+        if cell in uv:
+            assert pd.depths == tuple(sorted({m.bpp for m in uv[cell]})), cell
+    # THE NON-MERGER, as an identity rather than as a comment: the UV view is byte-for-byte what it
+    # was and grew no depth-by-page field, so a caller cannot get the page answer out of it by
+    # accident.
+    a = RS.attribution(blob, include_direct=True)
+    assert not hasattr(a, "page_depths") and not hasattr(a.bindings[0], "page_depths")
+    assert sorted(b.tpage for b in a.bindings) == sorted(
+        b.tpage for b in RS.attribution(blob, include_direct=True).bindings)
+
+
+def test_CHANNEL_G_LICENSES_a_readerless_cell_and_the_page_records_WHERE_the_depth_came_from():
+    """ROW 8.  A cell no model's UVs reach, whose COLUMN the container binds, gains that depth --
+    LICENSED, no key, because it is the same record read at the granularity the hardware uses.  And
+    the page says so: ``depth_source`` is the marker every disclosure keys on, so an INHERITED depth
+    can never be reported as a direct one."""
+    # the fixture's tall rect already has a reader in its lower half, so build a variant WITHOUT it:
+    # column 704 stays bound (the "fire" model), the lower half loses its own reader.
+    models = tuple(m for m in SCEN_MODELS if m[0] != "low")
+    blob = build_scenery_container(models=models)
+    assert (704, 384) not in RP.cell_readers(blob), "no model's UVs land in the lower half now"
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 999)}
+    low, top = pages["cell.s0.x704_y384"], pages["cell.s0.x704_y256"]
+    assert (low.bpp, low.depth_source, low.depth_inherited) == (8, "so-page", True)
+    assert low.hazards.readers == () and low.hazards.page_depths == (8,)
+    assert low.hazards.page_binders == top.hazards.page_binders, "ONE record, both halves"
+    # the KEY comes from the same record as the depth -- one binding, not a depth here and an
+    # unrelated palette choice there
+    assert low.palette_name == top.palette_name and low.clut_offset == top.clut_offset
+    # and the disclosure SAYS INHERITED, in the words the law is written in
+    t = RP.TexelTarget(name=low.name, enabled=True, source="", page=low)
+    txt = "  ".join(RP._scenery_disclosures(t))
+    assert "CHANNEL G" in txt and "INHERITED FROM THE COLUMN, never direct" in txt
+    assert "LICENSED" in txt
+    # W6b-1's own cells are untouched: a read cell still reports so-uv
+    assert top.depth_source == "so-uv" and top.depth_inherited is False
+    # ...and the adopted cell round-trips through the SAME codec at the inherited depth
+    raw = blob[low.page_offset:low.page_offset + low.page_bytes]
+    assert len(raw) == 0x4000 and low.w == RP.cell_texel_w(8)
+
+
+def test_CHANNEL_P_DISCLOSES_by_default_and_the_reason_carries_the_IN_GAME_REFUTATION():
+    """ROWS 6 + 10.  W6b-1's refusal said the container states nothing.  W6b-2 measured that this is
+    FALSE for 189 cells -- so the reason now NAMES the program's depth, its call-site count, the
+    residue split, and the in-game cast that refuted the whole channel's licence claim."""
+    blob = build_scenery_container()
+    ref = {r.name: r for r in RP.scenery_cell_refusals(blob, P_SINGLE_EF)}
+    r = ref[DARK_CELL]
+    assert r.klass == "depth-unknown", "still refused -- DISCLOSE is not a licence"
+    assert "no `so` reader samples this cell" in r.reason
+    assert "registers this page at %d bpp at 1 call site(s)" % P_SINGLE_BPP in r.reason
+    # THE REFUTATION, carried WITH the number rather than in a docstring beside it
+    assert "REGISTRATION-IS-NOT-A-DRAW, CONFIRMED IN-GAME" in r.reason
+    assert "ef251" in r.reason and "tpage 312" in r.reason and "BUMPER STRIP" in r.reason
+    assert "THE DEPTH COROLLARY" in r.reason and "ef446" in r.reason
+    # ...and how to proceed, by NAME
+    assert RP.ACK_PROGRAM_DEPTH in r.reason and "expect_bpp = %d" % P_SINGLE_BPP in r.reason
+    # THE RESIDUE SPLIT, in the reason string, arithmetic closed
+    assert "2,139 keep refusing" in r.reason and "1,278" in r.reason and "861" in r.reason
+    # and the page is NOT handed back without the ack
+    with pytest.raises(RP.RepaintError, match="is REFUSED, not unknown"):
+        RP.texel_page(blob, DARK_CELL, P_SINGLE_EF)
+    p = RP.texel_page(blob, DARK_CELL, P_SINGLE_EF, allow_program_depth=True)
+    assert (p.bpp, p.depth_source) == (P_SINGLE_BPP, "program")
+    assert p.hazards.program_depths == (P_SINGLE_BPP,) and p.hazards.program_sites == 1
+    assert p.depth_inherited is True, "a REGISTRATION names a page; nothing named this cell"
+    # ...and an acknowledged build DISCLOSES the same thing again, at the target level, where an
+    # author reads it.  A caveat that lives only in the refusal an author bypassed is a caveat they
+    # never see -- so the ack's own warning travels with the page it unlocked.
+    t = RP.TexelTarget(name=p.name, enabled=True, source="", page=p, ack_program_depth=True)
+    txt = "  ".join(RP._scenery_disclosures(t))
+    assert "DEPTH FROM CHANNEL P" in txt and "registers this page at 15bpp at 1 call site(s)" in txt
+    assert "REGISTRATION-IS-NOT-A-DRAW" in txt and "THE DEPTH COROLLARY" in txt
+    assert "the judgement that this depth is the depth the SCREEN reads is yours" in txt
+    assert "LOWER half of its column" not in txt, "this cell is an UPPER half; do not claim otherwise"
+
+
+def test_the_depth_unknown_reason_says_WHICH_narrowing_when_channel_H_speaks():
+    """ROW 10's second half.  *"The container states nothing about this cell"* is FALSE for 334 of the
+    residue's cells: their own id-0 header ships only ONE palette class.  That is a NARROWING, not a
+    depth -- ``hint = 4`` still leaves 4bpp or 15bpp -- so the cell stays refused and the reason says
+    which of the two sentences it means."""
+    blob = build_scenery_container()                        # 3 x 16-entry + 1 x 256-entry -> no hint
+    assert RP.clut_arity(blob) == (3, 1)
+    assert DA.clut_arity_hint(*RP.clut_arity(blob)) is None
+    r = {x.name: x for x in RP.scenery_cell_refusals(blob, 999)}[DARK_CELL]
+    assert "CHANNEL H" not in r.reason, "no narrowing here, and silence is not invented"
+    # THE RULE is what is under test, not one fixture's arity
+    assert DA.clut_arity_hint(3, 0) == 4 and DA.clut_arity_hint(0, 1) == 8
+    assert DA.clut_arity_hint(0, 0) is None and DA.clut_arity_hint(2, 2) is None
+    txt = RP._depth_evidence(4, None, True)
+    assert "no 8-entry-per-byte CLUT: 4bpp or 15bpp" in txt and "a NARROWING, not a depth" in txt
+    assert "334 of the residue's cells are in the same position" in txt
+    assert "8bpp or 15bpp" in RP._depth_evidence(8, None, True)
+    # ★ AND THE WHOLE BLOCK IS GATED ON THE CALLER HAVING CONSULTED A W6b-2 CHANNEL.  A channel a
+    # caller declined to name must not appear to have spoken -- and the residue split is a W6b-2
+    # measurement, so appending it to a CENSUS-scoped refusal would have made `scenery_surface`'s
+    # default emit reasons W6b-1 never wrote while every published COUNT stayed identical.
+    assert RP._depth_evidence(4, None, False) == ""
+    census = {x.name: x for x in RP.scenery_surface(blob, 999)[1]}[DARK_CELL]
+    assert census.reason == RP._REFUSAL_TEXT["depth-unknown"], \
+        "CENSUS_CHANNELS: the refusal is W6b-1's own string, byte for byte -- not merely its count"
+    assert "THE RESIDUE, SPLIT" in {x.name: x for x in
+                                    RP.scenery_cell_refusals(blob, 999)}[DARK_CELL].reason
+    # and the narrowing is CARRIED on the hazard record, so a report can quote it per cell
+    assert RP.scenery_texel_pages(blob, 999)[0].hazards.bpp_hint is None
+
+
+def test_the_ack_ladder_FAILS_BY_NAME_at_every_rung():
+    """ROW 7, the whole ladder.  An ack with no ``expect_bpp`` fails BY NAME; a MISMATCHING
+    ``expect_bpp`` fails BY NAME; a string ``"true"`` fails on the literal-boolean law; and a
+    PROGRAM-DUAL cell refuses even with a correct-looking ack, because the hazard outranks it."""
+    blob = build_scenery_container()
+
+    # (1) the ack ALONE is not a guard -- it is a judgement with nothing to check it against
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(**{RP.ACK_PROGRAM_DEPTH: True}), effect=P_SINGLE_EF),
+                 "t", blob=blob)
+    assert "states NO `expect_bpp`" in str(e.value) and RP.ACK_PROGRAM_DEPTH in str(e.value)
+    assert "REGISTRATION-IS-NOT-A-DRAW" in str(e.value)
+
+    # (2) a MISMATCHING expect_bpp fails by name, and the message says which CHANNEL it argues with
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(expect_bpp=8, **{RP.ACK_PROGRAM_DEPTH: True}),
+                            effect=P_SINGLE_EF), "t", blob=blob)
+    assert "the spec guards 8bpp" in str(e.value) and "CHANNEL P" in str(e.value)
+    assert "registration is not a draw" in str(e.value)
+
+    # (3) THE LITERAL-BOOLEAN LAW: a truthy string must REFUSE, never arm
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, _ack_rows(expect_bpp=P_SINGLE_BPP,
+                                            **{RP.ACK_PROGRAM_DEPTH: "true"}), effect=P_SINGLE_EF),
+                 "t", blob=blob)
+
+    # (4) THE HAZARD OUTRANKS THE ACK.  Same cell, an effect whose program names it at TWO depths:
+    # there is no single value for the author's judgement to be about, so the ack cannot reach it.
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(expect_bpp=8, **{RP.ACK_PROGRAM_DEPTH: True}),
+                            effect=P_DUAL_EF), "t", blob=blob)
+    assert "PROGRAM-DUAL-DEPTH" in str(e.value)
+    assert "UNANIMITY IS THE VERDICT RULE" in str(e.value)
+    assert "no acknowledgement lifts it" in str(e.value)
+
+    # (5) ...and the pair TOGETHER resolves the page.  The depth is checked against the derivation,
+    # never taken from the spec: `expect_bpp` is STATED by the author and CHECKED.
+    b = RP.build(_spec_dict(blob, _ack_rows(expect_bpp=P_SINGLE_BPP,
+                                            **{RP.ACK_PROGRAM_DEPTH: True}), effect=P_SINGLE_EF),
+                 "t", blob=blob)
+    t = b.targets[0]
+    assert t.ack_program_depth is True and t.page.depth_source == "program"
+    assert t.page.bpp == P_SINGLE_BPP and t.enabled is False
+
+    # (6) and WITHOUT the ack the same row cannot even resolve its name -- the refusal is at
+    # RESOLUTION, so there is no window in which a page exists and the ack is still being read
+    with pytest.raises(RP.RepaintError, match="is REFUSED, not unknown"):
+        RP.build(_spec_dict(blob, _ack_rows(expect_bpp=P_SINGLE_BPP), effect=P_SINGLE_EF),
+                 "t", blob=blob)
+
+
+def test_the_unknown_key_gate_still_fails_closed_on_a_MISTYPED_new_ack():
+    """The new key joins the fail-closed table rather than a private list: a mistyped acknowledgement
+    that were merely ignored would silently drop the guard it is paired with."""
+    blob = build_scenery_container()
+    with pytest.raises(RP.RepaintError, match="unknown key"):
+        RP.build(_spec_dict(blob, _ack_rows(acknowledge_program_derived_dept=True),
+                            effect=P_SINGLE_EF), "t", blob=blob)
+    assert RP.ACK_PROGRAM_DEPTH in RP._TEXEL_KEYS
+
+
+def test_the_refusal_matrix_NAMES_all_three_new_classes_and_only_two_are_UNADDRESSABLE():
+    """ROWS 2-4, and the one distinction that keeps row 2's gate honest.  All three classes are in the
+    refusal matrix by name; only the two DUAL classes make a cell unaddressable, because those are
+    sharper names for cells that were already dark.  ``spill-vs-own-page`` protects nothing new -- it
+    exists to carry the REASON -- so it is deliberately NOT in the unaddressable set."""
+    for k in ("program-dual-depth", "channel-g-dual-depth", "spill-vs-own-page"):
+        assert k in RP._REFUSAL_TEXT, k
+    assert "program-dual-depth" in RP._UNADDRESSABLE
+    assert "channel-g-dual-depth" in RP._UNADDRESSABLE
+    assert "spill-vs-own-page" not in RP._UNADDRESSABLE
+    assert "spill-vs-own-page" not in RP._EXPORT_BLOCKING, \
+        "a class with a lawful remedy must not silently withdraw art W6b-1 exported"
+    txt = RP._REFUSAL_TEXT["spill-vs-own-page"]
+    assert "BOTH PREDICATES ARE TRUE OF THE SAME BYTES" in txt
+    assert "adds ZERO cells to the refused set as PROTECTION" in txt
+    assert "NAMED IN NO LANE DOSSIER" in RP._REFUSAL_TEXT["channel-g-dual-depth"]
+    assert "22 cells in 10 containers" in RP._REFUSAL_TEXT["program-dual-depth"]
+
+
+def test_a_readerless_cell_whose_COLUMN_is_bound_at_TWO_depths_REFUSES_by_name():
+    """ROW 4, on synthetic bytes: the class the calibration refuter found and NO lane dossier named.
+    Two models bind the same column at different depths; the cell neither of them reads inherits an
+    ambiguity, not a depth."""
+    models = (("a", 704, 256, 8, (0, 245), (0, 0, 100, 60)),
+              ("b", 704, 256, 4, (0, 244), (0, 0, 100, 60)))
+    blob = build_scenery_container(models=models)
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 999)}
+    ref = {r.name: r for r in RP.scenery_cell_refusals(blob, 999)}
+    assert "cell.s0.x704_y384" not in pages, "the LOWER half inherits an ambiguity, not a depth"
+    assert ref["cell.s0.x704_y384"].klass == "channel-g-dual-depth"
+    assert "its column is bound at 4/8 bpp" in ref["cell.s0.x704_y384"].reason
+    # ...while the UPPER half, which BOTH models actually read, is the W6b-1 class and keeps its name
+    assert ref["cell.s0.x704_y256"].klass == "same-bytes-two-depths"
+    with pytest.raises(RP.RepaintError, match="CHANNEL-G-DUAL-DEPTH"):
+        RP.texel_page(blob, "cell.s0.x704_y384", 999, allow_program_depth=True)
+
+
+def test_SPILL_vs_OWN_PAGE_is_flagged_and_reconciles_NOTHING():
+    """ROW 2.  A cell whose every reader binds the NEIGHBOURING page at one depth while its OWN page
+    is named at another.  Both predicates are true; the kit prints both and picks neither.  Measured
+    on the fixture: the cell keeps its READER-derived depth (that is what a model actually samples)
+    and gains a refusal RECORD carrying the reason -- and its addressability does not change."""
+    # column 320 is bound at 8bpp and spills into 384; give 384 its own 4bpp binder whose UVs stay
+    # OUTSIDE the cell, so the cell's own page is named at a depth no reader of it states.
+    models = SCEN_MODELS + (("owner384", 384, 256, 4, (0, 244), (0, 200, 4, 204)),)
+    blob = build_scenery_container(models=models)
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 999)}
+    spill = pages["cell.s0.x384_y256"]
+    assert spill.hazards.spill_vs_own_page is True
+    assert spill.hazards.depths == (8,) and spill.hazards.page_depths == (4,)
+    assert spill.bpp == 8, "the READER's depth stands -- it is what something actually samples"
+    assert "spill-vs-own-page" in spill.hazards.names
+    ref = [r for r in RP.scenery_cell_refusals(blob, 999) if r.klass == "spill-vs-own-page"]
+    assert [r.name for r in ref] == ["cell.s0.x384_y256"]
+    assert "neither instrument is wrong" in ref[0].reason
+    # THE GATE THE RECORD DEMANDS: it protects NOTHING new.  The cell still resolves, exactly as it
+    # did before the class existed -- a gate asserting it protects >= 1 new cell would FAIL.
+    assert RP.texel_page(blob, "cell.s0.x384_y256", 999).bpp == 8
+    t = RP.TexelTarget(name=spill.name, enabled=True, source="", page=spill)
+    assert any("FLAGGED rather than reconciled" in n for n in RP._scenery_disclosures(t))
+
+
+def test_scenery_lines_prints_the_channel_block_even_when_every_channel_is_SILENT():
+    """A channel that says nothing has to SAY it says nothing: 'no line about channel P' and 'channel
+    P states nothing here' are the same output, and only one of them is a measurement."""
+    blob = build_scenery_container()
+    L = "\n".join(RP.scenery_lines(blob, 999))
+    assert "THE DEPTH CHANNELS (W6b-2)" in L
+    assert "DEPTH is a property of the PAGE" in L
+    assert "CHANNEL P here: 0 cell(s)" in L, "ef999 is not in the table, and the line still prints"
+    assert "CHANNEL H here: nClut4 3 / nClut8 1 -> no narrowing" in L
+    assert "REGISTRATION-IS-NOT-A-DRAW, CONFIRMED IN-GAME" in L
+    L2 = "\n".join(RP.scenery_lines(blob, P_DUAL_EF))
+    # BOTH stacked cells of the column, because one page word names a column of two -- the
+    # granularity statement, visible in the count rather than only in the law it is printed beside.
+    assert "CHANNEL P here: 2 cell(s)" in L2 and "2 of them at TWO depths" in L2
+
+
+def test_an_INDEXED_channel_P_cell_refuses_FOR_WANT_OF_A_KEY_and_says_so_in_its_own_words():
+    """★ THE MAJORITY OF CHANNEL P, and the rung the first draft of this ladder scoped around.
+
+    A channel-P cell at 4 or 8 bpp is an INDEX ARRAY with no key: the program's registered tpage names
+    a DRAW MODE and names no CLUT, and no ``so`` record names one either -- that is the premise of the
+    whole channel.  **134 of the 189 cells are in that shape and not one of them can be rendered.**
+
+    Two things are under test and both are about honesty rather than about safety, since the lane
+    already failed closed:
+
+    1. it refuses in ITS OWN CLASS.  Reusing ``no-declared-clut`` printed *"the reader's `so` record
+       names CLUT cell None at 0 entries"* on a cell that HAS NO READER -- ``None`` and ``0``
+       formatted into a sentence written about an instrument that does not exist here, on containers
+       that declare a dozen palettes.  **A reason may never drift from the predicate that produced
+       it**;
+    2. the DISCLOSURE does not promise a remedy that does not exist.  The refusal an author reads
+       BEFORE acknowledging says the ack cannot reach this cell, instead of naming necessary
+       conditions they would read as sufficient ones.
+    """
+    blob = build_scenery_container()
+    r = {x.name: x for x in RP.scenery_cell_refusals(blob, P_INDEXED_EF)}[DARK_CELL]
+    assert r.klass == "depth-unknown"
+    assert "registers this page at %d bpp at 1 call site(s)" % P_INDEXED_BPP in r.reason
+    assert "THE ACKNOWLEDGEMENT CANNOT REACH THIS CELL" in r.reason, \
+        "the remedy sentence is CONDITIONAL -- necessary conditions must not read as sufficient ones"
+    assert "134 of channel P's 189 cells are indexed and NONE of them render" in r.reason
+    assert "the ack's live surface is the 55 that are 15bpp DIRECT" in r.reason
+    assert "To edit it anyway say" not in r.reason, "no promise the kit cannot keep"
+    assert "the author carries the judgement, the kit carries the check" not in r.reason
+    # the 15bpp cell in the SAME position gets the remedy, because there it is one
+    assert "To edit it anyway say" in \
+        {x.name: x for x in RP.scenery_cell_refusals(blob, P_SINGLE_EF)}[DARK_CELL].reason
+
+    # ...and WITH the ack and a matching expect_bpp it still refuses -- by its OWN name, saying what
+    # is true.  `program-depth-no-palette`, never the reader-shaped `no-declared-clut`.
+    ref = {x.name: x for x in RP.scenery_cell_refusals(blob, P_INDEXED_EF, program_depth=True)}
+    got = ref[DARK_CELL]
+    assert got.klass == "program-depth-no-palette"
+    assert "CHANNEL P STATES A DEPTH AND NOTHING ELSE" in got.reason
+    assert "the reader's `so` record" not in got.reason, "there IS no reader -- do not quote one"
+    assert "None" not in got.reason and " 0 entries" not in got.reason
+    assert "this container's own id-0 headers ship 3 16-entry and 1 256-entry palette(s)" in got.reason
+    assert "134 of channel P's 189 cells are indexed" in got.reason
+    assert "program-depth-no-palette" in RP._UNADDRESSABLE, "there is no picture to hand back"
+    with pytest.raises(RP.RepaintError, match="CHANNEL P STATES A DEPTH AND NOTHING ELSE"):
+        RP.texel_page(blob, DARK_CELL, P_INDEXED_EF, allow_program_depth=True)
+    with pytest.raises(RP.RepaintError, match="CHANNEL P STATES A DEPTH AND NOTHING ELSE"):
+        RP.build(_spec_dict(blob, _ack_rows(expect_bpp=P_INDEXED_BPP,
+                                            **{RP.ACK_PROGRAM_DEPTH: True}), effect=P_INDEXED_EF),
+                 "t", blob=blob)
+    # the 15bpp vehicle is the CONTRAST, in the same test, so the split is a measurement here too
+    assert RP.texel_page(blob, DARK_CELL, P_SINGLE_EF, allow_program_depth=True).bpp == P_SINGLE_BPP
+
+
+def test_the_INHERITED_clause_is_gated_on_the_COLUMN_and_not_on_the_writers_rect():
+    """A page word names a PAGE, so a depth crossed a CELL BOUNDARY exactly when the cell is the LOWER
+    half of its 256-line COLUMN.  ``hazards.lower_half`` answers a different question -- *"is this
+    WRITER's rect split?"* -- and the two disagree on the 10 corpus channel-P cells that are **id-9
+    alternate blocks at y = 384**: one whole 0x4000 upload, never a rect's lower half, and still the
+    bottom of a column whose depth was read off the top.  Gated on the writer, those 10 were told
+    their depth was direct while the kit's own ``ProgramDepth.inherited`` said it was inherited.
+
+    Built by moving a REAL resolved page to ``y = 384`` with ``lower_half`` left False -- which is
+    exactly the id-9 shape -- so the predicate is tested at the call site rather than restated.
+    """
+    blob = build_scenery_container()
+    upper = RP.texel_page(blob, DARK_CELL, P_SINGLE_EF, allow_program_depth=True)
+    assert upper.cell == (448, 256) and upper.hazards.lower_half is False
+    up_txt = "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=upper.name, enabled=True, source="", page=upper,
+                       ack_program_depth=True)))
+    assert "LOWER half of its column" not in up_txt, "an UPPER half; do not claim a crossing"
+
+    low = dataclasses.replace(upper, cell=(448, 384))
+    assert low.hazards.lower_half is False, "the id-9 shape: at y=384 and not a rect's lower half"
+    assert DA.PROGRAM_DEPTH[(P_SINGLE_EF, 448, 384)].inherited is True, "...but the COLUMN says yes"
+    low_txt = "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=low.name, enabled=True, source="", page=low, ack_program_depth=True)))
+    assert "LOWER half of its column" in low_txt and "INHERITED FROM THE COLUMN" in low_txt
+    # ...and the same predicate governs channel G, so one rule serves both inherited channels
+    g_low = dataclasses.replace(low, depth_source="so-page")
+    assert "INHERITED FROM THE COLUMN" in "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=g_low.name, enabled=True, source="", page=g_low)))
+    g_up = dataclasses.replace(upper, depth_source="so-page")
+    assert "INHERITED FROM THE COLUMN" not in "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=g_up.name, enabled=True, source="", page=g_up)))

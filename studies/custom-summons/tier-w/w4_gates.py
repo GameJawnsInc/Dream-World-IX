@@ -175,14 +175,15 @@ def x0_no_regression():
                      % (tag, got, want,
                         "" if got == want else ", %+d -- sibling lane in flight" % (got - want)))
         ok = ok and got >= want                              # a DROP is still a regression
-    # 80 at B1's hand-off; 82 after the W5 reconcile added two:
+    # 80 at B1's hand-off; 82 after the W5 reconcile added two; 84 after W7's
+    # additions to the shared file (128acbe2 -- the pin lagged until W6q's round):
     # `test_describe_names_the_drift_guard_that_actually_applied` (B5 defect 4 -- `describe` called a
     # spec-guarded build "unguarded") and
     # `test_every_reskin_spec_beside_this_tool_builds_and_self_checks` (this runner's own SPEC is
     # hardcoded to bahamut, so phoenix_reskin.toml and madeen_reskin.toml were committable and
     # ungated).  Bumped rather than loosened: this is still the one count w4_gates has standing to
     # pin exactly, and an exact pin is what catches a DELETED test.
-    exact_w4 = counts.get("w4") == 82
+    exact_w4 = counts.get("w4") == 84
     lines.append("   %-7s %3d  (this rung's own figure, EXACT: %s)"
                  % ("w4", counts.get("w4", 0), exact_w4))
     ok = ok and exact_w4

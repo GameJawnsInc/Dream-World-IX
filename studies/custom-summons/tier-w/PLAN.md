@@ -327,8 +327,23 @@ scenery must be re-authored *together*.
   nibble codec (casts 2/2b were 4bpp kit builds). Two laws minted in-game: BINDING-IS-NOT-A-DRAW
   (the wheel on (704,256) was invisible twice — an `so` reader is not a draw; the dome actually
   reads the READERLESS (704,384)) and THE UV-SHREDDING BOUND (sheared mirrored panel UVs turn
-  figures into diffuse erosion; stripes read because translation-invariant). OPEN: the pool's cell
-  (one `--only` cast), the photographable shape verdict on a flat surface, the 15bpp cast.**
+  figures into diffuse erosion; stripes read because translation-invariant). Casts 1e/1f: the
+  pool = (640,256) ⛳ CONFIRMED and ⛳ THE SHAPE VERDICT IS YES — the punched wheel legible on
+  the pool and repeated across every draw instance of the strip (texture art, not placard art);
+  the offline UV-flatness screen (rotation agreement / overlap vs the shredder baseline) picked
+  the surface correctly and is now the instrument for shape-bearing surfaces. The 15bpp vehicle
+  ef429 is REFUSED with proof (3 probes + a 60fps video sweep; both lawful covers
+  bound-never-drawn; the closing full-cover zero read stock-identical). The ef446 ladder then
+  proved ITS vehicle drawn and minted THE DEPTH COROLLARY: a census depth is a BINDING fact, not
+  a DRAW fact — the drawn surface read the authored 15bpp cyan bands at 8bpp (jittery salmon
+  checker = the diagnostic signature; CLUT (0,247) e224/e127 match), while the bands ran seamless
+  across the cell seam ⇒ THE SPILL MECHANISM IS CAST-PROVEN and the 15bpp WRITE path is proven.
+  The ef251/Madeen ladder then REFUTED the PROGRAM channel's depth in-game: x512 IS drawn (the
+  psychedelic ground; the polarity-free family probe) but the solid-0x7FFF bands read as a
+  4-cycle "bumper strip", not flat white — REGISTRATION-IS-NOT-A-DRAW confirmed with teeth,
+  channel P's LICENSE upgrade failed its first trigger, the DISCLOSE posture vindicated by its
+  own test. THE 15bpp LANE RESTS: WRITE path cast-proven + codec offline-exhaustive; the READ
+  proof is PARKED with the three-vehicle evidence table (the ghost-layer observation).**
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
@@ -374,3 +389,83 @@ scenery must be re-authored *together*.
   `Actions.csv` edit**, and cast 2 (the 4bpp lower half `(576,384)`) is the same container, row and
   deploy script. Staged posture only — nothing deployed. The rung does not close until the cast is
   judged; the ladder and the verdict statement are `W6b-SCENERY.md` §5.
+- **W6b-2 — ★ RECON ROUND DONE (offline; record `W6b2-ATTRIBUTION.md`, gates `w6b2_gates.py`
+  17/17, w6b_gates 7/7 unchanged; dossiers `C:\gd\SCRATCH\summon-format\texel-w6b\w6b2\`).**
+  THE DEPTH-ATTRIBUTION ROUND on the 2,385 depth-unknown scenery cells — three channels, every
+  headline adversarially verified: **P** — op-22 `Hi_RegisterTexEffModel` constant tpages found by
+  a blind 216-op sweep (233 values / 77 containers; two independently written disassemblers agree
+  238/238 sites, 233/233 values; calibration 10/10) → 189 cells; **G** — the same `so` records at
+  PAGE granularity (a tpage's draw mode governs its whole 256-line page, so a bound cell's depth
+  extends to its stacked sibling; 57 cells incl. **THE DOME (704,384) = 8bpp** on three
+  instruments) — CONFIRMED as measurement, DEFLATED as reach (122/140 calibration rows are
+  identities; 16/18 informative); **H** — the container's own CLUT-arity `bpp_hint`, a NARROWING
+  not an attribution (351 cells, 12/12 on knowns, 0 conflicts — found by the completeness critic;
+  no primary lane had opened it). **246 attributed / 79 clear every other gate / 2,139 residue**;
+  22 multi-valued cells refused by name. **THE POSTURE (record §5): CHANNEL G LICENSES (56 build /
+  1 refuses behind the new spill-conflict guard); CHANNEL P DISCLOSES, edits only behind an
+  explicit acknowledgement, with the upgrade path named (a cast promotes it).** **THE STRUCTURAL
+  CEILING:** the 222 GEOM-blind containers (1,278 cells = 53.6 %) never call the model-draw API —
+  unreachable by this lever class; the dark textured-registration path is costed at ≤ 119 cells
+  (ops 19/171). **Q2: the program-VRAM WRITE list is exactly right — delta 0 in both directions on
+  two instruments** (V2 re-adjudicated 77/77 sites). Kit integration → the next bullet.
+- **W6b-2i — ★ KIT INTEGRATION SHIPPED (record §10; gates `w6b2i_gates.py` 11/11; siblings
+  byte-untouched and green w6b2 17/17 / w6b 7/7 / w6q 20/20 / w4 8/8).** The refusal matrix consumes
+  the attribution table: **`depth_attribution.py`** ships the cached channel-P table (221 rows =
+  199 unanimous + 22 dual, import-pinned, I2 re-derives it from `tpage_sweep.json` and asserts
+  EQUALITY); channels G / H / spill derive LIVE. **THE CHANNEL SET:** `CENSUS_CHANNELS` (`so-uv`)
+  keeps `scenery_surface` byte-for-byte W6b-1 including reason text; `LICENSED_CHANNELS`
+  (`so-uv, so-page, program`) is every author-facing path's default — `program` means CONSULTED,
+  never adopted without the ack. New refusals: program-dual (22) / channel-G-dual (8) /
+  spill-vs-own-page (2, protects zero by counterfactual proof) / **`program-depth-no-palette`
+  (minted in REVIEW)**. The ack ladder (`acknowledge_program_derived_depth` + matching
+  `expect_bpp`) fails by name on every rung, and the in-game caveats ride as call-sited constants
+  (ef251's REGISTRATION_CAVEAT, ef446's DEPTH_COROLLARY, INHERITED_LINE gated on the COLUMN, not
+  the writer rect). **THE REVIEW'S TWO CORRECTIONS to the record's own numbers:** row 8's
+  "56 build / 1 refuses" was class-C-blind — honest split **49 clean + 7 class-C (2–3 CLUTs per
+  column, alternates now named + exported) + 1 program-write**; and **the ack's real surface is the
+  55 direct 15bpp cells (43 hazard-free)** — the 134 indexed P cells have no CLUT key and no ack
+  combination reaches them, said plainly in the disclosure and docs. Census re-stamped
+  (`w6b2_census_restamp.py`: 93 / 83 / 83+55=138, idempotent, backup kept). **★★ THE DOME CAST
+  RAN SAME-DAY AND PASSED (record §10.1):** `phoenix_dome.toml` + `dome_band_stamp.py`, four
+  max-luminance bands into the readerless (704,384) through the licensed lane with ZERO ack keys
+  (`expect_bpp = 8` checked against the channel-G derivation; the cutout law fired on draft 1 and
+  the fix skipped the 24 hole texels, no ack) — owner verdict: clean bright yellow bands, no 4bpp
+  pin-striping, no 15bpp wrong-solid ⇒ **REGISTRATION-IS-A-DRAW-ENOUGH is TRUE of channel G's
+  flagship** (the existence proof, one cell one cast — P's counterpart was refuted at ef251; the
+  DEPTH COROLLARY's two branches are both photographed now). Resting: ef211 back on the pool
+  wheel (cbcc9fde); the dome artifact (b0af62a0) regenerates from the committed spec.
+- **W6q — ★★ THE `paint` (QUANTIZE) LANE, CAST-PROVEN AND CLOSED (record `w6q_QUANTIZE.md`; gates
+  `w6q_gates.py` 20/20; casts §7 of the record).** W6q-0..4: `source_paint` +
+  `acknowledge_quantize` on `[[reskin.texel]]`, THE INCUMBENT LOCK (the no-op re-quantize moves
+  **0 bytes on 240/240 surfaces** — the naive rule moves 767,531), integer-only nearest-entry
+  codec, the alternate-split (R7) and recoloured-palette refusals, quantize error as DISCLOSURE
+  never refusal (G16b), fail-closed unknown keys on all three spec tables. **W6q-5 ★ the ratified
+  cast pair on `ef227 tex.part0` (bench row 196, composed on W4's `7fef205f`), both judged PASS
+  against their `after` panels:** cast A (`bahamut_quantize.toml`, inks sampled from the row —
+  census 100.00 % exact, 0 approximated) proved the CODEC; cast B (`bahamut_quantize_b.toml`,
+  authored foreign magenta/orange — 981/981 approximated, worst d² 557, census loud, nothing
+  refused) proved the DISCLOSURE posture on screen. Generator `w6q5_paint_stamp.py` (refuses on
+  base drift; independently re-derived W6a's island). Owner call on approximation-at-speed:
+  provisionally acceptable pending real authoring; the `acknowledge_alternate_split` follow-on
+  stays untriggered (a creature page runs 0 R7 checks — the trigger is the first real CLASS-C
+  paint cast). Resting: ef227 REVERTED TO STOCK, artifacts regenerate from the committed specs.
+- **W6b-3 — ★ RECON DONE (offline; record `W6b3-ARCHIVE.md`, gates `w6b3_gates.py` 10/10;
+  siblings unchanged; dossiers `C:\gd\SCRATCH\summon-format\texel-w6b\w6b3\`).** THE ARCHIVE
+  HYPOTHESIS FALSIFIED AND REPLACED: the census walker already descends into every sub-file id —
+  the real blindness is that the `so` record is a MULTI-PART BINDING ARRAY and `reskin.so_record`
+  hard-probes two lengths only, dropping **126 records / 309 binding slots** (split id-2 61 /
+  id-6 53 / id-3 12 — **THE RECORD-LENGTH CHANNEL**, not an id-2 one; the id-2 framing would cost
+  52% of the reach). Reading it properly: **73 new depth cells (65 unanimous + 8 dual), honest
+  hazard split 26 clean + 34 class-C + 7 program-write**, ALL from the 861 covered class — the
+  1,278-cell structural wall gains ZERO and holds harder (502/502 shape-valid records target a
+  GEOM block). **THE GHOST-LAYER PREDICTION FAILED 0-for-6** — ef446/ef429 now have every model
+  enumerated; ef446's 8bpp nucleus reader is NOT a GEOM model in that container (W6b-SCENERY §5's
+  id-2 sentence corrected). **★ THE SAFETY FINDING outranks the gain: shipped `summon-reskin`
+  publishes FIVE FALSE "DERIVED PRIVATE" palette verdicts** (ef381: 1 binder claimed, 7 real) —
+  the dropped records defeat the very guard-rail the docstring promises. **POSTURE (record §8):
+  fix `so_record`'s multi-part read UNCONDITIONALLY as safety; DISCLOSE the 65 depths at channel
+  P's tier (agreement 17/21 = 81% is indistinguishable from the 78.5% column-homogeneity base
+  rate — no licence); refuse the 12 archive-dual + 2 ef184 G-contradicting cells.** OPEN: the
+  submission-time-GPU-state ceiling hypothesis (refuter 2's — now the arc's biggest question);
+  4 dome-shaped cast vehicles named (ef424/ef130/ef179 preferred; avoid ef184). Kit integration
+  NOT started.

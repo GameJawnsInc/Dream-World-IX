@@ -178,6 +178,7 @@ __all__ = [
     "palette_auto_name", "span_auto_name", "id0_palettes", "creature_palettes", "palette_map",
     "creature_pages", "PageRect", "scenery_pages", "id9_pages", "preview_source",
     "PAGE_CELL_W", "PAGE_CELL_LINES", "PAGE_CELL_BYTES", "PageCell", "page_cells",
+    "PAGE_LINES", "PageDepth", "page_depth_view",
     "assert_page_cells_identical", "Id0Split", "id0_splits",
     "CLIP_SAT", "CLIP_VAL", "CLIP_CHANNEL", "Transform", "apply_word", "apply_palette",
     "PaletteResult", "palette_peak", "palette_mean_hue",
@@ -265,7 +266,10 @@ EF227_NAMES: Dict[Tuple[int, int, int], Tuple[str, str]] = {
 #: ``fn 0x3E4AB`` is an 8-slot loop; slot ``i`` is enabled by bit ``ID9_SLOT_BIT[i]`` of the resource's
 #: own ``info`` byte and the payload cursor advances 0x4000 only on an enabled slot. Preview-only: a
 #: wrong slot map draws a wrong picture, never a wrong byte.
-ID9_SLOT_BIT = (0, 0, 1, 1, 2, 3, 4, 5)
+#: Spelled as its three RUNS -- the two shared-bit pairs, then the 1:1 tail -- because that is the
+#: shape of the loop and because an 8-element flat int tuple is indistinguishable, to a byte-literal
+#: provenance scanner, from 8 bytes of stock data. It is a derived slot->bit map, not data.
+ID9_SLOT_BIT = (0, 0) + (1, 1) + (2, 3, 4, 5)
 
 
 def id9_slot_vram(i: int) -> Tuple[int, int]:
@@ -1225,6 +1229,97 @@ def page_cells(blob: bytes) -> Dict[Tuple[str, int, int], PageCell]:
     return out
 
 
+# --------------------------------------------------------- CHANNEL G: the PAGE-granular depth view
+#: a VRAM texture PAGE is 256 lines tall; a page-CELL is 128. One tpage word therefore names a COLUMN
+#: of two stacked cells -- the granularity statement the whole W6b-2 depth channel turns on.
+PAGE_LINES = 2 * PAGE_CELL_LINES
+
+
+@dataclass(frozen=True)
+class PageDepth:
+    """CHANNEL G (W6b-2) -- what one VRAM page-cell's own COLUMN is bound at, per the container.
+
+    **The SECOND view of the same ``so`` records, and it is deliberately a second view.**
+    :func:`attribution` answers *"which model reads what"* and
+    :func:`ff9mapkit.summons.repaint.cell_readers` resolves that to the halfwords a model's stored UVs
+    physically touch -- the right instrument for READERSHIP. It is the wrong one for DEPTH, because a
+    tpage's colour-mode bits govern the page's draw mode over all **256** lines, both stacked cells of
+    the column. Collapsing the two is exactly what produced W6b-1's ``y = 384`` blind spot: 57 corpus
+    cells the census had to call depth-unknown are the LOWER half of a column the container itself
+    names a depth for.
+
+    So the kit keeps **BOTH views and never merges them**. Merging would make a cell's depth look
+    like a readership fact, and the two disagree on real corpus cells -- 138/140 overall against the
+    census, **16/18 on the informative rows**, and *both* genuinely-disjoint rows disagree. Those two
+    are the SPILL-vs-OWN-PAGE class (:data:`ff9mapkit.summons.repaint._REFUSAL_TEXT`'s
+    ``spill-vs-own-page``): every reader of the cell is a binding on the NEIGHBOURING page whose ``u``
+    range crosses the column boundary, while the cell's own page is named at the other depth. Both
+    predicates are TRUE of the same bytes. They are FLAGGED, never reconciled.
+
+    ⚠ **THE INHERITANCE IS NAMED, ALWAYS.** For a lower half (:attr:`inherited`) no instrument has
+    seen a model sample these bytes; what is established is the mode under which the page they live in
+    is read. Every disclosure that ships a channel-G depth has to say so.
+    """
+    cell: Tuple[int, int]                # the page-CELL (x halfwords, y lines)
+    page: Tuple[int, int]                # the PAGE (column) origin its depth was read off
+    depths: Tuple[int, ...]              # every distinct depth an `so` record states for the column
+    binders: Tuple[Binding, ...]         # those records, lowest-addressed GEOM first
+    inherited: bool                      # this cell is the LOWER half -> the depth is the COLUMN's
+
+    @property
+    def bpp(self) -> Optional[int]:
+        """The depth, or ``None`` when the column carries TWO -- **unanimity is the verdict rule; two
+        values is a hazard, not a vote.** 8 corpus cells are in that class and NO lane dossier named
+        them; a kit building its refusal list from the sweep alone would ship them unlisted."""
+        return self.depths[0] if len(self.depths) == 1 else None
+
+    @property
+    def dual(self) -> bool:
+        return len(self.depths) > 1
+
+    @property
+    def binding(self) -> Optional[Binding]:
+        """THE DISPLAY BINDER: the lowest-addressed record naming this column -- the same rule the
+        texel lane's class-C display palette uses, so a cell that inherits a depth inherits the
+        matching CLUT key from the same record rather than from a second, unrelated choice."""
+        return self.binders[0] if self.binders else None
+
+
+def page_depth_view(blob: bytes, include_direct: bool = True) -> Dict[Tuple[int, int], PageDepth]:
+    """``{(vram x, vram y): PageDepth}`` -- every page-cell whose COLUMN an ``so`` record binds.
+
+    **NOT a variant of :func:`attribution` and never folded into it.** ``attribution`` returns the
+    UV-granular reader view the CLUT lane and the texel lane both already ship; this returns the
+    PAGE-granular depth view, and the kit keeps the two side by side on purpose (see
+    :class:`PageDepth`). The only shared machinery is the ``so`` scan itself, consumed here rather
+    than re-implemented -- a second scanner would be a second thing to keep true.
+
+    ``include_direct`` defaults to **True**, the opposite of :func:`attribution`'s default and for the
+    stated reason: 15bpp DIRECT colour IS a depth the container states, and dropping those binders is
+    precisely what makes a cell read as depth-unknown. This function exists to answer the depth
+    question, so admitting them is the whole point.
+
+    Only cells :func:`page_cells` declares are named. A recovered column the container never uploads
+    is evidence about somebody else's page and attributes NOTHING here -- the same rule the program
+    channel applies to its 5 undeclared columns.
+    """
+    declared = {pc.cell for pc in page_cells(blob).values()}
+    rolled: Dict[Tuple[int, int], List[Binding]] = {}
+    for b in attribution(blob, include_direct=include_direct).bindings:
+        px, py = b.page
+        for cy in (py, py + PAGE_CELL_LINES):
+            if (px, cy) in declared:
+                rolled.setdefault((px, cy), []).append(b)
+    out: Dict[Tuple[int, int], PageDepth] = {}
+    for cell, binders in sorted(rolled.items()):
+        binders.sort(key=lambda b: b.geom)
+        out[cell] = PageDepth(cell=cell, page=(cell[0], cell[1] - (cell[1] % PAGE_LINES)),
+                              depths=tuple(sorted({b.bpp for b in binders})),
+                              binders=tuple(binders),
+                              inherited=bool(cell[1] % PAGE_LINES))
+    return out
+
+
 def assert_page_cells_identical(orig: bytes, patched: bytes,
                                 where: str = "this build") -> str:
     """**THE DERIVATION-IDENTITY GATE**: :func:`page_cells` must re-derive identically after a splice.
@@ -1706,6 +1801,60 @@ def _ack_bool(d: dict, key: str, where: str) -> bool:
     return v
 
 
+#: THE UNKNOWN-KEY MESSAGE, shared verbatim by all three tables so one shape teaches one lesson.
+#: Lifted from the texel lane's own gate (``repaint.py``'s ``[[reskin.texel]]`` check), which is
+#: where this property existed and where it was measured: a mistyped ``acknowledge_cutout_reshape``
+#: fails closed and is merely annoying, but a mistyped ``expect_page_offset`` silently DROPS a guard,
+#: and a guard may only ever fail CLOSED.
+UNKNOWN_KEY_MESSAGE = ("%s declares unknown key(s) %s.  Refused rather than ignored: a mistyped "
+                       "guard silently drops the guard, and a guard may only ever fail CLOSED.  "
+                       "Known keys: %s")
+
+
+def _refuse_unknown_keys(d: dict, known, where: str) -> None:
+    """The fail-closed unknown-key check, in ONE place for both tables of this module.
+
+    W6q-0. Before this rung the property existed on ``[[reskin.texel]]`` ONLY: this module read every
+    key through ``d.get`` and a typo was silently ignored, so ``acknowledge_shared = ture`` armed
+    nothing while reading like consent, and ``expect_offset`` misspelt dropped a derivation guard with
+    no error anywhere. It ships ALONE and FIRST because it can refuse specs that build today -- a
+    behaviour change to a shipped lane deserves its own diff -- and because any later key placed on
+    an ungated table would inherit the same silence.
+    """
+    unknown = sorted(set(d) - set(known))
+    if unknown:
+        raise ReskinError(UNKNOWN_KEY_MESSAGE
+                          % (where, ", ".join(repr(u) for u in unknown), ", ".join(sorted(known))))
+
+
+#: every key ONE ``[[reskin.target]]`` row understands -- the CLUT lane's own fail-closed set.
+#:
+#: ``acknowledge_texanim`` is in here DELIBERATELY even though the gate reads it at ``[reskin]``
+#: level: it is a DEPRECATED-but-still-parsed key (:data:`TEXANIM_ACK_DEPRECATED`), specs in the wild
+#: carry it, and a set that omitted it would turn "your spec still builds" into "your spec refuses"
+#: for exactly the population this rung exists to protect.
+_TARGET_KEYS = frozenset((
+    "name", "enabled", "note",
+    "expect_entries", "expect_vram", "expect_offset",
+    "acknowledge_shared", "acknowledge_headroom", "acknowledge_texanim",
+    # the transform knobs (:func:`_transform_of`); `hue_to` and `hue_rotate` are two spellings of one
+    # knob and declaring BOTH in one table is already a refusal.
+    "hue_to", "hue_rotate", "saturation", "value",
+))
+
+#: every key the top-level ``[reskin]`` table understands, ACROSS BOTH LANES -- the CLUT lane's own
+#: (``effect``/``label``/``expect_sha256``/``allow_unguarded``/``acknowledge_texanim``/``spans``/
+#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``).
+#:
+#: ONE set for both modules, consumed by :func:`load_spec` here and by ``repaint.load_spec`` there,
+#: because one spec file may carry both tables: two copies would let a key be lawful on the path that
+#: happened to load it and unknown on the other, which is a refusal that depends on the caller.
+_RESKIN_KEYS = frozenset((
+    "effect", "label", "note", "expect_sha256", "allow_unguarded", "acknowledge_texanim",
+    "spans", "defaults", "orthogonality", "target", "texel",
+))
+
+
 def _transform_of(d: dict, defaults: dict, where: str, mean_hue: float = 0.0) -> Transform:
     def num(key, dflt):
         v = d.get(key, defaults.get(key, dflt))
@@ -1957,6 +2106,10 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     targets: List[Target] = []
     seen = set()
     for i, d in enumerate(rows):
+        # W6q-0: FAIL CLOSED FIRST.  Before any key of this row is read, because the whole point is
+        # that a key nobody reads is invisible -- and the guards below are exactly the keys whose
+        # silent loss has no symptom.
+        _refuse_unknown_keys(d, _TARGET_KEYS, "[[reskin.target]] #%d" % i)
         name = d.get("name")
         if not name:
             raise ReskinError("[[reskin.target]] #%d has no `name`" % i)
@@ -3218,6 +3371,10 @@ def load_spec(path) -> dict:
     r = spec.get("reskin")
     if not isinstance(r, dict):
         raise ReskinError("%s has no [reskin] table" % path)
+    # W6q-0: the same fail-closed rule one table up.  `mint_clut = true` or `acknowledge_shared` at
+    # [reskin] level was silently ignored before this rung, which is the shape a mistyped guard takes
+    # when nobody reads it.
+    _refuse_unknown_keys(r, _RESKIN_KEYS, "[reskin]")
     for key in ("effect", "target"):
         if key not in r:
             raise ReskinError("[reskin] needs `%s`" % key)

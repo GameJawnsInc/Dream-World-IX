@@ -237,6 +237,129 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   v1 ticker — the shipped siege acceptance field could no longer compile. The wide byte band
   keeps its full measured 770 bytes.
 
+### Added — where a scenery cell's DEPTH comes from: two attribution channels (W6b-2)
+- W6b-1 shipped the scenery texel lane **attribution-limited**: 2,385 of 2,572 cells had no `so`
+  reader, so the container stated no bit depth and the lane refused them by name. W6b-2 asks whether
+  the container states it *somewhere else*. **246 of the 2,385 now carry a depth; 2,139 still do not**,
+  and the refusal now says which kind of "no" it means. Every page carries a new `depth_source`.
+- **CHANNEL G LICENSES — 57 cells, no key.** New `reskin.page_depth_view` reads the container's own
+  `so` records at **PAGE** rather than **UV** granularity: a texture page is 256 lines and an
+  addressable cell is 128, so one page word names a **column of two stacked cells**. That is not new
+  evidence — it is the same record the lane already ships on, read at the granularity the hardware
+  uses, and it is exactly W6b-1's lower-half blind spot fixed as a class. 55 of the 57 are addressable
+  only through the per-cell map. They flow through every other gate unchanged: **56 build, 1 refuses on
+  a program-VRAM write**. Kept as a SECOND VIEW beside `attribution`'s reader view and never merged —
+  the two agree 138/140 overall and **16/18 on the informative rows**, and both rows that could have
+  falsified the page predicate did.
+- **CHANNEL P DISCLOSES — 189 cells, behind `acknowledge_program_derived_depth` + a matching
+  `expect_bpp` — and the ack's live surface is 55 of them, which the refusal says out loud.** Channel P
+  states a *depth* and names no CLUT, so an INDEXED (4/8bpp) channel-P cell has no key to render
+  against and refuses as `program-depth-no-palette` whatever is acknowledged: **134 of the 189 are
+  indexed and not one of them renders** (102 reach that refusal, 32 refuse earlier on a program-VRAM
+  verdict). The remaining 55 are 15bpp direct colour, 43 of which clear every other gate. The class has
+  its own wording rather than reusing `no-declared-clut`, whose text quotes "the reader's `so` record"
+  on a channel whose premise is that no such reader exists.
+  New `summons/depth_attribution.py` caches the depth the effect's own id-3 program
+  *registers* each page at, recovered by const-folding two independently written disassemblers to
+  **238/238 sites and 233/233 values**. It is DISCLOSED and not licensed because **the channel's own
+  upgrade trigger fired once and failed in-game**: ef251's program-registered 15bpp page drew a 4-cycle
+  "bumper strip" — a 4bpp read. `REGISTRATION-IS-NOT-A-DRAW` and its general form, `THE DEPTH
+  COROLLARY` (a stated depth is a *binding-side* fact; the draw can read the same bytes at another
+  depth), are carried as constants in the refusal text rather than as docstrings. The ack alone
+  **FAILS BY NAME**: it is the author's judgement, `expect_bpp` is what the kit checks it against, and
+  a judgement with nothing to check is not a guard. A truthy string still refuses (the literal-boolean
+  law).
+- **Four new refusals, four different populations, and one of them protects nothing on purpose.**
+  `program-depth-no-palette` (above); `program-dual-depth` (22 cells in 10 containers the program names
+  at two depths — a class the `so` census could not see); `channel-g-dual-depth` (8 cells whose column
+  is bound at two depths — named in no recon dossier, so it is derived live from the container rather
+  than cached); and `spill-vs-own-page` (2 cells where every reader binds the *neighbouring* page at one
+  depth while this cell's own page is named at another). **Unanimity is the verdict rule; two values is
+  a hazard, not a vote, and no acknowledgement lifts one.** The spill class is stated plainly as adding
+  **zero** cells to the protected set — both already refuse through the name-every-column gate — and
+  existing to carry the reason; a gate asserting otherwise would fail, and the gate that asserts it
+  measures the counterfactual (`_EXPORT_BLOCKING` re-run with the class added) rather than an identity.
+- **Class-C evidence is now taken at the same granularity as the depth.** `multi_palette` reads the
+  CLUT keys the cell's *readers* name — and a channel-G cell has none, so the predicate was false by
+  construction across the whole newly licensed surface. 7 of the 57 sit on a column bound with two or
+  three different CLUTs (one with three): they now carry the class-C disclosure and `export-art` writes
+  their read-only `.as-<clut>.png` alternate renderings, as it always did for a multi-reader cell. So
+  channel G's 57 split **49 hazard-clean + 7 class-C + 1 refused on a program write**, not 56 + 1.
+- **The depth-unknown refusal stopped saying the container is silent, because for most of the residue
+  that was false.** It now names the program-derived depth and its call-site count where there is one,
+  says WHICH **CHANNEL H** narrowing applies where the container's own `nClut4`/`nClut8` arity speaks
+  (`hint = 4` means "4bpp **or** 15bpp" — a narrowing, not a depth, and it breaks 0 of the 30
+  dual-depth ties), and ends with the **residue split**: `246 + 1,278 + 861 = 2,385`, asserted rather
+  than quoted. The 1,278 sit in the 222 containers that declare no model at all, whose programs
+  register nothing and structurally never could — **the ceiling is structural, not statistical.** The
+  refusal offers the acknowledgement path only where there is one: on an indexed channel-P cell it says
+  the ack cannot reach it, rather than naming necessary conditions a reader would take for sufficient.
+- **`repaint.W6B_REASON` names BOTH depth-unknown populations** — the 2,298 cells that refuse under
+  that name on the edit surface *and* the record's 2,139-cell attribution residue — with the arithmetic
+  between them spelled out, because the 30 dual-depth cells are a subset of the residue and a flat list
+  double-counts them. The gate re-measures the printed number against the derivation instead of
+  matching it as a substring.
+- **Two channel sets, so no published count moved under a caller that did not ask for the new one.**
+  `scenery_surface()` defaults to `CENSUS_CHANNELS` (W6b-1's, byte-for-byte); `scenery_texel_pages()`,
+  `texel_page()`, `export-art` and `build` default to `LICENSED_CHANNELS`. The precedent is
+  `attribution(include_direct=)`: a parameter, never a second derivation. A channel a caller declines
+  to consult is not merely un-adopted — its refusals are not stated either, **down to the reason
+  strings**: on the census default a depth-unknown refusal is W6b-1's own text byte for byte, not
+  merely its own count.
+- **The cached table is RE-DERIVATION-PINNED**, like the program-VRAM id lists before it: new
+  `studies/custom-summons/tier-w/w6b2i_gates.py` (I0–I10) re-rolls it from the recon artifacts and
+  asserts equality cell for cell, re-derives every count per run, and drives the whole acknowledgement
+  ladder through the real build path. Its count pins are also asserted **at import**, so a truncated
+  table fails loudly instead of quietly attributing fewer cells.
+
+### Added — paint a summon's texture pages in COLOUR: `--art-lane paint` + `source_paint`
+- `summon-reskin export-art --art-lane paint` writes an editable **RGBA render** (`<name>.paint.png`)
+  and a marked palette (`<name>.swatch.png`) beside the exact indexed PNG, per creature part and per
+  lawful 4/8bpp scenery cell. A `[[reskin.texel]]` row picks the lane with `source_paint = "…"`
+  instead of `source = "…"` (naming both refuses). The lane writes **indices only and zero CLUT
+  bytes**, so every shipped gate — the region partition, the orthogonality intersection, the span
+  gate, the cutout law, the region invariant, the page-cell derivation identity — runs unchanged.
+- **THE INCUMBENT LOCK makes the no-op exact.** The container's own index at each texel is the first
+  term of the selection order, so an unedited export re-imported through this lane changes **0 bytes
+  on 240 of 240 lawful surfaces**, including 100%-ambiguous pages and a 239-way tie. Without it the
+  naive nearest rule moves 767,531 texels across 191 of those surfaces — and exactly the 1,844 of
+  16,384 on ef251 part 0 that the `rgba` refusal has always quoted. That number is the entire reason
+  `rgba` refuses and this does not; `INDEXED_RGBA_REASON` is byte-for-byte untouched.
+- **Alpha is the cutout and it is authoritative**, both directions: without that rule a plain 40° hue
+  slider punches 502 holes on ef227 part 0 that nobody drew; with it, 0. Partial alpha refuses,
+  naming the texel. Determinism is structural — a total order over unique indices, integer arithmetic
+  only, no set/dict iteration in any decision path, no floating point at all.
+- **The approximation is disclosed per texel**, never refused: `plan` prints a QUANTIZE CENSUS
+  (exact / approximated / mean, p95 and worst d², ambiguous, ties, STP changes, opaque black, cutout
+  crossings) and `--previews` gains a fourth `error` panel. **No error threshold ships**: a fixed CLUT
+  is a small subset of a 32,768-colour cube, so any hue move leaves it — and a hue move is this lane's
+  own primary use case. A build whose every texel is maximally wrong still passes every gate, while
+  the no-op through the same lane stays byte-exact.
+- **New refusal: THE ALTERNATE-SPLIT TIE, with no acknowledge key.** On a class-C cell (one index
+  array read through several palettes), an edit whose surviving candidates render as different
+  colours in another declared key refuses rather than choosing — 298 of 365 duplicate groups on 11 of
+  16 such cells split that way. Edit-scoped, candidate-set-scoped, and structurally unreachable on all
+  93 creature pages. Fixes named in the message: paint a colour the swatch marks UNIQUE, or use the
+  exact lane. Also new: `acknowledge_quantize`, `acknowledge_recoloured_palette`, `page_sha256` and
+  `render_key` manifest guards, an absent-paint-source branch in `verify`, and `--dither`, which
+  refuses by name (error diffusion is stateful, so an unedited page would dither and move bytes).
+- **Painting onto a row you also recolour has a workflow that works, not only an acknowledgement.**
+  When the CLUT half of the same build moves the row a paint row maps onto, the build refuses — and
+  its first named fix (build the CLUT half, re-export `--art-lane paint --from` the staged container,
+  switch the row on) now *clears* the gate: the export manifest records the whole-container sha256 of
+  what it read, so the build can measure that the art really was rendered against the row it is being
+  mapped onto. `acknowledge_recoloured_palette = true` is the deliberate second answer, never the only
+  one. A refusal that names a fix which does not work is worse than one that names none.
+- **`--mint-clut` stays deferred**, now with a shipped `MINT_CLUT_REASON` quoted verbatim at a real
+  call site and in the docs. The bare spellings `quantize` and `mint_clut` remain **unknown keys**.
+
+### Fixed — `[[reskin.target]]` and `[reskin]` silently ignored a mistyped key
+- The fail-closed unknown-key gate existed on `[[reskin.texel]]` only. Both other tables read every
+  key through `.get`, so `acknowledge_shard = true` armed nothing while reading like consent, and a
+  misspelt `expect_offset` dropped a derivation guard with no error anywhere — **a guard may only
+  ever fail CLOSED**. Both now refuse, naming the key and listing the known ones, through one shared
+  key set both loaders consume. The deprecated-but-parsed `acknowledge_texanim` stays a known key.
+
 ### Changed — the gEventGlobal safe band is now PARTITIONED (campaign lane vs kit-standing lane)
 - Campaign/journey per-member flag windows and the kit's own allocators used to share the safe
   band ungoverned — a `flag_base = 8712` campaign's windows silently overlapped the AUTO

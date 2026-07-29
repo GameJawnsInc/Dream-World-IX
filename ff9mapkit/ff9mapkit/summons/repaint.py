@@ -62,6 +62,35 @@ The creature surface's own argument, unchanged:
   count, because ef227 IS a two-chunk container and a chunk-count refusal would refuse the one
   effect this rung is proven on.
 
+W6b-2 -- WHERE A DEPTH COMES FROM: TWO CHANNELS, TWO POSTURES, ONE LINE
+------------------------------------------------------------------------
+The lane above is attribution-limited, so W6b-2 asks whether the container states a cell's depth
+SOMEWHERE ELSE. It does, in two places, and they do not carry the same authority:
+
+> **CHANNEL G LICENSES. CHANNEL P DISCLOSES, and edits only behind an explicit acknowledgement.**
+
+* **CHANNEL G** (:func:`ff9mapkit.summons.reskin.page_depth_view`) -- the container's OWN ``so``
+  records, re-read at **PAGE** rather than **UV** granularity. *DEPTH is a property of the PAGE;
+  READERSHIP is a property of the UVs*, and one 64x256 page word names a COLUMN of two stacked 64x128
+  cells. **57 readerless cells** gain their column's depth; 55 of them are lower halves only the
+  per-cell map can name. Not new evidence -- the same record at the granularity the hardware uses --
+  so it is LICENSED, and it flows through every other gate unchanged (56 build, 1 refuses on a
+  program write);
+* **CHANNEL P** (:data:`ff9mapkit.summons.depth_attribution.PROGRAM_DEPTH`) -- the depth the effect's
+  own id-3 program REGISTERS a page at, recovered as a constant. **189 cells**, and it is DISCLOSED
+  rather than licensed for one measured reason: the channel's own written upgrade path was *"P earns
+  a licence when a cast proves a program-derived depth on screen"*, **that trigger fired once and it
+  FAILED** (ef251, tpage 312, registered 15bpp, drew at 4bpp). An edit unlocks only with
+  ``acknowledge_program_derived_depth = true`` AND an ``expect_bpp`` that MATCHES the derivation.
+* **Four new refusals** -- ``program-dual-depth`` (22 cells, 10 containers), ``channel-g-dual-depth``
+  (8, named in no dossier), ``spill-vs-own-page`` (2, which protects nothing new and exists to
+  carry the reason) and ``program-depth-no-palette``. Unanimity is the verdict rule; **two values is
+  a hazard, not a vote**, and no acknowledgement lifts one. The last is the one an author meets most:
+  channel P states a DEPTH and names no CLUT, so **134 of its 189 cells are indexed and none of them
+  can be rendered** -- the acknowledgement's live surface is the 55 that are 15bpp DIRECT.
+* **Two channel sets** (:data:`CENSUS_CHANNELS` / :data:`LICENSED_CHANNELS`) so no published W6b-1
+  count moved under a caller that did not ask for the new channel -- the ``include_direct`` precedent.
+
 THE TEXANIM CO-TRANSFORM (W7) -- AN OBLIGATION, NOT A REFUSAL
 --------------------------------------------------------------
 On the five armed packages (ef038 / ef177 / ef493 / ef494 / ef495) this lane used to refuse outright,
@@ -163,6 +192,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from . import container as EC
+from . import depth_attribution as DA
 from . import export
 from . import rescore as R
 from . import reskin as RS
@@ -171,7 +201,7 @@ from . import texture as KT
 from .ledger import Ledger
 
 __all__ = [
-    "RepaintError", "W6B_REASON", "INDEXED_RGBA_REASON",
+    "RepaintError", "W6B_REASON", "INDEXED_RGBA_REASON", "MINT_CLUT_REASON",
     "MOD_SUBPATH", "STAGING_BASE", "staging_root", "CREATURE_VRAM_X", "ART_MANIFEST",
     "TexelPage", "creature_texel_pages", "texel_page", "other_page_writers",
     # --- W6b-1: the scenery surface -------------------------------------------------------------
@@ -179,6 +209,9 @@ __all__ = [
     "CELL_LINES", "cell_texel_w", "BoundModel", "bound_models", "cell_readers",
     "CellWriter", "CellReader", "CellHazards", "CellRefusal",
     "scenery_surface", "scenery_texel_pages", "scenery_cell_refusals", "assert_expect_bpp",
+    # --- W6b-2: the depth-attribution channels (P discloses, G licenses) ------------------------
+    "ACK_PROGRAM_DEPTH", "DEPTH_SOURCES", "CENSUS_CHANNELS", "LICENSED_CHANNELS",
+    "clut_arity", "depth_attribution_lines",
     # --- W6b-1: the codecs ----------------------------------------------------------------------
     "pack4", "unpack4", "write_indexed4_png", "read_indexed4_png",
     "stp_sidecar_path", "write_direct_png", "read_direct_png", "direct_transparent",
@@ -186,6 +219,12 @@ __all__ = [
     "Coverage", "coverage", "coverage_mask", "border_flood",
     "palette_words", "transparent_indices", "png_palette",
     "write_indexed_png", "read_indexed_png", "write_coverage_png",
+    # --- W6q: the PAINT (quantize) lane ---------------------------------------------------------
+    "PAINT_RENDER_KEY", "CUBE_DIAG_SQ", "AlternateRow", "alternate_palette_rows",
+    "write_paint_png", "write_swatch_png", "read_paint_png",
+    "quantize_census", "census_record", "census_lines",
+    "read_art_manifest", "art_came_out_of_base",
+    "resolve_art_path", "absent_paint_line", "missing_paint_sources",
     "ART_LANES", "export_art", "scaffold_text", "scenery_lines",
     "TexelTarget", "TexelBuild", "load_spec", "build",
     "Gate", "SelfCheck", "self_check", "ORTH_REBUILDERS",
@@ -226,10 +265,75 @@ def _ack_bool(d: dict, key: str, where: str) -> bool:
 #: * **program-VRAM WRITE** -- 175 cells over 15 containers, 3 of them refused by cell name;
 #: * **unwritten-column spill** -- 10 bindings (all ef390, all 15bpp) sample a column no writer in
 #:   their own container uploads: there is nothing there to repaint.
-W6B_REASON = ("W6b-1 ships the scenery texel lane; what still refuses on that surface is: "
-              "DEPTH-UNKNOWN (2,385 of 2,572 cells, the guessing probe FALSIFIED at 54.5%) / "
-              "SAME-BYTES-TWO-DEPTHS (17) / PROGRAM-VRAM WRITE (175, 3 by cell) / a spilling model's "
-              "UNWRITTEN COLUMN (10)")
+#:
+#: **THE W6b-2 SUCCESSOR CLAUSE, and only that clause moved.** The depth-unknown surface is no longer
+#: 2,385: channel G (the container's own ``so`` records at PAGE granularity) LICENSES 57 of them and
+#: channel P (the id-3 program's own registered tpage) DISCLOSES 189 more behind
+#: :data:`ACK_PROGRAM_DEPTH`.
+#:
+#: ⚠ **TWO POPULATIONS, BOTH STATED, BECAUSE A FLAT LIST HERE DOUBLE-COUNTS.** The number the shipped
+#: derivation actually refuses under the name ``depth-unknown`` on the EDIT surface is **2,298** --
+#: W6b-1's 2,385 less channel G's 57 and less the 30 cells that now refuse under their own dual-depth
+#: names. The record's residue of cells with **no depth on any channel** is **2,139**: those 2,298
+#: less the 189 channel P discloses, plus the 30 dual-depth cells, which W6b2-ATTRIBUTION.md sec 2
+#: places INSIDE the residue as a SUBSET and never as an addend. Both are printed below and the
+#: arithmetic between them is spelled out, because this string is what an author is handed on an
+#: unresolved name; ``w6b2i_gates.py`` I9 re-measures the first against the derivation rather than
+#: matching it as a substring. The other three clauses are untouched W6b-1 measurements.
+W6B_REASON = ("W6b-2 attributes 246 of W6b-1's 2,385 depth-unknown cells (189 program / 57 "
+              "`so`-at-page); what still refuses on that surface is: DEPTH-UNKNOWN (2,298 cells "
+              "refuse under this name on the edit surface, 189 of them DISCLOSING a program-derived "
+              "depth an acknowledgement can unlock; take those 189 out and put the 30 dual-depth "
+              "cells below back in -- they are a SUBSET of this population, never an addend -- and "
+              "the residue with no depth on ANY channel is 2,139: 1,278 in containers that register "
+              "nothing, 861 the lever does not cover; the guessing probe FALSIFIED at 54.5%) / "
+              "DUAL-DEPTH BY ATTRIBUTION (22 program + 8 channel-G, both INSIDE the 2,139 above, + 2 "
+              "spill-vs-own-page, which are OUTSIDE it entirely -- 32 cells, three populations, "
+              "READ THE POPULATION AND DO NOT ADD THEM UP) / SAME-BYTES-TWO-DEPTHS (17) / "
+              "PROGRAM-VRAM WRITE (175, 3 by cell) / a spilling model's UNWRITTEN COLUMN (10)")
+
+#: the W6b-2 acknowledgement's spec key, re-exported here so a caller never spells it as a literal.
+ACK_PROGRAM_DEPTH = DA.ACK_KEY
+
+#: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
+#: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
+#: disclosure that cannot tell them apart cannot say the second sentence W6b-2 requires.
+#:
+#: * ``"so-uv"``   -- an ``so`` reader whose stored UVs land in THIS cell states it (W6b-1, 187 cells);
+#: * ``"so-page"`` -- CHANNEL G: no reader samples the cell, but its COLUMN carries exactly one
+#:   ``so``-stated depth, so the depth is inherited from the page (57 cells; 55 of them lower halves
+#:   addressable only through the per-cell map). **LICENSED** -- it is the same record read at the
+#:   granularity the hardware uses;
+#: * ``"program"`` -- CHANNEL P: the container's own id-3 program registers this page at a constant
+#:   depth (189 cells). **DISCLOSED, and edits only behind** :data:`ACK_PROGRAM_DEPTH` plus a matching
+#:   ``expect_bpp`` -- see :data:`ff9mapkit.summons.depth_attribution.REGISTRATION_CAVEAT`, which is
+#:   an in-game refutation and not a caution.
+DEPTH_SOURCES = ("so-uv", "so-page", "program")
+
+#: **THE CENSUS CHANNEL SET** -- W6b-1's own, and the DEFAULT of :func:`scenery_surface`.
+#:
+#: A PARAMETER, NEVER A SECOND DERIVATION -- the precedent
+#: :func:`ff9mapkit.summons.reskin.attribution`'s ``include_direct`` set, and its stated reason
+#: applies here word for word: the default is chosen so that **every published W6b-1 count is
+#: byte-for-byte what it was**. `w6b_gates` G6 and `w6q_gates` G1/G16 pin that census (56 lawful,
+#: 20 lower-half-only, 2,385 depth-unknown, the paint surface's texel totals), and a rung that
+#: silently re-aimed the function those gates measure would have moved the thing they were written
+#: about while every one of them still read green on a different population.
+CENSUS_CHANNELS = ("so-uv",)
+
+#: **THE LICENSED CHANNEL SET** -- the EDIT surface's, and the default of every author-facing entry
+#: point (:func:`scenery_texel_pages`, :func:`scenery_cell_refusals`, :func:`texel_page`,
+#: :func:`export_art`, :func:`scenery_lines`, :func:`build`).
+#:
+#: * ``"so-page"`` -- CHANNEL G is ADOPTED: 57 readerless cells gain their column's depth, and the
+#:   8 cells whose column carries TWO depths refuse under their own name;
+#: * ``"program"`` -- CHANNEL P is CONSULTED: the depth-unknown reason gains the program's registered
+#:   depth (a DISCLOSURE) and a program-DUAL cell refuses under its own name. **Consulting is not
+#:   adopting**: emitting a channel-P page additionally needs ``program_depth=True``, which is what
+#:   :data:`ACK_PROGRAM_DEPTH` sets. A consumer states which KINDS of depth fact it accepts, and
+#:   *"a depth a model's own UVs declare"*, *"a depth inherited from the column"* and *"a depth the
+#:   program REGISTERS"* are three different kinds.
+LICENSED_CHANNELS = ("so-uv", "so-page", "program")
 
 #: THE INDEXED LANE'S RGBA REFUSAL, in its own words -- deliberately NOT :data:`W6B_REASON`.
 #:
@@ -242,6 +346,29 @@ W6B_REASON = ("W6b-1 ships the scenery texel lane; what still refuses on that su
 INDEXED_RGBA_REASON = ("RGBA / quantize / mint-CLUT stay refused on the INDEXED lane and W6b-1 does "
                        "not touch that: the refusal is about EXACT RECOVERY, not about scope -- a "
                        "lane whose no-op is not a no-op cannot carry a byte-identity gate")
+
+#: WHY `--mint-clut` (writing a NEW palette row fitted to the art) IS STILL DEFERRED -- quoted
+#: verbatim by :data:`R12`'s refusal (a paint row asking for a hole on a row that has none) and by
+#: ``docs/SUMMONS.md``.
+#:
+#: It is a constant with a CALL SITE, not a docstring: a reason nothing quotes is a wish. And it is
+#: deliberately NOT :data:`INDEXED_RGBA_REASON` -- that one is about EXACT RECOVERY on the indexed
+#: lane and is untouched by W6q; this one is about what a palette WRITER would still owe. The W6q
+#: quantize lane writes INDICES ONLY and zero CLUT bytes, which is exactly why it could ship while
+#: this stays deferred.
+MINT_CLUT_REASON = (
+    "MINT-CLUT (writing a NEW palette fitted to the art) stays deferred, and the reason is measured "
+    "rather than architectural: the mechanism EXISTS -- a mint decomposes into a CLUT-lane row write "
+    "and a texel-lane index write, each gated by the partition that already licenses exactly it.  "
+    "What is missing is (1) STP is CARRIED, never recomputed, and gated as a per-palette POPULATION, "
+    "and the blow-out and headroom gates key on a KNOB and a STOCK PEAK -- a minted entry has none of "
+    "the three, so each needs a replacement LAW, not a replacement number; (2) MEASURED, the "
+    "shared-read direction inverts and is unbounded -- 298 of 365 duplicate groups on 11 of 16 "
+    "class-C cells already render DIFFERENTLY through the cell's other CLUT key, so an authored row "
+    "binds N-1 readers whose pictures nobody has looked at, and measuring that radius is a playtest "
+    "per reader rather than a gate.  The kit already HAS a palette writer that satisfies all of it: "
+    "`[[reskin.target]]`, per-entry, cutout-preserving and gated.  Use it, or paint against the row "
+    "you have with `source_paint` (W6q).")
 
 #: the on-disc override lane, shared with both sibling lanes (extensionless -- ``LoadFromDisc`` reads
 #: the raw path, so ``ef227.bytes`` would never be found).
@@ -321,10 +448,29 @@ class TexelPage:
     #: creature page: W6a measured that surface hazard-free (0 collisions over 24 packages / 93 pages)
     #: and ``_gate_collisions`` re-checks it per target rather than trusting a field.
     hazards: Optional["CellHazards"] = None
+    #: W6b-2: WHICH CHANNEL ``bpp`` CAME FROM -- one of :data:`DEPTH_SOURCES`. Never a decoration: the
+    #: build path keys the acknowledgement ladder on it, and every disclosure that ships an INHERITED
+    #: depth has to be able to say so in the same breath as the number.
+    depth_source: str = "so-uv"
 
     @property
     def wh(self) -> Tuple[int, int]:
         return (self.w, self.h)
+
+    @property
+    def depth_inherited(self) -> bool:
+        """The depth is a property of the COLUMN, not of anything that names this cell -- true for
+        every ``so-page`` and ``program`` cell. **No instrument has seen a model sample these bytes**;
+        what is established is the mode under which the page they live in is read.
+
+        ⚠ **NOT the "lower half" predicate, and one reviewer has already read it as one.** This asks
+        *which kind of fact the depth is*; whether the depth also crossed a CELL BOUNDARY to reach
+        this cell is ``cell[1] % PAGE_LINES``
+        (:attr:`ff9mapkit.summons.depth_attribution.ProgramDepth.inherited`), and that is the one
+        :func:`_scenery_disclosures` gates its inheritance clause on. They differ on every UPPER half
+        of an attributed column.
+        """
+        return self.depth_source in ("so-page", "program")
 
     @property
     def scenery(self) -> bool:
@@ -649,7 +795,14 @@ class CellHazards:
     writers: Tuple[CellWriter, ...]          # every writer of the cell, this one included
     readers: Tuple[CellReader, ...]
     depths: Tuple[int, ...]                  # distinct reader depths; >1 == SAME-BYTES-TWO-DEPTHS
-    palette_cells: Tuple[Tuple[int, int], ...]   # distinct CLUT cells; >1 at one depth == class C
+    #: distinct CLUT cells this page-cell is read through; >1 at one depth == class C. **AT THE SAME
+    #: GRANULARITY AS THE DEPTH, and W6b-2 had to say so**: on a readerless cell the depth comes from
+    #: the COLUMN (channel G), so the class-C evidence must come from the column's binders too. Filled
+    #: from :attr:`readers` where there are readers and from :attr:`page_clut_cells` where there are
+    #: not -- because a class-C predicate computed at one granularity and a depth at another would
+    #: report ``multi_palette = False`` by CONSTRUCTION on the whole channel-G surface, i.e. would ship
+    #: one of 2-3 renderings with no disclosure. 7 corpus channel-G cells are in that class.
+    palette_cells: Tuple[Tuple[int, int], ...]
     spill_in: Tuple[CellReader, ...]         # foreign models reading here -- page scope is wrong
     spill_out: Tuple[int, ...]               # columns THIS cell's own readers also reach
     covered_halfwords: int
@@ -662,6 +815,30 @@ class CellHazards:
     #: DIFFERENT writer's tall rect makes the same VRAM cell one.
     lower_half: bool
     provenance: str
+    # ---- W6b-2: the two ATTRIBUTION channels and the one NARROWING, as data ----------------------
+    #: CHANNEL G -- every depth the container's own ``so`` records state for this cell's **COLUMN**
+    #: (:func:`ff9mapkit.summons.reskin.page_depth_view`). Distinct from :attr:`depths`, which is the
+    #: UV-granular reader view, and the kit keeps BOTH: *DEPTH is a property of the PAGE; READERSHIP
+    #: is a property of the UVs.* Empty when no record names the column.
+    page_depths: Tuple[int, ...] = ()
+    #: the GEOM bases behind :attr:`page_depths`, lowest first.
+    page_binders: Tuple[int, ...] = ()
+    #: CHANNEL G's KEY evidence, at the SAME granularity as its depth: the distinct CLUT cells those
+    #: binders name, **DISPLAY KEY FIRST** (the lowest-addressed record, mirroring the class-C
+    #: display-palette rule). Empty on a 15bpp direct column, which indexes no palette at all, and
+    #: empty wherever the caller did not consult channel G. This is what
+    #: :func:`alternate_palette_rows` reads on a readerless cell -- a cell with no readers still has
+    #: alternates, and reading them off :attr:`readers` would find none by construction.
+    page_clut_cells: Tuple[Tuple[int, int], ...] = ()
+    #: CHANNEL P -- every depth the container's own id-3 program registers this page at
+    #: (:data:`ff9mapkit.summons.depth_attribution.PROGRAM_DEPTH`). Two values is a HAZARD, not a vote.
+    program_depths: Tuple[int, ...] = ()
+    #: how many op-22 call sites fold to a page word covering this cell.
+    program_sites: int = 0
+    #: CHANNEL H -- the container's own ``nClut4``/``nClut8`` arity, as a NARROWING (4 means
+    #: "4bpp **or** 15bpp"). It attributes NOTHING and is carried only so a refusal can say WHICH of
+    #: "the container states nothing" it means.
+    bpp_hint: Optional[int] = None
 
     @property
     def co_transform(self) -> bool:
@@ -673,7 +850,14 @@ class CellHazards:
 
     @property
     def multi_palette(self) -> bool:
-        """Class E2 / C: one index array, two renderings. NOT a refusal -- the display-palette rule."""
+        """Class E2 / C: one index array, two renderings. NOT a refusal -- the display-palette rule.
+
+        ⚠ **It reads :attr:`palette_cells`, which W6b-2 had to re-source.** Built from readers alone
+        this predicate is ``False`` BY CONSTRUCTION on every readerless cell, so the 57 cells channel G
+        licenses would have shipped one of 2-3 renderings with no class-C line and no alternate PNG --
+        *less* honest on the new licensed path than W6b-1 was on the old one, on identical evidence.
+        7 of the 57 sit on a column bound with more than one CLUT (one with three).
+        """
         return len(self.palette_cells) > 1 and not self.two_depths
 
     @property
@@ -685,6 +869,39 @@ class CellHazards:
     def spills(self) -> bool:
         return bool(self.spill_in) or bool(self.spill_out)
 
+    # ---- W6b-2: the three refusal classes this rung MINTS, as predicates -------------------------
+    @property
+    def program_dual(self) -> bool:
+        """PROGRAM-DUAL-DEPTH: the container's own program names this column at TWO depths. **22
+        corpus cells in 10 containers, and the census could not see this class at all.** Unanimity is
+        the verdict rule; two values is a hazard, not a vote, and no acknowledgement lifts it."""
+        return len(self.program_depths) > 1
+
+    @property
+    def channel_g_dual(self) -> bool:
+        """CHANNEL-G-DUAL-DEPTH: no ``so`` reader samples this cell and its column carries TWO
+        ``so``-stated depths. **8 corpus cells, NAMED IN NO LANE DOSSIER** -- found by the calibration
+        refuter, which is why a kit building its refusal list from the sweep alone would ship them
+        unlisted. Scoped to readerless cells on purpose: where a reader exists its UV-granular depth
+        is the cell's own fact and the column is an aside."""
+        return not self.readers and len(self.page_depths) > 1
+
+    @property
+    def spill_vs_own_page(self) -> bool:
+        """SPILL-vs-OWN-PAGE: **both predicates are true of the same bytes.** Every reader of this
+        cell is a binding on the NEIGHBOURING page whose ``u`` range crosses the column boundary,
+        while the cell's OWN page is named at the other depth. *"A model whose UVs land here reads at
+        N"* and *"this cell's page draws at M"* are different questions, and it is neither
+        instrument's error -- 2 corpus cells, genuinely dual-depth, FLAGGED rather than reconciled.
+
+        ⚠ **It adds 0 cells to the refused set as PROTECTION** -- both already refuse on
+        :attr:`spill_in`'s own remedy gate. It is non-vacuous as a PREDICATE and exists to carry the
+        REASON; a gate asserting it protects >= 1 new cell would fail.
+        """
+        return (bool(self.readers) and len(self.spill_in) == len(self.readers)
+                and len(self.page_depths) == 1 and len(self.depths) == 1
+                and self.page_depths[0] != self.depths[0])
+
     @property
     def names(self) -> Tuple[str, ...]:
         """The hazard slugs that hold on this cell -- what a scaffold comment and a gate both quote."""
@@ -693,6 +910,12 @@ class CellHazards:
             out.append("co-transform")
         if self.two_depths:
             out.append("same-bytes-two-depths")
+        if self.program_dual:
+            out.append("program-dual-depth")
+        if self.channel_g_dual:
+            out.append("channel-g-dual-depth")
+        if self.spill_vs_own_page:
+            out.append("spill-vs-own-page")
         if self.multi_palette:
             out.append("multi-palette")
         if self.shared_read:
@@ -758,6 +981,49 @@ _REFUSAL_TEXT = {
         "inline rect in this container uploads it.  An indexed picture cannot be rendered against a "
         "palette the container does not declare, and inventing one would put the author in a key the "
         "engine never applies."),
+    # ---- W6b-2: the four classes the attribution rung mints, four DIFFERENT populations -----------
+    #
+    # ★ WHY CHANNEL P GETS ITS OWN CLASS INSTEAD OF REUSING `no-declared-clut`.  That text is written
+    # ABOUT A READER -- "the reader's `so` record names CLUT cell X at N entries" -- and channel P
+    # applies exactly where NO `so` reader samples the cell.  Formatted for a channel-P cell it printed
+    # `None` and `0` as if they were measurements, and asserted the container declares no such palette
+    # on containers that declare a dozen.  A reason may never drift from the predicate that produced
+    # it, and this was the largest single population in the lane: 102 of channel P's 189 cells.
+    "program-depth-no-palette": (
+        "CHANNEL P STATES A DEPTH AND NOTHING ELSE: %s.  The container's own id-3 program registers "
+        "this page's DRAW MODE, which is a fact about how the bytes are READ -- it names no CLUT, and "
+        "no `so` record names one either, because no `so` reader samples this cell at all (that is the "
+        "premise of the whole channel).  So an INDEXED picture here has no key to index into.  "
+        "Inventing one would put the author in a key the engine never applies, and picking one of the "
+        "container's own would be the kit CHOOSING a rendering -- the thing `expect_bpp` exists to "
+        "stop it doing.  ** THE POPULATION, PLAINLY: 134 of channel P's 189 cells are indexed (4 or "
+        "8 bpp) and NOT ONE of them can be rendered -- 102 reach this refusal and the other 32 refuse "
+        "earlier on a program-VRAM verdict.  The acknowledgement's live surface is the 55 cells that "
+        "are 15bpp DIRECT COLOUR, which index no palette by definition; 43 of those clear every other "
+        "gate.  No acknowledgement and no `expect_bpp` reaches this class: the ack is a judgement "
+        "about a DEPTH, and what is missing here is a KEY."),
+    "program-dual-depth": (
+        "PROGRAM-DUAL-DEPTH: %s.  No `so` reader samples this cell, and the container's own id-3 "
+        "program registers its COLUMN at TWO different depths -- so the one channel that speaks here "
+        "does not speak with one voice.  UNANIMITY IS THE VERDICT RULE; TWO VALUES IS A HAZARD, NOT A "
+        "VOTE, and no acknowledgement lifts it: `" + DA.ACK_KEY + "` is the author's judgement about "
+        "a SINGLE-valued derivation, and there is no single value here to judge.  22 cells in 10 "
+        "containers -- a class the `so` census could not see at all, because it is silent here."),
+    "channel-g-dual-depth": (
+        "CHANNEL-G-DUAL-DEPTH: %s.  No `so` reader samples this cell, and the container's own `so` "
+        "records name its COLUMN at TWO different depths -- the same hazard one channel up.  8 corpus "
+        "cells, and they are NAMED IN NO LANE DOSSIER: a kit building its refusal list from the "
+        "attribution sweep alone would ship all 8 unlisted, which is why this class is derived LIVE "
+        "from the container rather than read off a table."),
+    "spill-vs-own-page": (
+        "SPILL-vs-OWN-PAGE: %s.  BOTH PREDICATES ARE TRUE OF THE SAME BYTES.  Every `so` reader of "
+        "this cell is a binding on the NEIGHBOURING page whose u range crosses the column boundary, "
+        "while this cell's OWN page is named at the other depth -- 'a model whose UVs land here reads "
+        "at N' and 'this cell's page draws at M' are different questions and neither instrument is "
+        "wrong.  Genuinely dual-depth; silently picking one number would manufacture a false "
+        "certainty.  2 corpus cells.  ** STATED PLAINLY: this class adds ZERO cells to the refused "
+        "set as PROTECTION -- both already refuse through the u-spill remedy gate.  It is non-vacuous "
+        "as a PREDICATE and it exists to carry the REASON."),
 }
 
 
@@ -767,16 +1033,114 @@ _REFUSAL_TEXT = {
 #: cast, which is a gate's verdict on a resolved page, not a failure to resolve one. (And
 #: ``program-vram-unknown`` is an artefact of being handed bare bytes with no effect id, which must
 #: not make a container unaddressable.)
-_UNADDRESSABLE = frozenset(("depth-unknown", "same-bytes-two-depths", "no-declared-clut"))
+#:
+#: **W6b-2 adds the two DUAL-DEPTH classes and deliberately NOT ``spill-vs-own-page``.** The first two
+#: are sharper names for cells that were already unaddressable as ``depth-unknown`` -- addressability
+#: delta 0, refusal QUALITY up. The third is a cell that HAS a depth and now has two: it already
+#: refuses through the u-spill remedy gate, and putting it here would make the new class protect a
+#: cell nothing else protected, which the record says plainly it must not.
+#: ``program-depth-no-palette`` is here for the same reason ``no-declared-clut`` is -- there is no
+#: picture to hand back -- and it is likewise NOT liftable: an acknowledgement is a judgement about a
+#: DEPTH and what this class reports missing is a KEY.
+_UNADDRESSABLE = frozenset(("depth-unknown", "same-bytes-two-depths", "no-declared-clut",
+                            "program-dual-depth", "channel-g-dual-depth",
+                            "program-depth-no-palette"))
+
+#: the refusal classes that also stop :func:`export_art` handing back a paintable PNG. It is
+#: ``_UNADDRESSABLE`` plus the program-VRAM verdicts (a picture whose edit is overwritten at run time
+#: is worse than no picture) -- and it is a SEPARATE set from ``_UNADDRESSABLE`` precisely so a new
+#: refusal class with a lawful REMEDY (``spill-vs-own-page``: name every column, acknowledge) does not
+#: silently withdraw art that W6b-1 exported. Export scope is a decision, never a side effect of
+#: adding a reason.
+_EXPORT_BLOCKING = _UNADDRESSABLE | frozenset(
+    ("program-vram-write", "program-moveimage-cell", "program-vram-unknown"))
 
 
-def _refusal(name: str, cell: Tuple[int, int], klass: str, detail: str = "") -> CellRefusal:
+def _refusal(name: str, cell: Tuple[int, int], klass: str, detail: str = "",
+             extra: str = "") -> CellRefusal:
+    """One refusal record. ``extra`` is APPENDED after the class text is formatted, never through it:
+    the depth-unknown text quotes measured percentages (``92.7%``, ``54.5%``) and a ``%``-format pass
+    over it would either die or need those escaped, which is how a measurement quietly becomes a typo.
+    """
     txt = _REFUSAL_TEXT[klass]
+    reason = (txt % detail) if "%s" in txt or "%d" in txt else txt
     return CellRefusal(name=name, cell=cell, klass=klass,
-                       reason=(txt % detail) if "%s" in txt or "%d" in txt else txt)
+                       reason=reason + ("  " + extra if extra else ""))
 
 
-def scenery_surface(blob: bytes, effect: Optional[int] = None
+def _arity(pmap: "RS.PaletteMap") -> Tuple[int, int]:
+    """``(nClut4, nClut8)`` off an already-resolved palette map -- ONE derivation, two call sites.
+
+    ``palette_map(blob, effect=)``'s ``effect`` selects a NAMING overlay and is otherwise inert, so
+    the arity is the same whichever way the map was built; sharing this helper is what keeps
+    :func:`clut_arity` and :func:`scenery_surface`'s own hint from ever being two measurements.
+    """
+    pals = [p for p in pmap.palettes if p.slot >= 0]
+    return (sum(1 for p in pals if p.entries == 16), sum(1 for p in pals if p.entries == 256))
+
+
+def clut_arity(blob: bytes) -> Tuple[int, int]:
+    """``(nClut4, nClut8)`` for the whole container's id-0 headers -- **CHANNEL H's raw material.**
+
+    Counted off :func:`ff9mapkit.summons.reskin.palette_map`'s own non-creature palettes rather than
+    re-reading the header here, so the two can never disagree; the creature strip (``slot < 0``) is
+    excluded because it is the id-4 lane's, not the scenery one's.
+    """
+    return _arity(RS.palette_map(blob))
+
+
+def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulted: bool) -> str:
+    """The DISCLOSURE a depth refusal owes the author: what the container states ELSEWHERE.
+
+    W6b-1's refusal said *"the container states nothing about this cell"*, and W6b-2 measured that
+    this is FALSE for a large minority of them: 189 carry a program-registered depth, 334 of the
+    remaining residue carry a CLUT-arity narrowing. So the reason names which of the two it means --
+    and, when it names a program depth, it carries the in-game refutation with it in the same breath,
+    because *a caveat that travels separately from the number is a caveat nobody reads*.
+
+    ⚠ ``consulted`` is whether the CALLER asked for any W6b-2 channel, and it gates the whole block
+    including :data:`~ff9mapkit.summons.depth_attribution.RESIDUE_LINE`. **A channel a caller declined
+    to consult must not appear to have spoken** -- and a residue split is a W6b-2 measurement, so
+    appending it unconditionally made ``scenery_surface``'s CENSUS default emit reasons W6b-1 never
+    wrote while every count stayed identical and every gate stayed green. It is the same defect one
+    layer down from the one this function exists to fix.
+
+    ⚠ AND THE REMEDY SENTENCE IS CONDITIONAL, because for most of channel P there IS no remedy.
+    Channel P states a depth and names no CLUT, so an INDEXED (4/8bpp) channel-P cell has no key to
+    render against and refuses as ``program-depth-no-palette`` whatever the author acknowledges --
+    134 of the 189. Promising the ack path there would state a sufficient condition that is not one.
+    """
+    if not consulted:
+        return ""
+    L: List[str] = []
+    if pd is not None and not pd.dual:
+        L.append("** BUT THE CONTAINER STATES A DEPTH ELSEWHERE (CHANNEL P, DISCLOSE): no `so` "
+                 "reader samples this cell; %s.  %s  %s  %s"
+                 % (pd.evidence, DA.REGISTRATION_CAVEAT, DA.DEPTH_COROLLARY,
+                    ("To edit it anyway say `%s = true` AND state a matching `expect_bpp = %d` -- "
+                     "the author carries the judgement, the kit carries the check."
+                     % (DA.ACK_KEY, pd.bpp)) if pd.bpp == 15 else
+                    ("** AND THE ACKNOWLEDGEMENT CANNOT REACH THIS CELL: `%s` admits a DEPTH, and at "
+                     "%d bpp what is missing is a KEY -- channel P names no CLUT and no `so` record "
+                     "names one here either, so this cell refuses as `program-depth-no-palette` with "
+                     "the ack and a matching `expect_bpp = %d` in hand.  134 of channel P's 189 "
+                     "cells are indexed and NONE of them render; the ack's live surface is the 55 "
+                     "that are 15bpp DIRECT."
+                     % (DA.ACK_KEY, pd.bpp, pd.bpp))))
+    if hint is not None:
+        L.append("** AND THE CONTAINER NARROWS IT (CHANNEL H): %s -- a NARROWING, not a depth, so it "
+                 "licenses no decode on its own and this cell stays refused; but 'the container "
+                 "states nothing about this cell' is FALSE here, and 334 of the residue's cells are "
+                 "in the same position."
+                 % ("the container ships no 16-entry CLUT: 8bpp or 15bpp" if hint == 8 else
+                    "the container ships no 8-entry-per-byte CLUT: 4bpp or 15bpp"))
+    L.append(DA.RESIDUE_LINE)
+    return "  ".join(L)
+
+
+def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
+                    channels: Sequence[str] = CENSUS_CHANNELS,
+                    program_depth: bool = False
                     ) -> Tuple[List[TexelPage], List[CellRefusal]]:
     """**THE SCENERY TEXEL SURFACE** -- one pass, two results: the pages, and the refusals by name.
 
@@ -784,24 +1148,55 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None
     else; they fall out of the same walk that emits the pages, so a cell can never be absent from both
     lists and a reason can never drift from the predicate that produced it.
 
-    Built on B1's three derivations and nothing new:
+    Built on B1's three derivations plus W6b-2's two attribution channels:
 
     * :func:`ff9mapkit.summons.reskin.page_cells` -- the per-VRAM-cell map, keyed ``(writer, x, y)``,
       which is what makes the 20 lower halves of tall rects addressable at all;
-    * :func:`bound_models` (``attribution(include_direct=True)`` + the UV rasteriser) -- the DEPTH and
-      the cover;
+    * :func:`bound_models` (``attribution(include_direct=True)`` + the UV rasteriser) -- the
+      **UV-granular** depth and the cover;
     * :func:`~ff9mapkit.summons.reskin.palette_map` -- the CLUT lane's own names, so a scenery cell's
-      palette is named the way the sibling lever names it rather than invented here.
+      palette is named the way the sibling lever names it rather than invented here;
+    * **CHANNEL G** :func:`~ff9mapkit.summons.reskin.page_depth_view` -- the SAME ``so`` records at
+      PAGE granularity. **The kit keeps both views and never merges them**; this one is what licenses
+      the 57 readerless cells whose own column the container binds;
+    * **CHANNEL P** :data:`ff9mapkit.summons.depth_attribution.PROGRAM_DEPTH` -- the id-3 program's
+      own registered tpage, cached and re-derivation-pinned.
 
-    A cell is EMITTED when at least one ``so`` reader samples it, i.e. when the container STATES a
-    depth. Everything else is refused by name -- and a cell that is emitted still carries every hazard
-    in :class:`CellHazards` for the gates phase to adjudicate, because attaching the hazard to the page
-    is what lets a later gate quote a measurement instead of a flag.
+    THE LINE, enforced here rather than described: **CHANNEL G LICENSES, CHANNEL P DISCLOSES.** A cell
+    is EMITTED when (a) an ``so`` reader samples it -- W6b-1's rule, unchanged; or (b) ``"so-page"``
+    is in ``channels`` and, with no reader, its COLUMN carries exactly one ``so``-stated depth
+    (``depth_source="so-page"``); or (c) ``"program"`` is in ``channels`` **and**
+    ``program_depth=True`` -- i.e. the row said :data:`ACK_PROGRAM_DEPTH` -- and the program names the
+    column at exactly one depth (``depth_source="program"``). Everything else refuses by name, and the
+    **DUAL** cases refuse FIRST: a hazard outranks an acknowledgement, because the ack is a judgement
+    about a single-valued derivation and there is no single value to judge.
+
+    ``channels`` defaults to :data:`CENSUS_CHANNELS` -- **W6b-1's own set, so this function's output is
+    byte-for-byte what it was** -- and every author-facing caller passes :data:`LICENSED_CHANNELS`.
+    A channel a caller does not name is not merely un-adopted: **its refusals are not stated either**,
+    because a verdict from an instrument the caller declined to consult is a verdict it cannot check.
     """
+    ch = frozenset(channels)
+    unknown_ch = sorted(ch - frozenset(DEPTH_SOURCES))
+    if unknown_ch:                                       # a guard may only ever fail CLOSED
+        raise RepaintError("unknown depth channel(s) %s -- this rung ships %s"
+                           % (", ".join(repr(c) for c in unknown_ch), ", ".join(DEPTH_SOURCES)))
     cells = RS.page_cells(blob)
     models = bound_models(blob)
     readers = cell_readers(blob, models)
     pmap = RS.palette_map(blob, effect=effect)
+    # CHANNEL G is derived LIVE from the container and never cached, and is consulted only when the
+    # caller names it -- an unconsulted channel costs nothing and, more importantly, can SAY nothing.
+    #
+    # CHANNEL H has no token of its own and is deliberately not given one: it is a NARROWING
+    # (``hint = 4`` means "4bpp OR 15bpp"), it attributes ZERO cells, and a token would invite a
+    # caller to ask for a channel that can never answer the question the token is named after. It is
+    # consulted exactly when the caller consults ANY W6b-2 channel, and it only ever adds a clause to
+    # a refusal that was already going to fire.
+    consulted = bool(ch - frozenset(CENSUS_CHANNELS))
+    pdv = RS.page_depth_view(blob) if "so-page" in ch else {}
+    n4, n8 = _arity(pmap)
+    hint = DA.clut_arity_hint(n4, n8) if consulted else None
     prog, prog_why = program_class(effect)
     hard_cell = MOVEIMAGE_HARD_CELLS.get(int(effect)) if effect is not None else None
 
@@ -819,9 +1214,20 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None
     refused: List[CellRefusal] = []
     for _key, pc in sorted(cells.items()):
         rds = readers.get(pc.cell, [])
-        if not rds:
-            refused.append(_refusal(pc.name, pc.cell, "depth-unknown"))
-            continue
+        gpd = pdv.get(pc.cell)
+        ppd = DA.program_depth(effect, pc.cell) if "program" in ch else None
+        g_depths = gpd.depths if gpd is not None else ()
+        g_binders = tuple(b.geom for b in gpd.binders) if gpd is not None else ()
+        # CHANNEL G's KEY evidence, DISPLAY FIRST and de-duplicated in binder order (`binders` is
+        # sorted lowest-GEOM-first, which IS the class-C display rule).  A 15bpp direct binder names
+        # no CLUT and contributes nothing, so a direct column yields ().
+        g_keys: List[Tuple[int, int]] = []
+        for b in (gpd.binders if gpd is not None else ()):
+            if b.cell is not None and not b.direct and b.cell not in g_keys:
+                g_keys.append(b.cell)
+        p_depths = ppd.depths if ppd is not None else ()
+        p_sites = ppd.call_sites if ppd is not None else 0
+
         crs: List[CellReader] = []
         for m in rds:
             pals = _palettes(m.clut_cell, m.clut_entries) if m.clut_cell is not None else ()
@@ -834,7 +1240,14 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None
                 halfwords_here=len(m.cover.get(pc.cell, ())), columns=m.columns,
                 own_column=(m.page[0] == pc.x)))
         depths = tuple(sorted({r.bpp for r in crs}))
-        pal_cells = tuple(sorted({r.clut_cell for r in crs if r.clut_cell is not None}))
+        # ★ THE CLASS-C EVIDENCE IS TAKEN AT THE SAME GRANULARITY AS THE DEPTH.  Where readers exist
+        # they are the cell's own fact; where there are none the depth comes from the COLUMN, so the
+        # KEYS must come from the column too.  Reading `crs` in both cases makes `multi_palette` False
+        # BY CONSTRUCTION on every readerless cell -- 7 corpus channel-G cells sit on a column bound
+        # with 2-3 different CLUTs, and they would ship ONE of those renderings with no class-C line
+        # and no alternate PNG, on evidence the kit already had in hand.
+        pal_cells = (tuple(sorted({r.clut_cell for r in crs if r.clut_cell is not None})) if crs
+                     else tuple(sorted(g_keys)))
         spill_in = tuple(r for r in crs if not r.own_column)
         spill_out = tuple(sorted({c for r in crs if r.own_column for c in r.columns
                                   if c != pc.x}))
@@ -844,21 +1257,69 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None
             depths=depths, palette_cells=pal_cells, spill_in=spill_in, spill_out=spill_out,
             covered_halfwords=covered, program=prog, program_evidence=prog_why,
             program_cell=(hard_cell == pc.cell), lower_half=(pc.split and pc.split_index > 0),
-            provenance=pc.provenance)
+            provenance=pc.provenance, page_depths=g_depths, page_binders=g_binders,
+            page_clut_cells=tuple(g_keys), program_depths=p_depths, program_sites=p_sites,
+            bpp_hint=hint)
 
-        # THE DISPLAY BINDING: the LOWEST-ADDRESSED reader (Sec 2.4's class-C rule).  Every other
-        # palette on the cell becomes a named read-only ALTERNATE view of the SAME index bytes -- the
-        # import already reads only the indices, so one byte array with N renderings is not a
-        # contradiction, it is the format.
-        disp = crs[0]
-        bpp = depths[0]
+        # ---- (1) WHICH CHANNEL, IF ANY, STATES A DEPTH.  Hazards first: a DUAL derivation is a
+        # refusal no acknowledgement lifts, and the two dual classes are DISJOINT over the corpus
+        # (22 program + 8 channel-G, overlap 0) so the ordering is a statement, not a tie-break.
+        source = ""
+        binder = gpd.binding if gpd is not None else None
+        if rds:
+            source = "so-uv"
+        elif hz.channel_g_dual:
+            refused.append(_refusal(pc.name, pc.cell, "channel-g-dual-depth",
+                                    "its column is bound at %s bpp by GEOM %s"
+                                    % ("/".join(str(d) for d in g_depths),
+                                       ", ".join("%#x" % g for g in g_binders))))
+            continue
+        elif len(p_depths) > 1:
+            refused.append(_refusal(pc.name, pc.cell, "program-dual-depth", ppd.evidence))
+            continue
+        elif gpd is not None:
+            source = "so-page"                           # CHANNEL G LICENSES
+        elif ppd is not None and program_depth:
+            # CHANNEL P, behind the acknowledgement.  ``ppd`` is None unless "program" is in
+            # ``channels``, so an ack alone can never reach here through a census-scoped caller.
+            source = "program"
+        else:
+            refused.append(_refusal(pc.name, pc.cell, "depth-unknown",
+                                    extra=_depth_evidence(hint, ppd, consulted)))
+            continue
+
+        # ---- (2) THE PAGE ITSELF.  THE DISPLAY BINDING for a read cell is the LOWEST-ADDRESSED
+        # reader (Sec 2.4's class-C rule); every other palette becomes a named read-only ALTERNATE
+        # view of the SAME index bytes.  For a channel-G cell the display binding is the column's own
+        # lowest-addressed record -- the depth AND the key come from ONE record rather than from a
+        # depth here and a second, unrelated palette choice there -- and where that column carries
+        # more than one key the OTHERS are named too, through `page_clut_cells`, exactly as a
+        # multi-reader cell's are.  Channel P states a DEPTH and nothing else, so a P cell indexes no
+        # declared palette and says so IN ITS OWN WORDS: `program-depth-no-palette` below, never the
+        # reader-shaped `no-declared-clut`.
+        if source == "so-uv":
+            bpp, tpage, clut_word = depths[0], crs[0].tpage, crs[0].clut_word
+            clut_off, clut_n, pal_name = crs[0].palette_offset, crs[0].clut_entries, \
+                crs[0].palette_name
+        elif source == "so-page":
+            bpp, tpage, clut_word = g_depths[0], binder.tpage, binder.clut_word
+            pals = _palettes(binder.cell, binder.entries) if not binder.direct else ()
+            clut_off = pals[0].off if pals else None
+            clut_n, pal_name = (binder.entries or None), (pals[0].name if pals else "")
+        else:
+            bpp, tpage, clut_word = p_depths[0], 0, 0
+            clut_off, clut_n, pal_name = None, None, ""
         pages.append(TexelPage(
             name=pc.name, index=-1, page_offset=pc.off, page_bytes=pc.nbytes,
             w=cell_texel_w(bpp, pc.w), h=CELL_LINES, bpp=bpp,
-            clut_offset=disp.palette_offset, clut_entries=(disp.clut_entries or None),
-            tpage=disp.tpage, clut=disp.clut_word, v_offset=0, vram=pc.cell,
-            palette_name=disp.palette_name, kind="scenery", cell=pc.cell, hazards=hz))
+            clut_offset=clut_off, clut_entries=(clut_n or None),
+            tpage=tpage, clut=clut_word, v_offset=0, vram=pc.cell,
+            palette_name=pal_name, kind="scenery", cell=pc.cell, hazards=hz,
+            depth_source=source))
 
+        # ---- (3) THE REFUSALS THAT SURVIVE AN EMITTED PAGE, in sharpening order, unchanged from
+        # W6b-1 -- the 57 channel-G cells flow through every one of them exactly as a read cell does
+        # (measured: 56 clear, and ef038's does not, on hz_program_write).
         if len(depths) > 1:
             refused.append(_refusal(pc.name, pc.cell, "same-bytes-two-depths",
                                     "readers %s state depths %s"
@@ -870,26 +1331,78 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None
             refused.append(_refusal(pc.name, pc.cell, "program-vram-write", prog_why))
         elif prog == "unknown":
             refused.append(_refusal(pc.name, pc.cell, "program-vram-unknown", prog_why))
-        elif bpp != 15 and disp.palette_offset is None:
+        elif bpp != 15 and clut_off is None and source == "program":
+            # ★ CHANNEL P'S OWN CLASS, not `no-declared-clut`.  That text names "the reader's `so`
+            # record" and a channel-P cell HAS NO READER -- formatting it here printed `None` at `0`
+            # entries as if they were measurements, and told an author the container declares no such
+            # palette on a container that may declare a dozen.  The population is not marginal: this
+            # is 102 of channel P's 189 cells, i.e. the majority of the disclosure surface.
+            refused.append(_refusal(
+                pc.name, pc.cell, "program-depth-no-palette",
+                "the program registers this page at %d bpp at %d call site(s), and this container's "
+                "own id-0 headers ship %d 16-entry and %d 256-entry palette(s) -- none of them bound "
+                "to THIS cell by anything" % (bpp, p_sites, n4, n8)))
+        elif bpp != 15 and clut_off is None:
             refused.append(CellRefusal(
                 name=pc.name, cell=pc.cell, klass="no-declared-clut",
-                reason=_REFUSAL_TEXT["no-declared-clut"] % (str(disp.clut_cell),
-                                                            disp.clut_entries)))
+                reason=_REFUSAL_TEXT["no-declared-clut"]
+                % (str(crs[0].clut_cell if crs else (binder.cell if binder else None)),
+                   (crs[0].clut_entries if crs else (binder.entries if binder else 0)) or 0)))
+
+        # ---- (4) SPILL-vs-OWN-PAGE, appended ALONGSIDE rather than in the chain above.  It is a
+        # different question from every one of them ("is this cell's depth contested?" rather than
+        # "will this edit survive?"), it protects nothing new by construction, and its whole job is to
+        # carry the reason -- so it must not displace the refusal an author would otherwise be shown.
+        if hz.spill_vs_own_page:
+            refused.append(_refusal(
+                pc.name, pc.cell, "spill-vs-own-page",
+                "every reader (%s) binds the neighbouring page at %dbpp; this cell's own page is "
+                "named at %dbpp" % (", ".join("%#x" % r.geom for r in crs), depths[0],
+                                    g_depths[0])))
     return pages, refused
 
 
-def scenery_texel_pages(blob: bytes, effect: Optional[int] = None) -> List[TexelPage]:
-    """Every scenery page-cell whose DEPTH the container states -- see :func:`scenery_surface`."""
-    return scenery_surface(blob, effect)[0]
+def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
+                        channels: Sequence[str] = LICENSED_CHANNELS,
+                        program_depth: bool = False) -> List[TexelPage]:
+    """Every scenery page-cell whose DEPTH the container states -- **THE EDIT SURFACE**.
+
+    Defaults to :data:`LICENSED_CHANNELS`, which is the whole of what "channel G LICENSES" means in
+    code: 57 readerless cells whose own COLUMN the container binds are handed back as editable pages
+    here, and are absent from :func:`scenery_surface`'s CENSUS default. The split is deliberate and
+    it is the same one :func:`ff9mapkit.summons.reskin.attribution` already makes -- one derivation,
+    a parameter, and defaults chosen so a published count never moves under a caller that did not ask
+    for the new channel.
+    """
+    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth)[0]
 
 
-def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None) -> List[CellRefusal]:
+def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None, *,
+                          channels: Sequence[str] = LICENSED_CHANNELS,
+                          program_depth: bool = False) -> List[CellRefusal]:
     """Every scenery page-cell this rung refuses an editable picture for, with its reason."""
-    return scenery_surface(blob, effect)[1]
+    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth)[1]
+
+
+#: how each depth channel is named in a guard failure -- so the message says WHICH derivation the
+#: author is arguing with, and an INHERITED depth never reads as a direct one.
+_DEPTH_DERIVED_BY = {
+    "so-uv": "the container's own `so` record",
+    "so-page": "the container's own `so` record for this cell's COLUMN (CHANNEL G -- the depth is "
+               "INHERITED FROM THE COLUMN, never direct)",
+    "program": "the container's own id-3 program's registered tpage (CHANNEL P -- a REGISTRATION, "
+               "and registration is not a draw)",
+}
 
 
 def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> str:
-    """``expect_bpp`` -- **STATED by the author, CHECKED against the ``so`` derivation, never chosen.**
+    """``expect_bpp`` -- **STATED by the author, CHECKED against the derivation, never chosen.**
+
+    W6b-2 widened *which* derivation without touching the law: a page's depth now comes from one of
+    three channels (:data:`DEPTH_SOURCES`) and :data:`_DEPTH_DERIVED_BY` names the one this page's
+    number was read off, in BOTH the failure and the success string. Saying "the ``so`` derivation" on
+    a channel-P page would credit a record that does not exist -- the absence of any ``so`` reader is
+    the premise of that channel.
 
     The depth is the one number this lane cannot get wrong quietly: the same 0x4000 bytes are a 256-,
     128- or 64-texel-wide picture at 4 / 8 / 15 bpp, so a wrong depth produces a PNG of the wrong shape
@@ -913,10 +1426,15 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
             % (where, "/".join(str(d) for d in page.hazards.depths)))
     if got != page.bpp:
         raise RepaintError(
-            "%s: the spec guards %dbpp, the container's own `so` record derives %dbpp.  At %d the "
+            "%s: the spec guards %dbpp, %s derives %dbpp.  At %d the "
             "cell is %d texels wide; at %d it is %d -- the SAME 0x4000 bytes, so a wrong depth packs "
-            "to exactly the right byte count and produces the wrong picture with no gate firing."
-            % (where, got, page.bpp, got, cell_texel_w(got), page.bpp, page.w))
+            "to exactly the right byte count and produces the wrong picture with no gate firing.%s"
+            % (where, got, _DEPTH_DERIVED_BY[page.depth_source], page.bpp, got, cell_texel_w(got),
+               page.bpp, page.w,
+               ("  This is the check `%s` exists to be paired with: the ack is your judgement that a "
+                "REGISTERED depth is the drawn depth, and `expect_bpp` is the number the kit checks "
+                "against the derivation.  It does not match." % DA.ACK_KEY)
+               if page.depth_source == "program" else ""))
     if page.scenery and got != 15:
         want = 16 if got == 4 else 256
         slot = page.hazards.writers[0].slot if page.hazards and page.hazards.writers else -1
@@ -928,10 +1446,11 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
                 "%d-entry palette (nClut%d == 0) -- there is nothing for a %dbpp index to point at.  "
                 "Two independent headers disagree, so the depth is refused rather than believed."
                 % (where, got, slot, want, got, got))
-    return "expect_bpp %d MATCHES the `so` derivation" % got
+    return "expect_bpp %d MATCHES %s" % (got, _DEPTH_DERIVED_BY[page.depth_source])
 
 
-def texel_page(blob: bytes, name: str, effect: Optional[int] = None) -> TexelPage:
+def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
+               allow_program_depth: bool = False) -> TexelPage:
     """Resolve a spec-declared texel name over BOTH namespaces, or REFUSE with the set named.
 
     ``tex.part0`` is the id-4 CREATURE page (W6a). ``cell.s0.x704_y256`` is a scenery VRAM PAGE-CELL
@@ -944,6 +1463,12 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None) -> TexelPag
     A name that silently matched nothing would be a build that did nothing while reporting success --
     the exact silent failure this lane cannot afford -- so an unknown name always names the whole
     addressable set, and a REFUSED cell is answered with its own reason rather than with "unknown".
+
+    ``allow_program_depth`` is the row's ``acknowledge_program_derived_depth``, passed DOWN rather
+    than checked afterwards: channel P's cells are refused at RESOLUTION, so a caller that resolved
+    first and consulted the ack second would have to un-refuse a page, and a refusal you can take back
+    is not a refusal. It widens nothing else -- a program-DUAL cell stays unaddressable under it,
+    because the hazard outranks the acknowledgement.
     """
     pages = creature_texel_pages(blob)
     for p in pages:
@@ -953,7 +1478,8 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None) -> TexelPag
     refused: List[CellRefusal] = []
     scen_error = ""
     try:
-        scen, refused = scenery_surface(blob, effect)
+        scen, refused = scenery_surface(blob, effect, channels=LICENSED_CHANNELS,
+                                        program_depth=allow_program_depth)
     except (RS.ReskinError, EC.ContainerError) as e:               # a derivation refusal, surfaced
         scen_error = "%s: %s" % (type(e).__name__, e)
     # the REFUSAL is consulted FIRST: a same-bytes-two-depths cell is still EMITTED (the gates phase
@@ -1486,6 +2012,506 @@ def read_direct_png(path, w: int, h: int) -> bytes:
     return bytes(out)
 
 
+# ---- THE PAINT (QUANTIZE) LANE -- RGBA in, INDICES out, ZERO CLUT bytes ---------------------------
+#: the decode a ``<name>.paint.png`` is RENDERED with, recorded in the manifest and re-checked by
+#: :func:`_gate_manifest`. The paint file's colours are only invertible under the decode they were
+#: rendered with, so the key is DATA the export writes rather than a convention the reader assumes.
+PAINT_RENDER_KEY = "bgr555_rgba"
+
+#: the longest diagonal of the 5-bit BGR cube, in the squared metric this lane selects with:
+#: ``3 * 31**2``. Every distance the census prints is quoted against it, so "worst d^2 57" is
+#: readable as a fraction of the whole space rather than as a number with no scale.
+CUBE_DIAG_SQ = 3 * 31 * 31
+
+
+def _split5(word: int) -> Tuple[int, int, int]:
+    """One BGR555 halfword -> its 5-bit ``(r, g, b)`` triple -- the space the selection happens in.
+
+    The container is BGR555, so the quantizer measures in BGR555. A quantizer choosing in a different
+    space than its census reports in produces a number nobody can judge.
+    """
+    return (word & 0x1F, (word >> 5) & 0x1F, (word >> 10) & 0x1F)
+
+
+def _stp(word: int) -> int:
+    return (word >> 15) & 1
+
+
+@dataclass(frozen=True)
+class AlternateRow:
+    """One class-C cell's OTHER CLUT key: the VRAM cell, the derived palette's name, and its words.
+
+    Read-only in every lane. It exists because a class-C cell is ONE byte array read through N
+    palettes -- the export writes the other keys as ``.as-x{X}_y{Y}.png`` views, and the paint codec
+    reads the same rows to decide whether a tie it is about to break is visible in a picture the
+    author was never shown (:data:`R7`).
+    """
+    clut_cell: Tuple[int, int]
+    palette_name: str
+    words: Tuple[int, ...]
+
+
+def alternate_palette_rows(blob: bytes, page: TexelPage,
+                           pmap: "RS.PaletteMap") -> Tuple[AlternateRow, ...]:
+    """Every OTHER CLUT key this page-cell is read through -- ONE derivation, two consumers.
+
+    :func:`export_art` uses it to write the read-only ``.as-`` alternate views and to name them in the
+    manifest; :func:`read_paint_png` uses it to decide the alternate-split refusal. A second copy of
+    this join in the codec is exactly what ``reskin._regions(partition=)``'s own comment forbids by
+    analogy: one function, N call sites, never two implementations that can drift.
+
+    **CREATURE PAGES ARE STRUCTURALLY EMPTY HERE**, and that is stated rather than discovered: an
+    id-4 page is uploaded by PART index and carries its own row of the id-4 CLUT strip, so it has no
+    alternate key at all. 93 of the corpus's 240 lawful surfaces are therefore outside the
+    alternate-split branch by construction, not by a measurement that might change.
+
+    Also empty at 15bpp (no palette) and on a cell with one binding (class A / B).
+
+    ★ **W6b-2: A READERLESS CELL STILL HAS ALTERNATES.** On a channel-G page no model's UVs land in
+    the cell, so ``hz.readers`` is empty and this function used to return ``()`` by construction --
+    the export would ship the display key's PNG alone for a cell the container reads through two or
+    three. The keys therefore come from the same granularity the DEPTH did: :attr:`CellHazards.readers`
+    where there are readers, :attr:`CellHazards.page_clut_cells` (display key first) where there are
+    not. 7 corpus channel-G cells are in that class, one of them with three keys.
+    """
+    hz = page.hazards
+    if hz is None or page.direct or not page.clut_entries:
+        return ()
+    if hz.readers:
+        shown = hz.readers[0].clut_cell
+        keys = {r.clut_cell for r in hz.readers if r.clut_cell is not None}
+    else:
+        shown = hz.page_clut_cells[0] if hz.page_clut_cells else None
+        keys = set(hz.page_clut_cells)
+    out: List[AlternateRow] = []
+    for other in sorted(k for k in keys if k != shown):
+        pal = next((q for q in sorted(pmap.palettes, key=lambda z: z.off)
+                    if q.vram == other and q.entries == (page.clut_entries or 0)), None)
+        if pal is None:
+            continue
+        out.append(AlternateRow(clut_cell=other, palette_name=pal.name,
+                                words=tuple(struct.unpack_from("<%dH" % pal.entries, blob, pal.off))))
+    return tuple(out)
+
+
+def quantize_census(page: TexelPage, words: Sequence[int], tallies: dict) -> dict:
+    """The per-row quantize record -- a pure function of counts, so ``plan``, ``self_check``, the
+    build manifest and the tests all read ONE derivation of the percentages.
+
+    **THIS IS A DISCLOSURE AND NEVER A REFUSAL, and the reason is measured.** 9 thresholds x 6 pages
+    x 3 edits found ``worst_hue40 >= min_unrepresentable`` at EVERY threshold: a fixed CLUT is a
+    ~234-colour subset of a 32,768-colour cube, so any hue move leaves it -- and a hue move is this
+    lane's own primary use case. No number separates a legitimate fixed-palette edit from an
+    unrepresentable one, so a quantization-error threshold would refuse the feature. Any successor
+    proposing one owes a separation sweep of that shape first.
+    """
+    d = dict(tallies)
+    op = max(1, d.get("opaque", 0))
+    ds = d.pop("_dists", []) or []
+    # THE EXACT DISTRIBUTION, kept beside the summary statistics.  The preview's per-texel map is
+    # CLAMPED for display; a separation sweep run on a clamped map would silently see every large
+    # error as one value -- so the distribution is recorded unclamped, as a histogram.
+    hist: Dict[int, int] = {}
+    for v in ds:
+        hist[v] = hist.get(v, 0) + 1
+    d["d_hist"] = {str(k): hist[k] for k in sorted(hist)}
+    d["entries"] = len(words)
+    d["live_entries"] = sum(1 for w in words if w)
+    d["distinct_colours"] = len({w & 0x7FFF for w in words if w})
+    d["cube_diagonal_sq"] = CUBE_DIAG_SQ
+    d["exact_pct"] = 100.0 * d.get("exact", 0) / op
+    d["approximated_pct"] = 100.0 * d.get("approximated", 0) / op
+    # the ambiguity share is over the WHOLE page: it is a fact about every texel of the container,
+    # not about the opaque ones this edit happened to map.
+    d["ambiguous_pct"] = 100.0 * d.get("ambiguous", 0) / max(1, d.get("texels", 0))
+    d["tie_pct"] = 100.0 * d.get("nearest_tie", 0) / op
+    if ds:
+        ds = sorted(ds)
+        d["mean_d2"] = sum(ds) / float(len(ds))
+        d["p95_d2"] = ds[min(len(ds) - 1, int(0.95 * len(ds)))]
+        d["worst_d2"] = ds[-1]
+    else:
+        d["mean_d2"], d["p95_d2"], d["worst_d2"] = 0.0, 0, 0
+    d["page"] = page.name
+    d["palette_name"] = page.palette_name
+    return d
+
+
+def census_record(census: dict) -> dict:
+    """The JSON-safe half of a census -- everything except the per-texel error map."""
+    return {k: v for k, v in (census or {}).items() if k != "dmap"}
+
+
+def census_lines(census: dict) -> List[str]:
+    """THE QUANTIZE CENSUS BLOCK, as ``plan`` prints it. Every number measured on THIS build."""
+    if not census:
+        return []
+    c = census
+    L = ["%s   QUANTIZE  %s opaque texels mapped onto %s (%d entries, %d live, %d distinct colours)"
+         % (c["page"], "{:,}".format(c.get("opaque", 0)), c.get("palette_name") or "this page's row",
+            c.get("entries", 0), c.get("live_entries", 0), c.get("distinct_colours", 0)),
+         "  exact colour matches ......... %-7s (%5.2f%%)   -- the entry carried your colour exactly"
+         % ("{:,}".format(c.get("exact", 0)), c["exact_pct"]),
+         "  approximated ................. %-7s (%5.2f%%)   mean d^2 %.3f, p95 d^2 %d, worst d^2 %d "
+         "(of a cube whose longest diagonal is d^2 = %d)"
+         % ("{:,}".format(c.get("approximated", 0)), c["approximated_pct"], c["mean_d2"],
+            c["p95_d2"], c["worst_d2"], c["cube_diagonal_sq"]),
+         "  sitting on an AMBIGUOUS colour %-7s (%5.2f%% of the page) -- the stock index is NOT the "
+         "sole claimant of its own colour; THE INCUMBENT LOCK is what decides those"
+         % ("{:,}".format(c.get("ambiguous", 0)), c["ambiguous_pct"]),
+         "  decided by a nearest-colour TIE %-6s (%5.2f%%)  -- >1 entry equidistant (%s of them at "
+         "d^2 = 0, i.e. several entries carry your colour EXACTLY); the total order (incumbent, "
+         "STP-matches-incumbent, lowest index) decided"
+         % ("{:,}".format(c.get("nearest_tie", 0)), c["tie_pct"],
+            "{:,}".format(c.get("exact_tie", 0))),
+         "  incumbent NOT NAMEABLE by the row %-4s texels  -- FAIL-SAFE, corpus population 0: a page "
+         "carrying an index its own row cannot name has no incumbent, so THE INCUMBENT LOCK cannot "
+         "hold it and it moves like any other texel"
+         % "{:,}".format(c.get("incumbent_unnameable", 0)),
+         "  alternate-split checks ....... %-7s          -- FAIL-SAFE: %d passed, and a SPLIT would "
+         "have REFUSED (R7).  %s"
+         % ("{:,}".format(c.get("alt_checked", 0)), c.get("alt_checked", 0),
+            "this surface has %d alternate key(s)" % c.get("alt_rows", 0) if c.get("alt_rows")
+            else "structurally unreachable here: this page declares NO alternate CLUT key"),
+         # TWO DIFFERENT FACTS, deliberately on two lines.  The first is about YOUR EDIT (an index
+         # moved to one whose blend flag differs); the second is about THE TIE-BREAK's own STP term,
+         # which is the labelled fail-safe and has a named population.  One line carrying both read
+         # right and meant nothing.
+         "  STP differs from the incumbent %-7s texels   -- a DISCLOSURE about this edit: the entry "
+         "you landed on carries a different blend flag" % "{:,}".format(c.get("stp_changed", 0)),
+         "  ...the STP TERM decided the pick %-5s texels   -- FAIL-SAFE: colour-equal/STP-differing "
+         "entries number 0 on 93/93 creature rows and 38 groups on 4 of 3,095 scenery rows, so this "
+         "term is structurally unreachable on the creature surface"
+         % "{:,}".format(c.get("stp_decided", 0)),
+         "  opaque black (RGB 0,0,0 @a=255) %-6s texels   -- 0x0000 is the container's cutout word BY "
+         "VALUE, so these map to the nearest OPAQUE entry"
+         % "{:,}".format(c.get("opaque_black", 0)),
+         "  cutout: %d punched, %d filled                 -- ALPHA GOVERNS, so every crossing is one "
+         "you drew" % (c.get("cutout_punch", 0), c.get("cutout_fill", 0)),
+         "  DISCLOSURE: a fixed CLUT is a small subset of the 32,768-colour BGR555 cube, so a HUE or",
+         "    VALUE shift of the WHOLE picture will always read as \"approximated\" here.  If that is",
+         "    what you want, [[reskin.target]] does it EXACTLY and writes zero texel bytes.  Quantize",
+         "    is for a SHAPE or DETAIL change the palette already has the colours for."]
+    return L
+
+
+def read_paint_png(src, page: TexelPage, words: Sequence[int], inc_tex: Sequence[int],
+                   alt_rows: Sequence[AlternateRow] = ()) -> Tuple[bytes, dict]:
+    """An RGBA painting -> this page's own PACKED index bytes, against the row the container carries.
+
+    THE THREE PROPERTIES THIS LANE IS ALLOWED TO CLAIM, and each falls out of the shape below:
+
+    1. **THE NO-OP IS EXACT.** An unedited export re-imported through this lane changes ZERO container
+       bytes, on 240 of 240 lawful surfaces -- including the pages that are 100% ambiguous and the
+       239-way tie. That is THE INCUMBENT LOCK: the container's own index at this texel is the FIRST
+       term of the selection order, so wherever it is still a correct answer it wins. Without it the
+       naive nearest rule moves **767,531 texels across 191 of 240 surfaces**, and exactly **1,844 of
+       16,384** on ``ef251 tex.part0`` -- the published figure the ``rgba`` refusal quotes, which is
+       why the lock is calibrated rather than plausible.
+    2. **DETERMINISM IS STRUCTURAL.** A total order over UNIQUE indices, integer arithmetic only, no
+       set or dict iteration in any decision path, and no floating point anywhere in the decision. The
+       same ``(container bytes, PNG bytes)`` produce the same byte at every texel on every platform,
+       every Pillow version and every ``PYTHONHASHSEED``.
+    3. **THE APPROXIMATION IS DISCLOSED PER TEXEL.** The returned census counts every class, and
+       ``--previews`` renders the per-texel error map beside it.
+
+    What it explicitly does NOT claim, stated so no gate is asked to prove it: that a re-import of an
+    EDITED paint file is exact. It never was on any lane. ``acknowledge_quantize`` is where the author
+    says so.
+
+    THE ALGORITHM, per texel, with incumbent ``s``:
+
+    * **step 0, THE ALPHA GATE.** ``a`` must be 0 or 255 (R4). ``a == 0`` selects from the DERIVED
+      transparent set ``Z`` (R12 if empty); ``a == 255`` selects from everything EXCEPT ``Z`` (R5 if
+      empty). **ALPHA GOVERNS THE CUTOUT IN BOTH DIRECTIONS** -- without it a plain 40 degree hue
+      slider on ``ef227 tex.part0`` sends 502 of 15,931 opaque texels onto the transparent index: 502
+      holes the author never drew. With it: 0, across all 8 sampled pages;
+    * **step 1**, the painted colour is READ with the SHIFT (``direct15_word``), while the file was
+      RENDERED with the display decode (``bgr555_rgba``). Two different maps whose composition is the
+      identity -- proven exhaustively, and load-bearing enough to have its own gate;
+    * **step 2/3**, the EXACT class, else the NEAREST class by squared Euclidean distance over the
+      5-bit triple;
+    * **step 4**, ★ THE ALTERNATE-SPLIT REFUSAL (:data:`R7`), between the nearest class and the
+      tie-break, because that is the only place the candidate set exists;
+    * **step 5**, THE CHOICE, by the stated total order ``(incumbent, STP-matches-incumbent, lowest
+      index)``. The STP term is a LABELLED FAIL-SAFE with a named population: unreachable on 93/93
+      creature rows by construction, reachable only on 4 named scenery rows.
+
+    **Opaque black is a DISCLOSURE, not a refusal.** ``0x0000`` is the container's cutout BY VALUE, so
+    an index carrying it is in ``Z`` and is excluded from the opaque candidates -- an opaque black
+    pixel therefore maps to the nearest OPAQUE entry and cannot accidentally punch a hole. The
+    alpha-governs rule already removed the hazard a refusal would have existed for; refusing would
+    block a legitimate paint. It is counted and named in the census instead.
+    """
+    p = Path(src)
+    if not p.is_file():
+        raise RepaintError("no such source image: %s" % p)
+    Image = _need_pil()
+    w, h = page.w, page.h
+    with Image.open(str(p)) as im:
+        if im.mode != "RGBA":
+            raise RepaintError(                                            # R1
+                "%s re-opens as mode %r, not \"RGBA\".  The paint lane's format of record is RGBA8: "
+                "RGB approximated onto the row this container already carries, ALPHA AUTHORITATIVE.  "
+                "A mode that dropped alpha would drop your cutout with it.  `%s.png` is the P-mode "
+                "INDEXED export and belongs to `source`, not `source_paint`." % (p, im.mode,
+                                                                                 page.name))
+        if im.size != (w, h):
+            raise RepaintError(                                            # R2
+                "%s is %dx%d, this page is %dx%d.  No rescale here, ever: interpolating between two "
+                "colours invents a third the palette may not carry, and interpolating across an alpha "
+                "edge invents a partial hole." % (p, im.size[0], im.size[1], w, h))
+        px = im.tobytes()                                                  # RGBA8, 4 bytes per texel
+    n = w * h
+    zset = frozenset(transparent_indices(words))
+    c_op = tuple(i for i in range(len(words)) if i not in zset)
+    if not c_op:
+        raise RepaintError(                                                # R5
+            "%s: this row has no opaque entry to land on -- every one of its %d entries decodes to "
+            "the cutout, so an opaque texel has nowhere to go.  LABELLED A FAIL-SAFE: the corpus "
+            "population of this class is 0 (a row with no live colour draws nothing), so it is stated "
+            "rather than claimed as a proof." % (page.name, len(words)))
+    c_z = tuple(sorted(zset))
+
+    # --- the per-COLOUR memo.  A page is 16,384 texels over at most 256 entries, and the decision is
+    # a pure function of (painted colour, alpha branch) -- so the palette scan runs once per DISTINCT
+    # painted colour and the per-texel work is the incumbent-dependent tail.  This is a cache, not a
+    # heuristic: it changes the cost, never the answer.
+    memo: Dict[Tuple[int, int], Tuple[Tuple[int, ...], int]] = {}
+    alt_memo: Dict[Tuple[int, ...], bool] = {}
+    out = bytearray(n)
+    t = {"texels": n, "opaque": 0, "cutout": 0, "exact": 0, "approximated": 0, "ambiguous": 0,
+         "nearest_tie": 0, "exact_tie": 0, "alt_checked": 0, "stp_changed": 0, "stp_decided": 0,
+         "opaque_black": 0, "cutout_punch": 0, "cutout_fill": 0, "partial_alpha": 0,
+         "incumbent_unnameable": 0,
+         "alt_rows": len(alt_rows), "_dists": []}
+    dmap = bytearray(n)
+    nwords = len(words)
+
+    # PASS 0: the alpha gate, whole-page, BEFORE a single index is chosen.  Counting first means the
+    # refusal can quote the population as well as the first offender -- law 2.
+    bad = -1
+    for i in range(n):
+        a = px[4 * i + 3]
+        if a != 0 and a != 255:
+            t["partial_alpha"] += 1
+            if bad < 0:
+                bad = i
+    if bad >= 0:
+        raise RepaintError(                                                # R4
+            "%s: texel (%d,%d) has alpha %d.  Alpha here is a CUTOUT FLAG, not a blend -- the "
+            "hardware has no partial transparency, and the blend selector is STP, which lives in the "
+            "CLUT and this lane does not write it.  %d texel(s) (%.2f%%) carry a partial alpha.  "
+            "Flatten them to 0 or 255." % (p, bad % w, bad // w, px[4 * bad + 3],
+                                           t["partial_alpha"], 100.0 * t["partial_alpha"] / max(1, n)))
+
+    # THE AMBIGUITY CENSUS IS AN INCUMBENT-SIDE FACT ABOUT THE CONTAINER, not about the edit: how
+    # many texels sit on an index that is NOT THE SOLE CLAIMANT OF ITS OWN COLOUR -- i.e. how many
+    # the incumbent lock is what decides.  Corpus scale: 10.25% of creature texels and 39.75% of
+    # lawful scenery ones, with pages at 100%.  Reported over the WHOLE page, since it is a property
+    # of every texel and not only of the opaque ones.
+    dup_count: Dict[int, int] = {}
+    for wd in words:
+        dup_count[wd] = dup_count.get(wd, 0) + 1
+    dup_flag = tuple(dup_count[wd] > 1 for wd in words)
+    # how many OPAQUE entries carry each 15-bit colour -- so the no-op fast path below can say
+    # whether it was a tie without paying for the palette scan it exists to skip.
+    col_count: Dict[int, int] = {}
+    for i in c_op:
+        k = words[i] & 0x7FFF
+        col_count[k] = col_count.get(k, 0) + 1
+
+    for i in range(n):
+        s = inc_tex[i]
+        r8, g8, b8, a = px[4 * i], px[4 * i + 1], px[4 * i + 2], px[4 * i + 3]
+        s_ok = s < nwords                       # an index this row cannot name: the incumbent terms
+        s_hole = s_ok and s in zset             # are simply False.  No crash, no silent choice.
+        if not s_ok:
+            # A LABELLED FAIL-SAFE WITH ITS OWN POPULATION, like R5 and the STP term.  A page carrying
+            # an index its own row cannot name has no incumbent, so THE INCUMBENT LOCK cannot hold it
+            # and the texel moves like any other.  The no-op is exact on 240 of 240 corpus surfaces
+            # precisely because this class is EMPTY there -- so it is counted and named in the census
+            # rather than left as the one unlabelled way a texel can move.
+            t["incumbent_unnameable"] += 1
+        if s_ok and dup_flag[s]:
+            t["ambiguous"] += 1
+        if a == 0:
+            t["cutout"] += 1
+            if not c_z:
+                raise RepaintError(                                        # R12
+                    "%s: you painted %d texel(s) transparent, but %s carries no 0x0000 entry, so "
+                    "there is no index that renders as a hole.  MEASURED: 45 of 147 lawful scenery "
+                    "rows are in this class and 0 of 93 creature rows.  A hole here needs a palette "
+                    "WRITE.  %s"
+                    % (p, sum(1 for k in range(n) if px[4 * k + 3] == 0),
+                       page.palette_name or page.name, MINT_CLUT_REASON))
+            # every member of Z already renders as a hole, so the EXACT class is the whole branch and
+            # the incumbent wins outright whenever it is already a hole.
+            if s_hole:
+                out[i] = s
+                continue
+            # BOTH BRANCHES: an index that renders as a hole in the editable row need not render as
+            # a hole in an alternate row, so a tie inside Z splits exactly the same way.
+            if len(c_z) > 1 and alt_rows:
+                t["alt_checked"] += 1
+                _alt_split_check(c_z, alt_rows, alt_memo, p, page, i, w)
+            pick = min(c_z, key=lambda k: (_stp(words[k]) != (_stp(words[s]) if s_ok else 0), k))
+            out[i] = pick
+            if pick != c_z[0]:
+                t["stp_decided"] += 1                   # the STP TERM changed the pick
+            if s_ok and not s_hole:                     # opaque -> hole is a PUNCH; hole -> hole is
+                t["cutout_punch"] += 1                  # not a crossing at all
+
+            if s_ok and _stp(words[pick]) != _stp(words[s]):
+                t["stp_changed"] += 1
+            continue
+
+        # ---- the OPAQUE branch ----------------------------------------------------------------
+        t["opaque"] += 1
+        if r8 == 0 and g8 == 0 and b8 == 0:
+            t["opaque_black"] += 1
+        c15 = KT.direct15_word(r8, g8, b8, 0)
+        # THE FAST PATH IS THE NO-OP PATH.  If the incumbent is opaque and already carries exactly
+        # the painted colour it is in the exact class, so it wins by the first term of the order --
+        # and an unedited page never touches the palette scan at all.
+        if s_ok and not s_hole and (words[s] & 0x7FFF) == c15:
+            out[i] = s
+            t["exact"] += 1
+            # A TIE AT d^2 = 0 IS STILL A TIE, and the census line's own words are ">1 entry
+            # equidistant".  Counting it only in the `dist != 0` branch would leave the class the
+            # INCUMBENT LOCK works hardest on -- several entries carrying the painted colour exactly
+            # -- reported nowhere.  `col_count` answers it without re-running the scan.
+            if col_count.get(c15, 0) > 1:
+                t["nearest_tie"] += 1
+                t["exact_tie"] += 1
+            continue
+        key = (c15, 1)
+        cand, dist = memo.get(key) or _nearest(c15, c_op, words, memo, key)
+        if dist == 0:
+            t["exact"] += 1
+        else:
+            t["approximated"] += 1
+            t["_dists"].append(dist)
+            dmap[i] = dist if dist < 255 else 255
+        if len(cand) > 1:
+            t["nearest_tie"] += 1
+            if dist == 0:
+                t["exact_tie"] += 1
+        if len(cand) > 1 and alt_rows and not (s_ok and s in cand):
+            t["alt_checked"] += 1                       # EDIT-SCOPED: the incumbent did not survive
+            _alt_split_check(cand, alt_rows, alt_memo, p, page, i, w)
+        if s_ok and s in cand:
+            out[i] = s
+        else:
+            s_stp = _stp(words[s]) if s_ok else 0
+            out[i] = min(cand, key=lambda k: (_stp(words[k]) != s_stp, k))
+            if out[i] != cand[0]:
+                t["stp_decided"] += 1                   # the STP TERM changed the pick
+        if s_ok and _stp(words[out[i]]) != _stp(words[s]):
+            t["stp_changed"] += 1
+        if s_hole:
+            t["cutout_fill"] += 1
+
+    raw = pack4(out) if page.bpp == 4 else bytes(out)
+    cen = quantize_census(page, words, t)
+    cen["dmap"] = bytes(dmap)
+    return raw, cen
+
+
+def _nearest(c15: int, cand: Sequence[int], words: Sequence[int],
+             memo: dict, key) -> Tuple[Tuple[int, ...], int]:
+    """``(the ascending nearest class, its squared distance)``.
+
+    Integer arithmetic only and the candidate list is scanned in ASCENDING INDEX ORDER, so the class
+    it returns is ordered and the caller's tie-break is a total order over unique indices.
+
+    It returns the CLASS and not a verdict about it: the caller decides tie-ness from ``len(cand)``,
+    which is the same question at every distance. (A third "was the exact class multi-membered"
+    element used to be returned here and read by nobody -- a value no call site spends is a value that
+    cannot be wrong, which is how the d^2 = 0 tie went uncounted.)
+    """
+    cr, cg, cb = c15 & 0x1F, (c15 >> 5) & 0x1F, (c15 >> 10) & 0x1F
+    best = 1 << 30
+    hits: List[int] = []
+    for i in cand:
+        wd = words[i]
+        dr = (wd & 0x1F) - cr
+        dg = ((wd >> 5) & 0x1F) - cg
+        db = ((wd >> 10) & 0x1F) - cb
+        d = dr * dr + dg * dg + db * db
+        if d < best:
+            best, hits = d, [i]
+        elif d == best:
+            hits.append(i)
+    out = (tuple(hits), best)
+    memo[key] = out
+    return out
+
+
+def _alt_split_check(cand: Sequence[int], alt_rows: Sequence[AlternateRow], alt_memo: dict,
+                     src, page: TexelPage, texel: int, w: int) -> None:
+    """★ THE ALTERNATE-SPLIT REFUSAL -- **no acknowledge key**, and four scopings that narrow it.
+
+    *When the incumbent does NOT survive (so this texel is a genuine edit), the surviving candidate
+    set has >= 2 members, this cell is read through >= 1 alternate CLUT key, and any alternate row
+    renders those candidates as >= 2 distinct words -- REFUSE.*
+
+    THE TIE-BREAK BEHIND IT: an author's own index choice is a choice, and it is disclosed. The
+    TOOL's choice, in a picture the author was never shown, must not be silently wrong. Measured over
+    the corpus, **298 of 365 duplicate groups on 11 of 16 class-C cells SPLIT** under some alternate
+    key -- so a tool that resolved the tie inside the editable key would, on a class-C cell, be 81.6%
+    likely to be choosing a visibly different colour in the other reader's picture. There is no
+    evidence which colour that reader should get, so this refuses rather than choosing: the dual-depth
+    rule, one level down.
+
+    Four scopings, each of which both judges accepted and each of which is enforced at the call site:
+
+    1. **EDIT-SCOPED** -- the caller only reaches here when the incumbent is NOT in the candidate set,
+       so a no-op and every unchanged texel are structurally exempt. Without this the gate would fire
+       on the corpus's own stock bytes;
+    2. **CANDIDATE-SET-SCOPED**, not group-scoped: it asks about the entries actually in contention
+       for THIS texel, not about every duplicate group in the row;
+    3. **CREATURE-UNREACHABLE** -- ``alternate_palette_rows`` returns ``()`` on all 93 creature pages
+       by construction, so the branch cannot fire on 93 of 240 surfaces;
+    4. **BOTH BRANCHES** -- it applies to the cutout branch too. An index that renders as a hole in
+       the editable row need not render as a hole in an alternate row, so a tie inside ``Z`` splits
+       the same way.
+
+    ⚠ IT IS BOUNDED BY WHAT THE CONTAINER DECLARES. ``alt_rows`` can only hold alternates the ``so`` /
+    GEOM derivation states, so a non-GEOM reader (a sprite, a particle) is invisible to it -- which is
+    BINDING-IS-NOT-A-DRAW arriving from the palette side. The refusal says so in its own terms.
+    """
+    ck = tuple(cand)
+    bad = alt_memo.get(ck)
+    if bad is None:
+        bad = None
+        for alt in alt_rows:                             # derivation order, never a set's
+            seen = []
+            for i in ck:
+                wd = alt.words[i] if i < len(alt.words) else 0
+                if wd not in seen:
+                    seen.append(wd)
+            if len(seen) > 1:
+                bad = (alt, tuple(seen))
+                break
+        alt_memo[ck] = bad if bad is not None else False
+    if not bad:
+        return
+    alt, seen = bad
+    raise RepaintError(
+        "ALTERNATE-SPLIT TIE, %s texel (%d,%d): the colour you painted has %d equally-near entries "
+        "(%s) in the editable key %s, and they render as DIFFERENT words in the alternate key %s "
+        "(%s).  This cell is read through %d CLUT cell(s) THAT THE CONTAINER DECLARES (class C); the "
+        "picture you painted is one of them.  MEASURED over the corpus: 298 of 365 duplicate groups "
+        "on 11 of 16 class-C cells split like this.  There is no evidence which colour the other "
+        "reader should get, so this REFUSES rather than choosing -- the dual-depth rule, one level "
+        "down, and there is no acknowledge key.  Paint an entry that is UNIQUE in this row (the "
+        "swatch marks them), or use `source =` and the indexed lane and choose the index yourself."
+        % (page.name, texel % w, texel // w, len(ck), ", ".join(str(i) for i in ck),
+           str(page.hazards.readers[0].clut_cell) if page.hazards and page.hazards.readers else "-",
+           str(alt.clut_cell), " vs ".join("%#06x" % v for v in seen), len(alt_rows) + 1))
+
+
 def _round_trip_ok(px: bytes, words: Sequence[int], w: int, h: int) -> bool:
     """THE X0-CLASS GATE, in memory: encode -> decode -> the same bytes."""
     return _read_indices(io.BytesIO(encode_indexed_png(px, words, w, h)),
@@ -1555,7 +2581,84 @@ def write_coverage_png(px: bytes, words: Sequence[int], mask: Sequence[int], w: 
 #: is the 15bpp DIRECT-colour surface (RGBA + an explicit STP sidecar): a real lane, PROVEN OFFLINE
 #: and UNCAST -- exhaustive 65,536/65,536 word identity and 26/26 real cell views, over a write
 #: surface of 4-5 corpus cells, none of which sits in a container reachable from an existing bench row.
-ART_LANES = ("indexed", "rgba", "direct15")
+#: ``paint`` is the W6q QUANTIZE lane: an RGBA render of the page beside the exact indexed PNG, read
+#: back against the row the container already carries. It writes INDICES ONLY and zero CLUT bytes,
+#: which is why it can ship while ``rgba`` (on the INDEXED lane) and ``--mint-clut`` still refuse --
+#: its format of record is TWO FILES, the painting plus the container's own index page, which the
+#: codec reads as the incumbent. That is the same move ``direct15`` already made with its STP sidecar.
+ART_LANES = ("indexed", "rgba", "direct15", "paint")
+
+
+def write_paint_png(px: Sequence[int], words: Sequence[int], w: int, h: int, path) -> str:
+    """One page -> the EDITABLE RGBA8 file of the paint lane.
+
+    RGB is the picture as the kit already renders it to the author (``bgr555_rgba`` -- the decode
+    ``_cell_image``, ``write_coverage_png`` and every preview use), and **ALPHA IS THE CUTOUT and it
+    is AUTHORITATIVE**: the codec selects from the transparent set when alpha is 0 and from everything
+    else when it is 255, so every cutout crossing in the result is one the author drew.
+
+    The file is rendered with the SCALE decode and read back with the SHIFT -- two different maps
+    whose composition is the identity for all 32 five-bit values. That is not a coincidence to rely on
+    quietly; it has its own gate and its own test, and the manifest records which decode was used.
+    """
+    Image = _need_pil()
+    pal = [KT.bgr555_rgba(x) for x in words]
+    im = Image.new("RGBA", (w, h))
+    im.putdata([pal[i] if i < len(pal) else (0, 0, 0, 0) for i in px[:w * h]])
+    im.save(str(path))
+    return str(path)
+
+
+def write_swatch_png(words: Sequence[int], path, *, alt_rows: Sequence["AlternateRow"] = (),
+                     patch: int = 8, per_row: int = 16) -> str:
+    """This page's palette as an 8x8 patch per entry, in INDEX ORDER -- the paint lane's own map.
+
+    THE MARKS ARE THE POINT, and they name exactly the two classes the codec's refusals turn on:
+
+    * a **UNIQUE** entry (no other entry in the row carries its word) gets a white border. Painting
+      one of those colours can never produce a tie, so it can never trip the alternate-split refusal;
+    * an entry in a duplicate group that **SPLITS under some alternate key** gets a magenta border.
+      Those are precisely the entries :data:`R7` refuses a genuine edit onto;
+    * everything else -- a duplicate that renders identically in every declared key -- is unmarked.
+
+    A transparent entry is drawn as a checker rather than as black, because ``0x0000`` renders black
+    and "the hole" and "an entry that happens to be black" are the one pair an author must not
+    confuse.
+    """
+    Image = _need_pil()
+    n = len(words)
+    cols = min(per_row, n)
+    rows = (n + cols - 1) // cols
+    im = Image.new("RGBA", (cols * patch, rows * patch), (24, 24, 28, 255))
+    dup: Dict[int, List[int]] = {}
+    for i, wd in enumerate(words):
+        dup.setdefault(wd, []).append(i)
+    split: Set[int] = set()
+    for wd, members in dup.items():
+        if len(members) < 2:
+            continue
+        for alt in alt_rows:
+            seen = {alt.words[i] if i < len(alt.words) else 0 for i in members}
+            if len(seen) > 1:
+                split.update(members)
+                break
+    px = im.load()
+    for i, wd in enumerate(words):
+        r, g, b, a = KT.bgr555_rgba(wd)
+        x0, y0 = (i % cols) * patch, (i // cols) * patch
+        mark = ((255, 255, 255, 255) if len(dup[wd]) == 1 else
+                ((255, 0, 220, 255) if i in split else None))
+        for dy in range(patch):
+            for dx in range(patch):
+                if a == 0:                               # the hole: a checker, never a black square
+                    v = 60 if ((dx // 2 + dy // 2) % 2) else 110
+                    c = (v, v, v, 255)
+                else:
+                    c = (r, g, b, 255)
+                edge = dx in (0, patch - 1) or dy in (0, patch - 1)
+                px[x0 + dx, y0 + dy] = (mark if (edge and mark) else c)
+    im.save(str(path))
+    return str(path)
 
 
 def _cell_image(blob: bytes, page: TexelPage, words: Optional[Sequence[int]] = None):
@@ -1652,16 +2755,18 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             "refusal is about the INDEXED lane's exact recovery and is unchanged by W6b-1; the 15bpp "
             "DIRECT lane is a different question and ships as `direct15`.)  %s"
             % (lane, INDEXED_RGBA_REASON))
-    pages = creature_texel_pages(blob) if lane == "indexed" else []
+    # ⚠ THE LINE A NEW LANE MUST NOT FORGET.  A lane that left this reading `== "indexed"` would
+    # silently export SCENERY ONLY -- no error, no empty directory, just 93 creature pages missing.
+    pages = creature_texel_pages(blob) if lane in ("indexed", "paint") else []
     scen: List[TexelPage] = []
     refusals: List[CellRefusal] = []
     scen_error = ""
     try:
-        scen, refusals = scenery_surface(blob, effect)
+        scen, refusals = scenery_surface(blob, effect, channels=LICENSED_CHANNELS)
     except (RS.ReskinError, EC.ContainerError) as e:               # surfaced, never swallowed
         scen_error = "the scenery derivation REFUSED on this container: %s: %s" % (type(e).__name__,
                                                                                    e)
-    refused_names = {r.name for r in refusals}
+    refused_names = {r.name for r in refusals if r.klass in _EXPORT_BLOCKING}
     want = (15,) if lane == "direct15" else (4, 8)
     cells = [p for p in scen if p.bpp in want and p.name not in refused_names]
     if not pages and not cells:
@@ -1682,6 +2787,14 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
         px = blob[p.page_offset:p.page_offset + p.page_bytes]
         png = out / ("%s.png" % p.name)
         written.append(write_indexed_png(px, words, p.w, p.h, png))
+        # BOTH FORMATS SHIP SIDE BY SIDE, per page, because the choice is PER ROW and not per export:
+        # a spec may paint one part in RGBA and hand-edit another in index space, and an author who
+        # changes their mind flips a commented line instead of re-exporting.
+        paint_png = swatch_png = ""
+        if lane == "paint":
+            paint_png = write_paint_png(px, words, p.w, p.h, out / ("%s.paint.png" % p.name))
+            swatch_png = write_swatch_png(words, out / ("%s.swatch.png" % p.name))
+            written += [paint_png, swatch_png]
         cov = coverage(blob, p.index) if overlays else Coverage(False, "overlays disabled")
         cov_png = ""
         if cov.available and overlays:
@@ -1691,6 +2804,9 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
         zeros = transparent_indices(words)
         entries.append({
             "name": p.name, "index": p.index, "png": os.path.basename(str(png)),
+            "paint_png": os.path.basename(paint_png) if paint_png else "",
+            "swatch_png": os.path.basename(swatch_png) if swatch_png else "",
+            "render_key": PAINT_RENDER_KEY if paint_png else "",
             "coverage_png": os.path.basename(cov_png) if cov_png else "",
             "page_offset": p.page_offset, "page_bytes": p.page_bytes, "wh": [p.w, p.h],
             "bpp": p.bpp, "clut_offset": p.clut_offset, "clut_entries": p.clut_entries,
@@ -1729,6 +2845,7 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
         raw = blob[p.page_offset:p.page_offset + p.page_bytes]
         png = out / ("%s.png" % p.name)
         alts: List[dict] = []
+        paint_png = swatch_png = ""
         if p.bpp == 15:
             f_png, f_stp = write_direct_png(raw, p.w, p.h, png)
             written += [f_png, f_stp]
@@ -1743,26 +2860,31 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
                 written.append(write_indexed_png(raw, words, p.w, p.h, png))
             zeros = transparent_indices(words)
             stp_share = None
-            # class C: every OTHER key this cell is read in, as a read-only view of the SAME bytes
-            shown = hz.readers[0].clut_cell
-            for other in sorted({r.clut_cell for r in hz.readers
-                                 if r.clut_cell is not None and r.clut_cell != shown}):
-                pal = next((q for q in sorted(_pmap().palettes, key=lambda z: z.off)
-                            if q.vram == other and q.entries == (p.clut_entries or 0)), None)
-                if pal is None:
-                    continue
-                ap = out / ("%s.as-x%d_y%d.png" % (p.name, other[0], other[1]))
-                aw = struct.unpack_from("<%dH" % pal.entries, blob, pal.off)
+            # class C: every OTHER key this cell is read in, as a read-only view of the SAME bytes.
+            # ONE derivation, shared with the build's alternate-split refusal -- a second copy here
+            # would let the picture the author is shown and the picture the gate protects drift.
+            alt_rows = alternate_palette_rows(blob, p, _pmap())
+            for alt in alt_rows:
+                ap = out / ("%s.as-x%d_y%d.png" % (p.name, alt.clut_cell[0], alt.clut_cell[1]))
                 if p.bpp == 4:
-                    written.append(write_indexed4_png(raw, aw, p.w, p.h, ap))
+                    written.append(write_indexed4_png(raw, alt.words, p.w, p.h, ap))
                 else:
-                    written.append(write_indexed_png(raw, aw, p.w, p.h, ap))
-                alts.append({"clut_cell": list(other), "palette_name": pal.name,
+                    written.append(write_indexed_png(raw, alt.words, p.w, p.h, ap))
+                alts.append({"clut_cell": list(alt.clut_cell), "palette_name": alt.palette_name,
                              "png": os.path.basename(str(ap)), "read_only": True})
+            if lane == "paint":
+                paint_png = write_paint_png(texel_view(p, raw), words, p.w, p.h,
+                                            out / ("%s.paint.png" % p.name))
+                swatch_png = write_swatch_png(words, out / ("%s.swatch.png" % p.name),
+                                              alt_rows=alt_rows)
+                written += [paint_png, swatch_png]
         scen_entries.append({
             "name": p.name, "cell": list(p.cell), "writer": hz.writer, "png": os.path.basename(
                 str(png)),
             "stp_png": (os.path.basename(str(stp_sidecar_path(png))) if p.bpp == 15 else ""),
+            "paint_png": os.path.basename(paint_png) if paint_png else "",
+            "swatch_png": os.path.basename(swatch_png) if swatch_png else "",
+            "render_key": PAINT_RENDER_KEY if paint_png else "",
             "alternates": alts,
             "page_offset": p.page_offset, "page_bytes": p.page_bytes, "wh": [p.w, p.h],
             "bpp": p.bpp, "clut_offset": p.clut_offset, "clut_entries": p.clut_entries,
@@ -1843,7 +2965,7 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
         fsutil.atomic_write_text(spath, scaffold_text(effect, stock_sha, entries, protected=prot,
                                                       texanim_armed=res_ta.armed,
                                                       scenery=scen_entries, models=model_entries,
-                                                      refused=refusals),
+                                                      refused=refusals, lane=lane, blob=blob),
                                  encoding="utf-8", newline="\n")
         written.append(str(spath))
     man["out_dir"] = str(out)
@@ -1856,7 +2978,8 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                   texanim_armed: bool = False,
                   scenery: Optional[Sequence[dict]] = None,
                   models: Optional[Sequence[dict]] = None,
-                  refused: Optional[Sequence["CellRefusal"]] = None) -> str:
+                  refused: Optional[Sequence["CellRefusal"]] = None,
+                  lane: str = "indexed", blob: bytes = b"") -> str:
     """A COMPLETE, guarded ``[[reskin.texel]]`` scaffold, emitted from the derivation.
 
     Every ``expect_*`` is emitted rather than typed, so a guard cannot start life disagreeing with the
@@ -1876,16 +2999,75 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
       nothing at all.
     """
     protected = protected or {}
-    L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d`." % effect,
+    paint = lane == "paint"
+
+    def _src_lines(e: dict) -> List[str]:
+        """The ``source`` / ``source_paint`` pair, with exactly ONE of them live.
+
+        Both are emitted, one commented, so the lane is a one-character switch rather than a
+        re-export -- and so `source` + `source_paint` on one row stays a *stateable* contradiction
+        that refuses by name, which a boolean spelling could never be.
+        """
+        if not paint or not e.get("paint_png"):
+            return ['source = "%s"' % e["png"]]
+        return ['# source     = "%s"     # the EXACT lane: indices, byte-identical round trip'
+                % e["png"],
+                'source_paint = "%s"   # the QUANTIZE lane: RGBA, approximated onto THIS row'
+                % e["paint_png"],
+                "acknowledge_quantize = false   # \"I accept that my colours are APPROXIMATED\""]
+
+    def _paint_notes(e: dict) -> List[str]:
+        """The three MEASURED comment lines a paint row gets -- numbers from the container, never
+        from a document. The scaffold is where a refusal teaches instead of blocking."""
+        if not paint or not e.get("paint_png") or not blob or not e.get("clut_entries"):
+            return []
+        words = struct.unpack_from("<%dH" % e["clut_entries"], blob, e["clut_offset"])
+        zeros = transparent_indices(words)
+        live = sum(1 for w in words if w)
+        distinct = len({w & 0x7FFF for w in words if w})
+        dup = {}
+        for i, wd in enumerate(words):
+            dup.setdefault(wd, []).append(i)
+        raw = blob[e["page_offset"]:e["page_offset"] + e["page_bytes"]]
+        idx = unpack4(raw) if e["bpp"] == 4 else raw
+        ntex = e["wh"][0] * e["wh"][1]
+        on_dup = sum(1 for v in idx[:ntex] if v < len(words) and len(dup[words[v]]) > 1)
+        out = ["# measured: %d live entries, %d distinct colours; a fixed CLUT is a subset of the "
+               "32,768-colour cube" % (live, distinct)]
+        if zeros:
+            out.append("# measured: transparent entry at index %s (%d of %d) -- alpha 0 in your paint "
+                       "file lands there" % (",".join(str(z) for z in zeros), len(zeros), len(words)))
+        else:
+            out += ["# ** NO TRANSPARENT ENTRY on this row.  Painting ANY texel alpha-0 REFUSES (R12):",
+                    "#    there is no index that renders as a hole here.  MEASURED: 45 of 147 lawful",
+                    "#    scenery rows are in this class and 0 of 93 creature rows.  A hole needs a",
+                    "#    palette WRITE, and --mint-clut is deferred."]
+        out += ["# measured: %d of %d texels (%.1f%%) sit on a DUPLICATE word -- repainting them"
+                % (on_dup, ntex, 100.0 * on_dup / max(1, ntex)),
+                "#           exactly keeps the stock index (THE INCUMBENT LOCK); repainting them to a",
+                "#           NEW colour with >1 equally-near entry REFUSES on a class-C cell (R7)."]
+        return out
+
+    L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d%s`."
+         % (effect, " --art-lane paint" if paint else ""),
          "# Every number is DERIVED from the container's own id-4 header.  Two kinds of line only:",
          "#   * GUARDS (`expect_*`, `expect_sha256`) -- what the derivation MUST find.  They refuse;",
          "#     they instruct nothing.  Re-export rather than retyping them.",
-         "#   * AUTHORED DECISIONS (`source`, `enabled`, `acknowledge_cutout_reshape`).",
-         "#",
-         "# Paint the `<name>.png` files IN INDEX SPACE (a P-mode editor), keeping the file name --",
-         "# the name is the contract.  `<name>.coverage.png` hatches the never-sampled pad: paint",
-         "# inside the island, or the edit is inert (reported, never fatal).",
-         "",
+         "#   * AUTHORED DECISIONS (`source` / `source_paint`, `enabled`, the acknowledgements).",
+         "#"]
+    if paint:
+        L += ["# THE PAINT LANE.  Edit `<name>.paint.png` in any RGBA editor.  ALPHA IS THE CUTOUT and",
+              "# it is authoritative (0 or 255 only).  COLOUR IS APPROXIMATED onto the row this",
+              "# container already carries -- this lane writes ZERO CLUT bytes.  `<name>.png` (indexed)",
+              "# is also here and is EXACT: use it, and `source =`, for precise work.",
+              "# `<name>.swatch.png` marks the entries that are UNIQUE in the row (safe to repaint onto",
+              "# anywhere) and, in magenta, the ones a class-C alternate key renders differently."]
+    else:
+        L += ["# Paint the `<name>.png` files IN INDEX SPACE (a P-mode editor), keeping the file name -",
+              "# the name is the contract."]
+    L += ["# `<name>.coverage.png` hatches the never-sampled pad: paint",
+          "# inside the island, or the edit is inert (reported, never fatal).",
+          "",
          "[reskin]",
          "effect = %d" % effect,
          'label  = "ef%03d-texel-scaffold"' % effect,
@@ -1900,9 +3082,9 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                   e["dead_texels"], e["interior_holes"])
                if e["coverage_available"] else "coverage UNAVAILABLE (%s)" % e["coverage_reason"])
         L += ["[[reskin.texel]]",
-              'name = "%s"' % e["name"],
-              'source = "%s"' % e["png"],
-              "expect_page_offset = %#08x" % e["page_offset"],
+              'name = "%s"' % e["name"]]
+        L += _src_lines(e)
+        L += ["expect_page_offset = %#08x" % e["page_offset"],
               "expect_page_bytes  = %d" % e["page_bytes"],
               "expect_page_wh     = [%d, %d]" % tuple(e["wh"]),
               "enabled = false",
@@ -1914,6 +3096,7 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
               "# measured: %d distinct indices, %d transparent texels at index %s"
               % (e["distinct_indices"], e["index0_texels"],
                  ",".join(str(i) for i in e["transparent_indices"]) or "-")]
+        L += _paint_notes(e)
         rects = protected.get(e["index"])
         if rects:
             L += ["# TEXANIM PROTECTED RECTS on this part (W7): %s -- one clip family = a live"
@@ -1926,9 +3109,9 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
 
     for e in (scenery or []):
         L += ["[[reskin.texel]]",
-              'name = "%s"' % e["name"],
-              'source = "%s"' % e["png"],
-              "expect_page_offset = %#08x" % e["page_offset"],
+              'name = "%s"' % e["name"]]
+        L += _src_lines(e)
+        L += ["expect_page_offset = %#08x" % e["page_offset"],
               "expect_page_bytes  = %d" % e["page_bytes"],
               "expect_page_wh     = [%d, %d]" % tuple(e["wh"]),
               "expect_bpp         = %d   # STATED by you, CHECKED against the container's own `so`"
@@ -1959,6 +3142,7 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                       "#   %s" % a["png"],
                       "#   An edit here changes BOTH pictures.  The editable file above is in the",
                       "#   LOWEST-ADDRESSED binding's key; this one only shows you the other."]
+        L += _paint_notes(e)
         L += ["# measured: %d of %d halfwords in this cell are sampled by some model"
               % (e["covered_halfwords"], RS.PAGE_CELL_W * CELL_LINES),
               "# writer: %s" % e["provenance"]]
@@ -2051,6 +3235,17 @@ _TEXEL_KEYS = frozenset((
     # only ever ARM an obligation the author has already discharged by naming every writer / every
     # covered cell -- neither is a bypass, and there is no key that silences either gate on its own.
     "acknowledge_cotransform", "acknowledge_spill",
+    # W6q: THE PAINT (QUANTIZE) LANE -- exactly three keys, and they sit on THIS table because it is
+    # the one with a fail-closed unknown-key gate.  Note what is deliberately NOT here: `quantize`
+    # and `mint_clut` remain UNKNOWN keys, so a spec spelling the concept the old way still refuses.
+    # The shipped spelling is `source_paint`, which names a FILE OF A DIFFERENT KIND -- so the spec
+    # is self-describing and `source` + `source_paint` on one row is a STATEABLE contradiction.
+    "source_paint", "acknowledge_quantize", "acknowledge_recoloured_palette",
+    # W6b-2: THE ONE NEW KEY.  Literal-boolean-only, and unlike every other acknowledgement in this
+    # table it does not merely ARM an obligation the author already discharged -- it admits a depth
+    # from a channel whose only in-game trial FAILED.  So it is the one key the build path also
+    # requires a matching `expect_bpp` alongside; on its own it is refused BY NAME.
+    DA.ACK_KEY,
 ))
 
 
@@ -2063,6 +3258,17 @@ class TexelTarget:
     page: TexelPage
     note: str = ""
     palette_from: str = ""
+    #: W6q: the RGBA painting, MUTUALLY EXCLUSIVE with ``source``. Its presence IS the lane switch --
+    #: a file of a different kind, so the row is self-describing and the contradiction is stateable.
+    source_paint: str = ""
+    #: W6q: "I accept that my colours are APPROXIMATED". Every other import in this kit is a
+    #: bijection; this one is not, and the tool cannot know how much the author will mind -- so it
+    #: measures, prints, and makes them say the word. Literal boolean only.
+    ack_quantize: bool = False
+    #: W6q: "this art was painted against a row this same spec recolours, and I mean it".
+    ack_recoloured: bool = False
+    #: W6q: the quantize census (:func:`quantize_census`) -- a DISCLOSURE, never a gate.
+    census: dict = field(default_factory=dict)
     ack_cutout: bool = False
     #: W7 L4's escape hatch -- a DELIBERATELY asymmetric strip (the window repainted, a source frame
     #: left stock, or the reverse). Literal boolean only, same law as every other acknowledgement.
@@ -2073,6 +3279,10 @@ class TexelTarget:
     #: W6b-1: the NAME-EVERY-COLUMN remedy's word, required once every cell a spilling model reads is
     #: named (:func:`_gate_spill_columns`).
     ack_spill: bool = False
+    #: W6b-2: "this cell's depth comes from the container's own PROGRAM, not from any `so` reader, and
+    #: I have read what happened the one time that was cast." Literal boolean only, and MEANINGLESS
+    #: without a matching ``expect_bpp`` -- which the build path requires by name.
+    ack_program_depth: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -2100,6 +3310,16 @@ class TexelTarget:
     @property
     def cutout_flips(self) -> int:
         return self.cutout_punch + self.cutout_fill
+
+    @property
+    def art_source(self) -> str:
+        """The file this row's art comes from, whichever lane it is on. One accessor, so a gate that
+        reports "which file" cannot report the empty string for a paint row."""
+        return self.source_paint or self.source
+
+    @property
+    def quantized(self) -> bool:
+        return bool(self.source_paint)
 
 
 @dataclass
@@ -2152,6 +3372,15 @@ def load_spec(path) -> dict:
     r = spec.get("reskin")
     if not isinstance(r, dict):
         raise RepaintError("%s has no [reskin] table" % path)
+    # W6q-0: THE TOP-LEVEL FAIL-CLOSED GATE, on the CLUT lane's own key set rather than a second copy
+    # of it.  One spec file may carry both tables and this loader accepts target-only specs too, so a
+    # private set here would make a key lawful on whichever loader happened to open the file --
+    # a refusal that depends on the caller is not a refusal.  A texel refusal raises a texel error.
+    unknown = sorted(set(r) - RS._RESKIN_KEYS)
+    if unknown:
+        raise RepaintError(RS.UNKNOWN_KEY_MESSAGE
+                           % ("[reskin]", ", ".join(repr(u) for u in unknown),
+                              ", ".join(sorted(RS._RESKIN_KEYS))))
     if "effect" not in r:
         raise RepaintError("[reskin] needs `effect`")
     if not r.get("texel") and not r.get("target"):
@@ -2338,7 +3567,7 @@ def _gate_cotransform(blob: bytes, targets: Sequence["TexelTarget"]) -> Dict[str
                    ", ".join(unack)))
         same = {}
         for t in rows:
-            same.setdefault(os.path.basename(t.source), []).append(t.name)
+            same.setdefault(os.path.basename(t.art_source), []).append(t.name)
         dup = ["%s <- %s" % (", ".join(v), k) for k, v in sorted(same.items()) if len(v) > 1]
         for t in rows:
             notes[t.name] = (
@@ -2482,23 +3711,65 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
     * **LOWER HALF** -- this cell is the bottom half of an ``h = 256`` rect, i.e. one of the 20 the
       per-VRAM-cell map exists for. Worth saying out loud: the rect view cannot name it at all;
     * **COVER** -- how much of the 8,192-halfword cell any model actually samples. ef211's fire field
-      reads 8,128, which is why it is a full-screen picture rather than a corner of one.
+      reads 8,128, which is why it is a full-screen picture rather than a corner of one;
+    * **W6b-2: THE DEPTH SOURCE** -- printed FIRST, because every other line is read through it. On a
+      ``so-page`` or ``program`` cell no instrument has seen a model sample the bytes, so the depth
+      can never be reported the way a direct one is -- and where the cell is the LOWER half of its
+      256-line COLUMN (never of a writer's rect: they are different questions and the corpus has 10
+      cells where they disagree) the disclosure says the depth crossed a cell boundary to get here;
+    * **W6b-2: SPILL-vs-OWN-PAGE** -- two true predicates about one byte block, printed together.
     """
     hz = t.page.hazards
     if hz is None:
         return []
     L: List[str] = []
+    # ★ THE INHERITANCE CLAUSE IS CONDITIONAL AND THE CONDITION IS THE **COLUMN**, NOT THE WRITER.
+    # A page word names a PAGE, so the depth crossed a cell boundary exactly when this cell is the
+    # LOWER half of its 256-line column -- which is `cell[1] % PAGE_LINES`, the predicate
+    # `TexelPage.depth_inherited` and `ProgramDepth.inherited` both already use.  `hz.lower_half` is a
+    # different question ("is this WRITER's rect split?") and answers False on the 10 corpus channel-P
+    # cells that are id-9 ALTERNATE BLOCKS at y = 384: one whole 0x4000 upload, never a rect's lower
+    # half, and still the bottom of a column whose depth was read off the top.  A disclosure that says
+    # more than it measured is the same defect as one that says less -- and this said less.
+    inherited = ("  " + DA.INHERITED_LINE) if t.page.cell and t.page.cell[1] % DA.PAGE_LINES else ""
+    # W6b-2: WHERE THE DEPTH CAME FROM, first, because every other line below is read THROUGH it.
+    # A depth inherited from a column is not the same kind of fact as one a model's own UVs declare,
+    # and this lane's whole posture is that collapsing two kinds of fact is how a tool starts lying.
+    if t.page.depth_source == "so-page":
+        L.append("DEPTH FROM CHANNEL G (`so` AT PAGE GRANULARITY): no `so` reader samples this cell; "
+                 "its COLUMN is bound at %dbpp by GEOM %s, and a page's draw mode governs all 256 "
+                 "lines.%s  LICENSED -- it is the same record the lane already ships on, read at "
+                 "the granularity the hardware uses; 57 corpus cells, 55 of them lower halves "
+                 "addressable only through the per-cell map."
+                 % (t.page.bpp, ", ".join("%#x" % g for g in hz.page_binders), inherited))
+    elif t.page.depth_source == "program":
+        L.append("DEPTH FROM CHANNEL P (THE PROGRAM'S REGISTRATION), acknowledged: no `so` reader "
+                 "samples this cell; the container's own program registers this page at %dbpp at %d "
+                 "call site(s).%s  %s"
+                 % (t.page.bpp, hz.program_sites, inherited, DA.ACK_WARNING))
+    if hz.spill_vs_own_page:
+        L.append("SPILL-vs-OWN-PAGE: this cell's readers bind the NEIGHBOURING page at %dbpp while "
+                 "its own page is named at %dbpp -- both predicates true of the same bytes, FLAGGED "
+                 "rather than reconciled.  2 corpus cells."
+                 % (hz.depths[0], hz.page_depths[0]))
     if hz.shared_read:
         L.append("SHARED READ (%d models): this one edit changes %s -- disclosure, not a refusal; "
                  "class E3 is 93 corpus cells over 38 effects and carries no depth or palette signal"
                  % (len(hz.readers), ", ".join("GEOM %#x" % r.geom for r in hz.readers)))
     if hz.multi_palette:
+        # THE OTHER KEYS, NAMED -- from READERS where there are readers, and from the COLUMN's own
+        # binders where there are none.  Naming them off `readers` alone printed an EMPTY list on a
+        # channel-G cell, which is the class-C line disclosing that a second rendering exists and then
+        # declining to say which: the author is told to look for a file it does not name.  A readerless
+        # cell's alternates are keyed by VRAM CELL, which is exactly the `.as-x{X}_y{Y}.png` filename.
+        others = (", ".join("%s (CLUT %s)" % (r.palette_name or "-", str(r.clut_cell))
+                            for r in hz.readers[1:]) if hz.readers
+                  else ", ".join("CLUT %s (its `.as-x%d_y%d.png` view)" % (c, c[0], c[1])
+                                 for c in hz.page_clut_cells[1:]))
         L.append("MULTI-PALETTE (class C): one index array, %d renderings.  You are painting in %s; "
                  "the same bytes are ALSO shown in %s -- read-only alternate views ship beside the "
                  "editable PNG as `<cell>.as-x{X}_y{Y}.png`"
-                 % (len(hz.palette_cells), t.page.palette_name or "(no declared key)",
-                    ", ".join("%s (CLUT %s)" % (r.palette_name or "-", str(r.clut_cell))
-                              for r in hz.readers[1:])))
+                 % (len(hz.palette_cells), t.page.palette_name or "(no declared key)", others))
     if hz.lower_half:
         L.append("LOWER HALF: this cell is the bottom 128 lines of an h=256 rect -- one of the 20 "
                  "cells the per-VRAM-cell map makes addressable at all; `scenery_pages`' (tag, x) key "
@@ -2656,7 +3927,41 @@ def _gate_texanim_frames(res: TA.ReadResult, t: TexelTarget) -> str:
     return note
 
 
-def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage) -> str:
+def read_art_manifest(src: Path) -> Optional[dict]:
+    """The :data:`ART_MANIFEST` beside a source image, or ``None`` -- ONE reader, several consumers.
+
+    :func:`_gate_manifest` needs it for the drift guards and :func:`build` needs one field of it to
+    decide whether R9's own named fix was taken. A second parse in the caller is how the guard and the
+    thing it licenses drift apart, so this is the only place the file is opened.
+    """
+    mf = Path(src).parent / ART_MANIFEST
+    if not mf.is_file():
+        return None
+    try:
+        return json.loads(mf.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise RepaintError("%s is unreadable (%s) -- delete it or re-run export-art" % (mf, e))
+
+
+def art_came_out_of_base(src: Path, base: bytes, blob: bytes) -> bool:
+    """Did this art come out of THE COMPOSITION BASE rather than out of stock?
+
+    This is R9's escape hatch and it is a MEASUREMENT, not a claim: the manifest records the sha256 of
+    the whole container the export read, so equality with the composition base means the author
+    literally re-exported against the recoloured row. That is precisely what R9's first named fix
+    asks for -- *"build the CLUT half first and re-export with `--art-lane paint --from <the staged
+    container>`"* -- and without this predicate that fix would land on the ART-DRIFT refusal instead,
+    leaving `acknowledge_recoloured_palette` as the only way through. A refusal whose named fix does
+    not clear it is a law-2 defect, so the fix is made reachable rather than the message reworded.
+    """
+    if base is blob or bytes(base) == bytes(blob):
+        return False                                     # nothing composed: stock IS the base
+    man = read_art_manifest(src)
+    return bool(man) and man.get("stock_sha256") == _sha(bytes(base))
+
+
+def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage, *,
+                   paint: bool = False, base_page: bytes = b"", base: bytes = b"") -> str:
     """THE STOCK-SHA DRIFT GUARD, applied where the ART is rather than where the spec is.
 
     ``export_art`` drops :data:`ART_MANIFEST` beside the PNGs it writes. When one is there, the pack
@@ -2664,23 +3969,31 @@ def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage) ->
     agrees with the header's own derivation. Without it a re-exported page from a patched install
     would pack cleanly into a container it never came out of -- the silent failure with no symptom.
     Absent manifest = no extra guard (the spec's ``expect_sha256`` still ran); it is never fabricated.
+
+    ★ ONE WIDENING, PAINT-ONLY AND MEASURED: on a paint row the manifest may also record **the
+    COMPOSITION BASE** this build is quantizing onto, because that is the container R9's own named fix
+    tells the author to export from. It is not a softening -- the claim the guard makes is *"the art
+    came out of the bytes being patched"*, and on a composed paint build the bytes being patched ARE
+    the base. The indexed lane keeps the shipped stock-only posture: there the pixels are indices, so
+    which container they were rendered from decides nothing.
     """
     mf = src.parent / ART_MANIFEST
-    if not mf.is_file():
+    man = read_art_manifest(src)
+    if man is None:
         return "no %s beside %s -- the spec's own expect_sha256 is the only guard" % (ART_MANIFEST,
                                                                                       src.name)
-    try:
-        man = json.loads(mf.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise RepaintError("%s is unreadable (%s) -- delete it or re-run export-art" % (mf, e))
     got = man.get("stock_sha256")
     want = _sha(blob)
-    if got != want:
+    base_sha = _sha(bytes(base)) if (paint and base and bytes(base) != bytes(blob)) else ""
+    if got != want and not (base_sha and got == base_sha):
         raise RepaintError(
             "ART DRIFT on %s: %s was exported from a container with sha256 %s, but the container "
-            "being patched is %s.  The art and the bytes underneath it are not the same summon (a "
+            "being patched is %s%s.  The art and the bytes underneath it are not the same summon (a "
             "Steam/Moguri patch, another mod, or a stale export directory).  Re-run "
-            "`summon-reskin export-art` against this install." % (target_name, mf, got, want))
+            "`summon-reskin export-art` against this install."
+            % (target_name, mf, got, want,
+               " (or its composition base %s)" % base_sha if base_sha else ""))
+    from_base = bool(base_sha and got == base_sha)
     # BOTH surfaces, one manifest: `parts` holds the id-4 creature pages and `scenery` the VRAM
     # page-cells, and a lookup that read only the first would refuse every scenery pack as "no record"
     # -- a drift guard that fires on correct input is a guard nobody keeps.
@@ -2705,7 +4018,120 @@ def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage) ->
     if list(rec.get("wh") or []) != [page.w, page.h]:
         raise RepaintError("ART DRIFT on %s: %s records wh %s, the header derives %s"
                            % (target_name, mf, rec.get("wh"), [page.w, page.h]))
-    return "%s stock_sha256 MATCHES; page record agrees with the header" % ART_MANIFEST
+    if not paint:
+        return "%s stock_sha256 MATCHES; page record agrees with the header" % ART_MANIFEST
+    # ---- W6q: THE TWO PAINT-LANE GUARDS.  Split on purpose (see :func:`_gate_recoloured_palette`).
+    #
+    # (1) THE RENDER KEY.  A paint file's colours are only invertible under the decode they were
+    # rendered with, so the decode is DATA the export records rather than a convention the reader
+    # assumes.  A record carrying `paint_png` but no `render_key` came from a pre-W6q export or a
+    # hand edit -- and an absent manifest keeps the shipped posture (no extra guard; never fabricated).
+    got_key = rec.get("render_key") or ""
+    if got_key != PAINT_RENDER_KEY:
+        raise RepaintError(                                                # R11b
+            "%s: %s records render_key %r for this page, and this lane inverts %r -- so it was "
+            "exported before the render key was recorded (or was hand-edited).  The paint file's "
+            "colours are only invertible under the decode they were rendered with.  Re-run "
+            "`summon-reskin export-art --art-lane paint`."
+            % (target_name, mf, got_key or "(none)", PAINT_RENDER_KEY))
+    # (2) THE PAGE SHA.  Under THE INCUMBENT LOCK the container's own indices are an INPUT, so a page
+    # that moved would silently lock onto different incumbents and the no-op would stop being a no-op
+    # with nothing to see.  `page_sha256` stops being informational and becomes a guard.
+    got_sha, want_sha = rec.get("page_sha256"), _sha(bytes(base_page))
+    if got_sha != want_sha:
+        raise RepaintError(                                                # R11
+            "THE INCUMBENT IS NOT THE ONE YOUR ART CAME OUT OF, %s: %s records page_sha256 %s and the "
+            "bytes this build quantizes against are %s.  This lane reads the container's own indices "
+            "as the incumbent -- it is what makes an unedited re-import a byte-exact no-op -- so a "
+            "page that moved would silently lock onto different ones.  Re-export."
+            % (target_name, mf, got_sha, want_sha))
+    return ("%s %s; page record agrees with the header; render_key %s and page_sha256 %s -- the "
+            "incumbent IS the one this art came out of"
+            % (ART_MANIFEST,
+               "records THE COMPOSITION BASE (this art was re-exported against the recoloured row)"
+               if from_base else "stock_sha256 MATCHES",
+               PAINT_RENDER_KEY, want_sha[:16]))
+
+
+def _clut_target_names(pmap: "RS.PaletteMap", rows: Sequence[dict], palette_name: str) -> List[str]:
+    """Which of THIS SPEC's ``[[reskin.target]]`` rows recolour the row a given page indexes into.
+
+    Names ONLY. The verdict (:func:`_gate_recoloured_palette`) is a BYTE comparison, so a row this
+    resolver could not resolve costs the refusal a name and never costs it its measurement.
+    """
+    out: List[str] = []
+    for d in rows:
+        nm = d.get("name")
+        # THE SAME PREDICATE THE CLUT LANE ITSELF USES (`reskin.py`, `enabled=bool(...)`).  `is False`
+        # would have called `enabled = 0` live here and disabled there -- two readings of one key.
+        if not nm or not bool(d.get("enabled", True)):
+            continue
+        try:
+            if pmap.by_name(str(nm)).name == palette_name:
+                out.append(str(nm))
+        except (RS.ReskinError, KeyError):                       # an unresolvable name refuses in the
+            continue                                             # CLUT lane's own loop, not here
+    return out
+
+
+def _gate_recoloured_palette(blob: bytes, base: bytes, t: "TexelTarget",
+                             targets: Sequence[str], art_from_base: bool = False) -> str:
+    """**R9 -- THE COMPOSED-PALETTE REFUSAL.** Art painted against the STOCK row, quantized onto a row
+    this same build already recoloured, would be mapped onto colours the author never saw.
+
+    The active-palette rule for the texel read is already decided and is not being changed here:
+    ``palette_words(base, page)`` -- the COMPOSITION BASE, not stock. That is correct, and it is
+    exactly why this gate exists: under the indexed lane the author authored INDICES, so a recoloured
+    row simply recolours their picture; under quantize the author authored COLOURS, so a recoloured
+    row silently re-decides which index each of them becomes.
+
+    Deliberately split from the PAGE-SHA guard (R11) rather than folded into one string, because they
+    are two different failures with two different fixes and law 2 requires each refusal to carry its
+    OWN measurement: the PALETTE moved (build the CLUT half first and re-export with ``--from``, or
+    say the word) versus the PAGE BYTES moved (re-export).
+
+    ★ THE PREDICATE IS *"was the art rendered against the row it is being mapped onto"*, NOT *"did
+    this spec's CLUT lane move the row"*. Those two coincide only when the art came out of stock;
+    they diverge exactly on the workflow this refusal's own first fix names, and a refusal whose named
+    fix does not clear it is a law-2 defect rather than a strictness. ``art_from_base`` carries the
+    measurement (:func:`art_came_out_of_base` -- the export manifest's whole-container sha256 equals
+    the composition base's), so re-exporting with ``--from <the staged container>`` CLEARS this gate
+    and ``acknowledge_recoloured_palette`` stays what it is meant to be: the deliberate second answer,
+    never the only one.
+
+    Returns the disclosure line; raises naming N of M entries and the targets otherwise.
+    """
+    page = t.page
+    if page.direct or not page.clut_entries:
+        return ""
+    stock_row = palette_words(blob, page)
+    live_row = palette_words(base, page)
+    moved = [i for i in range(min(len(stock_row), len(live_row))) if stock_row[i] != live_row[i]]
+    if moved and art_from_base:
+        return ("QUANTIZE base: %d of %s's %d entries differ from stock, and `%s` was RE-EXPORTED "
+                "against those bytes (the export manifest records this build's own composition base) "
+                "-- so the art was painted against the row it is being mapped onto"
+                % (len(moved), page.palette_name or page.name, len(live_row),
+                   os.path.basename(t.art_source)))
+    if not moved:
+        return ("QUANTIZE base: %s is BYTE-IDENTICAL to stock, so this art was painted against the "
+                "row it is being mapped onto" % (page.palette_name or page.name))
+    who = ("`[[reskin.target]] %s` IN THIS SPEC" % ", ".join(targets) if targets else
+           "the sibling this build composes onto")
+    if not t.ack_recoloured:
+        raise RepaintError(
+            "THE RECOLOURED-PALETTE REFUSAL, %s: %d of %s's %d entries are recoloured by %s, and `%s` "
+            "was rendered against the STOCK row.  Quantize would map your colours onto colours you "
+            "never saw -- the entries that moved are %s.  Either build the CLUT half first and "
+            "re-export with `--art-lane paint --from <staged container>`, or say "
+            "`acknowledge_recoloured_palette = true` on that row to map onto the new colours "
+            "deliberately."
+            % (t.name, len(moved), page.palette_name or page.name, len(live_row), who,
+               os.path.basename(t.art_source),
+               ", ".join(str(i) for i in moved[:12]) + (", ..." if len(moved) > 12 else "")))
+    return ("QUANTIZE base: %d of %s's %d entries were recoloured by %s and this row says "
+            "`acknowledge_recoloured_palette = true` -- the colours are mapped onto the NEW row"
+            % (len(moved), page.palette_name or page.name, len(live_row), who))
 
 
 def _resolve_base(spec: dict, spec_path: str, blob: bytes, game, compose: Optional[bool]):
@@ -2799,8 +4225,26 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         if name in seen:
             raise RepaintError("texel target %r is declared twice" % name)
         seen.add(name)
-        page = texel_page(blob, name, effect)
+        # W6b-2: THE ACK IS READ BEFORE THE RESOLVE.  A channel-P cell is refused AT RESOLUTION, so
+        # the acknowledgement has to reach `texel_page`; reading it afterwards would mean un-refusing
+        # a page, and a refusal a later line can take back is not a refusal.  `_ack_bool` makes
+        # `"true"` fail here rather than arm -- an acknowledgement is stated, never inferred.
+        ack_pd = _ack_bool(d, DA.ACK_KEY, where)
+        page = texel_page(blob, name, effect, allow_program_depth=ack_pd)
         where = "texel target %s" % name
+        # THE MANDATORY PAIR.  `expect_bpp` is STATED by the author and CHECKED against the derivation,
+        # never chosen -- and on the one channel whose in-game trial FAILED the kit declines to accept
+        # the ack alone.  The ack says "I judge this registered depth to be the drawn depth"; the
+        # number is what makes that judgement checkable.  One without the other is a wish.
+        if page.depth_source == "program" and "expect_bpp" not in d:
+            raise RepaintError(
+                "%s says `%s = true` but states NO `expect_bpp`.  The acknowledgement is your "
+                "judgement that a REGISTERED depth is the depth the screen reads; `expect_bpp` is the "
+                "number the kit checks that judgement against, and an ack with nothing to check is "
+                "not a guard.  This cell's channel-P derivation is %dbpp at %d call site(s) -- write "
+                "`expect_bpp = %d` if you mean it.  %s"
+                % (where, DA.ACK_KEY, page.bpp, page.hazards.program_sites, page.bpp,
+                   DA.REGISTRATION_CAVEAT))
         if "expect_bpp" in d:
             assert_expect_bpp(blob, page, int(d["expect_bpp"]), where)
         if "expect_cell" in d:
@@ -2834,13 +4278,24 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                     "palette is a HEADER FACT (its own CLUT word), not a choice -- naming another "
                     "row would mean authoring indices against colours the engine will never apply "
                     "here." % (where, pal_from, pal.name, page.palette_name))
+        src_paint = str(d.get("source_paint", "") or "")
+        if src_paint and d.get("source"):
+            raise RepaintError(                                            # R6
+                "%s names BOTH `source` and `source_paint` -- two formats of record for one page.  "
+                "The EXACT lane (indices, byte-identical) and the APPROXIMATING lane (RGBA, mapped "
+                "onto the row this container carries) cannot both be authoritative; delete one.  The "
+                "export writes both files precisely so this is a one-line switch." % where)
         targets.append(TexelTarget(
             name=name, enabled=bool(d.get("enabled", True)), source=str(d.get("source", "")),
             page=page, note=str(d.get("note", "")), palette_from=pal_from,
+            source_paint=src_paint,
+            ack_quantize=_ack_bool(d, "acknowledge_quantize", where),
+            ack_recoloured=_ack_bool(d, "acknowledge_recoloured_palette", where),
             ack_cutout=_ack_bool(d, "acknowledge_cutout_reshape", where),
             ack_texanim_frames=_ack_bool(d, "acknowledge_texanim_frames", where),
             ack_cotransform=_ack_bool(d, "acknowledge_cotransform", where),
-            ack_spill=_ack_bool(d, "acknowledge_spill", where)))
+            ack_spill=_ack_bool(d, "acknowledge_spill", where),
+            ack_program_depth=ack_pd))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
     # An armed-and-unread table, a program-VRAM write, an unnamed co-transform writer and an unnamed
@@ -2866,18 +4321,59 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     for t in targets:
         if not t.enabled:
             continue
+        clut_targets = _clut_target_names(pmap, r.get("target") or [], t.page.palette_name)
         _gate_collisions(blob, t.page)
-        if not t.source:
-            raise RepaintError("texel target %s is enabled but names no `source` image" % t.name)
-        src = Path(t.source)
-        if not src.is_absolute():
-            src = Path(base_dir) / src
-        t.manifest_note = _gate_manifest(blob, src, t.name, t.page)
+        if not t.art_source:
+            raise RepaintError("texel target %s is enabled but names no `source` (the exact indexed "
+                               "lane) and no `source_paint` (the quantize lane) image" % t.name)
+        src = resolve_art_path(base_dir, t.art_source)
+        if t.quantized and t.page.direct:
+            raise RepaintError(                                            # R8
+                "texel target %s: `source_paint` on a 15bpp cell.  A 15bpp cell indexes NO palette "
+                "-- and you do not need this lane there.  `--art-lane direct15` is ALREADY RGBA, and "
+                "it is EXACT: 65,536/65,536 word identity, proven exhaustively rather than sampled.  "
+                "Re-export with `--art-lane direct15` and edit `%s.png` together with `%s.stp.png`."
+                % (t.name, t.name, t.name))                # BEFORE the art guard: a category error
         t.stock = bytes(base[t.page.page_offset:t.page.page_offset + t.page.page_bytes])
-        # THE ART READ, at THIS page's own depth.  Three codecs, one dispatch: dispatching on the
-        # DERIVED depth (never on the file's shape) is what makes a wrong `expect_bpp` a refusal
-        # rather than a differently-shaped picture that packs to exactly the right byte count.
-        if t.page.direct:
+        t.manifest_note = _gate_manifest(blob, src, t.name, t.page,   # about the PAGE outranks a
+                                         paint=t.quantized, base_page=t.stock,   # guard on the ART
+                                         base=base)
+        # THE ART READ, at THIS page's own depth.  Dispatching on the DERIVED depth (never on the
+        # file's shape) is what makes a wrong `expect_bpp` a refusal rather than a differently-shaped
+        # picture that packs to exactly the right byte count.
+        #
+        # ★ W6q ADDS EXACTLY ONE BRANCH, IN FRONT.  No existing codec path is modified -- which is
+        # what makes "the four cast-proven shas still rebuild byte-exact" a claim rather than a hope:
+        # if one of them moves, the change went into the wrong branch.
+        if t.quantized:
+            words = tuple(palette_words(base, t.page))
+            rc_note = _gate_recoloured_palette(blob, base, t, clut_targets,
+                                               art_came_out_of_base(src, base, blob))
+            if rc_note:
+                t.hazard_notes.append(rc_note)
+            # THE ALTERNATE ROWS COME FROM THE COMPOSITION BASE, exactly as `words` does two lines
+            # up.  R7 asks what the OTHER reader will see, and what that reader sees is the row the
+            # engine will actually apply -- which on a composed build is the recoloured one.  Reading
+            # them from pristine stock would judge (and, in `render_previews`, SHOW) the picture with
+            # colours the engine never applies, on the one build shape the graft exists to protect.
+            # The palette MAP is still derived from stock: the CLUT lane moves row CONTENTS, never
+            # the header geometry the offsets come out of.
+            t.new, t.census = read_paint_png(
+                src, t.page, words, texel_view(t.page, t.stock),
+                alternate_palette_rows(base, t.page, pmap))
+            if not t.ack_quantize:
+                raise RepaintError(                                        # R3
+                    "QUANTIZE, %s: this lane APPROXIMATES.  Your colours are mapped onto the row the "
+                    "container already carries, and it writes ZERO CLUT bytes.  MEASURED on THIS "
+                    "art: %d of %d opaque texels matched an entry exactly (%.2f%%), %d were "
+                    "approximated (mean d^2 %.3f, worst d^2 %d of a cube whose longest diagonal is "
+                    "d^2 %d).  `plan` prints the whole census.  Say `acknowledge_quantize = true` on "
+                    "that row -- an acknowledgement is stated, never inferred."
+                    % (t.name, t.census.get("exact", 0), t.census.get("opaque", 0),
+                       t.census.get("exact_pct", 0.0), t.census.get("approximated", 0),
+                       t.census.get("mean_d2", 0.0), t.census.get("worst_d2", 0),
+                       t.census.get("cube_diagonal_sq", CUBE_DIAG_SQ)))
+        elif t.page.direct:
             t.new = read_direct_png(src, t.page.w, t.page.h)
             words: Tuple[int, ...] = ()
         else:
@@ -3316,6 +4812,28 @@ def self_check(b: TexelBuild) -> SelfCheck:
                                % (t.name, t.distinct_stock, t.distinct_new, len(t.changed),
                                   100.0 * len(t.changed) / max(1, t.page.page_bytes))
                                for t in b.enabled) or "no enabled target"))
+    # ---- W6q: THE QUANTIZE CENSUS, as a REPORT and never as a gate ------------------------------
+    # 9 thresholds x 6 pages x 3 edits found total overlap between a legitimate hue edit's error and
+    # an unrepresentable one's, at every threshold -- structurally, because a fixed CLUT is a small
+    # subset of a 32,768-colour cube and a hue move is this lane's own primary use case.  So no
+    # number here may refuse.  What DOES gate is already above: "this lane wrote ZERO CLUT bytes".
+    qz = [t for t in b.enabled if t.quantized]
+    if qz:
+        qual.append(Gate(True, "the QUANTIZE census (a DISCLOSURE -- no threshold refuses here)",
+                         "  ||  ".join(
+                             "%s %s/%s opaque exact (%.2f%%), %s approximated, worst d^2 %d of %d, "
+                             "%s on an ambiguous colour, %s nearest-ties, %d alternate-split check(s) "
+                             "PASSED, %d STP change(s), acknowledged=%s"
+                             % (t.name, "{:,}".format(t.census.get("exact", 0)),
+                                "{:,}".format(t.census.get("opaque", 0)),
+                                t.census.get("exact_pct", 0.0),
+                                "{:,}".format(t.census.get("approximated", 0)),
+                                t.census.get("worst_d2", 0), t.census.get("cube_diagonal_sq", 0),
+                                "{:,}".format(t.census.get("ambiguous", 0)),
+                                "{:,}".format(t.census.get("nearest_tie", 0)),
+                                t.census.get("alt_checked", 0), t.census.get("stp_changed", 0),
+                                t.ack_quantize)
+                             for t in qz)))
     inert = [t.name for t in b.enabled if not t.changed]
     qual.append(Gate(True, "targets whose art matches the container already (reported, not fatal)",
                      "none" if not inert else ", ".join(inert)
@@ -3363,12 +4881,47 @@ def render_previews(b: TexelBuild, out_dir) -> List[str]:
               for k in (range(2) if t.page.bpp == 4 else (0,))}
         moved.putdata([(255, 64, 200, 255) if i in ch else (24, 24, 28, 255)
                        for i in range(w * h)])
-        sheet = Image.new("RGBA", (3 * w * S, h * S), (12, 12, 14, 255))
-        for k, im in enumerate((before, after, moved)):
+        panels = [before, after, moved]
+        # ★ W6q: THE FOURTH PANEL -- the per-texel QUANTIZATION ERROR, which is precisely what the
+        # census aggregates away.  It shows the author WHERE the palette could not follow them, and
+        # it is what makes "use the CLUT lane instead" concrete rather than a sentence in a report.
+        dmap = (t.census or {}).get("dmap")
+        if dmap:
+            # ★ THE RAMP IS NORMALISED TO THIS PAGE'S OWN WORST d^2, not to the cube's.  A fixed ramp
+            # over a band that in practice runs d^2 1..57 moves ONE channel by ~22% and the panel then
+            # reads as a second copy of the binary `moved` mask -- which is the one thing this panel
+            # exists NOT to be.  The absolute numbers are not lost: the census keeps the UNCLAMPED
+            # histogram and `plan` prints mean / p95 / worst against the cube diagonal.
+            band = dmap[:w * h]
+            hot = max(band) or 1
+            span = float(hot - 1) if hot > 1 else 1.0
+            err = Image.new("RGBA", (w, h))
+            err.putdata([(0, 0, 0, 255) if not v else
+                         (255, 220 - int(200 * ((v - 1) / span if hot > 1 else 1.0)), 40, 255)
+                         for v in band])
+            panels.append(err)
+        sheet = Image.new("RGBA", (len(panels) * w * S, h * S), (12, 12, 14, 255))
+        for k, im in enumerate(panels):
             sheet.paste(im.resize((w * S, h * S), Image.NEAREST), (k * w * S, 0))
         p = out / ("%s.repaint.png" % t.name)
         sheet.save(str(p))
         written.append(str(p))
+        # ★ W6q D41: the class-C alternates, RE-RENDERED FROM THE NEW INDICES.  An author checking the
+        # second key must see the RESULT, not the stock picture -- especially when R7 is the thing
+        # they are trying to understand.
+        # ``b.orig`` and NOT ``b.stock``: the row the engine will apply to the other reader is the
+        # COMPOSED one, and this picture is the one R7 exists to protect -- rendering it from
+        # pristine stock would show colours a composed build never puts on screen.  It is also the
+        # same base the codec judged the split against, so the picture and the gate cannot disagree.
+        if t.quantized and not t.page.direct and t.page.clut_entries:
+            for alt in alternate_palette_rows(b.orig, t.page, b.pmap):
+                ap = out / ("%s.as-x%d_y%d.after.png" % (t.name, alt.clut_cell[0], alt.clut_cell[1]))
+                pal_a = [KT.bgr555_rgba(x) for x in alt.words]
+                aim = Image.new("RGBA", (w, h))
+                aim.putdata([pal_a[v] if v < len(pal_a) else (0, 0, 0, 0)
+                             for v in texel_view(t.page, t.new)])
+                Image.alpha_composite(Image.new("RGBA", (w, h), (24, 24, 28, 255)), aim).save(str(ap))
+                written.append(str(ap))
         if t.cov is not None and t.cov.available:
             cp = out / ("%s.coverage.png" % t.name)
             write_coverage_png(t.new, palette_words(b.orig, t.page), t.cov.mask, w, h, cp)
@@ -3446,8 +4999,14 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
         scripts["ledger_revert"] = str(ledger.write_revert_script(
             root, "%d" % b.effect, prefix="revert_summon_repaint_ledger"))
 
+    # THE LANE IS PER ROW, so the manifest reports the rows rather than a constant: a paint build
+    # whose record said `texel/indexed` would hand a cast report the wrong lane at the one moment
+    # (after the fact, from the staged artifact) that the record is all anybody has.
+    lanes = sorted({("paint" if t.quantized else ("direct15" if t.page.direct else "indexed"))
+                    for t in b.enabled}) or ["indexed"]
     manifest = {
-        "spec": b.spec_path, "effect": b.effect, "label": b.label, "lane": "texel/indexed",
+        "spec": b.spec_path, "effect": b.effect, "label": b.label,
+        "lane": "texel/" + "+".join(lanes),
         "stock_sha256": b.sha_stock, "base_sha256": b.sha_in, "patched_sha256": sha,
         "composed": b.composed, "composed_on": b.base_label,
         "composed_base_bytes": len(b.base_changed),
@@ -3456,7 +5015,19 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
         "per_target_bytes": b.check.per_target if b.check else None,
         "staging_root": str(root), "mod_root": str(mod_root),
         "texels": {t.name: {"enabled": t.enabled, "source": t.source,
+                            # W6q: the quantize half, staged BESIDE the container so `verify`'s
+                            # comparison is legible and a cast report can be audited after the fact.
+                            "source_paint": t.source_paint,
+                            "acknowledge_quantize": t.ack_quantize,
+                            "acknowledge_recoloured_palette": t.ack_recoloured,
+                            "quantize": census_record(t.census),
                             "kind": t.page.kind, "bpp": t.page.bpp,
+                            # W6b-2: WHICH CHANNEL the depth came from, staged with the artifact.
+                            # A cast that cannot say whether its depth was read off a model, off the
+                            # column, or off a REGISTRATION cannot be read back as evidence about the
+                            # channel -- which is the whole point of a channel-P cast.
+                            "depth_source": t.page.depth_source,
+                            DA.ACK_KEY: t.ack_program_depth,
                             "cell": (list(t.page.cell) if t.page.cell else None),
                             "page_offset": t.page.page_offset, "page_bytes": t.page.page_bytes,
                             "wh": list(t.page.wh), "changed": len(t.changed),
@@ -3480,11 +5051,49 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
     return manifest
 
 
+def resolve_art_path(spec_dir: str, rel: str) -> Path:
+    """An art path as the build resolves it: absolute as given, else relative to the SPEC's own
+    directory. One resolver, three call sites (``build``, ``verify``, the CLI's verify pre-flight) --
+    two spellings of "where the picture is" is how a guard and the thing it guards drift apart."""
+    p = Path(rel)
+    return p if p.is_absolute() else Path(spec_dir) / p
+
+
+def absent_paint_line(name: str, src) -> str:
+    """THE ABSENT-SOURCE SENTENCE, in one place because two call sites say it."""
+    return ("VERIFY quantize    %s: THE PAINT SOURCE IS ABSENT (%s) -- this rebuild used bytes it "
+            "can no longer re-read, so the container is verified and the ART is NOT" % (name, src))
+
+
+def missing_paint_sources(spec: dict, spec_path: str) -> List[Tuple[str, Path]]:
+    """Enabled ``source_paint`` rows whose file is GONE -- ``verify``'s pre-flight.
+
+    ★ WITHOUT THIS THE ABSENT-SOURCE BRANCH IS DEAD AT THE ONLY ENTRY POINT A USER HAS. The CLI
+    reaches :func:`verify` only *through* a rebuild, and a rebuild opens the art -- so a deleted paint
+    file refuses inside ``build`` with the generic *"no such source image"* and the sentence that says
+    *the container is verified and the ART is not* never prints. The check is a pure existence test on
+    the same resolution :func:`build` uses; it decides nothing else and it never fabricates a pass.
+    """
+    out: List[Tuple[str, Path]] = []
+    base_dir = _spec_dir(spec_path)
+    for d in ((spec.get("reskin") or {}).get("texel") or []):
+        if not bool(d.get("enabled", True)):
+            continue
+        rel = str(d.get("source_paint", "") or "")
+        if not rel:
+            continue
+        src = resolve_art_path(base_dir, rel)
+        if not src.is_file():
+            out.append((str(d.get("name") or "?"), src))
+    return out
+
+
 def verify(b: TexelBuild, root=None) -> dict:
     """Re-check what is STAGED, as bytes -- not as a rebuild's promise."""
     root = Path(root or staging_root(b.effect))
     mf = root / "build_manifest.json"
     lines: List[str] = []
+    container_same: Optional[bool] = None
     if not mf.exists():
         return {"ok": False, "root": str(root), "manifest": str(mf),
                 "lines": ["VERIFY FAILED: no build manifest at %s" % mf]}
@@ -3497,6 +5106,7 @@ def verify(b: TexelBuild, root=None) -> dict:
     else:
         got = p.read_bytes()
         same = got == b.patched
+        container_same = same
         ok = ok and same
         lines.append("VERIFY container   %d B sha %s -> %s"
                      % (len(got), _sha(got)[:16], "MATCHES the rebuild" if same else "DIVERGES"))
@@ -3521,6 +5131,36 @@ def verify(b: TexelBuild, root=None) -> dict:
                 tr["enabled"], tr["page_offset"], tr["changed"]):
             lines.append("VERIFY texel       %s DIVERGES from the manifest" % name)
             ok = False
+    # ---- W6q: THE QUANTIZE LINE.  `verify` ALREADY re-derives -- the CLI rebuilds independently and
+    # this function compares the staged bytes against that rebuild -- so nothing is re-derived here.
+    # What is added is LEGIBILITY, plus the one genuinely new behaviour: THE ABSENT-SOURCE BRANCH.
+    # A paint row whose source file has gone is reported as such rather than passing quietly, because
+    # a verify that cannot re-read the art is not a verify of the art.
+    for t in b.enabled:
+        if not t.quantized:
+            continue
+        src = resolve_art_path(_spec_dir(b.spec_path), t.source_paint)
+        if not src.is_file():
+            lines.append(absent_paint_line(t.name, src))
+            ok = False
+            continue
+        # MEASURED, NEVER ASSERTED -- both halves.  (a) the count is taken in TEXEL space, because
+        # `t.changed` is a BYTE set and a 4bpp cell carries two texels per byte, so quoting it as
+        # "texels" is off by up to 2x on exactly the depth this lane spends most of its time in;
+        # (b) "differed from the staged container" is the verdict of the byte comparison at the top of
+        # this function, not a literal -- in a lane whose whole posture is measure-never-assert, a
+        # hard-coded 0 printed underneath a line that just said DIVERGES is the one asserted number.
+        st, nw = texel_view(t.page, t.stock), texel_view(t.page, t.new)
+        moved_texels = sum(1 for i in range(min(len(st), len(nw))) if st[i] != nw[i])
+        lines.append("VERIFY quantize    %s: re-quantized from %s; %d texel(s) / %d byte(s) differed "
+                     "from stock, and the staged container %s (%d exact / %d approximated, worst "
+                     "d^2 %d)"
+                     % (t.name, src.name, moved_texels, len(t.changed),
+                        "MATCHES this re-quantize byte for byte" if container_same is True
+                        else ("DIVERGES from it -- see the container line above"
+                              if container_same is False else "was not readable"),
+                        t.census.get("exact", 0), t.census.get("approximated", 0),
+                        t.census.get("worst_d2", 0)))
     return {"ok": ok, "root": str(root), "manifest": str(mf), "container": man.get("container"),
             "lines": lines}
 
@@ -3534,7 +5174,7 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
     """
     L = ["  THE DERIVED SCENERY PAGE-CELLS (W6b-1: keyed by WRITER and VRAM cell)"]
     try:
-        pages, refused = scenery_surface(blob, effect)
+        pages, refused = scenery_surface(blob, effect, channels=LICENSED_CHANNELS)
     except (RS.ReskinError, EC.ContainerError) as e:
         return L + ["    THE DERIVATION REFUSED: %s: %s" % (type(e).__name__, e)]
     klass, why = program_class(effect)
@@ -3543,9 +5183,10 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
         return L + ["    none -- this container declares no page rects and no id-9 alternate block"]
     for p in sorted(pages, key=lambda q: (q.vram, q.name)):
         hz = p.hazards
-        L.append("    %-22s %#08x..%#08x  %dx%d %2dbpp  VRAM %-11s %-22s %s"
+        L.append("    %-22s %#08x..%#08x  %dx%d %2dbpp[%-7s]  VRAM %-11s %-22s %s"
                  % (p.name, p.page_offset, p.page_offset + p.page_bytes, p.w, p.h, p.bpp,
-                    "(%d,%d)" % p.vram, p.palette_name or "(direct colour)",
+                    p.depth_source, "(%d,%d)" % p.vram,
+                    p.palette_name or ("(direct colour)" if p.direct else "(no declared palette)"),
                     ", ".join(hz.names) or "clean"))
     if refused:
         by: Dict[str, int] = {}
@@ -3553,6 +5194,36 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
             by[r.klass] = by.get(r.klass, 0) + 1
         L.append("    REFUSED %d cell(s): %s"
                  % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
+    return L + depth_attribution_lines(blob, effect, pages)
+
+
+def depth_attribution_lines(blob: bytes, effect: Optional[int],
+                            pages: Sequence[TexelPage]) -> List[str]:
+    """W6b-2's own disclosure block: WHICH CHANNEL spoke, and what the one channel-P cast found.
+
+    Printed for every container, including the ones where nothing spoke -- **a channel that is silent
+    here has to say so**, because "no line about channel P" and "channel P states nothing" are the
+    same output and only one of them is a measurement. 222 of the corpus's 372 containers declare no
+    model at all and are silent by construction; that is the STRUCTURAL CEILING, not a shortfall.
+    """
+    by_src: Dict[str, int] = {s: 0 for s in DEPTH_SOURCES}
+    for p in pages:
+        by_src[p.depth_source] = by_src.get(p.depth_source, 0) + 1
+    n4, n8 = clut_arity(blob)
+    hint = DA.clut_arity_hint(n4, n8)
+    prog = sorted(k for k in DA.PROGRAM_DEPTH if effect is not None and k[0] == int(effect))
+    dual = [k for k in prog if DA.PROGRAM_DEPTH[k].dual]
+    L = ["", "  THE DEPTH CHANNELS (W6b-2) -- %s" % DA.GRANULARITY_LAW,
+         "    depth source: so-uv %d (a reader's own UVs) . so-page %d (CHANNEL G, INHERITED from "
+         "the column -- LICENSED) . program %d (CHANNEL P, only behind `%s`)"
+         % (by_src["so-uv"], by_src["so-page"], by_src["program"], DA.ACK_KEY),
+         "    CHANNEL P here: %d cell(s) this container's own id-3 program registers a depth for, "
+         "%d of them at TWO depths (a REFUSAL, never a vote)" % (len(prog), len(dual)),
+         "    CHANNEL H here: nClut4 %d / nClut8 %d -> %s"
+         % (n4, n8, "no narrowing (the container ships both palette classes)" if hint is None
+            else ("4bpp or 15bpp" if hint == 4 else "8bpp or 15bpp") + " -- a NARROWING, not a depth"),
+         "    %s" % DA.REGISTRATION_CAVEAT,
+         "    %s" % DA.DEPTH_COROLLARY]
     return L
 
 
@@ -3608,7 +5279,9 @@ def describe(b: TexelBuild) -> List[str]:
                ("%d/%d sampled (%.1f%%)" % (t.cov.covered, t.cov.total,
                                             100.0 * t.cov.covered_fraction)
                 if t.cov and t.cov.available else "coverage UNAVAILABLE"))
-        L.append("    ON   %-12s <- %s  (%s, %dbpp)" % (t.name, t.source, t.page.kind, t.page.bpp))
+        L.append("    ON   %-12s <- %s  (%s, %dbpp%s)"
+                 % (t.name, t.art_source, t.page.kind, t.page.bpp,
+                    ", QUANTIZE lane -- indices written, 0 CLUT bytes" if t.quantized else ""))
         L.append("         %5d/%d bytes moved (%.2f%%) | live %d, unsampled %d | cutout punch %d "
                  "fill %d%s | distinct %d->%d | %s"
                  % (len(t.changed), t.page.page_bytes,
@@ -3616,6 +5289,8 @@ def describe(b: TexelBuild) -> List[str]:
                     t.dead_changed, t.cutout_punch, t.cutout_fill,
                     " (ACKNOWLEDGED)" if t.ack_cutout and t.cutout_flips else "",
                     t.distinct_stock, t.distinct_new, cov))
+        for line in census_lines(t.census):
+            L.append("         %s" % line)
         for line in t.hazard_notes:
             L.append("         hazard   : %s" % line)
         if t.texanim_note:

@@ -1,0 +1,63 @@
+# TIER W rung W6q-5 CAST B -- THE APPROXIMATION ON SCREEN.  The SAME bullseye at the SAME
+# coordinates as cast A (`bahamut_quantize.toml`, judged PASS on screen before this file was cast),
+# painted in colours the row CANNOT carry: the generator's authored saturated magenta and orange
+# (`w6q5_paint_stamp.py --foreign`), verified absent from the whole render before painting.
+#
+# WHAT THIS CAST ISOLATES (FINAL-DESIGN.md section 9.4 item 6, the plan's second half).  Cast A
+# proved the quantize path draws what the census promises when every hit is EXACT.  Cast B changes
+# exactly ONE variable -- representability -- so what reaches the screen is the nearest-entry
+# approximation itself: the census must be LOUD (981/981 approximated), the previews show what the
+# magenta and orange became on the spectral-mist row, and the owner judges whether that
+# approximation-at-speed is an acceptable authoring experience.  Error is a DISCLOSURE, never a
+# refusal (w6q G16b) -- this build is SUPPOSED to approximate, and says so.
+#
+# A and B are SEPARATE ARTIFACTS deliberately (the record's own composition rule): B replaces A in
+# the mod slot, the first-deploy snapshot (taken before A) still reverts to true stock, and the
+# A-vs-B screen diff is the approximation alone.
+#
+# Run order (after cast A's ladder; the base staging and the paint export are shared):
+#     py w6q5_paint_stamp.py --foreign                                     # writes the art
+#     py -m ff9mapkit summon-reskin build <this dir>\bahamut_quantize_b.toml
+#
+# WHAT `w6q5_paint_stamp.py --foreign` MEASURED (its own output, not a transcription):
+#   island        11,563 / 16,384 sampled (70.6%), centroid (63.8, 59.8), fully-sampled disc r = 25
+#   inks          rgb(255,0,255) and rgb(255,96,0) -- census 0 in the render, REFUSED if ever found
+#   painted       981 texels = outer ring 648 + middle ring 264 + centre dot 69; 981 differ
+
+[reskin]
+effect = 227
+label  = "bahamut-w6q5b-quantize-foreign"
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+
+# ==============================================================================================
+# COMPOSITION + ORTHOGONALITY -- identical to cast A: composed on W4's spectral-mist recolour,
+# disjointness proven per build.  The paint render was exported `--from` the staged base (the R9
+# predicate); the foreign inks are painted OVER that render, so the mapping row is still the one
+# the art was drawn against.
+[reskin.orthogonality]
+compose = true
+reskin  = "C:/gd/Dream-World-IX/.claude/worktrees/festive-cohen-c57fd8/studies/custom-summons/tier-w/bahamut_reskin.toml"
+rescore = "C:/gd/Dream-World-IX/.claude/worktrees/festive-cohen-c57fd8/studies/custom-summons/tier-w/bahamut_rescore.toml"
+
+
+# ==============================================================================================
+# THE TEXEL TARGET.  ONE page, part 0, same as cast A.  One change per in-game test -- and the one
+# change vs cast A is the ink.
+[[reskin.texel]]
+name = "tex.part0"
+source_paint = "C:/gd/SCRATCH/summon-format/quantize-w6q/cast5/art/tex.part0.cast5b.png"
+# THE LANE'S CONSENT KEY -- and this time it is doing its whole job: every painted texel IS
+# approximated, and this key is where the author says they know.
+acknowledge_quantize = true
+
+# --- the guards, emitted by the derivation (texel.scaffold.toml), never typed -----------------
+expect_page_offset = 0x04a1a0
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false
+palette_from = "creature.part0"
+note = "cast B: the same bullseye in foreign magenta/orange -- the approximation is the cast"

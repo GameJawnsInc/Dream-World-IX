@@ -1,0 +1,85 @@
+# TIER W rung W6q-5 CAST A -- THE QUANTIZE LANE'S FIRST SCREEN.  Stock Bahamut (ef227), part 0's
+# wing membrane, a BULLSEYE (two concentric rings + a centre dot -- deliberately NOT W6a's
+# ring-and-three-bars, so the screen names which lane drew) painted in RGBA and mapped onto the row
+# by `source_paint`, composed on W4's spectral-mist recolour.
+#
+# WHAT THIS CAST ISOLATES (FINAL-DESIGN.md section 9.4 item 6, the ratified two-cast plan).  W6a
+# proved a shape stamped in INDEX space reads on this exact page.  Cast A draws through the QUANTIZE
+# lane instead -- an ordinary RGBA painting -- but in colours the row already carries, sampled from
+# the paint render itself by `w6q5_paint_stamp.py`.  Every painted texel is therefore an EXACT-class
+# hit: the census must be quiet (0 moved-by-approximation), and the only variable left between the
+# `after` preview and the screen is the quantize step itself.  Cast B (a genuine colour shift) comes
+# after this one is judged, never composed with it.
+#
+# THE ART IS NOT IN THIS REPO, AND CANNOT BE (painted over a decoded stock render).  What ships is
+# the GENERATOR -- `w6q5_paint_stamp.py` -- which refuses unless the composition base hashes to the
+# W4 cast-proven artifact, re-derives the island through the kit's own `coverage()`, and samples
+# both inks from the render so they are row colours BY CONSTRUCTION.  Run order:
+#
+#     py -m ff9mapkit summon-reskin build  <this dir>\bahamut_reskin.toml           # stages the base
+#     py -m ff9mapkit summon-reskin export-art --ef 227 --art-lane paint \
+#           --from <staged ef227> --out C:\gd\SCRATCH\summon-format\quantize-w6q\cast5\art
+#     py w6q5_paint_stamp.py                                                        # writes the art
+#     py -m ff9mapkit summon-reskin build  <this dir>\bahamut_quantize.toml         # this file
+#
+# WHAT `w6q5_paint_stamp.py` MEASURED ON THE REAL CONTAINER (its own output, not a transcription):
+#   island        11,563 / 16,384 sampled (70.6%), centroid (63.8, 59.8), fully-sampled disc r = 25
+#                 -- the same island `emblem_stamp.py` measured for W6a, re-derived independently
+#   ink bright    the row's mist-green (census 22 inside the disc)
+#   ink dark      the row's near-black (census 20 inside the disc)
+#   painted       981 texels = outer ring 648 + middle ring 264 + centre dot 69; 976 differ from
+#                 the render (5 already carried an ink -- THE INCUMBENT LOCK: those move 0 bytes)
+#
+# THE HARD RULES ARE NOT CONFIGURABLE (`repaint.py`, each one a refusal): ALPHA IS THE CUTOUT and is
+# carried untouched; `acknowledge_quantize` is a LITERAL boolean or the row refuses; this lane
+# writes ZERO CLUT bytes; every byte outside the licensed page span is gated byte-identical under
+# the inverted region partition; and the no-op through this same lane is byte-EXACT (w6q G1,
+# 240/240 surfaces) -- so every byte this build moves is a byte the painting asked for.
+
+[reskin]
+effect = 227
+label  = "bahamut-w6q5a-quantize-bullseye"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not
+# data -- the same value `bahamut_reskin.toml` and `bahamut_emblem.toml` guard, deliberately.
+expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed167"
+
+
+# ==============================================================================================
+# COMPOSITION + ORTHOGONALITY -- the `bahamut_emblem.toml` pattern verbatim: `compose = true`
+# splices this build's page into `bahamut_reskin.toml`'s PATCHED bytes (the palette half keeps ONE
+# source of truth), and each named sibling is rebuilt from its own spec with the changed-offset
+# sets intersected -- the disjointness is PROVEN per build, never asserted here.  The paint render
+# was exported `--from` the staged base, so the art was drawn against the row it is mapped onto
+# (the R9 predicate).
+[reskin.orthogonality]
+compose = true
+reskin  = "C:/gd/Dream-World-IX/.claude/worktrees/festive-cohen-c57fd8/studies/custom-summons/tier-w/bahamut_reskin.toml"
+rescore = "C:/gd/Dream-World-IX/.claude/worktrees/festive-cohen-c57fd8/studies/custom-summons/tier-w/bahamut_rescore.toml"
+
+
+# ==============================================================================================
+# THE TEXEL TARGET.  ONE page, part 0 -- the same page and the same "why" as W6a (largest island,
+# most faces, zero interior holes, appears on BOTH wings so a single-wing render artefact cannot be
+# mistaken for the glyph).  One change per in-game test.
+[[reskin.texel]]
+name = "tex.part0"
+source_paint = "C:/gd/SCRATCH/summon-format/quantize-w6q/cast5/art/tex.part0.cast5a.png"
+# THE LANE'S CONSENT KEY: my colours are APPROXIMATED onto the row the container already carries.
+# For cast A the approximation must measure 0 (both inks are sampled row colours); the key is still
+# required, because the LANE is approximate even when this painting is not.
+acknowledge_quantize = true
+
+# --- the guards, emitted by the derivation (texel.scaffold.toml), never typed -----------------
+expect_page_offset = 0x04a1a0
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# LEFT FALSE ON PURPOSE: the glyph lives inside the fully-sampled disc, so it cannot touch the
+# cutout -- and if a future edit of the art DID move the silhouette, this build must stop.
+acknowledge_cutout_reshape = false
+# The page's palette is a HEADER FACT; naming it is a cross-reference the build CHECKS.  This lane
+# writes zero CLUT bytes either way -- the recoloured row's one source of truth stays the sibling.
+palette_from = "creature.part0"
+note = "cast A: bullseye (outer ring bright / middle ring dark / dot bright) on the wing membrane"

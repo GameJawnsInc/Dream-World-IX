@@ -554,12 +554,107 @@ not a comment.**
 > diffuse erosion; stripes read only because they are translation-invariant. A photographable
 > SHAPE verdict on scenery needs a flatter-UV surface (the pool, once its cell is named by one
 > more `--only`).
+> **Cast 1e (`--only cell.s0.x576_y256`, probe sha `dd9c0b39…`, root `ef211-cellprobe5`): THE
+> POOL IS (640,256), by elimination.** The pool stayed CLEAN under cell-5 stripes — cast 1c
+> bounded it to k ∈ {5, 7} and cast 1d cleared cell 6, so `cell.s0.x640_y256` is the only
+> candidate left (the positive confirm folds into the next cast on that cell). The stripes DID
+> band the intro's background flames — **(576,256) IS drawn**, a second on-screen surface for
+> the column-576 class-C complex (reader `0x33960` spans both halves; 1d put the lower half on
+> the emergence vortex). Controls held: dome and bird clean. New attribution ledger, in-game:
+> (704,384) = dome · (576,384) = emergence-vortex smoke · (576,256) = intro background flames ·
+> (640,256) = the ground pool (by elimination, confirm pending) · (704,256) = bound, never drawn.
+> **Cast 1f (THE POOL WHEELS, sha `cbcc9fde…`, `phoenix_field_cast3.toml` + `phoenix_pool_stamp.py`,
+> root `repaint-w6b\ef211-pool`): ⛳ PASS — the rings show on the pool, MANY more than three
+> (owner screenshot: the wheel repeats around the pool rim AND across the surrounding dark
+> veil), bird unchanged.** THE POOL IS (640,256), POSITIVELY: the wheels sit in the arc reader
+> (`0x2ed7c`)'s exclusive cover — and **THE PHOTOGRAPHABLE SHAPE VERDICT ON SCENERY IS YES**: a
+> drawn figure holds its shape on a flat-UV surface, at every instance. **THE MULTIPLICITY
+> COROLLARY the extra rings mint: the `so` record describes ONE wrap of the strip; the DRAW
+> repeats it** — stacked/rotated instances plus further surfaces sampling the same strip — so an
+> authored figure appears EVERYWHERE the strip is drawn. Scenery texel art is TEXTURE art, not
+> placard art; a binding bounds neither whether nor HOW MANY TIMES its cell is drawn
+> (BINDING-IS-NOT-A-DRAW's inverse). THE LAW THE UV WORK MINTS —
+> **the UV-SHREDDING BOUND is a property of a reader's UV MAP, measurable OFFLINE**:
+> rotation agreement R=0.75 / overlap ×1.18 / constant anisotropy (vs the shredder baseline
+> R=0.00 / overlap ×12–41) predicted legibility correctly, so the flatness metrics are the
+> SCREEN for choosing shape-bearing surfaces (`UV-ANALYSIS.md` in the pool root; (640,256)'s
+> OTHER reader `0x2d344` is a pure shredder — one cell, both extremes). Cast context: ran
+> POST-WIPE — another session's campaign deploy replaced `FF9CustomMap` at 10:05, taking the
+> cast-1e probe, W6a's ef227 brand, W7's ef038 magenta, the bench and Actions.csv; bench 30301
+> was redeployed (+relaunch) and the wheel deployed onto ABSENT, so its revert DELETES to stock.
+> En route the UV work caught a kit defect: `repaint._face_polys` fans GT4 quads in perimeter
+> order but scenery quads are Z-ORDERED (bowtie triangles; cover under-reported 700/4,032 on
+> `0x2ed7c`) — spun off as its own fix task; published cover counts may drift when it lands.
 > **What the ladder proved in-game**: the scenery byte→screen chain (stripes owner-visible + the
 > kit-built wheel measured at aligned cast-time), THE PER-CELL MAP (cell 6 is a lower half only
-> the new map can address) and THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), plus the
-> two minted laws (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND). Open: the pool's cell id; the
-> shape verdict on a flat surface. Revert chain: cast-2b ledger → cast-2 → (probe/punch/ink
-> snapshots in their SCRATCH roots) → stock.
+> the new map can address), THE 4bpp NIBBLE CODEC (cast 2/2b are 4bpp kit builds), THE SHAPE
+> VERDICT (cast 1f) and the offline UV-flatness screen, plus the two earlier minted laws
+> (BINDING-IS-NOT-A-DRAW; THE UV-SHREDDING BOUND, now with its offline instrument). Open: the
+> 15bpp cast — ef429 REFUSED with proof (below); next vehicle ef446 (Atomos, spill-gated).
+> **THE 15bpp VEHICLE — ef429 REFUSED WITH PROOF (3 probe casts + a 60fps video sweep).** Row 201
+> "Stock Octopus" minted (ef429 = Gigan Octopus's 6 Legs — an enemy attack, party-castable via the
+> bench clone row; the effect's three features: caster shell, connector tube, target swirl).
+> Cell-1 cover probe: stock-identical (owner A/B). Cell-2 two-stripe probe: NEGATIVE by
+> instrument — owner video, full cast window at native 60fps/1080p: the tube's ridge held median
+> 254 brightness with 0 dark runs in 70 beam frames against a simulated positive; the swirl's cut
+> fraction measured ~0.002 vs ~0.37 predicted if it sampled the cover; shell control clean
+> (evidence + per-frame data: `ef429-15bpp\video-only2\`). The CLOSING probe zeroed the ENTIRE
+> 32-line cover of (448,384) — stock-identical (owner) ⇒ **no 15bpp repaint on either lawful
+> ef429 cell can ever reach the screen.** BINDING-IS-NOT-A-DRAW at full strength: a shipping
+> effect uploads and binds both covers and draws neither (the visible tube/swirl/shell sample
+> other cells — the full-census cast banded the mottle complex, cells 5–8, which tile ONE
+> continuous texture across columns 576+640). Resting: the ef429 override DELETED (= stock); row
+> 201 stays on the bench; the probe snapshot chain lives in `ef429-15bpp\`.
+> **THE ef446 LADDER (same day, 4 casts): the vehicle IS drawn — and it minted THE DEPTH
+> COROLLARY.** Census probe: "lots of bands" (meteor/nucleus, bowshock, aura, background). The
+> full-cover zero of (448,256) banded the NUCLEUS vertically (the zeroed left half of the 112-wide
+> picture recurring per texture wrap) ⇒ the picture is drawn. CAST B (`3d81f9fc…`: three 15bpp
+> cyan `0x7FE0` bands, full 112-texel width, `acknowledge_spill` on both writer rows): the bands
+> rendered — right cells, right count, and **seamless across the u=64 cell seam ⇒ THE
+> NAME-EVERY-COLUMN SPILL MECHANISM IS CAST-PROVEN in-game** — but as JITTERY SALMON/ORANGE, not
+> cyan. The offline decode nails the mechanism: an 8bpp read of the `0x7FE0` byte pair alternates
+> CLUT entries 224/127, and `pal.s0.x0_y247`'s e224 = (200,80,56) / e127 = (152,64,32) match the
+> on-screen tones exactly. **THE DEPTH COROLLARY (new law): a census depth is a BINDING fact, not
+> a DRAW fact** — the `so` record's 15bpp binds its own (evidently undrawn) model, while the
+> surface that draws the nucleus reads the same bytes at 8bpp under the warm CLUT; the fine
+> two-tone checker is the corollary's diagnostic signature. ~~The invisible drawn binding is most
+> plausibly an id-2 archive model (the W4-recon scenery class) — sweeping id-2 model records for
+> tpage/clut is the named future attribution channel.~~ ⛳ **CORRECTED BY W6b-3, wrong on both
+> halves (`W6b3-ARCHIVE.md` §3): the census walker already descends into id-2, and the sweep found
+> ef446's column 448 carries ZERO invisible bindings — every model in the container is now
+> enumerated and none reads it at 8bpp. Whatever draws the nucleus is NOT a GEOM model in ef446 at
+> all** (the surviving candidates: the id-3 program's own primitives, or another container's
+> surface). VERDICT SPLIT, honestly: the 15bpp WRITE
+> path is proven byte→VRAM→screen, and the spill gate is proven; the 15bpp READ proof still needs
+> a surface DRAWN at 15bpp — the honest source is W6b-2's PROGRAM channel (55 non-creature
+> prog-15bpp cells; registration-side beats binding-side). NEXT VEHICLE: **ef251 (Madeen) column
+> x512 — prog 15bpp, tpage 312, one c1 site, and bench row 199 is ALREADY LIVE ⇒ a hot ladder**;
+> runner-up ef184 (Atomos Full) column x768. Resting: the ef446 override DELETED (stock — Atomos
+> short is a real stock summon path); rows 201/202 stay; artifacts + video evidence in
+> `ef429-15bpp\` and `ef446-15bpp\`.
+> **THE ef251 (Madeen) LADDER — the PROGRAM channel's depth REFUTED in-game; THE 15bpp READ
+> PROOF IS PARKED.** Census probe (22 records, striped PER-WRITER — the multi-chunk first): the
+> 60fps sweep attributed the drawn surfaces to x576–x832 (tunnel shards, debris, boulder fields;
+> creature/beams/sphere clean) with one polarity residual; the x512-family-only probe (k 5/6/7/8
+> striped, 18 controls clean — the polarity-free confirm the multi-cell `--only` was built for)
+> banded THE PSYCHEDELIC GROUND: **x512 IS drawn**. CAST 15 — three solid `0x7FFF` white bands
+> into all four x512 writer records, the SELF-DIAGNOSING artifact (flat white ⇔ 15bpp read ·
+> 2-cycle checker ⇔ 8bpp · 4-cycle micro-pattern ⇔ 4bpp) — read as a **"BUMPER STRIP"**: fine
+> ridged micro-stripes, the 4-cycle signature (`FF 7F` unpacks low-nibble-first to 15,15,15,7;
+> ef251's bright 4bpp rows put e15 near-white over a mid-tone e7 — matches), decisively NOT flat
+> white. **REGISTRATION-IS-NOT-A-DRAW, CONFIRMED WITH TEETH: tpage 312's depth bits say 15bpp
+> and the surface that draws reads INDEXED — channel P's LICENSE upgrade path FAILED its first
+> trigger cast, and the record's DISCLOSE posture is vindicated by its own test.** THE
+> GHOST-LAYER OBSERVATION (3 vehicles, 6 verdict casts): every 15bpp-attributed scenery cell
+> probed so far is either bound-never-drawn (ef429 ×2 covers) or drawn at another depth (ef446
+> at 8bpp, ef251 indexed) — 15bpp attributions may systematically name a processed-not-drawn
+> layer. **THE 15bpp LANE RESTS: the WRITE path is cast-proven (ef446, seam-crossing bands),
+> the codec offline-exhaustive; the READ proof is PARKED with this evidence table** (ef184
+> x768 is the only listed vehicle left if it is ever re-opened). Resting: the ef251 override
+> DELETED (stock — Madeen is a live stock summon); probe/cast chain + palette decode in
+> `ef251-15bpp\`. Revert chain: pool-wheel ledger
+> (`ef211-pool`, pre = ABSENT post-wipe → revert deletes to stock); the pre-wipe chain
+> (cast-2b → cast-2 → probes) survives in its SCRATCH roots but no longer reflects the install.
 
 ## 5.1 The vehicle — ef211 (Phoenix), cell `(704, 256)`, the fire field
 
