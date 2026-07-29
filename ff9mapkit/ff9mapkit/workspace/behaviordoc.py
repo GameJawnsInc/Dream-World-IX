@@ -645,8 +645,9 @@ class StageCanvas(QGraphicsView):
                 ln.setData(0, "jam")
                 self._marker(j["mid"][0], j["mid"][1], pal["error"], hollow=True, r=5,
                              tag="jam")
-                self._label(f"✕ off-mesh ~{j['span']:.0f}u", j["mid"][0], j["mid"][1],
-                            color=pal["error"], dy=-20)
+                self._label("✕ floor break (no seam)" if j.get("kind") == "floor"
+                            else f"✕ off-mesh ~{j['span']:.0f}u",
+                            j["mid"][0], j["mid"][1], color=pal["error"], dy=-20)
             for hg in v.hugs:
                 (ax, az), (bx, bz) = hg["a"], hg["b"]
                 p0, p1 = self._pt(ax, az), self._pt(bx, bz)
