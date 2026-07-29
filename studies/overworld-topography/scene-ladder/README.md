@@ -108,3 +108,26 @@ diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall)
 ARRIVAL scene (the ship sails in as the player lands at a quay), or a watch-from-shore
 vignette. Stock separate-world scenes (a custom EventDB world id) stay a fallback if
 in-9011 proves cramped.
+
+## Rung 2 — THE DEPARTURE ★ 2a+2b CLOSED (2026-07-28, owner: "it works")
+
+The ferry is a voyage. **2a** (`rung2a_departure.py`, three rounds): the pending-port code in
+`Global.Byte[1872]` (`flags.FERRY_DEPART_BYTE`, the kit-world-flags band) auto-fires the
+sail-away on world entry — player mesh-hidden (aboard), the 1c scene sails OUT only and the
+ship rides THROUGH the closing fade (leg split around the FadeFilter — the blocking-walk
+idiom), then behind black: re-moor, rig disposal, the anchor's per-port tags 61-64 snap the
+player to the chosen shore at its PROBED ground height (round 1 buried the player: a wrong
+scripted y is not rescued by the ground snap), unhide, reveal. The code pre-clears — no save
+can replay-loop. **2b** (`dc1263bd`): the kit ferry lane's departure arms (`depart_code` +
+`stage_arrive`, lint-guarded, FORMAT.md) — the hall's Tidefall/Grimhorn/Larkspur write codes
+2/3/4 and stage at the Lantern Quay; Ashvale stays the plain home-port arm.
+
+**Known cosmetic seam (owner-observed, disposition open):** after the hall→world transition
+there is ~1s of standing at the Ashvale shore before the scene takes over (the engine's own
+world-entry fade-in plays before the director's first fade can own the screen, and the two
+fade systems meeting can read as a snap). Options if it ever bothers: a fast 8-frame dip on
+the departure branch's opening fade, or waiting out the entry fade before starting ours.
+
+**The ladder's arc complete: rungs 0 → 2b in one day** — a decorative static became a rig-
+tracked, phase-coordinated, fade-bracketed cinematic voyage wired into shipped ring UX, on
+two engine fixes (s66/s68), one instrument (s67, still live), and ten in-game-earned laws.
