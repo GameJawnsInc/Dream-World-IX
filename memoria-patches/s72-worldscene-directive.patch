@@ -1,0 +1,45 @@
+diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+--- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
++++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+@@ -527,6 +527,41 @@
+                     //  [Optional] Assets/Resources/CommonAsset/MapConfigData/EVT_{entry[4]}.bytes
+                     //  [Optional] Assets/Resources/CommonAsset/VibrationData/EVT_{entry[4]}.bytes
+                 }
++                else if (String.Equals(entry[0], "WorldScene") && entry.Length >= 3)
++                {
++                    // eg.: WorldScene 9013 WORLD13
++                    // eg.: WorldScene 9013 WORLD13 68        (explicit message-file id; 68 is the default)
++                    //
++                    // [ff9mapkit s72] DWIX PATH D: register a genuinely NEW overworld world-state dispatcher --
++                    // the FieldScene/BattleScene sibling for the world lane. The 13 stock states are seeded as
++                    // EventDB[9000..9012] = "EVT_WORLD_WORLD00".."WORLD12" (FF9DBAll.Events.cs). The engine
++                    // reaches a world state through TWO unguarded dictionary indexers, and BOTH must be
++                    // satisfied or a new id throws KeyNotFoundException:
++                    //   1. ff9InitStateWorldMap     -> FF9DBAll.EventDB[MapNo]             (the dispatcher's .eb)
++                    //   2. ff9ShutdownStateFieldMap -> EventEngineUtils.eventIDToMESID[..] (a field EXITING to the
++                    //      world map -- fires while still in the old field, before the world scene even loads)
++                    // Every stock world id maps to mesID 68, the shared world text block, so 68 is the default
++                    // here; reusing it deliberately avoids minting a new message-file id, which would shadow
++                    // some real location's dialogue (the project's standing text-block trap).
++                    //
++                    // Ship the dispatcher's bytes as a loose file, exactly like the field lane:
++                    //  StreamingAssets/Assets/Resources/CommonAsset/EventEngine/EventBinary/World/{Lang}/EVT_WORLD_{entry[2]}.eb.bytes
++                    if (FF9DBAll.EventDB == null || EventEngineUtils.eventIDToMESID == null)
++                        continue;
++                    Int32 worldID, worldMesID = 68;
++                    if (!Int32.TryParse(entry[1], out worldID))
++                        continue;
++                    if (entry.Length >= 4 && !Int32.TryParse(entry[3], out worldMesID))
++                        continue;
++                    if (!FF9DBAll.MesDB.ContainsKey(worldMesID))
++                    {
++                        Log.Message("[DataPatchers] Trying to use the invalid message file ID " + worldMesID + " for the world scene " + entry[2] + " (" + worldID + ")");
++                        continue;
++                    }
++                    FF9DBAll.EventDB[worldID] = "EVT_WORLD_" + entry[2];
++                    EventEngineUtils.eventIDToMESID[worldID] = worldMesID;
++                    Log.Message("[PathD s72] WorldScene " + worldID + " -> EVT_WORLD_" + entry[2] + " (mes " + worldMesID + ")");
++                }
+                 else if (String.Equals(entry[0], "BattleScene") && entry.Length >= 4)
+                 {
+                     // eg.: BattleScene 5000 CUSTOM_BATTLE BBG_B065
