@@ -363,6 +363,104 @@ def test_world_to_click_refuses_behind_camera():
         IF.world_to_click(cam, (0.0, cz - 5000.0))
 
 
+# ---------------------------------------------------------------- Rung 3: the walkmesh raycast
+
+def _bary(a, b, c, u, v):
+    w = 1.0 - u - v
+    return tuple(a[i] * w + b[i] * u + c[i] * v for i in range(3))
+
+
+def test_click_ray_agrees_with_the_plane_inverse():
+    """One owner: intersecting click_ray with y=0 must equal unproject_floor exactly — on a
+    REAL-style camera (nonzero centerOffset), the class the fold bug lived in."""
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0, center_offset=(26, 400),
+                            range_wh=(512, 400))
+    for pt in ((60.0, 320.0), (250.0, 380.0), (480.0, 305.0)):   # horizon here is y~296
+        (X, Z), = IF.unproject_floor(cam, [pt])
+        C0, ray = IF.click_ray(cam, pt)
+        s = -C0[1] / ray[1]
+        assert math.hypot((C0[0] + s * ray[0]) - X, (C0[2] + s * ray[2]) - Z) < 1e-9
+
+
+def test_click_to_surface_recovers_sloped_points():
+    """The plane model's blind spot IS this function's home turf: interior points of a RAMP
+    triangle recover exactly through project -> raycast."""
+    cam = _cam()
+    ramp = ((-500.0, 0.0, 800.0), (500.0, 0.0, 800.0), (0.0, 400.0, 1600.0))
+    for (u, v) in ((0.2, 0.3), (0.5, 0.2), (0.1, 0.7), (0.33, 0.33)):
+        p = _bary(*ramp, u, v)
+        got = IF.click_to_surface(cam, [ramp], C.to_canvas(p, cam))
+        assert math.dist(got["pos"], p) < 1e-6
+        assert got["tri"] == 0 and len(got["hits"]) == 1
+
+
+def test_click_to_surface_stacked_floors_nearest_first():
+    """A bridge over a floor: both hits reported nearest-first, the VISIBLE (upper) one wins —
+    you click what you see; the rest is the caller's disambiguation list."""
+    cam = _cam()
+    lower = ((-2000.0, 0.0, 400.0), (2000.0, 0.0, 400.0), (0.0, 0.0, 6000.0))
+    upper = ((-400.0, 500.0, 1200.0), (400.0, 500.0, 1200.0), (0.0, 500.0, 2000.0))
+    p_up = _bary(*upper, 0.3, 0.3)
+    got = IF.click_to_surface(cam, [lower, upper], C.to_canvas(p_up, cam))
+    assert len(got["hits"]) == 2
+    assert got["tri"] == 1 and math.dist(got["pos"], p_up) < 1e-6
+    assert got["hits"][0][0] < got["hits"][1][0]   # sorted by ray distance
+    assert got["hits"][1][1] == 0                  # the buried floor is the second hit
+
+
+def test_click_to_surface_no_mesh_refuses():
+    cam = _cam()
+    off = ((5000.0, 0.0, 800.0), (6000.0, 0.0, 800.0), (5500.0, 0.0, 1600.0))
+    with pytest.raises(IF.ImageFieldError, match="no walkmesh under the click"):
+        IF.click_to_surface(cam, [off], (192.0, 300.0))
+
+
+def test_click_to_surface_ignores_behind_camera():
+    """A triangle behind the camera never answers for a pixel (s > 0 only)."""
+    cam = _cam()
+    cz = C.decompose(cam)["C"][2]
+    behind = ((-500.0, 0.0, cz - 4000.0), (500.0, 0.0, cz - 4000.0), (0.0, 0.0, cz - 6000.0))
+    with pytest.raises(IF.ImageFieldError, match="no walkmesh"):
+        IF.click_to_surface(cam, [behind], (192.0, 300.0))
+
+
+def test_world_point_to_click_roundtrips_mesh_points():
+    cam = _cam()
+    p = (120.0, 350.0, 1400.0)
+    cx, cy = IF.world_point_to_click(cam, p)
+    got = IF.click_to_surface(
+        cam, [((0.0, 350.0, 1000.0), (300.0, 350.0, 1200.0), (100.0, 350.0, 1800.0))], (cx, cy))
+    assert math.dist(got["pos"], p) < 1e-6
+
+
+def test_mesh_world_tris_maps_floors():
+    """The adapter: world frame = vert + orgPos + floor.org (the import-frame law), one floor
+    index per triangle — duck-typed, mirroring BgiWalkmesh's own world_verts contract."""
+    class _V:
+        def __init__(self, x, y, z):
+            self.x, self.y, self.z = x, y, z
+
+    class _T:
+        def __init__(self, *vtx):
+            self.vtx = list(vtx)
+
+    class _F:
+        def __init__(self, tris):
+            self.tri_ndx_list = tris
+
+    class _Mesh:
+        floors = [_F([0]), _F([1])]
+        tris = [_T(0, 1, 2), _T(3, 4, 5)]
+
+        def world_verts(self):
+            return [(0, 0, 0), (10, 0, 0), (0, 0, 10),
+                    (0, 5, 0), (10, 5, 0), (0, 5, 10)]
+
+    tris, floors = IF.mesh_world_tris(_Mesh())
+    assert floors == [0, 1]
+    assert tris[1][0] == (0, 5, 0)
+
+
 # ---------------------------------------------------------------- the floor tracer (--trace)
 
 def test_write_trace_html(tmp_path):
