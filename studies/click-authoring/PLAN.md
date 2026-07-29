@@ -138,6 +138,12 @@ Pinned: 2 canvas + 6 host tests (the proven (230,320)→1073 exact; the guard me
 re-judge; the argv via `parse_foreground_spec`; unified undo); `gui_snap trace:contacts` read.
 **Playtest:** trace a photo with a real occluder (a pillar/doorframe), mark its base, attach the
 cut-out, generate, deploy — walk in front (actor on top) and behind (occluded).
+**First playtest 2026-07-29 — the MECHANISM works** (the layer deploys + occludes the actor at the
+anchored depth), and it caught THE FRAME LESSON: a 531x473 object SNIP attached over a 1536x1792
+photo cover-crops to FILL the screen (a giant dog) — the cut-out must share the PHOTO'S OWN frame
+(erase everything but the object on a copy of the photo; equal aspect = aligned, that is the whole
+rule). The tab now warns at attach on an aspect mismatch (advisory — an equal-aspect vignette is
+legit) with the re-export teach; the flip-line read awaits a properly-framed cut-out.
 
 ### ★ Rung 3 — placement on ANY field (the payoff) — ★ CLOSED, PLAYTEST-CONFIRMED 2026-07-29
 Load an existing `field.toml` + its background + **its own camera**, and click to place NPCs, props,
