@@ -359,6 +359,22 @@ def test_floor_y_at_stays_importable_from_placedoc():
     assert P.floor_y_at is IF.floor_y_at                   # the moved owner, aliased
 
 
+def test_place_retarget_routes_by_row(app, monkeypatch):
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 0,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d.tools.set_current("regions")
+    assert d.canvas._regions[0]["warn"] and "NO TARGET" in d.canvas._regions[0]["warn"]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)
+    d._on_region_retarget(0)
+    assert data["gateway"][0]["to"] == 301 and len(calls) == 1
+    assert d.canvas._regions[0]["warn"] is None            # the warn clears with the fix
+
+
 @pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""

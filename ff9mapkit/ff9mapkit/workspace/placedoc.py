@@ -117,6 +117,14 @@ def place_event(data: dict, quad) -> str:
     return f"draw event {nm}"
 
 
+def set_gateway_target(data: dict, index, to) -> str:
+    """Retarget a drawn door (the canvas menu's Set gateway target — the 'to field' box only
+    feeds NEW draws, the in-game lesson of the Field(0) black screen)."""
+    gw = data.get("gateway", [])[index]
+    gw["to"] = int(to)
+    return f"retarget {gw.get('name') or 'gateway'} -> {int(to)}"
+
+
 def move_zone(data: dict, kind, index, quad) -> str:
     """Rewrite one row's zone from a canvas gesture (corner drag / whole-quad drag /
     walk-out rotate). Writes exactly the corners the canvas holds — a doubled 5th point
@@ -165,9 +173,15 @@ def region_rows(data: dict) -> list:
         overlaps.setdefault((ka[0], ka[1]), []).append(kb[2])
         overlaps.setdefault((kb[0], kb[1]), []).append(ka[2])
     for r in rows:
-        warns = [f"overlaps {other} — the engine fires ONE tread region per frame, the "
-                 f"later-armed one silently starves" for other in
-                 overlaps.get((r["kind"], r["index"]), [])]
+        warns = []
+        if r["kind"] == "gateway":
+            to = (data.get("gateway", []) or [])[r["index"]].get("to")
+            if isinstance(to, bool) or (isinstance(to, int) and to <= 0) or to is None:
+                warns.append("NO TARGET — this door compiles to Field(0), a guaranteed black "
+                             "screen; right-click it → Set gateway target")
+        warns += [f"overlaps {other} — the engine fires ONE tread region per frame, the "
+                  f"later-armed one silently starves" for other in
+                  overlaps.get((r["kind"], r["index"]), [])]
         audit = imagefield.zone_fan_audit(r["quad"])
         if audit["gap"] > 0.02:
             warns.append(f"dead zone ~{audit['gap']:.0%} — part of the drawn area never fires")
@@ -387,6 +401,7 @@ class PlaceDoc(QWidget):
         self.canvas.region_drawn.connect(self._on_region_drawn)
         self.canvas.region_changed.connect(self._on_region_changed)
         self.canvas.region_deleted.connect(self._on_region_deleted)
+        self.canvas.region_retarget.connect(self._on_region_retarget)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
 
@@ -606,6 +621,36 @@ class PlaceDoc(QWidget):
             self.on_edit(self._member, label)
         self._refresh_regions()
         self._refresh(label)
+
+    def _on_region_retarget(self, i):
+        if self._data is None or not 0 <= i < len(self._region_rows_cache):
+            return
+        r = self._region_rows_cache[i]
+        if r["kind"] != "gateway":
+            return
+        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to") or 0
+        to = self._ask_field_id(cur)
+        if to is None:
+            return
+        label = set_gateway_target(self._data, r["index"], to)
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(label)
+
+    def _ask_field_id(self, current):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setInputMode(QInputDialog.InputMode.IntInput)
+        dlg.setIntRange(1, 32767)
+        dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
+        dlg.setWindowTitle("Gateway target")
+        dlg.setLabelText("Destination field id (a stock field or one of yours —\n"
+                         "reference/field-manifest.tsv names the stock ones):")
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.intValue()
 
     def _sync_modes(self):
         """Placement affordances match what the BUILD will honour: a verbatim fork runs the

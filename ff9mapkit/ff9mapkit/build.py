@@ -1356,6 +1356,11 @@ def validate(project: FieldProject) -> list[str]:
         elif isinstance(gw["to"], str) and gw["to"].strip().lower() != "worldmap":
             problems.append(f"[[gateway]] to = {gw['to']!r} -- a field id (int) or the string "
                             f"\"worldmap\" (the walk-out world-map exit).")
+        elif isinstance(gw["to"], bool) or (isinstance(gw["to"], int) and gw["to"] <= 0):
+            problems.append(f"[[gateway]] to = {gw['to']!r} is not a field id -- Field(0)/negative "
+                            f"never resolves, so walking into this door BLACK-SCREEN softlocks the "
+                            f"game (in-game 2026-07-29). Set the real destination id "
+                            f"(reference/field-manifest.tsv names the stock fields).")
         if str(gw.get("to")).strip().lower() == "worldmap":
             rk = gw.get("region_key", 62)
             if not isinstance(rk, int) or isinstance(rk, bool) or not (1 <= rk <= 255):

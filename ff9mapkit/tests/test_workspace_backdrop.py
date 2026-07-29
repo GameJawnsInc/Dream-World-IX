@@ -655,12 +655,17 @@ def test_region_menu_rotates_the_walkout_edge_and_deletes(app, monkeypatch):
 
     monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
     c, _, changed, deleted, _ = _region_canvas(app)
+    retargeted = []
+    c.region_retarget.connect(retargeted.append)
     c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
                     "warn": None}])
-    _FakeMenu.pick = 0                                    # the rotate action (gateways lead)
+    _FakeMenu.pick = 0                                    # gateways lead with Set target…
+    c._region_menu(0, QPoint(0, 0))
+    assert retargeted == [0]                              # the host asks + writes (Field(0) lesson)
+    _FakeMenu.pick = 1                                    # then the walk-out rotate
     c._region_menu(0, QPoint(0, 0))
     assert changed == [(0, _GW_QUAD[1:] + _GW_QUAD[:1])]  # order rotated, geometry identical
-    _FakeMenu.pick = 1
+    _FakeMenu.pick = 2
     c._region_menu(0, QPoint(0, 0))
     assert deleted == [0]
 

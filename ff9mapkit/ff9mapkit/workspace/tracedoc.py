@@ -225,6 +225,7 @@ class TraceDoc(QWidget):
         self.canvas.region_drawn.connect(self._on_region_drawn)
         self.canvas.region_changed.connect(self._on_region_changed)
         self.canvas.region_deleted.connect(self._on_region_deleted)
+        self.canvas.region_retarget.connect(self._on_region_retarget)
         root.addWidget(self.canvas, 1)
         self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
@@ -329,8 +330,11 @@ class TraceDoc(QWidget):
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
         _shim, _back, rg_bad = self._region_shim()
+        rg_untargeted = sum(1 for r in self._regions
+                            if r["kind"] == "gateway" and not r.get("to"))
         ready = (self._image is not None and good >= 3 and bad == 0
-                 and fg_invalid == 0 and fg_unattached == 0 and rg_bad == 0)
+                 and fg_invalid == 0 and fg_unattached == 0 and rg_bad == 0
+                 and rg_untargeted == 0)
         self.gen_btn.setEnabled(ready)
         self.gen_btn.setText(f"Regenerate {self._project['name']} — in place"
                              if self._project else "Generate field project…")
@@ -343,6 +347,9 @@ class TraceDoc(QWidget):
         elif fg_invalid or fg_unattached:
             tip = ("Every cut-out needs a valid floor contact (below the horizon, below the base "
                    "layer) and an attached PNG — fix or Remove the flagged ones.")
+        elif rg_untargeted:
+            tip = ("A drawn door has NO target field — it would compile to Field(0), a "
+                   "guaranteed black screen. Right-click the quad → Set gateway target.")
         elif rg_bad:
             tip = ("A region has a corner above the horizon at this pitch — reshape or delete "
                    "it (right-click the quad).")
@@ -372,6 +379,9 @@ class TraceDoc(QWidget):
                 if self._regions:
                     note += f" · {len(self._regions)} region{'' if len(self._regions) == 1 else 's'}"
                     warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
+                    if rg_untargeted:
+                        note += (f" · ⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
+                                 f"without a target (right-click → Set gateway target)")
                     if warned:
                         note += f" · ⚠ {warned} with law warnings"
                     if rg_bad:
@@ -657,6 +667,36 @@ class TraceDoc(QWidget):
         del self._regions[self._region_back[i]]
         self._refresh_regions()
         self._refresh("region deleted")
+
+    def _on_region_retarget(self, i):
+        """Retarget a drawn door in place (the Field(0) black-screen lesson: the 'to field' box
+        feeds NEW draws only, so an already-drawn door needs its own edit path)."""
+        if not 0 <= i < len(getattr(self, "_region_back", [])):
+            return
+        r = self._regions[self._region_back[i]]
+        if r["kind"] != "gateway":
+            return
+        to = self._ask_field_id(r.get("to") or 0)
+        if to is None:
+            return
+        self._push_history()
+        r["to"] = int(to)
+        self._refresh_regions()
+        self._refresh(f"door retargeted -> field {int(to)}")
+
+    def _ask_field_id(self, current):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setInputMode(QInputDialog.InputMode.IntInput)
+        dlg.setIntRange(1, 32767)
+        dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
+        dlg.setWindowTitle("Gateway target")
+        dlg.setLabelText("Destination field id (a stock field or one of yours —\n"
+                         "reference/field-manifest.tsv names the stock ones):")
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.intValue()
 
     # ------------------------------------------------------------------ rung 2: cut-out contacts
 
