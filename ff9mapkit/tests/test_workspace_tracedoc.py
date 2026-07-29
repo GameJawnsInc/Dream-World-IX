@@ -652,3 +652,31 @@ def test_open_field_toml_backfills_regions(app, tmp_path, monkeypatch):
     assert doc._regions[1]["message"] == "hi"
     gx, gy = doc._regions[0]["quad"][0]
     assert abs(gx - 60.0) < 1.0 and abs(gy - 300.0) < 1.0  # world ints -> sub-px inversion
+
+
+def test_a_targetless_door_gates_generate_until_retargeted(app, tmp_path, monkeypatch):
+    """The Field(0) black-screen playtest lesson: a door drawn before the 'to field' box was
+    set (it feeds NEW draws only) blocks Generate until the quad's own menu retargets it."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, run = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    assert doc.gw_to.value() == 0                          # the box starts unset
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
+    assert "set its target field id" in doc.status.text()  # the immediate draw note teaches
+    doc._refresh()
+    assert "without a target" in doc.status.text()         # …and the standing count persists
+    assert not doc.gen_btn.isEnabled()                     # the softlock never ships
+    assert doc.canvas._regions[0]["warn"] and "NO TARGET" in doc.canvas._regions[0]["warn"]
+    monkeypatch.setattr(doc, "_ask_field_id", lambda cur: 301)
+    doc._on_region_retarget(0)                             # the quad menu's Set gateway target
+    assert doc._regions[0]["to"] == 301
+    assert doc.gen_btn.isEnabled()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--gateway") + 1].startswith("301@")
+    doc.on_undo()                                          # the retarget is a normal gesture
+    assert doc._regions[0]["to"] == 0

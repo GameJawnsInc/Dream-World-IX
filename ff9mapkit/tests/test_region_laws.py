@@ -146,3 +146,43 @@ def test_region_spec_parse_refusals():
         IF.parse_event_spec("@1,2;3,4;5,6;7,8")       # an empty message is a mistake, refused
     ev = IF.parse_event_spec("watch @ the ledge@1,2;3,4;5,6;7,8")
     assert ev["message"] == "watch @ the ledge"       # the LAST @ splits
+
+
+# ------------------------------------------------------------------- the Field(0) softlock
+def test_validate_refuses_a_targetless_door(tmp_path):
+    """to = 0 compiled to Field(0) and BLACK-SCREEN softlocked the 2026-07-29 playtest — now a
+    build-blocking error, not a warp into nothing."""
+    from ff9mapkit.build import FieldProject, validate
+    toml = tmp_path / "door0.field.toml"
+
+    def _problems(to_line):
+        toml.write_text('[field]\nname = "D0"\nid = 30095\narea = 10\n\n'
+                        f'[[gateway]]\n{to_line}entrance = 0\n'
+                        'zone = [[50, 50], [150, 50], [150, 150], [50, 150]]\n',
+                        encoding="utf-8")
+        return validate(FieldProject.load(toml))
+
+    assert any("BLACK-SCREEN" in p for p in _problems("to = 0\n"))
+    assert any("BLACK-SCREEN" in p for p in _problems("to = -5\n"))
+    assert any("needs a 'to'" in p for p in _problems(""))
+    ok = _problems("to = 301\n")                           # a real target passes this check
+    assert not any("BLACK-SCREEN" in p or "needs a 'to'" in p for p in ok)
+
+
+def test_region_rows_flag_a_targetless_door():
+    from ff9mapkit.workspace import placedoc as P
+    data = {"gateway": [{"name": "door0", "to": 0,
+                         "zone": [[0, 0], [100, 0], [100, 100], [0, 100]]}]}
+    (row,) = P.region_rows(data)
+    assert row["warn"] and "NO TARGET" in row["warn"] and "black" in row["warn"].lower()
+    data["gateway"][0]["to"] = 301
+    (row,) = P.region_rows(data)
+    assert row["warn"] is None
+
+
+def test_set_gateway_target_op():
+    from ff9mapkit.workspace import placedoc as P
+    data = {"gateway": [{"name": "door0", "to": 0,
+                         "zone": [[0, 0], [100, 0], [100, 100], [0, 100]]}]}
+    label = P.set_gateway_target(data, 0, 301)
+    assert data["gateway"][0]["to"] == 301 and "301" in label and "door0" in label

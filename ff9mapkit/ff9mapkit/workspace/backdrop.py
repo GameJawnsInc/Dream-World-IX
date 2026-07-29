@@ -63,6 +63,7 @@ class BackdropCanvas(QGraphicsView):
     region_drawn = Signal(object)            # rung 4: a 4-corner quad completed — [(x, z)] * 4
     region_changed = Signal(int, object)     # a region gesture ended: (index, its new [(x, z)] quad)
     region_deleted = Signal(int)             # the region menu's delete — the host owns the doc op
+    region_retarget = Signal(int)            # "Set gateway target…" — the host asks + writes
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -773,14 +774,17 @@ class BackdropCanvas(QGraphicsView):
         if r is None:
             return
         menu = QMenu(self)
-        rot = None
+        tgt = rot = None
         if r.get("kind") == "gateway":
+            tgt = menu.addAction("Set gateway target…")
             rot = menu.addAction("Walk-out edge → next edge (rotate corners)")
         rm = menu.addAction(f"Delete {r.get('label') or f'region {i}'}")
         act = menu.exec(global_pos)
         if act is None:
             return
-        if act is rot:
+        if act is tgt:
+            self.region_retarget.emit(i)
+        elif act is rot:
             q = [tuple(p) for p in r["quad"]]
             self.region_changed.emit(i, q[1:] + q[:1])
         elif act is rm:
