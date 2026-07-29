@@ -152,9 +152,15 @@ handle/grip squares, worlddoc's plate pills); `_kids` keeps wrappers alive as a 
 (2) Tests must assert through RETAINED wrappers, never fresh `scene.items()` retrievals — a
 retrieval-wrapper + `cursor()` pattern flaked ~1-in-3 under pytest's forced GC on Python 3.14 /
 PySide6 6.11.1 even after (1), and neither deterministic deleteLater, widget parking, nor
-`gc.freeze` cured it; the retained-wrapper rewrite made 8/8 combo runs deterministic (a
-shiboken suspicion — minimal-repro chip filed). (3) `tests/conftest.py qt_drain` parks each
-GUI test's widgets (opt-in per module; never where a module fixture caches one).
+`gc.freeze` cured it; the retained-wrapper rewrite made 8/8 combo runs deterministic.
+**★ ROOT-CAUSED (pure-PySide6 repro, zero kit code) → `studies/pyside-gc-crash/NOTES.md`:**
+shiboken's parent heuristic flips a wrapper to PYTHON-owned when `parentItem()` returns
+`None`, so the wrapper's death DELETES the C++-owned item — the sweep helper's
+`it.parentItem()` was the poison, not GC and not cursor(); version-independent (3.13 = 3.14,
+6.10.3 = 6.11.1), unreported upstream (the PYSIDE-3380 fix is QAction-specific), NO pin
+helps. The retained path is safe because it never calls `parentItem()`. Gate every PySide6
+bump on `studies/pyside-gc-crash/probe_item_destroyed.py`. (3) `tests/conftest.py qt_drain`
+parks each GUI test's widgets (opt-in per module; never where a module fixture caches one).
 
 ★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
 polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both

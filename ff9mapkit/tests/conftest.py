@@ -21,7 +21,8 @@ def qt_drain():
     """Deterministically destroy a test's leftover top-level Qt widgets (close + deleteLater +
     drain the deferred deletions). THE GC-CHILD LAW's teardown half: leaving a whole
     view->scene->items graph to a FORCED garbage-collection pass (pytest's unraisable plugin
-    runs gc_collect_harder) can double-free in shiboken on Python 3.14 — order-random wrapper
+    runs gc_collect_harder) can double-free in shiboken (VERSION-independent — the root cause
+    is the parentItem() ownership flip, studies/pyside-gc-crash/NOTES.md): order-random wrapper
     finalization over an already-dead C++ graph. Qt's own deleteLater path destroys the graph
     with the wrappers still alive, which shiboken handles correctly. Use as an autouse
     per-module teardown ONLY in modules that build widgets per test — never where a
@@ -35,7 +36,7 @@ def qt_drain():
         if app is None:
             return
         # PARK, do not destroy: destroying (deleteLater OR letting GC take the graph) leaves
-        # wrapper finalization order to chance, and shiboken on Python 3.14 intermittently
+        # wrapper finalization order to chance, and shiboken intermittently
         # double-frees there (~1 in 5 suite runs, measured, with every ownership fix in
         # place; gc.freeze made it WORSE — frozen wrappers still finalize at shutdown).
         # Keeping the widgets ALIVE in a process-global list means no Qt C++ graph ever dies
