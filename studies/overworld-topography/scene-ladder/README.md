@@ -152,7 +152,7 @@ tight 3/4-astern eye (8/8/+7u) so ship AND shore sit inside the ~45u world fog (
 at ~56u read as empty ocean) — and the reveal fade no longer blocks, so the ship is under
 way as the black lifts (the departure's own no-wait-fade trick at the other end).
 
-## Rung 3c — ORIGIN-PORT DEPARTURES (built + deployed 2026-07-29, playtest pending)
+## Rung 3c — ORIGIN-PORT DEPARTURES ★ CLOSED (2026-07-29, owner-confirmed: all four ports stage at the boarding quay; minimap bracket clean both ways after the s69 relaunch)
 
 `rung3c_origin_departure.py` (supersedes rung 3's director + prologue; deploy on top) — the
 voyage's first half stops assuming Ashvale: the departure theater stages at the port the
