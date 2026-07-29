@@ -194,6 +194,8 @@ DIRECTOR_LOOP = f"""
 L0:
 SET({{Map.Byte[{PORT_CACHE}] B_EXPR_END}})
 JMP_IFNOT(L100)
+DisableMove()
+DisableMenu()
 RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 op_22(4)
 {FADE_IN}
@@ -213,7 +215,7 @@ MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_E
 TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 {_port_switch()}
 RunScriptSync(6, {ANCHOR_UID}, {SHOW_TAG})
-SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
+SET({{Map.Byte[37] const(0) B_LET B_EXPR_END}})
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
@@ -268,8 +270,17 @@ JMP(L0)
 # THE MAIN-INIT PROLOGUE (v4 -- owner: "like stock, the character doesn't show"): stock
 # departures are DEDICATED cutscene worlds (9001-class) where no controlled player ever
 # spawns; an in-place 9011 scene cannot avoid the spawn, but Main_Init runs at WORLD
-# CONSTRUCTION, before the first rendered frame -- an instant black + mesh-hide there means
-# the free-roam entry is never seen, and the director's own fade-out composes black-on-black.
+# CONSTRUCTION, before the first rendered frame -- an instant black + show-bit hide there
+# means the free-roam entry is never seen, and the director's fade-out composes black-on-black.
+#
+# THE PARK (v11): Global.Byte[190] is the world's DefinePlayerCharacter DISPATCH -- every
+# value must be CLAIMED by some entry's init (0 = the anchor's foot arm, 7 = the boat...);
+# an unclaimed value (v10's 99) means NO entry defines the player = the no-controlled-actor
+# brick (black screen), and 7 (v9) hands the player to the Narciss. Leave [190] ALONE; park
+# the anchor's per-frame foot re-stamp with ITS OWN stock latch, Map.Byte[37]=1 (the arm is
+# gated on [37]==0 -- the anchor itself latches this value on the Global.Byte[181] path).
+# [37]!=0 also stock-blocks boarding + the quicksand battle -- all desirable mid-scene.
+# Restore [37]=0 at scene close (behind black: the arm re-fires -- flags 5, anims, redefine).
 DEPART_PROLOGUE = f"""SET({{Global.Byte[{DEPART_BYTE}] B_EXPR_END}})
 JMP_IFNOT(LDEPQ)
 SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
@@ -277,7 +288,7 @@ SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
 InitObject({EYE_UID}, 0)
 InitObject({AIM_UID}, 0)
-SET({{Global.Byte[190] const(99) B_LET B_EXPR_END}})
+SET({{Map.Byte[37] const(1) B_LET B_EXPR_END}})
 RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 DisableMove()
 DisableMenu()
