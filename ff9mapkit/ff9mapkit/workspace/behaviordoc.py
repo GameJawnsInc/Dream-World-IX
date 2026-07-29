@@ -329,14 +329,21 @@ class StageCanvas(QGraphicsView):
     # to a handle/grip, move updates ONLY the grabbed items + guides, release commits ONE
     # callback and the host's re-render redraws everything.
     def _resolve_grab(self, item):
-        """Walk an itemAt() hit up to its tagged anchor; ('handle', i) / ('grip', i) / None."""
-        while item is not None:
-            tag = item.data(0)
-            if tag == "handle":
-                return ("handle", int(item.data(1)))
-            if tag == "ringgrip":
-                return ("grip", int(item.data(1)))
-            item = item.parentItem()
+        """Resolve an itemAt() hit to ('handle', i) / ('grip', i) / None from the hit item
+        ALONE. NEVER walk parentItem() here: when it returns None (any tag-miss hit — a
+        route leg, a label, a ring) shiboken flips the wrapper Python-owned, and the
+        wrapper's death then DELETES the C++-owned item (studies/pyside-gc-crash).
+        Children carry their anchor's tag in data slots 2/3 (``_child`` stamps them)."""
+        if item is None:
+            return None
+        try:
+            for tag, payload in ((item.data(0), 1), (item.data(2), 3)):
+                if tag == "handle":
+                    return ("handle", int(item.data(payload)))
+                if tag == "ringgrip":
+                    return ("grip", int(item.data(payload)))
+        except RuntimeError:                       # a stale itemAt wrapper: treat as a miss
+            pass
         return None
 
     def _begin_drag(self, grab):
@@ -483,9 +490,19 @@ class StageCanvas(QGraphicsView):
         anchor.setData(0, tag)
         return self._fixed(anchor)
 
+    def _child(self, item, anchor):
+        """Adopt a SCENE-CREATED item as ``anchor``'s child: constructor-parenting hands
+        ownership to Python and double-frees (THE GC-CHILD LAW, backdrop.py:_child). Data
+        slots 2/3 carry the anchor's own tag so press resolution reads the hit alone —
+        never a parentItem() walk, the poison call (studies/pyside-gc-crash)."""
+        item.setParentItem(anchor)
+        item.setData(2, anchor.data(0))
+        item.setData(3, anchor.data(1))
+        return item
+
     def _label(self, text, x, z, *, dx=8, dy=-16, color=None, bold=False, pt=8, tip=None):
         anchor = self._anchor(x, z, "label")
-        t = QGraphicsSimpleTextItem(text, anchor)
+        t = self._child(self._scene.addSimpleText(text), anchor)
         t.setFont(self._font(pt, bold))
         t.setBrush(QBrush(QColor(color or self.pal["muted"])))
         t.setPos(dx, dy)                           # screen px, relative to the anchor
@@ -496,7 +513,7 @@ class StageCanvas(QGraphicsView):
 
     def _marker(self, x, z, color, *, hollow=False, r=_POST_R, tag="post"):
         anchor = self._anchor(x, z, tag)
-        dot = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r, anchor)
+        dot = self._child(self._scene.addEllipse(-r, -r, 2 * r, 2 * r), anchor)
         dot.setPen(QPen(QColor(color), 1.6))
         dot.setBrush(QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(QColor(color)))
         return anchor
@@ -580,9 +597,10 @@ class StageCanvas(QGraphicsView):
             if self._edit and ring.get("rid"):     # the resize grip sits on the ring's east edge
                 anchor = self._anchor(cx + ring["radius"], cz, "ringgrip")
                 anchor.setData(1, len(self._grip_items))
-                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq = self._child(self._scene.addRect(-4, -4, 8, 8), anchor)
                 sq.setPen(QPen(QColor(pal["accent"]), 1.4))
                 sq.setBrush(QBrush(QColor(pal["surface"])))
+                widgets.mark_grabbable(sq, resize=True)   # the hover cue over the pan hand
                 anchor.setToolTip(f"Drag to resize — {ring['label']}")
                 self._grip_items.append({"anchor": anchor, "rid": tuple(ring["rid"]),
                                          "cx": cx, "cz": cz, "r": ring["radius"],
@@ -679,9 +697,10 @@ class StageCanvas(QGraphicsView):
             for i, h in enumerate(self._handles):
                 anchor = self._anchor(h["x"], h["z"], "handle")
                 anchor.setData(1, i)
-                sq = QGraphicsRectItem(-4, -4, 8, 8, anchor)
+                sq = self._child(self._scene.addRect(-4, -4, 8, 8), anchor)
                 sq.setPen(QPen(QColor(pal["text"]), 1.2))
                 sq.setBrush(QBrush(QColor(pal["surface"])))
+                widgets.mark_grabbable(sq)         # the hover cue over the pan hand
                 anchor.setToolTip(h["label"] + (
                     "\nDrag to move · right-click for point ops" if h.get("list_id")
                     else "\nDrag to move"))

@@ -190,6 +190,146 @@ def click_to_world(cam: _cam.Cam, pt) -> tuple:
     return (X, Z)
 
 
+def click_to_plane(cam: _cam.Cam, pt, h: float) -> tuple:
+    """One canvas click -> the (X, Z) where its ray meets the horizontal plane at height ``h``
+    (render frame — the frame ``floor_y_at`` speaks and ``to_canvas`` projects).
+
+    THE PLANE LAW's one-parameter generalization (``s = (h - C.y) / ray.y`` — PLAN §1): the
+    y=0 form is :func:`click_to_world`. Used where a click must land on a KNOWN height but
+    OFF the walkmesh — a region corner (donor door quads routinely hang past the mesh edge;
+    the quad only has to intersect the walk lane) — with the same self-check and the same
+    horizon refusal (at ``h`` the horizon shifts with the plane, and the guard follows it)."""
+    C, ray = click_ray(cam, tuple(pt))
+    if ray[1] == 0:
+        raise ImageFieldError(f"click ({pt[0]:.1f},{pt[1]:.1f}) is on the horizon line")
+    s = (h - C[1]) / ray[1]
+    if s <= 0:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) is at/above the horizon for a plane at height "
+            f"{h:.0f} — no intersection in front of the camera")
+    X, Z = C[0] + s * ray[0], C[2] + s * ray[2]
+    cx, cy = _cam.to_canvas((X, h, Z), cam)
+    err = math.hypot(cx - pt[0], cy - pt[1])
+    if err > CLICK_ROUNDTRIP_TOL:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) un-projects to ({X:.0f},{Z:.0f}) at height {h:.0f} "
+            f"but re-projects to canvas ({cx:.1f},{cy:.1f}) — {err:.2f} px off (a degenerate "
+            f"camera pose)")
+    return (X, Z)
+
+
+def floor_y_at(tris, x, z, eye=None):
+    """The RENDER-frame height of a walkmesh under plan point (x, z): barycentric containment
+    in XZ over ``tris`` (:func:`mesh_world_tris`'s output). Stacked floors resolve to the
+    candidate nearest ``eye`` (the camera position — the same visibility bias the raycast has).
+    Falls back to the NEAREST VERTEX's y when no triangle contains the point — off-mesh content
+    must still show (at its neighbour floor's height), or the author can't see it to fix it.
+    ``None`` only on an empty mesh."""
+    cands, best_v, best_d = [], None, None
+    for a, b, c in tris:
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = a, b, c
+        for vx, vy, vz in (a, b, c):
+            d = (vx - x) ** 2 + (vz - z) ** 2
+            if best_d is None or d < best_d:
+                best_d, best_v = d, vy
+        den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+        if abs(den) < 1e-12:
+            continue                             # degenerate in plan view (a vertical wall tri)
+        w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den
+        w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den
+        w2 = 1.0 - w0 - w1
+        if min(w0, w1, w2) < -1e-9:
+            continue
+        cands.append(w0 * ay + w1 * by + w2 * cy)
+    if not cands:
+        return best_v
+    if eye is None or len(cands) == 1:
+        return cands[0]
+    ex, ey, ez = eye
+    return min(cands, key=lambda y: (x - ex) ** 2 + (y - ey) ** 2 + (z - ez) ** 2)
+
+
+# ------------------------------------------------------- the IsInQuad fan (region-law geometry)
+def _tri_area2(a, b, c) -> float:
+    return abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]))
+
+
+def _in_tri(p, a, b, c) -> bool:
+    d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1])
+    d2 = (p[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (p[1] - c[1])
+    d3 = (p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1])
+    return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+
+def fan_triangles(zone) -> list:
+    """What the ENGINE will actually cover for a region zone.
+
+    ``EventEngine.TreadQuad``'s IsInQuad fans CONSECUTIVE vertex triplets ``(q[i], q[i+1],
+    q[i+2]) mod n`` and fires on membership in ANY — so coverage is the union of those
+    triangles, NOT the drawn outline. A 4-corner zone is judged as the encoders ship it —
+    last vertex doubled (``content.gateway.quad_zone``, the IsInQuad-safe form); a 5-point
+    zone is taken verbatim (``inject_gateway`` ships it as given, doubled or not).
+    Zero-area triplets (collinear points) drop out exactly as they do in the engine."""
+    q = [tuple(p) for p in zone]
+    if len(q) == 4:
+        q = q + [q[-1]]
+    n = len(q)
+    out = []
+    for i in range(n):
+        t = (q[i], q[(i + 1) % n], q[(i + 2) % n])
+        if _tri_area2(*t) > 1e-9:
+            out.append(t)
+    return out
+
+
+def zone_fan_audit(zone, samples: int = 48) -> dict:
+    """How the engine's fan (:func:`fan_triangles`) disagrees with the outline the author
+    DREW, both ways — ``{"gap": …, "spill": …}``, each a 0–1 area fraction:
+
+    * ``gap`` — the drawn interior the fan never tests: a DEAD ZONE the trigger silently
+      won't fire in. Impossible for a 4-corner zone (the doubled fan always covers the drawn
+      interior — over-covers, in fact); REAL for a hand-authored 5-distinct-point zone with
+      collinear runs (the classic centre-dead strip, [[project-ff9-gateway-regions]]).
+    * ``spill`` — fan coverage OUTSIDE the drawn outline: the trigger fires where nothing was
+      drawn. THE non-convex hazard: a dart or bowtie quad's fan swallows the notch (up to the
+      whole convex hull), so the player warps from pixels the author never marked.
+
+    Deterministic grid sampling (``samples``² over the bbox) — a judge for warnings, not a
+    surveyor. A convex quad in either winding scores 0 / 0."""
+    q = [tuple(map(float, p)) for p in zone]
+    if len(q) < 3:
+        return {"gap": 0.0, "spill": 0.0}
+    tris = fan_triangles(q)
+    xs, ys = [p[0] for p in q], [p[1] for p in q]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    if x1 - x0 < 1e-9 or y1 - y0 < 1e-9:
+        return {"gap": 0.0, "spill": 0.0}        # a degenerate sliver has no interior to judge
+    n = len(q)
+
+    def drawn(px, py):                           # even-odd ray cast over the drawn outline
+        hit = False
+        for i in range(n):
+            ax, ay = q[i]
+            bx, by = q[(i + 1) % n]
+            if (ay > py) != (by > py) and px < ax + (py - ay) * (bx - ax) / (by - ay):
+                hit = not hit
+        return hit
+
+    in_drawn = in_fan = gap = spill = 0
+    for iy in range(samples):
+        py = y0 + (iy + 0.5) * (y1 - y0) / samples
+        for ix in range(samples):
+            px = x0 + (ix + 0.5) * (x1 - x0) / samples
+            d = drawn(px, py)
+            f = any(_in_tri((px, py), *t) for t in tris)
+            in_drawn += d
+            in_fan += f
+            gap += d and not f
+            spill += f and not d
+    return {"gap": gap / in_drawn if in_drawn else 0.0,
+            "spill": spill / in_fan if in_fan else 0.0}
+
+
 def world_point_to_click(cam: _cam.Cam, p) -> tuple:
     """A world 3D point (x, y, z) -> the canvas pixel (cx, cy) it appears under.
 
@@ -252,6 +392,59 @@ def parse_foreground_spec(spec) -> dict:
             except ValueError:
                 pass
     return {"image": s, "z": None, "contact": None}
+
+
+def _parse_quad_px(pts_str, what) -> list:
+    quad = [p for p in str(pts_str).split(";") if p.strip()]
+    out = []
+    for p in quad:
+        parts = p.split(",")
+        if len(parts) != 2:
+            raise ImageFieldError(f"{what}: corner {p!r} is not 'cx,cy'")
+        try:
+            out.append((float(parts[0]), float(parts[1])))
+        except ValueError:
+            raise ImageFieldError(f"{what}: corner {p!r} is not numeric") from None
+    if len(out) != 4:
+        raise ImageFieldError(f"{what}: a zone is 4 canvas-pixel corners 'cx,cy;cx,cy;cx,cy;cx,cy' "
+                              f"(got {len(out)})")
+    return out
+
+
+def parse_gateway_spec(spec) -> dict:
+    """Normalize a gateway spec -> ``{"to", "entrance", "zone_px": [(cx, cy)] * 4}``.
+
+    The CLI form is ``to[,entrance]@cx,cy;cx,cy;cx,cy;cx,cy`` — the quad in CANVAS pixels
+    (the tracer's own frame, like ``--floor``), un-projected through the build's camera so a
+    ``--pitch`` re-run moves the zone WITH the floor. Corner order is authored: corners 0→1
+    become the walk-out edge the exit walks the player across."""
+    if isinstance(spec, dict):
+        return {"to": int(spec["to"]), "entrance": int(spec.get("entrance") or 0),
+                "zone_px": [tuple(map(float, p)) for p in spec["zone_px"]]}
+    head, _, pts = str(spec).partition("@")
+    if not pts:
+        raise ImageFieldError(f"--gateway {spec!r}: expected 'to[,entrance]@cx,cy;cx,cy;cx,cy;cx,cy'")
+    nums = [n.strip() for n in head.split(",")]
+    try:
+        to = int(nums[0])
+        ent = int(nums[1]) if len(nums) > 1 and nums[1] else 0
+    except (ValueError, IndexError):
+        raise ImageFieldError(f"--gateway {spec!r}: the head is 'to' or 'to,entrance' "
+                              f"(field id + arrival entrance)") from None
+    return {"to": to, "entrance": ent, "zone_px": _parse_quad_px(pts, f"--gateway {spec!r}")}
+
+
+def parse_event_spec(spec) -> dict:
+    """Normalize a walk-in-event spec -> ``{"message", "zone_px": [(cx, cy)] * 4}``.
+
+    The CLI form is ``message@cx,cy;…`` (the LAST '@' splits, so the message may contain one)."""
+    if isinstance(spec, dict):
+        return {"message": str(spec.get("message") or "..."),
+                "zone_px": [tuple(map(float, p)) for p in spec["zone_px"]]}
+    msg, _, pts = str(spec).rpartition("@")
+    if not msg:
+        raise ImageFieldError(f"--event-zone {spec!r}: expected 'message@cx,cy;cx,cy;cx,cy;cx,cy'")
+    return {"message": msg, "zone_px": _parse_quad_px(pts, f"--event-zone {spec!r}")}
 
 
 # ----------------------------------------------------------------- polygon helpers (stdlib)
@@ -654,12 +847,16 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
 # ----------------------------------------------------------------- orchestrator
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
-                      distance: float = DEFAULT_DISTANCE, area: int = 11) -> dict:
+                      distance: float = DEFAULT_DISTANCE, area: int = 11,
+                      gateways=None, events=None) -> dict:
     """Synthesize a deployable field project from an image + a hand-traced floor polygon.
 
     ``floor_px`` = [(cx, cy), ...] the floor outline in logical canvas pixels (384x448, top-left,
     Y-down). ``foreground`` = optional [path | {"image": path, "z": int}] near-occluder PNGs (each a
-    full-canvas cut-out with alpha; smaller Z = drawn in front of the actor). Writes ``out_dir`` with
+    full-canvas cut-out with alpha; smaller Z = drawn in front of the actor). ``gateways`` /
+    ``events`` = optional trigger-region specs (:func:`parse_gateway_spec` /
+    :func:`parse_event_spec` forms) whose quads are CANVAS pixels un-projected through the same
+    camera as the floor — a ``--pitch`` re-run moves the zones WITH it. Writes ``out_dir`` with
     ``<name>.field.toml`` + ``walkmesh.obj`` + ``art/*.png``. Returns a manifest dict."""
     from PIL import Image
     out = Path(out_dir)
@@ -710,9 +907,36 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
             lines.append(layer_notes[img_rel])
         lines += ["[[layers]]", f'image = "{img_rel}"', f"z = {z}"]
     lines += ["", "[player]", f"spawn = [{int(round(spawn[0]))}, {int(round(spawn[1]))}]", ""]
+
+    # 4) trigger regions: canvas-pixel quads -> world (x, z) through the SAME camera. Corner
+    # order carries (0->1 is a gateway's walk-out edge); the build's encoder doubles the last
+    # vertex for the IsInQuad fan, so a convex drawn quad ships fully faithful.
+    def _zone_world(quad_px, what):
+        try:
+            pts = unproject_floor(cam, quad_px)
+        except ImageFieldError as e:
+            raise ImageFieldError(f"{what}: {e}") from e
+        return "[" + ", ".join(f"[{int(round(x))}, {int(round(z))}]" for x, z in pts) + "]"
+
+    gw_manifest, ev_manifest = [], []
+    for gi, spec in enumerate(gateways or []):
+        gw = parse_gateway_spec(spec)
+        lines += [f"[[gateway]]", f'name = "door{gi}"', f"to = {gw['to']}"]
+        if gw["entrance"]:
+            lines.append(f"entrance = {gw['entrance']}")
+        lines += [f"zone = {_zone_world(gw['zone_px'], f'gateway door{gi}')}", ""]
+        gw_manifest.append(gw)
+    for ei, spec in enumerate(events or []):
+        ev = parse_event_spec(spec)
+        msg = ev["message"].replace("\\", "\\\\").replace('"', '\\"')
+        lines += [f"[[event]]", f'name = "zone{ei}"', f'message = "{msg}"',
+                  f"zone = {_zone_world(ev['zone_px'], f'event zone{ei}')}", ""]
+        ev_manifest.append(ev)
+
     toml_path = out / f"{name}.field.toml"
     toml_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),
-            "layers": layers, "foreground": fg_manifest}
+            "layers": layers, "foreground": fg_manifest,
+            "gateways": gw_manifest, "events": ev_manifest}

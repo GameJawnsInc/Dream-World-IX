@@ -4904,6 +4904,11 @@ class Workspace(QMainWindow):
             self._feed_place()
             self.crumb.set([bc.Crumb("place", w.crumb_label())])
             self._set_chip(None)
+        elif w is getattr(self, "trace_doc", None):   # offer the OPEN field's project for a
+            self.crumb.set(self._content_crumbs)      # one-click (or pristine-auto) reopen
+            self._set_chip(None)
+            tgt = self._behavior_target()
+            self.trace_doc.offer_project(self.member_paths.get(tgt) if tgt else None)
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)

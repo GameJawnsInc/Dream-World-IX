@@ -9,8 +9,15 @@ RENDER-frame triangles (``imagefield.mesh_world_tris`` — the y-flip lives ther
 :class:`~.backdrop.BackdropCanvas` in place mode then raycasts every click against the mesh
 (you click what you SEE; a stacked-floor pixel disambiguates through a menu, never a guess).
 
+Rung 4 adds the REGIONS tool (a :class:`~.widgets.ToolStrip` — one click semantic at a
+time, explicit): gateway / walk-in-event trigger quads drawn as four clicks on the art,
+reshaped by corner or whole-quad drags, the walk-out edge rotated from the quad's own menu —
+with both region laws RENDERED, not just accepted (the TREADQUAD overlap starvation and the
+IsInQuad engine-fan audit, judged in :func:`region_rows`).
+
 Writes land in the OPEN doc through PURE ops (:func:`place_npc` / :func:`place_prop` /
-:func:`set_spawn` / :func:`set_arrival`) + exactly ONE ``on_edit(member, label)`` per drop —
+:func:`set_spawn` / :func:`set_arrival` / :func:`place_gateway` / :func:`place_event` /
+:func:`move_zone` / :func:`delete_region`) + exactly ONE ``on_edit(member, label)`` per drop —
 the shell records the undo step and Save persists through the ordinary editor path, so Place
 can never grow a private writer. Refusals are hard and honest: a bundled example / installed
 copy (``editor.model.protected_reason``) refuses the whole surface; a field with no donor
@@ -76,6 +83,114 @@ def set_arrival(data: dict, entrance, x, z) -> str:
     return f"place arrival {int(entrance)}"
 
 
+def _fresh_name(prefix, rows) -> str:
+    names = {e.get("name") for e in rows if isinstance(e, dict)}
+    n = 0
+    while f"{prefix}{n}" in names:
+        n += 1
+    return f"{prefix}{n}"
+
+
+def _zone_ints(quad) -> list:
+    return [[int(round(x)), int(round(z))] for x, z in quad]
+
+
+def place_gateway(data: dict, quad, to, entrance=0) -> str:
+    """Append a ``[[gateway]]`` from a drawn quad. Corner ORDER is authored geometry — the
+    canvas emits the click order, and corners 0→1 become the walk-out edge the exit walks
+    the player across (rotate via the canvas menu)."""
+    lst = data.setdefault("gateway", [])
+    nm = _fresh_name("door", lst)
+    row = {"name": nm, "to": int(to), "zone": _zone_ints(quad)}
+    if int(entrance):
+        row["entrance"] = int(entrance)
+    lst.append(row)
+    return f"draw gateway {nm} -> {int(to)}"
+
+
+def place_event(data: dict, quad) -> str:
+    """Append a walk-in ``[[event]]`` zone from a drawn quad (message placeholder — the
+    Editor form owns the words)."""
+    lst = data.setdefault("event", [])
+    nm = _fresh_name("zone", lst)
+    lst.append({"name": nm, "message": "...", "zone": _zone_ints(quad)})
+    return f"draw event {nm}"
+
+
+def set_gateway_target(data: dict, index, to) -> str:
+    """Retarget a drawn door (the canvas menu's Set gateway target — the 'to field' box only
+    feeds NEW draws, the in-game lesson of the Field(0) black screen)."""
+    gw = data.get("gateway", [])[index]
+    gw["to"] = int(to)
+    return f"retarget {gw.get('name') or 'gateway'} -> {int(to)}"
+
+
+def move_zone(data: dict, kind, index, quad) -> str:
+    """Rewrite one row's zone from a canvas gesture (corner drag / whole-quad drag /
+    walk-out rotate). Writes exactly the corners the canvas holds — a doubled 5th point
+    was normalized away at feed time and the build re-doubles (``quad_zone``)."""
+    data.get(kind, [])[index]["zone"] = _zone_ints(quad)
+    return f"reshape {kind} zone"
+
+
+def delete_region(data: dict, kind, index) -> str:
+    rows = data.get(kind, [])
+    label = rows[index].get("name") or f"{kind} {index}"
+    del rows[index]
+    return f"delete {kind} {label}"
+
+
+def region_rows(data: dict) -> list:
+    """The canvas feed: every ``[[gateway]]``/``[[event]]`` row with a plottable zone —
+    ``[{"i", "kind", "index", "quad", "label", "warn"}]``. A doubled trailing vertex (the
+    IsInQuad-safe stored form) is dropped for display; a 5-DISTINCT-point zone keeps all
+    five corners (its fan is judged verbatim, dead zones included). ``warn`` carries the two
+    region laws: the TREADQUAD overlap judge (``build.region_overlap_pairs`` — one owner
+    with the lint) and the engine-fan audit (``imagefield.zone_fan_audit``)."""
+    from .. import build                            # lazy: the judge, not the builder
+    rows = []
+    for kind in ("gateway", "event"):
+        for idx, e in enumerate(data.get(kind, []) or []):
+            z = e.get("zone")
+            if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
+                continue
+            try:
+                pts = [(float(p[0]), float(p[1])) for p in z]
+            except (TypeError, ValueError, IndexError):
+                continue
+            if len(pts) == 5 and pts[-1] == pts[-2]:
+                pts = pts[:4]
+            if kind == "gateway":
+                label = f"{e.get('name') or 'gateway'} → {e.get('to', '?')}"
+                if e.get("entrance"):
+                    label += f" e{e['entrance']}"
+            else:
+                label = e.get("name") or f"event {idx}"
+            rows.append({"i": len(rows), "kind": kind, "index": idx, "quad": pts,
+                         "label": label, "warn": None})
+    overlaps = {}
+    for ka, kb in build.region_overlap_pairs(data):
+        overlaps.setdefault((ka[0], ka[1]), []).append(kb[2])
+        overlaps.setdefault((kb[0], kb[1]), []).append(ka[2])
+    for r in rows:
+        warns = []
+        if r["kind"] == "gateway":
+            to = (data.get("gateway", []) or [])[r["index"]].get("to")
+            if isinstance(to, bool) or (isinstance(to, int) and to <= 0) or to is None:
+                warns.append("NO TARGET — this door compiles to Field(0), a guaranteed black "
+                             "screen; right-click it → Set gateway target")
+        warns += [f"overlaps {other} — the engine fires ONE tread region per frame, the "
+                  f"later-armed one silently starves" for other in
+                  overlaps.get((r["kind"], r["index"]), [])]
+        audit = imagefield.zone_fan_audit(r["quad"])
+        if audit["gap"] > 0.02:
+            warns.append(f"dead zone ~{audit['gap']:.0%} — part of the drawn area never fires")
+        if audit["spill"] > 0.02:
+            warns.append(f"over-trigger ~{audit['spill']:.0%} — fires outside the drawn outline")
+        r["warn"] = "; ".join(warns) or None
+    return rows
+
+
 # --------------------------------------------------------------------- pure marker derivation
 def content_markers(data: dict) -> list:
     """Every placed thing with a floor position -> ``[{"xz", "label", "kind"}]`` (world (x, z);
@@ -103,35 +218,9 @@ def content_markers(data: dict) -> list:
     return out
 
 
-def floor_y_at(tris, x, z, eye=None):
-    """The RENDER-frame height of the walkmesh under plan point (x, z): barycentric containment
-    in XZ over ``tris`` (``mesh_world_tris``'s output). Stacked floors resolve to the candidate
-    nearest ``eye`` (the camera position — the same visibility bias the raycast has). Falls back
-    to the NEAREST VERTEX's y when no triangle contains the point — off-mesh content must still
-    show (at its neighbour floor's height), or the author can't see it to fix it. ``None`` only
-    on an empty mesh."""
-    cands, best_v, best_d = [], None, None
-    for a, b, c in tris:
-        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = a, b, c
-        for vx, vy, vz in (a, b, c):
-            d = (vx - x) ** 2 + (vz - z) ** 2
-            if best_d is None or d < best_d:
-                best_d, best_v = d, vy
-        den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
-        if abs(den) < 1e-12:
-            continue                             # degenerate in plan view (a vertical wall tri)
-        w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den
-        w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den
-        w2 = 1.0 - w0 - w1
-        if min(w0, w1, w2) < -1e-9:
-            continue
-        cands.append(w0 * ay + w1 * by + w2 * cy)
-    if not cands:
-        return best_v
-    if eye is None or len(cands) == 1:
-        return cands[0]
-    ex, ey, ez = eye
-    return min(cands, key=lambda y: (x - ex) ** 2 + (y - ey) ** 2 + (z - ez) ** 2)
+# The render-frame height resolver moved to the pure home (the canvas needs it too, for
+# projecting zone corners); the name stays importable here — call sites and fences hold.
+floor_y_at = imagefield.floor_y_at
 
 
 # --------------------------------------------------------------------- the async surface load
@@ -209,6 +298,7 @@ class PlaceDoc(QWidget):
         self._verbatim = False
         self._bundles = {}                      # (donor, cam_index) -> build_surface dict
         self._cam_pick = {}                     # member -> its chosen camera index
+        self._region_rows_cache = []            # the last region_rows derivation (canvas feed)
         self._loading = None                    # (donor, ci) in flight, else None
         self._gen = 0                           # bumped per feed: a stale load result is dropped
         self._loader = _SurfaceLoader()
@@ -246,6 +336,14 @@ class PlaceDoc(QWidget):
         self.cam_box.setVisible(False)             # shown by _sync_cam_box on a multi-camera field
         self.cam_label.setVisible(False)
         row.addStretch(1)
+        self.tools = widgets.ToolStrip(
+            [("place", "Place", "Click the walkable footprint to place content — NPCs, "
+                                "props, spawn, arrival."),
+             ("regions", "Regions", "Draw trigger quads on the art — gateways and walk-in "
+                                    "events (4 clicks = one zone).")])
+        self.tools.changed.connect(lambda _k: self._apply_tool())
+        row.addWidget(self.tools)
+        row.addSpacing(6)
         self.mode_group = QButtonGroup(self)
         self.mode_btns = {}
         for key, label in self.MODES:
@@ -265,10 +363,45 @@ class PlaceDoc(QWidget):
                                 "source door writes.")
         self.ent_label.setBuddy(self.ent_box)
         row.addWidget(self.ent_box)
+        # the Regions tool's own cluster (visible only while it is the active tool)
+        self.rkind_group = QButtonGroup(self)
+        self.rkind_btns = {}
+        for key, label in (("gateway", "Gateway"), ("event", "Event")):
+            rb = QRadioButton(label)
+            rb.setAccessibleName(f"Draw {label} zones")
+            rb.toggled.connect(lambda _on=False: self._sync_tool_clusters())
+            self.rkind_group.addButton(rb)
+            self.rkind_btns[key] = rb
+            row.addWidget(rb)
+        self.rkind_btns["gateway"].setChecked(True)
+        self.gw_to_label = QLabel("to field")
+        row.addWidget(self.gw_to_label)
+        self.gw_to = QSpinBox()
+        self.gw_to.setRange(0, 32767)
+        self.gw_to.setSpecialValueText("?")
+        self.gw_to.setAccessibleName("Gateway target field id")
+        self.gw_to.setToolTip("The field id this door sends the player to (a real field or "
+                              "one of yours) — set it before or after drawing; the Editor "
+                              "form edits it too.")
+        self.gw_to_label.setBuddy(self.gw_to)
+        row.addWidget(self.gw_to)
+        self.gw_ent_label = QLabel("entrance")
+        row.addWidget(self.gw_ent_label)
+        self.gw_ent = QSpinBox()
+        self.gw_ent.setRange(0, 255)
+        self.gw_ent.setAccessibleName("Gateway arrival entrance")
+        self.gw_ent.setToolTip("The entrance index the destination's [[player.arrival]] rows "
+                               "dispatch on.")
+        self.gw_ent_label.setBuddy(self.gw_ent)
+        row.addWidget(self.gw_ent)
         root.addLayout(row)
 
         self.canvas = BackdropCanvas(pal, scale=scale)
         self.canvas.surface_clicked.connect(self._on_surface_clicked)
+        self.canvas.region_drawn.connect(self._on_region_drawn)
+        self.canvas.region_changed.connect(self._on_region_changed)
+        self.canvas.region_deleted.connect(self._on_region_deleted)
+        self.canvas.region_retarget.connect(self._on_region_retarget)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
 
@@ -284,9 +417,12 @@ class PlaceDoc(QWidget):
         self._blocked = None
         self._verbatim = False
         self._gen += 1
+        self._region_rows_cache = []
         self.canvas.set_place_mode(False)
+        self.canvas.set_region_mode(False)
         self.canvas.set_surface([])
         self.canvas.set_markers([])
+        self.canvas.set_regions([])
         self.canvas.set_backdrop(None, None)
         self.field_label.setText("no field")
         self._sync_cam_box(1)
@@ -316,7 +452,9 @@ class PlaceDoc(QWidget):
             self._loading = None
             self.canvas.set_backdrop(None, None)
             self.canvas.set_surface([])
+            self.canvas.set_regions([])
             self.canvas.set_place_mode(False)
+            self.canvas.set_region_mode(False)
         bundle = self._bundle()
         if bundle is not None and self._blocked is None:
             self._apply_bundle(bundle, refit=not same)
@@ -367,11 +505,11 @@ class PlaceDoc(QWidget):
             pm = None
         self.canvas.set_backdrop(pm, bundle["cam"], refit=refit)
         self.canvas.set_surface(bundle["tris"], bundle["floors"])
-        self.canvas.set_place_mode(True)
         self._sync_cam_box(bundle["n_cams"])
         self._sync_modes()
         self._refresh_markers()
-        self._refresh()
+        self._refresh_regions()
+        self._apply_tool()                          # activates the current tool's click mode
 
     def _sync_cam_box(self, n_cams):
         self.cam_box.blockSignals(True)
@@ -399,19 +537,132 @@ class PlaceDoc(QWidget):
 
     def _on_mode_toggled(self, _on=False):
         """The entrance spinner belongs to the ARRIVAL mode alone — visible only while it is the
-        selected (and permitted) placement."""
+        selected (and permitted) placement, under the Place tool."""
         if getattr(self, "ent_box", None) is None:
             return                               # construction order: the radios exist before the spinner
-        arrival = self.mode_btns["arrival"].isChecked() and self.mode_btns["arrival"].isEnabled()
+        placing = getattr(self, "tools", None) is None or self.tools.current() == "place"
+        arrival = (placing and self.mode_btns["arrival"].isChecked()
+                   and self.mode_btns["arrival"].isEnabled())
         self.ent_box.setVisible(arrival)
         self.ent_label.setVisible(arrival)
+
+    # ---------------------------------------------------------------- rung 4: the tool strip
+    def _apply_tool(self):
+        """ONE owner of tool -> canvas click semantics: Place raycasts, Regions draws quads —
+        and neither arms without a loaded surface (the camera is the conversion)."""
+        loaded = self._bundle() is not None and self._blocked is None and self._data is not None
+        tool = self.tools.current()
+        if loaded and tool == "regions":
+            self.canvas.set_region_mode(True)
+        elif loaded:
+            self.canvas.set_place_mode(True)
+        else:
+            self.canvas.set_place_mode(False)
+            self.canvas.set_region_mode(False)
+        self._sync_tool_clusters()
+        self._refresh()
+
+    def _sync_tool_clusters(self):
+        """The control row shows exactly the active tool's cluster (a strip that grows on
+        selection shrinks the canvas out from under itself — visibility swaps, never adds)."""
+        if getattr(self, "gw_ent", None) is None:
+            return                               # construction order: radios fire before the boxes
+        placing = self.tools.current() == "place"
+        for key, _label in self.MODES:
+            self.mode_btns[key].setVisible(placing)
+        for w in (self.rkind_btns["gateway"], self.rkind_btns["event"]):
+            w.setVisible(not placing)
+        gw = not placing and self.rkind_btns["gateway"].isChecked()
+        for w in (self.gw_to_label, self.gw_to, self.gw_ent_label, self.gw_ent):
+            w.setVisible(gw)
+        self._on_mode_toggled()
+
+    def _refresh_regions(self):
+        """Re-derive the canvas's region feed from the OPEN doc (both region laws judged in
+        ``region_rows`` — the overlap starvation and the engine-fan audit)."""
+        if self._data is None or self._blocked is not None or self._bundle() is None:
+            self._region_rows_cache = []
+            self.canvas.set_regions([])
+            return
+        self._region_rows_cache = region_rows(self._data)
+        self.canvas.set_regions(self._region_rows_cache)
+
+    def _on_region_drawn(self, quad):
+        if self._blocked is not None or self._data is None:
+            self._refresh()
+            return
+        if self.rkind_btns["gateway"].isChecked():
+            to = self.gw_to.value()
+            label = place_gateway(self._data, quad, to, self.gw_ent.value())
+            note = label + ("" if to else " — set its target ('to field', or the Editor form)")
+        else:
+            note = label = place_event(self._data, quad)
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(note)
+
+    def _on_region_changed(self, i, quad):
+        if self._data is None or not 0 <= i < len(self._region_rows_cache):
+            return
+        r = self._region_rows_cache[i]
+        label = move_zone(self._data, r["kind"], r["index"], quad)
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(f"{label} · {r['label']}")
+
+    def _on_region_deleted(self, i):
+        if self._data is None or not 0 <= i < len(self._region_rows_cache):
+            return
+        r = self._region_rows_cache[i]
+        label = delete_region(self._data, r["kind"], r["index"])
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(label)
+
+    def _on_region_retarget(self, i):
+        if self._data is None or not 0 <= i < len(self._region_rows_cache):
+            return
+        r = self._region_rows_cache[i]
+        if r["kind"] != "gateway":
+            return
+        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to") or 0
+        to = self._ask_field_id(cur)
+        if to is None:
+            return
+        label = set_gateway_target(self._data, r["index"], to)
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_regions()
+        self._refresh(label)
+
+    def _ask_field_id(self, current):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QInputDialog
+        dlg = QInputDialog(self)
+        dlg.setInputMode(QInputDialog.InputMode.IntInput)
+        dlg.setIntRange(1, 32767)
+        dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
+        dlg.setWindowTitle("Gateway target")
+        dlg.setLabelText("Destination field id (a stock field or one of yours —\n"
+                         "reference/field-manifest.tsv names the stock ones):")
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.intValue()
 
     def _sync_modes(self):
         """Placement affordances match what the BUILD will honour: a verbatim fork runs the
         donor's own entry sequence, so spawn/arrival are refused there (not silently dropped)."""
         blocked = self._blocked is not None or self._data is None
+        for tool in ("place", "regions"):
+            self.tools.button(tool).setEnabled(not blocked)
         for key, _label in self.MODES:
             self.mode_btns[key].setEnabled(not blocked)
+        for w in (self.rkind_btns["gateway"], self.rkind_btns["event"],
+                  self.gw_to, self.gw_ent):
+            w.setEnabled(not blocked)
         if not blocked and self._verbatim:
             for key in ("spawn", "arrival"):
                 self.mode_btns[key].setEnabled(False)
@@ -497,6 +748,17 @@ class PlaceDoc(QWidget):
         elif self._bundle() is None:
             note = note or ("Load the room to place content — the donor's art, camera, and "
                             "walkmesh arrive together.")
+        elif not note and self.tools.current() == "regions":
+            n = len(self._region_rows_cache)
+            warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
+            kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
+            note = (f"Click 4 corners to draw a {kind} zone · {n} region"
+                    f"{'' if n == 1 else 's'}")
+            if warned:
+                note += f" · ⚠ {warned} with law warnings (hover a marked quad)"
+            note += " · corners 0→1 = a gateway's walk-out edge (right-click a quad to rotate/delete)"
+            if self._verbatim:
+                note += " · verbatim fork: new content seats below the donor's party band"
         elif not note:
             n = len(content_markers(self._data or {}))
             note = (f"Click the walkable footprint to place · {n} placed thing"

@@ -335,3 +335,356 @@ def test_bare_camera_frame_uses_cam_range(app):
     c.set_backdrop(None, cam)
     assert c._scene.sceneRect().width() == 768
     assert "horizon" in _tags(c)
+
+
+# ---------------------------------------------------------------- Rung 2: contact mode
+
+def test_contact_click_emits_the_raw_canvas_pixel(app):
+    """Contact mode emits the CANVAS px of a slop click and nothing else — the host owns the
+    judgement (occluder_z is the one owner of both refusals), so the canvas must not filter."""
+    c, cam, _ = _trace_canvas(app)
+    c.set_contact_mode(True)
+    got = []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    wpt = c.viewportTransform().map(QPointF(230.0, 320.0))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert len(got) == 1
+    assert abs(got[0][0] - 230.0) <= 1.0 and abs(got[0][1] - 320.0) <= 1.0   # integer-px quantized
+
+
+def test_contact_mode_is_exclusive_but_keeps_the_trace_visible(app):
+    """Arming contacts turns tracing OFF for clicks yet keeps the polygon RENDERED for context —
+    and a click neither appends a vertex nor fires on_floor."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    n0 = len(calls)
+    c.set_contact_mode(True)
+    assert c._contact_mode and not c._trace_mode
+    assert "traceline" in _tags(c) and "tracept" in _tags(c)   # visible, inert
+    wpt = c.viewportTransform().map(QPointF(150.0, 350.0))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert len(c.floor()) == 3 and len(calls) == n0            # no vertex appended
+    c.set_trace_mode(True)
+    assert not c._contact_mode
+
+
+def test_cutout_furniture_renders_and_drags_one_emission_each(app):
+    """set_cutouts renders the snip overlay + its contact handle; a drag is ONE emission per
+    gesture through the same seam the vertex drags use (grab-relative, never corner-snapped)."""
+    c, cam, _ = _trace_canvas(app)
+    pm = QPixmap(100, 80)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 250.0, 50.0, 40.0),
+                    "contact": (125.0, 290.0), "label": "fg0 · z 999",
+                    "bad": False, "locked": False}])
+    tags = _tags(c)
+    assert "cutoutimg" in tags and "cutoutpt" in tags
+    moved, anchored = [], []
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    c.contact_moved.connect(lambda i, x, y: anchored.append((i, x, y)))
+    assert c._begin_cutout_drag(0, QPointF(110.0, 260.0))     # grabbed 10px inside the rect
+    c._drag_canvas(130.0, 280.0)
+    c._end_vertex_drag()
+    assert moved == [(0, 120.0, 270.0)]                       # origin rode the grab delta
+    assert c._begin_contact_drag(0)
+    c._drag_canvas(140.0, 300.0)
+    c._end_vertex_drag()
+    assert anchored == [(0, 140.0, 300.0)]
+    assert moved == [(0, 120.0, 270.0)]                       # the anchor drag moved no image
+
+
+def test_locked_and_full_frame_cutouts_refuse_the_drag(app):
+    c, cam, _ = _trace_canvas(app)
+    pm = QPixmap(100, 80)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": None, "contact": (125.0, 290.0),
+                    "label": "fg0", "bad": False, "locked": True},
+                   {"i": 1, "pixmap": pm, "rect": (10.0, 10.0, 40.0, 30.0),
+                    "contact": (30.0, 40.0), "label": "fg1", "bad": False, "locked": True}])
+    assert not c._begin_cutout_drag(0, QPointF(120.0, 260.0))   # full-frame: registered art
+    assert not c._begin_cutout_drag(1, QPointF(20.0, 20.0))     # locked snip: inert
+    assert c._begin_contact_drag(0)                             # the ANCHOR always re-tunes
+
+
+def test_grabbable_things_carry_the_move_cursor(app):
+    """The hover affordance (owner-asked): the pan hand owns the whole drawspace, so every
+    draggable item carries its OWN cursor — trace vertices (trace mode only), contact
+    diamonds, and snip overlays; locked/full-frame overlays stay cursor-less (inert)."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
+
+    # Assert through the canvas's RETAINED wrappers (_kids/_cutout_items) — the originals the
+    # app itself holds. ROOT-CAUSED (studies/pyside-gc-crash/): shiboken flips a wrapper to
+    # Python-owned when parentItem() returns None, so the sweep helper's it.parentItem() made
+    # dying wrappers DELETE the C++-owned items (crash-class, version-independent). The
+    # retained path is safe because it never calls parentItem — keep it that way.
+    def kid_cursors(canvas, cls):
+        return [(k.cursor().shape() if k.hasCursor() else None)
+                for k in canvas._kids if isinstance(k, cls)]
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    dot_cursors = kid_cursors(c, QGraphicsEllipseItem)   # the three vertex dots
+    assert dot_cursors == [Qt.CursorShape.SizeAllCursor] * 3
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False},
+                   {"i": 1, "pixmap": pm, "rect": None, "contact": (200.0, 300.0),
+                    "label": "fg1", "bad": False, "locked": True}])
+    snip = c._cutout_items[0]
+    assert snip.hasCursor() and snip.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    assert 1 not in c._cutout_items              # full-frame art is inert: never a drag target
+    glyph_cursors = kid_cursors(c, QGraphicsPolygonItem)   # the two contact diamonds
+    assert glyph_cursors == [Qt.CursorShape.SizeAllCursor] * 2
+    c.set_contact_mode(True)                     # vertices go inert with the mode
+    assert kid_cursors(c, QGraphicsEllipseItem) == [None, None, None]
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    yield
+    qt_drain()
+
+
+def test_a_press_through_crossing_furniture_still_grabs(app):
+    """The says-Move-but-pans fix: a trace leg crossing a snip (or a contact diamond) must not
+    eat the press — resolution scans EVERY item under the point by kind, matching what the
+    hover cursor promises. The floor's closing leg here runs straight across both targets."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(60.0, 260.0), (340.0, 260.0), (200.0, 430.0)])   # leg y=260 spans the frame
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 245.0, 40.0, 30.0),   # leg crosses it
+                    "contact": (250.0, 260.0), "label": "fg0",                  # diamond ON the leg
+                    "bad": False, "locked": False}])
+    moved, anchored = [], []
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    c.contact_moved.connect(lambda i, x, y: anchored.append((i, x, y)))
+    n0 = len(calls)
+    wpt = c.viewportTransform().map(QPointF(120.0, 260.0))     # ON the leg, ON the snip's pixels
+    QTest.mousePress(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert c._drag is not None and c._drag.get("kind") == "cimg"   # grabbed, not panned
+    c._drag_canvas(140.0, 280.0)
+    QTest.mouseRelease(c.viewport(), Qt.MouseButton.LeftButton,
+                       pos=QPoint(round(wpt.x()) + 20, round(wpt.y()) + 20))
+    assert len(moved) == 1 and len(calls) == n0                # one drag, no vertex appended
+    wpt = c.viewportTransform().map(QPointF(250.0, 260.0))     # the diamond under the same leg
+    QTest.mousePress(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert c._drag is not None and c._drag.get("kind") == "cpt"
+    c._drag_canvas(255.0, 270.0)
+    QTest.mouseRelease(c.viewport(), Qt.MouseButton.LeftButton,
+                       pos=QPoint(round(wpt.x()) + 5, round(wpt.y()) + 10))
+    assert len(anchored) == 1
+
+
+def test_a_tag_miss_press_walk_leaves_the_scene_intact(app):
+    """THE POISON-CALL FENCE (studies/pyside-gc-crash): press resolution must never call
+    parentItem() — a None return flips the wrapper Python-owned, so the wrapper's DEATH
+    deletes the C++-owned item (deterministic; probe_item_destroyed.py). A tag-MISS press
+    (backdrop art, a trace leg, the frame) used to walk every hit to the None top and arm
+    exactly that. Sweep the resolvers over every item as fresh wrappers — the itemAt()/
+    items(pos) class — kill the wrappers, and the scene must not lose a single item."""
+    import gc
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False}])
+    n0 = len(c._scene.items())
+    wrappers = c._scene.items()          # fresh temporaries where no retained wrapper exists
+    for it in wrappers:                  # the mousePressEvent loop's exact resolver calls
+        c._resolve_vertex(it)
+        c._resolve_data(it, "cutoutpt")
+        c._resolve_data(it, "cutoutimg")
+    del wrappers, it
+    gc.collect()
+    assert len(c._scene.items()) == n0   # nothing armed, nothing deleted
+
+
+def test_press_resolution_reads_the_hit_alone_children_included(app):
+    """The parity half of the poison-call fence: a press lands on the VISIBLE furniture (a
+    vertex dot, a contact diamond) — children of the tagged anchors — so with the ancestor
+    walk banned, resolution must still find their handle through the hit item alone."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False}])
+    dots = [k for k in c._kids if isinstance(k, QGraphicsEllipseItem)]
+    assert sorted(c._resolve_vertex(d) for d in dots) == [0, 1, 2]
+    glyph = next(k for k in c._kids if isinstance(k, QGraphicsPolygonItem))
+    assert c._resolve_data(glyph, "cutoutpt") == 0
+
+
+# --------------------------------------------------------------------------- Rung 4: regions
+def _region_canvas(app, tris=None):
+    """A canvas in REGION mode (camera + optional walkmesh surface) with signal recorders."""
+    c = BackdropCanvas(pick_palette("dark"))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    if tris is not None:
+        c.set_surface(tris, [0] * len(tris))
+    c.set_region_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    drawn, changed, deleted, refused = [], [], [], []
+    c.region_drawn.connect(drawn.append)
+    c.region_changed.connect(lambda i, q: changed.append((i, q)))
+    c.region_deleted.connect(deleted.append)
+    c.click_refused.connect(refused.append)
+    return c, drawn, changed, deleted, refused
+
+
+_GW_QUAD = [(-300.0, 900.0), (300.0, 900.0), (300.0, 1500.0), (-300.0, 1500.0)]
+
+
+def test_region_mode_is_exclusive_with_every_other(app):
+    c, *_ = _region_canvas(app)
+    assert c._region_mode
+    c.set_trace_mode(True)
+    assert c._trace_mode and not c._region_mode
+    c.set_region_mode(True)
+    assert c._region_mode and not c._trace_mode and not c._place_mode
+    c.set_contact_mode(True)
+    assert c._contact_mode and not c._region_mode
+
+
+def test_four_clicks_emit_one_region_drawn_with_world_corners(app):
+    c, drawn, *_ , refused = _region_canvas(app)
+    for n, (x, z) in enumerate(_GW_QUAD):
+        _click_at_world(c, (x, 0.0, z))
+        if n == 1:                                       # mid-draw: pending renders, no emission
+            assert not drawn and "regionpending" in _tags(c)
+    assert not refused and len(drawn) == 1
+    quad = drawn[0]
+    assert len(quad) == 4
+    for (gx, gz), (ex, ez) in zip(quad, _GW_QUAD):
+        assert math.hypot(gx - ex, gz - ez) < 12.0       # integer widget-px quantization only
+    assert "regionpending" not in _tags(c)               # the gesture consumed its corners
+
+
+def test_escape_abandons_the_pending_quad(app):
+    c, drawn, *_ = _region_canvas(app)
+    _click_at_world(c, (-300.0, 0.0, 900.0))
+    _click_at_world(c, (300.0, 0.0, 900.0))
+    assert "regionpending" in _tags(c)
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert "regionpending" not in _tags(c) and not drawn
+
+
+def test_set_regions_renders_the_laws_not_just_the_quads(app):
+    """The census: kind by SHAPE (a gateway's walk-out edge + chevron), the fan audit painted
+    (the notch-in-hull dart spills in warn), handles + corner indices only in region mode."""
+    c, *_ = _region_canvas(app)
+    dart = [(70.0, 1060.0), (100.0, 1000.0), (100.0, 1100.0), (0.0, 1100.0)]
+    c.set_regions([
+        {"i": 0, "quad": _GW_QUAD, "label": "door0 → 4005", "kind": "gateway", "warn": None},
+        {"i": 1, "quad": dart, "label": "zone0", "kind": "event",
+         "warn": "over-trigger ~31% — fires outside the drawn outline"},
+    ])
+    tags = _tags(c)
+    assert tags.count("regionquad") == 2
+    assert tags.count("regionedge") == 1                 # gateways only
+    assert tags.count("regionchevron") == 1
+    assert tags.count("regionlabel") == 2
+    assert tags.count("regionpt") == 8                   # 4 corners x 2 quads, region mode
+    assert tags.count("regionspill") >= 1                # the dart's fan swallows its notch
+    assert tags.count("regiongap") == 0
+    warn_tip = c._region_items[1].toolTip()
+    assert "over-trigger" in warn_tip and "⚠" in warn_tip
+    c.set_place_mode(True)                               # regions stay visible for context…
+    tags = _tags(c)
+    assert tags.count("regionquad") == 2 and tags.count("regionpt") == 0   # …but inert
+
+
+def test_corner_and_whole_quad_drags_emit_once_each(app):
+    c, drawn, changed, *_ = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    assert c._begin_region_corner_drag(0, 2)
+    tx, ty = IF.world_point_to_click(c.camera(), (350.0, 0.0, 1600.0))
+    c._drag_canvas(tx, ty)
+    c._end_vertex_drag()
+    assert len(changed) == 1
+    i, quad = changed[0]
+    assert i == 0 and math.hypot(quad[2][0] - 350.0, quad[2][1] - 1600.0) < 0.2
+    assert quad[0] == _GW_QUAD[0]                        # the other corners never moved
+    # whole-quad drag: grab the centre, move it +100/+100 in world
+    changed.clear()
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    gx, gy = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    assert c._begin_region_quad_drag(0, QPointF(gx, gy))
+    nx, ny = IF.world_point_to_click(c.camera(), (100.0, 0.0, 1300.0))
+    c._drag_canvas(nx, ny)
+    c._end_vertex_drag()
+    assert len(changed) == 1 and not drawn
+    _, quad = changed[0]
+    for (qx, qz), (ex, ez) in zip(quad, _GW_QUAD):
+        assert math.hypot(qx - (ex + 100.0), qz - (ez + 100.0)) < 0.3
+
+
+def test_region_menu_rotates_the_walkout_edge_and_deletes(app, monkeypatch):
+    import types
+
+    class _FakeMenu:
+        pick = 0                                          # which added action exec() returns
+
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return self.acts[_FakeMenu.pick]
+
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    c, _, changed, deleted, _ = _region_canvas(app)
+    retargeted = []
+    c.region_retarget.connect(retargeted.append)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    _FakeMenu.pick = 0                                    # gateways lead with Set target…
+    c._region_menu(0, QPoint(0, 0))
+    assert retargeted == [0]                              # the host asks + writes (Field(0) lesson)
+    _FakeMenu.pick = 1                                    # then the walk-out rotate
+    c._region_menu(0, QPoint(0, 0))
+    assert changed == [(0, _GW_QUAD[1:] + _GW_QUAD[:1])]  # order rotated, geometry identical
+    _FakeMenu.pick = 2
+    c._region_menu(0, QPoint(0, 0))
+    assert deleted == [0]
+
+
+def test_zone_corners_project_at_the_mesh_floor_height(app):
+    """A raised real floor (render y = -300): corners draw AT that height, an on-mesh pixel
+    converts through the raycast, and an OFF-mesh pixel lands on the plane at the nearest
+    floor height (donor door quads legitimately hang past the mesh edge)."""
+    y = -300.0
+    a, b, cc, d = (-1000.0, y, 500.0), (1000.0, y, 500.0), (1000.0, y, 2500.0), (-1000.0, y, 2500.0)
+    c, *_ = _region_canvas(app, tris=[(a, b, cc), (a, cc, d)])
+    c.set_regions([{"i": 0, "quad": [(0.0, 900.0), (200.0, 900.0), (200.0, 1100.0),
+                                     (0.0, 1100.0)], "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    ex, ey = IF.world_point_to_click(c.camera(), (0.0, y, 900.0))
+    h = c._region_handle_items[(0, 0)]
+    assert math.hypot(h.pos().x() - ex, h.pos().y() - ey) < 0.01
+    on = c._px_to_zone_world(QPointF(*IF.world_point_to_click(c.camera(), (0.0, y, 900.0))))
+    assert math.hypot(on[0] - 0.0, on[1] - 900.0) < 1e-6          # the raycast, exact
+    off_px = IF.world_point_to_click(c.camera(), (5000.0, y, 2000.0))
+    off = c._px_to_zone_world(QPointF(*off_px))
+    assert math.hypot(off[0] - 5000.0, off[1] - 2000.0) < 1.0     # the plane at floor height

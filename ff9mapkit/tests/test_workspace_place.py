@@ -247,3 +247,136 @@ def test_picker_without_place_context_has_no_place_button(app):
     dlg = FieldCardPicker(None, pick_palette("dark"), None)
     assert dlg.place_btn is None
     dlg.deleteLater()
+
+
+# --------------------------------------------------------------------------- rung 4: regions
+def test_region_ops_write_and_delete_rows():
+    data = {}
+    l1 = P.place_gateway(data, [(0.4, 0.6), (100, 0), (100, 100), (0, 100)], 4005, 2)
+    l2 = P.place_gateway(data, [(200, 0), (300, 0), (300, 100), (200, 100)], 4007, 0)
+    g0, g1 = data["gateway"]
+    assert g0["zone"][0] == [0, 1] and g0["to"] == 4005 and g0["entrance"] == 2
+    assert "entrance" not in g1                            # 0 = the default, not written
+    assert g0["name"] != g1["name"] and g0["name"] in l1 and g1["name"] in l2
+    l3 = P.place_event(data, [(500, 0), (600, 0), (600, 100), (500, 100)])
+    (ev,) = data["event"]
+    assert ev["zone"][2] == [600, 100] and ev["message"] and ev["name"] in l3
+    P.move_zone(data, "event", 0, [(510, 0), (610, 0), (610, 100), (510, 100)])
+    assert data["event"][0]["zone"][0] == [510, 0]
+    lbl = P.delete_region(data, "gateway", 0)
+    assert len(data["gateway"]) == 1 and data["gateway"][0]["to"] == 4007
+    assert g0["name"] in lbl
+
+
+def test_region_rows_normalizes_and_judges_both_laws():
+    doubled = [[0, 0], [100, 0], [100, 100], [0, 100], [0, 100]]     # the stored safe form
+    dart = [[70, 1060], [100, 1000], [100, 1100], [0, 1100]]         # notch inside the hull
+    data = {"gateway": [{"name": "door0", "to": 4005, "entrance": 2, "zone": doubled},
+                        {"to": 4007, "zone": [[50, 50], [150, 50], [150, 150], [50, 150]]}],
+            "event": [{"name": "spiky", "zone": dart},
+                      {"name": "no-zone"}]}
+    rows = P.region_rows(data)
+    assert [(r["kind"], r["index"]) for r in rows] == [("gateway", 0), ("gateway", 1),
+                                                       ("event", 0)]
+    assert len(rows[0]["quad"]) == 4                       # the doubled 5th point undisplayed
+    assert "door0" in rows[0]["label"] and "4005" in rows[0]["label"] and "e2" in rows[0]["label"]
+    assert rows[0]["warn"] and "overlaps" in rows[0]["warn"]          # doubled vs the second
+    assert rows[1]["warn"] and "overlaps" in rows[1]["warn"]
+    assert rows[2]["warn"] and "over-trigger" in rows[2]["warn"]      # the fan audit, live
+
+
+def test_regions_tool_swaps_clusters_and_canvas_mode(app):
+    d, _ = _doc(app)
+    data = {"field": {"source_field": 351}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    assert d.tools.current() == "place"
+    assert d.canvas._place_mode and not d.canvas._region_mode
+    assert d.mode_btns["npc"].isVisible() and not d.rkind_btns["gateway"].isVisible()
+    d.tools.set_current("regions")
+    assert d.canvas._region_mode and not d.canvas._place_mode
+    assert not d.mode_btns["npc"].isVisible() and d.rkind_btns["gateway"].isVisible()
+    assert d.gw_to.isVisible() and d.gw_ent.isVisible()    # the gateway sub-cluster
+    d.rkind_btns["event"].setChecked(True)
+    assert not d.gw_to.isVisible()                         # events carry no target boxes
+    d.tools.set_current("place")
+    assert d.canvas._place_mode and d.mode_btns["npc"].isVisible()
+
+
+def test_a_drawn_quad_lands_one_gateway_row(app):
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d.tools.set_current("regions")
+    d.gw_to.setValue(4005)
+    d.gw_ent.setValue(3)
+    quad = [(-200.0, 800.0), (200.0, 800.0), (200.0, 1200.0), (-200.0, 1200.0)]
+    d._on_region_drawn(quad)
+    assert len(calls) == 1 and "gateway" in calls[0][1]
+    (gw,) = data["gateway"]
+    assert gw["to"] == 4005 and gw["entrance"] == 3
+    assert gw["zone"] == [[-200, 800], [200, 800], [200, 1200], [-200, 1200]]
+    assert len(d.canvas._regions) == 1                     # fed straight back to the canvas
+    d.rkind_btns["event"].setChecked(True)
+    d._on_region_drawn([(500.0, 800.0), (700.0, 800.0), (700.0, 1000.0), (500.0, 1000.0)])
+    assert len(calls) == 2 and data["event"][0]["name"]
+
+
+def test_region_change_and_delete_route_by_row(app):
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}],
+            "event": [{"name": "zone0", "message": "hi",
+                       "zone": [[300, 500], [400, 500], [400, 600], [300, 600]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d.tools.set_current("regions")
+    assert len(d.canvas._regions) == 2
+    d._on_region_changed(1, [(310, 500), (410, 500), (410, 600), (310, 600)])
+    assert data["event"][0]["zone"][0] == [310, 500]       # the EVENT row moved, not the gateway
+    assert data["gateway"][0]["zone"][0] == [0, 500]
+    d._on_region_deleted(0)
+    assert data["gateway"] == [] and len(data["event"]) == 1
+    assert len(calls) == 2                                 # one on_edit per gesture
+
+
+def test_blocked_fields_disable_the_tool_strip(app):
+    d, calls = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    assert not d.tools.button("place").isEnabled()
+    assert not d.tools.button("regions").isEnabled()
+    d._on_region_drawn([(0, 0), (10, 0), (10, 10), (0, 10)])
+    assert calls == [] and "gateway" not in ({} if d._data is None else d._data)
+
+
+def test_floor_y_at_stays_importable_from_placedoc():
+    assert P.floor_y_at is IF.floor_y_at                   # the moved owner, aliased
+
+
+def test_place_retarget_routes_by_row(app, monkeypatch):
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 0,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(351, 0)] = _bundle()
+    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d.tools.set_current("regions")
+    assert d.canvas._regions[0]["warn"] and "NO TARGET" in d.canvas._regions[0]["warn"]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)
+    d._on_region_retarget(0)
+    assert data["gateway"][0]["to"] == 301 and len(calls) == 1
+    assert d.canvas._regions[0]["warn"] is None            # the warn clears with the fix
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    yield
+    qt_drain()
