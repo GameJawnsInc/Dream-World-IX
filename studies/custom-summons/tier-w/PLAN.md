@@ -449,3 +449,23 @@ scenery must be re-authored *together*.
   provisionally acceptable pending real authoring; the `acknowledge_alternate_split` follow-on
   stays untriggered (a creature page runs 0 R7 checks — the trigger is the first real CLASS-C
   paint cast). Resting: ef227 REVERTED TO STOCK, artifacts regenerate from the committed specs.
+- **W6b-3 — ★ RECON DONE (offline; record `W6b3-ARCHIVE.md`, gates `w6b3_gates.py` 10/10;
+  siblings unchanged; dossiers `C:\gd\SCRATCH\summon-format\texel-w6b\w6b3\`).** THE ARCHIVE
+  HYPOTHESIS FALSIFIED AND REPLACED: the census walker already descends into every sub-file id —
+  the real blindness is that the `so` record is a MULTI-PART BINDING ARRAY and `reskin.so_record`
+  hard-probes two lengths only, dropping **126 records / 309 binding slots** (split id-2 61 /
+  id-6 53 / id-3 12 — **THE RECORD-LENGTH CHANNEL**, not an id-2 one; the id-2 framing would cost
+  52% of the reach). Reading it properly: **73 new depth cells (65 unanimous + 8 dual), honest
+  hazard split 26 clean + 34 class-C + 7 program-write**, ALL from the 861 covered class — the
+  1,278-cell structural wall gains ZERO and holds harder (502/502 shape-valid records target a
+  GEOM block). **THE GHOST-LAYER PREDICTION FAILED 0-for-6** — ef446/ef429 now have every model
+  enumerated; ef446's 8bpp nucleus reader is NOT a GEOM model in that container (W6b-SCENERY §5's
+  id-2 sentence corrected). **★ THE SAFETY FINDING outranks the gain: shipped `summon-reskin`
+  publishes FIVE FALSE "DERIVED PRIVATE" palette verdicts** (ef381: 1 binder claimed, 7 real) —
+  the dropped records defeat the very guard-rail the docstring promises. **POSTURE (record §8):
+  fix `so_record`'s multi-part read UNCONDITIONALLY as safety; DISCLOSE the 65 depths at channel
+  P's tier (agreement 17/21 = 81% is indistinguishable from the 78.5% column-homogeneity base
+  rate — no licence); refuse the 12 archive-dual + 2 ef184 G-contradicting cells.** OPEN: the
+  submission-time-GPU-state ceiling hypothesis (refuter 2's — now the arc's biggest question);
+  4 dome-shaped cast vehicles named (ef424/ef130/ef179 preferred; avoid ef184). Kit integration
+  NOT started.

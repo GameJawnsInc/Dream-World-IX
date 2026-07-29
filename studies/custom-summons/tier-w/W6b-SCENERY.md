@@ -615,9 +615,14 @@ not a comment.**
 > on-screen tones exactly. **THE DEPTH COROLLARY (new law): a census depth is a BINDING fact, not
 > a DRAW fact** — the `so` record's 15bpp binds its own (evidently undrawn) model, while the
 > surface that draws the nucleus reads the same bytes at 8bpp under the warm CLUT; the fine
-> two-tone checker is the corollary's diagnostic signature. The invisible drawn binding is most
+> two-tone checker is the corollary's diagnostic signature. ~~The invisible drawn binding is most
 > plausibly an id-2 archive model (the W4-recon scenery class) — sweeping id-2 model records for
-> tpage/clut is the named future attribution channel. VERDICT SPLIT, honestly: the 15bpp WRITE
+> tpage/clut is the named future attribution channel.~~ ⛳ **CORRECTED BY W6b-3, wrong on both
+> halves (`W6b3-ARCHIVE.md` §3): the census walker already descends into id-2, and the sweep found
+> ef446's column 448 carries ZERO invisible bindings — every model in the container is now
+> enumerated and none reads it at 8bpp. Whatever draws the nucleus is NOT a GEOM model in ef446 at
+> all** (the surviving candidates: the id-3 program's own primitives, or another container's
+> surface). VERDICT SPLIT, honestly: the 15bpp WRITE
 > path is proven byte→VRAM→screen, and the spill gate is proven; the 15bpp READ proof still needs
 > a surface DRAWN at 15bpp — the honest source is W6b-2's PROGRAM channel (55 non-creature
 > prog-15bpp cells; registration-side beats binding-side). NEXT VEHICLE: **ef251 (Madeen) column
