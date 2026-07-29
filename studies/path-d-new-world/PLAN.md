@@ -5,7 +5,33 @@
 > **Rungs 0–2's engine work is BUILT AND DEPLOYED** (`s70`/`s71`/`s72`; pre-build DLL backup
 > `20260729-153010`), and Rung 2's data half (a verbatim WORLD11 clone shipped as `EVT_WORLD_WORLD13`
 > across 7 locales + a `WorldScene 9013 WORLD13` registration) is deployed too. Playtest script:
-> [`RUNGS-0-3-PLAYTEST.md`](RUNGS-0-3-PLAYTEST.md). **Nothing is in-game proven yet.**
+> [`RUNGS-0-3-PLAYTEST.md`](RUNGS-0-3-PLAYTEST.md).
+>
+> ### ★ IN-GAME RESULTS 2026-07-29 — rungs 0, 1, 2 ALL PASS
+>
+> - **Rung 0 ★ PASS.** Warp to unregistered 31000 produced exactly the predicted signature:
+>   `KeyNotFoundException` at `Dictionary.get_Item` → `ff9InitStateWorldMap` → `WMScriptDirector.HonoAwake`.
+>   The menu accepted the id (the old guard would have refused it), the scene fully tore down and rebuilt,
+>   and the failure landed at the dispatcher lookup — informative, not silent.
+> - **Rung 2 ★ PASS (owner-confirmed).** `WorldScene 9013 WORLD13` registered at mod-load
+>   (`[PathD s72] … (mes 68)`), warping to 9013 loaded a **normal, fully functional disc-1 overworld**
+>   running the cloned dispatcher — owner also confirmed the chocobo debug commands worked there. A
+>   genuinely new `wldMapNo` outside 9000-9012 both registers AND dispatches.
+> - **Rung 1 ★ PASS — THE PIVOTAL UNKNOWN IS ANSWERED: a WorldDisc CAN be minted in C# at runtime.**
+>   With the spike armed, `[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)`
+>   fired and execution reached `HonoAwake:57` — i.e. **past** `Initialize()` (`:40`) and `OnInitialize()`
+>   (`:44`). Zero `WMWorld`/`WorldDisc`/`WMBlock` frames in any trace; zero `|E|` lines in `Memoria.log`.
+>   The only exceptions were the expected 31000 miss and 32 instances of one pre-existing, field-side
+>   `FieldMapActorController.MovePC` NRE. **§1's "single biggest open risk" and §6 unknown 1 are CLOSED
+>   favourably; the §4 fallback (a real third disc + a baked Unity AssetBundle) is NOT needed.**
+>
+> ⚠ **What Rung 1 did NOT prove.** The block STREAMER never ran — no `Finished Loading Blocks!`, and
+> `Memoria.log` stops at the spike line. Because `HonoAwake` threw, `AddBehavior` never registered
+> `WMScriptDirector`, so no world tick fired. (The recon's calibration predicted `LoadBlocks` would run
+> regardless of a dispatcher; that assumed the director survives, and it does not.) So `LoadBlock` ×480,
+> `DetectUnseenBlocks` and `ApplyForm` are still untested — and therefore so are the three pre-emptive
+> fixes in `s71` (`Form2Transforms`, `CurrentX`/`CurrentY`, the mid-grid sentinel parking). **Rung 3 is
+> where the streaming half is first exercised; it is load-bearing, not a formality.**
 >
 > A 6-sweep source verification was run against the live patched clone before any code was written. Most
 > of this document held up. These specific claims did **not** — they are corrected here rather than in
