@@ -415,9 +415,10 @@ def test_grabbable_things_carry_the_move_cursor(app):
     from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
 
     # Assert through the canvas's RETAINED wrappers (_kids/_cutout_items) — the originals the
-    # app itself holds. Fresh scene.items() retrieval wrappers + cursor() reads flaked
-    # intermittently under GC on Python 3.14 (a shiboken suspicion, minimal-repro pending);
-    # the retained path is both stable and the one the product actually exercises.
+    # app itself holds. ROOT-CAUSED (studies/pyside-gc-crash/): shiboken flips a wrapper to
+    # Python-owned when parentItem() returns None, so the sweep helper's it.parentItem() made
+    # dying wrappers DELETE the C++-owned items (crash-class, version-independent). The
+    # retained path is safe because it never calls parentItem — keep it that way.
     def kid_cursors(canvas, cls):
         return [(k.cursor().shape() if k.hasCursor() else None)
                 for k in canvas._kids if isinstance(k, cls)]
