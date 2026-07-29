@@ -559,18 +559,23 @@ def test_every_arrival_row_carries_an_explicit_face():
     """★ G10. `content/npc.py:372` emits NO D9(6) write for a face-less row, and the template's
     unconditional default is a hard-coded 0 = SOUTH -- so a missing face is a silent 'face the
     camera whichever wall you walked through', and no other gate fires."""
-    c = F.compose(_plan())
+    c = F.compose(_plan(entry="HALL"))
     for r in c.rooms:
         rows = r.toml["player"]["arrival"]
-        assert rows, "every room needs at least the entrance-0 row"
+        assert rows, "every room needs at least one arrival row"
         for row in rows:
             assert isinstance(row["face"], int)
+        assert isinstance(r.toml["player"]["face"], int), "[player] face is mandatory too"
         zero = [x for x in rows if x["entrance"] == 0]
-        assert len(zero) == 1
-        assert zero[0]["face"] == r.toml["player"]["face"], (
-            "the entrance-0 row and [player] face compile to the SAME D9(6) const, so a "
-            "disagreement is unrepresentable, not merely odd")
-        assert zero[0]["pos"] == r.toml["player"]["spawn"]
+        assert len(zero) == (1 if r.name == c.entry else 0), (
+            "the explicit entrance-0 row goes on the ENTRY room only -- elsewhere it is redundant "
+            "(an unmatched D8:2 falls through to [player] spawn/face, which is what the row says) "
+            "and it draws a spurious lint_campaign g2 advisory")
+        for z in zero:
+            assert z["face"] == r.toml["player"]["face"], (
+                "the entrance-0 row and [player] face compile to the SAME D9(6) const, so a "
+                "disagreement is unrepresentable, not merely odd")
+            assert z["pos"] == r.toml["player"]["spawn"]
 
 
 def test_arrival_rows_live_under_player_not_a_dotted_key():
@@ -583,10 +588,11 @@ def test_arrival_rows_live_under_player_not_a_dotted_key():
 def test_entrance_numbers_are_namespaced_per_destination():
     """Both rooms independently number their inbound door `entrance = 1`. D8:2 is read by the
     destination's own if-chain, so reuse across rooms is correct."""
-    c = F.compose(_plan())
+    c = F.compose(_plan(entry="HALL"))
     for r in c.rooms:
-        assert r.toml["gateway"][0]["entrance"] == 1
-        assert {x["entrance"] for x in r.toml["player"]["arrival"]} == {0, 1}
+        assert r.toml["gateway"][0]["entrance"] == 1, "both rooms number their inbound door 1"
+        want = {0, 1} if r.name == c.entry else {1}
+        assert {x["entrance"] for x in r.toml["player"]["arrival"]} == want
 
 
 def test_gateway_zones_have_four_corners():
@@ -611,7 +617,7 @@ def test_a_one_way_door_emits_no_return_gateway_but_still_an_arrival():
                                 "seg": [list(DOOR[0]), list(DOOR[1])], "two_way": False}]))
     assert len(c.by_name("HALL").toml.get("gateway", [])) == 1
     assert "gateway" not in c.by_name("CELL").toml
-    assert {x["entrance"] for x in c.by_name("CELL").toml["player"]["arrival"]} == {0, 1}
+    assert {x["entrance"] for x in c.by_name("CELL").toml["player"]["arrival"]} == {1}
 
 
 def test_an_encounter_typo_is_refused_because_the_build_will_not_catch_it():
@@ -637,6 +643,167 @@ def test_an_unreachable_room_warns_rather_than_blocking():
                                {"name": "VAULT", "poly": [(0, 1200), (1200, 1200),
                                                           (1200, 2400), (0, 2400)]}]))
     assert any("VAULT" in w and "unreachable" in w for w in c.warnings)
+
+
+# ------------------------------------------------------------------ 6b: the emit to disk
+
+def _canvas_aabb(pts, cam):
+    p = [F.project_floor(x, z, cam)[:2] for x, z in pts]
+    return (min(q[0] for q in p), min(q[1] for q in p),
+            max(q[0] for q in p), max(q[1] for q in p))
+
+
+def _opaque_aabb(png_path, scale=4):
+    """The AABB of a PNG's non-transparent pixels, in CANVAS units (the layers ship at 4x)."""
+    import struct
+    import zlib
+    raw = png_path.read_bytes()
+    i, idat, W, H = 8, b"", 0, 0
+    while i < len(raw):
+        n = struct.unpack(">I", raw[i:i + 4])[0]
+        typ, body = raw[i + 4:i + 8], raw[i + 8:i + 8 + n]
+        if typ == b"IHDR":
+            W, H = struct.unpack(">II", body[:8])
+        if typ == b"IDAT":
+            idat += body
+        i += 12 + n
+    buf = zlib.decompress(idat)
+    stride = W * 4
+    x0 = y0 = 10 ** 9
+    x1 = y1 = -10 ** 9
+    for y in range(H):
+        row = buf[y * (stride + 1) + 1:(y + 1) * (stride + 1)]
+        for x in range(W):
+            if row[x * 4 + 3]:
+                x0, x1 = min(x0, x), max(x1, x)
+                y0, y1 = min(y0, y), max(y1, y)
+    return (x0 / scale, y0 / scale, (x1 + 1) / scale, (y1 + 1) / scale)
+
+
+def test_emit_writes_a_buildable_campaign_tree(tmp_path):
+    c = F.compose(_plan())
+    wrote = F.emit(c, tmp_path, plan=_plan())
+    assert (tmp_path / "campaign.toml").is_file()
+    assert (tmp_path / F.SIDECAR).is_file()
+    for room in ("HALL", "CELL"):
+        d = tmp_path / room
+        assert (d / f"{room.lower()}.field.toml").is_file()
+        assert (d / "walkmesh.obj").is_file()
+        assert (d / "art" / "back.png").is_file()
+        assert (d / "art" / "floor.png").is_file()
+    assert wrote["ids"] == [30500, 30501]
+
+
+def test_the_emitted_campaign_lints_clean(tmp_path):
+    """Including g2: the entrance-0 row goes on the ENTRY room only, so no room draws a spurious
+    'entrance 0 is not routed here by any campaign edge' advisory."""
+    from ff9mapkit import campaign as C
+    F.emit(F.compose(_plan()), tmp_path, plan=_plan())
+    plan = C.load_campaign(tmp_path / "campaign.toml")
+    errors, warns = C.lint_campaign(plan, tmp_path)
+    assert errors == [], errors
+    assert warns == [], warns
+
+
+def test_the_entrance_zero_row_is_on_the_entry_room_only():
+    c = F.compose(_plan(entry="HALL"))
+    assert 0 in {r["entrance"] for r in c.by_name("HALL").toml["player"]["arrival"]}
+    assert 0 not in {r["entrance"] for r in c.by_name("CELL").toml["player"]["arrival"]}
+
+
+def test_the_walkmesh_obj_is_the_drawn_polygon_in_true_world_coords(tmp_path):
+    F.emit(F.compose(_plan()), tmp_path, plan=_plan())
+    lines = (tmp_path / "HALL" / "walkmesh.obj").read_text().splitlines()
+    verts = [tuple(float(v) for v in ln.split()[1:]) for ln in lines if ln.startswith("v ")]
+    assert all(v[1] == 0.0 for v in verts), "the floor plane is y=0"
+    got = {(round(v[0]), round(v[2])) for v in verts}
+    assert got == set(F.compose(_plan()).by_name("HALL").poly_room)
+
+
+@pytest.mark.parametrize("poly", [ROOM_A, L_SHAPE])
+def test_the_painted_floor_matches_the_walkmesh(poly, tmp_path):
+    """★ G15. `write_placeholders` takes a rectangular FloorFrame, so without `floor_tris` the
+    checkerboard covers ground the player cannot reach -- measured 68% unwalkable on a composed room,
+    which inverts the placeholder's own stated purpose as an in-game alignment check and makes the
+    human report a walkmesh bug that does not exist."""
+    from ff9mapkit.scene import placeholder
+    cam, off = F.fit_play_camera(poly, pitch=48.0, fov=42.2)
+    room = [(x + off[0], z + off[1]) for x, z in poly]
+    verts, faces = IF.triangulate(room)
+    tris = [(verts[a], verts[b], verts[c]) for a, b, c in faces]
+    back, floor = tmp_path / "back.png", tmp_path / "floor.png"
+    placeholder.write_placeholders(cam, None, back, floor, floor_tris=tris)
+    wx0, wy0, wx1, wy1 = _canvas_aabb(room, cam)
+    px0, py0, px1, py1 = _opaque_aabb(floor)
+    for got, want, axis in ((px0, wx0, "x0"), (px1, wx1, "x1"), (py0, wy0, "y0"), (py1, wy1, "y1")):
+        assert abs(got - want) <= F.FIT_MARGIN, f"{axis}: painted {got:.1f} vs walkmesh {want:.1f}"
+
+
+def test_the_notch_of_an_l_shaped_room_is_left_unpainted(tmp_path):
+    """The clip has to be by the real footprint, not its bounding box."""
+    from ff9mapkit.scene import placeholder
+    cam, off = F.fit_play_camera(L_SHAPE, pitch=48.0, fov=42.2)
+    room = [(x + off[0], z + off[1]) for x, z in L_SHAPE]
+    verts, faces = IF.triangulate(room)
+    tris = [(verts[a], verts[b], verts[c]) for a, b, c in faces]
+    placeholder.write_placeholders(cam, None, tmp_path / "b.png", tmp_path / "f.png",
+                                   floor_tris=tris)
+    # the notch corner of the L, well inside the AABB but outside the footprint
+    x0, z0, x1, z1 = F.bbox(room)
+    notch = (x1 - (x1 - x0) * 0.15, z1 - (z1 - z0) * 0.15)
+    assert not F.point_in_poly(notch[0], notch[1], room), "the probe point must be in the notch"
+    import struct
+    import zlib
+    raw = (tmp_path / "f.png").read_bytes()
+    i, idat, W, H = 8, b"", 0, 0
+    while i < len(raw):
+        n = struct.unpack(">I", raw[i:i + 4])[0]
+        typ, body = raw[i + 4:i + 8], raw[i + 8:i + 8 + n]
+        if typ == b"IHDR":
+            W, H = struct.unpack(">II", body[:8])
+        if typ == b"IDAT":
+            idat += body
+        i += 12 + n
+    buf = zlib.decompress(idat)
+    cx, cy = F.project_floor(notch[0], notch[1], cam)[:2]
+    px, py = int(cx * 4), int(cy * 4)
+    assert 0 <= px < W and 0 <= py < H
+    assert buf[py * (W * 4 + 1) + 1 + px * 4 + 3] == 0, "the notch must be TRANSPARENT"
+
+
+def test_an_encounter_scene_name_is_resolved_to_an_id_in_the_emitted_toml():
+    """★ `build.py:6379` compiles the encounter with a bare `int(e["scene"])`, so a catalog NAME --
+    which the LINT resolves and reports on happily -- dies at build time as `invalid literal for
+    int()`. The author's spelling stays in the sidecar; the toml carries the id."""
+    c = F.compose(_plan(rooms=[{"name": "HALL", "poly": ROOM_A},
+                               {"name": "CELL", "poly": ROOM_B,
+                                "encounter": {"scene": "BSC_CA_E013", "freq": 180}}]))
+    assert c.by_name("CELL").toml["encounter"]["scene"] == 296
+    assert any("resolved to id 296" in w for w in c.warnings)
+
+
+def test_emit_refuses_a_non_consecutive_id_run(tmp_path):
+    c = F.compose(_plan())
+    c.rooms[1].field_id = 30599
+    with pytest.raises(F.ComposeError) as e:
+        F.emit(c, tmp_path)
+    assert "consecutive" in str(e.value)
+
+
+def test_the_sidecar_round_trips(tmp_path):
+    p = _plan()
+    F.save_plan(p, tmp_path / F.SIDECAR)
+    back = F.load_plan(tmp_path / F.SIDECAR)
+    assert back["version"] == 1
+    assert F.compose(back).by_name("HALL").field_id == 30500
+
+
+def test_the_cli_verb_is_registered():
+    from ff9mapkit import cli
+    parser = cli.build_parser()
+    args = parser.parse_args(["floorplan", "plan.json", "--out", "d", "--no-preflight"])
+    assert args.func is cli._cmd_floorplan
+    assert args.plan == "plan.json" and args.out == "d" and args.no_preflight is True
 
 
 def test_compose_collects_every_problem_not_just_the_first():

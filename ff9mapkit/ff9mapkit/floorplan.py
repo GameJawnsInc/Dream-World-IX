@@ -911,6 +911,9 @@ def compose(plan, *, taken_ids=()):
 
     polys = {str(r["name"]): [(float(x), float(z)) for x, z in r["poly"]] for r in rooms_in}
     order = [str(r["name"]) for r in rooms_in]
+    entry = str(plan.get("entry") or order[0])
+    if entry not in polys:
+        raise ComposeError(f"entry room {entry!r} is not in the floorplan")
 
     # ---- stage 2: ids (G5) -----------------------------------------------------------------------
     fixed = {str(r["name"]): int(r["id"]) for r in rooms_in if r.get("id")}
@@ -1102,23 +1105,27 @@ def compose(plan, *, taken_ids=()):
     if problems:
         raise ComposeError(*problems)
 
-    # ★ The entrance-0 row is the campaign entry / a debug warp, and its face MUST equal
-    # [player] face -- both compile to the SAME D9(6) const, so a disagreement is unrepresentable
-    # rather than merely odd. The value is 0 = SOUTH, and that is a real choice, not a shrug: it is
-    # the engine's own unconditional template default (so the row agrees with the fallback instead
-    # of fighting it), and 0 = facing the camera is the layout skill's stated idiom for a standing
-    # actor. Unlike a door arrival there is no wall to derive a direction from -- deriving it from
-    # "whichever inbound door sorted first" would make the value depend on room naming.
+    # ★ [player] face is 0 = SOUTH, and that is a real choice rather than a shrug: it is the engine's
+    # own unconditional template default (the player Init writes D9(6) = 0 ahead of every arrival
+    # if-block), so the composer agrees with the fallback instead of fighting it, and 0 = facing the
+    # camera is the layout skill's stated idiom for a standing actor. Unlike a door arrival there is
+    # no wall to derive a direction from -- deriving it from "whichever inbound door sorted first"
+    # would make a room's idle facing depend on room naming.
     SPAWN_FACE = 0
     spawn_face = {n: SPAWN_FACE for n in order}
-    for n in order:
-        arrivals[n].insert(0, {"entrance": 0, "pos": list(spawns[n]), "face": SPAWN_FACE,
+    # ★ The explicit entrance-0 row goes on the ENTRY room ONLY. It is functionally redundant
+    # everywhere -- an unmatched D8:2 falls through to [player] spawn / [player] face, which is
+    # exactly what the row says -- and its one real job is to give `campaign.lint_campaign` (g2)
+    # coverage for the campaign's own entry, which injects `<campaign entry>` into the ENTRY
+    # member's inbound set alone (campaign.py:872-874). Emitting it on every room therefore buys
+    # nothing and costs a spurious per-room advisory ("entrance 0 is not routed here by any
+    # campaign edge") that trains the author to ignore that lint. Its face must equal
+    # [player] face because both compile to the SAME D9(6) const -- a disagreement is
+    # unrepresentable, not merely odd.
+    arrivals[entry].insert(0, {"entrance": 0, "pos": list(spawns[entry]), "face": SPAWN_FACE,
                                "from": "<entry>"})
 
     # ---- stage 5: reachability (WARN) ------------------------------------------------------------
-    entry = str(plan.get("entry") or order[0])
-    if entry not in polys:
-        raise ComposeError(f"entry room {entry!r} is not in the floorplan")
     adj = {n: set() for n in order}
     for d in doors:
         adj[d["a"]].add(d["b"])
@@ -1194,6 +1201,41 @@ def compose(plan, *, taken_ids=()):
             if not (enc.get("scene") or enc.get("scenes")):
                 problems.append(f"room {n}: [encounter] needs `scene` (or `scenes`) -- freq and "
                                 f"battle_music are inert without it")
+            # Resolve the scene HERE rather than letting the build reach it. An unresolvable name
+            # currently surfaces from `build-all` as a bare `invalid literal for int() with base 10`
+            # with no field, no key and no suggestion; `catalog.resolve_scene` raises with real
+            # did-you-mean candidates. And a MODEL-BUCKET id (BSC_B3_*) crashes in-game with an
+            # InitBattleScene null-ref, which the build only WARNS about.
+            # ...and RESOLVE it to a numeric id for the emitted toml. `build.py:6379` compiles the
+            # encounter with a bare `int(e["scene"])`, so a catalog NAME -- which the lint happily
+            # resolves and reports on -- dies at build time as `invalid literal for int() with base
+            # 10`. The author's own spelling stays in the sidecar; the toml carries the id, which is
+            # what every shipped example does.
+            from . import catalog as _cat
+            enc = dict(enc)
+            for key in ("scene", "scenes"):
+                if enc.get(key) is None:
+                    continue
+                vals = [enc[key]] if key == "scene" else list(enc[key] or [])
+                sids = []                       # NOT `ids` -- that name holds the room->field-id map
+                for val in vals:
+                    try:
+                        sid = _cat.resolve_scene(val)
+                    except ValueError as e:
+                        problems.append(f"room {n}: [encounter] {e}")
+                        continue
+                    if _cat.is_model_bucket_scene(sid):
+                        problems.append(
+                            f"room {n}: [encounter] scene {val!r} -> {_cat.scene_name(sid)} is a "
+                            f"MODEL-BUCKET id (BSC_B3_*), not a fightable encounter -- it crashes "
+                            f"in-game with an InitBattleScene null-ref")
+                        continue
+                    sids.append(int(sid))
+                    if str(val) != str(sid):
+                        warnings.append(f"room {n}: [encounter] {key} {val!r} resolved to id {sid} "
+                                        f"({_cat.scene_name(sid)})")
+                if sids:
+                    enc[key] = sids[0] if key == "scene" else sids
 
         toml = {
             "field": {"id": ids[n], "name": n, "area": 11,
@@ -1240,3 +1282,100 @@ def compose(plan, *, taken_ids=()):
 
     return Composed(name=name, mod_folder=mod_folder, rooms=out_rooms, entry=entry,
                     edges=edges_out, warnings=warnings)
+
+
+# ------------------------------------------------------------------ the sidecar
+
+SIDECAR = "floorplan.json"
+
+
+def load_plan(path):
+    """Read a ``floorplan.json`` session. The field.tomls are the buildable truth; this is the
+    re-editable session, exactly as ``.trace.json`` is for the Trace lane. It has to be a sidecar and
+    not campaign.toml metadata: every campaign mutation re-renders the manifest through
+    ``campaign.render_campaign_toml``, which silently DROPS keys it does not know."""
+    import json
+    from pathlib import Path
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def save_plan(plan, path):
+    import json
+    from pathlib import Path
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    body = dict(plan)
+    body.setdefault("version", 1)
+    p.write_text(json.dumps(body, indent=2), encoding="utf-8", newline="\n")
+    return p
+
+
+# ------------------------------------------------------------------ emit to disk
+
+def emit(composed, out_dir, *, plan=None, log=None):
+    """Write a :class:`Composed` dungeon to disk as a buildable campaign. Returns a summary dict.
+
+    Layout, one member directory per room (mandatory -- ``build.FieldProject.path()`` confines every
+    asset ref to the field.toml's own directory, refusing both absolute paths and ``..``, so rooms
+    cannot share an art folder or a walkmesh)::
+
+        <out_dir>/campaign.toml
+        <out_dir>/floorplan.json          the re-editable session
+        <out_dir>/<ROOM>/<room>.field.toml
+        <out_dir>/<ROOM>/walkmesh.obj
+        <out_dir>/<ROOM>/art/back.png     art/floor.png     art/README.txt
+
+    The manifest goes through ``campaign.new_campaign`` + ``campaign.add_field`` rather than a
+    private writer (click-authoring PLAN.md §5 call site 4). ``add_field(source=None)`` scaffolds each
+    member via ``pack.new_project``, whose template field.toml and rectangular placeholder art we
+    then REPLACE with the composed room's own -- one wasted PNG write per room, paid to keep
+    ``add_field`` the single manifest writer.
+    """
+    from pathlib import Path
+    from . import campaign as _campaign
+    from .editor import model as _model
+    from .scene import placeholder as _placeholder
+
+    say = log or (lambda *_a: None)
+    out = Path(out_dir)
+    ids = [r.field_id for r in composed.rooms]
+    base = min(ids)
+    if ids != list(range(base, base + len(ids))):
+        raise ComposeError(f"emit needs one consecutive id run, got {ids} -- campaign.add_field's "
+                           f"allocator is max(existing)+1 and cannot express a gap")
+
+    cplan = _campaign.new_campaign(composed.name, composed.mod_folder, out, id_base=base)
+    for room in composed.rooms:
+        member = _campaign.add_field(cplan, out, name=room.name)
+        if member.new_id != room.field_id:               # the allocator and the pre-flight must agree
+            raise ComposeError(f"room {room.name}: composed id {room.field_id} but the campaign "
+                               f"allocator assigned {member.new_id}")
+        mdir = out / room.name
+        (out / member.toml_rel).write_text(_model.dumps(room.toml), encoding="utf-8", newline="\n")
+        _if.write_walkmesh_obj(room.verts, room.faces, mdir / "walkmesh.obj")
+        tris = [(room.verts[a], room.verts[b], room.verts[c]) for a, b, c in room.faces]
+        _placeholder.write_placeholders(room.camera, None, mdir / "art" / "back.png",
+                                        mdir / "art" / "floor.png", floor_tris=tris)
+        say(f"  {room.name:<12} id {room.field_id}  {len(room.poly_room)} verts  "
+            f"pitch {room.pitch:g} dist {room.distance}  off_r {room.off_r}")
+
+    cplan.entry_name = composed.entry
+    # `CampaignPlan.edges` keys the source as "frm" -- `from` is a Python keyword, so the in-memory
+    # dataclass cannot use the TOML's own spelling (campaign.py:222, :433). Translate at this one
+    # boundary rather than leaking `frm` into the composer's public shape.
+    cplan.edges = [{"frm": e["from"], "to": e["to"], "entrance": e["entrance"]}
+                   for e in composed.edges]
+    # `_save_plan` is campaign.py's own documented "single persistence point for every mutation";
+    # the per-item add_edge/set_entry API it used to expose was retired in 2026-07 with no caller.
+    _campaign._save_plan(cplan, out)
+
+    if plan is not None:
+        save_plan(plan, out / SIDECAR)
+    return {"campaign": out / "campaign.toml", "rooms": len(composed.rooms),
+            "ids": ids, "sidecar": (out / SIDECAR) if plan is not None else None}
+
+
+def compose_and_emit(plan, out_dir, *, taken_ids=(), log=None):
+    """The whole verb: a plan dict -> a buildable campaign on disk. Raises :class:`ComposeError`."""
+    composed = compose(plan, taken_ids=taken_ids)
+    return composed, emit(composed, out_dir, plan=plan, log=log)
