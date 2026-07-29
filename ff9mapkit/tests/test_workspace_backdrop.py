@@ -406,3 +406,42 @@ def test_locked_and_full_frame_cutouts_refuse_the_drag(app):
     assert not c._begin_cutout_drag(0, QPointF(120.0, 260.0))   # full-frame: registered art
     assert not c._begin_cutout_drag(1, QPointF(20.0, 20.0))     # locked snip: inert
     assert c._begin_contact_drag(0)                             # the ANCHOR always re-tunes
+
+
+def test_grabbable_things_carry_the_move_cursor(app):
+    """The hover affordance (owner-asked): the pan hand owns the whole drawspace, so every
+    draggable item carries its OWN cursor — trace vertices (trace mode only), contact
+    diamonds, and snip overlays; locked/full-frame overlays stay cursor-less (inert)."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem
+
+    # facts only, NO retained item wrappers: this test rebuilds the scene mid-body, and a held
+    # wrapper crossing a rebuild is exactly the hazard class THE GC-CHILD LAW is about — the
+    # instrument must not carry the disease it checks for.
+    def cursors(canvas, tag, cls=None):
+        out = []
+        for it in canvas._scene.items():
+            p = it.parentItem()
+            where = p if tag in ("tracept", "cutoutpt") else it
+            if (where is not None and where.data(0) == tag
+                    and (cls is None or isinstance(it, cls))):
+                out.append(it.cursor().shape() if it.hasCursor() else None)
+        return out
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    dot_cursors = cursors(c, "tracept", QGraphicsEllipseItem)
+    assert dot_cursors and all(s == Qt.CursorShape.SizeAllCursor for s in dot_cursors)
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False},
+                   {"i": 1, "pixmap": pm, "rect": None, "contact": (200.0, 300.0),
+                    "label": "fg1", "bad": False, "locked": True}])
+    snip = c._cutout_items[0]
+    assert snip.hasCursor() and snip.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    imgs = {it.data(1): it.hasCursor() for it in c._scene.items()
+            if it.data(0) == "cutoutimg"}
+    assert imgs == {0: True, 1: False}           # the snip grabs; inert art keeps the pan hand
+    assert Qt.CursorShape.SizeAllCursor in cursors(c, "cutoutpt")
+    c.set_contact_mode(True)                     # vertices go inert with the mode
+    assert cursors(c, "tracept", QGraphicsEllipseItem) == [None, None, None]

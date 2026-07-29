@@ -58,6 +58,8 @@ class TraceDoc(QWidget):
         self._floor = []                              # mirror of the canvas trace (canvas px)
         self._fg = []                                 # rung 2: [{"contact": (cx, cy), "image": str|None}]
         self._history = []                            # prior (floor, fg) snapshots, one per gesture (undo)
+        self._project = None                          # {"out", "name", "fid"} after a Generate:
+                                                      # later Generates go IN PLACE (no dialog)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
@@ -260,7 +262,12 @@ class TraceDoc(QWidget):
         ready = (self._image is not None and good >= 3 and bad == 0
                  and fg_invalid == 0 and fg_unattached == 0)
         self.gen_btn.setEnabled(ready)
-        if ready:
+        self.gen_btn.setText(f"Regenerate {self._project['name']} — in place"
+                             if self._project else "Generate field project…")
+        if ready and self._project:
+            tip = (f"Rebuild {self._project['out']} with the current trace/cut-outs — no "
+                   f"dialog (open a new image to start a different project).")
+        elif ready:
             tip = ("Build the field project (walkmesh + art + field.toml) with the exact command "
                    "the CLI tracer emits — it streams to the Output panel.")
         elif fg_invalid or fg_unattached:
@@ -368,7 +375,10 @@ class TraceDoc(QWidget):
         path = self._ask_image()
         if path:
             try:
-                self.load_image(path)
+                if str(path).endswith(".trace.json"):  # a generated project's session record
+                    self.load_trace(path)
+                else:
+                    self.load_image(path)
             except Exception as e:                     # noqa: BLE001 -- a bad file must not crash the tab
                 self._refresh(f"Could not open {Path(path).name}: {e}", "error")
 
@@ -388,6 +398,7 @@ class TraceDoc(QWidget):
         self._floor = []
         self._fg = []                                  # old contacts mean nothing on new art
         self._history = []
+        self._project = None                           # a new photo is a NEW project
         self.fg_btn.setChecked(False)
         self.canvas.set_floor([])
         self.canvas.set_cutouts([])
@@ -512,10 +523,13 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
-        parent = self._ask_out()
-        if not parent:
-            return
-        out = Path(parent) / f"{self._image.stem}-field"
+        if self._project is not None:                  # set up once -> every later Generate is
+            out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
+        else:
+            parent = self._ask_out()
+            if not parent:
+                return
+            out = Path(parent) / f"{self._image.stem}-field"
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
                 "--out", str(out), "--name", name, "--id", str(fid)]
@@ -535,15 +549,62 @@ class TraceDoc(QWidget):
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.")
         if started:
+            self._project = {"out": str(out), "name": name, "fid": int(fid)}
+            self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"Generating {name} → {out} …")
+
+    def _write_trace_sidecar(self, out):
+        """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs
+        (contacts + offsets + PNG paths), name/id — so Open can restore the whole editable
+        state later (the 'set it up once' half of in-place regeneration). Best-effort: a
+        sidecar failure must never block the build itself."""
+        import json
+        try:
+            Path(out).mkdir(parents=True, exist_ok=True)
+            fg = [{"contact": list(f["contact"]), "image": f.get("image"),
+                   "offset": (list(f["offset"]) if f.get("offset") else None)}
+                  for f in self._fg]
+            (Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
+                "image": str(self._image), "pitch": self.pitch.value(),
+                "floor": [list(p) for p in self._floor], "fg": fg,
+                "name": self.name_box.text().strip() or "PICTURE",
+                "id": self.id_box.text().strip()}, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def load_trace(self, path):
+        """Reopen a generated project's ``.trace.json``: the photo, floor, pitch, cut-outs
+        (with their dragged offsets), name/id — and the project itself, so the next Generate
+        goes straight IN PLACE."""
+        import json
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        self.load_image(data["image"])                 # clears floor/fg/history/project
+        self.pitch.setValue(int(data.get("pitch", imagefield.DEFAULT_PITCH)))
+        self._floor = [tuple(p) for p in data.get("floor", [])]
+        self.canvas.set_floor(self._floor)
+        for e in data.get("fg", []):
+            self._fg.append({"contact": tuple(e["contact"]), "image": None})
+            if e.get("image") and Path(e["image"]).is_file():
+                self._attach_cutout(len(self._fg) - 1, e["image"])
+                if e.get("offset") and self._fg[-1].get("offset") is not None:
+                    self._fg[-1]["offset"] = tuple(e["offset"])   # the dragged spot wins
+        self.name_box.setText(str(data.get("name") or "PICTURE"))
+        if data.get("id"):
+            self.id_box.setText(str(data["id"]))
+        self._project = {"out": str(Path(path).parent), "name": self.name_box.text(),
+                         "fid": data.get("id")}
+        self._refresh_cutouts()
+        self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
 
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
-        dlg = QFileDialog(self, "Open an image to trace",
+        dlg = QFileDialog(self, "Open an image to trace (or a generated project's .trace.json)",
                           str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
-        dlg.setNameFilter("Images (*.png *.jpg *.jpeg *.bmp *.webp)")
+        dlg.setNameFilter("Images or trace projects (*.png *.jpg *.jpeg *.bmp *.webp "
+                          "*.trace.json);;Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
+                          "Trace projects (*.trace.json)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()
